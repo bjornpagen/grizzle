@@ -9,8 +9,6 @@ import type { Cell, EditRefs, KindOver, OccurrenceOver, VarDecl } from "#compile
 import { baseOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import { DagEditor, derivedMeta, widenedHeading } from "#compiler/lower/optimize/demand/editor.ts"
 import {
-	measureOverDemand,
-	overDemand,
 	type Potential,
 	type RewriteCx,
 	rewritePass,
@@ -180,13 +178,11 @@ const membershipRuleOf: Rule = {
 		if (shaped.length === 0) {
 			return false
 		}
-		return overDemand(({ demand }) => {
-			const m = shaped.find((x) => !demand.lateral(x.occurrence.source))
-			if (m === undefined) {
-				return false
-			}
-			return rewriteMembership(cx, cell, region, m)
-		})
+		const m = shaped.find((x) => !cx.cells.lateral(x.occurrence.source))
+		if (m === undefined) {
+			return false
+		}
+		return rewriteMembership(cx, cell, region, m)
 	}
 }
 
@@ -260,9 +256,7 @@ const membershipPotential: Potential = (cx) => {
 	})
 	return shaped.length === 0
 		? 0
-		: measureOverDemand(
-				({ demand }) => shaped.filter((m) => !demand.lateral(m.occurrence.source)).length
-			)
+		: shaped.filter((m) => !cx.cells.lateral(m.occurrence.source)).length
 }
 
 /**

@@ -1,5 +1,4 @@
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
-import { analyzeDemand } from "#compiler/analysis/demand/demand.ts"
 import { containmentEvidence } from "#compiler/analysis/physical/evidence.ts"
 import type { JustifiedKey } from "#compiler/analysis/physical/fds.ts"
 import { keyAmong } from "#compiler/analysis/physical/props.ts"
@@ -25,7 +24,6 @@ import { baseOf } from "#compiler/ir/scalar.ts"
 import { DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
 import {
 	type CellPhysical,
-	overDemand,
 	overPhysical,
 	type Potential,
 	type RewriteCx,
@@ -279,36 +277,32 @@ const keyJoinFold: Rule = {
 		) {
 			return false
 		}
-		return overDemand(({ demand }) => {
-			const admits = (o: Occurrence) => !demand.lateral(o.source)
-			if (!twoScansOfOne(node.occurrences.filter(admits))) {
+		const admits = (o: Occurrence) => !cx.cells.lateral(o.source)
+		if (!twoScansOfOne(node.occurrences.filter(admits))) {
+			return false
+		}
+		return overPhysical(({ physical }) => {
+			const join = keyJoinOf(
+				node,
+				(o, _source, shared) => keyAmong(physical.of(o.source).props, shared),
+				admits
+			)
+			if (join === undefined) {
 				return false
 			}
-			return overPhysical(({ physical }) => {
-				const join = keyJoinOf(
-					node,
-					(o, _source, shared) => keyAmong(physical.of(o.source).props, shared),
-					admits
-				)
-				if (join === undefined) {
-					return false
-				}
-				cx.certify({
-					rule: keyJoinRule,
-					inputs: [join.folded.source.id, join.kept.source.id, cell.id],
-					outputs: [cell.id],
-					premises: join.key.just.premises,
-					context: join.key.just.context,
-					preservedHeading: node.heading.map((c) => c.name),
-					equality: equalityOf(
-						join.kept.bindings.filter((b) => join.key.columns.includes(b.column))
-					),
-					coercion: join.key.just.coercions,
-					params: undefined
-				})
-				cx.editor.set(cell, keyJoined(node, join))
-				return true
+			cx.certify({
+				rule: keyJoinRule,
+				inputs: [join.folded.source.id, join.kept.source.id, cell.id],
+				outputs: [cell.id],
+				premises: join.key.just.premises,
+				context: join.key.just.context,
+				preservedHeading: node.heading.map((c) => c.name),
+				equality: equalityOf(join.kept.bindings.filter((b) => join.key.columns.includes(b.column))),
+				coercion: join.key.just.coercions,
+				params: undefined
 			})
+			cx.editor.set(cell, keyJoined(node, join))
+			return true
 		})
 	}
 }
@@ -322,8 +316,7 @@ const keyJoinFold: Rule = {
 export const keyJoinNormalDag = (dag: RootedDag): Result.Result<RootedDag, CompileError> =>
 	catchRefusal(() => {
 		const editor = new DagEditor(dag)
-		const snapshot = editor.finished()
-		const lateral = analyzeDemand(snapshot.dag, () => false).lateral
+		const cells = editor.cellState()
 		const folded = (region: Region): Region => {
 			const join = keyJoinOf(
 				region,
@@ -331,7 +324,7 @@ export const keyJoinNormalDag = (dag: RootedDag): Result.Result<RootedDag, Compi
 					[s.primaryKey, ...s.keys]
 						.map((columns) => ({ columns }))
 						.find((k) => k.columns.every((c) => shared.has(c))),
-				(o) => !lateral(snapshot.node(o.source))
+				(o) => !cells.lateral(o.source)
 			)
 			return join === undefined ? region : folded(keyJoined(region, join))
 		}
@@ -359,33 +352,31 @@ const eliminateRule: Rule = {
 		if (ways.length === 0) {
 			return false
 		}
-		return overDemand(({ demand }) => {
-			const open = ways.filter((w) => !demand.lateral(w.occurrence.source))
-			if (open.length === 0) {
+		const open = ways.filter((w) => !cx.cells.lateral(w.occurrence.source))
+		if (open.length === 0) {
+			return false
+		}
+		return overPhysical(({ physical }) => {
+			const e = firstProof(cx, physical, open)
+			if (e === undefined) {
 				return false
 			}
-			return overPhysical(({ physical }) => {
-				const e = firstProof(cx, physical, open)
-				if (e === undefined) {
-					return false
-				}
-				cx.certify({
-					rule: eliminationRule,
-					inputs: [e.occurrence.source.id, e.via.source.id, cell.id],
-					outputs: [cell.id],
-					premises: [...e.key.just.premises, ...e.existence],
-					context: strongest([e.key.just.context, e.existenceContext]),
-					preservedHeading: node.heading.map((c) => c.name),
-					equality: equalityOf(e.occurrence.bindings),
-					coercion: [],
-					params: undefined
-				})
-				cx.editor.set(cell, {
-					...node,
-					occurrences: node.occurrences.filter((o) => o.id !== e.occurrence.id)
-				})
-				return true
+			cx.certify({
+				rule: eliminationRule,
+				inputs: [e.occurrence.source.id, e.via.source.id, cell.id],
+				outputs: [cell.id],
+				premises: [...e.key.just.premises, ...e.existence],
+				context: strongest([e.key.just.context, e.existenceContext]),
+				preservedHeading: node.heading.map((c) => c.name),
+				equality: equalityOf(e.occurrence.bindings),
+				coercion: [],
+				params: undefined
 			})
+			cx.editor.set(cell, {
+				...node,
+				occurrences: node.occurrences.filter((o) => o.id !== e.occurrence.id)
+			})
+			return true
 		})
 	}
 }

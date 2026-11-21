@@ -69,7 +69,7 @@ export const legalPredicateMovementMovesAFilterExactlyWhereTheMoveKeepsItsSetAnd
 				original:
 					'\t\t\tcase "Base":\n\t\t\tcase "Closed":\n\t\t\tcase "Context":\n\t\t\tcase "InputSet":\n\t\t\tcase "Delta":\n\t\t\tcase "Filter":\n\t\t\tcase "Take":',
 				replacement:
-					'\t\t\tcase "Take":\n\t\t\t\treturn overDemand(({ demand }) => {\n\t\t\t\t\tif (!exclusive(cx, demand, xCell) || x.correlation.length > 0) {\n\t\t\t\t\t\treturn false\n\t\t\t\t\t}\n\t\t\t\t\tconst moved = filterOver(cx.editor, x.input, cx.editor.copyExpr(m.filter.pred, cx.editor.retarget(xCell, x.input)))\n\t\t\t\t\ttakeOver(cx.editor, m, { ...x, input: moved })\n\t\t\t\t\tcertify(cx, pushdownRules.left, m, xCell.id, [m.cell.id, moved.id])\n\t\t\t\t\treturn true\n\t\t\t\t})\n\t\t\tcase "Base":\n\t\t\tcase "Closed":\n\t\t\tcase "Context":\n\t\t\tcase "InputSet":\n\t\t\tcase "Delta":\n\t\t\tcase "Filter":',
+					'\t\t\tcase "Take": {\n\t\t\t\tif (!exclusive(cx, xCell) || x.correlation.length > 0) {\n\t\t\t\t\treturn false\n\t\t\t\t}\n\t\t\t\tconst moved = filterOver(cx.editor, x.input, cx.editor.copyExpr(m.filter.pred, cx.editor.retarget(xCell, x.input)))\n\t\t\t\ttakeOver(cx.editor, m, { ...x, input: moved })\n\t\t\t\tcertify(cx, pushdownRules.left, m, xCell.id, [m.cell.id, moved.id])\n\t\t\t\treturn true\n\t\t\t}\n\t\t\tcase "Base":\n\t\t\tcase "Closed":\n\t\t\tcase "Context":\n\t\t\tcase "InputSet":\n\t\t\tcase "Delta":\n\t\t\tcase "Filter":',
 				why: "A filter moved below an uncorrelated take, so the take ranks other rows; the pushdown-sites search fails."
 			}
 		]

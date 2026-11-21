@@ -111,9 +111,9 @@ export const theOptimizedLoweringOfCheckedPublicProgramsBuildsNoDAGThatBreaksARu
 			{
 				file: "packages/engine/src/lower/optimize/simplify/rules.ts",
 				original:
-					"\t\treturn overDemand(({ demand }) =>\n\t\t\tcollapseInto(cx, demand, cell, node, inputCell, () => {\n\t\t\t\tcertify(cx, simplifyRules.identityProjection, [inputCell.id], node.heading, [inputCell.id])\n\t\t\t})\n\t\t)",
+					"\t\treturn collapseInto(cx, cell, node, inputCell, () => {\n\t\t\tcertify(cx, simplifyRules.identityProjection, [inputCell.id], node.heading, [inputCell.id])\n\t\t})",
 				replacement:
-					"\t\treturn overDemand(({ demand }) => {\n\t\t\tif (!exclusive(cx, demand, inputCell)) {\n\t\t\t\treturn false\n\t\t\t}\n\t\t\tcertify(cx, simplifyRules.identityProjection, [inputCell.id], node.heading, [inputCell.id])\n\t\t\tcx.editor.redirect(cell, inputCell)\n\t\t\treturn true\n\t\t})",
+					"\t\tif (!exclusive(cx, inputCell)) {\n\t\t\treturn false\n\t\t}\n\t\tcertify(cx, simplifyRules.identityProjection, [inputCell.id], node.heading, [inputCell.id])\n\t\tcx.editor.redirect(cell, inputCell)\n\t\treturn true",
 				why: "An identity projection removed while its input keeps its own metadata, not the projection's evidence, so an option's child over it states no card; the public-programs-planted search fails."
 			}
 		]

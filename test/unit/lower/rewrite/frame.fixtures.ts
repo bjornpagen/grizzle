@@ -12,6 +12,7 @@ import { existencePass } from "#compiler/lower/optimize/existence/index.ts"
 import { fusePass } from "#compiler/lower/optimize/fuse/index.ts"
 import { simplifyPass } from "#compiler/lower/optimize/simplify/index.ts"
 import { rebuildDag } from "#test/support/dag.ts"
+import type { CountedFunction } from "#test/support/kernel/calls.ts"
 
 /** Where the rewritten root sits among a DAG's roots: first, the query's own, or after it. */
 export type RootPosition = "the query's root" | "a later root"
@@ -56,3 +57,18 @@ export const passesNeed = {
 		return Effect.succeed(passes)
 	})
 } as const satisfies Need<unknown>
+
+/**
+ * What the structure property counts: each state's cells worked out for its rules (frame.ts rewriteCx), how each cell is
+ * read worked out from them (analysis/demand structureOf), and the demand of the DAG's columns (analyzeDemand).
+ */
+export const structureSites = Object.freeze({
+	rewriteCx: { file: "packages/engine/src/lower/optimize/demand/frame.ts", name: "rewriteCx" },
+	structureOf: { file: "packages/engine/src/analysis/demand/demand.ts", name: "structureOf" },
+	analyzeDemand: { file: "packages/engine/src/analysis/demand/demand.ts", name: "analyzeDemand" }
+} satisfies Readonly<Record<string, CountedFunction>>)
+
+/** What the structure property reaches: a simplification that rewrote, and one that changed nothing. */
+export type StructureFeature =
+	| "a simplification that rewrote"
+	| "a simplification that changed nothing"

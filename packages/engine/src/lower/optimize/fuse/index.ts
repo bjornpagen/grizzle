@@ -3,11 +3,9 @@ import { localCertificate } from "#compiler/ir/certificate.ts"
 import { columnReads, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { Cell, EditRefs, KindOver, OccurrenceOver, VarDecl } from "#compiler/ir/rel.ts"
 import { columnIn } from "#compiler/lower/conservative/context.ts"
-import { DagEditor, derivedMeta } from "#compiler/lower/optimize/demand/editor.ts"
+import { type CellState, DagEditor, derivedMeta } from "#compiler/lower/optimize/demand/editor.ts"
 
 import {
-	type CellDemand,
-	overDemand,
 	type Potential,
 	type RewriteCx,
 	type Rule,
@@ -79,13 +77,13 @@ const shapedFusion = (cx: RewriteCx, cell: Cell, o: Occurrence, chain: RegionCha
 
 /**
  * Whether no expression reads the chain's nodes, its region or its region's sources laterally, and the occurrence alone
- * references the chain's nodes and its region, under `demand`: moving them would change no scope, and no other reader
+ * references the chain's nodes and its region, as `cells` read them: moving them would change no scope, and no other reader
  * gets a copy.
  */
-const quietChain = (demand: CellDemand, chain: RegionChain): boolean =>
+const quietChain = (cells: CellState, chain: RegionChain): boolean =>
 	[...chain.nodes, chain.regionCell, ...chain.region.occurrences.map((x) => x.source)].every(
-		(c) => !demand.lateral(c)
-	) && [...chain.nodes, chain.regionCell].every((c) => demand.references(c) === 1)
+		(c) => !cells.lateral(c)
+	) && [...chain.nodes, chain.regionCell].every((c) => cells.references(c) === 1)
 
 /** The candidates of the region `cell` holds as its cells say: its occurrences over a chain shaped for fusion. */
 const candidates = (
@@ -292,14 +290,12 @@ const fuseRule: Rule = {
 		if (shaped.length === 0) {
 			return false
 		}
-		return overDemand(({ demand }) => {
-			const first = shaped.find((c) => quietChain(demand, c.chain))
-			if (first === undefined) {
-				return false
-			}
-			fuse(cx, cell, node, first.o, first.chain)
-			return true
-		})
+		const first = shaped.find((c) => quietChain(cx.cells, c.chain))
+		if (first === undefined) {
+			return false
+		}
+		fuse(cx, cell, node, first.o, first.chain)
+		return true
 	}
 }
 

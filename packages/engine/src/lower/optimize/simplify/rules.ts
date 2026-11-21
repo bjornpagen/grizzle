@@ -21,14 +21,7 @@ import {
 import { baseOf, sameScalarType } from "#compiler/ir/scalar.ts"
 import { conjuncts } from "#compiler/logical/props.ts"
 import { DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
-
-import {
-	type CellDemand,
-	overDemand,
-	type Potential,
-	type RewriteCx,
-	type Rule
-} from "#compiler/lower/optimize/demand/frame.ts"
+import type { Potential, RewriteCx, Rule } from "#compiler/lower/optimize/demand/frame.ts"
 import { allenNormal } from "#compiler/lower/optimize/simplify/allen.ts"
 import {
 	conjunction,
@@ -58,8 +51,8 @@ const isEmptyRelation = (node: EditNode): boolean =>
  * may then change its set as long as that one reader's set is unchanged. A node one reader reads twice (a semi-join's
  * both sides, a region's two occurrences) is no exclusive input of either.
  */
-export const exclusive = (cx: RewriteCx, demand: CellDemand, cell: Cell): boolean =>
-	demand.references(cell) === 1 && !cx.editor.isRoot(cell) && !demand.lateral(cell)
+export const exclusive = (cx: RewriteCx, cell: Cell): boolean =>
+	cx.cells.references(cell) === 1 && !cx.editor.isRoot(cell) && !cx.cells.lateral(cell)
 
 const certify = (
 	cx: RewriteCx,
@@ -124,13 +117,12 @@ const toEmpty = (cx: RewriteCx, cell: Cell, node: EditNode): void => {
  */
 const collapseInto = (
 	cx: RewriteCx,
-	demand: CellDemand,
 	cell: Cell,
 	node: EditNode,
 	input: Cell,
 	certified: () => void
 ): boolean => {
-	if (!exclusive(cx, demand, input)) {
+	if (!exclusive(cx, input)) {
 		return false
 	}
 	certified()
@@ -154,11 +146,9 @@ const foldFilter: Rule = {
 			return false
 		}
 		if (folded.kind === "value" && folded.value) {
-			return overDemand(({ demand }) =>
-				collapseInto(cx, demand, cell, node, node.input, () => {
-					certify(cx, simplifyRules.fold, [node.input.id], node.heading, [cell.id])
-				})
-			)
+			return collapseInto(cx, cell, node, node.input, () => {
+				certify(cx, simplifyRules.fold, [node.input.id], node.heading, [cell.id])
+			})
 		}
 		certify(cx, simplifyRules.fold, [node.input.id], node.heading, [cell.id])
 		if (folded.kind === "value") {
@@ -369,11 +359,10 @@ const emptyRule: Rule = {
 			isEmptyRelation(node.right.current)
 		) {
 			const { left, right } = node
-			return overDemand(
-				({ demand }) =>
-					collapseInto(cx, demand, cell, node, left, () => {
-						certify(cx, simplifyRules.empty, [right.id], node.heading, [left.id])
-					}) || emptied()
+			return (
+				collapseInto(cx, cell, node, left, () => {
+					certify(cx, simplifyRules.empty, [right.id], node.heading, [left.id])
+				}) || emptied()
 			)
 		}
 		return emptied()
@@ -393,16 +382,14 @@ const mergeFilters: Rule = {
 		if (inner.kind !== "Filter") {
 			return false
 		}
-		return overDemand(({ demand }) => {
-			if (!exclusive(cx, demand, innerCell)) {
-				return false
-			}
-			const moved = ed.copyExpr(outer.pred, ed.retarget(innerCell, inner.input))
-			const pred = conjunction(ed, [...conjuncts(inner.pred), ...conjuncts(moved)], outer.pred)
-			certify(cx, simplifyRules.mergeFilters, [innerCell.id], outer.heading, [cell.id])
-			ed.set(cell, { ...outer, input: inner.input, pred })
-			return true
-		})
+		if (!exclusive(cx, innerCell)) {
+			return false
+		}
+		const moved = ed.copyExpr(outer.pred, ed.retarget(innerCell, inner.input))
+		const pred = conjunction(ed, [...conjuncts(inner.pred), ...conjuncts(moved)], outer.pred)
+		certify(cx, simplifyRules.mergeFilters, [innerCell.id], outer.heading, [cell.id])
+		ed.set(cell, { ...outer, input: inner.input, pred })
+		return true
 	}
 }
 
@@ -419,19 +406,15 @@ const mergeProjections: Rule = {
 		if (inner.kind !== "ProjectSet") {
 			return false
 		}
-		return overDemand(({ demand }) => {
-			if (!exclusive(cx, demand, innerCell)) {
-				return false
-			}
-			const byName = new Map(inner.out.map((o) => [o.name, o.expr]))
-			const copy = ed.copier((ref) =>
-				ref.node === innerCell.id ? byName.get(ref.name) : undefined
-			)
-			const out = outer.out.map((o) => ({ name: o.name, expr: copy.of(o.expr) }))
-			certify(cx, simplifyRules.mergeProjections, [innerCell.id], outer.heading, [cell.id])
-			ed.set(cell, { ...outer, input: inner.input, out })
-			return true
-		})
+		if (!exclusive(cx, innerCell)) {
+			return false
+		}
+		const byName = new Map(inner.out.map((o) => [o.name, o.expr]))
+		const copy = ed.copier((ref) => (ref.node === innerCell.id ? byName.get(ref.name) : undefined))
+		const out = outer.out.map((o) => ({ name: o.name, expr: copy.of(o.expr) }))
+		certify(cx, simplifyRules.mergeProjections, [innerCell.id], outer.heading, [cell.id])
+		ed.set(cell, { ...outer, input: inner.input, out })
+		return true
 	}
 }
 
@@ -497,11 +480,9 @@ const identityProjection: Rule = {
 		if (!sameHeading) {
 			return false
 		}
-		return overDemand(({ demand }) =>
-			collapseInto(cx, demand, cell, node, inputCell, () => {
-				certify(cx, simplifyRules.identityProjection, [inputCell.id], node.heading, [inputCell.id])
-			})
-		)
+		return collapseInto(cx, cell, node, inputCell, () => {
+			certify(cx, simplifyRules.identityProjection, [inputCell.id], node.heading, [inputCell.id])
+		})
 	}
 }
 
@@ -575,26 +556,24 @@ const equality: Rule = {
 		if (moved.length === 0) {
 			return false
 		}
-		return overDemand(({ demand }) => {
-			if (!exclusive(cx, demand, regionCell)) {
-				return false
-			}
-			const added = moved.filter(
-				(m, i) =>
-					!region.equalities.some((e) => samePair(e, m)) &&
-					!moved.slice(0, i).some((p) => samePair(p, m))
-			)
-			certify(cx, simplifyRules.equality, [regionCell.id], filter.heading, [regionCell.id, cell.id])
-			const equalities = [...region.equalities, ...added]
-			if (rest.length > 0) {
-				ed.set(regionCell, { ...region, equalities })
-				ed.set(cell, { ...filter, pred: conjunction(ed, rest, filter.pred) })
-				return true
-			}
-			ed.set(regionCell, { ...region, equalities, meta: filter.meta })
-			ed.redirect(cell, regionCell)
+		if (!exclusive(cx, regionCell)) {
+			return false
+		}
+		const added = moved.filter(
+			(m, i) =>
+				!region.equalities.some((e) => samePair(e, m)) &&
+				!moved.slice(0, i).some((p) => samePair(p, m))
+		)
+		certify(cx, simplifyRules.equality, [regionCell.id], filter.heading, [regionCell.id, cell.id])
+		const equalities = [...region.equalities, ...added]
+		if (rest.length > 0) {
+			ed.set(regionCell, { ...region, equalities })
+			ed.set(cell, { ...filter, pred: conjunction(ed, rest, filter.pred) })
 			return true
-		})
+		}
+		ed.set(regionCell, { ...region, equalities, meta: filter.meta })
+		ed.redirect(cell, regionCell)
+		return true
 	}
 }
 

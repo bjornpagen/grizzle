@@ -10,13 +10,17 @@
  * - a pass computed cold from a fresh copy of a DAG equals the pass computed warm from the one a pass delivered;
  * - a finish after an edit keeps the node of every cell the edit left as it was, and folds the redefined cell and every
  *   cell above it anew, into the DAG a finish with no memory of the last gives, whose physical analysis read through
- *   one pass's properties is the analysis computed from scratch.
+ *   one pass's properties is the analysis computed from scratch;
+ * - a rewrite reads how each cell is read off the state's cells, worked out once a state, and the semantic
+ *   simplification computes no demand of the DAG's columns at all, where every state a rule asked whether a cell was
+ *   exclusive finished the DAG and analyzed its demand.
  *
  * Oracle: the frame's statement over an exhaustive space of root positions (a specification); for the rest, universal
  * laws over generated queries: determinism, and a pass's result a function of its input's content alone.
  *
  * Features: the query's root and a later root replaced; a pass that delivered the settled DAG; a pass that changed it; a
- * redefinition that changes a node's content, a cell an edit kept, and a cell above a redefined one.
+ * redefinition that changes a node's content, a cell an edit kept, and a cell above a redefined one; a simplification
+ * that rewrote and one that changed nothing.
  */
 
 import { type Reached } from "@bjornpagen/testing/features"
@@ -35,13 +39,17 @@ import { type Cell, conservativeMeta, type Rooted } from "#compiler/ir/rel.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
 import { DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
-import { relationalRewrites } from "#compiler/lower/optimize/demand/phases.ts"
+import {
+	relationalRewrites,
+	semanticSimplification
+} from "#compiler/lower/optimize/demand/phases.ts"
 import { existencePass } from "#compiler/lower/optimize/existence/index.ts"
 
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { simplifyPass } from "#compiler/lower/optimize/simplify/index.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { genCatalog } from "#test/support/evidence.ts"
+import { callCounts } from "#test/support/kernel/calls.ts"
 import { standInNames } from "#test/support/kernel/naming.ts"
 import { defaultGenConfig, queryCaseGen } from "#test/support/oracle/gen/case.ts"
 import { schemaCodes } from "#test/support/oracle/gen/schema.ts"
@@ -54,7 +62,9 @@ import {
 	type FrameFeature,
 	freshCopy,
 	passesNeed,
-	type RootPosition
+	type RootPosition,
+	type StructureFeature,
+	structureSites
 } from "#test/unit/lower/rewrite/frame.fixtures.ts"
 import {
 	caseQuery,
@@ -407,6 +417,63 @@ export const aFinishAfterAnEditKeepsTheNodeOfEveryCellTheEditLeftAsItWasAndFolds
 				original: "\t\tthis.#folded = done.folded\n",
 				replacement: "",
 				why: "The editor forgets what its last finish folded; a cell the edit left loses its node."
+			}
+		]
+	})
+
+/**
+ * A rewrite reads how each cell is read off the state's cells, worked out once a state: over generated queries, the
+ * semantic simplification (simplify, fusion, simplify) works out each state's structure exactly once, with its cells, and
+ * computes no demand of the DAG's columns, where every state a rule asked whether a cell was exclusive finished the DAG
+ * and analyzed its demand whole.
+ */
+export const aRewriteReadsHowEachCellIsReadOffTheStatesCellsWorkedOutOnceAStateAndComputesNoDemand =
+	property.explore(queryCaseGen(defaultGenConfig), {
+		needs: {},
+		budget: { runs: 120, steered: 120 },
+		situations: [
+			"a simplification that rewrote",
+			"a simplification that changed nothing"
+		] satisfies ReadonlyArray<Reached<StructureFeature>>,
+		check: (_, c: Case<StructureFeature>) => (generated) =>
+			Effect.gen(function* () {
+				const [ran, counts] = yield* callCounts(
+					Effect.sync(() =>
+						succeeded(
+							runPasses(
+								caseQuery(generated),
+								[semanticSimplification],
+								passContext({ catalog: genCatalog(generated.schema), evidence: "snapshot" })
+							)
+						)
+					),
+					structureSites
+				)
+				c.note(
+					ran.certificates.length > 0
+						? "a simplification that rewrote"
+						: "a simplification that changed nothing"
+				)
+				assert.equal(
+					counts.structureOf,
+					counts.rewriteCx,
+					`${counts.structureOf} structures over ${counts.rewriteCx} states`
+				)
+				assert.equal(counts.analyzeDemand, 0, "no demand of the DAG's columns")
+			}),
+		oracle: {
+			kind: "specification",
+			name: "one structure a state of the cells, and no demand analysis, in the semantic simplification"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/lower/optimize/simplify/rules.ts",
+				original:
+					"\tcx.cells.references(cell) === 1 && !cx.editor.isRoot(cell) && !cx.cells.lateral(cell)",
+				replacement:
+					"\tcx.editor.cellState().references(cell) === 1 && !cx.editor.isRoot(cell) && !cx.cells.lateral(cell)",
+				why: "Exclusivity works out the cells' structure again at every rule that asks (lower/optimize/simplify/rules.ts exclusive); the structure property fails."
 			}
 		]
 	})

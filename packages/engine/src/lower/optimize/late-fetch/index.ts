@@ -19,7 +19,6 @@ import { columnIn } from "#compiler/lower/conservative/context.ts"
 import { DagEditor, restrictMeta } from "#compiler/lower/optimize/demand/editor.ts"
 import {
 	type CellPhysical,
-	overDemand,
 	overPhysical,
 	type Potential,
 	type RewriteCx,
@@ -260,18 +259,16 @@ const lateFetch: Rule = {
 		if (chain === undefined) {
 			return false
 		}
-		return overDemand(({ demand }) =>
-			demand.lateral(cell) || demand.lateral(node.input)
-				? false
-				: overPhysical(({ physical }) => {
-						const plan = lateFetchPlans(physical, cell, node, chain)[0]
-						if (plan === undefined) {
-							return false
-						}
-						fetch(cx, plan)
-						return true
-					})
-		)
+		return cx.cells.lateral(cell) || cx.cells.lateral(node.input)
+			? false
+			: overPhysical(({ physical }) => {
+					const plan = lateFetchPlans(physical, cell, node, chain)[0]
+					if (plan === undefined) {
+						return false
+					}
+					fetch(cx, plan)
+					return true
+				})
 	}
 }
 

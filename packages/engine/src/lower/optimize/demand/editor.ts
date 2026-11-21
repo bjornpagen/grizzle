@@ -1,4 +1,5 @@
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { structureOf } from "#compiler/analysis/demand/demand.ts"
 import { unwrap } from "#compiler/core/canonical.ts"
 import { ExprId, NodeId, OccurrenceId, type ParamId, ScopeId, VarId } from "#compiler/core/ids.ts"
 import {
@@ -40,6 +41,7 @@ import {
 	type RefKinds,
 	type RelNode,
 	type Roots,
+	scopeExprs,
 	type ValidDag,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
@@ -243,12 +245,21 @@ function* copyStep(
  * they mint different labels.
  */
 /**
- * One state of an editor's cells as a graph: the cells the roots reach, in topological order, and those of them that
- * read a recursion's feedback. A reader of that state reads it from the one value its driver computed for it.
+ * One state of an editor's cells as a graph: the cells the roots reach, in topological order, those of them that read a
+ * recursion's feedback, and how each is read (analysis/demand Structure: its references and whether a scope expression
+ * reads it), which is what a rewrite asks of a cell to know it may change its set. A reader of that state reads it from
+ * the one value its driver computed for it.
  */
 export interface CellState {
 	readonly order: ReadonlyArray<Cell>
 	readonly feedback: ReadonlySet<Cell>
+	/** How many references a cell has: one per input position that names it, plus the roots at it. */
+	readonly references: (cell: Cell) => number
+	/**
+	 * Whether a scope expression reads a column of the cell: a correlated source, or a constant of a region the cell is
+	 * an occurrence's source of, names it, so moving or replacing it would change what that reference names.
+	 */
+	readonly lateral: (cell: Cell) => boolean
 }
 
 export class DagEditor<R extends Roots = Roots> {
@@ -443,7 +454,19 @@ export class DagEditor<R extends Roots = Roots> {
 	/** The cells the roots reach now, in topological order, and those of them on a recursive step (CellState). */
 	cellState(): CellState {
 		const order = this.topoOrder()
-		return { order, feedback: feedbackReadsOf(cellGraph, order) }
+		const structure = structureOf(
+			order,
+			this.roots,
+			(cell) => edgesOf(cell.current),
+			(cell) => scopeExprs(cell.current),
+			(cell) => cell.id
+		)
+		return {
+			order,
+			feedback: feedbackReadsOf(cellGraph, order),
+			references: (cell) => structure.references(cell.id),
+			lateral: (cell) => structure.lateral(cell.id)
+		}
 	}
 
 	/**

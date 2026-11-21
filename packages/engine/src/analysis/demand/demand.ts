@@ -1,6 +1,6 @@
 import type { NodeId } from "#compiler/core/ids.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
-import { columnReads, type ScalarExpr } from "#compiler/ir/expr.ts"
+import { type ColumnRef, columnReads, type ScalarExpr } from "#compiler/ir/expr.ts"
 import {
 	edgesOf,
 	inputsOf,
@@ -74,6 +74,55 @@ export interface DemandAnalysis {
  * number of references each node has, one per input position naming it: a node referenced twice, by two readers or
  * twice by one, is a sharing boundary the CTE policy decides about.
  */
+/**
+ * How the vertices a graph's roots reach are read, by the label of each: its references, one per input position that
+ * names it plus each root naming it, and the columns its scope expressions read (rel.ts scopeExprs), each naming the
+ * vertex it reads laterally. A finished DAG's nodes and an editor's cells (lower/optimize/demand/editor.ts CellState)
+ * are both read so, one node a cell, labelled alike.
+ */
+export interface Structure {
+	readonly references: (id: NodeId) => number
+	readonly lateral: (id: NodeId) => boolean
+	/** The columns the graph's scope expressions read, in order. */
+	readonly lateralReads: ReadonlyArray<ColumnRef>
+}
+
+/**
+ * The structure (Structure) of the graph whose reachable vertices are `order`, roots `roots`, each vertex's edges
+ * `edges` (one per input position) and scope expressions `scope`, labelled by `label`: one visit of each vertex.
+ */
+export const structureOf = <V>(
+	order: ReadonlyArray<V>,
+	roots: ReadonlyArray<V>,
+	edges: (vertex: V) => ReadonlyArray<V>,
+	scope: (vertex: V) => ReadonlyArray<ScalarExpr>,
+	label: (vertex: V) => NodeId
+): Structure => {
+	const references = new Map<NodeId, number>()
+	const count = (id: NodeId): void => {
+		references.set(id, (references.get(id) ?? 0) + 1)
+	}
+	for (const r of roots) {
+		count(label(r))
+	}
+	const lateral = new Set<NodeId>()
+	const lateralReads: Array<ColumnRef> = []
+	for (const vertex of order) {
+		for (const input of edges(vertex)) {
+			count(label(input))
+		}
+		for (const ref of columnReads(scope(vertex))) {
+			lateral.add(ref.node)
+			lateralReads.push(ref)
+		}
+	}
+	return {
+		references: (id) => references.get(id) ?? 0,
+		lateral: (id) => lateral.has(id),
+		lateralReads
+	}
+}
+
 /** The columns of `input` the expression trees `roots` read (ir/expr.ts columnReads). */
 const exprColumns = (roots: ReadonlyArray<ScalarExpr>, input: NodeId): ReadonlyArray<string> =>
 	columnReads(roots).flatMap((c) => (c.node === input ? [c.name] : []))
@@ -200,11 +249,13 @@ const need = (
 export const analyzeDemand = (dag: RelDag, pinned: Pinned): DemandAnalysis => {
 	const order = topoOrder(dag)
 	/** Every count, demand and live set below is keyed by the label of the node it is of (a column reference names one). */
-	const references = new Map<NodeId, number>()
-	for (const r of dag.roots) {
-		references.set(r.id, (references.get(r.id) ?? 0) + 1)
-	}
-	const lateral = new Set<NodeId>()
+	const structure = structureOf(
+		order,
+		dag.roots,
+		(node) => edgesOf(node),
+		(node) => scopeExprs(node),
+		(node) => node.id
+	)
 	const demanded = new Map<NodeId, Set<string>>()
 	const add = (id: NodeId, columns: Iterable<string>) => {
 		const set = demanded.get(id) ?? new Set<string>()
@@ -213,14 +264,8 @@ export const analyzeDemand = (dag: RelDag, pinned: Pinned): DemandAnalysis => {
 		}
 		demanded.set(id, set)
 	}
-	for (const node of order) {
-		for (const input of edgesOf(node)) {
-			references.set(input.id, (references.get(input.id) ?? 0) + 1)
-		}
-		for (const ref of columnReads(scopeExprs(node))) {
-			lateral.add(ref.node)
-			add(ref.node, [ref.name])
-		}
+	for (const ref of structure.lateralReads) {
+		add(ref.node, [ref.name])
 	}
 	for (const r of dag.roots) {
 		add(r.id, all(r))
@@ -257,7 +302,7 @@ export const analyzeDemand = (dag: RelDag, pinned: Pinned): DemandAnalysis => {
 		demanded: (node) => demanded.get(node.id) ?? none,
 		liveVars: (node) =>
 			node.kind === "MatchRegion" ? (liveVars.get(node.id) ?? liveOf(node)) : none,
-		references: (node) => references.get(node.id) ?? 0,
-		lateral: (node) => lateral.has(node.id)
+		references: (node) => structure.references(node.id),
+		lateral: (node) => structure.lateral(node.id)
 	}
 }

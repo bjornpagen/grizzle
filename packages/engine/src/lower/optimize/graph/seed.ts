@@ -8,10 +8,10 @@ import { baseOf, sameScalarType } from "#compiler/ir/scalar.ts"
 import { conjuncts } from "#compiler/logical/props.ts"
 import { DagEditor, paramRefs } from "#compiler/lower/optimize/demand/editor.ts"
 import {
-	type DemandAnalyses,
-	demandAnalyses,
-	measureOverDemand,
-	overDemand,
+	type FinishedAnalyses,
+	finishedAnalyses,
+	measureOverFinished,
+	overFinished,
 	type Potential,
 	type RewriteCx,
 	type Rule
@@ -122,7 +122,7 @@ const seedable = (cx: RewriteCx, cell: Cell): boolean => {
  */
 const restrictable = (
 	cx: RewriteCx,
-	analyses: DemandAnalyses,
+	analyses: FinishedAnalyses,
 	cell: Cell,
 	reader: Cell
 ): ReadonlySet<string> | undefined => {
@@ -130,7 +130,7 @@ const restrictable = (
 	if (node.kind !== "Recursive" || !readOnlyBy(cx, cell, reader)) {
 		return undefined
 	}
-	if (analyses.demand.lateral(cell)) {
+	if (cx.cells.lateral(cell)) {
 		return undefined
 	}
 	/** The recursion as the current DAG holds it, whose step the carried-column argument reads. */
@@ -167,7 +167,7 @@ const readsOnly = (
 
 const filterSites = (
 	cx: RewriteCx,
-	analyses: DemandAnalyses,
+	analyses: FinishedAnalyses,
 	cell: Cell,
 	f: KindOver<"Filter", EditRefs>
 ): ReadonlyArray<Site> => {
@@ -234,7 +234,7 @@ const filterSites = (
 
 const constantSites = (
 	cx: RewriteCx,
-	analyses: DemandAnalyses,
+	analyses: FinishedAnalyses,
 	cell: Cell,
 	region: KindOver<"MatchRegion", EditRefs>
 ): ReadonlyArray<Site> => {
@@ -280,7 +280,7 @@ const constantSites = (
 	return out
 }
 
-const sitesAt = (cx: RewriteCx, analyses: DemandAnalyses, cell: Cell): ReadonlyArray<Site> => {
+const sitesAt = (cx: RewriteCx, analyses: FinishedAnalyses, cell: Cell): ReadonlyArray<Site> => {
 	const node = cell.current
 	if (node.kind === "Filter") {
 		return filterSites(cx, analyses, cell, node)
@@ -404,7 +404,7 @@ const pushed = (site: Site): boolean => {
 }
 
 /** Every site not yet pushed, over the reachable DAG. */
-const openSites = (cx: RewriteCx, analyses: DemandAnalyses): ReadonlyArray<Site> => {
+const openSites = (cx: RewriteCx, analyses: FinishedAnalyses): ReadonlyArray<Site> => {
 	const out: Array<Site> = []
 	for (const cell of cx.cells.order) {
 		if (cx.cells.feedback.has(cell)) {
@@ -426,7 +426,7 @@ const openSites = (cx: RewriteCx, analyses: DemandAnalyses): ReadonlyArray<Site>
  */
 export const seedPotential: Potential = (cx) =>
 	cx.cells.order.some((cell) => !cx.cells.feedback.has(cell) && seedable(cx, cell))
-		? measureOverDemand((analyses) => openSites(cx, analyses).length)
+		? measureOverFinished((analyses) => openSites(cx, analyses).length)
 		: 0
 
 /** The site's predicate over the recursion's current base. */
@@ -496,7 +496,7 @@ const push = (cx: RewriteCx, site: Site): void => {
 	if (!seedable(now, filter)) {
 		return
 	}
-	for (const below of sitesAt(now, demandAnalyses(ed), filter).filter((s) => !pushed(s))) {
+	for (const below of sitesAt(now, finishedAnalyses(ed), filter).filter((s) => !pushed(s))) {
 		push(now, below)
 	}
 }
@@ -507,7 +507,7 @@ export const seedPushdown: Rule = {
 		if (!seedable(cx, cell)) {
 			return false
 		}
-		return overDemand((analyses) => {
+		return overFinished((analyses) => {
 			const site = sitesAt(cx, analyses, cell).find((s) => !pushed(s))
 			if (site === undefined) {
 				return false

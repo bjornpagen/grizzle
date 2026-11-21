@@ -1,5 +1,5 @@
 import { invariant } from "@bjornpagen/grizzle-text/base/invariant"
-import { analyzeDemand, type DemandAnalysis, noPins } from "#compiler/analysis/demand/demand.ts"
+import type { DemandAnalysis } from "#compiler/analysis/demand/demand.ts"
 import {
 	analyzePhysicalUnder,
 	type PhysicalAnalysis,
@@ -19,19 +19,13 @@ import { type CellState, DagEditor } from "#compiler/lower/optimize/demand/edito
 
 /**
  * Demand analysis (analysis/demand) of one snapshot of the editor, read cell by cell: each cell is read as its node in
- * that snapshot, so a reading taken before a rewrite still reads the DAG it analyzed after it.
+ * that snapshot, so a reading taken before a rewrite still reads the DAG it analyzed after it. Pruning reads it; a
+ * rewrite asks only how a cell is read (CellState structure), which needs no demand.
  */
 export interface CellDemand {
 	readonly analysis: DemandAnalysis
 	readonly demanded: (cell: Cell) => ReadonlySet<string>
 	readonly liveVars: (cell: Cell) => ReadonlySet<VarDecl>
-	readonly references: (cell: Cell) => number
-	/**
-	 * Whether a scope expression reads a column of the cell's node (demand analysis's lateral reads): a correlated
-	 * source, or a constant of a region the node is an occurrence's source of, names it, so moving or replacing it would
-	 * change what that reference names.
-	 */
-	readonly lateral: (cell: Cell) => boolean
 }
 
 /** The demand analysis of a snapshot, read cell by cell. */
@@ -41,9 +35,7 @@ export const cellDemand = (
 ): CellDemand => ({
 	analysis,
 	demanded: (cell) => analysis.demanded(snapshot.node(cell)),
-	liveVars: (cell) => analysis.liveVars(snapshot.node(cell)),
-	references: (cell) => analysis.references(snapshot.node(cell)),
-	lateral: (cell) => analysis.lateral(snapshot.node(cell))
+	liveVars: (cell) => analysis.liveVars(snapshot.node(cell))
 })
 
 /** The physical analysis (analysis/physical) of one snapshot of the editor, read cell by cell. */
@@ -64,14 +56,13 @@ export interface RewriteCx {
 	readonly certify: (input: Certificate) => void
 }
 
-/** What a decision reads of the DAG as its driver found it: the DAG finished, each cell's node in it, and its demand. */
-export interface DemandAnalyses {
+/** What a decision reads of the DAG as its driver found it: the DAG finished, each cell's node in it. */
+export interface FinishedAnalyses {
 	readonly dag: FinishedCells<Roots>
-	readonly demand: CellDemand
 }
 
-/** The demand analyses, and the physical analysis of the same DAG in the artifact's evidence context. */
-export interface PhysicalAnalyses extends DemandAnalyses {
+/** The finished DAG, and its physical analysis in the artifact's evidence context. */
+export interface PhysicalAnalyses extends FinishedAnalyses {
 	readonly physical: CellPhysical
 }
 
@@ -81,19 +72,19 @@ export interface PhysicalAnalyses extends DemandAnalyses {
  * true, changes nothing and returns false, or asks for more (a decision over the physical analyses).
  */
 export type Decision =
-	| { readonly reads: "demand"; readonly decide: (analyses: DemandAnalyses) => Verdict }
+	| { readonly reads: "finished"; readonly decide: (analyses: FinishedAnalyses) => Verdict }
 	| { readonly reads: "physical"; readonly decide: (analyses: PhysicalAnalyses) => Verdict }
 
 /** What a rule answers: true where it rewrote, false where it changed nothing, or the decision the analyses settle. */
 export type Verdict = boolean | Decision
 
-/** A decision over the demand analyses. */
-export const overDemand = (decide: (analyses: DemandAnalyses) => Verdict): Decision => ({
-	reads: "demand",
+/** A decision over the finished DAG. */
+export const overFinished = (decide: (analyses: FinishedAnalyses) => Verdict): Decision => ({
+	reads: "finished",
 	decide
 })
 
-/** A decision over the physical analyses, the demand analyses with them. */
+/** A decision over the physical analyses, the finished DAG with them. */
 export const overPhysical = (decide: (analyses: PhysicalAnalyses) => Verdict): Decision => ({
 	reads: "physical",
 	decide
@@ -109,14 +100,14 @@ export interface Rule {
 	readonly at: (cell: Cell, cx: RewriteCx) => Verdict
 }
 
-/** A potential's value as the cells alone give it, or the value the demand analyses of the DAG settle. */
+/** A potential's value as the cells alone give it, or the value the finished DAG settles. */
 export type Measure =
 	| number
-	| { readonly reads: "demand"; readonly of: (analyses: DemandAnalyses) => number }
+	| { readonly reads: "finished"; readonly of: (analyses: FinishedAnalyses) => number }
 
-/** A potential's value over the demand analyses. */
-export const measureOverDemand = (of: (analyses: DemandAnalyses) => number): Measure => ({
-	reads: "demand",
+/** A potential's value over the finished DAG. */
+export const measureOverFinished = (of: (analyses: FinishedAnalyses) => number): Measure => ({
+	reads: "finished",
 	of
 })
 
@@ -154,18 +145,17 @@ const passProps = (ctx: PassContext): PropsUnder =>
 	})
 
 /**
- * The DAG the editor holds now, finished, and its demand analysis: what the driver hands a decision, and what a rule
- * that rewrites and then decides again over its own edit computes for itself.
+ * The DAG the editor holds now, finished: what the driver hands a decision, and what a rule that rewrites and then
+ * decides again over its own edit computes for itself.
  */
-export const demandAnalyses = (editor: DagEditor): DemandAnalyses => {
-	const dag = editor.finished()
-	return { dag, demand: cellDemand(dag, analyzeDemand(dag.dag, noPins)) }
-}
+export const finishedAnalyses = (editor: DagEditor): FinishedAnalyses => ({
+	dag: editor.finished()
+})
 
-/** The demand analyses `demand`, with the physical analysis of their DAG through the pass's properties `props`. */
-const physicalAnalyses = (demand: DemandAnalyses, props: PropsUnder): PhysicalAnalyses => {
-	const analysis = analyzePhysicalUnder(demand.dag.dag, props)
-	return { ...demand, physical: { analysis, of: (cell) => analysis.of(demand.dag.node(cell)) } }
+/** The finished DAG `finished`, with its physical analysis through the pass's properties `props`. */
+const physicalAnalyses = (finished: FinishedAnalyses, props: PropsUnder): PhysicalAnalyses => {
+	const analysis = analyzePhysicalUnder(finished.dag.dag, props)
+	return { ...finished, physical: { analysis, of: (cell) => analysis.of(finished.dag.node(cell)) } }
 }
 
 /**
@@ -174,21 +164,21 @@ const physicalAnalyses = (demand: DemandAnalyses, props: PropsUnder): PhysicalAn
  */
 type Computed =
 	| { readonly kind: "none" }
-	| { readonly kind: "demand"; readonly analyses: DemandAnalyses }
+	| { readonly kind: "finished"; readonly analyses: FinishedAnalyses }
 	| { readonly kind: "physical"; readonly analyses: PhysicalAnalyses }
 
 const noneComputed: Computed = { kind: "none" }
 
-/** The demand analyses of the editor's DAG, `computed`'s or computed now, and what is computed then. */
-const withDemand = (
+/** The editor's DAG finished, `computed`'s or finished now, and what is computed then. */
+const withFinished = (
 	editor: DagEditor,
 	computed: Computed
-): { readonly analyses: DemandAnalyses; readonly computed: Computed } => {
+): { readonly analyses: FinishedAnalyses; readonly computed: Computed } => {
 	if (computed.kind !== "none") {
 		return { analyses: computed.analyses, computed }
 	}
-	const analyses = demandAnalyses(editor)
-	return { analyses, computed: { kind: "demand", analyses } }
+	const analyses = finishedAnalyses(editor)
+	return { analyses, computed: { kind: "finished", analyses } }
 }
 
 /** The physical analyses of the editor's DAG, `computed`'s or computed now, and what is computed then. */
@@ -200,7 +190,7 @@ const withPhysical = (
 	if (computed.kind === "physical") {
 		return { analyses: computed.analyses, computed }
 	}
-	const analyses = physicalAnalyses(withDemand(editor, computed).analyses, props)
+	const analyses = physicalAnalyses(withFinished(editor, computed).analyses, props)
 	return { analyses, computed: { kind: "physical", analyses } }
 }
 
@@ -227,7 +217,7 @@ const measured = (
 	if (typeof measure === "number") {
 		return { value: measure, computed }
 	}
-	const known = withDemand(cx.editor, computed)
+	const known = withFinished(cx.editor, computed)
 	return { value: measure.of(known.analyses), computed: known.computed }
 }
 
@@ -243,9 +233,12 @@ const measured = (
  * pass takes at most its first value in steps and needs no step budget. A step that does not lower it is a defect of
  * the rule, grizzle's and never the query's, so it breaks an internal invariant (core/invariant.ts).
  *
- * A rule whose shape matches at a cell answers a decision over the demand or the physical analyses (Decision). The
- * driver computes each analysis of a state of the DAG once, the first time a decision or the potential reads it, and
- * hands it to every later one until an edit, so an analysis no decision reads is never computed.
+ * A rule reads how each cell is read, its references and whether a scope expression reads it, off the state's cells
+ * (CellState structure), which the driver works out with their order, one visit of each cell: whether a rewrite may
+ * change a cell's set is what it asks, and no demand of the DAG's columns answers that, so no state's demand is
+ * computed. A rule whose shape matches at a cell may answer a decision over the finished DAG or its physical analysis
+ * (Decision). The driver computes each of a state of the DAG once, the first time a decision or the potential reads it,
+ * and hands it to every later one until an edit, so an analysis no decision reads is never computed.
  *
  * Every applied rewrite records a certificate: its rule, the nodes it read and wrote, the premises
  * its proof used, the evidence context it requires, the heading it preserves, and through its constraint premises the
@@ -305,8 +298,8 @@ const fireNext = (
 				return at
 			}
 			switch (at.reads) {
-				case "demand": {
-					const read = withDemand(editor, known)
+				case "finished": {
+					const read = withFinished(editor, known)
 					known = read.computed
 					at = at.decide(read.analyses)
 					break

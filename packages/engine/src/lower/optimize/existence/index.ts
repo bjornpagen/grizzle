@@ -23,8 +23,6 @@ import {
 } from "#compiler/lower/optimize/demand/editor.ts"
 import {
 	type CellPhysical,
-	measureOverDemand,
-	overDemand,
 	overPhysical,
 	type Potential,
 	type RewriteCx,
@@ -300,23 +298,21 @@ const existenceRule: Rule = {
 		if (shaped.length === 0 || !withinCollapse(cx, cell, node)) {
 			return false
 		}
-		return overDemand(({ demand }) => {
-			const candidates = shaped.filter((o) => !demand.lateral(o.source))
-			if (candidates.length === 0) {
-				return false
-			}
-			const connected = connectedOf(node, candidates)
-			if (!isNonEmpty(connected)) {
-				return false
-			}
-			if (connected.length === 1) {
-				rewrite(cx, cell, node, connected[0])
-				return true
-			}
-			return overPhysical(({ physical }) => {
-				rewrite(cx, cell, node, unkeyedFirst(physical, connected))
-				return true
-			})
+		const candidates = shaped.filter((o) => !cx.cells.lateral(o.source))
+		if (candidates.length === 0) {
+			return false
+		}
+		const connected = connectedOf(node, candidates)
+		if (!isNonEmpty(connected)) {
+			return false
+		}
+		if (connected.length === 1) {
+			rewrite(cx, cell, node, connected[0])
+			return true
+		}
+		return overPhysical(({ physical }) => {
+			rewrite(cx, cell, node, unkeyedFirst(physical, connected))
+			return true
 		})
 	}
 }
@@ -348,47 +344,45 @@ const setComparison: Rule = {
 			return false
 		}
 		const { left, right } = node
-		return overDemand(({ demand }) =>
-			demand.lateral(right)
-				? false
-				: overPhysical(({ physical }) => {
-						const equality = node.heading.map((c) => carrierEquality(baseOf(c.type).carrier))
-						const unique = keyedBy(
-							physical.of(left).props,
-							node.heading.map((c) => c.name)
-						)
-						if (unique === undefined || unique.just.outer.length > 0) {
-							return false
-						}
-						const on = node.heading.map((c) => ({ left: c.name, right: c.name }))
-						cx.certify({
-							rule: node.kind === "Intersect" ? semiJoinRule : antiJoinRule,
-							inputs: [node.left.id, node.right.id],
-							outputs: [cell.id],
-							premises: [...unique.just.premises, ...nodePremises([node.left.id, node.right.id])],
-							context: unique.just.context,
-							preservedHeading: node.heading.map((c) => c.name),
-							equality: [...equality, ...unique.just.equality],
-							coercion: unique.just.coercions,
-							params: undefined
-						})
-						const kept = { left, on, heading: node.heading, meta: node.meta, loc: node.loc }
-						ed.set(
-							cell,
-							node.kind === "Intersect"
-								? {
-										kind: "SemiJoin",
-										...kept,
-										right: defined(
-											semiJoinRight(cellGraph, left, right),
-											"a set comparison's right side reads nothing outside it (setComparison), so none of its left"
-										)
-									}
-								: { kind: "AntiJoin", ...kept, right }
-						)
-						return true
+		return cx.cells.lateral(right)
+			? false
+			: overPhysical(({ physical }) => {
+					const equality = node.heading.map((c) => carrierEquality(baseOf(c.type).carrier))
+					const unique = keyedBy(
+						physical.of(left).props,
+						node.heading.map((c) => c.name)
+					)
+					if (unique === undefined || unique.just.outer.length > 0) {
+						return false
+					}
+					const on = node.heading.map((c) => ({ left: c.name, right: c.name }))
+					cx.certify({
+						rule: node.kind === "Intersect" ? semiJoinRule : antiJoinRule,
+						inputs: [node.left.id, node.right.id],
+						outputs: [cell.id],
+						premises: [...unique.just.premises, ...nodePremises([node.left.id, node.right.id])],
+						context: unique.just.context,
+						preservedHeading: node.heading.map((c) => c.name),
+						equality: [...equality, ...unique.just.equality],
+						coercion: unique.just.coercions,
+						params: undefined
 					})
-		)
+					const kept = { left, on, heading: node.heading, meta: node.meta, loc: node.loc }
+					ed.set(
+						cell,
+						node.kind === "Intersect"
+							? {
+									kind: "SemiJoin",
+									...kept,
+									right: defined(
+										semiJoinRight(cellGraph, left, right),
+										"a set comparison's right side reads nothing outside it (setComparison), so none of its left"
+									)
+								}
+							: { kind: "AntiJoin", ...kept, right }
+					)
+					return true
+				})
 	}
 }
 
@@ -406,9 +400,7 @@ const existencePotential: Potential = (cx) => {
 	}
 	return shaped.length === 0
 		? comparisons
-		: measureOverDemand(
-				({ demand }) => comparisons + shaped.filter((o) => !demand.lateral(o.source)).length
-			)
+		: comparisons + shaped.filter((o) => !cx.cells.lateral(o.source)).length
 }
 
 /**
