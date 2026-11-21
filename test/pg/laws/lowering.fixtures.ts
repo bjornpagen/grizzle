@@ -3,12 +3,13 @@
  * templates, what each shape's plan decides, and one case of a shape against the containment's triggers.
  */
 import { deepEquals, defined } from "@bjornpagen/testing/assert"
-import { array, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
+import { aimed, array, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Data, Effect, Formatter, Layer, Option, Record as Rec } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
+import { sqlstates } from "#compiler/core/sqlstate.ts"
 import type { NativeColumn, TableRelation } from "#compiler/ir/law.ts"
 import { constraintLaw } from "#compiler/ir/products.ts"
 import type { CallError } from "#compiler/live/index.ts"
@@ -377,9 +378,40 @@ const txGen: Gen<Tx> = weighted<Tx>([
 	[2, targetTx]
 ])
 
-export const caseGen: Gen<LoweringCase> = (s) => ({
+const caseGen: Gen<LoweringCase> = (s) => ({
 	history: [s.draw(txGen), ...s.draw(array(txGen, { min: 0, max: 5 }))]
 })
+
+/**
+ * A history aimed at a target row's write the rule refuses: a source built over an A row the shape's target holds, at
+ * the kind its match fixes (lowering-support.ts fixedKinds, 1 where it fixes none) and group 0, then that row's delete.
+ * A delete, since A is immutable and an update of the row is its immutability guard's to refuse before the rule
+ * (physical/ddl/immutable.ts), so the drawn histories reach this write the more seldom: fixedTwo's, at kind 1 and group
+ * 0 both, past its steered budget.
+ */
+const targetRefusedGen =
+	(shape: Shape): Gen<LoweringCase> =>
+	(s) => ({
+		history: [
+			{
+				writer: "sql",
+				ops: [
+					{
+						rel: "A",
+						kind: "insert",
+						row: { ...aRow(s), kind: Option.getOrElse(fixedKinds[shape], () => 1), grp: 0 }
+					},
+					{ rel: "B", kind: "insert", row: bRow(s) },
+					{ rel: "S", kind: "reference", sid: s.draw(int(0, 2)), pick: 0, via: { kind: "head" } }
+				]
+			},
+			{ writer: "sql", ops: [{ rel: "A", kind: "unreference", pick: 0, by: { kind: "delete" } }] }
+		]
+	})
+
+/** A shape's histories, aimed at a target row's write the rule refuses while it is pending (`targetRefusedGen`). */
+export const loweringSpaceOf = (shape: Shape) =>
+	aimed(caseGen, [["refused by the rule, a target row's write", targetRefusedGen(shape)] as const])
 
 /** The rows every stored relation holds, by key. */
 interface State {
@@ -709,6 +741,48 @@ const lawOf = (installed: Installed, fields: PgErrorFields): LawId | undefined =
 				constraint
 			)
 }
+
+/**
+ * Who refused a statement, as the installation's schema decides: a law, by the constraint its refusal names (`lawOf`),
+ * or an immutable relation's immutability guard, by the table its insufficient_privilege names, a relation of the box
+ * the checked schema holds immutable (ir/law.ts RelationInfo `mutable`, physical/ddl/immutable.ts), whose refusal of
+ * an UPDATE that changes its row names no law.
+ */
+type Refuser =
+	| { readonly kind: "law"; readonly law: LawId }
+	| { readonly kind: "guard"; readonly relation: (typeof RELATIONS)[number] }
+
+const refuserOf = (installed: Installed, fields: PgErrorFields): Refuser | undefined => {
+	const law = lawOf(installed, fields)
+	if (law !== undefined) {
+		return { kind: "law", law }
+	}
+	const guarded = Option.flatMap(fields.table, (ident) =>
+		Arr.findFirst(
+			RELATIONS,
+			(rel) =>
+				installed.names.relation(rel).name === ident &&
+				installed.installation.checked.relations.get(rel)?.mutable === false
+		)
+	)
+	return fields.code === sqlstates.insufficientPrivilege && Option.isSome(guarded)
+		? { kind: "guard", relation: guarded.value }
+		: undefined
+}
+
+/** Whether two refusers are one: one law, or one relation's guard. */
+const sameRefuser = (a: Refuser, b: Refuser): boolean =>
+	a.kind === "law"
+		? b.kind === "law" && a.law === b.law
+		: b.kind === "guard" && a.relation === b.relation
+
+/** A refuser as a disagreement names it. */
+const refuserText = (refuser: Refuser | undefined): string =>
+	refuser === undefined
+		? "law none"
+		: refuser.kind === "law"
+			? `law ${refuser.law}`
+			: `${refuser.relation}'s immutability guard`
 
 /** The one rule over a query of an installation: the containment of S in D. */
 const ruleLaw = (installation: Installation): LawId =>
@@ -1142,8 +1216,8 @@ const fieldsOf = (rel: "A" | "B" | "S"): ReadonlyArray<string> => {
 const sameVerdict = (
 	low: Attempted,
 	oracle: Attempted,
-	lawLow: LawId | undefined,
-	lawOracle: LawId | undefined
+	refuserLow: Refuser | undefined,
+	refuserOracle: Refuser | undefined
 ): boolean => {
 	if (low.kind === "committed" || oracle.kind === "committed") {
 		return low.kind === oracle.kind
@@ -1151,8 +1225,9 @@ const sameVerdict = (
 	return (
 		momentText(low.moment) === momentText(oracle.moment) &&
 		low.fields.code === oracle.fields.code &&
-		lawLow !== undefined &&
-		lawLow === lawOracle
+		refuserLow !== undefined &&
+		refuserOracle !== undefined &&
+		sameRefuser(refuserLow, refuserOracle)
 	)
 }
 
@@ -1364,14 +1439,15 @@ export const loweringCase = (pair: Pair) => (lc: LoweringCase, c: Case<Feature>)
 					oracle.session,
 					Arr.map(servedOps(facts), (op) => statementOf(oracle, op))
 				)
-				const oracleLaw =
-					verdict.kind === "refused" ? lawOf(oracle.installed, verdict.fields) : undefined
+				const oracleRefuser =
+					verdict.kind === "refused" ? refuserOf(oracle.installed, verdict.fields) : undefined
+				const oracleLaw = oracleRefuser?.kind === "law" ? oracleRefuser.law : undefined
 				const broken = brokenKeysOf(oracle.installed, state, facts)
 				const breaks = (law: LawId | string | undefined): boolean =>
 					broken.length === 0 ? law === oracleLaw : Arr.some(broken, (k) => k.law === law)
 				if (verdict.kind === "refused" && !breaks(oracleLaw)) {
 					return yield* new Disagreed({
-						message: `${shape}: the triggers' installation ${verdictText(verdict, oracleLaw)}, where the facts break the keys ${Formatter.format(Arr.map(broken, (k) => k.law))}: ${Formatter.format(facts)}`
+						message: `${shape}: the triggers' installation ${verdictText(verdict, oracleRefuser)}, where the facts break the keys ${Formatter.format(Arr.map(broken, (k) => k.law))}: ${Formatter.format(facts)}`
 					})
 				}
 				for (const [order, low] of pair.lows) {
@@ -1387,7 +1463,7 @@ export const loweringCase = (pair: Pair) => (lc: LoweringCase, c: Case<Feature>)
 						(outcome.laws.includes(rule) && outcome.witness.kind !== "unreported")
 					) {
 						return yield* new Disagreed({
-							message: `${shape}, installed ${order}: grizzle's served write answered ${Formatter.format(outcome)}, where the triggers' installation ${verdictText(verdict, oracleLaw)}: ${Formatter.format(facts)}`
+							message: `${shape}, installed ${order}: grizzle's served write answered ${Formatter.format(outcome)}, where the triggers' installation ${verdictText(verdict, oracleRefuser)}: ${Formatter.format(facts)}`
 						})
 					}
 					const key = Arr.findFirst(broken, (k) => outcome.laws.includes(k.law))
@@ -1454,9 +1530,13 @@ export const loweringCase = (pair: Pair) => (lc: LoweringCase, c: Case<Feature>)
 						message: `${shape}, installed ${order}: a broken containment refused by ${refusalText(onLow.fields)} names law ${lawLow ?? "none"}, not the rule's ${rule}: ${Formatter.format(ops)}`
 					})
 				}
-				if (!sameVerdict(onLow, onOracle, lawLow, lawOracle)) {
+				const refuserLow =
+					onLow.kind === "refused" ? refuserOf(seat.installed, onLow.fields) : undefined
+				const refuserOracle =
+					onOracle.kind === "refused" ? refuserOf(oracle.installed, onOracle.fields) : undefined
+				if (!sameVerdict(onLow, onOracle, refuserLow, refuserOracle)) {
 					return yield* new Disagreed({
-						message: `${shape}, installed ${order}: the lowered installation ${verdictText(onLow, lawLow)}, the triggers' ${verdictText(onOracle, lawOracle)}: ${Formatter.format(ops)}`
+						message: `${shape}, installed ${order}: the lowered installation ${verdictText(onLow, refuserLow)}, the triggers' ${verdictText(onOracle, refuserOracle)}: ${Formatter.format(ops)}`
 					})
 				}
 			}
@@ -1491,10 +1571,10 @@ export const loweringCase = (pair: Pair) => (lc: LoweringCase, c: Case<Feature>)
 	})
 
 /** A refusal or commit as a disagreement names it. */
-const verdictText = (verdict: Attempted, law: LawId | undefined): string =>
+const verdictText = (verdict: Attempted, refuser: Refuser | undefined): string =>
 	verdict.kind === "committed"
 		? "committed"
-		: `refused ${momentText(verdict.moment)} by ${refusalText(verdict.fields)} (law ${law ?? "none"})`
+		: `refused ${momentText(verdict.moment)} by ${refusalText(verdict.fields)} (${refuserText(refuser)})`
 
 /** Whether an op writes an A row outside the constants of a lowered shape's match: a kind other than the one it fixes. */
 const outsideConstants = (shape: Shape, op: Op): boolean =>

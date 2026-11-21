@@ -47,7 +47,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, family, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import {
-	caseGen,
+	loweringSpaceOf,
 	type Feature,
 	loweredShapes,
 	loweringCase,
@@ -74,7 +74,7 @@ export const aLoweredShapeCommitsAndRefusesEveryHistoryExactlyAsTheContainmentsT
 			const t = loweringTemplatesOf(planned.shape)
 			return [
 				planned.shape,
-				property.explore(caseGen, {
+				property.explore(loweringSpaceOf(planned.shape), {
 					needs: {
 						fresh: Substrate.seat(t.fresh),
 						aboveLater: Substrate.seat(t.histories.aboveLater),
@@ -127,7 +127,7 @@ export const anUnloweredShapeCommitsAndRefusesEveryHistoryExactlyAsTheContainmen
 				const t = loweringTemplatesOf(planned.shape)
 				return [
 					planned.shape,
-					property.explore(caseGen, {
+					property.explore(loweringSpaceOf(planned.shape), {
 						needs: { fresh: Substrate.seat(t.fresh), oracle: Substrate.seat(t.oracle) },
 						situations: planned.situations satisfies ReadonlyArray<Reached<Feature>>,
 						check:
