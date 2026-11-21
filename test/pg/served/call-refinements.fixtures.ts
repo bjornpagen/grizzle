@@ -97,8 +97,11 @@ const refinementsSchema = (place: Place, body: Body) => (name: string) => {
 	)
 }
 
-/** How the served program reads the function's result: its rows, a field of rows of its one row, or its value. */
-const reads = ["rows", "a field of its row", "its value"] as const
+/**
+ * How the served program reads the function's result: its rows, a field of rows of its one row, its value, or how many
+ * rows it returns, a read that delivers no refined value, so the call's own cast is the one check of the body's values.
+ */
+const reads = ["rows", "a field of its row", "its value", "a count of its rows"] as const
 export type Read = (typeof reads)[number]
 
 /** The programs of a template's schema: one read of each kind, at the item a parameter names. */
@@ -122,12 +125,17 @@ export const programsOf = (place: Place, body: Body, name: string) => {
 				.match(Item, { item })
 				.where(r.eq(item, r.param("item", pg.integer)))
 				.find({ code: Fn.call(judgeOne, { item }) })
+		}),
+		count: query(s).rule((r) => {
+			const run = Fn.rows(judge, { item: r.param("item", pg.integer) })
+			const { code, word } = v(run, "run")
+			return r.match(run, { code, word }).find({ rows: r.count() })
 		})
 	}
 }
 
 /** The program of a read. */
-export const programOf = (read: Read): "rows" | "row" | "value" => {
+export const programOf = (read: Read): "rows" | "row" | "value" | "count" => {
 	switch (read) {
 		case "rows":
 			return "rows"
@@ -135,6 +143,8 @@ export const programOf = (read: Read): "rows" | "row" | "value" => {
 			return "row"
 		case "its value":
 			return "value"
+		case "a count of its rows":
+			return "count"
 	}
 }
 
@@ -142,7 +152,7 @@ const templateOf = (place: Place, body: Body): SubstrateTemplate<Generated> =>
 	generatedTemplate({
 		declaredIn: import.meta,
 		name: `call_refinements_${place === "a stored field too" ? "stored" : "alone"}_${body}`,
-		content: { place, body, programs: ["rows", "row", "value"] },
+		content: { place, body, programs: ["rows", "row", "value", "count"] },
 		build: (name) => {
 			const s = refinementsSchema(place, body)(name)
 			return { schema: s, logins: [fullWorld(s, programsOf(place, body, name)).server] }
@@ -196,16 +206,22 @@ export const factsOf = (c: RefinementsCase) => ({
 	Item: Arr.map(c.items, (item) => ({ item }))
 })
 
-/** One answered row, in one text: its code and its word, where the read gives one. */
+/** One answered row, in one text: its code, its word and its count of rows, where the read gives each. */
 export const rowText = (row: unknown): string => {
 	if (!isRecord(row)) {
 		return "not a row"
 	}
 	const cell = (key: string) => {
 		const value = row[key]
-		return typeof value === "string" ? value : value === undefined ? "-" : `?${typeof value}`
+		return typeof value === "string"
+			? value
+			: typeof value === "number" || typeof value === "bigint"
+				? String(value)
+				: value === undefined
+					? "-"
+					: `?${typeof value}`
 	}
-	return `${cell("code")}|${cell("word")}`
+	return `${cell("code")}|${cell("word")}|${cell("rows")}`
 }
 
 export const sortedTexts = (texts: ReadonlyArray<string>): ReadonlyArray<string> =>
@@ -231,6 +247,11 @@ export const oracleRows = (admin: PgConnection, schemaName: string, c: Refinemen
 				)).rows
 			case "its value":
 				return (yield* admin.query(`SELECT ${s}."judgeone"($1) AS "code"`, [c.at])).rows
+			case "a count of its rows":
+				return (yield* admin.query(
+					`SELECT pg_catalog.count(*) AS "rows" FROM (SELECT DISTINCT r."code", r."word" FROM ${s}."judge"($1) AS r) AS d`,
+					[c.at]
+				)).rows
 		}
 	})
 

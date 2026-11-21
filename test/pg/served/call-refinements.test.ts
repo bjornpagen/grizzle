@@ -8,7 +8,10 @@
  * - **Property:** a case draws where the two refinements, Code (alpha or beta) and Word (gamma or delta), are named
  *   (the functions' results alone, or a stored field too), a true body or a rotated one, which returns the code and the
  *   word permuted, each field a value outside its own refinement and inside the other's, and how the served program
- *   reads the result (its rows, a field of rows of its one row, its value) at an item the case loads. A true body's
+ *   reads the result (its rows, a field of rows of its one row, its value, or how many rows it returns, which delivers
+ *   no refined value, so the call's cast is the only check of the body's: a read that delivers one is cast again at
+ *   its delivery, lower/conservative/refined.ts castDomain, wherever no cast before it proved the value) at an item the
+ *   case loads. A true body's
  *   read answers PostgreSQL's own rows of the call; a rotated body's is refused, its statement raising SQLSTATE 23514,
  *   check_violation, at the cast. Every attribute of the installation's row types holding a code or a word is `text`.
  * - **Oracle:** PostgreSQL: the owner's direct call of the function at the case's item, and its catalog.
@@ -54,7 +57,8 @@ const features = [
 	"a rotated body",
 	"a read of rows",
 	"a read of a field of its row",
-	"a read of its value"
+	"a read of its value",
+	"a read of a count of its rows"
 ] as const satisfies ReadonlyArray<Reached<RefinementsFeature>>
 
 /** A read of a function's refined result answers its rows where the body keeps to its refinements, and is refused at
@@ -143,7 +147,7 @@ export const aReadOfAFunctionsRefinedResultIsCheckedAtItsCast = property.explore
 			file: "packages/engine/src/lower/conservative/call/index.ts",
 			original: "\t\t\t\t\tfieldColumnType(cx.names, c.type).type\n",
 			replacement: "\t\t\t\t\tcx.baseTypeRef(c.type)\n",
-			why: "A read of a function's rows takes the body's values at their base, the composite's own type, unchecked: a rotated body's permuted values reach the host typed as their refinements."
+			why: "A read of a function's rows takes the body's values at their base, the composite's own type, unchecked: a rotated body's count of rows is answered, no cast refusing its values, where a read that delivers them is still refused at its delivery's cast."
 		}
 	]
 })
