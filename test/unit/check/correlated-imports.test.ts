@@ -15,9 +15,9 @@
  * and the bound arguments' count changing no read's nodes. Kill: an import bound to an outer value has no key, built at
  * each read, so each field read builds the bound arguments again and adds more where more are bound.
  *
- * And every import term is bound to the outermost value it reads, in every reading (#bindValue): a parameter the
- * importer bound to an outer value is bound to that value itself, never to a column of the reading rule's region that
- * reads it again, so a lookup imported by several queries, each bound to its own parameter, which their reader binds to
+ * And a parameter the importer bound to a column that holds a value from outside its region is bound to that column
+ * itself, in every reading (Checker held, #bindValue), never to a column of the reading rule's region that reads it
+ * again, so a lookup imported by several queries, each bound to its own parameter, which their reader binds to
  * one parent's id, is one node for all of them, where each query's rule bound it to a column of its own. The box: one
  * attachment under each Item making 1 to 4 reads, each its own query importing one lookup of Seed (one match or three)
  * bound to its own parameter, bound to the parent's id. Property: each read adds the same nodes whatever the lookup's
