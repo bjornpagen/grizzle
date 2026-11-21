@@ -3285,6 +3285,77 @@ class Model {
 				this.#statistics.set(s.to, x)
 				return
 			}
+			case "FUNCTION":
+				this.#renameFunction(s.name, s.to)
+				return
+		}
+	}
+
+	/**
+	 * A function of the schema renamed, as ALTER FUNCTION … RENAME TO does: the function keeps its OID, so every CHECK,
+	 * generation, view, function and trigger that calls it calls it under its new name, none added again or validated.
+	 */
+	#renameFunction(name: ObjectName, to: string): void {
+		const f = this.#functions.get(name.name)
+		if (f === undefined) {
+			refuse("42883", `the function ${printObjectName(name)} does not exist`)
+		}
+		if (this.#functions.has(to)) {
+			refuse("42723", `the function ${to} already exists with the same argument types`)
+		}
+		const calls = (of: ReadonlyArray<string>): ReadonlyArray<string> =>
+			Arr.map(of, (c) => (c === name.name ? to : c))
+		const exprIn = (e: Expr): Expr =>
+			transformExpr(e, {
+				...identityHooks,
+				functionRef: (fn) =>
+					fn.schema === name.schema && fn.name === name.name ? { ...fn, name: to } : fn
+			})
+		this.#functions.delete(name.name)
+		this.#functions.set(to, f)
+		for (const [n, g] of this.#functions) {
+			this.#functions.set(n, {
+				body: g.body.kind === "constant" ? { kind: "constant", expr: exprIn(g.body.expr) } : g.body,
+				calls: calls(g.calls)
+			})
+		}
+		for (const of of this.#constraints.values()) {
+			for (const [n, c] of of) {
+				if (c.kind === "check") {
+					of.set(n, { ...c, predicate: exprIn(c.predicate), calls: calls(c.calls) })
+				}
+			}
+		}
+		for (const [n, d] of this.#domains) {
+			this.#domains.set(n, {
+				...d,
+				constraints: new Map(
+					Arr.map([...d.constraints], ([k, c]) => [
+						k,
+						{ ...c, predicate: exprIn(c.predicate), calls: calls(c.calls) }
+					])
+				)
+			})
+		}
+		for (const t of this.#tables.values()) {
+			t.columns = Arr.map(t.columns, (c) =>
+				c.generation.kind === "stored" || c.generation.kind === "partial"
+					? { ...c, generation: { ...c.generation, calls: calls(c.generation.calls) } }
+					: c
+			)
+		}
+		for (const [n, v] of this.#views) {
+			this.#views.set(n, { ...v, calls: calls(v.calls) })
+		}
+		for (const [n, v] of this.#dependents) {
+			this.#dependents.set(n, { ...v, calls: calls(v.calls) })
+		}
+		for (const of of this.#triggers.values()) {
+			for (const [n, t] of of) {
+				if (t.function === name.name) {
+					of.set(n, { ...t, function: to })
+				}
+			}
 		}
 	}
 
@@ -3850,6 +3921,12 @@ class Model {
 				this.#addFunction(s.name, {
 					body: { kind: "constant", expr: s.body },
 					calls: callsOf([s.body], this.#schema)
+				})
+				return
+			case "replaceConstant":
+				this.#replaceFunction(s.constant.name, {
+					body: { kind: "constant", expr: s.constant.body },
+					calls: callsOf([s.constant.body], this.#schema)
 				})
 				return
 			case "packConstant":

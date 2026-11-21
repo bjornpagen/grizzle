@@ -226,7 +226,8 @@ const recordedStatement = (s: SqlStatement): RecordedStatement => {
 const records = new WeakMap<PhysicalObject<SqlStatement>, RecordedObject>()
 
 /** An installed object as its snapshot records it. */
-const recordedObject = (o: PhysicalObject<SqlStatement>): RecordedObject => {
+/** An installed object as its snapshot records it, each statement recorded (recordedStatement), each object once. */
+export const recordedObject = (o: PhysicalObject<SqlStatement>): RecordedObject => {
 	const known = records.get(o)
 	if (known !== undefined) {
 		return known

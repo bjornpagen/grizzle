@@ -131,6 +131,7 @@ const manifestStatement = (s: SqlStatement): ManifestStatement => {
 			)
 		}
 		case "rename":
+		case "replaceConstant":
 		case "renameColumn":
 		case "dropPolicy":
 		case "revokeRole":

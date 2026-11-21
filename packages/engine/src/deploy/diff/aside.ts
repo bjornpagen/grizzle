@@ -216,7 +216,9 @@ const ownedRename = (at: (name: string) => ObjectName, to: string, o: Owned): Sq
 }
 
 /** The RENAME of a holder's kind. */
-const asideObject = (kind: Holding): Exclude<RenameObject["object"], "ROLE" | "SCHEMA"> => {
+const asideObject = (
+	kind: Holding
+): Exclude<RenameObject["object"], "ROLE" | "SCHEMA" | "FUNCTION"> => {
 	switch (kind) {
 		case "table":
 			return "TABLE"

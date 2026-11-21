@@ -544,6 +544,7 @@ export const expectedCatalog = (installation: Installation): ProjectedCatalog =>
 				}
 				break
 			case "rename":
+			case "replaceConstant":
 			case "renameColumn":
 			case "renameConstraint":
 			case "lockTable":

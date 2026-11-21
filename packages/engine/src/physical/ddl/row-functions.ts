@@ -124,7 +124,7 @@ const literalBytes = (value: LiteralValue): number => {
 }
 
 /** The language of the pattern `e` matches, where it is a match of a text by the ARE of an installed spelling. */
-const matchedLanguage = (scope: RowScope, e: Expr): string | undefined =>
+const matchedLanguage = (scope: Pick<RowScope, "languageOf">, e: Expr): string | undefined =>
 	e.kind === "binary" && e.op === "~" && e.right.kind === "literal" && e.right.value.kind === "text"
 		? scope.languageOf(e.right.value.value)
 		: undefined
@@ -161,7 +161,7 @@ const hoists = (scope: RowScope, expr: Expr): boolean => {
 }
 
 /** A row function's definition: its parameters, the columns it reads, its result type and its body. */
-interface RowDefinition {
+export interface RowDefinition {
 	readonly params: ReadonlyArray<FunctionParam>
 	readonly returns: TypeRef
 	readonly body: Expr
@@ -176,7 +176,10 @@ interface RowDefinition {
  * languageKey), stands in a call of no schema, which no call of the body is: a function the installation installs is
  * named by an identifier of at most 63 bytes, so no text the body compares by `~` reads as it.
  */
-const identified = (scope: RowScope, definition: RowDefinition): RowDefinition => {
+const identified = (
+	scope: Pick<RowScope, "installed" | "languageOf">,
+	definition: RowDefinition
+): RowDefinition => {
 	const t = new Transform({
 		...digestedHooks(scope.installed),
 		expr: (e) => {
@@ -271,6 +274,17 @@ const selects = (e: Expr): boolean =>
 	((e.kind === "and" || e.kind === "or") && e.args.every(selects))
 
 /**
+ * A row function's identity: the digest of its definition read apart from the installation's schemas, each pattern it
+ * matches by its language (`identified`). What a declared rename restates a row function by to find it in the previous
+ * snapshot (deploy/diff/declared.ts pairedConstants).
+ */
+export const rowFunctionIdentity = (
+	scope: Pick<RowScope, "installed" | "languageOf">,
+	definition: RowDefinition
+): Identity<"rowFunction"> =>
+	identity.rowFunction(constantDigest("row-function", identified(scope, definition), everyProperty))
+
+/**
  * The call of `expr`'s row function on the columns it reads, in the order it first reads them, each the function's
  * parameter by its position and named by it (`p1` … `pn`), which `install` installs, named by its definition's digest
  * (`identified`). The function is what its body computes over its parameters' types, whatever the columns it is called
@@ -297,9 +311,7 @@ const called = (
 		}
 	})
 	const definition: RowDefinition = { params, returns, body }
-	const named = identity.rowFunction(
-		constantDigest("row-function", identified(scope, definition), everyProperty)
-	)
+	const named = rowFunctionIdentity(scope, definition)
 	install({
 		named,
 		create: {

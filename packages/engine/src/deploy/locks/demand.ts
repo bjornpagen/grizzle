@@ -567,6 +567,9 @@ const learn = (catalogOf: LockCatalog, s: SqlStatement | RecordedStatement): voi
 		case "createConstant":
 			catalogOf.bodies.set(named(s.name), exprNames([s.body]))
 			return
+		case "replaceConstant":
+			catalogOf.bodies.set(named(s.constant.name), exprNames([s.constant.body]))
+			return
 		case "createGuardTrigger":
 		case "createUpdateGuardTrigger":
 		case "createConstraintTrigger":
@@ -591,6 +594,12 @@ const learn = (catalogOf: LockCatalog, s: SqlStatement | RecordedStatement): voi
 		case "rename":
 			if (s.object === "TABLE" || s.object === "MATERIALIZED VIEW") {
 				renamedRelation(catalogOf, s.name, { schema: s.name.schema, name: s.to })
+			} else if (s.object === "FUNCTION") {
+				const body = catalogOf.bodies.get(named(s.name))
+				if (body !== undefined) {
+					catalogOf.bodies.delete(named(s.name))
+					catalogOf.bodies.set(named({ schema: s.name.schema, name: s.to }), body)
+				}
 			} else if (s.object === "INDEX") {
 				for (const held of catalogOf.indexes.values()) {
 					if (held.has(s.name.name)) {
@@ -1371,6 +1380,15 @@ const lockStatement = (locks: Locks, s: SqlStatement | RecordedStatement): void 
 					locks.add([namespace(s.name)])
 					locks.rename(namespace(s.name), namespace(s.to))
 					return
+				case "FUNCTION": {
+					const to = functionOf({ schema: s.name.schema, name: s.to })
+					locks.add([functionOf(s.name), namespace(s.name.schema), ...toastedCatalog("pg_proc")])
+					locks.rename(functionOf(s.name), to)
+					for (const t of s.args) {
+						locks.type(t)
+					}
+					return
+				}
 			}
 		case "renameColumn":
 			locks.add([relation(s.table)])
@@ -1553,6 +1571,18 @@ const lockStatement = (locks: Locks, s: SqlStatement | RecordedStatement): void 
 			}
 			locks.type(s.returns)
 			locks.names(exprNames([s.body]), "stored")
+			return
+		case "replaceConstant":
+			locks.add([
+				functionOf(s.constant.name),
+				namespace(s.constant.name.schema),
+				...toastedCatalog("pg_proc")
+			])
+			for (const p of s.constant.params) {
+				locks.type(p.type)
+			}
+			locks.type(s.constant.returns)
+			locks.names(exprNames([s.constant.body]), "stored")
 			return
 		case "createGuardTrigger":
 		case "createUpdateGuardTrigger":

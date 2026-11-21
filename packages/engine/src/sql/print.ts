@@ -1963,8 +1963,12 @@ const stubValue = (returns: TypeRef): string => `NULL::${printType(returns)}`
  * its own, as the stub's is, so each language arm returns from it and no value of its language another arm's statement
  * falls into.
  */
-const writeConstant = (out: Lines, statement: CreateConstant): void => {
-	out.line(constantHead(statement.name, statement.params, statement.returns))
+const writeConstant = (
+	out: Lines,
+	statement: CreateConstant,
+	head: "CREATE FUNCTION" | "CREATE OR REPLACE FUNCTION"
+): void => {
+	out.line(constantHead(head, statement.name, statement.params, statement.returns))
 	switch (statement.language) {
 		case "sql":
 			out.line(sqlConstantClauses("strict" in statement && statement.strict))
@@ -1980,7 +1984,7 @@ const writeConstant = (out: Lines, statement: CreateConstant): void => {
 
 /** A stub constant's CREATE FUNCTION (sql/ast.ts StubConstant): its head, its language's clauses and its NULL. */
 const writeStubConstant = (out: Lines, statement: StubConstant): void => {
-	out.line(constantHead(statement.name, statement.params, statement.returns))
+	out.line(constantHead("CREATE FUNCTION", statement.name, statement.params, statement.returns))
 	switch (statement.language) {
 		case "sql":
 			out.line(constantClauses)
@@ -2057,11 +2061,12 @@ const createDeclaredFunction = (out: Lines, fn: CreateDeclaredFunction): void =>
 
 /** A constant's head, CREATE FUNCTION <name>(<params>) RETURNS <type>. */
 const constantHead = (
+	head: "CREATE FUNCTION" | "CREATE OR REPLACE FUNCTION",
 	name: ObjectName,
 	params: ReadonlyArray<FunctionParam>,
 	returns: TypeRef
 ): string =>
-	`CREATE FUNCTION ${printObjectName(name)}(${params.map((p) => `${quoteIdent(p.name)} ${printType(p.type)}`).join(", ")}) RETURNS ${printType(returns)}`
+	`${head} ${printObjectName(name)}(${params.map((p) => `${quoteIdent(p.name)} ${printType(p.type)}`).join(", ")}) RETURNS ${printType(returns)}`
 
 /**
  * What every SQL constant is: a function PostgreSQL evaluates once and may run in parallel, STRICT where it is
@@ -2260,11 +2265,30 @@ const writeCommand = (out: Lines, statement: SqlStatement): void => {
 			return listed(out.nested(), statement.actions.map(printAlterTableAction))
 		}
 		case "rename":
-			return out.line(
-				statement.object === "ROLE"
-					? `ALTER ROLE ${printRole(statement.name)} RENAME TO ${printRole(statement.to)}`
-					: `ALTER ${statement.object} ${statement.object === "SCHEMA" ? quoteIdent(statement.name) : printObjectName(statement.name)} RENAME TO ${quoteIdent(statement.to)}`
-			)
+			switch (statement.object) {
+				case "ROLE":
+					return out.line(
+						`ALTER ROLE ${printRole(statement.name)} RENAME TO ${printRole(statement.to)}`
+					)
+				case "SCHEMA":
+					return out.line(
+						`ALTER SCHEMA ${quoteIdent(statement.name)} RENAME TO ${quoteIdent(statement.to)}`
+					)
+				case "FUNCTION":
+					return out.line(
+						`ALTER FUNCTION ${printObjectName(statement.name)}(${statement.args.map(printType).join(", ")}) RENAME TO ${quoteIdent(statement.to)}`
+					)
+				case "TABLE":
+				case "INDEX":
+				case "MATERIALIZED VIEW":
+				case "DOMAIN":
+				case "STATISTICS":
+					return out.line(
+						`ALTER ${statement.object} ${printObjectName(statement.name)} RENAME TO ${quoteIdent(statement.to)}`
+					)
+			}
+		case "replaceConstant":
+			return writeConstant(out, statement.constant, "CREATE OR REPLACE FUNCTION")
 		case "renameColumn":
 			return out.line(
 				`ALTER TABLE ${printObjectName(statement.table)} RENAME COLUMN ${quoteIdent(statement.from)} TO ${quoteIdent(statement.to)}`
@@ -2355,7 +2379,7 @@ const writeCommand = (out: Lines, statement: SqlStatement): void => {
 		case "packConstant":
 			return writePack(out, statement)
 		case "createConstant":
-			return writeConstant(out, statement)
+			return writeConstant(out, statement, "CREATE FUNCTION")
 		case "stubConstant":
 			return writeStubConstant(out, statement)
 		case "createGuardTrigger": {
@@ -2510,6 +2534,7 @@ export const commandsOf = (statement: SqlStatement): NonEmptyReadonlyArray<Comma
 		case "createCarrier":
 		case "alterTable":
 		case "rename":
+		case "replaceConstant":
 		case "renameColumn":
 		case "renameConstraint":
 		case "createDomain":

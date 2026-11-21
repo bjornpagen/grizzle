@@ -3833,19 +3833,26 @@ type DomainReading =
 
 /** Each roster constant of an installation in `schema`, by its function's manifest identifier, with its roster's fate:
  * its names constant and its live-codes constant (physical/ddl/constants.ts rosterConstants), named by the roster's
- * recorded name and codes. A constant is named by its content and never renamed, so it names its roster whatever
+ * recorded name and codes, and, for a roster continued under another name, by that name too, the name a declared
+ * rename gives a constant it keeps (deploy/diff/declared.ts pairedConstants). So a constant names its roster whatever
  * renames and asides the draft gives the roster's domains. */
 const rosterConstantsOf = (
 	schema: string,
 	rosters: ReadonlyArray<PreviousRoster>
 ): ReadonlyMap<string, RosterFate> =>
 	new Map(
-		rosters.flatMap(({ codec, fate }) => {
-			const constants = rosterConstants(codec)
-			return [constants.names, constants.live].map(
-				(id) => [qualifiedIdent("function", schema, identifierOf(id)), fate] as const
+		rosters.flatMap(({ codec, fate }) =>
+			[
+				rosterConstants(codec),
+				...(fate.kind === "continued" && fate.as !== codec.roster
+					? [rosterConstants({ ...codec, roster: fate.as })]
+					: [])
+			].flatMap((constants) =>
+				[constants.names, constants.live].map(
+					(id) => [qualifiedIdent("function", schema, identifierOf(id)), fate] as const
+				)
 			)
-		})
+		)
 	)
 
 /**

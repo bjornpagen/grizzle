@@ -1552,6 +1552,26 @@ export type RenameObject =
 			readonly name: string
 			readonly to: string
 	  }
+	| {
+			/** ALTER FUNCTION <name>(<args>) RENAME TO <to>: a function by its signature, which keeps its OID, so what
+			 * depends on it (a CHECK that calls it) stands. */
+			readonly kind: "rename"
+			readonly object: "FUNCTION"
+			readonly name: ObjectName
+			readonly args: ReadonlyArray<TypeRef>
+			readonly to: string
+	  }
+
+/**
+ * CREATE OR REPLACE FUNCTION of a constant under the name and signature it holds: its text written again, what it
+ * computes the same, as a declared rename that keeps a row function leaves it naming a renamed type
+ * (deploy/diff/declared.ts pairedConstants). PostgreSQL swaps the body under the OID every CHECK that calls it depends
+ * on, checking no row, so it is drafted for no other change: a constant that computes otherwise is another function.
+ */
+export interface ReplaceConstant {
+	readonly kind: "replaceConstant"
+	readonly constant: PlainConstant
+}
 
 export interface RenameColumn {
 	readonly kind: "renameColumn"
@@ -2501,6 +2521,7 @@ export type Ddl =
 	| CreateTable
 	| AlterTable
 	| RenameObject
+	| ReplaceConstant
 	| RenameColumn
 	| RenameConstraint
 	| CreateDomain

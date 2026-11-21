@@ -2401,6 +2401,7 @@ class StatementAuditor {
 			case "createTable":
 			case "alterTable":
 			case "rename":
+			case "replaceConstant":
 			case "renameColumn":
 			case "renameConstraint":
 			case "createDomain":
@@ -2599,7 +2600,24 @@ class StatementAuditor {
 				} else {
 					this.objectName(statement.name, Str.toLowerCase(statement.object), "name")
 				}
+				if (statement.object === "FUNCTION") {
+					for (const [i, t] of statement.args.entries()) {
+						this.at(`args[${i}]`, () => {
+							this.type(t)
+						})
+					}
+				}
 				this.ident(statement.to, "new name", "to")
+				return
+			case "replaceConstant":
+				this.at("constant", () => {
+					this.constantHeader(statement.constant)
+					this.argumentsBody(statement.constant.params, () => {
+						this.at("body", () => {
+							this.constantBody(statement.constant.body)
+						})
+					})
+				})
 				return
 			case "renameColumn":
 			case "renameConstraint":

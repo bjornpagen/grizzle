@@ -178,6 +178,7 @@ const created = (s: SqlStatement): ReadonlyArray<Created> => {
 		case "delete":
 		case "merge":
 		case "rename":
+		case "replaceConstant":
 		case "renameColumn":
 		case "renameConstraint":
 		case "dropIndex":
@@ -272,9 +273,19 @@ export const hashedNames = (comments: ReadonlyArray<SqlStatement>): ReadonlyArra
 /** What a RENAME, a column's or a constraint's names under its new name: none for a statement that renames nothing. */
 const renamedTo = (s: SqlStatement): ReadonlyArray<CommentTarget> => {
 	if (s.kind === "rename") {
-		return s.object === "ROLE" || s.object === "SCHEMA"
-			? [{ kind: s.object, name: s.to }]
-			: [{ kind: s.object, name: { schema: s.name.schema, name: s.to } }]
+		switch (s.object) {
+			case "ROLE":
+			case "SCHEMA":
+				return [{ kind: s.object, name: s.to }]
+			case "FUNCTION":
+				return [{ kind: "FUNCTION", name: { schema: s.name.schema, name: s.to, args: s.args } }]
+			case "TABLE":
+			case "INDEX":
+			case "MATERIALIZED VIEW":
+			case "DOMAIN":
+			case "STATISTICS":
+				return [{ kind: s.object, name: { schema: s.name.schema, name: s.to } }]
+		}
 	}
 	if (s.kind === "renameColumn") {
 		return [{ kind: "COLUMN", relation: s.table, column: s.to }]

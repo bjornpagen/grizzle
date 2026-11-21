@@ -743,6 +743,7 @@ export const reportable = (installation: Installation): ReadonlyArray<Identified
 						)
 					: []
 			case "rename":
+			case "replaceConstant":
 			case "renameColumn":
 			case "renameConstraint":
 			case "lockTable":

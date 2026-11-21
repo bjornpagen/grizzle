@@ -19,6 +19,7 @@ import {
 	type DeclaredName,
 	declaredAlike,
 	identifierOf,
+	identity,
 	parseDeclaredName,
 	type TemporaryCensus
 } from "#compiler/core/identity.ts"
@@ -45,10 +46,12 @@ import {
 	partsAt,
 	partsByTable
 } from "#compiler/deploy/snapshot/objects.ts"
-import type {
-	RecordedObject,
-	RecordedStatement,
-	WholeStatement
+import {
+	type RecordedObject,
+	type RecordedStatement,
+	recordedObject,
+	transformRecorded,
+	type WholeStatement
 } from "#compiler/deploy/snapshot/recorded.ts"
 import type {
 	DeploySnapshot,
@@ -57,6 +60,7 @@ import type {
 	SnapshotRelation,
 	SnapshotWriting
 } from "#compiler/deploy/snapshot/types.ts"
+import { rosterCodec } from "#compiler/ir/codes.ts"
 import type { SideDesc } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { Family } from "#compiler/ir/family.ts"
@@ -70,9 +74,12 @@ import {
 	restatedLawColumn,
 	type RestatingSpelling
 } from "#compiler/laws/model/restate.ts"
+import { rosterConstants } from "#compiler/physical/ddl/constants.ts"
+import { rowFunctionIdentity } from "#compiler/physical/ddl/row-functions.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
 import { innerIdent, namedIdent, parseIdent } from "#compiler/physical/obligations/graph.ts"
+import { matchAre } from "#compiler/scalar/regex/admit.ts"
 import {
 	type AlterTableAction,
 	type ColumnDef,
@@ -82,12 +89,13 @@ import {
 	type InlineConstraint,
 	type KeyColumn,
 	type ObjectName,
+	type QualifiedFunctionRef,
 	type SqlStatement,
 	type TableConstraint,
 	nameKey,
 	type NameKey
 } from "#compiler/sql/ast.ts"
-import { ownColumnHooks, Transform, transformExpr } from "#compiler/sql/transform.ts"
+import { identityHooks, ownColumnHooks, Transform, transformExpr } from "#compiler/sql/transform.ts"
 
 /**
  * A draft's declarations (`--rename`, `--drop`) applied to the previous snapshot: the statements that carry out its
@@ -534,7 +542,15 @@ export const applyDeclarations = (
 	}
 	const relations = renamedSnapshot(previous, target, renamed, fields, anew, temporaries)
 	const names = previousNames(previous, after, renamed, fields, anew, handles, handlesAway)
-	const columns = lawColumnRenames(relations.previous, installation, names, temporaries)
+	const law = lawColumnRenames(relations.previous, installation, names, temporaries)
+	const constants = pairedConstants(
+		law.previous,
+		installation,
+		[...renamed].flatMap(([from, to]) =>
+			before[from]?.kind === "closed" ? [{ from: declared(from), to: declared(to) }] : []
+		)
+	)
+	const columns = { ...law, previous: constants.previous }
 	/** The tables a declaration touched: each renamed relation's, each one whose fields are renamed, and each whose law
 	 * columns move. */
 	const touched = new Map(
@@ -577,6 +593,7 @@ export const applyDeclarations = (
 		statements: [
 			...relations.statements,
 			...columns.statements,
+			...constants.statements,
 			...parts.statements,
 			...roles.statements
 		],
@@ -900,6 +917,217 @@ const lawColumnDefinitions = (
 	return out
 }
 
+/**
+ * The constants the previous snapshot holds that the target holds under another name, each found by what it is: a
+ * renamed roster's names and live-codes constants restated under the roster's previous name (physical/ddl/constants.ts
+ * rosterConstants), and a row function restated under the previous snapshot's names, each type of a renamed roster
+ * named as before and each constant it calls by the name it was found as (physical/ddl/row-functions.ts
+ * rowFunctionIdentity). A constant is named by its content, so a restated name the previous snapshot holds is the same
+ * content, which the declarations only renamed; any other is another function, which the diff creates beside the
+ * previous one and re-points what calls it at, as before.
+ *
+ * The migration renames each one found, `ALTER FUNCTION … RENAME TO`, which keeps its OID, so every CHECK that calls it
+ * and every domain whose CHECK reads it stands, neither added again nor validated; and writes a row function's text
+ * again in place, CREATE OR REPLACE under the same signature, where its text names a renamed type, since PostgreSQL
+ * carries no rename into a function's source. Only a constant found by its content takes this path. The previous
+ * snapshot then holds each under the target's name, its object the target's, every call of it in its statements and
+ * every edge naming it renamed.
+ */
+const pairedConstants = (
+	previous: DeploySnapshot,
+	installation: Installation,
+	rosters: ReadonlyArray<{ readonly from: DeclaredName; readonly to: DeclaredName }>
+): { readonly statements: ReadonlyArray<SqlStatement>; readonly previous: DeploySnapshot } => {
+	if (!isNonEmpty(rosters)) {
+		return { statements: [], previous }
+	}
+	const held = new Map(
+		previous.manifest.objects.flatMap((o) => {
+			const v = installed(o)
+			return v.kind === "constant" ? [[v.create.name.name, o] as const] : []
+		})
+	)
+	const targets = installation.manifest.objects.flatMap((o) =>
+		o.ddl.flatMap((st) =>
+			st.kind === "createConstant" && !held.has(st.name.name) ? [{ object: o, create: st }] : []
+		)
+	)
+	/** Each renamed roster's types, its domain's and its sets', by the target's name key, under their previous names. */
+	const types = new Map<NameKey, string>(
+		rosters.flatMap(({ from, to }): ReadonlyArray<readonly [NameKey, string]> => {
+			const codec = installation.names.codes.rosters.get(to)
+			if (codec === undefined) {
+				return []
+			}
+			const domain = installation.names.rosterDomain(to)
+			const bits = installation.names.bitsDomain(to)
+			return [
+				[
+					nameKey({ schema: domain.schema, name: identifierOf(identity.rosterDomain(to)) }),
+					identifierOf(identity.rosterDomain(from))
+				] as const,
+				[
+					nameKey({
+						schema: bits.schema,
+						name: identifierOf(identity.bitsDomain(to, codec.width))
+					}),
+					identifierOf(identity.bitsDomain(from, codec.width))
+				] as const
+			]
+		})
+	)
+	/** Each constant found, by the target's identifier: the previous identifier it was found as. */
+	const found = new Map<string, string>()
+	for (const { from, to } of rosters) {
+		const codec = installation.names.codes.rosters.get(to)
+		if (codec === undefined) {
+			continue
+		}
+		const now = rosterConstants(codec)
+		const was = rosterConstants({ ...codec, roster: from })
+		for (const [n, w] of [
+			[now.names, was.names],
+			[now.live, was.live]
+		] as const) {
+			const target = identifierOf(n)
+			const prior = identifierOf(w)
+			if (
+				target !== prior &&
+				held.has(prior) &&
+				targets.some((t) => t.create.name.name === target)
+			) {
+				found.set(target, prior)
+			}
+		}
+	}
+	/** Whether a held constant is already the previous one of a target constant found. */
+	const renamedFrom = (name: string): boolean => [...found.values()].includes(name)
+	const languages = new Map(
+		[...installation.names.spellings.table].map(([language, spelling]) => [
+			matchAre(spelling),
+			language
+		])
+	)
+	const scope = {
+		installed: installation.names.installed,
+		languageOf: (are: string) => languages.get(are)
+	}
+	const restate = new Transform({
+		...identityHooks,
+		typeRef: (t) => {
+			const was = t.kind === "named" ? types.get(nameKey(t)) : undefined
+			return was === undefined || t.kind !== "named" ? t : { ...t, name: was }
+		},
+		functionRef: (fn) => {
+			const was = found.get(fn.name)
+			return was === undefined ? fn : { ...fn, name: was }
+		}
+	})
+	/** Whether a definition names a renamed roster's type, which its text then holds under the target's name. */
+	const namesARenamedType = (
+		create: Extract<SqlStatement, { readonly kind: "createConstant" }>
+	) => {
+		let names = false
+		new Transform({
+			...identityHooks,
+			typeRef: (t) => {
+				names = names || (t.kind === "named" && types.has(nameKey(t)))
+				return t
+			}
+		}).statement(create)
+		return names
+	}
+	/** The row functions the previous snapshot holds that the target does not, by name: each a candidate for a target row
+	 * function the declarations only renamed. */
+	const heldRows = [...held].flatMap(([name, o]) => {
+		const v = installed(o)
+		return v.kind === "constant" &&
+			v.create.language === "plpgsql" &&
+			!targets.some((t) => t.create.name.name === name)
+			? [name]
+			: []
+	})
+	const replaced: Array<SqlStatement> = []
+	for (const { create } of targets) {
+		if (create.language !== "plpgsql" || found.has(create.name.name)) {
+			continue
+		}
+		const restated = identifierOf(
+			rowFunctionIdentity(scope, {
+				params: create.params.map((p) => restate.functionParam(p)),
+				returns: restate.type(create.returns),
+				body: restate.expr(create.body)
+			})
+		)
+		const prior = heldRows.find((h) => h === restated && !renamedFrom(h))
+		if (prior !== undefined) {
+			found.set(create.name.name, prior)
+			if (namesARenamedType(create)) {
+				replaced.push({ kind: "replaceConstant", constant: create })
+			}
+		}
+	}
+	if (found.size === 0) {
+		return { statements: [], previous }
+	}
+	const statements: Array<SqlStatement> = [
+		...targets.flatMap(({ create }): ReadonlyArray<SqlStatement> => {
+			const prior = found.get(create.name.name)
+			return prior === undefined
+				? []
+				: [
+						{
+							kind: "rename",
+							object: "FUNCTION",
+							name: { schema: create.name.schema, name: prior },
+							args: create.params.map((p) => p.type),
+							to: create.name.name
+						}
+					]
+		}),
+		...replaced
+	]
+	const renamedTo = new Map([...found].map(([target, prior]) => [prior, target] as const))
+	const objectOf = new Map(
+		targets.flatMap(({ object, create }) =>
+			found.has(create.name.name) ? [[create.name.name, recordedObject(object)] as const] : []
+		)
+	)
+	const identOf = new Map(
+		[...renamedTo].flatMap(([prior, target]) => {
+			const was = held.get(prior)
+			const now = objectOf.get(target)
+			return was === undefined || now === undefined ? [] : [[was.ident, now.ident] as const]
+		})
+	)
+	const calls = {
+		...identityHooks,
+		functionRef: (fn: QualifiedFunctionRef) => {
+			const to = renamedTo.get(fn.name)
+			return to === undefined ? fn : { ...fn, name: to }
+		}
+	}
+	return {
+		statements,
+		previous: {
+			...previous,
+			manifest: {
+				...previous.manifest,
+				objects: previous.manifest.objects.map((o): RecordedObject => {
+					const v = installed(o)
+					const to = v.kind === "constant" ? renamedTo.get(v.create.name.name) : undefined
+					const now = to === undefined ? undefined : objectOf.get(to)
+					return now ?? { ...o, ddl: transformRecorded(o.ddl, calls) }
+				}),
+				edges: previous.manifest.edges.map((e) => ({
+					from: identOf.get(e.from) ?? e.from,
+					to: identOf.get(e.to) ?? e.to
+				}))
+			}
+		}
+	}
+}
+
 /** A law column the installation plans on a table: its name and its plan. */
 interface PlannedLawColumn {
 	readonly column: string
@@ -1149,7 +1377,44 @@ const renamedSnapshot = (
 					}
 		return { name, r, first }
 	})
-	const firstAsides = moving.map((m) => m.first)
+	/** Each renamed roster's bits domain the previous installation holds, where the target's is of its width and no other
+	 * domain holds its name: renamed with its roster, through its aside name, so no column typed by it is converted. */
+	const domainsHeld = new Map(
+		previous.manifest.objects.flatMap((o) => {
+			const v = installed(o)
+			return v.kind === "domain" ? [[v.create.name.name, v.create.name] as const] : []
+		})
+	)
+	const bitsMoving = movers.flatMap(
+		([name, r]): ReadonlyArray<{ readonly first: Aside; readonly to: string }> => {
+			const to = renamed.get(name)
+			const now = to === undefined ? undefined : heldIn(after, to)
+			if (r.kind !== "closed" || to === undefined || now?.kind !== "closed") {
+				return []
+			}
+			const width = rosterCodec(declared(name), r.codes).width
+			const was = identifierOf(identity.bitsDomain(declared(name), width))
+			const becomes = identifierOf(identity.bitsDomain(declared(to), width))
+			const holder = domainsHeld.get(was)
+			return holder === undefined ||
+				was === becomes ||
+				domainsHeld.has(becomes) ||
+				rosterCodec(declared(to), now.codes).width !== width
+				? []
+				: [
+						{
+							first: {
+								kind: "domain",
+								name: holder,
+								cause: { kind: "declared" },
+								to: asideName(temporaries, holder.name)
+							},
+							to: becomes
+						}
+					]
+		}
+	)
+	const firstAsides = [...moving.map((m) => m.first), ...bitsMoving.map((m) => m.first)]
 	const aside = setAside(previous, firstAsides)
 	/** Each renamed relation from its aside name to the target's, its parts left aside for pairedParts. */
 	const secondAsides = moving.flatMap(({ name, r, first }): ReadonlyArray<Aside> => {
@@ -1167,7 +1432,13 @@ const renamedSnapshot = (
 		}
 		return [{ kind: "table", name: from, cause: { kind: "declared" }, to: now.ident, owned: [] }]
 	})
-	const moved = setAside(aside, secondAsides)
+	const bitsSecond = bitsMoving.map(({ first, to }): Aside => ({
+		kind: "domain",
+		name: { schema: first.name.schema, name: first.to },
+		cause: { kind: "declared" },
+		to
+	}))
+	const moved = setAside(aside, [...secondAsides, ...bitsSecond])
 	const columns = columnRenames(moved, after, renamed, fields, anew, temporaries)
 	/** Each relation's record under its target name: a renamed one's under the target's, with its identifier; one whose
 	 * name a rename takes none, since it ends here; any other's under its own. */
@@ -1195,6 +1466,7 @@ const renamedSnapshot = (
 		statements: [
 			...firstAsides.flatMap((a) => asideStatements(a)),
 			...secondAsides.flatMap((a) => asideStatements(a)),
+			...bitsSecond.flatMap((a) => asideStatements(a)),
 			...columns.statements
 		],
 		previous: { ...columns.previous, theory },
@@ -1664,6 +1936,7 @@ const withColumns = (
 		case "alterDefaultPrivileges":
 		case "createPolicy":
 		case "rename":
+		case "replaceConstant":
 		case "drop":
 		case "comment":
 		case "renameColumn":
@@ -1743,6 +2016,7 @@ const withRoles = (s: WholeStatement, roles: ReadonlyMap<string, string>): Whole
 			return s.object === "ROLE" ? { ...s, name: role(s.name) } : s
 		case "comment":
 			return s.on.kind === "ROLE" ? { ...s, on: { kind: "ROLE", name: role(s.on.name) } } : s
+		case "replaceConstant":
 		case "select":
 		case "insert":
 		case "update":
