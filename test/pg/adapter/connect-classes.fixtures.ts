@@ -221,7 +221,7 @@ export const attemptOf = (s: SubstrateShape, schema: string, condition: ConnectF
 			database: s.database,
 			role: writer.role,
 			password: writer.password,
-			ca: s.cluster.ca,
+			ca: s.cluster.tls.ca,
 			secrets: [own]
 		}
 		switch (condition) {
@@ -237,7 +237,7 @@ export const attemptOf = (s: SubstrateShape, schema: string, condition: ConnectF
 			case "no such database":
 				return { ...direct, database: `${s.database}_absent` }
 			case "a CA that is not the server's":
-				return { ...direct, ca: s.cluster.wrongCa }
+				return { ...direct, ca: s.cluster.tls.wrongCa }
 			case "a server that offers no TLS":
 				return { ...direct, port: (yield* fakeServer("N")).port }
 			case "a server that answers neither":

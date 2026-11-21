@@ -1,13 +1,13 @@
 /** What the properties of consumer.test.ts read: its spaces, models and helpers. */
 
 import { array, type Gen, int } from "@bjornpagen/testing/gen"
-import type { PgMember } from "@bjornpagen/testing/pg"
 import { String as Str } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
+import type { TlsMember } from "#test/support/cluster.ts"
 import { Id, type IdValue } from "#test/support/ids.ts"
 import { generatedTemplate } from "#test/support/install-migrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
@@ -139,11 +139,15 @@ export const grizzleCli = (consumer: SubmoduleConsumer): string =>
 	`${consumer.modules}/node_modules/@bjornpagen/grizzle/src/cli/bin.ts`
 
 /**
- * The consumer's configuration: one relation, migrated into the owner's own database of the case's cluster, through
- * its TLS and the owner's password, which the configuration wraps in the project's Redacted, so grizzle reads it
- * only when its effect is the project's.
+ * The consumer's configuration: one relation, migrated into the case's own database `database` on `member` under that
+ * database's name as its role prefix, so no role it makes meets another case's on the member, through its TLS and the
+ * owner's password, which the configuration wraps in the project's Redacted, so grizzle reads it only when its effect is
+ * the project's.
  */
-export const consumerConfig = (member: PgMember): string => `import { readFileSync } from "node:fs"
+export const consumerConfig = (
+	member: TlsMember,
+	database: string
+): string => `import { readFileSync } from "node:fs"
 import net from "node:net"
 import { Effect, Redacted } from "effect"
 import pgDriver from "pg"
@@ -163,11 +167,12 @@ export default defineConfig({
 			host: "localhost",
 			port: ${member.port},
 			open: () => new net.Socket(),
-			ca: readFileSync(${jsonText(member.caFile)}, "utf8"),
+			ca: readFileSync(${jsonText(member.tls.caFile)}, "utf8"),
 			servername: "localhost"
 		},
-		database: ${jsonText(member.owner)},
+		database: ${jsonText(database)},
 		role: ${jsonText(member.owner)},
+		rolePrefix: ${jsonText(database)},
 		password: Effect.succeed(Redacted.make(readFileSync(${jsonText(member.passwordFile)}, "utf8").trim()))
 	})
 })

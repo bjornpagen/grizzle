@@ -910,7 +910,7 @@ export const makeTap = (cluster: BudgetedCluster): Tap => {
 			})
 			const server = upstream(
 				cluster.port,
-				cluster.ca,
+				cluster.tls.ca,
 				(chunk) => {
 					backend(chunk)
 					carrier.data(chunk, push)

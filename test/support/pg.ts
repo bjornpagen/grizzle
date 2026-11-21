@@ -1,7 +1,6 @@
 import { Buffer } from "node:buffer"
 import net, { connect as netConnect } from "node:net"
 import { checkServerIdentity, type PeerCertificate, connect as tlsConnect } from "node:tls"
-import type { PgMember } from "@bjornpagen/testing/pg"
 import {
 	Array as Arr,
 	Data,
@@ -35,6 +34,7 @@ import { admittedIdentifier } from "#compiler/core/identity.ts"
 import type { ConstraintName } from "#compiler/core/ids.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { succeeded } from "#test/support/assert.ts"
+import type { TlsMember } from "#test/support/cluster.ts"
 import { pgCluster, pgPin } from "#test/support/env.ts"
 import { testIdleTimeout } from "#test/support/limits.ts"
 import type { BudgetedCluster } from "#test/support/substrate/budget.ts"
@@ -552,7 +552,7 @@ const harnessSessionOptions = Arr.join(
 )
 
 const connectOnce = (
-	cluster: PgMember,
+	cluster: TlsMember,
 	options: SessionOptions,
 	reading: ValueReading
 ): Effect.Effect<PgConnection, SqlError, Scope.Scope> =>
@@ -560,7 +560,7 @@ const connectOnce = (
 		const target: Target = {
 			host: pgPin.host,
 			port: cluster.port,
-			ca: cluster.ca,
+			ca: cluster.tls.ca,
 			servername: pgPin.host
 		}
 		const client = new Client({
@@ -708,7 +708,7 @@ export const clusterTransport = (cluster: BudgetedCluster): Transport =>
 		host: pgPin.host,
 		port: cluster.port,
 		open: () => new net.Socket(),
-		ca: cluster.ca,
+		ca: cluster.tls.ca,
 		servername: pgPin.host
 	})
 

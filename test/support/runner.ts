@@ -1,17 +1,19 @@
 import type { PgMember, Platform } from "@bjornpagen/testing/pg"
-import type {
-	Need,
-	NeedFailed as NeedFailedError,
-	RunLease,
-	WorkerIndex
-} from "@bjornpagen/testing/property"
+import type { Need, NeedFailed as NeedFailedError, WorkerIndex } from "@bjornpagen/testing/property"
 import { NeedFailed } from "@bjornpagen/testing/property"
-import { DatabasePrefix, PgCluster, type PgSession } from "@bjornpagen/testing/resources"
+import {
+	DatabasePrefix,
+	PgCluster,
+	type PgSession,
+	type Statements
+} from "@bjornpagen/testing/resources"
 import { Context, Effect, Layer, Option, type Scope } from "effect"
+import { overTls } from "#test/support/cluster.ts"
 import { pgCluster } from "#test/support/env.ts"
 import { type PgConnection, type SqlError, textSession } from "#test/support/pg.ts"
 import { type BudgetedCluster, budgeted, connectionBudget } from "#test/support/substrate/budget.ts"
 import { connectionsPerWorker } from "#test/support/substrate/connections.ts"
+import { superuserStatements } from "#test/support/substrate/shared.ts"
 
 /**
  * grizzle's services for the toolchain's runner (`toolchain-test`, test.config.ts): its local cluster (pg.config.ts) as
@@ -47,14 +49,14 @@ declare module "@bjornpagen/testing/resources" {
  */
 export class WorkerBudgets extends Context.Service<
 	WorkerBudgets,
-	Readonly<{ on: (member: PgMember) => BudgetedCluster }>
+	Readonly<{ on: (member: PgMember) => Effect.Effect<BudgetedCluster, NeedFailedError> }>
 >()("grizzle-workspace/test/support/runner/WorkerBudgets") {}
 
 /** The worker's budget on `member` (WorkerBudgets): what every connection the worker opens there draws from. */
 export const memberBudget = (
 	member: PgMember
-): Effect.Effect<BudgetedCluster, never, WorkerBudgets> =>
-	Effect.map(WorkerBudgets, (budgets) => budgets.on(member))
+): Effect.Effect<BudgetedCluster, NeedFailedError, WorkerBudgets> =>
+	Effect.flatMap(WorkerBudgets, (budgets) => budgets.on(member))
 
 /**
  * A statement's failure as the need `need` failed by it: what the need was doing, and the server's report (its SQLSTATE
@@ -79,19 +81,29 @@ const clusterFailed = (doing: string) => sqlNeedFailed("grizzle cluster", doing)
  */
 const prefix = DatabasePrefix("gz_")
 
-/** The budgets of one worker, by member name (WorkerBudgets on), each made the first time it is asked for. */
+/**
+ * The budgets of one worker, by member name (WorkerBudgets on), each made the first time it is asked for, over the
+ * member as grizzle reaches it (cluster.ts overTls): a member of no TLS fails the need that reached it.
+ */
 const workerBudgets = (): Context.Service.Shape<typeof WorkerBudgets> => {
 	const budgets = new Map<string, BudgetedCluster>()
 	return {
-		on: (member) => {
-			const made = budgets.get(member.name)
-			if (made !== undefined) {
-				return made
-			}
-			const budget = budgeted(member, connectionBudget(connectionsPerWorker))
-			budgets.set(member.name, budget)
-			return budget
-		}
+		on: (member) =>
+			Effect.suspend(() =>
+				Option.match(Option.fromUndefinedOr(budgets.get(member.name)), {
+					onSome: Effect.succeed,
+					onNone: () =>
+						Effect.mapBoth(overTls(member), {
+							onFailure: (refused) =>
+								NeedFailed.make({ need: "grizzle cluster", message: refused.message }),
+							onSuccess: (reached) => {
+								const budget = budgeted(reached, connectionBudget(connectionsPerWorker))
+								budgets.set(member.name, budget)
+								return budget
+							}
+						})
+				})
+			)
 	}
 }
 
@@ -104,7 +116,7 @@ const ownerSession =
 	(budgets: Context.Service.Shape<typeof WorkerBudgets>) =>
 	(member: PgMember, database: string): Effect.Effect<PgSession, NeedFailedError, Scope.Scope> =>
 		Effect.gen(function* () {
-			const cluster = budgets.on(member)
+			const cluster = yield* budgets.on(member)
 			const connection = yield* Effect.mapError(
 				textSession(cluster, {
 					database,
@@ -125,24 +137,47 @@ const ownerSession =
 		})
 
 /**
- * The runner layer test.config.ts provides: PgCluster over grizzle's local cluster (pg.config.ts), made and started the
- * first time a need reaches it (PgCluster.layer reads nothing as it builds), templates built from its template, the
- * toolchain's owner sessions and advisory locks in the owner's own database, every session the owner's (ownerSession);
+ * A session as the member's bootstrap superuser, the account, in `database` on `member` (shared.ts
+ * superuserStatements), drawing one of the worker's budget's permits (from `budgets`) for its life: what the toolchain
+ * remakes in a clone that only a superuser may be sure to make.
+ */
+const superuserSession =
+	(budgets: Context.Service.Shape<typeof WorkerBudgets>) =>
+	(member: PgMember, database: string): Effect.Effect<Statements, NeedFailedError, Scope.Scope> =>
+		Effect.gen(function* () {
+			const cluster = yield* budgets.on(member)
+			const statements = yield* Effect.mapError(
+				superuserStatements(cluster, database, "grizzle-resources superuser"),
+				clusterFailed(`a superuser's session in ${database} on member ${member.name}`)
+			)
+			return {
+				query: (sql, params) =>
+					Effect.mapError(statements.query(sql, params), clusterFailed(`${sql} in ${database}`))
+			}
+		})
+
+/**
+ * The runner layer test.config.ts provides: PgCluster over grizzle's local cluster (pg.config.ts), its members read the
+ * first time a need reaches it (PgCluster.layer reads nothing as it builds, and a run never settles a member), templates built from its template, the
+ * toolchain's owner sessions and advisory locks in the owner's own database (ownerSession), and its bootstrap
+ * superuser's sessions (superuserSession);
  * and the worker's budgets (WorkerBudgets), which the owner's sessions and every substrate of the worker draw from.
  */
-export const grizzleCluster: Layer.Layer<
-	PgCluster | WorkerBudgets,
-	never,
-	Platform | RunLease | WorkerIndex
-> = Layer.unwrap(
-	Effect.sync(() => {
-		const budgets = workerBudgets()
-		return Layer.merge(
-			PgCluster.layer({ prefix, cluster: pgCluster, connect: ownerSession(budgets) }),
-			Layer.succeed(WorkerBudgets, budgets)
-		)
-	})
-)
+export const grizzleCluster: Layer.Layer<PgCluster | WorkerBudgets, never, Platform | WorkerIndex> =
+	Layer.unwrap(
+		Effect.sync(() => {
+			const budgets = workerBudgets()
+			return Layer.merge(
+				PgCluster.layer({
+					prefix,
+					cluster: pgCluster,
+					connect: ownerSession(budgets),
+					superuser: superuserSession(budgets)
+				}),
+				Layer.succeed(WorkerBudgets, budgets)
+			)
+		})
+	)
 
 /**
  * The worker's own cluster service, as a need: what a search nested in a case runs its needs on (searchInline under

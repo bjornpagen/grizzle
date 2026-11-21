@@ -276,7 +276,7 @@ const benchRun = Effect.fn("benchRun")(function* (options: ColdOptions) {
 		port: s.cluster.port,
 		database: s.database,
 		password: Redacted.value(credentials.password),
-		caFile: s.cluster.caFile,
+		caFile: s.cluster.tls.caFile,
 		account: a1,
 		idleTimeoutMs: timerMaxMs
 	}

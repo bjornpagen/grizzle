@@ -92,53 +92,54 @@ through (the toolchain's `vendor/toolchain/packages/devtools/bin/gate.sh`): a co
   `.grizzle-build-<the tarball's SHA-256>`, is kept unless `--force` is given. While any postmaster runs from the
   installation, found by its executable wherever its data directory is, the rename is refused unless `--force` is
   given, since it would replace that postmaster's binaries under it: before the build, and again just before the
-  rename. Stop the cluster first (`pnpm pg stop`), and start it after (`pnpm pg start`).
+  rename. Stop the units that run it first (`systemctl --user stop 'postgres@*'`), and start them after.
 - **`pnpm pg:source`** puts the pin's source beside the installation, extracted from the release's tarball, and the
   build directory beside it, configured to install there, each made anew. `pnpm pg:build` runs it first. The tarball is
   fetched once, kept as `<version>.tar.bz2` only once its SHA-256 is the pin's, and verified again before every
   extraction, so no other source is ever built. Nothing is ever built in the source.
-- **`pg.config.ts`** states the one local cluster, which the testing library makes and runs (`@bjornpagen/testing/pg`,
-  the toolchain's README "one local cluster maker"): made and started the first time a test, a benchmark or a command
-  reaches it, under its port's lock, and taken as it is when it runs. Its state is `~/.local/var/toolchain-pg/5442/`:
-    - a family of builtin C.UTF-8 members, the first on port 5442 and the rest on ports free when each was made, each
-      serving at most 16 of a run's workers (`workersPerMember`, measured: SSI's LWLocks and the checkpointer are a
-      member's own), localhost only, with TLS 1.3, SCRAM, and only `hostssl` lines for TCP, PostgreSQL's default
-      `wal_level`, replica, at which a live source's slot turns logical decoding on by itself, as production's will,
+- **`pg.config.ts`** states the one local cluster, which the testing library settles and reads
+  (`@bjornpagen/testing/pg`): its members are the workbench's PostgreSQL units `postgres@grizzle-test-<i>`
+  (~/Documents/beefy-workspace/workbench/parts/postgres), the machine's PostgreSQL 19.0, which systemd makes on a
+  member's first start. `pnpm pg settle` (`toolchain-pg settle`, which runs itself as the unit `grizzle-test-settle`)
+  starts each member and gives it the spec; a run only reads the members and refuses one that is not as the spec
+  states, naming the command, and nothing a run does ever changes a server:
+    - a family of members, member i listening on localhost at 5442 + i besides its socket
+      (`$XDG_RUNTIME_DIR/postgresql-grizzle-test-<i>`), each serving at most 16 of a run's workers (`workersPerMember`,
+      measured: SSI's LWLocks and the checkpointer are a member's own), verify-full TLS only for TCP with the workbench's
+      server certificate, whose CA `$PGSSLROOTCERT` names, and the owner's password, PostgreSQL's default `wal_level`,
+      replica, at which a live source's slot turns logical decoding on by itself, as production's will,
       `max_pred_locks_per_transaction = 2048`, production's, whose relation promotion PostgreSQL derives at 1023, and
       `timezone` and `log_timezone` at UTC whatever the machine's zone;
-    - each member sized to its share of a full-width run (`pg.config.ts` `sizing`): `max_connections` holds each worker's
-      connections (`test/support/substrate/connections.ts` `connectionsPerWorker`) and the connections outside every
-      worker's budget, `max_replication_slots` and `max_wal_senders` a live source for each worker and each standing
-      installation, and `shared_buffers` each worker's largest database, no more, since PostgreSQL scans every shared
-      buffer at each commit that drops a relation;
+    - each member sized by `pg.config.ts` `sizing`: `max_connections` as many backends as the machine's memory holds of
+      a busy one (`busyBackendBytes`, measured), shared among the members, a replication slot and a WAL sender for each,
+      and `shared_buffers` each worker's largest database, no more, since PostgreSQL scans every shared buffer at each
+      commit that drops a relation. Nothing admits or queues a connection: a member past its capacity refuses one
+      (53300), and the measurement is taken again;
     - the same on every member whatever the machine (the testing library's settings): `client_connection_check_interval
       = 1000`, so a backend whose client died mid-statement (a test process ended by its hang guard or a SIGKILL) ends
       at its next poll of the client and lets go of its transaction id, which every logical slot's creation on the member
       waits behind, and `fsync = off`, a throwaway cluster's;
-    - a local CA and server certificate, plus an unrelated CA for the refusal tests;
+    - an unrelated CA for the refusal tests;
     - the role `grizzle_dev` (the migration identity and owner, not a superuser, with CREATEROLE to create the logins
       and world roles a migration declares, and REPLICATION), with SET on `deadlock_timeout` and on
-      `session_replication_role`, which the testing library grants as it makes a member (`pg.config.ts`
-      `ownerParameters`);
+      `session_replication_role`, which the settle grants (`pg.config.ts` `ownerParameters`);
     - `grizzle_template`, carrying pgvector in `vector_ext`, from which every test database is cloned and which accepts no
       connections. A test database runs `deadlock_timeout = 10ms` and `default_transaction_isolation = serializable` as
       its own defaults, and commits synchronously, PostgreSQL's default, so a VACUUM after a load settles the visibility
       map (`test/support/pg.ts` `testDatabaseSettings`).
-- **`pnpm pg <command>`** runs the testing library's `toolchain-pg` on it: `start`, `stop` and `status`; `doctor`, the
-  go/no-go check (the server that made it, the machine's sizing, the settings every member holds, the owner's grants,
-  verify-full TLS with a wrong CA, a wrong host name and plaintext all refused, and without `--quick` a database made
-  from the template with its extensions and locale), whose quick checks every network run starts with; `psql`,
-  verify-full as `grizzle_dev`; `admin`, as the bootstrap superuser over the socket; `env`; `reset`, which drops test
-  databases and roles; `destroy`; and `init --force` or `--adopt`, which make it again or size it to this machine.
-  `TOOLCHAIN_PG_CLUSTER=<port>` names a cluster of the same spec of your own, for every command and test.
+- **`pnpm pg <command>`** runs the testing library's `toolchain-pg` on it: `settle`; `check`, which reads every member
+  as a run does and writes nothing; `psql`, verify-full as `grizzle_dev`; `admin`, as the bootstrap superuser over the
+  socket; and `env`. A case that needs a cluster of its own, its settings fresh from their declaration
+  (test/pg/substrate/orphan.test.ts), takes `test/support/private-cluster.ts` `privateCluster`: the unit
+  `postgres@grizzle-private-<worker>-0`, settled for the case and removed after it.
 - **`packages/pg`** (`@bjornpagen/grizzle-pg`) is the TypeScript `pnpm pg:build` runs (the postmasters that run from
   the installed build) and the pin as a typed value, a workspace member so a consumer's
   install, never one inside its submodule, gives it its dependencies; its `grizzle-pg` bin runs `build` and `source`.
   test/pg/package/consumer.test.ts imports the pin and runs a migrate through a consumer's links in each install
   layout.
 
-Every TCP connection to the cluster, the tests' included, is verify-full TLS. The bootstrap superuser alone connects
-over the local socket, by peer authentication: `pnpm pg admin` and the tests' superuser sessions
+Every TCP connection to the cluster, the tests' included, is verify-full TLS. The bootstrap superuser, the account's
+own user, alone connects over the local socket, which trusts it: `pnpm pg admin` and the tests' superuser sessions
 (`test/support/substrate/substrate.ts`). Nothing keeps a PID file: child processes are owned by an `AbortSignal`,
 `await using` or a `DisposableStack`.
 

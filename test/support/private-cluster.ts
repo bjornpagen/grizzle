@@ -1,54 +1,85 @@
-import {
-	clusterUp,
-	destroyCluster,
-	freePort,
-	localCluster,
-	type PgMember,
-	type Platform
-} from "@bjornpagen/testing/pg"
-import { ConfigProvider, Effect, FileSystem, type Scope } from "effect"
+import { localCluster, type PgMember, settled, unitOf } from "@bjornpagen/testing/pg"
+import { type Need, NeedFailed, WorkerIndex } from "@bjornpagen/testing/property"
+import type { NodeServices } from "@effect/platform-node/NodeServices"
+import { Array as Arr, Config, Effect, FileSystem, type Scope } from "effect"
+import { ChildProcess } from "effect/process"
+import { busyBackendBytes } from "#pg.config.ts"
 import { pgCluster } from "#test/support/env.ts"
 
 /**
- * A cluster of grizzle's spec (pg.config.ts: its build, owner, template and extensions) that is one case's own: one
- * member on a port free when it is made, its connections sized per worker as the shared cluster's are and its other
- * sizes PostgreSQL's defaults, its state under a home of its own in the
- * temporary directory (whose path is short enough for the member's socket), made by the testing library as every member
- * is (@bjornpagen/testing/pg clusterUp: its TLS, hba and the settings every member holds), and destroyed, its postmaster
- * stopped, when the scope closes. For a case that changes a cluster's own state or needs its settings fresh from their
- * declaration, which the shared cluster's members fixed when they were made.
+ * A cluster of grizzle's spec (pg.config.ts: its owner, template, extensions and the parameters the owner sets) that is
+ * one case's own, for a case that changes a cluster's own state or needs its settings fresh from their declaration,
+ * which the shared cluster's members hold from their last settle: the workbench's unit postgres@grizzle-private-<w>-0
+ * of the case's worker w, reached over its socket alone (the bootstrap superuser's, which trusts the account), one
+ * member admitting as many connections as the machine holds of busy backends (pg.config.ts busyBackendBytes), a
+ * replication slot and a WAL sender for each, and PostgreSQL's defaults otherwise. A worker runs one case at a time, so
+ * no two cases ever share one; a name of the worker's, not a random one, so what a killed run left is the next case's
+ * to remove (removed).
  */
-export const privateCluster: Effect.Effect<PgMember, never, Scope.Scope | Platform> = Effect.gen(
-	function* () {
+const privateSpec = (worker: number) =>
+	localCluster({
+		unit: `grizzle-private-${worker}`,
+		network: { kind: "socket" },
+		owner: pgCluster.owner,
+		template: pgCluster.template,
+		extensions: pgCluster.extensions,
+		ownerParameters: pgCluster.ownerParameters,
+		durability: "throwaway",
+		sizing: {
+			kind: "workers",
+			family: { kind: "one" },
+			connections: { kind: "capacity", backendBytes: busyBackendBytes },
+			replication: { kind: "capacity" },
+			sharedBuffers: { kind: "default" },
+			locks: { kind: "default" }
+		}
+	})
+
+/** A cluster's failure as the private cluster's need reports it. */
+const privateFailed = (doing: string) => (error: { readonly message: string }) =>
+	NeedFailed.make({ need: "grizzle private cluster", message: `${doing}: ${error.message}` })
+
+/**
+ * Everything of `spec`'s one member gone: its unit stopped (`systemctl --user stop`, by its name), then its data
+ * (~/.local/var/postgres/<member>, the workbench's postgres@ unit's) and its state (the testing library's, the owner's
+ * password and hba file, ~/.local/state/toolchain-pg/<unit>), so the next settle makes it from the declaration, as
+ * PostgreSQL's initdb and the spec give it. Nothing of a member that never ran is an error.
+ */
+const removed = (spec: ReturnType<typeof privateSpec>) =>
+	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
-		const home = yield* Effect.orDie(fs.makeTempDirectoryScoped({ prefix: "gz-pg-" }))
-		const port = yield* Effect.orDie(freePort([]))
-		const spec = localCluster({
-			port,
-			bin: pgCluster.bin,
-			owner: pgCluster.owner,
-			template: pgCluster.template,
-			extensions: pgCluster.extensions,
-			ownerParameters: pgCluster.ownerParameters,
-			peerLogins: [],
-			durability: "throwaway",
-			sizing: {
-				kind: "leased",
-				family: { kind: "one" },
-				connections: pgCluster.sizing.connections,
-				replication: { kind: "default" },
-				sharedBuffers: { kind: "default" },
-				locks: { kind: "default" }
-			}
-		})
-		const inHome = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-			Effect.provideService(
-				effect,
-				ConfigProvider.ConfigProvider,
-				ConfigProvider.fromEnvRecord({ HOME: home })
+		const home = yield* Config.String("HOME")
+		const state = yield* Config.withDefault(Config.String("XDG_STATE_HOME"), `${home}/.local/state`)
+		const member = `${spec.unit}-0`
+		const handle = yield* ChildProcess.make("systemctl", ["--user", "stop", unitOf(member)])
+		yield* handle.exitCode
+		yield* fs.remove(`${home}/.local/var/postgres/${member}`, { recursive: true, force: true })
+		yield* fs.remove(`${state}/toolchain-pg/${spec.unit}`, { recursive: true, force: true })
+	}).pipe(Effect.scoped, Effect.mapError(privateFailed(`removing ${spec.unit}`)))
+
+/**
+ * The case's own cluster (privateSpec, of the case's worker), as a need: each case's take removes what an earlier one
+ * left (removed), settles the cluster from its declaration (@bjornpagen/testing/pg settled: the unit started, made by
+ * its first start, and given the spec) and answers its one member, which the case's scope removes when it closes.
+ */
+export const privateCluster: Need<PgMember> = {
+	key: "grizzle private cluster",
+	open: Effect.map(
+		Effect.all([Effect.service(WorkerIndex), Effect.context<NodeServices>()]),
+		([worker, platform]): Effect.Effect<PgMember, NeedFailed, Scope.Scope> => {
+			const spec = privateSpec(worker.index)
+			return Effect.provide(
+				Effect.gen(function* () {
+					yield* removed(spec)
+					yield* Effect.addFinalizer(() => Effect.ignore(removed(spec)))
+					const members = yield* Effect.mapError(
+						settled(spec),
+						privateFailed(`settling ${spec.unit}`)
+					)
+					return Arr.headNonEmpty(members)
+				}),
+				platform
 			)
-		yield* Effect.addFinalizer(() => Effect.ignore(inHome(destroyCluster(spec))))
-		const [member] = yield* Effect.orDie(inHome(clusterUp(spec)))
-		return member
-	}
-)
+		}
+	)
+}

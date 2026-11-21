@@ -2,13 +2,13 @@
 
 import { createServer, type Socket } from "node:net"
 import { array, constant, element, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
-import type { PgMember } from "@bjornpagen/testing/pg"
 import { Deferred, Effect, Exit } from "effect"
 import { ReadFailure } from "#adapter/errors/execution.ts"
 import type { TlsFault } from "#adapter/errors/failures.ts"
 import type { SessionPool } from "#adapter/wire/session.ts"
 import { rowsOn } from "#test/pg/adapter/support.ts"
 import { loginTemplate } from "#test/pg/adapter/support.ts"
+import type { TlsMember } from "#test/support/cluster.ts"
 import { pgPin } from "#test/support/env.ts"
 
 export const currentUser =
@@ -248,9 +248,9 @@ type CaChoice = "local" | "wrong"
  * to verify against, never reaches a pool, since the parse of the connection refuses it at stage config
  * (test/unit/adapter/layer.test.ts).
  */
-export const caOf = (cluster: PgMember): { readonly [C in CaChoice]: string } => ({
-	local: cluster.ca,
-	wrong: cluster.wrongCa
+export const caOf = (cluster: TlsMember): { readonly [C in CaChoice]: string } => ({
+	local: cluster.tls.ca,
+	wrong: cluster.tls.wrongCa
 })
 
 /** The name a pool verifies: the very host it dials, or another (a tunnel's), each stated in full. */

@@ -222,7 +222,14 @@ const twinOf = (
 ) =>
 	Effect.gen(function* () {
 		const database = yield* clone
-		const cluster: Cluster = database.member
+		const { member } = database
+		const cluster: Cluster = yield* member.tls.kind === "tls"
+			? Effect.succeed({ port: member.port, ca: member.tls.ca, password: member.password })
+			: Effect.fail(
+					setupFailed("reaching the member over TLS")(
+						`member ${member.name} is reached over its socket alone, and grizzle connects over TLS only`
+					)
+				)
 		const rolePrefix = database.name
 		const login = yield* Effect.try({
 			try: (): ServedLogin<typeof Server> => served<typeof Server>(draft.file, loginName),

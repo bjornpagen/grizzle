@@ -1,12 +1,17 @@
-import type { LeasedSizing, LocalCluster, PgMember } from "@bjornpagen/testing/pg"
-import grizzleCluster from "#pg.config.ts"
+import {
+	bootstrapSuperuser,
+	type LocalCluster,
+	type PgMember,
+	type WorkerSizing
+} from "@bjornpagen/testing/pg"
+import grizzleCluster, { clusterNetwork } from "#pg.config.ts"
 import { pin } from "#pg/pin.ts"
 
 /**
  * The repository's PostgreSQL pin (scripts/pg/pin.env): configuration from a repository file, which any module reads,
  * with no cluster present. Which member of the local cluster a process reaches, its port and socket, and what exists
- * only once the cluster is made, its owner's password and its CA certificates, are the InitializedCluster service's
- * (test/support/cluster.ts): no module reads a port of its own.
+ * only once the cluster is settled, its owner's password and the CA its server's certificate chains to, are the
+ * InitializedCluster service's (test/support/cluster.ts): no module reads a port of its own.
  */
 export const pgPin = {
 	version: pin.PG_PIN_VERSION,
@@ -18,13 +23,20 @@ export const pgPin = {
 /**
  * grizzle's local cluster as pg.config.ts states it, which any module reads with no cluster present: its owner role,
  * grizzle_dev, the migration identity every installation is made by, and its template, grizzle_template, every test
- * database's origin; a cluster a run's workers lease (LeasedSizing), which the runner's layer takes.
+ * database's origin; a cluster a run's workers reach (WorkerSizing), which the runner's layer takes.
  */
-export const pgCluster: LocalCluster<LeasedSizing> = grizzleCluster
+export const pgCluster: LocalCluster<WorkerSizing> = grizzleCluster
 
 /**
- * The bootstrap superuser's URL to `database` over the local socket of `cluster`, the member this process reaches, where
- * peer authentication maps this OS user to it (@bjornpagen/testing/pg's hba).
+ * The port grizzle's cluster names its first member by (pg.config.ts clusterNetwork): what a module that names the
+ * cluster with no member at hand states, a connection no test opens among them.
+ */
+export const clusterPort: number = clusterNetwork.port
+
+/**
+ * The bootstrap superuser's URL to `database` over the local socket of `cluster`, the member this process reaches: the
+ * account's own user (@bjornpagen/testing/pg bootstrapSuperuser), whom the member's socket trusts, at the port its
+ * socket file is named by.
  */
 export const adminUrl = (cluster: PgMember, database: string): string =>
-	`postgresql://postgres@localhost:${cluster.port}/${encodeURIComponent(database)}?host=${encodeURIComponent(cluster.socket)}`
+	`postgresql://${encodeURIComponent(bootstrapSuperuser())}@localhost/${encodeURIComponent(database)}?host=${encodeURIComponent(cluster.socket)}&port=${cluster.port}`

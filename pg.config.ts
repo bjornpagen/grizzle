@@ -1,6 +1,4 @@
 import { localCluster } from "@bjornpagen/testing/pg"
-import { pin } from "#pg/pin.ts"
-import { connectionsPerWorker, outsideConnections } from "#test/support/substrate/connections.ts"
 
 /**
  * c*, the test workers one member of the family serves at once, each running one property's cases at a time (a runner
@@ -51,21 +49,16 @@ import { connectionsPerWorker, outsideConnections } from "#test/support/substrat
  * @decision 16: at this load every measure favors it over 32: 28% less time over the files both runs passed, the ratio
  *   steady across them (median 0.70), 9.7% less wall time, ten fewer hour cuts, a tenth to a half of 32's SSI waiting
  *   share and less checkpoint sync work a member, for 44 MB more shared memory a family, since each member's memory
- *   follows its share (the sizing below, and `toolchain-pg init --adopt` sizes the members a growing family keeps).
+ *   follows its share (the sizing below, which `toolchain-pg settle` gives every member).
  *   Every coupling it divides is a cluster's own, so the quantity is the files one member runs at once. One run at each
  *   value, at one seed, on a loaded machine; below 16 is unmeasured. No headroom added
  * @revalidate a run at 8, and at 16 again, at a quiet window; a network tier whose files hold more SERIALIZABLE
  *   transactions or hold them longer, or create more databases (the checkpoints' sync work); a change of SSI's
- *   settings (max_pred_locks_*), of the checkpoint settings or of a worker's connections (connectionsPerWorker); a PostgreSQL repin;
+ *   settings (max_pred_locks_*), of the checkpoint settings or of a worker's connections (test/support/substrate/connections.ts
+ *   connectionsPerWorker); a PostgreSQL repin;
  *   another machine or core count
  */
 const workersPerMember = 16
-
-/**
- * The installations on the local cluster outside the substrate's databases that serve live reads, each its own live
- * source, slot and walsender: qti-pie's and the dev database's.
- */
-const standingInstallations = ["qti_pie", "the dev database"] as const
 
 /**
  * The largest database a network worker's files work in, measured: each worker's shared database, which file after
@@ -100,28 +93,69 @@ const standingInstallations = ["qti_pie", "the dev database"] as const
 const workerDatabaseBytes = 38_916_935
 
 /**
- * grizzle's local cluster, which every test, benchmark and script reaches, made and started by the testing library
- * (@bjornpagen/testing/pg) the first time a need or `pnpm pg <command>` (toolchain-pg) reaches it: on port 5442, run by
- * the pinned build (scripts/pg/pin.env, `pnpm pg:build`), owned by grizzle_dev, the migration identity, its template
- * grizzle_template carrying pgvector in vector_ext, throwaway, a family of members each serving workersPerMember of a
- * run's workers, each member sized for its share: each worker's connections (connectionsPerWorker) and the connections
- * outside every worker's budget (outsideConnections); a live source's slot and walsender for each worker's substrate and
- * each standing installation; and each worker's largest database in shared buffers.
+ * One busy backend's proportional share of memory at the network tier's real work, the denominator of a member's
+ * connection capacity (@bjornpagen/testing/pg Capacity): each member admits as many connections as the machine's memory
+ * holds of it, shared among the members.
+ *
+ * @limitKind measured
+ * @owner grizzle's network test tier (pg.config.ts)
+ * @unit bytes
+ * @scope one client backend of a member of the local cluster, at its largest sampled, at the tier's real work
+ * @evidence every client backend's /proc/<pid>/smaps_rollup Pss on both members, read by the bootstrap superuser
+ *   (pg_read_file) once a second by a transient timer unit (grizzle-grizzlepg-pss<i>, one psql each, the three largest a
+ *   reading), beside two runs of the modules below as the unit grizzle-grizzlepg-pg, TEST_SEED 805314508 and 2455893079
+ *   (the first run's sampler, a psql \watch, ended 49 s in on a backend exiting mid-read); logs in
+ *   ~/.cache/grizzle/grizzlepg-pss<i>{.run1,}.log
+ * @observed 2026-11-21 12:43:39 to 12:44:28 UTC (the first run's window) and 12:51:45 to 12:55:53 UTC (the second run,
+ *   342 and 337 readings)
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB, shared with other lanes' runs; the
+ *   machine's PostgreSQL 19.0 as postgres@grizzle-test-0 and -1, settled by toolchain-pg settle at TOOLCHAIN6's
+ *   candidate d2b5f71 with this spec's shared buffers and fixed settings; grizzle's network tier at 12 and 17 workers
+ * @workload test/pg/substrate/budget, exit, orphan and forms, test/pg/package/consumer, test/pg/adapter/connection and
+ *   connect-classes, test/pg/laws/checks and test/pg/migrate/backfill: 23 properties, 0 failed, each run
+ * @result the largest Pss 99,615 kB (102,005,760 bytes), a login's backend running an install's CREATE TABLE in its
+ *   clone in the first run; the second run's largest 98,029 kB, an install's ALTER TABLE; every largest reading an
+ *   installation's DDL
+ * @decision the largest as it is: a reading a second misses a backend's peak between readings, and a backend that touches
+ *   more shared buffers or a larger catalog grows past it, which a member meets as a refusal ("too many clients",
+ *   53300), measured again, never padded here
+ * @revalidate a 53300 refusal in a run; a network tier whose cases install larger schemas; a change of shared_buffers
+ *   (workerDatabaseBytes, workersPerMember); a PostgreSQL repin; another machine
+ */
+export const busyBackendBytes = 102_005_760
+
+/**
+ * How grizzle's clients reach the cluster's members: over verify-full TLS at localhost, member i on 5442 + i, the one
+ * way grizzle's client connects (packages/grizzle/src/adapter/types/layer.ts refuses a socket path). A module that
+ * names the cluster's port with no member at hand reads it here (test/support/env.ts clusterPort).
+ */
+export const clusterNetwork = { kind: "tls", port: 5442 } as const
+
+/**
+ * grizzle's local cluster, which every test, benchmark and script reaches: the workbench's PostgreSQL units
+ * postgres@grizzle-test-<i> (~/Documents/beefy-workspace/workbench/parts/postgres), member i listening on localhost at
+ * 5442 + i over verify-full TLS alone, which grizzle's client demands, the server's certificate the workbench's, signed
+ * by the CA PGSSLROOTCERT names; owned by grizzle_dev, the migration identity, its template grizzle_template carrying
+ * pgvector in vector_ext, throwaway, a family of members each serving workersPerMember of a run's workers, each member
+ * admitting as many connections as the machine's memory holds of busy backends (busyBackendBytes), a replication slot
+ * and a WAL sender for each, a live source's leader holding one of each, and each worker's largest database in shared
+ * buffers. `pnpm pg settle` (toolchain-pg settle, run as a unit) gives every member this spec; a run only reads it and
+ * refuses a member that is not as it states. Nothing admits or queues a run's connections: a member past its capacity
+ * refuses one (53300), a problem met, measured and fixed where it happens.
  */
 export default localCluster({
-	port: 5442,
-	bin: { kind: "directory", directory: `${pin.GRIZZLE_PG_PREFIX}/bin` },
+	unit: "grizzle-test",
+	network: clusterNetwork,
 	owner: "grizzle_dev",
 	template: "grizzle_template",
 	extensions: [{ name: "vector", schema: "vector_ext" }],
 	ownerParameters: ["deadlock_timeout", "session_replication_role"],
-	peerLogins: [],
 	durability: "throwaway",
 	sizing: {
-		kind: "leased",
+		kind: "workers",
 		family: { kind: "spread", workersPerMember },
-		connections: { perWorker: connectionsPerWorker, outside: outsideConnections },
-		replication: { kind: "perWorker", perWorker: 1, outside: standingInstallations.length },
+		connections: { kind: "capacity", backendBytes: busyBackendBytes },
+		replication: { kind: "capacity" },
 		sharedBuffers: { kind: "perWorker", bytes: workerDatabaseBytes },
 		locks: { kind: "default" }
 	}

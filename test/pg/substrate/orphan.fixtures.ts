@@ -2,7 +2,7 @@
 import { assert } from "@bjornpagen/testing/assert"
 import { boolean, type Space } from "@bjornpagen/testing/gen"
 import { liveMillis, liveSleep } from "@bjornpagen/testing/live"
-import { clientCheckInterval, type Platform } from "@bjornpagen/testing/pg"
+import { bootstrapSuperuser, clientCheckInterval, type PgMember } from "@bjornpagen/testing/pg"
 import {
 	Array as Arr,
 	Duration,
@@ -19,7 +19,6 @@ import { trusted } from "#compiler/core/trusted.ts"
 import { pgPin } from "#test/support/env.ts"
 import { backendWaitStep, orphanExitBound, testExitWait } from "#test/support/limits.ts"
 import { type SqlError, sqlErrorOf } from "#test/support/pg.ts"
-import { privateCluster } from "#test/support/private-cluster.ts"
 import type { TextRows } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -89,7 +88,7 @@ export interface Throwaway {
 
 /** psql's arguments to reach `server` as the bootstrap superuser over its socket, under `name`, with `extra` added. */
 const conninfo = (server: Throwaway, name: string, extra: string): string =>
-	`host=${server.socket} port=${server.port} user=postgres dbname=postgres application_name='${name}'${extra}`
+	`host=${server.socket} port=${server.port} user=${bootstrapSuperuser()} dbname=postgres application_name='${name}'${extra}`
 
 /** Every column as its text: pg's parsers bypassed. */
 const textTypes = {
@@ -97,8 +96,8 @@ const textTypes = {
 } as const
 
 /**
- * A connection to `server` as the bootstrap superuser over its socket, by peer authentication, under `name`, ended when
- * the scope closes.
+ * A connection to `server` as the bootstrap superuser, the account, over its socket, which trusts it, under `name`,
+ * ended when the scope closes.
  */
 const connected = (server: Throwaway, name: string): Effect.Effect<Client, SqlError, Scope.Scope> =>
 	Effect.acquireRelease(
@@ -106,7 +105,7 @@ const connected = (server: Throwaway, name: string): Effect.Effect<Client, SqlEr
 			const client = new Client({
 				host: server.socket,
 				port: server.port,
-				user: "postgres",
+				user: bootstrapSuperuser(),
 				database: "postgres",
 				application_name: name,
 				types: textTypes
@@ -164,15 +163,14 @@ const completed = (
 	)
 
 /**
- * The case's cluster (test/support/private-cluster.ts privateCluster), for the scope: one member of grizzle's spec made
- * by the testing library as every member is, the settings every member holds among what it made (its
- * client_connection_check_interval, the logical WAL a slot needs), on a free port, its socket in its own state, stopped
- * and removed when the scope closes.
+ * The case's cluster (test/support/private-cluster.ts privateCluster), as its one member reaches it: settled from
+ * grizzle's spec for the case, the settings every member holds among what it was given (its
+ * client_connection_check_interval, the logical WAL a slot needs), its socket the unit's, removed when the case ends.
  */
-export const throwaway: Effect.Effect<Throwaway, never, Scope.Scope | Platform> = Effect.map(
-	privateCluster,
-	(member) => ({ port: member.port, socket: member.socket })
-)
+export const throwaway = (member: PgMember): Throwaway => ({
+	port: member.port,
+	socket: member.socket
+})
 
 /** The pid of the one backend named orphanName whose statement runs as `form` shows it (forms), polled for. */
 const runningBackend = (observer: Client, form: Form): Effect.Effect<number, SqlError> =>

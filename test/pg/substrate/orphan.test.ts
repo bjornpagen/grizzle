@@ -2,10 +2,10 @@
  * A backend whose client died mid-statement ends by itself, and a logical slot's creation on the cluster then proceeds,
  * against PostgreSQL 19 with the settings every member holds (@bjornpagen/testing/pg's settings.ts fixedSettings).
  *
- * Each case makes a cluster of grizzle's spec of its own (test/support/private-cluster.ts privateCluster), its one
- * member made by the testing library as every member is: a member's settings are fixed when it is made, so only a
- * member made from the declaration answers for a change to it, and the doctor holds every member of the shared cluster
- * to the declaration. Each case is a statement that holds a transaction id and never reads from or writes to its
+ * Each case settles a cluster of grizzle's spec of its own (test/support/private-cluster.ts privateCluster), its one
+ * member made afresh and given the declaration, as every member is: a member's settings are what its last settle gave
+ * it, so only a member made from the declaration answers for a change to it, and a run refuses a member of the shared
+ * cluster that is not as the declaration states. Each case is a statement that holds a transaction id and never reads from or writes to its
  * client, run by a psql child: computing, sleeping or waiting on a lock another session holds. Once pg_stat_activity
  * shows it running, the child is SIGKILLed, as a test process ended by its hang guard is. The box is the three ways
  * such a statement runs on; the oracle is the client check's own bound, PostgreSQL's
@@ -25,14 +25,16 @@ import {
 	orphanCase,
 	throwaway
 } from "#test/pg/substrate/orphan.fixtures.ts"
+import { privateCluster } from "#test/support/private-cluster.ts"
 
 /** A killed client's backend lets go of its transaction id, and a logical slot's creation proceeds. */
 export const orphanEnds = property.exhaust(finite(formSpace), {
-	needs: {},
+	needs: { cluster: privateCluster },
 	situations: formNames satisfies ReadonlyArray<Reached<Form>>,
-	check: (_resources, k: Case<Form>) => (form) =>
+	check: (resources, k: Case<Form>) => (form) =>
 		Effect.gen(function* () {
-			const server = yield* throwaway
+			const member = yield* resources.cluster
+			const server = throwaway(member)
 			return yield* Effect.andThen(
 				orphanCase(server, form),
 				Effect.sync(() => k.note(form))

@@ -495,7 +495,7 @@ export const psqlWriter = (
 				database,
 				credentials: options.as,
 				label: options.label,
-				caFile: cluster.caFile,
+				caFile: cluster.tls.caFile,
 				host: options.host,
 				hostaddr: options.hostaddr,
 				/**
@@ -1102,7 +1102,7 @@ const substrateOver = (
 	spawning: Context.Context<ChildProcessSpawner.ChildProcessSpawner>
 ): Effect.Effect<SubstrateShape, NeedFailed, Scope.Scope> =>
 	Effect.gen(function* () {
-		const cluster = budgets.on(taken.member)
+		const cluster = yield* budgets.on(taken.member)
 		const failed = sqlNeedFailed(form, `the substrate in ${taken.name}`)
 		const admin = yield* Effect.mapError(
 			connect(cluster, {
@@ -1212,7 +1212,7 @@ const heldTransactions = (
 			Scope.provide(
 				Effect.gen(function* () {
 					const database = yield* opened.clone
-					const cluster = budgets.on(database.member)
+					const cluster = yield* budgets.on(database.member)
 					const failed = sqlNeedFailed("Substrate.rolledBack", `the connection to ${database.name}`)
 					const connection = yield* Effect.mapError(
 						connect(cluster, {

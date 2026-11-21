@@ -3,6 +3,7 @@ import { Array as Arr, Effect, Option, type Scope, String as Str } from "effect"
 import { Client } from "pg"
 import { installationRoleOf } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import { InitializedCluster, lentVariable } from "#test/support/cluster.ts"
 import { adminUrl } from "#test/support/env.ts"
 import {
@@ -14,7 +15,6 @@ import {
 	testDatabaseSettings
 } from "#test/support/pg.ts"
 import { type BudgetedCluster, budgeted, connectionBudget } from "#test/support/substrate/budget.ts"
-import { outsideSessions } from "#test/support/substrate/connections.ts"
 import { allocatingPid } from "#test/support/substrate/names.ts"
 
 /**
@@ -124,10 +124,9 @@ const asText = (text: string): string => text
 const textTypes = { getTypeParser: (): ((text: string) => string) => asText } as const
 
 /**
- * A connection to `database` as the bootstrap superuser `postgres`, over the cluster's local socket, where peer
- * authentication maps this OS user to it (@bjornpagen/testing/pg's hba); the TLS sessions of test/support/pg.ts reach no
- * superuser. It lives for the scope, drawing one of its budget's permits; a connection refused is a failure its caller
- * makes a defect of the run.
+ * A connection to `database` as the bootstrap superuser, the account's own user, over the member's socket, which trusts
+ * it (env.ts adminUrl); the TLS sessions of test/support/pg.ts reach no superuser. It lives for the scope, drawing one
+ * of its budget's permits; a connection refused is a failure its caller makes a defect of the run.
  */
 export const superuserClient = (
 	cluster: BudgetedCluster,
@@ -149,6 +148,30 @@ export const superuserClient = (
 	)
 
 /**
+ * The bootstrap superuser's statements in `database` of `cluster` (superuserClient), each answering its rows, every
+ * column the server's text: what the toolchain's resources ask of a superuser's session (PgClusterSpec superuser), its
+ * connection drawing one of the budget's permits for the scope.
+ */
+export const superuserStatements = (
+	cluster: BudgetedCluster,
+	database: string,
+	applicationName: string
+) =>
+	Effect.map(superuserClient(cluster, database, applicationName), (client) => ({
+		query: (
+			sql: string,
+			params: ReadonlyArray<string>
+		): Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, SqlError> =>
+			Effect.map(
+				Effect.tryPromise({
+					try: () => client.query({ text: sql, values: [...params], rowMode: "array" }),
+					catch: sqlErrorOf
+				}),
+				(result) => trusted<ReadonlyArray<ReadonlyArray<unknown>>>(result.rows)
+			)
+	}))
+
+/**
  * A child process's place, lent by a case (substrate.ts Substrate.lentLayer): `width` of the permits of the case's
  * budget set aside for the current scope (ConnectionBudget within), and the environment that names them, the case's
  * member and its database to the child (cluster.ts lentVariable), whose connections draw from them, so the worker and
@@ -163,12 +186,15 @@ export const lend = (
 	})
 
 /**
- * The initialised cluster with a budget of the sweep's sessions outside every worker's budget, each it holds at once
- * (outsideSessions).
+ * The sessions the sweep holds at once, outside every worker's budget: its admin, and the bootstrap superuser's session
+ * it drops an owner login on (substrate.ts dropRole).
  */
+const sweepSessions = ["admin", "superuser"] as const
+
+/** The initialised cluster with a budget of the sweep's sessions (sweepSessions). */
 const swept: Effect.Effect<BudgetedCluster, never, InitializedCluster> = Effect.map(
 	InitializedCluster,
-	(cluster) => budgeted(cluster, connectionBudget(outsideSessions.sweep.length))
+	(cluster) => budgeted(cluster, connectionBudget(sweepSessions.length))
 )
 
 /** Whether process `pid` is running on this machine; a process of another user counts as running. */

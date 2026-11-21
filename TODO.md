@@ -471,19 +471,8 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
 - **PostgreSQL 19rc2 leaves the machine** once no clone pinned before the 19.0 repin runs a database job: its prefix
   ~/.local/opt/postgresql/19rc2 and 19rc2.build, and ~/Documents/postgres, the git source its patched pins were built
   from. den's (5443), effect-openapi-cli-generator's (5444) and learning_commons's (5445) clusters run it until each
-  repository takes a grizzle at or after the repin and moves its cluster as grizzle's moved (`toolchain-pg init --force`
-  from a 19.0 checkout, or `stop` then `init --adopt` for a kept one).
-- **Named clusters each size themselves as if alone (PRIVATECLUSTER, c30406e6; main's decision 2026-11-14: no change):**
-  every cluster TOOLCHAIN_PG_CLUSTER names takes pg.config.ts's sizing, the one machine-derived formula. On cassowary a cluster
-  is max_connections 4359, shared_buffers 304,064 blocks, max_pred_locks_per_transaction 30, 66 replication slots and
-  walsenders, shared_memory_size 2882 MB; init took 13 s and destroy 4 s (throwaway cluster 5460, 2026-11-14), with
-  247 GB of RAM, about 75 GB available and 49 GB of swap in use at the time. Revisit with numbers only under memory
-  pressure, by sizing a cluster from what it serves (testWorkers for a test tier, one worker's connections for a migrate
-  or an import), and mind the two catches: a down-sized cluster fails the doctor's sized checks, which test:network's global
-  setup runs, so clusters would split into two kinds, one that serves migrates only; and the measured per-worker buffer
-  bound (workerDatabaseBytes, 38.9 MB) is below PostgreSQL's 128 MB default shared_buffers and below a pantry
-  database, so a one-run cluster may want PostgreSQL's own defaults instead (a peer's hand-made 5442 had
-  max_connections 100 and ran pantry's migrate in 1 min 35 s, against over 30 min on shared 5433).
+  repository takes a grizzle at or after the repin and moves its cluster onto the workbench's PostgreSQL units, as
+  grizzle's moved (`toolchain-pg settle`).
 - **`bench:full` on a quiet machine.**
 - **Test-speed re-measures for a quiet window (TESTSPEED, 2026-11-14):** each was measured only under load averages of
   60 to 440 on 64 cores, which swung one file fourfold. test/pg/text/differential.test.ts's at-limit search, one at a

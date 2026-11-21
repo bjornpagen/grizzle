@@ -30,7 +30,7 @@ import type { AnyLogin } from "#compiler/public/schema.ts"
 import { servedPath } from "#compiler/served/forms.ts"
 import { ledger, shop } from "#test/pg/cli/fixture.ts"
 import { clusterMembers, memberAt as clusterMemberAt } from "#test/support/cluster.ts"
-import { pgCluster, pgPin } from "#test/support/env.ts"
+import { clusterPort, pgCluster, pgPin } from "#test/support/env.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { decodersIn, type SourcedLayer, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { clusterConnection, clusterPool, type SqlError } from "#test/support/pg.ts"
@@ -129,7 +129,7 @@ export const ownerOn = (cluster: PgMember, database: string): ConnectionSpec => 
  */
 export const unconnected: ConnectionSpec = {
 	database: "unconnected",
-	port: pgCluster.port,
+	port: clusterPort,
 	as: { kind: "migration identity", password: "owner" }
 }
 
@@ -150,7 +150,7 @@ export const offlineConnection: DbConnection = {
 	transport: {
 		kind: "sslRequest",
 		host: pgPin.host,
-		port: pgCluster.port,
+		port: clusterPort,
 		open: () => new net.Socket(),
 		ca: "-----BEGIN CERTIFICATE-----\nAA==\n-----END CERTIFICATE-----\n",
 		servername: pgPin.host

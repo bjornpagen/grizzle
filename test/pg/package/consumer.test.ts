@@ -11,9 +11,9 @@
  *
  * The package's pin and command line through a submodule consumer's own install (test/unit/dev/consumer.ts
  * submoduleConsumer), in every layout of that install: the consumer's link to grizzle runs generate and migrate into a
- * cluster of the case's own (test/support/private-cluster.ts privateCluster); the checkout never holds a node_modules of
- * its own, and grizzle's source finds the project's effect, the one package whose Redacted carries the configuration's
- * password, so a second copy fails the migrate. The project's import of `@bjornpagen/grizzle-pg/pin` resolves through
+ * database of the case's own on the shared cluster (Substrate.fresh), under its name as the role prefix; the checkout
+ * never holds a node_modules of its own, and grizzle's source finds the project's effect, the one package whose Redacted
+ * carries the configuration's password, so a second copy fails the migrate. The project's import of `@bjornpagen/grizzle-pg/pin` resolves through
  * its link and agrees with the shell: every assignment of pin.env as scripts/pg/build.sh and source.sh source it in
  * the checkout. Box: the layouts.
  */
@@ -56,7 +56,6 @@ import { succeeded } from "#test/support/assert.ts"
 import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import { pgPin } from "#test/support/env.ts"
 import { testIdleTimeout } from "#test/support/limits.ts"
-import { privateCluster } from "#test/support/private-cluster.ts"
 import { hardenedNode } from "#test/support/process.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -118,7 +117,7 @@ export const thePackageAsASubmoduleConsumerTakesItOnTheDevClusterOpensARoleOfALo
 								jsonText({
 									host: pgPin.host,
 									port: installed.cluster.port,
-									ca: installed.cluster.ca,
+									ca: installed.cluster.tls.ca,
 									database: installed.database,
 									password: Redacted.value(installed.as(own.server).password),
 									idleTimeoutMs: testIdleTimeout,
@@ -185,18 +184,18 @@ export const thePackageAsASubmoduleConsumerTakesItOnTheDevClusterOpensARoleOfALo
  */
 export const thePackagesPinAndCommandLineThroughASubmoduleConsumersInstallAConsumersOwnInstallImportsThePinAndRunsAMigrateItsCheckoutHoldingNoNodeModulesAndEffectOnePackage =
 	property.exhaust(finite(layoutGen), {
-		needs: {},
+		needs: { own: Substrate.fresh },
 		situations: nonEmpty(layouts, "the layouts of a consumer's install") satisfies ReadonlyArray<
 			Reached<Layout>
 		>,
-		check: (_, c: Case<Layout>) => (layout) =>
+		check: (resources, c: Case<Layout>) => (layout) =>
 			Effect.scoped(
 				Effect.gen(function* () {
 					c.note(layout)
 					const fs = yield* FileSystem.FileSystem
 					const path = yield* Path.Path
 					const consumer = yield* submoduleConsumer(layout)
-					const member = yield* privateCluster
+					const own = yield* resources.own
 					const imported = yield* runChild(
 						process.execPath,
 						[...hardenedNode, "--input-type=module", "-e", pinProgram],
@@ -238,7 +237,7 @@ export const thePackagesPinAndCommandLineThroughASubmoduleConsumersInstallAConsu
 					)
 					yield* fs.writeFileString(
 						path.join(consumer.project, "grizzle.config.ts"),
-						consumerConfig(member)
+						consumerConfig(own.cluster, own.database)
 					)
 					for (const step of ["generate", "migrate"]) {
 						const ran = yield* runChild(

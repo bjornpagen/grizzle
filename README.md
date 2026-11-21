@@ -1416,7 +1416,7 @@ Import it as `@bjornpagen/grizzle`, `@bjornpagen/grizzle/runtime`, `@bjornpagen/
 
 The agent guide is `vendor/grizzle/packages/grizzle/skills/grizzle/SKILL.md`: copy it to where your agent reads skills, and again after upgrading grizzle.
 
-To build grizzle's pinned PostgreSQL ([Development](#development)), add `vendor/grizzle/packages/pg` to the workspace too, and `@bjornpagen/grizzle-pg` (`workspace:*`) to your package's devDependencies. Its dependencies come from your install, so never run `pnpm install` inside `vendor/grizzle`: that gives grizzle a second copy of `effect`, and a `Redacted` made by one copy is unreadable by the other ("Unable to get redacted value"). Then `pnpm exec grizzle-pg build`, and `pnpm exec grizzle-pg source` for its source tree. A cluster of the build is the toolchain's testing library's: state it in your package's `pg.config.ts` with `` bin: { kind: "directory", directory: `${pin.GRIZZLE_PG_PREFIX}/bin` } `` and run it with `toolchain-pg`. The pin those commands build, `scripts/pg/pin.env`, is also a typed value: `import { pin } from "@bjornpagen/grizzle-pg/pin"` gives every assignment by its name (`pin.PG_PIN_VERSION`, `pin.PG_PIN_SHA256`, `pin.GRIZZLE_PG_PREFIX`), parsed from the same file the scripts source; a pin.env that does not parse fails the import.
+To build grizzle's pinned PostgreSQL ([Development](#development)), add `vendor/grizzle/packages/pg` to the workspace too, and `@bjornpagen/grizzle-pg` (`workspace:*`) to your package's devDependencies. Its dependencies come from your install, so never run `pnpm install` inside `vendor/grizzle`: that gives grizzle a second copy of `effect`, and a `Redacted` made by one copy is unreadable by the other ("Unable to get redacted value"). Then `pnpm exec grizzle-pg build`, and `pnpm exec grizzle-pg source` for its source tree. A cluster of the build is the toolchain's testing library's: state it in your package's `pg.config.ts` and settle it with `toolchain-pg settle`, which runs its members as the workbench's PostgreSQL units. The pin those commands build, `scripts/pg/pin.env`, is also a typed value: `import { pin } from "@bjornpagen/grizzle-pg/pin"` gives every assignment by its name (`pin.PG_PIN_VERSION`, `pin.PG_PIN_SHA256`, `pin.GRIZZLE_PG_PREFIX`), parsed from the same file the scripts source; a pin.env that does not parse fails the import.
 
 In full:
 
@@ -5675,8 +5675,8 @@ Everything runs natively on Linux, with no Docker. There is no build step: Node 
 git submodule update --init       # the toolchain, vendor/toolchain: the dev tools and the testing library
 pnpm install                      # and the git hooks, lefthook.yml
 pnpm pg:build                     # build the pinned PostgreSQL 19.0 from its release tarball, and pgvector
-pnpm pg start                     # make and start the local cluster on port 5442 (pg.config.ts): TLS and SCRAM only
-pnpm pg doctor                    # the go/no-go check of the cluster
+pnpm pg settle                    # start the local cluster's units and give them pg.config.ts: verify-full TLS from 5442
+pnpm pg check                     # read every member as a run reads it, writing nothing
 pnpm test                         # the unit and types tiers, which need no network
 pnpm test:network                 # the pg and schedules tiers, against the local cluster
 pnpm test:cli-generator           # the CLI generator's properties, its grizzle tier against the local cluster
@@ -5685,17 +5685,9 @@ pnpm types                        # after every edit: the typecheck, which the h
 pnpm check                        # before a release (turbo, cached): typecheck, workspace gate, oxlint, format, fallow, dedupe
 ```
 
-Every script and test reaches one local cluster, `pg.config.ts`, which the testing library makes and runs (`@bjornpagen/testing/pg`, `pnpm pg <command>` for `toolchain-pg`): made and started the first time a test or a command reaches it, on port 5442, its members spread over a run's workers, each sized to its share of the machine, its state under `~/.local/var/toolchain-pg/5442`. `TOOLCHAIN_PG_CLUSTER=<port>` names a cluster of your own of the same spec, built from the same installed PostgreSQL, with its own state, TLS material, sockets, roles and databases. PostgreSQL's SERIALIZABLE bookkeeping is per cluster, so a heavy run in a cluster of its own neither waits on the shared cluster's nor makes it wait:
+Every script and test reaches one local cluster, `pg.config.ts`, whose members are the workbench's PostgreSQL units `postgres@grizzle-test-<i>`, member i on port 5442 + i: `pnpm pg settle` (`toolchain-pg settle`, run as the unit `grizzle-test-settle`) starts them and gives them the spec, its members spread over a run's workers, each admitting as many connections as the machine's memory holds of busy backends. A run only reads them: a member not as the spec states is refused, naming `pnpm pg settle`, and nothing admits or queues a run's connections. PostgreSQL's SERIALIZABLE bookkeeping is per cluster, so a case that needs a cluster's own state takes one of its own (`test/support/private-cluster.ts`), settled for the case and removed after it.
 
-```sh
-TOOLCHAIN_PG_CLUSTER=<port> pnpm pg start                   # make and start a cluster of your own
-TOOLCHAIN_PG_CLUSTER=<port> pnpm pg doctor
-TOOLCHAIN_PG_CLUSTER=<port> pnpm pg env                     # its first member's port, socket, CA and owner's password file
-TOOLCHAIN_PG_CLUSTER=<port> pnpm test:properties <file>     # every test, and every child a test starts, reaches it
-TOOLCHAIN_PG_CLUSTER=<port> pnpm pg destroy                 # stop it and delete its state
-```
-
-`pnpm pg:build` refuses to exchange the installed build while any cluster runs from it: `pnpm pg stop` first, and `pnpm pg start` after.
+`pnpm pg:build` builds the PostgreSQL the machine's units run (the workbench's `machine/parts/postgresql` installs it); stop the units that run it (`systemctl --user stop 'postgres@*'`) before an exchange, and start them after.
 
 Every generated suite draws from one seed, `TEST_SEED`, which a run prints first. Setting it reproduces a run, and whether a suite reaches what it requires never depends on it. [CONTRIBUTING.md](CONTRIBUTING.md) has the code rules and how the tests are built on the testing library.
 

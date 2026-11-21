@@ -1,5 +1,4 @@
 import { availableParallelism } from "node:os"
-import { Array as Arr, Record as Rec } from "effect"
 
 /**
  * The most sessions a test's pool holds at once (PoolBounds.max): one per core of the machine, the owner's all-cores
@@ -29,37 +28,3 @@ const substrateSessions = ["owner", "observer"] as const
  * @from {@link testPoolMax}
  */
 export const connectionsPerWorker = testPoolMax + substrateSessions.length
-
-/** Whom a session outside every worker's budget connects as: the cluster's owner, or the bootstrap superuser. */
-type OutsideRole = "owner" | "superuser"
-
-/**
- * The sessions a member serves outside every worker's budget, by who holds them, each by the role it connects as, every
- * one its holder may hold at once: the doctor's (toolchain-pg doctor, one psql at a time, its owner checks and, between
- * them, its admin checks, which are the superuser's), the runner's collection (toolchain-test's, one session a member
- * before its workers start), and the sweep (shared.ts sweep, a bench's: its admin, and the bootstrap superuser's session
- * it drops an owner login on, substrate.ts dropRole).
- */
-export const outsideSessions = {
-	doctor: ["owner"],
-	collection: ["owner"],
-	sweep: ["owner", "superuser"]
-} as const satisfies Readonly<Record<string, ReadonlyArray<OutsideRole>>>
-
-/**
- * The connections outside every worker's budget that a member's sizing sets aside (pg.config.ts): the owner's sessions
- * of outsideSessions. The bootstrap superuser's sessions, the sweep's, an operator's `pnpm pg admin` and the doctor's
- * admin checks, take PostgreSQL's superuser_reserved_connections, which the sizing adds on top.
- *
- * @limitKind derived
- * @owner grizzle's network test tier (test/support/substrate/connections.ts)
- * @unit connections
- * @scope the owner's sessions one member serves outside every worker's budget at once
- * @derivation every holder of outsideSessions may hold its sessions at once (a doctor beside a run that collects beside
- *   a bench's sweep), so the member sets aside every one of them that is the owner's
- * @from {@link outsideSessions}
- */
-export const outsideConnections = Arr.filter(
-	Arr.flatten(Rec.values(outsideSessions)),
-	(role) => role === "owner"
-).length
