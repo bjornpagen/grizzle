@@ -191,9 +191,9 @@ export const aDigestIsSHA256OfItsFrameAndTheSpecifiedCanonicalTextAndAnIdentityD
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/core/fingerprint.ts",
-				original: '\t\t\t\t\tout.ascii(",")\n',
-				replacement: "",
+				file: "packages/engine/src/core/canonical.ts",
+				original: '\t\tif (i > 0) {\n\t\t\tout.ascii(",")\n\t\t}\n\t\tconst token = taken[i]\n',
+				replacement: "\t\tconst token = taken[i]\n",
 				why: "An array's members are written with no comma between them in its identity text; the identity digest differs."
 			},
 			{
@@ -269,15 +269,14 @@ export const aSchemaLevelsFingerprintHashesBytesLinearInItsDistinctPartsAUnionCh
 		kills: [
 			{
 				file: "packages/engine/src/core/fingerprint.ts",
-				original: "\t\tconst tokens = Object.isFrozen(container) ? this.#tokens : open\n",
-				replacement: "\t\tconst tokens = new Map<object, WellFormedText>()\n",
+				original: "\t\tconst digests = Object.isFrozen(container) ? this.#digests : open\n",
+				replacement: "\t\tconst digests = new Map<object, IdentityDigest>()\n",
 				why: "No container's token is kept, so each is digested at every path that reaches it: a chain one level deeper hashes reads times the bytes."
 			},
 			{
-				file: "packages/engine/src/core/fingerprint.ts",
-				original: "\t\tconst token = identityToken(this.#containerDigest(read, open, unframed))\n",
-				replacement:
-					'\t\tconst token = unwrap(encode(read.kind === "array" ? read.items : read.record, this.#options))\n',
+				file: "packages/engine/src/core/canonical.ts",
+				original: "\t\t\tsink.token(tokens.write, token)\n\t\t\tcontinue\n",
+				replacement: "",
 				why: "A container is written as its canonical text, the tree, where its token stands: the level's text spells the leaf at every path, and a chain one level deeper hashes reads times the bytes."
 			}
 		]

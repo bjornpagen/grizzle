@@ -161,10 +161,10 @@ export class IdentityDigests {
 		if (known !== undefined) {
 			return known
 		}
-		const digest = mintIdentityDigest(this.#containerDigest(read, tokens, unframed))
+		const identity = mintIdentityDigest(this.#containerDigest(read, tokens, unframed))
 		this.#digested += 1
-		digests.set(container, digest)
-		return digest
+		digests.set(container, identity)
+		return identity
 	}
 
 	/**
@@ -189,9 +189,9 @@ const unframed = (_out: Utf8Writer): void => undefined
  * A container's text as a member of another's identity text, its token: the JSON literal of its identity digest tagged
  * (`identityDigest`), "~identity:<digest>", each piece ASCII, written as it is with no string built of it.
  */
-const writeToken = (out: Utf8Writer, digest: IdentityDigest): void => {
+const writeToken = (out: Utf8Writer, identity: IdentityDigest): void => {
 	out.ascii(tokenOpen)
-	out.ascii(digest)
+	out.ascii(identity)
 	out.ascii(tokenClose)
 }
 

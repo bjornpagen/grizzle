@@ -925,6 +925,10 @@ const writeScalar = (sink: Sink, read: ScalarReading): void => {
 		case "object":
 			sink.scalar(`~${read.tagged.tag}:${read.tagged.payload}`)
 			return
+		case "undefined":
+		case "function":
+		case "symbol":
+			return read
 	}
 }
 

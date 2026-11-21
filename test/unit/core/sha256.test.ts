@@ -115,9 +115,10 @@ export const sha256HexHashesATextAsItsUTF8Bytes = property.explore(wellFormedTex
 	kills: [
 		{
 			file: "packages/engine/src/core/sha256.ts",
-			original: '\ttypeof input === "string" ? utf8(input) : input',
-			replacement: '\ttypeof input === "string" ? utf8(input).subarray(1) : input',
-			why: "A message's text is hashed past its first byte, by sha256Hex and sha256Digest alike; the digest's differential property fails."
+			original: '\thashOnce("sha256", input, "hex")',
+			replacement:
+				'\thashOnce("sha256", typeof input === "string" ? input.slice(1) : input, "hex")',
+			why: "A message's text is hashed past its first code unit by sha256Hex: the text path and the bytes path differ."
 		}
 	]
 })
@@ -175,9 +176,15 @@ export const sha256MessagesWrittenOneAfterAnotherIntoOneWriterAreEachTheDigestOf
 			},
 			{
 				file: "packages/engine/src/core/sha256.ts",
-				original: '\t\tthis.#hash = undefined\n\t\treturn hash.digest("hex")',
-				replacement: '\t\treturn hash.digest("hex")',
+				original: '\t\tthis.#hash = undefined\n\t\treturn streamed.digest("hex")',
+				replacement: '\t\treturn streamed.digest("hex")',
 				why: "A message's hash goes on into the next, so the second message's digest is of both; the digests differ."
+			},
+			{
+				file: "packages/engine/src/core/sha256.ts",
+				original: "\t\t\tthis.out.clear()\n",
+				replacement: "",
+				why: "A message hashed in one call is left in the writer, so the next message's digest is of both; the digests differ."
 			}
 		]
 	})

@@ -87,7 +87,7 @@ export const aMembersIdentityIsItsDescriptionsIdentityDigestEqualMembersOneAndEv
 			{
 				file: "packages/engine/src/core/fingerprint.ts",
 				original:
-					"\t\t\t\treturn mintIdentityDigest(this.#containerDigest(read, open, unframed))\n",
+					"\t\t\t\treturn mintIdentityDigest(this.#containerDigest(read, this.#within(), unframed))\n",
 				replacement:
 					"\t\t\t\tunwrap(writeCanonical(this.#messages.out, value, this.#options))\n\t\t\t\treturn mintIdentityDigest(this.#messages.hex())\n",
 				why: "The identity digest is the canonical text's, written whole: at 32 levels the text is past the longest string a process holds, so the member is refused where the property builds it."
@@ -123,8 +123,8 @@ export const aChangeSetsChainOfMembersDigestsEachPartTheyShareOnceSoMembersPastT
 		kills: [
 			{
 				file: "packages/engine/src/core/fingerprint.ts",
-				original: "\t\tconst tokens = Object.isFrozen(container) ? this.#tokens : open\n",
-				replacement: "\t\tconst tokens = open\n",
+				original: "\t\tconst digests = Object.isFrozen(container) ? this.#digests : open\n",
+				replacement: "\t\tconst digests = open\n",
 				why: "Each member's digest keeps its containers' tokens for itself alone, so every member digests the whole chain again and the parts members past the first digest grow with the depth."
 			}
 		]

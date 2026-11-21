@@ -100,6 +100,13 @@ export const theUTF8WriterWritesJSONStringifysTextOfEveryStringAndNumberAndEvery
 			},
 			{
 				file: "packages/text/src/utf8.ts",
+				original:
+					"const asciiEscaped = Uint8Array.from(asciiEscapes, (escape) => (escape === undefined ? 0 : 1))",
+				replacement: "const asciiEscaped = new Uint8Array(asciiEscapes.length)",
+				why: "No ASCII unit is escaped: a quotation mark, a reverse solidus or a control is written as itself, and the literal is no longer JSON.stringify's."
+			},
+			{
+				file: "packages/text/src/utf8.ts",
 				original: "\t\t\tout[to] = 0x30 + digit\n",
 				replacement: "\t\t\tout[to] = 0x31 + digit\n",
 				why: "A safe integer's digits are written one past each: the bytes differ."
