@@ -18,9 +18,14 @@ import {
 	guardedExpr,
 	type Inferred,
 	type InferredExpr,
+	type InferredHead,
+	type InferredMatch,
 	type InferredQuery,
+	type InferredRule,
 	type InferredSource,
-	type Located
+	type InferredStage,
+	type Located,
+	type QueryStageDesc
 } from "#compiler/ir/desc.ts"
 
 /** Every kind of expression, each once. */
@@ -122,21 +127,27 @@ const bound = (inner: Gen<InferredExpr>): Gen<BindTermDesc<Located, Inferred>> =
 		map(name, (n) => ({ kind: "relationParam", name: n }))
 	])
 
+/** How a space holds each query it imports: as generated, or behind a tripwire (tripwire). */
+type Imported = (q: InferredQuery) => InferredQuery
+
+const asGenerated: Imported = (q) => q
+
 /**
  * What an absent negates or an exists asks of: every kind of source, an imported query and a step with a bind map and
- * a scope of its own, and a call of a value argument and of rows of an imported query under a bind map.
+ * a scope of its own, and a call of a value argument and of rows of an imported query under a bind map, each imported
+ * query held as `imported` holds it.
  */
-const sourceOf = (inner: Gen<InferredExpr>): Gen<InferredSource> =>
+const sourceOf = (inner: Gen<InferredExpr>, imported: Imported): Gen<InferredSource> =>
 	oneOf<InferredSource>([
 		constant({ kind: "relation", name: "R" }),
 		(source) => ({
 			kind: "query",
-			query: source.draw(nested(inner)),
+			query: imported(source.draw(nested(inner))),
 			bind: source.draw(record(bound(inner)))
 		}),
 		(source) => ({
 			kind: "step",
-			query: source.draw(nested(inner)),
+			query: imported(source.draw(nested(inner))),
 			bind: source.draw(record(bound(inner)))
 		}),
 		map(name, (n) => ({ kind: "param", name: n, heading: { x: integer } })),
@@ -160,76 +171,88 @@ const sourceOf = (inner: Gen<InferredExpr>): Gen<InferredSource> =>
 				v: source.draw(inner),
 				r: {
 					kind: "rows",
-					query: source.draw(nested(inner)),
+					query: imported(source.draw(nested(inner))),
 					bind: source.draw(record(bound(inner)))
 				}
 			}
 		})
 	])
 
-/** One more level over `inner`: every kind that holds terms, each with its terms of `inner`'s. */
-const node = (inner: Gen<InferredExpr>): Gen<InferredExpr> => {
-	const some = array(inner, { min: 0, max: 3 })
-	const nonEmpty: Gen<Arr.NonEmptyReadonlyArray<InferredExpr>> = (source) => [
-		source.draw(inner),
-		...source.draw(array(inner, { min: 0, max: 2 }))
-	]
-	return oneOf<InferredExpr>([
-		map(some, (args) => ({ kind: "compute", fn: "add", args })),
-		map(inner, (a) => ({ kind: "compute", fn: "round", args: [a], scale: 2 })),
-		map(inner, (arg) => ({ kind: "cast", to: integer, arg })),
-		map(inner, (arg) => ({ kind: "base", arg })),
-		map(inner, (arg) => guardedExpr({ kind: "nonzero" }, arg)),
-		(source) => ({
-			kind: "cond",
-			pred: source.draw(inner),
-			onTrue: source.draw(inner),
-			onFalse: source.draw(inner)
-		}),
-		(source) => ({
-			kind: "when",
-			guard: { kind: "nonzero" },
-			subject: source.draw(inner),
-			proved: source.draw(inner),
-			otherwise: source.draw(inner)
-		}),
-		(source) => ({
-			kind: "compare",
-			op: "eq",
-			left: source.draw(inner),
-			right: source.draw(inner)
-		}),
-		(source) => ({
-			kind: "between",
-			arg: source.draw(inner),
-			low: source.draw(inner),
-			high: source.draw(inner)
-		}),
-		map(inner, (arg) => ({ kind: "in", arg, values: [1, 2] })),
-		map(nonEmpty, (args) => ({ kind: "and", args })),
-		map(nonEmpty, (args) => ({ kind: "or", args })),
-		map(inner, (arg) => ({ kind: "not", arg })),
-		(source) => ({ kind: "allen", left: source.draw(inner), mask: 1, right: source.draw(inner) }),
-		(source) => ({ kind: "pointIn", point: source.draw(inner), span: source.draw(inner) }),
-		(source) => ({
-			kind: "absent",
-			source: source.draw(sourceOf(inner)),
-			bindings: source.draw(record(inner))
-		}),
-		(source) => ({
-			kind: "exists",
-			source: source.draw(sourceOf(inner)),
-			bindings: source.draw(record(inner))
-		}),
-		map(nonEmpty, (args) => ({ kind: "closedAt", relation: "C", field: "f", args })),
-		map(some, (args) => ({ kind: "closedRow", relation: "C", args })),
-		map(nonEmpty, (args) => ({ kind: "closedHas", relation: "C", args })),
-		map(record(inner), (args) => ({ kind: "call", function: "f", args }))
-	])
-}
+/**
+ * One more level over `inner`: every kind that holds terms, each with its terms of `inner`'s, each imported query held
+ * as `imported` holds it.
+ */
+const node =
+	(imported: Imported) =>
+	(inner: Gen<InferredExpr>): Gen<InferredExpr> => {
+		const some = array(inner, { min: 0, max: 3 })
+		const nonEmpty: Gen<Arr.NonEmptyReadonlyArray<InferredExpr>> = (source) => [
+			source.draw(inner),
+			...source.draw(array(inner, { min: 0, max: 2 }))
+		]
+		return oneOf<InferredExpr>([
+			map(some, (args) => ({ kind: "compute", fn: "add", args })),
+			map(inner, (a) => ({ kind: "compute", fn: "round", args: [a], scale: 2 })),
+			map(inner, (arg) => ({ kind: "cast", to: integer, arg })),
+			map(inner, (arg) => ({ kind: "base", arg })),
+			map(inner, (arg) => guardedExpr({ kind: "nonzero" }, arg)),
+			(source) => ({
+				kind: "cond",
+				pred: source.draw(inner),
+				onTrue: source.draw(inner),
+				onFalse: source.draw(inner)
+			}),
+			(source) => ({
+				kind: "when",
+				guard: { kind: "nonzero" },
+				subject: source.draw(inner),
+				proved: source.draw(inner),
+				otherwise: source.draw(inner)
+			}),
+			(source) => ({
+				kind: "compare",
+				op: "eq",
+				left: source.draw(inner),
+				right: source.draw(inner)
+			}),
+			(source) => ({
+				kind: "between",
+				arg: source.draw(inner),
+				low: source.draw(inner),
+				high: source.draw(inner)
+			}),
+			map(inner, (arg) => ({ kind: "in", arg, values: [1, 2] })),
+			map(nonEmpty, (args) => ({ kind: "and", args })),
+			map(nonEmpty, (args) => ({ kind: "or", args })),
+			map(inner, (arg) => ({ kind: "not", arg })),
+			(source) => ({ kind: "allen", left: source.draw(inner), mask: 1, right: source.draw(inner) }),
+			(source) => ({ kind: "pointIn", point: source.draw(inner), span: source.draw(inner) }),
+			(source) => ({
+				kind: "absent",
+				source: source.draw(sourceOf(inner, imported)),
+				bindings: source.draw(record(inner))
+			}),
+			(source) => ({
+				kind: "exists",
+				source: source.draw(sourceOf(inner, imported)),
+				bindings: source.draw(record(inner))
+			}),
+			map(nonEmpty, (args) => ({ kind: "closedAt", relation: "C", field: "f", args })),
+			map(some, (args) => ({ kind: "closedRow", relation: "C", args })),
+			map(nonEmpty, (args) => ({ kind: "closedHas", relation: "C", args })),
+			map(record(inner), (args) => ({ kind: "call", function: "f", args }))
+		])
+	}
+
+/**
+ * Expressions at most three levels deep, of every kind, a leaf first so a failure shrinks toward one, each imported
+ * query held as `imported` holds it.
+ */
+const exprsHolding = (imported: Imported, depth: number): Gen<InferredExpr> =>
+	recursive(leaf, node(imported), depth)
 
 /** Expressions at most three levels deep, of every kind, a leaf first so a failure shrinks toward one. */
-export const exprs: Gen<InferredExpr> = recursive(leaf, node, 3)
+export const exprs: Gen<InferredExpr> = exprsHolding(asGenerated, 3)
 
 /** A value's members that hold no expression of its scope: a cast's type, a literal's, a guard, an in's values. */
 const termless: ReadonlySet<string> = new Set([
@@ -338,4 +361,205 @@ export const directTerms = (e: InferredExpr): ReadonlyArray<unknown> =>
 	Arr.map(
 		Arr.filter(sitesBelow(e, false), (s) => s.own && s.kind !== "relationParam"),
 		(s) => s.node
+	)
+
+/** The reads of the stage of any query a description imports: none, for a walk that never enters one. */
+export interface ImportReads {
+	count: number
+}
+
+/** `q` behind a tripwire: each read of its stage counted in `reads`. */
+const tripwire =
+	(reads: ImportReads): Imported =>
+	(q) => ({
+		get stage(): InferredStage {
+			reads.count += 1
+			return q.stage
+		}
+	})
+
+/** A head term of every kind: a scalar term, a count, an aggregate of a term, and a producer of one and of two. */
+const headTerm = (inner: Gen<InferredExpr>): Gen<InferredHead> =>
+	oneOf<InferredHead>([
+		inner,
+		constant({ kind: "aggregate", fn: "count" }),
+		map(inner, (arg) => ({ kind: "aggregate", fn: "sum", arg })),
+		map(inner, (arg) => ({ kind: "producer", fn: "pack", args: [arg] })),
+		(source) => ({
+			kind: "producer",
+			fn: "intersection",
+			args: [source.draw(inner), source.draw(inner)]
+		})
+	])
+
+/** At least one and at most two of `gen`'s. */
+const oneOrTwo =
+	<A>(gen: Gen<A>): Gen<Arr.NonEmptyReadonlyArray<A>> =>
+	(source) => [source.draw(gen), ...source.draw(array(gen, { min: 0, max: 1 }))]
+
+/**
+ * A rule of every part: matches of every source, conditions and head terms of every kind of `inner`'s, and, where
+ * `child` is given, an interior of one arm and an attachment of one of its queries, all in the rule's own namespace.
+ */
+const ruleOf = (
+	inner: Gen<InferredExpr>,
+	imported: Imported,
+	child: Gen<InferredQuery> | undefined
+): Gen<InferredRule> => {
+	const match: Gen<InferredMatch> = (source) => ({
+		source: source.draw(sourceOf(inner, imported)),
+		bindings: source.draw(record(inner)),
+		loc
+	})
+	const flat: Gen<InferredRule> = (source) => ({
+		vars: [],
+		matches: source.draw(array(match, { min: 0, max: 2 })),
+		where: source.draw(array(inner, { min: 0, max: 2 })),
+		head: source.draw(record(headTerm(inner))),
+		interiors: [],
+		attach: [],
+		loc
+	})
+	if (child === undefined) {
+		return flat
+	}
+	return (source) => ({
+		...source.draw(flat),
+		interiors: source.draw(
+			array(
+				map(flat, (arm) => ({ id: "i", arms: [arm] })),
+				{ min: 0, max: 1 }
+			)
+		),
+		attach: source.draw(
+			array(
+				map(child, (c) => ({ name: "a", child: c, loc })),
+				{ min: 0, max: 1 }
+			)
+		)
+	})
+}
+
+/** A take's bound: a literal, or a parameter. */
+const takeBound: Gen<
+	Extract<QueryStageDesc<Located, Inferred>, { readonly kind: "take" }>["take"]
+> = oneOf<Extract<QueryStageDesc<Located, Inferred>, { readonly kind: "take" }>["take"]>([
+	constant({ kind: "literal", k: 1 }),
+	map(name, (n) => ({ kind: "param", name: n }))
+])
+
+/**
+ * A query of every kind of stage over rules of `inner`'s terms: rules, a recursive definition, a union, a name, an
+ * approximation, a take of an order, and, `depth` above zero, an attachment, whose child and whose rules' interiors and
+ * attachments are queries `depth - 1` deep.
+ */
+const queryOf = (
+	inner: Gen<InferredExpr>,
+	imported: Imported,
+	depth: number
+): Gen<InferredQuery> => {
+	const child = depth === 0 ? undefined : queryOf(inner, imported, depth - 1)
+	const arms = oneOrTwo(ruleOf(inner, imported, child))
+	const rules: Gen<InferredStage> = map(arms, (a) => ({ kind: "rules", arms: a, loc }))
+	const recursiveStage: Gen<InferredStage> = (source) => ({
+		kind: "recursive",
+		recursive: { name: "r", row: {}, base: source.draw(arms), rec: source.draw(arms) },
+		loc
+	})
+	const union: Gen<InferredStage> = (source) => ({
+		kind: "union",
+		input: source.draw(rules),
+		arms: source.draw(arms),
+		loc
+	})
+	const take: Gen<InferredStage> = (source) => ({
+		kind: "take",
+		input: { kind: "order", input: source.draw(rules), order: [], loc },
+		take: source.draw(takeBound),
+		loc
+	})
+	const flat: Arr.NonEmptyReadonlyArray<Gen<InferredStage>> = [
+		rules,
+		recursiveStage,
+		union,
+		map(rules, (input) => ({ kind: "named", input, name: "n", loc })),
+		map(rules, (input) => ({ kind: "approx", input, by: "v", take: 1, loc })),
+		take
+	]
+	if (child === undefined) {
+		return map(oneOf<InferredStage>(flat), (stage) => ({ stage }))
+	}
+	const attach: Gen<InferredStage> = (source) => ({
+		kind: "attach",
+		input: source.draw(rules),
+		attach: { name: "a", child: source.draw(child), loc }
+	})
+	const stages: Arr.NonEmptyReadonlyArray<Gen<InferredStage>> = [...flat, attach]
+	return map(oneOf<InferredStage>(stages), (stage) => ({ stage }))
+}
+
+/** A query of every stage, its rules of every part, and the count of reads of the queries it imports. */
+export interface WalkedQuery {
+	readonly query: InferredQuery
+	readonly reads: ImportReads
+}
+
+/**
+ * Queries of every stage and every part of a rule, an attachment's child and an interior's arms among them, holding
+ * expressions at most two levels deep of every kind, each imported query behind a tripwire counting the reads of its
+ * stage (ImportReads), one count per case.
+ */
+export const walkedQueries: Gen<WalkedQuery> = (source) => {
+	const reads: ImportReads = { count: 0 }
+	const imported = tripwire(reads)
+	return { query: source.draw(queryOf(exprsHolding(imported, 2), imported, 1)), reads }
+}
+
+/** An object a query's own namespace holds, by the oracle: its kind, and its name where it has one. */
+export interface OwnSite {
+	readonly kind: unknown
+	readonly name: unknown
+}
+
+/**
+ * The objects a query holds in its own namespace, by the oracle: each object with a kind its values reach outside an
+ * imported query (a member `query`) and outside a member `termless` names, walked as data by no stage's, rule's or
+ * source's spelling. It reads no imported query's stage.
+ */
+export const ownSites = (q: InferredQuery): ReadonlyArray<OwnSite> => {
+	const out: Array<OwnSite> = []
+	const reach = (v: unknown): void => {
+		if (Arr.isArray(v)) {
+			for (const item of v) {
+				reach(item)
+			}
+			return
+		}
+		if (v === null || typeof v !== "object") {
+			return
+		}
+		const kind: unknown = Reflect.get(v, "kind")
+		if (kind !== undefined) {
+			out.push({ kind, name: Reflect.get(v, "name") })
+		}
+		for (const [key, member] of Rec.toEntries(v)) {
+			if (key !== "query" && !termless.has(key)) {
+				reach(member)
+			}
+		}
+	}
+	reach(q)
+	return out
+}
+
+/** The parameters a query reads in its own namespace, by the oracle: the name of each own site of kind param, paramOf or relationParam. */
+export const ownParamNames = (q: InferredQuery): ReadonlySet<unknown> =>
+	new Set(
+		Arr.map(
+			Arr.filter(
+				ownSites(q),
+				(site) => site.kind === "param" || site.kind === "paramOf" || site.kind === "relationParam"
+			),
+			(site) => site.name
+		)
 	)

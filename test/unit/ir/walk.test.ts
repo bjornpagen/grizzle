@@ -22,7 +22,15 @@ import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, String as Str } from "effect"
 import { boundIn, mapLeaves, varsOf } from "#compiler/analysis/theory/leaves.ts"
 import { leavesOf } from "#compiler/check/scan.ts"
-import { exprChildren, type InferredExpr, mapExprChildren } from "#compiler/ir/desc.ts"
+import {
+	exprChildren,
+	type InferredExpr,
+	type InferredQuery,
+	mapExprChildren,
+	mapQueryParams,
+	type ParamSpelling,
+	queryParamNames
+} from "#compiler/ir/desc.ts"
 import {
 	bindOnly,
 	directTerms,
@@ -30,7 +38,10 @@ import {
 	exprs,
 	type Feature,
 	kindsIn,
-	leafNames
+	leafNames,
+	ownParamNames,
+	ownSites,
+	walkedQueries
 } from "#test/unit/ir/walk.fixtures.ts"
 
 const sorted = (names: Iterable<unknown>): ReadonlyArray<string> =>
@@ -202,6 +213,121 @@ export const eachNodesChildrenAreTheTermsItsDescriptionHoldsInItsOwnScopeInItsOr
 				original: "\t\t\treturn { ...e, arg: term(e.arg), low: term(e.low), high: term(e.high) }",
 				replacement: "\t\t\treturn { ...e, arg: term(e.arg), low: term(e.low), high: e.high }",
 				why: "A map of a between's children keeps its upper bound, a child forgotten; the children property fails."
+			}
+		]
+	})
+
+/** A query's parameter names as mapQueryParams spells them, in its order: the description rebuilt, its imports too. */
+const spelledNames = (q: InferredQuery): ReadonlyArray<string> => {
+	const names = new Set<string>()
+	const asIs: ParamSpelling<{ readonly name: string }> = {
+		param: (name) => ({ name }),
+		imported: () => asIs
+	}
+	mapQueryParams(
+		q,
+		{
+			param: (name) => {
+				names.add(name)
+				return { name }
+			},
+			imported: () => asIs
+		},
+		new Map()
+	)
+	return [...names]
+}
+
+/** What a query's case reached: each kind of its last stage, and each place only a parameter of one kind stands. */
+type QueryFeature =
+	| `a ${InferredQuery["stage"]["kind"]} stage`
+	| "a take bound to a parameter"
+	| "a relation parameter as a source"
+	| "an imported query read"
+
+const queryStages: ReadonlyArray<InferredQuery["stage"]["kind"]> = [
+	"rules",
+	"recursive",
+	"union",
+	"attach",
+	"named",
+	"approx",
+	"take"
+]
+
+/**
+ * A query description's parameters, read without rebuilding it (ir/desc.ts queryParamNames), are the ones
+ * mapQueryParams spells, in its order, and every one its own namespace holds; and the read enters no query it imports,
+ * whose parameters are its own.
+ *
+ * Oracle: mapQueryParams's spelling, the walk that rebuilds the description, for the names and their order; and the
+ * description's own values walked as data, for the set.
+ *
+ * Budget: 300 runs and 1000 steered cases, as the expression walks', over queries of every stage holding their
+ * expressions.
+ */
+export const aQuerysParametersReadWithoutRebuildingItAreTheOnesItsRebuildSpellsInItsOrderAndTheReadEntersNoImportedQuery =
+	property.explore(walkedQueries, {
+		needs: {},
+		budget: { runs: 300, steered: 1000 },
+		situations: [
+			...Arr.map(queryStages, (kind) => `a ${kind} stage` as const),
+			"a take bound to a parameter",
+			"a relation parameter as a source",
+			"an imported query read"
+		],
+		check: (_, c: Case<QueryFeature>) => (walked) =>
+			Effect.sync(() => {
+				walked.reads.count = 0
+				const names = queryParamNames(walked.query)
+				assert.equal(walked.reads.count, 0, "queryParamNames enters no imported query")
+				const read: ReadonlyArray<string> = [...names]
+				assert.deepEqual(
+					read,
+					spelledNames(walked.query),
+					"queryParamNames reads the parameters mapQueryParams spells, in its order"
+				)
+				if (walked.reads.count > 0) {
+					c.note("an imported query read")
+				}
+				const stage = walked.query.stage
+				c.note(`a ${stage.kind} stage`)
+				if (stage.kind === "take" && stage.take.kind === "param") {
+					c.note("a take bound to a parameter")
+				}
+				if (Arr.some(ownSites(walked.query), (site) => site.kind === "paramOf")) {
+					c.note("a relation parameter as a source")
+				}
+				assert.deepEqual(
+					sorted(names),
+					sorted(ownParamNames(walked.query)),
+					"queryParamNames reads every parameter of the query's own namespace"
+				)
+			}),
+		oracle: {
+			kind: "second-implementation",
+			name: "mapQueryParams's spelling, which rebuilds the description, and the description's own values walked as data"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/ir/desc.ts",
+				original: "\tnew ParamReads<T>((name) => names.add(name)).query(q)\n",
+				replacement:
+					"\tmapQueryParams(q, { param: (name) => ({ name: names.add(name) && name }), imported: () => spelledAsIs }, new Map())\n",
+				why: "The names are read by the rebuilding walk, as before: it reads every imported query's stage to rebuild it, so the tripwire counts reads and the property fails."
+			},
+			{
+				file: "packages/engine/src/ir/desc.ts",
+				original: 'if (s.take.kind === "param") {\n\t\t\t\t\tthis.#read(s.take.name)\n',
+				replacement: 'if (s.take.kind === "param") {\n',
+				why: "A take bound to a parameter is read as none: its name is missing against mapQueryParams's and the oracle's."
+			},
+			{
+				file: "packages/engine/src/ir/desc.ts",
+				original: 'if (b.kind === "relationParam") {\n\t\t\t\tthis.#read(b.name)\n',
+				replacement: 'if (b.kind === "relationParam") {\n',
+				why: "A relation parameter a bind map binds is read as none: its name is missing against mapQueryParams's and the oracle's."
 			}
 		]
 	})

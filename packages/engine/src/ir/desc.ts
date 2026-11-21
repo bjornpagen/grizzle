@@ -2254,26 +2254,179 @@ const spelledAsIs: ParamSpelling<Spelled["param"]> = {
 }
 
 /**
- * The parameters a query description needs, by name, in walk order (mapQueryParams): a checked query's parameters are
- * exactly these, since the checker reads the cells the same walk mints (check/params.ts); a ChangeSet's are one
- * namespace, the union of its members' and read-backs', which ChangeSet.bind closes and the ChangeSet decoder's binding
- * check reads (changeSetDescShape).
+ * Each parameter reference of a query description's own namespace, read in ParamWalk's order by `read`, the description
+ * rebuilt nowhere: ParamWalk's reading, by the same cases in the same order. An imported query is its own namespace, so
+ * the walk reads its bind map and never enters it, where ParamWalk spelled it as it is, rebuilt.
+ */
+class ParamReads<T> {
+	readonly #read: (name: string) => void
+
+	constructor(read: (name: string) => void) {
+		this.#read = read
+	}
+
+	query(q: QueryDesc<Located, SpelledAs<T>>): void {
+		this.stage(q.stage)
+	}
+
+	stage(s: QueryStageDesc<Located, SpelledAs<T>>): void {
+		switch (s.kind) {
+			case "rules":
+				this.rules(s.arms)
+				return
+			case "recursive":
+				this.rules(s.recursive.base)
+				this.rules(s.recursive.rec)
+				return
+			case "union":
+				this.stage(s.input)
+				this.rules(s.arms)
+				return
+			case "attach":
+				this.stage(s.input)
+				this.query(s.attach.child)
+				return
+			case "named":
+			case "order":
+			case "approx":
+				this.stage(s.input)
+				return
+			case "take":
+				this.stage(s.input)
+				if (s.take.kind === "param") {
+					this.#read(s.take.name)
+				}
+				return
+		}
+	}
+
+	rules(arms: ReadonlyArray<RuleDesc<Located, SpelledAs<T>>>): void {
+		for (const r of arms) {
+			this.rule(r)
+		}
+	}
+
+	rule(r: RuleDesc<Located, SpelledAs<T>>): void {
+		for (const m of r.matches) {
+			this.source(m.source)
+			this.terms(Object.values(m.bindings))
+		}
+		this.terms(r.where)
+		for (const h of Object.values(r.head)) {
+			this.terms(headTerms(h))
+		}
+		for (const i of r.interiors) {
+			this.rules(i.arms)
+		}
+		for (const a of r.attach) {
+			this.query(a.child)
+		}
+	}
+
+	terms(terms: ReadonlyArray<ExprDesc<Located, SpelledAs<T>>>): void {
+		for (const e of terms) {
+			this.expr(e)
+		}
+	}
+
+	/** A bind map, read in this namespace: a relation parameter by its name, rows by their own bind map. */
+	bindMap(bind: BindMapDesc<Located, SpelledAs<T>>): void {
+		for (const b of Object.values(bind)) {
+			if (b.kind === "relationParam") {
+				this.#read(b.name)
+			} else if (b.kind === "rows") {
+				this.bindMap(b.bind)
+			} else {
+				this.expr(b)
+			}
+		}
+	}
+
+	source(s: SourceDesc<Located, SpelledAs<T>>): void {
+		switch (s.kind) {
+			case "query":
+			case "step":
+				this.bindMap(s.bind)
+				return
+			case "param":
+			case "paramOf":
+				this.#read(s.name)
+				return
+			case "call":
+			case "callField":
+				for (const a of Object.values(s.args)) {
+					if (a.kind === "rows") {
+						this.bindMap(a.bind)
+					} else {
+						this.expr(a)
+					}
+				}
+				return
+			case "split":
+				this.expr(s.text)
+				return
+			case "relation":
+			case "interior":
+			case "self":
+			case "delta":
+			case "context":
+			case "row":
+				return
+		}
+	}
+
+	expr(e: ExprDesc<Located, SpelledAs<T>>): void {
+		switch (e.kind) {
+			case "param":
+				this.#read(e.name)
+				return
+			case "absent":
+			case "exists":
+				this.source(e.source)
+				this.terms(Object.values(e.bindings))
+				return
+			case "var":
+			case "field":
+			case "value":
+			case "parent":
+			case "literal":
+			case "compute":
+			case "and":
+			case "or":
+			case "closedAt":
+			case "closedRow":
+			case "closedHas":
+			case "cast":
+			case "base":
+			case "guarded":
+			case "not":
+			case "in":
+			case "cond":
+			case "when":
+			case "compare":
+			case "allen":
+			case "between":
+			case "pointIn":
+			case "call":
+				for (const child of exprChildren(e)) {
+					this.expr(child.term)
+				}
+				return
+		}
+	}
+}
+
+/**
+ * The parameters a query description needs, by name, in walk order (mapQueryParams, whose reading ParamReads is): a
+ * checked query's parameters are exactly these, since the checker reads the cells the same walk mints
+ * (check/params.ts); a ChangeSet's are one namespace, the union of its members' and read-backs', which ChangeSet.bind
+ * closes and the ChangeSet decoder's binding check reads (changeSetDescShape).
  */
 export const queryParamNames = <T = FieldDesc>(
 	q: QueryDesc<Located, SpelledAs<T>>
 ): ReadonlySet<string> => {
 	const names = new Set<string>()
-	mapQueryParams(
-		q,
-		{
-			param: (name) => {
-				names.add(name)
-				return { name }
-			},
-			imported: () => spelledAsIs
-		},
-		new Map()
-	)
+	new ParamReads<T>((name) => names.add(name)).query(q)
 	return names
 }
 
