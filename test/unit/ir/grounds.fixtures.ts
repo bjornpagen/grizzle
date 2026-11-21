@@ -299,3 +299,66 @@ export const walkedGrounds = (proof: KeyProof): OracleGrounds => {
 		reached
 	}
 }
+
+/** Whether the oracle's walk of a derivation alone finds a premise below it: its grounds hold one. */
+export const derivationHoldsPremise = (at: Implication): boolean => {
+	const seen = new Set<object>()
+	const pending: Array<Implication | KeyProof> = [at]
+	for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+		if (seen.has(next)) {
+			continue
+		}
+		seen.add(next)
+		if ("basis" in next) {
+			if (next.premises.length > 0) {
+				return true
+			}
+			continue
+		}
+		for (const step of next.steps) {
+			const rule = step.rule
+			switch (rule.rule) {
+				case "declared":
+				case "viewAlternative":
+					if (rule.premises.length > 0) {
+						return true
+					}
+					break
+				case "fixed":
+					if (rule.witness.kind === "semiJoinPair") {
+						pending.push(rule.witness.right)
+					}
+					break
+				case "projection":
+				case "grouped":
+				case "kept":
+				case "intersected":
+					pending.push(rule.input)
+					break
+				case "agreed":
+					for (const arm of rule.arms) {
+						pending.push(arm)
+					}
+					break
+				case "produced":
+					pending.push(rule.input)
+					break
+				case "unionKey":
+					pending.push(rule.proof)
+					break
+				case "equal":
+				case "match":
+				case "separated":
+				case "correlated":
+				case "generated":
+				case "group":
+				case "atMostOne":
+				case "distinct":
+				case "ranked":
+				case "numbered":
+					break
+			}
+		}
+	}
+	return false
+}

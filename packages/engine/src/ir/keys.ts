@@ -711,6 +711,8 @@ const carriedImplications = (at: Implication): ReadonlyArray<Implication> =>
 class GroundsOf {
 	readonly premises = new Map<string, Premise>()
 	readonly #contexts: Array<EvidenceContext> = []
+	/** The first derivation's grounds taken whole, which the gathered grounds are where nothing adds to them. */
+	#first: Grounding | undefined
 
 	premise(p: Premise): void {
 		this.premises.set(premiseText(p), p)
@@ -722,6 +724,7 @@ class GroundsOf {
 
 	/** A derivation's grounds, taken whole. */
 	derived(g: Grounding): void {
+		this.#first ??= g
 		for (const [text, p] of g.premises) {
 			this.premises.set(text, p)
 		}
@@ -736,9 +739,43 @@ class GroundsOf {
 		this.context(proof.context)
 	}
 
+	/**
+	 * The grounds gathered: the first derivation's own where they add nothing to it, the one shared value of their
+	 * context where they hold no premise, and only otherwise a value of their own, so a chain of derivations each
+	 * carrying the one below keeps one value, where each kept a copy for as long as it lived.
+	 */
 	done(): Grounding {
-		return { premises: this.premises, context: strongest(this.#contexts) }
+		const context = strongest(this.#contexts)
+		const first = this.#first
+		if (
+			first !== undefined &&
+			first.premises.size === this.premises.size &&
+			first.context === context
+		) {
+			return first
+		}
+		if (this.premises.size === 0) {
+			return premiseless[context]
+		}
+		return ownGrounding(this.premises, context)
 	}
+}
+
+/** Grounds of their own: premises no carried derivation's grounds hold alone, in `context`. */
+const ownGrounding = (
+	premises: ReadonlyMap<string, Premise>,
+	context: EvidenceContext
+): Grounding => ({
+	premises,
+	context
+})
+
+/** The grounds of no premise, one value for each context they hold in. */
+const premiseless: Readonly<Record<EvidenceContext, Grounding>> = {
+	immediate: { premises: new Map(), context: "immediate" },
+	committedSnapshot: { premises: new Map(), context: "committedSnapshot" },
+	validatedTx: { premises: new Map(), context: "validatedTx" },
+	queryLocal: { premises: new Map(), context: "queryLocal" }
 }
 
 /**
