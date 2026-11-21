@@ -128,7 +128,7 @@ export const configurations = property.explore(aimed(configGen, refusalAims), {
 						const ws = yield* workspace("conf")
 						yield* substrate.cluster.budget.within(commandConnections)
 						yield* writeConfig(ws, { schemas: specs, connection })
-						const run = runner(sketch.executor, ws)
+						const run = runner(sketch.executor, ws, substrate.cluster.tls.caFile)
 
 						const generateExit = yield* run(["generate", configName])
 						assert.equal(generateExit, 0, "generate")

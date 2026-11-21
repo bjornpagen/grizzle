@@ -7,7 +7,7 @@ import { Db } from "#adapter/public/db.ts"
 
 import { assert } from "@bjornpagen/testing/assert"
 import { ledger, shopV1 } from "#test/pg/cli/fixture.ts"
-import { bin, cli, cliClock, servedFromFile } from "#test/pg/cli/support.ts"
+import { bin, cli, cliClock, harnessCaVariable, servedFromFile } from "#test/pg/cli/support.ts"
 import { openMigrator } from "#test/pg/migrate/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { writeAnswerOf, oneOf as oneRowOf } from "#test/support/calls.ts"
@@ -127,11 +127,18 @@ const strayEnvironment: Readonly<Record<string, string>> = {
 	PGSSLROOTCERT: "/nonexistent/ca.crt"
 }
 
-/** A command line run by the case's executor, its exit code. */
-export const runner = (executor: Executor, dir: string) => (argv: ReadonlyArray<string>) =>
-	executor === "in process"
-		? Effect.map(cli(dir, argv, nextNow()), (r) => r.code)
-		: Effect.map(bin(dir, argv, strayEnvironment), (r) => r.status)
+/**
+ * A command line run by the case's executor, its exit code: the bin's under strayEnvironment, with `caFile`, the case's
+ * member's CA, named for the test's own reads of the cluster in it (support.ts harnessCaVariable).
+ */
+export const runner =
+	(executor: Executor, dir: string, caFile: string) => (argv: ReadonlyArray<string>) =>
+		executor === "in process"
+			? Effect.map(cli(dir, argv, nextNow()), (r) => r.code)
+			: Effect.map(
+					bin(dir, argv, { ...strayEnvironment, [harnessCaVariable]: caFile }),
+					(r) => r.status
+				)
 
 /**
  * A customer written as the writer and read back as the reader, through the login's served file generate wrote in the

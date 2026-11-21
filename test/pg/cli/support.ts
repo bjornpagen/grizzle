@@ -1,13 +1,16 @@
 import net from "node:net"
-import type { PgMember, Platform } from "@bjornpagen/testing/pg"
+import { caVariable, type PgMember, type Platform } from "@bjornpagen/testing/pg"
 import * as NodeChildProcessSpawner from "@effect/platform-node/NodeChildProcessSpawner"
 import {
 	Array as Arr,
 	Clock,
+	Config,
+	ConfigProvider,
 	DateTime,
 	Effect,
 	FileSystem,
 	Layer,
+	Option,
 	Path,
 	type PlatformError,
 	Redacted,
@@ -237,15 +240,36 @@ const specFileName = "grizzle.spec.json"
 export const commandConnections = ["migration session", "cancel request"].length
 
 /**
+ * The variable a command line's child names the CA file in for the test's own reads of the cluster (memberAt): the
+ * child runs with a stray PGSSLROOTCERT (cli.fixtures.ts strayEnvironment), which the command line must read none of,
+ * and which the testing library's reads of the members take the CA from (@bjornpagen/testing/pg caVariable), so in a
+ * process that names this variable those reads take the CA from it instead.
+ */
+export const harnessCaVariable = "GRIZZLE_TEST_CA"
+
+/**
  * The member of grizzle's local cluster at `port`, read once: the member a spec's connection names by its port, so a
  * configuration connects with that member's CA and migration identity's password whichever process builds it, a case's
- * runner worker (on the member its runner places it, which no variable of the process names) or a command line's child.
- * A port that is no member is MemberUnknown.
+ * runner worker (on the member its runner places it, which no variable of the process names) or a command line's child,
+ * whose reads take the CA from harnessCaVariable where it names one. A port that is no member is MemberUnknown.
  */
 const memberAt = (port: number) =>
-	Effect.flatMap(clusterMembers, (members) =>
-		clusterMemberAt(members, port, "a configuration's connection names it")
-	)
+	Effect.flatMap(Effect.orDie(Config.option(Config.String(harnessCaVariable))), (named) => {
+		const read = Effect.flatMap(clusterMembers, (members) =>
+			clusterMemberAt(members, port, "a configuration's connection names it")
+		)
+		return Option.match(named, {
+			onNone: () => read,
+			onSome: () =>
+				Effect.provideService(
+					read,
+					ConfigProvider.ConfigProvider,
+					ConfigProvider.mapInput(ConfigProvider.fromEnv(), (path) =>
+						path.length === 1 && path[0] === caVariable ? [harnessCaVariable] : path
+					)
+				)
+		})
+	})
 
 /**
  * The configuration of the spec in `dir`, as its grizzle.config.ts and an in-process run build it: its password and
