@@ -48,6 +48,13 @@ export const rosterContinuityCarriesEveryRostersCodesOnThroughRenamesRespellings
 				original: "\t\tconst before = continued.get(roster.closed) ?? []",
 				replacement: "\t\tconst before = continued.get(roster.closed) === undefined ? [] : []",
 				why: "Every roster's codes are drafted afresh, none continued (ir/codes.ts draftCodebook); the draft is refused as a defect by generate's continuity check (deploy/render/generate.ts discontinuedRoster), so no step is admitted."
+			},
+			{
+				file: "packages/engine/src/deploy/diff/diff.ts",
+				original: "\t\t...rosters.flatMap(({ codec, fate }) => named(codec, fate))\n",
+				replacement:
+					'\t\t...rosters.flatMap(({ codec, fate }) => named(codec, fate)),\n\t\t...rosters.flatMap(({ codec, fate }) =>\n\t\t\tfate.kind === "continued" && fate.as !== codec.roster ? named({ ...codec, roster: fate.as }, fate) : []\n\t\t)\n',
+				why: "A roster continued under another's name restates that roster's constants over its own (deploy/diff/diff.ts rosterConstantsOf, as a7da80408 wrote it): a take of a dropped roster's name, both of the same live codes, reads the dropped roster's aside domain as continued into the taker, so its field's codes are cast into the taker's meaning, no placeholder (trunk's floor case 6 at f6182478, KindA taken by TierB)."
 			}
 		]
 	})

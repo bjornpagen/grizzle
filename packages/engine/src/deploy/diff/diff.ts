@@ -106,7 +106,12 @@ import type {
 	SnapshotWriting
 } from "#compiler/deploy/snapshot/types.ts"
 import type { LawChecks, MigrationCheck, RuleCheck } from "#compiler/deploy/snapshot/violation.ts"
-import { keptRosters, type PreviousRoster, type RosterFate } from "#compiler/ir/codes.ts"
+import {
+	keptRosters,
+	type PreviousRoster,
+	type RosterCodec,
+	type RosterFate
+} from "#compiler/ir/codes.ts"
 import type { Head } from "#compiler/ir/instant.ts"
 import type { InstallationManifest, PhysicalKind } from "#compiler/ir/products.ts"
 import { migrationGenerations } from "#compiler/laws/model/generation.ts"
@@ -3857,25 +3862,29 @@ type DomainReading =
  * its names constant and its live-codes constant (physical/ddl/constants.ts rosterConstants), named by the roster's
  * recorded name and codes, and, for a roster continued under another name, by that name too, the name a declared
  * rename gives a constant it keeps (deploy/diff/declared.ts pairedConstants). So a constant names its roster whatever
- * renames and asides the draft gives the roster's domains. */
+ * renames and asides the draft gives the roster's domains. A constant's name is its roster's name and its content, so
+ * a roster continued under the name of a roster that ends or moves away, of the same live codes or names (a take, a
+ * swap), restates a constant that roster holds as its own; the name stays that roster's, whose domains read it, since
+ * a declared rename keeps a constant only under a name the previous installation does not hold (pairedConstants). */
 const rosterConstantsOf = (
 	schema: string,
 	rosters: ReadonlyArray<PreviousRoster>
-): ReadonlyMap<string, RosterFate> =>
-	new Map(
-		rosters.flatMap(({ codec, fate }) =>
-			[
-				rosterConstants(codec),
-				...(fate.kind === "continued" && fate.as !== codec.roster
-					? [rosterConstants({ ...codec, roster: fate.as })]
-					: [])
-			].flatMap((constants) =>
-				[constants.names, constants.live].map(
-					(id) => [qualifiedIdent("function", schema, identifierOf(id)), fate] as const
-				)
-			)
+): ReadonlyMap<string, RosterFate> => {
+	const named = (codec: RosterCodec, fate: RosterFate) => {
+		const constants = rosterConstants(codec)
+		return [constants.names, constants.live].map(
+			(id) => [qualifiedIdent("function", schema, identifierOf(id)), fate] as const
 		)
-	)
+	}
+	return new Map([
+		...rosters.flatMap(({ codec, fate }) =>
+			fate.kind === "continued" && fate.as !== codec.roster
+				? named({ ...codec, roster: fate.as }, fate)
+				: []
+		),
+		...rosters.flatMap(({ codec, fate }) => named(codec, fate))
+	])
+}
 
 /**
  * Each domain a manifest installs, by name key, as a column's values are read through it (DomainReading): a roster's,
