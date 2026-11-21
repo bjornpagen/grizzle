@@ -269,3 +269,23 @@ export const chainLevel = (depth: number, reads: number): unknown => {
 /** A union chain's depth and its levels' reads (chainLevel). */
 export const chainGen: Gen<readonly [number, number]> = (source) =>
 	[source.draw(int(1, 12)), source.draw(int(2, 3))] as const
+
+/** Every container `v` holds, itself included, each once: the parts a frozen value's identity digests hold. */
+export const containersOf = (v: unknown): ReadonlyArray<object> => {
+	const seen = new Set<object>()
+	const pending: Array<unknown> = [v]
+	for (let at = pending.pop(); at !== undefined || pending.length > 0; at = pending.pop()) {
+		if (typeof at !== "object" || at === null || seen.has(at)) {
+			continue
+		}
+		seen.add(at)
+		for (const member of isList(at) ? at : isRecord(at) ? Record.values(at) : []) {
+			pending.push(member)
+		}
+	}
+	return [...seen]
+}
+
+/** A union chain's depth and its levels' reads (chainLevel), and how many times the level is asked again. */
+export const askedChainGen: Gen<readonly [number, number, number]> = (source) =>
+	[source.draw(int(1, 8)), source.draw(int(2, 3)), source.draw(int(1, 3))] as const

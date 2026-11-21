@@ -33,8 +33,10 @@ import {
 	changes,
 	contentWith,
 	allocatedBy,
+	askedChainGen,
 	chainGen,
 	chainLevel,
+	containersOf,
 	type DigestFeature,
 	digestGen,
 	type DomainFeature,
@@ -278,6 +280,55 @@ export const aSchemaLevelsFingerprintHashesBytesLinearInItsDistinctPartsAUnionCh
 				original: "\t\t\tsink.token(tokens.write, token)\n\t\t\tcontinue\n",
 				replacement: "",
 				why: "A container is written as its canonical text, the tree, where its token stands: the level's text spells the leaf at every path, and a chain one level deeper hashes reads times the bytes."
+			}
+		]
+	})
+
+/** Identity digests take each frozen container's identity once however often it is asked: a frozen value asked again, and each of its parts asked as a value of its own, digests nothing more than asking it once, and each answer is the value's identity digest. */
+export const identityDigestsTakeEachFrozenContainersIdentityOnceHoweverOftenItIsAsked =
+	property.explore(askedChainGen, {
+		needs: {},
+		situations: [],
+		check:
+			() =>
+			([depth, reads, again]) =>
+				Effect.sync(() => {
+					const level = chainLevel(depth, reads)
+					const once = new IdentityDigests(withoutSourceLocs)
+					succeeded(once.of(level))
+					const asked = new IdentityDigests(withoutSourceLocs)
+					for (let ask = 0; ask <= again; ask++) {
+						assert.equal<string>(
+							succeeded(asked.of(level)),
+							succeeded(identityDigest(level, withoutSourceLocs)),
+							"each answer is the level's identity digest"
+						)
+						for (const part of containersOf(level)) {
+							assert.equal<string>(
+								succeeded(asked.of(part)),
+								succeeded(identityDigest(part, withoutSourceLocs)),
+								"each part's answer is its identity digest"
+							)
+						}
+					}
+					assert.deepEqual(
+						[asked.digested, asked.written],
+						[once.digested, once.written],
+						`a chain ${depth} deep of ${reads} reads a level, asked ${again + 1} times with every part, digests as many containers and hashes as many bytes as asked once`
+					)
+				}),
+		oracle: {
+			kind: "specification",
+			name: "a frozen container's identity, kept: each digested once, and identityDigest of each asked value"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/core/fingerprint.ts",
+				original: "\t\t\t\treturn this.#within().of(read)\n",
+				replacement:
+					"\t\t\t\treturn mintIdentityDigest(this.#containerDigest(read, this.#within(), unframed))\n",
+				why: "A value asked is digested anew, its kept identity unread: each ask of the level, and of each part, hashes its text again."
 			}
 		]
 	})

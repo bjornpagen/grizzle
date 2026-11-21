@@ -72,12 +72,15 @@ export const identityDigest = (
 ): Result.Result<IdentityDigest, CompileError> => new IdentityDigests(options).of(value)
 
 /**
- * Identity digests under one EncodeOptions (`identityDigest`), each frozen container's token kept across every value
- * they digest, as one value's every container is within it: a container two values hold is digested once for both.
+ * Identity digests under one EncodeOptions (`identityDigest`), each frozen container's identity kept across every value
+ * they digest, as one value's every container is within it: a container two values hold is digested once for both, and
+ * a frozen value asked again, or a part of one asked as a value of its own, is its kept identity, never digested again.
  * Owned by the caller whose values share parts, a ChangeSet's chain of members, each of which may import what an
- * earlier one does (write/changeset/value.ts), never by a module. A frozen container's token is its content's for as
- * long as it lives; one that is not frozen is digested anew in each value that holds it. Every container's text is
- * written into one writer, one after another, each finished before the next is begun (Sha256Messages).
+ * earlier one does (write/changeset/value.ts), or a statement's navigation (analysis/theory/navigate.ts), which asks
+ * the identity of every query it reads at every read of it, never by a module. A frozen container's identity is its
+ * content's for as long as it lives; one that is not frozen is digested anew in each value that holds it. Every
+ * container's text is written into one writer, one after another, each finished before the next is begun
+ * (Sha256Messages).
  */
 export class IdentityDigests {
 	readonly #options: EncodeOptions
@@ -90,12 +93,15 @@ export class IdentityDigests {
 		this.#options = options
 	}
 
-	/** The identity digest of `value` (`identityDigest`); a refused value leaves no message half written. */
+	/**
+	 * The identity digest of `value` (`identityDigest`), a frozen container's the one these digests keep for it, taken
+	 * once however often it is asked; a refused value leaves no message half written.
+	 */
 	of(value: unknown): Result.Result<IdentityDigest, CompileError> {
 		const identity = catchRefusal(() => {
 			const read = containerOf(value)
 			if (read !== undefined) {
-				return mintIdentityDigest(this.#containerDigest(read, this.#within(), unframed))
+				return this.#within().of(read)
 			}
 			unwrap(writeCanonical(this.#messages.out, value, this.#options))
 			return mintIdentityDigest(this.#messages.hex())
