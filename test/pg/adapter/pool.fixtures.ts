@@ -174,7 +174,7 @@ export const seriesSql = "SELECT pg_catalog.generate_series(1, $1::int4)::text"
  * @source /Users/bjorn/Documents/edullm/out/grading-sql/p5/move/logs/light-run-temp-relations.txt
  * @verified 2026-11-21
  */
-export const exportSessionTables = 150
+const exportSessionTables = 150
 
 /**
  * One case of the release's exit property: how many sessions the pool holds idle when its layer is released, each
