@@ -97,8 +97,10 @@ export const checkQuery = (
 	desc: InferredQuery,
 	options: CheckOptions
 ): Result.Result<AdmittedQuery, CompileError> =>
-	Result.flatMap(validateQueryStructure(desc, { read: options.read }), (q) =>
-		catchRefusal(() => run(checked, q, options, rootLoc(options.label), { kind: options.read }))
+	Result.flatMap(
+		validateQueryStructure(desc, { read: options.read, session: options.session }),
+		(q) =>
+			catchRefusal(() => run(checked, q, options, rootLoc(options.label), { kind: options.read }))
 	)
 
 /**
@@ -114,7 +116,7 @@ export const checkDefinition = (
 	session: CheckSession
 ): Result.Result<AdmittedQuery, CompileError> => {
 	const options: CheckOptions = { read: "rows", label, clock: noClock, session }
-	return Result.flatMap(validateQueryStructure(query, { read: "rows" }), (q) =>
+	return Result.flatMap(validateQueryStructure(query, { read: "rows", session }), (q) =>
 		catchRefusal(() => run(base, q, options, rootLoc(label), { kind: "definition" }))
 	)
 }
@@ -165,7 +167,7 @@ export const checkMember = (
 		memberQuery(
 			checked,
 			member,
-			unwrap(validateQueryStructure(member.query, { read: "rows" })),
+			unwrap(validateQueryStructure(member.query, { read: "rows", session: options.session })),
 			options
 		)
 	)
@@ -184,7 +186,7 @@ export const checkFill = (
 		memberQuery(
 			checked,
 			member,
-			unwrap(validateQueryStructure(member.query, { read: "rows" })),
+			unwrap(validateQueryStructure(member.query, { read: "rows", session: options.session })),
 			options
 		)
 	)

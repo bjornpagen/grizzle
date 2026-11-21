@@ -1,6 +1,20 @@
+import type { QueryRead } from "#compiler/check/checker.ts"
 import type { ResolvedQuery } from "#compiler/check/params.ts"
-import type { Inferred, Located, QueryDesc } from "#compiler/ir/desc.ts"
+import type { Inferred, InferredQuery, Located, QueryDesc } from "#compiler/ir/desc.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
+
+/**
+ * How a query is entered, the one thing of its reader's context its rules read (check/description.ts): as a query of
+ * its own (the root, an import, a navigation's step, a call's rows), whose scope is its own, or as an attachment's
+ * child, whose rules may read the parent's variables. A query is never entered inside a recursive step.
+ */
+export type QueryEntry = "query" | "attachment"
+
+/** No query validated under either entry. */
+const entries = (): Readonly<Record<QueryEntry, WeakSet<InferredQuery>>> => ({
+	query: new WeakSet(),
+	attachment: new WeakSet()
+})
 
 /**
  * What the checks of one compile share, owned by that compile and passed to every check it runs, never held by a
@@ -14,10 +28,25 @@ import type { RelNode } from "#compiler/ir/rel.ts"
  * - Each closed import the checks built, by its key: an import bound to parameters and constants alone reads the same
  *   rows wherever it stands in the compile's queries, whose parameters are one namespace, so a write's DAG merges the
  *   imports of one key as one node (write/frontend/dag.ts QueryMerger).
+ * - Each query whose structure the checks have validated (check/description.ts validateQueryStructure), by how the
+ *   check reads its query and how the query was entered: a query is one value every reader of it shares
+ *   (query/build/state.ts publicDesc), so the compile's descriptions are one DAG of queries, and a query's structure
+ *   under one reading and one entry is the query's alone, so one validation of it serves every reader of it in every
+ *   query the compile checks, where each path to it was walked again.
  */
 export class CheckSession {
 	/** Each imported query, resolved. */
 	readonly resolved = new WeakMap<QueryDesc<Located, Inferred>, ResolvedQuery>()
+	/** Each query whose structure was validated, by the reading of the check that validated it and by its entry. */
+	readonly validated: Readonly<
+		Record<QueryRead, Readonly<Record<QueryEntry, WeakSet<InferredQuery>>>>
+	> = {
+		rows: entries(),
+		page: entries(),
+		readBack: entries(),
+		membership: entries(),
+		region: entries()
+	}
 	readonly #places = new WeakMap<object, number>()
 	#placed = 0
 	readonly #closed = new WeakMap<RelNode, string>()

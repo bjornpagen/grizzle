@@ -2,6 +2,7 @@ import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { QueryRead } from "#compiler/check/checker.ts"
 import { fail } from "#compiler/check/fail.ts"
 import { entries } from "#compiler/check/scan.ts"
+import type { CheckSession, QueryEntry } from "#compiler/check/session.ts"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { childLoc, locBelow, type SourceLoc } from "#compiler/core/loc.ts"
@@ -25,11 +26,19 @@ export interface StructureOptions {
 	 * page's parent variables the checker refuses as AttachedPage rather than as malformed.
 	 */
 	readonly read: QueryRead
+	/** What the checks of its compile share (check/session.ts): each query whose structure they have validated. */
+	readonly session: CheckSession
 }
 
 interface Context {
 	readonly recursiveStep: boolean
 	readonly attachment: boolean
+}
+
+/** The context a query's rules are read in, entered as `QueryEntry` says. */
+const entered: Readonly<Record<QueryEntry, Context>> = {
+	query: { recursiveStep: false, attachment: false },
+	attachment: { recursiveStep: false, attachment: true }
 }
 
 class Structure {
@@ -39,8 +48,19 @@ class Structure {
 		this.options = options
 	}
 
-	query(q: InferredQuery, cx: Context): void {
-		this.stage(q.stage, cx)
+	/**
+	 * A query entered as `entry`, validated once for the compile under this check's reading and that entry (CheckSession
+	 * validated): its validity is a function of it, the reading and its entry alone, its rules' scopes its own and every
+	 * location a refusal names one of its own nodes', so a query the compile validated so is valid wherever else it is
+	 * read. It is recorded once its walk passes: a query refused is refused again at every reader that meets it.
+	 */
+	query(q: InferredQuery, entry: QueryEntry): void {
+		const validated = this.options.session.validated[this.options.read][entry]
+		if (validated.has(q)) {
+			return
+		}
+		this.stage(q.stage, entered[entry])
+		validated.add(q)
 	}
 
 	stage(s: InferredStage, cx: Context): void {
@@ -66,7 +86,7 @@ class Structure {
 				return
 			case "attach":
 				this.stage(s.input, cx)
-				this.query(s.attach.child, { recursiveStep: false, attachment: true })
+				this.query(s.attach.child, "attachment")
 				return
 			case "named":
 			case "order":
@@ -101,7 +121,7 @@ class Structure {
 			}
 		}
 		for (const a of r.attach) {
-			this.query(a.child, { recursiveStep: false, attachment: true })
+			this.query(a.child, "attachment")
 		}
 	}
 
@@ -207,7 +227,7 @@ class Structure {
 		cx: Context,
 		loc: SourceLoc
 	): void {
-		this.query(s.query, { recursiveStep: false, attachment: false })
+		this.query(s.query, "query")
 		for (const [param, e] of entries(s.bind)) {
 			const at = childLoc(childLoc(loc, "bind"), param)
 			if (e.kind === "rows") {
@@ -292,6 +312,6 @@ export const validateQueryStructure = <Q extends InferredQuery>(
 	options: StructureOptions
 ): Result.Result<Q, CompileError> =>
 	catchRefusal(() => {
-		new Structure(options).query(desc, { recursiveStep: false, attachment: false })
+		new Structure(options).query(desc, "query")
 		return desc
 	})
