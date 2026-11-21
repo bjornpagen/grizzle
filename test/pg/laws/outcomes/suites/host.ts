@@ -1,5 +1,6 @@
 import { assert, defined } from "@bjornpagen/testing/assert"
 import {
+	aimed,
 	array,
 	codePoint,
 	constant,
@@ -7,6 +8,7 @@ import {
 	type Gen,
 	int,
 	oneOf,
+	recorded,
 	string,
 	weighted
 } from "@bjornpagen/testing/gen"
@@ -155,10 +157,84 @@ export interface AccountCase {
 	readonly accounts: ReadonlyArray<Stated>
 }
 
-export const accountCaseGen: Gen<AccountCase> = (source) => ({
+const accountCaseGen: Gen<AccountCase> = (source) => ({
 	op: source.draw(element(["insert", "put"] as const)),
 	accounts: source.draw(array(statedGen, { min: 1, max: 4 }))
 })
+
+/** A code in the pattern, one to eight lowercase letters, and one outside it, one to eight uppercase ones. */
+const inPattern = string(codePoint(0x61, 0x7a), { min: 1, max: 8 })
+const outsidePattern = string(codePoint(0x41, 0x5a), { min: 1, max: 8 })
+
+/** Units a bronze account holds inside its rate of 100, past it inside Units, past Units, and at most 0. */
+const withinBronze = int(1, 100)
+const pastBronze = int(101, 1000)
+const pastUnits = int(1001, 1100)
+const notPositive = int(-3, 0)
+
+/** An account of `tier` whose units, code and alias each `units`, `code` and `alias` draw, its vectors `heading`. */
+const accountGen =
+	(
+		tier: TierHandle,
+		units: Gen<number>,
+		code: Gen<string>,
+		alias: Gen<string>,
+		heading: Stated["heading"]
+	): Gen<Stated> =>
+	(source) => ({
+		tier,
+		units: source.draw(units),
+		code: source.draw(code),
+		alias: source.draw(alias),
+		heading
+	})
+
+/** A bronze account inside every rule. */
+const lawful = accountGen("bronze", withinBronze, inPattern, inPattern, "apart")
+
+/** A write, inserted or put, of the accounts `accounts` draws. */
+const writeOf =
+	(accounts: Gen<ReadonlyArray<Stated>>): Gen<AccountCase> =>
+	(source) => ({
+		op: source.draw(element(["insert", "put"] as const)),
+		accounts: source.draw(accounts)
+	})
+
+/** A write of one account `account` draws. */
+const one = (account: Gen<Stated>): Gen<AccountCase> => writeOf((source) => [source.draw(account)])
+
+/**
+ * The case a witness whose turn aims at a situation draws (aimed), each a write constructed to reach it, where a drawn
+ * write meets it seldom: four drawn accounts are rarely all inside every rule, and the pattern's and Units' domains,
+ * which PostgreSQL meets as it casts a row, refuse most drawn accounts before any row CHECK is read. One account
+ * breaking each rule alone (gold's rate, NULL, refused by the generated column's NOT NULL), the code and the alias
+ * both, two row CHECKs at once (past its rate, its vectors alike), one to four accounts inside every rule, and two
+ * accounts breaking one rule.
+ */
+const accountAims: ReadonlyArray<readonly [AccountFeature, Gen<AccountCase>]> = [
+	["accepted", writeOf(array(lawful, { min: 1, max: 4 }))],
+	["refused by rate", one(accountGen("gold", withinBronze, inPattern, inPattern, "apart"))],
+	["refused by units", one(accountGen("bronze", pastUnits, inPattern, inPattern, "apart"))],
+	["refused by positive", one(accountGen("bronze", notPositive, inPattern, inPattern, "apart"))],
+	["refused by withinRate", one(accountGen("bronze", pastBronze, inPattern, inPattern, "apart"))],
+	["refused by distinct", one(accountGen("bronze", withinBronze, inPattern, inPattern, "same"))],
+	["refused by code", one(accountGen("bronze", withinBronze, outsidePattern, inPattern, "apart"))],
+	["refused by alias", one(accountGen("bronze", withinBronze, inPattern, outsidePattern, "apart"))],
+	[
+		"refused by the code and the alias at once",
+		one(accountGen("bronze", withinBronze, outsidePattern, outsidePattern, "apart"))
+	],
+	[
+		"refused by two row CHECKs at once",
+		one(accountGen("bronze", pastBronze, inPattern, inPattern, "same"))
+	],
+	[
+		"witnessed among several breaking accounts",
+		writeOf(
+			array(accountGen("bronze", pastBronze, inPattern, inPattern, "apart"), { min: 2, max: 4 })
+		)
+	]
+]
 
 const idOf = (n: number): IdValue =>
 	Id(
@@ -393,7 +469,7 @@ export const accountsTemplate = fixtureTemplate(import.meta, Accounts, accountsI
  * The cases kept by value the suite's space draws beyond toolchain-test keep, each a red it once caught, recorded beside
  * its space (gen.ts recorded).
  */
-export const recordedAccounts: Arr.NonEmptyReadonlyArray<AccountCase> = [
+const recordedAccounts: Arr.NonEmptyReadonlyArray<AccountCase> = [
 	{
 		op: "insert",
 		accounts: [{ tier: "bronze", units: 10, code: "a", alias: "A1", heading: "apart" }]
@@ -403,3 +479,6 @@ export const recordedAccounts: Arr.NonEmptyReadonlyArray<AccountCase> = [
 		accounts: [{ tier: "silver", units: 5, code: "Q", alias: "", heading: "apart" }]
 	}
 ]
+
+/** The suite's space: drawn writes beside its recorded values, each situation's turn aimed at it (accountAims). */
+export const accountCases = aimed(recorded(accountCaseGen, recordedAccounts), accountAims)

@@ -15,11 +15,10 @@ import {
 	forwardTemplate
 } from "#test/pg/laws/outcomes/suites/every.ts"
 import {
+	accountCases,
 	accountsTemplate,
-	accountCaseGen as hostCases,
 	type AccountFeature as HostFeature,
-	hostCase,
-	recordedAccounts
+	hostCase
 } from "#test/pg/laws/outcomes/suites/host.ts"
 import {
 	clubsTemplate,
@@ -37,7 +36,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * Its pre-conversion budget: runs 60, coverage cases 60 (test/pg/laws/outcomes/suites/host.ts at 2b496802c).
  */
 export const aRefusedWriteNamesOneLawItsAccountsBreakAndTheKeyOfAnAccountThatBreaksIt =
-	property.explore(recorded(hostCases, recordedAccounts), {
+	property.explore(accountCases, {
 		needs: { accounts: Substrate.seat(accountsTemplate) },
 		situations: [
 			"refused by rate",
