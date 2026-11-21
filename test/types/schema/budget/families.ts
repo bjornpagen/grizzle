@@ -107,8 +107,8 @@ ${Arr.join(
 ])
 
 /** Every relation a ChangeSet inserts at its top level, inserted at once, their rows typed from grizzle. */
-declare const ${ns}rows: InsertAllRowsOf<typeof ${ns}S>
-export const ${ns}insertedAll = ChangeSet.empty(${ns}S).insertAll(${ns}rows)
+declare const ${ns}insertRows: InsertAllRowsOf<typeof ${ns}S>
+export const ${ns}insertedAll = ChangeSet.empty(${ns}S).insertAll(${ns}insertRows)
 `
 
 /** The program of `families` families, an even count, two per unit, its imports read through `entries`. */
