@@ -423,7 +423,7 @@
 			{
 				// The CLI generator's suites and their support: they read the generator's every stage, its corpus and scripts.
 				"name": "cli-generator-suites",
-				"patterns": ["packages/cli-generator/test/**", "packages/cli-generator/vitest.config.ts"]
+				"patterns": ["packages/cli-generator/test/**"]
 			},
 			{
 				"name": "cli-generator-corpus",

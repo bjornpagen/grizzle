@@ -28,7 +28,6 @@
 	"scripts": {
 		"typecheck": "node scripts/ratchet.ts typecheck -- -p tsconfig.json",
 		"oxlint": "node scripts/ratchet.ts oxlint",
-		"test": "vitest run",
 		"runtime-gate": "node scripts/runtime-gate.ts",
 		"benchmark": "node corpus/tools/benchmark.ts",
 		"corpus": "node corpus/tools/run.ts --check",
@@ -50,7 +49,6 @@
 		"@bjornpagen/testing": "workspace:*",
 		"@types/pg": "catalog:",
 		"oxfmt": "catalog:",
-		"pg": "catalog:",
-		"vitest": "catalog:"
+		"pg": "catalog:"
 	}
 }

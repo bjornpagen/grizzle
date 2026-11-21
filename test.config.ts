@@ -1,6 +1,4 @@
 import { defineRunner } from "@bjornpagen/testing/runner"
-import { Array as Arr } from "effect"
-import { propertyModules } from "#cli-generator/test/support/roster.ts"
 import { grizzleCluster } from "#test/support/runner.ts"
 
 /**
@@ -47,14 +45,11 @@ const smallStackModules: ReadonlyArray<string> = [
  * (`toolchain-test mutate`) alone loads its mutation (test/support/mutation/mutation.ts): grizzle's two operator
  * families beside the library's operators, set-semantics, a bag and set slip in any file, and sql-world, a compiler bug
  * in the SQL that installs and enters a world (families.ts), and the mutants judged equivalent. The CLI generator's
- * property modules (packages/cli-generator/test/support/roster.ts, which its Vitest config leaves out) run here too,
- * and `pnpm test:cli-generator` runs them alone, its grizzle tier on the same cluster.
+ * test modules, every one under packages/cli-generator/test/, run here too, and `pnpm test:cli-generator` runs them
+ * alone, its grizzle tier on the same cluster.
  */
 export default defineRunner({
-	include: [
-		"test/**/*.test.ts",
-		...Arr.map(propertyModules, (module) => `packages/cli-generator/${module}`)
-	],
+	include: ["test/**/*.test.ts", "packages/cli-generator/test/**/*.test.ts"],
 	smallStack: smallStackModules,
 	conditions: [],
 	layer: grizzleCluster,
