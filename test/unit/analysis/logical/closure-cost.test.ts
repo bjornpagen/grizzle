@@ -388,7 +388,7 @@ export const aNodesStepsReadTheirSourcesOffItsReadingIndexedOnceAffineInItsColum
 				}
 				affine(
 					(m) => defined(counted.get(m), `the calls at m = ${m}`),
-					8,
+					4 * step,
 					"the analysis's calls in props.ts"
 				)
 			}),
