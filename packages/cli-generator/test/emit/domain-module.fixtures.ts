@@ -371,7 +371,6 @@ export type Fault =
 	| "a reference to no definition"
 	| "a key the identifier map leaves out"
 	| "two keys given one name"
-	| "a name that is no identifier"
 
 type Reason = "identifier-mismatch" | "unresolved-reference" | "unsupported-definition"
 
@@ -422,16 +421,6 @@ export const plantedGen: Gen<Planted> = (s) => {
 					["Other", fixedSafeIdentifier("Shared")]
 				]),
 				fault: "two keys given one name",
-				reason: "identifier-mismatch"
-			}),
-			() => ({
-				definitions: replaced({ type: "string" }),
-				roots,
-				identifiers: new Map([
-					...Arr.fromIterable(identifiers),
-					[root, fixedSafeIdentifier("class")]
-				]),
-				fault: "a name that is no identifier",
 				reason: "identifier-mismatch"
 			})
 		])

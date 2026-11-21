@@ -7,8 +7,9 @@
  * the same set in another order prints the same bytes; no `default`, `example` or `examples` value reaches it; and no
  * reachable definition prints the empty module. A set is drawn as the validation copy can be: no cycle of references
  * returns to a schema without descending into the instance. A planted fault is refused with its reason: a reachable
- * definition that is no schema, a reference to no definition, a reachable key the identifier map leaves out, two
- * reachable keys given one name, and a name that is no identifier.
+ * definition that is no schema, a reference to no definition, a reachable key the identifier map leaves out, and two
+ * reachable keys given one name. A name that is no identifier is no fault to plant: the identifier map holds the plan's
+ * SafeIdentifiers, each a binding name by its type.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
@@ -143,8 +144,7 @@ export const domainRefusal = property.explore(plantedGen, {
 		"a definition that is no schema",
 		"a reference to no definition",
 		"a key the identifier map leaves out",
-		"two keys given one name",
-		"a name that is no identifier"
+		"two keys given one name"
 	] satisfies ReadonlyArray<Reached<Fault>>,
 	check: (_, k: Case<Fault>) => (planted) =>
 		Effect.map(

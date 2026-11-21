@@ -34,7 +34,7 @@ import { isArray, isObject } from "#model/json-tree.ts"
 import type { JsonObject } from "#model/json-tree.ts"
 import { domainNamespace } from "#names/domain.ts"
 import type { SafeIdentifier } from "#names/fold.ts"
-import { fixedIdentifier, isIdentifier, type Identifier } from "#names/fold.ts"
+import { fixedIdentifier, type Identifier } from "#names/fold.ts"
 import { codeGenerationCopy } from "#normalize/schemas.ts"
 
 /**
@@ -808,7 +808,10 @@ interface Definition {
 const mismatch = (): Read<never> =>
 	Result.fail(new DomainEmitError({ reason: "identifier-mismatch" }))
 
-/** Each definition of the copy under its export name: every key named, and no name given twice. */
+/**
+ * Each definition of the copy under its export name, the plan's SafeIdentifier for its key, which the printer takes as
+ * it is: every key named, and no name given twice.
+ */
 const definitionsOf = (
 	copy: ReadonlyMap<string, Json>,
 	identifiers: ReadonlyMap<string, SafeIdentifier>
@@ -816,7 +819,7 @@ const definitionsOf = (
 	Result.flatMap(
 		Result.all(
 			Arr.map([...copy], ([key, schema]) =>
-				Option.match(Option.filter(Option.fromUndefinedOr(identifiers.get(key)), isIdentifier), {
+				Option.match(Option.fromUndefinedOr(identifiers.get(key)), {
 					onNone: mismatch,
 					onSome: (name) => Result.succeed({ key, name, schema })
 				})
