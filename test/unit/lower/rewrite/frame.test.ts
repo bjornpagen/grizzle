@@ -27,6 +27,7 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
+import { structureOf, type Structure } from "#compiler/analysis/demand/demand.ts"
 import {
 	analyzePhysical,
 	analyzePhysicalUnder,
@@ -43,11 +44,12 @@ import {
 	type EditNode,
 	edgesOf,
 	exprsOf,
-	type Rooted
+	type Rooted,
+	scopeLabels
 } from "#compiler/ir/rel.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
-import { DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
+import { type CellState, DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
 import type { RewriteCx } from "#compiler/lower/optimize/demand/frame.ts"
 import {
 	relationalRewrites,
@@ -77,6 +79,10 @@ import {
 	type FrameFeature,
 	type PotentialFeature,
 	potentialSites,
+	type ReachFeature,
+	reachEdits,
+	reachedOf,
+	reachSites,
 	type ReadersFeature,
 	readersSites,
 	shapeSites,
@@ -443,10 +449,11 @@ export const aFinishAfterAnEditKeepsTheNodeOfEveryCellTheEditLeftAsItWasAndFolds
 	})
 
 /**
- * A rewrite reads how each cell is read off the state's cells, worked out once a state: over generated queries, the
- * semantic simplification (simplify, fusion, simplify) works out each state's structure exactly once, with its cells, and
- * computes no demand of the DAG's columns, where every state a rule asked whether a cell was exclusive finished the DAG
- * and analyzed its demand whole.
+ * A rewrite reads how each cell is read off the state's cells, one state a step: over generated queries, the semantic
+ * simplification (simplify, fusion, simplify) takes exactly one state of the cells for each its driver works out, reads
+ * how each cell is read off the editor's reach (editor.ts Reach), never working it out of the cells again
+ * (analysis/demand structureOf), and computes no demand of the DAG's columns, where every state a rule asked whether a
+ * cell was exclusive finished the DAG and analyzed its demand whole.
  */
 export const aRewriteReadsHowEachCellIsReadOffTheStatesCellsWorkedOutOnceAStateAndComputesNoDemand =
 	property.explore(queryCaseGen(defaultGenConfig), {
@@ -476,15 +483,16 @@ export const aRewriteReadsHowEachCellIsReadOffTheStatesCellsWorkedOutOnceAStateA
 						: "a simplification that changed nothing"
 				)
 				assert.equal(
-					counts.structureOf,
+					counts.cellState,
 					counts.rewriteCx,
-					`${counts.structureOf} structures over ${counts.rewriteCx} states`
+					`${counts.cellState} states of the cells over ${counts.rewriteCx} the driver worked out`
 				)
+				assert.equal(counts.structureOf, 0, "no structure worked out of the cells")
 				assert.equal(counts.analyzeDemand, 0, "no demand of the DAG's columns")
 			}),
 		oracle: {
 			kind: "specification",
-			name: "one structure a state of the cells, and no demand analysis, in the semantic simplification"
+			name: "one state of the cells a state the driver works out, no structure worked out of the cells, and no demand analysis, in the semantic simplification"
 		},
 		kept: [],
 		kills: [
@@ -494,10 +502,180 @@ export const aRewriteReadsHowEachCellIsReadOffTheStatesCellsWorkedOutOnceAStateA
 					"\tcx.cells.references(cell) === 1 && !cx.editor.isRoot(cell) && !cx.cells.lateral(cell)",
 				replacement:
 					"\tcx.editor.cellState().references(cell) === 1 && !cx.editor.isRoot(cell) && !cx.cells.lateral(cell)",
-				why: "Exclusivity works out the cells' structure again at every rule that asks (lower/optimize/simplify/rules.ts exclusive); the structure property fails."
+				why: "Exclusivity takes a state of the cells again at every rule that asks (lower/optimize/simplify/rules.ts exclusive); the structure property fails."
 			}
 		]
 	})
+
+/**
+ * How each cell is read is the editor's reach, kept as every edit moves it (lower/optimize/demand/editor.ts Reach): over
+ * generated queries and edits at their reached cells (a cell redirected to a copy of itself; a cell's node replaced by
+ * an empty relation of its heading, which takes its inputs out of reach where nothing else reads them; and an emptied
+ * cell's node put back), every state of the cells reads each cell's references and lateral reads as analysis/demand
+ * structureOf works them out of the cells as they were when it was taken, read then and again after every later edit;
+ * taking a state moves no count; and an edit moves at most twice the edges of the reached nodes it set and of the cells
+ * it brought into reach or took out of it, and two a root it moved, never the whole DAG's.
+ *
+ * Oracle: a second implementation, structureOf over each state's own cells as they were, and the cells reached before
+ * and after each edit walked from its roots for its bound.
+ *
+ * Budget: 120 runs and 120 steered cases, the frame-determinism suite's.
+ */
+export const howEachCellIsReadIsTheEditorsReachKeptAsEveryEditMovesItAndAStateReadsItAsItWasWhenTaken =
+	property.explore(
+		(s) => ({ query: s.draw(queryCaseGen(defaultGenConfig)), edits: s.draw(reachEdits) }),
+		{
+			needs: {},
+			budget: { runs: 120, steered: 120 },
+			situations: [
+				"a cell's inputs taken out of reach",
+				"a cell's inputs brought back into reach",
+				"a root moved",
+				"a state read after later edits"
+			] satisfies ReadonlyArray<Reached<ReachFeature>>,
+			check: (_, c: Case<ReachFeature>) => (drawn) =>
+				Effect.gen(function* () {
+					const editor = new DagEditor(caseQuery(drawn.query).dag)
+					const known = new Set<Cell>()
+					const states: Array<{
+						readonly state: CellState
+						readonly expected: Structure
+						readonly cells: ReadonlyArray<Cell>
+					}> = []
+					const holds = (taken: (typeof states)[number]): void => {
+						for (const cell of taken.cells) {
+							assert.equal(
+								taken.state.references(cell),
+								taken.expected.references(cell.id),
+								`${cell.id}'s references`
+							)
+							assert.equal(
+								taken.state.lateral(cell),
+								taken.expected.lateral(cell.id),
+								`whether a scope expression reads ${cell.id}`
+							)
+						}
+					}
+					const take = Effect.gen(function* () {
+						const [state, counts] = yield* callCounts(
+							Effect.sync(() => editor.cellState()),
+							reachSites
+						)
+						assert.equal(counts.step, 0, "taking a state moves no count")
+						for (const cell of state.order) {
+							known.add(cell)
+						}
+						const taken = {
+							state,
+							expected: structureOf(
+								state.order,
+								editor.roots,
+								(cell) => edgesOf(cell.current),
+								(cell) => scopeLabels(cell.current),
+								(cell) => cell.id
+							),
+							cells: [...known]
+						}
+						holds(taken)
+						states.push(taken)
+					})
+					const emptied = new Map<Cell, EditNode>()
+					yield* take
+					for (const edit of drawn.edits) {
+						const order = editor.topoOrder()
+						const cell = defined(order[edit.at % order.length], "a reached cell")
+						const before = reachedOf(editor.roots)
+						const nodes = new Map(Arr.map([...known], (k) => [k, k.current] as const))
+						const roots = editor.roots
+						const back = Arr.head([...emptied])
+						const [, counts] = yield* callCounts(
+							Effect.sync(() => {
+								if (edit.kind === "restored" && back._tag === "Some") {
+									const [at, node] = back.value
+									emptied.delete(at)
+									editor.set(at, node)
+									return
+								}
+								if (edit.kind === "redirected to a copy") {
+									const copy = editor.add(cell.current)
+									known.add(copy)
+									editor.redirect(cell, copy)
+									return
+								}
+								emptied.set(cell, cell.current)
+								editor.set(cell, {
+									kind: "Closed",
+									closed: "_reach",
+									rows: [],
+									heading: cell.current.heading,
+									meta: cell.current.meta,
+									loc: cell.current.loc
+								})
+							}),
+							reachSites
+						)
+						const after = reachedOf(editor.roots)
+						const edges = (k: Cell): number => edgesOf(k.current).length
+						const set = Arr.filter(
+							[...nodes],
+							([k, node]) => k.current !== node && (before.has(k) || after.has(k))
+						)
+						const flipped = Arr.filter(
+							[...new Set([...before.keys(), ...after.keys(), ...known])],
+							(k) => before.has(k) !== after.has(k)
+						)
+						const moved = Arr.filter(roots, (root, i) => editor.roots[i] !== root).length
+						const bound =
+							2 *
+							(Arr.reduce(set, 0, (n, [k, node]) => n + edgesOf(node).length + edges(k)) +
+								Arr.reduce(flipped, 0, (n, k) => n + edges(k)) +
+								2 * moved)
+						assert.ok(
+							counts.step <= bound,
+							`${edit.kind} at ${cell.id} moved ${counts.step} counts, past ${bound}`
+						)
+						if (Arr.some(flipped, (k) => before.has(k))) {
+							c.note(
+								edit.kind === "restored"
+									? "a cell's inputs brought back into reach"
+									: "a cell's inputs taken out of reach"
+							)
+						}
+						if (Arr.some(flipped, (k) => after.has(k)) && edit.kind === "restored") {
+							c.note("a cell's inputs brought back into reach")
+						}
+						if (moved > 0) {
+							c.note("a root moved")
+						}
+						yield* take
+					}
+					for (const taken of states.slice(0, -1)) {
+						holds(taken)
+						c.note("a state read after later edits")
+					}
+				}),
+			oracle: {
+				kind: "second-implementation",
+				name: "structureOf over each state's own cells as they were, and the cells reached before and after each edit walked from its roots"
+			},
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/lower/optimize/demand/editor.ts",
+					original: "\t\tconst read = this.#reach.taken()\n",
+					replacement:
+						"\t\tconst read = new Reach((cell) => this.#shapeOf(cell.current), this.roots).taken()\n",
+					why: "Every state works out how each cell is read anew, a walk of every cell the roots reach, as structureOf did at every state: taking a state moves every count."
+				},
+				{
+					file: "packages/engine/src/lower/optimize/demand/editor.ts",
+					original: "\t\tif (epoch !== undefined && !log(epoch).has(key)) {\n",
+					replacement: "\t\tif (epoch !== undefined && epoch === epoch.next) {\n",
+					why: "A change records nothing of what it moves: a state read after a later edit reads the counts as they are now, not as they were when it was taken."
+				}
+			]
+		}
+	)
 
 /**
  * A redirection rewrites exactly the cells that read the redirected cell (lower/optimize/demand/editor.ts redirect),

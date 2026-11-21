@@ -1,9 +1,10 @@
 /** What the properties of frame.test.ts read: its spaces, models and helpers. */
 
+import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Need } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { relNode } from "#compiler/ir/dag.ts"
-import { metaSpecOf, type Roots, type ValidDag } from "#compiler/ir/rel.ts"
+import { type Cell, edgesOf, metaSpecOf, type Roots, type ValidDag } from "#compiler/ir/rel.ts"
 import {
 	relationalRewrites,
 	semanticSimplification
@@ -64,14 +65,59 @@ export const passesNeed = {
 } as const satisfies Need<unknown>
 
 /**
- * What the structure property counts: each state's cells worked out for its rules (frame.ts rewriteCx), how each cell is
- * read worked out from them (analysis/demand structureOf), and the demand of the DAG's columns (analyzeDemand).
+ * What the structure property counts: each state's cells worked out for its rules (frame.ts rewriteCx), each state of
+ * the cells taken (editor.ts DagEditor cellState), how a finished DAG's nodes are read worked out whole (analysis/demand
+ * structureOf), and the demand of the DAG's columns (analyzeDemand).
  */
 export const structureSites = Object.freeze({
 	rewriteCx: { file: "packages/engine/src/lower/optimize/demand/frame.ts", name: "rewriteCx" },
+	cellState: { file: "packages/engine/src/lower/optimize/demand/editor.ts", name: "cellState" },
 	structureOf: { file: "packages/engine/src/analysis/demand/demand.ts", name: "structureOf" },
 	analyzeDemand: { file: "packages/engine/src/analysis/demand/demand.ts", name: "analyzeDemand" }
 } satisfies Readonly<Record<string, CountedFunction>>)
+
+/** What the reach property counts: each reference the editor's reach moves (editor.ts Reach #reachStep). */
+export const reachSites = Object.freeze({
+	step: { file: "packages/engine/src/lower/optimize/demand/editor.ts", name: "#reachStep" }
+} satisfies Readonly<Record<string, CountedFunction>>)
+
+/** One edit the reach property makes at the reached cell its index picks among a state's cells, by kind. */
+export interface ReachEdit {
+	readonly at: number
+	readonly kind: "redirected to a copy" | "emptied" | "restored"
+}
+
+/** Up to eight edits, each at a cell an index picks among the cells reached when it is made. */
+export const reachEdits: Gen<ReadonlyArray<ReachEdit>> = array(
+	(s) => ({
+		at: s.draw(int(0, 1000)),
+		kind: s.draw(element(["redirected to a copy", "emptied", "restored"] as const))
+	}),
+	{ min: 1, max: 8 }
+)
+
+/** What the reach property reaches. */
+export type ReachFeature =
+	| "a cell's inputs taken out of reach"
+	| "a cell's inputs brought back into reach"
+	| "a root moved"
+	| "a state read after later edits"
+
+/** The cells `roots` reach through data edges, each with how many references it has, as structureOf counts them. */
+export const reachedOf = (roots: ReadonlyArray<Cell>): ReadonlyMap<Cell, number> => {
+	const counts = new Map<Cell, number>()
+	const steps = [...roots]
+	for (let at = steps.pop(); at !== undefined; at = steps.pop()) {
+		const was = counts.get(at) ?? 0
+		counts.set(at, was + 1)
+		if (was === 0) {
+			for (const input of edgesOf(at.current)) {
+				steps.push(input)
+			}
+		}
+	}
+	return counts
+}
 
 /** What the structure property reaches: a simplification that rewrote, and one that changed nothing. */
 export type StructureFeature =

@@ -1,6 +1,5 @@
 import { postorder } from "@bjornpagen/grizzle-text/base/graph"
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
-import { structureOf } from "#compiler/analysis/demand/demand.ts"
 import { unwrap } from "#compiler/core/canonical.ts"
 import { ExprId, NodeId, OccurrenceId, type ParamId, ScopeId, VarId } from "#compiler/core/ids.ts"
 import { cellTable, type FinishedCells, type FoldedCell, finishCells } from "#compiler/ir/dag.ts"
@@ -321,6 +320,138 @@ const nodeShape = (node: EditNode): NodeShape => ({
 	lateral: scopeLabels(node)
 })
 
+/**
+ * What moved in the reach (Reach) while a state of the cells was the newest one taken: each count a change moved, at its
+ * value before the first such change, and the epoch of the next state taken after a change. A state reads a count from
+ * the first epoch from its own on that holds it, else as the count is now: as it was when the state was taken.
+ */
+interface Epoch {
+	readonly references: Map<Cell, number>
+	readonly named: Map<NodeId, number>
+	next: Epoch | undefined
+}
+
+/**
+ * How the cells the roots reach are read, kept as the editor changes them (CellState references and lateral, which
+ * analysis/demand structureOf works out of a finished DAG): each reached cell's references, one per input position of a
+ * reached cell that names it plus each root standing at it, and how many times the scope expressions of reached cells
+ * name each label. A cell is reached while it has a reference: its first brings its own edges and names into the
+ * counts, its last takes them out, so a change costs the edges it moves and those of the cells it brings into reach or
+ * takes out of it, never the cells. A state reads the counts as they were when it was taken (Epoch).
+ */
+class Reach {
+	readonly #references = new Map<Cell, number>()
+	readonly #named = new Map<NodeId, number>()
+	/** What a cell's node reads now. */
+	readonly #shape: (cell: Cell) => NodeShape
+	/** The newest state's epoch, which every change records what it moves in. */
+	#epoch: Epoch | undefined
+
+	constructor(shape: (cell: Cell) => NodeShape, roots: ReadonlyArray<Cell>) {
+		this.#shape = shape
+		for (const root of roots) {
+			this.reached(root, 1)
+		}
+	}
+
+	/** The cells' references and lateral reads as they are now, read so by a state taken now whatever changes after. */
+	taken(): Pick<CellState, "references" | "lateral"> {
+		const epoch = this.#open()
+		return {
+			references: (cell) =>
+				Reach.#at(epoch, (e) => e.references, cell) ?? this.#references.get(cell) ?? 0,
+			lateral: (cell) =>
+				(Reach.#at(epoch, (e) => e.named, cell.id) ?? this.#named.get(cell.id) ?? 0) > 0
+		}
+	}
+
+	/** The newest epoch where nothing moved in it yet, which a state taken now shares, else a new one after it. */
+	#open(): Epoch {
+		const open = this.#epoch
+		if (open?.references.size === 0 && open.named.size === 0) {
+			return open
+		}
+		const epoch: Epoch = { references: new Map(), named: new Map(), next: undefined }
+		if (open !== undefined) {
+			open.next = epoch
+		}
+		this.#epoch = epoch
+		return epoch
+	}
+
+	/** A count as the state of `from` reads it: the first epoch's from it on that recorded it, none if none did. */
+	static #at<K>(from: Epoch, log: (e: Epoch) => Map<K, number>, key: K): number | undefined {
+		for (let e: Epoch | undefined = from; e !== undefined; e = e.next) {
+			const was = log(e).get(key)
+			if (was !== undefined) {
+				return was
+			}
+		}
+		return undefined
+	}
+
+	/** `counts`' count of `key` moved by `by`, its value before recorded in the newest epoch: its value now. */
+	#move<K>(counts: Map<K, number>, log: (e: Epoch) => Map<K, number>, key: K, by: 1 | -1): number {
+		const was = counts.get(key) ?? 0
+		const epoch = this.#epoch
+		if (epoch !== undefined && !log(epoch).has(key)) {
+			log(epoch).set(key, was)
+		}
+		const now = was + by
+		if (now === 0) {
+			counts.delete(key)
+		} else {
+			counts.set(key, now)
+		}
+		return now
+	}
+
+	/**
+	 * A reference to `cell` added (`by` 1) or taken away (-1): a root moved, or an input position of a reached cell. A
+	 * cell it brings into reach, or takes out of it, brings or takes its own edges and names with it, each a step.
+	 */
+	reached(cell: Cell, by: 1 | -1): void {
+		const steps = [cell]
+		for (let at = steps.pop(); at !== undefined; at = steps.pop()) {
+			if (!this.#reachStep(at, by)) {
+				continue
+			}
+			const shape = this.#shape(at)
+			for (const label of shape.lateral) {
+				this.#move(this.#named, (e) => e.named, label, by)
+			}
+			for (const input of shape.edges) {
+				steps.push(input)
+			}
+		}
+	}
+
+	/** One reference to `cell` moved by `by`: whether it came into reach or left it. */
+	#reachStep(cell: Cell, by: 1 | -1): boolean {
+		const now = this.#move(this.#references, (e) => e.references, cell, by)
+		return by === 1 ? now === 1 : now === 0
+	}
+
+	/** `cell`, whose node read `before`, reading `after` now: a reached cell's edges and names move to its new node's. */
+	changed(cell: Cell, before: NodeShape, after: NodeShape): void {
+		if (!this.#references.has(cell)) {
+			return
+		}
+		for (const label of after.lateral) {
+			this.#move(this.#named, (e) => e.named, label, 1)
+		}
+		for (const input of after.edges) {
+			this.reached(input, 1)
+		}
+		for (const label of before.lateral) {
+			this.#move(this.#named, (e) => e.named, label, -1)
+		}
+		for (const input of before.edges) {
+			this.reached(input, -1)
+		}
+	}
+}
+
 export class DagEditor<R extends Roots = Roots> {
 	/**
 	 * The cells that read each cell, kept as each cell's node changes: what a redirection rewrites (Readers). It holds
@@ -333,6 +464,8 @@ export class DagEditor<R extends Roots = Roots> {
 	 * the cells reads each kept node's where every state built them again for every cell.
 	 */
 	readonly #shapes = new WeakMap<EditNode, NodeShape>()
+	/** How the cells the roots reach are read, kept as every change moves it (Reach). */
+	readonly #reach: Reach
 	/** The cell of each node of the base, made when the editor starts. */
 	readonly #cellOf: ReadonlyMap<RelNode, Cell>
 	/**
@@ -370,6 +503,7 @@ export class DagEditor<R extends Roots = Roots> {
 		for (const e of exprClosure(cells.flatMap((c) => exprsOf(c.current)))) {
 			this.#fresh.expr.note(e.id)
 		}
+		this.#reach = new Reach((cell) => this.#shapeOf(cell.current), this.roots)
 	}
 
 	/** Records the labels a node holds as taken. */
@@ -466,6 +600,7 @@ export class DagEditor<R extends Roots = Roots> {
 		const before = cell.current
 		cell.current = node
 		this.#readers.changed(cell, before)
+		this.#reach.changed(cell, this.#shapeOf(before), this.#shapeOf(node))
 		this.#note(cell.id, node)
 		this.#changed()
 	}
@@ -535,23 +670,19 @@ export class DagEditor<R extends Roots = Roots> {
 		return made
 	}
 
-	/** The cells the roots reach now, in topological order, and those of them on a recursive step (CellState). */
+	/**
+	 * The cells the roots reach now, in topological order, those of them on a recursive step, and how each is read, off
+	 * the reach the editor keeps (CellState, Reach).
+	 */
 	cellState(): CellState {
-		const shape = (cell: Cell): NodeShape => this.#shapeOf(cell.current)
 		const order = this.topoOrder()
-		const structure = structureOf(
-			order,
-			this.roots,
-			(cell) => shape(cell).edges,
-			(cell) => shape(cell).lateral,
-			(cell) => cell.id
-		)
+		const read = this.#reach.taken()
 		let readers: ((cell: Cell) => ReadonlyArray<Cell>) | undefined
 		return {
 			order,
 			feedback: feedbackReadsOf(cellGraph, order),
-			references: (cell) => structure.references(cell.id),
-			lateral: (cell) => structure.lateral(cell.id),
+			references: read.references,
+			lateral: read.lateral,
 			readers: (cell) => {
 				readers ??= DagEditor.readersIn(order)
 				return readers(cell)
@@ -641,11 +772,15 @@ export class DagEditor<R extends Roots = Roots> {
 				(input) => (input === from ? to : input)
 			)
 			this.#readers.changed(cell, node)
+			this.#reach.changed(cell, this.#shapeOf(node), this.#shapeOf(cell.current))
 		}
 		for (const root of this.base.roots) {
-			if (this.#rootCell(root) === from) {
-				this.#moved.set(root, to)
+			if (this.#rootCell(root) !== from) {
+				continue
 			}
+			this.#moved.set(root, to)
+			this.#reach.reached(to, 1)
+			this.#reach.reached(from, -1)
 		}
 		this.#changed()
 	}
