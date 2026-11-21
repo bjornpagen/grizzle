@@ -333,13 +333,26 @@ export const stagedOn = (taken: SubstrateCase<Generated>) =>
 				if (!sketch.temporary) {
 					yield* database(false)
 				}
-				const staged = yield* Effect.result(
-					appliedOn(
-						{ ...ctx, pool: plantedPool(ctx.pool, sketch, sent, limit) },
-						written,
-						facts,
-						params
-					)
+				/**
+				 * Without TEMPORARY, the staged arm runs on a served Db of its own, opened for it: a carrier is the
+				 * session's, kept by every COMMIT (sql/print.ts carrierStandUp), so on the inline arm's session the write
+				 * would truncate the carriers that arm stood up and create none, and TEMPORARY, which only a CREATE asks,
+				 * would never be read.
+				 */
+				const staged = yield* Effect.scoped(
+					Effect.gen(function* () {
+						const on = sketch.temporary
+							? ctx
+							: (yield* openServedDb(o.installed, o.server.roles.app, {})).ctx
+						return yield* Effect.result(
+							appliedOn(
+								{ ...on, pool: plantedPool(on.pool, sketch, sent, limit) },
+								written,
+								facts,
+								params
+							)
+						)
+					})
 				).pipe(Effect.ensuring(sketch.temporary ? Effect.void : database(true)))
 				const stagedRows = yield* state
 				return {
@@ -364,7 +377,7 @@ export const stagedOn = (taken: SubstrateCase<Generated>) =>
 					st.kind === "whole" && st.staged.kind === "carriers" ? st.staged.carriers : []
 				)
 				const created = Arr.filter(carriers, (k) => Arr.contains(texts, k.create.sql))
-				const temporary = Arr.some(texts, (t) => Str.startsWith("CREATE TEMPORARY TABLE")(t))
+				const temporary = Arr.some(texts, Str.includes("CREATE TEMPORARY TABLE "))
 				const own = Arr.some(
 					statements,
 					(st) => st.step.kind === "carrier" && st.step.step === "create"

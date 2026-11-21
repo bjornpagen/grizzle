@@ -185,7 +185,7 @@ export const drafted = (
 			const file = succeeded(servedFile(trustedJson<unknown>(entry.text)), "the served file")
 			const roles = Arr.map(file.roles, (r) => ({
 				key: `${entry.login}.${r.name}`,
-				carrier: Arr.some(textsIn(r.members), Str.startsWith("CREATE TEMPORARY TABLE "))
+				carrier: Arr.some(textsIn(r.members), Str.includes("CREATE TEMPORARY TABLE "))
 			}))
 			if (Arr.some(roles, (r) => r.carrier) && Arr.some(roles, (r) => !r.carrier)) {
 				notes.note("one login holding both")

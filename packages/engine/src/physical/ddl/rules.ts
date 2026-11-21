@@ -103,7 +103,7 @@ import {
 } from "#compiler/sql/build.ts"
 import { assignments, ungenerated } from "#compiler/sql/generation.ts"
 import { type StoredColumns, storedColumns } from "#compiler/sql/image.ts"
-import { printTableName } from "#compiler/sql/print.ts"
+import { printTableName, sessionRegclass, sessionTableStands } from "#compiler/sql/print.ts"
 
 /** A compiled probe: the statement whose rows break the rule, its outputs unaliased, and its index requests. */
 interface Compiled {
@@ -530,14 +530,6 @@ const catalogTable = (name: string, alias: string): FromSource => ({
 /** The table of pg_temp named `name`. */
 const sessionTable = (name: string): ObjectName => objectName(temporarySchema, name)
 
-/** `name`'s relation in the session's own temporary schema, or NULL where it holds none. */
-const regclassOf = (name: string): Expr =>
-	call("to_regclass", [lit.text(printTableName(sessionTable(name)), types.text)])
-
-/** That the session's temporary schema holds a relation named `name`. */
-const standing = (name: string): Expr =>
-	exists(simpleSelect([], [catalogTable("pg_class", "r1")], eq(col("r1", "oid"), regclassOf(name))))
-
 /** That the session's table named `name`, which stands, holds a row, read under `alias`. */
 const holding = (name: string, alias: string): Expr =>
 	exists(simpleSelect([], [{ kind: "table", table: sessionTable(name), alias }], undefined))
@@ -551,7 +543,7 @@ const ours = (name: string, from: ReadonlyArray<FromSource>, more: ReadonlyArray
 		simpleSelect(
 			[],
 			[catalogTable("pg_class", "r2"), ...from],
-			and([eq(col("r2", "oid"), regclassOf(name)), ...owned("r2"), ...more])
+			and([eq(col("r2", "oid"), sessionRegclass(name)), ...owned("r2"), ...more])
 		)
 	)
 
@@ -583,8 +575,16 @@ const ensured = (delta: SessionDelta): PlStatement => ({
 	kind: "if",
 	branches: [
 		{
-			condition: not(standing(delta.name)),
-			body: [{ kind: "createSessionTable", name: delta.name, columns: delta.table }]
+			condition: not(sessionTableStands(delta.name)),
+			body: [
+				{
+					kind: "createSessionTable",
+					name: delta.name,
+					columns: delta.table,
+					notNull: false,
+					primaryKey: undefined
+				}
+			]
 		},
 		{ condition: not(ours(delta.name, [], [])), body: [foreign(delta.name)] }
 	],
@@ -600,9 +600,15 @@ const armedSentinel = (sentinel: string, judge: ObjectName): PlStatement => ({
 	kind: "if",
 	branches: [
 		{
-			condition: not(standing(sentinel)),
+			condition: not(sessionTableStands(sentinel)),
 			body: [
-				{ kind: "createSessionTable", name: sentinel, columns: sentinelTable },
+				{
+					kind: "createSessionTable",
+					name: sentinel,
+					columns: sentinelTable,
+					notNull: false,
+					primaryKey: undefined
+				},
 				{ kind: "createSessionTrigger", name: sentinel, table: sentinel, function: judge }
 			]
 		},
@@ -1694,7 +1700,7 @@ const addCapture = (
 						kind: "if",
 						branches: [
 							{
-								condition: standing(news.delta.name),
+								condition: sessionTableStands(news.delta.name),
 								body: [
 									{
 										kind: "if",

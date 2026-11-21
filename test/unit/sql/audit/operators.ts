@@ -539,6 +539,7 @@ const bodiesOf = (s: PlStatement): ReadonlyArray<PlBody> => {
 		case "modify":
 		case "returnQuery":
 		case "createSessionTable":
+		case "truncateSessionTable":
 		case "createSessionTrigger":
 		case "raise":
 		case "return":

@@ -1155,6 +1155,8 @@ export class Transform {
 				const columns = mapList(s.columns, (c) => this.columnDefinition(c))
 				return columns === s.columns ? s : { ...s, columns }
 			}
+			case "truncateSessionTable":
+				return s
 			case "createSessionTrigger": {
 				const fn = this.name(s.function, "function")
 				return fn === s.function ? s : { ...s, function: fn }

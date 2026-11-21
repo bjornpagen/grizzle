@@ -27,7 +27,9 @@
  *   planted bound), before any SQL: nothing sent and nothing stored.
  * - **A write that creates a temporary table on a role without TEMPORARY**, a staged carrier or a carrier of the
  *   program's own, which a put of Tags from a query over the call's relation parameter needs, fails as `failed`
- *   (TemporaryRefused, naming the privilege, with the server's 42501), and stores nothing. The put is a displacing
+ *   (TemporaryRefused, naming the privilege, with the server's 42501), and stores nothing. A carrier is the session's,
+ *   made by its first use and kept by every COMMIT (sql/print.ts carrierStandUp), so such a write runs on a served Db
+ *   opened for it, whose session holds no carrier yet. The put is a displacing
  *   deletion and an insert (write/put/choose.ts), and both read the query's rows, which the program carries from one
  *   to the other (write/schedule/plan.ts).
  * - **Any other write is the inline write**: it leaves the same rows of every table, every column of each row read as

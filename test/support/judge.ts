@@ -121,9 +121,7 @@ const standUpsOf = (body: ReadonlyArray<PlStatement>): ReadonlyArray<readonly [s
 	Arr.flatMap(body, (s): ReadonlyArray<readonly [string, string]> => {
 		switch (s.kind) {
 			case "createSessionTable":
-				return Arr.isReadonlyArrayNonEmpty(s.columns)
-					? [[s.name, sessionTableCreate(s.name, s.columns)]]
-					: []
+				return Arr.isReadonlyArrayNonEmpty(s.columns) ? [[s.name, sessionTableCreate(s)]] : []
 			case "if":
 				return [...Arr.flatMap(s.branches, (b) => standUpsOf(b.body)), ...standUpsOf(s.else)]
 			case "forQuery":
@@ -136,6 +134,7 @@ const standUpsOf = (body: ReadonlyArray<PlStatement>): ReadonlyArray<readonly [s
 			case "lockRows":
 			case "modify":
 			case "returnQuery":
+			case "truncateSessionTable":
 			case "createSessionTrigger":
 			case "raise":
 			case "return":

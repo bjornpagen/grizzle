@@ -1376,9 +1376,10 @@ export const tableConstraints = (t: CreateTable): ReadonlyArray<TableConstraint>
 	t.primaryKey === undefined ? t.secondary : [t.primaryKey, ...t.secondary]
 
 /**
- * A write program's transaction-scoped carrier: CREATE TEMPORARY TABLE ... ON COMMIT DROP. It lives in pg_temp, the
- * session's own temporary schema, by which it prints qualified, and its one constraint is its primary key, if it has
- * one.
+ * A write program's carrier, a session table of pg_temp, the session's own temporary schema, by which it prints
+ * qualified, stood up where the session holds none and emptied where it does, before each use fills it (sql/print.ts
+ * carrierStandUp): made once in a session, ON COMMIT PRESERVE ROWS, and truncated by every later use, so a write's
+ * transaction makes and drops no relation. Its one constraint is its primary key, if it has one.
  */
 export interface CreateCarrier {
 	readonly kind: "createCarrier"
@@ -2148,16 +2149,35 @@ export type PlStatement =
 	  }
 	| {
 			/**
-			 * CREATE TEMPORARY TABLE pg_temp.<name> (<columns>) ON COMMIT PRESERVE ROWS: a table of the session's own
-			 * temporary schema, owned by the role the function runs as, its definer, whose rows the judge deletes once it
-			 * has read them, so no COMMIT truncates it (tablecmds.c PreCommit_on_commit_actions truncates every ON COMMIT
-			 * DELETE ROWS table of a session at each COMMIT of a transaction that touched any temporary relation, each
-			 * truncation an ACCESS EXCLUSIVE lock and an invalidation every backend reads): a rule judge's delta or
-			 * sentinel (physical/ddl/rules.ts judged). A table of no column is the sentinel's.
+			 * CREATE TEMPORARY TABLE pg_temp.<name> (<columns>[, PRIMARY KEY (<key>) DEFERRABLE INITIALLY IMMEDIATE]) ON
+			 * COMMIT PRESERVE ROWS: a table of the session's own temporary schema, made once in a session and kept by every
+			 * COMMIT, owned by the role the block runs as, so no COMMIT truncates or drops it (tablecmds.c
+			 * PreCommit_on_commit_actions truncates every ON COMMIT DELETE ROWS table of a session at each COMMIT of a
+			 * transaction that touched any temporary relation, each truncation an ACCESS EXCLUSIVE lock and an invalidation
+			 * every backend reads; a table dropped at COMMIT is made again by the next transaction, whose catalog rows
+			 * overflow the shared invalidation queue and reset every cache of the session, its cached plans among them): a
+			 * rule judge's delta or sentinel (physical/ddl/rules.ts judged), its columns nullable, its definer the
+			 * function's, or a write program's carrier (sql/print.ts carrierStandUp), every column NOT NULL and its key its
+			 * own. A table of no column is the sentinel's, or the unit relation's carrier.
 			 */
 			readonly kind: "createSessionTable"
 			readonly name: string
 			readonly columns: ReadonlyArray<ColumnDefinition>
+			/** Whether every column is NOT NULL: a carrier's, whose every value is a fact's field. */
+			readonly notNull: boolean
+			/** The table's key, in key order, or none: a carrier's (CreateCarrier primaryKey). */
+			readonly primaryKey: NonEmptyReadonlyArray<string> | undefined
+	  }
+	| {
+			/**
+			 * TRUNCATE pg_temp.<name>: a session table emptied in place of its rows before a use fills it again, a
+			 * write program's carrier (sql/print.ts carrierStandUp). PostgreSQL gives the table a new file and gives the
+			 * old one back, so the table holds no page an earlier use filled, where a DELETE left every one of them in
+			 * the heap, whose free space no VACUUM records and which every later fill therefore extends; the
+			 * invalidations it sends name that table alone, so only plans that read it are made again.
+			 */
+			readonly kind: "truncateSessionTable"
+			readonly name: string
 	  }
 	| {
 			/**

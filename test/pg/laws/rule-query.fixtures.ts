@@ -1492,6 +1492,7 @@ const plStatementsOf = (body: ReadonlyArray<PlStatement>): ReadonlyArray<PlState
 			case "modify":
 			case "returnQuery":
 			case "createSessionTable":
+			case "truncateSessionTable":
 			case "createSessionTrigger":
 			case "raise":
 			case "return":

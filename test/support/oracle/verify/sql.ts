@@ -2307,6 +2307,9 @@ class StatementAuditor {
 					this.ident(column.name, "column", "columns", i, "name")
 				}
 				return
+			case "truncateSessionTable":
+				this.ident(statement.name, "table", "name")
+				return
 			case "createSessionTrigger":
 				this.ident(statement.name, "trigger", "name")
 				this.ident(statement.table, "table", "table")
@@ -3534,7 +3537,11 @@ const isColumnNotNull = (
 	if (depths[i] !== (shape === "createTable" ? 1 : 0)) {
 		return false
 	}
-	const before = tokens[i - 2]
+	return endsColumnDefinition(tokens[i - 2])
+}
+
+/** Whether `before`, the token before a NOT NULL, ends a column's type or definition. */
+const endsColumnDefinition = (before: Token | undefined): boolean => {
 	if (before === undefined) {
 		return false
 	}
@@ -3552,6 +3559,38 @@ const isColumnNotNull = (
 		case "operator":
 			return false
 	}
+}
+
+/**
+ * Whether NULL at `i`, in a PL/pgSQL body, ends a column constraint NOT NULL of a session table's CREATE TEMPORARY
+ * TABLE "pg_temp".<name> (<columns>) the body runs: a write program's carrier, stood up in a DO block (sql/print.ts
+ * carrierStandUp), at the level of the table's element list, after a predecessor that ends a column's definition.
+ */
+const isSessionTableNotNull = (
+	tokens: ReadonlyArray<Token>,
+	depths: ReadonlyArray<number>,
+	i: number,
+	pl: boolean
+): boolean => {
+	if (!pl || !isWord(tokens[i - 1], "NOT")) {
+		return false
+	}
+	const level = (depths[i] ?? 0) - 1
+	const opener = Arr.findLastIndex(
+		tokens.slice(0, i),
+		(t, k) => isPunct(t, "(") && depths[k] === level
+	)
+	return Option.exists(
+		opener,
+		(j) =>
+			tokens[j - 1]?.kind === "quotedIdent" &&
+			isPunct(tokens[j - 2], ".") &&
+			part(tokens[j - 3], "pg_temp") &&
+			isWord(tokens[j - 4], "TABLE") &&
+			isWord(tokens[j - 5], "TEMPORARY") &&
+			isWord(tokens[j - 6], "CREATE") &&
+			endsColumnDefinition(tokens[i - 2])
+	)
 }
 
 const part = (t: Token | undefined, name: string): boolean =>
@@ -3823,7 +3862,11 @@ class TextAuditor {
 		const next = tokens[i + 1]
 		switch (t.upper) {
 			case "NULL":
-				if (!isColumnNotNull(tokens, depths, i, shape) && !isDomainNullTest(tokens, i, shape)) {
+				if (
+					!isColumnNotNull(tokens, depths, i, shape) &&
+					!isSessionTableNotNull(tokens, depths, i, pl) &&
+					!isDomainNullTest(tokens, i, shape)
+				) {
 					this.report("null", t.start, "NULL")
 				}
 				return cases

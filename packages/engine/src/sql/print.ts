@@ -26,6 +26,7 @@ import {
 	closedSearchPath,
 	type ColumnDef,
 	type ColumnDefinition,
+	type CreateCarrier,
 	type ColumnGeneration,
 	type StoredGeneration,
 	type CommentTarget,
@@ -89,7 +90,19 @@ import {
 	type WindowSpec,
 	type With
 } from "#compiler/sql/ast.ts"
-import { conjunction, cUtf8Collation, types } from "#compiler/sql/build.ts"
+import {
+	call as builtinCall,
+	col,
+	conjunction,
+	cUtf8Collation,
+	eq,
+	exists,
+	lit,
+	not,
+	objectName,
+	simpleSelect,
+	types
+} from "#compiler/sql/build.ts"
 import {
 	type CatalogCall,
 	type CatalogCast,
@@ -1425,13 +1438,80 @@ const definitionText = (column: ColumnDefinition): string =>
 		...(column.collation === undefined ? [] : [`COLLATE ${printObjectName(column.collation)}`])
 	].join(" ")
 
-/** A session table's CREATE: the judge's PL/pgSQL statement that stands up a delta or the sentinel (CreateSessionTable),
- * as a test that stands one up before the judge runs spells it too. */
+/** A session table's CREATE (PlStatement createSessionTable): the statement that stands up a judge's delta or sentinel,
+ * as a test that stands one up before the judge runs spells it too, or a write program's carrier. */
 export const sessionTableCreate = (
-	name: string,
-	columns: ReadonlyArray<ColumnDefinition>
-): string =>
-	`CREATE TEMPORARY TABLE ${printTableName({ schema: temporarySchema, name })} (${columns.map(definitionText).join(", ")}) ON COMMIT PRESERVE ROWS`
+	table: Extract<PlStatement, { readonly kind: "createSessionTable" }>
+): string => {
+	const columns = table.columns.map((c) =>
+		table.notNull ? `${definitionText(c)} NOT NULL` : definitionText(c)
+	)
+	const key =
+		table.primaryKey === undefined
+			? []
+			: [
+					`PRIMARY KEY (${table.primaryKey.map((c) => quoteIdent(c)).join(", ")}) DEFERRABLE INITIALLY IMMEDIATE`
+				]
+	return `CREATE TEMPORARY TABLE ${sessionTableName(table.name)} (${[...columns, ...key].join(", ")}) ON COMMIT PRESERVE ROWS`
+}
+
+/** The session's own table `name`, qualified by its temporary schema. */
+const sessionTableName = (name: string): string =>
+	printObjectName({ schema: temporarySchema, name })
+
+/** `name`'s relation in the session's own temporary schema, or NULL where it holds none. */
+export const sessionRegclass = (name: string): Expr =>
+	builtinCall("to_regclass", [lit.text(sessionTableName(name), types.text)])
+
+/** That the session's temporary schema holds a relation named `name`: what a session table's stand-up asks. */
+export const sessionTableStands = (name: string): Expr =>
+	exists(
+		simpleSelect(
+			[],
+			[{ kind: "table", table: objectName("pg_catalog", "pg_class"), alias: "r1" }],
+			eq(col("r1", "oid"), sessionRegclass(name))
+		)
+	)
+
+/**
+ * A write program's carrier stood up for its use, as one DO block: made where the session holds none, ON COMMIT
+ * PRESERVE ROWS, every column NOT NULL and its key its own, and truncated where it stands, so the use's fills meet no
+ * row of an earlier one; a write's transaction past the session's first therefore makes and drops no relation, whose
+ * catalog rows, a carrier's columns, type and key, overflowed PostgreSQL's shared invalidation queue (4096 messages) at
+ * every COMMIT that dropped them and reset every cache of the session, the rule judge's cached plans among them, which
+ * the next COMMIT made again. A carrier holds no row its use did not write: the use truncates it first, a transaction
+ * that rolls back takes its rows and its truncation with it, and one that commits leaves its rows to the next use,
+ * which truncates them. A TRUNCATE gives the old file back, where a DELETE kept every page, which no VACUUM of the
+ * session's own table records as free, so every fill after it extended the heap: a session's carriers hold at most
+ * one use's rows.
+ */
+const carrierStandUp = (carrier: CreateCarrier): PlBlock => ({
+	declare: [],
+	body: [
+		{
+			kind: "if",
+			branches: [
+				{
+					condition: not(sessionTableStands(carrier.name)),
+					body: [
+						{
+							kind: "createSessionTable",
+							name: carrier.name,
+							columns: carrier.columns.map((c) => ({
+								name: c.name,
+								type: c.type,
+								collation: c.collation
+							})),
+							notNull: true,
+							primaryKey: carrier.primaryKey
+						}
+					]
+				}
+			],
+			else: [{ kind: "truncateSessionTable", name: carrier.name }]
+		}
+	]
+})
 
 const columnHead = (column: ColumnDef): string => {
 	const parts = [quoteIdent(column.name), printType(column.type)]
@@ -1713,7 +1793,9 @@ const plStatement = (out: Lines, statement: PlStatement): void => {
 			selectBlock(out, statement.query)
 			return out.line(";")
 		case "createSessionTable":
-			return out.line(`${sessionTableCreate(statement.name, statement.columns)};`)
+			return out.line(`${sessionTableCreate(statement)};`)
+		case "truncateSessionTable":
+			return out.line(`TRUNCATE ${sessionTableName(statement.name)};`)
 		case "createSessionTrigger":
 			return out.line(
 				`CREATE CONSTRAINT TRIGGER ${quoteIdent(statement.name)} AFTER INSERT ON ${printTableName({ schema: temporarySchema, name: statement.table })} DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION ${printObjectName(statement.function)}();`
@@ -2126,17 +2208,8 @@ const writeCommand = (out: Lines, statement: SqlStatement): void => {
 				...tableConstraints(statement).map(printConstraint)
 			])
 			return out.line(")")
-		case "createCarrier": {
-			const key =
-				statement.primaryKey === undefined
-					? []
-					: [
-							`PRIMARY KEY (${statement.primaryKey.map((c) => quoteIdent(c)).join(", ")}) DEFERRABLE INITIALLY IMMEDIATE`
-						]
-			return out.line(
-				`CREATE TEMPORARY TABLE ${printTableName(statement.name)} (${[...statement.columns.map(printColumnDef), ...key].join(", ")}) ON COMMIT DROP`
-			)
-		}
+		case "createCarrier":
+			return writeDoBlock(out, carrierStandUp(statement))
 		case "alterTable": {
 			const head = `ALTER TABLE ${printObjectName(statement.table)}`
 			if (statement.actions.length === 1) {
