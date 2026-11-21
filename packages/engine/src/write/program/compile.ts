@@ -277,6 +277,43 @@ export interface CompiledWrite extends ProgramArtifacts<WriteParamSlot> {
 	readonly binding: Binding
 }
 
+/**
+ * A compiled write as its application and the served file that holds it read it (write/program/served.ts projectWrite,
+ * flightOf; adapter/served/project.ts): its level and its exclusion, its artifact's statements and read-backs, its
+ * declared and clocked parameters, its binding, and of its front end the schema it compiled against, the relations it
+ * writes and the codes it reads. A CompiledWrite is one, with the analysis, the schedule, the placements and the put
+ * choices its compile read besides, which nothing past the compile that certifies it reads (servableWrite).
+ */
+export interface ServableWrite {
+	readonly level: Isolation
+	readonly exclusion: WriteExclusion
+	readonly artifact: WriteArtifact
+	readonly params: ReadonlyArray<CallerParamDecl>
+	readonly clocked: ReadonlyArray<ClockParamDecl>
+	readonly binding: Binding
+	readonly frontend: Pick<WriteFrontend, "schema" | "written" | "codes">
+}
+
+/**
+ * `compiled` as its application and served file read it (ServableWrite), holding nothing else of it: its front end's
+ * analyzed DAG and every node of it, its schedule, its placements, its certificates and its put choices are unreachable
+ * from it, so a holder of the servable write holds no analysis of its compile.
+ */
+export const servableWrite = (compiled: ServableWrite): ServableWrite =>
+	Object.freeze({
+		level: compiled.level,
+		exclusion: compiled.exclusion,
+		artifact: compiled.artifact,
+		params: compiled.params,
+		clocked: compiled.clocked,
+		binding: compiled.binding,
+		frontend: Object.freeze({
+			schema: compiled.frontend.schema,
+			written: compiled.frontend.written,
+			codes: compiled.frontend.codes
+		})
+	})
+
 /** What decides which of a write op's unique violations abort the apply: a MERGE; any other probed statement; or
  * none. */
 type AbortKind =

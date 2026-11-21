@@ -45,7 +45,11 @@ export {
 	type CompiledVariants,
 	loginChanges,
 	parsedChange,
-	type RoleChanges
+	type RoleChanges,
+	type ServableEntry,
+	type ServableRole,
+	type ServableVariants,
+	servableRole
 } from "#compiler/program/workload/change.ts"
 export { noPlannedFrontends } from "#compiler/program/workload/planned.ts"
 export { loginRole, programsOn } from "#compiler/program/workload/roles.ts"
@@ -69,7 +73,11 @@ export {
 	type FamilyRowBound,
 	type GeneratedRejection
 } from "#compiler/runtime/write/bind.ts"
-export { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
+export {
+	type CompiledWrite,
+	compileWrite,
+	type ServableWrite
+} from "#compiler/write/program/compile.ts"
 export type { ExecutionPart } from "#compiler/runtime/write/staged.ts"
 export { closedNamed, type ClosedRows, type ClosedTable } from "#compiler/runtime/write/fill.ts"
 export { closedTableOf } from "#compiler/analysis/schema.ts"

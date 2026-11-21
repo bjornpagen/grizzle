@@ -15,7 +15,8 @@ import {
 	type ChangeRefused,
 	loginRole,
 	programsOn,
-	type RoleChanges
+	type RoleChanges,
+	type ServableRole
 } from "#compiler/plan/change.ts"
 import {
 	type ClockSource,
@@ -85,6 +86,16 @@ export interface CompiledServed {
 	readonly footprints: ProgramFootprints
 }
 
+/**
+ * A login compiled under a snapshot alone (snapshotCompiled): its served compile, and each of its roles with its
+ * ChangeSets as they compiled, whole (program/workload/change.ts RoleChanges), its compiled writes' put choices and
+ * schedules among them, which a test reads beside the file its served compile projects, by the role's name in the
+ * login.
+ */
+export interface SnapshotCompiled extends CompiledServed {
+	readonly changes: ReadonlyMap<string, RoleChanges<Isolation, InstalledSource>>
+}
+
 const atLogin = (error: CompileError | UnservedMember): ServedRefusal => ({
 	place: { kind: "login" },
 	error
@@ -147,7 +158,7 @@ const compileServed = Effect.fn("compileServed")(function* (
 	login: ServedInput,
 	snapshot: unknown,
 	artifacts: InstalledArtifacts,
-	changes: ReadonlyMap<string, RoleChanges<Isolation, InstalledSource>>,
+	changes: ReadonlyMap<string, ServableRole<Isolation, InstalledSource>>,
 	footprints: ProgramFootprints,
 	clock: ClockSource
 ): Effect.fn.Return<CompiledServed, ServedRefusal> {
@@ -217,7 +228,7 @@ export const servedEntry = (
 	login: ServedInput,
 	snapshot: unknown,
 	artifacts: InstalledArtifacts,
-	changes: ReadonlyMap<string, RoleChanges<Isolation, InstalledSource>>,
+	changes: ReadonlyMap<string, ServableRole<Isolation, InstalledSource>>,
 	footprints: ProgramFootprints
 ): Effect.Effect<ServedEntry, ServedRefusal> =>
 	Effect.flatMap(
@@ -239,7 +250,7 @@ export const snapshotCompiled = Effect.fn("snapshotCompiled")(function* (
 	login: ServedInput,
 	snapshot: unknown,
 	clock: ClockSource
-): Effect.fn.Return<CompiledServed, ServedRefusal> {
+): Effect.fn.Return<SnapshotCompiled, ServedRefusal> {
 	const served = yield* Effect.mapError(
 		fromEngine(servedSnapshot(snapshot, levelChain(login.login.base.desc).length - 1)),
 		atLogin
@@ -262,7 +273,8 @@ export const snapshotCompiled = Effect.fn("snapshotCompiled")(function* (
 		fromEngine(loginFootprints(login.login.workload, login.login.base, artifacts)),
 		(refused) => planRefusal(login, refused)
 	)
-	return yield* compileServed(login, snapshot, artifacts, changes, footprints, clock)
+	const compiled = yield* compileServed(login, snapshot, artifacts, changes, footprints, clock)
+	return { ...compiled, changes }
 })
 
 /**

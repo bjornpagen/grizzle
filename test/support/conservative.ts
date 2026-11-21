@@ -3,7 +3,11 @@ import { Result as EffectResult } from "effect"
 import { readBacks } from "#adapter/apply/readback.ts"
 import { toResult } from "#adapter/engine.ts"
 import type { PageRuntime } from "#adapter/page/template.ts"
-import { type CompiledEntry, compiledPageRuntime } from "#adapter/served/forms.ts"
+import {
+	type CompiledEntry,
+	type CompiledProgram,
+	compiledPageRuntime
+} from "#adapter/served/forms.ts"
 import type { RoleContext } from "#adapter/served/role.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
@@ -143,14 +147,14 @@ export const conservativePageRuntime = (
  * compiled it against (db/context.ts RoleContext.programArtifacts).
  */
 export const conservativeChange = (
-	entry: CompiledEntry,
+	{ entry, program: compiled }: CompiledProgram,
 	role: Pick<RoleContext, "programArtifacts">
 ): Result.Result<CompiledEntry, CompileError> =>
 	Result.flatMap(
 		role.programArtifacts({ kind: "changeSet", changeSet: entry.change.desc }),
 		({ artifacts }) =>
 			Result.map(
-				conservativeWrite(entry.compiled, {
+				conservativeWrite(compiled, {
 					names: entry.names,
 					reads: artifacts.reads,
 					world: writeWorldOf(artifacts.world, artifacts.laws)

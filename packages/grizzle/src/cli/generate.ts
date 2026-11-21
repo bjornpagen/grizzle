@@ -42,7 +42,7 @@ import {
 } from "#cli/files.ts"
 import { phasedEffect } from "#cli/phases.ts"
 import { rosterRenames } from "#cli/renames.ts"
-import type { RoleChanges } from "#compiler/plan/change.ts"
+import { type ServableRole, servableRole } from "#compiler/plan/change.ts"
 import {
 	type Codebook,
 	type CompileError,
@@ -293,7 +293,7 @@ export type SchemaDraft = (
  */
 export interface PlannedLogin {
 	readonly artifacts: InstalledArtifacts
-	readonly roles: ReadonlyMap<string, RoleChanges<Isolation, InstalledSource>>
+	readonly roles: ReadonlyMap<string, ServableRole<Isolation, InstalledSource>>
 	readonly footprints: ProgramFootprints
 }
 
@@ -322,8 +322,11 @@ export type ServedBasis =
  * level's, compiled from the basis's derived facts as a snapshot records them (deploy/snapshot/build.ts derivedFacts,
  * adapter/served/login.ts artifactsUnder), under the draft's codes `codes`, each casting the programs' parameters to
  * the types the workload's plan declares (WorkloadPhysical.params), which the installation drafted installs and its
- * snapshot records. The plan, with what each login's served file compiles over
- * (ServedBasis). Every login's roles are named under its artifacts' installation before any login compiles
+ * snapshot records. The plan, with what each login's served file compiles over (ServedBasis): each role's change
+ * members servable (program/workload/change.ts servableRole), its certification having read their compiled writes, and
+ * the plan without them, so no compiled write's front end, analysis, schedule or placement, nor the plan's front ends,
+ * outlives this compile into the installation's (installationUnder), where they were every compiled write's whole
+ * until the served files were projected. Every login's roles are named under its artifacts' installation before any login compiles
  * (physical/ddl/names.ts namedLogin), so a role whose PostgreSQL role does not fit is DraftRefused with
  * IdentifierTooLong; a program the checker refuses is DraftRefused, and a login's ChangeSet that does not compile
  * ServedRefused. The workload's plan and the change compile are phases reported to `phases` (`workload`, `changes`).
@@ -421,11 +424,21 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
 				if (roles === undefined || footprints === undefined) {
 					throw defect(`the change compile of login ${l.owned.name}, a login of the plan`)
 				}
-				return [l.owned.name, { artifacts, roles, footprints }] as const
+				return [
+					l.owned.name,
+					{
+						artifacts,
+						roles: new Map(
+							Arr.map([...roles], ([name, role]) => [name, servableRole(role)] as const)
+						),
+						footprints
+					}
+				] as const
 			})
 		)
 	}
-	return { plan, served: basisOf }
+	const { changes: _certified, ...installed } = plan
+	return { plan: installed, served: basisOf }
 })
 
 /**

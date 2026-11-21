@@ -62,10 +62,11 @@ import type { ArtifactsWorld, SchemaArtifacts, SchemaInput } from "#compiler/pro
 import {
 	type ChangeLogin,
 	type ChangeRefused,
-	type CompiledVariants,
 	type ReadCommittedRole,
 	type RoleChanges,
-	readCommittedChanges
+	readCommittedChanges,
+	type ServableRole,
+	type ServableVariants
 } from "#compiler/program/workload/change.ts"
 import { type PlannedFrontend, PlannedFrontends } from "#compiler/program/workload/planned.ts"
 import { loginRole, programsOn } from "#compiler/program/workload/roles.ts"
@@ -840,7 +841,7 @@ export interface ServedWorkloadPlan<S extends ParamSource = ParamSource> extends
 }
 
 /** The artifacts of a ChangeSet's variants, every form it may be served in. */
-const variantArtifacts = (variants: CompiledVariants): ReadonlyArray<WriteArtifact> =>
+const variantArtifacts = (variants: ServableVariants): ReadonlyArray<WriteArtifact> =>
 	variants.kind === "form"
 		? [variants.entry.compiled.artifact]
 		: [...variantArtifacts(variants.holding), ...variantArtifacts(variants.lacking)]
@@ -852,7 +853,7 @@ const variantArtifacts = (variants: CompiledVariants): ReadonlyArray<WriteArtifa
  * database (adapter TemporaryRefused), or of USAGE on a domain a carrier's column is typed by.
  */
 const servedCarriers = (
-	served: ReadonlyMap<string, ReadonlyMap<string, RoleChanges>>
+	served: ReadonlyMap<string, ReadonlyMap<string, ServableRole>>
 ): ReadonlyArray<RoleCarriers> =>
 	[...served].flatMap(([login, roles]) =>
 		[...roles].flatMap(([role, changes]): ReadonlyArray<RoleCarriers> => {
@@ -870,7 +871,7 @@ const servedCarriers = (
 	)
 
 /** The headers of the retirable units a ChangeSet's variants hold: any variant's flight's holds (write/hold/statement.ts). */
-const variantHolds = (variants: CompiledVariants): ReadonlyArray<string> =>
+const variantHolds = (variants: ServableVariants): ReadonlyArray<string> =>
 	variants.kind === "form"
 		? variants.entry.compiled.artifact.statements.flatMap((s) =>
 				s.step.kind === "hold" ? [s.step.header] : []
@@ -883,7 +884,7 @@ const variantHolds = (variants: CompiledVariants): ReadonlyArray<string> =>
  * calls execute the unit's hold function.
  */
 export const servedHolds = (
-	served: ReadonlyMap<string, ReadonlyMap<string, RoleChanges>>
+	served: ReadonlyMap<string, ReadonlyMap<string, ServableRole>>
 ): ReadonlyArray<RoleHold> =>
 	[...served].flatMap(([login, roles]) =>
 		[...roles].flatMap(([role, changes]): ReadonlyArray<RoleHold> =>

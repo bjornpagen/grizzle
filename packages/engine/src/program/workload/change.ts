@@ -38,7 +38,9 @@ import {
 	type PreparedWrite,
 	type PrepareWriteOptions,
 	prepareWrite,
-	preparedWrite
+	preparedWrite,
+	type ServableWrite,
+	servableWrite
 } from "#compiler/write/program/compile.ts"
 
 /**
@@ -82,6 +84,94 @@ export type CompiledVariants<S extends ParamSource = ParamSource> =
 			readonly holding: CompiledVariants<S>
 			readonly lacking: CompiledVariants<S>
 	  }
+
+/**
+ * A ChangeSet compiled for a role as its runtime entry and the served file that holds it read it: its entry with its
+ * write servable (write/program/compile.ts ServableWrite), and no prepared write, so none of its compile's front end,
+ * analysis, schedule or placement. A ChangeEntry is one, holding those besides.
+ */
+export interface ServableEntry<S extends ParamSource = ParamSource> {
+	readonly params: S
+	readonly change: ParsedChangeSet
+	readonly clock: ClockBinding
+	readonly source: ClockSource
+	readonly schema: SchemaFingerprint
+	readonly names: WriteNames
+	readonly compiled: ServableWrite
+}
+
+/** A workload ChangeSet's variants with each entry servable (CompiledVariants, ServableEntry). */
+export type ServableVariants<S extends ParamSource = ParamSource> =
+	| {
+			readonly kind: "form"
+			readonly entry: ServableEntry<S>
+			readonly decoder: RowDecoder<unknown>
+	  }
+	| {
+			readonly kind: "split"
+			readonly context: string
+			readonly holding: ServableVariants<S>
+			readonly lacking: ServableVariants<S>
+	  }
+
+/**
+ * One role of a login with its change members as its served file reads them (RoleChanges, each entry servable): what a
+ * generate holds of a role once its certification has read its compiled writes, a RoleChanges being one.
+ */
+export interface ServableRole<
+	L extends Isolation = Isolation,
+	S extends ParamSource = ParamSource
+> {
+	readonly input: ParsedRole
+	readonly named: NamedRole
+	readonly artifacts: SchemaArtifacts<S>
+	readonly level: L
+	readonly members: ReadonlyMap<string, ServableVariants<S>>
+}
+
+/** `entry` servable (ServableEntry): its prepared write and every part of its compiled write past the servable one dropped. */
+const servableEntry = <S extends ParamSource>(entry: ServableEntry<S>): ServableEntry<S> =>
+	Object.freeze({
+		params: entry.params,
+		change: entry.change,
+		clock: entry.clock,
+		source: entry.source,
+		schema: entry.schema,
+		names: entry.names,
+		compiled: servableWrite(entry.compiled)
+	})
+
+const servableVariants = <S extends ParamSource>(
+	variants: ServableVariants<S>
+): ServableVariants<S> =>
+	variants.kind === "form"
+		? Object.freeze({
+				kind: "form",
+				entry: servableEntry(variants.entry),
+				decoder: variants.decoder
+			})
+		: Object.freeze({
+				kind: "split",
+				context: variants.context,
+				holding: servableVariants(variants.holding),
+				lacking: servableVariants(variants.lacking)
+			})
+
+/**
+ * `role` as its served file reads it (ServableRole): every change member's entry servable, so the role holds none of its
+ * compiles' front ends, analyses, schedules, placements or prepared writes, which its certification read and nothing
+ * after it does.
+ */
+export const servableRole = <L extends Isolation, S extends ParamSource>(
+	role: ServableRole<L, S>
+): ServableRole<L, S> =>
+	Object.freeze({
+		input: role.input,
+		named: role.named,
+		artifacts: role.artifacts,
+		level: role.level,
+		members: new Map([...role.members].map(([name, v]) => [name, servableVariants(v)] as const))
+	})
 
 const applyLoc = SourceLoc("db.apply", [])
 

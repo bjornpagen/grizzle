@@ -22,6 +22,7 @@ import {
 	type LoadedRead,
 	loadServed
 } from "#adapter/served/load.ts"
+import { loginChangesOver } from "#adapter/served/login.ts"
 import { bindFrame, keptRows } from "#adapter/wire/batch.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import type { CliError } from "#cli/errors.ts"
@@ -33,6 +34,7 @@ import { silentPhases } from "#compiler/core/phase.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
+import { transactionClock } from "#compiler/ir/clock.ts"
 import { noLive } from "#compiler/live/notify.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import {
@@ -44,7 +46,6 @@ import {
 	type RoleHold,
 	servesNoParams
 } from "#compiler/physical/install/extension.ts"
-import { changesAt } from "#compiler/program/workload/change.ts"
 import { servedHolds } from "#compiler/program/workload/compile.ts"
 import type { AnyLogin, AnyRole, AnySchema } from "#compiler/public/schema.ts"
 import { reachOf } from "#compiler/runtime/write/steps.ts"
@@ -391,17 +392,31 @@ const certifiedPlan = (
 			}
 		}
 		const levels = levelsOf(certified)
-		const stated = yield* Effect.forEach([...served.logins], ([login, planned]) =>
-			Effect.map(
-				Effect.forEach([...planned.roles], ([role, at]) => {
+		const stated = yield* Effect.forEach([...served.logins], ([login, planned]) => {
+			const at = defined(
+				Option.getOrUndefined(Arr.findFirst(compiled.logins, (l) => l.owned.name === login)),
+				`the configured login ${login}`
+			)
+			return Effect.map(
+				Effect.forEach([...planned.roles], ([role, held]) => {
 					const level = defined(levels.get(role), `the stated level of role ${role}`)
-					return level === at.level
-						? Effect.succeed([role, at] as const)
-						: Effect.map(fromEngine(changesAt(at, level)), (changed) => [role, changed] as const)
+					return level === held.level
+						? Effect.succeed([role, held] as const)
+						: Effect.mapBoth(
+								loginChangesOver(at.login, at.owned, planned.artifacts, level, transactionClock),
+								{
+									onFailure: (refused) => refused.error,
+									onSuccess: (changes) =>
+										[
+											role,
+											defined(changes.get(role), `the change compile of role ${role}`)
+										] as const
+								}
+							)
 				}),
 				(roles) => [login, { ...planned, roles: new Map(roles) }] as const
 			)
-		)
+		})
 		const entries = yield* servedFiles(
 			compiled,
 			draft,

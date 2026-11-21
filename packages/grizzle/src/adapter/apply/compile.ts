@@ -2,10 +2,10 @@ import type { ReadBackRuns } from "#adapter/apply/readback.ts"
 import type { ParamCodecs } from "#adapter/reader/relations.ts"
 import type { InstallationWitness } from "#adapter/witness/index.ts"
 import type {
-	ChangeEntry,
-	CompiledWrite,
 	FlightWrite,
-	ParsedChangeSet
+	ParsedChangeSet,
+	ServableEntry,
+	ServableWrite
 } from "#compiler/plan/change.ts"
 import { type BindContext, type InstalledSource, nominal } from "#compiler/plan/common.ts"
 
@@ -56,8 +56,8 @@ export type WriteEntryParts = Omit<WriteEntry, typeof installedBrand>
  * runtimeEntry).
  */
 export const installedEntry = <E extends WriteEntryParts>(
-	compiled: ChangeEntry<InstalledSource>,
-	build: (compiled: ChangeEntry<InstalledSource>) => E
+	compiled: ServableEntry<InstalledSource>,
+	build: (compiled: ServableEntry<InstalledSource>) => E
 ): E & WriteEntry => nominal<E, E & WriteEntry>()(build(compiled))
 
 /**
@@ -66,6 +66,6 @@ export const installedEntry = <E extends WriteEntryParts>(
  * bound values, and what serving it reads, the bound values its bind read with no canonical text.
  */
 export interface CompiledChange extends WriteEntry {
-	readonly compiled: CompiledWrite
+	readonly compiled: ServableWrite
 	readonly change: Pick<ParsedChangeSet, "inputs" | "values" | "opaque">
 }

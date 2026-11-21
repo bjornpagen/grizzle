@@ -1000,7 +1000,7 @@ const observedArtifact = (
 			)
 			const entry =
 				realization === "served"
-					? compiled
+					? compiled.entry
 					: yield* Effect.fromResult(toResult(conservativeChange(compiled, opened.role)))
 			const members = yield* opened.load({ change: changes })
 			const loaded = member(members, "change")
@@ -1164,7 +1164,7 @@ export const explainedChange = (
 					}
 					return yield* appliedChange(
 						ctx,
-						{ ...variantOf(opened.ctx, loaded.variants), entry: compiled },
+						{ ...variantOf(opened.ctx, loaded.variants), entry: compiled.entry },
 						callFactsOf(parsed),
 						{}
 					)

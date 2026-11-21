@@ -40,7 +40,7 @@ import type {
 	FormText,
 	SentForm
 } from "#compiler/write/program/artifact.ts"
-import type { CompiledWrite } from "#compiler/write/program/compile.ts"
+import type { ServableWrite } from "#compiler/write/program/compile.ts"
 import { decideBinding } from "#compiler/write/program/decide.ts"
 import { partedOf } from "#compiler/write/program/single.ts"
 
@@ -193,7 +193,7 @@ const servedStatements = (
  * read-backs', which the read-backs' own programs run, each step with the aborts it meets at that level, and its written
  * relations' headings.
  */
-export const projectWrite = (compiled: CompiledWrite): ServedWrite =>
+export const projectWrite = (compiled: ServableWrite): ServedWrite =>
 	Object.freeze({
 		params: compiled.params,
 		binding: compiled.binding,
@@ -215,7 +215,7 @@ export const projectWrite = (compiled: CompiledWrite): ServedWrite =>
 
 /** A write compiled in process as an application runs it: projected at the level it was compiled for and loaded, as a
  * served one is. */
-export const flightOf = (compiled: CompiledWrite, codes: Codebook): FlightWrite =>
+export const flightOf = (compiled: ServableWrite, codes: Codebook): FlightWrite =>
 	loadWrite(
 		projectWrite(compiled),
 		codes,

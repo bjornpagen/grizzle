@@ -11,9 +11,9 @@ import {
 	type ClosedRows,
 	type ClosedTable,
 	closedTableOf,
-	type CompiledWrite,
 	projectWrite,
-	type ReadCalled
+	type ReadCalled,
+	type ServableWrite
 } from "#compiler/plan/change.ts"
 import {
 	type CompileError,
@@ -241,7 +241,7 @@ const contextsOf = (role: LayerRole): ReadonlyArray<ServedContext> =>
 	}))
 
 /** Each compiled write of a ChangeSet's variants. */
-const variantsWrites = (variants: ChangeVariants): ReadonlyArray<CompiledWrite> =>
+const variantsWrites = (variants: ChangeVariants): ReadonlyArray<ServableWrite> =>
 	variants.kind === "form"
 		? [variants.form.entry.compiled]
 		: [...variantsWrites(variants.holding), ...variantsWrites(variants.lacking)]

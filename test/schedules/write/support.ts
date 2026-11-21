@@ -354,10 +354,10 @@ export const servedChanges = (
 		return {
 			changes: changesOf(roleNamed(loaded.roles, (r) => r.name, role).members),
 			choices: new Map(
-				Arr.flatMap(roleNamed(compiled.roles, (r) => r.role.name, role).workload, (form) =>
-					form.kind === "change" && form.variants.kind === "form"
-						? [[form.name, form.variants.form.entry.compiled.choices] as const]
-						: []
+				Arr.flatMap(
+					[...defined(compiled.changes.get(role), `the change compile of role ${role}`).members],
+					([name, variants]) =>
+						variants.kind === "form" ? [[name, variants.entry.compiled.choices] as const] : []
 				)
 			)
 		}

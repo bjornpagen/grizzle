@@ -18,11 +18,12 @@ import type { RoleContext } from "#adapter/served/role.ts"
 import type { InstallationWitness } from "#adapter/witness/index.ts"
 import { paramDomainsOf } from "#compiler/plan/catalog.ts"
 import {
-	type ChangeEntry,
+	type CompiledWrite,
 	compileParsed,
 	flightOf,
 	parsedChange,
 	type ParsedChangeSet,
+	type ServableEntry,
 	type WriteNames
 } from "#compiler/plan/change.ts"
 import {
@@ -280,7 +281,7 @@ export interface CompiledEntry extends CompiledChange {
  * pattern domains as theirs (InstallationWitness.declaring), and the role's bind context.
  */
 export const runtimeEntry = (
-	entry: ChangeEntry<InstalledSource>,
+	entry: ServableEntry<InstalledSource>,
 	codes: Codebook,
 	witness: InstallationWitness,
 	bind: BindContext
@@ -297,32 +298,44 @@ export const runtimeEntry = (
 		change
 	}))
 
+/**
+ * A ChangeSet compiled now for a role (compiledWrite): its runtime's entry, which holds its write servable
+ * (write/program/compile.ts ServableWrite), and its compiled write whole, with the front end, schedule, placements and
+ * put choices a write oracle reads of it.
+ */
+export interface CompiledProgram {
+	readonly entry: CompiledEntry
+	readonly program: CompiledWrite
+}
+
 /** The program entry of a ChangeSet for a role, compiled now for the contexts `claims` holds a fact of, against the
  * role's artifacts for it (db/context.ts RoleContext.programArtifacts). */
 const writeEntry = (
 	role: RoleContext,
 	change: ParsedChangeSet,
 	claims: ReadonlySet<string>
-): Result.Result<CompiledEntry, CompileError> =>
+): Result.Result<CompiledProgram, CompileError> =>
 	Result.flatMap(
 		toResult(role.programArtifacts({ kind: "changeSet", changeSet: change.desc })),
 		({ artifacts, witness }) =>
 			Result.map(
 				toResult(compileParsed(artifacts, change, claims, "serializable", noClock, role.clock)),
-				(entry) => runtimeEntry(entry, artifacts.names.codes, witness, role.bind)
+				(entry) => ({
+					entry: runtimeEntry(entry, artifacts.names.codes, witness, role.bind),
+					program: entry.compiled
+				})
 			)
 	)
 
 /**
- * A ChangeSet value compiled for a role and the contexts `claims` holds a fact of: a Db's apply compiles it for the
- * Db's claims, and the layer a workload's ChangeSet once for each set of its fill contexts. Its program, compiled now,
- * and the value parsed.
+ * A ChangeSet value compiled for a role and the contexts `claims` holds a fact of, as a test's Db compiles it for the
+ * Db's claims: its runtime's entry and its compiled write whole (CompiledProgram).
  */
 export const compiledWrite = (
 	role: RoleContext,
 	changes: unknown,
 	claims: ReadonlySet<string>
-): Result.Result<CompiledEntry, CompileError> =>
+): Result.Result<CompiledProgram, CompileError> =>
 	Result.flatMap(toResult(parsedChange(role.schema, changes)), (change) =>
 		writeEntry(role, change, claims)
 	)

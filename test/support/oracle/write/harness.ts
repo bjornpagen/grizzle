@@ -8,12 +8,14 @@ import type { CompiledChange } from "#adapter/apply/compile.ts"
 import { type InputFailure, hostInputs } from "#adapter/apply/run.ts"
 import { ExecutionFailure } from "#adapter/errors/execution.ts"
 import { ParamRejected } from "#adapter/errors/failures.ts"
+import type { CompiledProgram } from "#adapter/served/forms.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import type { WriteStepResult } from "#compiler/runtime/write/steps.ts"
 import { factIdentity } from "#compiler/scalar/values/identity.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import type { ArtifactStatement, WriteArtifact } from "#compiler/write/program/artifact.ts"
+import type { CompiledWrite } from "#compiler/write/program/compile.ts"
 import type { PutChoice } from "#compiler/write/put/choose.ts"
 import type { AmbientFeature } from "#test/support/ambient.ts"
 import { conservativeChange } from "#test/support/conservative.ts"
@@ -561,7 +563,7 @@ const unboundProblems = (
  */
 const unorderableProblems = (
 	expected: Extract<Expected, { readonly kind: "unorderable" }>,
-	entry: Result.Result<CompiledChange, CompileError>
+	entry: Result.Result<CompiledProgram, CompileError>
 ): ReadonlyArray<string> => {
 	if (Result.isSuccess(entry)) {
 		return ["the ChangeSet compiles"]
@@ -931,7 +933,7 @@ const stagedBeside = (
  * slot two statements read staged into a carrier (write/program/slot-carriers.ts), one an exact deletion excepts beside
  * its insert or a put's both halves read among them.
  */
-const realizationsOf = (program: CompiledChange["compiled"]): ReadonlyArray<WriteOracleFeature> => {
+const realizationsOf = (program: CompiledWrite): ReadonlyArray<WriteOracleFeature> => {
 	const artifact = program.artifact
 	const steps = artifact.steps
 	const writes = new Map<number, number>()
@@ -1119,14 +1121,14 @@ export const runCase = (
 				report: `${header()}\nthe ChangeSet does not compile: ${entry.failure.message}`
 			})
 		}
-		const program = entry.success.compiled
+		const { program } = entry.success
 		const baseline = conservativeChange(entry.success, t.ctx)
 		if (!baseline.ok) {
 			return yield* new CaseFailed({
 				report: `${header()}\nthe ChangeSet's conservative realization does not compile: ${baseline.error.message}`
 			})
 		}
-		const entries = { optimized: entry.success, conservative: baseline.value } as const
+		const entries = { optimized: entry.success.entry, conservative: baseline.value } as const
 		const problems: Array<string> = []
 		for (const artifact of ["optimized", "conservative"] as const) {
 			const audited = yield* Effect.result(
@@ -1144,7 +1146,7 @@ export const runCase = (
 				problems.push(audited.failure)
 			}
 		}
-		const bound = yield* Effect.result(takesOf(entry.success, params))
+		const bound = yield* Effect.result(takesOf(entry.success.entry, params))
 		if (Result.isFailure(bound)) {
 			return yield* new CaseFailed({
 				report: `${header()}\nthe ChangeSet does not bind: ${bound.failure._tag}`
@@ -1187,7 +1189,7 @@ export const runCase = (
 		noteIf(restored.respelled, "a fact respelled on a second reading")
 		const secondPlan = complementOf(perturbation)
 		yield* resetGroup(t, group, restored.facts)
-		const again = yield* applyWith(t, entry.success, changes, params, secondPlan)
+		const again = yield* applyWith(t, entry.success.entry, changes, params, secondPlan)
 		const againState = yield* readGroup(t, group)
 		const readAgain = `optimized, read again over its facts stored otherwise (${restored.reordered ? "reordered" : "in their order"}, ${restored.respelled ? "one value respelled" : "no value respelled"}), ${printPerturbation(secondPlan)}`
 		const againProblems = [

@@ -15,13 +15,14 @@ import type { InstallationWitness } from "#adapter/witness/index.ts"
 import type { LawsAbove } from "#adapter/witness/keylaw.ts"
 import {
 	type ChangeRefused,
-	type CompiledVariants,
 	loginChanges,
 	loginRole,
 	noPlannedFrontends,
 	programsOn,
 	readCalled,
 	type RoleChanges,
+	type ServableRole,
+	type ServableVariants,
 	type WorkloadProgram
 } from "#compiler/plan/change.ts"
 import {
@@ -229,7 +230,7 @@ export const workloadSlice = (
 const layerVariants = (
 	role: RoleContext,
 	witness: InstallationWitness,
-	variants: CompiledVariants<InstalledSource>
+	variants: ServableVariants<InstalledSource>
 ): Result.Result<ChangeVariants, CompileError> => {
 	if (variants.kind === "form") {
 		const entry = runtimeEntry(variants.entry, role.artifacts.names.codes, witness, role.bind)
@@ -251,7 +252,7 @@ const layerVariants = (
  */
 const programForm = (
 	role: RoleContext,
-	changes: RoleChanges<Isolation, InstalledSource>,
+	changes: ServableRole<Isolation, InstalledSource>,
 	witness: InstallationWitness,
 	program: WorkloadProgram
 ): Result.Result<WorkloadForm, CompileError> => {
@@ -338,7 +339,7 @@ const programForm = (
 const compileRoleWorkload = (
 	name: string,
 	role: RoleContext,
-	changes: RoleChanges<Isolation, InstalledSource>,
+	changes: ServableRole<Isolation, InstalledSource>,
 	witness: InstallationWitness,
 	workloads: ReadonlyArray<AnyWorkload>
 ): Result.Result<ReadonlyArray<WorkloadForm>, WorkloadRefused> =>
@@ -406,7 +407,7 @@ export interface LayerRole extends RoleContext {
 const layerRole = (
 	name: string,
 	value: unknown,
-	changes: RoleChanges<Isolation, InstalledSource>,
+	changes: ServableRole<Isolation, InstalledSource>,
 	layer: LayerArtifacts,
 	workload: ReadonlyArray<AnyWorkload>,
 	bind: BindContext,
@@ -521,7 +522,7 @@ export const loginChangesOver = <L extends Isolation, S extends ParamSource>(
  */
 export const plannedLoginRoles = (
 	login: BuiltLogin,
-	changes: ReadonlyMap<string, RoleChanges<Isolation, InstalledSource>>,
+	changes: ReadonlyMap<string, ServableRole<Isolation, InstalledSource>>,
 	layer: LayerArtifacts,
 	above: LawsAbove,
 	clock: ClockSource

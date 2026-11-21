@@ -12,7 +12,7 @@ import type { ServedDbContext } from "#adapter/db/context.ts"
 import { fromEngine } from "#adapter/engine.ts"
 import type { ApplyError, OpenError } from "#adapter/errors/execution.ts"
 import type { ServedRefusal } from "#adapter/public/compile.ts"
-import { type CompiledEntry, compiledWrite } from "#adapter/served/forms.ts"
+import { type CompiledEntry, type CompiledProgram, compiledWrite } from "#adapter/served/forms.ts"
 import type { RoleContext } from "#adapter/served/role.ts"
 import type { ApplyOutcome } from "#adapter/types/db.ts"
 import type { Session } from "#adapter/wire/session.ts"
@@ -354,11 +354,12 @@ export const readGroup = (
 		return { relations }
 	})
 
-/** The compiled program of a ChangeSet value, as the target's Db compiles it for the contexts its claims hold. */
+/** The compiled program of a ChangeSet value, as the target's Db compiles it for the contexts its claims hold: its
+ * runtime's entry, and its compiled write whole. */
 export const programOf = (
 	t: WriteTarget,
 	changes: unknown
-): Result.Result<CompiledEntry, CompileError> => compiledWrite(t.ctx, changes, t.ctx.claims)
+): Result.Result<CompiledProgram, CompileError> => compiledWrite(t.ctx, changes, t.ctx.claims)
 
 /** A session that logs every flight it sends, and what the server answered, into `log`. */
 const loggedSession = (session: Session, log: Array<Flight>): Session => ({

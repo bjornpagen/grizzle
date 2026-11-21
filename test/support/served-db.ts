@@ -139,8 +139,8 @@ const conservativeVariants = (
 ): Result.Result<ServedVariants, CompileError | UnservedMember> => {
 	switch (variants.kind) {
 		case "change":
-			return Result.flatMap(compiledWrite(role, changes, claims), (entry) =>
-				Result.map(toResult(conservativeChange(entry, role)), (conservative) => ({
+			return Result.flatMap(compiledWrite(role, changes, claims), (compiled) =>
+				Result.map(toResult(conservativeChange(compiled, role)), (conservative) => ({
 					kind: "change",
 					change: {
 						...variants.change,

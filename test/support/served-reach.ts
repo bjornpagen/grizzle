@@ -16,7 +16,7 @@ import type { Heading } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
 import type { ConstraintLaw } from "#compiler/laws/model/model.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
-import type { CompiledWrite } from "#compiler/plan/change.ts"
+import type { ServableWrite } from "#compiler/plan/change.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import type {
 	ServedMember,
@@ -228,7 +228,7 @@ const memberParams = (member: ServedMember): ReadonlyArray<CallerParamDecl> => {
 }
 
 /** A compiled ChangeSet's writes, one per variant (ChangeVariants), the forms its served variants were printed from. */
-const compiledWrites = (variants: ChangeVariants): ReadonlyArray<CompiledWrite> =>
+const compiledWrites = (variants: ChangeVariants): ReadonlyArray<ServableWrite> =>
 	variants.kind === "form"
 		? [variants.form.entry.compiled]
 		: [...compiledWrites(variants.holding), ...compiledWrites(variants.lacking)]
