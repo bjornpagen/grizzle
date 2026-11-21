@@ -138,7 +138,9 @@ export const textRows = (
  *
  *   with C `chunkLength`. A row's number is its place in `rows`' order, any place where it has none, so the host,
  *   which reads the chunks in whatever order they arrive, puts the rows back in it. Its WITH moves out to the
- *   statement, where a data-modifying CTE must stand, and the derived table reads it from there.
+ *   statement, where a data-modifying CTE must stand, and the derived table reads it from there. The derived table's
+ *   column list names its columns, so `rows`' targets go in it unnamed: the public names stand on the outermost output
+ *   alone, each on its cell, as every other nested query's targets carry none of them.
  */
 export const deliveredRows = (
 	rows: PlainQuery,
@@ -163,7 +165,7 @@ export const deliveredRows = (
 		body: {
 			...rows.body,
 			targets: [
-				...rows.body.targets,
+				...rows.body.targets.map((t) => ({ ...t, alias: undefined })),
 				target({ ...call("row_number", []), over: windowOf([], rows.orderBy) })
 			]
 		}
