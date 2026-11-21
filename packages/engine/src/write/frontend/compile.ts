@@ -3246,21 +3246,30 @@ const compile = (
 	/** The DAG the optimized artifact lowers: every take correlated through bind restated with its correlation explicit,
 	 * as a query's is, so the take policy sees its parent set, and analyzed alike. The rewrite reads the analyzed DAG's
 	 * roots, every described source and read-back, and keeps every node's label; each node the queries name is read as
-	 * the node standing in its place there. A DAG with no root restates nothing and names no node. The conservative
-	 * realization lowers `dag`, as checked. */
+	 * the node standing in its place there. A DAG with no root restates nothing and names no node. Where the rewrite
+	 * restates no take, it answers the query it was given (lower/shapes/take/decorrelate.ts everyParentTakes), whose
+	 * DAG is `dag` itself, analyzed already: the logical analysis is idempotent, so analyzing it again states what it
+	 * states (test/unit/analysis/logical/evidence.test.ts), and the optimized form is `dag`, each node its own, where
+	 * the restatement analyzed the whole write DAG a second time (edullm's ledger's `evaluate`, 20,550 nodes and no take
+	 * restated: 100 s for its analysis, then 181 s for the same claims again). The conservative realization lowers
+	 * `dag`, as checked. */
 	const roots = dag.roots
 	const restatement = ((): Restatement => {
 		if (!isNonEmpty(roots)) {
 			return { restated: queries, restate: new Map() }
 		}
-		const takes = unwrap(everyParentTakes({ dag: rooted(roots), params: userParams }))
-		const again = analyzed(takes.query.dag)
-		const againJudged = judgedAsDelivered(again.dag)
+		const input = { dag: rooted(roots), params: userParams }
+		const takes = unwrap(everyParentTakes(input))
 		const named: Drafted = {
 			strata: queries.ir.strata,
 			reads: queries.ir.reads,
 			params: queries.ir.params
 		}
+		if (takes.query === input) {
+			return restatedIn(named, dag, (node) => node)
+		}
+		const again = analyzed(takes.query.dag)
+		const againJudged = judgedAsDelivered(again.dag)
 		return restatedIn(named, againJudged.dag, (node) =>
 			againJudged.of(again.of(takes.node(node)).node)
 		)

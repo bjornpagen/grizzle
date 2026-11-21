@@ -6,7 +6,8 @@
  * lived, which a generate holds for every write of every login to its end.
  *
  * The box, exhausted: a write of one member and of eight reading one call of eight bound imports, a chain of eight
- * levels of bound queries (shared-imports.fixtures.ts), and the worked example's put, delete and insert over Work.
+ * levels of bound queries (shared-imports.fixtures.ts), the worked example's put, delete and insert over Work, and eight
+ * readers of a take bound to a variable, whose restatement analyzes the write again (analyzed-once.test.ts).
  *
  * Property, per case: the folds alive once the write is compiled, the compiled write held, are those alive before its
  * compile, counted by V8 after a full collection (node:v8 queryObjects over ir/fold.ts Fold). Oracle: specification, a
@@ -15,15 +16,16 @@
  *
  * And a write's compile holds one analysis at a time (write/frontend/compile.ts analyzedQueries): the write's first
  * analysis is made and read inside the helper that reads its queries, in no frame or scope of the compile's, so when the
- * restatement analyzes the DAG again the first is unreachable, where the compile's scope held it beside the second,
- * every node's properties twice (edullm's qti generate: 1.63 GB of its 3.44 GB live at the 4 GiB heap's limit). Per
- * case, over the same box: the folds alive when the restatement's analysis starts outnumber those alive when the first
+ * restatement analyzes the DAG again, which it does where it restates a take (analyzed-once.test.ts), the first is
+ * unreachable, where the compile's scope held it beside the second, every node's properties twice (edullm's qti
+ * generate: 1.63 GB of its 3.44 GB live at the 4 GiB heap's limit). Per case: the folds alive when the restatement's analysis starts outnumber those alive when the first
  * analysis started by fewer than one analysis holds, counted by V8 after a full collection at each read of the evidence
  * the analyses are made under (the laws' theory `evidence`, read once by each); what one analysis holds is counted in
  * the case, the folds alive with an analysis of the compiled write's DAG held, less those alive before it. Fewer, not
  * none: a fold the restatement's own rewrite holds (lower/shapes/take/decorrelate.ts, its editor) may be alive at the
- * second start, and is none of the first analysis's. Kill: the first analysis made by the compile and handed to the
- * helper, so the compile's scope holds it while the second is made.
+ * second start, and is none of the first analysis's. Its box: one and eight readers of a take bound to a variable of
+ * the reading rule, which the restatement restates (shared-imports.fixtures.ts boundTakeWriteOf). Kill: the first
+ * analysis made by the compile and handed to the helper, so the compile's scope holds it while the second is made.
  *
  * Features: one member, several members.
  */
@@ -48,7 +50,12 @@ import {
 import { Work } from "#test/support/fixtures/api/work.ts"
 import { checking } from "#test/support/policy.ts"
 import { descOf, switchToManual } from "#test/unit/write/changeset/fixtures.ts"
-import { chainWriteOf, readersOf, Shared } from "#test/unit/write/shared-imports.fixtures.ts"
+import {
+	boundTakeWriteOf,
+	chainWriteOf,
+	readersOf,
+	Shared
+} from "#test/unit/write/shared-imports.fixtures.ts"
 
 type Feature = "one member" | "several members"
 
@@ -58,6 +65,7 @@ type Shape =
 	| "eight readers of a call"
 	| "a chain of eight levels"
 	| "the worked example"
+	| "eight readers of a bound take"
 
 /** A case's schema, its ChangeSet and how many members it writes. */
 interface Written {
@@ -76,6 +84,8 @@ const writtenOf = (shape: Shape): Written => {
 			return { schema: Shared, change: chainWriteOf(8), members: 1 }
 		case "the worked example":
 			return { schema: Work, change: switchToManual(), members: 3 }
+		case "eight readers of a bound take":
+			return { schema: Shared, change: boundTakeWriteOf(8), members: 8 }
 	}
 }
 
@@ -91,7 +101,8 @@ export const aCompiledWriteHoldsNoneOfItsCompilesFoldsThoseAliveWhileItIsHeldAre
 					"one reader of a call",
 					"eight readers of a call",
 					"a chain of eight levels",
-					"the worked example"
+					"the worked example",
+					"eight readers of a bound take"
 				])
 			)
 		),
@@ -110,7 +121,7 @@ export const aCompiledWriteHoldsNoneOfItsCompilesFoldsThoseAliveWhileItIsHeldAre
 					assert.ok(program.frontend.restate.size > 0, `${shape}: the write names nodes`)
 				}),
 			oracle: { kind: "specification", name: "a compile's folds are its own" },
-			box: "one and eight readers of one call of eight bound imports, a chain of eight bound levels, and the worked example's put, delete and insert",
+			box: "one and eight readers of one call of eight bound imports, a chain of eight bound levels, the worked example's put, delete and insert, and eight readers of a take bound to a variable",
 			kept: [],
 			kills: [
 				{
@@ -158,22 +169,14 @@ const foldsAtAnalyses = (
 /** A write's compile holds one analysis at a time: the folds alive when its restatement's analysis starts are those alive when its first did. */
 export const aWritesCompileHoldsOneAnalysisAtATimeTheFoldsAliveWhenItsRestatementsAnalysisStartsAreThoseAliveWhenItsFirstDid =
 	property.exhaust(
-		finite((source) =>
-			source.draw(
-				element<Shape>([
-					"one reader of a call",
-					"eight readers of a call",
-					"a chain of eight levels",
-					"the worked example"
-				])
-			)
-		),
+		finite((source) => source.draw(element<1 | 8>([1, 8]))),
 		{
 			needs: {},
 			situations: ["one member", "several members"],
-			check: (_, k: Case<Feature>) => (shape) =>
+			check: (_, k: Case<Feature>) => (members) =>
 				Effect.sync(() => {
-					const written = writtenOf(shape)
+					const shape = `${members} reader(s) of a bound take`
+					const written: Written = { schema: Shared, change: boundTakeWriteOf(members), members }
 					k.note(written.members === 1 ? "one member" : "several members")
 					const { counts, held } = foldsAtAnalyses(written)
 					const [first, second, ...rest] = counts
@@ -185,7 +188,7 @@ export const aWritesCompileHoldsOneAnalysisAtATimeTheFoldsAliveWhenItsRestatemen
 					)
 				}),
 			oracle: { kind: "specification", name: "an analysis read is an analysis dropped" },
-			box: "one and eight readers of one call of eight bound imports, a chain of eight bound levels, and the worked example's put, delete and insert",
+			box: "one and eight readers of a take bound to a variable of the reading rule",
 			kept: [],
 			kills: [
 				{

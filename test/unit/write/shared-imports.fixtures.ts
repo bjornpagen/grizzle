@@ -180,3 +180,33 @@ export const chainReadersOf = (depth: number, members: ChainReaders): unknown =>
 		)
 	)
 }
+
+/** A session's latest item: its pending item of the greatest v, the least k among equals, an import with a take. */
+const latest = query(Shared)
+	.rule((r) => {
+		const { k, v: x } = v(Item, "item")
+		return r.match(Item, { session: r.param("session", pg.integer), k, v: x }).find({ k, v: x })
+	})
+	.orderBy(["v", "desc"], ["k", "asc"])
+	.take(1)
+
+/**
+ * `members` inserts, each into a relation of its own, each reading the latest item of the session of every Done fact:
+ * `latest` bound to a variable of the reading rule, a take correlated through `bind`, which the write's optimized form
+ * restates over every parent (lower/shapes/take/decorrelate.ts everyParentTakes).
+ */
+export const boundTakeWriteOf = (members: 1 | 8): unknown =>
+	Arr.reduce(Arr.take(outs, members), ChangeSet.empty(Shared), (cs, [relation]) =>
+		cs.insert(
+			relation,
+			query(Shared).rule((r) => {
+				const { session: s, k: done } = v(Done, "done")
+				const read = latest.bind({ session: s })
+				const { k, v: x } = v(read, "latest")
+				return r
+					.match(Done, { session: s, k: done })
+					.match(read, { k, v: x })
+					.find({ session: s, k, v: x })
+			})
+		)
+	)
