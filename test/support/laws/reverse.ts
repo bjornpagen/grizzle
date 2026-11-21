@@ -240,6 +240,19 @@ const interleavedCaseGen: Gen<ReverseCase> = (source) => {
 	}
 }
 
+/**
+ * A case of three referencing columns whose middle one is a text of no bound, between two of a fixed width: what a
+ * search aims at while no case has put a free text between bounded columns (free text between), where a drawn case
+ * holds one about one time in thirteen.
+ */
+export const freeBetweenCaseGen: Gen<ReverseCase> = (source) => ({
+	types: [source.draw(manyTypeGen), { kind: "free" }, source.draw(manyTypeGen)],
+	covered: source.draw(boolean),
+	selected: source.draw(boolean),
+	superkey: source.draw(boolean),
+	interleaved: false
+})
+
 export const reverseCaseGen: Gen<ReverseCase> = weighted<ReverseCase>([
 	[3, anyCaseGen],
 	[1, interleavedCaseGen]

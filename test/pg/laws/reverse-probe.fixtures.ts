@@ -311,16 +311,23 @@ const servedBy = (
 			: undefined
 }
 
-/** An axis of the axes' box by the relations its foreign key joins and, in a tree, the columns it references from. */
+/**
+ * An axis of the axes' box by the relations its foreign key joins and, in a tree, the columns it references from: its
+ * owner axis (doc, parent, ‹n›) the one that holds the node's copy of its parent's count (`counts`, the law model's
+ * drawn copy of `children`), which no other axis of the tree holds, its last axis the one that holds `end`, and its
+ * predecessor axis the other. Each axis reads the parent through the law column the tree's key draws of it, so no
+ * axis holds `parent` itself.
+ */
 const axisKind = (
 	names: ReturnType<typeof axesRelationsAt>,
 	relation: string,
 	target: string,
 	columns: ReadonlyArray<string>,
-	column: (relation: string, field: string) => string
+	column: (relation: string, field: string) => string,
+	counts: ReadonlySet<string>
 ): AxisKind => {
 	if (relation === names.node) {
-		return Arr.contains(columns, column(relation, "parent"))
+		return Arr.some(columns, (c) => counts.has(c))
 			? "a tree's owner axis"
 			: Arr.contains(columns, column(relation, "end"))
 				? "a tree's last axis"
@@ -458,6 +465,16 @@ export const probeBatch = (
 			const names = axesRelationsAt(at)
 			const column = (relation: string, field: string): string =>
 				installed.names.column(relation, field)
+			/** The law columns that copy a family's or a tree's count into a member (‹n›), as the law model draws them. */
+			const counts = new Set(
+				Arr.flatMap(installed.installation.laws.natives, (native) =>
+					native.namespace === "column" &&
+					native.object.value.kind === "drawn" &&
+					native.object.value.draws.kind === "copy"
+						? [native.object.column]
+						: []
+				)
+			)
 			for (const relation of Rec.values(names)) {
 				const table = tableOf(relation)
 				const indexes = yield* indexesOf(session, table)
@@ -474,7 +491,8 @@ export const probeBatch = (
 							assert.fail(`${fk.name} references a relation of its case`)
 						),
 						fk.columns,
-						column
+						column,
+						counts
 					)
 					const of = `${relation} (${Formatter.format(a)}), ${kind}, the probe of ${fk.name}`
 					note([kind])
