@@ -198,10 +198,6 @@ export const unchangedEdges = (
 export const topoOrder = (dag: RelDag): ReadonlyArray<RelNode> =>
 	postorder(dag.roots, (node) => edgesOf(node))
 
-/** An editor's cells the roots reach through their current inputs, in topological order (postorder). */
-export const cellOrder = (roots: ReadonlyArray<Cell>): ReadonlyArray<Cell> =>
-	postorder(roots, (cell) => edgesOf(cell.current))
-
 /**
  * The nodes a DAG holds by label, built by one walk for one reader's call: the tolerant reading of a name a node holds
  * (a column reference's node, a SelfRef's Recursive), where a miss is a property of the input, never a defect. It is

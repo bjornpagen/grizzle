@@ -1,14 +1,9 @@
+import { postorder } from "@bjornpagen/grizzle-text/base/graph"
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { structureOf } from "#compiler/analysis/demand/demand.ts"
 import { unwrap } from "#compiler/core/canonical.ts"
 import { ExprId, NodeId, OccurrenceId, type ParamId, ScopeId, VarId } from "#compiler/core/ids.ts"
-import {
-	cellOrder,
-	cellTable,
-	type FinishedCells,
-	type FoldedCell,
-	finishCells
-} from "#compiler/ir/dag.ts"
+import { cellTable, type FinishedCells, type FoldedCell, finishCells } from "#compiler/ir/dag.ts"
 import {
 	builtExpr,
 	type ColumnRef,
@@ -40,7 +35,7 @@ import {
 	type RefKinds,
 	type RelNode,
 	type Roots,
-	scopeExprs,
+	scopeLabels,
 	type ValidDag,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
@@ -314,12 +309,30 @@ export interface CellState {
 	readonly readers: (cell: Cell) => ReadonlyArray<Cell>
 }
 
+/** What a node of a cell reads: its data edges, one per input position, and the labels its scope expressions name. */
+interface NodeShape {
+	readonly edges: ReadonlyArray<Cell>
+	readonly lateral: ReadonlyArray<NodeId>
+}
+
+/** What `node` reads (NodeShape). */
+const nodeShape = (node: EditNode): NodeShape => ({
+	edges: edgesOf(node),
+	lateral: scopeLabels(node)
+})
+
 export class DagEditor<R extends Roots = Roots> {
 	/**
 	 * The cells that read each cell, kept as each cell's node changes: what a redirection rewrites (Readers). It holds
 	 * every cell in creation order: the base's, each after its inputs, then each one a rewrite added.
 	 */
 	readonly #readers = new Readers()
+	/**
+	 * What each node a cell held reads, kept by the node: its data edges and the labels its scope expressions name
+	 * (NodeShape). A node is replaced, never changed, when a cell is redefined, so what it reads is its own, and a state of
+	 * the cells reads each kept node's where every state built them again for every cell.
+	 */
+	readonly #shapes = new WeakMap<EditNode, NodeShape>()
 	/** The cell of each node of the base, made when the editor starts. */
 	readonly #cellOf: ReadonlyMap<RelNode, Cell>
 	/**
@@ -502,22 +515,35 @@ export class DagEditor<R extends Roots = Roots> {
 	}
 
 	/**
-	 * Every cell the roots reach, in topological order, inputs first (ir/dag.ts cellOrder; a SelfRef's feedback is a
+	 * Every cell the roots reach, in topological order, inputs first (a postorder over each node's edges, as ir/dag.ts
+	 * topoOrder walks a DAG's, read off the kept shapes, #shapes; a SelfRef's feedback is a
 	 * name, not followed). The walk ends over any edges: a cycle a rewrite made is finish's refusal. Computed at each
 	 * call: a reader that reads the order of one state of the cells more than once holds it (cellState).
 	 */
 	topoOrder(): ReadonlyArray<Cell> {
-		return cellOrder(this.roots)
+		return postorder(this.roots, (cell) => this.#shapeOf(cell.current).edges)
+	}
+
+	/** What `node` reads (NodeShape), worked out on its first read and kept by the node (#shapes). */
+	#shapeOf(node: EditNode): NodeShape {
+		const known = this.#shapes.get(node)
+		if (known !== undefined) {
+			return known
+		}
+		const made = nodeShape(node)
+		this.#shapes.set(node, made)
+		return made
 	}
 
 	/** The cells the roots reach now, in topological order, and those of them on a recursive step (CellState). */
 	cellState(): CellState {
+		const shape = (cell: Cell): NodeShape => this.#shapeOf(cell.current)
 		const order = this.topoOrder()
 		const structure = structureOf(
 			order,
 			this.roots,
-			(cell) => edgesOf(cell.current),
-			(cell) => scopeExprs(cell.current),
+			(cell) => shape(cell).edges,
+			(cell) => shape(cell).lateral,
 			(cell) => cell.id
 		)
 		let readers: ((cell: Cell) => ReadonlyArray<Cell>) | undefined

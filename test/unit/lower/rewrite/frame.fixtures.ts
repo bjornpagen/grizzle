@@ -116,3 +116,13 @@ export const readersSites = Object.freeze({
 export type ReadersFeature =
 	| "a state whose readers a rule read"
 	| "a state the shared restriction weighed several cells of"
+
+/**
+ * What the shape property counts: each cell the editor made and each node set in a cell (editor.ts Readers created and
+ * changed), and each reading of what a node reads (editor.ts nodeShape).
+ */
+export const shapeSites = Object.freeze({
+	created: { file: "packages/engine/src/lower/optimize/demand/editor.ts", name: "created" },
+	changed: { file: "packages/engine/src/lower/optimize/demand/editor.ts", name: "changed" },
+	nodeShape: { file: "packages/engine/src/lower/optimize/demand/editor.ts", name: "nodeShape" }
+} satisfies Readonly<Record<string, CountedFunction>>)

@@ -79,6 +79,7 @@ import {
 	potentialSites,
 	type ReadersFeature,
 	readersSites,
+	shapeSites,
 	type RedirectFeature,
 	freshCopy,
 	passesNeed,
@@ -781,6 +782,64 @@ export const aRewriteReadsEachStatesReadersOffItsCellsWorkedOutAtMostOnceAState 
 				original: "\t\tconst readers = state.readers\n",
 				replacement: "\t\tconst readers = DagEditor.readersIn(state.order)\n",
 				why: "The shared restriction works out the readers of every cell again at each cell it weighs (pushdown/shared.ts sharedPushRule), as before the state carried them: the reader maps outnumber the states."
+			}
+		]
+	}
+)
+
+/**
+ * A state of the editor's cells reads what each node reads (its edges and the labels its scope expressions name) off
+ * the node, worked out once a node (lower/optimize/demand/editor.ts #shapes): over generated queries, the semantic
+ * simplification and the relational rewrites work out what no more nodes read than the editor ever held, its
+ * cells as they started and each node a rewrite set in one's place, where every state of every pass worked them out for
+ * every cell it reached.
+ *
+ * Oracle: the nodes the editor held, counted by V8 as the cells it made and the nodes it set in them (Readers created and
+ * changed), against V8's count of nodeShape (a specification).
+ *
+ * Budget: 120 runs and 120 steered cases, the structure property's.
+ */
+export const aStateOfTheCellsReadsWhatEachNodeReadsOffTheNodeWorkedOutOnceANode = property.explore(
+	queryCaseGen(defaultGenConfig),
+	{
+		needs: {},
+		budget: { runs: 120, steered: 120 },
+		situations: ["a pass that set a node"] satisfies ReadonlyArray<
+			Reached<"a pass that set a node">
+		>,
+		check: (_, c: Case<"a pass that set a node">) => (generated) =>
+			Effect.gen(function* () {
+				const [, counts] = yield* callCounts(
+					Effect.sync(() =>
+						succeeded(
+							runPasses(
+								caseQuery(generated),
+								[semanticSimplification, relationalRewrites],
+								passContext({ catalog: genCatalog(generated.schema), evidence: "snapshot" })
+							)
+						)
+					),
+					shapeSites
+				)
+				if (counts.changed > 0) {
+					c.note("a pass that set a node")
+				}
+				assert.ok(
+					counts.nodeShape <= counts.created + counts.changed,
+					`${counts.nodeShape} shape readings over ${counts.created} cells made and ${counts.changed} nodes set`
+				)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "one scope reading a node the editor held: its cells as made and each node set in one"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/lower/optimize/demand/editor.ts",
+				original: "\t\tconst known = this.#shapes.get(node)\n",
+				replacement: "\t\tconst known = undefined\n",
+				why: "Every state works out what each reached cell's node reads again, as before nodes kept it: the scope readings outnumber the nodes the editor held."
 			}
 		]
 	}

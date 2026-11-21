@@ -1435,6 +1435,17 @@ const callValues = <E>(
 ): ReadonlyArray<E> => args.flatMap((a) => (a.kind === "value" ? [a.expr] : []))
 
 /**
+ * The labels a node's scope expressions (scopeExprs) name in a column reference, each expression's dependencies in turn
+ * (ir/expr.ts deps.nodes): the nodes it reads laterally.
+ */
+export const scopeLabels = <E extends { readonly deps: { readonly nodes: ReadonlyArray<NodeId> } }>(
+	n: NodeOver<ExprRefs<E>>
+): ReadonlyArray<NodeId> => {
+	const scope = scopeExprs(n)
+	return scope.length === 0 ? noScopeExprs : scope.flatMap((e) => e.deps.nodes)
+}
+
+/**
  * The parameters a node's own fields name, beside its expressions': an InputSet's placeholder (a membership's row has
  * none), a take's parameter bound, an approximate search's bindings and a certificate's parameter premises.
  */

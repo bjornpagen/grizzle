@@ -8,6 +8,7 @@ import {
 	type RelDag,
 	type RelNode,
 	scopeExprs,
+	scopeLabels,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
 
@@ -87,13 +88,14 @@ export interface Structure {
 
 /**
  * The structure (Structure) of the graph whose reachable vertices are `order`, roots `roots`, each vertex's edges
- * `edges` (one per input position) and scope expressions `scope`, labelled by `label`: one visit of each vertex.
+ * `edges` (one per input position) and the labels its scope expressions name in a column reference `lateral` (each
+ * expression's dependencies, ir/expr.ts deps.nodes), labelled by `label`: one visit of each vertex.
  */
 export const structureOf = <V>(
 	order: ReadonlyArray<V>,
 	roots: ReadonlyArray<V>,
 	edges: (vertex: V) => ReadonlyArray<V>,
-	scope: (vertex: V) => ReadonlyArray<ScalarExpr>,
+	lateral: (vertex: V) => ReadonlyArray<NodeId>,
 	label: (vertex: V) => NodeId
 ): Structure => {
 	const references = new Map<NodeId, number>()
@@ -103,20 +105,18 @@ export const structureOf = <V>(
 	for (const r of roots) {
 		count(label(r))
 	}
-	const lateral = new Set<NodeId>()
+	const read = new Set<NodeId>()
 	for (const vertex of order) {
 		for (const input of edges(vertex)) {
 			count(label(input))
 		}
-		for (const e of scope(vertex)) {
-			for (const node of e.deps.nodes) {
-				lateral.add(node)
-			}
+		for (const node of lateral(vertex)) {
+			read.add(node)
 		}
 	}
 	return {
 		references: (id) => references.get(id) ?? 0,
-		lateral: (id) => lateral.has(id)
+		lateral: (id) => read.has(id)
 	}
 }
 
@@ -260,7 +260,7 @@ export const analyzeDemand = (dag: RelDag, pinned: Pinned): DemandAnalysis => {
 		order,
 		dag.roots,
 		(node) => edgesOf(node),
-		(node) => scopeExprs(node),
+		(node) => scopeLabels(node),
 		(node) => node.id
 	)
 	const demanded = new Map<NodeId, Set<string>>()
