@@ -92,6 +92,7 @@ const actionPlaceholders = (a: Action): ReadonlyArray<Placeholder> => {
 			}))
 		case "statement":
 		case "violation":
+		case "zones":
 			return []
 	}
 }
@@ -107,6 +108,7 @@ export const draftActions = (d: Draft): ReadonlyArray<Action> => {
 		case "alteration":
 		case "fill":
 		case "violation":
+		case "zones":
 			return [d]
 	}
 }
@@ -122,6 +124,7 @@ export const reviewedStatements = (a: Action): ReadonlyArray<SqlStatement> => {
 			return actionPlaceholders(a).length === 0 ? [alterationStatement(a.table, a.actions)] : []
 		case "fill":
 		case "violation":
+		case "zones":
 			return []
 	}
 }
@@ -147,6 +150,7 @@ const reviewPlan = (g: GenerateResult, losses: LossReview): ReadonlyArray<Review
 				case "alteration":
 				case "fill":
 				case "violation":
+				case "zones":
 					return draftActions(d)
 			}
 		})

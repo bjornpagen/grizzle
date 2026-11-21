@@ -126,13 +126,14 @@ const firstInversion = (claims: ReadonlyArray<Claim>): Reordered | undefined => 
 
 /**
  * The reorder a declaration of each order is refused for: an ordered roster's first inversion, and none of an unordered
- * roster's, whose codes follow no order.
+ * or a zone roster's, whose codes follow no order.
  */
 const reorderOf: {
 	readonly [O in RosterOrder]: (claims: ReadonlyArray<Claim>) => Reordered | undefined
 } = {
 	ordered: firstInversion,
-	unordered: () => undefined
+	unordered: () => undefined,
+	zones: () => undefined
 }
 
 /** One owner's run of a fin coordinate: the code of its first slot, and how many slots it holds. */

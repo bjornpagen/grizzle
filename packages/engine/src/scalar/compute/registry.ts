@@ -90,6 +90,7 @@ const finite = (operand: OperandIndex): Precondition => Object.freeze({ kind: "f
 const fits: Precondition = Object.freeze({ kind: "fits" })
 const lexical = (form: ParseForm): Precondition => Object.freeze({ kind: "lexical", form })
 const bounded: Precondition = Object.freeze({ kind: "bounded" })
+const clock: Precondition = Object.freeze({ kind: "clock" })
 const divisor: Totality = requires([nonzero(1)])
 const narrowing: Totality = requires([fits])
 const finiteNarrowing: Totality = requires([finite(0), fits])
@@ -145,7 +146,11 @@ type Owner = "catalog" | "vector"
  * installation's own function of grizzle's library (ir/physical.ts LibraryFn), `<schema>.<fn>(base, reference)`
  * (textResolveReference), a text's digest among them, `<schema>.<textDigest>(x)` (textSha256); a part of a search document is its text parsed under the
  * document's configuration and labelled by its weight, `setweight(to_tsvector('<configuration>'::regconfig, x), w)`
- * (searchPart, lower/conservative/search); and a match or a rank of a document reads a query's text parsed under the
+ * (searchPart, lower/conservative/search); a date's epoch day is its days after 1970-01-01, `x - '1970-01-01'::date`,
+ * and the date of an epoch day the epoch plus its days, `'1970-01-01'::date + n` (dateEpochDay, dateOfEpochDayFrom); a
+ * zone's wall clock at an instant is a call of the installation's library function over the instant and the zone's
+ * name, the name read from its roster's names constant by its closed id's code, `<schema>.<wall>(t, (names())[z + 1])`
+ * (zoneWall, lower/conservative/expr/index.ts zoneCall); and a match or a rank of a document reads a query's text parsed under the
  * document's own configuration, `d @@ websearch_to_tsquery('<configuration>'::regconfig, q)` and
  * `ts_rank(d, plainto_tsquery(...))` (textSearch), the configuration read off the document's type.
  */
@@ -174,19 +179,22 @@ type SqlForm =
 				| "collapse"
 				| "lowerAscii"
 				| "utf16Length"
+				| "epochDay"
+				| "dateOfEpochDay"
 	  }
 	| { readonly kind: "floatBits"; readonly from: "float4" | "float8" }
 	| { readonly kind: "library"; readonly fn: LibraryFn }
+	| { readonly kind: "zoneLibrary"; readonly fn: LibraryFn }
 	| { readonly kind: "searchPart" }
 	| { readonly kind: "textSearch"; readonly read: TextSearchRead; readonly parser: TextQueryParser }
 	| { readonly kind: "canonicalZero"; readonly carrier: "float4" | "float8" }
 
 /**
  * The library function a node's SQL calls (ir/physical.ts LibraryFn), which its installation installs: a library
- * call's own; none for any other form.
+ * call's own, a zone's among them; none for any other form.
  */
 export const libraryOf = (sql: SqlForm): LibraryFn | undefined =>
-	sql.kind === "library" ? sql.fn : undefined
+	sql.kind === "library" || sql.kind === "zoneLibrary" ? sql.fn : undefined
 
 /**
  * The catalog object that implements the node, as PostgreSQL's catalog names it. Every type it names is a carrier's
@@ -307,6 +315,9 @@ export type NativeFn =
 	| "netWithin"
 	| "netStrictlyWithin"
 	| "netOverlaps"
+	| "wall"
+	| "epochDay"
+	| "dateOfEpochDay"
 	| "cast"
 	| "canonicalZero"
 
@@ -399,6 +410,9 @@ export const nullRules: { readonly [F in NativeFn]: NullRule } = Object.freeze({
 	netWithin: "strict",
 	netStrictlyWithin: "strict",
 	netOverlaps: "strict",
+	wall: "strict",
+	epochDay: "strict",
+	dateOfEpochDay: "strict",
 	cast: "node",
 	canonicalZero: "strict"
 })
@@ -479,7 +493,10 @@ export const computeSpecs: { readonly [F in ComputeFn]: ComputeSpec } = deepFree
 	singleton: { arity: 1, check: true, nodes: ["adjoin"] },
 	netWithin: { arity: 2, check: true, nodes: ["netWithin"] },
 	netStrictlyWithin: { arity: 2, check: true, nodes: ["netStrictlyWithin"] },
-	netOverlaps: { arity: 2, check: true, nodes: ["netOverlaps"] }
+	netOverlaps: { arity: 2, check: true, nodes: ["netOverlaps"] },
+	wall: { arity: 2, check: false, nodes: ["wall"] },
+	epochDay: { arity: 1, check: true, nodes: ["epochDay"] },
+	dateOfEpochDay: { arity: 1, check: true, nodes: ["dateOfEpochDay"] }
 })
 
 /** Operands of one carrier each, in order, at least one. */
@@ -1222,6 +1239,67 @@ const textSha256: FixedOverload = frozen({
 })
 
 /**
+ * A date's epoch day, Time.epochDay wherever it stands (compute/typing.ts epochDay): its days after 1970-01-01, the
+ * epoch of PostgreSQL's date arithmetic as of Unix time, `x - '1970-01-01'::date`, date_mi's integer count of days,
+ * negative before the epoch. A date grizzle holds is from 0001-01-01 to 9999-12-31 (ir/date.ts), so its epoch day lies
+ * in epochDayRange and no subtraction overflows: it is defined on every date, and date_mi is IMMUTABLE in pg_proc, so it
+ * stands in a query, a CHECK and a generated field alike. The host computes it by the same day count
+ * (scalar/compute/evaluate.ts, ir/date.ts dayNumber).
+ */
+const dateEpochDay: FixedOverload = frozen({
+	fn: "epochDay",
+	operands: positional(["date"]),
+	result: "int4",
+	sql: { kind: "epochDay" },
+	catalog: { kind: "construct", uses: Object.freeze([opId("date_mi")]) },
+	volatility: "immutable",
+	totality: total,
+	reads: "value"
+})
+
+/**
+ * The date of an epoch day, Time.dateOfEpochDay wherever it stands (compute/typing.ts dateOfEpochDay): 1970-01-01 plus
+ * its days, `'1970-01-01'::date + n`, date_pli over an integer, a bigint read as one (`n::integer`). It is defined where
+ * the day is one of a date grizzle holds, 0001-01-01 to 9999-12-31 (`fits`, its result type's epochDayRange,
+ * compute/lower.ts fitRange), which the lowering proves from the operand's bounds or a Num.within guard, so the
+ * date is one of grizzle's and the cast to integer never overflows. Both are IMMUTABLE in pg_proc, so it stands in a
+ * query, a CHECK and a generated field alike.
+ */
+const dateOfEpochDayFrom = (carrier: "int4" | "int8"): FixedOverload =>
+	frozen({
+		fn: "dateOfEpochDay",
+		operands: positional([carrier]),
+		result: "date",
+		sql: { kind: "dateOfEpochDay" },
+		catalog: { kind: "construct", uses: Object.freeze([opId("date_pli")]) },
+		volatility: "immutable",
+		totality: narrowing,
+		reads: "value"
+	})
+
+/**
+ * A zone's wall clock at an instant, Time.wall in a query (compute/typing.ts wall): the instant's milliseconds since
+ * the Unix epoch, as PostgreSQL's tzdata reads the zone, counted as milliseconds since the local epoch, by a call of the
+ * installation's library function `wall` (physical/ddl/library.ts wallDefinition) over the instant and the zone's
+ * IANA name, the handle its closed id's code names in its roster's names constant (lower/conservative/expr/index.ts
+ * zoneCall), a zone roster's (closed.zones), whose every handle the migration that installs it finds among the
+ * server's time zones. It is defined where the instant lies in timestamptz's range (`clock`), which the lowering proves
+ * from its bounds: a millis reading of the database's clock is one. timezone(text, timestamptz) and every function the
+ * library function reads are IMMUTABLE in pg_proc, but the host holds no tzdata, so it never evaluates the zone: the
+ * term stands in a query alone (computeSpecs `check`), as a declared function's call does.
+ */
+const zoneWall: FixedOverload = frozen({
+	fn: "wall",
+	operands: positional(["int8", "code"]),
+	result: "int8",
+	sql: { kind: "zoneLibrary", fn: "wall" },
+	catalog: { kind: "construct", uses: [] },
+	volatility: "immutable",
+	totality: requires([clock]),
+	reads: "value"
+})
+
+/**
  * A part of a search document: its text parsed under the document's configuration, each position labelled by its
  * weight, `setweight(pg_catalog.to_tsvector('pg_catalog.<configuration>'::regconfig, x), '<w>'::"char")`
  * (lower/conservative/search), the configuration the node's type states and the weight its second operand, a literal
@@ -1565,6 +1643,10 @@ const catalogOverloads = {
 	"floatBits:float8": floatBitsOf("float8"),
 	"floatBits:float4": floatBitsOf("float4"),
 	"sha256:text": textSha256,
+	"epochDay:date": dateEpochDay,
+	"dateOfEpochDay:integer": dateOfEpochDayFrom("int4"),
+	"dateOfEpochDay:bigint": dateOfEpochDayFrom("int8"),
+	"wall:bigint": zoneWall,
 	"searchPart:text": searchPart,
 	tsvector_concat: infix("searchConcat", "||", "tsvector", "tsvector", total, "value"),
 	"websearchMatches:tsvector": textSearchOf("websearchMatches", "match", "websearch"),

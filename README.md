@@ -3194,7 +3194,7 @@ Rows are typed from the query: `commentsPerAuthor` gives `{ author: string; comm
 
 ### Scalar terms
 
-PostgreSQL's scalar operators, functions and casts are typed builders of terms, in twelve namespaces, each member in the one whose domain it reads, so a name is short and the namespace carries the domain: `Xml.isPattern`, never `isXsdPattern`.
+PostgreSQL's scalar operators, functions and casts are typed builders of terms, in thirteen namespaces, each member in the one whose domain it reads, so a name is short and the namespace carries the domain: `Xml.isPattern`, never `isXsdPattern`.
 
 | namespace | members |
 |---|---|
@@ -3209,9 +3209,10 @@ PostgreSQL's scalar operators, functions and casts are typed builders of terms, 
 | `Search` | `websearch`, `plain`, `matches`, `rank`, `rankCd` |
 | `Bits` | `union`, `intersection`, `difference`, `cardinality`, `subset`, `disjoint`, `singleton` |
 | `Net` | `within`, `strictlyWithin`, `overlaps` |
+| `Time` | `wall`, `epochDay`, `dateOfEpochDay` |
 | `Fn` | `call`, `rows`, `row` |
 
-`Type` writes a typed constant, drops a contract to its base and casts; `Num` is the numeric family's arithmetic, rounding and functions, and its guards; `Logic` the comparisons, `least` and `greatest`, the connectives and the conditionals, over any type they compare; `Range` a span's endpoints and width, a span being PostgreSQL's range; `Text` text's lengths, concatenation, prefixes, suffixes and containment, patterns in grizzle's grammar and their matches, transforms, references and lexical parses; `Xml` XML Schema 1.0's pattern dialect; `Crypto` a SHA-256 digest; `Distance` the cosine distance of two vectors; `Search` a full text search's queries, matches and ranks ([Full text search](#full-text-search)); `Bits` the set algebra over one roster's sets, beside `Bits.of`, a set value; `Net` the containment of the network types ([Network containment](#network-containment)); and `Fn` a declared function called for its value, its rows or its one row ([Calling a function](#calling-a-function)). No namespace is named `Number`, `Set` or `Digest`: the first two would shadow JavaScript's globals, the type `Set<T>` included, in every module that imports them, and `Digest.sha256` is `effect/crypto`'s own spelling.
+`Type` writes a typed constant, drops a contract to its base and casts; `Num` is the numeric family's arithmetic, rounding and functions, and its guards; `Logic` the comparisons, `least` and `greatest`, the connectives and the conditionals, over any type they compare; `Range` a span's endpoints and width, a span being PostgreSQL's range; `Text` text's lengths, concatenation, prefixes, suffixes and containment, patterns in grizzle's grammar and their matches, transforms, references and lexical parses; `Xml` XML Schema 1.0's pattern dialect; `Crypto` a SHA-256 digest; `Distance` the cosine distance of two vectors; `Search` a full text search's queries, matches and ranks ([Full text search](#full-text-search)); `Bits` the set algebra over one roster's sets, beside `Bits.of`, a set value; `Net` the containment of the network types ([Network containment](#network-containment)); `Time` a zone's wall clock and a date's epoch day ([Time zones](#time-zones)); and `Fn` a declared function called for its value, its rows or its one row ([Calling a function](#calling-a-function)). No namespace is named `Number`, `Set` or `Digest`: the first two would shadow JavaScript's globals, the type `Set<T>` included, in every module that imports them, and `Digest.sha256` is `effect/crypto`'s own spelling.
 
 ### Arithmetic
 
@@ -3593,6 +3594,88 @@ export const UsageClock = workload(Usage, { ranBefore: clocked(ranBefore, { now:
   end or a due instant from the call's own clock in the statement that writes them, never from the host's.
 - **A reading is a value, never an instant.** Its parameter is a `bigint` or a contract over one, never `instant`, which no parameter is: a deadline, a lease's end or a due instant is a reading and some arithmetic, while when a row was written is the insert's to stamp, ordered per child as no reading is ([Instants](#instants)).
 - **A test moves the clock; it never sleeps.** `compileServedMoved(login, snapshot, workloads)` (`@bjornpagen/grizzle/compile`) compiles a login's served file as `compileServed` does, but every clocked read and every ChangeSet of it declares the clock's offset and reads every instant of the database's clock moved by it, its clocked parameters' and its inserts' stamps alike: `transaction_timestamp()` plus the offset as an interval, exact to the microsecond, PostgreSQL refusing a moved instant its timestamptz cannot hold. Serve that file with its login's `DbLayer` and open its roles with `Db.openMoved(role, options, offset)`: each call of a clocked read or a ChangeSet reads `offset`, an `Effect<bigint>` of microseconds (a millisecond is `1000n`, negative moves back), once, and every statement of the call reads that one moved instant. A suite on Effect's `TestClock` passes `Effect.map(Clock.currentTimeMillis, (at) => BigInt(at - opened) * 1000n)`, so a lease lapses when its clock travels past it. A production file, whose programs declare no offset, is no moved Db's, and a moved file is no production Db's: a call that states no offset is refused as its parameters. `grizzle generate` never compiles a moved file, and the files it writes are the same with or without this facility.
+
+### Time zones
+
+A lesson's window, a store's opening hours or a report's local day reads an instant on a zone's wall clock. grizzle
+reads it the way the database does: by PostgreSQL's tzdata, the server's own, with no zone, date or interval type of its
+own, and the calendar is integer arithmetic over two numbers.
+
+- **`Time.wall(t, zone)`** is the zone's wall clock at the instant `t`, both in milliseconds: `t` since the Unix epoch,
+  the wall clock since the local epoch, 1970-01-01 00:00 on the zone's clock, a `bigint`. `t` is a `bigint` term, a millis
+  reading of the database's clock among them (`clocked(program, { now: "millis" })`), never an `instant`, which counts
+  microseconds: a stored instant's milliseconds are `Type.cast(Num.div(Type.base(at), 1000n), pg.bigint)`. It is defined
+  where `t` lies in PostgreSQL's timestamptz range, 4714-11-24 BC to 294277-01-01, which a reading's bounds prove and a
+  contract's or `Num.within`'s prove of any other term; anywhere else it is `PartialOperation` naming the guard. It is
+  exact over that whole range, before 1970, at a zone's local mean time and at every daylight change: the instant plus the
+  zone's offset at it, as `timezone(zone, t)` reads it, every function it calls IMMUTABLE.
+- **`zone` is a closed id of a zone roster**, `closed.zones(name, zones)`, whose handles are time zones' IANA names, each
+  in its Area/Location form (`"America/Chicago"`, `"Asia/Kolkata"`, `"Etc/UTC"`), in any order, its order meaning nothing,
+  as an unordered roster's. A closed id of any other roster is a type error. The roster's code reaches the zone as its
+  handle, read from its names constant, so no zone's name ever comes from a caller: a field, a parameter or a literal of
+  the roster's closed id is a zone the schema declared.
+- **A name of one component is refused** where the roster is built, `MalformedDescription`: `UTC`, `GMT`, `UCT`,
+  `Zulu`, `EST`, `MST`, `HST`, `CET`, `EET`, `MET`, `WET`, `EST5EDT`, `CST6CDT`, `MST7MDT`, `PST8PDT`, `GB`, `NZ`,
+  `Cuba` and tzdata's other backward names. PostgreSQL's `timezone(text, ...)` reads a name as a time zone abbreviation
+  first, from the `timezone_abbreviations` setting and the session's `TimeZone`, then as a POSIX zone, and only then as a
+  zone of its tzdata, so the first eleven name a fixed offset a session's settings choose and the four POSIX names a
+  rule of their own, not the zone file their name is: no wall clock over them is a function of the zone alone. Each has
+  an Area/Location twin (`Etc/UTC`, `America/New_York`, `Europe/London`). No abbreviation or POSIX zone holds a `/`.
+- **The migration checks each zone on the server.** The migration that installs a zone roster, or changes its handles,
+  reads each one as a time zone first in Setup, `timezone('<zone>', ...)`, so a handle the server's tzdata lacks refuses
+  the migration with PostgreSQL's 22023 before anything changes, and no read of `Time.wall` ever raises. A production
+  server ships its own tzdata (RDS updates it in its minor versions), and this is where it is held to the schema.
+- **A query reads it, nothing else.** The host holds no tzdata: Node's ICU is its own version of tzdata (Node 26.13.1's
+  is 2025c, PostgreSQL 19.0's bundled one 2026f, and they disagree in 26 zones), and no host could be pinned to a
+  production server's. So a check, a contract predicate and a generated field, which the host evaluates, refuse
+  `Time.wall`, as they refuse a declared function's call, and a row's evaluation never states a wall clock.
+- **`Time.epochDay(date)`** is a date's days after 1970-01-01, negative before it, an integer, `x - '1970-01-01'::date`,
+  and **`Time.dateOfEpochDay(n)`** the date `n` days after it, an `integer` or a `bigint` term, an exact integer cast into
+  one first, `'1970-01-01'::date + n`, defined where `n` is the epoch day of a date grizzle holds, 0001-01-01 to
+  9999-12-31, which its bounds prove or a `Num.within` guard. The host computes both, so they stand in a query, a check
+  and a generated field alike.
+- **The calendar is integer arithmetic.** A wall clock's milliseconds into its local day are `((w mod 86400000) +
+  86400000) mod 86400000`, `Num.mod` keeping the dividend's sign as SQL's `%` does, and its local day `(w - intoDay) /
+  86400000`, a division that is exact: so a wall clock before the local epoch lies in its own day, never the next. A local
+  day's weekday is `((day + 4) mod 7 + 7) mod 7`, Sunday 0, 1970-01-01 a Thursday, and its date `Time.dateOfEpochDay`. A
+  local wall clock's instant is a guess, the wall clock read as an instant, `g`, less the zone's offset at it, `g - (wall(g)
+  - g)`: in a daylight gap the wall clock names no instant and this is the instant at the offset before the gap; in an
+  overlap it names two and this is the one of the offset the guess reads.
+- **A tzdata change moves a wall clock.** PostgreSQL declares `timezone(text, timestamptz)` IMMUTABLE, but the server's
+  tzdata is updated in place: a read after an update reads the new rules. grizzle stores no wall clock, so nothing it
+  holds goes stale.
+
+```ts
+/** Each branch's zone and the minute of its local day it opens at. */
+export const BranchZone = closed.zones("BranchZone", [
+	"America/Chicago",
+	"America/New_York",
+	"Asia/Kolkata"
+])
+export const Branch = relation(
+	"Branch",
+	{ id: pg.integer, zone: closedId(BranchZone), opens: pg.integer },
+	["id"]
+)
+export const Branches = schema("Branches", [BranchZone, Branch], [])
+
+/** Each branch's minute of its local day and weekday at the database's instant. */
+export const branchClock = query(Branches).rule((r) => {
+	const { id, zone, opens } = v(Branch, "branch")
+	const wall = Time.wall(r.param("now", Millis), zone)
+	const intoDay = Num.mod(Num.add(Num.mod(wall, 86_400_000n), 86_400_000n), 86_400_000n)
+	const day = Num.div(Num.sub(wall, intoDay), 86_400_000n)
+	return r.match(Branch, { id, zone, opens }).find({
+		id,
+		minute: Num.div(intoDay, 60_000n),
+		weekday: Num.mod(Num.add(Num.mod(Num.add(day, 4n), 7n), 7n), 7n)
+	})
+})
+
+export const BranchesClock = workload(Branches, {
+	branchClock: clocked(branchClock, { now: "millis" })
+})
+```
 
 ## Writes
 

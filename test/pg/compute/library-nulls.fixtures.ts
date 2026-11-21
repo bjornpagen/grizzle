@@ -19,11 +19,18 @@ import { textColumn } from "#test/unit/compute/text.fixtures.ts"
 import { referenceCaseGen } from "#test/unit/text/uri.fixtures.ts"
 import { patternGen } from "#test/unit/text/xsd.fixtures.ts"
 
+/**
+ * The library functions the host evaluates, whose NULLs the host decides: every one but wall, a zone's wall clock by
+ * PostgreSQL's tzdata, which the host does not hold (scalar/compute/registry.ts zoneWall), whose NULLs
+ * test/pg/compute/wall.test.ts holds to the reference evaluator.
+ */
+type HostLibraryFn = Exclude<LibraryFn, "wall">
+
 /** Which of a call's arguments a row holds NULL: none, one of them by its place, or every one. */
 type Nulls = "no argument" | "argument 1" | "argument 2" | "every argument"
 
 /** What a row of a batch reached: its library function, and which of its arguments are NULL. */
-export type LibraryNullFeature = `${LibraryFn} with ${Nulls} NULL`
+export type LibraryNullFeature = `${HostLibraryFn} with ${Nulls} NULL`
 
 /** The two argument columns a call reads, `a` and then `b`, its first and second. */
 const columns = ["a", "b"] as const
@@ -44,10 +51,10 @@ const over = (fn: "isXsdPattern" | "resolveReference" | "sha256", arity: 1 | 2):
 })
 
 /**
- * Each library function's calls, a scalar term each, total over LibraryFn, so a new library function states its own:
- * isXsdPattern's, resolveReference's and a text's digest, Crypto.sha256 over a text, textDigest's.
+ * Each library function's calls, a scalar term each, total over the ones the host evaluates, so a new library function
+ * states its own: isXsdPattern's, resolveReference's and a text's digest, Crypto.sha256 over a text, textDigest's.
  */
-const callsOf: { readonly [F in LibraryFn]: Arr.NonEmptyReadonlyArray<Call> } = {
+const callsOf: { readonly [F in HostLibraryFn]: Arr.NonEmptyReadonlyArray<Call> } = {
 	isXsdPattern: [over("isXsdPattern", 1)],
 	resolveReference: [over("resolveReference", 2)],
 	textDigest: [over("sha256", 1)]
@@ -55,7 +62,7 @@ const callsOf: { readonly [F in LibraryFn]: Arr.NonEmptyReadonlyArray<Call> } = 
 
 /** A call lowered: its library function, its arguments' count, its term as a check lowers it, and its SQL. */
 export interface LoweredCall {
-	readonly fn: LibraryFn
+	readonly fn: HostLibraryFn
 	readonly arity: number
 	readonly term: ScalarExpr
 	readonly sql: string
@@ -73,7 +80,7 @@ const libraryCallsOf = (e: ScalarExpr): ReadonlyArray<LibraryFn> =>
 	)
 
 /** `fn`'s call as a check lowers it over texts, and the SQL that reads it over a batch's rows. */
-const lowered = (fn: LibraryFn, { desc, arity }: Call): LoweredCall => {
+const lowered = (fn: HostLibraryFn, { desc, arity }: Call): LoweredCall => {
 	const term = succeeded(
 		lowerWith("check", desc, { a: textColumn, b: textColumn }, false, baseParams),
 		`the call of ${fn} lowers in a check over any texts`
@@ -99,15 +106,15 @@ export const calls: Arr.NonEmptyReadonlyArray<LoweredCall> = [
 ]
 
 /**
- * The native nodes that call a library function and no call above holds, which must be none: every overload a library
- * function serves is one the property calls.
+ * The native nodes that call a library function the host evaluates and no call above holds, which must be none: every
+ * overload such a library function serves is one the property calls.
  */
 export const uncalledNodes: ReadonlyArray<string> = Arr.flatMap(nativeOps, (op) => {
 	const fn = libraryOf(op.sql)
 	const held = Arr.some(calls, (c) =>
 		Arr.some(exprClosure([c.term]), (x) => x.kind === "op" && x.op === op.id)
 	)
-	return fn === undefined || held ? [] : [`${op.fn} (${fn})`]
+	return fn === undefined || fn === "wall" || held ? [] : [`${op.fn} (${fn})`]
 })
 
 /** A text an argument holds where it is no NULL: an XML Schema pattern, a reference or a base, or any short text. */
@@ -139,7 +146,7 @@ const nullsOf = (mask: number, arity: number): Nulls =>
 				: "argument 2"
 
 /** Every row of `args`: each set of its arguments NULL in turn, none and every one among them. */
-const rowsOf = (fn: LibraryFn, args: ReadonlyArray<string>): ReadonlyArray<NullRow> =>
+const rowsOf = (fn: HostLibraryFn, args: ReadonlyArray<string>): ReadonlyArray<NullRow> =>
 	Array.from({ length: 2 ** args.length }, (_, mask) => ({
 		args: Arr.map(args, (a, i) => (((mask >> i) & 1) === 1 ? null : a)),
 		feature: `${fn} with ${nullsOf(mask, args.length)} NULL`

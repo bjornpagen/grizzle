@@ -259,7 +259,10 @@ export const computeFns = [
 	"singleton",
 	"netWithin",
 	"netStrictlyWithin",
-	"netOverlaps"
+	"netOverlaps",
+	"wall",
+	"epochDay",
+	"dateOfEpochDay"
 ] as const
 export type ComputeFn = (typeof computeFns)[number]
 /** The functions that take a scale argument: round(a, scale) and trunc(a, scale). */
@@ -1669,17 +1672,19 @@ export type DerivedStorage = (typeof derivedStorages)[number]
 export type ClosedRow = Readonly<Record<string, LiteralDesc>>
 
 /**
- * The orders a roster's Description states: an unordered roster's, whose handles' order is no order of theirs. An
- * ordered roster's handles are its order, which it states by stating none (RelationDesc), so its canonical form is its
- * name and handles alone. The Description's type and its decoder (relationDescShape's `closed`) both read this one list.
+ * The orders a roster's Description states: an unordered roster's, whose handles' order is no order of theirs, and a
+ * zone roster's, whose handles are time zones. An ordered roster's handles are its order, which it states by stating
+ * none (RelationDesc), so its canonical form is its name and handles alone. The Description's type and its decoder
+ * (relationDescShape's `closed`) both read this one list.
  */
-const statedRosterOrders = ["unordered"] as const satisfies ReadonlyArray<RosterOrder>
+const statedRosterOrders = ["unordered", "zones"] as const satisfies ReadonlyArray<RosterOrder>
 type StatedRosterOrder = (typeof statedRosterOrders)[number]
 
-/** A roster's Description: an ordered roster's, or an unordered one's, which states its order. */
+/** A roster's Description: an ordered roster's, or an unordered or zone one's, which states its order. */
 export type RosterDesc<L = Located> = Extract<RelationDesc<L>, { readonly kind: "closed" }>
 
-/** The order a roster's Description states: an unordered roster's states it, and an ordered one's handles are its order. */
+/** The order a roster's Description states: an unordered or zone roster's states it, and an ordered one's handles are
+ * its order. */
 export const rosterOrderOf = (desc: RosterDesc): RosterOrder =>
 	"order" in desc ? desc.order : "ordered"
 
@@ -2791,7 +2796,10 @@ const computeCases: {
 	singleton: unscaledCompute,
 	netWithin: unscaledCompute,
 	netStrictlyWithin: unscaledCompute,
-	netOverlaps: unscaledCompute
+	netOverlaps: unscaledCompute,
+	wall: unscaledCompute,
+	epochDay: unscaledCompute,
+	dateOfEpochDay: unscaledCompute
 }
 
 const guardDescShape: S.Shape<GuardDesc> = S.tagged("kind", {

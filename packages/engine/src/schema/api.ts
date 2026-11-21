@@ -319,6 +319,21 @@ const unorderedRoster = <const Name extends string, const Handles extends Readon
 	closedBuilder<Name, Handles, "unordered">(name, handles, "unordered", extra)
 
 /**
+ * closed.zones(name, zones): a roster of time zones, each handle a zone's IANA name in its Area/Location form, such as
+ * "America/Chicago" or "Etc/UTC", each once, in any order, which Time.wall reads a closed id of as its zone. Its order
+ * means nothing, as an unordered roster's, and the migration that installs it, or changes its handles, finds each
+ * handle among the server's time zones, pg_timezone_names, or refuses before anything is changed. A name with no "/"
+ * (UTC, EST, CET, GB, EST5EDT) is refused here: PostgreSQL reads such a name as a time zone abbreviation first, whose
+ * meaning a session's settings choose, never the tzdata alone. Its `handle(member)` is the typed constant of a member.
+ */
+const zoneRoster = <const Name extends string, const Handles extends ReadonlyArray<string>>(
+	name: RelationName<Name>,
+	zones: Handles & DistinctHandles<Handles>,
+	...extra: ReadonlyArray<never>
+): Roster<Name, readonly [...Handles], "zones"> =>
+	closedBuilder<Name, Handles, "zones">(name, zones, "zones", extra)
+
+/**
  * closed.relation(name, fields, key, rows): a closed relation, its rows fixed when the schema compiles. The key is
  * required, a nonempty list of its closed-id fields, each once; a set lists every field. Its rows are facts of its
  * fields, no two of one key. `at` and `row` are its closed reads. Its migration states each of its constants as one hex
@@ -346,14 +361,20 @@ type DistinctRows<Name, Rows, KeyFields extends ReadonlyArray<string>> =
 	ConflictsAtKey<Rows, KeyFields> extends true ? KeyLawRefusal<Name, KeyFields> : unknown
 
 /**
- * The closed relations: closed.ordered and closed.unordered, a roster that states whether its order means something, and
- * closed.relation, a closed relation over rosters.
+ * The closed relations: closed.ordered and closed.unordered, a roster that states whether its order means something;
+ * closed.zones, a roster of time zones; and closed.relation, a closed relation over rosters.
  */
 export const closed: {
 	readonly ordered: typeof orderedRoster
 	readonly unordered: typeof unorderedRoster
+	readonly zones: typeof zoneRoster
 	readonly relation: typeof closedRelation
-} = Object.freeze({ ordered: orderedRoster, unordered: unorderedRoster, relation: closedRelation })
+} = Object.freeze({
+	ordered: orderedRoster,
+	unordered: unorderedRoster,
+	zones: zoneRoster,
+	relation: closedRelation
+})
 
 /**
  * schema(name, relations, statements). The relations are a list, each relation carrying its own name, which the value

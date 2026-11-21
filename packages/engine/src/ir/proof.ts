@@ -27,11 +27,14 @@ export type OperandIndex = 0 | 1 | 2 | 3
  * - `lexical`: a text a parse reads is a member of the lexical form `form` names (ParseForm), so the parse reads it
  *   without raising, to the value the form's mapping gives it (scalar/lexical.ts lexicalValue);
  * - `bounded`: a text a regex function reads is at most regexTextMaxBytes UTF-8 bytes, the longest
- *   subject PostgreSQL's regex engine widens without refusing its allocation, so the read never raises.
+ *   subject PostgreSQL's regex engine widens without refusing its allocation, so the read never raises;
+ * - `clock`: an instant Time.wall reads, in milliseconds since the Unix epoch, lies in PostgreSQL's timestamptz range
+ *   (core/clock.ts clockReadingRange), every instant a millis reading of the database's clock can be, so the zone's
+ *   wall clock at it is defined.
  *
  * nonzero, nonnegative and finite are facts a term's TypeScript type states (Facts), exactly, and powerDomain rests on
- * them; fits, contract, powerRange and bucketDomain rest on numeric bounds no TypeScript type can state, which the
- * lowering's bound domain proves (scalar/compute/bounds.ts); language and lexical rest on the operand's text
+ * them; fits, contract, powerRange, bucketDomain and clock rest on numeric bounds no TypeScript type can state, which
+ * the lowering's bound domain proves (scalar/compute/bounds.ts); language and lexical rest on the operand's text
  * refinement, whose language the lowering proves included in the target's pattern or form (scalar/regex/inclusion.ts);
  * bounded rests on the operand's byte bound, its type's or a guard's.
  */
@@ -47,6 +50,7 @@ export type Precondition =
 	| { readonly kind: "bucketDomain" }
 	| { readonly kind: "lexical"; readonly form: ParseForm }
 	| { readonly kind: "bounded" }
+	| { readonly kind: "clock" }
 
 /**
  * The lexical form a parse reads its text by, which its `lexical` precondition names: its target type's own (`target`,

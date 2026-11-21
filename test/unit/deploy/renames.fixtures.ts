@@ -561,6 +561,8 @@ export const rowStepsOf = (steps: ReadonlyArray<Step>): ReadonlyArray<string> =>
 				return [`a fill of ${nameKey(s.draft.table)}`]
 			case "violation":
 				return [`the violation query of ${s.draft.law}`]
+			case "zones":
+				return [`the zone check of ${s.draft.roster}`]
 			case "loss":
 				return [`a loss of ${s.draft.loses.schema}`]
 		}

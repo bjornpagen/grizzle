@@ -13,7 +13,7 @@ import { asciiFold } from "@bjornpagen/grizzle-text/text"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { int4Max, unwrap } from "#compiler/core/canonical.ts"
 import { canonicalTextOf, catchRefusal, Refusal, sameContent } from "#compiler/core/canonical.ts"
-import { clockReadingRange } from "#compiler/core/clock.ts"
+import { clockReadingRange, wallRange } from "#compiler/core/clock.ts"
 import { maxAllocSize } from "#compiler/core/errors.ts"
 import { CompileError, prose, type ProseTag, ruleRefused } from "#compiler/core/errors.ts"
 import type { FunctionDigest } from "#compiler/core/fingerprint.ts"
@@ -21,7 +21,7 @@ import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { int4Digits, int8Max, int8Min, isIntegerTypmod } from "#compiler/ir/carriers.ts"
 import { integerDigits, integerRanges } from "#compiler/ir/carriers.ts"
 import type { ParamReading } from "#compiler/ir/clock.ts"
-import { dayNumber, firstCalendarDate, lastCalendarDate } from "#compiler/ir/date.ts"
+import { dayNumber, epochDayRange, firstCalendarDate, lastCalendarDate } from "#compiler/ir/date.ts"
 import {
 	type CompareOp,
 	type ExprDesc,
@@ -3056,6 +3056,102 @@ class Typing<R extends Refs> {
 	}
 
 	/**
+	 * Time.wall(t, zone): the zone's wall clock at the instant t, both in milliseconds, t's since the Unix epoch and the
+	 * wall clock's since the local epoch, as PostgreSQL's tzdata reads the zone (registry.ts zoneWall). t is a bigint
+	 * term, never an instant, which counts microseconds: its milliseconds are Num.div(Type.base(at),
+	 * 1000n) cast into a bigint. zone is a closed id of a zone roster (closed.zones), whose code its roster's names
+	 * constant reads as the zone's IANA name. It is defined where t lies in timestamptz's range (`clock`), which t's
+	 * bounds prove, a millis reading of the database's clock's among them, or a Num.within guard. Its value lies in
+	 * wallRange, an instant moved by at most a TZif offset. The host holds no tzdata, so it stands in a query alone
+	 * (computeSpecs `check`).
+	 */
+	wall(instantDesc: ExprDesc<Located, R>, zoneDesc: ExprDesc<Located, R>, at: SourceLoc): Typed {
+		const instant = this.term(instantDesc, childLoc(at, 0))
+		if (isInstantType(instant.nominal)) {
+			return stop(
+				"UnsupportedOperation",
+				at,
+				`Time.wall over an instant's microseconds: it reads milliseconds since the Unix epoch, Type.cast(Num.div(Type.base(${nodeText(instant.node)}), 1000n), pg.bigint)`
+			)
+		}
+		if (baseOf(instant.actual).carrier !== "int8") {
+			return stop(
+				"MalformedDescription",
+				at,
+				`a bigint term of milliseconds since the Unix epoch for Time.wall, not ${typeLabel(instant.nominal)}`
+			)
+		}
+		const zone = this.term(zoneDesc, childLoc(at, 1))
+		const roster = rosterOf(zone.actual)
+		if (baseOf(zone.actual).carrier !== "code" || roster?.order !== "zones") {
+			return stop(
+				"MalformedDescription",
+				at,
+				`a closed id of a zone roster, closed.zones(name, zones), for Time.wall's zone, not ${typeLabel(zone.nominal)}`
+			)
+		}
+		const op = this.overload("wall", [instant.actual, zone.actual], at)
+		const type = plainType("int8")
+		const digits = String(-wallRange.low > wallRange.high ? -wallRange.low : wallRange.high).length
+		return this.native(
+			op,
+			[instant, zone],
+			type,
+			ofRange(wallRange.low, wallRange.high, digits),
+			at,
+			spelling.wall
+		)
+	}
+
+	/**
+	 * Time.epochDay(x): a date's days after 1970-01-01, negative before it (registry.ts dateEpochDay), an integer of
+	 * epochDayRange, since every date grizzle holds is from 0001-01-01 to 9999-12-31; defined on every date, so it
+	 * stands in a query, a check and a generated field alike, the host computing it by the same day count.
+	 */
+	epochDay(subjectDesc: ExprDesc<Located, R>, at: SourceLoc): Typed {
+		const x = this.term(subjectDesc, childLoc(at, 0))
+		if (baseOf(x.actual).carrier !== "date") {
+			return stop(
+				"MalformedDescription",
+				at,
+				`a date term for Time.epochDay, not ${typeLabel(x.nominal)}`
+			)
+		}
+		const op = this.overload("epochDay", [x.actual], at)
+		const digits = String(
+			-epochDayRange.low > epochDayRange.high ? -epochDayRange.low : epochDayRange.high
+		).length
+		return this.native(
+			op,
+			[x],
+			plainType("int4"),
+			ofRange(epochDayRange.low, epochDayRange.high, digits),
+			at,
+			spelling.epochDay
+		)
+	}
+
+	/**
+	 * Time.dateOfEpochDay(n): the date n days after 1970-01-01 (registry.ts dateOfEpochDayFrom), n an integer or a
+	 * bigint term, an exact integer cast into one first. It is defined where n is the epoch day of a date
+	 * grizzle holds, within epochDayRange (`fits`, compute/lower.ts fitRange), which n's bounds prove or a Num.within
+	 * guard; it stands in a query, a check and a generated field alike.
+	 */
+	dateOfEpochDay(daysDesc: ExprDesc<Located, R>, at: SourceLoc): Typed {
+		const n = this.term(daysDesc, childLoc(at, 0))
+		const carrier = baseOf(n.actual).carrier
+		if (carrier !== "int4" && carrier !== "int8") {
+			return stop(
+				"MalformedDescription",
+				at,
+				`an integer or bigint term of days after 1970-01-01 for Time.dateOfEpochDay, not ${typeLabel(n.nominal)}${carrier === "exactInteger" ? ": cast an exact integer into one, Type.cast(n, pg.bigint)" : ""}`
+			)
+		}
+		const op = this.overload("dateOfEpochDay", [n.actual], at)
+		return this.native(op, [n], plainType("date"), undefined, at, spelling.dateOfEpochDay)
+	}
+
+	/**
 	 * textDocument(configuration, weight, text, ...), the term of searchDocument(configuration, [weight, text], ...): a search document, the tsvector PostgreSQL parses from its
 	 * texts under `configuration`, each text's positions labelled by the weight before it and the parts concatenated in
 	 * their order (registry.ts searchPart and tsvector's ||), of the configuration's type (ir/scalar.ts SearchType). The
@@ -4341,6 +4437,12 @@ class Typing<R extends Refs> {
 			case "netStrictlyWithin":
 			case "netOverlaps":
 				return this.netContainment(desc.fn, arg(0), arg(1), here)
+			case "wall":
+				return this.wall(arg(0), arg(1), here)
+			case "epochDay":
+				return this.epochDay(arg(0), here)
+			case "dateOfEpochDay":
+				return this.dateOfEpochDay(arg(0), here)
 			case "cosineDistance": {
 				const a = this.term(arg(0), here)
 				const b = this.operand(arg(1), a, "compare", here)

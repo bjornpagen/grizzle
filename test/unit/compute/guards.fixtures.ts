@@ -30,7 +30,8 @@ export const kinds: Arr.NonEmptyReadonlyArray<PreconditionKind> = [
 	"powerRange",
 	"bucketDomain",
 	"lexical",
-	"bounded"
+	"bounded",
+	"clock"
 ]
 
 /** The term with its fault mended: the named guard written around it, its operand a typed parameter, or neither. */
@@ -169,6 +170,27 @@ const powerRange = (operand: TestOperand, one: LiteralDesc, two: LiteralDesc): P
 	}
 })
 
+/** The zone a planted Time.wall reads, a parameter of a closed id of the test's zone roster. */
+const utc = (): ScalarTerm => param("zone", testPg.zone)
+
+/**
+ * The zone's wall clock at the operand, a bigint of any value, which timestamptz's range does not bound, guarded by
+ * computeCore.within at zero, the Unix epoch, which it holds.
+ */
+const clock = (operand: TestField): Plant => ({
+	operand,
+	faulty: (x) => computeCore.wall(x, utc()),
+	mended: {
+		kind: "guarded",
+		term: (x) =>
+			computeCore.when(
+				computeCore.within(x, 0n, 0n),
+				(y: ScalarTerm) => computeCore.wall(y, utc()),
+				0n
+			)
+	}
+})
+
 /** The planted faults of each precondition kind, over each operand type the registry admits for its operation. */
 export const plants: { readonly [K in PreconditionKind]: Arr.NonEmptyReadonlyArray<Plant> } = {
 	nonzero: [
@@ -243,6 +265,7 @@ export const plants: { readonly [K in PreconditionKind]: Arr.NonEmptyReadonlyArr
 			}
 		})
 	),
+	clock: [clock(testPg.bigint)],
 	bounded: [
 		{
 			operand: testPg.text,
@@ -275,7 +298,8 @@ const modeOf: { readonly [K in PreconditionKind]: "query" | "check" } = {
 	powerRange: "query",
 	bucketDomain: "query",
 	lexical: "query",
-	bounded: "check"
+	bounded: "check",
+	clock: "query"
 }
 
 /** The tests the scalar catalogue writes over a value of a carrier: a number's facts and bounds, a text's patterns, or none. */

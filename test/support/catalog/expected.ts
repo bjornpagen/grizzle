@@ -144,7 +144,8 @@ const builtinTypname: { readonly [K in BuiltinTypeName]: string } = {
 	name: "name",
 	tsvector: "tsvector",
 	regconfig: "regconfig",
-	char: "char"
+	char: "char",
+	interval: "interval"
 }
 
 const cUtf8 = "pg_catalog.pg_c_utf8"

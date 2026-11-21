@@ -9,7 +9,7 @@ import type { ExprId } from "#compiler/core/ids.ts"
 import { sha256Digest } from "#compiler/core/sha256.ts"
 import { wellFormed } from "#compiler/core/text.ts"
 import { declaredOrder } from "#compiler/ir/codes.ts"
-import { dayNumber } from "#compiler/ir/date.ts"
+import { dateOfEpochDay, dayNumber, epochDayOf, epochDayRange } from "#compiler/ir/date.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import {
 	type ColumnRef,
@@ -579,7 +579,8 @@ type Apply = (args: ReadonlyArray<HostValue>, patterns: PatternReads) => SqlResu
  * regex match (by the pattern's automaton) and translation (by code points, as PostgreSQL's translate reads them), a
  * double's parse from its decimal text, a decimal's from its text, a bytes value's SHA-256 digest, its bytes read off
  * the hex digest worked out where the value was admitted (scalar/values/bytes.ts AdmittedBytes), and a text's, the
- * digest of its UTF-8 as core/sha256.ts sha256Digest hashes a well-formed text, which every text a check reads is, span endpoints, LEAST
+ * digest of its UTF-8 as core/sha256.ts sha256Digest hashes a well-formed text, which every text a check reads is, a
+ * date's epoch day and an epoch day's date by the proleptic Gregorian day count (ir/date.ts), span endpoints, LEAST
  * and GREATEST by the type's order, and a set's union, intersection, difference, cardinality, subset and
  * disjointness, and a set with one more handle, over its handles. Each case reads its operands as the host values of
  * the carriers its overload takes (identity.ts hostOf); the IR's typing guarantees them, so another is a defect. `and`,
@@ -766,6 +767,23 @@ const applied = (op: NativeOp, argTypes: ReadonlyArray<ScalarType>, type: Scalar
 					holds(netValueOf(hostOf(left, a(args)), left), netValueOf(hostOf(right, b(args)), right))
 				)
 		}
+		case "epochDay": {
+			const host = integerHost(type)
+			return (args) => Result.ok(host(BigInt(epochDayOf(hostOf("date", a(args))))))
+		}
+		case "dateOfEpochDay": {
+			const days = integerOf(c)
+			return (args) => {
+				const n = days(a(args))
+				return n < epochDayRange.low || n > epochDayRange.high
+					? undefinedAt("fits")
+					: Result.ok(dateOfEpochDay(n))
+			}
+		}
+		case "wall":
+			return refused(
+				"Time.wall, a zone's wall clock by PostgreSQL's tzdata, which the host does not hold"
+			)
 		case "complement":
 			return refused("complement, which no scalar operation yields")
 		case "canonicalZero": {

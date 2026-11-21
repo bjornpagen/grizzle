@@ -1,4 +1,5 @@
 import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import { unixEpochDate } from "#compiler/ir/date.ts"
 import type { OpId, ScalarExpr } from "#compiler/ir/expr.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
@@ -366,6 +367,22 @@ const registryForm = (
 				? qualifiedCall(fn.schema, fn.name, args)
 				: undefined
 		}
+		case "epochDay":
+			return args.length === 1 && first !== undefined
+				? binary("-", first, lit.text(unixEpochDate, types.date))
+				: undefined
+		case "dateOfEpochDay":
+			return args.length === 1 && first !== undefined
+				? binary(
+						"+",
+						lit.text(unixEpochDate, types.date),
+						native.operands.kind === "positional" && native.operands.carriers[0] === "int8"
+							? cast(first, types.integer)
+							: first
+					)
+				: undefined
+		case "zoneLibrary":
+			return undefined
 		case "canonicalZero":
 			return args.length === 1 && first !== undefined
 				? binary("+", first, lit.float(0, sql.carrier === "float4" ? types.real : types.double))

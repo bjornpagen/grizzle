@@ -28,7 +28,8 @@ import type {
  *
  * - `relation(name, fields, primaryKey)`, `relation.generated(name, written, primaryKey, generate)`: an ordinary
  *   relation, as the root's.
- * - `closed.ordered(name, handles)`, `closed.unordered(name, handles)`: a roster, as the root's.
+ * - `closed.ordered(name, handles)`, `closed.unordered(name, handles)`, `closed.zones(name, zones)`: a roster, as the
+ *   root's.
  * - `closed.relation(name, fields, key, rows)`: a closed relation, as the root's; its value holds its facts, one per
  *   distinct row written, in `rows`.
  */
@@ -73,6 +74,13 @@ const unorderedRoster = (
 	...extra: ReadonlyArray<never>
 ): AnyRoster => closedBuilder(name, handles, "unordered", extra)
 
+/** closed.zones(name, zones): a roster of time zones of a name known only at run time. */
+const zoneRoster = (
+	name: string,
+	zones: ReadonlyArray<string>,
+	...extra: ReadonlyArray<never>
+): AnyRoster => closedBuilder(name, zones, "zones", extra)
+
 /**
  * closed.relation(name, fields, key, rows): a closed relation of a name known only at run time, its value's `rows` the
  * facts it keeps, a row written twice one fact.
@@ -88,5 +96,11 @@ const closedRelation = (
 export const closed: {
 	readonly ordered: typeof orderedRoster
 	readonly unordered: typeof unorderedRoster
+	readonly zones: typeof zoneRoster
 	readonly relation: typeof closedRelation
-} = Object.freeze({ ordered: orderedRoster, unordered: unorderedRoster, relation: closedRelation })
+} = Object.freeze({
+	ordered: orderedRoster,
+	unordered: unorderedRoster,
+	zones: zoneRoster,
+	relation: closedRelation
+})

@@ -1853,6 +1853,8 @@ const draftSteps = (d: Draft): ReadonlyArray<LockedStep> => {
 			return [{ kind: "fill", table: d.table }]
 		case "violation":
 			return [{ kind: "check", query: d.query }]
+		case "zones":
+			return []
 		case "loss":
 			return [statementStep(d.statement)]
 		case "confirm":

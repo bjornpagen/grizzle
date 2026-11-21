@@ -365,6 +365,8 @@ const observedOf = (draft: Draft): ReadonlyArray<string> => {
 				return [`other ${a.kind}`]
 			case "violation":
 				return [`check law ${a.law}`]
+			case "zones":
+				return [`check zones ${a.roster}`]
 		}
 	}
 	switch (draft.kind) {
@@ -372,6 +374,7 @@ const observedOf = (draft: Draft): ReadonlyArray<string> => {
 		case "alteration":
 		case "fill":
 		case "violation":
+		case "zones":
 			return statements(draft)
 		case "loss":
 		case "confirm":

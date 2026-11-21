@@ -74,9 +74,10 @@ export interface SelectionKey {
  * (sql/ast.ts CreateConstant) named by its definition's digest (physical/ddl/library.ts), which an installation installs
  * where its schema's persistent expressions call it: isXsdPattern, whether a text is an XML Schema 1.0 pattern
  * (scalar/compute/registry.ts textIsXsdPattern); resolveReference, RFC 3986's resolution of a reference against a
- * base (textResolveReference); and textDigest, a text's SHA-256 (textSha256).
+ * base (textResolveReference); textDigest, a text's SHA-256 (textSha256); and wall, a zone's wall clock at an instant
+ * by PostgreSQL's tzdata (zoneWall), which an installation installs where a program of its served workload calls it.
  */
-const libraryFns = ["isXsdPattern", "resolveReference", "textDigest"] as const
+const libraryFns = ["isXsdPattern", "resolveReference", "textDigest", "wall"] as const
 export type LibraryFn = (typeof libraryFns)[number]
 
 /** How the declared names of one schema map to PostgreSQL objects, each qualified by its schema. */
@@ -101,6 +102,11 @@ export interface PhysicalNames {
 		readonly schema: TypeSchema
 		readonly name: DomainName
 	}
+	/**
+	 * A roster's names constant, by its declared name (physical/ddl/constants.ts namesConstant): its handles in code
+	 * order as one name[], which a zone's closed id is read through as its IANA name (registry.ts zoneWall).
+	 */
+	readonly rosterNames: (roster: DeclaredName) => QualifiedFunctionRef
 	/**
 	 * The domain of a contract, by its declared name: the naming door's (core/identity.ts identity.contractDomain), by
 	 * the digest of its physical definition, which contracts of one definition share.

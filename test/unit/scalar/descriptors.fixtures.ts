@@ -324,9 +324,12 @@ const at = (value: unknown, site: string): ReadonlyArray<Broken<"MalformedDescri
 	{ value, refusal: "MalformedDescription", at: site }
 ]
 
-/** A closed relation of a name, an order and a roster of distinct handles. */
+/**
+ * A closed relation of a name, an order and a roster of distinct handles, a zone roster's each under Etc/, the
+ * Area/Location form closed.zones admits.
+ */
 const liveClosed = (name: string, order: RosterOrder, handles: Arr.NonEmptyReadonlyArray<string>) =>
-	closedBuilder(name, handles, order, [])
+	closedBuilder(name, order === "zones" ? Arr.map(handles, (h) => `Etc/${h}`) : handles, order, [])
 
 /** A closed relation: a drawn name, a drawn order, and a drawn roster of distinct handles. */
 const closedGen: Gen<ReturnType<typeof liveClosed>> = (source) =>

@@ -16,6 +16,7 @@ import {
 import { xmlSchemaBlocks } from "@bjornpagen/grizzle-text/regex/xml"
 import { xsdCategoryNames } from "@bjornpagen/grizzle-text/regex/xsd"
 import { everyProperty } from "#compiler/core/canonical.ts"
+import { millisPerDay, wallCycle } from "#compiler/core/clock.ts"
 import { constantDigest } from "#compiler/core/fingerprint.ts"
 import { type Identity, identity } from "#compiler/core/identity.ts"
 import { compareStrings } from "#compiler/core/order.ts"
@@ -43,6 +44,7 @@ import {
 	asc,
 	binary,
 	call,
+	cast,
 	col,
 	core,
 	countStar,
@@ -1156,6 +1158,69 @@ const textDigestDefinition = (): LibraryBody => ({
 })
 
 /**
+ * wall(bigint, text): a zone's wall clock at an instant, both counted in milliseconds, the instant's since the Unix epoch
+ * and the wall clock's since the local epoch, 1970-01-01 00:00 on the zone's clock: the instant plus the zone's offset
+ * from UT at it, as PostgreSQL's tzdata reads the zone its IANA name names (registry.ts zoneWall). The instant becomes a
+ * timestamp of its UTC wall clock exactly, by integers alone: its day, floored, `'1970-01-01'::date + d`, and its
+ * milliseconds into it, `r * '1 millisecond'::interval`, r below a day's, so the product's microseconds are an integer a
+ * double holds exactly. The offset at it is the zone's wall clock less that one, `extract('epoch', timezone(zone,
+ * timezone('0 seconds'::interval, utc))) - extract('epoch', utc)`, exact numerics of seconds: the timestamptz of the
+ * instant is made at offset zero, with no zone looked up. An instant in the first or the last Gregorian cycle of
+ * timestamptz's range has its offset read one cycle in (core/clock.ts wallCycle), where it is the same, so no wall clock
+ * past the range is built: wall is defined on every instant timestamptz holds. Every function and operator it reads is
+ * IMMUTABLE in pg_proc.
+ */
+const wallDefinition = (): LibraryBody => {
+	const instant = param(1, types.bigint)
+	const zone = param(2, types.text)
+	const bigint = (value: bigint): Expr => lit.int(value, types.bigint)
+	const day = bigint(millisPerDay)
+	const shift: Expr = {
+		kind: "case",
+		operand: undefined,
+		whens: [
+			{ when: lt(instant, bigint(wallCycle.below)), result: bigint(wallCycle.millis) },
+			{ when: gt(instant, bigint(wallCycle.above)), result: bigint(-wallCycle.millis) }
+		],
+		else: bigint(0n)
+	}
+	const read = binary("+", instant, shift)
+	const intoDay = binary("%", binary("+", binary("%", read, day), day), day)
+	const days = binary("/", binary("-", read, intoDay), day)
+	const utc = binary(
+		"+",
+		binary("+", lit.text("1970-01-01", types.date), cast(days, types.integer)),
+		binary("*", intoDay, lit.text("1 millisecond", types.interval))
+	)
+	const seconds = (timestamp: Expr): Expr =>
+		call("extract", [lit.text("epoch", types.text), timestamp])
+	const offsetAt = (timestamp: Expr): Expr =>
+		binary(
+			"-",
+			seconds(
+				call("timezone", [
+					zone,
+					call("timezone", [lit.text("0 seconds", types.interval), timestamp])
+				])
+			),
+			seconds(timestamp)
+		)
+	const offset = offsetAt(utc)
+	return {
+		params: [
+			{ name: "instant", type: types.bigint },
+			{ name: "zone", type: types.text }
+		],
+		returns: types.bigint,
+		body: binary(
+			"+",
+			instant,
+			cast(binary("*", offset, lit.int(1000n, types.integer)), types.bigint)
+		)
+	}
+}
+
+/**
  * Whether the library function `fn` is STRICT: exactly where every native node that calls it (registry.ts libraryOf)
  * meets a NULL operand by the strict rule (registry.ts nullRules), which the host evaluator applies to it, so a call of
  * a NULL argument is NULL in PostgreSQL, which returns it without running the body, as it is on the host. One that is
@@ -1174,7 +1239,8 @@ const definedAs = (fn: LibraryFn, body: LibraryBody): LibraryDefinition => ({
 const definitions: { readonly [F in LibraryFn]: LibraryDefinition } = {
 	isXsdPattern: definedAs("isXsdPattern", xsdPatternDefinition()),
 	resolveReference: definedAs("resolveReference", resolveReferenceDefinition()),
-	textDigest: definedAs("textDigest", textDigestDefinition())
+	textDigest: definedAs("textDigest", textDigestDefinition()),
+	wall: definedAs("wall", wallDefinition())
 }
 
 /** Each library function's identity, by its name and its definition's digest, minted once. */
@@ -1190,6 +1256,10 @@ const identities: { readonly [F in LibraryFn]: Identity<"libraryFunction"> } = {
 	textDigest: identity.libraryFunction(
 		"textDigest",
 		constantDigest("library-function", definitions.textDigest, everyProperty)
+	),
+	wall: identity.libraryFunction(
+		"wall",
+		constantDigest("library-function", definitions.wall, everyProperty)
 	)
 }
 

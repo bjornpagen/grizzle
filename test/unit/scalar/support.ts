@@ -220,12 +220,20 @@ const vectorGen: Gen<DescriptorSketch> = map(
 	(dimensions): DescriptorSketch => ({ kind: "vector", dimensions })
 )
 
-const closedIdGen: Gen<DescriptorSketch> = (source) => ({
-	kind: "closedId",
-	name: source.draw(nameGen),
-	order: source.draw(element(rosterOrders)),
-	handles: source.draw(handlesGen)
-})
+/**
+ * A roster's sketch: its name, its order and its handles, a zone roster's each a zone's Area/Location name, its handle
+ * under Etc/ (closed.zones admits no name of one component).
+ */
+const closedIdGen: Gen<DescriptorSketch> = (source) => {
+	const order = source.draw(element(rosterOrders))
+	const handles = source.draw(handlesGen)
+	return {
+		kind: "closedId",
+		name: source.draw(nameGen),
+		order,
+		handles: order === "zones" ? Arr.map(handles, (h) => `Etc/${h}`) : handles
+	}
+}
 
 const spanGen =
 	(depth: number): Gen<DescriptorSketch> =>

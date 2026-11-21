@@ -161,6 +161,9 @@ export const lowerVectorOp = (
 		case "floatBits":
 		case "utf16Length":
 		case "library":
+		case "zoneLibrary":
+		case "epochDay":
+		case "dateOfEpochDay":
 		case "canonicalZero":
 		case "searchPart":
 		case "textSearch":

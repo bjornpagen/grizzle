@@ -7,7 +7,13 @@ import { captureLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { isList } from "#compiler/core/record.ts"
 import { isValidText } from "#compiler/core/text.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
-import { handlesInOrder, Roster, type RosterHandles, rosterOrders } from "#compiler/ir/scalar.ts"
+import {
+	handlesInOrder,
+	isZoneName,
+	Roster,
+	type RosterHandles,
+	rosterOrders
+} from "#compiler/ir/scalar.ts"
 import {
 	carrierSql,
 	defineField,
@@ -73,6 +79,14 @@ const readRoster = (closed: unknown): Result.Result<ClosedRoster, CompileError> 
 		if (seen.has(handle)) {
 			return Result.err(
 				malformedDescription(captureLoc("closedId", []), "roster handles without repeats")
+			)
+		}
+		if (stated === "zones" && !isZoneName(handle)) {
+			return Result.err(
+				malformedDescription(
+					captureLoc("closedId", []),
+					"a zone roster's handles, each a time zone's IANA name in its Area/Location form"
+				)
 			)
 		}
 		seen.add(handle)

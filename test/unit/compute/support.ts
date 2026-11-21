@@ -20,7 +20,14 @@ import {
 import type { BuilderScope, OpenExpr } from "#compiler/ir/open.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { Fact } from "#compiler/ir/proof.ts"
-import { baseOf, type Carrier, Roster, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import {
+	baseOf,
+	type Carrier,
+	Roster,
+	rosterOf,
+	type RosterOrder,
+	type ScalarType
+} from "#compiler/ir/scalar.ts"
 import { matchOperands } from "#compiler/lower/conservative/expr/index.ts"
 import { defaultOps } from "#compiler/lower/conservative/expr/ops.ts"
 import { ieeeForm } from "#compiler/lower/conservative/expr/total.ts"
@@ -83,15 +90,23 @@ export interface TestField extends TestOperand {
 	readonly desc: FieldDesc
 }
 
-/** The closed types a test field's handle names, by name: Mood, the aggregate suite's (test/pg/compute). */
-const rosters: ReadonlyMap<string, NonEmptyReadonlyArray<string>> = new Map<
+/**
+ * The closed types a test field's handle names, by name, each with its order: Mood, the aggregate suite's
+ * (test/pg/compute), and Zone, a zone roster Time.wall reads (closed.zones).
+ */
+const rosters: ReadonlyMap<
 	string,
-	NonEmptyReadonlyArray<string>
->([["Mood", ["sad", "ok", "happy"]]])
+	{ readonly order: RosterOrder; readonly handles: NonEmptyReadonlyArray<string> }
+> = new Map([
+	["Mood", { order: "ordered", handles: ["sad", "ok", "happy"] }],
+	["Zone", { order: "zones", handles: ["America/Chicago", "Asia/Kolkata", "Etc/UTC"] }]
+])
 
 /** The codes a fresh installation gives the declared rosters, which a handle literal renders as. */
 const testCodes: Codebook = firstCodebook(
-	Arr.map([...rosters], ([closed, handles]) => Roster.of(parsedName(closed), "ordered", handles))
+	Arr.map([...rosters], ([closed, { order, handles }]) =>
+		Roster.of(parsedName(closed), order, handles)
+	)
 )
 
 /**
@@ -101,8 +116,8 @@ const testCodes: Codebook = firstCodebook(
 const testEnv: ScalarEnv = {
 	kind: "schema",
 	roster: (name) => {
-		const handles = rosters.get(name)
-		return handles === undefined ? undefined : Roster.of(name, "ordered", handles)
+		const declared = rosters.get(name)
+		return declared === undefined ? undefined : Roster.of(name, declared.order, declared.handles)
 	},
 	contractPredicate: (predicate, base, name, facts) =>
 		contractPredicateTable(predicate, base, name, facts, {
@@ -139,11 +154,11 @@ const columnOf = (desc: FieldDesc): Column<unknown> => {
 		case "pattern":
 			return plainColumns.text
 		case "closedId": {
-			const handles = rosters.get(desc.roster)
-			if (handles === undefined) {
+			const declared = rosters.get(desc.roster)
+			if (declared === undefined) {
 				throw new Error(`no roster ${desc.roster}`)
 			}
-			return codeColumn(desc.roster, handles)
+			return codeColumn(desc.roster, declared.handles)
 		}
 		case "bits":
 			return bitsColumn(desc.roster)
@@ -202,6 +217,8 @@ export const testPg = {
 	inet: field({ kind: "pg", type: "inet" }, "inet"),
 	cidr: field({ kind: "pg", type: "cidr" }, "cidr"),
 	text: field(textDesc("^.*$", "su"), "text"),
+	/** A closed id of Zone, a zone roster, which Time.wall reads as its zone. */
+	zone: field({ kind: "closedId", roster: "Zone", only: undefined }, "code"),
 	regex: (source: string, flags: "u" | "su") => field(textDesc(source, flags), "text")
 } as const
 

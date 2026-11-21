@@ -63,7 +63,12 @@ export interface Installation {
 
 export const installationOf = (c: ProgramCase, level: LawLevel, own: Top): Installation => {
 	const drawn = drawnSchema(c, level)
-	const Shade = closedBuilder("TopShade", ["dim", "lit"], own.order, [])
+	const Shade = closedBuilder(
+		"TopShade",
+		own.order === "zones" ? ["Etc/Dim", "Etc/Lit"] : ["dim", "lit"],
+		own.order,
+		[]
+	)
 	const Lamp = closedBuilder("TopLamp", ["off", "on"], "ordered", [])
 	const [first] = drawn.relations
 	/** Every fact of the first relation, which the views level reads live and the top holds materialized. */

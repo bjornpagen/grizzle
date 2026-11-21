@@ -116,6 +116,7 @@ import { refreshStatement } from "#compiler/physical/derived/objects.ts"
 import { targetKey, touchedTargets } from "#compiler/physical/install/comments.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { namedIdent, parseIdent, qualifiedIdent } from "#compiler/physical/obligations/graph.ts"
+import { rostersOf } from "#compiler/schema/own.ts"
 import {
 	addedColumn,
 	type AlterRole,
@@ -882,6 +883,7 @@ const alteredBy = (
 			return { table: d.table, actions: d.actions }
 		case "fill":
 		case "violation":
+		case "zones":
 		case "loss":
 		case "confirm":
 			return undefined
@@ -1552,6 +1554,7 @@ class Differ {
 		this.sql("setup.drop", this.input.renames)
 		const { checks } = this.input
 		this.migrationChecks(checks.migrations)
+		this.zoneChecks()
 		this.dropWorlds()
 		this.dropViews()
 		this.dropReplaced()
@@ -1594,6 +1597,31 @@ class Differ {
 				continue
 			}
 			this.push("setup", { kind: "violation", law: c.law, query: c.query })
+		}
+	}
+
+	/**
+	 * The check of each zone roster (closed.zones) whose names constant this migration creates, first in Setup beside the
+	 * laws over closed relations alone: its handles each read as a time zone by the server, whose tzdata a production
+	 * server holds its own of, so a handle that names none refuses the migration before anything changes, and no
+	 * Time.wall over the roster raises. A roster whose names constant the previous installation holds was checked when
+	 * it was installed, so a regenerate checks nothing, and a roster's handles changed are a new constant, checked once.
+	 */
+	zoneChecks(): void {
+		const { installation, target } = this.input
+		for (const roster of rostersOf(installation.owned)) {
+			const codec = installation.names.codes.rosters.get(roster.closed)
+			if (roster.order !== "zones" || codec === undefined || !isNonEmpty(roster.handles)) {
+				continue
+			}
+			const names = qualifiedIdent(
+				"function",
+				target.schema,
+				identifierOf(rosterConstants(codec).names)
+			)
+			if (!this.prev.has(names)) {
+				this.push("setup", { kind: "zones", roster: roster.closed, zones: roster.handles })
+			}
 		}
 	}
 
@@ -3758,6 +3786,7 @@ const draftStatements = (d: Draft): ReadonlyArray<SqlStatement> => {
 			return [alterationStatement(d.table, d.actions)]
 		case "fill":
 		case "violation":
+		case "zones":
 			return []
 	}
 }

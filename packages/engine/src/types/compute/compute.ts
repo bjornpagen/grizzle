@@ -87,7 +87,8 @@ import type {
 	TermBase,
 	TypeOfTerm,
 	UnionToIntersection,
-	ValueOfTerm
+	ValueOfTerm,
+	Zoned
 } from "#compiler/types/core/phantom.ts"
 import type { EqualityStates, StatesOf, Stating } from "#compiler/types/evidence/evidence.ts"
 import type {
@@ -374,14 +375,14 @@ type Ordered<A, Taken extends boolean> = [SqlOfTerm<A>] extends ["bits"]
 type Orders<A, B> = Every<[Compares<A, B, OrderedSql>, HasOrder<A>]>
 
 /**
- * The scalar catalogue: PostgreSQL's scalar operators, functions and casts, in twelve namespaces, each member in the
+ * The scalar catalogue: PostgreSQL's scalar operators, functions and casts, in thirteen namespaces, each member in the
  * one whose domain it reads: Type (constants, contracts and casts), Num (the numeric family), Logic (comparisons,
  * connectives and conditionals over any type), Range (a span's endpoints), Text, Xml (XML Schema's pattern dialect),
  * Crypto, Distance (over vectors), Search (text search documents and queries), Bits (the set algebra), Net (the network
- * types' containment) and Fn (declared functions). Each is the runtime builders of packages/engine/src/scalar/compute
- * bound to its public signature here (TypeApi, NumApi, LogicApi, RangeApi, TextApi, XmlApi, CryptoApi, DistanceApi,
- * SearchApi, BitsApi, NetApi, FnApi) by the public barrels public/compute.ts and public/fields.ts (Bits, beside
- * Bits.of); what follows holds of all twelve.
+ * types' containment), Time (zones' wall clocks and epoch days) and Fn (declared functions). Each is the runtime
+ * builders of packages/engine/src/scalar/compute bound to its public signature here (TypeApi, NumApi, LogicApi, RangeApi,
+ * TextApi, XmlApi, CryptoApi, DistanceApi, SearchApi, BitsApi, NetApi, TimeApi, FnApi) by the public barrels
+ * public/compute.ts and public/fields.ts (Bits, beside Bits.of); what follows holds of all thirteen.
  *
  * Every method threads the parameter maps of its operands into its result, and types its result as PostgreSQL's
  * overload does, over its operand's SQL type, the term's `sql`: arithmetic keeps the operand's SQL type without its
@@ -1522,6 +1523,45 @@ export interface BitsApi {
 	singleton<A extends TermBase | FirstValue, X, PA, OA, L>(
 		id: A & FirstTerm<A> & Term<X, PA, OA, "code", unknown, Facts, L>
 	): Admitted<TakesFirst<A, "code">, Term<SetOver<X, L>, PA, ComputedOrigin<OA>, "bits">>
+}
+
+/**
+ * The Time namespace: a zone's wall clock at an instant by PostgreSQL's tzdata, and a date's epoch day and the date of
+ * one, the integers a calendar's arithmetic is written over: a local day of the week is (epochDay + 4) mod 7, 1970-01-01
+ * a Thursday, and a local wall clock's instant is a guess less the zone's offset at it (README "Time zones").
+ */
+export interface TimeApi {
+	/**
+	 * The zone's wall clock at an instant, both in milliseconds, the instant's since the Unix epoch and the wall clock's
+	 * since the local epoch, 1970-01-01 00:00 on the zone's clock, as PostgreSQL's tzdata reads the zone: a bigint term,
+	 * a millis reading of the database's clock among them (clocked(program, { now: "millis" })), never an instant, which
+	 * counts microseconds; and a closed id of a zone roster (closed.zones), whose handle is the zone's IANA name. Defined
+	 * where the instant lies in timestamptz's range, which its bounds prove, a reading's among them, or a Num.within
+	 * guard. The host holds no tzdata, so it stands in a query alone: a check, a contract predicate or a generated field
+	 * refuses it.
+	 */
+	wall<A extends TermBase | FirstValue, X, PA, OA, Z extends Zoned, PZ, OZ>(
+		instant: A & FirstTerm<A> & InputTerm<X, PA, OA, "bigint"> & NotInstant<X>,
+		zone: Term<Z, PZ, OZ, "code", unknown, Facts, unknown>
+	): Admitted<TakesFirst<A, "bigint">, Term<bigint, PA & PZ, ComputedOrigin<OA | OZ>, "bigint">>
+	/**
+	 * A date's days after 1970-01-01, negative before it, `x - '1970-01-01'::date`: an integer, defined on every date,
+	 * standing in a query, a check and a generated field alike.
+	 */
+	epochDay<A extends TermBase | FirstValue, X, PA, OA>(
+		date: A & FirstTerm<A> & InputTerm<X, PA, OA, "date">
+	): Admitted<TakesFirst<A, "date">, Term<number, PA, ComputedOrigin<OA>, "integer">>
+	/**
+	 * The date an integer or bigint term counts days after 1970-01-01, `'1970-01-01'::date + n`: defined where n is the
+	 * epoch day of a date of 0001-01-01 to 9999-12-31, which its bounds prove or a Num.within guard. An exact integer is
+	 * cast into a bigint first, Type.cast(n, pg.bigint).
+	 */
+	dateOfEpochDay<A extends TermBase | FirstValue, X, PA, OA, S extends "integer" | "bigint">(
+		days: A & FirstTerm<A> & InputTerm<X, PA, OA, S>
+	): Admitted<
+		TakesFirst<A, "integer" | "bigint">,
+		Term<PlainHost["date"], PA, ComputedOrigin<OA>, "date">
+	>
 }
 
 /** The SQL types of PostgreSQL's network address types, which Net's containment reads on either side. */

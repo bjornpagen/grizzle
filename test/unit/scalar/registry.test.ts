@@ -81,12 +81,13 @@ import { type DescriptorSketch, descriptorGen, descriptorOf } from "#test/unit/s
 
 /**
  * The capabilities a sketch's type has by the rule the registry states: its carrier's, a contract's its base's, and a
- * closed id's of an unordered roster its carrier's without ordering and minMax, since no handle comes before another.
+ * closed id's of an unordered or a zone roster its carrier's without ordering and minMax, since no handle comes before
+ * another.
  */
 const carrierCapabilities = (sketch: DescriptorSketch, carrier: Carrier): CapabilitySet => {
 	const roster = rosterSketchOf(sketch)
 	const native = capabilitiesOf(carrier)
-	return roster?.order === "unordered"
+	return roster?.order === "unordered" || roster?.order === "zones"
 		? Arr.filter(native, (cap) => cap !== "ordering" && cap !== "minMax")
 		: native
 }
@@ -142,8 +143,10 @@ export const theCapabilityRegistryGivesEveryDescriptorItsCarriersCapabilitiesAnd
 			},
 			{
 				file: "packages/engine/src/scalar/registry.ts",
-				original: '\t\tcase "unordered":\n\t\t\treturn capabilitySet(unorderedCodeCapabilities)',
-				replacement: '\t\tcase "unordered":\n\t\t\treturn capabilitiesOf("code")',
+				original:
+					'\t\tcase "unordered":\n\t\tcase "zones":\n\t\t\treturn capabilitySet(unorderedCodeCapabilities)',
+				replacement:
+					'\t\tcase "unordered":\n\t\tcase "zones":\n\t\t\treturn capabilitiesOf("code")',
 				why: "An unordered roster's closed id keeps ordering and minMax, so the engine orders by codes its roster says mean nothing; the capabilities property fails."
 			}
 		]

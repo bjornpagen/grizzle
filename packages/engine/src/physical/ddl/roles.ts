@@ -1249,8 +1249,9 @@ const sameChain = (a: PinChain, b: PinChain): boolean =>
  * by, which a write's carriers and casts coerce into; every statement on a table it writes or updates an owner's count
  * in, its columns' types and defaults, its CHECKs and generated columns, each cast to a domain in them included, and its
  * indexes' expressions; its policies' predicates; its views' columns, a closed id's decoded name among them; every
- * closed relation's constants, which its queries' closed reads call; and every library function the installation
- * installs, which its queries may call.
+ * closed relation's constants, which its queries' closed reads call; every zone roster's names constant, which its
+ * queries' Time.wall reads a zone's name from; and every library function the installation installs, which its
+ * queries may call.
  */
 const roleExecutes = (
 	b: InstallBuilder,
@@ -1266,6 +1267,11 @@ const roleExecutes = (
 		constants: [
 			...Object.values(b.owned.relations).flatMap((r) =>
 				r.kind === "closedRelation" ? b.names.closed(r.name).functions.map((f) => f.name) : []
+			),
+			...Object.values(b.owned.relations).flatMap((r) =>
+				r.kind === "closed" && r.roster.order === "zones"
+					? [namesConstant(b, r.roster.closed).name]
+					: []
 			),
 			...b.library.map((fn) => b.names.library(fn).name)
 		]

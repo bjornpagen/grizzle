@@ -304,6 +304,8 @@ export const alterationStatement = (
  *   field's NOT NULL and retirement default and the NOT NULL of every generated column over one;
  * - `violation`: the full violation query of a law the migration discharges once, which raises with the law's identity
  *   when it has a row;
+ * - `zones`: a zone roster's handles (closed.zones), each read as a time zone by the server, so a handle its tzdata
+ *   lacks refuses the migration before anything changes (render/sql.ts zoneCheck);
  */
 export type Action =
 	| { readonly kind: "statement"; readonly statement: SqlStatement }
@@ -319,6 +321,11 @@ export type Action =
 			readonly anchor: GenerationAnchor | undefined
 	  }
 	| { readonly kind: "violation"; readonly law: LawId; readonly query: OperandSelect }
+	| {
+			readonly kind: "zones"
+			readonly roster: string
+			readonly zones: NonEmptyReadonlyArray<string>
+	  }
 
 /** A column's conversion to a new type: in place by its cast, when the new type holds the old one's values (its domains
  * read through, the two are one base type under one collation, so the cast keeps every value and only the laws its

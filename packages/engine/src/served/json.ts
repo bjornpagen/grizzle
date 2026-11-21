@@ -96,6 +96,7 @@ const tags = {
 	shared: "s",
 	roster: "roster",
 	unorderedRoster: "unorderedroster",
+	zoneRoster: "zoneroster",
 	rangeOp: "op",
 	decimal: "decimal",
 	money: "money",
@@ -596,7 +597,11 @@ const fileRosters = (wire: unknown): FileRosters => {
 }
 
 /** The tag a roster is served under, by its order: the tag of its canonical form (ir/scalar.ts Roster). */
-const rosterTag = { ordered: tags.roster, unordered: tags.unorderedRoster } as const satisfies {
+const rosterTag = {
+	ordered: tags.roster,
+	unordered: tags.unorderedRoster,
+	zones: tags.zoneRoster
+} as const satisfies {
 	readonly [O in RosterOrder]: ServedTag
 }
 
@@ -726,6 +731,8 @@ class ServedReader {
 				return rosterOf(this.#handles, "ordered", payload, within)
 			case tags.unorderedRoster:
 				return rosterOf(this.#handles, "unordered", payload, within)
+			case tags.zoneRoster:
+				return rosterOf(this.#handles, "zones", payload, within)
 			case tags.rangeOp: {
 				const at = payload.lastIndexOf(":")
 				return (

@@ -8,6 +8,7 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { Inclusion } from "@bjornpagen/grizzle-text/regex/inclusion"
 import { regexDfaMaxStates, regexDfaMaxWork } from "@bjornpagen/grizzle-text/regex/limits"
 import { catchRefusal, int4Max, Refusal, unwrap } from "#compiler/core/canonical.ts"
+import { clockReadingRange } from "#compiler/core/clock.ts"
 import { regexTextMaxBytes } from "#compiler/core/errors.ts"
 import {
 	CompileError,
@@ -18,6 +19,7 @@ import {
 import { ExprId } from "#compiler/core/ids.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { integerRanges } from "#compiler/ir/carriers.ts"
+import { epochDayRange } from "#compiler/ir/date.ts"
 import type { ExprDesc, FieldDesc, Located, Refs, Spelled } from "#compiler/ir/desc.ts"
 import {
 	builtExpr,
@@ -436,6 +438,7 @@ const guardTest = (
 		case "fits":
 		case "powerRange":
 		case "bucketDomain":
+		case "clock":
 			return { kind: "within" }
 		case "powerDomain":
 			return { kind: "positive" }
@@ -928,6 +931,13 @@ class Lowering<R extends Refs> {
 					? refuse(0)
 					: { precondition, premises: [{ kind: "octets", operand: 0, bytes }] }
 			}
+			case "clock": {
+				const a = args[0]
+				const interval = a?.bounds === undefined ? undefined : intervalPremise(0, a.bounds)
+				return interval === undefined || !withinClock(interval)
+					? refuse(0)
+					: { precondition, premises: [interval] }
+			}
 		}
 	}
 
@@ -1026,10 +1036,29 @@ const fitsTarget = (target: ScalarType, interval: IntervalPremise): boolean => {
 	)
 }
 
-/** The range a value must lie in to fit `target`, a narrower integer, money or a typmod, once a cast rounds it. */
+/**
+ * The instants a millis reading of the database's clock can be, as a proved interval's ends (core/clock.ts
+ * clockReadingRange): the operand Time.wall's `clock` precondition holds within.
+ */
+const clockRange: readonly [Exact, Exact] = [
+	exactOf(clockReadingRange.millis.low, 0),
+	exactOf(clockReadingRange.millis.high, 0)
+]
+
+/** Whether every value an interval premise admits is an instant of clockRange, NaN none of them. */
+export const withinClock = (interval: IntervalPremise): boolean =>
+	!interval.nan && insideRange(interval.low, interval.high, clockRange[0], clockRange[1])
+
+/**
+ * The range a value must lie in to fit `target`, a narrower integer, money or a typmod, once a cast rounds it; or a
+ * date, the epoch days of the dates grizzle holds (ir/date.ts epochDayRange), the one integer a date is made of
+ * (Time.dateOfEpochDay).
+ */
 export const fitRange = (target: ScalarType): readonly [Exact, Exact] | undefined => {
 	const t = baseOf(target)
 	switch (t.carrier) {
+		case "date":
+			return [exactOf(epochDayRange.low, 0), exactOf(epochDayRange.high, 0)]
 		case "int2":
 		case "int4":
 		case "int8":
@@ -1050,7 +1079,6 @@ export const fitRange = (target: ScalarType): readonly [Exact, Exact] | undefine
 		case "float8":
 		case "bool":
 		case "uuid":
-		case "date":
 		case "inet":
 		case "cidr":
 		case "text":
@@ -1309,6 +1337,7 @@ export const intervalCastProof = (
 			case "bucketDomain":
 			case "lexical":
 			case "bounded":
+			case "clock":
 				return undefined
 		}
 	}

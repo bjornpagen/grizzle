@@ -21,7 +21,8 @@ import {
 	bucketInRange,
 	contractHolds,
 	fitRange,
-	powerInRange
+	powerInRange,
+	withinClock
 } from "#compiler/scalar/compute/lower.ts"
 import { nativeHolds } from "#compiler/scalar/compute/native.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
@@ -34,7 +35,7 @@ import { numericMaxFractionDigits, numericMaxIntegerDigits } from "#compiler/sca
  * Whether a proof's premises establish its precondition: the proof kernel, which re-checks the kept proofs a lowering
  * builds (ir/proof.ts PreconditionProof). A fact precondition holds by a premise of that fact on its operand, or by an
  * interval premise on it whose every value has the fact (bounds.ts premiseHas); powerDomain by fact premises of power's
- * sign; fits, contract, powerRange and bucketDomain by interval premises the caller's `judge` reads, with the
+ * sign; fits, contract, powerRange, bucketDomain and clock by interval premises the caller's `judge` reads, with the
  * arithmetic scalar/compute/lower.ts writes once for each, fits over the values but NaN and the others over intervals
  * that hold no NaN; lexical by a language premise whose language the judge finds inside the parse's form again, within
  * the form's byte bound where it has one, or a literal it parses; a contract into a regex-refined text with no contract by a language premise whose language it
@@ -65,6 +66,7 @@ const checkProof = (
 		case "bucketDomain":
 		case "lexical":
 		case "bounded":
+		case "clock":
 			return judge(p, proof.premises)
 	}
 }
@@ -197,6 +199,10 @@ const proofHolds = (
 					premises,
 					(p) => p.kind === "octets" && p.operand === 0 && p.bytes <= regexTextMaxBytes
 				)
+			case "clock": {
+				const p = interval(0)
+				return p !== undefined && withinClock(p)
+			}
 			case "nonzero":
 			case "nonnegative":
 			case "finite":

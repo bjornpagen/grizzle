@@ -27,6 +27,7 @@ import {
 } from "#compiler/ir/physical.ts"
 import type { RegexRef, ScalarType } from "#compiler/ir/scalar.ts"
 import type { NamedNative } from "#compiler/laws/model/model.ts"
+import { rosterConstants } from "#compiler/physical/ddl/constants.ts"
 import { libraryIdentity } from "#compiler/physical/ddl/library.ts"
 import { installationTypes, vectorTypes } from "#compiler/physical/ddl/type-schemas.ts"
 import { closedIndexOf, type ClosedTable } from "#compiler/runtime/write/fill.ts"
@@ -341,6 +342,7 @@ export const roleReadNames = (
 	selectionKeys: () => [],
 	rosterDomain: names.rosterDomain,
 	bitsDomain: names.bitsDomain,
+	rosterNames: names.rosterNames,
 	digestDomain: names.digestDomain,
 	contractDomain: names.contractDomain,
 	textDomain: names.textDomain,
@@ -527,6 +529,15 @@ export const installNames = (input: NamesInput): InstallNames => {
 		bitsDomain: (roster) => ({
 			schema: installationTypes(levelOf(roster)),
 			name: identifierOf(bitsNamed(roster))
+		}),
+		rosterNames: (roster) => ({
+			kind: "qualified",
+			schema,
+			name: identifierOf(
+				rosterConstants(
+					codes.rosters.get(roster) ?? missing(`physical: no codes for roster ${roster}`)
+				).names
+			)
 		}),
 		codes,
 		spellings: input.spellings,

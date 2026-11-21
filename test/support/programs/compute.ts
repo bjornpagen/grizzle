@@ -11,6 +11,7 @@ export {
 	Range,
 	Search,
 	Text,
+	Time,
 	Type,
 	Xml
 } from "#compiler/public/compute.ts"
@@ -25,7 +26,8 @@ export type {
 	Rostered,
 	SqlOfTerm,
 	TypeOfTerm,
-	Unordered
+	Unordered,
+	Zoned
 } from "#compiler/types/core/phantom.ts"
 export type { Infer } from "#compiler/types/fields/field.ts"
 export type { Aggregate } from "#compiler/types/query/terms.ts"

@@ -88,7 +88,8 @@ export const builtinTypeNames = [
 	"name",
 	"tsvector",
 	"regconfig",
-	"char"
+	"char",
+	"interval"
 ] as const
 export type BuiltinTypeName = (typeof builtinTypeNames)[number]
 
@@ -156,7 +157,8 @@ export const catalogSpelling: { readonly [T in CatalogTypeName]: CatalogSpelling
 	regnamespace: "qualified",
 	regtype: "qualified",
 	regprocedure: "qualified",
-	pg_lsn: "qualified"
+	pg_lsn: "qualified",
+	interval: "keyword"
 }
 
 /**
@@ -384,7 +386,9 @@ export const builtinFunctions = {
 	websearch_to_tsquery: { reach: "row" },
 	plainto_tsquery: { reach: "row" },
 	ts_rank: { reach: "row" },
-	ts_rank_cd: { reach: "row" }
+	ts_rank_cd: { reach: "row" },
+	timezone: { reach: "row" },
+	extract: { reach: "row" }
 } as const satisfies { readonly [name: string]: { readonly reach: "row" | "rows" } }
 export type BuiltinFunctionName = keyof typeof builtinFunctions
 

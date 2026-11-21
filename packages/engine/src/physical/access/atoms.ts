@@ -319,6 +319,9 @@ export const predicateAtoms = (
 		case "charLength":
 		case "octetLength":
 		case "utf16Length":
+		case "wall":
+		case "epochDay":
+		case "dateOfEpochDay":
 		case "regexpCount":
 		case "concat":
 		case "startsWith":

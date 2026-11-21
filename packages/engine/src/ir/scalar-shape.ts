@@ -676,7 +676,8 @@ const preconditionCases = Object.freeze({
 	powerRange: S.struct({}),
 	bucketDomain: S.struct({}),
 	lexical: S.struct({ form: S.literalsShape(parseForms) }),
-	bounded: S.struct({})
+	bounded: S.struct({}),
+	clock: S.struct({})
 }) satisfies { readonly [K in Precondition["kind"]]: unknown }
 
 const preconditionShape: S.Shape<Precondition> = S.tagged("kind", preconditionCases)

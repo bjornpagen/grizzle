@@ -137,6 +137,8 @@ export const types = {
 	regconfig: builtinType("regconfig"),
 	/** pg_catalog's one-byte "char", the type of a search document's weight label. */
 	char: builtinType("char"),
+	/** A span of time, which a zone's wall clock reads an instant's milliseconds into (physical/ddl/library.ts). */
+	interval: builtinType("interval"),
 	jsonb: builtinType("jsonb"),
 	money: builtinType("money"),
 	int4range: builtinType("int4range"),

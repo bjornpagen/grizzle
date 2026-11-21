@@ -432,13 +432,53 @@ export type TextInfo = RegexRef | "wildcard" | "pattern"
  * Whether a roster's order means something, which its declaration states: `ordered` (closed.ordered), its handles'
  * declared order, which is their codes' order and so comparison order; or `unordered` (closed.unordered), none, so no
  * comparison, range, orderBy, least, greatest, min, max or fold max reads a closed id of it, and a declaration may list
- * its handles in any order. Its codes are history either way (ir/cells.ts historyCodes).
+ * its handles in any order; or `zones` (closed.zones), an unordered roster whose handles are time zones' IANA names, each
+ * an Area/Location name (isZoneName), which the migration that installs it finds among the server's
+ * time zones and Time.wall reads a closed id of as its zone. Its codes are history either way (ir/cells.ts
+ * historyCodes).
  */
-export const rosterOrders = ["ordered", "unordered"] as const
+export const rosterOrders = ["ordered", "unordered", "zones"] as const
 export type RosterOrder = (typeof rosterOrders)[number]
 
+/**
+ * Whether a handle is a time zone's IANA name in its Area/Location form, as tzdata spells one: two components or more
+ * joined by "/", each of ASCII letters, digits, ".", "-", "_" and "+", the first opening with a letter and none "." or
+ * "..", such as "America/Argentina/Buenos_Aires" or "Etc/GMT+5". A name of one component (UTC, EST, CET, GB, EST5EDT)
+ * is refused: PostgreSQL's timezone(text, timestamptz) reads a name as a time zone abbreviation first, from the
+ * timezone_abbreviations setting and the session's TimeZone, and as a POSIX zone, before it reads it as a zone of its
+ * tzdata, and no abbreviation or POSIX zone holds a "/". The migration that installs the roster finds each among the
+ * server's time zones (deploy/diff/diff.ts zoneChecks), and the handles of a zone roster are such names (closed.zones).
+ */
+export const isZoneName = (handle: string): boolean => {
+	const components = handle.split("/")
+	const isLetter = (code: number): boolean =>
+		(code >= 0x41 && code <= 0x5a) || (code >= 0x61 && code <= 0x7a)
+	const isNameCode = (code: number): boolean =>
+		isLetter(code) ||
+		(code >= 0x30 && code <= 0x39) ||
+		code === 0x2e ||
+		code === 0x2d ||
+		code === 0x5f ||
+		code === 0x2b
+	return (
+		components.length > 1 &&
+		isLetter(handle.charCodeAt(0)) &&
+		components.every(
+			(c) =>
+				c.length > 0 &&
+				c !== "." &&
+				c !== ".." &&
+				Array.from(c).every((ch) => isNameCode(ch.charCodeAt(0)))
+		)
+	)
+}
+
 /** The tag of a roster's canonical form, by its order, so two rosters of one name and handles but not one order differ. */
-const rosterTags = { ordered: "roster", unordered: "unorderedroster" } as const satisfies {
+const rosterTags = {
+	ordered: "roster",
+	unordered: "unorderedroster",
+	zones: "zoneroster"
+} as const satisfies {
 	readonly [O in RosterOrder]: string
 }
 
@@ -455,6 +495,7 @@ export const handlesInOrder = (
 		case "ordered":
 			return handles
 		case "unordered":
+		case "zones":
 			return handles.toSorted(compareStrings)
 	}
 }
@@ -515,6 +556,13 @@ export interface RosterHandles {
 	readonly order: RosterOrder
 	readonly handles: ReadonlyArray<string>
 }
+
+/** How a closed id's type names its roster's order in a diagnostic (typeLabel). */
+const rosterCodeLabels = {
+	ordered: "code",
+	unordered: "unordered code",
+	zones: "zone code"
+} as const satisfies { readonly [O in RosterOrder]: string }
 
 /** The integer carriers. */
 export type IntegerCarrier = "int2" | "int4" | "int8"
@@ -1110,10 +1158,7 @@ export const typeLabel = (t: ScalarType): string => {
 		case "tsvector":
 			return `tsvector ${t.configuration}`
 		case "code": {
-			const code =
-				t.roster.order === "ordered"
-					? `code ${t.roster.closed}`
-					: `unordered code ${t.roster.closed}`
+			const code = `${rosterCodeLabels[t.roster.order]} ${t.roster.closed}`
 			return t.only === undefined ? code : `${code} of ${t.only.join(", ")}`
 		}
 		case "bits":

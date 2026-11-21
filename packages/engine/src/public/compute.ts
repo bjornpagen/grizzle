@@ -11,6 +11,7 @@ import type {
 	RangeApi,
 	SearchApi,
 	TextApi,
+	TimeApi,
 	TypeApi,
 	XmlApi
 } from "#compiler/types/compute/compute.ts"
@@ -149,6 +150,13 @@ export const Net: NetApi = Object.freeze<NetApi>({
 	within: (a, b) => C.netWithin(a, b),
 	strictlyWithin: (a, b) => C.netStrictlyWithin(a, b),
 	overlaps: (a, b) => C.netOverlaps(a, b)
+})
+
+/** Time: a zone's wall clock at an instant, by PostgreSQL's tzdata, and a date's epoch day and the date of one. */
+export const Time: TimeApi = Object.freeze<TimeApi>({
+	wall: (instant, zone) => C.wall(instant, zone),
+	epochDay: (date) => C.epochDay(date),
+	dateOfEpochDay: (days) => C.dateOfEpochDay(days)
 })
 
 /** Fn: a declared function called at its arguments, for its value, its rows or its one row. */

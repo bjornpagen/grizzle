@@ -45,6 +45,7 @@ import {
 	Roster as IrRoster,
 	type RosterHandles,
 	rosterOf,
+	isZoneName,
 	type RosterOrder,
 	rosterOrders
 } from "#compiler/ir/scalar.ts"
@@ -807,7 +808,15 @@ export const admitRoster = (
 			`closed.${order}(name, handles): two arguments; a closed relation over a roster is closed.relation(name, fields, key, rows)`
 		)
 	}
-	const held = Object.freeze(handlesInOrder(order, handleList(handles, label)))
+	const listed = handleList(handles, label)
+	const notZone = order === "zones" ? listed.find((h) => !isZoneName(h)) : undefined
+	if (notZone !== undefined) {
+		throw malformed(
+			label,
+			`closed.zones(name, zones): each zone's IANA name in its Area/Location form, such as "America/Chicago" or "Etc/UTC"; ${JSON.stringify(notZone)} is none, and PostgreSQL would read a name of one component as an abbreviation first`
+		)
+	}
+	const held = Object.freeze(handlesInOrder(order, listed))
 	const loc = builderLoc(label, [rosterName])
 	const desc: RosterDesc =
 		order === "ordered"

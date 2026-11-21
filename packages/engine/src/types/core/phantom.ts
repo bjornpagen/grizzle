@@ -375,12 +375,21 @@ export type Rostered<Name extends string> = Brand.Brand<`roster ${Name}`>
 export type Unordered = Brand.Brand<"without order">
 
 /**
- * The brands of a closed id of the roster Name whose order is O (ir/scalar.ts RosterOrder): its identity, and Unordered
- * beside it where the roster is unordered.
+ * The brand a closed id of a zone roster (closed.zones) carries beside its roster's identity and Unordered: its handles
+ * are time zones, so Time.wall reads it as its zone, and a closed id of no zone roster lacks it. Its name holds a space
+ * and begins with no `roster `, as Unordered's.
+ */
+export type Zoned = Brand.Brand<"time zone">
+
+/**
+ * The brands of a closed id of the roster Name whose order is O (ir/scalar.ts RosterOrder): its identity, Unordered
+ * beside it where the roster is unordered, and Zoned beside both where it is a zone roster.
  */
 export type RosterBrands<Name extends string, O> = [O] extends ["unordered"]
 	? Rostered<Name> & Unordered
-	: Rostered<Name>
+	: [O] extends ["zones"]
+		? Rostered<Name> & Unordered & Zoned
+		: Rostered<Name>
 
 /**
  * What carries a column and a SQL type: a descriptor or a term, an entry of a heading's record of carriers, from which

@@ -197,3 +197,32 @@ export const dateOfDayNumber = (days: bigint): CalendarDate => {
 	const pad = (value: number, width: number): string => String(value).padStart(width, "0")
 	return `${pad(year, partWidths.year)}-${pad(month, partWidths.monthOrDay)}-${pad(rest + 1, partWidths.monthOrDay)}`
 }
+
+/**
+ * The Unix epoch's date, from which an epoch day counts (Time.epochDay, Time.dateOfEpochDay).
+ *
+ * @formatConstant the Unix epoch, 1970-01-01, as a calendar date's text
+ */
+export const unixEpochDate: CalendarDate = "1970-01-01"
+
+/** The Unix epoch's day number (dayNumber), the day an epoch day counts from. */
+const epochDayNumber = dayNumber(unixEpochDate)
+
+/**
+ * A calendar date's epoch day: its days after 1970-01-01, negative before it, PostgreSQL's `x - '1970-01-01'::date`
+ * (scalar/compute/registry.ts dateEpochDay).
+ */
+export const epochDayOf = (date: CalendarDate): number => dayNumber(date) - epochDayNumber
+
+/** The calendar date of an epoch day of epochDayRange: epochDayOf's inverse, `'1970-01-01'::date + n`. */
+export const dateOfEpochDay = (days: bigint): CalendarDate =>
+	dateOfDayNumber(days + BigInt(epochDayNumber))
+
+/**
+ * The epoch days of the dates a calendar date names, 0001-01-01 to 9999-12-31: every value Time.epochDay takes, and
+ * every one Time.dateOfEpochDay is defined on (scalar/compute/lower.ts fitRange).
+ */
+export const epochDayRange: { readonly low: bigint; readonly high: bigint } = Object.freeze({
+	low: BigInt(epochDayOf(firstCalendarDate)),
+	high: BigInt(epochDayOf(lastCalendarDate))
+})

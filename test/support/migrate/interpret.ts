@@ -601,6 +601,7 @@ const valueOf = (value: string, type: TypeRef): SqlValue => {
 		case "tsvector":
 		case "regconfig":
 		case "char":
+		case "interval":
 			return unevaluable(`a ${type.name} literal`)
 	}
 }
@@ -4076,6 +4077,8 @@ class Model {
 				}
 				return
 			}
+			case "zones":
+				return
 			case "violation":
 				for (const relation of readsOf(a.query, this.#schema, (r) =>
 					this.#columnsOfRelation(r)

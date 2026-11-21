@@ -2637,6 +2637,7 @@ type Imported =
 	| "Infer"
 	| "Rostered"
 	| "Unordered"
+	| "Zoned"
 
 /**
  * The field of Cell each contract is the type of, through which the program names the contract's host type: its id's
@@ -2740,8 +2741,8 @@ const hostText = (t: ScalarType, uses: Set<Imported>, position: "term" | "delive
 }
 
 /**
- * The brands a closed id of a roster of `order` named `roster` carries, as the program spells them: its identity, and
- * Unordered beside it where the roster is unordered.
+ * The brands a closed id of a roster of `order` named `roster` carries, as the program spells them: its identity,
+ * Unordered beside it where the roster is unordered, and Zoned beside both where it is a zone roster.
  */
 const rosterBrandsText = (order: RosterOrder, roster: string, uses: Set<Imported>): string => {
 	switch (order) {
@@ -2750,6 +2751,10 @@ const rosterBrandsText = (order: RosterOrder, roster: string, uses: Set<Imported
 		case "unordered":
 			uses.add("Unordered")
 			return `Rostered<${roster}> & Unordered`
+		case "zones":
+			uses.add("Unordered")
+			uses.add("Zoned")
+			return `Rostered<${roster}> & Unordered & Zoned`
 	}
 }
 

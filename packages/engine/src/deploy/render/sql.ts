@@ -38,7 +38,7 @@ import type {
 	PlBlock,
 	SqlStatement
 } from "#compiler/sql/ast.ts"
-import { cast, lit, tableCol, types, whenFound } from "#compiler/sql/build.ts"
+import { binary, call, cast, core, lit, tableCol, types, whenFound } from "#compiler/sql/build.ts"
 import type { GenerationAnchor } from "#compiler/sql/generation.ts"
 import {
 	commandsOf,
@@ -225,6 +225,38 @@ export const violationCheck = (law: LawId, query: OperandSelect): PlBlock => ({
 	]
 })
 
+/**
+ * A zone roster's check, the DO block a migration runs it by: one PERFORM that reads each of its handles as a time zone,
+ * `timezone('<zone>'::text, <the epoch>)`, so PostgreSQL itself refuses the first handle its tzdata names no zone of,
+ * 22023 (time zone "…" not recognized), and the file rolls back before anything changes. The epoch is a timestamptz made
+ * with no zone looked up, `timezone('0 seconds'::interval, '1970-01-01'::date + '0 seconds'::interval)`.
+ */
+const zoneCheck = (zones: NonEmptyReadonlyArray<string>): PlBlock => {
+	const none = lit.text("0 seconds", types.interval)
+	const epoch = call("timezone", [none, binary("+", lit.text("1970-01-01", types.date), none)])
+	return {
+		declare: [],
+		body: [
+			{
+				kind: "perform",
+				query: {
+					body: core(
+						mapNonEmpty(zones, (zone) => ({
+							expr: call("timezone", [lit.text(zone, types.text), epoch]),
+							alias: undefined
+						})),
+						[],
+						undefined
+					),
+					orderBy: [],
+					limit: undefined,
+					offset: undefined
+				}
+			}
+		]
+	}
+}
+
 /** The statements an action drafts, in order, as the file spells them: every action drafts one at least. */
 const spellAction = (action: Action): NonEmptyReadonlyArray<Spelled> => {
 	switch (action.kind) {
@@ -246,6 +278,15 @@ const spellAction = (action: Action): NonEmptyReadonlyArray<Spelled> => {
 					write: (out) => writeDoBlock(out, violationCheck(action.law, action.query))
 				}
 			]
+		case "zones":
+			return [
+				{
+					above: [
+						`-- The time zones of roster ${action.roster}, each read by the server's tzdata.`
+					],
+					write: (out) => writeDoBlock(out, zoneCheck(action.zones))
+				}
+			]
 	}
 }
 
@@ -255,6 +296,7 @@ const renderDraft = (out: Lines, draft: Draft): void => {
 		case "alteration":
 		case "fill":
 		case "violation":
+		case "zones":
 			for (const s of spellAction(draft)) {
 				spelledLines(out, s)
 			}
@@ -319,6 +361,7 @@ const recordStep = (d: Draft): ReadonlyArray<MetaStep> => {
 		case "alteration":
 		case "fill":
 		case "violation":
+		case "zones":
 			return spellAction(d).map((x): MetaStep => ({ kind: "statement", statement: spelledText(x) }))
 		case "confirm":
 			return [

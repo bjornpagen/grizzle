@@ -214,6 +214,9 @@ const foldAs = <E>(expr: ScalarExpr, column: ColumnValue, rebuild: Rebuild<E>): 
 		case "charLength":
 		case "octetLength":
 		case "utf16Length":
+		case "wall":
+		case "epochDay":
+		case "dateOfEpochDay":
 		case "regexpCount":
 		case "concat":
 		case "startsWith":

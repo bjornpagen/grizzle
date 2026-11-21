@@ -1,7 +1,7 @@
 /**
  * Each scalar builder's public spelling, its namespace and its name there, keyed by the builder's own name (builders.ts
  * `compute`), which the builders label their calls by and the program printers of test/support write: the one map of
- * the catalogue's twelve namespaces (types/compute/compute.ts), which public/compute.ts and public/fields.ts bind.
+ * the catalogue's thirteen namespaces (types/compute/compute.ts), which public/compute.ts and public/fields.ts bind.
  */
 export const spelling = {
 	literal: "Type.literal",
@@ -87,6 +87,9 @@ export const spelling = {
 	netWithin: "Net.within",
 	netStrictlyWithin: "Net.strictlyWithin",
 	netOverlaps: "Net.overlaps",
+	wall: "Time.wall",
+	epochDay: "Time.epochDay",
+	dateOfEpochDay: "Time.dateOfEpochDay",
 	call: "Fn.call",
 	rowsOf: "Fn.rows",
 	rowOf: "Fn.row"

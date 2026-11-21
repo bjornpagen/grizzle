@@ -68,6 +68,7 @@ import {
 	sha256,
 	span,
 	str,
+	Time,
 	Type,
 	v,
 	wholeEntriesOf,
@@ -1269,6 +1270,37 @@ export const ranBefore = query(Usage).rule((r) => {
 })
 
 export const UsageClock = workload(Usage, { ranBefore: clocked(ranBefore, { now: "millis" }) })
+
+/** README: "Reading", time zones. */
+/** Each branch's zone and the minute of its local day it opens at. */
+export const BranchZone = closed.zones("BranchZone", [
+	"America/Chicago",
+	"America/New_York",
+	"Asia/Kolkata"
+])
+export const Branch = relation(
+	"Branch",
+	{ id: pg.integer, zone: closedId(BranchZone), opens: pg.integer },
+	["id"]
+)
+export const Branches = schema("Branches", [BranchZone, Branch], [])
+
+/** Each branch's minute of its local day and weekday at the database's instant. */
+export const branchClock = query(Branches).rule((r) => {
+	const { id, zone, opens } = v(Branch, "branch")
+	const wall = Time.wall(r.param("now", Millis), zone)
+	const intoDay = Num.mod(Num.add(Num.mod(wall, 86_400_000n), 86_400_000n), 86_400_000n)
+	const day = Num.div(Num.sub(wall, intoDay), 86_400_000n)
+	return r.match(Branch, { id, zone, opens }).find({
+		id,
+		minute: Num.div(intoDay, 60_000n),
+		weekday: Num.mod(Num.add(Num.mod(Num.add(day, 4n), 7n), 7n), 7n)
+	})
+})
+
+export const BranchesClock = workload(Branches, {
+	branchClock: clocked(branchClock, { now: "millis" })
+})
 
 /** README: "Writes". */
 /** Publish a draft: the new row is read from the old one, in the same transaction. */

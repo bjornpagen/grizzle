@@ -60,6 +60,7 @@ const fields: Readonly<Record<string, TestField>> = {
 	day: field({ kind: "pg", type: "date" }, "date"),
 	cents: testContract("Cents", testPg.bigint, (x) => computeCore.ge(x, 0n)),
 	mood: field({ kind: "closedId", roster: "Mood", only: undefined }, "code"),
+	zone: testPg.zone,
 	moods: field({ kind: "bits", roster: "Mood" }, "bits"),
 	span: testSpan(testPg.integer),
 	bin: field({ kind: "bytes" }, "bytea"),
@@ -231,7 +232,10 @@ const signatures: { readonly [F in ComputeFn]: Signature } = {
 	singleton: { result: "bits", args: ["code"] },
 	netWithin: { result: "bool", args: ["net", "net"] },
 	netStrictlyWithin: { result: "bool", args: ["net", "net"] },
-	netOverlaps: { result: "bool", args: ["net", "net"] }
+	netOverlaps: { result: "bool", args: ["net", "net"] },
+	wall: { result: "integer", args: ["integer", "code"] },
+	epochDay: { result: "integer", args: ["other"] },
+	dateOfEpochDay: { result: "other", args: ["integer"] }
 }
 
 /** The functions whose result is of `family`: arithmetic's at a number family, every other at its own. */

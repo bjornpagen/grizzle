@@ -442,6 +442,7 @@ const actionStatements = (a: Action): ReadonlyArray<SqlStatement> => {
 		}
 		case "fill":
 		case "violation":
+		case "zones":
 			return []
 	}
 }
@@ -460,6 +461,7 @@ const draftStatements = (d: Draft): ReadonlyArray<SqlStatement> => {
 		case "alteration":
 		case "fill":
 		case "violation":
+		case "zones":
 			return actionStatements(d)
 	}
 }

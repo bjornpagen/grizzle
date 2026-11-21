@@ -272,7 +272,8 @@ const body = (statement: string): string =>
  * A statement a first migration runs beyond the fresh-install script that leaves no object but grizzle's bookkeeping
  * tables beside it (deploy/ledger/ledger.ts bookkeepingTables, kernel/naming.ts isBookkeepingObject): a table's own DDL,
  * guard trigger and grants, the LOCK opening a residual law's Validate file, the DO block running the law's full
- * violation query there, which reads and raises only, and the REFRESH that populates a materialized view the migration
+ * violation query there, which reads and raises only, the DO block reading a zone roster's handles as time zones in
+ * Setup, which reads and raises only too, and the REFRESH that populates a materialized view the migration
  * creates (7e449b6ef), which writes its rows and makes no object. The snapshot guard's function names the
  * ledger in its body and the live source's publication publishes it, but each is the installation's own object, in the
  * script too, so a CREATE ... FUNCTION or a CREATE PUBLICATION is never one. A DO block is its command whatever its
@@ -289,7 +290,9 @@ const leavesNoObject = (statement: string, schema: string): boolean => {
 			!Str.startsWith("CREATE PUBLICATION ")(text)) ||
 		Str.startsWith("LOCK TABLE ")(text) ||
 		Str.startsWith("REFRESH MATERIALIZED VIEW ")(text) ||
-		(Str.startsWith("DO ")(text) && Str.includes("-- The full violation query of law ")(statement))
+		(Str.startsWith("DO ")(text) &&
+			(Str.includes("-- The full violation query of law ")(statement) ||
+				Str.includes("-- The time zones of roster ")(statement)))
 	)
 }
 

@@ -15,6 +15,7 @@ import {
 } from "#compiler/ir/expr.ts"
 import {
 	fieldColumnType,
+	type LibraryFn,
 	baseTypeRef as physicalBaseType,
 	type PhysicalNames
 } from "#compiler/ir/physical.ts"
@@ -48,7 +49,7 @@ import {
 	slotParam,
 	types
 } from "#compiler/sql/build.ts"
-import { type ClosedRead, closedRead as closedReadOf } from "#compiler/sql/constants.ts"
+import { type ClosedRead, closedRead as closedReadOf, nameOf } from "#compiler/sql/constants.ts"
 import { dateOfText } from "#compiler/sql/lexical.ts"
 import { printExpr } from "#compiler/sql/print.ts"
 
@@ -240,6 +241,10 @@ export const lowerScalar = (expr: ScalarExpr, site: ScalarSite): Expr => {
 							spelling: site.names.spellings.of
 						})
 					: expr.args.map(lower)
+			const zoned = nativeOp(expr.op)?.sql
+			if (zoned?.kind === "zoneLibrary") {
+				return zoneCall(site, expr, zoned.fn, args)
+			}
 			const operandTypes = [expr.type, ...expr.args.map((a) => a.type)]
 			if (operandTypes.some((t) => spanCarrierOf(t) !== undefined)) {
 				return lowerSpanOp(expr, args, site.at(expr), site.names.library)
@@ -276,6 +281,36 @@ export const lowerScalar = (expr: ScalarExpr, site: ScalarSite): Expr => {
 		case "call":
 			return declaredCall(site, expr, expr.args.map(lower))
 	}
+}
+
+/**
+ * A call of a library function over a zone (scalar/compute/registry.ts zoneWall): its operands as they are but the last,
+ * a zone roster's closed id, which reaches the function as its handle, the zone's IANA name, read from its roster's names
+ * constant by its code, `(names())[z + 1]::text` (sql/constants.ts nameOf), NULL where the code is.
+ */
+const zoneCall = (
+	site: ScalarSite,
+	expr: ExprOf<"op">,
+	fn: LibraryFn,
+	args: ReadonlyArray<Expr>
+): Expr => {
+	const zoneAt = expr.args.length - 1
+	const roster = rosterOf(expr.args[zoneAt]?.type ?? expr.type)
+	const zone = args[zoneAt]
+	if (roster === undefined || zone === undefined || args.length !== expr.args.length) {
+		return refuseIn(
+			site,
+			expr,
+			"UnsupportedOperation",
+			`a zone's closed id as ${describeOp(expr.op)}'s last operand`
+		)
+	}
+	const names = site.names.rosterNames(roster.closed)
+	const library = site.names.library(fn)
+	return qualifiedCall(library.schema, library.name, [
+		...args.slice(0, zoneAt),
+		nameOf({ schema: names.schema, name: names.name }, zone)
+	])
 }
 
 /** A membership test's operands: the code it asks for and the set it asks of. */

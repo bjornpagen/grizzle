@@ -97,6 +97,9 @@ export const lowerSearchOp = (
 		case "utf16Length":
 		case "floatBits":
 		case "library":
+		case "zoneLibrary":
+		case "epochDay":
+		case "dateOfEpochDay":
 		case "canonicalZero":
 			return refuseAt(
 				"UnsupportedOperation",

@@ -748,14 +748,15 @@ const scalarAt = (
 }
 
 /**
- * A closed id's capabilities, by its roster's order: an ordered roster's are the code carrier's, and an unordered
- * roster's have no ordering and no minMax (unorderedCodeCapabilities).
+ * A closed id's capabilities, by its roster's order: an ordered roster's are the code carrier's, and an unordered or a
+ * zone roster's have no ordering and no minMax (unorderedCodeCapabilities).
  */
 const closedIdCapabilities = (roster: Roster): CapabilitySet => {
 	switch (roster.order) {
 		case "ordered":
 			return capabilitiesOf("code")
 		case "unordered":
+		case "zones":
 			return capabilitySet(unorderedCodeCapabilities)
 	}
 }

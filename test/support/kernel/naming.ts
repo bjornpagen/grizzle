@@ -62,6 +62,7 @@ import {
 	type TableConstraintLaw
 } from "#compiler/laws/model/model.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
+import { rosterConstants } from "#compiler/physical/ddl/constants.ts"
 import {
 	contractDigest,
 	paramDomainIdentity,
@@ -192,6 +193,13 @@ export const productionNames = (
 				throw new Error(`the test's codebook holds no roster ${roster}, whose sets it names`)
 			}
 			return { schema: types, name: identifierOf(identity.bitsDomain(roster, codec.width)) }
+		},
+		rosterNames: (roster) => {
+			const codec = codes.rosters.get(roster)
+			if (codec === undefined) {
+				throw new Error(`the test's codebook holds no roster ${roster}, whose names it reads`)
+			}
+			return { kind: "qualified", schema, name: identifierOf(rosterConstants(codec).names) }
 		},
 		contractDomain: (contract) => {
 			const info = knownContracts.get(contract)

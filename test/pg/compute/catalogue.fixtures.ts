@@ -928,6 +928,7 @@ export const justified = (
 		case "bucketDomain":
 		case "lexical":
 		case "bounded":
+		case "clock":
 			return true
 	}
 }

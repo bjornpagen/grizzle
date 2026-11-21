@@ -9,7 +9,7 @@ import {
 	noRenames
 } from "#compiler/ir/codes.ts"
 import { noSpellings } from "#compiler/ir/pattern.ts"
-import { Roster, type RosterOrder, rosterOrders } from "#compiler/ir/scalar.ts"
+import { Roster, type RosterOrder } from "#compiler/ir/scalar.ts"
 import { Logic, Type } from "#compiler/public/compute.ts"
 import { bits, closedId, contract, generated, pg } from "#compiler/public/fields.ts"
 import { check, type RowScalars, type Statement } from "#compiler/public/schema.ts"
@@ -65,10 +65,17 @@ export interface LawLevel {
 	readonly check: boolean
 }
 
+/**
+ * The orders of a roster of names: closed.ordered's and closed.unordered's. A zone roster (closed.zones) holds time
+ * zones, which its migration finds among the server's, so a roster of drawn names is none: its holes and history are
+ * names no tzdata holds.
+ */
+const nameOrders = ["ordered", "unordered"] as const satisfies ReadonlyArray<RosterOrder>
+
 export const lawLevelGen: Gen<LawLevel> = (source) => {
 	const first = source.draw(int(-1, 1))
 	return {
-		order: source.draw(element(rosterOrders)),
+		order: source.draw(element(nameOrders)),
 		holes: [source.draw(int(0, 2)), ...source.draw(array(int(0, 2), { min: 0, max: 2 }))],
 		trailing: source.draw(int(0, 2)),
 		key: source.draw(element(["id", "code", "both"] as const)),

@@ -798,6 +798,16 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   is UnrepresentableKey. The step may be any text, a generated piece at a byte bound among them,
   `generated(T, Text.concat(…))` for a refined `T`: a generated field and each accumulator is of its type but for
   its own pattern and byte bound, which its domain checks, refusing a write whose value lies outside it.
+- Read a local wall clock with `Time.wall(t, zone)`, never the host's clock or a zone text: `t` a `bigint` of
+  milliseconds since the Unix epoch, a clocked `now` in `"millis"` among them, and `zone` a closed id of a zone roster,
+  `closed.zones("Zone", ["America/Chicago", "Etc/UTC"])`, each handle an Area/Location IANA name (a one-component name
+  such as `UTC`, `EST` or `EST5EDT` is refused: PostgreSQL reads it as an abbreviation first). It is the wall clock in
+  milliseconds since the local epoch, by the server's tzdata, in a query only: the host holds no tzdata, so a check, a
+  contract predicate or a generated field refuses it. The migration that installs the roster reads each handle as a zone
+  first and refuses one the server lacks (22023). The local day is `(w - intoDay) / 86400000` with `intoDay = ((w %
+  86400000) + 86400000) % 86400000`, its weekday `((day + 4) % 7 + 7) % 7`, Sunday 0, and its date
+  `Time.dateOfEpochDay(day)`; `Time.epochDay(date)` is a date's days after 1970-01-01. A stored `instant` counts
+  microseconds: pass `Type.cast(Num.div(Type.base(at), 1000n), pg.bigint)`.
 - Join patterns a text must all match, XML Schema's pattern facets among them, with
   `str.and(str.regex(p), str.regex(q))`, never one regex you intersect by hand: each pattern is held to PostgreSQL's
   limits alone and its domain tests each in turn, so a conjunction costs the sum of its patterns, never their product,

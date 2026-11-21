@@ -1017,6 +1017,23 @@ const netContainment =
 		return call.finishPredicate(real, ph)
 	}
 
+/**
+ * Time.wall(t, zone): an instant's term and a zone's closed id term, each a term of its own type, so neither adopts the
+ * other's as a literal operand would.
+ */
+const wall = (t: unknown, zone: unknown, extra: ReadonlyArray<unknown>): PlainChecked => {
+	const call = new Call(spelling.wall)
+	if (extra.length > 0) {
+		return malformed(call.loc, "two operands for Time.wall: an instant and a zone")
+	}
+	const x = call.term(t, "Time.wall's instant")
+	const z = call.term(zone, "Time.wall's zone")
+	return call.finishPlain(
+		{ kind: "compute", fn: "wall", args: [x.real, z.real] },
+		{ kind: "compute", fn: "wall", args: [x.ph, z.ph] }
+	)
+}
+
 /** Search.rank(document, query) and textRankCd: the document's rank for the query, a real. */
 const textRank =
 	(read: "rank" | "rankCd", name: "textRank" | "textRankCd") =>
@@ -1306,7 +1323,10 @@ const checks = Object.freeze({
 	singleton,
 	netWithin: netContainment("netWithin"),
 	netStrictlyWithin: netContainment("netStrictlyWithin"),
-	netOverlaps: netContainment("netOverlaps")
+	netOverlaps: netContainment("netOverlaps"),
+	wall,
+	epochDay: unary("epochDay"),
+	dateOfEpochDay: unary("dateOfEpochDay")
 })
 
 /** The predicates, the same for a typed and a JavaScript caller, and's and or's operands as one list. */
@@ -1480,6 +1500,9 @@ export const compute = Object.freeze({
 	netWithin: (a: unknown, b: unknown): PredicateValue => checks.netWithin(a, b, []),
 	netStrictlyWithin: (a: unknown, b: unknown): PredicateValue => checks.netStrictlyWithin(a, b, []),
 	netOverlaps: (a: unknown, b: unknown): PredicateValue => checks.netOverlaps(a, b, []),
+	wall: (t: unknown, zone: unknown) => plain(checks.wall(t, zone, []), "bigint"),
+	epochDay: (x: unknown) => plain(checks.epochDay(x, []), "integer"),
+	dateOfEpochDay: (n: unknown) => plain(checks.dateOfEpochDay(n, []), "date"),
 	/** The set's host type T is the public signature's, which its column, a set's over the roster, delivers. */
 	singleton: <T>(id: unknown): ScalarTerm<T, "bits"> => {
 		const checked = checks.singleton(id, [])
@@ -1654,6 +1677,11 @@ export const computeCore = Object.freeze({
 		checks.netStrictlyWithin(a, b, extra),
 	netOverlaps: (a: unknown, b: unknown, ...extra: ReadonlyArray<unknown>): PredicateValue =>
 		checks.netOverlaps(a, b, extra),
+	wall: (t: unknown, zone: unknown, ...extra: ReadonlyArray<unknown>) =>
+		plainBy(checks.wall(t, zone, extra)),
+	epochDay: (x: unknown, ...extra: ReadonlyArray<unknown>) => plainBy(checks.epochDay(x, extra)),
+	dateOfEpochDay: (n: unknown, ...extra: ReadonlyArray<unknown>) =>
+		plainBy(checks.dateOfEpochDay(n, extra)),
 	singleton: (id: unknown, ...extra: ReadonlyArray<unknown>): ScalarTerm => {
 		const checked = checks.singleton(id, extra)
 		return scalarTerm(checked.expr, checked.type, {

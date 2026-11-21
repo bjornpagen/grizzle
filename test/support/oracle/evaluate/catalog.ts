@@ -58,6 +58,7 @@ import {
 import * as N from "#test/support/oracle/evaluate/numeric.ts"
 import { power as numericPower } from "#test/support/oracle/evaluate/power.ts"
 import { resolvedReference } from "#test/support/oracle/evaluate/uri.ts"
+import { dateText, daysOfDate } from "#test/support/oracle/reference/calendar.ts"
 import { netHolds } from "#test/support/oracle/reference/net.ts"
 import { ecmaMatches } from "#test/support/regex.ts"
 
@@ -80,8 +81,11 @@ import { ecmaMatches } from "#test/support/regex.ts"
  * A text's concatenation, prefix, suffix and containment tests and translation are exact over its code points, and its regex match is grizzle's own
  * automaton over the pattern's parse (src's scalar/regex/nfa.ts), which PostgreSQL's `~` over the pattern's ARE agrees
  * with (test/pg/compute/text.test.ts).
+ * A date's epoch day and an epoch day's date are Hinnant's day count (reference/calendar.ts), apart from the engine's.
  * There is no complement (OPEN-4), which PostgreSQL alone would compute over the roster's live codes, and no SHA-256 of
  * its own: a bytes value's digest is PostgreSQL's alone, against which test/pg/compute/digest.test.ts holds the host's.
+ * A zone's wall clock is PostgreSQL's tzdata's, which the query oracle leaves to it: test/pg/compute/wall.test.ts holds
+ * it to the TZif reference (reference/tzif.ts), which reads the server's own compiled zone files.
  */
 export type Evaluation = "exact" | "estimated" | "database"
 
@@ -105,7 +109,10 @@ const evaluationOf = (op: NativeOp): Evaluation => {
 		case "plainRank":
 		case "websearchRankCd":
 		case "plainRankCd":
+		case "wall":
 			return "database"
+		case "epochDay":
+		case "dateOfEpochDay":
 		case "union":
 		case "intersection":
 		case "difference":
@@ -916,6 +923,16 @@ const catalogApply = (
 				? Result.succeed(new Set([...set, handle]))
 				: mismatch(op)
 		}
+		case "epochDay":
+			return isString(a) ? Result.succeed(daysOfDate(a)) : mismatch(op)
+		case "dateOfEpochDay":
+			return isBigint(a)
+				? a < daysOfDate("0001-01-01") || a > daysOfDate("9999-12-31")
+					? undefinedAt("fits")
+					: Result.succeed(dateText(a))
+				: mismatch(op)
+		case "wall":
+			return declined(op, "database", "PostgreSQL's tzdata alone reads a zone")
 		case "netWithin":
 		case "netStrictlyWithin":
 		case "netOverlaps":
