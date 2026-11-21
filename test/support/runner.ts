@@ -11,7 +11,7 @@ import { Context, Effect, Layer, Option, type Scope } from "effect"
 import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import { overTls } from "#test/support/cluster.ts"
 import { pgCluster } from "#test/support/env.ts"
-import { type PgConnection, type SqlError, textSession } from "#test/support/pg.ts"
+import { type SqlError, textSession } from "#test/support/pg.ts"
 import { type BudgetedCluster, budgeted, connectionBudget } from "#test/support/substrate/budget.ts"
 import { connectionsPerWorker } from "#test/support/substrate/connections.ts"
 import { superuserClient } from "#test/support/substrate/shared.ts"
@@ -30,16 +30,6 @@ declare module "@bjornpagen/testing/property" {
 	interface RunnerServices {
 		readonly cluster: PgCluster
 		readonly budgets: WorkerBudgets
-	}
-}
-
-declare module "@bjornpagen/testing/resources" {
-	interface PgSession {
-		/**
-		 * The owner's connection the session runs on (ownerSession), for grizzle's code over the same session: it reads every
-		 * value as the server's text (pg.ts textSession).
-		 */
-		readonly connection: PgConnection
 	}
 }
 
@@ -111,7 +101,9 @@ const workerBudgets = (): Context.Service.Shape<typeof WorkerBudgets> => {
 /**
  * A session as the owner, grizzle_dev, in `database` on `member`, drawing one of the worker's budget's permits (from
  * `budgets`) for its life: what the toolchain creates, clones, drops and builds templates with. It reads every value as
- * the server's text (pg.ts textSession), as the toolchain's sessions answer, whatever a statement's column types.
+ * the server's text (pg.ts textSession), as the toolchain's sessions answer, whatever a statement's column types; each
+ * statement is a declared wait checked on its backend (pg.ts connectOnce, awaitingBackend), the library's run declaring
+ * none of its own.
  */
 const ownerSession =
 	(budgets: Context.Service.Shape<typeof WorkerBudgets>) =>
@@ -128,7 +120,6 @@ const ownerSession =
 				clusterFailed(`a session in ${database} on member ${member.name}`)
 			)
 			return {
-				connection,
 				query: (sql, params) =>
 					Effect.mapError(
 						connection.queryValues(sql, params),

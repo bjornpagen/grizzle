@@ -1,9 +1,9 @@
 /**
- * A statement in flight on PostgreSQL is a declared wait of the case that sent it (test/support/pg.ts awaitingPostgres,
- * @bjornpagen/testing/live waitingOn), wherever test support hands it to the server: a raw session (pg.ts connectOnce,
- * which the substrate's admin and every raw session use), grizzle's adapter (pg.ts testDriver, which every Db, migration
- * and wire session under test connects with), the bootstrap superuser (substrate/shared.ts superuserClient) and a psql
- * writer (substrate/psql.ts). The server is no process of a case's tree, so without the wait a case's guard reads the
+ * A statement in flight on PostgreSQL is a declared wait of the case that sent it, checked on its backend
+ * (test/support/pg.ts awaitingBackend, @bjornpagen/testing/live waitingOnWork, pg-session backendWorking), wherever
+ * test support hands it to the server: a raw session (pg.ts connectOnce, which the substrate's admin and every raw
+ * session use), grizzle's adapter (pg.ts testDriver, which every Db, migration and wire session under test connects
+ * with), the bootstrap superuser (substrate/shared.ts superuserClient) and a psql writer (substrate/psql.ts). The server is no process of a case's tree, so without the wait a case's guard reads the
  * wall time the server spends on a statement as a stall of the case, its CPU unmoved, and judges hung a case that waits
  * on a statement a loaded server is slow to answer: hybrid.test.ts's first case, its catalog's load running past the
  * guard's window at load 729 (lane FTSG2, 2026-11-21).
@@ -101,27 +101,28 @@ export const aStatementInFlightIsADeclaredWaitWhereverTestSupportSendsIt = prope
 		kills: [
 			{
 				file: "test/support/pg.ts",
-				original: "\t\t\tawaitingPostgres(Arr.headNonEmpty(statements).sql)(flight(statements))",
+				original:
+					"\t\t\tawaitingBackend(cluster, processId, Arr.headNonEmpty(statements).sql)(flight(statements))",
 				replacement: "\t\t\tflight(statements)",
 				why: "A raw session's statement is no declared wait: the raw session's case, its CPU still for whole windows while the server sleeps, is judged hung."
 			},
 			{
 				file: "test/support/pg.ts",
-				original: "\t\tEffect.runFork(awaitingPostgres(config.text)(Deferred.await(answered)))",
-				replacement: "\t\tEffect.runFork(Deferred.await(answered))",
+				original: "\t\t\t\tEffect.runFork(awaiting(Deferred.await(answered)))",
+				replacement: "\t\t\t\tEffect.runFork(Deferred.await(answered))",
 				why: "The adapter's statement is no declared wait: the adapter's case is judged hung while the server sleeps."
 			},
 			{
 				file: "test/support/substrate/shared.ts",
 				original:
-					"\t\t\treturn { query: (sql, params) => awaitingPostgres(sql)(answer(sql, params)) }",
+					"\t\t\treturn { query: (sql, params) => awaitingBackend(cluster, pid, sql)(answer(sql, params)) }",
 				replacement: "\t\t\treturn { query: answer }",
 				why: "The bootstrap superuser's statement is no declared wait: the superuser's case is judged hung while the server sleeps."
 			},
 			{
 				file: "test/support/substrate/psql.ts",
-				original: "\t\tawaitingPostgres(sql)(sent(sql, answer, canceler))",
-				replacement: "\t\tsent(sql, answer, canceler)",
+				original: "\t\t\t? awaitingBackend(options.member, canceler.pid, sql)",
+				replacement: "\t\t\t? <A, E, R>(effect: Effect.Effect<A, E, R>) => effect",
 				why: "A psql writer's statement is no declared wait: psql, waiting on the server, spends no CPU, and the psql writer's case is judged hung while the server sleeps."
 			}
 		]

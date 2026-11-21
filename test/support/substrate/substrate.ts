@@ -480,6 +480,7 @@ export const psqlWriter = (
 				})
 			)
 			const writer = yield* openPsql({
+				member: cluster,
 				port: cluster.port,
 				database,
 				credentials: options.as,

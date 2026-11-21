@@ -1,3 +1,4 @@
+import type { PgMember } from "@bjornpagen/testing/pg"
 import {
 	Array as Arr,
 	type Cause,
@@ -21,7 +22,7 @@ import { ChildProcess, type ChildProcessSpawner } from "effect/process"
 import { pgPin } from "#test/support/env.ts"
 import { type ClientBackend, ownBackendOf, ownBackendQuery } from "#test/support/kernel/sanitize.ts"
 import { messageOf } from "#test/support/message.ts"
-import { awaitingPostgres, reportedConstraintOf } from "#test/support/pg.ts"
+import { awaitingBackend, awaitingUnchecked, reportedConstraintOf } from "#test/support/pg.ts"
 import {
 	type PgErrorFields,
 	PsqlProcessError,
@@ -80,6 +81,8 @@ export interface PsqlWriter {
 }
 
 export interface PsqlOptions {
+	/** The cluster member the writer reaches, which each statement's declared wait asks after its backend. */
+	readonly member: PgMember
 	/** The port of the cluster member the writer reaches. */
 	readonly port: number
 	readonly database: string
@@ -888,15 +891,18 @@ export const openPsql = Effect.fnUntraced(function* (
 		)
 
 	/**
-	 * One statement queued and its outcome awaited (sent), which is psql's and PostgreSQL's work: a declared wait on
-	 * PostgreSQL (pg.ts awaitingPostgres), every statement of a writer, its startup read included, going through it.
+	 * One statement queued and its outcome awaited (sent), which is psql's and PostgreSQL's work: a declared wait, every
+	 * statement of a writer going through it. Once the writer's backend is known (`canceler`), the wait is checked on it
+	 * (pg.ts awaitingBackend); the startup read, which runs before it is, is trusted (pg.ts awaitingUnchecked).
 	 */
 	const send = (
 		sql: string,
 		answer: Answer,
 		canceler: Canceler
 	): Effect.Effect<Completed, PsqlProcessError> =>
-		awaitingPostgres(sql)(sent(sql, answer, canceler))
+		(canceler._tag === "Backend"
+			? awaitingBackend(options.member, canceler.pid, sql)
+			: awaitingUnchecked(`${label}'s psql startup`))(sent(sql, answer, canceler))
 
 	const complete = (
 		sql: string,

@@ -56,6 +56,7 @@ import { succeeded } from "#test/support/assert.ts"
 import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import { pgPin } from "#test/support/env.ts"
 import { testIdleTimeout } from "#test/support/limits.ts"
+import { awaitingUnchecked } from "#test/support/pg.ts"
 import { hardenedNode } from "#test/support/process.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -240,11 +241,14 @@ export const thePackagesPinAndCommandLineThroughASubmoduleConsumersInstallAConsu
 						consumerConfig(own.cluster, own.database)
 					)
 					for (const step of ["generate", "migrate"]) {
-						const ran = yield* runChild(
-							process.execPath,
-							[...hardenedNode, grizzleCli(consumer), step, "grizzle.config.ts"],
-							consumer.project,
-							{}
+						/** The consumer's command line, a child process blocked on the server as it migrates: a declared wait. */
+						const ran = yield* awaitingUnchecked(`grizzle ${step} (the consumer's)`)(
+							runChild(
+								process.execPath,
+								[...hardenedNode, grizzleCli(consumer), step, "grizzle.config.ts"],
+								consumer.project,
+								{}
+							)
 						)
 						assert.equal(ran.exitCode, exitedCleanly, `grizzle ${step}: ${ran.stdout}${ran.stderr}`)
 					}

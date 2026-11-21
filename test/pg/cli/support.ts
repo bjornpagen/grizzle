@@ -38,7 +38,12 @@ import { clusterMembers, memberAt as clusterMemberAt } from "#test/support/clust
 import { clusterPort, pgCluster, pgPin } from "#test/support/env.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { decodersIn, type SourcedLayer, servedSourcedLayer } from "#test/support/live-layer.ts"
-import { clusterConnection, clusterPool, type SqlError } from "#test/support/pg.ts"
+import {
+	awaitingUnchecked,
+	clusterConnection,
+	clusterPool,
+	type SqlError
+} from "#test/support/pg.ts"
 import { hardenedNode } from "#test/support/process.ts"
 import { type BudgetedCluster, budgeted, connectionBudget } from "#test/support/substrate/budget.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -501,7 +506,8 @@ export interface BinRun {
 
 /**
  * Runs the real bin in `dir` as a child process of the effect, killed when it is interrupted, its environment this
- * process's extended by `env`.
+ * process's extended by `env`. The run is a declared wait (pg.ts awaitingUnchecked): the bin's statements are waits of
+ * its own process, which no guard of this one reads, so a case would read the child blocked on the server as a stall.
  *
  * @internal
  */
@@ -517,13 +523,15 @@ export const bin = (
 				[...hardenedNode, `${repo}packages/grizzle/src/cli/bin.ts`, ...argv],
 				{ cwd: dir, env: { ...env }, extendEnv: true, stdin: "ignore" }
 			)
-			const [stdout, stderr, status] = yield* Effect.all(
-				[
-					Stream.mkString(Stream.decodeText(handle.stdout)),
-					Stream.mkString(Stream.decodeText(handle.stderr)),
-					handle.exitCode
-				],
-				{ concurrency: "unbounded" }
+			const [stdout, stderr, status] = yield* awaitingUnchecked(`grizzle ${Arr.join(argv, " ")}`)(
+				Effect.all(
+					[
+						Stream.mkString(Stream.decodeText(handle.stdout)),
+						Stream.mkString(Stream.decodeText(handle.stderr)),
+						handle.exitCode
+					],
+					{ concurrency: "unbounded" }
+				)
 			)
 			const ran: BinRun = { status, stdout, stderr }
 			return ran

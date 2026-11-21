@@ -1042,7 +1042,7 @@ export const tappedSession = (
 			connectSession({
 				...parsedConnection(
 					{
-						driver: testDriver,
+						driver: testDriver(options.cluster),
 						transport: tap.transport,
 						database: options.database,
 						password: options.password
