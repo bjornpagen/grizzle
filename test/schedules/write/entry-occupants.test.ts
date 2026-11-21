@@ -54,7 +54,7 @@ import {
 	wId,
 	wTeam
 } from "#test/schedules/write/entry-occupants.fixtures.ts"
-import { answered } from "#test/support/calls.ts"
+import { writeAnswerOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { openActors } from "#test/support/schedules/actors.ts"
 import { untilAnswered } from "#test/support/schedules/grizzle.ts"
@@ -93,13 +93,19 @@ export const aQueryEntrysInsertionRacingACommitAtItsKeyFailsAtAnOccupantPastItsS
 										Effect.provideContext(context)
 									)
 							const a = yield* rig.servedWriter("a", openAs("u_ann"), (db) =>
-								answered(db.workload.take.once({ params: {}, facts: { insert: { MySeat: [] } } }))
+								writeAnswerOf(
+									db.workload.take.once({ params: {}, facts: { insert: { MySeat: [] } } })
+								)
 							)
 							const carl = yield* rig.servedWriter("carl", openAs("u_carl"), (db) =>
-								answered(db.workload.take.once({ params: {}, facts: { insert: { MySeat: [] } } }))
+								writeAnswerOf(
+									db.workload.take.once({ params: {}, facts: { insert: { MySeat: [] } } })
+								)
 							)
 							const ann = yield* rig.servedWriter("ann", openAs("u_ann"), (db) =>
-								answered(db.workload.take.once({ params: {}, facts: { insert: { MySeat: [] } } }))
+								writeAnswerOf(
+									db.workload.take.once({ params: {}, facts: { insert: { MySeat: [] } } })
+								)
 							)
 							assert.equal(
 								a.ctx.isolation,
@@ -153,7 +159,7 @@ export const aQueryEntrysInsertionRacingACommitAtItsKeyFailsAtAnOccupantPastItsS
 							yield* owner.perform({ _tag: "Sql", sql: `LOCK TABLE ${gate} IN SHARE MODE` })
 							const fiberW = yield* Effect.forkChild(
 								Effect.result(
-									answered(
+									writeAnswerOf(
 										w.db.workload.held.once({
 											params: {},
 											facts: { insert: { MySeat: [{ id: wId, team: wTeam }], Gate: [{ n: 0 }] } }
@@ -171,7 +177,7 @@ export const aQueryEntrysInsertionRacingACommitAtItsKeyFailsAtAnOccupantPastItsS
 							const fiberA = yield* Effect.forkChild(
 								a.db.workload.take
 									.once({ params: {}, facts: { insert: { MySeat: [request] } } })
-									.pipe(answered, untilAnswered, Effect.result),
+									.pipe(writeAnswerOf, untilAnswered, Effect.result),
 								{ startImmediately: true }
 							)
 							const waited = yield* waitedOrEnded(fiberA, a.actor.backend, w.actor.backend)

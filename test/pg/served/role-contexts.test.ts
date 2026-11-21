@@ -24,7 +24,7 @@ import {
 	sittingsTemplate,
 	Started
 } from "#test/pg/served/role-contexts.fixtures.ts"
-import { answered } from "#test/support/calls.ts"
+import { writeAnswerOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { servedFixture } from "#test/support/served-db.ts"
 import { clearRows, installationGroup } from "#test/support/substrate/replace.ts"
@@ -93,10 +93,10 @@ export const aFullRolesDeclaredContextsAreWhatItsServedDbDecodesFromTheTokenSoAP
 									}
 									const db = opened.success
 									const params = { number: sittingNumber }
-									const start = yield* answered(
+									const start = yield* writeAnswerOf(
 										db.workload.startAsStudent.once({ params, facts: {} })
 									)
-									const act = yield* answered(db.workload.actedAs.once({ params, facts: {} }))
+									const act = yield* writeAnswerOf(db.workload.actedAs.once({ params, facts: {} }))
 									assert.equal(
 										start.kind,
 										answer.started.length > 0 ? "accepted" : "unchanged",

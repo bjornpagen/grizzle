@@ -97,7 +97,7 @@ import {
 import { Item, Seat, Shop, Stock, uuidOf } from "#test/pg/reads/shop.ts"
 import { openedIn, workSeatInstall, workSeatTemplate } from "#test/pg/reads/support.ts"
 import { throwsRefused } from "#test/support/assert.ts"
-import { answered, readOnce } from "#test/support/calls.ts"
+import { writeAnswerOf, readOnce } from "#test/support/calls.ts"
 import { exactValue } from "#test/support/equivalence.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { t2, t4, tMissing, workFacts } from "#test/support/fixtures/golden/work.ts"
@@ -360,7 +360,7 @@ export const explainsADrawnChangeSetItsApplysPlannableStatementsByNameAndTextWit
 								)
 								const applied = yield* observe(
 									tap,
-									Effect.result(answered(calls.once({ params, facts })))
+									Effect.result(writeAnswerOf(calls.once({ params, facts })))
 								)
 								ofTheServed(
 									plans.value,
@@ -610,7 +610,9 @@ export const explainsAServedChangeSetUnderItsSessionsMessageBoundAsItsApplicatio
 									}
 								}
 								const explained = yield* Effect.result(explains.explain({ params: {}, facts }))
-								const applied = yield* Effect.result(answered(handle.once({ params: {}, facts })))
+								const applied = yield* Effect.result(
+									writeAnswerOf(handle.once({ params: {}, facts }))
+								)
 								assert.equal(
 									EffectResult.isSuccess(explained),
 									EffectResult.isSuccess(applied),

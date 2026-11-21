@@ -23,7 +23,7 @@ import {
 	zerosInstall,
 	zerosTemplate
 } from "#test/pg/write/zero-sign/zero-sign.fixtures.ts"
-import { answered } from "#test/support/calls.ts"
+import { writeAnswerOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { type PlanShape, planShapeGen, planShapeOn } from "#test/support/plan-shapes.ts"
 import { refusedLaws } from "#test/support/refused.ts"
@@ -95,7 +95,7 @@ export const aFloatsZerosAreOneKeyAndTwoFactsAWriteOfAFactAtAStoredFactsKeyWhose
 												})
 										}
 									})()
-									const outcome = yield* answered(call)
+									const outcome = yield* writeAnswerOf(call)
 									const state = yield* tableState(o.installed, writtenRelation(s.write))
 									const after = Option.getOrUndefined(
 										Arr.findFirst(state, (row) => row["k"] === at.k)
@@ -191,7 +191,7 @@ export const twoFactsAtMinusZeroAndPlusZeroOfAFloatKeyAreOneKeyAPutOfBothIsRefus
 								const o = yield* openedIn(Zeros, {}, zerosInstall, taken)
 								return yield* Effect.gen(function* () {
 									const db = yield* Db.open(o.served.login.roles.app, {})
-									const outcome = yield* answered(
+									const outcome = yield* writeAnswerOf(
 										db.workload.putKeys.once({
 											params: {},
 											facts: {

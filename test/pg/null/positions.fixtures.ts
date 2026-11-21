@@ -47,7 +47,7 @@ import { checkBuilder, selectBuilder } from "#compiler/schema/statements.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { answered, readOnce, type WriteAnswer } from "#test/support/calls.ts"
+import { writeAnswerOf, readOnce, type WriteAnswer } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import {
 	buildPred,
@@ -544,7 +544,7 @@ const lawName = (law: Law): string => {
 /** A change member of array members, applied with the call's facts. */
 const appliedFacts = (change: OnceCalls, facts: unknown) => {
 	assertVariant(change, "shape", "write", "a write's change member takes its call's facts")
-	return answered(change.once({ params: {}, facts }))
+	return writeAnswerOf(change.once({ params: {}, facts }))
 }
 
 /**

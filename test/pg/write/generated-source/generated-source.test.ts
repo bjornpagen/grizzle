@@ -40,7 +40,7 @@ import {
 	genqueryInstall,
 	genqueryTemplate
 } from "#test/pg/write/generated-source/generated-source.fixtures.ts"
-import { answered, rowsOf } from "#test/support/calls.ts"
+import { writeAnswerOf, rowsOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
@@ -85,13 +85,13 @@ export const aQuerySourcedWriteIntoGeneratedFieldsAgainstPostgreSQL19AnInsertOrA
 									/** `rows` inserted into `target`. */
 									const seed = (target: Target, rows: ReadonlyArray<Row>) =>
 										target === "Item"
-											? answered(
+											? writeAnswerOf(
 													db.workload.seedItem.once({
 														params: {},
 														facts: { insert: { Item: Arr.map(rows, writtenOf) } }
 													})
 												)
-											: answered(
+											: writeAnswerOf(
 													db.workload.seedSpot.once({
 														params: {},
 														facts: { insert: { Spot: Arr.map(rows, writtenOf) } }
@@ -102,11 +102,11 @@ export const aQuerySourcedWriteIntoGeneratedFieldsAgainstPostgreSQL19AnInsertOrA
 										const params = { rows: Arr.map(rows, writtenOf) }
 										return target === "Item"
 											? op === "insert"
-												? answered(db.workload.insertItem.once({ params, facts: {} }))
-												: answered(db.workload.putItem.once({ params, facts: {} }))
+												? writeAnswerOf(db.workload.insertItem.once({ params, facts: {} }))
+												: writeAnswerOf(db.workload.putItem.once({ params, facts: {} }))
 											: op === "insert"
-												? answered(db.workload.insertSpot.once({ params, facts: {} }))
-												: answered(db.workload.putSpot.once({ params, facts: {} }))
+												? writeAnswerOf(db.workload.insertSpot.once({ params, facts: {} }))
+												: writeAnswerOf(db.workload.putSpot.once({ params, facts: {} }))
 									}
 
 									yield* replaceRows(s.admin, group, [])

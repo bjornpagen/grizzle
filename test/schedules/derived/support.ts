@@ -32,7 +32,7 @@ import {
 	type OracleFixtureFailed,
 	snapshotOf
 } from "#test/pg/derived/oracle/harness.ts"
-import { answered } from "#test/support/calls.ts"
+import { writeAnswerOf } from "#test/support/calls.ts"
 import { Id } from "#test/support/ids.ts"
 import { replaceMigrated } from "#test/support/install-migrate.ts"
 import { type Names, namesOf, roleNamesOf } from "#test/support/kernel/naming.ts"
@@ -421,14 +421,14 @@ const open: Effect.Effect<
 		Effect.provideContext(refresherContext)
 	)
 	const refresherDb = refresherOpened.db
-	yield* Effect.orDie(answered(refresherDb.workload.noop.once({ params: {}, facts: {} })))
+	yield* Effect.orDie(writeAnswerOf(refresherDb.workload.noop.once({ params: {}, facts: {} })))
 	const first = yield* grizzleActor("refresher", refresherOpened.ctx.pool)
 	const refresher2Context = yield* Layer.build(served.layer)
 	const refresher2Opened = yield* openServed(served.login.roles.refresher2, {}).pipe(
 		Effect.provideContext(refresher2Context)
 	)
 	const refresher2Db = refresher2Opened.db
-	yield* Effect.orDie(answered(refresher2Db.workload.noop.once({ params: {}, facts: {} })))
+	yield* Effect.orDie(writeAnswerOf(refresher2Db.workload.noop.once({ params: {}, facts: {} })))
 	const refreshers = {
 		refresher: first,
 		refresher2: yield* grizzleActor("refresher2", refresher2Opened.ctx.pool)

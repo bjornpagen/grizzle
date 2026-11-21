@@ -67,7 +67,7 @@ import {
 	writeFrame
 } from "#test/pg/adapter/round-trips.fixtures.ts"
 import { openedIn, workSeatInstall, workSeatTemplate } from "#test/pg/reads/support.ts"
-import { answered, oneOf, rowsOf, writeOnce } from "#test/support/calls.ts"
+import { writeAnswerOf, oneOf, rowsOf, writeOnce } from "#test/support/calls.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, t1, tMissing, workFacts } from "#test/support/fixtures/golden/work.ts"
 import { sourcedDbLayer } from "#test/support/live-layer.ts"
@@ -375,7 +375,7 @@ export const oneRoundTripPerPublicCallEveryDrawnWriteAndEXPLAINOfAChangeMemberIs
 								 * cases, outside every window.
 								 */
 								const db = yield* Db.open(fixture.login.roles.app, {})
-								yield* answered(
+								yield* writeAnswerOf(
 									db.workload.plain.once({
 										params: {},
 										facts: {
@@ -422,7 +422,7 @@ export const oneRoundTripPerPublicCallEveryDrawnWriteAndEXPLAINOfAChangeMemberIs
 										const seen = yield* observe(
 											tap,
 											Effect.result(
-												answered(
+												writeAnswerOf(
 													call.readBack
 														? db.workload.readBack.once(input)
 														: db.workload.plain.once(input)
@@ -512,7 +512,7 @@ export const oneRoundTripPerPublicCallDbOpenSendsNothingSoAFreshDbsFirstCallIsTh
 										yield* rowsOf(db.workload.tasksFor.once({ params: { account: a1 }, facts: {} }))
 										break
 									case "write":
-										yield* answered(db.workload.nothing.once({ params: {}, facts: {} }))
+										yield* writeAnswerOf(db.workload.nothing.once({ params: {}, facts: {} }))
 										break
 								}
 								assertFlight(

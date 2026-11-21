@@ -28,7 +28,7 @@ import {
 	servedAt,
 	workspace
 } from "#test/pg/cli/support.ts"
-import { answered, oneOf } from "#test/support/calls.ts"
+import { writeAnswerOf, oneOf } from "#test/support/calls.ts"
 import { Id, type IdValue } from "#test/support/ids.ts"
 import { decodersIn, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { clusterConnection, clusterPool, freshDatabase } from "#test/support/pg.ts"
@@ -182,7 +182,7 @@ export const spaceCase = (s: Spaces, c: Case<SpaceFeature>) =>
 				Effect.flatMap(layerOver(i, i.database), (l) =>
 					Effect.scoped(
 						Effect.flatMap(Db.open(served.roles.writer, {}), (db) =>
-							answered(
+							writeAnswerOf(
 								db.workload.addCustomer.once({
 									params: {},
 									facts: { insert: { Customer: [{ id: idOf(n), name: "ada" }] } }

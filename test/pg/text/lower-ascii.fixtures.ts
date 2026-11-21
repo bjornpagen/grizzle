@@ -28,7 +28,7 @@ import { contained, derived, on, relation, schema } from "#compiler/public/schem
 import { str } from "#compiler/public/text.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { answered, rowsOf } from "#test/support/calls.ts"
+import { writeAnswerOf, rowsOf } from "#test/support/calls.ts"
 import { type Generated, generatedTemplate } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { refusedLaws } from "#test/support/refused.ts"
@@ -353,7 +353,7 @@ export const reproCase =
 						? []
 						: [{ at: BigInt(at), lexical: row.lexical }]
 				)
-				const written = yield* answered(
+				const written = yield* writeAnswerOf(
 					db.workload.write.once({ params: {}, facts: { insert: { Attr: attributes, Tag: [] } } })
 				)
 				assert.equal(
@@ -395,7 +395,7 @@ export const reproCase =
 					const lexical = attributeAt.get(t.at)
 					return lexical === undefined || asciiFolded(lexical) !== t.tag
 				})
-				const tagged = yield* answered(
+				const tagged = yield* writeAnswerOf(
 					db.workload.write.once({
 						params: {},
 						facts: { insert: { Attr: [], Tag: Arr.map(tags, ({ at, tag }) => ({ at, tag })) } }

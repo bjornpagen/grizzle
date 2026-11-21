@@ -21,7 +21,7 @@ import {
 	ownersInstall,
 	ownersTemplate
 } from "#test/pg/write/owner-key/owner-key.fixtures.ts"
-import { answered } from "#test/support/calls.ts"
+import { writeAnswerOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
@@ -56,7 +56,7 @@ export const insertsIntoAFamilyOwnersPrimaryKeyAgreeWithTheKeysModelOnDrawnStore
 									const members = membersOf(stored)
 									yield* replaceRows(s.admin, installationGroup(names), [])
 									if (stored.length > 0) {
-										const loaded = yield* answered(
+										const loaded = yield* writeAnswerOf(
 											db.workload.load.once({
 												params: {},
 												facts: {
@@ -72,13 +72,13 @@ export const insertsIntoAFamilyOwnersPrimaryKeyAgreeWithTheKeysModelOnDrawnStore
 									const facts = Arr.map(requested, (f) => ({ id: f.id, cap: f.cap }))
 									const outcome =
 										c.form === "enumerated"
-											? yield* answered(
+											? yield* writeAnswerOf(
 													db.workload.insertEnumerated.once({
 														params: {},
 														facts: { insert: { Owner: facts } }
 													})
 												)
-											: yield* answered(
+											: yield* writeAnswerOf(
 													db.workload.insertDescribed.once({
 														params: { items: facts },
 														facts: {}

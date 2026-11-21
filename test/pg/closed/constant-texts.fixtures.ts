@@ -34,7 +34,7 @@ import {
 import { str } from "#compiler/public/text.ts"
 import type { Predicate, Term } from "#compiler/types/core/phantom.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { answered, type WriteAnswer } from "#test/support/calls.ts"
+import { writeAnswerOf, type WriteAnswer } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -565,7 +565,7 @@ export const constantCase = (c: ConstantCase, notes: Case<Feature>) =>
 			for (const [id, item] of c.items.entries()) {
 				const t = phiTruth(c, c.generated, item)
 				const genCond = yield* Effect.result(
-					answered(
+					writeAnswerOf(
 						db.workload.insertGenCond.once({
 							params: {},
 							facts: { insert: { GenCond: [fact(item, id)] } }
@@ -576,7 +576,7 @@ export const constantCase = (c: ConstantCase, notes: Case<Feature>) =>
 				conds.push(`${id} ${t === "true" ? item.n : item.m}`)
 				notes.note(`a constant ${constTruth(c, c.generated.constant)} in a generated field`)
 				const genText = yield* Effect.result(
-					answered(
+					writeAnswerOf(
 						db.workload.insertGenText.once({
 							params: {},
 							facts: { insert: { GenText: [fact(item, id)] } }
@@ -591,7 +591,7 @@ export const constantCase = (c: ConstantCase, notes: Case<Feature>) =>
 					notes.note("a constant text generated")
 				}
 				const checked = yield* Effect.result(
-					answered(
+					writeAnswerOf(
 						db.workload.insertChecked.once({
 							params: {},
 							facts: { insert: { Checked: [fact(item, id)] } }
@@ -602,7 +602,7 @@ export const constantCase = (c: ConstantCase, notes: Case<Feature>) =>
 				notes.note(`a constant ${constTruth(c, c.checked.constant)} in a row check`)
 				const inside = c.allowed[item.kind] === true
 				const containedRow = yield* Effect.result(
-					answered(
+					writeAnswerOf(
 						db.workload.insertContained.once({
 							params: {},
 							facts: { insert: { Contained: [fact(item, id)] } }
@@ -622,7 +622,7 @@ export const constantCase = (c: ConstantCase, notes: Case<Feature>) =>
 				const t = phiTruth(c, c.keyed, item)
 				const taken = t === "true" && selected.includes(item.n)
 				const keyed = yield* Effect.result(
-					answered(
+					writeAnswerOf(
 						db.workload.insertKeyed.once({
 							params: {},
 							facts: { insert: { Keyed: [fact(item, id)] } }

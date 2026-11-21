@@ -30,7 +30,7 @@ import {
 	verdictOf
 } from "#test/pg/write/unique-witness/unique-witness.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { answered, writeOnce } from "#test/support/calls.ts"
+import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { lawNamesOf, namesOf } from "#test/support/kernel/naming.ts"
 import { oneFlight } from "#test/support/one-flight.ts"
@@ -96,7 +96,7 @@ export const aFamilyInsertMeetingAUniqueIsRefusedByALawAStatedRowBreaksWitnessed
 							const flight = yield* oneFlight(db.ctx, done.as(world.server))
 							const loaded = yield* db.load({ insert })
 							const applied = (docs: ReadonlyArray<StatedDoc>) =>
-								answered(
+								writeAnswerOf(
 									writeOnce(memberCalls(flight.context, member(loaded, "insert")))({
 										params: {},
 										facts: factsOf(docs)

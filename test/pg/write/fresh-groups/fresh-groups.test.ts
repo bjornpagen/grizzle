@@ -48,7 +48,7 @@ import {
 	writesByDepth
 } from "#test/pg/write/fresh-groups/fresh-groups.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { answered, writeOnce } from "#test/support/calls.ts"
+import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import {
 	buildFill,
 	type InstanceRow,
@@ -131,7 +131,9 @@ const installed = (k: FreshCase, label: string, byDepth: boolean) =>
 		const loaded = yield* db.load(programs)
 		/** A member applied on the tapped context with its call's facts. */
 		const applied = (name: string, facts: CallFacts) =>
-			answered(writeOnce(memberCalls(flight.context, member(loaded, name)))({ params: {}, facts }))
+			writeAnswerOf(
+				writeOnce(memberCalls(flight.context, member(loaded, name)))({ params: {}, facts })
+			)
 		const state = Effect.forEach(
 			Arr.map(k.spec.relations, (_, r) => relationAt(r)),
 			(relation) => storedRows(done, relation)

@@ -20,7 +20,7 @@ import {
 } from "#test/pg/e2e/arm-switch.fixtures.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
 import { bareRecord } from "#test/support/assert.ts"
-import { answered } from "#test/support/calls.ts"
+import { writeAnswerOf } from "#test/support/calls.ts"
 import { Cents } from "#test/support/fixtures/api/contracts.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, workFacts } from "#test/support/fixtures/golden/work.ts"
@@ -122,7 +122,7 @@ export const theWorkedExamplesArmSwitchEndToEndBothFormsOfTheSwitchAgreeWithItsM
 									})
 									const outcome = yield* untilAnswered(
 										w.form === "enumerated"
-											? answered(
+											? writeAnswerOf(
 													db.workload.enumerated.once({
 														params: {},
 														facts: {
@@ -134,7 +134,7 @@ export const theWorkedExamplesArmSwitchEndToEndBothFormsOfTheSwitchAgreeWithItsM
 														}
 													})
 												)
-											: answered(
+											: writeAnswerOf(
 													db.workload.described.once({
 														params: { task: w.task, operator: w.operator },
 														facts: {}

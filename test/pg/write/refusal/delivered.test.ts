@@ -22,7 +22,7 @@ import {
 	rowsAt,
 	Tag
 } from "#test/pg/write/refusal/delivered.fixtures.ts"
-import { answered } from "#test/support/calls.ts"
+import { writeAnswerOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { conservativeServedJson, servedFixtureOf } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -165,7 +165,7 @@ export const aReadBackAttachmentsDeliveredTypeCheckedInsideItsStatementABreachOf
 							c.note(`${d.artifact}: a breach aborts the write`)
 							return
 						}
-						const outcome = yield* answered(run(d.artifact, d.note))
+						const outcome = yield* writeAnswerOf(run(d.artifact, d.note))
 						if (outcome.kind !== "accepted") {
 							return assert.fail(`${label}: a state with no breach answered ${outcome.kind}`)
 						}

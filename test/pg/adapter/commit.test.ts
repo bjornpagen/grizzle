@@ -39,7 +39,7 @@ import {
 	stored
 } from "#test/pg/adapter/commit.fixtures.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
-import { answered } from "#test/support/calls.ts"
+import { writeAnswerOf } from "#test/support/calls.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { t1, t3, workFacts } from "#test/support/fixtures/golden/work.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
@@ -98,7 +98,9 @@ export const aCOMMITThatMeetsASerializationFailureASERIALIZABLEApplyWhoseCOMMITM
 									label: "concurrent"
 								})
 								const applying = yield* Effect.forkChild(
-									answered(db.workload.copy.once({ params: { source: t1, target: t3 }, facts: {} }))
+									writeAnswerOf(
+										db.workload.copy.once({ params: { source: t1, target: t3 }, facts: {} })
+									)
 								)
 								/**
 								 * The apply read t1's note and wrote t3's, and its COMMIT waits on the deferred reference's
@@ -164,7 +166,7 @@ export const aCOMMITThatMeetsASerializationFailureASERIALIZABLEApplyWhoseCOMMITM
 								}
 								const refusedNote = yield* noteOf(t3)
 								assert.deepEqual(refusedNote, [])
-								const again = yield* answered(
+								const again = yield* writeAnswerOf(
 									db.workload.copy.once({ params: { source: t1, target: t3 }, facts: {} })
 								)
 								assert.equal(again.kind, "accepted")

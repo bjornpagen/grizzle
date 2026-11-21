@@ -54,7 +54,7 @@ import {
 } from "#test/pg/fin/folds.ts"
 import { cleared, replaced, seatOfInstalled } from "#test/pg/fin/installed.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
-import { answered } from "#test/support/calls.ts"
+import { writeAnswerOf } from "#test/support/calls.ts"
 import { stepPut, swapWithLast } from "#test/support/families/counted.ts"
 import { foldStoredOf } from "#test/support/families/fold.ts"
 import { tableState } from "#test/support/substrate/state.ts"
@@ -106,7 +106,7 @@ export const countedPutAndDeleteThroughGrizzlesApplyOnPostgreSQL19LeaveExactlyTh
 									const target = Arr.getUnsafe(members, sketch.edit.at)
 									const fact = { member: target.member, g: 0, x: Number(target.x) }
 									if (sketch.edit.kind === "delete") {
-										yield* answered(
+										yield* writeAnswerOf(
 											db.workload.deleteMember.once({
 												params: {},
 												facts: { delete: { Member: [fact] } }
@@ -114,7 +114,7 @@ export const countedPutAndDeleteThroughGrizzlesApplyOnPostgreSQL19LeaveExactlyTh
 										)
 									} else {
 										const put = { ...fact, x: Number(Arr.getUnsafe(SPEC.domain, sketch.edit.to)) }
-										yield* answered(
+										yield* writeAnswerOf(
 											db.workload.putMember.once({
 												params: {},
 												facts: { put: { Member: [put] } }
@@ -212,7 +212,7 @@ export const countedPutAndDeleteThroughGrizzlesApplyOnPostgreSQL19PutASpanKeyedO
 										during: owner.during,
 										label: labelOf(i)
 									}))
-									const first = yield* answered(
+									const first = yield* writeAnswerOf(
 										db.workload.insertOwners.once({
 											params: {},
 											facts: { insert: { SpanOwner: owned, SpanMember: members } }
@@ -220,7 +220,7 @@ export const countedPutAndDeleteThroughGrizzlesApplyOnPostgreSQL19PutASpanKeyedO
 									)
 									const target = defined(sketch.owners[sketch.put.at], "the put owner")
 									const put = { id: target.id, during: target.during, label: sketch.put.label }
-									const outcome = yield* answered(
+									const outcome = yield* writeAnswerOf(
 										db.workload.putOwner.once({
 											params: {},
 											facts: { put: { SpanOwner: [put] } }

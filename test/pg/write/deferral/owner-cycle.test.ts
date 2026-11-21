@@ -17,7 +17,7 @@ import {
 	uuidOf
 } from "#test/pg/write/deferral/owner-cycle.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { answered, writeOnce } from "#test/support/calls.ts"
+import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { lawIdOf, namesOf } from "#test/support/kernel/naming.ts"
 import { refusedLaws } from "#test/support/refused.ts"
@@ -162,7 +162,7 @@ export const aLawsKeyOnACycleWithAFamilysOwnerAxisIsDeferredSoEveryLawfulWriteOf
 										step.state.members,
 										step.state.referrers
 									)
-									const outcome = yield* answered(
+									const outcome = yield* writeAnswerOf(
 										writeOnce(member(served, `step${String(i)}`))({
 											params: {},
 											facts: step.facts

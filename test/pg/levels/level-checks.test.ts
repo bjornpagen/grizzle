@@ -83,7 +83,7 @@ import {
 } from "#test/pg/migrate/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { answered } from "#test/support/calls.ts"
+import { writeAnswerOf } from "#test/support/calls.ts"
 import { installedCodes, levelNameAt } from "#test/support/compile.ts"
 import {
 	installMigrated,
@@ -205,7 +205,7 @@ export const aLevelsRowCheckOverALowerRelationOnPostgreSQL19StoresExactlyTheRows
 								const broken = [...brokenOwn, ...brokenLevel]
 								const authorId = 2 * i
 								const editorId = 2 * i + 1
-								const byAuthor = yield* answered(
+								const byAuthor = yield* writeAnswerOf(
 									author.workload.add.once({
 										params: {},
 										facts: {
@@ -213,7 +213,7 @@ export const aLevelsRowCheckOverALowerRelationOnPostgreSQL19StoresExactlyTheRows
 										}
 									})
 								)
-								const byEditor = yield* answered(
+								const byEditor = yield* writeAnswerOf(
 									editor.workload.add.once({
 										params: {},
 										facts: {

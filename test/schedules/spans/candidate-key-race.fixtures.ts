@@ -14,7 +14,7 @@ import { pg, span } from "#compiler/public/fields.ts"
 import { key, login, on, relation, role, schema } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { threeKeys, twoKeys } from "#test/schedules/write/support.ts"
-import { answered, type WriteAnswer } from "#test/support/calls.ts"
+import { writeAnswerOf, type WriteAnswer } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { openActors, textOfValue } from "#test/support/schedules/actors.ts"
@@ -252,7 +252,7 @@ export const runRaces = (
 		const app = yield* rig.servedWriter(
 			"app",
 			(context) => openServed(rig.served.roles.app, {}).pipe(Effect.provideContext(context)),
-			(db) => answered(db.workload.noop.once({ params: {}, facts: {} }))
+			(db) => writeAnswerOf(db.workload.noop.once({ params: {}, facts: {} }))
 		)
 		const direct = yield* openActors(s, {
 			direct: { kind: "raw", as: rig.direct },
@@ -285,13 +285,13 @@ export const runRaces = (
 						label: `apply ${race.how}`,
 						call:
 							race.how === "insert"
-								? answered(
+								? writeAnswerOf(
 										app.db.workload.insertBooking.once({
 											params: {},
 											facts: { insert: { Booking: [race.requested] } }
 										})
 									)
-								: answered(
+								: writeAnswerOf(
 										app.db.workload.putBooking.once({
 											params: {},
 											facts: { put: { Booking: [race.requested] } }

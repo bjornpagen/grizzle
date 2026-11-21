@@ -26,7 +26,7 @@ import {
 import { keyTextBytes, str } from "#compiler/public/text.ts"
 import { type ParamMap } from "#compiler/types/core/phantom.ts"
 import { fixtureTemplate, openedIn } from "#test/pg/reads/support.ts"
-import { answered, writeOnce } from "#test/support/calls.ts"
+import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import { sentSql } from "#test/support/flight/scripted.ts"
 import { Id } from "#test/support/ids.ts"
 import { type Generated } from "#test/support/install-migrate.ts"
@@ -226,7 +226,7 @@ const changeOf = (loaded: LoadedMember): LoadedChange => {
 
 /** A change member's once on `ctx` with its call's facts and parameters. */
 const appliedOn = (ctx: ServedDbContext, loaded: LoadedMember, facts: unknown, params: ParamMap) =>
-	answered(writeOnce(memberCalls(ctx, loaded))({ params, facts }))
+	writeAnswerOf(writeOnce(memberCalls(ctx, loaded))({ params, facts }))
 
 /**
  * A pool whose sessions hold the planted message bound `limit`, and a flight bound below any flight where the case plants

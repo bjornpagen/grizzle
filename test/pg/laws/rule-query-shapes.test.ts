@@ -36,7 +36,7 @@ import {
 	shapesTemplate,
 	sketchGen
 } from "#test/pg/laws/rule-query-shapes.fixtures.ts"
-import { answered } from "#test/support/calls.ts"
+import { writeAnswerOf } from "#test/support/calls.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { servedFixture } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -72,7 +72,7 @@ export const downstreamsRulesOverQueriesOnPostgreSQL19AcceptExactlyTheStatesOfEa
 							)
 
 							const rows = shapeRowsOf(sketch)
-							const outcome = yield* answered(
+							const outcome = yield* writeAnswerOf(
 								db.workload.insertAll.once({ params: {}, facts: { insert: rows } })
 							)
 							const breaks = brokenOf(sketch)

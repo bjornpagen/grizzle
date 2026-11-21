@@ -58,7 +58,7 @@ import {
 } from "#test/pg/adapter/login-ambient.fixtures.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { ambientFeatures } from "#test/support/ambient.ts"
-import { answered, oneOf, rowsOf } from "#test/support/calls.ts"
+import { writeAnswerOf, oneOf, rowsOf } from "#test/support/calls.ts"
 import { installedSchemas, replaceMigrated } from "#test/support/install-migrate.ts"
 import { pickFrom } from "#test/support/pick.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -145,22 +145,22 @@ export const aLoginUnderHostileDatabaseDefaultsAnswersExactlyAsUnderTheDatabases
 									...(p.dangling ? [{ id: danglingLink, text: absentText }] : [])
 								]
 								const writes = [
-									yield* answered(
+									yield* writeAnswerOf(
 										db.workload.addTexts.once({ params: {}, facts: { insert: { Text: texts } } })
 									),
-									yield* answered(
+									yield* writeAnswerOf(
 										db.workload.addTexts.once({ params: {}, facts: { insert: { Text: texts } } })
 									),
-									yield* answered(
+									yield* writeAnswerOf(
 										db.workload.addLinks.once({ params: {}, facts: { insert: { Uuid: links } } })
 									),
-									yield* answered(
+									yield* writeAnswerOf(
 										db.workload.putAmounts.once({
 											params: {},
 											facts: { put: { Money: amountFacts(p.amounts) } }
 										})
 									),
-									yield* answered(
+									yield* writeAnswerOf(
 										db.workload.putAmounts.once({
 											params: {},
 											facts: { put: { Money: amountFacts(p.revised) } }

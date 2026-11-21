@@ -29,7 +29,7 @@ import {
 	filesTemplate
 } from "#test/pg/fields/bytes-family.fixtures.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
-import { answered, rowsOf } from "#test/support/calls.ts"
+import { writeAnswerOf, rowsOf } from "#test/support/calls.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
@@ -71,7 +71,7 @@ export const aFamilysBytesMembersReadTheirStoredSuffixInChunksAndWriteEachRePlac
 										body: streamBytes(x.length, x.seed)
 									}))
 									const badge = streamBytes(d.values.length + 3, 7)
-									const inserted = yield* answered(
+									const inserted = yield* writeAnswerOf(
 										db.workload.insertOwner.once({
 											params: {},
 											facts: { insert: { Owner: [{ id: owner, badge, members }] } }
@@ -105,7 +105,7 @@ export const aFamilysBytesMembersReadTheirStoredSuffixInChunksAndWriteEachRePlac
 										})
 									yield* readBack(members)
 									const cut = defined(members[d.cut], "the member deleted")
-									const deleted = yield* answered(
+									const deleted = yield* writeAnswerOf(
 										db.workload.deleteMember.once({
 											params: {},
 											facts: { delete: { Member: [{ id: cut.id, owner, body: cut.body }] } }

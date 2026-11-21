@@ -21,7 +21,7 @@ import {
 	plantGen,
 	sameItems
 } from "#test/pg/served/facts.fixtures.ts"
-import { answered, readOnce, writeOnce } from "#test/support/calls.ts"
+import { writeAnswerOf, readOnce, writeOnce } from "#test/support/calls.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -72,7 +72,7 @@ export const aServedChangeSetsArrayMembersWriteExactlyTheFactsEachCallSuppliesAn
 										)
 									}
 									const applied = yield* Effect.result(
-										answered(
+										writeAnswerOf(
 											writeOnce(memberCalls(db, change))({
 												params: {},
 												facts: plantedFacts(facts, plant)

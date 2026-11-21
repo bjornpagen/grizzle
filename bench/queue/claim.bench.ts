@@ -87,7 +87,7 @@ import { trusted } from "#compiler/core/trusted.ts"
 import type { CallError } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
-import { answered, writeOnce } from "#test/support/calls.ts"
+import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import { Instant } from "#test/support/fixtures/api/contracts.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { member } from "#test/support/served-db.ts"
@@ -775,7 +775,9 @@ export default defineGate({
 						 * failed is tallied as `transient`, one a law refused by its refusal's kind, and any other CallError fails the
 						 * gate (EnqueueFailed).
 						 */
-						const outcome = yield* answered(writeOnce(enqueue)({ params: {}, facts: items })).pipe(
+						const outcome = yield* writeAnswerOf(
+							writeOnce(enqueue)({ params: {}, facts: items })
+						).pipe(
 							Effect.retry({
 								times: options.enqueueRetry.times,
 								schedule: backoffOf(options.enqueueRetry),

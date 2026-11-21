@@ -16,7 +16,7 @@ import {
 	bodiesTemplate,
 	downstreamAims
 } from "#test/pg/write/nested-identity/nested-identity.fixtures.ts"
-import { answered, rowsOf } from "#test/support/calls.ts"
+import { writeAnswerOf, rowsOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -54,7 +54,7 @@ export const aNestedWriteWhoseTextsSumPastTheLongestStringIsAcceptedByPostgreSQL
 										defined(bodies.get(n), "a body's length")
 									const id = uuidOf(1)
 									const members = Arr.map(c.lengths, (n) => ({ body: bodyOf(n) }))
-									const outcome = yield* answered(
+									const outcome = yield* writeAnswerOf(
 										db.workload.insertOwner.once({
 											params: {},
 											facts: { insert: { Owner: [{ id, members }] } }

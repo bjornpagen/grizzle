@@ -29,7 +29,7 @@ import {
 	situationOf
 } from "#test/pg/fields/set-checks.fixtures.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
-import { answered, rowsOf } from "#test/support/calls.ts"
+import { writeAnswerOf, rowsOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
@@ -58,7 +58,7 @@ export const aRowCheckOverASetAndASetValueHoldsARowExactlyWhenItsFlagsAreDisjoin
 						return yield* Effect.gen(function* () {
 							const db = yield* Db.open(o.served.login.roles.app, {})
 							yield* replaceRows(s.admin, installationGroup(names), [])
-							const outcome = yield* answered(
+							const outcome = yield* writeAnswerOf(
 								db.workload.write.once({
 									params: {},
 									facts: { insert: { R: [{ id: 1, flags: Bits.of(Flag, flags) }] } }

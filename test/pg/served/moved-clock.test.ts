@@ -45,7 +45,7 @@ import {
 	situations,
 	Span
 } from "#test/pg/served/moved-clock.fixtures.ts"
-import { answered } from "#test/support/calls.ts"
+import { writeAnswerOf } from "#test/support/calls.ts"
 import { movedServedFixture } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
@@ -108,7 +108,7 @@ export const aDbOverAMovedClockReadsEveryReadingAndStampOfACallAtItsInstantMoved
 										params: { budget: Span(c.budget) },
 										facts: { insert: { Lease: [{ id: 1 }], Mark: [{ id: 1 }] } }
 									})
-									.pipe(answered, bracketed)
+									.pipe(writeAnswerOf, bracketed)
 								const answer = take.value
 								if (answer.kind !== "accepted") {
 									return assert.fail(`the take is accepted, not ${answer.kind}`)

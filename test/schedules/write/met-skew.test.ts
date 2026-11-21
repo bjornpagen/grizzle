@@ -47,7 +47,7 @@ import {
 	skewGen,
 	skewRig
 } from "#test/schedules/write/met-skew.fixtures.ts"
-import { answered } from "#test/support/calls.ts"
+import { writeAnswerOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { openActors } from "#test/support/schedules/actors.ts"
 import { rigIn } from "#test/support/schedules/rig.ts"
@@ -81,7 +81,7 @@ export const aSERIALIZABLEInsertionsMetRowIsAReadSSISeesAWriteSkewThroughItNever
 								(context) =>
 									openServed(rig.served.roles.writer, {}).pipe(Effect.provideContext(context)),
 								(db) =>
-									answered(
+									writeAnswerOf(
 										db.workload.meet.once({ params: { held: [] }, facts: { insert: { Mark: [] } } })
 									)
 							)
@@ -123,7 +123,7 @@ export const aSERIALIZABLEInsertionsMetRowIsAReadSSISeesAWriteSkewThroughItNever
 							})
 							assert.equal(read._tag, "Ok", "D reads Mark")
 							const ran = yield* Effect.result(
-								answered(
+								writeAnswerOf(
 									l.db.workload.meet.once({
 										params: { held: [{ k: c.repeats ? 1 : 3, a: 0 }] },
 										facts: { insert: { Mark: [{ k: markKey }] } }

@@ -11,7 +11,7 @@ import { type Addition } from "#compiler/public/changeset.ts"
 import { defined } from "@bjornpagen/testing/assert"
 import { type Fact } from "#compiler/public/schema.ts"
 import { type PlatformDb, platformTemplate } from "#test/pg/e2e-platform/support.ts"
-import { type WriteAnswer, answered } from "#test/support/calls.ts"
+import { type WriteAnswer, writeAnswerOf } from "#test/support/calls.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
 import { type IdValue } from "#test/support/ids.ts"
 import { installationNamesOf, installationOf, lawNamesOf } from "#test/support/kernel/naming.ts"
@@ -148,7 +148,7 @@ const usageOps = (r: P.UsageRecord): ReadonlyArray<PlatformOp> => [
 const usage = (r: P.UsageRecord): Attempt => ({
 	apply: (db) =>
 		Effect.map(
-			answered(db.workload.recordUsage.once({ params: {}, facts: P.usageFacts(r) })),
+			writeAnswerOf(db.workload.recordUsage.once({ params: {}, facts: P.usageFacts(r) })),
 			decided
 		),
 	ops: usageOps(r)
@@ -157,7 +157,7 @@ const usage = (r: P.UsageRecord): Attempt => ({
 const refunding = (r: Fact<typeof P.Refund>): Attempt => ({
 	apply: (db) =>
 		Effect.map(
-			answered(db.workload.refund.once({ params: {}, facts: { insert: { Refund: [r] } } })),
+			writeAnswerOf(db.workload.refund.once({ params: {}, facts: { insert: { Refund: [r] } } })),
 			decided
 		),
 	ops: [insertOp("Refund", [r])]
@@ -166,7 +166,7 @@ const refunding = (r: Fact<typeof P.Refund>): Attempt => ({
 const rateChange = (c: P.RateChange): Attempt => ({
 	apply: (db) =>
 		Effect.map(
-			answered(db.workload.changeRate.once({ params: {}, facts: P.rateChangeFacts(c) })),
+			writeAnswerOf(db.workload.changeRate.once({ params: {}, facts: P.rateChangeFacts(c) })),
 			decided
 		),
 	ops: [
@@ -531,7 +531,7 @@ const plantRateInForce = (
 			return {
 				apply: (db) =>
 					Effect.map(
-						answered(
+						writeAnswerOf(
 							db.workload.addRateCard.once({ params: {}, facts: { insert: { RateCard: [added] } } })
 						),
 						decided
@@ -597,7 +597,7 @@ const plantAllocationCovered = (p: Platform, margin: bigint): Option.Option<Plan
 				const change = (by: ReadonlyArray<Fact<typeof P.Segment>>): Attempt => ({
 					apply: (db) =>
 						Effect.map(
-							answered(
+							writeAnswerOf(
 								db.workload.resegment.once({
 									params: {},
 									facts: { delete: { Segment: [segment] }, insert: { Segment: by } }
@@ -626,7 +626,7 @@ const plantPaidWithoutPayment = (p: Platform, next: () => IdValue): Option.Optio
 				faulty: {
 					apply: (db) =>
 						Effect.map(
-							answered(
+							writeAnswerOf(
 								db.workload.putInvoice.once({ params: {}, facts: { put: { Invoice: [paid] } } })
 							),
 							decided
@@ -636,7 +636,7 @@ const plantPaidWithoutPayment = (p: Platform, next: () => IdValue): Option.Optio
 				sound: {
 					apply: (db) =>
 						Effect.map(
-							answered(
+							writeAnswerOf(
 								db.workload.payInvoice.once({ params: { invoice: open.id, charge }, facts: {} })
 							),
 							decided

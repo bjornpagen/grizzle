@@ -76,7 +76,7 @@ import {
 	doubleStartAims,
 	collisionsRig
 } from "#test/schedules/write/collisions.fixtures.ts"
-import { answered } from "#test/support/calls.ts"
+import { writeAnswerOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { openActors } from "#test/support/schedules/actors.ts"
 import { rigIn } from "#test/support/schedules/rig.ts"
@@ -135,12 +135,12 @@ export const collidingAdditionsOfACertifiedREADCOMMITTEDRoleAnswerAsTheSerialOrd
 								const open = (context: Parameters<Parameters<typeof rig.servedWriter>[1]>[0]) =>
 									openServed(rig.served.roles.learner, {}).pipe(Effect.provideContext(context))
 								const a = yield* rig.servedWriter("a", open, (db) =>
-									answered(
+									writeAnswerOf(
 										db.workload.start.once({ params: {}, facts: { insert: { Sitting: [] } } })
 									)
 								)
 								const b = yield* rig.servedWriter("b", open, (db) =>
-									answered(
+									writeAnswerOf(
 										db.workload.start.once({ params: {}, facts: { insert: { Sitting: [] } } })
 									)
 								)
@@ -250,7 +250,7 @@ export const collidingAdditionsOfACertifiedREADCOMMITTEDRoleAnswerAsTheSerialOrd
 									Effect.result(
 										form === "array"
 											? Effect.map(
-													answered(
+													writeAnswerOf(
 														a.db.workload.held.once({
 															params: {},
 															facts: { insert: { Sitting: requestRows(rows), Gate: [{ n: 0 }] } }
@@ -259,7 +259,7 @@ export const collidingAdditionsOfACertifiedREADCOMMITTEDRoleAnswerAsTheSerialOrd
 													unread
 												)
 											: Effect.map(
-													answered(
+													writeAnswerOf(
 														a.db.workload.heldRead.once({
 															params: { sittings: requestRows(rows) },
 															facts: { insert: { Gate: [{ n: 0 }] } }
@@ -272,7 +272,7 @@ export const collidingAdditionsOfACertifiedREADCOMMITTEDRoleAnswerAsTheSerialOrd
 									Effect.result(
 										form === "array"
 											? Effect.map(
-													answered(
+													writeAnswerOf(
 														b.db.workload.start.once({
 															params: {},
 															facts: { insert: { Sitting: requestRows(rows) } }
@@ -281,7 +281,7 @@ export const collidingAdditionsOfACertifiedREADCOMMITTEDRoleAnswerAsTheSerialOrd
 													unread
 												)
 											: Effect.map(
-													answered(
+													writeAnswerOf(
 														b.db.workload.startRead.once({
 															params: { sittings: requestRows(rows) },
 															facts: {}

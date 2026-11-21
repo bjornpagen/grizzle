@@ -9,7 +9,7 @@ import { drawn, natural, pg } from "#compiler/public/fields.ts"
 import { counted, fin, key, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
-import { answered } from "#test/support/calls.ts"
+import { writeAnswerOf } from "#test/support/calls.ts"
 import { member } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -131,7 +131,7 @@ export const runStreamed = (c: Streamed, k: Case<StreamedFeature>) =>
 				readonly Wide: ReadonlyArray<unknown>
 				readonly Area: ReadonlyArray<unknown>
 				readonly Member: ReadonlyArray<unknown>
-			}) => answered(call.once({ params: {}, facts: { insert: { ...facts, Note: [] } } }))
+			}) => writeAnswerOf(call.once({ params: {}, facts: { insert: { ...facts, Note: [] } } }))
 			const none = yield* load({ Wide: [], Area: [], Member: [] })
 			assert.ok(
 				"kind" in none && none.kind === "unchanged",

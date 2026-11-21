@@ -39,7 +39,7 @@ import {
 	textsInstall,
 	textsTemplate
 } from "#test/pg/write/text-arrays/text-arrays.fixtures.ts"
-import { answered, rowsOf } from "#test/support/calls.ts"
+import { writeAnswerOf, rowsOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -97,7 +97,7 @@ export const carriesEveryTextAWritesSlotsOrAReadsRelationParameterHoldToPostgreS
 												)
 										)
 									const rows = Arr.map(texts, (body, i) => ({ id: uuidOf(i + 1), body }))
-									const inserted = yield* answered(
+									const inserted = yield* writeAnswerOf(
 										db.workload.insertNote.once({ params: {}, facts: { insert: { Note: rows } } })
 									)
 									assert.equal(inserted.kind, "accepted", "the insert is accepted")
@@ -105,7 +105,7 @@ export const carriesEveryTextAWritesSlotsOrAReadsRelationParameterHoldToPostgreS
 									const insertedLiteral = yield* literal(texts)
 									assert.deepEqual(afterInsert, insertedLiteral, "the inserted texts read back")
 									const put = Arr.map(rows, (row) => ({ id: row.id, body: reversed(row.body) }))
-									const putOutcome = yield* answered(
+									const putOutcome = yield* writeAnswerOf(
 										db.workload.putNote.once({ params: {}, facts: { put: { Note: put } } })
 									)
 									assert.ok(
@@ -117,7 +117,7 @@ export const carriesEveryTextAWritesSlotsOrAReadsRelationParameterHoldToPostgreS
 									assert.deepEqual(afterPut, putLiteral, "the put texts read back")
 									const deleted = Arr.filter(put, (_, i) => i % 2 === 1)
 									const kept = Arr.filter(put, (_, i) => i % 2 === 0)
-									const deletedOutcome = yield* answered(
+									const deletedOutcome = yield* writeAnswerOf(
 										db.workload.deleteNote.once({
 											params: {},
 											facts: { delete: { Note: deleted } }
@@ -145,7 +145,7 @@ export const carriesEveryTextAWritesSlotsOrAReadsRelationParameterHoldToPostgreS
 										"a relation parameter's texts read back"
 									)
 									const responses = Arr.map(texts, (value, i) => ({ id: uuidOf(i + 1), value }))
-									const answeredOutcome = yield* answered(
+									const answeredOutcome = yield* writeAnswerOf(
 										db.workload.answer.once({ params: { responses }, facts: {} })
 									)
 									assert.equal(

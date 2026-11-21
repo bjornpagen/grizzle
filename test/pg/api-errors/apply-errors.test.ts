@@ -53,7 +53,7 @@ import {
 } from "#test/pg/api-errors/apply-errors.fixtures.ts"
 import { tappedPool } from "#test/pg/api-errors/support.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
-import { answered, writeOnce } from "#test/support/calls.ts"
+import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
@@ -103,7 +103,7 @@ export const applyErrorThroughThePublicAPIAValueItsCodecRefusesIsRefusedAsInputN
 									c.form === "parameter"
 										? Effect.suspend(() => {
 												assert.equal(takes, "params", "the described member takes its parameters")
-												return answered(
+												return writeAnswerOf(
 													writeOnce(calls)({
 														params: callersParams({ ...liveParams, [c.field]: value }),
 														facts: {}
@@ -112,7 +112,7 @@ export const applyErrorThroughThePublicAPIAValueItsCodecRefusesIsRefusedAsInputN
 											})
 										: Effect.suspend(() => {
 												assert.equal(takes, "facts", "an array member takes its call's facts")
-												return answered(
+												return writeAnswerOf(
 													writeOnce(calls)({
 														params: {},
 														facts: { insert: { Typed: [fact] } }

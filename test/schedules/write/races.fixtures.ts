@@ -88,7 +88,7 @@ import {
 	servedChanges,
 	Zed
 } from "#test/schedules/write/support.ts"
-import { answered, type WriteAnswer, writeOnce } from "#test/support/calls.ts"
+import { writeAnswerOf, type WriteAnswer, writeOnce } from "#test/support/calls.ts"
 import { testIdleTimeout } from "#test/support/limits.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import type { SqlError } from "#test/support/pg.ts"
@@ -1179,10 +1179,10 @@ export const runRace = (
 		const sql = sqlOf(o)
 		const laws = lawsOf(o)
 		const app = yield* o.rig.servedWriter("app", openApp(o.rig), (db) =>
-			answered(db.workload.noop.once({ params: {}, facts: {} }))
+			writeAnswerOf(db.workload.noop.once({ params: {}, facts: {} }))
 		)
 		const app2 = yield* o.rig.servedWriter("app2", openApp(o.rig), (db) =>
-			answered(db.workload.noop.once({ params: {}, facts: {} }))
+			writeAnswerOf(db.workload.noop.once({ params: {}, facts: {} }))
 		)
 		const directs = yield* openActors(s, {
 			d1: { kind: "raw", as: o.rig.direct },
@@ -1256,7 +1256,7 @@ export const runRace = (
 								params,
 								facts: factsOf(op)
 							}).pipe(
-								answered,
+								writeAnswerOf,
 								untilAnswered,
 								Effect.result,
 								Effect.map((r) => {
@@ -1707,12 +1707,12 @@ export const runInserters = (
 		const codeLaw = o.names.lawOf(badgeCode)
 		const change = yield* committedInserter(o)
 		const ins1 = yield* o.rig.servedWriter("ins1", openInserter(o.rig), (db) =>
-			answered(
+			writeAnswerOf(
 				db.workload.addBadges.once({ params: {}, facts: { insert: { Badge: [], Gate: [] } } })
 			)
 		)
 		const ins2 = yield* o.rig.servedWriter("ins2", openInserter(o.rig), (db) =>
-			answered(
+			writeAnswerOf(
 				db.workload.addBadges.once({ params: {}, facts: { insert: { Badge: [], Gate: [] } } })
 			)
 		)
@@ -1742,7 +1742,7 @@ export const runInserters = (
 						label: describeOp(inserterOp(call)),
 						outcome: Effect.map(
 							Effect.result(
-								answered(
+								writeAnswerOf(
 									writeOnce(memberCalls(writers[actor].ctx, change.member))({
 										params: {},
 										facts: inserterFacts(call)
@@ -2135,7 +2135,7 @@ export const runClaimers = (
 		const laws = lawsOf(o)
 		const change = yield* committedClaimer(o)
 		const cl1 = yield* o.rig.servedWriter("cl1", openClaimer(o.rig), (db) =>
-			answered(
+			writeAnswerOf(
 				db.workload.claimSeat.once({
 					params: {},
 					facts: { insert: { Claim: [], Seat: [], Gate: [] } }
@@ -2143,7 +2143,7 @@ export const runClaimers = (
 			)
 		)
 		const cl2 = yield* o.rig.servedWriter("cl2", openClaimer(o.rig), (db) =>
-			answered(
+			writeAnswerOf(
 				db.workload.claimSeat.once({
 					params: {},
 					facts: { insert: { Claim: [], Seat: [], Gate: [] } }
@@ -2176,7 +2176,7 @@ export const runClaimers = (
 						label: describeOp(claimerOp(call)),
 						outcome: Effect.map(
 							Effect.result(
-								answered(
+								writeAnswerOf(
 									writeOnce(memberCalls(writers[actor].ctx, change.member))({
 										params: {},
 										facts: claimerFacts(call)
@@ -2383,7 +2383,7 @@ export const runInserterAlone = (
 		const changes = yield* certifiedInserter(o)
 		const change = defined(changes.get("addBadges"), "the served change addBadges")
 		const writer = yield* o.rig.servedWriter("ins1", openInserter(o.rig), (db) =>
-			answered(
+			writeAnswerOf(
 				db.workload.addBadges.once({ params: {}, facts: { insert: { Badge: [], Gate: [] } } })
 			)
 		)
@@ -2404,7 +2404,7 @@ export const runInserterAlone = (
 		const op = inserterOp(ac.call)
 		const mark = tap.mark()
 		const result = yield* Effect.result(
-			answered(
+			writeAnswerOf(
 				writeOnce(memberCalls({ ...writer.ctx, pool }, change.member))({
 					params: {},
 					facts: inserterFacts(ac.call)

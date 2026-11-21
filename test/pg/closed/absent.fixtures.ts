@@ -51,7 +51,7 @@ import { str } from "#compiler/public/text.ts"
 import type { Predicate } from "#compiler/types/core/phantom.ts"
 import type { RowScalars } from "#compiler/types/schema/statements.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { answered, type WriteAnswer } from "#test/support/calls.ts"
+import { writeAnswerOf, type WriteAnswer } from "#test/support/calls.ts"
 import { setText } from "#test/support/closed/bit-text.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { refusedLaws } from "#test/support/refused.ts"
@@ -1399,13 +1399,13 @@ export const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 					const t = truth(w, item, pred)
 					const applied = yield* Effect.result(
 						at === 0
-							? answered(
+							? writeAnswerOf(
 									db.workload.insertChecked0.once({
 										params: {},
 										facts: { insert: { Checked0: [itemFact(item, id)] } }
 									})
 								)
-							: answered(
+							: writeAnswerOf(
 									db.workload.insertChecked1.once({
 										params: {},
 										facts: { insert: { Checked1: [itemFact(item, id)] } }
@@ -1491,7 +1491,7 @@ export const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 				const t = truth(w, item, c.contained)
 				const inside = w.allowed[item.kind]?.includes(item.flag) === true
 				const applied = yield* Effect.result(
-					answered(
+					writeAnswerOf(
 						db.workload.insertContained.once({
 							params: {},
 							facts: { insert: { Contained: [itemFact(item, id)] } }
@@ -1515,7 +1515,7 @@ export const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 				const t = truth(w, item, c.keyed)
 				const taken = selected.includes(item.n)
 				const applied = yield* Effect.result(
-					answered(
+					writeAnswerOf(
 						db.workload.insertKeyed.once({
 							params: {},
 							facts: { insert: { Keyed: [itemFact(item, id)] } }
@@ -1545,7 +1545,7 @@ export const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 					const value = readOf(w, item, read)
 					const fact = { id, kind: kindOf(item.kind), flag: flagOf(item.flag) }
 					const applied = yield* Effect.result(
-						answered(
+						writeAnswerOf(
 							db.workload.insertGenerated.once({
 								params: {},
 								facts: {
@@ -1602,7 +1602,7 @@ export const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 			})
 			const members = Arr.map(c.items, (item, id) => itemFact(item, id))
 			const together = yield* Effect.result(
-				answered(
+				writeAnswerOf(
 					db.workload.insertOwner.once({
 						params: {},
 						facts: { insert: { Owner: [{ id: 0, members }] } }
@@ -1611,7 +1611,7 @@ export const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 			)
 			verdict(together, "Member", true, where("Member", 0))
 			const stored = yield* Effect.result(
-				answered(
+				writeAnswerOf(
 					db.workload.insertOwner.once({
 						params: {},
 						facts: { insert: { Owner: [{ id: 1, members: [] }] } }
@@ -1621,7 +1621,7 @@ export const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 			verdict(stored, "Owner", true, where("Owner", 1))
 			for (const [i, item] of c.items.entries()) {
 				const one = yield* Effect.result(
-					answered(
+					writeAnswerOf(
 						db.workload.putMember.once({
 							params: {},
 							facts: { put: { Member: [memberFact(item, memberOfLater(i), 1)] } }
@@ -1631,7 +1631,7 @@ export const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 				verdict(one, "Member", true, where("Member", memberOfLater(i)))
 			}
 			const deleted = yield* Effect.result(
-				answered(
+				writeAnswerOf(
 					db.workload.deleteMember.once({
 						params: {},
 						facts: { delete: { Member: [memberFact(c.items[0], 0, 0)] } }
@@ -1738,7 +1738,7 @@ export const guardedCase = (c: GuardedCase, notes: Case<GuardedFeature>) =>
 			const db = yield* Db.open(o.served.login.roles.app, {})
 			for (const [id, row] of c.rows.entries()) {
 				const applied = yield* Effect.result(
-					answered(
+					writeAnswerOf(
 						db.workload.insertGuarded.once({
 							params: {},
 							facts: {

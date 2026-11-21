@@ -41,7 +41,7 @@ const isRefusal = (error: CallError): error is WriteRefusal =>
 	error.kind === "refused" || error.kind === "outsideWorld"
 
 /** A write's answer (WriteAnswer): its refusal moved into the value, every other CallError still its failure. */
-export const answered = <O, R>(
+export const writeAnswerOf = <O, R>(
 	write: Effect.Effect<O, CallError, R>
 ): Effect.Effect<WriteAnswer<O>, CallError, R> =>
 	Effect.catchIf(write, isRefusal, (refusal) => Effect.succeed<WriteAnswer<O>>(refusal))

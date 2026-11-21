@@ -67,7 +67,7 @@ import {
 	sameRows,
 	Sitting
 } from "#test/pg/levels/levels.fixtures.ts"
-import { answered, rowsOf } from "#test/support/calls.ts"
+import { writeAnswerOf, rowsOf } from "#test/support/calls.ts"
 import { levelNameAt } from "#test/support/compile.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { refusedLaws } from "#test/support/refused.ts"
@@ -220,7 +220,7 @@ export const levelsOfOneInstallationOnPostgreSQL19ServeALoginOverEachLevelCommit
 											if (f.items.has(op.id)) {
 												return undefined
 											}
-											const outcome = yield* answered(
+											const outcome = yield* writeAnswerOf(
 												author.workload.addItem.once({
 													params: {},
 													facts: { insert: { Item: [item(op.id, op.n)] } }
@@ -242,7 +242,7 @@ export const levelsOfOneInstallationOnPostgreSQL19ServeALoginOverEachLevelCommit
 											if (n === undefined) {
 												return undefined
 											}
-											const outcome = yield* answered(
+											const outcome = yield* writeAnswerOf(
 												author.workload.dropItem.once({
 													params: {},
 													facts: { delete: { Item: [item(op.id, n)] } }
@@ -262,7 +262,7 @@ export const levelsOfOneInstallationOnPostgreSQL19ServeALoginOverEachLevelCommit
 											if (f.sittings.has(op.id)) {
 												return undefined
 											}
-											const outcome = yield* answered(
+											const outcome = yield* writeAnswerOf(
 												learner.workload.addSitting.once({
 													params: {},
 													facts: { insert: { Sitting: [sitting(op.id, op)] } }
@@ -291,7 +291,7 @@ export const levelsOfOneInstallationOnPostgreSQL19ServeALoginOverEachLevelCommit
 											if (held === undefined) {
 												return undefined
 											}
-											const outcome = yield* answered(
+											const outcome = yield* writeAnswerOf(
 												learner.workload.dropSitting.once({
 													params: {},
 													facts: { delete: { Sitting: [sitting(op.id, held)] } }
@@ -311,7 +311,7 @@ export const levelsOfOneInstallationOnPostgreSQL19ServeALoginOverEachLevelCommit
 											if (f.approved.has(op.id)) {
 												return undefined
 											}
-											const outcome = yield* answered(
+											const outcome = yield* writeAnswerOf(
 												learner.workload.addApproval.once({
 													params: {},
 													facts: { insert: { Approved: [approval(op.id)] } }
@@ -329,7 +329,7 @@ export const levelsOfOneInstallationOnPostgreSQL19ServeALoginOverEachLevelCommit
 											if (!f.approved.has(op.id)) {
 												return undefined
 											}
-											const outcome = yield* answered(
+											const outcome = yield* writeAnswerOf(
 												learner.workload.dropApproval.once({
 													params: {},
 													facts: { delete: { Approved: [approval(op.id)] } }

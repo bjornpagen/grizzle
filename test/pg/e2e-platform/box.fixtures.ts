@@ -5,7 +5,7 @@ import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Order } from "effect"
 import { type CallError } from "#compiler/live/index.ts"
 import { type PlatformDb, platformTemplate } from "#test/pg/e2e-platform/support.ts"
-import { answered } from "#test/support/calls.ts"
+import { writeAnswerOf } from "#test/support/calls.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
 import {
 	calendarOf,
@@ -202,7 +202,10 @@ export const unnoted = (): void => undefined
 
 export const decided = (db: PlatformDb, f: PlatformFacts): Effect.Effect<string, CallError> =>
 	Effect.map(
-		untilAnswered(answered(db.workload.load.once({ params: {}, facts: { insert: f } })), unnoted),
+		untilAnswered(
+			writeAnswerOf(db.workload.load.once({ params: {}, facts: { insert: f } })),
+			unnoted
+		),
 		(o) => (o.kind === "refused" ? `refused by ${Formatter.format(o.refused.laws)}` : o.kind)
 	)
 

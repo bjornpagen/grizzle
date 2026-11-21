@@ -56,7 +56,7 @@ import {
 	sameKey,
 	shapes
 } from "#test/pg/write/met/met.fixtures.ts"
-import { answered } from "#test/support/calls.ts"
+import { writeAnswerOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { rigIn } from "#test/support/schedules/rig.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -85,7 +85,7 @@ export const theRowsAnInsertionMetAreReadBackWholeBesideTheRowsItMadeAtBothLevel
 									openServed(rig.served.roles.rc, {}).pipe(Effect.provideContext(context)),
 								(db) =>
 									db.workload.Krc.once({ params: {}, facts: { insert: { Krc: [] } } }).pipe(
-										answered
+										writeAnswerOf
 									)
 							)
 							const ser = yield* rig.servedWriter(
@@ -94,7 +94,7 @@ export const theRowsAnInsertionMetAreReadBackWholeBesideTheRowsItMadeAtBothLevel
 									openServed(rig.served.roles.ser, {}).pipe(Effect.provideContext(context)),
 								(db) =>
 									db.workload.Kser.once({ params: {}, facts: { insert: { Kser: [] } } }).pipe(
-										answered
+										writeAnswerOf
 									)
 							)
 							assert.equal(
@@ -152,27 +152,31 @@ export const theRowsAnInsertionMetAreReadBackWholeBesideTheRowsItMadeAtBothLevel
 											rc.db.workload.Krc.once({
 												params: {},
 												facts: { insert: { Krc: keyed } }
-											}).pipe(answered),
+											}).pipe(writeAnswerOf),
 											keyedRow
 										)
 									case "Prc":
 										return answerOf(
 											n,
 											rc.db.workload.Prc.once({ params: {}, facts: { insert: { Prc: set } } }).pipe(
-												answered
+												writeAnswerOf
 											),
 											pairRow
 										)
 									case "Qrc":
 										return answerOf(
 											n,
-											rc.db.workload.Qrc.once({ params: { rows: set }, facts: {} }).pipe(answered),
+											rc.db.workload.Qrc.once({ params: { rows: set }, facts: {} }).pipe(
+												writeAnswerOf
+											),
 											pairRow
 										)
 									case "Orc":
 										return answerOf(
 											n,
-											rc.db.workload.Orc.once({ params: { rows: one }, facts: {} }).pipe(answered),
+											rc.db.workload.Orc.once({ params: { rows: one }, facts: {} }).pipe(
+												writeAnswerOf
+											),
 											oneRow
 										)
 									case "Kser":
@@ -181,7 +185,7 @@ export const theRowsAnInsertionMetAreReadBackWholeBesideTheRowsItMadeAtBothLevel
 											ser.db.workload.Kser.once({
 												params: {},
 												facts: { insert: { Kser: keyed } }
-											}).pipe(answered),
+											}).pipe(writeAnswerOf),
 											keyedRow
 										)
 									case "Pser":
@@ -190,14 +194,14 @@ export const theRowsAnInsertionMetAreReadBackWholeBesideTheRowsItMadeAtBothLevel
 											ser.db.workload.Pser.once({
 												params: {},
 												facts: { insert: { Pser: set } }
-											}).pipe(answered),
+											}).pipe(writeAnswerOf),
 											pairRow
 										)
 									case "Qser":
 										return answerOf(
 											n,
 											ser.db.workload.Qser.once({ params: { rows: set }, facts: {} }).pipe(
-												answered
+												writeAnswerOf
 											),
 											pairRow
 										)
@@ -205,7 +209,7 @@ export const theRowsAnInsertionMetAreReadBackWholeBesideTheRowsItMadeAtBothLevel
 										return answerOf(
 											n,
 											ser.db.workload.Oser.once({ params: { rows: one }, facts: {} }).pipe(
-												answered
+												writeAnswerOf
 											),
 											oneRow
 										)

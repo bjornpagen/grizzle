@@ -28,7 +28,7 @@ import { str } from "#compiler/public/text.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { answered, type WriteAnswer } from "#test/support/calls.ts"
+import { writeAnswerOf, type WriteAnswer } from "#test/support/calls.ts"
 import { type Generated, generatedTemplate, type Installed } from "#test/support/install-migrate.ts"
 import { migrated } from "#test/support/installed.ts"
 import { namesOf, parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -1207,7 +1207,7 @@ export const runCurriculum =
 			return Arr.map(batch, ([k, c]): Effect.Effect<void, CurriculumError> =>
 				Effect.gen(function* () {
 					yield* clearRows(substrate.admin, tables)
-					const registering = yield* answered(
+					const registering = yield* writeAnswerOf(
 						db.workload.register.once({
 							params: {},
 							facts: {
@@ -1231,7 +1231,7 @@ export const runCurriculum =
 					let state: CurriculumState = { ...emptyCurriculum, homes: k.registered }
 					for (const op of k.ops) {
 						const expected = applyOp(state, op)
-						const called = yield* answered(
+						const called = yield* writeAnswerOf(
 							op.kind === "publish"
 								? db.workload.publish.once({
 										params: { package: op.package },

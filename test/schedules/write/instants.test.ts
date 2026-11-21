@@ -64,7 +64,7 @@ import {
 	untilAnswered,
 	clocksRig
 } from "#test/schedules/write/instants.fixtures.ts"
-import { answered } from "#test/support/calls.ts"
+import { writeAnswerOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { openActors } from "#test/support/schedules/actors.ts"
 import { rigIn } from "#test/support/schedules/rig.ts"
@@ -106,10 +106,14 @@ export const twoWritersStampingOneClockStampEachChildsInstantsInTheOrderItsCalls
 								const open = (context: Parameters<Parameters<typeof rig.servedWriter>[1]>[0]) =>
 									openServed(rig.served.roles.writer, {}).pipe(Effect.provideContext(context))
 								const a = yield* rig.servedWriter("a", open, (db) =>
-									answered(db.workload.stamp.once({ params: {}, facts: { insert: { Log: [] } } }))
+									writeAnswerOf(
+										db.workload.stamp.once({ params: {}, facts: { insert: { Log: [] } } })
+									)
 								)
 								const b = yield* rig.servedWriter("b", open, (db) =>
-									answered(db.workload.stamp.once({ params: {}, facts: { insert: { Log: [] } } }))
+									writeAnswerOf(
+										db.workload.stamp.once({ params: {}, facts: { insert: { Log: [] } } })
+									)
 								)
 								const { holder } = yield* openActors(s, {
 									holder: { kind: "raw", as: rig.installed.ambientOwner.credentials }
@@ -165,11 +169,11 @@ export const twoWritersStampingOneClockStampEachChildsInstantsInTheOrderItsCalls
 											params: {},
 											facts: { insert: { Log: callRows(rows), Gate: [{ n: 0 }] } }
 										})
-										.pipe(answered, untilAnswered)
+										.pipe(writeAnswerOf, untilAnswered)
 								const stamp = (rows: ReadonlyArray<Row>) =>
 									b.db.workload.stamp
 										.once({ params: {}, facts: { insert: { Log: callRows(rows) } } })
-										.pipe(answered, untilAnswered)
+										.pipe(writeAnswerOf, untilAnswered)
 
 								const seeded = Arr.flatMap([1, 2] as const, (child) => {
 									const head = c.heads[child]

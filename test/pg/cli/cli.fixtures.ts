@@ -10,7 +10,7 @@ import { ledger, shopV1 } from "#test/pg/cli/fixture.ts"
 import { bin, cli, cliClock, servedFromFile } from "#test/pg/cli/support.ts"
 import { openMigrator } from "#test/pg/migrate/support.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { answered, oneOf as oneRowOf } from "#test/support/calls.ts"
+import { writeAnswerOf, oneOf as oneRowOf } from "#test/support/calls.ts"
 import { Id, type IdValue } from "#test/support/ids.ts"
 import { migrationFolders } from "#test/support/migrate/kit.ts"
 import { readLedger } from "#test/support/migrate/ledger.ts"
@@ -145,7 +145,7 @@ export const roundTrip = (dir: string, name: string, fixture: Fixture, n: number
 			const s = yield* servedFromFile(dir, name, shopV1(name, fixture.workload).server)
 			const outcome = yield* Effect.scoped(
 				Effect.flatMap(Db.open(s.login.roles.writer, {}), (db) =>
-					answered(
+					writeAnswerOf(
 						db.workload.addCustomer.once({
 							params: {},
 							facts: { insert: { Customer: [{ id: id(n), name: "ada" }] } }
@@ -168,7 +168,7 @@ export const roundTrip = (dir: string, name: string, fixture: Fixture, n: number
 		const l = yield* servedFromFile(dir, name, ledger(name).server)
 		const outcome = yield* Effect.scoped(
 			Effect.flatMap(Db.open(l.login.roles.writer, {}), (db) =>
-				answered(
+				writeAnswerOf(
 					db.workload.addCustomer.once({
 						params: {},
 						facts: { insert: { Customer: [{ id: id(n), name: "ada" }] } }

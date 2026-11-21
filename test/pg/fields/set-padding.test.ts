@@ -34,7 +34,7 @@ import {
 	sorted
 } from "#test/pg/fields/set-padding.fixtures.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { answered, rowsOf } from "#test/support/calls.ts"
+import { writeAnswerOf, rowsOf } from "#test/support/calls.ts"
 import { setText, setWidth } from "#test/support/closed/bit-text.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -81,7 +81,7 @@ export const theSetAlgebraOverADraftedBitsDomainComputesEverySetWithItsPaddingBi
 							})
 							yield* Effect.gen(function* () {
 								const db = yield* Db.open(o.served.login.roles.app, {})
-								const outcome = yield* answered(
+								const outcome = yield* writeAnswerOf(
 									db.workload.write.once({
 										params: {},
 										facts: {

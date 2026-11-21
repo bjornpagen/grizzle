@@ -27,7 +27,7 @@ import {
 } from "#test/pg/laws/outcomes/schemas.ts"
 import { fixtureTemplate, openedIn } from "#test/pg/reads/support.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { answered } from "#test/support/calls.ts"
+import { writeAnswerOf } from "#test/support/calls.ts"
 import { Id, type IdValue } from "#test/support/ids.ts"
 import { type Installed, type Generated } from "#test/support/install-migrate.ts"
 import { namesOf, parsedName } from "#test/support/kernel/naming.ts"
@@ -336,7 +336,7 @@ export const nativeCase = (
 											values: { region: "North", number: 1n, code: "alpha" }
 										}
 							),
-							applied: answered(
+							applied: writeAnswerOf(
 								db.workload.insertMember.once({
 									params: {},
 									facts: { insert: { Member: [fact] } }
@@ -363,7 +363,7 @@ export const nativeCase = (
 								relation: "Member",
 								values: { region: k.club.region, number: k.club.number, code: k.club.code }
 							}),
-							applied: answered(
+							applied: writeAnswerOf(
 								db.workload.insertClubMembers.once({
 									params: {},
 									facts: {
@@ -397,7 +397,7 @@ export const nativeCase = (
 								relation: "Member",
 								values: { id: k.id }
 							}),
-							applied: answered(
+							applied: writeAnswerOf(
 								db.workload.insertMember.once({
 									params: {},
 									facts: { insert: { Member: [fact] } }
@@ -436,7 +436,7 @@ export const nativeCase = (
 							 * Outside the contract or the refinement through the unchecked brand constructor, or a
 							 * code of this language read as any string: only PostgreSQL checks them.
 							 */
-							applied: answered(
+							applied: writeAnswerOf(
 								db.workload.insertClub.once({
 									params: {},
 									facts: { insert: { Club: [{ ...k.club, seats: Seats(seatsValue) }] } }

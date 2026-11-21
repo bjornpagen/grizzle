@@ -10,7 +10,7 @@ import type { OpenError } from "#adapter/errors/execution.ts"
 import type { ServedRefusal } from "#adapter/public/compile.ts"
 import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
 import type { WriteOutcome } from "#compiler/live/index.ts"
-import { answered, type WriteAnswer } from "#test/support/calls.ts"
+import { writeAnswerOf, type WriteAnswer } from "#test/support/calls.ts"
 import { Instant } from "#test/support/fixtures/api/contracts.ts"
 import * as Q from "#test/support/fixtures/api/queue.ts"
 import { kA, kB, kG, queueFacts } from "#test/support/fixtures/golden/queue.ts"
@@ -175,7 +175,7 @@ export const runRace = (
 		/** A worker's actor, named after its Db's first call: the backend its calls hold (grizzleActor). */
 		const worker = (name: string, opened: Effect.Success<typeof workerDb>) =>
 			Effect.andThen(
-				Effect.orDie(answered(opened.db.workload.noop.once({ params: {}, facts: {} }))),
+				Effect.orDie(writeAnswerOf(opened.db.workload.noop.once({ params: {}, facts: {} }))),
 				grizzleActor(name, opened.ctx.pool)
 			)
 		const work = names.table(Q.QueueWork)
@@ -243,7 +243,7 @@ export const runRace = (
 										: "settle kB epoch 1",
 								call:
 									write.kind === "claim"
-										? answered(
+										? writeAnswerOf(
 												db.workload.claim.once({
 													params: {
 														kind: "render" as const,
@@ -257,7 +257,7 @@ export const runRace = (
 													facts: {}
 												})
 											)
-										: answered(
+										: writeAnswerOf(
 												db.workload.settle.once({
 													params: {
 														key: Q.Digest(kB),

@@ -14,7 +14,7 @@ import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { answered, writeOnce } from "#test/support/calls.ts"
+import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import {
 	admittedFillSpecGen,
 	appendGen,
@@ -1014,7 +1014,7 @@ export const checkCase = (
 			const loaded = yield* db.load(programs)
 			/** A member applied on the tapped context with its call's facts. */
 			const applied = (name: string, callFacts: CallFacts) =>
-				answered(
+				writeAnswerOf(
 					writeOnce(memberCalls(flight.context, member(loaded, name)))({
 						params: {},
 						facts: callFacts

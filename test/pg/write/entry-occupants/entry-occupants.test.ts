@@ -24,7 +24,7 @@ import {
 	Seat,
 	seatsAt
 } from "#test/pg/write/entry-occupants/entry-occupants.fixtures.ts"
-import { answered } from "#test/support/calls.ts"
+import { writeAnswerOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { servedFixture } from "#test/support/served-db.ts"
 import { clearRows, installationGroup } from "#test/support/substrate/replace.ts"
@@ -97,7 +97,7 @@ export const aQueryEntrysWriteMeetsEveryUniqueObjectOfItsTargetAStoredFactAtAnyU
 										[]
 									)
 									const applied = yield* Effect.result(
-										answered(
+										writeAnswerOf(
 											db.workload.insertSeat.once({
 												params: {},
 												facts: { insert: { MySeat: [c.submitted] } }

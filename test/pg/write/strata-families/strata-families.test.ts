@@ -38,7 +38,7 @@ import {
 	strataInstall,
 	strataTemplate
 } from "#test/pg/write/strata-families/strata-families.fixtures.ts"
-import { answered, rowsOf } from "#test/support/calls.ts"
+import { writeAnswerOf, rowsOf } from "#test/support/calls.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
@@ -66,7 +66,7 @@ export const familyEditsAndANestedInsertInTwoStrataOnPostgreSQL19TakeEffectOnceE
 					const o = yield* openedIn(Strata, {}, strataInstall, seat)
 					return yield* Effect.gen(function* () {
 						const db = yield* Db.open(o.served.login.roles.app, {})
-						const seeded = yield* answered(
+						const seeded = yield* writeAnswerOf(
 							db.workload.seed.once({
 								params: {},
 								facts: {
@@ -80,10 +80,10 @@ export const familyEditsAndANestedInsertInTwoStrataOnPostgreSQL19TakeEffectOnceE
 							insert: { Member: c.inserted, Doc: c.docs }
 						}
 						const outcome = yield* c.placement === "the edit first"
-							? answered(db.workload.editFirst.once({ params: {}, facts: facts }))
+							? writeAnswerOf(db.workload.editFirst.once({ params: {}, facts: facts }))
 							: c.placement === "the nested insert first"
-								? answered(db.workload.nestedFirst.once({ params: {}, facts: facts }))
-								: answered(db.workload.together.once({ params: {}, facts: facts }))
+								? writeAnswerOf(db.workload.nestedFirst.once({ params: {}, facts: facts }))
+								: writeAnswerOf(db.workload.together.once({ params: {}, facts: facts }))
 						const changes = c.deleted.length + c.inserted.length + c.docs.length
 						assert.equal(
 							outcome.kind,

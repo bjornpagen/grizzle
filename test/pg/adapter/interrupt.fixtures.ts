@@ -17,7 +17,7 @@ import type { ServedDbContext } from "#adapter/db/context.ts"
 import { memberCalls, variantOf } from "#adapter/db/handles.ts"
 import type { LoadedMember } from "#adapter/served/load.ts"
 import { Uuid } from "#compiler/public/fields.ts"
-import { answered, writeOnce } from "#test/support/calls.ts"
+import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import { workFacts } from "#test/support/fixtures/golden/work.ts"
 import { pickFrom, pickGen, pickIndex } from "#test/support/pick.ts"
 import type { BackendMessage } from "#test/support/wire-tap.ts"
@@ -249,7 +249,7 @@ export const applyFacts = (ctx: ServedDbContext, change: LoadedMember, facts: un
 		"facts",
 		"the write's member takes its call's facts"
 	)
-	return answered(writeOnce(memberCalls(ctx, change))({ params: {}, facts }))
+	return writeAnswerOf(writeOnce(memberCalls(ctx, change))({ params: {}, facts }))
 }
 
 /**

@@ -11,7 +11,7 @@ import { bytes, drawn, natural, pg } from "#compiler/public/fields.ts"
 import { fin, key, login, on, ordered, relation, role, schema } from "#compiler/public/schema.ts"
 import { keyTextBytes, str } from "#compiler/public/text.ts"
 import { workload } from "#compiler/public/workload.ts"
-import { answered, writeOnce } from "#test/support/calls.ts"
+import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import { Id, type IdValue } from "#test/support/ids.ts"
 import { type Generated } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
@@ -144,7 +144,7 @@ export const explored = (taken: SubstrateCase<Generated>) =>
 						}
 						return opened
 					}).pipe(Effect.provideContext(context)),
-				(db) => answered(db.workload.noop.once({ params: {}, facts: {} }))
+				(db) => writeAnswerOf(db.workload.noop.once({ params: {}, facts: {} }))
 			)
 		const a = yield* open("a")
 		const b = yield* open("b")
@@ -153,7 +153,7 @@ export const explored = (taken: SubstrateCase<Generated>) =>
 		const limit = defined(textBoundOf(member), "importPackage is a change member of one variant")
 		/** An import on `writer`'s Db context, its pool's sessions holding the planted message bound. */
 		const imported = (writer: typeof a, facts: ReturnType<typeof importOf>) =>
-			answered(
+			writeAnswerOf(
 				writeOnce(
 					memberCalls({ ...writer.ctx, pool: plantedPool(writer.ctx.pool, limit) }, member)
 				)({
@@ -225,7 +225,7 @@ export const explored = (taken: SubstrateCase<Generated>) =>
 		const reset = Effect.gen(function* () {
 			ran.clear()
 			yield* rig.replace([])
-			const preloaded = yield* answered(
+			const preloaded = yield* writeAnswerOf(
 				loader.db.workload.importPackage.once({ params: {}, facts: preload })
 			)
 			assert.equal(preloaded.kind, "accepted", "the stored packages are stored")

@@ -10,7 +10,7 @@ import type { OpenError } from "#adapter/errors/execution.ts"
 import type { ServedRefusal } from "#adapter/public/compile.ts"
 import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
 import type { WriteOutcome } from "#compiler/live/index.ts"
-import { answered, type WriteAnswer } from "#test/support/calls.ts"
+import { writeAnswerOf, type WriteAnswer } from "#test/support/calls.ts"
 import { closedField } from "#test/support/closed/stored.ts"
 import { Instant } from "#test/support/fixtures/api/contracts.ts"
 import * as P from "#test/support/fixtures/api/payroll.ts"
@@ -176,7 +176,7 @@ export const runRace = (
 		const direct = yield* openActors(substrate, {
 			h: { kind: "psql", as: f.installed.world(worlds.hr) }
 		})
-		yield* Effect.orDie(answered(hr.workload.noop.once({ params: {}, facts: {} })))
+		yield* Effect.orDie(writeAnswerOf(hr.workload.noop.once({ params: {}, facts: {} })))
 		const g = yield* grizzleActor("g", opened.ctx.pool)
 		const env = yield* exploreEnv(substrate)
 		const names = namesOf(f.installed)
@@ -196,7 +196,7 @@ export const runRace = (
 						kind: "grizzle",
 						session: "g",
 						label: "insert ada's leave",
-						call: answered(
+						call: writeAnswerOf(
 							hr.workload.insertLeave.once({
 								params: {},
 								facts: {

@@ -34,7 +34,7 @@ import {
 } from "#test/pg/write/swarm/oracle.ts"
 import { buildSwarm } from "#test/pg/write/swarm/spec.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { answered, writeOnce } from "#test/support/calls.ts"
+import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { lawNamesOf, namesOf } from "#test/support/kernel/naming.ts"
 import { oneFlight } from "#test/support/one-flight.ts"
@@ -167,7 +167,7 @@ export const theFamilyWriterUnderASwarmEveryLawfulChangeSetStoresTheReferencesRo
 								}
 								const served = memberCalls(flight.context, member(loaded.success, "step"))
 								const applied = yield* Effect.result(
-									flight.judged(label, answered(writeOnce(served)({ params, facts })))
+									flight.judged(label, writeAnswerOf(writeOnce(served)({ params, facts })))
 								)
 								if (Result.isFailure(applied)) {
 									return assert.fail(

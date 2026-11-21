@@ -15,7 +15,7 @@ import {
 	uuidAt,
 	versionOf
 } from "#test/pg/write/entry-owner/entry-owner.fixtures.ts"
-import { answered, writeOnce } from "#test/support/calls.ts"
+import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import { entryName, roleName } from "#test/support/families/entry-owner.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { refusedLaws } from "#test/support/refused.ts"
@@ -120,7 +120,7 @@ export const aFamilysOwnerWrittenThroughARolesQueryEntryOnPostgreSQL19InsertsAnd
 										qty: BigInt(qty)
 									}))
 								)
-								const seeded = yield* answered(
+								const seeded = yield* writeAnswerOf(
 									writeOnce(member(seeds, "seed"))({
 										params: {},
 										facts: { insert: { Store: storeFacts, Item: itemFacts } }
@@ -135,7 +135,7 @@ export const aFamilysOwnerWrittenThroughARolesQueryEntryOnPostgreSQL19InsertsAnd
 								const w = c.write
 								const writer = defined(writers.get(roleName(w.holds, w.filter)), "the writer")
 								const fact = { id: uuidAt(0, w.key), label: w.label }
-								const outcome = yield* answered(
+								const outcome = yield* writeAnswerOf(
 									writeOnce(member(writer, w.op))({
 										params: {},
 										facts: { [w.op]: { [entryName(w.holds, w.filter)]: [fact] } }

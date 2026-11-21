@@ -49,7 +49,7 @@ import {
 	admitTemplate
 } from "#test/pg/parameters/admission.fixtures.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
-import { answered } from "#test/support/calls.ts"
+import { writeAnswerOf } from "#test/support/calls.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
@@ -107,7 +107,7 @@ export const aWritesParametersAdmittedBeforeItsStatementsAgainstPostgreSQL19APar
 								const fresh = [k.collides ? collidingItem : freshItem]
 								const named = stored[1].id
 								const applied = yield* Effect.result(
-									answered(
+									writeAnswerOf(
 										k.write === "picked"
 											? db.workload.picked.once({ params: { fresh, p: k.code }, facts: {} })
 											: db.workload.listed.once({

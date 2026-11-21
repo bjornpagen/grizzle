@@ -19,7 +19,7 @@ import {
 	strayKey
 } from "#test/pg/reads/params-argument.fixtures.ts"
 import { openedIn, workSeatInstall, workSeatTemplate } from "#test/pg/reads/support.ts"
-import { answered, readOnce } from "#test/support/calls.ts"
+import { writeAnswerOf, readOnce } from "#test/support/calls.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, t1, workFacts } from "#test/support/fixtures/golden/work.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
@@ -82,7 +82,7 @@ export const aProgramsParameterArgumentIsARecordOfTheProgramsParametersAnyOtherV
 										"write",
 										`the member ${name} takes its parameters alone`
 									)
-									return answered(change.once({ params: argument, facts: {} }))
+									return writeAnswerOf(change.once({ params: argument, facts: {} }))
 								}
 								const reads: { readonly [C in Call]: Read } = {
 									"a read without parameters": {

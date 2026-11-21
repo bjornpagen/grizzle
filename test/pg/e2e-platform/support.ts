@@ -26,7 +26,7 @@ import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { AnyLogin } from "#compiler/types/schema/world.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { answered } from "#test/support/calls.ts"
+import { writeAnswerOf } from "#test/support/calls.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
 import { type Generated, generatedTemplate, type Installed } from "#test/support/install-migrate.ts"
@@ -157,7 +157,9 @@ export const applyFacts = (db: PlatformDb, f: PlatformFacts) =>
 		if (factCount(f) === 0) {
 			return
 		}
-		const outcome = yield* answered(db.workload.load.once({ params: {}, facts: { insert: f } }))
+		const outcome = yield* writeAnswerOf(
+			db.workload.load.once({ params: {}, facts: { insert: f } })
+		)
 		if (outcome.kind === "refused") {
 			return yield* Effect.die(
 				new LoadRefused({

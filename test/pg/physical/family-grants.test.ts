@@ -54,7 +54,7 @@ import {
 	uuidAt,
 	versionOf
 } from "#test/pg/physical/family-grants.fixtures.ts"
-import { answered, writeOnce } from "#test/support/calls.ts"
+import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { openServedDb, member } from "#test/support/served-db.ts"
@@ -307,7 +307,9 @@ export const keepsEachOwnersCountAndStockThroughAMemberWritersOwnAppendsPutsAndD
 										"facts",
 										`the member ${name} takes its call's facts`
 									)
-									return answered(writeOnce(memberCalls(db.ctx, change))({ params: {}, facts }))
+									return writeAnswerOf(
+										writeOnce(memberCalls(db.ctx, change))({ params: {}, facts })
+									)
 								}
 								yield* owner.query(
 									`TRUNCATE ${store}, ${names.table(b.Item)}, ${names.table(b.Shelf)}, ${names.table(b.Slot)}`,

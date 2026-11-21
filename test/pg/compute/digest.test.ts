@@ -57,7 +57,7 @@ import {
 import { textCell } from "#test/pg/compute/support.ts"
 import { probe } from "#test/pg/physical/checks.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { answered, rowsOf } from "#test/support/calls.ts"
+import { writeAnswerOf, rowsOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -161,7 +161,7 @@ export const computeSha256OnPostgreSQLAGeneratedDigestIsPostgreSQLsOwnReadBackAs
 							const stating = defined(facts[0], "an entry whose digest a direct writer states")
 							yield* Effect.gen(function* () {
 								const db = yield* Db.open(o.served.login.roles.app, {})
-								const inserted = yield* answered(
+								const inserted = yield* writeAnswerOf(
 									db.workload.insertEntries.once({
 										params: {},
 										facts: { insert: { Entry: facts } }

@@ -44,7 +44,7 @@ import {
 } from "#test/pg/laws/lowering-support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { answered } from "#test/support/calls.ts"
+import { writeAnswerOf } from "#test/support/calls.ts"
 import {
 	type Installed,
 	type InstallVersion,
@@ -1357,7 +1357,7 @@ const loweredIn = (taken: SubstrateCase<Installed>, shape: Shape, order: Order) 
 				seat: yield* seatOfInstalled(installed, RELATIONS, `lowering_${order}`),
 				write: (facts) =>
 					Effect.map(
-						answered(db.workload.write.once({ params: {}, facts: facts })),
+						writeAnswerOf(db.workload.write.once({ params: {}, facts: facts })),
 						(outcome): ServedOutcome => {
 							switch (outcome.kind) {
 								case "accepted":

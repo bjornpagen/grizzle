@@ -35,7 +35,7 @@ import {
 	storedBits
 } from "#test/pg/write/fact-sets/fact-sets.fixtures.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { answered } from "#test/support/calls.ts"
+import { writeAnswerOf } from "#test/support/calls.ts"
 import {
 	compileTemplate,
 	declaredOf,
@@ -95,23 +95,23 @@ export const aParameterRelationsFactsAreStoredWithTheBitsTheyWereWrittenWithByBo
 										case "once":
 											return db.workload.once
 												.once({ params: { s: at.s, given }, facts: {} })
-												.pipe(answered, plain)
+												.pipe(writeAnswerOf, plain)
 										case "dropped":
 											return db.workload.dropped
 												.once({ params: { s: at.s, given }, facts: {} })
-												.pipe(answered, plain)
+												.pipe(writeAnswerOf, plain)
 										case "twice":
 											return db.workload.twice
 												.once({ params: { s: at.s, given }, facts: {} })
-												.pipe(answered, plain)
+												.pipe(writeAnswerOf, plain)
 										case "thrice":
 											return db.workload.thrice
 												.once({ params: { s: at.s, given }, facts: {} })
-												.pipe(answered, plain)
+												.pipe(writeAnswerOf, plain)
 										case "carried":
 											return db.workload.carried
 												.once({ params: { s: at.s, given }, facts: {} })
-												.pipe(answered, plain)
+												.pipe(writeAnswerOf, plain)
 										case "swap":
 											return Effect.flatMap(
 												db.workload.loadArm.once({
@@ -132,7 +132,7 @@ export const aParameterRelationsFactsAreStoredWithTheBitsTheyWereWrittenWithByBo
 															},
 															facts: {}
 														})
-														.pipe(answered, plain)
+														.pipe(writeAnswerOf, plain)
 											)
 										case "replaced":
 											return Effect.flatMap(
@@ -144,7 +144,7 @@ export const aParameterRelationsFactsAreStoredWithTheBitsTheyWereWrittenWithByBo
 												}),
 												() =>
 													Effect.map(
-														answered(
+														writeAnswerOf(
 															db.workload.replaced.once({
 																params: { s: at.s, given: first },
 																facts: {}

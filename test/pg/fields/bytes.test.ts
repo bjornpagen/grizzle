@@ -36,7 +36,7 @@ import {
 	blobsTemplate
 } from "#test/pg/fields/bytes.fixtures.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
-import { answered, rowsOf } from "#test/support/calls.ts"
+import { writeAnswerOf, rowsOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -93,7 +93,7 @@ export const bytesWrittenAndReadBackWholeStoresEveryDrawnValueExactlySingleOrBat
 										const kept = Arr.filter(facts, (f) => f.shelf !== shelf)
 										yield* Effect.gen(function* () {
 											const db = yield* Db.open(o.served.login.roles.app, {})
-											const shelved = yield* answered(
+											const shelved = yield* writeAnswerOf(
 												db.workload.shelve.once({
 													params: {},
 													facts: { insert: { Shelf: upTo(d.shelves, (id) => ({ id })) } }
@@ -102,7 +102,7 @@ export const bytesWrittenAndReadBackWholeStoresEveryDrawnValueExactlySingleOrBat
 											assert.equal(shelved.kind, "accepted", "every shelf is written")
 											const batches = d.batched ? [facts] : Arr.map(facts, (fact) => [fact])
 											for (const batch of batches) {
-												const outcome = yield* answered(
+												const outcome = yield* writeAnswerOf(
 													db.workload.store.once({ params: {}, facts: { insert: { Blob: batch } } })
 												)
 												assert.equal(outcome.kind, "accepted", "every bytes value is written")
@@ -163,7 +163,7 @@ export const bytesWrittenAndReadBackWholeStoresEveryDrawnValueExactlySingleOrBat
 													"each attached value reads back whole"
 												)
 											}
-											const deleted = yield* answered(
+											const deleted = yield* writeAnswerOf(
 												db.workload.clearShelf.once({ params: { shelf }, facts: {} })
 											)
 											if (deleted.kind !== "accepted") {

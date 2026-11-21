@@ -35,7 +35,7 @@ import type { Law } from "#compiler/types/changeset/changeset.ts"
 import { seatOfInstalled } from "#test/pg/fin/installed.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { answered } from "#test/support/calls.ts"
+import { writeAnswerOf } from "#test/support/calls.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import type { Moment } from "#test/support/families/mutate.ts"
 import { type Installed, installedTemplate } from "#test/support/install-migrate.ts"
@@ -1597,7 +1597,7 @@ export const judgedIn = (taken: SubstrateCase<Installed>, label: string) =>
 		}
 		/** The ChangeSet taking `before` to `after`, applied by its served member as the application's login. */
 		const write = (before: State, after: State) =>
-			answered(db.workload.write.once({ params: {}, facts: factsOf(before, after) }))
+			writeAnswerOf(db.workload.write.once({ params: {}, facts: factsOf(before, after) }))
 		return {
 			seat,
 			second,

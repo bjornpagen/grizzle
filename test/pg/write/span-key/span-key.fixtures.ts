@@ -16,7 +16,7 @@ import {
 import { str } from "#compiler/public/text.ts"
 import type { KeyHost } from "#compiler/types/changeset/changeset.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
-import { answered } from "#test/support/calls.ts"
+import { writeAnswerOf } from "#test/support/calls.ts"
 import { Id } from "#test/support/ids.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 import type { StateRow } from "#test/support/substrate/state.ts"
@@ -319,25 +319,27 @@ export const applyCase = (
 	if (c.relation === "Room") {
 		if (c.form === "enumerated") {
 			return c.op === "insert"
-				? answered(
+				? writeAnswerOf(
 						db.workload.insertRoom.once({ params: {}, facts: { insert: { Room: roomFacts } } })
 					)
-				: answered(db.workload.putRoom.once({ params: {}, facts: { put: { Room: roomFacts } } }))
+				: writeAnswerOf(
+						db.workload.putRoom.once({ params: {}, facts: { put: { Room: roomFacts } } })
+					)
 		}
 		return c.op === "insert"
-			? answered(db.workload.insertRoomItems.once({ params: { items: roomFacts }, facts: {} }))
-			: answered(db.workload.putRoomItems.once({ params: { items: roomFacts }, facts: {} }))
+			? writeAnswerOf(db.workload.insertRoomItems.once({ params: { items: roomFacts }, facts: {} }))
+			: writeAnswerOf(db.workload.putRoomItems.once({ params: { items: roomFacts }, facts: {} }))
 	}
 	if (c.form === "enumerated") {
 		return c.op === "insert"
-			? answered(
+			? writeAnswerOf(
 					db.workload.insertHold.once({ params: {}, facts: { insert: { Hold: holdFacts } } })
 				)
-			: answered(db.workload.putHold.once({ params: {}, facts: { put: { Hold: holdFacts } } }))
+			: writeAnswerOf(db.workload.putHold.once({ params: {}, facts: { put: { Hold: holdFacts } } }))
 	}
 	return c.op === "insert"
-		? answered(db.workload.insertHoldItems.once({ params: { items: holdFacts }, facts: {} }))
-		: answered(db.workload.putHoldItems.once({ params: { items: holdFacts }, facts: {} }))
+		? writeAnswerOf(db.workload.insertHoldItems.once({ params: { items: holdFacts }, facts: {} }))
+		: writeAnswerOf(db.workload.putHoldItems.once({ params: { items: holdFacts }, facts: {} }))
 }
 
 export const keyOf = (f: Fact): Readonly<Record<string, KeyHost>> => ({

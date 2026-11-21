@@ -53,7 +53,7 @@ import {
 	shellPin
 } from "#test/pg/package/consumer.fixtures.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { answered, writeOnce } from "#test/support/calls.ts"
+import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import { pgPin } from "#test/support/env.ts"
 import { testConnectTimeout, testIdleTimeout } from "#test/support/limits.ts"
 import { privateCluster } from "#test/support/private-cluster.ts"
@@ -141,7 +141,7 @@ export const thePackageAsASubmoduleConsumerTakesItOnTheDevClusterOpensARoleOfALo
 										Effect.flatMap(
 											serve({ add: ChangeSet.empty(App).insert(Note, []) }),
 											(served) =>
-												answered(
+												writeAnswerOf(
 													writeOnce(member(served, "add"))({
 														params: {},
 														facts: { insert: { Note: notes } }

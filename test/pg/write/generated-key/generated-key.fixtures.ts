@@ -44,7 +44,7 @@ import { str } from "#compiler/public/text.ts"
 import { type ParamMap } from "#compiler/types/core/phantom.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import { fixtureTemplate, openedIn } from "#test/pg/reads/support.ts"
-import { answered, rowsOf, writeOnce } from "#test/support/calls.ts"
+import { writeAnswerOf, rowsOf, writeOnce } from "#test/support/calls.ts"
 import { type Generated, type Installed } from "#test/support/install-migrate.ts"
 import { migratedOnceTemplate } from "#test/support/installed.ts"
 import { namesOf, type LawNames, lawNamesOf } from "#test/support/kernel/naming.ts"
@@ -1304,7 +1304,7 @@ export const keysCase = (taken: SubstrateCase<Generated>, k: Case, c: PropertyCa
 				return { changes, facts, params }
 			}
 			yield* replaceRows(s.admin, group, [])
-			const seeded = yield* answered(
+			const seeded = yield* writeAnswerOf(
 				db.workload.seed.once({
 					params: {},
 					facts: {
@@ -1333,7 +1333,7 @@ export const keysCase = (taken: SubstrateCase<Generated>, k: Case, c: PropertyCa
 			const stratum = stratumOf(k.writes)
 			const served = yield* serve({ stratum: stratum.changes })
 			const applied = yield* Effect.result(
-				answered(
+				writeAnswerOf(
 					writeOnce(member(served, "stratum"))({
 						params: stratum.params,
 						facts: stratum.facts
@@ -1473,7 +1473,7 @@ export const labelsCase = (
 		const rowsNow = owner.values(`SELECT ${id}, ${text}, ${value} FROM ${table} ORDER BY 1`, [])
 		const before = yield* rowsNow
 		const applied = yield* Effect.result(
-			answered(
+			writeAnswerOf(
 				writeOnce(member(served, c.edit))({
 					params: {},
 					facts: { [c.edit]: { Low: [sentOf(c)] } }

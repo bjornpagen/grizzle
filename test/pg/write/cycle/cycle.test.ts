@@ -18,7 +18,7 @@ import {
 	cycleInstall,
 	cycleTemplate
 } from "#test/pg/write/cycle/cycle.fixtures.ts"
-import { answered } from "#test/support/calls.ts"
+import { writeAnswerOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
@@ -71,7 +71,7 @@ export const plainForeignKeysOnACycleCommitAChangeSetWhoseFinalStateMeetsEveryRe
 											insert(names.table(B), `${names.column(B, "id")}, ${names.column(B, "a")}`, f)
 										)
 									])
-									const outcome = yield* answered(
+									const outcome = yield* writeAnswerOf(
 										db.workload.change.once({
 											params: {},
 											facts: {

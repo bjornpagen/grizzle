@@ -35,7 +35,7 @@ import {
 	endsTemplates,
 	judgedTemplate
 } from "#test/pg/fin/fold-ends.fixtures.ts"
-import { answered, writeOnce } from "#test/support/calls.ts"
+import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import {
 	brokenOf,
 	cellLabel,
@@ -73,7 +73,7 @@ export const everyFoldsEndThroughGrizzlesApplyOnPostgreSQL19StoresExactlyTheREAD
 							for (const w of sketch.writes) {
 								const served = servedOf(o.value, slotsOf(o.s, w))
 								const members = yield* o.db.serve({ write: served.changes })
-								const outcome = yield* answered(
+								const outcome = yield* writeAnswerOf(
 									writeOnce(member(members, "write"))({ params: {}, facts: served.facts })
 								)
 								const broken = brokenOf(o.s, rowsAfter(o.s, state, w))
@@ -192,7 +192,7 @@ export const everyFoldsEndThroughGrizzlesApplyOnPostgreSQL19JudgesAnOwnersRowCHE
 
 								const stored: Array<JudgedOwnerState> = []
 								for (const o of sketch) {
-									const outcome = yield* answered(
+									const outcome = yield* writeAnswerOf(
 										writeOnce(write)({ params: {}, facts: judgedFacts(o) })
 									)
 									judgeOwner(o, outcome)

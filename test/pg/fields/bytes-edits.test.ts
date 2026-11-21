@@ -35,7 +35,7 @@ import {
 	sameBytes
 } from "#test/pg/fields/bytes-edits.fixtures.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
-import { answered, rowsOf } from "#test/support/calls.ts"
+import { writeAnswerOf, rowsOf } from "#test/support/calls.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -75,7 +75,7 @@ export const countsEachPutOfAnotherValueAndEachExactDelete = property.explore(ca
 									const stage = Arr.flatMap(d.staged, (st, id) =>
 										st.as === "unstaged" ? [] : [{ id, body: bodyBytes(st.body) }]
 									)
-									const stored = yield* answered(
+									const stored = yield* writeAnswerOf(
 										db.workload.store.once({
 											params: {},
 											facts: { insert: { Blob: rows, Held: rows, Stage: stage } }
@@ -83,7 +83,9 @@ export const countsEachPutOfAnotherValueAndEachExactDelete = property.explore(ca
 									)
 									assert.equal(stored.kind, "accepted", "every stored row is written")
 								}
-								const staging = yield* answered(db.workload.stage.once({ params: {}, facts: {} }))
+								const staging = yield* writeAnswerOf(
+									db.workload.stage.once({ params: {}, facts: {} })
+								)
 								const staged = Arr.filter(
 									d.staged,
 									(st) => st.as === "one byte off" || st.as === "resized"
@@ -139,7 +141,7 @@ export const countsEachPutOfAnotherValueAndEachExactDelete = property.explore(ca
 								const deletes = Arr.flatMap(d.edits, (e) =>
 									e.kind === "delete" ? [{ id: e.id, body: bodyBytes(e.body) }] : []
 								)
-								const outcome = yield* answered(
+								const outcome = yield* writeAnswerOf(
 									db.workload.edit.once({
 										params: {},
 										facts: { put: { Blob: stated }, delete: { Blob: deletes } }

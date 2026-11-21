@@ -30,7 +30,7 @@ import type { CallError, WriteOutcome } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { login, role, wholeEntriesOf, writableNamesOf } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
-import { type WriteAnswer as CallAnswer, answered } from "#test/support/calls.ts"
+import { type WriteAnswer as CallAnswer, writeAnswerOf } from "#test/support/calls.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
 import type { Generated } from "#test/support/install-migrate.ts"
 import {
@@ -574,7 +574,7 @@ const openApp = (
 	i.rig.servedWriter(
 		name,
 		(context) => openServed(i.rig.served.roles.app, {}).pipe(Effect.provideContext(context)),
-		(db) => answered(db.workload.noop.once({ params: {}, facts: {} }))
+		(db) => writeAnswerOf(db.workload.noop.once({ params: {}, facts: {} }))
 	)
 
 const connect = (

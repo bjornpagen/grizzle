@@ -22,7 +22,7 @@ import { check, closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { fixtureTemplate, openedIn } from "#test/pg/reads/support.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { answered } from "#test/support/calls.ts"
+import { writeAnswerOf } from "#test/support/calls.ts"
 import { Id, type IdValue } from "#test/support/ids.ts"
 import { type Generated } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
@@ -370,13 +370,13 @@ export const hostCase = (
 			}))
 			const applied = yield* Effect.result(
 				k.op === "insert"
-					? answered(
+					? writeAnswerOf(
 							db.workload.insertAccounts.once({
 								params: {},
 								facts: { insert: { Account: facts } }
 							})
 						)
-					: answered(
+					: writeAnswerOf(
 							db.workload.putAccounts.once({
 								params: {},
 								facts: { put: { Account: facts } }

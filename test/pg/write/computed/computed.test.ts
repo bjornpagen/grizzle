@@ -46,7 +46,7 @@ import {
 	situations,
 	Span
 } from "#test/pg/write/computed/computed.fixtures.ts"
-import { answered } from "#test/support/calls.ts"
+import { writeAnswerOf } from "#test/support/calls.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
@@ -117,7 +117,7 @@ export const everyRowOfACallHoldsItsOneValueOfEachComputedFieldTheOwnerAndEveryM
 								const db = yield* Db.open(o.served.login.roles.app, {})
 								const budget = Span(c.budget)
 								const delay = Span(c.delay)
-								const answer = yield* answered(
+								const answer = yield* writeAnswerOf(
 									c.depth === 0
 										? db.workload.lease.once({
 												params: { budget },

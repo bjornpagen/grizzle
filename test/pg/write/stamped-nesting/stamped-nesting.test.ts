@@ -32,7 +32,7 @@ import { Array as Arr, Effect, Formatter, Order } from "effect"
 import { memberCalls } from "#adapter/db/handles.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { answered, writeOnce } from "#test/support/calls.ts"
+import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { oneFlight } from "#test/support/one-flight.ts"
@@ -137,7 +137,7 @@ export const everyMemberOfANestedWriteUnderAStampedOwnerStoresExactlyItsOwnersSt
 								}))
 							}
 						}
-						const call = answered(
+						const call = writeAnswerOf(
 							writeOnce(memberCalls(flight.context, member(loaded, "stamp")))({ params: {}, facts })
 						)
 						const conflict = c.owners === "one group"

@@ -24,7 +24,7 @@ import {
 	type SwarmSpec
 } from "#test/pg/write/swarm/spec.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { answered, writeOnce } from "#test/support/calls.ts"
+import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import {
 	type FollowUp,
 	type InstanceRow,
@@ -220,7 +220,7 @@ export const written = (c: SwarmCase, label: string) =>
 				}
 				const served = memberCalls(flight.context, member(loaded.success, "step"))
 				const applied = yield* Effect.result(
-					flight.judged(at, answered(writeOnce(served)({ params, facts })))
+					flight.judged(at, writeAnswerOf(writeOnce(served)({ params, facts })))
 				)
 				if (Result.isFailure(applied)) {
 					return assert.fail(

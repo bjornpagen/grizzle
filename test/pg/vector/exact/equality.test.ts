@@ -69,7 +69,7 @@ import {
 	type EqualityWrittenRelation,
 	writtenRelations
 } from "#test/pg/vector/exact/equality.fixtures.ts"
-import { answered, rowsOf } from "#test/support/calls.ts"
+import { writeAnswerOf, rowsOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { servedGenerated } from "#test/support/served-db.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
@@ -156,7 +156,9 @@ export const vectorEqualityAsAWorldRoleAVectorBindingASharedVectorVariableAnRNot
 						const read: ReadonlyArray<unknown> = yield* rowsOf(
 							db.workload.twins.once({ params: {}, facts: {} })
 						)
-						const outcome = yield* answered(db.workload.readBack.once({ params: {}, facts: {} }))
+						const outcome = yield* writeAnswerOf(
+							db.workload.readBack.once({ params: {}, facts: {} })
+						)
 						if (outcome.kind !== "accepted" && outcome.kind !== "unchanged") {
 							return assert.fail(`the read-back's apply was ${outcome.kind}`)
 						}

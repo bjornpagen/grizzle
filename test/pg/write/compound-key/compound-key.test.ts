@@ -43,7 +43,7 @@ import {
 	type Write
 } from "#test/pg/write/compound-key/compound-key.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { answered, readOnce, type WriteAnswer, writeOnce } from "#test/support/calls.ts"
+import { writeAnswerOf, readOnce, type WriteAnswer, writeOnce } from "#test/support/calls.ts"
 import { paramsOver } from "#test/support/compile.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { lawNamesOf, namesOf } from "#test/support/kernel/naming.ts"
@@ -235,7 +235,7 @@ export const compoundTextKeysAreInstalledInTheirDeclaredOrderOrRefusedAsUnrepres
 							const db = yield* openServedDb(done, world.server.roles.app, {})
 							const loaded = yield* db.load(programs)
 							const applied = (name: Write["op"], facts: CallFacts) =>
-								answered(
+								writeAnswerOf(
 									writeOnce(memberCalls(db.ctx, member(loaded, name)))({ params: {}, facts })
 								)
 							let parents: ReadonlyArray<ParentRow> = []

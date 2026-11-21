@@ -17,7 +17,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { familyStoredOf } from "#test/pg/fin/family.ts"
-import { answered } from "#test/support/calls.ts"
+import { writeAnswerOf } from "#test/support/calls.ts"
 import { theorem } from "#test/support/families/theorem.ts"
 import { type Generated } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
@@ -107,7 +107,7 @@ export const contentionCase = (taken: SubstrateCase<Generated>) =>
 		const app = yield* rig.servedWriter(
 			"app",
 			(context) => openServed(rig.served.roles.app, {}).pipe(Effect.provideContext(context)),
-			(db) => answered(db.workload.noop.once({ params: {}, facts: {} }))
+			(db) => writeAnswerOf(db.workload.noop.once({ params: {}, facts: {} }))
 		)
 		const direct = yield* openActors(s, { direct: { kind: "raw", as: rig.direct } })
 		/** The grizzle write's refusals and answer in the current run, set by its move. */
@@ -145,7 +145,7 @@ export const contentionCase = (taken: SubstrateCase<Generated>) =>
 								facts: { insert: { Member: [{ member: GRIZZLE, g: 0 }] } }
 							})
 							.pipe(
-								answered,
+								writeAnswerOf,
 								untilAnswered,
 								Effect.result,
 								Effect.tap((r) =>

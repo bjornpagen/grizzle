@@ -19,7 +19,7 @@ import {
 	schema
 } from "#compiler/public/schema.ts"
 import { fixtureTemplate, openedIn } from "#test/pg/reads/support.ts"
-import { answered } from "#test/support/calls.ts"
+import { writeAnswerOf } from "#test/support/calls.ts"
 import { type Generated } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { refusedLaws } from "#test/support/refused.ts"
@@ -355,7 +355,7 @@ export const everyCase = (
 				if (Arr.isReadonlyArrayNonEmpty(k.stored)) {
 					const storedParts = Arr.flatMap(stored, (st) => partsOf(st.id, st.cell.parts))
 					const storing = yield* Effect.result(
-						answered(
+						writeAnswerOf(
 							db.workload.write.once({
 								params: {},
 								facts: { insert: { Cell: storedCells, Part: storedParts } }
@@ -374,7 +374,7 @@ export const everyCase = (
 					)
 				]
 				const applied = yield* Effect.result(
-					answered(
+					writeAnswerOf(
 						db.workload.write.once({
 							params: {},
 							facts: { insert: { Cell: cells, Part: parts } }

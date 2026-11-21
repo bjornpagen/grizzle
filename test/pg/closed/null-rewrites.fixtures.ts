@@ -34,7 +34,7 @@ import {
 import { str } from "#compiler/public/text.ts"
 import type { Predicate, Term } from "#compiler/types/core/phantom.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { answered, rowsOf, type WriteAnswer } from "#test/support/calls.ts"
+import { writeAnswerOf, rowsOf, type WriteAnswer } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -778,7 +778,7 @@ export const rewriteCase = (c: RewriteCase, notes: Case<Feature>) =>
 			const selected: Array<number> = []
 			for (const [id, item] of c.items.entries()) {
 				const checked = yield* Effect.result(
-					answered(
+					writeAnswerOf(
 						db.workload.insertChecked.once({
 							params: {},
 							facts: { insert: { Checked: [fact(item, id)] } }
@@ -788,7 +788,7 @@ export const rewriteCase = (c: RewriteCase, notes: Case<Feature>) =>
 				verdict(checked, "Checked", truth(c, item, c.checked) === "true", where("Checked", id))
 				met("a check", c.checked, item)
 				const gen = yield* Effect.result(
-					answered(
+					writeAnswerOf(
 						db.workload.insertGenCond.once({
 							params: {},
 							facts: { insert: { GenCond: [fact(item, id)] } }
@@ -800,7 +800,7 @@ export const rewriteCase = (c: RewriteCase, notes: Case<Feature>) =>
 				met("a generated field", c.generated, item)
 				const inside = c.allowed[item.kind] === true
 				const containedRow = yield* Effect.result(
-					answered(
+					writeAnswerOf(
 						db.workload.insertContained.once({
 							params: {},
 							facts: { insert: { Contained: [fact(item, id)] } }
@@ -817,7 +817,7 @@ export const rewriteCase = (c: RewriteCase, notes: Case<Feature>) =>
 				const k = truth(c, item, c.keyed)
 				const taken = k === "true" && selected.includes(item.n)
 				const keyed = yield* Effect.result(
-					answered(
+					writeAnswerOf(
 						db.workload.insertKeyed.once({
 							params: {},
 							facts: { insert: { Keyed: [fact(item, id)] } }
@@ -830,7 +830,7 @@ export const rewriteCase = (c: RewriteCase, notes: Case<Feature>) =>
 				}
 				met("a key's selection", c.keyed, item)
 				const queried = yield* Effect.result(
-					answered(
+					writeAnswerOf(
 						db.workload.insertQueried.once({
 							params: {},
 							facts: { insert: { Queried: [fact(item, id)] } }

@@ -75,7 +75,7 @@ import {
 	stampedDeparture,
 	untilAnswered
 } from "#test/schedules/write/places.fixtures.ts"
-import { answered } from "#test/support/calls.ts"
+import { writeAnswerOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { openActors } from "#test/support/schedules/actors.ts"
 import { rigIn } from "#test/support/schedules/rig.ts"
@@ -130,12 +130,12 @@ export const twoWritersStampingOneGroupsPlaceStampItsPlacesGaplessFromItsHeadInT
 								const open = (context: Parameters<Parameters<typeof rig.servedWriter>[1]>[0]) =>
 									openServed(rig.served.roles.writer, {}).pipe(Effect.provideContext(context))
 								const a = yield* rig.servedWriter("a", open, (db) =>
-									answered(
+									writeAnswerOf(
 										db.workload.stamp.once({ params: {}, facts: { insert: { Session: [] } } })
 									)
 								)
 								const b = yield* rig.servedWriter("b", open, (db) =>
-									answered(
+									writeAnswerOf(
 										db.workload.stamp.once({ params: {}, facts: { insert: { Session: [] } } })
 									)
 								)
@@ -188,14 +188,14 @@ export const twoWritersStampingOneGroupsPlaceStampItsPlacesGaplessFromItsHeadInT
 												insert: { Session: callRows("A", items, c.marks.A), Gate: [{ n: 0 }] }
 											}
 										})
-										.pipe(answered, untilAnswered)
+										.pipe(writeAnswerOf, untilAnswered)
 								const stamp = (items: Items) =>
 									b.db.workload.stamp
 										.once({
 											params: {},
 											facts: { insert: { Session: callRows("B", items, c.marks.B) } }
 										})
-										.pipe(answered, untilAnswered)
+										.pipe(writeAnswerOf, untilAnswered)
 
 								const seeded = seededRows(c)
 								yield* rig.replace(

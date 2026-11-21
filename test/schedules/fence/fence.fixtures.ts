@@ -12,7 +12,7 @@ import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, login, on, relation, role, schema } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
-import { answered, type WriteAnswer } from "#test/support/calls.ts"
+import { writeAnswerOf, type WriteAnswer } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { openActors, textOfValue } from "#test/support/schedules/actors.ts"
@@ -175,12 +175,12 @@ export const runRace = (
 		const publisher = yield* rig.servedWriter(
 			"publisher",
 			(context) => openServed(rig.served.roles.publisher, {}).pipe(Effect.provideContext(context)),
-			(db) => answered(db.workload.publisherNoop.once({ params: {}, facts: {} }))
+			(db) => writeAnswerOf(db.workload.publisherNoop.once({ params: {}, facts: {} }))
 		)
 		const learner = yield* rig.servedWriter(
 			"learner",
 			(context) => openServed(rig.served.roles.learner, {}).pipe(Effect.provideContext(context)),
-			(db) => answered(db.workload.learnerNoop.once({ params: {}, facts: {} }))
+			(db) => writeAnswerOf(db.workload.learnerNoop.once({ params: {}, facts: {} }))
 		)
 		if (learner.ctx.isolation === "readCommitted") {
 			c.note("generate certifies the learner READ COMMITTED")
@@ -208,7 +208,7 @@ export const runRace = (
 			kind: "grizzle",
 			session: "publisher",
 			label: `replace Pub(${race.a}, ${race.s}) by Pub(${race.a}, ${race.t}), then Log(${race.n})`,
-			call: answered(
+			call: writeAnswerOf(
 				publisher.db.workload.replace.once({
 					params: { v: race.a, s: race.t, n: race.n },
 					facts: {}
@@ -220,7 +220,9 @@ export const runRace = (
 			kind: "grizzle",
 			session: "learner",
 			label: `see Seen(${race.k}, ${race.a})`,
-			call: answered(learner.db.workload.see.once({ params: { k: race.k, v: race.a }, facts: {} })),
+			call: writeAnswerOf(
+				learner.db.workload.see.once({ params: { k: race.k, v: race.a }, facts: {} })
+			),
 			footprint: everyRelation
 		}
 		const blocker: RaceTxn<WriteAnswer<WriteOutcome<unknown>>> = {

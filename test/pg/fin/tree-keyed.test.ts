@@ -62,7 +62,7 @@ import {
 	twoRootsTemplate
 } from "#test/pg/fin/tree-keyed.fixtures.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
-import { answered, rowsOf } from "#test/support/calls.ts"
+import { writeAnswerOf, rowsOf } from "#test/support/calls.ts"
 import { canonicalRows, type Forest, lawful, numbered } from "#test/support/families/tree.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { refusedLaws } from "#test/support/refused.ts"
@@ -114,7 +114,7 @@ export const aTreeKeyedByItsRootFieldsThenItsStartWritesEveryLawfulForestWholeAs
 								1: {
 									installed: one.installed,
 									write: (forest: Forest) =>
-										answered(
+										writeAnswerOf(
 											dbOne.workload.insertNodes.once({
 												params: {},
 												facts: {
@@ -151,7 +151,7 @@ export const aTreeKeyedByItsRootFieldsThenItsStartWritesEveryLawfulForestWholeAs
 								2: {
 									installed: two.installed,
 									write: (forest: Forest) =>
-										answered(
+										writeAnswerOf(
 											dbTwo.workload.insertNodes.once({
 												params: {},
 												facts: {
@@ -190,7 +190,7 @@ export const aTreeKeyedByItsRootFieldsThenItsStartWritesEveryLawfulForestWholeAs
 								3: {
 									installed: three.installed,
 									write: (forest: Forest) =>
-										answered(
+										writeAnswerOf(
 											dbThree.workload.insertNodes.once({
 												params: {},
 												facts: {

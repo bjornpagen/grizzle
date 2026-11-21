@@ -50,7 +50,7 @@ import {
 	Whole,
 	Wide
 } from "#test/pg/write/drawn-types/drawn-types.fixtures.ts"
-import { answered, type WriteAnswer } from "#test/support/calls.ts"
+import { writeAnswerOf, type WriteAnswer } from "#test/support/calls.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
@@ -98,7 +98,7 @@ type Answer =
 const answerOfCall = (
 	write: Effect.Effect<WriteOutcome<Issued>, CallError>
 ): Effect.Effect<Answer, CallError> =>
-	Effect.catchIf(Effect.map(answered(write), answerOf), isInput, (error) =>
+	Effect.catchIf(Effect.map(writeAnswerOf(write), answerOf), isInput, (error) =>
 		Effect.succeed<Answer>({ kind: "input", text: error.message })
 	)
 
@@ -413,7 +413,7 @@ export const aPutThatMovesMembersIntoAGroupPastItsCarriersBoundIsRefusedOnTheDra
 									count: [BigInt(n)],
 									at: Array.from({ length: n }, (_, i) => BigInt(i))
 								})
-								const inserted = yield* answered(
+								const inserted = yield* writeAnswerOf(
 									db.workload.moveOwners.once({
 										params: {},
 										facts: {
@@ -433,7 +433,7 @@ export const aPutThatMovesMembersIntoAGroupPastItsCarriersBoundIsRefusedOnTheDra
 									{ one: groupOf(2), two: groupOf(move.full) },
 									"each fresh group holds its members at 0 … n − 1"
 								)
-								const answer = yield* answered(
+								const answer = yield* writeAnswerOf(
 									db.workload.moveMembers.once({
 										params: {},
 										facts: {
