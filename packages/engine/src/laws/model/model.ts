@@ -122,7 +122,8 @@ import {
 	reverseIndexOf,
 	type ReverseIndexPlan,
 	type RuleDischarge,
-	type TargetKey
+	type TargetKey,
+	uniqueOrder
 } from "#compiler/laws/model/plan.ts"
 import { rowColumn, wideRow } from "#compiler/laws/model/rows.ts"
 import { type RelationLaws, relationLaws } from "#compiler/laws/model/uniques.ts"
@@ -1213,8 +1214,10 @@ class Specializer {
 			...placed.filter((p) => isKeyLaw(p.plan.law)),
 			...placed.filter((p) => !isKeyLaw(p.plan.law))
 		]
+		const ordered = uniqueOrders(keysFirst)
 		for (const { plan, natives: placedNatives } of keysFirst) {
-			for (const n of placedNatives) {
+			for (const native of placedNatives) {
+				const n = native.kind === "Unique" ? ordered(native) : native
 				const object = this.#materialize(n, plan, deferred, (e) => merged.expr(e))
 				const key = nativeIdentity(object, (side) => this.recognizer.closedSideOrdinal(side))
 				const known = byKey.get(key)
@@ -1830,6 +1833,78 @@ class Specializer {
 /** Whether a law is a key, a declared one or one over a projected side, whose violation an object it plans reports. */
 const isKeyLaw = (law: TheoryLaw): boolean =>
 	law.detail.kind === "key" || law.detail.kind === "projectedKey"
+
+/** A planned column's identity: a field by its name, a law column by its identity at the naming door. */
+const plannedColumnText = (c: PlannedColumn): string =>
+	c.kind === "field" ? `f\u0000${c.field.name}` : `l\u0000${lawColumnIdentity(c.column).canonical}`
+
+const samePlannedColumn = (a: PlannedColumn, b: PlannedColumn): boolean =>
+	plannedColumnText(a) === plannedColumnText(b)
+
+/** A column set of a relation as one text: the relation, and its columns' identities in code-unit order. */
+const columnSetText = (relation: string, columns: ReadonlyArray<PlannedColumn>): string =>
+	[relation, ...columns.map(plannedColumnText).toSorted(compareStrings)].join("\u0001")
+
+/**
+ * Each UNIQUE as the law model installs it, read over the placed plans in the order they are merged (key laws first):
+ * a column set a key law plans keeps the order its first plan gives it, a declared key its declared order; any other,
+ * which only references land on, takes of the orders its plans name the one that leads the most of its relation's
+ * reverse probes (plan.ts uniqueOrder), the first plan's at a tie, so a probe a UNIQUE can lead takes no B-tree of its
+ * own, as the reference choice counts it (plan.ts takingShared). A UNIQUE over a primary key's set merges into the
+ * primary key, seeded first, whatever its order.
+ */
+const uniqueOrders = (
+	placed: ReadonlyArray<{ readonly plan: LawPlan; readonly natives: ReadonlyArray<PlacedNative> }>
+): ((
+	unique: Extract<PlacedNative, { readonly kind: "Unique" }>
+) => Extract<PlacedNative, { readonly kind: "Unique" }>) => {
+	/** Each column set's orders in plan order, and whether a key law planned it first. */
+	const sets = new Map<
+		string,
+		{
+			readonly relation: string
+			readonly keyed: boolean
+			readonly orders: Array<NonEmptyReadonlyArray<PlannedColumn>>
+		}
+	>()
+	/** Each relation's B-tree reverse probes, each column set once. */
+	const probes = new Map<string, Map<string, NonEmptyReadonlyArray<PlannedColumn>>>()
+	for (const { plan, natives } of placed) {
+		for (const n of natives) {
+			if (n.kind === "Unique") {
+				const at = columnSetText(n.relation.name, n.columns)
+				const known = sets.get(at)
+				if (known === undefined) {
+					sets.set(at, {
+						relation: n.relation.name,
+						keyed: isKeyLaw(plan.law),
+						orders: [n.columns]
+					})
+				} else {
+					known.orders.push(n.columns)
+				}
+			}
+			if (n.kind === "ReverseIndex" && n.method === "btree") {
+				const of =
+					probes.get(n.relation.name) ?? new Map<string, NonEmptyReadonlyArray<PlannedColumn>>()
+				probes.set(n.relation.name, of)
+				of.set(columnSetText(n.relation.name, n.columns), n.columns)
+			}
+		}
+	}
+	const choose = uniqueOrder(samePlannedColumn)
+	const chosen = new Map<string, NonEmptyReadonlyArray<PlannedColumn>>()
+	for (const [at, set] of sets) {
+		const [first, ...rest] = set.orders
+		if (first !== undefined && !set.keyed) {
+			chosen.set(at, choose([first, ...rest], [...(probes.get(set.relation)?.values() ?? [])]))
+		}
+	}
+	return (unique) => {
+		const columns = chosen.get(columnSetText(unique.relation.name, unique.columns))
+		return columns === undefined ? unique : { ...unique, columns }
+	}
+}
 
 /** The field whose values a law column holds, its type the column's and an index entry over it sized as one of the
  * field's: a term's own field, a constant's target field, a drawn column's or a counted predecessor's count. */

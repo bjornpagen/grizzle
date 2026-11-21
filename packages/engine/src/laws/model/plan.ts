@@ -1203,6 +1203,14 @@ export const breaksKey = (columns: ReadonlyArray<PlannedColumn>, key: TargetKey)
 }
 
 /** Whether two lists of side columns hold one set of columns, each in the other. */
+/** Whether two lists of columns are one list: the same columns in the same order. */
+const sameOrder = (a: ReadonlyArray<SideColumn>, b: ReadonlyArray<SideColumn>): boolean =>
+	a.length === b.length &&
+	a.every((c, i) => {
+		const d = b[i]
+		return d !== undefined && sameSideColumn(c, d)
+	})
+
 const sameColumns = (a: ReadonlyArray<SideColumn>, b: ReadonlyArray<SideColumn>): boolean =>
 	a.length === b.length &&
 	a.every((c) => b.some((d) => sameSideColumn(c, d))) &&
@@ -1242,15 +1250,49 @@ const within = (columns: ReadonlyArray<SideColumn>, outer: ReadonlyArray<SideCol
 	columns.every((c) => outer.some((o) => sameSideColumn(c, o)))
 
 /**
- * Whether a B-tree over `index`, in its order, serves a reverse probe over `probe`, as the index engine places a law's
- * (physical/indexes/engine.ts reversePlacements): a unique one whose every column the probe binds, finding at most one
- * row, or one whose leading columns are the probe's, in any order; never one led by a probe column that holds the rest
- * further in, which reads that column's every row for each probe. `index` is unique wherever this reads it.
+ * Whether a B-tree over `index`, in its order, serves a reverse probe over `probe`, columns compared by `same`, as the
+ * index engine places a law's (physical/indexes/engine.ts reversePlacements): a unique one whose every column the probe
+ * binds, finding at most one row, or one whose leading columns are the probe's, in any order; never one led by a probe
+ * column that holds the rest further in, which reads that column's every row for each probe. `index` is unique wherever
+ * this reads it.
  */
-const servesProbe = (
-	index: NonEmptyReadonlyArray<SideColumn>,
-	probe: NonEmptyReadonlyArray<SideColumn>
-): boolean => within(index, probe) || sameColumns(index.slice(0, probe.length), probe)
+export const servesProbeBy =
+	<C>(same: (a: C, b: C) => boolean) =>
+	(index: NonEmptyReadonlyArray<C>, probe: NonEmptyReadonlyArray<C>): boolean => {
+		const holds = (columns: ReadonlyArray<C>, outer: ReadonlyArray<C>): boolean =>
+			columns.every((c) => outer.some((o) => same(c, o)))
+		const lead = index.slice(0, probe.length)
+		return (
+			holds(index, probe) ||
+			(lead.length === probe.length && holds(lead, probe) && holds(probe, lead))
+		)
+	}
+
+/** servesProbeBy over the columns a side lowers to. */
+const servesProbe = servesProbeBy(sameSideColumn)
+
+/**
+ * The order a UNIQUE over one column set is installed in, of the orders `orders` the plans landing on that set name, in
+ * their order: the first that serves the most of its relation's distinct reverse probes `probes` (servesProbeBy), the
+ * first plan's where none serves more. A UNIQUE holds its rows apart in any order of its columns and a foreign key
+ * references its column set in any order, so the order is the law model's to choose, and the one that leads a probe
+ * saves the B-tree the probe would take of its own: two fixed targets over (a, b) and (b, a) under one selection land
+ * on one UNIQUE, which a probe out of that selection over (a) reads only in the order (a, b). The law model installs
+ * each such UNIQUE in this order (model.ts), and the reference choice counts each configuration's UNIQUEs in it
+ * (`takingShared`), so the two agree.
+ */
+export const uniqueOrder =
+	<C>(same: (a: C, b: C) => boolean) =>
+	(
+		orders: NonEmptyReadonlyArray<NonEmptyReadonlyArray<C>>,
+		probes: ReadonlyArray<NonEmptyReadonlyArray<C>>
+	): NonEmptyReadonlyArray<C> => {
+		const serves = servesProbeBy(same)
+		const served = (order: NonEmptyReadonlyArray<C>): number =>
+			probes.filter((probe) => serves(order, probe)).length
+		const [first, ...rest] = orders
+		return rest.reduce((best, order) => (served(order) > served(best) ? order : best), first)
+	}
 
 /**
  * The B-trees the index engine creates for reverse probes no index serves: it plans the widest request first and drafts
@@ -1291,12 +1333,15 @@ interface FixedUse {
 
 /**
  * A UNIQUE a reference may land on, as the choice counts what it adds to its relation beyond what the relation holds
- * (`Planned`): its columns, in the order the reference names them, and its law columns no side lowers to. Which reverse
- * probes it serves is no fact of the landing: landings over one column set are one UNIQUE, installed once in one order
- * (model.ts nativeIdentity, the first plan's), so only a configuration knows the UNIQUEs it installs (`takingShared`).
+ * (`Planned`): its columns, in the order the first reference names them, every order its references name, and its law
+ * columns no side lowers to. Which reverse probes it serves is no fact of the landing: landings over one column set are
+ * one UNIQUE, installed once in the order of theirs that serves the most probes (`uniqueOrder`), so only a configuration
+ * knows the UNIQUEs it installs (`takingShared`).
  */
 interface Landing {
 	readonly columns: NonEmptyReadonlyArray<SideColumn>
+	/** Every order the references landing here name, `columns` first, each once. */
+	readonly orders: NonEmptyReadonlyArray<NonEmptyReadonlyArray<SideColumn>>
 	readonly fresh: ReadonlyArray<SideColumn>
 }
 
@@ -1321,8 +1366,8 @@ interface Step {
 /**
  * The fixed targets of one relation that take the shared reference: a choice by what each configuration adds to the
  * whole schema, counted exactly. A configuration's objects are the UNIQUEs it installs, one per column set its targets
- * land on that no planned UNIQUE holds, in the order of the first target landing on it, as the law model merges them
- * (model.ts nativeIdentity, the first plan's object kept); the B-trees the reverse probes no planned UNIQUE and no
+ * land on that no planned UNIQUE holds, in the order of theirs that serves the most reverse probes, as the law model
+ * installs them (`uniqueOrder`); the B-trees the reverse probes no planned UNIQUE and no
  * installed UNIQUE serves need, each UNIQUE serving by the order it is installed in, a chain of them over nested column
  * sets sharing one (`probeIndexes`); the distinct law columns its landings add; and the distinct constants its shared
  * references add to their sources. From every target
@@ -1338,30 +1383,62 @@ const takingShared = (
 	uses: ReadonlyArray<FixedUse>,
 	planned: Planned
 ): ReadonlyArray<NonEmptyReadonlyArray<SideColumn>> => {
-	const probes = distinct(planned.probes, sameColumns).filter(
-		(probe) => !planned.uniques.some((u) => servesProbe(u, probe))
-	)
-	const landing = (columns: NonEmptyReadonlyArray<SideColumn>): Landing => ({
-		columns,
-		fresh: columns.filter(
+	const every = distinct(planned.probes, sameColumns)
+	const probes = every.filter((probe) => !planned.uniques.some((u) => servesProbe(u, probe)))
+	const ordered = uniqueOrder(sameSideColumn)
+	const landing = (orders: NonEmptyReadonlyArray<NonEmptyReadonlyArray<SideColumn>>): Landing => ({
+		columns: orders[0],
+		orders,
+		fresh: orders[0].filter(
 			(c) => c.kind === "law" && !planned.columns.some((p) => sameSideColumn(p, c))
 		)
 	})
+	/** `first`, then each other order of `all`, each once. */
+	const ordersOf = (
+		first: NonEmptyReadonlyArray<SideColumn>,
+		all: ReadonlyArray<NonEmptyReadonlyArray<SideColumn>>
+	): NonEmptyReadonlyArray<NonEmptyReadonlyArray<SideColumn>> => [
+		first,
+		...distinct(all, sameOrder).filter((o) => !sameOrder(o, first))
+	]
 	const owns = distinct(uses, (a, b) => sameColumns(a.own, b.own))
-	const targets: ReadonlyArray<FixedTarget> = owns.map((use) => ({
-		own: landing(use.own),
-		shared: landing(use.shared),
-		constants: distinct(
-			uses.filter((u) => sameColumns(u.own, use.own)).flatMap((u) => u.constants),
-			sameConstant
-		)
-	}))
+	const targets: ReadonlyArray<FixedTarget> = owns.map((use) => {
+		const alike = uses.filter((u) => sameColumns(u.own, use.own))
+		return {
+			own: landing(
+				ordersOf(
+					use.own,
+					alike.map((u) => u.own)
+				)
+			),
+			shared: landing(
+				ordersOf(
+					use.shared,
+					alike.map((u) => u.shared)
+				)
+			),
+			constants: distinct(
+				alike.flatMap((u) => u.constants),
+				sameConstant
+			)
+		}
+	})
 	const objects = (taking: ReadonlySet<FixedTarget>): number => {
 		const landed = targets.map((t) => (taking.has(t) ? t.shared : t.own))
-		const installed = distinct(
-			landed.map((l) => l.columns),
-			sameColumns
-		).filter((columns) => !planned.uniques.some((u) => sameColumns(u, columns)))
+		const installed = distinct(landed, (a, b) => sameColumns(a.columns, b.columns))
+			.filter((l) => !planned.uniques.some((u) => sameColumns(u, l.columns)))
+			.map((l) =>
+				ordered(
+					[
+						l.orders[0],
+						...l.orders.slice(1),
+						...landed
+							.filter((m) => m !== l && sameColumns(m.columns, l.columns))
+							.flatMap((m) => m.orders)
+					],
+					every
+				)
+			)
 		return (
 			installed.length +
 			probeIndexes(probes.filter((probe) => !installed.some((u) => servesProbe(u, probe)))) +

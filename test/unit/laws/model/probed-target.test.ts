@@ -80,9 +80,24 @@ export const aFixedTargetsUNIQUEBesideTheReverseProbesOutOfItsSelectionPlansNoRe
 				reason:
 					"K on a over every row, three targets fixing kind = 2, 0 and 1 over (a, b), one superkey (a, b, kind) for all three, and a probe out of select(T, kind = 2) over (id, a, b), which the kind = 2 target's own columns serve: the fewest objects take the other two to the superkey and keep that one at its own columns. The choice moved all three at once and never one back, and K alone planned 17 objects where that placement plans 16 (floor stream case 53, TEST_SEED=1395491330)",
 				since: "2026-11-15"
+			},
+			{
+				token: ReplayToken(
+					"test/unit/laws/model/probed-target.test.ts#aFixedTargetsUNIQUEBesideTheReverseProbesOutOfItsSelectionPlansNoRedundantPairAUniqueIndexPerReferencedSetAndNoneBeyondTheKeysAndReferencesNoMoreObjectsThanTheImpliedKeysRestatedAConstantOnlyWhereItSavesOneAndReportsAKeyEveryDuplicateBreaks:-:3.0.0.0.2.0.0.1.1.0.1.0.1.0.1.1.0.0"
+				),
+				reason:
+					"K on (a, b) over every row, a target fixing kind = 0 over (a, b), two fixing b = 0 and kind = 0 over (a, b) and (b, a), and a probe out of select(T, b = 0, kind = 0) over (a): the two guarded targets land on one UNIQUE, which the law model installed in its first plan's order, (b, a) by law order, so it led no (a) probe, and the probe took a B-tree of its own. The restated keys state (a, b), which leads it, and K alone planned 14 objects to their 13 (UNITREDS on trunk)",
+				since: "2026-11-21"
 			}
 		],
 		kills: [
+			{
+				file: "packages/engine/src/laws/model/plan.ts",
+				original:
+					"\t\treturn rest.reduce((best, order) => (served(order) > served(best) ? order : best), first)",
+				replacement: "\t\treturn rest.reduce((best) => best, first)",
+				why: "A UNIQUE over one column set is installed in its first plan's order, whatever probe another order leads (laws/model/plan.ts uniqueOrder): two guarded targets over (a, b) and (b, a) install (b, a), a probe over (a) takes a B-tree of its own, and K alone plans one object more than the restated keys."
+			},
 			{
 				file: "packages/engine/src/laws/model/plan.ts",
 				original:
