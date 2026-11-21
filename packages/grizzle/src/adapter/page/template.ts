@@ -231,7 +231,8 @@ const runArtifact = (page: ServedPage, parts: ArtifactParts): RunArtifact => {
 			first: request(page.requests.first),
 			after: request(page.requests.after),
 			last: request(page.requests.last),
-			before: request(page.requests.before)
+			before: request(page.requests.before),
+			at: request(page.requests.at)
 		}
 	}
 }

@@ -2,18 +2,19 @@
  * A paged member's window, read at the boundary before any SQL (packages/grizzle/src/adapter/page/window.ts windowCall).
  *
  * A window is exactly `{ anchor, size }`, its size a safe integer of at least 1 with no upper bound, its anchor exactly
- * `{ kind: "start" }`, `{ kind: "end" }`, `{ kind: "after", key }` or `{ kind: "before", key }`, whose key is a list of
- * one value per comparator of the page's completed order, each admitted by its comparator's codec. A window of any other
- * own members is refused as CallInputRefused `window`, a size the rule refuses as `size`, and every other anchor as
+ * `{ kind: "start" }`, `{ kind: "end" }`, `{ kind: "after", key }`, `{ kind: "before", key }` or `{ kind: "at",
+ * position }`, whose key is a list of one value per comparator of the page's completed order, each admitted by its
+ * comparator's codec, and whose position is a safe integer of at least 0 with no upper bound. A window of any other own
+ * members is refused as CallInputRefused `window`, a size the rule refuses as `size`, and every other anchor as
  * `anchor`, judged in that order; an inherited member is no member, and a symbol key is an own member. An admitted window
- * is the call of its template: start the first, after the after, end the last and before the before template, its size,
- * and an anchored one's boundary, each comparator's canonical text of the key's value at its position. The rule is
- * restated here as the oracle, over comparators drawn from int4, int8, bool, uuid and text and windows drawn over every
- * member's presence, own or inherited, and every size, kind, key length and key value, each comparator's edge values and
- * the other carriers' among them.
+ * is the call of its template: start the first, after the after, end the last, before the before and at the at
+ * template, its size, an anchored one's boundary, each comparator's canonical text of the key's value at its position,
+ * and a positioned one's position. The rule is restated here as the oracle, over comparators drawn from int4, int8,
+ * bool, uuid and text and windows drawn over every member's presence, own or inherited, and every size, kind, key
+ * length, key value and position, each comparator's edge values, the position's and the other carriers' among them.
  *
- * Features: each admitted kind, each refusal, an inherited member, a key of another length, and each comparator's key
- * value admitted and refused.
+ * Features: each admitted kind, each refusal, an inherited member, a key of another length, the first position, a
+ * refused position, and each comparator's key value admitted and refused.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
@@ -52,11 +53,14 @@ export const aWindowAdmitsExactlyAnAnchorAndASizeAsItsTemplatesCallAndRefusesEve
 			"after",
 			"end",
 			"before",
+			"at",
 			"window",
 			"size",
 			"anchor",
 			"an inherited member",
 			"a key of another length",
+			"the first position",
+			"a refused position",
 			...Arr.flatMap(comparatorNames, (comparator): ReadonlyArray<WindowFeature> => [
 				`an admitted ${comparator} value`,
 				`a refused ${comparator} value`
@@ -84,7 +88,7 @@ export const aWindowAdmitsExactlyAnAnchorAndASizeAsItsTemplatesCallAndRefusesEve
 		kept: [
 			{
 				token: ReplayToken(
-					"test/unit/page/request.test.ts#aWindowAdmitsExactlyAnAnchorAndASizeAsItsTemplatesCallAndRefusesEveryOtherWindowByItsMembersItsSizeOrItsAnchor:100.8:0.0.0.0.1.0.0.1.0.0.1.0.1.1.0.7.0.0.0.0.0"
+					"test/unit/page/request.test.ts#aWindowAdmitsExactlyAnAnchorAndASizeAsItsTemplatesCallAndRefusesEveryOtherWindowByItsMembersItsSizeOrItsAnchor:-:0.0.0.0.1.0.0.1.0.0.1.0.1.1.0.7.0.0.0.0.0.0.0.0"
 				),
 				reason:
 					"a window whose key holds one value more than its comparators, which must be refused",
@@ -103,6 +107,19 @@ export const aWindowAdmitsExactlyAnAnchorAndASizeAsItsTemplatesCallAndRefusesEve
 				original: "\tif (!Arr.isArray(key) || Reflect.ownKeys(key).length !== length + 1) {",
 				replacement: "\tif (!Arr.isArray(key) || Reflect.ownKeys(key).length < length + 1) {",
 				why: "A key longer than the comparators is admitted; the property fails."
+			},
+			{
+				file: "packages/grizzle/src/adapter/page/window.ts",
+				original: '\ttypeof value === "number" && Number.isSafeInteger(value) && value >= 0',
+				replacement: '\ttypeof value === "number" && Number.isSafeInteger(value) && value >= 1',
+				why: "The position 0, the first page's, is refused; the property fails."
+			},
+			{
+				file: "packages/grizzle/src/adapter/page/window.ts",
+				original: "\t\t\t\t? Result.succeed({ variant: named.variant, size, position })",
+				replacement:
+					"\t\t\t\t? Result.succeed({ variant: named.variant, size, position: position + 1 })",
+				why: "A position is read one past the caller's, every page one row late; the property fails."
 			}
 		]
 	})

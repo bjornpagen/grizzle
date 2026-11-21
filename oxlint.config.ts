@@ -29,6 +29,7 @@ const DICTIONARY_MINTS = [
 	"test/pg/lower-conservative/vocabulary.dictionary.ts",
 	"test/pg/scalar/registry.dictionary.ts",
 	"test/pg/oracle/mutants/invalid.dictionary.ts",
+	"test/types/api/anchor.dictionary.ts",
 	"test/types/api/config.dictionary.ts",
 	"test/types/api/contract-brand.dictionary.ts",
 	"test/types/api/decoder.dictionary.ts",

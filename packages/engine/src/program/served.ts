@@ -204,7 +204,8 @@ export const servedPage = (page: PageTemplate, codes: Codebook): ServedPage => {
 			first: request(requests.first),
 			after: request(requests.after),
 			last: request(requests.last),
-			before: request(requests.before)
+			before: request(requests.before),
+			at: request(requests.at)
 		}
 	}
 }

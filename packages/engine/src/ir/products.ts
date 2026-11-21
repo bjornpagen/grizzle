@@ -228,7 +228,7 @@ export type StatementRole =
 
 /**
  * A page placeholder every window fills from its size: the most rows the window delivers, which its rows statement's
- * LIMIT and an attachment's statement bound the window's rows by (lower/shapes/page/seek.ts SizeSlots).
+ * LIMIT and an attachment's statement bound the window's rows by (lower/shapes/page/seek.ts CountSlot).
  */
 export interface SizeFill {
 	readonly kind: "size"
@@ -244,8 +244,19 @@ export interface BoundaryFill {
 	readonly field: string
 }
 
-/** What fills one page placeholder: a size fill, or, in an anchored window's statement, a boundary. */
-export type PageFill = SizeFill | BoundaryFill
+/**
+ * A page placeholder only a positioned window fills: its position, the count of rows of the completed order before the
+ * window, which its rows statement's OFFSET skips (lower/shapes/page/seek.ts CountSlot).
+ */
+export interface OffsetFill {
+	readonly kind: "offset"
+}
+
+/**
+ * What fills one page placeholder: a size fill, or, in an anchored window's statement, a boundary, or, in a positioned
+ * window's, its offset.
+ */
+export type PageFill = SizeFill | BoundaryFill | OffsetFill
 
 /**
  * Which of a stratum's rows of a relation the host fills a placeholder carries, each set in its own layout:
@@ -283,8 +294,8 @@ export const filledRowsKey = (
  * scalar or relation parameter, `param` is the declared ParamId, which is the parameter's declared name and the key of
  * its host value (check/params.ts). A member slot is a write's enumerated member input (write/insert/input.ts); a page
  * placeholder is one only the page compiler allocates, and has no encoder: the page runtime binds its fill's text
- * (adapter/page/execute.ts), a size as the decimal digits of a bigint, `$n::bigint`, and a boundary as the text its
- * anchor's key value encodes to.
+ * (adapter/page/execute.ts), a size and an offset as the decimal digits of a bigint, `$n::bigint`, and a boundary as the
+ * text its anchor's key value encodes to.
  *
  * A relation input's placeholders in one statement, one per array (ArrayTexts), each carry an encoder over the columns
  * they share and their `part`, the position of their array among the input's arrays: a binder writes each

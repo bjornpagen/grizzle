@@ -531,7 +531,10 @@ const factsSchema = <L>(
 	}
 }
 
-/** The JSON Schema of a page's window: its anchor, tagged by kind, and its size, a positive JSON integer. */
+/**
+ * The JSON Schema of a page's window: its anchor, tagged by kind, a positioned one's position a JSON integer of at least
+ * 0, and its size, a positive JSON integer.
+ */
 const windowSchema = <L>(
 	key: ReadonlyArray<WireColumn<L>>,
 	leaf: (l: L) => WireSchema
@@ -542,8 +545,18 @@ const windowSchema = <L>(
 			["kind", { const: kind }],
 			["key", keySchema(key, leaf)]
 		])
+	const positioned = (kind: Anchor["kind"]): WireSchema =>
+		closedObject([
+			["kind", { const: kind }],
+			["position", { type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER }]
+		])
 	return closedObject([
-		["anchor", { oneOf: [tagged("start"), keyed("after"), tagged("end"), keyed("before")] }],
+		[
+			"anchor",
+			{
+				oneOf: [tagged("start"), keyed("after"), tagged("end"), keyed("before"), positioned("at")]
+			}
+		],
 		["size", { type: "integer", minimum: 1, maximum: Number.MAX_SAFE_INTEGER }]
 	])
 }

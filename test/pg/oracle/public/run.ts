@@ -887,6 +887,47 @@ const walk = (
 		return publicRows(shape, ordered.flat())
 	})
 
+/**
+ * Pages of an ordered root by position, read by `window` `size` rows at a time: page n the window at position n times
+ * `size`, from page 0 until a window answers no row; concatenated in order. A page holds at most `size` rows, and one
+ * that holds fewer is the last that holds any, so with the reference's rows the concatenation judges page n to hold its
+ * rows [n * size, (n + 1) * size) exactly.
+ */
+const pages = (
+	window: (window: unknown) => Effect.Effect<ReadValue, CallError>,
+	size: number,
+	shape: Shape,
+	bound: number
+): Effect.Effect<Answer, Disagreement> =>
+	Effect.gen(function* () {
+		const read: Array<ReadonlyArray<unknown>> = []
+		let short = false
+		for (let n = 0; ; n++) {
+			if (n > bound) {
+				return Result.fail("the pages by position never end")
+			}
+			const got: Exit.Exit<ReadValue, CallError> = yield* sideExit(
+				window({ anchor: { kind: "at", position: n * size }, size })
+			)
+			if (Exit.isFailure(got)) {
+				return Result.fail(ended(got.cause))
+			}
+			const entries: ReadonlyArray<Entry<DecodedRow>> = [...got.value.entries()]
+			if (entries.length === 0) {
+				break
+			}
+			if (entries.length > size) {
+				return Result.fail(`page ${n} holds ${entries.length} rows of ${size}`)
+			}
+			if (short) {
+				return Result.fail(`page ${n} holds rows after a page of fewer than ${size}`)
+			}
+			short = entries.length < size
+			read.push(Arr.map(entries, (entry) => entry.row))
+		}
+		return publicRows(shape, read.flat())
+	})
+
 const isList = (value: unknown): value is ReadonlyArray<unknown> => Arr.isArray(value)
 
 /** The name of the one read-back a query read's ChangeSet carries. */
@@ -1149,11 +1190,20 @@ const queryRead = (
 				shape,
 				bound
 			)
+			const byPosition = yield* pages((window) => plain.window(params, window), size, shape, bound)
+			const strictByPosition = yield* pages(
+				(window) => strict.window(params, window),
+				size,
+				shape,
+				bound
+			)
 			answers.push(
 				{ side: "windows forward", output: forward },
 				{ side: "windows backward", output: backward },
 				{ side: "windows forward under the planner perturbation", output: strictForward },
-				{ side: "windows backward under the planner perturbation", output: strictBackward }
+				{ side: "windows backward under the planner perturbation", output: strictBackward },
+				{ side: "pages by position", output: byPosition },
+				{ side: "pages by position under the planner perturbation", output: strictByPosition }
 			)
 			note("page")
 			if (Result.isSuccess(expected) && expected.success.length > size) {
@@ -1629,8 +1679,8 @@ interface Members {
  *    answer under the contract's equivalence (answer.ts):
  *    - a query: its member's once (an ordered root's, a paged member's, the window of its every row), its value read
  *      twice, and once again, its one row where its value is keyed by no field, a query proved at most one row, and,
- *      for an ordered root, its windows forward and backward, concatenated, every window but the last that holds rows
- *      full;
+ *      for an ordered root, its windows forward and backward and its pages by position, each concatenated, every window
+ *      but the last that holds rows full;
  *    - a keyed lookup: a key member's once over a relation's primary key or a key(...)'s candidate key, its value of
  *      the fact or none;
  *    - each of them again under the case's planner settings (perturb.ts, which reach every read that opens a

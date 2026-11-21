@@ -27,7 +27,14 @@ import {
 import type { GroupOrder } from "#adapter/reader/run.ts"
 import type { PreparedStatement, RowIntake } from "#adapter/wire/batch.ts"
 import type { Cell, OutputRows, ParamText, Row } from "#compiler/plan/common.ts"
-import type { ChoiceInput, PageFill, PageStatementSlot } from "#compiler/plan/read.ts"
+import type {
+	AnchoredFill,
+	ChoiceInput,
+	PageFill,
+	PageStatementSlot,
+	PositionedFill,
+	SizeFill
+} from "#compiler/plan/read.ts"
 import type { ServedChoice } from "#compiler/plan/serve.ts"
 
 /**
@@ -39,11 +46,12 @@ import type { ServedChoice } from "#compiler/plan/serve.ts"
  * (template.ts).
  *
  * 1. The rows part of the window's template, or one per heading group of a heterogeneous union. Each is take(size) in
- *    the template's fetch order after its seek: its size placeholder takes the window's size, its LIMIT and its
- *    attachments' bound alike, and each boundary placeholder the anchor's text at that comparator's position, its
- *    comparator column's codec's (window.ts); every other placeholder is a declared parameter, encoded by the
- *    statement's own encoder, or a relation parameter in the transport its distinct fact count selected
- *    (reader/relations.ts). A statement with a
+ *    the template's fetch order after its seek or its offset, a positioned window's heading group its rows of the
+ *    window (lower/shapes/page/rows.ts positionedGroupRows): its size placeholder takes the window's size, its LIMIT
+ *    and its attachments' bound alike, each boundary placeholder the anchor's text at that comparator's position, its
+ *    comparator column's codec's (window.ts), and its offset placeholder the window's position; every other
+ *    placeholder is a declared parameter, encoded by the statement's own encoder, or a relation parameter in the
+ *    transport its distinct fact count selected (reader/relations.ts). A statement with a
  *    per-execution form runs that form when one of its choices' inputs exceeds the choice's threshold: a relation
  *    parameter's distinct fact count, or, for an attachment's take over the window, its size.
  * 2. Attachments, evaluated over the window's rows only: each part reads the window's delivered rows, which the
@@ -58,8 +66,9 @@ import type { ServedChoice } from "#compiler/plan/serve.ts"
  * Whether more rows lie beyond a window is no flag of it: the adjacent window, anchored at its first or last row's key,
  * answers them, and answers none where none lie. A statement failure fails the window: there is no short window.
  *
- * One window as it runs: its template's variant and its size, and an anchored window's boundary texts, one per
- * comparator, its RowKey's values written by their comparators' codecs (window.ts windowCall).
+ * One window as it runs: its template's variant and its size, an anchored window's boundary texts, one per comparator,
+ * its RowKey's values written by their comparators' codecs, and a positioned window's position, the count of rows of
+ * the completed order before it (window.ts windowCall).
  */
 export type PageCall =
 	| { readonly variant: "first"; readonly size: number }
@@ -74,30 +83,51 @@ export type PageCall =
 			readonly size: number
 			readonly boundary: ReadonlyArray<ParamText>
 	  }
+	| { readonly variant: "at"; readonly size: number; readonly position: number }
 
 /** A delivered row of a window: the Row the query's decoder reads, its row's cells with its attachments' child Rows. */
 interface DeliveredEdge {
 	readonly row: Row
 }
 
+/** The binding of a plain window's page placeholder, its size fill: the window's size. */
+const sizeBinding =
+	(size: number): ((fill: SizeFill) => ParamText) =>
+	() =>
+		countParam(size)
+
 /**
- * The binding of a window's page placeholder: the size fill's text, the window's size, or a boundary value as the
- * window's anchor wrote it. The engine allocates one boundary
- * placeholder per comparator, at its position, and the window's RowKey holds one value per comparator (window.ts), so a
- * position the boundary holds no text at is a defect of the compiler.
+ * The binding of an anchored window's page placeholder: its size fill's, the window's size, or a boundary value as the
+ * window's anchor wrote it. The engine allocates one boundary placeholder per comparator, at its position, and the
+ * window's RowKey holds one value per comparator (window.ts), so a position the boundary holds no text at is a defect
+ * of the compiler.
  */
-const windowBinding =
-	(call: PageCall) =>
-	(fill: PageFill): ParamText => {
-		if (fill.kind !== "boundary") {
-			return countParam(call.size)
+const anchoredBinding =
+	(size: number, boundary: ReadonlyArray<ParamText>) =>
+	(fill: AnchoredFill): ParamText => {
+		switch (fill.kind) {
+			case "size":
+				return countParam(size)
+			case "boundary": {
+				const text = boundary[fill.position]
+				if (text === undefined) {
+					throw defect(`an anchored window binds its page boundary placeholder ${fill.position}`)
+				}
+				return text
+			}
 		}
-		const boundary = "boundary" in call ? call.boundary : []
-		const text = boundary[fill.position]
-		if (text === undefined) {
-			throw defect(`a ${call.variant} window binds its page boundary placeholder ${fill.position}`)
+	}
+
+/** The binding of a positioned window's page placeholder: its size fill's, the window's size, or its offset's, its position. */
+const positionedBinding =
+	(size: number, position: number) =>
+	(fill: PositionedFill): ParamText => {
+		switch (fill.kind) {
+			case "size":
+				return countParam(size)
+			case "offset":
+				return countParam(position)
 		}
-		return text
 	}
 
 /** The size of a choice's input in one execution: the window's size, or a relation parameter's distinct fact count. */
@@ -137,20 +167,40 @@ const sending = <F extends PageFill>(
 	)
 }
 
-/** The statement of window `call` of `runtime`, its rows going to `intake` (see the header, 1 and 2). */
+/**
+ * The statement of window `call` of `runtime`, its rows going to `intake` (see the header, 1 and 2): its variant's
+ * statement, whose page placeholders are each one of its variant's fills, bound by that variant's binding.
+ */
 export const windowStatement = (
 	runtime: PageRuntime,
 	inputs: ExecutionInputs,
 	call: PageCall,
 	intake: RowIntake
-): Effect.Effect<PreparedStatement, InputTooLarge> =>
-	sending(
-		runtime.artifact.requests[call.variant].run,
-		inputs,
-		call.size,
-		windowBinding(call),
-		intake
-	)
+): Effect.Effect<PreparedStatement, InputTooLarge> => {
+	const requests = runtime.artifact.requests
+	switch (call.variant) {
+		case "first":
+		case "last":
+			return sending(requests[call.variant].run, inputs, call.size, sizeBinding(call.size), intake)
+		case "after":
+		case "before":
+			return sending(
+				requests[call.variant].run,
+				inputs,
+				call.size,
+				anchoredBinding(call.size, call.boundary),
+				intake
+			)
+		case "at":
+			return sending(
+				requests.at.run,
+				inputs,
+				call.size,
+				positionedBinding(call.size, call.position),
+				intake
+			)
+	}
+}
 
 /**
  * A row a rows statement delivered, a candidate row of the window: its statement, its heading group, its cells and its

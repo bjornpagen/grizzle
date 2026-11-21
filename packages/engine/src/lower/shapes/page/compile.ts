@@ -69,21 +69,31 @@ import {
 	ShapeState,
 	withBoundary
 } from "#compiler/lower/shapes/index.ts"
-import { pagedRows, retainedGroupRows } from "#compiler/lower/shapes/page/rows.ts"
 import {
+	pagedRows,
+	positionedGroupRows,
+	retainedGroupRows
+} from "#compiler/lower/shapes/page/rows.ts"
+import {
+	type AnchoredFill,
 	type AnchoredVariant,
 	anchoredSeek,
 	anchoredSlots,
+	edgeStart,
 	type PageComparator,
 	type PageDirection,
 	type PageVariant,
 	type PlainVariant,
+	type PositionedFill,
+	type PositionedVariant,
 	pageComparators,
 	plainSlots,
+	positionedSlots,
 	type RequestSlots,
 	reversedCompletedOrder,
 	type VariantFill,
-	variantDirection
+	variantDirection,
+	type WindowStart
 } from "#compiler/lower/shapes/page/seek.ts"
 
 import {
@@ -96,7 +106,7 @@ import { orderIsTotal } from "#compiler/lower/shapes/take/order.ts"
 import { assertMergeOrder, groupRows } from "#compiler/lower/shapes/union/index.ts"
 import type { AttachedTree, RowsRole, StatementRoots } from "#compiler/runtime/lower/tree.ts"
 import type { Expr, OperandSelect, OrderItem, Select } from "#compiler/sql/ast.ts"
-import { and, keyedSet, select } from "#compiler/sql/build.ts"
+import { and, binary, keyedSet, select } from "#compiler/sql/build.ts"
 
 /**
  * A page's program in its optimized artifact: one statement of parts, whose attachments choose by a relation
@@ -463,7 +473,7 @@ const sourcesOf = <F extends PageFill, S, P>(
 
 /**
  * One window variant's program, its page placeholders those `slotsOf` allocates into its parameter list: a plain
- * window's size, an anchored one's size and boundaries.
+ * window's size, an anchored one's size and boundaries, a positioned one's size and offset.
  */
 const requestProgram = <F extends PageFill, S, P>(
 	kit: Kit<F, S, P>,
@@ -476,15 +486,15 @@ const requestProgram = <F extends PageFill, S, P>(
 	const direction = variantDirection(variant)
 	const sources = sourcesOf(kit, shape)
 	/**
-	 * One source's rows after its anchor's seek, in the fetch order, bounded by `limit`, the window's size, which is
-	 * allocated after the rows' own placeholders and before the seek's.
+	 * One source's rows from `start` in the fetch order, bounded by `limit`, which is allocated after the rows' own
+	 * placeholders and before the seek's or the offset's.
 	 */
-	const paged = (source: PageSource<S>, slots: RequestSlots, limit: () => Expr): Select =>
+	const paged = (source: PageSource<S>, start: WindowStart, limit: () => Expr): Select =>
 		pagedRows(cx, {
 			rel: source.rel(),
 			heading: source.heading,
 			origin: { kind: "node", node: source.origin.id },
-			anchor: slots.anchor,
+			start,
 			direction,
 			order: (map) =>
 				kit.order(shape.order, source.heading, map, source.orderOrigin, source.orderHeading),
@@ -493,40 +503,58 @@ const requestProgram = <F extends PageFill, S, P>(
 	return kit.program(() => {
 		const slots = kit.slots(() => slotsOf(kit.delivery.params))
 		/**
-		 * The rows the window delivers of a source, a heading group's rows cut by the merge (rows.ts retainedGroupRows),
-		 * which its attachments read.
+		 * The window's rows of a source, as its rows part delivers them (`delivered`) and as its attachments read them
+		 * (`retained`). One source's are its rows from the window's start, at most its size of them, delivered and
+		 * read alike. A heading group's, from an edge or a seek, are delivered as the group's first k, which the runtime
+		 * merges and cuts, and read as those of them the merge keeps (rows.ts retainedGroupRows); from an offset, they
+		 * are the group's rows of the window, delivered and read alike (rows.ts positionedGroupRows), each group's first
+		 * o+k read from the order's first row.
 		 */
-		const retained = (source: PageSource<S>): Select => {
-			const at = `node ${source.origin.id} (page ${variant} attachment)`
+		const windowRows = (source: PageSource<S>, read: "delivered" | "retained"): Select => {
 			const own = slots()
-			const size = (): Expr => own.sizes.size()
+			const size = (): Expr => own.size.value()
 			if (sources.length === 1) {
-				return paged(source, own, size)
+				return paged(source, own.start, size)
 			}
-			return retainedGroupRows(cx, {
-				groups: mapNonEmpty(sources, (g) => ({
-					rows: () => paged(g, own, size),
-					heading: g.heading
-				})),
-				own: { rows: () => paged(source, own, size), heading: source.heading },
-				origin: { kind: "node", node: source.origin.id },
-				comparators,
-				direction,
-				size: size(),
-				at
-			})
+			const origin = { kind: "node", node: source.origin.id } as const
+			const start = own.start
+			switch (start.kind) {
+				case "edge":
+				case "seek":
+					return read === "delivered"
+						? paged(source, start, size)
+						: retainedGroupRows(cx, {
+								groups: mapNonEmpty(sources, (g) => ({
+									rows: () => paged(g, start, size),
+									heading: g.heading
+								})),
+								own: { rows: () => paged(source, start, size), heading: source.heading },
+								origin,
+								comparators,
+								direction,
+								size: size(),
+								at: `node ${source.origin.id} (page ${variant} attachment)`
+							})
+				case "offset": {
+					const reach = (): Expr => binary("+", start.offset.value(), size())
+					return positionedGroupRows(cx, {
+						groups: mapNonEmpty(sources, (g) => ({
+							rows: () => paged(g, edgeStart, reach),
+							heading: g.heading
+						})),
+						own: { rows: () => paged(source, edgeStart, reach), heading: source.heading },
+						origin,
+						comparators,
+						size: size(),
+						offset: start.offset.value()
+					})
+				}
+			}
 		}
 		return mapNonEmpty(sources, (source) => {
-			const statement = kit.part(
-				() => {
-					const own = slots()
-					return paged(source, own, () => own.sizes.size())
-				},
-				source.heading,
-				source.role
-			)
+			const statement = kit.part(() => windowRows(source, "delivered"), source.heading, source.role)
 			const attachments = source.attachments(
-				kit.retained(() => retained(source), source.heading, source.origin)
+				kit.retained(() => windowRows(source, "retained"), source.heading, source.origin)
 			)
 			return { statement, attachments }
 		})
@@ -550,20 +578,21 @@ const requestDelivery = (shape: PageShape, variant: PageVariant): PageRequestDel
 }
 
 /**
- * The kits of one artifact, each call a fresh one: a plain window's, whose statement holds its size fill alone, and an
- * anchored window's, which holds boundaries too.
+ * The kits of one artifact, each call a fresh one: a plain window's, whose statement holds its size fill alone, an
+ * anchored window's, which holds boundaries too, and a positioned window's, which holds its offset too.
  */
-interface ArtifactKits<SP, SA> {
+interface ArtifactKits<SP, SA, SO> {
 	readonly plain: () => Kit<SizeFill, SP, PageProgram<SizeFill>>
-	readonly anchored: () => Kit<PageFill, SA, PageProgram>
+	readonly anchored: () => Kit<AnchoredFill, SA, PageProgram<AnchoredFill>>
+	readonly positioned: () => Kit<PositionedFill, SO, PageProgram<PositionedFill>>
 }
 
 /**
  * Every window variant of a page's artifact over the ordered result `root`, each lowered with a fresh kit of `kits`, in
  * the page's order.
  */
-const artifactOf = <SP, SA>(
-	kits: ArtifactKits<SP, SA>,
+const artifactOf = <SP, SA, SO>(
+	kits: ArtifactKits<SP, SA, SO>,
 	root: NodeOf<"OrderedResult">,
 	order: CompletedOrder,
 	comparators: ReadonlyArray<PageComparator>
@@ -594,12 +623,23 @@ const artifactOf = <SP, SA>(
 			)
 		}
 	}
+	const positionedOf = <V extends PositionedVariant>(variant: V): PageRequestProgram<V> => {
+		const kit = kits.positioned()
+		const shape = shapeIn(kit)
+		return {
+			variant,
+			direction: variantDirection(variant),
+			delivery: requestDelivery(shape, variant),
+			program: requestProgram(kit, shape, comparators, variant, positionedSlots)
+		}
+	}
 	/** The variants, lowered in the order of pageVariants, each with a fresh kit. */
 	const requests: PageArtifact["requests"] = {
 		first: plainOf("first"),
 		after: anchoredOf("after"),
 		last: plainOf("last"),
-		before: anchoredOf("before")
+		before: anchoredOf("before"),
+		at: positionedOf("at")
 	}
 	return { requests }
 }
@@ -618,7 +658,8 @@ export const conservativePageArtifact = (
 	artifactOf(
 		{
 			plain: () => conservativeKit<SizeFill>(input),
-			anchored: () => conservativeKit<PageFill>(input)
+			anchored: () => conservativeKit<AnchoredFill>(input),
+			positioned: () => conservativeKit<PositionedFill>(input)
 		},
 		root,
 		order,
@@ -697,23 +738,28 @@ const unionPageOrder = (
  *
  * A compiled ordered query becomes the statements of every window, one per anchor kind:
  *
- * - four window variants, first (from the start), after (a key), last (from the end) and before (a key), each one
- *   statement of its own parts with no nullable boundary slot. A variant's rows part is take(k) of the distinct result D
- *   in its fetch order after its seek (rows.ts): the declared order for first and after, every direction reversed for
- *   last and before, whose rows the runtime reverses back to the presentation order. The limit is a placeholder the
- *   runtime fills with the window's size (seek.ts SizeSlots), and an anchored variant's boundary values are placeholders
- *   it fills from the anchor's key, one per comparator, each written by its comparator's codec (seek.ts
- *   BoundarySlots); a plain variant's statement holds no boundary placeholder, by its type (seek.ts VariantFill).
- *   Whether rows lie beyond a window is no flag of it: the adjacent window, anchored at its first or last row's key,
- *   answers them, so no statement fetches past the size and no second statement asks;
+ * - five window variants, first (from the start), after (a key), last (from the end), before (a key) and at (a
+ *   position), each one statement of its own parts with no nullable boundary or offset slot. A variant's rows part is
+ *   take(k) of the distinct result D in its fetch order after its seek, or after its offset's count of rows (rows.ts):
+ *   the declared order for first, after and at, every direction reversed for last and before, whose rows the runtime
+ *   reverses back to the presentation order. The limit is a placeholder the runtime fills with the window's size
+ *   (seek.ts CountSlot), an anchored variant's boundary values are placeholders it fills from the anchor's key, one
+ *   per comparator, each written by its comparator's codec (seek.ts BoundarySlots), and a positioned variant's offset
+ *   is a placeholder it fills with the window's position (seek.ts CountSlot); a plain variant's statement holds no
+ *   boundary or offset placeholder, by its type (seek.ts VariantFill). Whether rows lie beyond a window is no flag of
+ *   it: the adjacent window, anchored at its first or last row's key, answers them, so no statement fetches past the
+ *   size and no second statement asks;
  * - a heterogeneous union delivered per heading group (R21) pages each group: every group part takes k in the common
  *   fetch order after the same seek on the common comparators, the discriminant among them, and the runtime merges the
  *   groups on that order and keeps k (union/index.ts mergeHeadingGroups), because the first n of the union lie among
- *   the first n of each group. A bounded union (a take under the order) is refused: its members depend on the merge
- *   across groups, which no group part sees;
+ *   the first n of each group. A positioned window's group part delivers exactly the group's rows of the window, its
+ *   first o+k whose tuples are among the union's [o, o+k) (rows.ts positionedGroupRows), so its merge keeps them all.
+ *   A bounded union (a take under the order) is refused: its members depend on the merge across groups, which no group
+ *   part sees;
  * - attachments are evaluated over the delivered window only: each is a part of the window's statement over the
  *   delivered rows, which the statement holds once (OptimizedDelivery heldRows), a heading group's rows cut by the
- *   merge (rows.ts retainedGroupRows), so the parent's plan is the plan the window would have alone. A window never
+ *   merge (rows.ts retainedGroupRows) or, in a positioned window, its rows of the window (rows.ts
+ *   positionedGroupRows), so the parent's plan is the plan the window would have alone. A window never
  *   fuses an attachment into its rows part (R36).
  *
  * The optimized artifact lowers the rewritten query under its duplicate-elimination placement and CTE plan through the
@@ -796,7 +842,8 @@ export const compilePage = (input: PageCompileInput): Result.Result<PageTemplate
 			artifact: artifactOf(
 				{
 					plain: () => optimizedKit<SizeFill>(input, facts),
-					anchored: () => optimizedKit<PageFill>(input, facts)
+					anchored: () => optimizedKit<AnchoredFill>(input, facts),
+					positioned: () => optimizedKit<PositionedFill>(input, facts)
 				},
 				optimizedRoot,
 				order,

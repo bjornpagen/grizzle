@@ -7,8 +7,8 @@
  * author config binding A's origin. Each case stores drawn items in both twins, then makes one to four drawn calls, each
  * through the CLI against A and through B's handler, in the same order, the CLI's by field flags or by one whole
  * `--body`. The login's members are a set read by an int8 floor, a set read by a refined text, a key, an ordered read
- * paged from either end or from a key, a read at the call's instant bound to the database's clock, a put whose items
- * carry every carrier the fixture holds, and a deletion of every item.
+ * paged from either end, from a key or at a position, a read at the call's instant bound to the database's clock, a
+ * put whose items carry every carrier the fixture holds, and a deletion of every item.
  *
  * The oracle is B's answer, its events as grizzle's handler frames them:
  *
@@ -80,11 +80,12 @@ type Item = Readonly<{
 	tag: string
 }>
 
-/** A page's anchor: either end, or the key (big, id) a page follows or precedes. */
+/** A page's anchor: either end, the key (big, id) a page follows or precedes, or a position, the rows before it. */
 type Anchor =
 	| Readonly<{ kind: "start" }>
 	| Readonly<{ kind: "end" }>
 	| Readonly<{ kind: "after" | "before"; key: readonly [string, number] }>
+	| Readonly<{ kind: "at"; position: number }>
 
 /** One call of a member of the login, with what its body states. */
 type Call =
@@ -249,12 +250,18 @@ const storedIds: Arr.NonEmptyReadonlyArray<number> = [1, 2, 3, 4, 5, 6]
 /** Ids a call names: the stored ones, the refused 0, and one never stored. */
 const calledIds: Arr.NonEmptyReadonlyArray<number> = [0, 1, 2, 3, 4, 5, 6, 7]
 
+/** The positions a page is read at: the first row, within the stored items, and past every one. */
+const positionGen: Gen<number> = int(0, storedIds.length + 1)
+
 const anchorGen =
 	(stored: ReadonlyArray<Item>): Gen<Anchor> =>
 	(source) => {
-		const kind = source.draw(element(["start", "end", "after", "before"] as const))
+		const kind = source.draw(element(["start", "end", "after", "before", "at"] as const))
 		if (kind === "start" || kind === "end") {
 			return { kind }
+		}
+		if (kind === "at") {
+			return { kind, position: source.draw(positionGen) }
 		}
 		const known = Arr.map(stored, (item): readonly [string, number] => [item.big, item.id])
 		const fresh: readonly [string, number] = [
@@ -441,6 +448,16 @@ const caseFor =
 					by
 				)
 			}
+			case "an ordered read at a position":
+				return aimedAt(
+					stored,
+					{
+						program: "ranked",
+						anchor: { kind: "at", position: source.draw(positionGen) },
+						size: source.draw(int(1, 4))
+					},
+					by
+				)
 			case "an instant read":
 				return aimedAt(stored, { program: "past" }, by)
 			case "a write accepted":
@@ -488,6 +505,7 @@ const FEATURES: Arr.NonEmptyReadonlyArray<Feature> = [
 	"an ordered read from its start",
 	"an ordered read from its end",
 	"an ordered read from a key",
+	"an ordered read at a position",
 	"an instant read",
 	"a write accepted",
 	"a write unchanged",
@@ -498,6 +516,15 @@ const FEATURES: Arr.NonEmptyReadonlyArray<Feature> = [
 	"an int8 past 2^53",
 	"a live change reaching a followed read"
 ]
+
+/** The feature an ordered read reaches by its anchor's kind. */
+const orderedReadFrom: { readonly [K in Anchor["kind"]]: Feature } = {
+	start: "an ordered read from its start",
+	end: "an ordered read from its end",
+	after: "an ordered read from a key",
+	before: "an ordered read from a key",
+	at: "an ordered read at a position"
+}
 
 /** A call's whole request body. */
 const bodyOf = (call: Call): Schema.Json => {
@@ -597,6 +624,7 @@ type Feature =
 	| "an ordered read from its start"
 	| "an ordered read from its end"
 	| "an ordered read from a key"
+	| "an ordered read at a position"
 	| "an instant read"
 	| "a write accepted"
 	| "a write unchanged"
@@ -736,13 +764,7 @@ const judged = (call: Call, ran: Ran, answer: Answer) =>
 				}
 				switch (call.program) {
 					case "ranked": {
-						reached.push(
-							call.anchor.kind === "start"
-								? "an ordered read from its start"
-								: call.anchor.kind === "end"
-									? "an ordered read from its end"
-									: "an ordered read from a key"
-						)
+						reached.push(orderedReadFrom[call.anchor.kind])
 						return { difference: yield* sameRows(fields, ran.printed, answer.rows, true), reached }
 					}
 					case "item":

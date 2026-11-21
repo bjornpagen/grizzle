@@ -49,10 +49,12 @@ export {
 	statedOrderOf
 } from "#compiler/lower/shapes/page/compile.ts"
 export type {
+	AnchoredFill,
 	AnchoredVariant,
 	PageComparator,
 	PageDirection,
 	PageVariant,
+	PositionedFill,
 	VariantFill
 } from "#compiler/lower/shapes/page/seek.ts"
 export { type ChoiceInput, type RelationInput } from "#compiler/lower/shapes/take/index.ts"

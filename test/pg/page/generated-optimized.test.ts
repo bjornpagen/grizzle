@@ -16,13 +16,36 @@ import { generatedProperty } from "#test/pg/page/generated.ts"
  * Its pre-conversion budget: runs 2,000, coverage cases 2,000 (test/pg/page/generated.ts at fa10bca50).
  */
 export const thePageRuntimeCutsGeneratedOrderedQueriesIntoWindowsThroughTheOptimizedArtifact =
-	generatedProperty("optimized", [
-		{
-			token: ReplayToken(
-				"test/pg/page/generated-optimized.test.ts#thePageRuntimeCutsGeneratedOrderedQueriesIntoWindowsThroughTheOptimizedArtifact:-:1.0.0.0.0.0.0.0.0.1.0"
-			),
-			reason:
-				"page/generated-optimized, TEST_SEED=28094260: a nested key set over children keyed within one parent only, read without DISTINCT (generated.ts recordedPageCases)",
-			since: "2026-11-11"
-		}
-	])
+	generatedProperty(
+		"optimized",
+		[
+			{
+				token: ReplayToken(
+					"test/pg/page/generated-optimized.test.ts#thePageRuntimeCutsGeneratedOrderedQueriesIntoWindowsThroughTheOptimizedArtifact:-:1.0.0.0.0.0.0.0.0.1.0"
+				),
+				reason:
+					"page/generated-optimized, TEST_SEED=28094260: a nested key set over children keyed within one parent only, read without DISTINCT (generated.ts recordedPageCases)",
+				since: "2026-11-11"
+			}
+		],
+		[
+			{
+				file: "packages/engine/src/lower/shapes/page/rows.ts",
+				original: '\t\toffset: start.kind === "offset" ? start.offset.value() : undefined',
+				replacement: "\t\toffset: undefined",
+				why: "A positioned window's statement skips no row, so every page is the first; the pages by position fail."
+			},
+			{
+				file: "packages/grizzle/src/adapter/page/execute.ts",
+				original: '\t\t\tcase "offset":\n\t\t\t\treturn countParam(position)',
+				replacement: '\t\t\tcase "offset":\n\t\t\t\treturn countParam(position + 1)',
+				why: "A positioned window binds its offset one past its position, each page one row late; the window at a position fails."
+			},
+			{
+				file: "packages/engine/src/lower/shapes/page/rows.ts",
+				original: "\t\toffset: spec.offset\n",
+				replacement: "\t\toffset: undefined\n",
+				why: "A heterogeneous union's positioned window keeps the union's first tuples, not its tuples at the position; its groups' pages by position fail."
+			}
+		]
+	)

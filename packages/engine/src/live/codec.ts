@@ -282,10 +282,11 @@ type Read<A> = Result.Result<A, WireFault>
 
 const refused = (kind: WireFault["kind"], at: Path): Read<never> => Result.err({ kind, at })
 
-/** A caller's anchor as a walk builds it, a keyed one's key as its door builds a key. */
+/** A caller's anchor as a walk builds it, a keyed one's key as its door builds a key, a positioned one's position. */
 type WalkedAnchor<K> =
 	| { readonly kind: "start" | "end" }
 	| { readonly kind: "after" | "before"; readonly key: K }
+	| { readonly kind: "at"; readonly position: number }
 
 /** A caller's input as a walk builds it (`walkInput`): a call's parameters and facts, or a page's parameters, no facts
  * and window. */
@@ -347,7 +348,7 @@ interface InputDoor<V, P, F, K, N> {
  * a relation's facts; the facts under each op of the ChangeSet's array members and under each of its relations, each a
  * fact of its levels' first, and under each family's count field its members' facts, each of the member level, to any
  * depth; a window its anchor and its size, a positive safe integer, a keyed anchor's key its key columns' values in key
- * order. A refusal names its fault and its path.
+ * order, a positioned anchor's position a safe integer of at least 0. A refusal names its fault and its path.
  */
 const walkInput = <V, P, F, K, N>(
 	door: InputDoor<V, P, F, K, N>,
@@ -497,6 +498,16 @@ const walkInput = <V, P, F, K, N>(
 							key: read
 						}))
 					)
+				case "at":
+					return Result.flatMap(door.record(given, ["kind", "position"], at), (record) => {
+						const position = record["position"]
+						if (typeof position !== "number") {
+							return refused("json", [...at, "position"])
+						}
+						return Number.isSafeInteger(position) && position >= 0
+							? Result.ok({ kind, position })
+							: refused("range", [...at, "position"])
+					})
 				default:
 					return refused("members", [...at, "kind"])
 			}
@@ -705,9 +716,9 @@ const hostDoor: InputDoor<WireJson, WireJson, WireJson, WireJson, WireJson> = {
  * parseInput, over the caller's own values as the client's untyped door takes them. Every value of the input's shape
  * encodes, and any other is refused with its fault at its path (WireFault), as parseInput refuses JSON: a record that is
  * no plain record or does not hold exactly its members, no list where facts or a key stand, a value of another type
- * than its scalar's host type (live/wire.ts encodeGiven), a window's size that is no positive safe integer, or a value
- * whose reading throws. A value the caller gives is never asserted: only the server's own values are (encodeRecord,
- * encodeKey).
+ * than its scalar's host type (live/wire.ts encodeGiven), a window's size that is no positive safe integer, a window's
+ * position that is no safe integer of at least 0, or a value whose reading throws. A value the caller gives is never
+ * asserted: only the server's own values are (encodeRecord, encodeKey).
  */
 export const encodeInput = (input: WireInput<WireScalar>, value: unknown): Read<WireJson> =>
 	walkInput(hostDoor, input, value)

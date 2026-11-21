@@ -1,7 +1,7 @@
 import { appendNonEmpty, isNonEmpty, mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { type Direction, opposite } from "#compiler/core/order.ts"
 import { type OperatorNames, operatorSchemaOf, typedCompare } from "#compiler/ir/compare.ts"
-import type { PageFill, SizeFill } from "#compiler/ir/products.ts"
+import type { BoundaryFill, OffsetFill, PageFill, SizeFill } from "#compiler/ir/products.ts"
 import type { CompletedOrder, Heading, OrderKey } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import {
@@ -15,34 +15,57 @@ import type { Expr, OrderItem, TypeRef } from "#compiler/sql/ast.ts"
 import { and, asc, binary, desc, lit, or, row, slotParam, types } from "#compiler/sql/build.ts"
 
 /**
- * The four window templates, one per anchor kind: first (start), after (after a key), last (end), before (before a
- * key). Each is its own compiled variant, so no variant has a nullable boundary slot.
+ * The five window templates, one per anchor kind: first (start), after (after a key), last (end), before (before a
+ * key) and at (at a position). Each is its own compiled variant, so no variant has a nullable boundary or offset slot.
  */
-const pageVariants = ["first", "after", "last", "before"] as const
+const pageVariants = ["first", "after", "last", "before", "at"] as const
 export type PageVariant = (typeof pageVariants)[number]
 
 /** The windows of no anchor, whose statements seek nothing. */
 export type PlainVariant = Extract<PageVariant, "first" | "last">
 
 /** The windows anchored at a key, whose statements seek past it. */
-export type AnchoredVariant = Exclude<PageVariant, PlainVariant>
+export type AnchoredVariant = Extract<PageVariant, "after" | "before">
+
+/** The window at a position of the completed order, whose statement skips the rows before it. */
+export type PositionedVariant = Extract<PageVariant, "at">
+
+/** The page fills an anchored window's statements hold: its size and its comparators' boundaries. */
+export type AnchoredFill = SizeFill | BoundaryFill
+
+/** The page fills a positioned window's statements hold: its size and its offset. */
+export type PositionedFill = SizeFill | OffsetFill
 
 /**
  * The page fills a variant's statements hold: a plain window's are its size alone, so no binding of one reads a
- * boundary; an anchored window's are its size and its comparators' boundaries.
+ * boundary or an offset; an anchored window's are its size and its comparators' boundaries; a positioned window's its
+ * size and its offset.
  */
 export interface VariantFill {
 	readonly first: SizeFill
-	readonly after: PageFill
+	readonly after: AnchoredFill
 	readonly last: SizeFill
-	readonly before: PageFill
+	readonly before: AnchoredFill
+	readonly at: PositionedFill
 }
 
-/** The order a variant fetches in: the declared order for first and after, every direction reversed for last and before. */
+/**
+ * The order a variant fetches in: the declared order for first, after and at, every direction reversed for last and
+ * before.
+ */
 export type PageDirection = "forward" | "backward"
 
-export const variantDirection = (variant: PageVariant): PageDirection =>
-	variant === "first" || variant === "after" ? "forward" : "backward"
+export const variantDirection = (variant: PageVariant): PageDirection => {
+	switch (variant) {
+		case "first":
+		case "after":
+		case "at":
+			return "forward"
+		case "last":
+		case "before":
+			return "backward"
+	}
+}
 
 /**
  * Which side of the boundary a predicate selects; the boundary tuple itself never qualifies.
@@ -131,27 +154,35 @@ const pageParam = <F extends PageFill>(
 	)
 
 /**
- * The size placeholder of one statement, allocated into that statement's parameter list (its delivery's params once the
- * statement began) by `allocate` at its first use, after the statement's own parameters, and read by every later one:
- * every window's statement holds it, a plain window's alone.
+ * One count placeholder of one statement, `$n::bigint`, allocated into that statement's parameter list (its delivery's
+ * params once the statement began) at its first use, after the statement's own parameters, and read by every later
+ * one:
+ *
+ * - a window's size, which every window's statement holds, a plain window's alone: the most rows the window delivers,
+ *   its rows statement's LIMIT and its attachments' bound alike. A size is any safe integer of at least 1, a bigint
+ *   value, which LIMIT takes;
+ * - a positioned window's offset: the count of rows of the completed order before the window, which its rows
+ *   statement's OFFSET skips. A position is any safe integer of at least 0, a bigint value, which OFFSET takes.
  */
-class SizeSlots {
-	readonly #allocate: (fill: SizeFill) => Expr
-	#size: Expr | undefined
+class CountSlot {
+	readonly #allocate: () => Expr
+	#placeholder: Expr | undefined
 
-	constructor(allocate: (fill: SizeFill) => Expr) {
+	constructor(allocate: () => Expr) {
 		this.#allocate = allocate
 	}
 
-	/**
-	 * The size placeholder, `$n::bigint`: the most rows the window delivers, its rows statement's LIMIT and its
-	 * attachments' bound alike. A window's size is any safe integer of at least 1, a bigint value, which LIMIT takes.
-	 */
-	size(): Expr {
-		this.#size ??= this.#allocate({ kind: "size" })
-		return this.#size
+	/** The placeholder, allocated at its first use. */
+	value(): Expr {
+		this.#placeholder ??= this.#allocate()
+		return this.#placeholder
 	}
 }
+
+/** The size placeholder of a statement whose parameter list is `params` (CountSlot). */
+const sizeSlot = <F extends PageFill>(
+	params: StatementParams<PageParamSlot<F | SizeFill>>
+): CountSlot => new CountSlot(() => pageParam<F | SizeFill>(params, { kind: "size" }, types.bigint))
 
 /**
  * The boundary placeholders of an anchored window's statement, one per comparator, each cast to its
@@ -159,7 +190,7 @@ class SizeSlots {
  * every later seek of the statement reads the same ones.
  */
 class BoundarySlots {
-	readonly #params: StatementParams<PageParamSlot>
+	readonly #params: StatementParams<PageParamSlot<AnchoredFill>>
 	readonly #typeRef: (t: ScalarType) => TypeRef
 	readonly #comparators: ReadonlyArray<PageComparator>
 	#boundaries:
@@ -167,7 +198,7 @@ class BoundarySlots {
 		| undefined
 
 	constructor(
-		params: StatementParams<PageParamSlot>,
+		params: StatementParams<PageParamSlot<AnchoredFill>>,
 		typeRef: (t: ScalarType) => TypeRef,
 		comparators: ReadonlyArray<PageComparator>
 	) {
@@ -201,16 +232,29 @@ export interface Anchor {
 	readonly boundaries: BoundarySlots
 }
 
-/** A window statement's page placeholders: its size, and, for an anchored window, its anchor. */
+/**
+ * Where a window statement's rows begin in its fetch order: at the order's first row (`edge`, a plain window's), strictly
+ * past its anchor (`seek`, an anchored window's: its seek and boundaries), or past its offset's count of rows (`offset`,
+ * a positioned window's).
+ */
+export type WindowStart =
+	| { readonly kind: "edge" }
+	| { readonly kind: "seek"; readonly anchor: Anchor }
+	| { readonly kind: "offset"; readonly offset: CountSlot }
+
+/** A window's rows from the order's first row: a plain window's, and each heading group's of a positioned one. */
+export const edgeStart: WindowStart = Object.freeze({ kind: "edge" })
+
+/** A window statement's page placeholders: its size, and where its rows begin. */
 export interface RequestSlots {
-	readonly sizes: SizeSlots
-	readonly anchor: Anchor | undefined
+	readonly size: CountSlot
+	readonly start: WindowStart
 }
 
 /** A plain window's statement's page placeholders over its parameter list `params`: its size alone. */
 export const plainSlots = (params: StatementParams<PageParamSlot<SizeFill>>): RequestSlots => ({
-	sizes: new SizeSlots((fill) => pageParam(params, fill, types.bigint)),
-	anchor: undefined
+	size: sizeSlot(params),
+	start: edgeStart
 })
 
 /**
@@ -218,13 +262,27 @@ export const plainSlots = (params: StatementParams<PageParamSlot<SizeFill>>): Re
  * against one boundary per comparator, typed by `typeRef`.
  */
 export const anchoredSlots = (
-	params: StatementParams<PageParamSlot>,
+	params: StatementParams<PageParamSlot<AnchoredFill>>,
 	typeRef: (t: ScalarType) => TypeRef,
 	comparators: ReadonlyArray<PageComparator>,
 	seek: Seek
-): RequestSlots & { readonly anchor: Anchor } => ({
-	sizes: new SizeSlots((fill) => pageParam(params, fill, types.bigint)),
-	anchor: { seek, boundaries: new BoundarySlots(params, typeRef, comparators) }
+): RequestSlots => ({
+	size: sizeSlot(params),
+	start: {
+		kind: "seek",
+		anchor: { seek, boundaries: new BoundarySlots(params, typeRef, comparators) }
+	}
+})
+
+/** A positioned window's statement's page placeholders over its parameter list `params`: its size and its offset. */
+export const positionedSlots = (
+	params: StatementParams<PageParamSlot<PositionedFill>>
+): RequestSlots => ({
+	size: sizeSlot(params),
+	start: {
+		kind: "offset",
+		offset: new CountSlot(() => pageParam<PositionedFill>(params, { kind: "offset" }, types.bigint))
+	}
 })
 
 /**

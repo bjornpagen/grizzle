@@ -262,8 +262,8 @@ export interface NestedRowsParamSlot extends ValuePlaceholder {
 
 /**
  * A placeholder the page request fills with one of `F`, cast where the page compiler places it
- * (lower/shapes/page/seek.ts SizeSlots, BoundarySlots): a limit or a size to bigint, a boundary to its comparator's base
- * type. A plain request's statement holds size fills alone, so no binding of it reads a boundary.
+ * (lower/shapes/page/seek.ts CountSlot, BoundarySlots): a size or an offset to bigint, a boundary to its comparator's
+ * base type. A plain request's statement holds size fills alone, so no binding of it reads a boundary or an offset.
  */
 export interface PageParamSlot<F extends PageFill = PageFill> extends ValuePlaceholder {
 	readonly kind: "page"

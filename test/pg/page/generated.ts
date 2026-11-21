@@ -14,7 +14,7 @@ import {
 	steered,
 	weighted
 } from "@bjornpagen/testing/gen"
-import { type Case, type Kept } from "@bjornpagen/testing/property"
+import { type Case, type Kept, type Kill } from "@bjornpagen/testing/property"
 import { Array as Arr, Data, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
 import { DatabaseError } from "pg"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
@@ -168,6 +168,9 @@ type PageFeature =
 	| "per-execution form"
 	| "float -0 in a relation parameter"
 	| "a walk of at least 200 windows in one direction"
+	| "several pages by position"
+	| "a window at a position within D"
+	| "a window at a position past D"
 	| `window size ${PageSize}`
 	| `skipped: ${PageSkip}`
 
@@ -195,6 +198,9 @@ const situations: ReadonlyArray<Reached<PageFeature>> = [
 	"per-execution form",
 	"float -0 in a relation parameter",
 	"a walk of at least 200 windows in one direction",
+	"several pages by position",
+	"a window at a position within D",
+	"a window at a position past D",
 	...Arr.map(pageSizes, (n) => `window size ${n}` as const)
 ]
 
@@ -401,8 +407,10 @@ interface OrderedCase {
 	readonly rotate: number
 	readonly dirs: ReadonlyArray<boolean>
 	readonly stated: number
-	/** Each direction's window size. */
+	/** Each direction's window size; pages by position are of the forward one. */
 	readonly size: { readonly forward: PageSize; readonly backward: PageSize }
+	/** The position of the case's window at a position, off any page's start as often as on one, and past D's end. */
+	readonly position: number
 	/**
 	 * Whether the caller passes every float zero among its relation parameters' rows as -0, a value of its own (README:
 	 * a float keeps its zero's sign), which D then reads too (passedCell).
@@ -428,6 +436,7 @@ const orderedCaseGen: Gen<OrderedCase> = (source) => ({
 			[1, (inner) => ({ forward: 1, backward: inner.draw(pageSizeGen) })]
 		])
 	),
+	position: source.draw(int(0, 15)),
 	negativeZero: source.draw(boolean)
 })
 
@@ -472,6 +481,7 @@ const longOrderedCaseGen: Gen<OrderedCase> = map(
 		dirs: Arr.makeBy(8, () => false),
 		stated: 0,
 		size: { forward: 1, backward: 1 },
+		position: facts - 1,
 		negativeZero: false
 	})
 )
@@ -496,7 +506,7 @@ const printCase = (o: OrderedCase): string =>
 	`order: rotate ${o.rotate}, stated ${o.stated}, ${Arr.join(
 		Arr.map(o.dirs, (d) => (d ? "desc" : "asc")),
 		" "
-	)}${o.negativeZero ? ", relation parameters' float zeros passed as -0" : ""}\n${printQueryCase(o.c)}`
+	)}, sizes ${o.size.forward} forward and ${o.size.backward} backward, position ${o.position}${o.negativeZero ? ", relation parameters' float zeros passed as -0" : ""}\n${printQueryCase(o.c)}`
 
 type Row = ReadonlyArray<string>
 
@@ -1111,7 +1121,8 @@ const checkRuntime = (
 	read: ReturnType<typeof windowReader>,
 	full: Full,
 	note: Case<PageFeature>["note"],
-	sizes: { readonly forward: PageSize; readonly backward: PageSize }
+	sizes: { readonly forward: PageSize; readonly backward: PageSize },
+	position: number
 ): Effect.Effect<void, ReadError> =>
 	Effect.gen(function* () {
 		const total = full.rows.length
@@ -1164,6 +1175,69 @@ const checkRuntime = (
 			}
 			note(`window size ${size}`)
 		}
+		yield* checkPositions(label, read, full, note, sizes.forward, position)
+	})
+
+/**
+ * Windows at positions: pages by position at the forward size, page n at position n times the size, from page 0 until
+ * one holds no row, and the window at the case's own position, with the window after its last row's key. Each is judged
+ * as it arrives, against D's rows at its place: the window at position p of size k holds exactly D's rows [p, p + k), so
+ * the one past D's last row holds none; its attachments read exactly its rows' children; the pages together hold every
+ * row of D exactly once, in D's order; and the window anchored after a positioned window's last row holds D's next k
+ * rows, as a keyset walk continues from a page.
+ */
+const checkPositions = (
+	label: string,
+	read: ReturnType<typeof windowReader>,
+	full: Full,
+	note: Case<PageFeature>["note"],
+	size: PageSize,
+	position: number
+): Effect.Effect<void, ReadError> =>
+	Effect.gen(function* () {
+		const total = full.rows.length
+		const judged = (at: number): Effect.Effect<Windowed, ReadError> =>
+			Effect.map(read({ kind: "at", position: at }, size), (w) => {
+				const where = `${label} at ${at} of ${size}`
+				assert.deepEqual(w.delivered, full.rows.slice(at, at + size), where)
+				checkAttachments(where, w, full)
+				return w
+			})
+		const pages: Array<Row> = []
+		for (let page = 0; ; page++) {
+			if (page > total + 1) {
+				throw new PropertyFailed({ report: `${label}: pages by position that do not end` })
+			}
+			const paged = yield* judged(page * size)
+			if (paged.delivered.length === 0) {
+				break
+			}
+			for (const row of paged.delivered) {
+				pages.push(row)
+			}
+			if (page === 1) {
+				note("several pages by position")
+			}
+		}
+		const concatenated: ReadonlyArray<Row> = pages
+		assert.deepEqual(
+			concatenated,
+			full.rows,
+			`${label} pages by position: every row of D once, in order`
+		)
+		const positioned = yield* judged(position)
+		if (Option.isNone(positioned.last)) {
+			note("a window at a position past D")
+			return
+		}
+		note("a window at a position within D")
+		const after = yield* read({ kind: "after", key: positioned.last.value }, size)
+		const next = position + positioned.delivered.length
+		assert.deepEqual(
+			after.delivered,
+			full.rows.slice(next, next + size),
+			`${label} after the window at ${position} of ${size}`
+		)
 	})
 
 /** A case's page as the compiler built it, and the template a run pages through: the same one, or its artifact the page
@@ -1286,7 +1360,12 @@ const negativeZeroRelation = (o: OrderedCase): boolean =>
  *   with the one empty window past D's last row (or before its first), an empty D's walk being that window alone;
  * - each window's attachments read its delivered parents only: every attachment row a window read belongs to a parent
  *   it delivered, never to a row past it, and each delivered parent's children are exactly D's children of that key;
- *   every attachment statement is a part of the window's one statement.
+ *   every attachment statement is a part of the window's one statement;
+ * - windows at positions (checkPositions): the window at position p of size k holds exactly D's rows [p, p + k), pages
+ *   by position at the forward size, from position 0 until one holds no row, hold every row of D exactly once in D's
+ *   order, and the window after the last row of the window at the case's drawn position holds D's next k rows. A
+ *   heterogeneous union's positioned window delivers each group's rows of the window alone, so its merge keeps them
+ *   all.
  *
  * Both artifacts run, each in a file of its own on the same cases: the optimized one, which the page compiler builds
  * and the runtime runs (generated-optimized.test.ts), and the conservative one, the page oracle's baseline
@@ -1320,11 +1399,16 @@ const recordedPageCases: Arr.NonEmptyReadonlyArray<OrderedCase> = [
 		dirs: Arr.makeBy(8, () => false),
 		stated: 0,
 		size: { forward: 2, backward: 2 },
+		position: 1,
 		negativeZero: false
 	}
 ]
 
-export const generatedProperty = (artifact: PageArtifactName, kept: ReadonlyArray<Kept>) => {
+export const generatedProperty = (
+	artifact: PageArtifactName,
+	kept: ReadonlyArray<Kept>,
+	kills: ReadonlyArray<Kill>
+) => {
 	/**
 	 * The order refusal is located at the caller's orderBy, never at the node the order completes over.
 	 *
@@ -1494,12 +1578,15 @@ export const generatedProperty = (artifact: PageArtifactName, kept: ReadonlyArra
 						`D holds ${read} rows, over the answer's structural bound ${answer}\n${printCase(o)}`
 					)
 					const sizes = o.size
-					/** One window per size of D's rows in each walk, and the empty window that ends it. */
+					/**
+					 * One window per size of D's rows in each walk and in the pages by position, the empty window that ends
+					 * each, and the window at the case's position with the one after it.
+					 */
 					const cost =
-						Math.ceil(full.rows.length / sizes.forward) +
-						1 +
+						2 * (Math.ceil(full.rows.length / sizes.forward) + 1) +
 						Math.ceil(full.rows.length / sizes.backward) +
-						1
+						1 +
+						2
 					if (cost > requestBound) {
 						c.note("skipped: walk over the request bound")
 						return
@@ -1509,7 +1596,8 @@ export const generatedProperty = (artifact: PageArtifactName, kept: ReadonlyArra
 						windowReader(runtime, session, params, codes),
 						full,
 						c.note,
-						sizes
+						sizes,
+						o.position
 					)
 					coverage(query, template, compiled, full, c.note)
 					if (negativeZeroRelation(o)) {
@@ -1541,7 +1629,7 @@ export const generatedProperty = (artifact: PageArtifactName, kept: ReadonlyArra
 		},
 		budget: { runs: 2_000, steered: 2_000 },
 		kept,
-		kills: [],
+		kills,
 		show: Formatter.format,
 		check: (c: Case<PageFeature>) => (o) => runCase(o, c)
 	})

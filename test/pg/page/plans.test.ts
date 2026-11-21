@@ -8,11 +8,11 @@
  * descending order is the ascending one's index read backward and the mixed order has its own; the three orders
  * install together, which is the case a workload naming an order and its exact reverse must reach. Each case replaces
  * the task table's facts with drawn tasks of the paged account and of another (substrate/replace.ts), and reads a drawn
- * window (an order, from the start, or after or before the key of a row drawn among the paged account's, a size of one
- * to seven) through the order's paged member of the login's served workload, on a Db context that records what its
- * sessions send (test/support/plans.ts recordingContext). The window's statement runs under EXPLAIN (ANALYZE) with
- * sequential scans and sorts disabled, so a plan that still scans the table sequentially or sorts has no access path
- * that does otherwise, read by the tree's one EXPLAIN decoder:
+ * window (an order, from the start, after or before the key of a row drawn among the paged account's, or at the
+ * position after that row, a size of one to seven) through the order's paged member of the login's served workload, on
+ * a Db context that records what its sessions send (test/support/plans.ts recordingContext). The window's statement
+ * runs under EXPLAIN (ANALYZE) with sequential scans and sorts disabled, so a plan that still scans the table
+ * sequentially or sorts has no access path that does otherwise, read by the tree's one EXPLAIN decoder:
  *
  * - every window reads the task table through an index, never by a sequential scan, and none has a Unique node: the
  *   delivered heading keeps the primary key, so no window deduplicates (R17);
@@ -20,7 +20,9 @@
  * - a start window, and a seek in one direction, a native row comparison the index bounds (R05), read at most the
  *   window, and a seek no row on the far side of its anchor;
  * - a seek in mixed directions (the OR expansion) reads at most the account's rows up to its anchor and the window past
- *   it, never the rest of the account.
+ *   it, never the rest of the account;
+ * - a window at a position, PostgreSQL's OFFSET over the order's index, reads at most the rows before it and the window,
+ *   never the rest of the account: its cost is its position's, which a keyset window's is not.
  *
  * The plan's node order, index names and costs are the planner's; the properties above are what the access paths serve,
  * at any volume, so no volume stands in for the planner's choice.
@@ -75,7 +77,7 @@ export const thePlansOfThePageRuntimesStatementsWithAnOrderItsExactReverseAndAMi
 		situations: [
 			...Arr.flatMap(["descending", "ascending", "mixed"] as const, (order) =>
 				Arr.map(
-					["start", "after", "before"] as const,
+					["start", "after", "before", "at"] as const,
 					(variant): PlanFeature => `${order} ${variant}`
 				)
 			),
@@ -157,12 +159,13 @@ export const thePlansOfThePageRuntimesStatementsWithAnOrderItsExactReverseAndAMi
 									pageTemplate(member(loaded, c.order), opened.installed.names.codes).fields,
 									defined(upToAnchor.at(-1), "the anchor's row")
 								)
-								const anchor: Anchor =
-									c.variant === "start"
-										? { kind: "start" }
-										: c.variant === "after"
-											? { kind: "after", key }
-											: { kind: "before", key }
+								const anchors: { readonly [V in typeof c.variant]: Anchor } = {
+									start: { kind: "start" },
+									after: { kind: "after", key },
+									before: { kind: "before", key },
+									at: { kind: "at", position: at }
+								}
+								const anchor = anchors[c.variant]
 								const sent = yield* sentFor(c.order, anchor, c.size)
 								const cell = yield* planOf(sent)
 								const types = planNodeTypes(cell)
@@ -178,7 +181,12 @@ export const thePlansOfThePageRuntimesStatementsWithAnOrderItsExactReverseAndAMi
 								}
 								const read = rowsRead(succeeded(parsePlan(cell), "one EXPLAIN ANALYZE plan").plan)
 								const past = remainder(c, total, at)
-								if (c.order !== "mixed" || c.variant === "start") {
+								if (c.variant === "at") {
+									assert.ok(
+										read <= Math.min(total, at + c.size),
+										`${read} rows read, a window of ${c.size} at position ${at} of ${total}`
+									)
+								} else if (c.order !== "mixed" || c.variant === "start") {
 									assert.ok(
 										read <= Math.min(past, c.size),
 										`${read} rows read, ${past} past the anchor, a window of ${c.size}`
@@ -189,7 +197,7 @@ export const thePlansOfThePageRuntimesStatementsWithAnOrderItsExactReverseAndAMi
 										`${read} rows read, ${total - past} of the account up to the anchor, a window of ${c.size}`
 									)
 								}
-								if (c.variant !== "start" && past > c.size) {
+								if ((c.variant === "after" || c.variant === "before") && past > c.size) {
 									cx.note(
 										c.order === "mixed"
 											? "a mixed seek past more rows than its window reads"

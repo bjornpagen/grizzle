@@ -33,7 +33,7 @@ export const orders = {
 
 export type Order = keyof typeof orders
 
-type Variant = "start" | "after" | "before"
+type Variant = "start" | "after" | "before" | "at"
 
 interface PlanCase {
 	readonly order: Order
@@ -44,7 +44,10 @@ interface PlanCase {
 		readonly paged: ReadonlyArray<number>
 		readonly other: ReadonlyArray<number>
 	}
-	/** Which of the paged account's rows, in the order, is the anchor: the last of the window from the start up to it. */
+	/**
+	 * Which of the paged account's rows, in the order, is the anchor: the last of the window from the start up to it, and,
+	 * for a window at a position, the last row before it.
+	 */
 	readonly anchor: number
 }
 
@@ -53,7 +56,7 @@ const priorityGen = int(0, 4)
 
 export const planCaseGen: Gen<PlanCase> = (source) => ({
 	order: source.draw(element<Order>(["descending", "ascending", "mixed"])),
-	variant: source.draw(element<Variant>(["start", "after", "before"])),
+	variant: source.draw(element<Variant>(["start", "after", "before", "at"])),
 	size: source.draw(int(1, 7)),
 	tasks: {
 		paged: source.draw(array(priorityGen, { min: 1, max: 16 })),
@@ -69,10 +72,19 @@ export type PlanFeature =
 
 /**
  * The paged account's rows past the anchor on the seek's side, of `total`, the anchor the `at`th: after it for an after
- * window, before it for a before window, every row of the account for a start window.
+ * window and a window at a position, before it for a before window, every row of the account for a start window.
  */
-export const remainder = (c: PlanCase, total: number, at: number): number =>
-	c.variant === "after" ? total - at : c.variant === "before" ? at - 1 : total
+export const remainder = (c: PlanCase, total: number, at: number): number => {
+	switch (c.variant) {
+		case "after":
+		case "at":
+			return total - at
+		case "before":
+			return at - 1
+		case "start":
+			return total
+	}
+}
 
 /** The paged account, the one every window reads. */
 export const params = Object.freeze({ account: pagedAccount })

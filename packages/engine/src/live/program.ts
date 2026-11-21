@@ -43,14 +43,19 @@ export interface Input<P, F> {
 }
 
 /**
- * Where a window of an ordered program starts: its first rows; the rows after a key; its last rows; or the rows
- * before a key. A key is the program's completed order, so an anchor is a row's key as its events carry it.
+ * Where a window of an ordered program starts: its first rows; the rows after a key; its last rows; the rows before a
+ * key; or the rows at a position. A key is the program's completed order, so an anchor is a row's key as its events
+ * carry it. A position is the count of rows of that order before the window, 0 for its first row, a safe integer of at
+ * least 0: page n of size m, counting pages from 1, is the window of size m at position (n - 1) * m. A position names
+ * a row only within one snapshot, since a write before it moves every row after it, and its statement reads and
+ * discards the rows before it; a key names a row in every snapshot, and its statement seeks it.
  */
 export type Anchor =
 	| { readonly kind: "start" }
 	| { readonly kind: "after"; readonly key: RowKey }
 	| { readonly kind: "end" }
 	| { readonly kind: "before"; readonly key: RowKey }
+	| { readonly kind: "at"; readonly position: number }
 
 /**
  * A paged program's window, beside its params: `size` rows from `anchor`. An empty window is the end of the rows;

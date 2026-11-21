@@ -205,9 +205,42 @@ const sizeGen: Gen<unknown> = weighted([
 const notRecordGen: Gen<unknown> = element<unknown>([null, undefined, 3, "start", ["start"]])
 
 const kindGen: Gen<unknown> = weighted([
-	[4, element<unknown>(["start", "after", "end", "before"])],
-	[1, element<unknown>(["first", "last", "Start", 0, null])]
+	[5, element<unknown>(["start", "after", "end", "before", "at"])],
+	[1, element<unknown>(["first", "last", "Start", "position", 0, null])]
 ])
+
+/** A position: mostly a small one, sometimes any safe integer of at least 0, else one of its edges or another value. */
+const positionGen: Gen<unknown> = weighted([
+	[4, int(0, 7)],
+	[1, int(0, Number.MAX_SAFE_INTEGER)],
+	[
+		2,
+		element<unknown>([
+			0,
+			-0,
+			Number.MAX_SAFE_INTEGER,
+			-1,
+			1.5,
+			Number.NaN,
+			Number.POSITIVE_INFINITY,
+			Number.MAX_SAFE_INTEGER + 1,
+			0n,
+			"3",
+			null,
+			undefined
+		])
+	]
+])
+
+/** A position's presence: drawn as any member's beside the kind at, mostly absent beside any other. */
+const positionPresenceGen = (kind: unknown): Gen<Presence> =>
+	kind === "at"
+		? presenceGen
+		: weighted<Presence>([
+				[6, constant("absent")],
+				[1, constant("own")],
+				[1, constant("inherited")]
+			])
 
 /** An anchor's key: a list one shorter than, as long as or one longer than the comparators, or no list. */
 type KeyShape =
@@ -219,6 +252,7 @@ interface AnchorCase {
 	readonly notObject: unknown
 	readonly kind: { readonly presence: Presence; readonly value: unknown }
 	readonly key: { readonly presence: Presence; readonly value: KeyShape }
+	readonly position: { readonly presence: Presence; readonly value: unknown }
 	readonly extra: Extra
 }
 
@@ -259,18 +293,27 @@ const keyShapeGen =
 
 const anchorCaseGen =
 	(comparators: ReadonlyArray<Comparator>): Gen<AnchorCase> =>
-	(source) => ({
-		shape: source.draw(
+	(source) => {
+		const shape = source.draw(
 			weighted<AnchorCase["shape"]>([
 				[6, constant("an object")],
 				[1, constant("no object")]
 			])
-		),
-		notObject: source.draw(notRecordGen),
-		kind: { presence: source.draw(presenceGen), value: source.draw(kindGen) },
-		key: { presence: source.draw(presenceGen), value: source.draw(keyShapeGen(comparators)) },
-		extra: source.draw(extraGen)
-	})
+		)
+		const notObject = source.draw(notRecordGen)
+		const kind = { presence: source.draw(presenceGen), value: source.draw(kindGen) }
+		return {
+			shape,
+			notObject,
+			kind,
+			key: { presence: source.draw(presenceGen), value: source.draw(keyShapeGen(comparators)) },
+			position: {
+				presence: source.draw(positionPresenceGen(kind.value)),
+				value: source.draw(positionGen)
+			},
+			extra: source.draw(extraGen)
+		}
+	}
 
 export const windowCaseGen: Gen<WindowCase> = (source) => {
 	const comparators: Arr.NonEmptyReadonlyArray<Comparator> = [
@@ -293,7 +336,7 @@ export const windowCaseGen: Gen<WindowCase> = (source) => {
 }
 
 /** An anchor's kind the rule admits. */
-type Kind = "start" | "after" | "end" | "before"
+type Kind = "start" | "after" | "end" | "before" | "at"
 
 /** One to three comparators, the first drawn by `lead`. */
 const comparatorsLed =
@@ -304,16 +347,18 @@ const comparatorsLed =
 	]
 
 /**
- * A window the rule reads down to its key: exactly its own anchor and size, a size of 1 to 7, and an anchor of exactly
- * its own `kind` and, for after and before, its own key, a list as long as the comparators whose value at each is drawn
- * by `valueOf`. Every refusal before the key's values is out of its reach, so its admission, or the refusal of its first
- * key value, is the situation it is drawn for.
+ * A window the rule reads down to its key or its position: exactly its own anchor and size, a size of 1 to 7, and an
+ * anchor of exactly its own `kind` and, for after and before, its own key, a list as long as the comparators whose value
+ * at each is drawn by `valueOf`, and, for at, its own position, drawn by `position`. Every refusal before the key's
+ * values or the position is out of its reach, so its admission, or the refusal of its first key value or of its
+ * position, is the situation it is drawn for.
  */
 const keyedWindow =
 	(
 		kind: Kind,
 		comparators: Gen<Arr.NonEmptyReadonlyArray<Comparator>>,
-		valueOf: (comparator: Comparator) => Gen<unknown>
+		valueOf: (comparator: Comparator) => Gen<unknown>,
+		position: Gen<unknown>
 	): Gen<WindowCase> =>
 	(source) => {
 		const drawn = source.draw(comparators)
@@ -336,6 +381,7 @@ const keyedWindow =
 							values: [...Arr.map(drawn, (comparator) => source.draw(valueOf(comparator))), null]
 						}
 					},
+					position: { presence: kind === "at" ? "own" : "absent", value: source.draw(position) },
 					extra: "none"
 				}
 			},
@@ -361,17 +407,31 @@ const live = (comparator: Comparator): Gen<unknown> => liveValue[comparator]
  */
 export const windowAims: ReadonlyArray<readonly [WindowFeature, Gen<WindowCase>]> = [
 	...Arr.map(
-		["start", "after", "end", "before"] as const,
-		(kind) => [kind, keyedWindow(kind, comparatorsLed(element(comparatorNames)), live)] as const
+		["start", "after", "end", "before", "at"] as const,
+		(kind) =>
+			[kind, keyedWindow(kind, comparatorsLed(element(comparatorNames)), live, int(0, 7))] as const
 	),
+	[
+		"the first position",
+		keyedWindow("at", comparatorsLed(element(comparatorNames)), live, constant(0))
+	],
+	[
+		"a refused position",
+		keyedWindow(
+			"at",
+			comparatorsLed(element(comparatorNames)),
+			live,
+			element<unknown>([-1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1, 0n, "3", null])
+		)
+	],
 	...Arr.flatMap(comparatorNames, (comparator) => [
 		[
 			`an admitted ${comparator} value`,
-			keyedWindow("after", comparatorsLed(constant(comparator)), live)
+			keyedWindow("after", comparatorsLed(constant(comparator)), live, int(0, 7))
 		] as const,
 		[
 			`a refused ${comparator} value`,
-			keyedWindow("before", constant([comparator]), refusedBy)
+			keyedWindow("before", constant([comparator]), refusedBy, int(0, 7))
 		] as const
 	])
 ]
@@ -421,7 +481,8 @@ const anchorOf = (c: WindowCase): unknown => {
 		: recordOf(
 				[
 					["kind", a.kind.presence, a.kind.value],
-					["key", a.key.presence, keyOf(c)]
+					["key", a.key.presence, keyOf(c)],
+					["position", a.position.presence, a.position.value]
 				],
 				a.extra
 			)
@@ -444,7 +505,10 @@ export type WindowFeature =
 	| "after"
 	| "end"
 	| "before"
+	| "at"
 	| CallInputFault
+	| "the first position"
+	| "a refused position"
 	| "an inherited member"
 	| "a key of another length"
 	| `an admitted ${Comparator} value`
@@ -478,10 +542,25 @@ const exactly = (
 	extra === "none" &&
 	Arr.every(members, ([name, presence]) => (presence === "own") === names.includes(name))
 
-const templates = { start: "first", after: "after", end: "last", before: "before" } as const
+const templates = {
+	start: "first",
+	after: "after",
+	end: "last",
+	before: "before",
+	at: "at"
+} as const
 
 const isKind = (value: unknown): value is keyof typeof templates =>
-	value === "start" || value === "after" || value === "end" || value === "before"
+	value === "start" || value === "after" || value === "end" || value === "before" || value === "at"
+
+/** The members an anchor of each kind holds beside nothing else: its kind, and a key or a position. */
+const carried = {
+	start: ["kind"],
+	after: ["kind", "key"],
+	end: ["kind"],
+	before: ["kind", "key"],
+	at: ["kind", "position"]
+} as const satisfies { readonly [K in Kind]: ReadonlyArray<string> }
 
 /**
  * The rule, restated (see the header): the window's own members, then its size, then its anchor's kind, own members and
@@ -510,16 +589,26 @@ export const expectedOf = (c: WindowCase): Expected => {
 		return refusedFor("anchor", [])
 	}
 	const kind = a.kind.value
-	const keyed = kind === "after" || kind === "before"
 	const members: ReadonlyArray<readonly [string, Presence]> = [
 		["kind", a.kind.presence],
-		["key", a.key.presence]
+		["key", a.key.presence],
+		["position", a.position.presence]
 	]
-	if (!exactly(a.extra, members, keyed ? ["kind", "key"] : ["kind"])) {
+	if (!exactly(a.extra, members, carried[kind])) {
 		return refusedFor("anchor", [])
 	}
 	if (kind === "start" || kind === "end") {
 		return { kind: "admitted", call: { variant: templates[kind], size }, reached: [kind] }
+	}
+	if (kind === "at") {
+		const position = a.position.value
+		return typeof position === "number" && Number.isSafeInteger(position) && position >= 0
+			? {
+					kind: "admitted",
+					call: { variant: "at", size, position },
+					reached: position === 0 ? [kind, "the first position"] : [kind]
+				}
+			: refusedFor("anchor", ["a refused position"])
 	}
 	const key = a.key.value
 	if (key.kind === "no list") {
@@ -549,5 +638,6 @@ export const presences = (c: WindowCase): ReadonlyArray<Presence> => [
 	c.size.presence,
 	c.anchor.presence,
 	c.anchor.value.kind.presence,
-	c.anchor.value.key.presence
+	c.anchor.value.key.presence,
+	c.anchor.value.position.presence
 ]

@@ -265,7 +265,8 @@ const loadPage = (
 				first: yield* variant("first"),
 				after: yield* variant("after"),
 				last: yield* variant("last"),
-				before: yield* variant("before")
+				before: yield* variant("before"),
+				at: yield* variant("at")
 			}
 		}
 	})

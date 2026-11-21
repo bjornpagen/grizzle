@@ -93,8 +93,10 @@ export default defineConfig({
   way: `once(input)`, its value (a read's keyed set or list, a write's outcome), and `watch(input)`, its events, live
   for a read; `input` is `{ params, facts }`, both always present, `{}` where the program takes none. An ordered query
   the application pages is the member `paged(query)`, whose input adds `window: { anchor, size }`, the anchor
-  `{ kind: "start" }`, `{ kind: "after", key }`, `{ kind: "end" }` or `{ kind: "before", key }`, a key a row's
-  `RowKey`; generate compiles a page template for no other member. The member `clocked(program, { now: "millis" })`
+  `{ kind: "start" }`, `{ kind: "after", key }`, `{ kind: "end" }`, `{ kind: "before", key }` or
+  `{ kind: "at", position }`, a key a row's `RowKey` and a position the count of rows before the window (page `n` of
+  size `m` is position `(n - 1) * m`; its statement is OFFSET, linear in the position, so page by key wherever the API
+  allows); generate compiles a page template for no other member. The member `clocked(program, { now: "millis" })`
   binds the bigint parameter `now` of a query, an ordered query or a ChangeSet to the database's clock, the instant
   the call's transaction began, in `"micros"` or `"millis"`: the input omits it, every statement of the call reads the
   one instant, and a clocked read answers `once` alone, never live. Bind a lease's, a timer's or a due instant's `now`
