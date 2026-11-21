@@ -30,6 +30,7 @@ import {
 	field,
 	key,
 	mirrors,
+	mutable,
 	ne,
 	on,
 	relation,
@@ -504,7 +505,16 @@ export const nameKey = Option.getOrThrow(Arr.findFirst(kt.laws, (l) => l.shape =
 
 export const named = element<"none" | "acme" | "beta">(["none", "acme", "beta"])
 
-export const extra = [contained(on("Task", ["id"]), on("TaskNote", ["task"]))] as const
+/**
+ * The statements a law identity must not see: a containment Work does not state, which its schema orders after every
+ * statement Work states, and Task declared mutable, which no law reads and which the schema orders before every
+ * statement a law of Work comes from, so each law's statement index moves by one (the law's `statements`) while its
+ * identity stays.
+ */
+export const extra = [
+	contained(on("Task", ["id"]), on("TaskNote", ["task"])),
+	mutable("Task")
+] as const
 
 const note = on("TaskNote", ["task"])
 

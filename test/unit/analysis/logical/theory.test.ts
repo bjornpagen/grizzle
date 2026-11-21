@@ -525,8 +525,13 @@ export const evidenceAndItsValidityContextLawSpecializationStatesWhichContainmen
 		}
 	)
 
+/** Whether two laws come from the same statements, by index. */
+const sameStatements = Arr.makeEquivalence((a: number, b: number) => a === b)
+
 /**
- * Law identities are deterministic, independent of declaration order and of unrelated statements.
+ * Law identities are deterministic, independent of declaration order and of unrelated statements. The schema orders
+ * its statements canonically, so a permutation leaves every law's statement index as it was; an unrelated statement
+ * ordered before a law's (`extra`'s mutable Task) moves that index, and the law keeps its identity.
  *
  * Budget: 50 runs and 50 steered cases, what its suite stated before it became a property
  * (test/unit/analysis/logical/theory.test.ts:942 at 8cad5bce, its runs and its coverage's cases).
@@ -552,11 +557,15 @@ export const lawIdentitiesAreDeterministicIndependentOfDeclarationOrderAndOfUnre
 		{
 			needs: {},
 			budget: { runs: 50, steered: 50 },
-			situations: ["reordered", "an unrelated statement"] satisfies ReadonlyArray<
-				Reached<"reordered" | "an unrelated statement">
+			situations: [
+				"reordered",
+				"an unrelated statement",
+				"a law's statement index moved"
+			] satisfies ReadonlyArray<
+				Reached<"reordered" | "an unrelated statement" | "a law's statement index moved">
 			>,
 			check:
-				(_, c: Case<"reordered" | "an unrelated statement">) =>
+				(_, c: Case<"reordered" | "an unrelated statement" | "a law's statement index moved">) =>
 				([order, added, at]) =>
 					Effect.sync(() => {
 						const statements: Array<StatementDesc> = Arr.map(order, (i) =>
@@ -574,6 +583,16 @@ export const lawIdentitiesAreDeterministicIndependentOfDeclarationOrderAndOfUnre
 							)
 						}
 						const moved = theoryUnder({ ...W.WorkDesc, statements }, noImmediate)
+						if (
+							Arr.some(base.laws, (law) =>
+								Arr.some(
+									moved.laws,
+									(l) => l.id === law.id && !sameStatements(l.statements, law.statements)
+								)
+							)
+						) {
+							c.note("a law's statement index moved")
+						}
 						for (const law of base.laws) {
 							assert.deepEqual(
 								Option.map(
@@ -604,7 +623,7 @@ export const lawIdentitiesAreDeterministicIndependentOfDeclarationOrderAndOfUnre
 					original: "\tidentity.law(lawStatement(law, ownSpelling))",
 					replacement:
 						"\tidentity.law({\n\t\t...lawStatement(law, ownSpelling),\n\t\tparts: [...lawStatement(law, ownSpelling).parts, law.statements.map(String)]\n\t})",
-					why: "A law's identity names the statement it comes from (analysis/theory/theory.ts lawIdentityOf); the identities' independence fails, and the equivalent declarations too, since a restated law would take its later statement's identity."
+					why: "A law's identity names the statement it comes from (analysis/theory/theory.ts lawIdentityOf), its index in the schema's canonical order: a permutation leaves it, but Task declared mutable, ordered before every statement a law of Work comes from, moves it, so every such law takes another identity and the identities' independence fails; the equivalent declarations too, since a restated law would take its later statement's identity."
 				}
 			]
 		}
