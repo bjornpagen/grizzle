@@ -4,14 +4,16 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { closedSubset } from "#compiler/physical/closed/storage.ts"
 import { dateRange } from "#compiler/physical/date/storage.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
-import { integerNumeric } from "#compiler/physical/numeric/storage.ts"
+import { exactNumeric, integerNumeric } from "#compiler/physical/numeric/storage.ts"
 import { enforcement } from "#compiler/physical/obligations/graph.ts"
 import { vectorNorm } from "#compiler/physical/vector/storage.ts"
 import type { Expr, InlineConstraint } from "#compiler/sql/ast.ts"
 import { tableCol } from "#compiler/sql/build.ts"
 
 /** The identities of the column CHECKs (ColumnCheckKind), one kind each. */
-type ColumnCheckIdentity = Identity<"normCheck" | "dateCheck" | "integerCheck" | "subsetCheck">
+type ColumnCheckIdentity = Identity<
+	"normCheck" | "dateCheck" | "integerCheck" | "exactCheck" | "subsetCheck"
+>
 
 /**
  * One kind of a stored column's CHECK of the values its host type spells, where PostgreSQL's type holds more: the
@@ -37,10 +39,16 @@ interface ColumnCheck {
 
 /**
  * The column CHECKs, in the order a table declares them: a vector's cosine domain (physical/vector/storage.ts), a
- * date's days (physical/date/storage.ts), an integer numeric's integers (physical/numeric/storage.ts), and a closed id
- * subset's codes (physical/closed/storage.ts).
+ * date's days (physical/date/storage.ts), an integer numeric's integers and an exact field's values at its scale
+ * (physical/numeric/storage.ts), and a closed id subset's codes (physical/closed/storage.ts).
  */
-const kinds: ReadonlyArray<ColumnCheckKind> = [vectorNorm, dateRange, integerNumeric, closedSubset]
+const kinds: ReadonlyArray<ColumnCheckKind> = [
+	vectorNorm,
+	dateRange,
+	integerNumeric,
+	exactNumeric,
+	closedSubset
+]
 
 /**
  * The CHECK of every column of every stored relation each kind holds of, kind by kind, each in relation then field

@@ -8,6 +8,7 @@ import { MoneyText, moneyTag, VectorText, vectorTag } from "#compiler/ir/carrier
 import { toCalendarDate } from "#compiler/ir/date.ts"
 import { decimalPayload, isDecimalLike } from "#compiler/ir/decimal.ts"
 import type { SpanCarrier } from "#compiler/ir/scalar.ts"
+import { Money } from "#compiler/scalar/values/money.ts"
 import { admitCidr, admitInet } from "#compiler/scalar/values/net.ts"
 import { isVector, Vector } from "#compiler/scalar/values/vector.ts"
 import type { Expr, LiteralValue } from "#compiler/sql/ast.ts"
@@ -180,6 +181,7 @@ const spelledLiteral = (
 		case "vector":
 			return Result.succeed(literal({ kind: "text", value: spelling.text }, type))
 		case "integer":
+		case "exact":
 		case "money":
 		case "bool":
 		case "uuid":
@@ -248,6 +250,25 @@ export const literalFor = (
 			return Option.match(text, {
 				onNone: () =>
 					refuse(location, "numeric (a Decimal, bigint or exact decimal string)", value),
+				onSome: (payload) => Result.succeed(literal({ kind: "decimal", value: payload }, type))
+			})
+		}
+		case "exact": {
+			const text =
+				v.carrier === "exactInteger"
+					? typeof value === "bigint"
+						? Option.some(value.toString())
+						: Option.none()
+					: value instanceof Money
+						? Option.some(moneyText(value.minorUnits))
+						: Option.none()
+			return Option.match(text, {
+				onNone: () =>
+					refuse(
+						location,
+						v.carrier === "exactInteger" ? "an exact integer (a bigint)" : "exact money (a Money)",
+						value
+					),
 				onSome: (payload) => Result.succeed(literal({ kind: "decimal", value: payload }, type))
 			})
 		}

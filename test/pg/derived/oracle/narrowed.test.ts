@@ -1,8 +1,9 @@
 /**
- * A derived relation narrows an exact sum into its field's type under a guard: the form the exactField refusal names.
+ * A derived relation narrows an exact sum into its field's type under a guard.
  *
- * A sum over money is exact money, which no stored field holds (DerivedRefused, exactField), and an aggregate is a find
- * head's own column, never a scalar operand. So the definition sums each group's fees in an interior stage and narrows
+ * A sum over money is exact money, which an exactMoney field holds as it is, and a pg.money field only once narrowed, and
+ * an aggregate is a find head's own column, never a scalar operand. So the definition sums each group's fees in an
+ * interior stage and narrows
  * the variable that matches the total into pg.money under Logic.when(Num.within(total, least, greatest)), a
  * group whose total leaves money's range delivering zero. Each case installs Fee with generated fees, the extremes of
  * money's range among them, refreshes the derived relation, and checks that the stored view, its definition evaluated

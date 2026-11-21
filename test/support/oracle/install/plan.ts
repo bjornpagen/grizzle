@@ -527,6 +527,12 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 					location,
 					"a search document, PostgreSQL's parse of its row's texts, which the reference installation does not model"
 				)
+			case "exact":
+				return refuse(
+					"UnsupportedOperation",
+					location,
+					"an exact field, whose column CHECK of its scale the reference installation does not model"
+				)
 			case "contract": {
 				const existing = domains.get(field.name)
 				if (existing !== undefined && existing.identity !== identity(field)) {

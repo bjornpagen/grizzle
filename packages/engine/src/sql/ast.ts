@@ -312,6 +312,7 @@ export const builtinFunctions = {
 	sqrt: { reach: "row" },
 	min_scale: { reach: "row" },
 	trim_scale: { reach: "row" },
+	scale: { reach: "row" },
 	float8send: { reach: "row" },
 	get_byte: { reach: "row" },
 	width_bucket: { reach: "row" },

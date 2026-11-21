@@ -106,6 +106,7 @@ export type ContractConstructor = <
 	base: B &
 		NoWriting &
 		NotStoredOnly<B["sql"]> &
+		NotExactBase<B["sql"]> &
 		NotInstantBase<B> &
 		ContractBase<NoInfer<Name>, B> &
 		OneContractName<NoInfer<Name>>,
@@ -130,6 +131,14 @@ export type OneContractName<Name extends string> =
 export type ContractBase<Name extends string, B> = Columned<
 	Brand.Brand.Unbranded<Infer<B> & Brand.Brand<Name>>
 >
+
+/**
+ * A contract's base that is no exact value, arithmetic's own type of any size (exactInteger, exactMoney), which no
+ * contract is over: a contract bounds an integer or an amount over pg.bigint, pg.numeric(p, s) or pg.money.
+ */
+export type NotExactBase<Sql> = [Sql] extends ["exact integer" | "exact money"]
+	? Refusal<"no contract is over an exact value of any size: declare it over pg.bigint, pg.numeric(p, s) or pg.money">
+	: unknown
 
 /** A contract's base or a span's endpoint that is no instant, which no caller brands (NotInstant). */
 export type NotInstantBase<B> = NotInstant<DomainOf<B>>

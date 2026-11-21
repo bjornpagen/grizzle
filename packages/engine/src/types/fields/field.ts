@@ -15,6 +15,7 @@ import type { CalendarDate } from "#compiler/ir/date.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { NumericHostOf } from "#compiler/scalar/values/convert.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
+import type { Money } from "#compiler/scalar/values/money.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
 import type { Uuid } from "#compiler/scalar/values/uuid.ts"
 import type {
@@ -68,6 +69,20 @@ export type DateField = Field<CalendarDate, "date">
  * type is stored only (StoredOnlySql) (scalar/bytes.ts).
  */
 export type BytesField = Field<Uint8Array<ArrayBuffer>, "bytea">
+
+/**
+ * exactInteger: an integer of any size, the type integer arithmetic delivers, its host type bigint and its SQL type the
+ * exact integer's, so a term of it meets every exact integer and the plain integers as arithmetic's does, and a query's
+ * exact integer is written into it as it is (scalar/exact.ts).
+ */
+export type ExactIntegerField = Field<bigint, "exact integer">
+
+/**
+ * exactMoney: an amount of money of any size, the type money arithmetic and a money sum deliver, its host type Money and
+ * its SQL type exact money's, so a term of it meets exact money and plain money as arithmetic's does, and a query's
+ * exact money is written into it as it is (scalar/exact.ts).
+ */
+export type ExactMoneyField = Field<Money, "exact money">
 
 /**
  * The SQL types of storage alone, the type level's reading of a capability set of storage only (scalar/registry.ts

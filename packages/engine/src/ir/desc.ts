@@ -56,6 +56,8 @@ import {
 	textLanguageShape
 } from "#compiler/ir/scalar-shape.ts"
 import {
+	type ExactValueCarrier,
+	exactValueCarriers,
 	type NumericBound,
 	type RosterHandles,
 	type RosterOrder,
@@ -125,7 +127,8 @@ export type PgScalarName = (typeof pgScalarNames)[number]
  * (fieldDescShape): numeric is numeric(p, s), its precision and scale both declared, and `pg` numeric is numeric of no
  * typmod, which holds every numeric value (ir/scalar.ts NumericValueType at numeric's own limits). No declaration
  * states a computed numeric of a narrower bound, so none has an arm here; a derived relation's inferred field is an
- * InferredFieldDesc. A set over a roster
+ * InferredFieldDesc. An exact value (exact) is an exact integer or exact money of any size, the type integer and money
+ * arithmetic delivers (ir/scalar.ts ExactType) at numeric's own limit. A set over a roster
  * (bits) is bit(n), one bit per code the roster has minted, holes included. A pattern is a closed relation's text of
  * Text.matches patterns (str.pattern), each value a pattern of grizzle's grammar admitted once where the relation is
  * read, its ARE planned beside its dictionary.
@@ -133,6 +136,7 @@ export type PgScalarName = (typeof pgScalarNames)[number]
 export type FieldDesc =
 	| { readonly kind: "pg"; readonly type: PgScalarName }
 	| { readonly kind: "numeric"; readonly precision: number; readonly scale: number }
+	| { readonly kind: "exact"; readonly carrier: ExactValueCarrier }
 	| { readonly kind: "uuid" }
 	| { readonly kind: "bytes" }
 	| {
@@ -1074,6 +1078,7 @@ export const contextFieldAdmits = (desc: FieldDesc): boolean => {
 		case "contract":
 			return desc.name !== "instant" && contextFieldAdmits(desc.base)
 		case "numeric":
+		case "exact":
 		case "pattern":
 		case "bytes":
 		case "span":
@@ -2740,6 +2745,7 @@ const fieldDescBody: S.Shape<FieldDesc> = S.tagged("kind", {
 			f.scale <= numericMaxScale,
 		`numeric(p, s), both declared, p in 1..${numericMaxPrecision} and s in ${numericMinScale}..${numericMaxScale}`
 	),
+	exact: S.struct({ carrier: S.literalsShape(exactValueCarriers) }),
 	uuid: S.struct({}),
 	bytes: S.struct({}),
 	text: S.refine(
@@ -3148,7 +3154,9 @@ const keyWriting = (decl: FieldDecl | undefined): boolean => {
  * The field types a closed relation's field may have: a closed id, which a key field always is, or an open type its
  * rows' values are coded by within the relation. A span and a vector have no finite code space a cell reads, a set
  * is no row's value, bytes have no literal, a search document is PostgreSQL's parse of a row's texts, never a literal,
- * and an instant is the database's clock's, never a row's literal (ir/instant.ts).
+ * an exact value of any size has no literal a constant spells (a closed row's integer is a bigint's or a
+ * pg.numeric(p, 0)'s, its amount a money's), and an instant is the database's clock's, never a row's literal
+ * (ir/instant.ts).
  */
 const closedFieldAdmits = (desc: FieldDesc): boolean => {
 	switch (desc.kind) {
@@ -3161,6 +3169,7 @@ const closedFieldAdmits = (desc: FieldDesc): boolean => {
 			return true
 		case "contract":
 			return desc.name !== "instant" && closedFieldAdmits(desc.base)
+		case "exact":
 		case "bytes":
 		case "span":
 		case "bits":
@@ -3231,7 +3240,7 @@ export const recordAdmitted = (desc: WrittenClosedRelation): AdmittedClosedRelat
 
 /** What a closed relation's fields must be: at least one, each one a closed relation admits (closedFieldAdmits). */
 const closedFieldsCapability =
-	"a closed relation of at least one field, each a closed id or an open type that is no span, set, vector or bytes, and no field grizzle or PostgreSQL writes"
+	"a closed relation of at least one field, each a closed id or an open type that is no span, set, vector, bytes or exact value, and no field grizzle or PostgreSQL writes"
 
 /** What a closed relation must be beside its fields' own rules: its key, its slots and its rows as one. */
 const closedRelationCapability =

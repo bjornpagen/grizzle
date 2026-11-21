@@ -58,6 +58,7 @@ import {
 	type ContractInfo,
 	enteredType,
 	exactDigitsOf,
+	isExactValue,
 	isRefined,
 	languageOctets,
 	languageWithin,
@@ -1455,6 +1456,17 @@ const provedType = (type: ScalarType, bounds: Bounds | undefined): ScalarType =>
 	isComputedNumeric(type) ? numericOf(bounds) : type
 
 /**
+ * The type an operation's node is recorded at, with the bounds it made (bounds.ts ownLimited): provedType's, and an
+ * exact result's digit bound the made bounds' own, at numeric's own limit where an operand is bounded by nothing but it,
+ * so an exact field's own arithmetic, `x + x` over an exactInteger, is of the field's type, its overflow PostgreSQL's
+ * 22003 as a pg.numeric's is.
+ */
+const madeType = (type: ScalarType, bounds: Bounds | undefined): ScalarType =>
+	isExactValue(type) && bounds !== undefined
+		? exactType(type.carrier, bounds.digits)
+		: provedType(type, bounds)
+
+/**
  * The node of an overload or registered cast defined everywhere, `spec`, over `args`: an IEEE 754 one into a float,
  * `carried` the type it computes into, with the proof the lowering gives it where its operands' premises establish
  * that PostgreSQL's own overload computes it (native.ts nativeProof); any other as it is.
@@ -1900,7 +1912,7 @@ class Typing<R extends Refs> {
 					)
 		if (!op.partial) {
 			const rounded = resultBounds(op, type, made)
-			const stated = provedType(type, rounded)
+			const stated = madeType(type, rounded)
 			return this.emitAt(this.totalNode(op, args, stated, type), stated, rounded, noFacts)
 		}
 		const node: RecordedNode = {
@@ -1909,7 +1921,7 @@ class Typing<R extends Refs> {
 				kind: "op",
 				op: op.id,
 				args: args.map((a) => a.node),
-				type: provedType(type, made),
+				type: madeType(type, made),
 				nonNull: "strict",
 				volatility: op.volatility
 			},

@@ -6,6 +6,7 @@
  *   descriptor, the numeric typmod box, refined and wildcard text, contracts over drawn bases,
  *   spans, closed ids and sets over drawn rosters, vectors), every declared field's descriptor comes back from its
  *   type unchanged. Oracle: the round trip fieldDescOf ∘ scalarOf = id. Features: each kind, each pg member by itself.
+ *   The exact fields' round trip, an exact value of any bound among them, is test/unit/scalar/exact-fields.test.ts's.
  * - Undeclared contracts: over drawn contracts, each declared by a relation or not, and a derived field cast to one
  *   of them, a contract no relation declares has no descriptor, fieldDescOf names it and the derived field is
  *   refused at that field (DerivedRefused, undeclaredContract); a declared one is the derived field's descriptor, as
@@ -224,8 +225,9 @@ export const derivedFieldInferenceRefusesAContractTheSchemaDeclaresOnNoRelationI
 			{
 				file: "packages/engine/src/analysis/derived/fields.ts",
 				original: '\t\t\treturn Result.err({ kind: "undeclared", contract: contract.name })',
-				replacement: '\t\t\treturn Result.err({ kind: "exact", type: contract.name })',
-				why: "A column whose contract is undeclared is refused as an exact field; the undeclared contracts' property fails."
+				replacement:
+					'\t\t\treturn Result.err({ kind: "undeclared", contract: contract.base.carrier })',
+				why: "A column whose contract is undeclared is refused naming its base's carrier for the contract; the undeclared contracts' property fails."
 			}
 		]
 	})

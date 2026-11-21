@@ -40,7 +40,7 @@ import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
 import { anyNumeric } from "#compiler/scalar/compute/types.ts"
 import { type ScalarEnv, scalarTypeOf, type SqlTag } from "#compiler/scalar/registry.ts"
 import { spanColumn } from "#compiler/scalar/span.ts"
-import { numericColumn, vectorColumn } from "#compiler/scalar/values/convert.ts"
+import { carrierColumn, numericColumn, vectorColumn } from "#compiler/scalar/values/convert.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import type { Expr, TypeRef } from "#compiler/sql/ast.ts"
@@ -127,6 +127,8 @@ const columnOf = (desc: FieldDesc): Column<unknown> => {
 			return plainColumns[desc.type]
 		case "numeric":
 			return numericColumn(desc)
+		case "exact":
+			return carrierColumn(desc.carrier)
 		case "uuid":
 			return plainColumns.uuid
 		case "text":

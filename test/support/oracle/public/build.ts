@@ -4,7 +4,16 @@ import type { Direction } from "#compiler/core/order.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { date, closedId, contract, pg, span, Vector } from "#compiler/public/fields.ts"
+import {
+	closedId,
+	contract,
+	date,
+	exactInteger,
+	exactMoney,
+	pg,
+	span,
+	Vector
+} from "#compiler/public/fields.ts"
 import {
 	key,
 	login,
@@ -181,10 +190,9 @@ const paramDescriptor = (param: Param, roster: RosterValue): FieldBase => {
 		case "vector":
 			return pg.vector(vectorDimensions)
 		case "exactInteger":
+			return exactInteger
 		case "exactMoney":
-			throw new Error(
-				`a parameter of the exact carrier ${type.carrier}, which no descriptor declares`
-			)
+			return exactMoney
 	}
 }
 

@@ -88,7 +88,7 @@ export const exclusions: Readonly<
 	 * alone, never by GiST.
 	 */
 	bits: ["gist", "ordering"],
-	/** An exact value is never a field's, so no key or constraint indexes it by GiST. */
+	/** An exact field is never a key's (KeyFault exactValue), so no key or constraint indexes one by GiST. */
 	exactInteger: ["gist"],
 	/** Nor exact money's; a mean over money is no aggregate of the language, as money's own avg is not. */
 	exactMoney: ["avg", "gist"],

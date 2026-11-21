@@ -253,20 +253,28 @@ export const relation: typeof ordinaryRelation & { readonly generated: typeof ge
 	Object.freeze(Object.assign(ordinaryRelation, { generated }))
 
 /**
- * A closed relation's fields are closed ids, and open-typed values that are no span, set, vector or bytes, and no field
- * grizzle or PostgreSQL writes.
+ * A closed relation's fields are closed ids, and open-typed values that are no span, set, vector, bytes or exact value,
+ * and no field grizzle or PostgreSQL writes.
  */
 type ClosedFieldsCheck<Fields> = [
 	{
 		[K in keyof Fields]-?: Fields[K] extends
 			| { readonly writing: WritingTag }
-			| { readonly sql: "range" | "vector" | "bits" | StoredOnlySql }
+			| {
+					readonly sql:
+						| "range"
+						| "vector"
+						| "bits"
+						| "exact integer"
+						| "exact money"
+						| StoredOnlySql
+			  }
 			? K
 			: never
 	}[keyof Fields]
 ] extends [never]
 	? unknown
-	: Refusal<"a closed relation's field is a closed id, or a value of a type that is no span, set, vector or bytes, and no field grizzle or PostgreSQL writes">
+	: Refusal<"a closed relation's field is a closed id, or a value of a type that is no span, set, vector, bytes or exact value, and no field grizzle or PostgreSQL writes">
 
 /**
  * closed.ordered(name, handles): a roster whose order means something, the handles it introduces, each once, in

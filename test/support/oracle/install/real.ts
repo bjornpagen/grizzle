@@ -208,7 +208,7 @@ const valueKind = (t: ScalarType, codes: Codebook): ValueKind => {
 			return { kind: "vector", dimensions: b.typmod.dims }
 		case "exactInteger":
 		case "exactMoney":
-			throw new Error(`a stored column of the exact carrier ${b.carrier}, which no field has`)
+			return { kind: "exact", carrier: b.carrier }
 	}
 }
 

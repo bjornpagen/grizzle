@@ -10,15 +10,15 @@ import {
 	languageOfText,
 	type NumericValueType,
 	type ScalarType,
-	textPatterns,
-	typeLabel
+	textPatterns
 } from "#compiler/ir/scalar.ts"
 import type { OwnedContract } from "#compiler/schema/own.ts"
 
-/** Why a column type has no field descriptor: a contract the owned schema does not declare, or an exact value. */
-type Undescribed =
-	| { readonly kind: "undeclared"; readonly contract: string }
-	| { readonly kind: "exact"; readonly type: string }
+/** Why a column type has no field descriptor: a contract the owned schema does not declare. */
+interface Undescribed {
+	readonly kind: "undeclared"
+	readonly contract: string
+}
 
 /**
  * The field descriptor of one inferred column type: a computed numeric's bound, or the descriptor a declaration of the
@@ -107,7 +107,7 @@ export const declaredDescOf = (
 			return Result.ok({ kind: "search", configuration: type.configuration })
 		case "exactInteger":
 		case "exactMoney":
-			return Result.err({ kind: "exact", type: typeLabel(type) })
+			return Result.ok({ kind: "exact", carrier: type.carrier })
 	}
 }
 
@@ -125,8 +125,10 @@ export const declaredDescOf = (
  * - `r.count()` is `natural`, which every schema holds (schema/own.ts #collectFields; test/unit/check/count.test.ts);
  * - `r.sum` is numeric over the integers and numeric, the result type of the bigint and numeric SUM it lowers to (a
  *   sum over smallint or integer is summed as bigint, scalar/aggregate.ts `widened`), and real and double precision
- *   keep their type; money gives exact money, which no field holds (a stored money total sums the
- *   amounts cast to numeric); `r.mean` is the native AVG result type:
+ *   keep their type; money gives exact money, an exactMoney field (the amounts summed cast to numeric), and integer or
+ *   money arithmetic its exact integer or exact money, a field of any size of it (ir/desc.ts FieldDesc exact), its view
+ *   column the head's own type, bigint of at most 18 digits and numeric otherwise, which every read of the view types
+ *   it by; `r.mean` is the native AVG result type:
  *   numeric over the integers and numeric, double precision over the floats. A numeric result carries no typmod, since
  *   SUM and AVG do not inherit an input precision or scale, but the bound its definition proves (ir/scalar.ts
  *   NumericBound), which every read of the field then has;
@@ -169,14 +171,13 @@ const describedColumn = <C extends HeadingColumn>(
 	const desc = fieldDescOf(c.type, contracts)
 	if (!desc.ok) {
 		const at = SourceLoc(`derived ${relation} field ${c.name}`, [])
-		const error = desc.error
 		return Result.err(
-			derivedRefused(
-				at,
-				error.kind === "undeclared"
-					? { kind: "undeclaredContract", relation, field: c.name, contract: error.contract }
-					: { kind: "exactField", relation, field: c.name, type: error.type }
-			)
+			derivedRefused(at, {
+				kind: "undeclaredContract",
+				relation,
+				field: c.name,
+				contract: desc.error.contract
+			})
 		)
 	}
 	return Result.ok({ ...c, desc: desc.value })

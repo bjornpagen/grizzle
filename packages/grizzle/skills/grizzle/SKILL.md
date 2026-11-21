@@ -700,8 +700,9 @@ The command line's own refusals, by stage:
   where nothing decides which of them the row broke: at least one did. Its `witness` is the key of a row you stated
   that breaks them, or `unreported` where grizzle cannot tell which row did, such as two family owners the write
   inserts without reading them, either of which may be a stored one inserted again: never assume a key is there.
-- No read raises an arithmetic error on a row, but arithmetic over a `pg.numeric`, whose result past numeric's own
-  limit PostgreSQL refuses with 22003: catch no other 22003, nor 22012 or 2201F, around a query. Integer arithmetic is
+- No read raises an arithmetic error on a row, but arithmetic over a `pg.numeric`, an `exactInteger` or an
+  `exactMoney` field, whose result past numeric's own limit PostgreSQL refuses with 22003: catch no other 22003, nor
+  22012 or 2201F, around a query. Integer arithmetic is
   exact and delivers `bigint`, money arithmetic exact `Money`, and floats are IEEE 754 (`x / 0.0` is ±Infinity). A
   partial operation needs its precondition proved, by a literal's type (`Num.div(x, 7n)`), by a contract that
   declares it (`contract("Divisor", pg.bigint, (v) => Logic.ne(v, 0n), { proves: ["nonzero"] })`) or by a guard:
@@ -783,6 +784,14 @@ The command line's own refusals, by stage:
 - A call's flight, every byte the driver writes for its one round trip, is at most 1,908,342,784 bytes
   (`flightMaxBytes`), the most one write over TLS carries. A longer one is `InputTooLarge` (`flight`) before anything is
   sent, nothing ran, and grizzle never splits it into more round trips: split the input across calls.
+- Store an exact value of any size as it is: `exactInteger` (a `bigint`) holds what integer arithmetic delivers,
+  `exactMoney` (a `Money` of any count of cents) what money arithmetic and a money sum deliver, so a member's head
+  `{ total: Num.add(total, amount) }`, a `generated(exactInteger, Num.mul(a, b))` or a derived relation's money sum needs no
+  `Type.cast`. Each is numeric of no typmod, its column CHECKed to scale 0 or to money's 2, so a direct writer's 1.5,
+  5.0, NaN or infinity is 23514. Never key, UNIQUE or axis by one (`UnrepresentableKey`, exactValue): key by a
+  `pg.numeric(p, 0)` or `pg.bigint`, or a `pg.numeric(p, 2)` or `pg.money`. No contract is over one, and no closed
+  relation's, context's or declared function's field is one. Read a `Money` past a signed 64-bit count with its
+  `minorUnits`; `Money.exact(cents)` writes one.
 - A numeric field declares its precision and scale, `pg.numeric(p, s)`, or is `pg.numeric`, PostgreSQL's numeric of
   no typmod, a `Decimal` passed as it is: type a declared function that `returns numeric` `returns: pg.numeric`, never
   a typmod it does not state, which rounds its value. No key holds a `pg.numeric`, which has no byte bound: key by

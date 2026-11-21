@@ -3,7 +3,12 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { KeyFault } from "#compiler/core/causes.ts"
 import type { InferredFieldDesc } from "#compiler/ir/desc.ts"
 import type { DeclaredKey } from "#compiler/ir/rel.ts"
-import { btreeEntry, keyColumns, keyDatums } from "#compiler/schema/representability.ts"
+import {
+	btreeEntry,
+	exactKeyFields,
+	keyColumns,
+	keyDatums
+} from "#compiler/schema/representability.ts"
 
 export interface DerivedKeyLayout {
 	readonly fields: DeclaredKey
@@ -46,8 +51,16 @@ interface KeyColumn {
 export const derivedKeyLayout = (
 	key: NonEmptyReadonlyArray<KeyColumn>
 ): Result.Result<DerivedKeyLayout, KeyFault> => {
-	/** The rule every key's index entry starts from (schema/representability.ts keyDatums), then its B-tree entry. */
-	const datums = keyDatums(key.map((c) => ({ field: c.name, desc: c.desc })))
+	/**
+	 * The rule every key's index entry starts from (schema/representability.ts exactKeyFields, keyDatums), then its
+	 * B-tree entry.
+	 */
+	const fields = key.map((c) => ({ field: c.name, desc: c.desc }))
+	const exact = exactKeyFields(fields)
+	if (exact !== undefined) {
+		return Result.err(exact)
+	}
+	const datums = keyDatums(fields)
 	if (!datums.ok) {
 		return datums
 	}

@@ -2540,6 +2540,8 @@ const hostOfDesc = (desc: FieldDesc, base: Base, ids: Ids): string => {
 			return pgHost[desc.type]
 		case "numeric":
 			return numericHost(desc)
+		case "exact":
+			return desc.carrier === "exactInteger" ? "bigint" : "Fi.Money"
 		case "uuid":
 			return "Fi.Uuid"
 		case "bytes":
@@ -5487,6 +5489,8 @@ const valueDescriptorType = (desc: FieldDesc, base: Base, ids: Ids): string => {
 			return pgDescriptorType[desc.type]
 		case "numeric":
 			return `Fi.NumericTypmodField<${numericHost(desc)}>`
+		case "exact":
+			return desc.carrier === "exactInteger" ? "Fi.ExactIntegerField" : "Fi.ExactMoneyField"
 		case "uuid":
 			return 'Fi.Field<Fi.Uuid, "uuid">'
 		case "bytes":
@@ -5538,6 +5542,7 @@ const literalType = (
 			return `ReadonlySet<${literalUnion(rosterNamed(base, desc.roster).handles)}>`
 		case "pg":
 			return pgLiteral[desc.type]
+		case "exact":
 		case "bytes":
 		case "uuid":
 		case "text":

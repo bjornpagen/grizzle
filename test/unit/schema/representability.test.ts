@@ -364,9 +364,9 @@ export const aSelectedKeyOverATextOfNoByteBoundIsRefusedAsUnrepresentableKeyNami
 			{
 				file: "packages/engine/src/laws/model/plan.ts",
 				original:
-					'\t\t\treturn unrepresentable(loc, subject, key, { kind: "unboundedText", field: plannedText(c) })',
-				replacement: "\t\t\tcontinue",
-				why: "A planned UNIQUE skips a column of no byte bound where it should refuse it, so a selected key over a free text compiles and PostgreSQL refuses its first long value (54000)."
+					'\t\tunrepresentable(loc, subject, key, { kind: "unboundedText", field: plannedText(c) })',
+				replacement: '\t\t{ bytes: 0, align: 1, family: "text" }',
+				why: "A planned UNIQUE counts a column of no byte bound at no bytes where it should refuse it, so a selected key over a free text compiles and PostgreSQL refuses its first long value (54000)."
 			}
 		]
 	})

@@ -407,9 +407,13 @@ const decimalFits = (
 		: Result.err("range")
 }
 
-/** Whether a coefficient, a natural, lies below 10^`exponent`: below a negative exponent's power, a fraction, only 0. */
+/**
+ * Whether a coefficient, a natural, lies below 10^`exponent`: it is 0, or it has at most `exponent` decimal digits, so
+ * below 10^0 and below a negative exponent's power, a fraction, only 0 does. A per-value hot path read by its digits,
+ * never by the power, which at an exact field's or pg.numeric's bound is a number of 131,072 digits.
+ */
 const belowPowerOfTen = (coefficient: bigint, exponent: number): boolean =>
-	exponent >= 0 ? coefficient < 10n ** BigInt(exponent) : coefficient === 0n
+	coefficient === 0n || (exponent > 0 && coefficient.toString().length <= exponent)
 
 /** The integer digits and scale of a decimal type's values (WireNumeric). */
 const numericBounds = (
@@ -854,7 +858,7 @@ const carrierWire: CarrierWires = {
 		schema: (spec) => spelled(integersBelow(spec.digits)),
 		encode: (value) => value.toString(),
 		parse: (json, spec) =>
-			bigIntegerOf(json, (value) => (value < 0n ? -value : value) < 10n ** BigInt(spec.digits)),
+			bigIntegerOf(json, (value) => belowPowerOfTen(value < 0n ? -value : value, spec.digits)),
 		decode: (json) => BigInt(trustedString(json)),
 		is: isBigint
 	},

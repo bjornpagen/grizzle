@@ -88,7 +88,8 @@ import {
 	type EntryColumn,
 	type GistEntryBytes,
 	gistEntry,
-	indexMaxKeys
+	indexMaxKeys,
+	exactKeyFault
 } from "#compiler/schema/representability.ts"
 
 /** A refusal deep inside recognition is a core Refusal, which the model's boundary returns (`catchRefusal`). */
@@ -241,14 +242,31 @@ const plannedEntry = (
 	}
 	const entry: Array<EntryColumn> = []
 	for (const c of columns) {
-		const datum = plannedDatum(c)
-		if (datum === undefined) {
-			return unrepresentable(loc, subject, key, { kind: "unboundedText", field: plannedText(c) })
-		}
-		entry.push(entryColumn(c, datum))
+		entry.push(entryColumn(c, plannedBound(c, subject, key, loc)))
 	}
 	const proved = btreeEntry(entry)
 	return proved.ok ? proved.value : unrepresentable(loc, subject, key, proved.error)
+}
+
+/**
+ * A planned column's datum in an index the law model plans (`plannedDatum`), or the index's refusal, UnrepresentableKey
+ * with `subject`: an exact field, which no key holds (schema/representability.ts exactKeyFault), or a text of no byte
+ * bound.
+ */
+const plannedBound = (
+	c: PlannedColumn,
+	subject: string,
+	key: ReadonlyArray<string>,
+	loc: SourceLoc
+): DatumBound => {
+	const exact = exactKeyFault(plannedText(c), plannedField(c).desc)
+	if (exact !== undefined) {
+		return unrepresentable(loc, subject, key, exact)
+	}
+	return (
+		plannedDatum(c) ??
+		unrepresentable(loc, subject, key, { kind: "unboundedText", field: plannedText(c) })
+	)
 }
 
 /** A planned column as an index entry holds it: a field NOT NULL, a law column possibly NULL. */
@@ -431,12 +449,10 @@ const plannedGist = (
 	if (key.length > indexMaxKeys) {
 		return unrepresentable(loc, subject, key, { kind: "columns", limit: indexMaxKeys })
 	}
-	const bounded = (c: PlannedColumn): { readonly field: string; readonly datum: DatumBound } => {
-		const datum = plannedDatum(c)
-		return datum === undefined
-			? unrepresentable(loc, subject, key, { kind: "unboundedText", field: plannedText(c) })
-			: { field: plannedText(c), datum }
-	}
+	const bounded = (c: PlannedColumn): { readonly field: string; readonly datum: DatumBound } => ({
+		field: plannedText(c),
+		datum: plannedBound(c, subject, key, loc)
+	})
 	const proved = gistEntry(scalars.map(bounded), bounded(span))
 	return proved.ok ? proved.value : unrepresentable(loc, subject, key, proved.error)
 }

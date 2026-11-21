@@ -7,10 +7,15 @@ import type { EntryRole } from "#compiler/core/identity.ts"
 import { blockSize, itemIdBytes, pageHeaderBytes } from "#compiler/core/page.ts"
 import { int2Max } from "#compiler/ir/carriers.ts"
 import type { ExprDesc, FieldDesc, InferredFieldDesc } from "#compiler/ir/desc.ts"
-import type { NumericBound, TextLanguage } from "#compiler/ir/scalar.ts"
+import type { ExactValueCarrier, NumericBound, TextLanguage } from "#compiler/ir/scalar.ts"
 import { decDigits } from "#compiler/scalar/compute/numeric.ts"
 import { utf8EncodingMaxBytes } from "#compiler/scalar/compute/typing.ts"
-import { numericOwnBound, varlenaHeaderBytes } from "#compiler/scalar/values/fault.ts"
+import { moneyFractionDigits } from "#compiler/scalar/values/decimal.ts"
+import {
+	numericMaxIntegerDigits,
+	numericOwnBound,
+	varlenaHeaderBytes
+} from "#compiler/scalar/values/fault.ts"
 
 /**
  * BITS_PER_BYTE, the bits PostgreSQL counts in one byte of a datum.
@@ -659,6 +664,7 @@ const integerFamily = (desc: FieldDesc): "int4" | "int8" | undefined => {
 		case "pg":
 			return desc.type === "integer" ? "int4" : desc.type === "bigint" ? "int8" : undefined
 		case "numeric":
+		case "exact":
 		case "uuid":
 		case "bytes":
 		case "text":
@@ -718,6 +724,17 @@ const numericDatum = (bound: NumericBound): DatumBound =>
 	fixed(numericMaximumSize(bound.digits + bound.scale), 4, "numeric")
 
 /**
+ * The largest datum of an exact field (ir/desc.ts FieldDesc exact), numeric of no typmod at numeric's own limit: an
+ * exact integer's integer digits, scale 0, and exact money's with money's fraction digits, its stored scale. Its widest
+ * value no B-tree entry holds: no key holds one (exactKeyFault), and a lookup leaves one out of its index, a filter
+ * beside it (`lookupEntry`), as a pg.numeric of no typmod.
+ */
+const exactDatum: { readonly [C in ExactValueCarrier]: DatumBound } = {
+	exactInteger: numericDatum({ digits: numericMaxIntegerDigits, scale: 0 }),
+	exactMoney: numericDatum({ digits: numericMaxIntegerDigits, scale: moneyFractionDigits })
+}
+
+/**
  * range_serialize's size of a range over an endpoint of `endpoint` bytes, both bounds present: its header, which is
  * MAXALIGNed, its two bounds, each at its own width's alignment and so unpadded, and its flags byte.
  */
@@ -745,6 +762,8 @@ export const datumBound = (desc: InferredFieldDesc): DatumBound | undefined => {
 			return fixed(bitsBytes, 4, "bit")
 		case "numeric":
 			return fixed(numericMaximumSize(desc.precision), 4, "numeric")
+		case "exact":
+			return exactDatum[desc.carrier]
 		case "computedNumeric":
 			return numericDatum(desc.bound)
 		case "span":
@@ -929,6 +948,40 @@ export type KeyFields = ReadonlyArray<{
 	readonly field: string
 	readonly desc: InferredFieldDesc
 }>
+
+/**
+ * What an exact field of each carrier is, as a key's refusal names it, and the types of a declared precision that hold
+ * its values, the fix it names (KeyFault exactValue).
+ */
+const exactKeyFix: {
+	readonly [C in ExactValueCarrier]: { readonly type: string; readonly precision: string }
+} = {
+	exactInteger: {
+		type: "an exact integer",
+		precision: "pg.numeric(p, 0), an integer of at most p digits read as a bigint, or pg.bigint"
+	},
+	exactMoney: {
+		type: "exact money",
+		precision: "pg.numeric(p, 2), or pg.money, a signed 64-bit count of cents"
+	}
+}
+
+/**
+ * The fault of a key's field no key holds whatever its fellows, by its type alone: an exact field of any size, whose
+ * widest value no entry holds (exactValue), its fix a precision (exactKeyFix); none for any other, which its datum
+ * sizes. Every key reads it, a declared one's (keyLayout), an inherited one's (analysis/derived/keys.ts) and the law
+ * model's UNIQUEs and axes (laws/model/plan.ts); a lookup sizes an exact field as a numeric's datum, which leaves it a
+ * filter beside its index.
+ */
+export const exactKeyFault = (field: string, desc: InferredFieldDesc): KeyFault | undefined =>
+	desc.kind === "exact" ? { kind: "exactValue", field, ...exactKeyFix[desc.carrier] } : undefined
+
+/** The first exact field of a key's fields, as its fault (exactKeyFault); none where the key holds none. */
+export const exactKeyFields = (fields: KeyFields): KeyFault | undefined =>
+	fields.reduce<KeyFault | undefined>(
+		(fault, { field, desc }) => fault ?? exactKeyFault(field, desc),
+		undefined
+	)
 
 /**
  * The bounded datums of a key's fields, or why the key has none: more columns than one index holds, a bytes field,
@@ -1147,6 +1200,10 @@ export const textBytesBeside = (others: KeyFields): Result.Result<number, KeyFau
  * entry within PostgreSQL's limit.
  */
 export const keyLayout = (fields: KeyFields): Result.Result<KeyLayout, KeyFault> => {
+	const exact = exactKeyFields(fields)
+	if (exact !== undefined) {
+		return Result.err(exact)
+	}
 	const bounded = keyDatums(fields)
 	if (!bounded.ok) {
 		return bounded

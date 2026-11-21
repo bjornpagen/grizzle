@@ -48,14 +48,17 @@ const omitted = (relation: MemberRelation): string =>
 		: ""
 
 /**
- * The one way a member column of type `value` is written into a field of another type `field`: an exact value or a
- * computed numeric, a value's making which no field stores, by Type.cast under a guard that proves it fits; a value
- * into or out of a contract by Type.cast; any other value, of another numeric typmod or span width among them, by
- * Type.cast into the field's type.
+ * The one way a member column of type `value` is written into a field of another type `field`: an exact value as it is
+ * into an exact field of its carrier (exactInteger, exactMoney), and into any other, as a computed numeric into any
+ * field, by Type.cast under a guard that proves it fits; a value into or out of a contract by Type.cast; any other
+ * value, of another numeric typmod or span width among them, by Type.cast into the field's type.
  */
 const writtenOnly = (value: ScalarType, field: ScalarType): string => {
-	if (isExactValue(value) || isNumericValue(value)) {
-		return "an exact value or a computed numeric is written into a field only by Type.cast under a guard that proves it fits"
+	if (isExactValue(value)) {
+		return `an exact value is written as it is into an exact field of its carrier, ${value.carrier}, and into any other field only by Type.cast under a guard that proves it fits`
+	}
+	if (isNumericValue(value)) {
+		return "a computed numeric is written into a field only by Type.cast under a guard that proves it fits"
 	}
 	if (value.contract !== undefined || field.contract !== undefined) {
 		return "a value re-enters a contract only by Type.cast"
@@ -72,7 +75,8 @@ const writtenOnly = (value: ScalarType, field: ScalarType): string => {
  * draws or accumulates, an instant left out or stated (write/frontend/instants.ts). Each head column enters the field it is
  * written into at the field's own type (ir/scalar.ts entersColumn), as a generated field's term and a fold's
  * accumulator do: the same carrier, contract, roster, numeric typmod, span endpoint and width, and vector dimensions,
- * never an exact value or a computed numeric, which no field stores, and a closed id's subset within the field's; a
+ * an exact value only into an exact field of its carrier, never a computed numeric, which no field stores, and a closed
+ * id's subset within the field's; a
  * text's pattern and byte bound alone are the column's domain's, which PostgreSQL validates where the value is written. Anything else is
  * DescribedHeadingMismatch, located at the member. An attachment on the member's result is a field too,
  * one an Attach node's heading does not list: the checker refuses it where it is attached (checker.ts attach).

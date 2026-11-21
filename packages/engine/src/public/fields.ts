@@ -7,6 +7,7 @@ import { bytesDescriptor } from "#compiler/scalar/bytes.ts"
 import { compute, searchDocumentTerm } from "#compiler/scalar/compute/builders.ts"
 import { callerContractParts } from "#compiler/scalar/contract.ts"
 import { dateDescriptor } from "#compiler/scalar/date.ts"
+import { exactIntegerDescriptor, exactMoneyDescriptor } from "#compiler/scalar/exact.ts"
 import { instantDescriptor } from "#compiler/scalar/instant.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
@@ -61,6 +62,8 @@ import type {
 	DateField,
 	DrawnField,
 	DrawnType,
+	ExactIntegerField,
+	ExactMoneyField,
 	Field,
 	FieldBase,
 	GeneratedField,
@@ -111,6 +114,8 @@ export type {
 	DateField,
 	DrawnField,
 	DrawnType,
+	ExactIntegerField,
+	ExactMoneyField,
 	Field,
 	FieldBase,
 	GeneratedField,
@@ -154,7 +159,8 @@ export type {
 } from "#compiler/types/search/search.ts"
 
 /**
- * Public barrel: Scalar field descriptors: uuid, natural, date, bytes, pg, contract, span and closedId, the runtime values of
+ * Public barrel: Scalar field descriptors: uuid, natural, date, bytes, exactInteger, exactMoney, pg, contract, span and
+ * closedId, the runtime values of
  * packages/engine/src/scalar bound to their public signatures (types/fields), with the exact carriers Decimal and Money,
  * the uuid host value Uuid and pgvector's carrier Vector. str.regex is the text barrel's.
  *
@@ -178,6 +184,18 @@ export const date: DateField = dateDescriptor
  * nothing else (scalar/bytes.ts).
  */
 export const bytes: BytesField = bytesDescriptor
+
+/**
+ * exactInteger: an integer of any size, a bigint, the type integer arithmetic delivers, stored as numeric under the
+ * CHECK of the integers (scalar/exact.ts).
+ */
+export const exactInteger: ExactIntegerField = exactIntegerDescriptor
+
+/**
+ * exactMoney: an amount of money of any size, a Money, the type money arithmetic and a money sum deliver, stored as
+ * numeric under the CHECK of money's scale (scalar/exact.ts).
+ */
+export const exactMoney: ExactMoneyField = exactMoneyDescriptor
 
 export const pg: Pg = pgDescriptors
 

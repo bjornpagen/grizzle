@@ -129,6 +129,7 @@ const declaredText = (field: FieldDesc): DeclaredText => {
 			return declaredText(field.base)
 		case "pg":
 		case "numeric":
+		case "exact":
 		case "bytes":
 		case "uuid":
 		case "pattern":

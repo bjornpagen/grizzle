@@ -32,7 +32,9 @@ import {
 	type ContractBase,
 	type ContractInfo,
 	type DeclaredType,
+	type ExactValueCarrier,
 	isDateType,
+	isExactValue,
 	isRosterSubset,
 	languageOctets,
 	languageWithin,
@@ -52,7 +54,7 @@ import {
 import type { TextSearchConfiguration } from "#compiler/ir/search.ts"
 import { minted, mintedRefusal } from "#compiler/scalar/minted.ts"
 import { nativeCapabilities, unorderedCodeCapabilities } from "#compiler/scalar/native.ts"
-import { numericOwnBound } from "#compiler/scalar/values/fault.ts"
+import { numericMaxIntegerDigits, numericOwnBound } from "#compiler/scalar/values/fault.ts"
 
 /** The capability set of a carrier. */
 export const capabilitiesOf = (carrier: Carrier): CapabilitySet =>
@@ -466,7 +468,7 @@ const brandedText = (b: Branded): string => {
 		case "copy":
 			return "a field descriptor a builder made: a copy of one (an object spread) is none, because a descriptor's host type is its builder's"
 		case "unbranded":
-			return "a field descriptor a builder made: pg.*, uuid, bytes, str.regex, contract, span, closedId or pg.vector"
+			return "a field descriptor a builder made: pg.*, uuid, bytes, exactInteger, exactMoney, str.regex, contract, span, closedId or pg.vector"
 	}
 }
 
@@ -551,6 +553,28 @@ export const numericValue = (bound: NumericBound): ScalarType => numericOfBound(
 export const numericOwnLimits: NumericValueType = numericOfBound(numericOwnBound)
 
 /**
+ * `carrier`'s exact value at numeric's own limit, frozen, its keys in the decoder's order (ir/scalar-shape.ts), so a
+ * declared type and the same type an operation makes (scalar/compute/types.ts exactType) are alike.
+ */
+const exactAtOwnLimit = (carrier: ExactValueCarrier): DeclaredType =>
+	Object.freeze({
+		carrier,
+		caps: capabilitiesOf(carrier),
+		contract: undefined,
+		digits: numericMaxIntegerDigits
+	})
+
+/**
+ * The type each exact field's Description names (ir/desc.ts FieldDesc exact): its carrier's exact value at numeric's
+ * own limit, numericMaxIntegerDigits digits (of the amount, for money), which every value integer or money arithmetic
+ * delivers lies within, so an exact value of any bound is written into the field as it is.
+ */
+const exactFieldTypes: { readonly [C in ExactValueCarrier]: DeclaredType } = {
+	exactInteger: exactAtOwnLimit("exactInteger"),
+	exactMoney: exactAtOwnLimit("exactMoney")
+}
+
+/**
  * The type each pg descriptor's Description names (ir/desc.ts PgScalarName): a plain carrier's, and numeric of no
  * typmod at numeric's own limits.
  */
@@ -583,6 +607,8 @@ const scalarAt = (
 			return Result.ok(pgTypes[desc.type])
 		case "numeric":
 			return Result.ok(numericType(Object.freeze({ precision: desc.precision, scale: desc.scale })))
+		case "exact":
+			return Result.ok(exactFieldTypes[desc.carrier])
 		case "uuid":
 			return Result.ok(plainType("uuid"))
 		case "bytes":
@@ -717,6 +743,8 @@ export const descCapabilities = (desc: FieldDesc): CapabilitySet => {
 			return capsOf(pgTypes[desc.type])
 		case "numeric":
 			return capabilitiesOf("numeric")
+		case "exact":
+			return capabilitiesOf(desc.carrier)
 		case "uuid":
 			return capabilitiesOf("uuid")
 		case "bytes":
@@ -825,7 +853,7 @@ export const contractType = (
 
 /**
  * The contract `name` over `base` with `predicate`'s table, frozen with a frozen copy of its facts, so it holds no
- * array its caller made: a contract over a set is refused.
+ * array its caller made: a contract over a set, bytes, a search document or an exact value is refused.
  */
 const contractOver = (
 	name: DeclaredName,
@@ -860,6 +888,14 @@ const contractOver = (
 			)
 		)
 	}
+	if (isExactValue(base)) {
+		return Result.err(
+			ruleRefused(
+				loc,
+				"no contract is over an exact value of any size: declare it over pg.bigint, pg.numeric(p, s) or pg.money"
+			)
+		)
+	}
 	return Result.ok(Object.freeze({ name, base, predicate, facts: Object.freeze([...facts]) }))
 }
 
@@ -889,7 +925,7 @@ export const contractInfoOf = (
 
 /**
  * The declared type of a FieldDesc (ir/scalar.ts DeclaredType): carrier, typmod, refinements and capability set, never
- * a computed numeric or an exact value, which no declaration states. A span over an endpoint without the
+ * a computed numeric or an exact value of a narrower bound than numeric's own, which no declaration states. A span over an endpoint without the
  * spanEndpoint capability is a capability diagnostic and a contract over a set a refusal (both UnsupportedOperation); an unknown roster, and a contract name the declared-name rule refuses, is MalformedDescription.
  */
 export const scalarTypeOf = (

@@ -125,6 +125,10 @@ export type RecursionRefusal =
  *
  * - `columns`: more fields than PostgreSQL admits in one index, `limit` (INDEX_MAX_KEYS).
  * - `unboundedText`: a text field whose pattern proves no byte bound, the one datum with no bound.
+ * - `storageOnly`: a bytes field, which is stored only, with no equality.
+ * - `exactValue`: an exact field of any size, `type` (ir/desc.ts FieldDesc exact), numeric of no typmod at numeric's
+ *   own limit, whose widest value no index entry holds: its fix is `precision`, the types of a declared precision that
+ *   hold its values (schema/representability.ts exactKeyFault).
  * - `btreeEntry`: an entry that can reach `bytes` in some order of its columns, above the B-tree limit `limit`
  *   (BTMaxItemSize, schema/representability.ts btreeEntryBytes), and the bytes each of its columns' datums is counted at,
  *   in index order: a text's is the byte bound its pattern and contract prove.
@@ -145,6 +149,12 @@ export type KeyFault =
 	| { readonly kind: "columns"; readonly limit: number }
 	| { readonly kind: "unboundedText"; readonly field: string }
 	| { readonly kind: "storageOnly"; readonly field: string }
+	| {
+			readonly kind: "exactValue"
+			readonly field: string
+			readonly type: string
+			readonly precision: string
+	  }
 	| {
 			readonly kind: "btreeEntry"
 			readonly bytes: number
@@ -178,9 +188,6 @@ export type KeyFault =
  * (core/errors.ts):
  * - `attachment`: the definition attaches a nested relation to its facts: a materialized view stores flat facts.
  * - `undeclaredContract`: a field whose type is a contract the schema declares nowhere.
- * - `exactField`: a field whose head term is an exact value (an exact integer or exact money), which no field's
- *   type holds: the head narrows it with Type.cast into the field type it fits, an aggregate's result over the
- *   variable an interior stage finds it as.
  * - `inheritedKey`: an inherited key narrower than the heading whose unique index entry is unrepresentable.
  * - `wholeHeading`: the whole heading, the one key when no narrower key is proven, whose unique index entry is
  *   unrepresentable.
@@ -194,12 +201,6 @@ export type DerivedRefusal =
 			readonly relation: string
 			readonly field: string
 			readonly contract: string
-	  }
-	| {
-			readonly kind: "exactField"
-			readonly relation: string
-			readonly field: string
-			readonly type: string
 	  }
 	| {
 			readonly kind: "inheritedKey"
@@ -384,6 +385,8 @@ export const keyFaultText = (name: string, key: ReadonlyArray<string>, fault: Ke
 			return `${name}: field ${fault.field} is text whose pattern proves no byte bound, which no B-tree entry holds; ${keyFix}`
 		case "storageOnly":
 			return `${name}: field ${fault.field} is bytes, which is stored only, with no equality, so no key or index holds it`
+		case "exactValue":
+			return `${name}: field ${fault.field} is ${fault.type} of any size, up to numeric's own limit, whose widest value no index entry holds; declare its precision: ${fault.precision}`
 		case "btreeEntry":
 			return `${name}: its B-tree entry can reach ${fault.bytes} bytes in some order of its columns, above PostgreSQL's ${fault.limit}-byte limit (${fault.datums.map((d) => `${d.field} ${d.bytes} bytes`).join(", ")}); ${keyFix}`
 		case "orderedColumns":
@@ -408,8 +411,6 @@ export const derivedRefusalText = (cause: DerivedRefusal): string => {
 			return `derived relation ${cause.relation} over a definition that attaches a nested relation to its facts: a materialized view stores flat facts`
 		case "undeclaredContract":
 			return `a contract the schema declares; ${cause.contract} is none`
-		case "exactField":
-			return `field ${cause.field} of derived relation ${cause.relation} of a field's type: its head is an ${cause.type}, which no stored field holds; narrow it with Type.cast into the type it fits, under Logic.when where the cast narrows, and an aggregate's result over the variable an interior stage (r.interior) finds it as`
 		case "inheritedKey":
 			return keyFaultText(
 				`inherited key (${list(cause.key)}) of derived relation ${cause.relation}`,

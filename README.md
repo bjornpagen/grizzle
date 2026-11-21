@@ -1924,6 +1924,8 @@ schema.
 | `pg.numeric(p, s)`, s not 0                        | numeric(p, s)                                                       | `Decimal`, exact, no display scale                                     |
 | `pg.real`, `pg["double precision"]`                | real, double precision                                              | `number`                                                               |
 | `pg.money`                                         | money                                                               | `Money`                                                                |
+| `exactInteger`                                     | numeric, its column checked to scale 0: no fraction, NaN or infinity | `bigint` of any size, integer arithmetic's exact value                 |
+| `exactMoney`                                       | numeric, its column checked to money's scale 2: no NaN or infinity  | `Money` of any count of cents, money arithmetic's exact value          |
 | `pg.boolean`                                       | boolean                                                             | `boolean`                                                              |
 | `pg.inet`                                          | inet                                                                | `Inet`, inet_out's text; `Inet.parse` reads any text inet_in reads     |
 | `pg.cidr`                                          | cidr                                                                | `Cidr`, cidr_out's text; `Cidr.parse` reads any text cidr_in reads     |
@@ -1967,6 +1969,22 @@ Each type has one name, the one PostgreSQL prints for it: `pg.integer`, never `i
   written into a natural field as it is; a count beside a `pg.bigint` is two types, so type that side `natural`, which
   is what it holds, and an arithmetic's exact integer meets a count as `Type.base(count)`. A negative value is an
   outcome on the law `{ kind: "contract", contract: "natural" }`. No other contract may be named `natural`.
+- **`exactInteger` and `exactMoney`** are the types integer and money arithmetic deliver, of any size, as stored
+  fields: an exact integer, a `bigint`, and exact money, a `Money` of any count of cents, so a query's
+  `Num.add(balance, amount)`, `Num.mul(a, b)` or a sum over money is written into one as it is, by a ChangeSet member,
+  a generated field or a derived relation's head, and a read of one keeps every digit. Each is PostgreSQL's numeric of
+  no typmod, numeric's own 131,072 integer digits, its column checked to the values its host type spells:
+  `CHECK ((scale(x) = 0) IS TRUE)` for an exact integer, `= 2` for exact money, money's own fraction digits, which
+  refuses a fraction, another scale (`5.0`, `1.5`), NaN and the infinities from a direct writer with 23514; grizzle's
+  own writes are its host values, which hold no other. Its arithmetic is exact at numeric's own limit, PostgreSQL
+  refusing a result past it with 22003, as over a `pg.numeric`. A literal or a parameter of its family meets it, a
+  bigint or a `Money` among them, and a parameter of its own type takes any value of it. No key, UNIQUE, containment or family axis holds one, since its widest
+  value outgrows every index entry: one there is `UnrepresentableKey` naming the precision to declare, `pg.numeric(p, 0)`
+  (or `pg.bigint`) for an exact integer, `pg.numeric(p, 2)` (or `pg.money`) for exact money; a lookup leaves one out
+  of its index, a filter beside it, as a `pg.numeric` of no typmod ([Keys and indexes](#keys-and-indexes)). No
+  contract is over one,
+  nor a closed relation's, a context's or a declared function's field of one: bound it first, with `Type.cast` under
+  `Num.within`, into the type that holds it.
 - **`date`** is a day of the proleptic Gregorian calendar, PostgreSQL's date, a plain type: `Type.base` of a date is
   the date. Its value is its ISO 8601 text, `"2024-02-29"`, one text per day, in calendar order; every login pins
   `DateStyle` to ISO. A CHECK on every date column holds it to 0001-01-01 … 9999-12-31 against any writer, so no
@@ -2028,8 +2046,8 @@ Each type has one name, the one PostgreSQL prints for it: `pg.integer`, never `i
   text, and for fields that leave a text no byte. `keyFits(fields)` is whether a key over `fields` holds every value
   they admit, each as itself, the verdict a relation keyed by them meets, as a `boolean`, never thrown.
 - **A numeric in a key** needs a precision. A key's entry holds each numeric as itself, so a `pg.numeric` of no typmod,
-  or a `pg.numeric(p, s)` of digits enough to outgrow the entry, is `UnrepresentableKey` in a key; a lookup leaves such
-  a numeric out of its index, a filter beside it. An entry is sized as PostgreSQL could lay it out in any order of its
+  an `exactInteger` or `exactMoney` field, or a `pg.numeric(p, s)` of digits enough to outgrow the entry, is
+  `UnrepresentableKey` in a key; a lookup leaves such a numeric out of its index, a filter beside it. An entry is sized as PostgreSQL could lay it out in any order of its
   columns: from its data offset, each datum at its widest alignment padding and its longest, the whole MAXALIGNed, so
   a key, the UNIQUE a reference lands on and the reference agree whatever order each lists the columns in.
 - **Exported bounds.** `messageMaxBytes`, PostgreSQL's longest message (1,073,741,822 bytes), `maxStringLength`, V8's
@@ -2138,7 +2156,7 @@ stamps (`stamped`): a member's place carried from its owner's, or a generated fi
 `closed.relation(name, fields, key, rows)` is a relation whose rows are fixed when the schema compiles, such as a
 grammar or a price list. Its key is required, a nonempty list of its closed-id fields; a key of every field makes it a
 set. A key field's roster may be `closed.ordered` or `closed.unordered`: its constant is indexed by codes, which are
-history, and reads no roster's order. Its other fields are closed ids or open-typed values, never a span, set, vector or bytes. Its rows are a
+history, and reads no roster's order. Its other fields are closed ids or open-typed values, never a span, set, vector, bytes or exact value. Its rows are a
 set: a row written twice is one row, and two rows of one key with different payloads are refused, naming the key and
 both payloads.
 `closed.relation("Allowed", { kind: closedId(Kind), flag: closedId(Flag), weight: pg.integer }, ["kind", "flag"], rows)`
@@ -3085,7 +3103,7 @@ Rows are typed from the query: `commentsPerAuthor` gives `{ author: string; comm
 - **A value is only its value**, the same under every plan. A `Decimal` has no display scale: `1`, `1.0` and `1.00` are one value, delivered as `1`, and a `pg.numeric(10, 2)` field holds at most two places, refusing a value of more rather than rounding it, and delivers `12.5`, not `12.50`. `new Intl.NumberFormat(undefined, { minimumFractionDigits: 2 }).format(d.toString())` prints it at the field's scale, exactly. A float keeps its zero's sign: `-0` is a value of its own, stored, computed and delivered as `-0`, equal to `0` under `=`, `DISTINCT` and a key's equality and apart from it as a fact's identity. Wherever an operation may take one float of several equal ones, a set's member, a group's key, a union's row, a recursion's state, a join variable's value, the merged zero is `+0`, so no plan picks one. A write stores the facts it states: a parameter relation's facts and a ChangeSet member's rows are sets of facts by their identity, `-0` and `0` two of them, so a `-0` a write states is stored as `-0` wherever it reads the relation, and two facts at one key that differ only in a zero's sign are refused as two facts. A read of a parameter relation delivers each of its facts, so `-0` and `0` at otherwise equal fields are two rows; a read's own merges, a projection that drops a field, a union or a group's key, take `+0` as every merge does. `min` and `max` of floats order `-0` below `0`, and a float sum or mean whose exact value is zero is `-0` exactly when every value it sums is; any other float that rounds to zero, a product, quotient, conversion or mean too small for its type, is the zero of its sign. A vector's components have one zero, `0`. A numeric quotient, power, square root or mean is PostgreSQL's for the values alone, as if no operand had trailing zeros: `Num.div(x, 3n)` is the same number whatever scale `x` was stored at.
 - **Float and money sums are exact.** A sum of `real` or `double precision` values is their exact total rounded once to the result type, and of `Money` values their exact total; a mean of floats is that total over the count, rounded once. The same rows give the same sum in any order, under any plan.
 - **Every answer is a function of the facts**, but for two exceptions, both pgvector's, and one caveat, full text search's: a search document, its matches and its ranks are PostgreSQL's parse of the facts' texts under the configuration's dictionaries and the database's builtin C.UTF-8 locale, a function of the facts on one server, which another PostgreSQL release's stemmers or stop word files may parse otherwise. `.approximateNearest` returns candidates from pgvector's index: which rows, and how many, depend on the index and the database owner's pgvector settings too. grizzle pins only `hnsw.iterative_scan = strict_order`, which keeps the candidates in exact distance order; `hnsw.ef_search`, `hnsw.max_scan_tuples` and `hnsw.scan_mem_multiplier` are the owner's, and a scan that reaches their bounds returns fewer rows than asked. `Distance.cosine` is pgvector's own float arithmetic: one server gives the same result for the same vectors on every evaluation, but pgvector builds or CPUs may differ in the last place.
-- **No read fails on a value.** Every scalar operation is defined on every value its operands' types admit, or its precondition is proved where it stands, so no query, role view or check raises an arithmetic error on any row, but arithmetic over a `pg.numeric`, bounded by nothing but numeric's own limit, whose result past it PostgreSQL refuses with 22003, numeric_value_out_of_range.
+- **No read fails on a value.** Every scalar operation is defined on every value its operands' types admit, or its precondition is proved where it stands, so no query, role view or check raises an arithmetic error on any row, but arithmetic over a `pg.numeric`, an `exactInteger` or an `exactMoney` field, bounded by nothing but numeric's own limit, whose result past it PostgreSQL refuses with 22003, numeric_value_out_of_range.
 
 ### Scalar terms
 
@@ -3116,7 +3134,7 @@ PostgreSQL's scalar operators, functions and casts are typed builders of terms, 
 - **Guards** are `Num.nonzero`, `Num.nonnegative`, `Num.positive`, `Num.isFinite` and `Num.within(x, low, high)`, each a predicate too. A guard's subject is any term, a parameter included: over `d = r.param("d", pg.bigint)`, `Logic.when(Num.nonzero(d), (d) => Num.div(x, d), 0n)` delivers `0n` where `d` is bound to zero, under every plan.
 - **A contract's facts are exactly the ones its `proves` declares.** Compilation proves each from the predicate and refuses one the predicate does not imply. A fact the predicate implies but `proves` leaves out is no fact of its values: `Num.minScale(rate)` over `contract("Rate", pg.numeric(7, 6), (x) => Logic.between(x, 0n, 1n))` is refused, naming `{ proves: ["finite"] }` to add. A parameter of a contract has its declared facts, its binding checking every value, so `Num.div(x, Type.base(r.param("d", Divisor)))` needs no guard.
 - **Magnitudes are proved by `Num.within`.** A narrowing's range or a power's is proved from `Num.within`'s bounds, or refused as `PartialOperation`: narrow an exact integer into an integer field with `Logic.when(Num.within(x, 0n, 1000000n), (x) => Type.cast(x, pg.integer), 0)`.
-- **Exact and plain values share no type.** An exact value binds at a plain integer or money column, but a ChangeSet member stores one into a field only through that cast: a head that writes `Num.add(balance, amount)` into a `pg.bigint` field is a type error. Where PostgreSQL would widen the plain value implicitly, `Logic.cond`, `Logic.when`, `Logic.least` and `Logic.greatest` refuse an exact value beside a plain one of its family, in either order, naming the cast of the exact one into the plain one's type. A bare literal takes its term's type, an exact one's included, and is refused where it has more digits than that type holds.
+- **Exact and plain values share no type.** An exact value binds at a plain integer or money column, but a ChangeSet member stores one into a plain field only through that cast: a head that writes `Num.add(balance, amount)` into a `pg.bigint` field is a type error. An `exactInteger` or `exactMoney` field holds it as it is ([Tables and types](#tables-and-types)). Where PostgreSQL would widen the plain value implicitly, `Logic.cond`, `Logic.when`, `Logic.least` and `Logic.greatest` refuse an exact value beside a plain one of its family, in either order, naming the cast of the exact one into the plain one's type. A bare literal takes its term's type, an exact one's included, and is refused where it has more digits than that type holds.
 - **A member writes each field at the field's own type,** as a generated field's term and an accumulator's step do: only a text's pattern and byte bound are left to the field's domain, which refuses a value outside them. A computed numeric, the value of `r.sum`, `r.mean` or a numeric operation, enters a `pg.numeric(p, s)` field only through `Type.cast` under a guard that proves it fits, and a numeric of another precision or scale, or a span of another width, only through `Type.cast`, since a typmod rounds and a sum can pass the field's precision. Compilation refuses any other head as `DescribedHeadingMismatch`.
 
 ### Text
@@ -3802,7 +3820,7 @@ export const Lexicon = schema("Lexicon", [folded, doubled, summary], [])
   or a result, is a value of the row type itself, a composite. Each field of a heading is a value, rows of another
   heading (an array of that one's row type) or one row of one, so a heading holds another as one composite or as
   many: `Titled` above holds its words, and its row type installs after `Weighted`'s. A value's type is a base type, a
-  closed id, a contract or a refined text over one: a serial, money, bytes, a set, a span or a vector is a type error,
+  closed id, a contract or a refined text over one: a serial, money, an exact value, bytes, a set, a span or a vector is a type error,
   and from JavaScript `Refused` when the schema is owned. A heading holds no NULL, so no row is no arm of a type: a
   function of one row returns its row, and a body with none to return raises. PostgreSQL holds a function to its
   declared types exactly (a PL/pgSQL `RETURN QUERY` refuses a column whose type is not the row type's), so each is its

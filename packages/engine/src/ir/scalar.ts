@@ -23,7 +23,7 @@ import type { TextSearchConfiguration } from "#compiler/ir/search.ts"
  * with its network's mask and a network (scalar/values/net.ts); bytes is bytea, a value stored and read back whole (BytesType); tsvector
  * is a search document, a value PostgreSQL alone computes and matches (SearchType); there is
  * no timestamp, interval, JSON or array carrier. exactInteger and exactMoney are the exact arithmetic carriers
- * (ExactType), never a field's.
+ * (ExactType), and a field of any size of each holds what that arithmetic delivers.
  */
 export const carriers = [
 	"int2",
@@ -53,7 +53,11 @@ export const carriers = [
 export type Carrier = (typeof carriers)[number]
 
 /** The exact arithmetic carriers: what integer and money arithmetic computes (ExactType). */
-export type ExactValueCarrier = "exactInteger" | "exactMoney"
+export const exactValueCarriers = [
+	"exactInteger",
+	"exactMoney"
+] as const satisfies ReadonlyArray<Carrier>
+export type ExactValueCarrier = (typeof exactValueCarriers)[number]
 
 /**
  * Whether a column of each carrier holds few values, so that fixing it bounds no scan: a closed id holds one of a
@@ -634,8 +638,11 @@ export interface SearchType {
  * of a money sum. Delivered as bigint and as Money, so no such operation overflows: `digits` bounds every value,
  * |x| < 10^digits (of the amount, for money), as its operands' bounds give it (scalar/compute/typing.ts), the way a
  * typmod bounds numeric(p, 0). In SQL an exact integer of at most 18 digits is bigint, and any other exact value
- * numeric (exactMoney at scale 2). Neither is a field's carrier, so neither has a contract;
- * Type.cast narrows one into a storage carrier where the value is proved to fit.
+ * numeric (exactMoney at scale 2). A field of each, exactInteger or exactMoney (scalar/exact.ts), is the type at
+ * numeric's own limit, numericMaxIntegerDigits, so it holds every value any operation delivers: a numeric column
+ * CHECKed to the values its host spells (physical/numeric/storage.ts exactNumeric), whose arithmetic past the limit
+ * PostgreSQL refuses (22003), as pg.numeric's. No contract is over one; Type.cast narrows one into a storage carrier
+ * where the value is proved to fit.
  */
 interface ExactType {
 	readonly carrier: ExactValueCarrier
@@ -660,7 +667,10 @@ export type PlainType =
 	| SearchType
 	| ExactType
 
-/** The plain value domains a contract is over at its last level: every value type a field declares but a set and bytes. */
+/**
+ * The plain value domains a contract is over at its last level: every value type a field declares but an exact value, a
+ * set, bytes and a search document.
+ */
 type ContractedType = Exclude<PlainType, ExactType | BitsType | BytesType | SearchType>
 
 /** The carriers a contract is over. */
@@ -681,7 +691,8 @@ type ContractTypes = { readonly [C in ContractCarrier]: ContractType<C> }[Contra
 
 /**
  * The value domains a contract is over: every value type a field declares, numeric of no typmod at numeric's own limits
- * among them, never an exact value, which only an operation makes, nor a set over a roster, whose holes and padding no
+ * among them, never an exact value, arithmetic's own type, whose field holds what an operation delivers as it is, nor a
+ * set over a roster, whose holes and padding no
  * predicate over it could keep apart, nor bytes, which no predicate reads; a contract's among them, so a contract is
  * over another.
  */
@@ -689,11 +700,11 @@ export type ContractBase = ContractedType | ContractTypes
 
 /**
  * What a field descriptor declares (scalar/registry.ts scalarTypeOf): a value domain a contract may be over, a set over
- * a roster, bytes, or a search document. An exact value and a computed numeric's narrower bound are a value's making,
- * which no declaration states. How a field is written, by its sequence among the ways, is the field's writing, never
- * its type.
+ * a roster, bytes, a search document, or an exact value at numeric's own limit (ExactType). An exact value's narrower
+ * digit bound and a computed numeric's narrower bound are a value's making, which no declaration states. How a field is
+ * written, by its sequence among the ways, is the field's writing, never its type.
  */
-export type DeclaredType = ContractBase | BitsType | BytesType | SearchType
+export type DeclaredType = ContractBase | BitsType | BytesType | SearchType | ExactType
 
 /** A date: a calendar day, or a contract over one, as a span's endpoint, a closed id's payload or a field. */
 export type DateType = (BareType & { readonly carrier: "date" }) | ContractType<"date">
@@ -982,17 +993,30 @@ const everyHandle = (t: ScalarType): ScalarType =>
 		: t
 
 /**
+ * Whether an exact value enters an exact column of its carrier: the column's digit bound at least the value's, as an
+ * exact field's, at numeric's own limit (scalar/exact.ts), is every exact value's of its carrier, so integer or money
+ * arithmetic of any bound is written into it as it is.
+ */
+const withinExact = (column: ScalarType, value: ScalarType): boolean =>
+	isExactValue(column) &&
+	isExactValue(value) &&
+	column.carrier === value.carrier &&
+	sameOrder(column.caps, value.caps) &&
+	value.digits <= column.digits
+
+/**
  * Whether a value of type `value` enters a stored column of type `column` at the column's own type, as a caller's value,
  * a generated field's term, a fold's step and a member's column do: one type but for what the column's domain enforces
  * (sameEnteredType) and a closed id's subset, the value's handles every one the column holds (onlyOf), so a closed id of
  * a subset enters a column of a wider subset of its roster or of the whole roster, and one of the whole roster no column
- * of a subset, which no value of it is proved to keep to.
+ * of a subset, which no value of it is proved to keep to; and an exact value of its carrier within the column's digit
+ * bound (withinExact).
  */
 export const entersColumn = (column: ScalarType, value: ScalarType): boolean => {
 	const held = onlyOf(column)
 	const given = onlyOf(value)
 	return (
-		sameEnteredType(everyHandle(column), everyHandle(value)) &&
+		(sameEnteredType(everyHandle(column), everyHandle(value)) || withinExact(column, value)) &&
 		(held === undefined || given?.every((h) => held.includes(h)) === true)
 	)
 }

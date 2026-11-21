@@ -1,20 +1,22 @@
 import type { Array as Arr } from "effect"
 import type { Codebook, RosterCodec } from "#compiler/ir/codes.ts"
 import type { FillOrder } from "#compiler/ir/fill.ts"
-import type { SpanCarrier } from "#compiler/ir/scalar.ts"
+import type { ExactValueCarrier, SpanCarrier } from "#compiler/ir/scalar.ts"
 import type { ClosedRows } from "#compiler/runtime/write/fill.ts"
 import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
 import type { Ddl, ObjectName, TypeRef } from "#compiler/sql/ast.ts"
 import type { DraftedScript } from "#test/support/compile.ts"
 
 /**
- * How a host value of a column is spelled as a typed SQL literal (literal.ts). A contract column spells its base's
+ * How a host value of a column is spelled as a typed SQL literal (literal.ts). An exact field's is its numeric text,
+ * an exact integer's digits or an amount at money's two fraction digits. A contract column spells its base's
  * value and casts it to the domain. A closed id is its handle's code under the installation's codes, cast to the
  * roster's domain; a set over a roster is its bit(size) text, position c code c, cast to the roster's bits domain.
  */
 export type ValueKind =
 	| { readonly kind: "integer"; readonly carrier: "int2" | "int4" | "int8" }
 	| { readonly kind: "numeric" }
+	| { readonly kind: "exact"; readonly carrier: ExactValueCarrier }
 	| { readonly kind: "float"; readonly carrier: "float4" | "float8" }
 	| { readonly kind: "money" }
 	| { readonly kind: "bool" }

@@ -148,8 +148,8 @@ export const aClosedIdsSubsetIsTheOneItsStatementStatesAndItsColumnsCheckHoldsIt
 			},
 			{
 				file: "packages/engine/src/physical/ddl/column-checks.ts",
-				original: "[vectorNorm, dateRange, integerNumeric, closedSubset]",
-				replacement: "[vectorNorm, dateRange, integerNumeric]",
+				original: "\texactNumeric,\n\tclosedSubset\n]",
+				replacement: "\texactNumeric\n]",
 				why: "A closed id of a subset's column carries no CHECK, so a direct writer stores any code of its roster."
 			}
 		]

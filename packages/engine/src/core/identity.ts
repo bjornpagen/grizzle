@@ -1412,6 +1412,15 @@ export const identity = Object.freeze({
 			`integer check of ${relation}.${field}`,
 			hashed
 		),
+	/** An exact field's column CHECK: the values its host spells, numeric at its carrier's one scale, never NaN or an infinity. */
+	exactCheck: (relation: string, field: string): Identity<"exactCheck"> =>
+		mint(
+			"exactCheck",
+			[relation, field],
+			[...nameSegments(relation), "exact", ...nameSegments(field)],
+			`exact value check of ${relation}.${field}`,
+			hashed
+		),
 	/** A closed id column's subset CHECK: the handles of its roster its field's subset holds. */
 	subsetCheck: (relation: string, field: string): Identity<"subsetCheck"> =>
 		mint(

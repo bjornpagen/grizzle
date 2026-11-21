@@ -37,6 +37,8 @@ import type { Fact } from "#compiler/ir/proof.ts"
 import {
 	capsOf,
 	type Carrier,
+	type ExactValueCarrier,
+	exactDigitsOf,
 	isNumericValue,
 	numericBoundOf,
 	RegexKey,
@@ -399,6 +401,11 @@ export const describes = (t: ScalarType, desc: FieldDesc, env: ScalarEnv, at: st
 			assert.equal(t.carrier, "bytes", at)
 			assert.deepEqual(capsOf(t), capabilitiesOf("bytes"), at)
 			return
+		case "exact":
+			assert.equal(t.carrier, desc.carrier, at)
+			assert.equal(exactDigitsOf(t), numericMaxIntegerDigits, at)
+			assert.deepEqual(capsOf(t), capabilitiesOf(desc.carrier), at)
+			return
 		case "uuid":
 			plain(t, "uuid", at)
 			return
@@ -463,6 +470,7 @@ type Content =
 			readonly kind: "numeric"
 			readonly typmod: { readonly precision: number; readonly scale: number }
 	  }
+	| { readonly kind: "exact"; readonly carrier: ExactValueCarrier; readonly digits: number }
 	| { readonly kind: "text"; readonly text: TextInfo }
 	| { readonly kind: "closedId"; readonly roster: Roster }
 	| { readonly kind: "bits"; readonly roster: Roster }
@@ -483,6 +491,8 @@ export const contentOf = (desc: FieldDesc, env: ScalarEnv): Content => {
 			return pgCarrier[desc.type]
 		case "numeric":
 			return { kind: "numeric", typmod: { precision: desc.precision, scale: desc.scale } }
+		case "exact":
+			return { kind: "exact", carrier: desc.carrier, digits: numericMaxIntegerDigits }
 		case "bytes":
 			return { kind: "bytes" }
 		case "uuid":

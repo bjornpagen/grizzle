@@ -131,9 +131,16 @@ export const nativeCapabilities = {
 	 * parameter or host computation reads one (ir/scalar.ts SearchType).
 	 */
 	tsvector: ["storage", "textSearch"],
-	/** Numeric's operations over integers, never a field's: no storage, no GiST. */
+	/**
+	 * Numeric's operations over integers, an exact integer field's (scalar/exact.ts) among them, and no GiST. Its set
+	 * names the operations a term of it takes; a field of it is stored and read back as every value type's field is,
+	 * which no admission reads off a capability (storage marks a type of storage alone, storedOnly).
+	 */
 	exactInteger: ["avg", "equality", "expressionIndex", "hashing", "minMax", "ordering", "sum"],
-	/** Numeric's over amounts at scale 2, reached through money's STABLE cast: no expression index, no avg. */
+	/**
+	 * Numeric's over amounts at scale 2, an exact money field's among them, reached through money's STABLE cast: no
+	 * expression index, no avg.
+	 */
 	exactMoney: ["equality", "hashing", "minMax", "ordering", "sum"]
 } as const satisfies { readonly [C in Carrier]: ReadonlyArray<Capability> }
 
