@@ -1197,6 +1197,118 @@ export function* mapNode<R extends RefKinds, S extends RefKinds>(
 	}
 }
 
+/** The references of form `R` with its data edges read as `A`: a node of that form rebuilt over new inputs. */
+export interface WithNode<R extends RefKinds, A> extends RefKinds {
+	readonly node: A
+	readonly expr: R["expr"]
+	readonly var: R["var"]
+	readonly meta: R["meta"]
+}
+
+/**
+ * A node of any form with each data edge yielded in structural order (mapNode's, edgesOf's) and the value sent back
+ * standing in its place, every other field the node's own: only a container that holds an edge (a region's occurrence,
+ * a union's heading group, a call's rows argument) is built anew, and each of its other fields is shared too. A rebuild
+ * of a node over its inputs' values (a fold's, an editor's finish) reads it, so a body allocates only what the edges
+ * change and the one constructor's freeze (dag.ts relNode) stops at every part it shares, frozen when it was built;
+ * restating every reference as itself (mapNode over keptRefs) copied each container of the node and every record in
+ * one.
+ */
+export function* replacedEdges<R extends RefKinds, A>(
+	n: NodeOver<R>
+): Generator<R["node"], NodeOver<WithNode<R, A>>, A> {
+	switch (n.kind) {
+		case "Base":
+		case "Closed":
+		case "Context":
+		case "Delta":
+		case "InputSet":
+		case "SelfRef":
+			return n
+		case "MatchRegion": {
+			const occurrences: Array<OccurrenceOver<A, R["expr"], R["var"]>> = []
+			for (const o of n.occurrences) {
+				const source: A = yield o.source
+				occurrences.push({ ...o, source })
+			}
+			return { ...n, occurrences }
+		}
+		case "Filter":
+		case "ProjectSet":
+		case "Take":
+		case "Group":
+		case "Produce":
+		case "OrderedResult":
+		case "Step":
+		case "Window":
+		case "OrderedSetAggregate": {
+			const input: A = yield n.input
+			return { ...n, input }
+		}
+		case "SemiJoin": {
+			const left: A = yield n.left
+			const right: A = yield n.right
+			return { ...n, left, right: keptRight(right) }
+		}
+		case "AntiJoin":
+		case "Intersect":
+		case "Difference": {
+			const left: A = yield n.left
+			const right: A = yield n.right
+			return { ...n, left, right }
+		}
+		case "Union": {
+			const [first, ...rest] = n.groups
+			const head = yield* mapGroup<R["node"], A>(first)
+			const tail: Array<HeadingGroupOver<A>> = []
+			for (const g of rest) {
+				tail.push(yield* mapGroup<R["node"], A>(g))
+			}
+			return { ...n, groups: [head, ...tail] }
+		}
+		case "Recursive": {
+			const base: A = yield n.base
+			const step: A = yield n.step
+			const self: A = yield n.self
+			return { ...n, base, step, self }
+		}
+		case "ApproximateNearest": {
+			const source: A = yield n.source
+			return { ...n, source }
+		}
+		case "Attach": {
+			const parent: A = yield n.parent
+			const child: A = yield n.child
+			return { ...n, parent, child }
+		}
+		case "Forbid": {
+			const violation: A = yield n.violation
+			return { ...n, violation }
+		}
+		case "Call": {
+			if (valueArgsOnly(n.args)) {
+				return { ...n, args: n.args }
+			}
+			const args: Array<CallArg<WithNode<R, A>>> = []
+			for (const a of n.args) {
+				if (a.kind === "value") {
+					args.push(a)
+				} else {
+					const rows: A = yield a.rows
+					args.push({ ...a, rows })
+				}
+			}
+			return { ...n, args }
+		}
+	}
+}
+
+/** Whether every argument of a call is a value, so its arguments hold no edge and a rebuild of it shares them. */
+const valueArgsOnly = <R extends RefKinds>(
+	args: ReadonlyArray<CallArg<R>>
+): args is ReadonlyArray<Extract<CallArg<R>, { readonly kind: "value" }>> =>
+	args.every((a) => a.kind === "value")
+
 /**
  * Every data edge of a node, in structural order (mapNode's), repeats kept: one per input position, as the lowering
  * reads it. A SelfRef's feedback is a name, no edge; a Recursive's base, step and SelfRef are its edges.

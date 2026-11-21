@@ -20,15 +20,14 @@ import {
 	headingOrder,
 	inputsOf,
 	type KeySet,
-	keptRefs,
 	type MetaSpec,
-	mapNode,
 	mapRoots,
 	metaSpecOf,
 	type NodeOver,
 	type RelDag,
 	type RelNode,
 	type Roots,
+	replacedEdges,
 	type ValidDag,
 	type ValueRefs
 } from "#compiler/ir/rel.ts"
@@ -226,17 +225,11 @@ class Annotator<R extends Roots> {
 		const fold = new Fold<RelNode, Annotated>(function* (node) {
 			const values = yield* edgeValues<Annotated>(node)
 			const reading: PropsReading = drive(
-				mapNode<ValueRefs<Annotated>, ValueRefs<Props>>(values, keptRefs),
+				replacedEdges<ValueRefs<Annotated>, Props>(values),
 				(a) => a.props
 			)
-			const inputs = drive(
-				mapNode<ValueRefs<Annotated>, ValueRefs<RelNode>>(values, keptRefs),
-				(a) => a.node
-			)
-			const twins = drive(
-				mapNode<ValueRefs<Annotated>, ValueRefs<RelNode>>(values, keptRefs),
-				(a) => a.judged
-			)
+			const inputs = drive(replacedEdges<ValueRefs<Annotated>, RelNode>(values), (a) => a.node)
+			const twins = drive(replacedEdges<ValueRefs<Annotated>, RelNode>(values), (a) => a.judged)
 			const unjudged = unchangedEdges(node, twins)
 				? node
 				: relNode(node.id, { ...twins, meta: metaSpecOf(node.meta) })

@@ -6,6 +6,12 @@
  * - Kept rows: a node keeps rows only of a data input whose heading is its own, and delivers that input exactly when it
  *   keeps every row. Oracle: the kept-rows rule as a checker.
  *
+ * - Rebuild: a node read with its edges replaced by their values (ir/dag.ts edgeValues, rel.ts replacedEdges) is the
+ *   node, its edges yielded in structural order, and every part of it that holds no edge is the node's own part, shared:
+ *   a rebuild allocates only the containers its edges stand in, where restating every reference as itself (mapNode over
+ *   keptRefs) copied every container and record of the node, which the one constructor then froze again (relNode).
+ *   Oracle: the node itself, and an audit of every part of the rebuild (rel.fixtures.ts copiedApart).
+ *
  * Features: every node kind; each kind that keeps rows, and one keeping every row.
  */
 
@@ -13,7 +19,7 @@ import { assert, contains } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { topoOrder } from "#compiler/ir/dag.ts"
+import { edgeValues, topoOrder } from "#compiler/ir/dag.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import { drive } from "#compiler/ir/fold.ts"
 import {
@@ -29,7 +35,7 @@ import {
 	relKinds,
 	type RelNode
 } from "#compiler/ir/rel.ts"
-import { dags, type Keeping } from "#test/unit/ir/rel.fixtures.ts"
+import { copiedApart, dags, type Keeping } from "#test/unit/ir/rel.fixtures.ts"
 
 /**
  * The RelNode family lists a node's edges and expressions exactly as its structural map meets them, and restates it
@@ -136,6 +142,56 @@ export const theRelNodeFamilyKeepsRowsOnlyOfADataInputWhoseHeadingIsItsOwnForEve
 				original: '\t\t\treturn { input: n.parent, keeps: "every" }',
 				replacement: '\t\t\treturn { input: n.child, keeps: "every" }',
 				why: "An attachment keeps its child's rows, not its parent's; the kept-rows property fails, and so does the structural map's, whose DAG the delivery rule then refuses."
+			}
+		]
+	})
+
+/** A node read with its edges replaced is the node, sharing every part of it that holds no edge. */
+export const aNodeReadWithItsEdgesReplacedIsTheNodeSharingEveryPartOfItThatHoldsNoEdge =
+	property.explore(dags, {
+		needs: {},
+		situations: Arr.map(relKinds, (kind): `a ${RelKind}` => `a ${kind}`) satisfies ReadonlyArray<
+			Reached<`a ${RelKind}`>
+		>,
+		check: (_, c: Case<`a ${RelKind}`>) => (dag) =>
+			Effect.sync(() => {
+				for (const node of topoOrder(dag)) {
+					c.note(`a ${node.kind}`)
+					const yielded: Array<RelNode> = []
+					const rebuilt = drive(edgeValues<RelNode>(node), (edge) => {
+						yielded.push(edge)
+						return edge
+					})
+					assert.deepEqual(rebuilt, node, `${node.kind} ${node.id} read back`)
+					assert.deepEqual<ReadonlyArray<RelNode>>(
+						yielded,
+						edgesOf(node),
+						`${node.kind} ${node.id} edges`
+					)
+					assert.deepEqual(
+						copiedApart(node, rebuilt, new Set(edgesOf(node)), "node"),
+						[],
+						`${node.kind} ${node.id}: no part that holds no edge is copied`
+					)
+				}
+			}),
+		oracle: {
+			kind: "specification",
+			name: "the node itself, every part of it that holds no edge shared (rel.fixtures.ts copiedApart)"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/ir/rel.ts",
+				original: "\t\t\t\toccurrences.push({ ...o, source })\n",
+				replacement: "\t\t\t\toccurrences.push({ ...o, source, bindings: [...o.bindings] })\n",
+				why: "A region's rebuild copies each occurrence's bindings, which hold no edge, as restating every reference copied them: the copied bindings are a part the audit finds built anew, and the search fails."
+			},
+			{
+				file: "packages/engine/src/ir/rel.ts",
+				original: "\t\t\treturn { ...n, input }\n",
+				replacement: "\t\t\treturn { ...n, input, meta: { ...n.meta } }\n",
+				why: "A one-input node's rebuild copies its metadata, which holds no edge: the audit finds it built anew, and the search fails."
 			}
 		]
 	})

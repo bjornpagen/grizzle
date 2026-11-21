@@ -55,7 +55,6 @@ import {
 	fieldParams,
 	type Heading,
 	inputsOf,
-	keptRefs,
 	keptRowsOf,
 	type LiveRefs,
 	mapNode,
@@ -67,6 +66,7 @@ import {
 	type NodeSpec,
 	type RefMap,
 	type RelDag,
+	replacedEdges,
 	type RelNode,
 	type Rooted,
 	type RootedDag,
@@ -172,10 +172,11 @@ export const emptyDag: LabelledDag = labelledDag(noIds, {
 /**
  * A fold step's reading of `node`: each data edge yielded in structural order (rel.ts mapNode) and its value received,
  * the node returned with every edge replaced by its value, so a step reads `values.input`, `values.base` or
- * `values.left` by role. Every other field is the node's own.
+ * `values.left` by role. Every other field is the node's own part itself, shared (rel.ts replacedEdges): a reading, and
+ * a rebuild of the node from it, allocates only the containers its edges stand in.
  */
 export function* edgeValues<A>(node: RelNode): Generator<RelNode, NodeOver<ValueRefs<A>>, A> {
-	return yield* mapNode<LiveRefs, ValueRefs<A>>(node, keptRefs)
+	return yield* replacedEdges<LiveRefs, A>(node)
 }
 
 /** Whether a rebuilt reading of `node` (edgeValues over a rebuild) holds the node's own inputs, edge for edge. */
@@ -504,7 +505,8 @@ export const cellTable = (
 	made: (cell: Cell) => void
 ): ReadonlyMap<RelNode, Cell> => {
 	const cells = new Fold<RelNode, Cell>(function* (node) {
-		const current = yield* mapNode<LiveRefs, EditRefs>(node, { ...keptRefs, meta: metaSpecOf })
+		const edges = yield* replacedEdges<LiveRefs, Cell>(node)
+		const current: EditNode = { ...edges, meta: metaSpecOf(edges.meta) }
 		const cell: Cell = { id: node.id, current }
 		made(cell)
 		return cell
@@ -598,7 +600,7 @@ export const finishCells = <R extends Roots>(
 	const folded = new Map<Cell, FoldedCell>()
 	const built = new Fold<Cell, RelNode>(function* (cell) {
 		const current = cell.current
-		const spec = yield* mapNode<EditRefs, SpecRefs>(current, keptRefs)
+		const spec: NodeSpec = yield* replacedEdges<EditRefs, RelNode>(current)
 		const before = previous.get(cell)
 		const node =
 			before?.current === current && unchangedEdges(before.node, spec)
