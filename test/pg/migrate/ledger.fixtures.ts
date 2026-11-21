@@ -31,6 +31,7 @@ import {
 	completedFiles,
 	type LedgerColumn,
 	ledgerColumns,
+	ledgerDigests,
 	type LedgerRow,
 	type LedgerState
 } from "#compiler/deploy/ledger/ledger.ts"
@@ -197,7 +198,11 @@ const strictLedgerRows = (r: System) =>
 		}
 		const rows = yield* substrate.admin.queryValues(
 			`SELECT ${Arr.join(
-				Arr.map(ledgerColumns, (c) => `${quoteIdent(c)}::text`),
+				Arr.map(ledgerColumns, (c) =>
+					Arr.contains(ledgerDigests, c)
+						? `pg_catalog.encode(${quoteIdent(c)}, 'hex')`
+						: `${quoteIdent(c)}::text`
+				),
 				", "
 			)} FROM ${quoteIdent(r.schema)}.${quoteIdent(ledgerTableName)} ORDER BY ${quoteIdent(folderColumn)}, ${quoteIdent(ordinalColumn)}`,
 			[]

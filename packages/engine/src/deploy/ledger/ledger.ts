@@ -13,11 +13,14 @@ import { compareNumbers, mapInput } from "#compiler/core/order.ts"
 import type { PhysicalObject } from "#compiler/ir/products.ts"
 import { isolationTrigger } from "#compiler/physical/ddl/isolation.ts"
 import {
+	digestOfHex,
 	folderOrdinal,
+	hexOfDigest,
 	ledgerTableName,
 	proofsTableName,
 	snapshotGuardName
 } from "#compiler/physical/ddl/ledger.ts"
+import { installedTypes } from "#compiler/physical/ddl/type-schemas.ts"
 import { namedIdent, qualifiedIdent } from "#compiler/physical/obligations/graph.ts"
 import type {
 	ColumnDef,
@@ -45,6 +48,7 @@ import {
 	eq,
 	ge,
 	lit,
+	namedType,
 	objectName,
 	param,
 	provedSelect,
@@ -85,6 +89,23 @@ const integer = (name: string): ColumnDef => ({
 	generated: undefined
 })
 
+/**
+ * A SHA-256 digest's column of `schema`'s bookkeeping, typed by the installation's digest domain (core/identity.ts
+ * digestDomain, physical/ddl/context.ts), its 32 bytes, as every digest column is. The domain is created in Setup among
+ * the installation's domains, before the isolation function the bookkeeping tables follow (deploy/snapshot/build.ts
+ * targetState), so the ledger and the proofs are created after it, and their objects' statements name it, so the
+ * manifest's edges hold them after it (physical/obligations/graph.ts namedEdges).
+ */
+const digestColumn = (schema: string, name: string): ColumnDef => ({
+	name,
+	type: namedType(installedTypes(schema), identifierOf(identity.digestDomain()), []),
+	collation: undefined,
+	generated: undefined
+})
+
+/** The bytes a digest's text parameter $n spells (physical/ddl/ledger.ts digestOfHex). */
+const digestParam = (n: number): Expr => digestOfHex(param(n, types.text))
+
 /** The ledger's columns in table order: the rows statement's columns c1 to c7. */
 export const ledgerColumns = [
 	"folder",
@@ -97,16 +118,46 @@ export const ledgerColumns = [
 ] as const
 export type LedgerColumn = (typeof ledgerColumns)[number]
 
-/** Each ledger column's type: a text, or an integer, which the rows statement reads as its text. */
-const ledgerColumnTypes: { readonly [C in LedgerColumn]: "text" | "integer" } = {
+/**
+ * Each ledger column's type: a text, an integer, which the rows statement reads as its text, or a SHA-256 digest, a
+ * snapshot's fingerprint or a text's digest, stored as its 32 bytes and read as its hex.
+ */
+const ledgerColumnTypes: { readonly [C in LedgerColumn]: "text" | "integer" | "digest" } = {
 	folder: "text",
 	ordinal: "integer",
 	file: "text",
-	source: "text",
-	target: "text",
+	source: "digest",
+	target: "digest",
 	files: "integer",
-	digest: "text"
+	digest: "digest"
 }
+
+/** A ledger column of `schema` as its type (ledgerColumnTypes) makes it. */
+const ledgerColumn = (schema: string, c: LedgerColumn): ColumnDef => {
+	switch (ledgerColumnTypes[c]) {
+		case "text":
+			return text(c)
+		case "integer":
+			return integer(c)
+		case "digest":
+			return digestColumn(schema, c)
+	}
+}
+
+/** A ledger column's value as the rows statement reads it: a text as itself, an integer as its text, a digest as its hex. */
+const ledgerText = (c: LedgerColumn, value: Expr): Expr => {
+	switch (ledgerColumnTypes[c]) {
+		case "text":
+			return value
+		case "integer":
+			return cast(value, types.text)
+		case "digest":
+			return hexOfDigest(value)
+	}
+}
+
+/** The ledger's digest columns, each of the installation's digest domain. */
+export const ledgerDigests = ledgerColumns.filter((c) => ledgerColumnTypes[c] === "digest")
 
 /** The migrations ledger `<schema>.<ledger>` (identity.ledger).
  *
@@ -118,14 +169,18 @@ const ledgerColumnTypes: { readonly [C in LedgerColumn]: "text" | "integer" } = 
  *     "folder" text COLLATE pg_catalog.pg_c_utf8 NOT NULL,   -- <timestamp>_<name>
  *     "ordinal" integer NOT NULL,                             -- 0 for the folder, NN for the file NN-<phase>.sql
  *     "file" text COLLATE pg_catalog.pg_c_utf8 NOT NULL,     -- meta.json for the folder, else the file's name
- *     "source" text COLLATE pg_catalog.pg_c_utf8 NOT NULL,   -- the folder's source snapshot fingerprint
- *     "target" text COLLATE pg_catalog.pg_c_utf8 NOT NULL,   -- the folder's target snapshot fingerprint
+ *     "source" "<schema>"."__sha256" NOT NULL,               -- the folder's source snapshot fingerprint
+ *     "target" "<schema>"."__sha256" NOT NULL,               -- the folder's target snapshot fingerprint
  *     "files" integer NOT NULL,                               -- how many SQL files the folder holds
- *     "digest" text COLLATE pg_catalog.pg_c_utf8 NOT NULL,   -- SHA-256 of the applied text
+ *     "digest" "<schema>"."__sha256" NOT NULL,               -- SHA-256 of the applied text
  *     CONSTRAINT "<ledger key>" PRIMARY KEY ("folder", "ordinal"),
  *     CONSTRAINT "<ledger check of ordinal>" CHECK (("ordinal" >= 0) IS TRUE),
  *     CONSTRAINT "<ledger check of files>" CHECK (("files" >= 0) IS TRUE)
  *   )
+ *
+ * Each digest, a snapshot's fingerprint or a text's, is its 32 bytes under the installation's digest domain
+ * (`digestColumn`), written from the hex the shell holds it in and read back as that hex (physical/ddl/ledger.ts
+ * digestOfHex, hexOfDigest).
  *
  * The ledger holds a folder row (ordinal 0) plus one row per file, and a file's row is inserted inside that file's own
  * transaction, after its statements, so a file is recorded exactly when its effects committed. The folder row is
@@ -150,9 +205,7 @@ const ledgerColumnTypes: { readonly [C in LedgerColumn]: "text" | "integer" } = 
 export const ledgerTable = (schema: string): CreateTable => ({
 	kind: "createTable",
 	table: ledgerName(schema),
-	columns: mapNonEmpty(ledgerColumns, (c) =>
-		ledgerColumnTypes[c] === "integer" ? integer(c) : text(c)
-	),
+	columns: mapNonEmpty(ledgerColumns, (c) => ledgerColumn(schema, c)),
 	primaryKey: {
 		kind: "primaryKey",
 		name: identifierOf(identity.ledgerKey()),
@@ -205,6 +258,15 @@ const ledgerGuardObject = (schema: string): PhysicalObject<SqlStatement> => ({
 /** The drift check's proofs' columns in table order: the proof rows statement's columns c1 to c3. */
 export const proofColumns = ["object", "ddl", "description"] as const
 
+/** The proofs' digest columns: each a SHA-256 digest of 32 bytes, read and written as its hex. */
+const proofDigests = ["ddl", "description"] as const satisfies ReadonlyArray<
+	(typeof proofColumns)[number]
+>
+
+/** Whether a proofs column is a digest's (proofDigests). */
+const isProofDigest = (c: (typeof proofColumns)[number]): boolean =>
+	proofDigests.some((d) => d === c)
+
 /**
  * The drift check's proofs `<schema>.<proofs>` (identity.proofs), beside the ledger: one row for each object of the
  * installation PostgreSQL describes, as the last drift check of a migrate that found no drift left it (adapter/admission
@@ -212,10 +274,13 @@ export const proofColumns = ["object", "ddl", "description"] as const
  *
  *   CREATE TABLE "<schema>"."<proofs>" (
  *     "object" text COLLATE pg_catalog.pg_c_utf8 NOT NULL,       -- the object's graph identity
- *     "ddl" text COLLATE pg_catalog.pg_c_utf8 NOT NULL,          -- its proof digest (deploy/admission/proof.ts)
- *     "description" text COLLATE pg_catalog.pg_c_utf8 NOT NULL,  -- the digest of PostgreSQL's description of it
+ *     "ddl" "<schema>"."__sha256" NOT NULL,                     -- its proof digest (deploy/admission/proof.ts)
+ *     "description" "<schema>"."__sha256" NOT NULL,             -- the digest of PostgreSQL's description of it
  *     CONSTRAINT "<proofs key>" PRIMARY KEY ("object")
  *   )
+ *
+ * Each digest is its 32 bytes under the installation's digest domain (`digestColumn`), written from the hex the drift
+ * check holds it in and read back as that hex.
  *
  * A row is a fact about the server, never about the installation's state: the description PostgreSQL gives the object
  * its proof digest names, which digests the object's recorded statements, what it depends on and everything else a
@@ -229,7 +294,7 @@ export const proofColumns = ["object", "ddl", "description"] as const
 const proofsTable = (schema: string): CreateTable => ({
 	kind: "createTable",
 	table: proofsName(schema),
-	columns: mapNonEmpty(proofColumns, text),
+	columns: mapNonEmpty(proofColumns, (c) => (isProofDigest(c) ? digestColumn(schema, c) : text(c))),
 	primaryKey: {
 		kind: "primaryKey",
 		name: identifierOf(identity.proofsKey()),
@@ -352,25 +417,26 @@ const emitted = (statement: SqlStatement): EmittedSql => {
 const insertRow = (schema: string, row: "folder" | "file"): Insert => {
 	let n = 0
 	const next = (type: typeof types.text) => param(++n, type)
+	const digest = () => digestParam(++n)
 	const values: NonEmptyReadonlyArray<Expr> =
 		row === "folder"
 			? [
 					next(types.text),
 					lit.int(BigInt(folderOrdinal), types.integer),
 					lit.text(folderFile, types.text),
-					next(types.text),
-					next(types.text),
+					digest(),
+					digest(),
 					next(types.integer),
-					next(types.text)
+					digest()
 				]
 			: [
 					next(types.text),
 					next(types.integer),
 					next(types.text),
-					next(types.text),
-					next(types.text),
+					digest(),
+					digest(),
 					next(types.integer),
-					next(types.text)
+					digest()
 				]
 	return {
 		kind: "insert",
@@ -434,7 +500,7 @@ const redraftUpdate = (schema: string): Update => {
 		alias: r1,
 		/** The ledger table generates no column (physical/ddl/ledger.ts). */
 		set: assignments(ungenerated, r1, [
-			{ column: "target", value: param(2, types.text) },
+			{ column: "target", value: digestParam(2) },
 			{
 				column: "digest",
 				value: {
@@ -443,7 +509,7 @@ const redraftUpdate = (schema: string): Update => {
 					whens: [
 						{
 							when: eq(col(r1, "ordinal"), lit.int(BigInt(folderOrdinal), types.integer)),
-							result: param(3, types.text)
+							result: digestParam(3)
 						}
 					],
 					else: col(r1, "digest")
@@ -462,7 +528,9 @@ const proofRows = (schema: string): Select => {
 	return {
 		...provedSelect(
 			"keyed",
-			proofColumns.map((c, i) => targetAs(col(r1, c), `c${i + 1}`)),
+			proofColumns.map((c, i) =>
+				targetAs(isProofDigest(c) ? hexOfDigest(col(r1, c)) : col(r1, c), `c${i + 1}`)
+			),
 			[table(schema, proofsTableName, r1)],
 			undefined
 		),
@@ -506,7 +574,9 @@ const recordProofs = (schema: string): Insert => {
 			kind: "query",
 			query: provedSelect(
 				"input",
-				proofColumns.map((c) => targetAs(col(a1, c), c)),
+				proofColumns.map((c) =>
+					targetAs(isProofDigest(c) ? digestOfHex(col(a1, c)) : col(a1, c), c)
+				),
 				[source],
 				undefined
 			)
@@ -533,12 +603,7 @@ export const ledgerStatements = (schema: string): Result.Result<LedgerStatements
 		const rows: Select = {
 			...provedSelect(
 				"keyed",
-				ledgerColumns.map((c, i) =>
-					targetAs(
-						ledgerColumnTypes[c] === "integer" ? cast(col(r1, c), types.text) : col(r1, c),
-						`c${i + 1}`
-					)
-				),
+				ledgerColumns.map((c, i) => targetAs(ledgerText(c, col(r1, c)), `c${i + 1}`)),
 				[table(name.schema, name.name, r1)],
 				undefined
 			),

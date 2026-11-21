@@ -11,9 +11,15 @@ import { type AstHooks, identityHooks } from "#compiler/sql/transform.ts"
 
 const typeSchema = nominal<string, TypeSchema>()
 
+/**
+ * The schema of the types an installation holds, its domains, by its installed identifier: what grizzle's bookkeeping
+ * tables, which know their schema by it, type a digest column in (deploy/ledger/ledger.ts digestColumn).
+ */
+export const installedTypes = (schema: string): TypeSchema => typeSchema(schema)
+
 /** The schema of the types an installation holds, its domains: its own, by its identity. */
 export const installationTypes = (installation: Identity<"schema">): TypeSchema =>
-	typeSchema(identifierOf(installation))
+	installedTypes(identifierOf(installation))
 
 /** The schema of the vector extension's types, the one the installation was given for the extension. */
 export const vectorTypes = (schema: string): TypeSchema => typeSchema(schema)

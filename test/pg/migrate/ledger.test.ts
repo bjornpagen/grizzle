@@ -84,6 +84,12 @@ export const ledgerMachine = property.explore(
 				original: '\t\t\t\truns.push({ kind: "resume", folder, files: filesOf(decision.run) })',
 				replacement: '\t\t\t\truns.push({ kind: "resume", folder, files: folder.files })',
 				why: "A partial folder resumes at its first file, running again the files the ledger recorded."
+			},
+			{
+				file: "packages/engine/src/deploy/ledger/ledger.ts",
+				original: '\tdigest: "digest"\n}',
+				replacement: '\tdigest: "text"\n}',
+				why: "The hex rendering restored in the ledger: a file's digest is stored as its 64 hex digits, a text, where the ledger stores its 32 bytes, so the ledger's rows read back strictly are no longer the runner's."
 			}
 		]
 	}

@@ -368,6 +368,7 @@ export const builtinFunctions = {
 	generate_subscripts: { reach: "row" },
 	make_date: { reach: "row" },
 	encode: { reach: "row" },
+	decode: { reach: "row" },
 	convert_to: { reach: "row" },
 	generate_series: { reach: "row" },
 	num_nonnulls: { reach: "row" },

@@ -9,6 +9,7 @@ import type { Expr, FunctionName, PlFunction, PlStatement, Revoke } from "#compi
 
 import {
 	and,
+	call,
 	col,
 	countStar,
 	eq,
@@ -32,6 +33,23 @@ export const ledgerTableName: string = identifierOf(identity.ledger())
  * (identity.proofs): no Db reads it, so no fence or guard names it (deploy/ledger/ledger.ts proofsTable).
  */
 export const proofsTableName: string = identifierOf(identity.proofs())
+
+/**
+ * The encoding a digest of the ledger and the proofs travels in between the shell and its bytea column: lowercase hex,
+ * the spelling every fingerprint and file digest the shell holds is in (snapshot.json, meta.json; core/sha256.ts
+ * sha256Hex), rendered at this boundary from the 32 bytes the column stores.
+ *
+ * @formatConstant PostgreSQL 19's encode and decode format name for hexadecimal
+ */
+const hexEncoding = "hex"
+
+/** The bytes a digest's hex spells, `decode(<hex>, 'hex')`: how a fingerprint or a file's digest enters its column. */
+export const digestOfHex = (hex: Expr): Expr =>
+	call("decode", [hex, lit.text(hexEncoding, types.text)])
+
+/** A digest column's bytes as their hex, `encode(<digest>, 'hex')`: how a rows statement reads one back. */
+export const hexOfDigest = (digest: Expr): Expr =>
+	call("encode", [digest, lit.text(hexEncoding, types.text)])
 
 /** The ordinal of a folder's row: the one row of its folder that records its source, target and file count. */
 export const folderOrdinal = 0
@@ -86,7 +104,7 @@ const refuseWhen = (condition: Expr, raise: PlStatement): PlStatement => ({
  *   IF EXISTS (a folder row whose file count is not the number of its folder's file rows) THEN
  *     RAISE EXCEPTION ... USING ERRCODE = '55Z02';   -- a migration running or stopped part-way
  *   END IF;
- *   IF NOT EXISTS (a folder row whose target is fingerprint, with no folder row after it by name) THEN
+ *   IF NOT EXISTS (a folder row whose target is decode(fingerprint, 'hex'), with no folder row after it by name) THEN
  *     RAISE EXCEPTION ... USING ERRCODE = '55Z01';   -- the latest complete target is another
  *   END IF;
  *
@@ -122,7 +140,7 @@ export const snapshotGuardDdl = (schema: string): readonly [PlFunction, Revoke] 
 			[ledger("r3")],
 			and([
 				folderRowOf("r3"),
-				eq(col("r3", "target"), fingerprint),
+				eq(col("r3", "target"), digestOfHex(fingerprint)),
 				notExists(
 					simpleSelect(
 						[one],
