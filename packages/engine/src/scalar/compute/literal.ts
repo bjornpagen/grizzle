@@ -8,8 +8,13 @@ import { decimalPayload, isDecimalLike } from "#compiler/ir/decimal.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import { type TypedLiteral, literalProblem } from "#compiler/ir/expr.ts"
 import { baseOf, type Carrier, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
-import { Decimal, integerOfDecimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
-import { toReal } from "#compiler/scalar/values/float.ts"
+import {
+	Decimal,
+	integerOfDecimal,
+	normalizeNumeric,
+	parseNumeric
+} from "#compiler/scalar/values/decimal.ts"
+import { parseReal, toReal } from "#compiler/scalar/values/float.ts"
 import { type HostValue, hostOf } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { admitCidr, admitInet } from "#compiler/scalar/values/net.ts"
@@ -118,6 +123,81 @@ export const irLiteral = (value: LiteralDesc, t: ScalarType): Result.Result<Type
 		return problem === undefined ? Result.ok(literal) : Result.err(problem)
 	})
 
+/** A numeric literal's exact decimal: a Decimal, a bigint or a decimal string, as the Description carries it. */
+const decimalOfLiteral = (value: LiteralDesc): Result.Result<Decimal, unknown> =>
+	isDecimalLike(value) ? Decimal.fromString(decimalPayload(value)) : Decimal.parse(value)
+
+/**
+ * Why a bare literal opposite a term of type `t` is no value of t as written, or none: the one rule of a literal that
+ * meets a term with no type of its own, in a match's binding, a negated match's, a side's selector and a predicate's
+ * operand alike. It takes its term's type and is refused where it has more digits than that type holds (README,
+ * Arithmetic), never rounded into it, since the comparison reads it exactly: PostgreSQL resolves `x = '1.25'` at numeric
+ * of no typmod and compares it exactly, coercing to a typmod only on assignment, so 1.25 rounded to a numeric(5, 1) x's
+ * 1.3 would select rows the comparison never does, and a binding of x to it states a value x cannot hold. The types
+ * that round a value into themselves are numeric(p, s), to its scale (scalar/values/decimal.ts parseNumeric, not
+ * normalizeNumeric), whose infinities, and NaN at scale 0, are no values of it either, and real, to binary32
+ * (scalar/values/float.ts parseReal, not toReal); every other literal is judged a value of its type where it is typed
+ * (irLiteral). A stored value, an insert's field or a default, meets its
+ * column's type as an assignment does (irLiteral).
+ */
+export const oppositeLiteralProblem = (value: LiteralDesc, t: ScalarType): string | undefined => {
+	const base = baseOf(t)
+	const more = (shown: string) =>
+		`${shown} has more digits than ${typeLabel(t)} holds, which a comparison reads as written, never rounded`
+	if (base.carrier === "float4") {
+		if (typeof value !== "number") {
+			return undefined
+		}
+		const real = parseReal(value)
+		return !real.ok && real.error === "realInexact" ? more(String(value)) : undefined
+	}
+	if (base.carrier !== "numeric" || base.typmod === undefined || typeof value === "number") {
+		return undefined
+	}
+	const parsed = decimalOfLiteral(value)
+	if (!parsed.ok) {
+		return undefined
+	}
+	const exact = parseNumeric(parsed.value, base.typmod)
+	if (exact.ok) {
+		return undefined
+	}
+	const shown = parsed.value.toString()
+	return exact.error === "numericScale" || exact.error === "numericOverflow"
+		? more(shown)
+		: `${shown} is no value of ${typeLabel(t)}`
+}
+
+/**
+ * The typed IR literal of a bare literal opposite a term of type `t`, at t as written (oppositeLiteralProblem), or why
+ * it is no value of t: a selector's, which fixes its field at it.
+ */
+export const oppositeLiteral = (
+	value: LiteralDesc,
+	t: ScalarType
+): Result.Result<TypedLiteral, string> =>
+	Result.flatMap(irLiteral(value, t), (literal) => {
+		const problem = oppositeLiteralProblem(value, t)
+		return problem === undefined ? Result.ok(literal) : Result.err(problem)
+	})
+
+/**
+ * How a literal meets the type it is typed at: `compared`, a bare literal opposite a term in a comparison, a match's
+ * binding, a negated match's, a side's selector or a predicate's operand, a value of the term's type as written
+ * (oppositeLiteral); `stored`, every other, a value it states at the type, an insert's field, a default, a bound
+ * constant, a head's literal or an arithmetic operand, which an assignment coerces to its typmod (irLiteral). Each
+ * reader states which it reads.
+ */
+export type LiteralMeeting = "stored" | "compared"
+
+/** The typed IR literal of a literal at a type, as it meets the type (LiteralMeeting), or why it is no value of it. */
+export const literalAt: {
+	readonly [M in LiteralMeeting]: (
+		value: LiteralDesc,
+		t: ScalarType
+	) => Result.Result<TypedLiteral, string>
+} = { stored: (value, t) => irLiteral(value, t), compared: (value, t) => oppositeLiteral(value, t) }
+
 /**
  * The typed IR literal of an admitted closed relation's cell at its field's type (ir/desc.ts AdmittedClosedRelation):
  * its admission proved it a value of the type's base, of the host kind the type reads, so it is converted and never
@@ -156,9 +236,7 @@ const literalOf = (value: LiteralDesc, t: ScalarType): Result.Result<TypedLitera
 					"an exact decimal: a Decimal, a bigint or a decimal string, never a JavaScript number"
 				)
 			}
-			const parsed = isDecimalLike(value)
-				? Decimal.fromString(decimalPayload(value))
-				: Decimal.parse(value)
+			const parsed = decimalOfLiteral(value)
 			if (!parsed.ok) {
 				return Result.err("an exact decimal literal")
 			}

@@ -21,6 +21,9 @@ export const refinedMember = (
 	}
 	return (value) => {
 		const literal = literalDescFor(type, value)
-		return literal.ok && admitLiteral(literal.value, type, { kind: "refinements", patterns }).ok
+		return (
+			literal.ok &&
+			admitLiteral(literal.value, type, { kind: "refinements", patterns }, "stored").ok
+		)
 	}
 }

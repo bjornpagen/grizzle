@@ -31,7 +31,7 @@ import {
 } from "#compiler/ir/scalar.ts"
 import type { CastValue, HostCast } from "#compiler/scalar/compute/cast.ts"
 import { floatBits, totalFloat } from "#compiler/scalar/compute/float.ts"
-import { hostOfLiteral, irLiteral } from "#compiler/scalar/compute/literal.ts"
+import { hostOfLiteral, type LiteralMeeting, literalAt } from "#compiler/scalar/compute/literal.ts"
 import * as N from "#compiler/scalar/compute/numeric.ts"
 import {
 	castOf,
@@ -1307,16 +1307,18 @@ interface LiteralRefusal {
  * refinement's membership is the text package's NFA, which the caller supplies.
  *
  * The one admission of a literal at a typed slot, in one order wherever it appears, bound by a match, compared, cast or
- * computed: its host kind and range against the base type first, MalformedDescription when it is none of the base's
- * values whatever contract the type carries; then a value of the base against the contract's predicates and the regex
- * refinements, ContractLiteral when they refuse it and UnsupportedOperation when the check cannot be evaluated.
+ * computed: its host kind and range against the base type first, as it meets the type (literal.ts LiteralMeeting: a
+ * stored value coerced to a typmod, a compared one held to it as written), MalformedDescription when it is none of the
+ * base's values whatever contract the type carries; then a value of the base against the contract's predicates and the
+ * regex refinements, ContractLiteral when they refuse it and UnsupportedOperation when the check cannot be evaluated.
  */
 export const admitLiteral = (
 	value: LiteralDesc,
 	type: ScalarType,
-	judgment: LiteralJudgment
+	judgment: LiteralJudgment,
+	meeting: LiteralMeeting
 ): Result.Result<TypedLiteral, LiteralRefusal> => {
-	const typed = irLiteral(value, type)
+	const typed = literalAt[meeting](value, type)
 	if (!typed.ok) {
 		return Result.err({
 			reason: "MalformedDescription",

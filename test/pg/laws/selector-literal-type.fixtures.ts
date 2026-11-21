@@ -27,6 +27,12 @@ const NumericOwn = relation("NumericOwn", { id: pg.integer }, ["id"])
 
 const NumericBare = relation("NumericBare", { id: pg.integer }, ["id"])
 
+const KeyedBare = relation("KeyedBare", { id: pg.integer }, ["id"])
+
+const RuleBare = relation("RuleBare", { id: pg.integer }, ["id"])
+
+const KeyedRuleBare = relation("KeyedRuleBare", { id: pg.integer }, ["id"])
+
 const KeyedOtherExact = relation("KeyedOtherExact", { id: pg.integer }, ["id"])
 
 const KeyedRuleOther = relation("KeyedRuleOther", { id: pg.integer }, ["id"])
@@ -51,6 +57,9 @@ const Selected = schema(
 		NumericOtherExact,
 		NumericOwn,
 		NumericBare,
+		KeyedBare,
+		RuleBare,
+		KeyedRuleBare,
 		KeyedOtherExact,
 		KeyedRuleOther,
 		KeyedRuleOtherExact,
@@ -84,7 +93,14 @@ const Selected = schema(
 		contained(
 			on(NumericBare, "id"),
 			on(
-				select(BNumeric, (b) => b.eq(b.x, "1.25")),
+				select(BNumeric, (b) => b.eq(b.x, "1.3")),
+				"id"
+			)
+		),
+		contained(
+			on(KeyedBare, "id"),
+			on(
+				select(BKeyed, (b) => b.eq(b.x, "1.3")),
 				"id"
 			)
 		),
@@ -129,7 +145,23 @@ const keyedAt = (value: string) =>
 		return r.match(BKeyed, { id, x: Type.literal(pg.numeric(10, 2), value) }).find({ id })
 	})
 
+/** The ids of BNumeric whose x a bare literal names, a value of x's numeric(5, 1) as written: matched by a rule. */
+const numericBare = query(Selected).rule((r) => {
+	const { id } = v(BNumeric, "b")
+	return r.match(BNumeric, { id, x: "1.3" }).find({ id })
+})
+
+/** The ids of BKeyed whose x the bare 1.3 names: a rule keyed within BKeyed, which fixes x. */
+const keyedBare = query(Selected).rule((r) => {
+	const { id } = v(BKeyed, "b")
+	return r.match(BKeyed, { id, x: "1.3" }).find({ id })
+})
+
 const AtOther = derived("AtOther", numericAt("1.25"))
+
+const AtBare = derived("AtBare", numericBare)
+
+const KeyedAtBare = derived("KeyedAtBare", keyedBare)
 
 const AtOtherExact = derived("AtOtherExact", numericAt("1.30"))
 
@@ -140,8 +172,10 @@ const KeyedAtOtherExact = derived("KeyedAtOtherExact", keyedAt("1.30"))
 const SelectorLiteral = schema.extend(
 	[Selected],
 	"selector_literal_rules",
-	[AtOther, AtOtherExact, KeyedAtOther, KeyedAtOtherExact],
+	[AtOther, AtOtherExact, KeyedAtOther, KeyedAtOtherExact, AtBare, KeyedAtBare],
 	[
+		contained(on(RuleBare, "id"), on(AtBare, "id")),
+		contained(on(KeyedRuleBare, "id"), on(KeyedAtBare, "id")),
 		contained(on(RuleOther, "id"), on(AtOther, "id")),
 		contained(on(RuleOtherExact, "id"), on(AtOtherExact, "id")),
 		contained(on(KeyedRuleOther, "id"), on(KeyedAtOther, "id")),
@@ -191,14 +225,19 @@ export const B_OF: { readonly [F in Family]: string } = {
 
 /**
  * Each source and its literal's meaning: 1.25 and 1.30 at numeric(10, 2) are 12.5 and 13 tenths, 1.3 at x's own type
- * 13, the bare 1.25 at numeric(5, 1) rounded to 13; the 8-letter texts abcdef and abc themselves, the first longer
- * than any x.
+ * 13, and the bare 1.3, a value of x's numeric(5, 1) as written, 13 too, in a selection and in a rule's match binding,
+ * over BNumeric and BKeyed alike; the 8-letter texts abcdef and abc themselves, the first longer than any x. A bare
+ * literal of more digits than x holds is refused at compile (test/unit/analysis/literal-opposite), so no source reads
+ * one.
  */
 type SourceName =
 	| "NumericOther"
 	| "NumericOtherExact"
 	| "NumericOwn"
 	| "NumericBare"
+	| "KeyedBare"
+	| "RuleBare"
+	| "KeyedRuleBare"
 	| "RuleOther"
 	| "RuleOtherExact"
 	| "KeyedOtherExact"
@@ -214,6 +253,9 @@ const SOURCES: Arr.NonEmptyReadonlyArray<Source> = [
 	{ relation: "NumericOtherExact", family: "numeric", holds: (x) => x.exact === "13" },
 	{ relation: "NumericOwn", family: "numeric", holds: (x) => x.exact === "13" },
 	{ relation: "NumericBare", family: "numeric", holds: (x) => x.exact === "13" },
+	{ relation: "RuleBare", family: "numeric", holds: (x) => x.exact === "13" },
+	{ relation: "KeyedBare", family: "keyed", holds: (x) => x.exact === "13" },
+	{ relation: "KeyedRuleBare", family: "keyed", holds: (x) => x.exact === "13" },
 	{ relation: "RuleOther", family: "numeric", holds: (x) => x.exact === "12.5" },
 	{ relation: "RuleOtherExact", family: "numeric", holds: (x) => x.exact === "13" },
 	{ relation: "KeyedOtherExact", family: "keyed", holds: (x) => x.exact === "13" },

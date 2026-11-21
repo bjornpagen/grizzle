@@ -2,10 +2,10 @@
  * A containment into a side selected by `field = literal`, through grizzle's lowering on PostgreSQL 19, where the
  * literal is bare, typed at the field's own type, or typed at another: `select(B, (b) => b.eq(b.x,
  * Type.literal(pg.numeric(10, 2), "1.25")))` over a numeric(5, 1) field x compares at numeric(10, 2), as a query
- * compares it, so no x equals it. A bare literal adopts the field's type, rounded as PostgreSQL's coercion stores it
- * (1.25 at numeric(5, 1) is 1.3); a typed one fixes the field only where the field's type holds its value exactly
- * (analysis/theory/laws.ts LawSides.selector), on a select() side and on a rule over a query whose match binds the
- * field to it alike.
+ * compares it, so no x equals it. A bare literal takes the field's type as written, 1.3 a value of numeric(5, 1), and
+ * one of more digits than the type holds is refused at compile, never rounded (test/unit/analysis/literal-opposite);
+ * a typed one fixes the field only where the field's type holds its value exactly (analysis/theory/laws.ts
+ * LawSides.selector), on a select() side and on a rule over a query whose match binds the field to it alike.
  *
  * - **The specification turned into a checker:** each source row's containment read row by row: a source row commits
  *   exactly when B holds its id with an x the literal equals as the selection compares them, the exact decimal value
@@ -17,7 +17,7 @@
  * written first, in one transaction. Types of two carriers never meet without Type.base, so a literal of another
  * type than its field's is one of another numeric typmod or text refinement. Over the B keyed by id and x, a
  * containment into its selection over id holds a key only where the literal fixes x, so the box holds the fixing
- * literal's select() side and the rules of both, the other keeping its triggers.
+ * literals' select() sides, the bare and the typed, and the rules of each, the other keeping its triggers.
  */
 
 import type { Reached } from "@bjornpagen/testing/features"

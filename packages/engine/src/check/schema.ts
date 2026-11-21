@@ -5,6 +5,7 @@ import type { ViewRead } from "#compiler/ir/keys.ts"
 import type { ClosedTheoryRelation, FieldWriting, RelationInfo } from "#compiler/ir/law.ts"
 import type { Heading, HeadingColumn } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
+import type { LiteralMeeting } from "#compiler/scalar/compute/literal.ts"
 import type { ClosedRelations } from "#compiler/scalar/compute/typing.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import type { Owned, OwnedRole } from "#compiler/schema/own.ts"
@@ -89,17 +90,23 @@ export interface SchemaReading {
 	/** A relation by name, refused when the schema or role holds none of that name. */
 	relation(name: string, loc: SourceLoc): ReadRelation
 	/**
-	 * A literal of a declared value, checked against the type's contract and regex (ContractLiteral), by the admitted
-	 * patterns of the caller's compile.
+	 * A literal of a declared value as it meets its type (LiteralMeeting), checked against the type's contract and regex
+	 * (ContractLiteral), by the admitted patterns of the caller's compile.
 	 */
 	literal(
 		value: LiteralDesc,
 		type: ScalarType,
 		loc: SourceLoc,
-		patterns: PatternAutomata
+		patterns: PatternAutomata,
+		meeting: LiteralMeeting
 	): TypedLiteral
-	/** Whether a literal is a value of `type`: one `literal` admits at it rather than refuses. */
-	admits(value: LiteralDesc, type: ScalarType, patterns: PatternAutomata): boolean
+	/** Whether a literal is a value of `type` as it meets it: one `literal` admits at it rather than refuses. */
+	admits(
+		value: LiteralDesc,
+		type: ScalarType,
+		patterns: PatternAutomata,
+		meeting: LiteralMeeting
+	): boolean
 	/**
 	 * A descriptor a query carries, its contracts the schema's or declared once by the same query (`seen`), typed by the
 	 * admitted patterns of the caller's compile.

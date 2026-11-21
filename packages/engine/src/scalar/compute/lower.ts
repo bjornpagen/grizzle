@@ -656,10 +656,12 @@ class Lowering<R extends Refs> {
 						})
 					)
 				case "admits": {
-					const judged = admitLiteral(entry.value, entry.type, {
-						kind: "refinements",
-						patterns: this.env.patterns
-					})
+					const judged = admitLiteral(
+						entry.value,
+						entry.type,
+						{ kind: "refinements", patterns: this.env.patterns },
+						"stored"
+					)
 					if (!judged.ok) {
 						stop(judged.error.reason, entry.at, judged.error.capability)
 					}

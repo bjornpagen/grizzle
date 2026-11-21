@@ -1161,7 +1161,8 @@ const corruptions: Arr.NonEmptyReadonlyArray<Corruption<Live, Refusal, RuleName>
 						term.value,
 						field.value.type,
 						SourceLoc(name, []),
-						new CompilePatterns()
+						new CompilePatterns(),
+						"stored"
 					)
 				)
 				return !typed.ok ? [reasonKeyOf(typed.error)] : []

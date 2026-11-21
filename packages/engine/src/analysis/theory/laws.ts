@@ -119,7 +119,7 @@ import type { RelNode } from "#compiler/ir/rel.ts"
 import { conservativeMeta, type HeadingColumn } from "#compiler/ir/rel.ts"
 import { baseOf, type ContractInfo, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
 import { countOverload, unaryOverload } from "#compiler/scalar/aggregate.ts"
-import { irLiteral } from "#compiler/scalar/compute/literal.ts"
+import { irLiteral, oppositeLiteral } from "#compiler/scalar/compute/literal.ts"
 import { type LowerEnv, lowerPredicate, lowerTerm } from "#compiler/scalar/compute/lower.ts"
 import { noParams } from "#compiler/scalar/compute/typing.ts"
 import { guardedTerm } from "#compiler/scalar/natural.ts"
@@ -811,11 +811,13 @@ export class LawSides {
 
 	/**
 	 * The selector `field = literal` states over `r` (`ResolvedSelector`): the literal at the field's type, where it is a
-	 * value of it exactly. A literal with no type of its own adopts the field's, rounded as PostgreSQL's coercion stores
-	 * it, and is refused where it is no value of it. A literal typed at a type of its own compares at that type, so it
-	 * fixes the field only where the field's type holds its value exactly: 1.30 at numeric(10, 2) over a numeric(5, 1)
-	 * field is its 1.3, while 1.25 there, or a text the field's refinement does not admit, equals no value of the field
-	 * and fixes nothing, its conjunct a general one.
+	 * value of it exactly. A literal with no type of its own takes the field's type as written, and is refused where it
+	 * is no value of it, a decimal of more digits than the field's numeric(p, s) holds among them
+	 * (scalar/compute/literal.ts oppositeLiteralProblem), as a predicate's operand and a match's binding are: never
+	 * rounded, since the selection compares the field with it exactly. A literal typed at a type of its own compares at
+	 * that type, so it fixes the field only where the field's type holds its value exactly: 1.30 at numeric(10, 2) over
+	 * a numeric(5, 1) field is its 1.3, while 1.25 there, or a text the field's refinement does not admit, equals no
+	 * value of the field and fixes nothing, its conjunct a general one.
 	 */
 	selector(
 		r: TheoryRelation,
@@ -824,7 +826,7 @@ export class LawSides {
 		loc: SourceLoc
 	): ResolvedSelector | undefined {
 		const col = this.#column(r, field, loc)
-		const at = irLiteral(literal.value, col.type)
+		const at = oppositeLiteral(literal.value, col.type)
 		if (literal.type === undefined) {
 			if (!at.ok) {
 				return refuse("MalformedDescription", loc, `a selection on ${r.name}.${field}: ${at.error}`)

@@ -59,7 +59,7 @@ import {
 } from "#compiler/ir/scalar.ts"
 import type { ClosedTable } from "#compiler/runtime/write/fill.ts"
 import { admitLiteral, refined } from "#compiler/scalar/compute/evaluate.ts"
-import { admittedLiteral } from "#compiler/scalar/compute/literal.ts"
+import { admittedLiteral, type LiteralMeeting } from "#compiler/scalar/compute/literal.ts"
 import { exprEmitter, lowerTerm } from "#compiler/scalar/compute/lower.ts"
 import { binaryCoercion } from "#compiler/scalar/compute/registry.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
@@ -743,7 +743,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 				}
 				return {
 					kind: "accumulated",
-					start: this.literal(w.start, type, childLoc(at, "writing", "start"), patterns)
+					start: this.literal(w.start, type, childLoc(at, "writing", "start"), patterns, "stored")
 				}
 			case "generated":
 				return this.#generated(r, f.name, w.expr, type, row, patterns)
@@ -1047,22 +1047,24 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	 * A literal of a declared value: the typed IR literal, checked against the type's contract and regex
 	 * (ContractLiteral).
 	 *
-	 * Construction checks the literal's host kind and gives it the value its field stores: a JavaScript number for a
-	 * bigint or numeric type, a non-integer or out-of-range integer, or a numeric(p, s) overflow is a malformed literal
-	 * whatever contract the type carries (MalformedDescription). Only a well-formed literal
-	 * that the contract's predicate or the regex refinement refuses is ContractLiteral, judged by `patterns`, the admitted
-	 * patterns of the caller's compile.
+	 * Construction checks the literal's host kind and gives it its value as it meets the type (`meeting`,
+	 * scalar/compute/literal.ts LiteralMeeting): a stored one the value its field stores, a compared one its value as
+	 * written. A JavaScript number for a bigint or numeric type, a non-integer or out-of-range integer, a numeric(p, s)
+	 * overflow, or a compared decimal of more digits than numeric(p, s) holds is a malformed literal whatever contract the
+	 * type carries (MalformedDescription). Only a well-formed literal that the contract's predicate or the regex
+	 * refinement refuses is ContractLiteral, judged by `patterns`, the admitted patterns of the caller's compile.
 	 */
 	literal(
 		value: LiteralDesc,
 		type: ScalarType,
 		loc: SourceLoc,
-		patterns: PatternAutomata
+		patterns: PatternAutomata,
+		meeting: LiteralMeeting
 	): TypedLiteral {
 		if (isInstantType(type)) {
 			return fail("MalformedDescription", loc, instantInputText("literal"))
 		}
-		const admitted = admitLiteral(value, type, { kind: "refinements", patterns })
+		const admitted = admitLiteral(value, type, { kind: "refinements", patterns }, meeting)
 		if (!admitted.ok) {
 			return fail(admitted.error.reason, loc, admitted.error.capability)
 		}
@@ -1090,9 +1092,14 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		}
 	}
 
-	/** Whether a literal is a value of `type`: one `literal` admits at it rather than refuses. */
-	admits(value: LiteralDesc, type: ScalarType, patterns: PatternAutomata): boolean {
-		return admitLiteral(value, type, { kind: "refinements", patterns }).ok
+	/** Whether a literal is a value of `type` as it meets it: one `literal` admits at it rather than refuses. */
+	admits(
+		value: LiteralDesc,
+		type: ScalarType,
+		patterns: PatternAutomata,
+		meeting: LiteralMeeting
+	): boolean {
+		return admitLiteral(value, type, { kind: "refinements", patterns }, meeting).ok
 	}
 
 	/**

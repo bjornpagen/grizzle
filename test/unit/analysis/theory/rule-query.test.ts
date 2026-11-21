@@ -29,7 +29,9 @@
  * a head literal defines is that literal. A trigger probe reads the union by arm, so a fact of one arm meets each arm's
  * literal: bound to it where the arm delivers the same literal, compared with it in the arm's own query where the arm
  * delivers another (analysis/theory/query.ts Meeting), since a literal bound where the arm delivers another is a filter
- * no fact of the arm meets, which the checker refuses.
+ * no fact of the arm meets, which the checker refuses. A selection over Read compares Read's amount, Amount's
+ * numeric(4, 2), with the bare literal, which takes that type as written: an infinity, or one past its precision or
+ * scale, is refused for it (scalar/compute/literal.ts oppositeLiteralProblem), never rounded or compared at another.
  *
  * A fourth box negates: a derived relation of Item whose definition negates Mark, a join of Mark and Note (a query),
  * their union (a query of two rules), the join derived on a level below, a query that aggregates or one that negates in
@@ -54,7 +56,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import { type Reached as ReachedOf } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter } from "effect"
+import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import {
 	amountSchemaOf,
 	clashesOf,
@@ -193,6 +195,18 @@ export const aRuleOverAQueryCompilesWheneverTheBuildersAdmitItCorrelatingTextsOf
 		]
 	})
 
+/**
+ * The Decimals no numeric(4, 2) holds as written, which Read's selection, comparing Amount's numeric(4, 2) amount with
+ * the bare literal, is refused for (scalar/compute/literal.ts oppositeLiteralProblem): the infinities, and one past
+ * numeric(p, s)'s greatest precision or scale. NaN is a value of numeric(4, 2), and 1.5 is 1.50.
+ */
+const outsideAmount: ReadonlySet<string> = new Set([
+	"Infinity",
+	"-Infinity",
+	"past precision",
+	"past scale"
+])
+
 /** A rule over a query compiles whenever the builders admit it, a head literal read where a term of its column stands. */
 export const aRuleOverAQueryCompilesWheneverTheBuildersAdmitItAHeadLiteralReadWhereATermOfItsColumnStands =
 	property.exhaust(finite(tagCase), {
@@ -225,6 +239,15 @@ export const aRuleOverAQueryCompilesWheneverTheBuildersAdmitItAHeadLiteralReadWh
 				const compiled = compiledOf(
 					c.literal === "text" ? tagSchemaOf(c) : amountSchemaOf(c, decimalOf[c.literal])
 				)
+				if (c.literal !== "text" && c.rule === "selection" && outsideAmount.has(c.literal)) {
+					assert.ok(
+						!compiled.ok &&
+							compiled.error.reason._tag === "MalformedDescription" &&
+							Str.includes("numeric(4,2)")(compiled.error.message),
+						`${Formatter.format(c)}: Read's selection compares Amount's numeric(4,2) with a literal no value of it, refused for it: ${compiled.ok ? "compiled" : compiled.error.message}`
+					)
+					return
+				}
 				assert.deepEqual(
 					compiled.ok ? undefined : compiled.error.reason,
 					undefined,

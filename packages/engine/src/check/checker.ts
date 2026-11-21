@@ -161,12 +161,11 @@ import {
 	literalNumeric,
 	meetingType,
 	meets,
-	valueType,
 	wildcardText,
-	widening,
-	withoutSpanWidth
+	widening
 } from "#compiler/scalar/compute/types.ts"
 import {
+	adoptedType,
 	type ClosedRelations,
 	type LeafDesc,
 	type LowerParams,
@@ -371,7 +370,7 @@ const boundConstant = (
 			`a bound constant of ${typeLabel(type)}, not ${typeLabel(constant.stated.type)}`
 		)
 	}
-	return literalSpec(schema.literal(constant.value, type, constant.loc, patterns), type)
+	return literalSpec(schema.literal(constant.value, type, constant.loc, patterns, "stored"), type)
 }
 
 type ParamResolver =
@@ -641,19 +640,6 @@ const paramSpec = (param: ParamId, role: ParamRole, type: ScalarType): ExprSpec 
 const compareType = (t: ScalarType): ScalarType => {
 	const base = baseOf(t)
 	return base.carrier === "text" ? wildcardText : base
-}
-
-/**
- * The type a bare literal adopts opposite a term of type t in a comparison: the contract and its refinements
- * when it has one, otherwise the value type, a numeric widened to every numeric value and a span's fixed width dropped
- * (scalar/compute/typing.ts adoptedType).
- */
-const adoptCompare = (t: ScalarType): ScalarType => {
-	if (t.contract !== undefined) {
-		return t
-	}
-	const v = valueType(t)
-	return v.carrier === "numeric" ? anyNumeric : withoutSpanWidth(v)
 }
 
 /**
@@ -1703,7 +1689,7 @@ export class Checker {
 		return mapNonEmpty(delivered, (d) =>
 			d.bare !== undefined &&
 			agreed !== undefined &&
-			this.schema.admits(d.bare.value, agreed, this.patterns)
+			this.schema.admits(d.bare.value, agreed, this.patterns, "stored")
 				? agreed
 				: d.column.type
 		)
@@ -1741,7 +1727,10 @@ export class Checker {
 				const retyped: HeadLiteral =
 					head.kind === "fixed" || sameScalarType(t, c.type)
 						? head
-						: { ...head, literal: this.schema.literal(head.value, t, head.loc, this.patterns) }
+						: {
+								...head,
+								literal: this.schema.literal(head.value, t, head.loc, this.patterns, "stored")
+							}
 				kept.set(c.name, retyped)
 				return { name: c.name, expr: this.emit(literalSpec(retyped.literal, t)), type: t }
 			}
@@ -2876,10 +2865,10 @@ export class Checker {
 		const lowered = loweredOf
 		/** A bare literal operand adopts `against`'s type; anything else, a parameter among them, meets it compatibly. */
 		const operand = (d: ResolvedExpr, against: ScalarType, at: SourceLoc): ScalarExpr => {
-			const adopted = adoptCompare(against)
+			const adopted = adoptedType(against, "compare")
 			if (d.kind === "literal" && d.type === undefined) {
 				return this.emit(
-					literalSpec(this.schema.literal(d.value, adopted, at, this.patterns), adopted)
+					literalSpec(this.schema.literal(d.value, adopted, at, this.patterns, "compared"), adopted)
 				)
 			}
 			const t = unwrap(lower(d))
@@ -2967,7 +2956,7 @@ export class Checker {
 					)
 				}
 				const point = unwrap(lower(desc.point))
-				const window = spanType(adoptCompare(point.nominal), undefined, at)
+				const window = spanType(point.nominal, undefined, at)
 				if (!window.ok) {
 					return fail(
 						"MalformedDescription",
@@ -3543,7 +3532,7 @@ class RuleCheck {
 			const col = columnOf(heading, column)
 			return e.kind === "literal" &&
 				col !== undefined &&
-				this.cx.schema.admits(e.value, col.type, this.cx.patterns)
+				this.cx.schema.admits(e.value, col.type, this.cx.patterns, "compared")
 				? [{ column, value: e.value }]
 				: []
 		})
@@ -3573,9 +3562,9 @@ class RuleCheck {
 		const head = this.cx.literalOf(arm)?.get(column)
 		if (head !== undefined) {
 			return (
-				this.cx.schema.admits(value, col.type, this.cx.patterns) &&
+				this.cx.schema.admits(value, col.type, this.cx.patterns, "compared") &&
 				canonicalEquals(
-					this.cx.schema.literal(value, col.type, loc, this.cx.patterns),
+					this.cx.schema.literal(value, col.type, loc, this.cx.patterns, "compared"),
 					head.literal
 				)
 			)
@@ -3584,7 +3573,7 @@ class RuleCheck {
 			columnOf(this.cx.deliveredOf(arm), column),
 			"an arm delivered each column of its heading before a union widened it"
 		).type
-		return this.cx.schema.admits(value, delivered, this.cx.patterns)
+		return this.cx.schema.admits(value, delivered, this.cx.patterns, "compared")
 	}
 
 	/**
@@ -3687,8 +3676,9 @@ class RuleCheck {
 	}
 
 	/**
-	 * A binding that fixes its column: a literal adopting the column's type, a parameter bound as the column's base, or
-	 * a computed term that meets it (types.ts meets). The region holds a constant of the column's base type, or of the
+	 * A binding that fixes its column: a bare literal, a value of the column's type as written, refused where it has more
+	 * digits than the type holds (scalar/compute/literal.ts LiteralMeeting `compared`), since the binding compares the
+	 * column with it exactly; a parameter bound as the column's base; or a computed term that meets it (types.ts meets). The region holds a constant of the column's base type, or of the
 	 * exact family it widens into (meetingType), whose equality with the column is the value equality the region writes;
 	 * any other value is a hidden variable equated with it by the filter.
 	 */
@@ -3696,7 +3686,13 @@ class RuleCheck {
 		comparable(column, "no constant, parameter or term fixes it", loc)
 		const baseMatches = (t: ScalarType) => sameScalarType(baseOf(column.type), baseOf(t))
 		if (e.kind === "literal" && e.type === undefined) {
-			const literal = this.cx.schema.literal(e.value, column.type, loc, this.cx.patterns)
+			const literal = this.cx.schema.literal(
+				e.value,
+				column.type,
+				loc,
+				this.cx.patterns,
+				"compared"
+			)
 			const expr = this.cx.emit(literalSpec(literal, column.type))
 			return { kind: "fix", expr }
 		}
@@ -4225,7 +4221,10 @@ class RuleCheck {
 		return { kind: "correlated", column: col.name, type: col.type, left: correlation.on }
 	}
 
-	/** A literal binding of a negated match: one adopting the column's type, or one of the type it states. */
+	/**
+	 * A literal binding of a negated match: a bare one a value of the column's type as written (LiteralMeeting
+	 * `compared`), as a match's binding is, or one of the type it states, at that type.
+	 */
 	#negatedLiteral(
 		e: Extract<ResolvedExpr, { readonly kind: "literal" }>,
 		col: HeadingColumn,
@@ -4233,7 +4232,10 @@ class RuleCheck {
 	): ScalarExpr {
 		if (e.type === undefined) {
 			return this.cx.emit(
-				literalSpec(this.cx.schema.literal(e.value, col.type, at, this.cx.patterns), col.type)
+				literalSpec(
+					this.cx.schema.literal(e.value, col.type, at, this.cx.patterns, "compared"),
+					col.type
+				)
 			)
 		}
 		const t = inferredType(e.type, (d) => this.cx.fieldType(d, at))
@@ -4244,7 +4246,9 @@ class RuleCheck {
 				`operands of one type: ${col.name} is ${typeLabel(col.type)}`
 			)
 		}
-		return this.cx.emit(literalSpec(this.cx.schema.literal(e.value, t, at, this.cx.patterns), t))
+		return this.cx.emit(
+			literalSpec(this.cx.schema.literal(e.value, t, at, this.cx.patterns, "stored"), t)
+		)
 	}
 
 	/**
@@ -4306,7 +4310,7 @@ class RuleCheck {
 		})
 		const literal = (value: LiteralDesc, typing: LiteralTyping, at: SourceLoc): TermOut => {
 			const admitted = typing.kind === "fixed" ? typing.type : this.cx.bareLiteralType(value, at)
-			const lit = this.cx.schema.literal(value, admitted, at, this.cx.patterns)
+			const lit = this.cx.schema.literal(value, admitted, at, this.cx.patterns, "stored")
 			const type =
 				lit.kind === "numeric" && isComputedNumeric(admitted)
 					? literalNumeric(lit.value.parts)

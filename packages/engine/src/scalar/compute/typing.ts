@@ -122,7 +122,7 @@ import {
 import { floatNumericDigits } from "#compiler/scalar/compute/cast.ts"
 import { binary64MinExponent } from "#compiler/scalar/compute/cast.ts"
 import { admitLiteral } from "#compiler/scalar/compute/evaluate.ts"
-import { bareLiteralKind } from "#compiler/scalar/compute/literal.ts"
+import { bareLiteralKind, oppositeLiteralProblem } from "#compiler/scalar/compute/literal.ts"
 import { type FloatCarrier, resultBounds } from "#compiler/scalar/compute/native.ts"
 import { numericMaxDisplayScale } from "#compiler/scalar/compute/numeric.ts"
 import {
@@ -1778,6 +1778,14 @@ class Typing<R extends Refs> {
 		return adoptedType(t, role)
 	}
 
+	/** A bare literal compared with a term of type `t`: refused where t does not hold it as written (oppositeLiteralProblem). */
+	asWritten(value: LiteralDesc, t: ScalarType, at: SourceLoc): void {
+		const problem = oppositeLiteralProblem(value, t)
+		if (problem !== undefined) {
+			stop("MalformedDescription", at, `a literal compared with ${typeLabel(t)}: ${problem}`)
+		}
+	}
+
 	/**
 	 * A typed node with what is proved of it: the bounds and facts its type gives every value unless the caller states
 	 * what its computation proves, beside which it keeps its SQL type's own facts (carrierFacts), then refined, outermost
@@ -2098,7 +2106,7 @@ class Typing<R extends Refs> {
 		if (isInstantType(type)) {
 			return stop("MalformedDescription", at, instantInputText("literal"))
 		}
-		const admitted = admitLiteral(value, type, { kind: "shape" })
+		const admitted = admitLiteral(value, type, { kind: "shape" }, "stored")
 		if (!admitted.ok) {
 			return stop(admitted.error.reason, at, admitted.error.capability)
 		}
@@ -2162,13 +2170,18 @@ class Typing<R extends Refs> {
 	/**
 	 * An operand opposite `against`: a bare literal adopts its type, anything else, a parameter among them, is a term that
 	 * meets it (types.ts meets). Opposite an exact value a bare literal adopts its family's plain carrier (bigint, money),
-	 * which the operation widens exactly (exactPair). A bare literal beside a contract's term in arithmetic is a value
-	 * opposite that term, so it is a value of its type, as README reads a value opposite a term: the contract judges it
-	 * where the term is compiled (ContractLiteral, the tape's admission), and the operation reads it at the base it
-	 * computes over.
+	 * which the operation widens exactly (exactPair). A bare literal compared with a term is a value of the term's type as
+	 * written, refused where it has more digits than a numeric(p, s) term holds (literal.ts oppositeLiteralProblem), as a
+	 * match's binding and a side's selector are: the comparison reads it exactly, never rounded. A bare literal beside a
+	 * contract's term in arithmetic is a value opposite that term, so it is a value of its type, as README reads a value
+	 * opposite a term: the contract judges it where the term is compiled (ContractLiteral, the tape's admission), and the
+	 * operation reads it at the base it computes over.
 	 */
 	operand(desc: ExprDesc<Located, R>, against: Typed, role: Role, at: SourceLoc): Typed {
 		if (desc.kind === "literal" && desc.type === undefined) {
+			if (role === "compare") {
+				this.asWritten(desc.value, against.nominal, at)
+			}
 			const literal = this.literal(desc.value, this.adopt(against.nominal, role), at)
 			if (role === "arithmetic" && against.nominal.contract !== undefined) {
 				this.#tape.push({ kind: "admits", value: desc.value, type: against.nominal, at })
@@ -2329,7 +2342,10 @@ class Typing<R extends Refs> {
 			case "in": {
 				const arg = this.term(desc.arg, childLoc(at, "in"))
 				const type = this.adopt(arg.nominal, "compare")
-				const values = desc.values.map((v, i) => this.literal(v, type, childLoc(at, "in", i)))
+				const values = desc.values.map((v, i) => {
+					this.asWritten(v, arg.nominal, childLoc(at, "in", i))
+					return this.literal(v, type, childLoc(at, "in", i))
+				})
 				return this.comparison("in", [arg, ...values], at)
 			}
 			case "and":
