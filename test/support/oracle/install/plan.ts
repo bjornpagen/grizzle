@@ -484,6 +484,15 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 	const domains = new Map<string, { readonly identity: string; readonly domain: OracleDomain }>()
 	/** Each contract domain by its identifier: contracts of one physical definition share one domain. */
 	const definitionDomains = new Map<string, string>()
+	/**
+	 * The SHA-256 digest domain over bytea, which every installation holds and installs in its Setup whether or not a
+	 * field holds a digest, since a column, a carrier, a cast and grizzle's own bookkeeping all name it (222e29d32), and
+	 * which every digest column is typed by; installed without its CHECK of its 32 octets, as every domain here is.
+	 */
+	const digestDomain = objectName(
+		schema,
+		unwrap(schemaScope.claim(door.digestDomain().identifier, "the SHA-256 digest domain"))
+	)
 
 	/**
 	 * A field descriptor's column type.
@@ -522,7 +531,7 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 			case "pattern":
 				return builtin(builtinType("text"), { kind: "text" })
 			case "sha256":
-				return builtin(builtinType("bytea"), { kind: "bytes" })
+				return builtin(namedType(testTypeSchema(schema), digestDomain.name, []), { kind: "bytes" })
 			case "bytes":
 				return builtin(builtinType("bytea"), { kind: "bytes" })
 			case "search":
@@ -1096,6 +1105,13 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 			]
 		})
 	}
+	ddl.push({
+		kind: "createDomain",
+		name: digestDomain,
+		base: types.bytea,
+		collation: undefined,
+		constraints: []
+	})
 	for (const { domain } of Arr.dedupeWith(
 		[...domains.values()],
 		(a, b) => a.domain.name.name === b.domain.name.name
@@ -1206,6 +1222,7 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 	const constantNames = Arr.map([...rosters.values()], (r) => ({ ...r.names, args: [] }))
 	const domainNames = [
 		...Arr.map([...rosters.values()], (r) => r.domain),
+		digestDomain,
 		...Arr.dedupeWith(
 			Arr.map([...domains.values()], (d): ObjectName => d.domain.name),
 			(a: ObjectName, b: ObjectName) => a.name === b.name

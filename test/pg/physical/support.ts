@@ -1,9 +1,10 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { Array as Arr, Effect, Record as Rec } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { identity } from "#compiler/core/identity.ts"
+import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { admitLoginRoles } from "#compiler/ir/desc.ts"
+import { admitLoginRoles, type FieldDesc, fieldTypes } from "#compiler/ir/desc.ts"
+import { rosterConstants } from "#compiler/physical/ddl/constants.ts"
 import {
 	compileInstallation,
 	type Installation,
@@ -286,17 +287,15 @@ export const worldsGrants = (
 	)
 	/**
 	 * The domains a full role reads: every domain of the schema but a text domain whose every use is a closed
-	 * relation's field, which no table holds, the migration's validation of the closed facts alone casting to it, and a
+	 * relation's field, which no table holds and no column's declared type reaches (a contract's base text, which the
+	 * installation types by a domain of its own, eb07f21f5, is a column's through its contract, physical/ddl/roles.ts
+	 * typeDomains), the migration's validation of the closed facts alone casting to it, and a
 	 * contract's domain no table's column is typed by, down a domain's base chain: natural's, which every schema
 	 * installs whether or not a field holds it (5757e399b), and which a role holds USAGE on only where a column of its
-	 * relations is typed by it (physical/ddl/roles.ts).
+	 * relations is typed by it (physical/ddl/roles.ts); and the SHA-256 digest domain, which every installation installs
+	 * in its Setup whether or not a field holds a digest (222e29d32), held alike only where a column is typed by it.
 	 */
 	const tables = new Set(Arr.map(catalog.tables, (t) => t.name))
-	const closedOnly = new Set<string>(
-		Arr.flatMap(installation.textDomains, (d) =>
-			Arr.some(d.uses, (u) => tables.has(u.table)) ? [] : [d.name]
-		)
-	)
 	const domainBase = new Map(Arr.map(catalog.domains, (d) => [d.name, d.base.name] as const))
 	const chainOf = (name: string): ReadonlyArray<string> => {
 		const base = domainBase.get(name)
@@ -305,15 +304,53 @@ export const worldsGrants = (
 	const typing = new Set<string>(
 		Arr.flatMap(catalog.tables, (t) => Arr.flatMap(t.columns, (c) => chainOf(c.type.name)))
 	)
+	/** The text domains a stored relation's declared field types reach: its refinement's, along its contract chain. */
+	const textOf = (field: FieldDesc): ReadonlyArray<string> =>
+		field.kind === "contract"
+			? textOf(field.base)
+			: field.kind === "text" && field.language.kind === "refined"
+				? [field.language.key]
+				: []
+	const reachedKeys = new Set<string>(
+		Arr.flatMap(desc.relations, (r) =>
+			r.kind === "relation" ? Arr.flatMap(Rec.values(fieldTypes(r.fields)), textOf) : []
+		)
+	)
+	const reached = new Set<string>(
+		Arr.flatMap(installation.textPlans, (p) => (reachedKeys.has(p.key) ? [p.domain.name] : []))
+	)
+	const closedOnly = new Set<string>(
+		Arr.flatMap(installation.textDomains, (d) =>
+			Arr.some(d.uses, (u) => tables.has(u.table)) || reached.has(d.name) ? [] : [d.name]
+		)
+	)
 	const unheldContracts = new Set<string>(
 		Arr.flatMap(Rec.keys(installation.owned.contracts), (contract) => {
 			const domain = installation.names.contractDomain(parsedName(contract)).name
 			return typing.has(domain) ? [] : [domain]
 		})
 	)
+	const digestDomain: string = installation.names.digestDomain.name
+	const unheld = new Set<string>([
+		...unheldContracts,
+		...(typing.has(digestDomain) ? [] : [digestDomain])
+	])
+	/**
+	 * Each roster's names constant a role view's decoded column reads: a closed id's view column is followed by the handle
+	 * its code names, read from its roster's names constant (physical/ddl/roles.ts viewColumns), so a role executes the
+	 * constant of a roster whose domain types a column of its relations, and no other; its domain's CHECK reads the
+	 * live-codes constant, every role's (503d4bd03).
+	 */
+	const decodedNames = new Set<string>(
+		Arr.flatMap([...installation.names.codes.rosters], ([roster, codec]) =>
+			typing.has(installation.names.rosterDomain(roster).name)
+				? [identifierOf(rosterConstants(codec).names)]
+				: []
+		)
+	)
 	const usedDomains = Arr.filter(
 		catalog.domains,
-		(d) => !closedOnly.has(d.name) && !unheldContracts.has(d.name)
+		(d) => !closedOnly.has(d.name) && !unheld.has(d.name)
 	)
 	return projectedGrants([
 		...on("schema", installation.names.schema, [writer.login, writer.role, reader], ["USAGE"]),
@@ -344,6 +381,9 @@ export const worldsGrants = (
 				case "snapshotGuard":
 					return on("function", name, [writer.login], ["EXECUTE"])
 				case "names":
+					return decodedNames.has(name)
+						? on("function", name, [writer.role, reader], ["EXECUTE"])
+						: []
 				case "live":
 					return on("function", name, [writer.role, reader], ["EXECUTE"])
 				case "world":
