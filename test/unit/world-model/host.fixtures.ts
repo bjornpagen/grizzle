@@ -720,6 +720,7 @@ export const stateOf = (
 		domains: {},
 		patterns: {},
 		rosterConstants: {},
+		rosterLiveConstants: {},
 		codes: {},
 		keys: {},
 		roles: {},

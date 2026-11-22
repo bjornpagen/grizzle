@@ -526,14 +526,38 @@ const typesUsedBy = (
 	return new Set([...viewed, ...written])
 }
 
+/**
+ * The rosters a role's views decode: each whose closed id a column of one of its views reads, which the view decodes to
+ * its handle's name through the roster's names constant. A roster whole entry has no view: its handles are read as
+ * codes, so it decodes nothing.
+ */
+const rostersDecodedBy = (
+	install: InstallSpec,
+	names: InstalledNames,
+	role: RoleSpec
+): ReadonlySet<string> =>
+	new Set(
+		Arr.flatMap(Record.toEntries(role.entries), ([name, entry]) =>
+			Option.match(viewOf(install, names, role.name, name, entry), {
+				onNone: () => [],
+				onSome: (v) => Arr.getSomes(Arr.map(v.columns, (c) => c.type))
+			})
+		)
+	)
+
 /** A roster's names constant, as the installation names it. */
 const namesConstantOf = (names: InstalledNames, roster: string): string =>
 	required(Record.get(names.rosterConstants, roster), `the names constant of roster ${roster}`)
 
+/** A roster's live-codes constant, as the installation names it. */
+const liveConstantOf = (names: InstalledNames, roster: string): string =>
+	required(Record.get(names.rosterLiveConstants, roster), `the live constant of roster ${roster}`)
+
 /**
  * Each role's USAGE on the installation types it names: through each column of the installation a type it names
- * types, and by name for a roster's domain no column is typed by; and EXECUTE on each names constant of a roster it
- * uses, which that domain's CHECK and its views' decoded columns call as the invoker.
+ * types, and by name for a roster's domain no column is typed by; EXECUTE on the live-codes constant of each roster it
+ * uses, which that domain's CHECK calls as the invoker; and EXECUTE on the names constant of each roster its views
+ * decode, which their decoded columns call as the invoker.
  */
 const typeFacts = (install: InstallSpec, names: InstalledNames): ReadonlyArray<PrivilegeFact> => {
 	const columns = installedColumns(install, names)
@@ -541,6 +565,7 @@ const typeFacts = (install: InstallSpec, names: InstalledNames): ReadonlyArray<P
 	return Arr.flatMap(install.roles, (role) => {
 		const grantee: PrivilegeHolder = { kind: "role", name: role.name }
 		const used = typesUsedBy(install, names, role)
+		const decoded = rostersDecodedBy(install, names, role)
 		const throughColumns = Arr.flatMap(columns, (c) =>
 			Option.exists(c.type, (t) => used.has(t))
 				? [
@@ -567,18 +592,14 @@ const typeFacts = (install: InstallSpec, names: InstalledNames): ReadonlyArray<P
 					]
 				: []
 		)
-		/** EXECUTE on the names constant of each roster it uses: its domain's CHECK and its views' decoded columns call it
-		 * as the invoker (§3.12, "Role views"). */
-		const executes = Arr.flatMap(install.base.closed, (closed) =>
-			used.has(`roster ${closed.name}`)
-				? [
-						privilege(
-							grantee,
-							{ kind: "function", schema: names.schema, name: namesConstantOf(names, closed.name) },
-							"EXECUTE"
-						)
-					]
-				: []
+		/** EXECUTE on the live-codes constant of each roster it uses, which its domain's CHECK calls, and on the names
+		 * constant of each roster its views decode, which their decoded columns call, as the invoker (§3.12, "Role views"). */
+		const executes = Arr.map(
+			Arr.flatMap(install.base.closed, (closed) => [
+				...(used.has(`roster ${closed.name}`) ? [liveConstantOf(names, closed.name)] : []),
+				...(decoded.has(`roster ${closed.name}`) ? [namesConstantOf(names, closed.name)] : [])
+			]),
+			(name) => privilege(grantee, { kind: "function", schema: names.schema, name }, "EXECUTE")
 		)
 		return [...throughColumns, ...byName, ...executes]
 	})

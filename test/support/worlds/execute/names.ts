@@ -13,6 +13,7 @@ import type { LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import { type ConstraintOwner, lawsOfConstraint } from "#compiler/ir/products.ts"
+import { rosterConstants } from "#compiler/physical/ddl/constants.ts"
 import type { TextDomain } from "#compiler/physical/ddl/domains.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { Statement } from "#compiler/public/schema.ts"
@@ -292,6 +293,12 @@ export const namesOfBuiltAt = (
 								)
 							)
 						] as const
+				)
+			),
+			rosterLiveConstants: Rec.fromEntries(
+				Arr.map(
+					[...installation.names.codes.rosters],
+					([roster, codec]) => [roster, identifierOf(rosterConstants(codec).live)] as const
 				)
 			),
 			codes: rosterCodesOf(installation.names.codes),
