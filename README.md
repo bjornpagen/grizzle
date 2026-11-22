@@ -4100,6 +4100,16 @@ query stated its delivery, an array in its places' order, so its rows are still 
 name the records mint is the stem followed by more: name a relation of your own the stem itself, never the stem and a
 suffix.
 
+A name the records derive that PostgreSQL would cut short is refused, never cut or hashed: a relation whose name's
+identifier, its conversion, passes 63 bytes (`NAMEDATALEN` less one) is `RecordNameTooLong`, naming the stem, the
+relation's `path` (its attachment names from the root, none for the root), the `name`, its identifier's `bytes` and the
+`limit`. The fix is yours: `records(stem, query, owner, ownerKey, { names })` states a relation's name for an
+attachment's path, its attachment names from the root joined by `.`, as `{ names: { "stimuli.document": "Stimulus" } }`,
+in place of the derived one, and the derived names of the repeated attachments under it follow it. The options are
+optional: left out, no name is stated. The root's name is the stem's, so its fix is a shorter stem. A stated name is a
+relation's declared name, `IdentifierTooLong` past the bound, a path no attachment has is refused, and a name of a
+digest is one you write: grizzle derives none.
+
 Records retire with the group their owner's key names: `on(records, ...fields)` is a side over them, its fields fields
 of the owner's key, which their heading shows and every relation of them carries, and as a body of `retirable` it
 stands for each of their relations, flat or attached, each on its own fields carrying those, a child's renamed where
@@ -5277,6 +5287,7 @@ creates one, and `grizzle drift` reports a grant revoked since.
 | `DuplicateIdentity`                             | the `earlier` declaration                                                                                |
 | `IdentifierCollision`                           | the `other` declaration and the `identifier` both convert to                                             |
 | `IdentifierTooLong`                             | the `declaration` whose `identifier`, a name's conversion or a login's or role's role, takes `bytes` past PostgreSQL's `limit` |
+| `RecordNameTooLong`                             | the relation `records` (the stem) derive at `path`, its `name`, whose `identifier` takes `bytes` past PostgreSQL's `limit`; state a name for the path, or a shorter stem for the root |
 | `DigestCollision`                               | two objects, `display` and `otherDisplay`, whose hashed names share the stem and digest of `identifier`; renaming a declaration either is built from gives it another |
 | `UnrepresentableKey`                            | every key the compile met whose entry no index holds, in `keys`, each with its `fault`                   |
 | `PartialOperation`                              | an `operation` whose `precondition` on `operand` nothing proves, and the `guard` to write                |

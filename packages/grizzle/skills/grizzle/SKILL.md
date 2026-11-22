@@ -989,7 +989,9 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   parent's law, an array the parent's ordered family), insert `recordsFacts(level, R)(entries)` (each a row beside
   its owner; `insertAll(recordsFacts(level, R)([]))` is the member), and read them back with `recordsQuery(level, R)`,
   whose rows are the query's own type through its own decoder; never restate the columns, and name no relation of your
-  own the stem and a suffix. To retire them with their owner's group, list `on(R, ...ownerKeyFields)` among a
+  own the stem and a suffix. A derived name past PostgreSQL's 63 bytes is `RecordNameTooLong`, naming its path: state
+  that attachment's relation name in records' options, `{ names: { "<path>": "<Name>" } }`, or shorten the stem for the
+  root; never a name cut short or hashed by grizzle. To retire them with their owner's group, list `on(R, ...ownerKeyFields)` among a
   `retirable`'s bodies, one side standing for each of their relations (never `R.relations.map(...)`; records holding an
   arm are no body). Two
   declared names that

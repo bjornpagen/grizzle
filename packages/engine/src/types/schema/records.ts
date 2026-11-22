@@ -9,10 +9,13 @@
  *
  * The relations of a query's attachments, at any depth (program/records.ts), are typed off its `attached` phantom
  * (types/query/query.ts Attachment) where records(...) is called:
- * - Each attachment's relation is `${Stem}${Capitalize<name>}`, or its parent relation's name followed by
- *   `Capitalize<name>` where that capitalized name is another attachment's anywhere in the tree, or the root's `Row`
- *   (AttachedName). The rule reads no order, so a record of reads, whose attachments no type orders, names them as a
- *   chain of attach calls does.
+ * - Each attachment's relation is the name its author states for its path in the options' names (RecordNames: its
+ *   attachment names from the root joined by `.`), or `${Stem}${Capitalize<name>}`, or its parent relation's name
+ *   followed by `Capitalize<name>` where that capitalized name is another attachment's anywhere in the tree, or the
+ *   root's `Row` (AttachedName), so a parent's stated name leads its children's (NameAt). The rule reads no order, so a
+ *   record of reads, whose attachments no type orders, names them as a chain of attach calls does. How long a name is
+ *   is the engine's to judge (program/records.ts RecordNameTooLong), never the type's, which would read each name a
+ *   character at a time.
  * - Its fields: its parent's key, each field under its parent's name unless the child's own columns or attachments take
  *   it, then under the first of `<name>2`, `<name>3`, … none takes (Fresh); for an array, its place `at`, fresh the same
  *   way, its ordered family's drawn index; the child's stored columns (StoredFieldsOf); and a drawn count under the
@@ -28,9 +31,11 @@ import type { AdditionIn } from "#compiler/types/changeset/changeset.ts"
 import type {
 	Carrier,
 	Carriers,
+	IsOneLiteral,
 	LiteralOrigin,
 	ParamType,
 	PhantomOf,
+	Refusal,
 	Simplify,
 	UnionToIntersection,
 	ValueOfTerm
@@ -103,27 +108,30 @@ export type RecordsRow<
  * The relations of a query Q's attachments, at any depth, under the root of records of the stem Stem, the owner Owner
  * and its key Key (AttachedRelations): what records(...) reads off Q's `attached` phantom once (RecordsHeld).
  */
-export type RecordChildren<Stem extends string, Owner, Key, Q> = RecordsHeld<
+export type RecordChildren<Stem extends string, Owner, Key, Q, Names> = RecordsHeld<
 	Stem,
 	Owner,
 	Key,
-	Q
+	Q,
+	Names
 >["children"]
 
 /** The laws of a query Q's attachments, at any depth (AttachedLaws), as RecordsHeld holds them. */
-export type RecordLaws<Stem extends string, Owner, Key, Q> = RecordsHeld<
+export type RecordLaws<Stem extends string, Owner, Key, Q, Names> = RecordsHeld<
 	Stem,
 	Owner,
 	Key,
-	Q
+	Q,
+	Names
 >["laws"]
 
 /** The relations of Q's attachments an insert states apart from the root (ApartRelations, RecordsHeld). */
-export type RecordApart<Stem extends string, Owner, Key, Q> = RecordsHeld<
+export type RecordApart<Stem extends string, Owner, Key, Q, Names> = RecordsHeld<
 	Stem,
 	Owner,
 	Key,
-	Q
+	Q,
+	Names
 >["apart"]
 
 /**
@@ -146,11 +154,11 @@ export type RecordApart<Stem extends string, Owner, Key, Q> = RecordsHeld<
  * Distributed again without boxes (`U extends unknown ? U : never`), a union maps to itself: the union the recursion
  * made, alias and all.
  */
-interface RecordsHeld<Stem extends string, Owner, Key, Q> {
+interface RecordsHeld<Stem extends string, Owner, Key, Q, Names> {
 	readonly children: Q extends unknown
 		? AttachedRelations<
-				Stem,
-				RecordsPaths<AttachedOf<Q>>,
+				Naming<Stem, RecordsPaths<AttachedOf<Q>>, Names>,
+				"",
 				`${Stem}Row`,
 				RootKey<Owner, Key>,
 				AttachedOf<Q>
@@ -162,8 +170,8 @@ interface RecordsHeld<Stem extends string, Owner, Key, Q> {
 		: never
 	readonly laws: Q extends unknown
 		? AttachedLaws<
-				Stem,
-				RecordsPaths<AttachedOf<Q>>,
+				Naming<Stem, RecordsPaths<AttachedOf<Q>>, Names>,
+				"",
 				RootOf<Stem, Owner, Key, Q>,
 				RootKey<Owner, Key>,
 				AttachedOf<Q>
@@ -175,8 +183,8 @@ interface RecordsHeld<Stem extends string, Owner, Key, Q> {
 		: never
 	readonly apart: Q extends unknown
 		? ApartRelations<
-				Stem,
-				RecordsPaths<AttachedOf<Q>>,
+				Naming<Stem, RecordsPaths<AttachedOf<Q>>, Names>,
+				"",
 				`${Stem}Row`,
 				RootKey<Owner, Key>,
 				AttachedOf<Q>
@@ -371,6 +379,69 @@ type NamePaths<At, Prefix extends string> = {
  */
 type RecordsPaths<At> = ".Row" | NamePaths<At, "">
 
+/**
+ * The paths of the attachments of At, at any depth, each after `Prefix`: its name at the top, `stimuli.document` under
+ * `stimuli`. A name holds no `.`, which no declared name holds. Each level is read once its attachments are known, so
+ * over a query's type parameter, where records(...)'s signature constrains its names by these paths, the recursion
+ * waits rather than unfolding a tree no level ends.
+ */
+type AttachmentPaths<At, Prefix extends string> = At extends unknown
+	? {
+			[N in keyof At & string]:
+				| `${Prefix}${N}`
+				| AttachmentPaths<ChildrenOf<At[N]>, `${Prefix}${N}.`>
+		}[keyof At & string]
+	: never
+
+/** The paths of a query Q's attachments (AttachmentPaths), read only once Q is a query (RecordsHeld). */
+type PathsOf<Q> = Q extends unknown ? AttachmentPaths<AttachedOf<Q>, ""> : never
+
+/**
+ * What records(...) takes as its options' names: a relation name its author states for some of a query Q's
+ * attachments, each by its path (PathsOf); an attachment it leaves out keeps the name records derive.
+ */
+export type RecordNames<Q> = { readonly [P in PathsOf<Q>]?: string }
+
+/** The names of records that state none, records(...) called without its options: their documented default. */
+export type NoRecordNames = { readonly [P in never]?: string }
+
+/**
+ * Refuses a key of Names that is no path of Q's attachments, and a stated name that is not one string literal, the key
+ * a schema's types hold its relation under (RelationName).
+ */
+type StatedNames<Q, Names> = {
+	readonly [P in keyof Names]: P extends PathsOf<Q>
+		? IsOneLiteral<Names[P] & string> extends true
+			? Names[P]
+			: Refusal<"a relation's name is one string literal, the key its schema's types hold it under">
+		: Refusal<"records' names name only the query's attachments, each by its path">
+}
+
+/**
+ * The arguments after records' owner key: none, its documented default, no name stated, or its options, `names` the
+ * relation names its author states by path (RecordNames), each checked by StatedNames.
+ */
+export type RecordsOptions<Q, Names> =
+	| readonly []
+	| readonly [options: { readonly names: Names & StatedNames<Q, Names> }]
+
+/**
+ * How the relations of records of the stem Stem are named: the stem, the paths of the capitalized names an
+ * attachment's relation must not repeat (RecordsPaths), and the names Names states by path.
+ */
+interface Naming<Stem extends string, Paths, Names> {
+	readonly stem: Stem
+	readonly paths: Paths
+	readonly names: Names
+}
+
+/** Any naming of records' relations (Naming). */
+interface AnyNaming {
+	readonly stem: string
+	readonly paths: unknown
+	readonly names: unknown
+}
+
 /** Whether X is a union of several members. */
 type IsUnion<X, All = X> = X extends unknown ? ([All] extends [X] ? false : true) : never
 
@@ -385,6 +456,19 @@ type AttachedName<Stem extends string, Paths, Parent extends string, N extends s
 	true extends Repeats<Paths, Capitalize<N>>
 		? `${Parent}${Capitalize<N>}`
 		: `${Stem}${Capitalize<N>}`
+
+/**
+ * The name of the relation of the attachment named N at the path Path under the relation named Parent: the name the
+ * naming states for Path, or the name records derive (AttachedName).
+ */
+type NameAt<
+	Nm extends AnyNaming,
+	Path extends string,
+	Parent extends string,
+	N extends string
+> = Path extends keyof Nm["names"]
+	? Nm["names"][Path] & string
+	: AttachedName<Nm["stem"], Nm["paths"], Parent, N>
 
 /**
  * The first of B, `${B}2`, `${B}3`, … that Taken does not hold: Count's length is the suffix tried, its first try B
@@ -461,10 +545,17 @@ type ChildFields<PK, A> = [A] extends [unknown]
  * The relation of the attachment A named N under the relation named PN, of key PK: its name, fields and key read first,
  * so the relation is one type for one child (ChildFields), whichever copy of the attachment tree it was read from.
  */
-type ChildRelation<Stem extends string, Paths, PN extends string, PK, N extends string, A> = [
-	AttachedName<Stem, Paths, PN, N>,
-	ChildFields<PK, A>
-] extends [infer Name extends string, infer F]
+type ChildRelation<
+	Nm extends AnyNaming,
+	Prefix extends string,
+	PN extends string,
+	PK,
+	N extends string,
+	A
+> = [NameAt<Nm, `${Prefix}${N}`, PN, N>, ChildFields<PK, A>] extends [
+	infer Name extends string,
+	infer F
+]
 	? PairNames<ChildKey<PK, A>> extends infer K extends ReadonlyArray<keyof F & string>
 		? Relation<Name, F, K>
 		: never
@@ -474,13 +565,13 @@ type ChildRelation<Stem extends string, Paths, PN extends string, PK, N extends 
  * The relations of the attachments At under the relation named PN, of key PK, at any depth: each attachment's own
  * (ChildRelation), and those under it, each level typed off the key of the level above alone.
  */
-type AttachedRelations<Stem extends string, Paths, PN extends string, PK, At> = {
+type AttachedRelations<Nm extends AnyNaming, Prefix extends string, PN extends string, PK, At> = {
 	[N in keyof At & string]:
-		| Boxed<ChildRelation<Stem, Paths, PN, PK, N, At[N]>>
+		| Boxed<ChildRelation<Nm, Prefix, PN, PK, N, At[N]>>
 		| AttachedRelations<
-				Stem,
-				Paths,
-				AttachedName<Stem, Paths, PN, N>,
+				Nm,
+				`${Prefix}${N}.`,
+				NameAt<Nm, `${Prefix}${N}`, PN, N>,
 				ChildKey<PK, At[N]>,
 				ChildrenOf<At[N]>
 		  >
@@ -491,15 +582,15 @@ type AttachedRelations<Stem extends string, Paths, PN extends string, PK, At> = 
  * from their parent: every child but an array's, whose members an insert nests under their owner's count
  * (types/changeset AdditionIn).
  */
-type ApartRelations<Stem extends string, Paths, PN extends string, PK, At> = {
+type ApartRelations<Nm extends AnyNaming, Prefix extends string, PN extends string, PK, At> = {
 	[N in keyof At & string]:
 		| (DeliveryOf<At[N]> extends "array"
 				? never
-				: Boxed<ChildRelation<Stem, Paths, PN, PK, N, At[N]>>)
+				: Boxed<ChildRelation<Nm, Prefix, PN, PK, N, At[N]>>)
 		| ApartRelations<
-				Stem,
-				Paths,
-				AttachedName<Stem, Paths, PN, N>,
+				Nm,
+				`${Prefix}${N}.`,
+				NameAt<Nm, `${Prefix}${N}`, PN, N>,
 				ChildKey<PK, At[N]>,
 				ChildrenOf<At[N]>
 		  >
@@ -538,7 +629,7 @@ type HandleOfArm<A> = DeliveryOf<A> extends Arm<"arm", string, infer Hd extends 
  * The alternatives laws over P of its arm attachments At, one per discriminator field, each arm the child relation of
  * its handle.
  */
-type ArmLaws<Stem extends string, Paths, P extends RecordsParent, PK, At> = {
+type ArmLaws<Nm extends AnyNaming, Prefix extends string, P extends RecordsParent, PK, At> = {
 	[F in ArmFields<At>]: Boxed<
 		Alternatives<
 			P,
@@ -546,8 +637,8 @@ type ArmLaws<Stem extends string, Paths, P extends RecordsParent, PK, At> = {
 			AnyRoster,
 			{
 				readonly [N in ArmsOver<At, F> as HandleOfArm<At[N]>]: ChildRelation<
-					Stem,
-					Paths,
+					Nm,
+					Prefix,
 					P["name"],
 					PK,
 					N,
@@ -562,22 +653,17 @@ type ArmLaws<Stem extends string, Paths, P extends RecordsParent, PK, At> = {
  * The laws of the attachments At under P, of key PK, at any depth: each child's over its parent, and the arms' by
  * field.
  */
-type AttachedLaws<Stem extends string, Paths, P extends RecordsParent, PK, At> =
-	| ArmLaws<Stem, Paths, P, PK, At>
+type AttachedLaws<Nm extends AnyNaming, Prefix extends string, P extends RecordsParent, PK, At> =
+	| ArmLaws<Nm, Prefix, P, PK, At>
 	| {
 			[N in keyof At & string]:
 				| Boxed<
-						DeliveryLaw<
-							DeliveryOf<At[N]>,
-							P,
-							N,
-							ChildRelation<Stem, Paths, P["name"], PK, N, At[N]>
-						>
+						DeliveryLaw<DeliveryOf<At[N]>, P, N, ChildRelation<Nm, Prefix, P["name"], PK, N, At[N]>>
 				  >
 				| AttachedLaws<
-						Stem,
-						Paths,
-						ChildRelation<Stem, Paths, P["name"], PK, N, At[N]>,
+						Nm,
+						`${Prefix}${N}.`,
+						ChildRelation<Nm, Prefix, P["name"], PK, N, At[N]>,
 						ChildKey<PK, At[N]>,
 						ChildrenOf<At[N]>
 				  >

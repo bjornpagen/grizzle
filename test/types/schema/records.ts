@@ -1,11 +1,14 @@
 import { Array as Arr, Effect, Option, Record as Rec } from "effect"
-import { records } from "#compiler/public/schema.ts"
+import { recordsBuilder } from "#compiler/program/records.ts"
 import {
 	ownerOf,
 	ownerText,
 	type RecordsShape,
+	type StatedShape,
 	shapeQuery,
-	shapeText
+	shapeText,
+	statedNames,
+	statedText
 } from "#test/support/agreement/records.ts"
 import { Shelves } from "#test/support/fixtures/records/shelves.ts"
 import { identifiers, preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
@@ -13,8 +16,10 @@ import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/bat
 
 /**
  * The records program: for each drawn query over Shelves (test/support/agreement/records.ts), the records of it
- * (records(stem, query, owner, ownerKey)) typed as the engine builds them, each relation's name, key and fields the
- * runtime records' own (the oracle, each case's records built by the engine as the program's are typed), the records
+ * (records(stem, query, owner, ownerKey, { names }), a name stated for the books' or the chapters' path or none) typed
+ * as the engine builds them, a stray path among names written apart from the call refused by name, each relation's
+ * name, key and fields the runtime records' own (the oracle, each case's records built by the engine as the program's
+ * are typed), the records
  * listed by a level over Shelves, as schema.extend takes their relations and laws, their read (recordsQuery) of the
  * query's own records under either reading, their insert (recordsFacts) taken by insertAll over the level, and a side
  * over them, on(records, "run"), a retirable body of Run's unit, its terms the owner's key field it names, refused for a
@@ -30,10 +35,13 @@ interface Built {
 
 /** The relations of a shape's records as the engine builds them, and the names of those an insert states apart. */
 const builtOf = (
-	shape: RecordsShape
+	stated: StatedShape
 ): { readonly relations: ReadonlyArray<Built>; readonly apart: ReadonlyArray<string> } => {
+	const { shape } = stated
 	const owner = ownerOf(shape)
-	const kept = records("Kept", shapeQuery(Shelves, shape), owner.fields, owner.key)
+	const kept = recordsBuilder("Kept", shapeQuery(Shelves, shape), owner.fields, owner.key, [
+		{ names: statedNames(stated) }
+	])
 	/** The relations an insert states apart, as the runtime records hold them: a query built at run time types none. */
 	const apart: ReadonlyArray<{ readonly name: string }> = kept.apart
 	return {
@@ -163,13 +171,14 @@ const ownerValues = (shape: RecordsShape): string =>
 		: '{ run: Id("00000000-0000-4000-8000-000000000001"), step: 1 }'
 
 /** One case's lines: the query, its records, their relations against the engine's, their level, read and insert. */
-const caseLines = (shape: RecordsShape, at: number): ReadonlyArray<string> => {
-	const built = builtOf(shape)
+const caseLines = (stated: StatedShape, at: number): ReadonlyArray<string> => {
+	const { shape } = stated
+	const built = builtOf(stated)
 	const owner = ownerText(shape)
 	const rels = `Rels${at}`
 	return [
 		`export const q${at} = ${shapeText(shape)}`,
-		`export const kept${at} = records("Kept", q${at}, ${owner.fields}, ${owner.key})`,
+		`export const kept${at} = records("Kept", q${at}, ${owner.fields}, ${owner.key}${statedText(stated)})`,
 		`type ${rels} = (typeof kept${at})["relations"][number]`,
 		`export type Names${at} = Expect<Equals<${rels}["name"], ${unionText(Arr.map(built.relations, (r) => r.name))}>>`,
 		...Arr.flatMap(built.relations, (r, i) => [
@@ -197,6 +206,9 @@ const caseLines = (shape: RecordsShape, at: number): ReadonlyArray<string> => {
 		`export const App${at} = login(level${at}, "app", [Reader${at}], { workload: [workload(Reader${at}, { read: read${at} })] })`,
 		"// @ts-expect-error -- refused: a side over records names fields of their owner's key, which every relation of them carries, and label is the root's column alone",
 		`export const label${at} = on(kept${at}, "label")`,
+		`const strayNames${at} = { "${shape.books.name}": "Okay", nowhere: "Stray" } as const`,
+		"// @ts-expect-error -- refusal: records' names name only the query's attachments, each by its path",
+		`export const stray${at} = records("Stray", q${at}, ${owner.fields}, ${owner.key}, { names: strayNames${at} })`,
 		""
 	]
 }
@@ -205,7 +217,7 @@ const prelude = await Effect.runPromise(preludeAt("test/support/programs/records
 
 /** The program over a batch's shapes, every name read from the records prelude. */
 export const recordsProgram = (
-	shapes: Arr.NonEmptyReadonlyArray<RecordsShape>,
+	shapes: Arr.NonEmptyReadonlyArray<StatedShape>,
 	entry: Entry
 ): Program => {
 	const cases = Arr.map(shapes, (shape, at) => caseLines(shape, at))

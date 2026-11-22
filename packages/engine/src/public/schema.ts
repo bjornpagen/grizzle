@@ -22,10 +22,13 @@ import type {
 	RecordedQuery,
 	RecordFields,
 	RecordLaws,
+	RecordNames,
 	RecordOwner,
 	Records,
 	RecordsInsert,
-	RecordsQuery
+	RecordsOptions,
+	RecordsQuery,
+	NoRecordNames
 } from "#compiler/types/schema/records.ts"
 import type { RelationName } from "#compiler/types/schema/relation.ts"
 
@@ -86,10 +89,12 @@ export {
 export type { AnyDerived, Derived, NoParams } from "#compiler/types/derived/derived.ts"
 export type {
 	AnyRecords,
+	NoRecordNames,
 	OwnerFacts,
 	OwnerParams,
 	RecordedQuery,
 	RecordFields,
+	RecordNames,
 	RecordOwner,
 	Records,
 	RecordsInsert,
@@ -252,24 +257,27 @@ export const derived: DerivedConstructor = Object.freeze(
 )
 
 /**
- * records(stem, query, owner, ownerKey): the relations that hold the rows `query` found, for a level over the query's to
- * list (program/records.ts): `${stem}Row`, the owner's fields then each column of the query's heading as the query's
- * own field, keyed by `ownerKey`, a nonempty list of the owner's field names, as relation's primary key; and each
- * attachment's, at any depth, keyed by its parent's key and, for an array, its place, held to its parent by the law of
- * its delivery. Its `relations` and `rules` are what the level lists; `row` is the root, `apart` the relations an insert
- * states beside it.
+ * records(stem, query, owner, ownerKey, { names }): the relations that hold the rows `query` found, for a level over the
+ * query's to list (program/records.ts): `${stem}Row`, the owner's fields then each column of the query's heading as the
+ * query's own field, keyed by `ownerKey`, a nonempty list of the owner's field names, as relation's primary key; and
+ * each attachment's, at any depth, keyed by its parent's key and, for an array, its place, held to its parent by the law
+ * of its delivery, named as `names` states for its path (its attachment names from the root joined by `.`) or as records
+ * derive it. The options are optional: left out, no name is stated. A derived name PostgreSQL would cut short is
+ * refused as RecordNameTooLong, whose fix is a name stated for its path. Its `relations` and `rules` are what the level
+ * lists; `row` is the root, `apart` the relations an insert states beside it.
  */
 export const records = <
 	const Stem extends string,
 	Q extends RecordedQuery,
 	const Owner extends RecordOwner,
-	const Key extends readonly [keyof Owner & string, ...Array<keyof Owner & string>]
+	const Key extends readonly [keyof Owner & string, ...Array<keyof Owner & string>],
+	const Names extends RecordNames<Q> = NoRecordNames
 >(
 	stem: RelationName<Stem>,
 	query: Q,
 	owner: Owner,
 	ownerKey: Key,
-	...extra: ReadonlyArray<never>
+	...options: RecordsOptions<Q, Names>
 ): Records<
 	Stem,
 	HeadOf<Q>,
@@ -277,10 +285,10 @@ export const records = <
 	RecordFields<Owner, Q>,
 	Owner,
 	readonly [...Key],
-	RecordChildren<Stem, Owner, readonly [...Key], Q>,
-	RecordLaws<Stem, Owner, readonly [...Key], Q>,
-	RecordApart<Stem, Owner, readonly [...Key], Q>
-> => recordsBuilder<Stem, Q, Owner, readonly [...Key]>(stem, query, owner, ownerKey, extra)
+	RecordChildren<Stem, Owner, readonly [...Key], Q, Names>,
+	RecordLaws<Stem, Owner, readonly [...Key], Q, Names>,
+	RecordApart<Stem, Owner, readonly [...Key], Q, Names>
+> => recordsBuilder<Stem, Q, Owner, readonly [...Key], Names>(stem, query, owner, ownerKey, options)
 
 /**
  * recordsQuery(level, records): the rows the records `stored` hold at one value of their owner's key, each key field a parameter

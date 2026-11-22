@@ -160,6 +160,7 @@ export const refusals = [
 	"one take over a union of several headings: each heading group is a statement of its own, which one take bounds and the merge across them keeps",
 	"operands of one type: an exact value beside a plain value of its family; Type.cast the exact one into the plain one's type",
 	"page needs an ordered query",
+	"records' names name only the query's attachments, each by its path",
 	"relational negation is a rule-level filter, alone or in a top-level conjunction",
 	'say whose id this is: contract("ClerkUserId", uuid)',
 	"schema.extend takes its bases as a list: schema.extend([base], name, relations, statements)",

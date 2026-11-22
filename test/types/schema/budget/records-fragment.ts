@@ -153,7 +153,9 @@ const step = 10
  * @result per added unit: flat records 5,527 instantiations (5,328 before: the three unions each read once their query
  *   is known), records of an array of options 24,653 (25,544 before), records of a document scan 107,663 (TS2589 at the
  *   fragment before, after 1,319,369 instantiations for the whole mirror; 256,943 for it after); a chain of options one
- *   to eight deep adds 8,390 to 9,707 a level, a node's sibling 8,500 to 9,800; every program clean
+ *   to eight deep adds 8,390 to 9,707 a level, a node's sibling 8,500 to 9,800; every program clean. Since records take
+ *   the names their author states (RecordNames, the naming threaded through each level): flat records 5,544, records of
+ *   an array of options 24,536, records of a document scan 103,734
  * @decision the bound is the unboxed records' own cost, exactly: a change that makes a fragment of records cost more
  *   is refused here, and a change that lowers it lowers the bound
  * @revalidate a TypeScript 7 or tsgo upgrade; another machine; any change to records' types (types/schema/records.ts),
@@ -161,9 +163,9 @@ const step = 10
  *   cost, which states its cost here
  */
 const addedAtMost: { readonly [S in FragmentShape]: number } = {
-	"flat records": 5527,
-	"records of an array of options": 24653,
-	"records of a document scan": 107663
+	"flat records": 5544,
+	"records of an array of options": 24536,
+	"records of a document scan": 103734
 }
 
 /** How a shape prints. */

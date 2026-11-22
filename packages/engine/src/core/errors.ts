@@ -490,6 +490,11 @@ const keyRefusalText = (key: KeyRefusal): string => keyFaultText(key.subject, ke
  *   a declared name's conversion, refused where the name is written (admitDeclaredName) and where it is declared, or a
  *   login's or role's PostgreSQL role, `<schema>__<name>` (fitted), under the installation's role prefix where it
  *   has one (roleInSpace).
+ * - `RecordNameTooLong`: the relation the records of the stem `records` derive for the relation at `path` (the
+ *   attachment names from the root, none for the root itself), `name`, whose identifier, `identifier`, takes `bytes`
+ *   bytes, past PostgreSQL's `limit` (core/identity.ts maxIdentifierBytes), which PostgreSQL would cut short
+ *   (program/records.ts). Its fix is the author's: a name stated for the attachment at its path in records' names, or
+ *   a shorter stem for the root, `${stem}Row`; grizzle never cuts or hashes the name.
  * - `DigestCollision`: two distinct objects, `display` and `otherDisplay`, whose hashed names share the stem and the
  *   digest of `identifier` (core/identity.ts digestChars): two of one installation (censusOf), or a migration's
  *   temporary and an object standing while it runs or another temporary (TemporaryCensus); renaming a declaration
@@ -643,6 +648,16 @@ export type CompileReason =
 			readonly _tag: "IdentifierTooLong"
 			readonly at: SourceLoc
 			readonly declaration: string
+			readonly identifier: string
+			readonly bytes: number
+			readonly limit: number
+	  }
+	| {
+			readonly _tag: "RecordNameTooLong"
+			readonly at: SourceLoc
+			readonly records: string
+			readonly path: ReadonlyArray<string>
+			readonly name: string
 			readonly identifier: string
 			readonly bytes: number
 			readonly limit: number
@@ -1098,6 +1113,24 @@ export const noReadCommittedFormText = (relation: string, why: NoFormWhy): strin
 	}
 }
 
+/**
+ * A RecordNameTooLong's sentence: the relation, its name's identifier and bytes past the bound, and its fix, a name
+ * stated at the attachment's path in records' options, or a shorter stem for the root.
+ */
+const recordNameTooLongText = (
+	reason: Extract<CompileReason, { readonly _tag: "RecordNameTooLong" }>
+): string => {
+	const key = reason.path.join(".")
+	const [relation, fix] =
+		reason.path.length === 0
+			? [`the root of records ${reason.records}`, `a shorter stem than ${reason.records}`]
+			: [
+					`the relation of records ${reason.records}' attachment ${key}`,
+					`state its name in records' options, { names: { ${JSON.stringify(key)}: <a name whose identifier fits ${reason.limit} bytes> } }`
+				]
+	return `a records relation name whose identifier fits PostgreSQL's ${reason.limit} bytes; ${relation}, ${reason.name}, has the identifier ${reason.identifier}, which takes ${reason.bytes}: ${fix}`
+}
+
 /** The sentence a reason states after its tag and location. */
 export const compileReasonText = (reason: CompileReason): string => {
 	switch (reason._tag) {
@@ -1139,6 +1172,8 @@ export const compileReasonText = (reason: CompileReason): string => {
 			return `${reason.what} names that convert apart; ${reason.declaration} and ${reason.otherDeclaration} both convert to ${reason.identifier}`
 		case "IdentifierTooLong":
 			return `a name whose identifier fits PostgreSQL's ${reason.limit} bytes; the ${reason.declaration}'s identifier ${reason.identifier} takes ${reason.bytes}`
+		case "RecordNameTooLong":
+			return recordNameTooLongText(reason)
 		case "DigestCollision":
 			return `distinct hashed names for distinct objects; ${reason.display} and ${reason.otherDisplay} are both ${reason.identifier}: rename a declaration either is built from`
 		case "ResourceBound":

@@ -879,6 +879,7 @@ const reasonKey = (reason: CompileReason): string => {
 		case "ContractLiteral":
 		case "IdentifierCollision":
 		case "IdentifierTooLong":
+		case "RecordNameTooLong":
 		case "DigestCollision":
 		case "ResourceBound":
 		case "GeneratedRefused":

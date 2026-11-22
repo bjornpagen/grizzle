@@ -156,6 +156,47 @@ export const shapeGen: Gen<RecordsShape> = (source) => ({
 	books: source.draw(booksGen)
 })
 
+/**
+ * A records case's shape with the name its author states, if any: for the books' path (true), or for the chapters'
+ * (false), the books' where the shape attaches no chapters.
+ */
+export interface StatedShape {
+	readonly shape: RecordsShape
+	readonly stated: Option.Option<boolean>
+}
+
+/** A records case's shape and the name its author states (StatedShape). */
+export const statedShapeGen: Gen<StatedShape> = (source) => ({
+	shape: source.draw(shapeGen),
+	stated: source.draw(option(boolean))
+})
+
+/** The name a stated shape's author states for its path. */
+const statedName = "Stated"
+
+/** The path a stated shape's name is stated for, if any: the books', or the chapters' below them. */
+export const statedPath = (stated: StatedShape): Option.Option<string> =>
+	Option.map(stated.stated, (books) =>
+		Option.match(books ? Option.none() : stated.shape.books.chapters, {
+			onNone: () => stated.shape.books.name,
+			onSome: (c) => `${stated.shape.books.name}.${c.name}`
+		})
+	)
+
+/** The names a stated shape's records state, by path, as records' options take them. */
+export const statedNames = (stated: StatedShape): Readonly<Record<string, string>> =>
+	Option.match(statedPath(stated), {
+		onNone: () => ({}),
+		onSome: (path) => ({ [path]: statedName })
+	})
+
+/** The text of a stated shape's options: none where no name is stated. */
+export const statedText = (stated: StatedShape): string =>
+	Option.match(statedPath(stated), {
+		onNone: () => "",
+		onSome: (path) => `, { names: { "${path}": "${statedName}" } }`
+	})
+
 /** An owner of records: its fields, and its key, a nonempty list of their names. */
 interface Owner {
 	readonly fields: RecordOwner

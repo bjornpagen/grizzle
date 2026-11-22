@@ -101,7 +101,8 @@ const step = 10
  *   login under its mapped checks, 1,461,803 and clean under the verdicts; flat records 1,418,610 and 1,410,160; types
  *   are not read (the checker interns them). Since records hold their relations and laws as unions of the members
  *   alone, each relation one type for one child (types/schema/records.ts RecordsHeld, ChildRelation; lane RECNAMES,
- *   2026-11-22, recnames-tools/sr*.log): flat records 12,238, records of an array of options 36,289
+ *   2026-11-22, recnames-tools/sr*.log): flat records 12,238, records of an array of options 36,289; since records take
+ *   the names their author states: 12,255 and 36,212
  * @decision the bound is the verdicts' own cost, exactly: a change that makes a login's check of a served read of
  *   records cost more is refused here, and a change that lowers it lowers the bound
  * @revalidate a TypeScript 7 or tsgo upgrade; another machine; any change to the login's checks
@@ -109,8 +110,8 @@ const step = 10
  *   cost, which states its cost here
  */
 const addedAtMost: { readonly [S in ServedShape]: number } = {
-	"flat records": 12238,
-	"records of an array of options": 36289
+	"flat records": 12255,
+	"records of an array of options": 36212
 }
 
 /** How a shape prints. */
