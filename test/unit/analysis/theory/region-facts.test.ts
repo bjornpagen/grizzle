@@ -21,8 +21,8 @@
  * rule reads; and a containment into a derived relation composed into a relation it reads.
  *
  * The closure's work, counted, never timed (kernel/calls.ts callCounts): the theory of k disjoint copies of a box
- * (region-facts.fixtures.ts schemaOfCopies) compares values canonically and tries compositions affinely in k, a
- * containment held compared only with those alike at its relations and pairs, and composed only with the stated
+ * (region-facts.fixtures.ts schemaOfCopies) compares values canonically and tries compositions as each copy's theory
+ * alone does, summed, a containment held compared only with those alike at its relations and pairs, and composed only with the stated
  * containments out of its target; and a box's theory with its laws' violation queries makes its region facts once.
  */
 
@@ -31,7 +31,6 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { array, type Gen } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
-import { affine } from "#test/support/growth.ts"
 import { callCounts } from "#test/support/kernel/calls.ts"
 import {
 	type Box,
@@ -174,10 +173,13 @@ type ClosureWork = "a canonical comparison" | "a composition"
 /**
  * The theory of disjoint copies of a box does the closure's work once per copy: over k copies of a box, k = 1, 2 and 3
  * (region-facts.fixtures.ts schemaOfCopies), the theory's canonical comparisons and the compositions its closure tries
- * (closureWork) are each exactly affine in k, where a containment compared with every one held, or composed with every
- * one stated, does work in k² (test/support/growth.ts affine).
+ * (closureWork) are each the sum of those of each copy's theory alone, where a containment compared with every one held,
+ * or composed with every one stated, does work across the copies, in k². A copy's work is its own: its statements stand
+ * in the order of their identity digests (schema/own.ts), so a copy's containments are tried in an order of their own,
+ * and two copies of one box may each do the work of the order they stand in; the sum is exact, the counts of any two
+ * copies need not agree, so the work is linear in k without being the same for each copy.
  */
-export const theTheoryOfDisjointCopiesOfABoxComparesAndComposesAffinelyInItsCopies =
+export const theTheoryOfDisjointCopiesOfABoxComparesAndComposesOnceForEachCopyAsEachCopyAlone =
 	property.explore(boxGen, {
 		needs: {},
 		situations: ["a canonical comparison", "a composition"] satisfies ReadonlyArray<
@@ -185,35 +187,41 @@ export const theTheoryOfDisjointCopiesOfABoxComparesAndComposesAffinelyInItsCopi
 		>,
 		check: (_, k: Case<ClosureWork>) => (box) =>
 			Effect.gen(function* () {
-				const counted: Array<Readonly<Record<keyof typeof closureWork, number>>> = []
-				for (const suffixes of [["_1"], ["_1", "_2"], ["_1", "_2", "_3"]] as const) {
-					const [, counts] = yield* callCounts(
-						Effect.sync(() => theoryOf(schemaOfCopies(box, suffixes))),
-						closureWork
+				const countsOf = (suffixes: Arr.NonEmptyReadonlyArray<string>) =>
+					Effect.map(
+						callCounts(
+							Effect.sync(() => theoryOf(schemaOfCopies(box, suffixes))),
+							closureWork
+						),
+						([, counts]) => counts
 					)
-					counted.push(counts)
+				const alone = yield* Effect.forEach(["_1", "_2", "_3"] as const, (suffix) =>
+					countsOf([suffix])
+				)
+				for (const suffixes of [["_1"], ["_1", "_2"], ["_1", "_2", "_3"]] as const) {
+					const together = yield* countsOf(suffixes)
+					const copies = suffixes.length
+					const each = Arr.take(alone, copies)
+					assert.deepEqual(
+						together,
+						{
+							compared: Arr.reduce(each, 0, (n, c) => n + c.compared),
+							composed: Arr.reduce(each, 0, (n, c) => n + c.composed)
+						},
+						`${copies} copies: the theory's work is each copy's alone, summed`
+					)
 				}
-				const at = (copies: number) => Arr.getUnsafe(counted, copies - 1)
-				if (at(1).compared > 0) {
+				const [first] = alone
+				if (first.compared > 0) {
 					k.note("a canonical comparison")
 				}
-				if (at(1).composed > 0) {
+				if (first.composed > 0) {
 					k.note("a composition")
 				}
-				affine(
-					(copies) => at(copies).compared,
-					1,
-					"the theory's canonical comparisons over copies of a box"
-				)
-				affine(
-					(copies) => at(copies).composed,
-					1,
-					"the closure's compositions over copies of a box"
-				)
 			}),
 		oracle: {
 			kind: "specification",
-			name: "the closure's comparisons and compositions, counted (kernel/calls.ts callCounts), affine in the copies of a box"
+			name: "the closure's comparisons and compositions, counted (kernel/calls.ts callCounts), over k copies the sum of each copy's alone"
 		},
 		kept: [],
 		kills: [
@@ -221,13 +229,13 @@ export const theTheoryOfDisjointCopiesOfABoxComparesAndComposesAffinelyInItsCopi
 				file: "packages/engine/src/analysis/theory/unit.ts",
 				original: "\t\tif (alike.some((held) => canonicalEquals(held, c))) {",
 				replacement: "\t\tif (containments.some((held) => canonicalEquals(held, c))) {",
-				why: "A containment is compared with every one held, each copy's with every other copy's, so the comparisons grow as k² (a fresh qti-database generate, 896 statements, spent 152.9 s of its 326 s profile in the closure)."
+				why: "A containment is compared with every one held, each copy's with every other copy's, so the comparisons over copies pass the sum of each copy's alone, growing as k² (a fresh qti-database generate, 896 statements, spent 152.9 s of its 326 s profile in the closure)."
 			},
 			{
 				file: "packages/engine/src/analysis/theory/unit.ts",
 				original: "\t\tfor (const second of everyRowOf.get(first.to) ?? []) {",
 				replacement: "\t\tfor (const second of stated) {",
-				why: "A containment held is composed with every one stated, each copy's with every other copy's, so the compositions tried grow as k²."
+				why: "A containment held is composed with every one stated, each copy's with every other copy's, so the compositions tried over copies pass the sum of each copy's alone, growing as k²."
 			}
 		]
 	})
