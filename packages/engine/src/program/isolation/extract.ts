@@ -14,6 +14,7 @@ import type {
 	ReadAt,
 	ReadFact,
 	RowSource,
+	SiteCore,
 	StatementFacts,
 	WriteFact
 } from "#compiler/analysis/isolation/facts.ts"
@@ -131,6 +132,24 @@ const ownRows: CteRef = { kind: "own" }
 type Arrival = "site" | undefined
 
 /**
+ * The writes a place's reads feed and its probes gate, as a walk records them: those its statement's own writes name,
+ * or, in the walk of a query CTE's query, the site's (`site`): the writes the site that reads an instance of it feeds,
+ * which each instance names (Statement.instance), since a query CTE's query writes nothing of its own.
+ */
+type Feeds = ReadonlyArray<number> | "site"
+
+/** The writes `feeds` names where its body arrives from a site feeding `arrival`. */
+const fedAt = (feeds: Feeds, arrival: ReadonlyArray<number>): ReadonlyArray<number> =>
+	feeds === "site" ? arrival : feeds
+
+/** A probe as a walk records it (ProbeFact), the writes it gates as its place feeds them (Feeds). */
+interface WalkProbe<Core extends SiteCore> {
+	readonly gates: Feeds
+	readonly core: Core
+	readonly chain: ReadonlyArray<number>
+}
+
+/**
  * Where an expression or a source stands: the polarity its reads reach the statement with, whether a count or an
  * aggregate stands over them, whether it is a source of the core an EXISTS probes, whether an expression is a
  * condition of its core (WHERE, ON or HAVING, through AND, OR, NOT and IS TRUE), the names and CTEs it sees, the probes
@@ -193,7 +212,7 @@ type Found =
 			readonly alias: string
 			readonly context: Context
 			readonly conditions: ReadonlyArray<Scoped>
-			readonly feeds: ReadonlyArray<number>
+			readonly feeds: Feeds
 			readonly columns: ReadonlyMap<string, string> | undefined
 			/**
 			 * The key columns it reads the row its statement's INSERT met at, where its structure proves that INSERT met it
@@ -656,18 +675,22 @@ const targetConditions = (w: MergeWhen, on: ReadonlyArray<Expr>): ReadonlyArray<
  * a source names it, through the instance of it its arrival there keys (Statement.instance), walked once, so its reads
  * compose with each place it is read in; a data-modifying one runs once, where it is defined. A statement's own body
  * stands in no core outside its cores (`Top` none), an instance in the core of the site that reads it (`Top` `site`).
+ * It lives as long as its statement's extraction: no fact holds it (test/unit/program/isolation/facts-retention.test.ts).
  */
-class Walk<Top extends Arrival> {
+export class Walk<Top extends Arrival> {
 	readonly found: Array<Found> = []
-	readonly probes: Array<ProbeFact<number | Top>> = []
+	readonly probes: Array<WalkProbe<number | Top>> = []
 	readonly cores: Array<ReadonlyArray<RowSource>> = []
 	readonly uses: Array<CteUse> = []
 	readonly #statement: Statement
-	readonly #arrival: ReadonlyArray<number>
+	readonly #arrival: Feeds
 	readonly #feeding: Array<ReadonlyArray<number>> = []
 
-	/** A walk of a body of `statement` whose reads feed the writes `arrival` outside every write of its own. */
-	constructor(statement: Statement, arrival: ReadonlyArray<number>) {
+	/**
+	 * A walk of a body of `statement` whose reads feed the writes `arrival` outside every write of its own: the
+	 * statement's own body's none, a query CTE's query's the site's (Feeds `site`).
+	 */
+	constructor(statement: Statement, arrival: Feeds) {
 		this.#statement = statement
 		this.#arrival = arrival
 	}
@@ -933,7 +956,7 @@ class Walk<Top extends Arrival> {
 		}
 	}
 
-	#feeds(): ReadonlyArray<number> {
+	#feeds(): Feeds {
 		return this.#feeding.at(-1) ?? this.#arrival
 	}
 
@@ -1282,29 +1305,63 @@ type QueryCte = Extract<CteRef, { readonly kind: "query" }>
 
 /**
  * What a walk of a query CTE's query depends on, beyond the probes and the core of the site that reads it, which its
- * uses state (analysis/isolation/facts.ts CteUse): the CTE, by the definition its WITH made, the polarity and the count
- * of the site, which decide its reads' modes and which of its places open a probe (Walk #opening), and the writes the
- * site feeds, which its reads feed and its probes gate.
+ * uses state (analysis/isolation/facts.ts CteUse): the CTE, by the definition its WITH made, and the polarity and the
+ * count of the site, which decide its reads' modes and which of its places open a probe (Walk #opening). The writes the
+ * site feeds, which its reads feed and its probes gate, the walk records as the site's (Feeds `site`), so one walk
+ * serves every site that reads the CTE at one polarity and count (Template).
+ */
+type TemplateKey = readonly [QueryCte, Polarity, boolean]
+
+/**
+ * What an instance of a query CTE is keyed by: its walk's key (TemplateKey) and the writes the site that reads it feeds,
+ * which its facts name where the walk recorded the site's (Statement.instance).
  */
 type InstanceKey = readonly [QueryCte, Polarity, boolean, ...ReadonlyArray<number>]
 
 /**
- * An instance of a query CTE: the walk of its query, the row sources every row of it comes through, and the query it
- * walks, by the number the statement gives each of its query CTEs (Statement.instance).
+ * A query CTE the walk of another's query reads, as that walk records it: the CTE a source names, by its name, at the
+ * source's polarity and count, whose instance each instance of the reader resolves for the writes its own site feeds
+ * (Statement.instance).
  */
-interface Instance {
+interface Nested {
+	readonly name: string
+	readonly cte: QueryCte
+	readonly polarity: Polarity
+	readonly counted: boolean
+}
+
+/**
+ * The walk of a query CTE's query at one polarity and count (TemplateKey), walked once whatever writes the sites that
+ * read it feed: its walk, the row sources every row of it comes through, and the query CTEs it reads, each of its
+ * uses naming one of them by its place (Nested), in the order its walk read them.
+ */
+interface Template {
 	readonly walk: Walk<"site">
 	readonly rows: ReadonlyArray<RowSource>
+	readonly nested: ReadonlyArray<Nested>
+}
+
+/**
+ * An instance of a query CTE: its walk (Template), the writes the site that reads it feeds (`arrival`), where its walk
+ * recorded the site's, the instance of each query CTE its walk reads, by its place among them, for those writes, and
+ * the query it walks, by the number the statement gives each of its query CTEs (Statement.instance).
+ */
+interface Instance {
+	readonly template: Template
+	readonly arrival: ReadonlyArray<number>
+	readonly nested: ReadonlyArray<number>
 	readonly query: number
 }
 
 /**
  * What one statement's walk shares across its bodies: how it reads names back, its parameters' names and its level; the
  * writes and ON CONFLICT arbitrations its DML makes, wherever it stands; and the instances of its query CTEs, in the
- * order their walks finish, each found by its key (InstanceKey), so each is walked once, and the queries they walk, each
- * by the query of its CTE, one place in the statement whatever WITH walk defined it.
+ * order their walks would finish, each found by its key (InstanceKey), and the queries they walk, each by the query of
+ * its CTE, one place in the statement whatever WITH walk defined it. Each query CTE's query is walked once for each
+ * polarity and count it is read at (Template), however many writes the sites that read it feed. It lives as long as
+ * the statement's extraction, with every walk and every query of the statement it keys: no fact holds it.
  */
-class Statement {
+export class Statement {
 	readonly writes: Array<{ readonly table: ObjectName; readonly op: WriteFact["op"] }> = []
 	readonly arbitrations: Array<Arbitration> = []
 	readonly instances: Array<Instance> = []
@@ -1312,6 +1369,9 @@ class Statement {
 	readonly paramOf: (n: number) => string | undefined
 	readonly level: Isolation
 	readonly #keyed = new TupleMap<InstanceKey, number>()
+	readonly #templates = new TupleMap<TemplateKey, Template>()
+	/** The query CTEs each walk of a query CTE's query in progress reads, the innermost last (Template `nested`). */
+	readonly #reading: Array<Array<Nested>> = []
 	readonly #queries = new Map<OperandSelect, number>()
 
 	constructor(names: ExtractNames, paramOf: (n: number) => string | undefined, level: Isolation) {
@@ -1322,37 +1382,69 @@ class Statement {
 
 	/**
 	 * The place of the instance of the query CTE `cte`, which a source names `name`, read at `polarity`, counted or not,
-	 * where the site feeds `feeds`: its query walked once for its key (InstanceKey), from no probe and outside every core
-	 * of its own, seeing the CTEs its WITH defines and `name` as the call's own rows of its recursion.
+	 * where the site feeds `feeds`: found by its key (InstanceKey), or made from its walk (Template) after the instance
+	 * of each query CTE that walk reads, for the same writes, as a walk of its query would have made them, in its order.
+	 * Read from the walk of another query CTE's query (`feeds` the site's), it is the place among the query CTEs that
+	 * walk reads, which each instance of it resolves, its own walk walked there, where a walk of the reader would have
+	 * walked it, so every retirement a query's calls write (Walk expr) is written in the order the walks would have met
+	 * it.
 	 */
 	instance(
 		name: string,
 		cte: QueryCte,
 		polarity: Polarity,
 		counted: boolean,
-		feeds: ReadonlyArray<number>
+		feeds: Feeds
 	): number {
+		if (feeds === "site") {
+			const reading = this.#reading.at(-1)
+			if (reading === undefined) {
+				throw defect("a site feeds the site's writes only in a query CTE's walk")
+			}
+			this.#template(name, cte, polarity, counted)
+			reading.push({ name, cte, polarity, counted })
+			return reading.length - 1
+		}
 		const key: InstanceKey = [cte, polarity, counted, ...feeds]
 		const known = this.#keyed.get(key)
 		if (known !== undefined) {
 			return known
 		}
-		const walk = new Walk<"site">(this, feeds)
-		const rows = walk.cte(cte.query, {
-			polarity,
-			counted,
-			probe: false,
-			condition: false,
-			scope: cte.scope,
-			ctes: new Map([...cte.ctes, [name, ownRows]]),
-			probes: [],
-			core: "site"
-		})
+		const template = this.#template(name, cte, polarity, counted)
+		const nested = template.nested.map((n) =>
+			this.instance(n.name, n.cte, n.polarity, n.counted, feeds)
+		)
 		const query = this.#queries.getOrInsertComputed(cte.query, () => this.#queries.size)
 		const place = this.instances.length
-		this.instances.push({ walk, rows, query })
+		this.instances.push({ template, arrival: feeds, nested, query })
 		this.#keyed.set(key, place)
 		return place
+	}
+
+	/**
+	 * The walk of `cte`'s query at `polarity` and `counted` (Template), walked once: from no probe and outside every core
+	 * of its own, seeing the CTEs its WITH defines and `name` as the call's own rows of its recursion, its reads feeding
+	 * and its probes gating the site's writes. A query CTE's query writes nothing but the retirements its calls write,
+	 * once each for the statement, which a second walk of it would not write again.
+	 */
+	#template(name: string, cte: QueryCte, polarity: Polarity, counted: boolean): Template {
+		return this.#templates.getOrInsertComputed([cte, polarity, counted], () => {
+			const nested: Array<Nested> = []
+			this.#reading.push(nested)
+			const walk = new Walk<"site">(this, "site")
+			const rows = walk.cte(cte.query, {
+				polarity,
+				counted,
+				probe: false,
+				condition: false,
+				scope: cte.scope,
+				ctes: new Map([...cte.ctes, [name, ownRows]]),
+				probes: [],
+				core: "site"
+			})
+			this.#reading.pop()
+			return { walk, rows, nested }
+		})
 	}
 }
 
@@ -1534,7 +1626,7 @@ const statementFacts = (
 	const written = new Set(
 		statement.writes.flatMap((w) => (w.op === "retire" ? [] : [relation(w.table)]))
 	)
-	const readOf = (f: Found): { readonly read: ReadFact; readonly feeds: ReadonlyArray<number> } => {
+	const readOf = (f: Found): Placed => {
 		if (f.kind === "opaque") {
 			return {
 				read: {
@@ -1576,7 +1668,14 @@ const statementFacts = (
 		}
 	}
 	const reads = walk.found.map(readOf)
-	const instances = statement.instances.map((i) => ({ ...i, reads: i.walk.found.map(readOf) }))
+	/** Each query CTE walk's reads, read once for every instance of it (Template). */
+	const walked = new Map<Template, ReadonlyArray<Placed>>()
+	const readsOf = (t: Template): ReadonlyArray<Placed> =>
+		walked.getOrInsertComputed(t, () => t.walk.found.map(readOf))
+	/** Each query CTE walk's read facts, one list every instance of it holds. */
+	const stated = new Map<Template, ReadonlyArray<ReadFact>>()
+	const readFactsOf = (t: Template): ReadonlyArray<ReadFact> =>
+		stated.getOrInsertComputed(t, () => readsOf(t).map((r) => r.read))
 	const arbitrations = statement.arbitrations.map((a): ReadFact => {
 		const rel = relation(a.table)
 		return {
@@ -1598,37 +1697,65 @@ const statementFacts = (
 			)
 		}
 	})
+	/** The reads of a body arriving from a site feeding `arrival` that feed `write`, by their places (ReadAt). */
 	const feeding = (
 		cte: number | undefined,
-		found: ReadonlyArray<{ readonly read: ReadFact; readonly feeds: ReadonlyArray<number> }>,
+		found: ReadonlyArray<Placed>,
+		arrival: ReadonlyArray<number>,
 		write: number
 	): ReadonlyArray<ReadAt> =>
 		found.flatMap((r, read) =>
-			r.read.mode === "positive" && r.feeds.includes(write) ? [{ cte, read }] : []
+			r.read.mode === "positive" && fedAt(r.feeds, arrival).includes(write) ? [{ cte, read }] : []
 		)
 	return {
 		writes: statement.writes.map((w, i): WriteFact => ({
 			relation: relation(w.table),
 			op: w.op,
 			from: [
-				...feeding(undefined, reads, i),
-				...instances.flatMap((instance, cte) => feeding(cte, instance.reads, i))
+				...feeding(undefined, reads, [], i),
+				...statement.instances.flatMap((instance, cte) =>
+					feeding(cte, readsOf(instance.template), instance.arrival, i)
+				)
 			]
 		})),
 		reads: [...reads.map((r) => r.read), ...arbitrations],
-		probes: walk.probes,
+		probes: walk.probes.map((p) => probeAt(p, [])),
 		cores: walk.cores,
 		uses: walk.uses,
-		ctes: instances.map((instance): CteFacts => ({
-			reads: instance.reads.map((r) => r.read),
-			probes: instance.walk.probes,
-			cores: instance.walk.cores,
-			uses: instance.walk.uses,
-			rows: instance.rows,
+		ctes: statement.instances.map((instance): CteFacts => ({
+			reads: readFactsOf(instance.template),
+			probes: instance.template.walk.probes.map((p) => probeAt(p, instance.arrival)),
+			cores: instance.template.walk.cores,
+			uses: instance.template.walk.uses.map((u) => ({
+				...u,
+				cte: nestedAt(instance, u.cte)
+			})),
+			rows: instance.template.rows,
 			query: instance.query
 		}))
 	}
 }
+
+/** The place of the instance of the query CTE its walk reads at `place` (Template `nested`), for its arrival. */
+const nestedAt = (instance: Instance, place: number): number => {
+	const at = instance.nested[place]
+	if (at === undefined) {
+		throw defect("an instance resolves every query CTE its walk reads")
+	}
+	return at
+}
+
+/** A read a walk found as its facts state it, and the writes its rows feed as the walk recorded them (Feeds). */
+interface Placed {
+	readonly read: ReadFact
+	readonly feeds: Feeds
+}
+
+/** A probe a walk recorded (WalkProbe) as its body's facts state it, arriving from a site feeding `arrival`. */
+const probeAt = <Core extends SiteCore>(
+	p: WalkProbe<Core>,
+	arrival: ReadonlyArray<number>
+): ProbeFact<Core> => ({ gates: fedAt(p.gates, arrival), core: p.core, chain: p.chain })
 
 /**
  * The facts of one change member's flight (analysis/isolation/facts.ts MemberFacts), read from its statements in the

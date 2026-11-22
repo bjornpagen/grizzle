@@ -233,10 +233,35 @@ const roleSource = (
 					}
 	}))
 
-/** The facts of one compiled write of change member `name` at `level` (extract.ts memberFacts), none where its flight
- * sends no statement. */
-const writeFacts = (
-	level: Isolation,
+/**
+ * The facts of the compiled writes certification reads (extract.ts memberFacts), each extracted once, where it is first
+ * read, and read from here after: by the round that judges its role (isolationInput, each lowering) and by the fence
+ * that locks what it writes (exclusionOf). One per certification, over the writes its roles are served, each a write of
+ * one change member of one role, read back by that role's names and at the level it was compiled for, its own
+ * (CompiledWrite `level`). Its facts are plain data (analysis/isolation/facts.ts): no walk of its statements, no
+ * statement and no compiled write is held by them.
+ */
+class WriteFacts {
+	readonly #facts = new Map<CompiledWrite, ReadonlyArray<MemberFacts>>()
+
+	/** The facts of `write`, of change member `name`, read back by `names`: none where its flight sends no statement. */
+	of(name: string, write: CompiledWrite, names: ExtractNames): ReadonlyArray<MemberFacts> {
+		return this.#facts.getOrInsertComputed(write, () => extractedFacts(name, write, names))
+	}
+
+	/** The facts of one change member's variants: one set per variant whose flight sends any. */
+	ofChange(
+		name: string,
+		variants: CompiledVariants,
+		names: ExtractNames
+	): ReadonlyArray<MemberFacts> {
+		return variantWrites(variants).flatMap((write) => this.of(name, write, names))
+	}
+}
+
+/** The facts of one compiled write of change member `name` at its level (extract.ts memberFacts), none where its flight
+ * sends no statement: extracted afresh, which WriteFacts does once per write. */
+const extractedFacts = (
 	name: string,
 	write: CompiledWrite,
 	names: ExtractNames
@@ -249,20 +274,11 @@ const writeFacts = (
 					mapNonEmpty(sent, (s) => s.ast),
 					names,
 					(statement, n) => scalarParam(sent[statement]?.slots[n - 1]),
-					level
+					write.level
 				)
 			]
 		: []
 }
-
-/**
- * The facts of one change member's variants compiled for `level` (extract.ts memberFacts): one set per variant whose
- * flight sends any.
- */
-const changeFacts =
-	(level: Isolation) =>
-	(name: string, variants: CompiledVariants, names: ExtractNames): ReadonlyArray<MemberFacts> =>
-		variantWrites(variants).flatMap((write) => writeFacts(level, name, write, names))
 
 /** Two tables in the order of their qualified names, schema then name: the one order every fenced write locks in. */
 const byQualifiedName = (a: ObjectName, b: ObjectName): number =>
@@ -278,12 +294,13 @@ const exclusionOf = (
 	write: CompiledWrite,
 	fenced: ReadonlySet<string>,
 	role: RoleChanges,
-	names: ExtractNames
+	names: ExtractNames,
+	facts: WriteFacts
 ): CompiledWrite => {
 	const written = new Set(
-		writeFacts(write.level, name, write, names).flatMap((m) =>
-			m.statements.flatMap((s) => s.writes.map((w) => w.relation))
-		)
+		facts
+			.of(name, write, names)
+			.flatMap((m) => m.statements.flatMap((s) => s.writes.map((w) => w.relation)))
 	)
 	const locked = [...written]
 		.filter((relation) => fenced.has(relation))
@@ -314,32 +331,36 @@ const fencedVariants = <S extends ParamSource>(
 	variants: CompiledVariants<S>,
 	fenced: ReadonlySet<string>,
 	role: RoleChanges,
-	names: ExtractNames
+	names: ExtractNames,
+	facts: WriteFacts
 ): CompiledVariants<S> =>
 	variants.kind === "form"
 		? {
 				...variants,
 				entry: {
 					...variants.entry,
-					compiled: exclusionOf(name, variants.entry.compiled, fenced, role, names)
+					compiled: exclusionOf(name, variants.entry.compiled, fenced, role, names, facts)
 				}
 			}
 		: {
 				...variants,
-				holding: fencedVariants(name, variants.holding, fenced, role, names),
-				lacking: fencedVariants(name, variants.lacking, fenced, role, names)
+				holding: fencedVariants(name, variants.holding, fenced, role, names, facts),
+				lacking: fencedVariants(name, variants.lacking, fenced, role, names, facts)
 			}
 
-/** A role's served changes with each of its writes locking what it writes of `fenced`, its login's fences. */
+/** A role's served changes with each of its writes locking what it writes of `fenced`, its login's fences, read off
+ * the facts certification extracted of it (WriteFacts). */
 const fencedChanges = <L extends Isolation, S extends ParamSource>(
 	role: RoleChanges<L, S>,
 	fenced: ReadonlySet<string>,
-	names: ExtractNames
+	names: ExtractNames,
+	facts: WriteFacts
 ): RoleChanges<L, S> => ({
 	...role,
 	members: new Map(
 		[...role.members].map(
-			([name, variants]) => [name, fencedVariants(name, variants, fenced, role, names)] as const
+			([name, variants]) =>
+				[name, fencedVariants(name, variants, fenced, role, names, facts)] as const
 		)
 	)
 })
@@ -402,13 +423,14 @@ export const certification = <S extends ParamSource>(
 			sources.push({ role, source: source.value })
 		}
 	}
+	const extracted = new WriteFacts()
 	const input = isolationInput({
 		model: artifacts.laws,
 		roles: sources.map((r) => r.source),
 		triggerLawsOver,
 		grantedPrivileges,
 		readableRelations,
-		memberFacts: changeFacts("readCommitted")
+		memberFacts: (name, variants, names) => extracted.ofChange(name, variants, names)
 	})
 	const certified = certify(
 		input.relations,
@@ -420,7 +442,7 @@ export const certification = <S extends ParamSource>(
 			> => {
 				const lowering = (lowered: RoleChanges<"serializable", S>) => ({
 					facts: [...lowered.members].flatMap(([name, variants]) =>
-						changeFacts("serializable")(name, variants, source.names)
+						extracted.ofChange(name, variants, source.names)
 					),
 					form: lowered
 				})
@@ -457,7 +479,7 @@ export const certification = <S extends ParamSource>(
 		const relations = fenced.get(c.role.login)
 		logged.set(
 			c.role.role,
-			relations === undefined ? c.form : fencedChanges(c.form, relations, source.names)
+			relations === undefined ? c.form : fencedChanges(c.form, relations, source.names, extracted)
 		)
 	}
 	return Result.ok({
