@@ -16,7 +16,10 @@
  * - Its fields: its parent's key, each field under its parent's name unless the child's own columns or attachments take
  *   it, then under the first of `<name>2`, `<name>3`, … none takes (Fresh); for an array, its place `at`, fresh the same
  *   way, its ordered family's drawn index; the child's stored columns (StoredFieldsOf); and a drawn count under the
- *   name of each array attachment of its own (CountFields). Its key: the carried fields, then its place.
+ *   name of each array attachment of its own (CountsNamed). Its key: the carried fields, then its place, each a key
+ *   field (KeyField) carried down to its children as they are, so each level is typed off the key of the level above
+ *   and what its own attachment states, never by reading the relations above it, and is one type for one child
+ *   whichever copy of the attachment tree the checker read it from (ChildRelation).
  * - Its law over its parent: an array is the ordered family of its parent's count at the attachment's name; an option
  *   is contained in its parent; one mirrors its parent; an arm is the relation of its handle in the alternatives law
  *   over its parent's discriminator field, one law per field.
@@ -83,10 +86,10 @@ export type StoredFieldsOf<Hc> = {
 
 /**
  * The fields of a query Q's root record relation: the owner's fields, then Q's heading's stored fields, then the drawn
- * count of each array attachment of Q's, under the attachment's name (CountFields).
+ * count of each array attachment of Q's, under the attachment's name (CountsNamed).
  */
 export type RecordFields<Owner, Q> = Simplify<
-	Owner & StoredFieldsOf<Q["heading" & keyof Q]> & CountFields<AttachedOf<Q>>
+	Owner & StoredFieldsOf<Q["heading" & keyof Q]> & CountsNamed<ArrayNames<AttachedOf<Q>>>
 >
 
 /** The root relation of records of the stem Stem over the fields Fields, keyed by Key. */
@@ -98,50 +101,98 @@ export type RecordsRow<
 
 /**
  * The relations of a query Q's attachments, at any depth, under the root of records of the stem Stem, the owner Owner
- * and its key Key (AttachedRelations): what records(...) reads off Q's `attached` phantom once.
+ * and its key Key (AttachedRelations): what records(...) reads off Q's `attached` phantom once (RecordsHeld).
  */
-export type RecordChildren<Stem extends string, Owner, Key, Q> = AttachedRelations<
+export type RecordChildren<Stem extends string, Owner, Key, Q> = RecordsHeld<
 	Stem,
-	RecordsPaths<AttachedOf<Q>>,
-	RootOf<Stem, Owner, Key, Q>,
-	AttachedOf<Q>
->
+	Owner,
+	Key,
+	Q
+>["children"]
 
-/** The laws of a query Q's attachments, at any depth (AttachedLaws), as LawsHeld holds them. */
-export type RecordLaws<Stem extends string, Owner, Key, Q> = LawsHeld<Stem, Owner, Key, Q>["laws"]
+/** The laws of a query Q's attachments, at any depth (AttachedLaws), as RecordsHeld holds them. */
+export type RecordLaws<Stem extends string, Owner, Key, Q> = RecordsHeld<
+	Stem,
+	Owner,
+	Key,
+	Q
+>["laws"]
+
+/** The relations of Q's attachments an insert states apart from the root (ApartRelations, RecordsHeld). */
+export type RecordApart<Stem extends string, Owner, Key, Q> = RecordsHeld<
+	Stem,
+	Owner,
+	Key,
+	Q
+>["apart"]
 
 /**
- * The laws records hold, collected (Collected), and read only once Q is a query: over a query's type parameter the
- * conditional waits, so no reader of records' generic signature holds the laws' union half made over a tree no
- * recursion ends, which an instantiation for a query would instantiate again, the whole tree. Every guard-free form
- * holds that half-made union (TS2589 at a fragment of nested records and their rules). A member of an interface, so
- * records(...)'s public signature and its builder's read one union for one records' arguments, which two conditional
- * aliases would make twice and relate member by member (TS2589 at records(...) itself).
+ * What records hold of their query's attachments, each a union read only once Q is a query: over a query's type
+ * parameter the conditional waits, so no reader of records' generic signature holds a union half made over a tree no
+ * recursion ends, which an instantiation for a query would instantiate again, the whole tree (TS2589 at a fragment of
+ * nested records and their rules). Members of an interface, so records(...)'s public signature and its builder's read
+ * one union for one records' arguments, which two conditional aliases would make twice and relate member by member
+ * (TS2589 at records(...) itself).
+ *
+ * The recursions over the attachment tree (AttachedRelations, AttachedLaws, ApartRelations) each give a union of
+ * boxes, each relation or law in a tuple of one, and the union is unboxed here, in a branch no alias names
+ * (`U extends readonly [infer X] ? X : never`), so it is made again as its members alone. A union a recursive alias
+ * builds carries that alias and its arguments, the query's attachment phantom among them, which holds each attached
+ * query whole; the checker relates two such unions by the alias's variance, which it measures by instantiating the
+ * recursion over markers, a tree no level ends, and infers through the arguments into the queries: TS2589 where a
+ * fragment's statements, a tuple of a law or a retirable body over the records beside the records' laws, are read back
+ * (records of a document scan, an array of nodes each with options and arrays under it). Unboxed, the union is its
+ * members, each relation and law one type for one child (ChildRelation), related member by member, each by identity.
+ * Distributed again without boxes (`U extends unknown ? U : never`), a union maps to itself: the union the recursion
+ * made, alias and all.
  */
-interface LawsHeld<Stem extends string, Owner, Key, Q> {
+interface RecordsHeld<Stem extends string, Owner, Key, Q> {
+	readonly children: Q extends unknown
+		? AttachedRelations<
+				Stem,
+				RecordsPaths<AttachedOf<Q>>,
+				`${Stem}Row`,
+				RootKey<Owner, Key>,
+				AttachedOf<Q>
+			> extends infer U
+			? U extends Boxed<infer X>
+				? X
+				: never
+			: never
+		: never
 	readonly laws: Q extends unknown
-		? Collected<
-				AttachedLaws<Stem, RecordsPaths<AttachedOf<Q>>, RootOf<Stem, Owner, Key, Q>, AttachedOf<Q>>
-			>
+		? AttachedLaws<
+				Stem,
+				RecordsPaths<AttachedOf<Q>>,
+				RootOf<Stem, Owner, Key, Q>,
+				RootKey<Owner, Key>,
+				AttachedOf<Q>
+			> extends infer U
+			? U extends Boxed<infer X>
+				? X
+				: never
+			: never
+		: never
+	readonly apart: Q extends unknown
+		? ApartRelations<
+				Stem,
+				RecordsPaths<AttachedOf<Q>>,
+				`${Stem}Row`,
+				RootKey<Owner, Key>,
+				AttachedOf<Q>
+			> extends infer U
+			? U extends Boxed<infer X>
+				? X
+				: never
+			: never
 		: never
 }
 
-/** The relations of Q's attachments an insert states apart from the root (ApartRelations). */
-export type RecordApart<Stem extends string, Owner, Key, Q> = ApartRelations<
-	Stem,
-	RecordsPaths<AttachedOf<Q>>,
-	RootOf<Stem, Owner, Key, Q>,
-	AttachedOf<Q>
->
-
 /**
- * The members of a union collected again, a union of its own, each law as itself. The union a recursive alias builds
- * (AttachedLaws) keeps the references it was built from, a child's law, the laws under it, each over the tree below,
- * and the checker instantiates those again, the whole tree, at every instantiation of a type that holds the union, as a
- * statement list holding the records' laws does. Collected, it holds the laws themselves, each instantiated as the plain
- * type it is.
+ * A relation or law of records as the recursions over the attachment tree give it, boxed, so RecordsHeld makes their
+ * unions again as their members alone, unboxing each where no alias names the union.
  */
-type Collected<U> = U extends unknown ? U : never
+type Boxed<X> = readonly [X]
 
 /** The root of records of Q as its attachments read it: Records' own `row`. */
 type RootOf<Stem extends string, Owner, Key, Q> =
@@ -252,14 +303,39 @@ export type RecordsRelation = Relation<
 	ReadonlyArray<string>
 >
 
-/**
- * A relation that holds records as the types of the attachments under it read it: its name, its fields and its key, in
- * order.
- */
+/** A relation that holds records as the laws of the attachments under it read it: its name, its fields and its key. */
 interface RecordsParent {
 	readonly name: string
 	readonly fields: unknown
 	readonly primaryKey: ReadonlyArray<string>
+}
+
+/**
+ * A field of the key of a relation that holds records, as the attachments under it carry it: its name there, and its
+ * field, an interface, so one name and field are one type wherever they are read. A relation's key is a tuple of these,
+ * read once where the relation is typed and handed to its children whole, so a child's fields are typed off its
+ * parent's key alone, never by reading its parent's fields, which would read its grandparent's in turn.
+ */
+interface KeyField<N extends string, F> {
+	readonly name: N
+	readonly field: F
+}
+
+/** Any key field (KeyField). */
+type AnyKeyField = KeyField<string, unknown>
+
+/** The root's key as its children carry it: each field of the owner's key Key under its name, the owner's own. */
+type RootKey<Owner, Key> = {
+	readonly [I in keyof Key]: KeyField<Key[I] & string, Owner[Key[I] & keyof Owner]>
+}
+
+/** The names of a relation's key Pairs, in order. */
+type PairNames<Pairs> = { readonly [I in keyof Pairs]: (Pairs[I] & AnyKeyField)["name"] }
+
+/** The fields of a relation's key Pairs: each field under its name. */
+type PairFields<Pairs> = {
+	readonly [I in keyof Pairs & `${number}` as (Pairs[I] & AnyKeyField)["name"]]: (Pairs[I] &
+		AnyKeyField)["field"]
 }
 
 /** An attachment's members, read by key: its delivery, its child's carriers and its child's attachments. */
@@ -267,10 +343,17 @@ type DeliveryOf<A> = A["delivery" & keyof A]
 type CarriersOf<A> = A["carriers" & keyof A]
 type ChildrenOf<A> = A["attached" & keyof A]
 
-/** The drawn count of each array attachment of At, under the attachment's name: the field its ordered family counts. */
-type CountFields<At> = {
-	readonly [N in keyof At & string as DeliveryOf<At[N]> extends "array" ? N : never]: DrawnField
-}
+/**
+ * The names of the array attachments of At, a union made in a branch no alias names: one union for one set of names,
+ * whichever copy of an attachment tree it was read from, so what is typed off it is one type too. A union an alias
+ * makes carries the alias and its arguments, the attachment tree, and is one union per copy of it.
+ */
+type ArrayNames<At> = [At] extends [unknown]
+	? { [N in keyof At & string]: DeliveryOf<At[N]> extends "array" ? N : never }[keyof At & string]
+	: never
+
+/** The drawn counts under the names Ns: the fields the ordered families of a relation's arrays count. */
+type CountsNamed<Ns extends string> = { readonly [N in Ns]: DrawnField }
 
 /**
  * The paths of the capitalized names of the attachments of At, at any depth, each segment after `Prefix`: `Items` at
@@ -315,74 +398,111 @@ type Fresh<B extends string, Taken, Count extends ReadonlyArray<unknown> = reado
 		: C
 	: never
 
-/** The names a child relation carries its parent's key under, in order, each fresh beside Taken and the ones before it. */
-type CarriedNames<
-	Key extends ReadonlyArray<string>,
-	Taken,
-	Out extends ReadonlyArray<string> = readonly []
-> = Key extends readonly [infer K extends string, ...infer Rest extends ReadonlyArray<string>]
-	? CarriedNames<Rest, Taken | Fresh<K, Taken>, readonly [...Out, Fresh<K, Taken>]>
-	: Out
-
 /** A field of the parent's key as its child carries it: a place, drawn in the parent, is a natural the child states. */
 type Carry<F> = F extends DrawnField<infer B> ? B : F
 
-/** The child's fields that carry its parent's key: each key field of P's under its carried name (CarriedNames). */
-type CarriedFields<P extends RecordsParent, Names extends ReadonlyArray<string>> = {
-	readonly [I in keyof Names & `${number}` as Names[I] & string]: Carry<
-		P["fields"][P["primaryKey"][I & keyof P["primaryKey"]] & keyof P["fields"]]
-	>
-}
-
-/** The names a child's own records take: its columns and its attachments. */
-type TakenBy<A> = keyof CarriersOf<A> | keyof ChildrenOf<A>
-
-/** The carried names of the child A under P. */
-type CarriedOf<P extends RecordsParent, A> = CarriedNames<P["primaryKey"], TakenBy<A>>
-
-/** The place of an array child A under P: `at`, fresh beside its columns, attachments and carried names. */
-type PlaceOf<P extends RecordsParent, A> = Fresh<"at", TakenBy<A> | CarriedOf<P, A>[number]>
-
-/** The key of the child A under P: its carried names, then, for an array, its place. */
-type ChildKey<P extends RecordsParent, A> =
-	DeliveryOf<A> extends "array" ? readonly [...CarriedOf<P, A>, PlaceOf<P, A>] : CarriedOf<P, A>
-
-/** The place field of an array child A under P, drawn by its ordered family; none for any other child. */
-type PlaceField<P extends RecordsParent, A> =
-	DeliveryOf<A> extends "array" ? { readonly [K in PlaceOf<P, A>]: DrawnField } : unknown
-
-/** The fields of the child A under P: its carried key, its place, its stored columns and its arrays' counts. */
-type ChildFields<P extends RecordsParent, A> = Simplify<
-	CarriedFields<P, CarriedOf<P, A>> &
-		PlaceField<P, A> &
-		StoredFieldsOf<CarriersOf<A>> &
-		CountFields<ChildrenOf<A>>
->
-
-/** The relation of the attachment A named N under P. */
-type ChildRelation<Stem extends string, Paths, P extends RecordsParent, N extends string, A> =
-	ChildKey<P, A> extends infer K extends ReadonlyArray<keyof ChildFields<P, A> & string>
-		? Relation<AttachedName<Stem, Paths, P["name"], N>, ChildFields<P, A>, K>
-		: never
+/**
+ * The key fields a child carries its parent's key PK as, in order: each field under its parent's name, fresh beside
+ * Taken and the names before it, carried (Carry).
+ */
+type CarriedPairs<
+	PK,
+	Taken,
+	Out extends ReadonlyArray<AnyKeyField> = readonly []
+> = PK extends readonly [KeyField<infer K, infer F>, ...infer Rest]
+	? CarriedPairs<
+			Rest,
+			Taken | Fresh<K, Taken>,
+			readonly [...Out, KeyField<Fresh<K, Taken>, Carry<F>>]
+		>
+	: Out
 
 /**
- * The relations of the attachments At under P, at any depth: each attachment's own (ChildRelation), and those under
- * it.
+ * The names a child's own records take, its columns and its attachments: a union made in a branch no alias names, one
+ * union for one set of names (ArrayNames).
  */
-type AttachedRelations<Stem extends string, Paths, P extends RecordsParent, At> = {
+type TakenBy<A> = [A] extends [unknown] ? keyof CarriersOf<A> | keyof ChildrenOf<A> : never
+
+/** The names a relation's key Pairs holds, as a union. */
+type NamesIn<Pairs> = Pairs extends ReadonlyArray<infer P extends AnyKeyField> ? P["name"] : never
+
+/**
+ * The key of a child, given what is read off its attachment: its carried key fields Carried, then, for an array (D),
+ * its place, `at` fresh beside the names Taken its columns and attachments take and its carried names, drawn.
+ */
+type KeyOfChild<Carried, Taken, D> = D extends "array"
+	? Carried extends ReadonlyArray<AnyKeyField>
+		? readonly [...Carried, KeyField<Fresh<"at", Taken | NamesIn<Carried>>, DrawnField>]
+		: never
+	: Carried
+
+/** The key of the child A under a parent of key PK, as key fields: its carried key, then, for an array, its place. */
+type ChildKey<PK, A> = KeyOfChild<CarriedPairs<PK, TakenBy<A>>, TakenBy<A>, DeliveryOf<A>>
+
+/**
+ * The fields of a relation of records: its key's, its stored columns' (StoredFieldsOf over its heading of carriers Hc)
+ * and its arrays' counts, under the names Ns.
+ */
+type FieldsOfRecords<K, Hc, Ns extends string> = Simplify<
+	PairFields<K> & StoredFieldsOf<Hc> & CountsNamed<Ns>
+>
+
+/**
+ * The fields of the child A under a parent of key PK (FieldsOfRecords). Each part is read off the attachment first, as
+ * a key, a heading and names, so the fields are one type for one child, whichever copy of the attachment tree it was
+ * read from: a type built over the attachment itself would be one type per copy, and two copies' relations, related
+ * where a statement list reads them back, would be related through the queries their attachments hold.
+ */
+type ChildFields<PK, A> = [A] extends [unknown]
+	? FieldsOfRecords<ChildKey<PK, A>, CarriersOf<A>, ArrayNames<ChildrenOf<A>>>
+	: never
+
+/**
+ * The relation of the attachment A named N under the relation named PN, of key PK: its name, fields and key read first,
+ * so the relation is one type for one child (ChildFields), whichever copy of the attachment tree it was read from.
+ */
+type ChildRelation<Stem extends string, Paths, PN extends string, PK, N extends string, A> = [
+	AttachedName<Stem, Paths, PN, N>,
+	ChildFields<PK, A>
+] extends [infer Name extends string, infer F]
+	? PairNames<ChildKey<PK, A>> extends infer K extends ReadonlyArray<keyof F & string>
+		? Relation<Name, F, K>
+		: never
+	: never
+
+/**
+ * The relations of the attachments At under the relation named PN, of key PK, at any depth: each attachment's own
+ * (ChildRelation), and those under it, each level typed off the key of the level above alone.
+ */
+type AttachedRelations<Stem extends string, Paths, PN extends string, PK, At> = {
 	[N in keyof At & string]:
-		| ChildRelation<Stem, Paths, P, N, At[N]>
-		| AttachedRelations<Stem, Paths, ChildRelation<Stem, Paths, P, N, At[N]>, ChildrenOf<At[N]>>
+		| Boxed<ChildRelation<Stem, Paths, PN, PK, N, At[N]>>
+		| AttachedRelations<
+				Stem,
+				Paths,
+				AttachedName<Stem, Paths, PN, N>,
+				ChildKey<PK, At[N]>,
+				ChildrenOf<At[N]>
+		  >
 }[keyof At & string]
 
 /**
- * The relations of the attachments At under P, at any depth, that an insert states apart from their parent: every
- * child but an array's, whose members an insert nests under their owner's count (types/changeset AdditionIn).
+ * The relations of the attachments At under the relation named PN, of key PK, at any depth, that an insert states apart
+ * from their parent: every child but an array's, whose members an insert nests under their owner's count
+ * (types/changeset AdditionIn).
  */
-type ApartRelations<Stem extends string, Paths, P extends RecordsParent, At> = {
+type ApartRelations<Stem extends string, Paths, PN extends string, PK, At> = {
 	[N in keyof At & string]:
-		| (DeliveryOf<At[N]> extends "array" ? never : ChildRelation<Stem, Paths, P, N, At[N]>)
-		| ApartRelations<Stem, Paths, ChildRelation<Stem, Paths, P, N, At[N]>, ChildrenOf<At[N]>>
+		| (DeliveryOf<At[N]> extends "array"
+				? never
+				: Boxed<ChildRelation<Stem, Paths, PN, PK, N, At[N]>>)
+		| ApartRelations<
+				Stem,
+				Paths,
+				AttachedName<Stem, Paths, PN, N>,
+				ChildKey<PK, At[N]>,
+				ChildrenOf<At[N]>
+		  >
 }[keyof At & string]
 
 /** The law of the child relation C of a delivery D under P named N: its family, containment or mirror of P. */
@@ -418,22 +538,47 @@ type HandleOfArm<A> = DeliveryOf<A> extends Arm<"arm", string, infer Hd extends 
  * The alternatives laws over P of its arm attachments At, one per discriminator field, each arm the child relation of
  * its handle.
  */
-type ArmLaws<Stem extends string, Paths, P extends RecordsParent, At> = {
-	[F in ArmFields<At>]: Alternatives<
-		P,
-		F,
-		AnyRoster,
-		{
-			readonly [N in ArmsOver<At, F> as HandleOfArm<At[N]>]: ChildRelation<Stem, Paths, P, N, At[N]>
-		}
+type ArmLaws<Stem extends string, Paths, P extends RecordsParent, PK, At> = {
+	[F in ArmFields<At>]: Boxed<
+		Alternatives<
+			P,
+			F,
+			AnyRoster,
+			{
+				readonly [N in ArmsOver<At, F> as HandleOfArm<At[N]>]: ChildRelation<
+					Stem,
+					Paths,
+					P["name"],
+					PK,
+					N,
+					At[N]
+				>
+			}
+		>
 	>
 }[ArmFields<At>]
 
-/** The laws of the attachments At under P, at any depth: each child's over its parent, and the arms' by field. */
-type AttachedLaws<Stem extends string, Paths, P extends RecordsParent, At> =
-	| ArmLaws<Stem, Paths, P, At>
+/**
+ * The laws of the attachments At under P, of key PK, at any depth: each child's over its parent, and the arms' by
+ * field.
+ */
+type AttachedLaws<Stem extends string, Paths, P extends RecordsParent, PK, At> =
+	| ArmLaws<Stem, Paths, P, PK, At>
 	| {
 			[N in keyof At & string]:
-				| DeliveryLaw<DeliveryOf<At[N]>, P, N, ChildRelation<Stem, Paths, P, N, At[N]>>
-				| AttachedLaws<Stem, Paths, ChildRelation<Stem, Paths, P, N, At[N]>, ChildrenOf<At[N]>>
+				| Boxed<
+						DeliveryLaw<
+							DeliveryOf<At[N]>,
+							P,
+							N,
+							ChildRelation<Stem, Paths, P["name"], PK, N, At[N]>
+						>
+				  >
+				| AttachedLaws<
+						Stem,
+						Paths,
+						ChildRelation<Stem, Paths, P["name"], PK, N, At[N]>,
+						ChildKey<PK, At[N]>,
+						ChildrenOf<At[N]>
+				  >
 	  }[keyof At & string]

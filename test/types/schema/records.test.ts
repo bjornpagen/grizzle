@@ -142,9 +142,16 @@ export const recordsAgree = agreement(shapeGen, {
 		{
 			file: "packages/engine/src/types/schema/records.ts",
 			original:
-				'\treadonly [N in keyof At & string as DeliveryOf<At[N]> extends "array" ? N : never]: DrawnField',
-			replacement: "\treadonly [N in keyof At & string as never]: DrawnField",
-			why: "An array attachment's count is no field of its parent (types/schema/records.ts CountFields), so the parent's fields disagree with the engine's and the ordered family's fin names no field."
+				'\t? { [N in keyof At & string]: DeliveryOf<At[N]> extends "array" ? N : never }[keyof At & string]',
+			replacement: "\t? { [N in keyof At & string]: never }[keyof At & string]",
+			why: "An array attachment's count is no field of its parent (types/schema/records.ts ArrayNames), so the parent's fields disagree with the engine's and the ordered family's fin names no field."
+		},
+		{
+			file: "packages/engine/src/types/schema/records.ts",
+			original:
+				'\t? Carried extends ReadonlyArray<AnyKeyField>\n\t\t? readonly [...Carried, KeyField<Fresh<"at", Taken | NamesIn<Carried>>, DrawnField>]\n\t\t: never',
+			replacement: "\t? Carried",
+			why: "An array child's key is its carried key alone, its place left out (types/schema/records.ts KeyOfChild), so every array relation's key and fields disagree with the engine's, and its children carry no place."
 		}
 	]
 })

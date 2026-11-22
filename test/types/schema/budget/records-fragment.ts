@@ -6,24 +6,70 @@ import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
 import { assertClean, type Measuring, measuredEach } from "#test/types/batch/measured.ts"
 
 /**
- * The records-fragment programs (records-fragment.test.ts): over a schema of three relations, `units` times, a query's
- * records (records(...)) and a fragment holding them, a header beside their relations and, among its statements, a
- * retirable body over the records beside the records' own laws, as den lists a recorded tree in a library: flat records,
- * of a query that attaches nothing, or records of an array of children each with an option of its own, two levels below
- * the root. The records hold their laws collected, each law as itself, read once their query is known
- * (types/schema/records.ts LawsHeld), so a statement list holding them, which the fragment reads back by name
- * (StatementsReadBack), never instantiates the recursion over the attachment tree that built them again: TS2589 at two
- * levels.
+ * The records-fragment programs (records-fragment.test.ts): over a schema of thirteen relations, `units` times, a
+ * query's records (records(...)) and a fragment holding them, a header beside their relations and, among its
+ * statements, a retirable body over the records beside the records' own laws, as den lists a recorded tree in a library:
+ * flat records, of a query that attaches nothing; records of an array of children each with an option of its own, two
+ * levels below the root; or records of a document scan (scanOf), as metis records a read of a document. The records
+ * hold their relations and laws as unions of the members alone, read once their query is known
+ * (types/schema/records.ts RecordsHeld), so a statement list holding them, which the fragment reads back by name
+ * (StatementsReadBack), relates them member by member, never through the recursion over the attachment tree that built
+ * them: TS2589 at two levels, and at a document scan.
  */
-export type FragmentShape = "flat records" | "records of an array of options"
+export type FragmentShape =
+	| "flat records"
+	| "records of an array of options"
+	| "records of a document scan"
 
 /** The cells of recordsFragments, minted as a dictionary in its door (test/types/schema/budget/records-fragment.dictionary.ts). */
 export const fragmentShapesItems: readonly [FragmentShape, ...ReadonlyArray<FragmentShape>] = [
 	"flat records",
-	"records of an array of options"
+	"records of an array of options",
+	"records of a document scan"
 ]
 
-/** The query of unit i: P's row at a parameter, and for nested records its C children, each with its D option. */
+/**
+ * A document scan's nodes, as pantry's export reads a document (documentScanOf): N's rows of the parent `p`, in order,
+ * each with its document row on its first node, an option, the row's declaration under it, an option, and the
+ * declaration's encoding and standalone, an option each; its attributes and its open attributes, arrays, each attribute
+ * with its entities, an array of the one name under both; and its namespaces, an array.
+ */
+const scanOf = (i: number): string => `query(S).rule((r) => {
+	const { s, x } = v(N, "n${i}")
+	return r.match(N, { p: p.id, s, x }).find({ p: p.id, s, x })
+}).attach("row", (n) => query(S).rule((r) => {
+	const { w } = v(Dr, "dr${i}")
+	return r.match(Dr, { p: n.p, w }).where(r.eq(n.s, 0)).find({ p: n.p, w })
+}).attach("declaration", (d) => query(S).rule((r) => {
+	const { w } = v(Xd, "xd${i}")
+	return r.match(Xd, { p: d.p, w }).find({ p: d.p, w })
+}).attach("encoding", (x) => query(S).rule((r) => {
+	const { w } = v(En, "en${i}")
+	return r.match(En, { p: x.p, w }).find({ w })
+}), "option").attach("standalone", (x) => query(S).rule((r) => {
+	const { w } = v(Sd, "sd${i}")
+	return r.match(Sd, { p: x.p, w }).find({ w })
+}), "option"), "option"), "option").attach("attributes", (n) => query(S).rule((r) => {
+	const { k, w } = v(At, "at${i}")
+	return r.match(At, { p: n.p, s: n.s, k, w }).find({ p: n.p, s: n.s, k, w })
+}).attach("entities", (a) => query(S).rule((r) => {
+	const { o, w } = v(Ae, "ae${i}")
+	return r.match(Ae, { p: a.p, s: a.s, k: a.k, o, w }).find({ o, w })
+}).orderBy(["o", "asc"]), "array").orderBy(["k", "asc"]), "array").attach("openAttributes", (n) => query(S).rule((r) => {
+	const { k, w } = v(Oa, "oa${i}")
+	return r.match(Oa, { p: n.p, s: n.s, k, w }).find({ p: n.p, s: n.s, k, w })
+}).attach("entities", (a) => query(S).rule((r) => {
+	const { o, w } = v(Oe, "oe${i}")
+	return r.match(Oe, { p: a.p, s: a.s, k: a.k, o, w }).find({ o, w })
+}).orderBy(["o", "asc"]), "array").orderBy(["k", "asc"]), "array").attach("namespaces", (n) => query(S).rule((r) => {
+	const { k, w } = v(Ns, "ns${i}")
+	return r.match(Ns, { p: n.p, s: n.s, k, w }).find({ k, w })
+}).orderBy(["k", "asc"]), "array").orderBy(["s", "asc"])`
+
+/**
+ * The query of unit i: P's row at a parameter, and for nested records its C children, each with its D option, or its
+ * document scan (scanOf), an array.
+ */
 const queryOf = (shape: FragmentShape, i: number): string => {
 	const root = `query(S).rule((r) => {
 	const { id, n } = v(P, "p${i}")
@@ -40,6 +86,8 @@ const queryOf = (shape: FragmentShape, i: number): string => {
 	const { w } = v(D, "d${i}")
 	return r.match(D, { k: c.k, w }).find({ w })
 }), "option").orderBy(["k", "asc"]), "array")`
+		case "records of a document scan":
+			return `${root}.attach("nodes", (p) => ${scanOf(i)}, "array")`
 	}
 }
 
@@ -61,7 +109,17 @@ const fragmentProgram = (shape: FragmentShape, units: number, entries: PreludeAt
 		`export const P = relation("P", { id: Id, n: pg.integer }, ["id"])
 export const C = relation("C", { p: Id, k: pg.integer, w: pg.integer }, ["p", "k"])
 export const D = relation("D", { k: pg.integer, w: pg.integer }, ["k"])
-export const S = schema("S", [P, C, D], [contained(on(C, "p"), on(P, "id"))])
+export const N = relation("N", { p: Id, s: pg.integer, x: pg.integer }, ["p", "s"])
+export const Dr = relation("Dr", { p: Id, w: pg.integer }, ["p"])
+export const Xd = relation("Xd", { p: Id, w: pg.integer }, ["p"])
+export const En = relation("En", { p: Id, w: pg.integer }, ["p"])
+export const Sd = relation("Sd", { p: Id, w: pg.integer }, ["p"])
+export const At = relation("At", { p: Id, s: pg.integer, k: pg.integer, w: pg.integer }, ["p", "s", "k"])
+export const Ae = relation("Ae", { p: Id, s: pg.integer, k: pg.integer, o: pg.integer, w: pg.integer }, ["p", "s", "k", "o"])
+export const Oa = relation("Oa", { p: Id, s: pg.integer, k: pg.integer, w: pg.integer }, ["p", "s", "k"])
+export const Oe = relation("Oe", { p: Id, s: pg.integer, k: pg.integer, o: pg.integer, w: pg.integer }, ["p", "s", "k", "o"])
+export const Ns = relation("Ns", { p: Id, s: pg.integer, k: pg.integer, w: pg.integer }, ["p", "s", "k"])
+export const S = schema("S", [P, C, D, N, Dr, Xd, En, Sd, At, Ae, Oa, Oe, Ns], [contained(on(C, "p"), on(P, "id"))])
 ${Arr.join(
 	Arr.map(indices(units), (i) => unitOf(shape, i)),
 	""
@@ -72,8 +130,8 @@ ${Arr.join(
 const step = 10
 
 /**
- * What one unit of each shape adds to a program's instantiations, at most: what it added once records held their
- * laws collected.
+ * What one unit of each shape adds to a program's instantiations, at most: what it adds now records hold their
+ * relations and laws as unions of the members alone, each relation one type for one child.
  *
  * @limitKind measured
  * @owner the records' type cost gates (test/types/schema/budget/records-fragment.ts)
@@ -81,28 +139,31 @@ const step = 10
  * @scope one unit of the shape (a query, its records, a header and the fragment holding them, their retirable body and
  *   their laws), checked by one checker against the engine's and the shell's declarations, as
  *   test/types/batch/measured.ts checks a program
- * @evidence ~/.cache/grizzle-release/PERF-TYPES-tools/ts2589 (den's probe, records-retirable-rules-ts2589.ts, checked
- *   as measured.ts checks a program: tsgo --checkers 1 --extendedDiagnostics, before and after; variants*.sh, the
- *   bisection to the rules' union) and records-fragment.test.ts run with each bound at 0, whose assertion states what a
- *   unit of each shape adds (PERF-TYPES-tools/rf-*.log)
- * @observed 2026-11-21, 21:00 to 22:30 UTC
- * @environment cassowary, Ubuntu 26.04 arm64, 64 cores, load 200 to 400 from other sessions; Node 26.13.1, TypeScript
- *   7.1.0-beta (tsgo); grizzle at hub main 7e8648657 and lane PERF-TYPES's collected records over it
- * @workload a schema of three relations; 10 and 20 units of each shape, each program checked alone
- * @result per added unit: flat records 5,406 instantiations, records of an array of options 25,681 (TS2589 at the
- *   fragment before); every program clean. Den's probe, one fragment of nested records holding their retirable body and
- *   their laws: 1,391,643 instantiations and TS2589 at the fragment before, 87,617 and clean after; types are not read
- *   (the checker interns them). Since a rule's keys read each key's needs and the head's terms once
- *   (types/evidence/evidence.ts NeedsOfKeys, HeadEntries): flat records 5,328, records of an array of options 25,544
- * @decision the bound is the collected records' own cost, exactly: a change that makes a fragment of records cost more
+ * @evidence ~/.cache/grizzle-release/recnames-tools/ts2589 (a mirror of pantry's documentScanOf and metis's fragment
+ *   of its records beside a retirable body, checked as measured.ts checks a program: tsgo --checkers 1
+ *   --extendedDiagnostics, before and after; --generateTrace, the relation types several copies of one child and the
+ *   variance of AttachedLaws and ApartRelations at the depth limit), recnames-tools/depth (gen.py, a chain of
+ *   attachments one to eight deep; gen2.py, an array of nodes with siblings under it, the least shape that died) and
+ *   records-fragment.test.ts run with each bound at 0, whose assertion states what a unit of each shape adds
+ *   (recnames-tools/rf*.log)
+ * @observed 2026-11-22, 08:00 to 11:30 UTC
+ * @environment cassowary, Ubuntu 26.04 arm64, 64 cores; Node 26.13.1, TypeScript 7.1.0-beta (tsgo); grizzle at hub
+ *   main 4926eb52f and lane RECNAMES's unboxed records over it
+ * @workload a schema of thirteen relations; 10 and 20 units of each shape, each program checked alone
+ * @result per added unit: flat records 5,527 instantiations (5,328 before: the three unions each read once their query
+ *   is known), records of an array of options 24,653 (25,544 before), records of a document scan 107,663 (TS2589 at the
+ *   fragment before, after 1,319,369 instantiations for the whole mirror; 256,943 for it after); a chain of options one
+ *   to eight deep adds 8,390 to 9,707 a level, a node's sibling 8,500 to 9,800; every program clean
+ * @decision the bound is the unboxed records' own cost, exactly: a change that makes a fragment of records cost more
  *   is refused here, and a change that lowers it lowers the bound
  * @revalidate a TypeScript 7 or tsgo upgrade; another machine; any change to records' types (types/schema/records.ts),
  *   to a fragment's or a schema's statements (types/schema/schema.ts) or to a retirable statement's that moves a unit's
  *   cost, which states its cost here
  */
 const addedAtMost: { readonly [S in FragmentShape]: number } = {
-	"flat records": 5328,
-	"records of an array of options": 25544
+	"flat records": 5527,
+	"records of an array of options": 24653,
+	"records of a document scan": 107663
 }
 
 /** How a shape prints. */
