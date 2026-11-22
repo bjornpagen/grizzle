@@ -20,7 +20,8 @@ import {
  * A case: one of the row-function boxes (row-functions.fixtures.ts), a relation contained in a closed relation over a
  * roster or one matching patterns, whose installation creates a closed relation's constants, a roster's constants and
  * row functions; a relation of texts calling one of grizzle's library functions, each a generated field or a CHECK,
- * or keyed by a text of no byte bound, which the key holds by its image, the library's digest, with a login of a role
+ * or keyed by the explicit digest of a text of no byte bound, a generated Crypto.sha256 its key holds (README's key
+ * rule refuses a key over the text itself, never holding it by a digest of its own), with a login of a role
  * that writes the relation and one that reads it; or a relation whose generated set field reads no column, the
  * singleton of a closed relation's closed id at the handle `at`, the relation holding a row at each handle of `held`:
  * at a handle it holds no row of, the field is the call of a row function of no parameter, which
@@ -32,12 +33,12 @@ export type FunctionCase =
 	| { readonly kind: "library"; readonly use: LibraryUse }
 	| { readonly kind: "unread"; readonly held: ReadonlyArray<Handle>; readonly at: Handle }
 
-/** The library functions a box calls: each of the library's, in a generated field, a CHECK or a key's image. */
+/** The library functions a box calls: each of the library's, in a generated field, a CHECK or a key's field. */
 const libraryUses = [
 	"Text.resolveReference in a generated field",
 	"Crypto.sha256 in a generated field",
 	"Xml.isPattern in a CHECK",
-	"a key over a text of no byte bound"
+	"a key over a generated Crypto.sha256 of a text of no byte bound"
 ] as const
 
 export type LibraryUse = (typeof libraryUses)[number]
@@ -66,21 +67,23 @@ const text = str.regex("^.*$", "su")
 /** A library case's schema, its relation R calling the library at `use`, with the login of R's writer and reader. */
 const librarySchemaOf = (use: LibraryUse) => {
 	const fields = { id: Id, base: text, href: text, body: text, p: text }
+	const digested = relation.generated("R", fields, ["id"], (r) => ({
+		digest: generatedField(sha256, Crypto.sha256(r.body), [])
+	}))
 	const R =
 		use === "Text.resolveReference in a generated field"
 			? relation.generated("R", fields, ["id"], (r) => ({
 					target: generatedField(text, Text.resolveReference(r.base, r.href), [])
 				}))
-			: use === "Crypto.sha256 in a generated field"
-				? relation.generated("R", fields, ["id"], (r) => ({
-						digest: generatedField(sha256, Crypto.sha256(r.body), [])
-					}))
+			: use === "Crypto.sha256 in a generated field" ||
+				  use === "a key over a generated Crypto.sha256 of a text of no byte bound"
+				? digested
 				: relation("R", fields, ["id"])
 	const statements =
 		use === "Xml.isPattern in a CHECK"
 			? [check("Patterned", R, (r) => Logic.eq(Xml.isPattern(r.p), true))]
-			: use === "a key over a text of no byte bound"
-				? [key(on(R, "body"))]
+			: use === "a key over a generated Crypto.sha256 of a text of no byte bound"
+				? [key(on(digested, "digest"))]
 				: []
 	const s = schema("Library", [R], statements)
 	return {
