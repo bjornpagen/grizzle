@@ -71,7 +71,7 @@ import {
 	type RelNode,
 	unionArms
 } from "#compiler/ir/rel.ts"
-import { baseOf, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
+import { baseOf, floatCarrierOf, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import { chain } from "#compiler/logical/defined.ts"
 import { conjuncts, type Fixed, fixedEqual, readColumns } from "#compiler/logical/props.ts"
 import { carrierEquality, nativeOp } from "#compiler/scalar/compute/registry.ts"
@@ -887,18 +887,26 @@ export const physicalPropsOf = (node: RelNode, cx: RuleContext): PhysicalProps =
 			}
 			const columns = node.heading.map((c) => c.name)
 			const fds = new DependencyDraft(columns)
-			fds.identify(
-				columns,
-				withReason(
-					joinJustifications([
-						justify({
-							premises: [paramPremise(inputSetPlaceholder(input)), nodePremise(node.id)]
-						}),
-						comparing(node.heading.map((c) => c.type))
-					]),
-					["deduplicatedInput"]
+			/**
+			 * A parameter's facts are delivered as they are, so two that differ in a float's zero's sign alone are two rows
+			 * PostgreSQL's equality holds equal (logical/props.ts Distinctness): its whole heading identifies its rows only
+			 * where it holds no float.
+			 */
+			const apart = node.heading.some((c) => floatCarrierOf(c.type) !== undefined)
+			if (!apart) {
+				fds.identify(
+					columns,
+					withReason(
+						joinJustifications([
+							justify({
+								premises: [paramPremise(inputSetPlaceholder(input)), nodePremise(node.id)]
+							}),
+							comparing(node.heading.map((c) => c.type))
+						]),
+						["deduplicatedInput"]
+					)
 				)
-			)
+			}
 			return finish(node, cx, {
 				fds,
 				fixed: new Map(),

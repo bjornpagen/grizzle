@@ -144,6 +144,14 @@ export const everyPhysicalClaimHoldsOnTheDeliveredRowsTheSoundnessPopulationBoth
 			kept: [
 				{
 					token: ReplayToken(
+						"test/unit/analysis/physical/soundness.test.ts#everyPhysicalClaimHoldsOnTheDeliveredRowsTheSoundnessPopulationBothRealizationsLateralSourcesCorrelatedVariablesAndTakesSharedNodesWindowsAndApproximateSearches:-:1.b.0.1.1.0.0.0.0.0.0.0.0.0.0.0.0.8.6.4.1.2.1.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.b.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.1.0.1.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0"
+					),
+					reason:
+						"a relation parameter of a real column holding 0 and -0, two facts natively equal, was identified by its whole heading as a key",
+					since: "2026-11-22"
+				},
+				{
+					token: ReplayToken(
 						"test/unit/analysis/physical/soundness.test.ts#everyPhysicalClaimHoldsOnTheDeliveredRowsTheSoundnessPopulationBothRealizationsLateralSourcesCorrelatedVariablesAndTakesSharedNodesWindowsAndApproximateSearches:0:1.0.1.2.2.1.b.0.0.b.0.0.0.1.1.0.0.0.0.0.0.0.0.0.0.0.2.2.1.0.1.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.1.b.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
 					),
 					reason:
@@ -152,6 +160,12 @@ export const everyPhysicalClaimHoldsOnTheDeliveredRowsTheSoundnessPopulationBoth
 				}
 			],
 			kills: [
+				{
+					file: "packages/engine/src/analysis/physical/rules.ts",
+					original: "\t\t\tif (!apart) {",
+					replacement: "\t\t\tif (apart || !apart) {",
+					why: "A relation parameter of a float column is identified by its whole heading (analysis/physical/rules.ts InputSet), though two of its facts apart in a zero's sign alone are natively equal; the kept case fails."
+				},
 				{
 					file: "packages/engine/src/ir/expr.ts",
 					original:
