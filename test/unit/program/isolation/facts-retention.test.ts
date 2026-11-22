@@ -7,8 +7,14 @@
  * (perf/perf-phys/qti-cert-holders-tip.md), the extraction of one statement in flight.
  *
  * Oracle: universal, read off the heap: after a member's extraction, with its facts alive and its statements alive, no
- * Walk and no Statement is alive (node:v8 queryObjects, after a full collection), each living only while its
- * extraction runs; and no object its facts reach is an object of its statements.
+ * Walk and no Statement of its extraction is alive (node:v8 queryObjects, after a full collection), each living only
+ * while its extraction runs; and no object its facts reach is an object of its statements. A case's own are the Walks
+ * and Statements alive after the extraction beyond those alive just before it: both counts follow a full collection,
+ * and the extraction between them is synchronous (memberFacts returns its facts, awaiting nothing), so no other code
+ * runs between the two counts and the difference is exactly what this extraction left alive. The count is the case's,
+ * where it counted every Walk of the worker's process: a worker holds several properties' modules, and two Walks of
+ * other work in trunk's worker, not this extraction (measured: 3,000 extractions in one process leave 0), reddened the
+ * property at 7adcb4b34 and c2e208938.
  *
  * The box: extract.test.ts's members (test/unit/program/isolation/extract.fixtures.ts caseGen), one to three statements
  * of DML, query CTEs, probes, arbitrations and met rows, at either level.
@@ -80,6 +86,7 @@ export const aMembersFactsHoldNoWalkNoStatementsExtractionStateAndNoNodeOfItsSta
 		check: (_, c: Case<Situation>) => (drawn) =>
 			Effect.sync(() => {
 				const statements = Arr.map(drawn.statements, buildStatement)
+				const before = alive()
 				const facts = memberFacts(
 					"member",
 					statements,
@@ -88,8 +95,12 @@ export const aMembersFactsHoldNoWalkNoStatementsExtractionStateAndNoNodeOfItsSta
 					drawn.level
 				)
 				const after = alive()
-				assert.equal(after.walks, 0, "no walk outlives the extraction")
-				assert.equal(after.statements, 0, "no statement's extraction state outlives it")
+				assert.equal(after.walks - before.walks, 0, "no walk outlives the extraction")
+				assert.equal(
+					after.statements - before.statements,
+					0,
+					"no statement's extraction state outlives it"
+				)
 				const nodes = objectsOf(statements)
 				const held = Arr.filter([...objectsOf(facts)], (o) => nodes.has(o))
 				assert.equal(held.length, 0, "the facts hold no node of the member's statements")
