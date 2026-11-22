@@ -13,6 +13,7 @@ import {
 } from "#cli/errors.ts"
 import type { PhaseMeter } from "#cli/phases.ts"
 import { runCli } from "#cli/run.ts"
+import { argumentsStart } from "#cli/usage.ts"
 
 const written = (
 	write: (text: string) => Effect.Effect<void>,
@@ -62,16 +63,6 @@ const configAt = (
 		const loaded: ConfigFile = { file, value: module.default }
 		return loaded
 	})
-
-/**
- * Where the command line's own arguments begin in process.argv, after Node's executable and the program's entry point
- * (https://nodejs.org/docs/v26.13.0/api/process.html#processargv: "The first element will be process.execPath. [...] If
- * a program entry point was provided, the second element will be the absolute path to it. The remaining elements are
- * additional command-line arguments.").
- *
- * @formatConstant Node's process.argv: its executable, the program's entry point, then the arguments
- */
-const argumentsStart = 2
 
 /**
  * The microseconds of a second, the unit of Node's process.cpuUsage()

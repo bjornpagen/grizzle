@@ -15,6 +15,13 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareNumbers, mapInput } from "#compiler/core/order.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import {
+	folderSeparator,
+	maxMigrationNameLength,
+	type TimestampParts,
+	timestampLength,
+	timestampWidths
+} from "#compiler/deploy/render/layout.ts"
+import {
 	isWords,
 	type StatementToken,
 	splitStatements,
@@ -24,23 +31,6 @@ import {
 import { writeJsonText } from "#compiler/deploy/snapshot/build.ts"
 import { daysInMonth } from "#compiler/ir/date.ts"
 import type { ConstraintLaws } from "#compiler/ir/products.ts"
-
-/**
- * The longest file name the operating system states, NAME_MAX: a migration folder is one directory entry, created where
- * it is drafted and wherever its repository is checked out. Darwin's NAME_MAX, whose comment reads "max bytes in a file
- * name", is Linux's too (https://github.com/torvalds/linux/blob/v7.3/include/uapi/linux/limits.h#L12, "#define
- * NAME_MAX         255"). A file system may admit a longer name (pathconf's _PC_NAME_MAX); grizzle writes none longer.
- *
- * @limitKind published
- * @owner Darwin (xnu 12377.121.6), and Linux alike
- * @unit bytes
- * @scope one file name, a single path component such as a migration folder's name
- * @constraint compile-time constant
- * @source https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/bsd/sys/syslimits.h#L103
- * @quote #define NAME_MAX 255
- * @verified 2026-11-05
- */
-export const fileNameMaxBytes = 255
 
 export const metaFileName = "meta.json"
 
@@ -397,31 +387,6 @@ export interface DraftedFolder extends MigrationFolder {
 }
 
 /**
- * A migration folder's timestamp, the UTC second it is drafted at, which the CLI reads off its clock (cli/clock.ts)
- * since the compiler reads none: its fields in the order it writes them, each with its width in digits, YYYYMMDDHHMMSS,
- * a four-digit year and two digits for each of the month, the day, the hour, the minute and the second.
- *
- * @formatConstant the digits of each field of a migration folder's timestamp
- */
-const timestampWidths = { year: 4, month: 2, day: 2, hour: 2, minute: 2, second: 2 } as const
-
-/** The UTC second a timestamp names: each of its fields' values, the month and the day counted from 1. */
-export type TimestampParts = { readonly [F in keyof typeof timestampWidths]: number }
-
-/** The digits of a timestamp's fields, summed: its length. */
-/* @__NO_SIDE_EFFECTS__ */
-const digitsOf = (widths: Readonly<Record<string, number>>): number => {
-	let digits = 0
-	for (const field in widths) {
-		digits += widths[field] ?? 0
-	}
-	return digits
-}
-
-/** A timestamp's length: the digits of all its fields. */
-export const timestampLength: number = digitsOf(timestampWidths)
-
-/**
  * The least year a timestamp's four digits name: one below it writes a leading zero, which names no four-digit year.
  *
  * @formatConstant a timestamp's four-digit year
@@ -484,20 +449,8 @@ const padded = (value: number, width: number): string => String(value).padStart(
 export const timestampText = (parts: TimestampParts): string =>
 	`${padded(parts.year, timestampWidths.year)}${padded(parts.month, timestampWidths.month)}${padded(parts.day, timestampWidths.day)}${padded(parts.hour, timestampWidths.hour)}${padded(parts.minute, timestampWidths.minute)}${padded(parts.second, timestampWidths.second)}`
 
-/** What separates a migration folder's timestamp from its name. */
-const folderSeparator = "_"
-
 /** What a migration folder's name starts with: its timestamp, then the separator. */
 const folderPrefix = (timestamp: string): string => `${timestamp}${folderSeparator}`
-
-/**
- * The longest name a migration folder carries after its timestamp, in UTF-8 bytes: given by `--name` or derived from
- * the change, it ends the folder's one file name. No limit of its own: the file system's NAME_MAX (fileNameMaxBytes)
- * less the prefix folderPrefix writes before every folder's name, a timestamp's timestampLength ASCII digits and the
- * separator, each one byte.
- */
-export const maxMigrationNameLength: number =
-	fileNameMaxBytes - timestampLength - folderSeparator.length
 
 /**
  * The migration name `name` is, parsed: lowercase ASCII letters and digits in words joined by `_` or `-`, at most

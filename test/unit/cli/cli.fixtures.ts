@@ -33,11 +33,8 @@ import {
 	type MigrationNameRefused
 } from "#cli/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import {
-	type FolderNaming,
-	type MigrationName,
-	maxMigrationNameLength
-} from "#compiler/deploy/render/folder.ts"
+import { type FolderNaming, type MigrationName } from "#compiler/deploy/render/folder.ts"
+import { maxMigrationNameLength } from "#compiler/deploy/render/layout.ts"
 import { login, role } from "#compiler/public/schema.ts"
 import { defineConfig } from "#index.ts"
 import { shop, type ShopWorkload } from "#test/pg/cli/fixture.ts"

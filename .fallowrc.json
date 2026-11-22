@@ -4,6 +4,7 @@
 		"test/**/*.child.ts",
 		"test/support/programs/**/*.ts",
 		"test/unit/deps/runtime-probe.ts",
+		"test/unit/cli/load-probe.ts",
 		"bench/**/main.ts",
 		// The performance gates, which the bench runner discovers by name (bench/harness/runner.ts).
 		"bench/**/*.bench.ts",
@@ -144,10 +145,12 @@
 				// pending folder against the ledger (deploy/ledger/decide.ts), a migration's lock demand (deploy/locks), the
 				// installation's DDL and its indexes, the workload's access compile, and their facade (plan/migration.ts). No
 				// zone a login's runtime loads imports one, so DbLayer.make and a Db load none of them; plan/serve.ts is the
-				// runtime's facade.
+				// runtime's facade. plan/usage.ts is the command line's usage's facade over one module of constants of it
+				// (deploy/render/layout.ts), which `grizzle --help` loads alone.
 				"name": "install",
 				"patterns": [
 					"packages/engine/src/plan/migration.ts",
+					"packages/engine/src/plan/usage.ts",
 					"packages/engine/src/deploy/admission/manifest.ts",
 					"packages/engine/src/deploy/admission/proof.ts",
 					"packages/engine/src/deploy/diff/**",

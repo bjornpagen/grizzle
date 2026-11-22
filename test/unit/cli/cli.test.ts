@@ -182,16 +182,16 @@ export const theCommandLineGeneratedPrintsTheUsageForHelpOrHAnywhereAndForNoArgu
 		kept: [],
 		kills: [
 			{
-				file: "packages/grizzle/src/cli/args.ts",
-				original: "\tif (command === undefined || Arr.some(argv, isHelp)) {",
-				replacement: "\tif (command === undefined || isHelp(command)) {",
+				file: "packages/grizzle/src/cli/usage.ts",
+				original: "\tfor (const arg of argv) {\n\t\tif (isHelp(arg)) {",
+				replacement: "\tfor (const arg of argv.slice(0, 1)) {\n\t\tif (isHelp(arg)) {",
 				why: "--help counts only as the command."
 			},
 			{
-				file: "packages/grizzle/src/cli/args.ts",
-				original: "\tif (command === undefined || Arr.some(argv, isHelp)) {",
-				replacement: "\tif (command === undefined || Arr.every(argv, isHelp)) {",
-				why: "Operator mutant (quantifier) at packages/grizzle/src/cli/args.ts:287 in parseArgs: `some` becomes `every`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				file: "packages/grizzle/src/cli/usage.ts",
+				original: "\t\tif (isHelp(arg)) {\n\t\t\treturn true\n\t\t}\n\t}\n\treturn false",
+				replacement: "\t\tif (!isHelp(arg)) {\n\t\t\treturn false\n\t\t}\n\t}\n\treturn true",
+				why: "Operator mutant (quantifier) in usage.ts helpAsked, once args.ts parseArgs's: `some` becomes `every`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]
 	})
@@ -389,10 +389,10 @@ export const theBinsConfigurationFileIsNamedByTheCommandLineLoadedAndCheckedBefo
 		kept: [],
 		kills: [
 			{
-				file: "packages/grizzle/src/cli/args.ts",
+				file: "packages/grizzle/src/cli/usage.ts",
 				original: 'const isHelp = (arg: string): boolean => arg === "--help" || arg === "-h"',
 				replacement: 'const isHelp = (arg: string): boolean => arg === "--help" || arg !== "-h"',
-				why: "Operator mutant (comparison) at packages/grizzle/src/cli/args.ts:117 in isHelp: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				why: "Operator mutant (comparison) in usage.ts isHelp, once args.ts's: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			},
 			{
 				file: "packages/grizzle/src/cli/run.ts",

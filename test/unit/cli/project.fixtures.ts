@@ -49,14 +49,13 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { silentPhases } from "#compiler/core/phase.ts"
 import type { AbandonedSchema, Declarations } from "#compiler/deploy/diff/plan.ts"
 import {
-	fileNameMaxBytes,
 	type FolderNaming,
 	isFolderName,
-	maxMigrationNameLength,
 	metaFileName,
 	type MigrationName
 } from "#compiler/deploy/render/folder.ts"
 import { customMigration, generateMigration } from "#compiler/deploy/render/generate.ts"
+import { fileNameMaxBytes, maxMigrationNameLength } from "#compiler/deploy/render/layout.ts"
 import { findMarkers, placeholderMarker } from "#compiler/deploy/render/markers.ts"
 import { emptySnapshot, writeSnapshot } from "#compiler/deploy/snapshot/build.ts"
 import {

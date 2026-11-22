@@ -28,13 +28,13 @@ import type { Declarations, Rename } from "#compiler/deploy/diff/plan.ts"
 import {
 	type CustomMeta,
 	type FolderLaws,
-	maxMigrationNameLength,
 	type MetaFile,
 	metaFileName,
 	metaSeal,
 	type MetaStep,
 	type MigrationMeta
 } from "#compiler/deploy/render/folder.ts"
+import { maxMigrationNameLength } from "#compiler/deploy/render/layout.ts"
 import { closedId } from "#compiler/public/fields.ts"
 import { closed, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"

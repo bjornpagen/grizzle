@@ -18,18 +18,14 @@ import {
 	type RecordedFormat,
 	recordedFormatText
 } from "#compiler/plan/common.ts"
-import {
-	maxMigrationNameLength,
-	metaFileName,
-	type UnservedMember,
-	type UnservedReason
-} from "#compiler/plan/migration.ts"
+import { metaFileName, type UnservedMember, type UnservedReason } from "#compiler/plan/migration.ts"
 import {
 	type LiveGap,
 	manifestFileName,
 	snapshotFileName,
 	type UncoveredRead
 } from "#compiler/plan/serve.ts"
+import { maxMigrationNameLength } from "#compiler/plan/usage.ts"
 
 /**
  * The failure of a `grizzle` command outside the apply runner.

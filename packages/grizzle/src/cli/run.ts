@@ -8,8 +8,7 @@ import {
 	type FileSystem,
 	Option,
 	Path,
-	Result,
-	String as Str
+	Result
 } from "effect"
 import { mismatchLine } from "#adapter/admission/drift.ts"
 import type { SchemaApplyReport } from "#adapter/migrate/apply.ts"
@@ -20,7 +19,7 @@ import {
 	stageOutcome
 } from "#adapter/migrate/errors.ts"
 import type { UninstallReport } from "#adapter/migrate/uninstall.ts"
-import { type CommandLine, parseArgs, usageText } from "#cli/args.ts"
+import { type CommandLine, parseArgs } from "#cli/args.ts"
 import { check, checkFiles, findingText, type SchemaCheck } from "#cli/check.ts"
 import { type ConfigFile, resolveConfig } from "#cli/config.ts"
 import { migrationConnection } from "#cli/connection.ts"
@@ -31,6 +30,7 @@ import { names } from "#cli/names.ts"
 import { type PhaseMeter, phasedEffect, phaseRun } from "#cli/phases.ts"
 import { cliStageFix, isolationFix, migrateStageFix, refusalText } from "#cli/refusals.ts"
 import { upgradeAll } from "#cli/upgrade.ts"
+import { helpText } from "#cli/usage.ts"
 import type { Phases } from "#compiler/plan/common.ts"
 import {
 	type IsolationCondition,
@@ -454,7 +454,7 @@ const program = Effect.fn("program")(function* (
 	}
 	const line = parsed.success
 	if (line.kind === "help") {
-		return ran(exitCodes.ok, [Str.trimEnd(usageText)], [])
+		return ran(exitCodes.ok, [helpText], [])
 	}
 	const run = phaseRun(meter, line.phases)
 	return yield* Effect.ensuring(commandRan(line, cwd, load, run.phases), Effect.sync(run.done))

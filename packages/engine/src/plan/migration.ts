@@ -52,7 +52,6 @@ export {
 	isFolderName,
 	lossDecisions,
 	lossText,
-	maxMigrationNameLength,
 	metaFileName,
 	metaSeal,
 	type MigrationFolder,
@@ -63,11 +62,10 @@ export {
 	readDecodedMeta,
 	type ReadMeta,
 	statedLocks,
-	timestampLength,
-	type TimestampParts,
 	timestampParts,
 	timestampText
 } from "#compiler/deploy/render/folder.ts"
+export { timestampLength, type TimestampParts } from "#compiler/deploy/render/layout.ts"
 export {
 	customMigration,
 	type DraftInput,

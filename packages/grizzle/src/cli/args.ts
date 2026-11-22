@@ -11,10 +11,10 @@ import {
 	type ValuedFlag
 } from "#cli/errors.ts"
 import { DeclarationRefused, parseDeclarations } from "#cli/renames.ts"
+import { helpAsked } from "#cli/usage.ts"
 import {
 	type Declarations,
 	type FolderNaming,
-	maxMigrationNameLength,
 	type MigrationName,
 	noDeclarations,
 	parseMigrationName
@@ -88,54 +88,6 @@ export type CommandLine =
 			readonly command: Command
 			readonly phases: boolean
 	  }
-
-export const usageText = `Usage:
-  grizzle generate <config> [--name <name>] [--schema <schema>] [--rename <old>=<new>]... [--drop <old>]...
-                   [--phases]
-      draft the next migration from the schemas' changes
-  grizzle generate <config> --custom --name <name> [--schema <schema>] [--phases]
-      an empty migration for data steps
-  grizzle check <config> [--phases]
-      generated, resolved and untampered? (offline)
-  grizzle migrate <config>
-      apply pending migrations
-  grizzle drift <config>
-      does the database match the snapshot? (applies nothing)
-  grizzle upgrade <config>
-      rebase the live installation onto this grizzle's format: its snapshot again, or an
-      upgrade migration (applies nothing)
-  grizzle names <config>
-      each hashed object's PostgreSQL name and what it is
-  grizzle roles <config>
-      the installation's PostgreSQL roles in the cluster
-  grizzle uninstall <config>
-      drop the installation's schemas, with every row they hold, and its roles
-
-<config> is the configuration file, whose default export is defineConfig({ ... }): an absolute path, or
-one relative to the directory grizzle runs in. migrate, drift, upgrade, roles and uninstall connect with
-the configuration's connection only.
-
-Options of generate, as --flag value or --flag=value, anywhere after the command:
-  --custom          an empty folder for data steps, named by --name
-  --name <name>     the folder's name: lowercase words joined by _ or -, at most ${maxMigrationNameLength} characters;
-                    without it a drafted folder is named after its change
-  --schema <name>   only this configured schema (its declared name or PostgreSQL schema);
-                    accepted only when the configuration declares several schemas, and required
-                    there with --custom, --rename or --drop
-  --rename <old>=<new>
-                    a rename the draft makes, once per name: Relation=Relation,
-                    Relation.field=Relation.field, Roster#handle=Roster#handle or @login=@login;
-                    a handle keeps its code, and a login its role, with its password and grants
-  --drop <old>      a drop the draft makes, once per name: Relation, Relation.field, Roster#handle or
-                    @login; every drop of a name the schema no longer holds is declared, by --rename
-                    or --drop
-  --phases          report each phase on stderr as it starts and ends, a line each:
-                    grizzle phase <phase> <start|end> t=<s> cpu=<s> heapUsed=<MB> heapTotal=<MB>
-                    rss=<MB> external=<MB>, then grizzle phase done ... peakHeapUsed=<MB>;
-                    check takes it too
-`
-
-const isHelp = (arg: string): boolean => arg === "--help" || arg === "-h"
 
 /** The refusal of a command line that does not parse, for `fault`. */
 const malformed = (fault: ArgumentsRefused["fault"]): Result.Result<never, CliError> =>
@@ -312,7 +264,7 @@ const parsePlain = (
 
 export const parseArgs = (argv: ReadonlyArray<string>): Result.Result<CommandLine, CliError> => {
 	const [command, ...rest] = argv
-	if (command === undefined || Arr.some(argv, isHelp)) {
+	if (command === undefined || helpAsked(argv)) {
 		return Result.succeed({ kind: "help" })
 	}
 	switch (command) {

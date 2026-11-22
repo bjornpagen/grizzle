@@ -414,11 +414,13 @@ export default defineConfig(
 			library: ["packages/engine/src", "packages/grizzle/src", "packages/openapi/src"],
 			/**
 			 * The connection's one reader of the environment, which refuses the variables node-postgres would send at a
-			 * session's startup; and the command line's module, which its bin loads, and which reads its own arguments and
+			 * session's startup; the command line's bin, which reads its own arguments to answer the usage before it loads
+			 * the command line; and the command line's module, which its bin loads, and which reads its own arguments and
 			 * working directory and passes them on as its program's input.
 			 */
 			readers: [
 				"packages/grizzle/src/adapter/connection/environment.ts",
+				"packages/grizzle/src/cli/bin.ts",
 				"packages/grizzle/src/cli/main.ts"
 			]
 		},
