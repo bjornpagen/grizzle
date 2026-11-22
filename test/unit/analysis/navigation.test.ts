@@ -62,7 +62,7 @@ export const navigationKeepsEveryGeneratedReadsAnswerByTheReferenceOverTheChecke
 						"test/unit/analysis/navigation.test.ts#navigationKeepsEveryGeneratedReadsAnswerByTheReferenceOverTheCheckedIR:-:2.1.0.1.0.0.1.0.1.0.0.1.0.1.0.1.0.1.2.1.0.1.0.1.0.1.0.1.2.1.2.1.2.0.0.1.0.0.1.0.1.0.1.0.0.1.0.1.0.1.0.1.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.pa8.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.pa8.pa8.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.pa8.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
 					),
 					reason:
-						"a navigated read whose region holds a variable correlated with an attachment's parent, __p0_0 fixed to the parent's Bool, beside an occurrence whose source is correlated with the region and reads that variable: the reference fixed a correlated variable only once every occurrence was bound, so the source read a column the region did not yet hold and the reference refused the case (PERFWRITE2's replay at 0eaba136c)",
+						"a navigated read whose region holds a variable correlated with an attachment's parent, __p0_0 fixed to the parent's Bool, beside an occurrence whose source is correlated with the region and reads that variable: the reference fixed a correlated variable only once every occurrence was bound, so the source read a column the region did not yet hold and the reference refused the case (PERFWRITE2's replay at 0eaba136c). Since 32d761c10 the checker binds an attachment's import at the parent's own column (check/checker.ts #bindValue), so the read holds no region variable an occurrence's source reads, and the reference's fix of a correlated variable at the region's start (evaluate.ts correlatedStart) and at its finish agree on it",
 					since: "2026-11-20"
 				},
 				{
@@ -75,12 +75,6 @@ export const navigationKeepsEveryGeneratedReadsAnswerByTheReferenceOverTheChecke
 				}
 			],
 			kills: [
-				{
-					file: "test/support/oracle/reference/evaluate.ts",
-					original: "\t\t\tif (Arr.every(c.expr.deps.nodes, (n) => !own.has(n))) {",
-					replacement: "\t\t\tif (false) {",
-					why: "A region holds no correlated variable from its start, so an occurrence's source correlated with the region reads a column the region does not hold yet, and the reference refuses the kept navigated read."
-				},
 				{
 					file: "packages/engine/src/analysis/theory/navigate.ts",
 					original: "\t\t\t\twhere: inner,",
