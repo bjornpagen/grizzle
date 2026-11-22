@@ -820,10 +820,7 @@ export const theIsolationCertifierReadsAStatementsQueryCTEInstancesAsTheirExpans
 								),
 								Order.String
 							),
-							Arr.sort(
-								Arr.dedupe(Arr.map(expected, (u) => u.key)),
-								Order.String
-							),
+							Arr.sort(Arr.dedupe(Arr.map(expected, (u) => u.key)), Order.String),
 							`r${i}'s writes joined with none of some outside reads, each read counted once, each reason once`
 						)
 						if (Arr.some(expected, (u) => u.places < u.reads)) {
