@@ -31,6 +31,7 @@ import { openedIn } from "#test/pg/reads/support.ts"
 import {
 	Doc,
 	docLines,
+	Line,
 	type DocRow,
 	docPutAfter,
 	familyAfter,
@@ -362,10 +363,10 @@ export const aWriteNamesItsRowsByTheirTextsAndMeetsEveryOtherFactAtItsKeyGenerat
 				{
 					file: "packages/engine/src/write/delete/exact.ts",
 					original:
-						"\t\tconst keys = mapNonEmpty(pk, (field) => ({ field, column: inputs.of(field) }))",
+						"\t\t\t\t\t\tfactEq({ fields: compared, typeOf, left: stored, right: inCol }, w.names),\n",
 					replacement:
-						'\t\tconst keys = mapNonEmpty(pk, (field) => {\n\t\t\tconst text = field.writing.kind === "keyGenerated" ? compared.find((c) => c.name === "path") : undefined\n\t\t\treturn { field: text ?? field, column: inputs.of(text ?? field) }\n\t\t})',
-					why: "SQL matching on the texts instead of the digests: a put's displacing deletion reaches the stored row at its path, not at its key generation, so a put of another spelling at FoldedRef's key displaces nothing and meets the stored row at the primary key."
+						'\t\t\t\t\t\tfactEq({ fields: compared.filter((f) => f.name !== "path"), typeOf, left: stored, right: inCol }, w.names),\n',
+					why: "An exact deletion meets a stored fact at its key generation alone, not at the text it states: a delete stating another spelling of a stored path at FoldedRef's folded key generation removes the stored row, where a deletion removes only a fact equal at every field, and the search fails. (A put of FoldedRef is an ON CONFLICT DO UPDATE, write/put/choose.ts, so no displacing deletion meets a folded key generation in this box.)"
 				}
 			]
 		}
@@ -400,9 +401,10 @@ type FamilyFeature =
  * deleted by its fields or by another title, a new tree, and a stored tree deleted by its root's package and path. A
  * member states its owner's path five draws in six.
  *
- * The oracle is the host model over the same digests: a stratum's deletions first, then its inserts; an insert at a
- * stored or another inserted owner's key is refused on that owner's primary key, and a member whose path's digest is
- * not its owner's on its family's law; otherwise every document, line, note and node after it is the model's, and after
+ * The oracle is the host model over the same digests (generated-pk.fixtures.ts familyAfter): a stratum's deletions
+ * first, then its inserts; an insert at a stored or another inserted owner's key that differs from it is refused on
+ * that owner's primary key, an exact repeat of a stored document, its groups included, is met and changes nothing, and a
+ * member whose path's digest is not its owner's is refused on its family's law; otherwise every document, line, note and node after it is the model's, and after
  * the title put, a stratum of its own, each line and note carries its document's title, each digest the model's.
  */
 export const aFamilyOverAKeyGenerationGroupsItsMembersByTheOwnersDigest = property.explore(
@@ -560,6 +562,7 @@ export const aFamilyOverAKeyGenerationGroupsItsMembersByTheOwnersDigest = proper
 											"doc key": names.primaryKeyLaw(Doc),
 											"tree key": names.primaryKeyLaw(TreeNode),
 											"line axis": names.lawOf(docLines),
+											"line key": names.primaryKeyLaw(Line),
 											"node axis": names.lawOf(nodes)
 										}
 										const named = Arr.map(refusedEntries(outcome.refused), names.reported)
@@ -571,6 +574,7 @@ export const aFamilyOverAKeyGenerationGroupsItsMembersByTheOwnersDigest = proper
 											"doc key": "refused: a document at a stored key",
 											"tree key": "refused: a tree at a stored key",
 											"line axis": "refused: a line whose path is not its document's",
+											"line key": "refused: a line whose path is not its document's",
 											"node axis": "refused: a tree's member whose path is not its root's"
 										}
 										const [only, ...more] = expected.breaches

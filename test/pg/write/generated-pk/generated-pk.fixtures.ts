@@ -68,7 +68,7 @@ export const Doc = relation.generated(
 )
 
 /** A line of a document: form (a), its digest its own generation over the path it states. */
-const Line = relation.generated(
+export const Line = relation.generated(
 	"Line",
 	{
 		package: Package,
@@ -536,16 +536,36 @@ const preorder = (
 }
 
 /**
- * Why a family stratum is refused, each the law the model names: a document or a tree inserted at a stored key, or
- * at another inserted one's (the owner's primary key); a line, or a tree's member, whose path's digest is not its
- * owner's (the family's owner axis: the member's own key generation over its own path meets no owner).
+ * Why a family stratum is refused, each the law the model names: a document inserted at a stored key it differs from,
+ * a tree inserted at a stored key, or either at another inserted one's (the owner's primary key); a line, or a tree's member, whose path's digest is not its
+ * owner's (the family's owner axis: the member's own key generation over its own path meets no owner); two lines at one
+ * key, their package, the digest of the path each states and their place in their documents, of two documents, one of
+ * which states a line off its own path (Line's primary key).
  */
-export type FamilyBreach = "doc key" | "tree key" | "line axis" | "node axis"
+export type FamilyBreach = "doc key" | "tree key" | "line axis" | "node axis" | "line key"
 
 export type FamilyOutcome =
 	| { readonly kind: "refused"; readonly breaches: Arr.NonEmptyReadonlyArray<FamilyBreach> }
 	| { readonly kind: "applied"; readonly state: FamilyState; readonly changed: boolean }
 
+/** Whether two documents are one fact with its groups: the same title, lines and notes, each in order. */
+const sameDoc = (a: DocRow, b: DocRow): boolean =>
+	a.title === b.title &&
+	a.lines.length === b.lines.length &&
+	Arr.every(a.lines, (l, i) => {
+		const m = b.lines[i]
+		return m !== undefined && m.path === l.path && m.word === l.word
+	}) &&
+	a.notes.length === b.notes.length &&
+	Arr.every(a.notes, (n, i) => b.notes[i]?.word === n.word)
+
+/**
+ * What a family stratum does (familyCaseGen): its deletions first, then its inserts. An insert at a stored or another
+ * inserted owner's key that differs from it is refused on the owner's primary key, and a member whose path's digest is
+ * not its owner's on its family's law, and two lines at one key on Line's (FamilyBreach). An insert that repeats a stored document exactly, its title and
+ * its groups, the lines and notes it nests, changes nothing and meets it (README "Rows an insertion met"). The stratum
+ * changes a row where it inserts a fresh document or a tree, or deletes a stored document or tree.
+ */
 export const familyAfter = (before: FamilyState, w: FamilyWrites): FamilyOutcome => {
 	const deletedDocs = Arr.filter([...before.docs.entries()], ([, d]) =>
 		Arr.some(
@@ -558,16 +578,29 @@ export const familyAfter = (before: FamilyState, w: FamilyWrites): FamilyOutcome
 		docs.delete(k)
 	}
 	const breaches: Array<FamilyBreach> = []
+	/** Whether an insert changes a row: a fresh document. */
+	let inserted = false
+	/** The documents kept past the deletions and those inserted fresh, whose lines the stratum leaves stored. */
+	const placed: Array<DocRow> = [...docs.values()]
 	for (const d of w.docInserts) {
 		const k = groupKey(d.package, d.path)
 		const was = docs.get(k)
-		if (was !== undefined) {
-			breaches.push("doc key")
-		}
 		if (Arr.some(d.lines, (l) => digestHex(l.path) !== digestHex(d.path))) {
 			breaches.push("line axis")
 		}
-		docs.set(k, d)
+		if (was === undefined) {
+			docs.set(k, d)
+			placed.push(d)
+			inserted = true
+		} else if (!sameDoc(was, d)) {
+			breaches.push("doc key")
+		}
+	}
+	const lineKeys = Arr.flatMap(placed, (d) =>
+		Arr.map(d.lines, (l, at) => `${d.package}\u0000${digestHex(l.path)}\u0000${String(at)}`)
+	)
+	if (new Set(lineKeys).size !== lineKeys.length) {
+		breaches.push("line key")
 	}
 	const trees = new Map(before.trees)
 	for (const x of w.treeDelete) {
@@ -587,7 +620,7 @@ export const familyAfter = (before: FamilyState, w: FamilyWrites): FamilyOutcome
 		return { kind: "refused", breaches }
 	}
 	const changed =
-		w.docInserts.length > 0 ||
+		inserted ||
 		w.treeInserts.length > 0 ||
 		deletedDocs.length > 0 ||
 		Arr.some(w.treeDelete, (x) => before.trees.has(groupKey(x.package, x.path)))
@@ -829,12 +862,12 @@ export const setAfter = (before: SetState, step: SetStep): SetOutcome => {
 		}
 		case "childReweigh": {
 			const next = Arr.map(rows, (r) =>
-				r.child === step.child ? { ...r, weight: r.weight + 1 } : r
+				r.child === step.child ? { ...r, weight: step.weight } : r
 			)
 			return {
 				kind: "applied",
 				state: new Map(Arr.map(next, (r) => [setKey(r), r] as const)),
-				changed: Arr.some(rows, (r) => r.child === step.child)
+				changed: Arr.some(rows, (r) => r.child === step.child && r.weight !== step.weight)
 			}
 		}
 		case "stratum": {
