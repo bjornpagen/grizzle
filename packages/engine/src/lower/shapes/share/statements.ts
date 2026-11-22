@@ -180,7 +180,7 @@ export interface CarriedShare {
 }
 
 /** The nodes a statement rooted at `root` lowers, each once, without entering a node `stop` names. */
-const reach = (
+export const reach = (
 	index: ShareIndex,
 	root: RelNode,
 	stop: (node: RelNode) => boolean
@@ -233,26 +233,60 @@ export const planStatementShares = (
 			const key = index.key(node)
 			return key !== undefined && carriedKeys.has(key)
 		}
-		for (let round = 0; ; round++) {
-			/** The statements: the roots, then each chosen fill, which lowers its own copy of the share `own` names. */
-			const units: ReadonlyArray<{ readonly root: RelNode; readonly own: string | undefined }> = [
-				...roots.map((root) => ({ root, own: undefined })),
-				...chosen.map((c) => ({ root: c.node, own: c.key }))
-			]
-			/** Each node that may be shared, by the statements reading it, in the order the statements first read it. */
-			const readers = new Map<RelNode, Set<number>>()
-			for (const [u, unit] of units.entries()) {
-				const nodes =
-					unit.own === undefined && carried(unit.root) ? [] : reach(index, unit.root, carried)
-				for (const node of nodes) {
-					if (!index.eligible(node) || node.heading.length === 0 || carried(node)) {
-						continue
-					}
-					const set = readers.getOrInsertComputed(node, () => new Set<number>())
-					set.add(u)
-					seen.getOrInsert(node, round)
+		/**
+		 * The statements: the roots, then each chosen fill, which lowers its own copy of the share `own` names, each with
+		 * the nodes it reads now (reach), which only shrink as keys are carried: a statement reads a node until a key
+		 * carries it or every path to it, and never a new one.
+		 */
+		const units: Array<{
+			readonly root: RelNode
+			readonly own: string | undefined
+			nodes: ReadonlyArray<RelNode>
+		}> = []
+		/** Each node that may be shared, by the statements reading it now. */
+		const readers = new Map<RelNode, Set<number>>()
+		/** The nodes a statement reads, a root's none once a key carries the root itself. */
+		const readOf = (root: RelNode, own: string | undefined): ReadonlyArray<RelNode> =>
+			own === undefined && carried(root) ? [] : reach(index, root, carried)
+		/** A statement entered at `round`: each node it reads that may be shared, read by it, seen first then if never. */
+		const enter = (root: RelNode, own: string | undefined, round: number): void => {
+			const u = units.length
+			const nodes = readOf(root, own)
+			units.push({ root, own, nodes })
+			for (const node of nodes) {
+				if (!index.eligible(node) || node.heading.length === 0 || carried(node)) {
+					continue
+				}
+				readers.getOrInsertComputed(node, () => new Set<number>()).add(u)
+				seen.getOrInsert(node, round)
+			}
+		}
+		/**
+		 * Statement `u` read again where it read a node a key carries now, from its root, every node it no longer reads
+		 * dropped from its readers, a node the key carries among them; every other statement reads as it did, its reach
+		 * stopping at no node it reached.
+		 */
+		const reread = (u: number): void => {
+			const unit = defined(units[u], "a statement")
+			const now = unit.nodes.filter(
+				(n) => (n !== unit.root || unit.own === undefined) && carried(n)
+			)
+			if (!isNonEmpty(now)) {
+				return
+			}
+			const nodes = readOf(unit.root, unit.own)
+			const kept = new Set(nodes)
+			for (const n of unit.nodes) {
+				if (!kept.has(n)) {
+					readers.get(n)?.delete(u)
 				}
 			}
+			unit.nodes = nodes
+		}
+		for (const root of roots) {
+			enter(root, undefined, 0)
+		}
+		for (let round = 0; ; round++) {
 			/** The highest classes enough statements read this round (decidingClasses), the least key among them chosen,
 			 * each digested. */
 			const tied = decidingClasses(index, [...seen.keys()], readers)
@@ -264,14 +298,15 @@ export const planStatementShares = (
 				key: defined(index.key(defined(nodes[0], "a class's first node")), "an eligible key")
 			}))
 			const winner = keyed.reduce((a, b) => (b.key < a.key ? b : a))
+			const node = defined(winner.nodes[0], "a class's first node")
 			carriedKeys.add(winner.key)
-			carriedShapes.add(index.shape(defined(winner.nodes[0], "a class's first node")))
-			carriedSignatures.add(index.signature(defined(winner.nodes[0], "a class's first node")))
-			chosen.push({
-				key: winner.key,
-				node: defined(winner.nodes[0], "a class's first node"),
-				copies: []
-			})
+			carriedShapes.add(index.shape(node))
+			carriedSignatures.add(index.signature(node))
+			chosen.push({ key: winner.key, node, copies: [] })
+			for (const u of units.keys()) {
+				reread(u)
+			}
+			enter(node, winner.key, round + 1)
 		}
 		/** Each carried key's copies: the nodes of its shape the statements read before it was carried, by its key. */
 		const roundOf = new Map(chosen.map((c, i) => [c.key, i] as const))
@@ -307,7 +342,7 @@ export const planStatementShares = (
  * colliding shape the statements read, at every height, where each round's choice reads only the highest classes read
  * twice.
  */
-const decidingClasses = (
+export const decidingClasses = (
 	index: ShareIndex,
 	nodes: ReadonlyArray<RelNode>,
 	readers: ReadonlyMap<RelNode, ReadonlySet<number>>

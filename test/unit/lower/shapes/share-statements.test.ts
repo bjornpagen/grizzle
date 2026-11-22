@@ -21,10 +21,14 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { finite, int } from "@bjornpagen/testing/gen"
 import { agree, exact, set, structuralHash } from "@bjornpagen/testing/oracle"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect } from "effect"
+import { Array as Arr, Effect, Formatter, Order } from "effect"
+import type { RelNode } from "#compiler/ir/rel.ts"
 import { shareKey } from "#compiler/lower/shapes/share/index.ts"
 import {
+	type CarriedShare,
+	decidingClasses,
 	planStatementShares,
+	reach,
 	ShareIndex,
 	statementCtes
 } from "#compiler/lower/shapes/share/statements.ts"
@@ -33,6 +37,8 @@ import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import {
 	attachedJobs,
 	attachmentFilters,
+	chained,
+	chainedGen,
 	expectedAnswers,
 	Jobs,
 	program,
@@ -158,6 +164,179 @@ export const attachmentPartsFedFromAnEarlierOneFeedALaterAttachmentFromTheFirstE
 				original: "\t\t\tconst feeder = siblings.find((s) => this.#sameRows(s, attach, parentKey))",
 				replacement: "\t\t\tconst feeder = siblings.find(() => false)",
 				why: "No attachment part is fed from an earlier one, each placed as a part of its own; the feeding search fails."
+			}
+		]
+	})
+
+/** A share index that counts the inputs its planning reads: every node a statement's reach walks, once per walk. */
+class CountingIndex extends ShareIndex {
+	walked = 0
+
+	override inputs(node: RelNode): ReadonlyArray<RelNode> {
+		this.walked += 1
+		return super.inputs(node)
+	}
+}
+
+/**
+ * The planning as it was (shapes/share/statements.ts at 74dc1011f), every round reading every statement's reach again
+ * from its root: the carried shares, and each round's statements whose reach held a node of the key that round
+ * carries, the fill that round enters aside.
+ */
+const plannedByRounds = (
+	index: ShareIndex,
+	roots: ReadonlyArray<RelNode>
+): {
+	readonly shares: ReadonlyArray<CarriedShare>
+	readonly touched: ReadonlyArray<{ readonly statements: number; readonly read: number }>
+} => {
+	const chosen: Array<CarriedShare> = []
+	const carriedKeys = new Set<string>()
+	const seen = new Map<RelNode, number>()
+	const carried = (node: RelNode): boolean => {
+		const key = index.eligible(node) ? index.key(node) : undefined
+		return key !== undefined && carriedKeys.has(key)
+	}
+	const touched: Array<{ readonly statements: number; readonly read: number }> = []
+	let last: ReadonlyArray<ReadonlyArray<RelNode>> = []
+	for (let round = 0; ; round++) {
+		const units: ReadonlyArray<{ readonly root: RelNode; readonly own: string | undefined }> = [
+			...Arr.map(roots, (root) => ({ root, own: undefined })),
+			...Arr.map(chosen, (c) => ({ root: c.node, own: c.key }))
+		]
+		const readers = new Map<RelNode, Set<number>>()
+		const reached: Array<ReadonlyArray<RelNode>> = []
+		for (const [u, unit] of units.entries()) {
+			const nodes =
+				unit.own === undefined && carried(unit.root) ? [] : reach(index, unit.root, carried)
+			reached.push(nodes)
+			for (const node of nodes) {
+				if (!index.eligible(node) || node.heading.length === 0 || carried(node)) {
+					continue
+				}
+				readers.getOrInsertComputed(node, () => new Set<number>()).add(u)
+				seen.getOrInsert(node, round)
+			}
+		}
+		last = reached
+		const tied = decidingClasses(index, [...seen.keys()], readers)
+		const [first, ...rest] = tied
+		if (first === undefined) {
+			break
+		}
+		const keyed = Arr.map([first, ...rest], (nodes) => ({
+			nodes,
+			key: present(index.key(present(nodes[0], "a class's first node")), "an eligible key")
+		}))
+		const winner = Arr.reduce(keyed, present(keyed[0], "a class"), (a, b) =>
+			b.key < a.key ? b : a
+		)
+		const node = present(winner.nodes[0], "a class's first node")
+		carriedKeys.add(winner.key)
+		touched.push({
+			statements: last.length,
+			read: Arr.filter(last, (nodes, u) =>
+				Arr.some(nodes, (n) => (u >= roots.length ? n !== nodes[0] : true) && carried(n))
+			).length
+		})
+		chosen.push({ key: winner.key, node, copies: [] })
+	}
+	const roundOf = new Map(Arr.map(chosen, (c, i) => [c.key, i] as const))
+	const shares = Arr.sort(
+		Arr.map(chosen, (c) => ({
+			...c,
+			copies: Arr.flatMap([...seen], ([node, round]) =>
+				round <= present(roundOf.get(c.key), "a carried key's round") && index.key(node) === c.key
+					? [node]
+					: []
+			)
+		})),
+		Order.mapInput(Order.Number, (c: CarriedShare) => index.height(c.node))
+	)
+	return { shares, touched }
+}
+
+/**
+ * The planning of a program's carried shares reads every statement's reach once, and again only in a round whose
+ * carried key it read, where it read every statement's again every round: it carries the shares the round-by-round
+ * planning carries, in its order, each with its copies, and walks fewer inputs wherever a round's key leaves a
+ * statement as it was.
+ *
+ * Its budget is the runner's: a new property, with no suite before it to carry a count from.
+ */
+export const theCarriedSharesPlanningReadsAStatementAgainOnlyInARoundWhoseKeyItReadAndCarriesWhatEveryRoundsReadingCarried =
+	property.explore(chainedGen, {
+		needs: {},
+		situations: [
+			"several rounds",
+			"a round whose key a statement never read",
+			"a level read only inside a carried one"
+		] satisfies ReadonlyArray<
+			Reached<
+				| "several rounds"
+				| "a round whose key a statement never read"
+				| "a level read only inside a carried one"
+			>
+		>,
+		check:
+			(
+				_,
+				c: Case<
+					| "several rounds"
+					| "a round whose key a statement never read"
+					| "a level read only inside a carried one"
+				>
+			) =>
+			(reads) =>
+				Effect.sync(() => {
+					const p = chained(reads)
+					const counting = new CountingIndex(p.dag)
+					const shares = succeeded(planStatementShares(counting, p.roots))
+					const reference = new CountingIndex(p.dag)
+					const byRounds = plannedByRounds(reference, p.roots)
+					const view = (all: ReadonlyArray<CarriedShare>) =>
+						Arr.map(all, (s) => ({
+							key: s.key,
+							node: s.node.id,
+							copies: Arr.map(s.copies, (n) => n.id)
+						}))
+					assert.deepEqual(
+						view(shares),
+						view(byRounds.shares),
+						`the shares of ${Formatter.format(reads)}`
+					)
+					assert.ok(counting.walked <= reference.walked, "no more inputs walked than every round's")
+					if (byRounds.touched.length >= 2) {
+						c.note("several rounds")
+					}
+					if (Arr.some(byRounds.touched, (t) => t.read < t.statements)) {
+						c.note("a round whose key a statement never read")
+						assert.ok(
+							counting.walked < reference.walked,
+							`${counting.walked} inputs walked where every round's reading walked ${reference.walked}, over ${Formatter.format(reads)}`
+						)
+					}
+					if (Arr.some(shares, (s) => s.copies.length > 0 && byRounds.touched.length >= 2)) {
+						c.note("a level read only inside a carried one")
+					}
+				}),
+		oracle: {
+			kind: "second-implementation",
+			name: "the planning as it was, every round reading every statement's reach again from its root"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/lower/shapes/share/statements.ts",
+				original: "\t\t\tif (!isNonEmpty(now)) {\n\t\t\t\treturn\n\t\t\t}\n",
+				replacement: "",
+				why: "Every statement reads its reach again every round, as it did, whether or not the round's key reached it: the planning walks as many inputs as every round's reading, where a round's key leaves a statement as it was."
+			},
+			{
+				file: "packages/engine/src/lower/shapes/share/statements.ts",
+				original: "\t\t\t\t\treaders.get(n)?.delete(u)\n",
+				replacement: "",
+				why: "A statement read again keeps its readings of the nodes it reads no longer, a carried key's copies and the levels inside them: the next round counts them read by statements that read them through a carrier now, and carries what every round's reading does not, or a key twice."
 			}
 		]
 	})

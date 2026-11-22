@@ -1,7 +1,7 @@
 /** What the properties of share-statements.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
-import { finite, int } from "@bjornpagen/testing/gen"
+import { finite, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { conservativeMeta, type RelNode } from "#compiler/ir/rel.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -162,3 +162,64 @@ export const attachmentFilters = finite((source) => {
 	const count = source.draw(int(1, 3))
 	return upTo(count, () => source.draw(int(0, 2)))
 })
+
+/**
+ * A program of several statements over a chain of shared sub-queries, for the planning's rounds: level 0 bounds one
+ * account's tasks to their first id, as `first` does, and each level above is the union of a copy of the level below
+ * and a bound of its own, so a copy of a level holds a copy of every level under it. Statement `i` reads, under its
+ * own name, one fresh copy of each level `reads[i]` names: a level two statements read is carried, the highest first,
+ * and a level read only inside a carried one is then read by the carrier's fill alone.
+ */
+export const chained = (reads: ReadonlyArray<ReadonlyArray<0 | 1 | 2>>) => {
+	const q = new Q()
+	const bound = (level: number) => {
+		const m = q.region([
+			{
+				source: q.base(Task, conservativeMeta),
+				bind: { id: "id", account: "account" },
+				constants: { account: q.param(`a${level}`, T.uuid, "compare") }
+			}
+		])
+		return q.take(
+			q.project(m, [["id", "id"]], conservativeMeta),
+			asc("id"),
+			{ kind: "literal", k: 1n },
+			[],
+			conservativeMeta
+		)
+	}
+	const level = (l: 0 | 1 | 2): RelNode =>
+		l === 0
+			? bound(0)
+			: q.union(
+					[
+						q.project(level(l === 2 ? 1 : 0), [["id", "id"]], conservativeMeta),
+						q.project(bound(l), [["id", "id"]], conservativeMeta)
+					],
+					[]
+				)
+	const roots = Arr.map(reads, (levels, i) =>
+		q.project(
+			q.union(
+				Arr.map(levels, (l) => q.project(level(l), [["id", "id"]], conservativeMeta)),
+				[]
+			),
+			[[`id${i}`, "id"]],
+			conservativeMeta
+		)
+	)
+	const built = q.build(
+		q.union(
+			Arr.map(roots, (root, i) => q.project(root, [["id", `id${i}`]], conservativeMeta)),
+			[]
+		)
+	)
+	return { dag: built.dag, roots }
+}
+
+/** Two to four statements, each reading one to three of the chain's levels. */
+export const chainedGen: Gen<ReadonlyArray<ReadonlyArray<0 | 1 | 2>>> = (s) =>
+	Arr.map(indices(s.draw(int(2, 4))), () => {
+		const levels = Arr.filter([0, 1, 2] as const, () => s.draw(int(0, 1)) === 1)
+		return levels.length === 0 ? ([0] as const) : levels
+	})
