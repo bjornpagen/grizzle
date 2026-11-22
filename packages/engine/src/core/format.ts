@@ -71,8 +71,12 @@
  * statement's kind as its source (ir/law.ts LawSource `reachable`). A probe reads what the write moves of each
  * definition a negation reads as one query of the definition's rules, its parent's rows joined to it
  * (analysis/theory/query.ts movedOf), where format 6 read a row for each path down the negated arms to an occurrence of
- * the touched relation, each spelling the path's every arm. Format 6's snapshot.json records each schema level's
- * fingerprint over its
+ * the touched relation, each spelling the path's every arm; and a rule statement's rule over such rows navigates its
+ * filters after them (analysis/theory/navigate.ts filteredOverSteps). A rule's arm keeps a derived relation or imported
+ * query of several rules it matches as one match (analysis/theory/query.ts DefinedMatch): a probe reads what the write
+ * moves of it as one query, the facts it gains read again at their keys, and an arm that reads it beside a written row
+ * reads that row's keys first, so the definition is read at them, where format 6 distributed the arm into one arm for
+ * each choice of a rule at every such match. Format 6's snapshot.json records each schema level's fingerprint over its
  * identity text, every part the level holds written once as its identity digest's token (core/fingerprint.ts
  * schemaFingerprint), and each level's statements in their identity digests' order; its index keys hold every column as
  * itself, never an image of it, a lookup's index naming the columns it leaves out as filters in its identity; its row

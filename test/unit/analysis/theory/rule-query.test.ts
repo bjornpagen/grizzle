@@ -333,8 +333,8 @@ export const aRuleOverAQueryCompilesANegationOfATableAJoinAUnionADerivedRelation
 			},
 			{
 				file: "packages/engine/src/analysis/theory/query.ts",
-				original: "\t\tfor (const arm of source.arms) {\n",
-				replacement: `\t\tfor (const arm of source.arms) {\n\t\t\tif (arm.negated.length > 0) {\n\t\t\t\tthis.#refuse(relation, \`negates \${negated}, which negates in turn\`)\n\t\t\t}\n`,
+				original: "\t\treturn { source: source.source, bindings, arms: source.arms }\n",
+				replacement: `\t\tif (source.arms.some((arm) => arm.negated.length > 0)) {\n\t\t\tthis.#refuse(relation, \`negates \${negated}, which negates in turn\`)\n\t\t}\n\t\treturn { source: source.source, bindings, arms: source.arms }\n`,
 				why: "A negated query that negates in turn refused as UnsupportedLawFamily, as it was before a probe read a relation under two negations (analysis/theory/query.ts negated); the fourth box fails."
 			}
 		]

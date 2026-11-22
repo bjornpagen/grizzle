@@ -288,20 +288,25 @@ export const aWholeRulesStatementsReadEveryDeltaThroughItsReader = property.exha
 )
 
 /**
- * A probed rule over levels of definitions, each negating the one below, a containment into them or a check of them, is
- * judged by one statement for each relation and side, each spelling the target once, each level's definition once, and
- * reading what the write moves of each level once, however deep and wide (analysis/theory/query.ts probe, absentsOf,
- * movedOf): every statement reads Node at most twice for each rule of the description. edullm's ledger judged its servable rule, a
- * containment in Servable whose leaves negate definitions that match unions and negate in turn, by 1083 probes of about
- * 800 KB each, the judge's two hours; one statement per block, its rows a path each down the negated arms, still
- * spelled a migration past V8's longest string.
+ * A probed rule over levels of definitions, each negating the one below or each a union whose rules match the one
+ * below, a containment into them or a check of them, is judged by one statement for each relation and side, each
+ * spelling the target once, each level's definition once, and reading what the write moves of each level once, however
+ * deep and wide (analysis/theory/query.ts probe, absentsOf, movedOf, DefinedMatch): every statement reads Node at most
+ * twice for each rule of the description, levels that negate and levels that match alike. edullm's ledger judged
+ * its servable rule, a containment in Servable whose leaves negate definitions that match unions and negate in turn, by
+ * 1083 probes of about 800 KB each, the judge's two hours; one statement per block, its rows a path each down the negated
+ * arms, still spelled a migration past V8's longest string; and qti's Human within maximum, a check of a definition
+ * matching a union beside definitions over Node and Attribute, spelled a statement of 12.75 MB, a row for each choice of
+ * one rule at every union it matched.
  */
-export const aProbedRuleOverNestedNegationsReadsEachDefinitionOnceInOneStatementPerBlock =
+export const aProbedRuleOverNestedDefinitionsReadsEachDefinitionOnceInOneStatementPerBlock =
 	property.exhaust(finite(nestedGen), {
 		needs: {},
 		situations: [
 			"a containment in Servable",
 			"a check of Servable",
+			"negates the level below",
+			"matches the level below",
 			"two rules a level",
 			"three rules a level",
 			"four levels deep"
@@ -310,22 +315,22 @@ export const aProbedRuleOverNestedNegationsReadsEachDefinitionOnceInOneStatement
 			Effect.sync(() => judgedNested(nested, c.note)),
 		oracle: {
 			kind: "specification",
-			name: "the description: one statement per relation and side, Node read at most twice for each rule of the description in each, and the target's Node once for the root and once for each rule of each level"
+			name: "the description: one statement per relation and side, Node read at most twice for each rule of the description in each, and, under negating levels, the target's Node once for the root and once for each rule of each level"
 		},
-		box: "every containment of Session's doc in Servable, and every check of Servable's doc, Servable the docs whose root no level holds, one to four levels, each one rule matching a union of two or three rules over Node and negating the level below",
+		box: "every containment of Session's doc in Servable, and every check of Servable's doc, Servable the docs whose root no level holds, one to four levels, each one rule matching a union of two or three rules over Node and negating the level below, or each a union of two or three rules each matching Node and the level below",
 		kept: [],
 		kills: [
-			{
-				file: "packages/engine/src/analysis/theory/query.ts",
-				original: "\tn.arms.length > 1\n",
-				replacement: "\tn.arms.length > 1 && n.arms.length < 1\n",
-				why: "A negation of several arms is an anti-join of each arm, as before, each spelling the arm's unfolding, so the target spells each level once per arm of the level that negates it, Node read 1 + w + w² + … times; the property fails."
-			},
 			{
 				file: "packages/engine/src/analysis/theory/query.ts",
 				original: '\t\tconst k = r.fields.join(",")\n',
 				replacement: '\t\tconst k = r.fields.join(",") + String(groups.size)\n',
 				why: "Each rule of what a write moves of a definition is a query of its own, as each path down the negated arms was a row of its own before: a level reads each rule of the level below apart, so the rows of Node's blocks grow as w to the depth, past twice each rule of the description; the property fails."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/query.ts",
+				original: "\t\t\t\t\t: inlined.arms.length > 1\n",
+				replacement: "\t\t\t\t\t: inlined.arms.length > 1 && inlined.arms.length < 1\n",
+				why: "A definition of several rules a rule matches is distributed into its arms, as before, an arm for each choice of a rule at every union matched: a level whose rules each match the level below is the width to the depth arms, each a row of Node's blocks, past twice each rule of the description; the property fails."
 			}
 		]
 	})

@@ -1676,6 +1676,16 @@ const received = (name: string): string => (minted(name) ? `in.${name}` : name)
  */
 const minted = (name: string): boolean => name.startsWith("in.") || name.startsWith("via")
 
+/**
+ * Whether `e` concatenates texts, at any depth: a term an import is never restricted inside to (`boundInside`). A
+ * concatenation stands in a query only where it is compared (scalar/compute/typing.ts concat), and inside the import the
+ * equality of its head with it may define the head's variable, which navigation then reads as the concatenation itself
+ * (`Navigator.#defined`), a head no query delivers: a matched union read at a key a rule computes, pantry's
+ * prefixingReferences at `scope.variable`, was refused so. Its comparison stays the reader's, outside the import.
+ */
+const concatenates = (e: InferredExpr): boolean =>
+	(e.kind === "compute" && e.fn === "concat") || exprChildren(e).some((c) => concatenates(c.term))
+
 const boundInside = (
 	source: Imported,
 	bindings: InferredBindings,
@@ -1694,7 +1704,7 @@ const boundInside = (
 		[]
 	for (const [field, bound] of Object.entries(bindings)) {
 		const found = fixed(bound)
-		if (found === undefined) {
+		if (found === undefined || concatenates(found)) {
 			continue
 		}
 		const term = atColumn(found, field, columns)

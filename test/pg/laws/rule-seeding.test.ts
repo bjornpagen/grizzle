@@ -145,7 +145,7 @@ export const commitExactlyTheTransactionsWhoseStateTheRulesWholeCheckFindsLawful
 								{
 									file: "packages/engine/src/analysis/theory/query.ts",
 									original:
-										'\t...movedCandidates(arms, "removed", relation, side, depth, memo, loc)\n',
+										"\t...movedCandidates(arms, direction, relation, side, depth, memo, loc)\n",
 									replacement: "",
 									why: "A relation under three negations probed by no deletion: a fact a negation now blocks is withdrawn by no candidate, so a block deleted, which makes its member paceless and its root no longer rate-paced, brings back a fact the check refuses, and it commits."
 								}
@@ -154,10 +154,8 @@ export const commitExactlyTheTransactionsWhoseStateTheRulesWholeCheckFindsLawful
 							? [
 									{
 										file: "packages/engine/src/analysis/theory/query.ts",
-										original:
-											"\t\t\tmovedOf(n, turned(direction), relation, side, depth + 1, memo, loc).map((moved) => ({\n",
-										replacement:
-											"\t\t\tmovedOf(n, direction, relation, side, depth + 1, memo, loc).map((moved) => ({\n",
+										original: "\t\t\t\tturned(direction),\n",
+										replacement: "\t\t\t\tdirection,\n",
 										why: "A target's relation under two negations probed by no deletion: a mark deleted, which lets a block stand again and withdraws the target facts it holds out, is judged by no probe, so the containment it breaks commits."
 									}
 								]
@@ -165,10 +163,8 @@ export const commitExactlyTheTransactionsWhoseStateTheRulesWholeCheckFindsLawful
 								? [
 										{
 											file: "packages/engine/src/analysis/theory/query.ts",
-											original:
-												"\t\t\tmovedOf(n, turned(direction), relation, side, depth + 1, memo, loc).map((moved) => ({\n",
-											replacement:
-												"\t\t\tmovedOf(n, direction, relation, side, depth + 1, memo, loc).map((moved) => ({\n",
+											original: "\t\t\t\tturned(direction),\n",
+											replacement: "\t\t\t\tdirection,\n",
 											why: "A relation read under two negations probed by no write: a mark inserted, which lifts a standing block and brings back the facts it held out, is judged by no probe, so the key it breaks commits."
 										},
 										{
