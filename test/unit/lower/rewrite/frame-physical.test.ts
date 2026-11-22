@@ -18,7 +18,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Effect } from "effect"
+import { Array as Arr, Effect } from "effect"
 import { conservativeMeta } from "#compiler/ir/rel.ts"
 import { existencePass } from "#compiler/lower/optimize/existence/index.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -84,7 +84,7 @@ export const aRewritePassComputesThePhysicalPropertiesOfTheCellsItsDecisionsWeig
 					const one = yield* propsWork(1)
 					const done = yield* propsWork(height)
 					assert.ok(
-						one.ran.certificates.some((x) => x.rule === "R02.semiJoin"),
+						Arr.some(one.ran.certificates, (x) => x.rule === "R02.semiJoin"),
 						"the pass moves an existence test, weighing its candidates' sources"
 					)
 					assert.ok(one.props > 0, "the pass weighs its candidates by their sources' properties")
