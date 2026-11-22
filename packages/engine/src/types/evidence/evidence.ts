@@ -935,7 +935,7 @@ type DepsOf<S, M, FixedFields extends string> =
  * One dependency per key whose fields are all known: from what the bound terms need (KeyNeeds), and what the source's
  * own inputs need (Extra), to To.
  */
-type KeyDeps<Kn, To, Extra> = Kn extends KeyNeeds<infer Needs> ? DepFrom<Needs | Extra, To> : never
+type KeyDeps<Kn, To, Extra> = Kn extends KeyNeeds<infer Known> ? DepFrom<Known | Extra, To> : never
 
 /**
  * What a match's keys need to be known, one KeyNeeds per key, the needs of its fields together: a field the match binds
@@ -960,8 +960,8 @@ type UnboundNeeds<Ks, B, FixedFields extends string, Gen> = Ks extends string
 	? KeyFieldNeeds<Ks, B, FixedFields, Gen>
 	: never
 /** What one key of a match needs to be known: the origin keys its fields' terms need, Lost among them where one is lost. */
-interface KeyNeeds<out Needs> {
-	readonly needs: Needs
+interface KeyNeeds<out Known> {
+	readonly needs: Known
 }
 
 /**
@@ -1101,7 +1101,7 @@ type Choices<S, M, H, FixedFields extends string> =
  * inputs need (Extra), each need held by some field, firing every variable the match binds (Fired).
  */
 type KeyChoices<Kn, H, Extra, Fired> =
-	Kn extends KeyNeeds<infer Needs> ? HeadSet<HeadFieldsAt<Needs | Extra, H>, Fired> : never
+	Kn extends KeyNeeds<infer Known> ? HeadSet<HeadFieldsAt<Known | Extra, H>, Fired> : never
 /**
  * The head fields holding the variables Need names, Lost when one of them is held by none or Need is Lost, and none,
  * the head unread, when Need names none (a key whose fields are inputs or fixed): what a head field holds, a term of
