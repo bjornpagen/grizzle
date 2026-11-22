@@ -34,7 +34,8 @@ import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.
  *
  * Two rewrites, each taken only where the SQL text the site prints does not grow (ShareScope.size), and each keeping
  * the term's value on every row, NULL and refusal included (a declared function's call, the one expression that raises,
- * is never moved or dropped):
+ * is never moved or dropped), a split taken only where it makes no operation over literals that raises, which
+ * PostgreSQL's planner evaluates wherever it stands, a CASE arm no row reaches included (#raisesAsPlanned):
  *
  * - a split of `e` on a subterm `s` that `e` reads more than once, that is evaluated on every evaluation of `e`
  *   (#anticipates), that is never NULL there (#nonNullAt), that raises nothing, and whose values the compiler knows,
@@ -268,6 +269,8 @@ class Sharing {
 	readonly #interned = new Interned()
 	readonly #anticipated = new Map<ScalarExpr, Map<ScalarExpr, boolean>>()
 	readonly #raises = new Map<ScalarExpr, boolean>()
+	readonly #plannedRaise = new Map<ScalarExpr, boolean>()
+	readonly #constantForms = new Map<ScalarExpr, boolean>()
 	readonly #values = new Map<ScalarExpr, ReadonlyArray<TypedLiteral> | undefined>()
 	readonly #rewritten = new Map<Facts, Map<ScalarExpr, ScalarExpr>>()
 	readonly #nonNull = new Map<Facts, Map<ScalarExpr, boolean>>()
@@ -343,6 +346,57 @@ class Sharing {
 		const raises = e.kind === "call" || e.args.some((a) => this.#raisesAt(a))
 		this.#raises.set(e, raises)
 		return raises
+	}
+
+	/**
+	 * Whether `e` holds a subterm PostgreSQL evaluates as it plans the statement and that raises there: an operation or a
+	 * cast of constants, reading no column, VALUE or parameter (#constantForm), which its planner folds to a constant
+	 * wherever it stands (clauses.c eval_const_expressions), inside a CASE arm no row ever reaches included, and whose
+	 * operands fail its precondition (scalar/compute/evaluate.ts EvalStop `undefined`), as a division or a remainder by
+	 * zero does (22012). A CASE guards such an operation at run time alone, so a statement that holds one raises whatever
+	 * rows it reads: a split that substitutes a value into a guarded operation (#split) may make one,
+	 * `(0::numeric)::numeric % (0::numeric)::numeric` in the arm the guard keeps every row from, where the term held none.
+	 */
+	#raisesAsPlanned(e: ScalarExpr): boolean {
+		const known = this.#plannedRaise.get(e)
+		if (known !== undefined) {
+			return known
+		}
+		const raises =
+			(e.kind !== "literal" && this.#constantForm(e) && this.#stops(e)) ||
+			e.args.some((a) => this.#raisesAsPlanned(a))
+		this.#plannedRaise.set(e, raises)
+		return raises
+	}
+
+	/**
+	 * Whether `e` reads only constants: a literal, or an operation, a cast, a conditional or a closed read of constants;
+	 * not a column, the VALUE, a parameter or a declared function's call.
+	 */
+	#constantForm(e: ScalarExpr): boolean {
+		const known = this.#constantForms.get(e)
+		if (known !== undefined) {
+			return known
+		}
+		const constant =
+			e.kind === "literal" ||
+			(e.kind !== "column" &&
+				e.kind !== "value" &&
+				e.kind !== "param" &&
+				e.kind !== "call" &&
+				e.args.every((a) => this.#constantForm(a)))
+		this.#constantForms.set(e, constant)
+		return constant
+	}
+
+	/** Whether the host's evaluation of `form`, which reads no row, stops at a precondition its operands fail. */
+	#stops(form: ScalarExpr): boolean {
+		const table = predicateTable(form)
+		const value = compiledExpr(table)(
+			{ value: undefined, column: () => undefined, closed: this.#scope.host },
+			ProgramPatterns.of(tablePatterns(table))
+		)
+		return !value.ok && value.error.kind === "undefined"
 	}
 
 	/**
@@ -1028,7 +1082,8 @@ class Sharing {
 	/**
 	 * `e` rewritten where `facts` hold: split on its first subterm a split may take (#split), by the most occurrences,
 	 * then the largest, then the first met, whose split does not make the text longer than `e`'s with its arguments
-	 * rewritten; and that otherwise. A subterm that is the subject of a chain `e` already is never split again.
+	 * rewritten and holds no subterm PostgreSQL raises at as it plans where that does not (#raisesAsPlanned); and that
+	 * otherwise. A subterm that is the subject of a chain `e` already is never split again.
 	 */
 	#rewrite(e: ScalarExpr, facts: Facts): ScalarExpr {
 		const memo = this.#rewritten.getOrInsertComputed(facts, () => new Map())
@@ -1061,7 +1116,11 @@ class Sharing {
 		if (limit !== undefined) {
 			for (const { s } of candidates) {
 				const split = this.#split(e, s, facts)
-				if (split !== undefined && fits(this.#scope.size(split), limit)) {
+				if (
+					split !== undefined &&
+					fits(this.#scope.size(split), limit) &&
+					(!this.#raisesAsPlanned(split) || this.#raisesAsPlanned(unsplit))
+				) {
 					chosen = split
 					break
 				}
