@@ -39,7 +39,7 @@ export type Reached =
 	| "a definition read three times"
 	| "a chain three deep"
 
-const Node = relation(
+export const Node = relation(
 	"Node",
 	{ doc: pg.integer, start: pg.integer, parent: pg.integer, kind: pg.integer },
 	["doc", "start"]
@@ -497,7 +497,7 @@ const twiceUnion4 = query(Base)
 	})
 
 /** The union box's schema: Base, and the derived relation of the case's union reads with a check beside it. */
-const unionSchemaOf = (u: Unions): FixtureSchema => {
+export const unionSchemaOf = (u: Unions): FixtureSchema => {
 	if (u.form === "chain" && u.reads === 2) {
 		switch (u.depth) {
 			case 1: {
@@ -910,7 +910,7 @@ const containmentReadsOf = (c: Containment): number => 3 * (c.negated ? 3 : 2) +
  * each spelled once (`containmentReadsOf`). The definitions both sides read at the unit's channels are one node, bound
  * at the outermost region that re-exposes the channel (check/checker.ts Checker held), read under one name at every depth
  * (analysis/theory/navigate.ts `received`), and computed once in that region, whose filters' tests read it in the
- * filter's SELECT (lower/shapes/index.ts filteredRegion); those To's rules read at the fact's terms are one node, every
+ * filter's SELECT (lower/optimize/cte-policy filteredRegion); those To's rules read at the fact's terms are one node, every
  * rule of To reading it, a filter passing a term the rule fixes as that term (navigate.ts `pinnedBy`). Before, each read
  * inside the negation of To was a node of its own region, spelled at every read: the reset line's
  * targeted_branch_rule_in_forward_branch_rule, 465 KB with a definition at the package spelled 3, 4, 7 and 18 times,

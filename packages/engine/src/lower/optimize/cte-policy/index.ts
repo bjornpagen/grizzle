@@ -10,7 +10,7 @@ import {
 	localCertificate,
 	makeCertificate
 } from "#compiler/ir/certificate.ts"
-import { freeVars, nodeScopes, nodesByLabel } from "#compiler/ir/dag.ts"
+import { freeVars, nodeScopes, nodesByLabel, type OuterRefs } from "#compiler/ir/dag.ts"
 import type { Pass } from "#compiler/ir/pass.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import {
@@ -51,9 +51,9 @@ export interface CteDecision {
 	/** The node's demanded columns: what a CTE for it must carry. */
 	readonly columns: ReadonlyArray<string>
 	/**
-	 * Where the CTE stands: the statement's own WITH, or, for a shared node correlated to the one region every read of
-	 * it is an occurrence of (`sharedCorrelated`), that region's SELECT, inside which every value it reads of an outer
-	 * row is in scope.
+	 * Where the CTE stands: the statement's own WITH, or, for a shared correlated node (`sharedCorrelated`), the SELECT
+	 * of the region that holds it (holdingRegion), which encloses every read of it and inside which every value it reads
+	 * of an outer row is in scope.
 	 */
 	readonly scope:
 		| { readonly kind: "statement" }
@@ -347,7 +347,7 @@ const ctePlan = (dag: ValidDag, reads: CteSubject): ReadonlyArray<Decided> => {
 	const labels = nodesByLabel(dag)
 	const feedback = feedbackReadsOf(nodeGraph, d.order)
 	const perRow = reads === "query" ? readPerRow(d.order) : new Set<RelNode>()
-	const regionOf = readingRegion(d.order, (node) => scopes.of(node).outer)
+	const regionOf = holdingRegion(d.order, (node) => scopes.of(node).outer)
 	const decided: Array<Decided> = []
 	for (const node of d.order) {
 		const references = d.references(node)
@@ -404,65 +404,121 @@ const cteRule = (strategy: Exclude<CteStrategy, "inline">): CertificateRule => `
 const statementScope: CteDecision["scope"] = { kind: "statement" }
 
 /**
- * The region whose SELECT holds a shared correlated node's CTE (rule 3b), where `references`, the node's reads, are all
- * occurrences of regions, no expression reads it, and every value it reads of an outer row is one that region is
- * correlated to from outside, never one an occurrence binds (`outer`, the node's outer references by label): the one
- * region every read is an occurrence of, or, read by occurrences of several, the innermost region whose columns it
- * reads, every other one it reads enclosing it, inside which each of them stands, since each reads the node and the
- * node reads those columns. A rule statement's
- * import its rule's unfolding reads more than once (analysis/theory/navigate.ts sharedImports) is the first, each read
- * a match of the rule itself, correlated to the unit's channels the region reads through its own columns
- * (check/checker.ts #bindValue); the import each rule of a union reads at the unit's channels is the second, bound to
- * the channels themselves (check/checker.ts #sharedImport), every rule of the union a region of its own. Its SELECT
- * holds the CTE, every outer value it reads in scope there and none of the region's own items, so the node is spelled
- * and planned once and computed once per row the region is read for, the unit's rows alone, each occurrence a join of
- * its rows; inlined at each read, a chain of such definitions multiplied the statement at every level, and a chain of
- * unions by their rules at every level. None for any other node, which stays inlined (rule 3).
+ * The region whose CTEs a node's SELECT holds (cte-policy `sharedCorrelated`): a region's own, and a relational filter's
+ * over a region, an anti- or semi-join whose left input is the region or a filter over it in turn, which holds the
+ * region's: the filter is lowered as a SELECT over the region's (lower/conservative/anti-join, semi-join), its test
+ * reading what the region's rows bind, so a node read both inside the region and inside the test, the unit's definition
+ * a containment's sides both read, is in scope for each read only in the filter's SELECT, where in the region's own the
+ * test read none of it and spelled the node again at each of its reads. The lowering opens the region's table of CTEs
+ * at the outermost such node (lower/shapes dispatchIn).
  */
-const readingRegion = (
+export const filteredRegion = (node: RelNode): NodeOf<"MatchRegion"> | undefined =>
+	node.kind === "MatchRegion"
+		? node
+		: node.kind === "AntiJoin" || node.kind === "SemiJoin"
+			? filteredRegion(node.left)
+			: undefined
+
+/**
+ * The region whose SELECT holds a shared correlated node's CTE (rule 3b), where `references`, the node's reads, are all
+ * occurrences of regions and no expression reads it: the outermost node on the node's chain of dominators, the nodes
+ * every path from a root to it passes through, that holds a region's CTEs (`filteredRegion`) and whose SELECT sees every
+ * value the node reads of an outer row (`outer`, the node's outer references by label): each one the region's
+ * correlation brings in from outside, or a column of a node outside that SELECT, which reads it from outside itself.
+ * Dominating every read, that SELECT encloses each read's spelling, so the node is spelled and planned once there and
+ * computed once per row the SELECT is read for, each occurrence a join of its rows; every node between it and the node
+ * sees what the node reads, and none outside it sees a value its own rows bind. A node that reads no outer value,
+ * correlated only by a reader's expression that reads its columns laterally, stands in the first such node, its
+ * readers' own region, since no value it reads bounds how far out it would stand. A rule statement's import its rule's
+ * unfolding reads more than once (analysis/theory/navigate.ts sharedImports) is one, each read a match of the rule
+ * itself; and so is the import each rule of a union reads at the values its importer bound (check/checker.ts
+ * #bindValue), the raw column of the unit or of a region outside them, every rule of the union a region of its own,
+ * held by the region every read lies inside below the one whose rows bind those values, where no SELECT the rules
+ * share sees them; inlined at each read, a chain of such definitions multiplied the statement at every level, and a
+ * chain of unions by their rules at every level. None for any other node, which stays inlined (rule 3).
+ *
+ * The dominators are worked out once, readers before their inputs: each node's immediate dominator is where the
+ * chains of its readers meet, a root's none.
+ */
+const holdingRegion = (
 	order: ReadonlyArray<RelNode>,
-	outer: (node: RelNode) => ReadonlyMap<NodeId, ReadonlySet<string>>
+	outer: (node: RelNode) => OuterRefs
 ): ((node: RelNode, references: number) => NodeOf<"MatchRegion"> | undefined) => {
-	const readers = new Map<RelNode, Set<RelNode>>()
-	const byId = new Map<NodeId, RelNode>()
+	const readers = new Map<RelNode, Array<RelNode>>()
 	for (const n of order) {
-		byId.set(n.id, n)
 		for (const input of inputsOf(n)) {
-			readers.getOrInsertComputed(input, () => new Set<RelNode>()).add(n)
+			readers.getOrInsertComputed(input, () => []).push(n)
 		}
 	}
+	const dominator = new Map<RelNode, RelNode | undefined>()
+	const depth = new Map<RelNode, number>()
+	const depthOf = (n: RelNode): number =>
+		defined(depth.get(n), "a reader's depth, worked out first")
+	const meet = (a: RelNode | undefined, b: RelNode | undefined): RelNode | undefined => {
+		let x = a
+		let y = b
+		while (x !== y) {
+			if (x === undefined || y === undefined) {
+				return undefined
+			}
+			const dx = depthOf(x)
+			const dy = depthOf(y)
+			if (dx >= dy) {
+				x = dominator.get(x)
+			}
+			if (dy >= dx) {
+				y = dominator.get(y)
+			}
+		}
+		return x
+	}
+	for (const n of order.toReversed()) {
+		const [first, ...rest] = readers.get(n) ?? []
+		const at = first === undefined ? undefined : rest.reduce(meet, first)
+		dominator.set(n, at)
+		depth.set(n, at === undefined ? 0 : depthOf(at) + 1)
+	}
+	/** Whether `at`'s SELECT, holding `region`'s CTEs, sees every value of `read`. */
+	const sees = (at: RelNode, region: NodeOf<"MatchRegion">, read: OuterRefs): boolean => {
+		const around = outer(at)
+		for (const [id, columns] of read) {
+			if (
+				id === region.id
+					? ![...columns].every((c) => region.correlated.some((v) => v.var.name === c))
+					: !around.has(id)
+			) {
+				return false
+			}
+		}
+		return true
+	}
 	return (node, references) => {
-		const regions = [...(readers.get(node) ?? [])]
 		let occurrences = 0
-		for (const r of regions) {
+		for (const r of readers.get(node) ?? []) {
 			if (r.kind !== "MatchRegion") {
 				return undefined
 			}
 			occurrences += r.occurrences.filter((o) => o.source === node).length
 		}
+		if (occurrences !== references) {
+			return undefined
+		}
 		const read = outer(node)
-		const [only, ...more] = regions
-		const keys = [...read.keys()]
-		const innermost = keys.find((k) => {
-			const at = byId.get(k)
-			return at !== undefined && keys.every((j) => j === k || outer(at).has(j))
-		})
-		const holder = !isNonEmpty(more)
-			? only
-			: innermost === undefined
-				? undefined
-				: byId.get(innermost)
-		if (holder?.kind !== "MatchRegion" || occurrences !== references) {
-			return undefined
+		let held: NodeOf<"MatchRegion"> | undefined
+		for (let at = dominator.get(node); at !== undefined; at = dominator.get(at)) {
+			const region = filteredRegion(at)
+			if (region === undefined) {
+				continue
+			}
+			if (!sees(at, region, read)) {
+				break
+			}
+			held = region
+			if (read.size === 0) {
+				break
+			}
 		}
-		const columns = read.get(holder.id)
-		if (isNonEmpty(more) && columns === undefined) {
-			return undefined
-		}
-		const correlated = new Set(holder.correlated.map((c) => c.var.name))
-		return columns === undefined || [...columns].every((column) => correlated.has(column))
-			? holder
-			: undefined
+		return held
 	}
 }
 
@@ -486,14 +542,14 @@ const readingRegion = (
  * 2. A recursive relation is a WITH RECURSIVE: always a CTE, computed once per statement.
  * 3. A correlated node, a node some expression reads laterally, and a node on a recursive step are inlined: a CTE of
  *    the statement's WITH cannot read an outer row, and a recursive term admits one self-reference.
- * 3b. But a shared correlated node of several sources whose every read is an occurrence of one region, or of regions
- *    inside the one region whose columns it reads, reading of the outer rows only what that region is correlated to, is
- *    MATERIALIZED in the region's own SELECT (readingRegion), where every outer value it reads is in scope: spelled
- *    and planned once, computed once per row the region is read for, each occurrence a join of its rows. A rule
- *    statement's import its rule's unfolding reads more than once is one (analysis/theory/navigate.ts sharedImports),
- *    and so is the import each rule of a union reads at the unit's channels (check/checker.ts #sharedImport); inlined
- *    at each read, a chain of such definitions multiplied the statement at every level, and a chain of unions by their
- *    rules at every level.
+ * 3b. But a shared correlated node of several sources whose every read is an occurrence of a region is MATERIALIZED in
+ *    the SELECT of the outermost region that lies on every path to it and sees every outer value it reads, its
+ *    correlated values or the columns of nodes outside it (holdingRegion): spelled and planned once, computed once per
+ *    row that SELECT is read for, each occurrence a join of its rows. A rule statement's import its rule's unfolding
+ *    reads more than once is one (analysis/theory/navigate.ts sharedImports), and so is the import each rule of a union
+ *    reads at the unit's channels (check/checker.ts #sharedImport), held by the region below the unit's every read lies
+ *    in; inlined at each read, a chain of such definitions multiplied the statement at every level, and a chain of
+ *    unions by their rules at every level.
  * 4. A node whose stages are all scans, filters and projections of one source is inlined at each use: each use can then
  *    probe the source's indexes with its own restrictions, which a shared result would hide ("sharing an unfiltered
  *    computation is not automatically preferable to two selective indexed probes").

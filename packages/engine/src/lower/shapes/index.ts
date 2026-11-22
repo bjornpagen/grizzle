@@ -59,10 +59,11 @@ import {
 	type PageParamSlot,
 	type ProgramDelivery
 } from "#compiler/lower/conservative/types.ts"
-import type {
-	CteDecision,
-	CtePlan,
-	CteStrategy
+import {
+	type CteDecision,
+	type CtePlan,
+	type CteStrategy,
+	filteredRegion
 } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { partQuery, shiftedPart, type TaggedPart, taggedParts } from "#compiler/lower/parts.ts"
 import { aggregateLowerer } from "#compiler/lower/shapes/aggregate/index.ts"
@@ -763,23 +764,6 @@ const cteMaterialization = (strategy: CteStrategy): NonNullable<Cte["materialize
 			: undefined
 
 /**
- * The region whose CTEs (cte-policy `sharedCorrelated`) a node's SELECT holds: a region's own, and a relational filter's
- * over a region, an anti- or semi-join whose left input is the region or a filter over it in turn, which holds the
- * region's: the filter is lowered as a SELECT over the region's (lower/conservative/anti-join, semi-join), its test
- * reading what the region's rows bind, so a node read both inside the region and inside the test, the unit's definition
- * a containment's sides both read, is in scope for each read only in the filter's SELECT, where in the region's own the
- * test read none of it and spelled the node again at each of its reads. A CTE of the region reads only values the
- * region is correlated to from outside (cte-policy readingRegion), as much in scope in the filter's SELECT, which stands
- * where the region would.
- */
-const filteredRegion = (node: RelNode): NodeId | undefined =>
-	node.kind === "MatchRegion"
-		? node.id
-		: node.kind === "AntiJoin" || node.kind === "SemiJoin"
-			? filteredRegion(node.left)
-			: undefined
-
-/**
  * The one dispatch, in the child of `attachment` or outside any attachment: a node to its kind's plug-in, or, for a node
  * the CTE policy shares, a read of its statement-level CTE, defined at its first use in the statement. The CTE policy
  * shares only uncorrelated nodes off every recursion's feedback (cte-policy rule 3), so the body is lowered outside any
@@ -807,7 +791,7 @@ const dispatchIn = <I extends ChoiceInput>(
 			const region = filteredRegion(node)
 			return region === undefined
 				? plugIn(node, cx, env)
-				: state.withRegionCtes(region, () => plugIn(node, cx, env))
+				: state.withRegionCtes(region.id, () => plugIn(node, cx, env))
 		}
 		const scope = decision.scope
 		switch (scope.kind) {

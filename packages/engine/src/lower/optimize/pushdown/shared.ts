@@ -233,7 +233,7 @@ const keptRows = (
  */
 /**
  * Whether `cell` is a node the pass may restrict: several readers read it, every one a region's occurrence, so the CTE
- * policy holds it in one region's SELECT once it is correlated (cte-policy readingRegion, rule 3b), where a node another
+ * policy holds it in one region's SELECT once it is correlated (cte-policy holdingRegion, rule 3b), where a node another
  * kind of reader reads would be inlined at each read, its whole subtree copied; it reads nothing outside itself; and it
  * is no root and on no recursive step.
  */
@@ -265,7 +265,7 @@ interface Held {
  * hold there, each read by the variable an enclosing region is correlated to that value by, of the outermost such
  * region whose subtree holds every reader, the region of the unit's own step, whose correlated values every node inside
  * it reads in scope, where an inner region's own correlated column is no outer value of a CTE held inside it
- * (cte-policy readingRegion holds the node's CTE in that region's SELECT, once per unit), a variable no occurrence of
+ * (cte-policy holdingRegion holds the node's CTE in that region's SELECT, once per unit), a variable no occurrence of
  * that region binds, so no source inside the region reads what its own occurrence binds (a restriction this pass made
  * binds every column of its node and is correlated too); none where no column is so kept, or no enclosing region is
  * correlated to its value, which the restriction could read in no scope.

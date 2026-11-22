@@ -165,6 +165,52 @@ const selfSemiJoinCase = (): QueryCase => {
 	)
 }
 
+/**
+ * A region whose occurrence's source another occurrence's region reads laterally, under a semi-join: R0's one region
+ * matching R0 and, at its a, a region over R0 correlated to the first R0's a; read by a region beside a third region
+ * correlated to the first's a, which the semi-join's root tests each R0 row against. The first region, read once per
+ * row of the region that reads it and so held as a CTE (cte-policy rules 3b and 5b), reads no outer value: its holder
+ * is its reader's own region, where the outermost region on its chain of dominators that sees every value it reads,
+ * vacuously the root's, held its CTE in the root semi-join's SELECT, a WITH its reader's statement read out of scope
+ * ("r9 is not a CTE in scope", the per-evaluation population's rotating stream at seed 0x6e1e5955, case 469). R0 holds
+ * a = 1 and a = 2.
+ */
+const lateralReaderCase = (): QueryCase => {
+	const r0 = keyed("R0", ["k", "a"])
+	return keptCase(
+		[
+			[
+				r0,
+				[
+					[1, 1],
+					[2, 2]
+				]
+			]
+		],
+		(q, base) => {
+			const first = base(r0)
+			const inner = q.regionWith([{ source: base(r0), bind: { a: "a" }, constants: {} }], {
+				...plainRegion,
+				correlated: [{ name: "at", type: int4, expr: q.col(first, "a") }]
+			})
+			const read = q.region([
+				{ source: first, bind: { a: "a" }, constants: {} },
+				{ source: inner, bind: { at: "at" }, constants: {} }
+			])
+			const beside = q.regionWith([{ source: base(r0), bind: { a: "b" }, constants: {} }], {
+				...plainRegion,
+				correlated: [{ name: "at", type: int4, expr: q.col(read, "a") }]
+			})
+			const tested = q.region([
+				{ source: read, bind: { a: "a" }, constants: {} },
+				{ source: beside, bind: { b: "b" }, constants: {} }
+			])
+			const all = q.region([{ source: base(r0), bind: { a: "a" }, constants: {} }])
+			return q.semi(all, tested, [["a", "a"]])
+		}
+	)
+}
+
 /** An integer stored in its canonical spelling. */
 const storedInt = (value: number): SpelledValue =>
 	canonicallySpelled(literalOfValue(BigInt(value), int4))
@@ -173,7 +219,8 @@ const storedInt = (value: number): SpelledValue =>
  * The per-evaluation population's escaped counterexamples, each a red it caught, kept by value since no population
  * draws a hand-built query (toolchain-test keep reaches none), recorded beside the population (gen.ts recorded): the two
  * lateral constants' regions, the semi-join of a group with itself, page/generated-optimized's counterexample at
- * TEST_SEED=28094260, and the fold attached on two pairs that name one key of it (TEST_SEED=1951254937, case 107).
+ * TEST_SEED=28094260, the fold attached on two pairs that name one key of it (TEST_SEED=1951254937, case 107), and a
+ * region another reads laterally under a semi-join (lateralReaderCase).
  */
 const escapedCounterexamples: Arr.NonEmptyReadonlyArray<QueryCase> = [
 	lateralConstantCase((s0) => ({ source: s0, bind: { a: "a" }, constants: {} })),
@@ -187,7 +234,8 @@ const escapedCounterexamples: Arr.NonEmptyReadonlyArray<QueryCase> = [
 			[storedInt(1), storedInt(2)],
 			[storedInt(2), storedInt(2)]
 		]
-	)
+	),
+	lateralReaderCase()
 ]
 
 /**

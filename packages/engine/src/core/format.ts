@@ -19,12 +19,16 @@
  * truncated each written delta at every judged COMMIT and each carrier at every use, so each judge function's body and
  * each served carrier stand-up read the table's size before they empty it. A whole rule's judged statement spells each
  * definition its containment's sides read at one set of values once: a relational filter's SELECT holds its region's
- * shared CTEs (lower/shapes/index.ts filteredRegion), an import a nested rule reads at a re-exposed value is bound at
+ * shared CTEs (lower/optimize/cte-policy filteredRegion), an import a nested rule reads at a re-exposed value is bound at
  * its outermost re-exposure (check/checker.ts Checker held), a whole rule's unit channel keeps its name at every depth
  * (analysis/theory/navigate.ts received) and a filter passes a term its rule fixes as that term (pinnedBy), where format
- * 6 spelled such a definition again at each read inside the negation of the met side. A judge's delta whose relation's
- * every field has a bound and whose widest row fits one heap tuple holds every value in its row, each column STORAGE
- * PLAIN, with no TOAST table (physical/ddl/rules.ts deltaStorage, sql/ast.ts SessionTableStorage), and a delta's name
+ * 6 spelled such a definition again at each read inside the negation of the met side. A shared correlated node every
+ * read of which is a region's occurrence is MATERIALIZED in the SELECT of the outermost region that lies on every path
+ * to it and sees every outer value it reads (lower/optimize/cte-policy holdingRegion), where format 6 held it only in a
+ * region whose correlated values covered what it reads and inlined it at every read otherwise, so a CTE a region held
+ * for values from outside it stands in the outermost such region. A judge's delta whose relation's every field has a
+ * bound and whose widest row fits one heap tuple holds every value in its row, each column STORAGE PLAIN, with no TOAST
+ * table (physical/ddl/rules.ts deltaStorage, sql/ast.ts SessionTableStorage), and a delta's name
  * digests its storage beside its columns, so every delta's name moves. A fold whose body joins is read, by each judge
  * function and each served write program, over an import of its body's every bound variable, which navigation reads
  * as a chain of steps (analysis/theory/navigate.ts foldedOverBody), where format 6 left the fold's join as written for

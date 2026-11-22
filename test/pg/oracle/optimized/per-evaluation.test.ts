@@ -73,8 +73,23 @@ export const perEvaluation = differentialProperty(
 				reason:
 					"TEST_SEED=1951254937, case 107, shrunk by hand: a fold attached on two pairs that name one key of it",
 				since: "2026-11-14"
+			},
+			{
+				token: ReplayToken(
+					"test/pg/oracle/optimized/per-evaluation.test.ts#perEvaluation:-:6.0.0.0.0.0.0.0.0.1.0"
+				),
+				reason:
+					"seed 0x6e1e5955, case 469, built by hand: a region another reads laterally, held where its reader reads it",
+				since: "2026-11-21"
 			}
 		],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/lower/optimize/cte-policy/index.ts",
+				original: "\t\t\tif (read.size === 0) {\n\t\t\t\tbreak\n\t\t\t}\n",
+				replacement: "",
+				why: "A node that reads no outer value is held in the outermost region on its chain of dominators, the root semi-join's, whose CTE the statement its reader stands in reads out of scope: the optimized statement fails its scope audit."
+			}
+		]
 	}
 )
