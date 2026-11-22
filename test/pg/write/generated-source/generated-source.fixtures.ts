@@ -1,5 +1,6 @@
 /** What the properties of generated-source.test.ts read: its spaces, models and helpers. */
 
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int, oneOf, shuffled } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option } from "effect"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
@@ -179,7 +180,8 @@ const storedGen: Gen<ReadonlyArray<Row>> = (source) => {
 	}))
 }
 
-export const caseGen: Gen<Case> = (source) => {
+/** Any case: up to three stored rows, and one to three source rows, each fresh or a repeat of a stored one. */
+const anyCaseGen: Gen<Case> = (source) => {
 	const target = source.draw(element(["Item", "Spot"] as const))
 	const op = source.draw(element(["insert", "put"] as const))
 	const stored = source.draw(storedGen)
@@ -191,6 +193,29 @@ export const caseGen: Gen<Case> = (source) => {
 	const more = source.draw(array(row, { min: 0, max: 2 }))
 	return { target, op, stored, source: [first, ...more] }
 }
+
+/**
+ * A case the write applies and that changes a row: up to two stored rows, and one source row at an id and a numeral no
+ * stored row holds, of a tier Rate holds, so no law refuses it. Any case reaches it about one time in sixty (a fresh
+ * row's id and numeral each clear of the stored rows', its tier one Rate holds), so a run of the property's budget may
+ * meet none at a relation and operation.
+ */
+const freshCaseGen: Gen<Case> = (source) => {
+	const target = source.draw(element(["Item", "Spot"] as const))
+	const op = source.draw(element(["insert", "put"] as const))
+	const ids = source.draw(shuffled([1, 2, 3], { min: 1, max: 3 }))
+	const ks = source.draw(shuffled(numerals, { min: ids.length, max: ids.length }))
+	const rows = Arr.zipWith(ids, ks, (id, k) => ({
+		id,
+		v: BigInt(source.draw(int(0, 2))),
+		tier: source.draw(element(["low", "mid"] as const)),
+		k
+	}))
+	const [first, ...stored] = nonEmpty(rows, "a fresh case's rows, one id at least")
+	return { target, op, stored, source: [first] }
+}
+
+export const caseGen: Gen<Case> = oneOf([anyCaseGen, freshCaseGen])
 
 /** A row's facts as Items stores them: its written fields and each generated field's value. */
 export const factOf = (row: Row): Readonly<Record<string, unknown>> =>

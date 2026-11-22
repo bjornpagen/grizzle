@@ -171,7 +171,7 @@ export const aQuerySourcedWriteIntoGeneratedFieldsAgainstPostgreSQL19AnInsertOrA
 		kept: [
 			{
 				token: ReplayToken(
-					"test/pg/write/generated-source/generated-source.test.ts#aQuerySourcedWriteIntoGeneratedFieldsAgainstPostgreSQL19AnInsertOrAPutFromAQueryRequestsTheWrittenFieldsAloneAndStoresEveryGeneratedFieldsValue:-:1.1.1.0.0.0.0.0.0.2.0.0.0"
+					"test/pg/write/generated-source/generated-source.test.ts#aQuerySourcedWriteIntoGeneratedFieldsAgainstPostgreSQL19AnInsertOrAPutFromAQueryRequestsTheWrittenFieldsAloneAndStoresEveryGeneratedFieldsValue:-:0.1.1.1.0.0.0.0.0.0.2.0.0.0"
 				),
 				reason:
 					"the swarm's crash: a put from a query of one row into a relation with a generated field compiled to a statement requesting the generated column from its input",
