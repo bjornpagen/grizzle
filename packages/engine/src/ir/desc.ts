@@ -3366,6 +3366,15 @@ const statementDescShape: S.Shape<StatementDesc> = S.tagged("kind", {
 			},
 			loc
 		)
+	),
+	reachable: S.located(
+		S.structWith(
+			{
+				target: S.nonEmptyUniqueArray(memberShape, (t) => t.relation, "records relations"),
+				holders: S.nonEmptyUniqueArray(memberShape, (h) => h.relation, "holder relations")
+			},
+			loc
+		)
 	)
 })
 

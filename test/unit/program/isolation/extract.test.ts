@@ -301,7 +301,7 @@ export const aChangeMembersFactsNameEveryReadByItsModeItsOwnItsGroupAndItsBindin
 			},
 			{
 				file: "packages/engine/src/program/isolation/extract.ts",
-				original: '\t\t\t\t\tthis.#statement.writes.push({ table, op: "retire" })',
+				original: "\t\t\t\t\tthis.#statement.writes.push({ table, op })",
 				replacement: '\t\t\t\t\tthis.#statement.writes.push({ table, op: "delete" })',
 				why: "A retirement read as a delete of its unit's relations, which would make each a relation a role deletes and unseal its inserters."
 			},
