@@ -16,7 +16,8 @@ import {
 	loginRole,
 	programsOn,
 	type RoleChanges,
-	type ServableRole
+	type ServableRole,
+	servableRoles
 } from "#compiler/plan/change.ts"
 import {
 	type ClockSource,
@@ -273,7 +274,14 @@ export const snapshotCompiled = Effect.fn("snapshotCompiled")(function* (
 		fromEngine(loginFootprints(login.login.workload, login.login.base, artifacts)),
 		(refused) => planRefusal(login, refused)
 	)
-	const compiled = yield* compileServed(login, snapshot, artifacts, changes, footprints, clock)
+	const compiled = yield* compileServed(
+		login,
+		snapshot,
+		artifacts,
+		servableRoles(changes),
+		footprints,
+		clock
+	)
 	return { ...compiled, changes }
 })
 

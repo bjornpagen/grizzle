@@ -59,10 +59,10 @@ export const retirementsOfAKeysLastReferencesRacingAKeepOfTheSameKeyEndAsEverySe
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/program/isolation/certification.ts",
+				file: "packages/engine/src/program/isolation/member-facts.ts",
 				original: '\t\t\t\t\t\top: "delete"',
 				replacement: '\t\t\t\t\t\top: "retire"',
-				why: "Certification reads a release as no deletion of the records (program/isolation/certification.ts retirementOf), so it can certify their writer or their retirer READ COMMITTED, where a race leaks a key no reference names or refuses a reference 23503."
+				why: "Certification reads a release as no deletion of the records (program/isolation/member-facts.ts extractNames, retirementOf), so it can certify their writer or their retirer READ COMMITTED, where a race leaks a key no reference names or refuses a reference 23503."
 			}
 		]
 	})

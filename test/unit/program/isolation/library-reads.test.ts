@@ -83,13 +83,13 @@ export const aRoleWhoseWritesCallGrizzlesTextDigestOrADeclaredFunctionIsCertifie
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/program/isolation/certification.ts",
+				file: "packages/engine/src/program/isolation/member-facts.ts",
 				original: "\tfor (const fn of tablelessLibrary) {",
 				replacement: "\tfor (const fn of tablelessLibrary.slice(0, 0)) {",
 				why: "grizzle's library functions read as functions that may read any table, as at f87b2aaab: a write that digests a text fails `facts` by the digest's call; the property fails."
 			},
 			{
-				file: "packages/engine/src/program/isolation/certification.ts",
+				file: "packages/engine/src/program/isolation/member-facts.ts",
 				original: "\tfor (const fn of Object.keys(artifacts.owned.functions)) {",
 				replacement: "\tfor (const fn of Object.keys(artifacts.owned.functions).slice(0, 0)) {",
 				why: "Declared functions read as functions that may read any table, as at f87b2aaab: a write that calls one fails `facts` by its call; the property fails."

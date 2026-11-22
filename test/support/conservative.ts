@@ -3,11 +3,7 @@ import { Result as EffectResult } from "effect"
 import { readBacks } from "#adapter/apply/readback.ts"
 import { toResult } from "#adapter/engine.ts"
 import type { PageRuntime } from "#adapter/page/template.ts"
-import {
-	type CompiledEntry,
-	type CompiledProgram,
-	compiledPageRuntime
-} from "#adapter/served/forms.ts"
+import { type CompiledProgram, compiledPageRuntime } from "#adapter/served/forms.ts"
 import type { RoleContext } from "#adapter/served/role.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
@@ -30,7 +26,7 @@ import { type SpecifiedArtifact, specifiedProgram } from "#compiler/lower/templa
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import { writeWorldOf } from "#compiler/program/write-world.ts"
-import { servedReadBacks, servedSpine } from "#compiler/served/spine.ts"
+import { servedSpine } from "#compiler/served/spine.ts"
 import type { CarrierScope } from "#compiler/sql/naming.ts"
 import { StatementShare } from "#compiler/write/insert/statement.ts"
 import type { WriteArtifact } from "#compiler/write/program/artifact.ts"
@@ -46,7 +42,7 @@ import {
 	placeStatement,
 	uniqueAbortsOf
 } from "#compiler/write/program/compile.ts"
-import { flightOf } from "#compiler/write/program/served.ts"
+import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
 import { type ConservativeWrite, realizeConservative } from "#test/support/oracle/write/realize.ts"
 
 /**
@@ -144,12 +140,13 @@ export const conservativePageRuntime = (
  * The write oracle's baseline of a compiled ChangeSet: `entry` with its program's conservative realization
  * (write/program/compile.ts conservativeWrite) and that realization's read-backs in their place, which an application
  * then runs as it runs the optimized one, its members and read-backs read under the names of the artifacts its role
- * compiled it against (db/context.ts RoleContext.programArtifacts).
+ * compiled it against (db/context.ts RoleContext.programArtifacts); beside it the realization whole, its statements'
+ * ASTs among it, which an audit reads.
  */
 export const conservativeChange = (
 	{ entry, program: compiled }: CompiledProgram,
 	role: Pick<RoleContext, "programArtifacts">
-): Result.Result<CompiledEntry, CompileError> =>
+): Result.Result<CompiledProgram, CompileError> =>
 	Result.flatMap(
 		role.programArtifacts({ kind: "changeSet", changeSet: entry.change.desc }),
 		({ artifacts }) =>
@@ -159,12 +156,18 @@ export const conservativeChange = (
 					reads: artifacts.reads,
 					world: writeWorldOf(artifacts.world, artifacts.laws)
 				}),
-				(program) => ({
-					...entry,
-					program: flightOf(program, entry.names.codes),
-					compiled: program,
-					readBacks: readBacks(servedReadBacks(program.artifact.readBacks), entry.names.codes)
-				})
+				(program) => {
+					const servable = servableWrite(program)
+					return {
+						entry: {
+							...entry,
+							program: flightOf(servable, entry.names.codes),
+							compiled: servable,
+							readBacks: readBacks(servable.readBacks, entry.names.codes)
+						},
+						program
+					}
+				}
 			)
 	)
 

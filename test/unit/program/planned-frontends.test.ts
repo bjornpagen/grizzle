@@ -13,10 +13,13 @@
  * insert and Plain's put, planned and then compiled at READ COMMITTED, and SERIALIZABLE where a member has no READ
  * COMMITTED form.
  *
- * Property 1, per case: every member's entry holds, as its prepared write's front end, the front end the plan compiled
- * of its program, the very value (planned.ts everyHolding), at every level its role is compiled at. Oracle:
- * specification, one front end per ChangeSet and set of fill contexts across the plan and the served compile. Kill:
- * the served compile reads no planned front end, so it compiles each again.
+ * Property 1, per case: the served compile takes the front end the plan compiled of each member and compiles none of its
+ * own (planned.ts take): no ChangeSet's front end is compiled as the login compiles (the calls of
+ * write/frontend/compile.ts compileChangeSet, counted, test/support/kernel/calls.ts), and once it has compiled, the plan
+ * holds none of its members' front ends, each taken once, so each dies with the compile that read it. Oracle:
+ * specification, one front end per ChangeSet and set of fill contexts across the plan and the served compile, taken
+ * once. Kills: the served compile reads no planned front end, so it compiles each again; a take leaves the front end in
+ * the plan, which holds every one through the served round.
  *
  * Property 2, per case: the login served over its plan's front ends compiles what it compiles with none (planned.ts
  * noPlannedFrontends), each compiled write's statements and their SQL, entry for entry. Oracle: a second
@@ -37,13 +40,14 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { silentPhases } from "#compiler/core/phase.ts"
 import { noClock } from "#compiler/ir/clock.ts"
-import { type ChangeEntry, readCommittedChanges } from "#compiler/program/workload/change.ts"
+import { readCommittedChanges, type ServableEntry } from "#compiler/program/workload/change.ts"
 import { compileWorkload, loginFootprints } from "#compiler/program/workload/compile.ts"
 import { noPlannedFrontends } from "#compiler/program/workload/planned.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { callCounts } from "#test/support/kernel/calls.ts"
 import {
 	changeLoginOf,
 	entriesOf,
@@ -53,54 +57,69 @@ import {
 
 type Situation = "one program" | "several programs of a role"
 
-/** Each entry's compiled statements' SQL, in order. */
-const sqlOf = (entries: ReadonlyArray<ChangeEntry>): ReadonlyArray<ReadonlyArray<string>> =>
-	Arr.map(entries, (entry) => Arr.map(entry.compiled.artifact.statements, (s) => s.spec.sql))
+/** Each entry's served statements, their texts, parts and slots, in order, as text. */
+const sqlOf = (entries: ReadonlyArray<ServableEntry>): ReadonlyArray<string> =>
+	Arr.map(entries, (entry) => Formatter.format(entry.compiled.statements))
 
-/** Every member's entry holds the front end its workload's plan compiled of its program. */
-export const everyMembersEntryHoldsTheFrontEndItsWorkloadsPlanCompiledOfItsProgram =
+/** The served compile takes each member's front end from its workload's plan, and compiles none of its own. */
+export const theServedCompileTakesEachMembersFrontEndFromItsWorkloadsPlanAndCompilesNoneOfItsOwn =
 	property.explore(rolesGen, {
 		needs: {},
 		situations: ["one program", "several programs of a role"] satisfies ReadonlyArray<
 			Reached<Situation>
 		>,
 		check: (_, c: Case<Situation>) => (drawn) =>
-			Effect.sync(() => {
+			Effect.gen(function* () {
 				const login = changeLoginOf(drawn)
-				const roles = succeeded(readCommittedChanges(login, silentPhases), "the login's compile")
+				const [roles, counts] = yield* callCounts(
+					Effect.sync(() =>
+						succeeded(readCommittedChanges(login, silentPhases), "the login's compile")
+					),
+					{
+						frontEnds: {
+							file: "packages/engine/src/write/frontend/compile.ts",
+							name: "compileChangeSet"
+						}
+					}
+				)
+				assert.equal(counts.frontEnds, 0, "no member's front end compiled: each the plan's")
 				for (const [i, held] of drawn.entries()) {
 					c.note(held.length === 1 ? "one program" : "several programs of a role")
 					const compiled = roles.get(`writer${i}`)
 					assert.ok(compiled !== undefined, `role writer${i} compiled`)
-					const role = compiled.changes.named.owned.name
-					for (const [program, variants] of compiled.changes.members) {
-						const planned = login.planned.everyHolding({
-							laws: compiled.changes.artifacts.laws,
-							login: login.named.owned.name,
-							role,
-							program,
-							clock: noClock,
-							source: login.clock
-						})
-						assert.ok(planned !== undefined, `${program}: its plan compiled its front end`)
-						for (const entry of entriesOf(variants)) {
-							assert.equal(entry.prepared.frontend, planned, `${program}: the plan's front end`)
-							assert.equal(entry.compiled.frontend, planned, `${program}: compiled over it`)
-						}
+					for (const program of compiled.changes.members.keys()) {
+						assert.equal(
+							login.planned.take({
+								laws: compiled.changes.artifacts.laws,
+								login: login.named.owned.name,
+								role: compiled.changes.named.owned.name,
+								program,
+								clock: noClock,
+								source: login.clock
+							}),
+							undefined,
+							`${program}: its plan's front end taken, the plan holding it no more`
+						)
 					}
 				}
 			}),
 		oracle: {
 			kind: "specification",
-			name: "one front end per ChangeSet and set of fill contexts across its plan and its served compile"
+			name: "one front end per ChangeSet and set of fill contexts across its plan and its served compile, taken once"
 		},
 		kept: [],
 		kills: [
 			{
 				file: "packages/engine/src/program/workload/change.ts",
-				original: "\t\t\tconst planned = login.planned.everyHolding({\n",
-				replacement: "\t\t\tconst planned = undefined && login.planned.everyHolding({\n",
-				why: "The served compile reads no planned front end and compiles every member's again from its value, as it did: no entry holds the plan's front end, and the search fails."
+				original: "\t\t\tconst planned = login.planned.take({\n",
+				replacement: "\t\t\tconst planned = undefined && login.planned.take({\n",
+				why: "The served compile reads no planned front end and compiles every member's again from its value, as it did: a front end is compiled for every member, and the search fails."
+			},
+			{
+				file: "packages/engine/src/program/workload/planned.ts",
+				original: "\t\tthis.#planned.delete(place)\n",
+				replacement: "",
+				why: "A take leaves the front end in the plan, which holds every one through the served round, as it held them: a member's front end is the plan's still once the login compiled, and the search fails."
 			}
 		]
 	})

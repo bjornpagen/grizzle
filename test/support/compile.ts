@@ -101,7 +101,7 @@ import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import type { AnyRole } from "#compiler/types/schema/world.ts"
 import type { FrontendOptions } from "#compiler/write/frontend/compile.ts"
 import type { CompiledWrite, CompileWriteOptions } from "#compiler/write/program/compile.ts"
-import { flightOf } from "#compiler/write/program/served.ts"
+import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
 import { readArrayLiteral } from "#test/support/arrays.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { type OracleTemplate, withConservative } from "#test/support/conservative.ts"
@@ -796,7 +796,7 @@ export const nestedRowsColumn = (
 	relation: string,
 	part: number
 ): ReadonlyArray<string> => {
-	for (const statement of flightOf(program, program.frontend.codes).statements) {
+	for (const statement of flightOf(servableWrite(program), program.frontend.codes).statements) {
 		const at = Arr.findFirstIndex(
 			statement.kind === "whole" ? statement.form.paramSlots : [],
 			(s) => s.kind === "nestedRows" && s.relation === relation && s.part === part

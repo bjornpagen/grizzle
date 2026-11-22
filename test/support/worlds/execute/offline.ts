@@ -14,7 +14,7 @@ import { carrierScope } from "#compiler/sql/naming.ts"
 import { type ParsedChangeSet, parseChangeSet } from "#compiler/write/changeset/value.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import { servedMembers } from "#compiler/write/program/served-members.ts"
-import { flightOf } from "#compiler/write/program/served.ts"
+import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import type { BuiltRole } from "#test/support/worlds/execute/build.ts"
@@ -98,7 +98,7 @@ export const offlineServedBind = (
 	Engine.flatMap(servedMembers(program.binding.members, change.opaque), (members) =>
 		Engine.flatMap(memberFactsOf(facts, members), (read) =>
 			withinMessage(
-				bindWrite(flightOf(program, program.frontend.codes), {
+				bindWrite(flightOf(servableWrite(program), program.frontend.codes), {
 					members: read,
 					params: {},
 					transport: inForce(bindFrame)
@@ -117,7 +117,7 @@ export const offlineBind = (
 ): Effect.Effect<Engine.Result<BindResult, EncodingFailure | CompileError>> =>
 	Effect.map(collectInputs(program.binding.groups, change.inputs), (members) =>
 		withinMessage(
-			bindWrite(flightOf(program, program.frontend.codes), {
+			bindWrite(flightOf(servableWrite(program), program.frontend.codes), {
 				members,
 				params: {},
 				transport: inForce(bindFrame)

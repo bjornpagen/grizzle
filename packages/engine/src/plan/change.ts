@@ -40,16 +40,17 @@ export { entryKeyOf, fillContexts } from "#compiler/write/frontend/entry.ts"
 export {
 	type ChangeEntry,
 	type ChangeRefused,
-	changesAt,
 	compileParsed,
 	type CompiledVariants,
 	loginChanges,
 	parsedChange,
 	type RoleChanges,
 	type ServableEntry,
+	servableEntry,
 	type ServableRole,
 	type ServableVariants,
-	servableRole
+	servableRole,
+	servableRoles
 } from "#compiler/program/workload/change.ts"
 export { noPlannedFrontends } from "#compiler/program/workload/planned.ts"
 export { loginRole, programsOn } from "#compiler/program/workload/roles.ts"
@@ -74,11 +75,7 @@ export {
 	type FamilyRowBound,
 	type GeneratedRejection
 } from "#compiler/runtime/write/bind.ts"
-export {
-	type CompiledWrite,
-	compileWrite,
-	type ServableWrite
-} from "#compiler/write/program/compile.ts"
+export { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 export type { ExecutionPart } from "#compiler/runtime/write/staged.ts"
 export { closedNamed, type ClosedRows, type ClosedTable } from "#compiler/runtime/write/fill.ts"
 export { closedTableOf } from "#compiler/analysis/schema.ts"
@@ -90,7 +87,12 @@ export {
 	type WriteExclusion
 } from "#compiler/runtime/write/flight.ts"
 export { type ArrayMember, memberFactsOf } from "#compiler/runtime/write/members.ts"
-export { flightOf, projectWrite } from "#compiler/write/program/served.ts"
+export {
+	flightOf,
+	projectWrite,
+	type ServableWrite,
+	servableWrite
+} from "#compiler/write/program/served.ts"
 export {
 	interpretRows,
 	type KeyDecoder,

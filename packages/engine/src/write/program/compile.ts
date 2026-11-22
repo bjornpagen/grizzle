@@ -278,43 +278,6 @@ export interface CompiledWrite extends ProgramArtifacts<WriteParamSlot> {
 	readonly binding: Binding
 }
 
-/**
- * A compiled write as its application and the served file that holds it read it (write/program/served.ts projectWrite,
- * flightOf; adapter/served/project.ts): its level and its exclusion, its artifact's statements and read-backs, its
- * declared and clocked parameters, its binding, and of its front end the schema it compiled against, the relations it
- * writes and the codes it reads. A CompiledWrite is one, with the analysis, the schedule, the placements and the put
- * choices its compile read besides, which nothing past the compile that certifies it reads (servableWrite).
- */
-export interface ServableWrite {
-	readonly level: Isolation
-	readonly exclusion: WriteExclusion
-	readonly artifact: WriteArtifact
-	readonly params: ReadonlyArray<CallerParamDecl>
-	readonly clocked: ReadonlyArray<ClockParamDecl>
-	readonly binding: Binding
-	readonly frontend: Pick<WriteFrontend, "schema" | "written" | "codes">
-}
-
-/**
- * `compiled` as its application and served file read it (ServableWrite), holding nothing else of it: its front end's
- * analyzed DAG and every node of it, its schedule, its placements, its certificates and its put choices are unreachable
- * from it, so a holder of the servable write holds no analysis of its compile.
- */
-export const servableWrite = (compiled: ServableWrite): ServableWrite =>
-	Object.freeze({
-		level: compiled.level,
-		exclusion: compiled.exclusion,
-		artifact: compiled.artifact,
-		params: compiled.params,
-		clocked: compiled.clocked,
-		binding: compiled.binding,
-		frontend: Object.freeze({
-			schema: compiled.frontend.schema,
-			written: compiled.frontend.written,
-			codes: compiled.frontend.codes
-		})
-	})
-
 /** What decides which of a write op's unique violations abort the apply: a MERGE; any other probed statement; or
  * none. */
 type AbortKind =
@@ -1909,8 +1872,6 @@ export class PreparedWrite {
 	 * a member lacking one at SERIALIZABLE alone (program/workload/change.ts readCommittedChanges).
 	 */
 	readonly readCommittedLack: FormLack | undefined
-	#compiles = 0
-	#placements = 0
 
 	constructor(
 		schema: CheckedSchema,
@@ -1925,23 +1886,12 @@ export class PreparedWrite {
 		this.readCommittedLack = readCommittedLack(chosen)
 	}
 
-	/** How many levels it was compiled at (`compile`): the back ends its one front end fed, the work it saved them. */
-	get compiles(): number {
-		return this.#compiles
-	}
-
-	/** How many times it was placed (`#place`): one for every compile, which reads its placement alone. */
-	get placements(): number {
-		return this.#placements
-	}
-
 	/**
 	 * The write placed (PlacedWrite): its restated front end and the placement of its deduplication over the restated
 	 * DAG (writeFacts), which read no level either. A placement holds the physical analysis its facts read, so the
 	 * placed write is its one compile's and held by nothing past it (`compile`).
 	 */
 	#place(): Result.Result<PlacedWrite, CompileError> {
-		this.#placements += 1
 		return catchRefusal(() => {
 			/** The optimized artifact lowers the restated write DAG (`WriteFrontend.restated`), its actions and read-backs
 			 * each the restated node standing in its place, and each put its choice; the conservative realization lowers
@@ -1949,10 +1899,8 @@ export class PreparedWrite {
 			const restated: WriteFrontend = Object.freeze({ ...this.frontend, ...this.frontend.restated })
 			const placement = placementOf(restated.ir.dag, this.frontend)
 			return {
-				compile: (level: Isolation): Result.Result<CompiledWrite, CompileError> => {
-					this.#compiles += 1
-					return catchRefusal(() => compileAt(this, restated, placement, level))
-				}
+				compile: (level: Isolation): Result.Result<CompiledWrite, CompileError> =>
+					catchRefusal(() => compileAt(this, restated, placement, level))
 			}
 		})
 	}

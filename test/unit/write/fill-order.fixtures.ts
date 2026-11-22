@@ -22,7 +22,7 @@ import { roleBuilder as role } from "#compiler/schema/world.ts"
 import { carrierScope } from "#compiler/sql/naming.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
-import { flightOf } from "#compiler/write/program/served.ts"
+import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { cellAt } from "#test/support/cells.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
@@ -697,7 +697,7 @@ export const property = (
 			return
 		}
 		const members = yield* collectInputs(program.value.binding.groups, parsedOf(all).inputs)
-		const write = flightOf(program.value, program.value.frontend.codes)
+		const write = flightOf(servableWrite(program.value), program.value.frontend.codes)
 		const bound = bindWrite(write, {
 			members,
 			params: {},

@@ -12,7 +12,7 @@ import { inForce } from "#compiler/runtime/write/transport.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import { evaluationOf, hostFillOf } from "#compiler/write/program/decide.ts"
-import { flightOf } from "#compiler/write/program/served.ts"
+import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import {
 	buildFill,
@@ -132,8 +132,8 @@ export const property = (
 		const members = yield* collectInputs(program.binding.groups, parsedOf(all).inputs)
 		const inputs = { members, params: {}, transport: inForce(bindFrame) }
 		const wide = widened(program)
-		const write = flightOf(program, program.frontend.codes)
-		const wideWrite = flightOf(wide, wide.frontend.codes)
+		const write = flightOf(servableWrite(program), program.frontend.codes)
+		const wideWrite = flightOf(servableWrite(wide), wide.frontend.codes)
 		assert.deepEqual(
 			sent(write, bindWrite(write, inputs)),
 			sent(wideWrite, bindWrite(wideWrite, inputs)),

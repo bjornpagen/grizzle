@@ -1,32 +1,33 @@
 /**
  * A workload ChangeSet's member is prepared once for each set of its fill contexts (write/program/compile.ts
- * PreparedWrite: its front end, compileChangeSet, and its put targets, which read no isolation level), and that one
- * prepared write is compiled at every level its role is compiled at (program/workload/change.ts PreparedVariants,
- * PreparedEntry). Its put targets decide whether it has a READ COMMITTED form (PreparedWrite.readCommittedLack,
+ * PreparedWrite: its front end, compileChangeSet, and its put targets, which read no isolation level) and compiled once,
+ * at its role's level. Its put targets decide whether it has a READ COMMITTED form (PreparedWrite.readCommittedLack,
  * write/schedule/plan.ts readCommittedLack), so a role certification reads at READ COMMITTED is prepared first and read
  * for its form (readCommittedRole, phase `frontEnd`), then compiled at one level (membersAt, phase `changeSet`): READ
- * COMMITTED where every member has a form, SERIALIZABLE alone where one lacks it; a role certification leaves
- * SERIALIZABLE is compiled at it again (serializableChanges, changesAt). Each level compiled the member's front end from
- * its value again, and a role with a member lacking a form compiled every member at READ COMMITTED first, each formed
- * member's compile thrown away, each lacking one's placed for its refusal, and then at SERIALIZABLE.
+ * COMMITTED where every member has a form, SERIALIZABLE alone where one lacks it. No entry keeps its prepared write
+ * past its compile (CertifiableEntry), so a role certification leaves SERIALIZABLE is prepared again from its values
+ * and compiled at it (serializableChanges), and a role it never lowers holds none of its front ends. A role with a
+ * member lacking a form compiled every member at READ COMMITTED first, each formed member's compile thrown away, each
+ * lacking one's placed for its refusal, and then at SERIALIZABLE; every entry held its prepared write, so every front
+ * end lived through certification (metis's full installation: 213, 1,198 MB as its changes began).
  *
  * The box, drawn: a login of one to three roles, each writing a span primary key (Room), its mutable twin (Hold), whose
  * inserts and puts have no READ COMMITTED form, and a scalar key (Plain), whose have, its workload one to all four of
  * Room's insert, Hold's put, Plain's insert and Plain's put.
  *
  * Property: after the login's READ COMMITTED compile, a role with a member lacking a form names exactly those members,
- * in its workload's order, each with its relation, and each of its entries is compiled once, at SERIALIZABLE,
- * and placed once (PreparedWrite #place, its deduplication's placement); every entry of a formed role is
- * compiled once, at READ COMMITTED, and the role compiled again at SERIALIZABLE holds the same prepared writes, each
- * compiled twice, their front ends the ones its READ COMMITTED entries hold. Each member is prepared once whatever the
- * levels: at the start of each role's first compile, reported to the login's phases (core/phase.ts `changeSet`), the
- * prepared writes alive (counted by V8 after a full collection) are those alive before the login compiled and one for
- * each member of the roles compiled so far, its own included, the ones its form was read from. And no placement
- * outlives the compile that read it: at the end of every ChangeSet's compile the physical analyses alive
- * (analysis/physical/analyze.ts PropsUnder, one for each) are those alive before the login compiled, where the role's
- * compile held every member's placement until its last member compiled (edullm's qti: the learner role's decideStage
- * placement alone ~1.1 GB). Kills: each read of a member prepares it again; a prepared write keeps its placement for
- * its next compile; a role compiles every member at READ COMMITTED before reading its form.
+ * in its workload's order, each with its relation, its entries compiled at SERIALIZABLE, and a formed role's at
+ * READ COMMITTED; the login's compile compiled every member once, placed it once (write/program/compile.ts
+ * compileAt, placementOf) and compiled no front end, each its plan's (write/frontend/compile.ts compileChangeSet), each
+ * call counted (test/support/kernel/calls.ts); and a formed role compiled again at SERIALIZABLE prepares each member
+ * again from its value, its front end compiled afresh, and compiles it once. At the start of each role's first compile,
+ * reported to the login's phases (core/phase.ts `changeSet`), the prepared writes alive (counted by V8 after a full
+ * collection) are those alive before the login compiled and one for each of its members, the ones its forms were read
+ * from; once the login compiled, those alive before it alone. And no placement outlives the compile that read it: at
+ * the start of every ChangeSet's compile, and once the login compiled, the physical analyses alive
+ * (analysis/physical/analyze.ts PropsUnder, one for each) are those alive before the login compiled (edullm's qti: the
+ * learner role's decideStage placement alone ~1.1 GB). Kills: each read of a member prepares it again; a prepared write
+ * keeps its placement for its next compile; a role compiles every member at READ COMMITTED before reading its form.
  *
  * Features: a role with a member lacking a form, a formed role.
  */
@@ -41,12 +42,12 @@ import type { Phases } from "#compiler/core/phase.ts"
 import { readCommittedChanges, serializableChanges } from "#compiler/program/workload/change.ts"
 import { PreparedWrite } from "#compiler/write/program/compile.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { callCounts } from "#test/support/kernel/calls.ts"
 import {
 	changeLoginOf,
 	entriesOf,
 	programs,
-	rolesGen,
-	workOf
+	rolesGen
 } from "#test/unit/program/prepared-levels.fixtures.ts"
 
 type Situation = "a role with a member lacking a form" | "a formed role"
@@ -57,49 +58,65 @@ const analysesAlive = (): number => queryObjects(PropsUnder, { format: "count" }
 /** The prepared writes alive, counted by V8 after a full collection. */
 const preparedAlive = (): number => queryObjects(PreparedWrite, { format: "count" })
 
-/** Each member's front end is compiled once, whatever the levels its role is compiled at. */
-export const eachMembersFrontEndIsCompiledOnceWhateverTheLevelsItsRoleIsCompiledAt =
+/** The work a compile does, each call counted: a write's compile at a level, its placement, and a front end's compile. */
+const counted = {
+	compiles: { file: "packages/engine/src/write/program/compile.ts", name: "compileAt" },
+	placements: { file: "packages/engine/src/write/program/compile.ts", name: "placementOf" },
+	frontEnds: { file: "packages/engine/src/write/frontend/compile.ts", name: "compileChangeSet" }
+} as const
+
+/** A role's members are prepared and compiled once, at its level, and a lowered role is prepared again from its values. */
+export const aRolesMembersArePreparedAndCompiledOnceAtItsLevelAndALoweredRoleIsPreparedAgainFromItsValues =
 	property.explore(rolesGen, {
 		needs: {},
 		situations: ["a role with a member lacking a form", "a formed role"] satisfies ReadonlyArray<
 			Reached<Situation>
 		>,
 		check: (_, c: Case<Situation>) => (drawn) =>
-			Effect.sync(() => {
+			Effect.gen(function* () {
 				const login = changeLoginOf(drawn)
 				const before = analysesAlive()
 				const preparedBefore = preparedAlive()
-				/** The physical analyses alive at the end of each ChangeSet's compile. */
-				const atEnds: Array<number> = []
+				/** The physical analyses alive at the start of each ChangeSet's compile. */
+				const atStarts: Array<number> = []
 				/** The prepared writes alive at the start of each role's first compile, by the role's name. */
 				const atFirsts = new Map<string, number>()
 				const phases: Phases = {
 					report: (phase, edge) => {
-						if (phase.name !== "changeSet") {
+						if (phase.name !== "changeSet" || edge !== "start") {
 							return
 						}
+						atStarts.push(analysesAlive())
 						const role = phase.of[0] ?? ""
-						if (edge === "start" && !atFirsts.has(role)) {
+						if (!atFirsts.has(role)) {
 							atFirsts.set(role, preparedAlive())
-						}
-						if (edge === "end") {
-							atEnds.push(analysesAlive())
 						}
 					}
 				}
-				const roles = succeeded(readCommittedChanges(login, phases), "the login's compile")
-				assert.ok(atEnds.length > 0, "a ChangeSet compiled")
-				for (const alive of atEnds) {
+				const [roles, work] = yield* callCounts(
+					Effect.sync(() => succeeded(readCommittedChanges(login, phases), "the login's compile")),
+					counted
+				)
+				const members = Arr.reduce(drawn, 0, (n, held) => n + held.length)
+				assert.equal(work.compiles, members, "each member compiled once, at its role's level")
+				assert.equal(work.placements, members, "each member placed once")
+				assert.equal(work.frontEnds, 0, "no front end compiled: each member's its plan's")
+				assert.ok(atStarts.length > 0, "a ChangeSet compiled")
+				for (const alive of [...atStarts, analysesAlive()]) {
 					assert.equal(alive, before, "no placement alive past the compile that read it")
 				}
-				for (const i of drawn.keys()) {
-					const sofar = Arr.reduce(drawn.slice(0, i + 1), 0, (n, programs) => n + programs.length)
+				for (const [i, held] of drawn.entries()) {
 					assert.equal(
 						atFirsts.get(`writer${i}`),
-						preparedBefore + sofar,
-						`writer${i}'s first compile: one prepared write for each member of the roles so far, its own the ones its form was read from`
+						preparedBefore + held.length,
+						`writer${i}'s first compile: one prepared write for each of its members, the ones its forms were read from`
 					)
 				}
+				assert.equal(
+					preparedAlive(),
+					preparedBefore,
+					"no prepared write alive once the login compiled"
+				)
 				for (const [i, held] of drawn.entries()) {
 					const compiled = roles.get(`writer${i}`)
 					assert.ok(compiled !== undefined, `role writer${i} compiled`)
@@ -122,48 +139,27 @@ export const eachMembersFrontEndIsCompiledOnceWhateverTheLevelsItsRoleIsCompiled
 						)
 						for (const entry of entries) {
 							assert.equal(entry.compiled.level, "serializable", "compiled at SERIALIZABLE")
-							assert.equal(
-								workOf(entry.prepared).compiles,
-								1,
-								"an unformed role's member: compiled once, at SERIALIZABLE alone"
-							)
-							assert.equal(workOf(entry.prepared).placements, 1, "placed for its one compile")
 						}
 						continue
 					}
 					c.note("a formed role")
 					for (const entry of entries) {
 						assert.equal(entry.compiled.level, "readCommitted", "compiled at READ COMMITTED")
-						assert.equal(
-							workOf(entry.prepared).compiles,
-							1,
-							"a formed role's member, compiled once"
-						)
 					}
-					const again = Arr.flatMap(
-						[...succeeded(serializableChanges(compiled.changes), "SERIALIZABLE").members.values()],
-						entriesOf
+					const [lowered, again] = yield* callCounts(
+						Effect.sync(() => succeeded(serializableChanges(compiled.changes), "SERIALIZABLE")),
+						counted
 					)
-					for (const [at, entry] of again.entries()) {
-						const before = entries[at]
-						assert.ok(before !== undefined, "an entry at each place")
-						assert.equal(
-							entry.prepared,
-							before.prepared,
-							"the prepared write its READ COMMITTED entry holds"
-						)
-						assert.equal(
-							workOf(entry.prepared).compiles,
-							2,
-							"compiled again at SERIALIZABLE, prepared once"
-						)
-						assert.equal(entry.compiled.frontend, before.compiled.frontend, "one front end")
+					assert.equal(again.frontEnds, held.length, "each member prepared again from its value")
+					assert.equal(again.compiles, held.length, "each member compiled once, at SERIALIZABLE")
+					for (const entry of Arr.flatMap([...lowered.members.values()], entriesOf)) {
+						assert.equal(entry.compiled.level, "serializable", "compiled at SERIALIZABLE")
 					}
 				}
 			}),
 		oracle: {
 			kind: "specification",
-			name: "one front end per member and set of fill contexts, for every level its role is compiled at"
+			name: "one preparation and one compile of each member at its role's level, and a lowered role prepared again"
 		},
 		kept: [],
 		kills: [
@@ -171,20 +167,20 @@ export const eachMembersFrontEndIsCompiledOnceWhateverTheLevelsItsRoleIsCompiled
 				file: "packages/engine/src/program/workload/change.ts",
 				original: "\t\t\tconst variants = once(() =>\n",
 				replacement: "\t\t\tconst variants = (() =>\n",
-				why: "Each read of a member prepares it again from its value, as each level compiled it before: the prepared write its form was read from is dropped and its compile prepares another, so at a role's first compile its members' prepared writes are not alive, and the search fails."
+				why: "Each read of a member prepares it again: the prepared write its form was read from is dropped and its compile prepares another, so at a role's first compile its members' prepared writes are not alive, and the search fails."
 			},
 			{
 				file: "packages/engine/src/write/program/compile.ts",
 				original: "\t\treturn Result.flatMap(this.#place(), (placed) => placed.compile(level))\n",
 				replacement:
 					"\t\tthis.held ??= this.#place()\n\t\treturn Result.flatMap(this.held, (placed) => placed.compile(level))\n",
-				why: "A prepared write keeps its placement for its next compile, as the role's compile kept every member's: the placement's physical analysis outlives the compile that read it, so at a ChangeSet's end the analyses alive outnumber those before the login compiled, and the search fails."
+				why: "A prepared write keeps its placement for its next compile, as the role's compile kept every member's: the placement's physical analysis outlives the compile that read it, so at the next ChangeSet's start and once the login compiled the analyses alive outnumber those before the login compiled, and the search fails."
 			},
 			{
 				file: "packages/engine/src/program/workload/change.ts",
 				original: "\t\t\t\tprogram.lack()\n",
 				replacement: '\t\t\t\t(program.compile("readCommitted"), program.lack())\n',
-				why: "A role compiles every member at READ COMMITTED before reading its form, as it compiled every member there to learn it: a formed role's member is compiled twice at READ COMMITTED and a formed member of a role lacking a form at both levels, and the search fails."
+				why: "A role compiles every member at READ COMMITTED before reading its form, as it compiled every member there to learn it: a formed member is compiled twice, and the search fails."
 			}
 		]
 	})

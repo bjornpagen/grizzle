@@ -32,7 +32,7 @@ import {
 import type { DeltaValue } from "#compiler/write/delta/source.ts"
 import { isCarried } from "#compiler/write/insert/statement.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
-import { flightOf } from "#compiler/write/program/served.ts"
+import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
 import {
 	Bin,
 	Book,
@@ -2641,7 +2641,7 @@ const bound = (
 	}
 	const members = Effect.runSync(collectInputs(program.binding.groups, parsed.inputs))
 	const params = { ...args, ...Rec.fromEntries([...parsed.values]) }
-	return bindWrite(flightOf(program, program.frontend.codes), {
+	return bindWrite(flightOf(servableWrite(program), program.frontend.codes), {
 		members,
 		params,
 		transport: inForce(bindFrame)

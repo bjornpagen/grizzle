@@ -998,10 +998,11 @@ const observedArtifact = (
 			const compiled = yield* Effect.fromResult(
 				compiledWrite(opened.role, changes, opened.ctx.claims)
 			)
-			const entry =
+			const program =
 				realization === "served"
-					? compiled.entry
+					? compiled
 					: yield* Effect.fromResult(toResult(conservativeChange(compiled, opened.role)))
+			const { entry } = program
 			const members = yield* opened.load({ change: changes })
 			const loaded = member(members, "change")
 			if (loaded.kind !== "change") {
@@ -1014,7 +1015,7 @@ const observedArtifact = (
 				realization === "served"
 					? served
 					: yield* Effect.fromResult(realized(served, entry, changes.reads))
-			const statements = Arr.map(entry.compiled.artifact.statements, observedStatement)
+			const statements = Arr.map(program.program.artifact.statements, observedStatement)
 			const attribute = attributor(statements)
 			const applyWith = (facts: CallFacts, params: ParamMap) =>
 				Effect.suspend(() => {

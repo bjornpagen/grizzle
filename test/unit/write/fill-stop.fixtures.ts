@@ -30,7 +30,7 @@ import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { StatedLaw, Witness } from "#compiler/types/changeset/changeset.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
-import { flightOf } from "#compiler/write/program/served.ts"
+import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
@@ -276,7 +276,7 @@ export const outcomeOn = (path: Path, value: unknown, missing: boolean) =>
 	Effect.map(
 		collectInputs(path.program.binding.groups, parsedOf(value).inputs),
 		(members): Outcome => {
-			const bound = bindWrite(flightOf(path.program, path.program.frontend.codes), {
+			const bound = bindWrite(flightOf(servableWrite(path.program), path.program.frontend.codes), {
 				members,
 				params: {},
 				transport: inForce(bindFrame)

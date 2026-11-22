@@ -43,7 +43,7 @@ import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
-import { flightOf } from "#compiler/write/program/served.ts"
+import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
@@ -155,7 +155,7 @@ export const aWriteWorksOutEachNestedAndFreshValuesCanonicalTextOnceAtItsAdmissi
 				const program = succeeded(compileWrite(checking(Labels), descOf(value), reality))
 				const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
 				const counting = countedCodes(program.frontend.codes)
-				const flight = flightOf(program, counting.codes)
+				const flight = flightOf(servableWrite(program), counting.codes)
 				const bound = succeeded(
 					withinMessage(bindWrite(flight, { members, params: {}, transport: inForce(bindFrame) }))
 				)

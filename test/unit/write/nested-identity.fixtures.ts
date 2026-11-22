@@ -28,7 +28,7 @@ import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { DigestBook } from "#compiler/scalar/values/bytes.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
-import { flightOf } from "#compiler/write/program/served.ts"
+import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
@@ -314,7 +314,7 @@ export const boundSet = (facts: ReadonlyArray<StatedFact>) =>
 			parsedOf(ChangeSet.empty(Bodies).insert(Owner, factsOf(facts, setLength))).inputs
 		),
 		(members) => {
-			const flight = flightOf(insertOwners, insertOwners.frontend.codes)
+			const flight = flightOf(servableWrite(insertOwners), insertOwners.frontend.codes)
 			const write = succeeded(bindWrite(flight, { members, params: {}, transport: setTransport }))
 			switch (write.kind) {
 				case "bound":

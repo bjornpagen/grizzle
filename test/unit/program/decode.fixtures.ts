@@ -50,7 +50,7 @@ import { inForce } from "#compiler/runtime/write/transport.ts"
 import type { FactsRefused } from "#compiler/types/changeset/decode.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
-import { flightOf } from "#compiler/write/program/served.ts"
+import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
@@ -647,8 +647,8 @@ export const codings = ["the decoder's codes", "other codes"] as const
 
 /** The insert's flight under each coding (`codings`). */
 export const flights: Readonly<Record<(typeof codings)[number], FlightWrite>> = {
-	"the decoder's codes": flightOf(insertAll, insertAll.frontend.codes),
-	"other codes": flightOf(insertAll, shifted(insertAll.frontend.codes))
+	"the decoder's codes": flightOf(servableWrite(insertAll), insertAll.frontend.codes),
+	"other codes": flightOf(servableWrite(insertAll), shifted(insertAll.frontend.codes))
 }
 
 /** The transport every insert is bound under: the wire's. */

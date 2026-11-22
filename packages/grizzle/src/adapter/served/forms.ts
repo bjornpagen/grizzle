@@ -24,6 +24,7 @@ import {
 	parsedChange,
 	type ParsedChangeSet,
 	type ServableEntry,
+	servableEntry,
 	type WriteNames
 } from "#compiler/plan/change.ts"
 import {
@@ -52,7 +53,6 @@ import {
 	queryInput,
 	queryState,
 	servedPage,
-	servedReadBacks,
 	servedSource,
 	servedSpine,
 	statedOrderOf
@@ -292,7 +292,7 @@ export const runtimeEntry = (
 		schema,
 		names,
 		witness: witness.declaring(paramDomainsOf(compiled.params)),
-		readBacks: readBacks(servedReadBacks(compiled.artifact.readBacks), codes),
+		readBacks: readBacks(compiled.readBacks, codes),
 		codecs: paramCodecs(compiled.params, codes),
 		bind,
 		change
@@ -321,7 +321,7 @@ const writeEntry = (
 			Result.map(
 				toResult(compileParsed(artifacts, change, claims, "serializable", noClock, role.clock)),
 				(entry) => ({
-					entry: runtimeEntry(entry, artifacts.names.codes, witness, role.bind),
+					entry: runtimeEntry(servableEntry(entry), artifacts.names.codes, witness, role.bind),
 					program: entry.compiled
 				})
 			)

@@ -1128,14 +1128,14 @@ export const runCase = (
 				report: `${header()}\nthe ChangeSet's conservative realization does not compile: ${baseline.error.message}`
 			})
 		}
-		const entries = { optimized: entry.success.entry, conservative: baseline.value } as const
+		const entries = { optimized: entry.success, conservative: baseline.value } as const
 		const problems: Array<string> = []
 		for (const artifact of ["optimized", "conservative"] as const) {
 			const audited = yield* Effect.result(
 				Effect.try({
 					try: () => {
 						checkedStatements(
-							Arr.map(entries[artifact].compiled.artifact.statements, (st) => st.ast),
+							Arr.map(entries[artifact].program.artifact.statements, (st) => st.ast),
 							`${artifact} write statement`
 						)
 					},
@@ -1161,7 +1161,7 @@ export const runCase = (
 		const outcomes: Array<Result.Result<WriteOutcome, unknown>> = []
 		for (const artifact of ["optimized", "conservative"] as const) {
 			yield* resetGroup(t, group, facts)
-			const applied = yield* applyWith(t, entries[artifact], changes, params, perturbation)
+			const applied = yield* applyWith(t, entries[artifact].entry, changes, params, perturbation)
 			const state = yield* readGroup(t, group)
 			outcomes.push(applied.outcome)
 			if (applied.flights > 0) {

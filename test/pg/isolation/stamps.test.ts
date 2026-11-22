@@ -116,7 +116,7 @@ export const callsThatAppendAtOneChildTakeTurnsAndStampAsTheirSerialRunInCommitO
 				why: "An insert that stamps has no READ COMMITTED form again, as before the head rows: generate certifies the writer SERIALIZABLE by `form`, and the READ COMMITTED template does not compile."
 			},
 			{
-				file: "packages/engine/src/program/isolation/certification.ts",
+				file: "packages/engine/src/program/isolation/member-facts.ts",
 				original:
 					"\t\tconst stamp = names.stamp(head.relation, head.field.name)\n\t\tnoTable.add([stamp.schema, stamp.name])\n",
 				replacement: "\t\tnames.stamp(head.relation, head.field.name)\n",

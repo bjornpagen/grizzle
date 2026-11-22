@@ -17,7 +17,7 @@ import { valueBytes } from "#compiler/runtime/write/read-call.ts"
 import { inForce, writeBatching } from "#compiler/runtime/write/transport.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
-import { flightOf } from "#compiler/write/program/served.ts"
+import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { checking } from "#test/support/policy.ts"
@@ -87,7 +87,7 @@ const sharesOf = (c: Drawn, shares: number) =>
 		)
 		const change = ChangeSet.empty(Shared).insert(Wide, facts)
 		const program = succeeded(compileWrite(checking(Shared), descOf(change), reality))
-		const write = flightOf(program, program.frontend.codes)
+		const write = flightOf(servableWrite(program), program.frontend.codes)
 		const members = yield* collectInputs(program.binding.groups, parsedOf(change).inputs)
 		const call = { params: {}, bound: new Map(), members }
 		const read = drawnOf(drawShares(write, call, writeBatching.bytes, false))
@@ -295,7 +295,7 @@ export const runGrouped = (c: Grouped, k: Case<GroupedFeature>) =>
 			Member: members
 		})
 		const program = succeeded(compileWrite(checking(Families), descOf(change), familiesReality))
-		const write = flightOf(program, program.frontend.codes)
+		const write = flightOf(servableWrite(program), program.frontend.codes)
 		const membersOf = yield* collectInputs(program.binding.groups, parsedOf(change).inputs)
 		const call = { params: {}, bound: new Map(), members: membersOf }
 		const whole = insertedRows(

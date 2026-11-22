@@ -64,7 +64,6 @@ import {
 	type ChangeLogin,
 	type ChangeRefused,
 	type ReadCommittedRole,
-	type RoleChanges,
 	readCommittedChanges,
 	type ServableRole,
 	type ServableVariants
@@ -77,7 +76,7 @@ import { hostArguments } from "#compiler/query/build/host.ts"
 import { ownBuiltRole, type OwnedRole } from "#compiler/schema/own.ts"
 import { compileChangeSet, type WriteFrontend } from "#compiler/write/frontend/compile.ts"
 import { primaryKeyShape } from "#compiler/write/frontend/targets.ts"
-import { createsCarrier, type WriteArtifact } from "#compiler/write/program/artifact.ts"
+import type { ServableWrite } from "#compiler/write/program/served.ts"
 
 interface WorkloadOptions {
 	/**
@@ -827,7 +826,7 @@ export interface ServedLogin<S extends ParamSource = ParamSource> extends Change
  * (analysis/isolation/certify.ts Fence), each with the roles certified READ COMMITTED that rely on it.
  */
 export interface ServedWorkloadPlan<S extends ParamSource = ParamSource> extends WorkloadPlan {
-	readonly changes: ReadonlyMap<string, ReadonlyMap<string, RoleChanges<Isolation, S>>>
+	readonly changes: ReadonlyMap<string, ReadonlyMap<string, ServableRole<Isolation, S>>>
 	readonly certification: ReadonlyArray<RoleIsolation>
 	/** The roles whose served ChangeSets create a carrier (servedCarriers), which the installation grants TEMPORARY on the
 	 * database. */
@@ -841,55 +840,41 @@ export interface ServedWorkloadPlan<S extends ParamSource = ParamSource> extends
 	readonly fences: ReadonlyArray<Fence>
 }
 
-/** The artifacts of a ChangeSet's variants, every form it may be served in. */
-const variantArtifacts = (variants: ServableVariants): ReadonlyArray<WriteArtifact> =>
+/** The writes of a ChangeSet's variants, every form it may be served in. */
+const variantWrites = (variants: ServableVariants): ReadonlyArray<ServableWrite> =>
 	variants.kind === "form"
-		? [variants.entry.compiled.artifact]
-		: [...variantArtifacts(variants.holding), ...variantArtifacts(variants.lacking)]
+		? [variants.entry.compiled]
+		: [...variantWrites(variants.holding), ...variantWrites(variants.lacking)]
 
 /**
  * The roles of `served`, each login's ChangeSets in the forms their certificates serve them by role, any of whose served
- * ChangeSets may create a carrier (write/program/artifact.ts createsCarrier), with the type of each column of every
- * program carrier they create, in login then role order: the roles a write may refuse for want of TEMPORARY on the
- * database (adapter TemporaryRefused), or of USAGE on a domain a carrier's column is typed by.
+ * ChangeSets may create a carrier (write/program/artifact.ts createsCarrier, ServableWrite `carriers`), with the type of
+ * each column of every program carrier they create, in login then role order: the roles a write may refuse for want of
+ * TEMPORARY on the database (adapter TemporaryRefused), or of USAGE on a domain a carrier's column is typed by.
  */
 const servedCarriers = (
 	served: ReadonlyMap<string, ReadonlyMap<string, ServableRole>>
 ): ReadonlyArray<RoleCarriers> =>
 	[...served].flatMap(([login, roles]) =>
 		[...roles].flatMap(([role, changes]): ReadonlyArray<RoleCarriers> => {
-			const artifacts = [...changes.members.values()].flatMap(variantArtifacts)
-			return artifacts.some(createsCarrier)
-				? [
-						{
-							login,
-							role,
-							columns: artifacts.flatMap((a) => a.carriers.flatMap((c) => c.heading))
-						}
-					]
+			const writes = [...changes.members.values()].flatMap(variantWrites)
+			return writes.some((w) => w.carriers.creates)
+				? [{ login, role, columns: writes.flatMap((w) => w.carriers.columns) }]
 				: []
 		})
 	)
 
-/** The headers of the retirable units a ChangeSet's variants hold: any variant's flight's holds (write/hold/statement.ts). */
-const variantHolds = (variants: ServableVariants): ReadonlyArray<string> =>
-	variants.kind === "form"
-		? variants.entry.compiled.artifact.statements.flatMap((s) =>
-				s.step.kind === "hold" ? [s.step.header] : []
-			)
-		: [...variantHolds(variants.holding), ...variantHolds(variants.lacking)]
-
 /**
  * The roles of `served`, each login's ChangeSets in the forms their certificates serve them by role, with each
- * retirable unit any of their served ChangeSets holds, by its header, in login, role and header order: the roles whose
- * calls execute the unit's hold function.
+ * retirable unit any of their served ChangeSets holds, by its header (ServableWrite `holds`), in login, role and header
+ * order: the roles whose calls execute the unit's hold function.
  */
 export const servedHolds = (
 	served: ReadonlyMap<string, ReadonlyMap<string, ServableRole>>
 ): ReadonlyArray<RoleHold> =>
 	[...served].flatMap(([login, roles]) =>
 		[...roles].flatMap(([role, changes]): ReadonlyArray<RoleHold> =>
-			[...new Set([...changes.members.values()].flatMap(variantHolds))]
+			[...new Set([...changes.members.values()].flatMap(variantWrites).flatMap((w) => w.holds))]
 				.toSorted(compareStrings)
 				.map((header) => ({ login, role, header }))
 		)

@@ -42,7 +42,7 @@ import {
 } from "#cli/files.ts"
 import { phasedEffect } from "#cli/phases.ts"
 import { rosterRenames } from "#cli/renames.ts"
-import { type ServableRole, servableRole } from "#compiler/plan/change.ts"
+import type { ServableRole } from "#compiler/plan/change.ts"
 import {
 	type Codebook,
 	type CompileError,
@@ -449,9 +449,7 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
 					l.owned.name,
 					{
 						artifacts,
-						roles: new Map(
-							Arr.map([...roles], ([name, role]) => [name, servableRole(role)] as const)
-						),
+						roles,
 						footprints
 					}
 				] as const

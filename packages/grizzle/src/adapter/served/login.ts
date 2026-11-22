@@ -22,6 +22,7 @@ import {
 	readCalled,
 	type RoleChanges,
 	type ServableRole,
+	servableRoles,
 	type ServableVariants,
 	type WorkloadProgram
 } from "#compiler/plan/change.ts"
@@ -550,5 +551,5 @@ export const loginRoles = (
 ): Effect.Effect<ReadonlyArray<LayerRole>, WorkloadRefused> =>
 	Effect.flatMap(
 		loginChangesOver(login, owned, layer.artifacts, "serializable", transactionClock),
-		(changes) => plannedLoginRoles(login, changes, layer, above, transactionClock)
+		(changes) => plannedLoginRoles(login, servableRoles(changes), layer, above, transactionClock)
 	)

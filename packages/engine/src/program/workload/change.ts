@@ -1,7 +1,7 @@
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import type { Unformed } from "#compiler/analysis/isolation/facts.ts"
+import type { MemberFacts, Unformed } from "#compiler/analysis/isolation/facts.ts"
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import type { RowDecoder } from "#compiler/core/decoder.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
@@ -13,6 +13,8 @@ import { type Phases, phased, silentPhases } from "#compiler/core/phase.ts"
 import type { ClockBinding, ClockSource } from "#compiler/ir/clock.ts"
 import type { NamedLogin, NamedRole } from "#compiler/physical/ddl/names.ts"
 import type { ParamSource } from "#compiler/physical/install/plan.ts"
+import type { ExtractNames } from "#compiler/program/isolation/extract.ts"
+import { compiledFacts, extractNames } from "#compiler/program/isolation/member-facts.ts"
 import {
 	type ParsedRole,
 	parseOver,
@@ -37,10 +39,9 @@ import {
 	type PreparedWrite,
 	type PrepareWriteOptions,
 	prepareWrite,
-	preparedWrite,
-	type ServableWrite,
-	servableWrite
+	preparedWrite
 } from "#compiler/write/program/compile.ts"
+import { type ServableWrite, servableWrite } from "#compiler/write/program/served.ts"
 import type { FormLack } from "#compiler/write/schedule/plan.ts"
 
 /**
@@ -62,6 +63,9 @@ interface PreparedEntry<S extends ParamSource> {
 	readonly params: S
 	/** The write its entries compile from at each level, made once (write/program/compile.ts prepareWrite). */
 	readonly prepared: PreparedWrite
+	/** The contexts its write was prepared for: those of its variant that hold a fact (write/frontend/entry.ts
+	 * EntryClaims `facts`). */
+	readonly claims: ReadonlySet<string>
 	readonly change: ParsedChangeSet
 	readonly clock: ClockBinding
 	/** Where its readings of the clock count from (write/program/compile.ts CompileWriteOptions `source`), which a
@@ -72,18 +76,61 @@ interface PreparedEntry<S extends ParamSource> {
 }
 
 /**
- * A workload ChangeSet compiled for each set of its fill contexts that may hold a fact, since a write into a query entry
- * compiles for the contexts a Db's claims hold (write/frontend/entry.ts): one compiled entry with the ChangeSet's reads
- * decoder, or a split on one context into the variants for a Db holding a fact of it and one lacking it.
+ * A workload ChangeSet's variants, one entry `E` for each set of its fill contexts that may hold a fact, since a write
+ * into a query entry compiles for the contexts a Db's claims hold (write/frontend/entry.ts): one entry with the
+ * ChangeSet's reads decoder, or a split on one context into the variants for a Db holding a fact of it and one lacking
+ * it. Each entry is compiled (ChangeEntry, CompiledVariants), as certification reads it (CertifiableEntry) or as a
+ * served file reads it (ServableEntry, ServableVariants).
  */
-export type CompiledVariants<S extends ParamSource = ParamSource> =
-	| { readonly kind: "form"; readonly entry: ChangeEntry<S>; readonly decoder: RowDecoder<unknown> }
+export type Variants<E> =
+	| { readonly kind: "form"; readonly entry: E; readonly decoder: RowDecoder<unknown> }
 	| {
 			readonly kind: "split"
 			readonly context: string
-			readonly holding: CompiledVariants<S>
-			readonly lacking: CompiledVariants<S>
+			readonly holding: Variants<E>
+			readonly lacking: Variants<E>
 	  }
+
+/** A workload ChangeSet compiled for each set of its fill contexts that may hold a fact (Variants, ChangeEntry). */
+export type CompiledVariants<S extends ParamSource = ParamSource> = Variants<ChangeEntry<S>>
+
+/** `variants` with each entry `f`'s of it, in the same splits. */
+export const variantsMap = <A, B>(variants: Variants<A>, f: (entry: A) => B): Variants<B> =>
+	variants.kind === "form"
+		? Object.freeze({ kind: "form", entry: f(variants.entry), decoder: variants.decoder })
+		: Object.freeze({
+				kind: "split",
+				context: variants.context,
+				holding: variantsMap(variants.holding, f),
+				lacking: variantsMap(variants.lacking, f)
+			})
+
+/** The entries of `variants`, every form of its splits, holding side first. */
+export const variantsEntries = <E>(variants: Variants<E>): ReadonlyArray<E> =>
+	variants.kind === "form"
+		? [variants.entry]
+		: [...variantsEntries(variants.holding), ...variantsEntries(variants.lacking)]
+
+/**
+ * `variants` with each entry `f`'s of it, in the same splits, holding side first, or the first refusal in that order.
+ */
+const variantsTraverse = <A, B, E>(
+	variants: Variants<A>,
+	f: (entry: A) => Result.Result<B, E>
+): Result.Result<Variants<B>, E> => {
+	switch (variants.kind) {
+		case "form":
+			return Result.map(f(variants.entry), (entry): Variants<B> =>
+				Object.freeze({ kind: "form", entry, decoder: variants.decoder })
+			)
+		case "split":
+			return Result.flatMap(variantsTraverse(variants.holding, f), (holding) =>
+				Result.map(variantsTraverse(variants.lacking, f), (lacking): Variants<B> =>
+					Object.freeze({ kind: "split", context: variants.context, holding, lacking })
+				)
+			)
+	}
+}
 
 /**
  * A ChangeSet compiled for a role as its runtime entry and the served file that holds it read it: its entry with its
@@ -100,37 +147,65 @@ export interface ServableEntry<S extends ParamSource = ParamSource> {
 	readonly compiled: ServableWrite
 }
 
-/** A workload ChangeSet's variants with each entry servable (CompiledVariants, ServableEntry). */
-export type ServableVariants<S extends ParamSource = ParamSource> =
-	| {
-			readonly kind: "form"
-			readonly entry: ServableEntry<S>
-			readonly decoder: RowDecoder<unknown>
-	  }
-	| {
-			readonly kind: "split"
-			readonly context: string
-			readonly holding: ServableVariants<S>
-			readonly lacking: ServableVariants<S>
-	  }
+/** A workload ChangeSet's variants with each entry servable (Variants, ServableEntry). */
+export type ServableVariants<S extends ParamSource = ParamSource> = Variants<ServableEntry<S>>
 
 /**
- * One role of a login with its change members as its served file reads them (RoleChanges, each entry servable): what a
- * generate holds of a role once its certification has read its compiled writes, a RoleChanges being one.
+ * A ChangeSet compiled for a role as certification reads it (readCommittedChanges): its entry servable (ServableEntry),
+ * what its served file reads; its isolation facts, extracted from the statements its flight may send as it compiled
+ * (program/isolation/member-facts.ts compiledFacts), which is all certification reads of its statements; and the
+ * contexts its variant was prepared for, which a compile of it at another level prepares it for again from its value
+ * (serializableChanges), where certification leaves its role SERIALIZABLE. A ChangeEntry holds its whole compiled write
+ * and its prepared write instead: its artifact, every statement's SQL AST in it, its front end, put choices, schedule,
+ * placements and admission, which nothing past its compile reads, so each member's front end dies with its compile.
  */
-export interface ServableRole<
-	L extends Isolation = Isolation,
-	S extends ParamSource = ParamSource
-> {
+export interface CertifiableEntry<S extends ParamSource = ParamSource> extends ServableEntry<S> {
+	readonly facts: ReadonlyArray<MemberFacts>
+	readonly claims: ReadonlySet<string>
+}
+
+/**
+ * One role of a login with its change members compiled, each a ChangeSet of the login's workloads that runs on it, by
+ * the program's name, its variants' entries `E`: compiled (RoleChanges), as certification reads them
+ * (CertifiableRole) or as a served file reads them (ServableRole).
+ */
+interface RoleMembers<L extends Isolation, S extends ParamSource, E> {
 	readonly input: ParsedRole
 	readonly named: NamedRole
 	readonly artifacts: SchemaArtifacts<S>
+	/** The level every member was compiled for (write/program/compile.ts CompiledWrite `level`), the one the role's
+	 * writes run at once served: one per role. */
 	readonly level: L
-	readonly members: ReadonlyMap<string, ServableVariants<S>>
+	readonly members: ReadonlyMap<string, Variants<E>>
 }
 
-/** `entry` servable (ServableEntry): its prepared write and every part of its compiled write past the servable one dropped. */
-const servableEntry = <S extends ParamSource>(entry: ServableEntry<S>): ServableEntry<S> =>
+/**
+ * One role of a login with its change members compiled: its value parsed, its owned role as the installation named it,
+ * its artifacts over its login's, and each ChangeSet of the login's workloads that runs on it, by the program's name,
+ * its variants compiled once.
+ */
+export type RoleChanges<
+	L extends Isolation = Isolation,
+	S extends ParamSource = ParamSource
+> = RoleMembers<L, S, ChangeEntry<S>>
+
+/** One role of a login with its change members as certification reads them (RoleMembers, CertifiableEntry). */
+export type CertifiableRole<
+	L extends Isolation = Isolation,
+	S extends ParamSource = ParamSource
+> = RoleMembers<L, S, CertifiableEntry<S>>
+
+/**
+ * One role of a login with its change members as its served file reads them (RoleMembers, ServableEntry): what a
+ * generate holds of a role once its certification has read its compiled writes.
+ */
+export type ServableRole<
+	L extends Isolation = Isolation,
+	S extends ParamSource = ParamSource
+> = RoleMembers<L, S, ServableEntry<S>>
+
+/** `entry` as its served file reads it (ServableEntry), its compiled write servable and its prepared write dropped. */
+export const servableEntry = <S extends ParamSource>(entry: ChangeEntry<S>): ServableEntry<S> =>
 	Object.freeze({
 		params: entry.params,
 		change: entry.change,
@@ -141,37 +216,68 @@ const servableEntry = <S extends ParamSource>(entry: ServableEntry<S>): Servable
 		compiled: servableWrite(entry.compiled)
 	})
 
-const servableVariants = <S extends ParamSource>(
-	variants: ServableVariants<S>
-): ServableVariants<S> =>
-	variants.kind === "form"
-		? Object.freeze({
-				kind: "form",
-				entry: servableEntry(variants.entry),
-				decoder: variants.decoder
-			})
-		: Object.freeze({
-				kind: "split",
-				context: variants.context,
-				holding: servableVariants(variants.holding),
-				lacking: servableVariants(variants.lacking)
-			})
-
 /**
- * `role` as its served file reads it (ServableRole): every change member's entry servable, so the role holds none of its
- * compiles' front ends, analyses, schedules, placements or prepared writes, which its certification read and nothing
- * after it does.
+ * `entry` of change member `name` as certification reads it (CertifiableEntry): its compiled write servable, its facts
+ * extracted read back by `names`, its prepared write kept; its artifact, every statement's AST in it, and everything
+ * else its compile built dropped.
  */
-export const servableRole = <L extends Isolation, S extends ParamSource>(
-	role: ServableRole<L, S>
-): ServableRole<L, S> =>
+const certifiableEntry = <S extends ParamSource>(
+	name: string,
+	entry: ChangeEntry<S>,
+	names: ExtractNames
+): CertifiableEntry<S> =>
+	Object.freeze({
+		...servableEntry(entry),
+		facts: compiledFacts(name, entry.compiled, names),
+		claims: entry.claims
+	})
+
+/** `entry` as its served file reads it once certified (ServableEntry): its facts and its claims dropped. */
+const certifiedEntry = <S extends ParamSource>(entry: CertifiableEntry<S>): ServableEntry<S> =>
+	Object.freeze({
+		params: entry.params,
+		change: entry.change,
+		clock: entry.clock,
+		source: entry.source,
+		schema: entry.schema,
+		names: entry.names,
+		compiled: entry.compiled
+	})
+
+/** `role` with each change member's entry `f`'s of it. */
+const rolesEntries = <L extends Isolation, S extends ParamSource, A, B>(
+	role: RoleMembers<L, S, A>,
+	f: (entry: A) => B
+): RoleMembers<L, S, B> =>
 	Object.freeze({
 		input: role.input,
 		named: role.named,
 		artifacts: role.artifacts,
 		level: role.level,
-		members: new Map([...role.members].map(([name, v]) => [name, servableVariants(v)] as const))
+		members: new Map([...role.members].map(([name, v]) => [name, variantsMap(v, f)] as const))
 	})
+
+/**
+ * `role`, compiled, as its served file reads it (ServableRole): every change member's entry servable, so the role holds
+ * none of its compiles' artifacts, front ends, analyses, schedules, placements or prepared writes.
+ */
+export const servableRole = <L extends Isolation, S extends ParamSource>(
+	role: RoleChanges<L, S>
+): ServableRole<L, S> => rolesEntries(role, servableEntry)
+
+/** Each of a login's roles, compiled, by its name, as its served file reads it (servableRole). */
+export const servableRoles = <L extends Isolation, S extends ParamSource>(
+	roles: ReadonlyMap<string, RoleChanges<L, S>>
+): ReadonlyMap<string, ServableRole<L, S>> =>
+	new Map([...roles].map(([name, role]) => [name, servableRole(role)] as const))
+
+/**
+ * `role`, as its certification read it, as its served file reads it (ServableRole): its facts and its prepared writes
+ * dropped, which its certification read and nothing after it does.
+ */
+export const certifiedRole = <L extends Isolation, S extends ParamSource>(
+	role: CertifiableRole<L, S>
+): ServableRole<L, S> => rolesEntries(role, certifiedEntry)
 
 const applyLoc = SourceLoc("db.apply", [])
 
@@ -263,6 +369,7 @@ const preparedFrom = <S extends ParamSource>(
 		(prepared): PreparedEntry<S> => ({
 			params: artifacts.params,
 			prepared,
+			claims,
 			change,
 			clock,
 			source,
@@ -280,6 +387,7 @@ const entryOf = <S extends ParamSource>(
 	Result.map(write, (compiled): ChangeEntry<S> => ({
 		params: entry.params,
 		prepared: entry.prepared,
+		claims: entry.claims,
 		change: entry.change,
 		clock: entry.clock,
 		source: entry.source,
@@ -448,21 +556,6 @@ export interface ChangeLogin<S extends ParamSource = ParamSource> {
 }
 
 /**
- * One role of a login with its change members compiled: its value parsed, its owned role as the installation named it,
- * its artifacts over its login's, and each ChangeSet of the login's workloads that runs on it, by the program's name,
- * its variants compiled once.
- */
-export interface RoleChanges<L extends Isolation = Isolation, S extends ParamSource = ParamSource> {
-	readonly input: ParsedRole
-	readonly named: NamedRole
-	readonly artifacts: SchemaArtifacts<S>
-	/** The level every member was compiled for (write/program/compile.ts CompiledWrite `level`), the one the role's
-	 * writes run at once served: one per role. */
-	readonly level: L
-	readonly members: ReadonlyMap<string, CompiledVariants<S>>
-}
-
-/**
  * A login's change compile refused: the role it was compiling, by its name in the login, the program of the login's
  * workloads that refused, none where the role's own value, artifacts or workloads did, and the compiler's refusal.
  */
@@ -525,7 +618,7 @@ const roleBase = <S extends ParamSource>(
 			if (program.kind !== "changeSet") {
 				return []
 			}
-			const planned = login.planned.everyHolding({
+			const planned = login.planned.take({
 				laws: artifacts.value.laws,
 				login: login.named.owned.name,
 				role: owned.name,
@@ -557,16 +650,18 @@ const roleBase = <S extends ParamSource>(
 }
 
 /**
- * `base`'s change members compiled at `level` (RoleChanges), or the first that refuses, each member's compile a phase
- * reported to `phases` (`changeSet`).
+ * `base`'s change members compiled at `level`, or the first that refuses, each member's compile a phase reported to
+ * `phases` (`changeSet`), and each entry kept as `keep` makes it as its member compiles, so a member's compile holds
+ * only what `keep` keeps of it past the next member's.
  */
-const membersAt = <L extends Isolation, S extends ParamSource>(
+const membersAt = <L extends Isolation, S extends ParamSource, E>(
 	name: string,
 	base: RoleBase<S>,
 	level: L,
-	phases: Phases
-): Result.Result<RoleChanges<L, S>, ChangeRefused> => {
-	const members = new Map<string, CompiledVariants<S>>()
+	phases: Phases,
+	keep: (name: string, entry: ChangeEntry<S>) => E
+): Result.Result<RoleMembers<L, S, E>, ChangeRefused> => {
+	const members = new Map<string, Variants<E>>()
 	for (const program of base.programs) {
 		const variants = phased(phases, { name: "changeSet", of: [name, program.name] }, () =>
 			program.compile(level)
@@ -574,7 +669,10 @@ const membersAt = <L extends Isolation, S extends ParamSource>(
 		if (!variants.ok) {
 			return Result.err({ role: name, program: program.name, error: variants.error })
 		}
-		members.set(program.name, variants.value)
+		members.set(
+			program.name,
+			variantsMap(variants.value, (entry) => keep(program.name, entry))
+		)
 	}
 	return Result.ok({
 		input: base.input,
@@ -592,19 +690,22 @@ const roleChanges = <L extends Isolation, S extends ParamSource>(
 	login: ChangeLogin<S>,
 	level: L
 ): Result.Result<RoleChanges<L, S>, ChangeRefused> =>
-	Result.flatMap(roleBase(name, value, login), (base) => membersAt(name, base, level, silentPhases))
+	Result.flatMap(roleBase(name, value, login), (base) =>
+		membersAt(name, base, level, silentPhases, (_, entry) => entry)
+	)
 
 /**
  * One role of a login compiled for READ COMMITTED (`readCommittedChanges`): every change member formed, the role's
  * changes at READ COMMITTED, which certification judges it by and serves where it certifies the role; or some member
  * with no READ COMMITTED form (core/errors.ts NoReadCommittedForm), which no certificate can serve at that level, the
  * role's changes at SERIALIZABLE, the form it is served, beside each such member with the relation it has none for.
+ * Each entry is as certification reads it (CertifiableEntry).
  */
 export type ReadCommittedRole<S extends ParamSource = ParamSource> =
-	| { readonly kind: "formed"; readonly changes: RoleChanges<"readCommitted", S> }
+	| { readonly kind: "formed"; readonly changes: CertifiableRole<"readCommitted", S> }
 	| {
 			readonly kind: "unformed"
-			readonly changes: RoleChanges<"serializable", S>
+			readonly changes: CertifiableRole<"serializable", S>
 			readonly unformed: NonEmptyReadonlyArray<Unformed>
 	  }
 
@@ -615,7 +716,9 @@ export type ReadCommittedRole<S extends ParamSource = ParamSource> =
  * each a phase (`changeSet`, membersAt). A role with a member lacking a form compiled every member at READ COMMITTED
  * first, each formed member's compile thrown away and each lacking one's placed for its refusal (edullm's qti: the
  * learner role's decideStage, 52 s of its 101 s at READ COMMITTED), and then at SERIALIZABLE, every READ COMMITTED
- * compile alive beside it.
+ * compile alive beside it. Each member's entry is kept as certification reads it (CertifiableEntry) as the member
+ * compiles, where the role held every compiled write whole, its front end, put choices, schedule, placements and
+ * admission, through certification (edullm's qti: 32 compiled writes, 931 MB at certification's start).
  */
 const readCommittedRole = <S extends ParamSource>(
 	name: string,
@@ -636,13 +739,16 @@ const readCommittedRole = <S extends ParamSource>(
 				unformed.push({ member: program.name, relation: lack.value.relation })
 			}
 		}
+		const names = extractNames(base)
+		const certifiable = (program: string, entry: ChangeEntry<S>) =>
+			certifiableEntry(program, entry, names)
 		return isNonEmpty(unformed)
 			? Result.map(
-					membersAt(name, base, "serializable", phases),
+					membersAt(name, base, "serializable", phases, certifiable),
 					(changes): ReadCommittedRole<S> => ({ kind: "unformed", changes, unformed })
 				)
 			: Result.map(
-					membersAt(name, base, "readCommitted", phases),
+					membersAt(name, base, "readCommitted", phases, certifiable),
 					(changes): ReadCommittedRole<S> => ({ kind: "formed", changes })
 				)
 	})
@@ -689,57 +795,45 @@ export const readCommittedChanges = <S extends ParamSource>(
 	return Result.ok(roles)
 }
 
-/** `variants` compiled again at `level`, each form's entry from the write it was prepared as (PreparedEntry), holding
- * side first. */
-const variantsAt = <S extends ParamSource>(
-	variants: CompiledVariants<S>,
+/**
+ * `entry` of change member `name` compiled again at `level`, prepared again from its value over `artifacts`, its role's,
+ * for the contexts it was prepared for, as certification reads it (CertifiableEntry), its facts read back by `names`.
+ */
+const certifiableAt = <S extends ParamSource>(
+	name: string,
+	entry: CertifiableEntry<S>,
+	artifacts: SchemaArtifacts<S>,
+	names: ExtractNames,
 	level: Isolation
-): Result.Result<CompiledVariants<S>, CompileError> => {
-	switch (variants.kind) {
-		case "form":
-			return Result.map(
-				entryOf(variants.entry, variants.entry.prepared.compile(level)),
-				(entry): CompiledVariants<S> => ({
-					kind: "form",
-					entry,
-					decoder: variants.decoder
-				})
+): Result.Result<CertifiableEntry<S>, CompileError> =>
+	Result.flatMap(
+		preparedParsed(artifacts, entry.change, entry.claims, entry.clock, entry.source),
+		(prepared) =>
+			Result.map(entryOf(prepared, prepared.prepared.compile(level)), (compiled) =>
+				certifiableEntry(name, compiled, names)
 			)
-		case "split":
-			return Result.flatMap(variantsAt(variants.holding, level), (held) =>
-				Result.map(variantsAt(variants.lacking, level), (lacking): CompiledVariants<S> => ({
-					kind: "split",
-					context: variants.context,
-					holding: held,
-					lacking
-				}))
-			)
-	}
-}
+	)
 
 /**
- * `role`, its change members compiled again at `level` (RoleChanges), each from the write its entry was prepared as,
- * for the contexts its variant holds a fact of.
+ * `role` compiled again for SERIALIZABLE, each entry prepared again from its value, its front end compiled afresh, for
+ * the contexts its variant holds a fact of, holding side first: what a login's served file projects for a role its
+ * certification leaves SERIALIZABLE, and what that certification then reads of it (program/isolation/certification.ts).
+ * No entry keeps its prepared write past its compile (CertifiableEntry), so a role certification never lowers holds
+ * none of its front ends, and one it lowers prepares each again.
  */
-export const changesAt = <L extends Isolation, S extends ParamSource>(
-	role: RoleChanges<Isolation, S>,
-	level: L
-): Result.Result<RoleChanges<L, S>, CompileError> => {
-	const members = new Map<string, CompiledVariants<S>>()
+export const serializableChanges = <S extends ParamSource>(
+	role: CertifiableRole<"readCommitted", S>
+): Result.Result<CertifiableRole<"serializable", S>, CompileError> => {
+	const names = extractNames(role)
+	const members = new Map<string, Variants<CertifiableEntry<S>>>()
 	for (const [name, variants] of role.members) {
-		const lowered = variantsAt(variants, level)
+		const lowered = variantsTraverse(variants, (entry) =>
+			certifiableAt(name, entry, role.artifacts, names, "serializable")
+		)
 		if (!lowered.ok) {
 			return lowered
 		}
 		members.set(name, lowered.value)
 	}
-	return Result.ok({ ...role, level, members })
+	return Result.ok({ ...role, level: "serializable", members })
 }
-
-/**
- * `role` compiled again for SERIALIZABLE (`changesAt`): what a login's served file projects for a role its certification
- * leaves SERIALIZABLE, and what that certification then reads of it (program/isolation/certification.ts).
- */
-export const serializableChanges = <S extends ParamSource>(
-	role: RoleChanges<"readCommitted", S>
-): Result.Result<RoleChanges<"serializable", S>, CompileError> => changesAt(role, "serializable")

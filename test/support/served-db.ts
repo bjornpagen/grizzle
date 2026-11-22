@@ -16,7 +16,6 @@ import type { Json } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { projectWrite } from "#compiler/plan/change.ts"
-import { servedReadBacks } from "#compiler/plan/read.ts"
 import { defect } from "#compiler/plan/runtime.ts"
 import type { ServedTables } from "#compiler/plan/serve.ts"
 import { programsOn } from "#compiler/program/workload/roles.ts"
@@ -148,8 +147,8 @@ const conservativeVariants = (
 					kind: "change",
 					change: {
 						...variants.change,
-						program: projectWrite(conservative.compiled),
-						readBacks: servedReadBacks(conservative.compiled.artifact.readBacks)
+						program: projectWrite(conservative.entry.compiled),
+						readBacks: conservative.entry.compiled.readBacks
 					}
 				}))
 			)

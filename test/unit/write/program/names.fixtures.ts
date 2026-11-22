@@ -8,7 +8,7 @@ import { bindFrame } from "#adapter/wire/batch.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import type { CompiledWrite } from "#compiler/write/program/compile.ts"
-import { flightOf } from "#compiler/write/program/served.ts"
+import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import { parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
@@ -36,7 +36,7 @@ export const bound = Effect.fn("bound")(function* (name: string) {
 		name
 	)
 	const members = yield* membersOf(program, value)
-	const flight = flightOf(program, program.frontend.codes)
+	const flight = flightOf(servableWrite(program), program.frontend.codes)
 	const b = succeeded(
 		bindWrite(flight, {
 			members,

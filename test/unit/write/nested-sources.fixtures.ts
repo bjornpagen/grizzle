@@ -25,7 +25,7 @@ import type { FlightStatement, FlightWrite } from "#compiler/runtime/write/fligh
 import { inForce, type Transport } from "#compiler/runtime/write/transport.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
-import { flightOf } from "#compiler/write/program/served.ts"
+import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
@@ -239,7 +239,7 @@ export const property = (sketch: Sketch, c: Case<Feature>) =>
 		const value = changeOf(sketch)
 		const program = succeeded(compileWrite(checking(Sources), descOf(value), reality))
 		const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
-		const flight = flightOf(program, program.frontend.codes)
+		const flight = flightOf(servableWrite(program), program.frontend.codes)
 		const bind = (write: FlightWrite) =>
 			boundOf(bindWrite(write, { members, params: {}, transport: inForce(bindFrame) }))
 		const whole = bind(flight)

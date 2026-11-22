@@ -46,7 +46,6 @@ import {
 	type QueryTemplate,
 	servedReadLive,
 	servedRead,
-	servedReadBacks,
 	templateKey
 } from "#compiler/plan/read.ts"
 import {
@@ -154,7 +153,7 @@ const variantsOf = (variants: ChangeVariants): Result.Result<ServedVariants, Uns
 				)
 				const change: ServedChange = {
 					program: projectWrite(compiled),
-					readBacks: servedReadBacks(compiled.artifact.readBacks),
+					readBacks: compiled.readBacks,
 					decoder: decoder.form,
 					bound: entry.change.values,
 					members
@@ -295,11 +294,7 @@ const refusalsOf = (role: LayerRole): ServedRefusals => {
 		raisableOf(role.artifacts, {
 			written: writesOf(role.artifacts.owned, [
 				...Arr.flatMap(writes, (write) => Arr.map(write.frontend.written, (r) => r.name)),
-				...Arr.flatMap(writes, (write) =>
-					Arr.flatMap(write.artifact.statements, (s) =>
-						s.step.kind === "retire" ? [s.step.header, ...s.step.removed] : []
-					)
-				)
+				...Arr.flatMap(writes, (write) => write.retires)
 			]),
 			cast: [
 				...(writes.length === 0 ? [] : claims),
@@ -308,13 +303,7 @@ const refusalsOf = (role: LayerRole): ServedRefusals => {
 				),
 				...Arr.map(clocked, (param) => param.type)
 			],
-			held: new Set(
-				Arr.flatMap(writes, (write) =>
-					Arr.flatMap(write.artifact.statements, (s) =>
-						s.step.kind === "hold" ? [s.step.header] : []
-					)
-				)
-			)
+			held: new Set(Arr.flatMap(writes, (write) => write.holds))
 		}),
 		params
 	)

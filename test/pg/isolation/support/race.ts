@@ -34,6 +34,7 @@ import {
 	type RoleHold,
 	servesNoParams
 } from "#compiler/physical/install/extension.ts"
+import { servableRole } from "#compiler/program/workload/change.ts"
 import { servedHolds } from "#compiler/program/workload/compile.ts"
 import type { AnyLogin, AnyRole, AnySchema } from "#compiler/public/schema.ts"
 import { reachOf } from "#compiler/runtime/write/steps.ts"
@@ -339,7 +340,7 @@ const certifiedPlan = (
 									onSuccess: (changes) =>
 										[
 											role,
-											defined(changes.get(role), `the change compile of role ${role}`)
+											servableRole(defined(changes.get(role), `the change compile of role ${role}`))
 										] as const
 								}
 							)

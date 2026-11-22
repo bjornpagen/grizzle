@@ -33,7 +33,7 @@ import { columnKeyOf } from "#compiler/ir/law.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
-import { flightOf } from "#compiler/write/program/served.ts"
+import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { nestedRowsColumn } from "#test/support/compile.ts"
 import { callCounts } from "#test/support/kernel/calls.ts"
@@ -82,7 +82,7 @@ export const aNestedWriteThroughTheProgramWritesOwnersWithTheirFoldedFamiliesAnd
 				const program = nestedCompiled(value)
 				const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
 				const bound = succeeded(
-					bindWrite(flightOf(program, program.frontend.codes), {
+					bindWrite(flightOf(servableWrite(program), program.frontend.codes), {
 						members,
 						params: {},
 						transport: inForce(bindFrame)
@@ -194,7 +194,7 @@ export const aNestedWritesFactsAreASetByIdentityRule0Ruling1WritesAFactStatedTwi
 				const setShaped = nestedCompiled(value)
 				const members = yield* collectInputs(setShaped.binding.groups, parsedOf(value).inputs)
 				const bound = succeeded(
-					bindWrite(flightOf(setShaped, setShaped.frontend.codes), {
+					bindWrite(flightOf(servableWrite(setShaped), setShaped.frontend.codes), {
 						members,
 						params: {},
 						transport: inForce(bindFrame)
@@ -285,7 +285,7 @@ export const aNestedTreeAtDepthAndWidthNumbersAChainsAndAStarsNodesInPreOrderAtS
 					const treeShaped = nestedCompiled(value)
 					const members = yield* collectInputs(treeShaped.binding.groups, parsedOf(value).inputs)
 					const bound = succeeded(
-						bindWrite(flightOf(treeShaped, treeShaped.frontend.codes), {
+						bindWrite(flightOf(servableWrite(treeShaped), treeShaped.frontend.codes), {
 							members,
 							params: {},
 							transport: inForce(bindFrame)
@@ -350,7 +350,7 @@ export const aBindSpellsNoFamilysOrLayoutsKeyForARowItFills = property.exhaust(
 						const value = ChangeSet.empty(Nested).insert(Node, [{ ...root, root: uuidOf(999) }])
 						const treeShaped = nestedCompiled(value)
 						const members = yield* collectInputs(treeShaped.binding.groups, parsedOf(value).inputs)
-						const flight = flightOf(treeShaped, treeShaped.frontend.codes)
+						const flight = flightOf(servableWrite(treeShaped), treeShaped.frontend.codes)
 						const [bound, counts] = yield* callCounts(
 							Effect.sync(() =>
 								succeeded(bindWrite(flight, { members, params: {}, transport: inForce(bindFrame) }))

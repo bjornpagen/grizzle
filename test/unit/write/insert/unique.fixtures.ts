@@ -12,7 +12,7 @@ import { inForce } from "#compiler/runtime/write/transport.ts"
 import { carrierScope } from "#compiler/sql/naming.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
-import { flightOf } from "#compiler/write/program/served.ts"
+import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { checking } from "#test/support/policy.ts"
@@ -55,7 +55,7 @@ export const bind = Effect.fn("bind")(function* (value: ReturnType<typeof Change
 	const p = program(value)
 	const members = yield* collectInputs(p.binding.groups, parsedOf(value).inputs)
 	return succeeded(
-		bindWrite(flightOf(p, p.frontend.codes), {
+		bindWrite(flightOf(servableWrite(p), p.frontend.codes), {
 			members,
 			params: {},
 			transport: inForce(bindFrame)

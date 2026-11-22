@@ -31,7 +31,7 @@ export interface FrontendKey {
  * compiled the ChangeSet a second time. Owned by the generate that plans and serves, and dropped with it.
  */
 export class PlannedFrontends {
-	readonly #planned: ReadonlyMap<string, PlannedFrontend>
+	readonly #planned: Map<string, PlannedFrontend>
 
 	/** Each of `planned`'s front ends, compiled under every context's claims, as the front end of its key. */
 	constructor(planned: ReadonlyArray<PlannedFrontend>) {
@@ -39,12 +39,17 @@ export class PlannedFrontends {
 	}
 
 	/**
-	 * The front end of `key` under every context's claims: the plan's, where it planned the program of that login and
-	 * role over the same law model with the same clock binding and source; none otherwise, so a login over another
-	 * basis, a moved clock or a program its plan read over a level compiles its own.
+	 * The front end of `key` under every context's claims, taken: the plan's, where it planned the program of that login
+	 * and role over the same law model with the same clock binding and source; none otherwise, so a login over another
+	 * basis, a moved clock or a program its plan read over a level compiles its own. Whatever it held at the key's place
+	 * is gone once taken, so the served compile that takes it holds the one reference to it, and the front end dies with
+	 * the compile that read it (program/workload/change.ts CertifiableEntry), where every front end the plan compiled
+	 * lived through the whole served round (metis's full installation: 213 of them, 1,198 MB as its changes began).
 	 */
-	everyHolding(key: FrontendKey): WriteFrontend | undefined {
-		const planned = this.#planned.get(placeOf(key))
+	take(key: FrontendKey): WriteFrontend | undefined {
+		const place = placeOf(key)
+		const planned = this.#planned.get(place)
+		this.#planned.delete(place)
 		return planned !== undefined &&
 			planned.key.laws === key.laws &&
 			planned.key.source.kind === key.source.kind &&

@@ -9,7 +9,7 @@ import { closedTableOf } from "#compiler/analysis/schema.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { prepared } from "#compiler/core/prepared.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
-import { callerParams } from "#compiler/ir/products.ts"
+import { type CallerParamDecl, callerParams, type ClockParamDecl } from "#compiler/ir/products.ts"
 import type {
 	RelationColumn,
 	ServedSlot,
@@ -18,7 +18,7 @@ import type {
 } from "#compiler/lower/conservative/types.ts"
 import { oneForm, type StatementForms } from "#compiler/runtime/lower/forms.ts"
 import type { HostBinding } from "#compiler/runtime/write/bind.ts"
-import { prepareBinding } from "#compiler/runtime/write/binding.ts"
+import { type Binding, prepareBinding } from "#compiler/runtime/write/binding.ts"
 import type { ClosedTable } from "#compiler/runtime/write/fill.ts"
 import {
 	type FlightWrite,
@@ -27,20 +27,25 @@ import {
 	type ServedStatement,
 	type ServedWrite,
 	type ServedWriteChoice,
-	type ServedWriteForm
+	type ServedWriteForm,
+	type WriteExclusion
 } from "#compiler/runtime/write/flight.ts"
 import type { PreparedStaged, Staged } from "#compiler/runtime/write/staged.ts"
 import type { OwnStep, UniqueAbort } from "#compiler/runtime/write/steps.ts"
 import { CompilePatterns, type PatternReads } from "#compiler/scalar/regex/patterns.ts"
+import type { ServedReadBack } from "#compiler/served/read.ts"
+import { servedReadBacks } from "#compiler/served/spine.ts"
 import type { EmittedText, SqlStatement } from "#compiler/sql/ast.ts"
+import type { CarrierColumn } from "#compiler/write/carriers/carriers.ts"
 import type { WriteFrontend } from "#compiler/write/frontend/compile.ts"
-import type {
-	ArtifactForms,
-	ArtifactStatement,
-	FormText,
-	SentForm
+import {
+	type ArtifactForms,
+	type ArtifactStatement,
+	createsCarrier,
+	type FormText,
+	type SentForm
 } from "#compiler/write/program/artifact.ts"
-import type { ServableWrite } from "#compiler/write/program/compile.ts"
+import type { CompiledWrite } from "#compiler/write/program/compile.ts"
 import { decideBinding } from "#compiler/write/program/decide.ts"
 import { partedOf } from "#compiler/write/program/single.ts"
 
@@ -188,8 +193,71 @@ const servedStatements = (
 }
 
 /**
- * The data an application of `compiled` reads (`ServedWrite`) at the level it was compiled for (CompiledWrite `level`):
- * its declared parameters, its binding, what its transaction locks before its snapshot, its statements but the
+ * A compiled write as everything past its compile reads it: its application and the served file that holds it
+ * (projectWrite, flightOf; adapter/served/project.ts), the installation's grants (program/workload/compile.ts
+ * servedCarriers, servedHolds) and its role's classifier (adapter/served/project.ts refusalsOf). Its level and its
+ * exclusion; its statements as its application runs them at that level, but the read-backs', which their own programs
+ * run, each step with the aborts it meets there, every form its text, parts and slots (ServedStatement); its read-backs
+ * as its served file holds them (served/spine.ts servedReadBacks); whether its flight may create a carrier
+ * (write/program/artifact.ts createsCarrier) and the columns of its program carriers; the headers of the retirable units
+ * it holds and the relations each retirement it runs removes; its declared and clocked parameters, its binding; and of
+ * its front end the schema it compiled against, the relations it writes and the codes it reads. A compiled write's
+ * artifact holds each statement's SQL AST beside its text, which its certification's facts read and nothing after
+ * (program/isolation/member-facts.ts), so the servable write holds no AST, no schedule, no placement and no analysis.
+ */
+export interface ServableWrite {
+	readonly level: Isolation
+	readonly exclusion: WriteExclusion
+	readonly statements: ReadonlyArray<ServedStatement>
+	readonly readBacks: ReadonlyArray<ServedReadBack>
+	readonly carriers: {
+		readonly creates: boolean
+		readonly columns: ReadonlyArray<CarrierColumn>
+	}
+	readonly holds: ReadonlyArray<string>
+	readonly retires: ReadonlyArray<string>
+	readonly params: ReadonlyArray<CallerParamDecl>
+	readonly clocked: ReadonlyArray<ClockParamDecl>
+	readonly binding: Binding
+	readonly frontend: Pick<WriteFrontend, "schema" | "written" | "codes">
+}
+
+/** `compiled` as everything past its compile reads it (ServableWrite), its statements projected at its level. */
+export const servableWrite = (compiled: CompiledWrite): ServableWrite => {
+	const { artifact } = compiled
+	return Object.freeze({
+		level: compiled.level,
+		exclusion: compiled.exclusion,
+		statements: Object.freeze(
+			artifact.statements.flatMap((s) => servedStatements(s, compiled.level))
+		),
+		readBacks: Object.freeze(servedReadBacks(artifact.readBacks)),
+		carriers: Object.freeze({
+			creates: createsCarrier(artifact),
+			columns: Object.freeze(artifact.carriers.flatMap((c) => c.heading))
+		}),
+		holds: Object.freeze(
+			artifact.statements.flatMap((s) => (s.step.kind === "hold" ? [s.step.header] : []))
+		),
+		retires: Object.freeze(
+			artifact.statements.flatMap((s) =>
+				s.step.kind === "retire" ? [s.step.header, ...s.step.removed] : []
+			)
+		),
+		params: compiled.params,
+		clocked: compiled.clocked,
+		binding: compiled.binding,
+		frontend: Object.freeze({
+			schema: compiled.frontend.schema,
+			written: compiled.frontend.written,
+			codes: compiled.frontend.codes
+		})
+	})
+}
+
+/**
+ * The data an application of `compiled` reads (`ServedWrite`) at the level it was compiled for (ServableWrite
+ * `level`): its declared parameters, its binding, what its transaction locks before its snapshot, its statements but the
  * read-backs', which the read-backs' own programs run, each step with the aborts it meets at that level, and its written
  * relations' headings.
  */
@@ -198,9 +266,7 @@ export const projectWrite = (compiled: ServableWrite): ServedWrite =>
 		params: compiled.params,
 		binding: compiled.binding,
 		exclusion: compiled.exclusion,
-		statements: Object.freeze(
-			compiled.artifact.statements.flatMap((s) => servedStatements(s, compiled.level))
-		),
+		statements: compiled.statements,
 		written: Object.freeze(
 			compiled.frontend.written.map((r) =>
 				Object.freeze({

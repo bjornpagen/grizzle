@@ -9,8 +9,8 @@ import { silentPhases } from "#compiler/core/phase.ts"
 import { transactionClock } from "#compiler/ir/clock.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { namedLogin } from "#compiler/physical/ddl/names.ts"
-import { installBasis, type ParamSource, unserved } from "#compiler/physical/install/plan.ts"
-import type { ChangeEntry, CompiledVariants } from "#compiler/program/workload/change.ts"
+import { installBasis, unserved } from "#compiler/physical/install/plan.ts"
+import type { Variants } from "#compiler/program/workload/change.ts"
 import { planWorkload } from "#compiler/program/workload/compile.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -28,7 +28,6 @@ import {
 import { str } from "#compiler/public/text.ts"
 import { ownBuilt, rostersOf } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
-import type { PreparedWrite } from "#compiler/write/program/compile.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 
@@ -130,20 +129,10 @@ export const changeLoginOf = (drawn: NonEmptyReadonlyArray<ReadonlyArray<Program
 }
 
 /** The entries of `variants`, every form of its splits, in order. */
-export const entriesOf = <S extends ParamSource>(
-	variants: CompiledVariants<S>
-): ReadonlyArray<ChangeEntry<S>> =>
+export const entriesOf = <E>(variants: Variants<E>): ReadonlyArray<E> =>
 	variants.kind === "form"
 		? [variants.entry]
 		: [...entriesOf(variants.lacking), ...entriesOf(variants.holding)]
-
-/** What a prepared write's compiles did: how many levels it was compiled at, and how many times it was placed. */
-export const workOf = (
-	prepared: PreparedWrite
-): { readonly compiles: number; readonly placements: number } => ({
-	compiles: prepared.compiles,
-	placements: prepared.placements
-})
 
 /** A read of every Plain fact: the query program each workload of footprintsLoginOf's login holds beside its ChangeSets. */
 const plainRead = () =>

@@ -34,7 +34,7 @@ import type { FilledNode, Filler } from "#compiler/runtime/write/fill.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
-import { flightOf } from "#compiler/write/program/served.ts"
+import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
@@ -97,7 +97,7 @@ export const aBindFillsANestedOwnerAgainOnlyWhereItsStratumAppendsAMemberToOneOf
 					)
 				const program = succeeded(compileWrite(checking(Pages), descOf(value), reality))
 				const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
-				const flight = flightOf(program, program.frontend.codes)
+				const flight = flightOf(servableWrite(program), program.frontend.codes)
 				/** Each fill call's families' member counts. */
 				const calls: Array<ReadonlyArray<number>> = []
 				/** The cells of every row a fill call returned, its root's and each member's. */

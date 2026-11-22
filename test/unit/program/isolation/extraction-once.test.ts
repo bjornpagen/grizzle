@@ -1,10 +1,12 @@
 /**
- * Certification extracts each compiled write's isolation facts once (program/isolation/certification.ts WriteFacts):
- * the round that judges its role reads them (isolationInput), a lowering reads its role's SERIALIZABLE form's, and the
- * fence that locks what a login's write writes reads that write's again (exclusionOf), each from the one extraction,
- * where at hub 74dc1011f the fence extracted them afresh from the write's statements. On edullm's qti at 74dc1011f
- * GENMEM's split of the heap 48 s into certification (perf/perf-phys/qti-cert-holders-tip.md) held one statement's ~119
- * MB of facts twice. The work is counted (test/support/kernel/calls.ts): the calls of extractedFacts, each one
+ * Each compiled write's isolation facts are extracted once, as its member compiles (program/isolation/member-facts.ts
+ * compiledFacts, program/workload/change.ts certifiableEntry), and certification reads that one extraction wherever it
+ * reads them: the round that judges its role (isolationInput), a lowering its role's SERIALIZABLE form's, each extracted
+ * as the lowering compiles it, and the fence that locks what a login's write writes (exclusionOf). At hub 74dc1011f the
+ * fence extracted them afresh from the write's statements, and on edullm's qti GENMEM's split of the heap 48 s into
+ * certification (perf/perf-phys/qti-cert-holders-tip.md) held one statement's ~119 MB of facts twice; the entry
+ * certification reads now holds no statement to extract them from again. The work is counted
+ * (test/support/kernel/calls.ts): the calls of compiledFacts over the login's compile and its certification, each one
  * extraction of one compiled write.
  *
  * The box, drawn: G3's fenced shape over one published relation, one
@@ -52,15 +54,24 @@ export const certificationExtractsEachCompiledWritesFactsOnceHoweverManyRoundsLo
 		check: (_, c: Case<Situation>) => (drawn) =>
 			Effect.gen(function* () {
 				const login = fencedLoginOf(drawn)
-				const roles = succeeded(readCommittedChanges(login, silentPhases), "the login's compile")
-				const [certified, counts] = yield* callCounts(
-					Effect.sync(() =>
-						succeeded(certification(login.artifacts, new Map([["app", roles]])), "certification")
-					),
+				const [{ roles, certified }, counts] = yield* callCounts(
+					Effect.sync(() => {
+						const compiled = succeeded(
+							readCommittedChanges(login, silentPhases),
+							"the login's compile"
+						)
+						return {
+							roles: compiled,
+							certified: succeeded(
+								certification(login.artifacts, new Map([["app", compiled]])),
+								"certification"
+							)
+						}
+					}),
 					{
 						extractions: {
-							file: "packages/engine/src/program/isolation/certification.ts",
-							name: "extractedFacts"
+							file: "packages/engine/src/program/isolation/member-facts.ts",
+							name: "compiledFacts"
 						}
 					}
 				)
@@ -103,11 +114,11 @@ export const certificationExtractsEachCompiledWritesFactsOnceHoweverManyRoundsLo
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/program/isolation/certification.ts",
-				original:
-					"\t\treturn this.#facts.getOrInsertComputed(write, () => extractedFacts(name, write, names))\n",
-				replacement: "\t\treturn extractedFacts(name, write, names)\n",
-				why: "Each read extracts afresh, as at 74dc1011f: a fenced login's writes are extracted again for the lock of what they write, and the property fails."
+				file: "packages/engine/src/program/workload/change.ts",
+				original: "\t\tfacts: compiledFacts(name, entry.compiled, names),\n",
+				replacement:
+					"\t\tfacts: [...compiledFacts(name, entry.compiled, names), ...compiledFacts(name, entry.compiled, names)].slice(0, 1),\n",
+				why: "Each member's facts are extracted twice, as two readers each extracted them at 74dc1011f: every compiled write counts two extractions, and the property fails."
 			}
 		]
 	})

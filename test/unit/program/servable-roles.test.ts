@@ -1,21 +1,29 @@
 /**
- * A role's change members as its served file reads them hold none of their compiles' analyses
- * (program/workload/change.ts servableRole, write/program/compile.ts servableWrite): a generate keeps every login's
- * roles from their certification, inside the served round, through the installation's compile to the served files,
- * which read each compiled write's level, exclusion, artifact, parameters, binding and the schema, written relations and
- * codes of its front end. It kept every compiled write whole beside its prepared write, each front end's analyzed DAG,
- * schedule, placements and put choices: edullm's ledger carried ~550 MB of them through its installation's compile, its
- * live heap's larger part there.
+ * A role's change members hold no more of each compile than what reads them after it (write/program/served.ts
+ * ServableWrite, program/workload/change.ts CertifiableEntry, certifiedRole): its write's level and exclusion, its
+ * statements as its application runs them (texts, parts, slots and steps, projected at its level), its read-backs as
+ * its served file holds them, whether it may create a carrier and its carriers' columns, the units it holds and the
+ * relations its retirements remove, its parameters and binding, and of its front end the schema, written relations and
+ * codes; as certification reads it, beside those its isolation facts, extracted as it compiled
+ * (program/isolation/member-facts.ts compiledFacts), and the contexts it was prepared for, which a SERIALIZABLE compile
+ * of it prepares it for again from its value: no prepared write, so no front end, outlives its compile.
+ * Every role held its compiled writes whole from its compile through certification and the served files, each artifact
+ * with every statement's SQL AST, each front end's analyzed DAG, schedule, placements and put choices: edullm's qti 931
+ * MB at certification's start (32 compiled writes, their artifacts 604 MB), its whole App 710 MB as the served round
+ * started (428 MB the statements, mostly their ASTs), and metis's full installation died of them in its change phase.
  *
  * The box, drawn (prepared-levels.fixtures.ts): a login of one to three roles, each writing a span primary key (Room),
  * its mutable twin (Hold) and a scalar key (Plain), its workload one to all four of Room's insert, Hold's put, Plain's
  * insert and Plain's put, compiled at READ COMMITTED, and SERIALIZABLE where a member has no READ COMMITTED form.
  *
- * Property, per case: every member's servable entry holds its write's slice and nothing more, its compiled write's own
- * fields the servable write's and its front end's the schema, written relations and codes alone; and with only the
- * servable roles held, the prepared writes alive are those alive before the login compiled, counted by V8 after a full
- * collection (node:v8 queryObjects over write/program/compile.ts PreparedWrite). Oracle: specification, a servable
- * entry is its write's slice. Kills: the servable entry holds the compiled write whole; it holds the prepared write.
+ * Property, per case: every member's entry as certification reads it holds its servable write, its facts and its
+ * claims and no prepared write, its compiled write's own fields the servable write's; every member's servable entry, once certified,
+ * holds its servable write and nothing more, its front end's fields the schema, written relations and codes alone; and
+ * with only the servable roles held, the prepared writes alive are those alive before the login compiled, counted by V8
+ * after a full collection (node:v8 queryObjects over write/program/compile.ts PreparedWrite). Oracle: specification, a
+ * servable entry is what reads it after its compile. Kills: the entry certification reads holds its compiled write
+ * whole; it keeps its prepared write; the servable entry holds the compiled write whole; the certified entry keeps
+ * the facts and claims.
  *
  * Features: a role with a member lacking a form, a formed role.
  */
@@ -28,15 +36,15 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order, Record as Rec } from "effect"
 import { silentPhases } from "#compiler/core/phase.ts"
 import {
+	certifiedRole,
 	readCommittedChanges,
-	type ServableRole,
-	type ServableVariants,
-	servableRole
+	type ServableRole
 } from "#compiler/program/workload/change.ts"
 import { PreparedWrite } from "#compiler/write/program/compile.ts"
 import { succeeded } from "#test/support/assert.ts"
 import {
 	changeLoginOf,
+	entriesOf,
 	type Program,
 	rolesGen
 } from "#test/unit/program/prepared-levels.fixtures.ts"
@@ -49,9 +57,25 @@ const fieldsOf = (o: object): ReadonlyArray<string> => Arr.sort(Rec.keys(o), Ord
 /** The prepared writes alive, counted by V8 after a full collection. */
 const preparedAlive = (): number => queryObjects(PreparedWrite, { format: "count" })
 
+/** The fields of a servable write (write/program/compile.ts ServableWrite). */
+const servableFields = [
+	"binding",
+	"carriers",
+	"clocked",
+	"exclusion",
+	"frontend",
+	"holds",
+	"level",
+	"params",
+	"readBacks",
+	"retires",
+	"statements"
+] as const
+
 /**
  * The servable roles of `drawn`'s login, compiled for READ COMMITTED, each whole role and the login itself unreachable
- * once this returns, by its name in the login, with whether its compile lacked a READ COMMITTED form.
+ * once this returns, by its name in the login, with whether its compile lacked a READ COMMITTED form; each role's
+ * entries as certification read them held to their slice first.
  */
 const servableRoles = (
 	drawn: NonEmptyReadonlyArray<ReadonlyArray<Program>>
@@ -63,19 +87,37 @@ const servableRoles = (
 				"the login's compile"
 			).values()
 		],
-		(compiled) => ({
-			unformed: compiled.kind === "unformed",
-			role: servableRole(compiled.changes)
-		})
+		(compiled) => {
+			for (const variants of compiled.changes.members.values()) {
+				for (const entry of entriesOf(variants)) {
+					assert.deepEqual(
+						fieldsOf(entry),
+						[
+							"change",
+							"claims",
+							"clock",
+							"compiled",
+							"facts",
+							"names",
+							"params",
+							"schema",
+							"source"
+						],
+						"the entry certification reads: its servable fields, its facts and its claims, no prepared write"
+					)
+					assert.deepEqual(
+						fieldsOf(entry.compiled),
+						servableFields,
+						"the compiled write certification reads: its servable fields alone"
+					)
+				}
+			}
+			return {
+				unformed: compiled.kind === "unformed",
+				role: certifiedRole(compiled.changes)
+			}
+		}
 	)
-
-/** The entries of `variants`, every form of its splits. */
-const servableEntries = (
-	variants: ServableVariants
-): ReadonlyArray<ServableVariants & { readonly kind: "form" }> =>
-	variants.kind === "form"
-		? [variants]
-		: [...servableEntries(variants.lacking), ...servableEntries(variants.holding)]
 
 /** A role's servable change members hold their writes' slices alone, and no prepared write. */
 export const aRolesServableChangeMembersHoldTheirWritesSlicesAloneAndNoPreparedWrite =
@@ -91,7 +133,7 @@ export const aRolesServableChangeMembersHoldTheirWritesSlicesAloneAndNoPreparedW
 				for (const { unformed, role } of roles) {
 					c.note(unformed ? "a role with a member lacking a form" : "a formed role")
 					for (const variants of role.members.values()) {
-						for (const { entry } of servableEntries(variants)) {
+						for (const entry of entriesOf(variants)) {
 							assert.deepEqual(
 								fieldsOf(entry),
 								["change", "clock", "compiled", "names", "params", "schema", "source"],
@@ -99,7 +141,7 @@ export const aRolesServableChangeMembersHoldTheirWritesSlicesAloneAndNoPreparedW
 							)
 							assert.deepEqual(
 								fieldsOf(entry.compiled),
-								["artifact", "binding", "clocked", "exclusion", "frontend", "level", "params"],
+								servableFields,
 								"the compiled write's servable fields alone"
 							)
 							assert.deepEqual(
@@ -122,6 +164,19 @@ export const aRolesServableChangeMembersHoldTheirWritesSlicesAloneAndNoPreparedW
 		kills: [
 			{
 				file: "packages/engine/src/program/workload/change.ts",
+				original:
+					"\t\t...servableEntry(entry),\n\t\tfacts: compiledFacts(name, entry.compiled, names),\n",
+				replacement: "\t\t...entry,\n\t\tfacts: compiledFacts(name, entry.compiled, names),\n",
+				why: "The entry certification reads holds its compiled write whole, its artifact with every statement's SQL AST, its front end, put choices, schedule, placements and admission beside its slice, as every role held them through certification: its compiled write's fields are the whole write's, and the search fails."
+			},
+			{
+				file: "packages/engine/src/program/workload/change.ts",
+				original: "\t\tclaims: entry.claims\n\t})\n",
+				replacement: "\t\tclaims: entry.claims,\n\t\tprepared: entry.prepared\n\t})\n",
+				why: "The entry certification reads keeps its prepared write, as every entry did, so every front end lives until certification ends (metis's full installation: 213, 1,198 MB): the entry has a prepared write, and the search fails."
+			},
+			{
+				file: "packages/engine/src/program/workload/change.ts",
 				original: "\t\tcompiled: servableWrite(entry.compiled)\n",
 				replacement: "\t\tcompiled: entry.compiled\n",
 				why: "The servable entry holds its compiled write whole, its front end with its analyzed DAG and its schedule, placements and put choices beside it, as the served round's roles held it: its fields are the compiled write's, and the search fails."
@@ -129,10 +184,10 @@ export const aRolesServableChangeMembersHoldTheirWritesSlicesAloneAndNoPreparedW
 			{
 				file: "packages/engine/src/program/workload/change.ts",
 				original:
-					"const servableEntry = <S extends ParamSource>(entry: ServableEntry<S>): ServableEntry<S> =>\n\tObject.freeze({\n",
+					"const certifiedEntry = <S extends ParamSource>(entry: CertifiableEntry<S>): ServableEntry<S> =>\n\tObject.freeze({\n",
 				replacement:
-					"const servableEntry = <S extends ParamSource>(entry: ServableEntry<S>): ServableEntry<S> =>\n\tObject.freeze({\n\t\t...entry,\n",
-				why: "The servable entry keeps every field of the entry it was made from, its prepared write among them, which holds its front end: the entry has a prepared write and the prepared writes alive outnumber those before the compile, and the search fails."
+					"const certifiedEntry = <S extends ParamSource>(entry: CertifiableEntry<S>): ServableEntry<S> =>\n\tObject.freeze({\n\t\t...entry,\n",
+				why: "The servable entry keeps every field of the entry certification read, its facts and its claims among them: its fields are more than its slice, and the search fails."
 			}
 		]
 	})
