@@ -63,8 +63,13 @@ const steps = [
 /** What the walk starts from: every root of a document, at its document, or at a document the base states. */
 export type Seed = "roots" | "a fixed document"
 
-/** The rule over the walk: a claim of a reached node (a containment into it), a check over it, or a key over it. */
-export type Law = "contained" | "check" | "key"
+/**
+ * The rule over the walk: a claim of a reached node (a containment into it); the parent of each claimed node reached (a
+ * containment into it of a join of Claim and Node, whose every-row check reads its side as a chain of steps navigation
+ * reads no further and the walk as a filter after them, which imports the recursion: analysis/theory/navigate.ts
+ * filteredOverSteps); a check over it; or a key over it.
+ */
+export type Law = "contained" | "parent contained" | "check" | "key"
 
 /** Whether every relation the walk reads is immutable, or Node is mutable. */
 export type Mutability = "immutable" | "Node mutable"
@@ -79,7 +84,7 @@ export interface WalkCase {
 export const walkCase: Gen<WalkCase> = (s) => ({
 	seed: s.draw(element<Seed>(["roots", "a fixed document"])),
 	step: s.draw(element(steps)),
-	law: s.draw(element<Law>(["contained", "check", "key"])),
+	law: s.draw(element<Law>(["contained", "parent contained", "check", "key"])),
 	mutability: s.draw(element<Mutability>(["immutable", "Node mutable"]))
 })
 
@@ -169,13 +174,26 @@ export const walkSchemaOf = (c: WalkCase) => {
 		rec: [stepOf]
 	})
 	const Reached = derived("Reached", walk)
+	const ClaimedParent = derived(
+		"ClaimedParent",
+		query(Edges).rule((r) => {
+			const cl = v(Claim, "claim")
+			const n = v(Node, "n")
+			return r
+				.match(Claim, { doc: cl.doc, start: cl.start })
+				.match(Node, { doc: cl.doc, start: cl.start, parent: n.parent })
+				.find({ doc: cl.doc, node: n.parent })
+		})
+	)
 	const law =
 		c.law === "contained"
 			? contained(on(Claim, "doc", "start"), on(Reached, "doc", "node"))
-			: c.law === "check"
-				? check("Positive", Reached, (x) => x.ge(x.node, 0))
-				: key(on(Reached, "doc"))
-	return schema.extend([Edges], "UnitWalkTop", [Reached], [law])
+			: c.law === "parent contained"
+				? contained(on(ClaimedParent, "doc", "node"), on(Reached, "doc", "node"))
+				: c.law === "check"
+					? check("Positive", Reached, (x) => x.ge(x.node, 0))
+					: key(on(Reached, "doc"))
+	return schema.extend([Edges], "UnitWalkTop", [Reached, ClaimedParent], [law])
 }
 
 /** How a case's compile ended: compiled, or refused for a reason named by its tag (and refusal). */

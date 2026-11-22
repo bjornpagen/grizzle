@@ -9,7 +9,8 @@
  * a document its base states as a literal; stepping to a child, along a link to another document's node, to another
  * document's node at the same place, to a child whose document the step states, or through a materialized derived
  * relation of the children within a document or of the links across documents; under a containment of a claim into
- * the walk, a check over it and a key over it; every relation immutable or Node mutable.
+ * the walk, a containment into it of each claimed node's parent, a check over it and a key over it; every relation
+ * immutable or Node mutable.
  *
  * The oracle is the rule restated as a model (a specification): a case compiles exactly when it is immutable, seeded
  * at its roots, and steps to a child, directly or through the derived relation within a document; every other case is
@@ -26,6 +27,7 @@ import { Effect, Formatter } from "effect"
 import { compiledOf } from "#test/unit/analysis/theory/rule-query.fixtures.ts"
 import {
 	endedOf,
+	type Law,
 	localWalk,
 	notLocalRefusal,
 	type Step,
@@ -38,7 +40,7 @@ type WalkFeature =
 	| `refused stepping ${Step}`
 	| "refused seeded at a fixed document"
 	| "refused over a mutable relation"
-	| `admitted under ${"contained" | "check" | "key"}`
+	| `admitted under ${Law}`
 
 /** A rule over a recursion compiles exactly where the recursion carries its unit through every step. */
 export const aRuleOverARecursionCompilesExactlyWhereEveryStepCarriesItsUnitFromSelfIntoItsHead =
@@ -56,6 +58,7 @@ export const aRuleOverARecursionCompilesExactlyWhereEveryStepCarriesItsUnitFromS
 			"refused seeded at a fixed document",
 			"refused over a mutable relation",
 			"admitted under contained",
+			"admitted under parent contained",
 			"admitted under check",
 			"admitted under key"
 		] satisfies ReadonlyArray<Reached<WalkFeature>>,
@@ -83,7 +86,7 @@ export const aRuleOverARecursionCompilesExactlyWhereEveryStepCarriesItsUnitFromS
 			kind: "specification",
 			name: "analysis/theory/unit.ts: a rule over a recursion is whole, and compiles, exactly where every relation is immutable, the base delivers the unit from a stored key and every step carries it from self into its head"
 		},
-		box: "every seed of two, every step of six, every law of three, every relation immutable or Node mutable",
+		box: "every seed of two, every step of six, every law of four, every relation immutable or Node mutable",
 		kept: [],
 		kills: [
 			{
@@ -103,6 +106,13 @@ export const aRuleOverARecursionCompilesExactlyWhereEveryStepCarriesItsUnitFromS
 				original: "\t\t\t\t\t\trec: mapNonEmpty(st.recursive.rec, rule)",
 				replacement: "\t\t\t\t\t\trec: st.recursive.rec",
 				why: "A recursion's steps read as written, a materialized derived relation in them by its name, which the walk reads as no relation of any unit; a step through the derived children no longer compiles as the whole rule it is."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original:
+					"\t\tconst navigable = (w: InferredExpr): w is Filtered => isFiltered(w) && this.#readable(w)",
+				replacement: "\t\tconst navigable = (w: InferredExpr): w is Filtered => isFiltered(w)",
+				why: "Every relational filter of a rule over steps is navigated, even one whose query navigation reads no further: the every-row check of the containment of claimed nodes' parents reads its side as a chain of steps and the walk as a filter after them, which inlined imports the recursion, refused as an imported query of one rule, so a local walk under it no longer compiles (the navigation fix's first draft refused metis's Delivery, Legacy and Auth levels so, at pantry's Branch target)."
 			}
 		]
 	})
