@@ -199,8 +199,8 @@ export const aWholeRulesContainmentReadsEachDefinitionItsSidesShareOncePerSetOfV
 			},
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
-				original: "\t\tconst pinned = pinnedBy(flatFixed(read.flat, rule.loc))\n",
-				replacement: "\t\tconst pinned = (e: InferredExpr): InferredExpr => e\n",
+				original: "\t\t\t\tpinnedBy(flatFixed(read.flat, rule.loc)),\n",
+				replacement: "\t\t\t\t(e: InferredExpr): InferredExpr => e,\n",
 				why: "A filter passes a term its rule fixes to the unit's channel through a channel of its own, as before, so a negation inside To reads the leaf at that channel, another set of values than the unit's, spelled again, and a containment with the negation a level above the leaf reads Node 12 times, past its 9; the property fails."
 			}
 		]

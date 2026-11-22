@@ -11,8 +11,9 @@ import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import { type Law, sameLaw } from "#compiler/public/changeset.ts"
+import { Text } from "#compiler/public/compute.ts"
 import { Decimal, pg } from "#compiler/public/fields.ts"
-import { query, v } from "#compiler/public/query.ts"
+import { query, type Rule, v } from "#compiler/public/query.ts"
 import {
 	check,
 	contained,
@@ -684,3 +685,66 @@ export type TagReached =
 export type Reached =
 	| `a literal ${"kind" | "mark id" | "mark on" | "negated on" | "read id"}`
 	| Kind
+
+/**
+ * One case of the computed box: a rule over Unmarked, the items no Names row holds at a term an inlined definition computes,
+ * Unmarked one rule or two (`rules`), each matching Titled, a query of one rule over Titles whose head collapses its
+ * title's whitespace, and negating Names at that term: flattened, the variable Titled's head defines is that computed term
+ * in the negation's binding (analysis/theory/query.ts definedArm).
+ */
+interface ComputedCase {
+	readonly rules: "one rule" | "two rules"
+	readonly rule: "into" | "out of" | "check" | "key"
+}
+
+export const computedCase: Gen<ComputedCase> = (s) => ({
+	rules: s.draw(element(["one rule", "two rules"] as const)),
+	rule: s.draw(element(["into", "out of", "check", "key"] as const))
+})
+
+export type ComputedReached = ComputedCase["rules"] | ComputedCase["rule"]
+
+const Titles = relation(
+	"Titles",
+	{ id: pg.integer, title: str.bytes(200, str.regex("^.*$", "su")) },
+	["id"]
+)
+
+const Names = relation("Names", { name: str.bytes(60, str.regex("^[a-z]+$")) }, ["name"])
+
+const Computed = schema("RuleQueryComputed", [Item, Titles, Names, Claim], [])
+
+/** The computed box's schema (ComputedCase): Unmarked of the case's rules, and the case's rule over it. */
+export const computedSchemaOf = (c: ComputedCase) => {
+	const titled = query(Computed).rule((r) => {
+		const { id, title } = v(Titles, "doc")
+		return r.match(Titles, { id, title }).find({ id, name: Text.collapse(title) })
+	})
+	const unmarked = (kind: number) => (r: Rule<typeof Computed>) => {
+		const { id, name } = v(titled, "titled")
+		return r
+			.match(titled, { id, name })
+			.match(Item, { id, kind })
+			.where(r.not(Names, { name }))
+			.find({ id })
+	}
+	const Unmarked = derived(
+		"Unmarked",
+		c.rules === "one rule"
+			? query(Computed).rule(unmarked(0))
+			: query(Computed).rule(unmarked(0)).rule(unmarked(1))
+	)
+	const rule = (() => {
+		switch (c.rule) {
+			case "into":
+				return contained(on(Claim, "item"), on(Unmarked, "id"))
+			case "out of":
+				return contained(on(Unmarked, "id"), on(Claim, "item"))
+			case "check":
+				return check("Nonzero", Unmarked, (x) => x.not(x.eq(x.id, 0)))
+			case "key":
+				return key(on(Unmarked, "id"))
+		}
+	})()
+	return schema.extend([Computed], "RuleQueryComputedTop", [Unmarked], [rule])
+}

@@ -61,6 +61,9 @@ import {
 	amountSchemaOf,
 	clashesOf,
 	compiledOf,
+	computedCase,
+	type ComputedReached,
+	computedSchemaOf,
 	decimalOf,
 	negatedSources,
 	negationCase,
@@ -336,3 +339,50 @@ export const aRuleOverAQueryCompilesANegationOfATableAJoinAUnionADerivedRelation
 			}
 		]
 	})
+
+/**
+ * A rule over a derived relation whose rules each negate a relation at a term an inlined definition computes compiles,
+ * one rule or two, under every kind of rule: flattened, the negation binds the computed term, which the checker lowers
+ * in a negation only once navigation has passed it in (analysis/theory/navigate.ts #filtered, check/checker.ts
+ * #negatedTerm). A write of the negated relation withdraws a fact of each rule over a region of keys, a step of steps
+ * (analysis/theory/query.ts movedOf), and two such rows are read as one union, the meeting part's negation of the
+ * target outside it, which navigation read no further and left as written (Navigator.filteredOverSteps): edullm's
+ * ledger, "Unfinal ended" over OutcomeAssertion, refused so.
+ *
+ * Its budget is the runner's: a new property, with no suite before it to carry a count from.
+ */
+export const aRuleOverAQueryCompilesANegationAtATermAnInlinedDefinitionComputes = property.exhaust(
+	finite(computedCase),
+	{
+		needs: {},
+		situations: ["one rule", "two rules", "into", "out of", "check", "key"] satisfies ReadonlyArray<
+			ReachedOf<ComputedReached>
+		>,
+		check: (_, k: Case<ComputedReached>) => (c) =>
+			Effect.sync(() => {
+				k.note(c.rules)
+				k.note(c.rule)
+				const compiled = compiledOf(computedSchemaOf(c))
+				assert.deepEqual(
+					compiled.ok ? undefined : compiled.error.reason,
+					undefined,
+					`the builders admit ${Formatter.format(c)}, and its compilation refuses it`
+				)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "the builders' admission: a schema schema.extend builds compiles to its artifacts"
+		},
+		box: "every containment into and out of, check over and key over Unmarked, one rule or two, each matching a Titles row's title with its whitespace collapsed by an inlined query, and negating Names at it",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original:
+					'\t\tsharing.kind === "perStatement" && overSteps(read)\n\t\t\t? new Navigator(loc, columns, sharing, interned).filteredOverSteps(read, 0)\n\t\t\t: read\n',
+				replacement: "\t\tread\n",
+				why: "A rule over steps keeps its filters as written, as before: the meeting part over two rows of a region of keys negates the target, whose negation binds the collapsed title, and the checker refuses it; the two-rule containment into Unmarked fails."
+			}
+		]
+	}
+)

@@ -759,8 +759,87 @@ class Navigator {
 			}
 			read = within()
 		}
-		const chain = this.#chain(read.flat, depth)
-		const pinned = pinnedBy(flatFixed(read.flat, rule.loc))
+		return [
+			this.#filteredAfter(
+				this.#chain(read.flat, depth),
+				depth,
+				pinnedBy(flatFixed(read.flat, rule.loc)),
+				rule.loc
+			)
+		]
+	}
+
+	/**
+	 * `rule`, whose matches navigation reads as they stand, a chain of steps already (`overSteps`): a probe's rows over
+	 * its region (analysis/theory/query.ts overRegion) and the meeting part over them, which navigation reads no
+	 * further (`RuleReads`), with each of its relational filters a chain of its own after them (`#filteredAfter`), as
+	 * after any chain. As written, a filter of the side its rows meet, a containment's target that negates, was the
+	 * target's join PostgreSQL planned by its estimates, and a negation whose binding computes over a variable of the
+	 * filtered query, a guarded cast an inlined definition's head left, reached the checker, which lowers no computed
+	 * binding of a negation (check/checker.ts #negatedTerm), where navigated it is a condition of the filter's own step.
+	 */
+	filteredOverSteps(rule: InferredRule, depth: number): InferredRule {
+		const navigable = (w: InferredExpr): w is Filtered => isFiltered(w) && this.#readable(w)
+		const filters = rule.where.filter(navigable)
+		return filters.length === 0
+			? rule
+			: this.#filteredAfter(
+					{
+						vars: rule.vars,
+						matches: rule.matches,
+						where: rule.where.filter((w) => !navigable(w)),
+						filters,
+						head: rule.head
+					},
+					depth,
+					pinnedBy(fixedTerms(rule)),
+					rule.loc
+				)
+	}
+
+	/**
+	 * Whether navigation reads a relational filter's source (`#filtered`): a stored or closed relation, or an imported
+	 * query of rules binding no parameter each of which navigation reads (`RuleReads`). Any other filter stays as written
+	 * where `filteredOverSteps` leaves it: a whole rule's read of a recursion per unit (analysis/theory/unit.ts
+	 * readPerUnit), whose filter imports the recursion whole, is a step navigation reads no further.
+	 */
+	#readable(a: Filtered): boolean {
+		const source = a.source
+		switch (source.kind) {
+			case "relation":
+				return true
+			case "query":
+				return (
+					Object.keys(source.bind).length === 0 &&
+					source.query.stage.kind === "rules" &&
+					source.query.stage.arms.every((arm) => this.#interned.reads(arm).every !== undefined)
+				)
+			case "step":
+			case "param":
+			case "paramOf":
+			case "call":
+			case "callField":
+			case "split":
+			case "interior":
+			case "self":
+			case "delta":
+			case "context":
+			case "row":
+				return false
+		}
+	}
+
+	/**
+	 * The rule of `chain`'s reads and conditions, then each of its relational filters, negations and existences, in
+	 * declared order, over the rows the chain and the filters before it leave, each a chain of its own (`rule`), `pinned`
+	 * passing a filter the terms the chain's conditions fix.
+	 */
+	#filteredAfter(
+		chain: Chain,
+		depth: number,
+		pinned: (e: InferredExpr) => InferredExpr,
+		loc: SourceLoc
+	): InferredRule {
 		const kept = Object.fromEntries(chain.vars.map((v, i) => [`k${i}`, varRef(v.id)] as const))
 		const gates = chain.filters.filter(readsNoVariable)
 		let current: InferredRule = {
@@ -770,7 +849,7 @@ class Navigator {
 			head: kept,
 			interiors: [],
 			attach: [],
-			loc: rule.loc
+			loc
 		}
 		for (const a of chain.filters.filter((x) => !readsNoVariable(x))) {
 			const passed = new Map(
@@ -784,21 +863,21 @@ class Navigator {
 					{
 						source: {
 							kind: "step",
-							query: { stage: { kind: "rules", arms: [current], loc: rule.loc } },
+							query: { stage: { kind: "rules", arms: [current], loc } },
 							bind: Object.fromEntries(passed)
 						},
 						bindings: kept,
-						loc: rule.loc
+						loc
 					}
 				],
 				where: [this.#filtered(a, depth, pinned)],
 				head: kept,
 				interiors: [],
 				attach: [],
-				loc: rule.loc
+				loc
 			}
 		}
-		return [{ ...current, head: chain.head }]
+		return { ...current, head: chain.head }
 	}
 
 	/**
@@ -1451,7 +1530,9 @@ const someConjunctionJoins = (reads: RuleReads): boolean =>
  * reads no part of (`RuleReads`), counts or folds the facts of the query it imports, read per unit inside a whole
  * rule's step: navigated, each relation that query joins is a lookup by every key column the steps before it bound,
  * where read as written PostgreSQL plans the join by its estimates of one unit's rows, a nested loop over a range of
- * the unit for each row of another, the unit's rows squared.
+ * the unit for each row of another, the unit's rows squared. A rule statement's rule over a chain of steps
+ * (`overSteps`, `perStatement`) keeps its matches and has each relational filter navigated after them, as a chain's
+ * filters are; a write member's (`perRead`) keeps its filters as written.
  */
 const navigatedRule = (
 	rule: InferredRule,
@@ -1478,8 +1559,31 @@ const navigatedRule = (
 		const query = navigatedQuery(inside.query, loc, columns, sharing, interned)
 		return query === source.query ? m : { ...m, source: { ...inside, query } }
 	})
-	return [matches.every((m, i) => m === rule.matches[i]) ? rule : { ...rule, matches }]
+	const read = matches.every((m, i) => m === rule.matches[i]) ? rule : { ...rule, matches }
+	return [
+		sharing.kind === "perStatement" && overSteps(read)
+			? new Navigator(loc, columns, sharing, interned).filteredOverSteps(read, 0)
+			: read
+	]
 }
+
+/**
+ * Whether `rule` reads a chain of steps navigation reads no further (`RuleReads`), its filters left to be navigated
+ * after it (`Navigator.filteredOverSteps`): it matches a step, or an import of a rule that does, a probe's rows over its
+ * region (analysis/theory/query.ts overRegion) and the union of them its meeting part reads; and its head folds and
+ * produces nothing and it attaches and nests nothing, as a chain's rule does.
+ */
+const overSteps = (rule: InferredRule): boolean =>
+	rule.interiors.length === 0 &&
+	rule.attach.length === 0 &&
+	Object.values(rule.head).every((h) => h.kind !== "aggregate" && h.kind !== "producer") &&
+	rule.matches.some(
+		(m) =>
+			m.source.kind === "step" ||
+			(m.source.kind === "query" &&
+				m.source.query.stage.kind === "rules" &&
+				m.source.query.stage.arms.some(overSteps))
+	)
 
 /** An import a rule matches (ir/desc.ts SourceDesc `query`). */
 type Imported = Extract<InferredSource, { readonly kind: "query" }>

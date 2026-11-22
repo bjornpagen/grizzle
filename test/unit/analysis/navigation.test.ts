@@ -3,8 +3,12 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { aimed, finite } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
-import { Navigation, navigateQuery } from "#compiler/analysis/theory/navigate.ts"
-import { descIdentities } from "#compiler/ir/desc.ts"
+import {
+	type ImportSharing,
+	Navigation,
+	navigateQuery
+} from "#compiler/analysis/theory/navigate.ts"
+import { descIdentities, type InferredRule } from "#compiler/ir/desc.ts"
 import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
 import {
 	type Feature,
@@ -17,8 +21,10 @@ import {
 	judged,
 	loc,
 	navigatedSketchGen,
+	negatedThroughSteps,
 	negationsOf,
 	oneColumnNegationSketchGen,
+	overStepsOf,
 	situations,
 	type Slot
 } from "#test/unit/analysis/navigation.fixtures.ts"
@@ -155,6 +161,92 @@ export const navigationsGateJudgesAWriteMembersNegationThatReadsNoVariableAmongT
 				original: `\t\t\tconst delivered = Object.fromEntries(outputs.map((id, i) => [\`o\${i}\`, varRef(id)] as const))`,
 				replacement: `\t\t\tconst delivered = Object.fromEntries(outputs.map((id, i) => [\`o\${i}\`] as const))`,
 				why: `Operator mutant (element) at packages/engine/src/analysis/theory/navigate.ts:462 in place: \`[\`o\${i}\`, varRef(id)]\` becomes \`[\`o\${i}\`]\`; the property fails (lane CATCH, grizzle 0baff5d6).`
+			}
+		]
+	})
+
+/**
+ * A rule over a chain of steps keeps its relational filters as written in a write member's navigation, and has each
+ * that reads a variable navigated after the chain in a rule statement's (analysis/theory/navigate.ts
+ * filteredOverSteps): the judge's rows over a region of keys and their meeting part stand so, and a write member's
+ * compile is never moved by it. Navigated in a write member, the ledger's recordEvaluations read a step's filter whose
+ * import binds parameters partly, refused as a bind map that binds its parameter incompletely.
+ *
+ * Its budget is the runner's: a new property, with no suite before it to carry a count from.
+ */
+export const aRuleOverStepsKeepsItsFiltersAsWrittenInAWriteMemberAndNavigatesThemInARuleStatement =
+	property.exhaust(finite(gateCaseGen), {
+		needs: {},
+		situations: [
+			"a gate by a parameter",
+			"a gate by a literal",
+			"a gate declared after a correlated negation",
+			"two gates"
+		] satisfies ReadonlyArray<Reached<GateFeature>>,
+		check: (_, k: Case<GateFeature>) => (c) =>
+			Effect.sync(() => {
+				const rule = overStepsOf(c)
+				const navigatedAs = (sharing: ImportSharing): InferredRule => {
+					const navigated = navigateQuery(
+						{ stage: { kind: "rules", arms: [rule], loc } },
+						loc,
+						gateColumns,
+						sharing,
+						new Navigation(gateFacts, descIdentities())
+					)
+					return navigated.stage.kind === "rules"
+						? navigated.stage.arms[0]
+						: assert.fail("a navigated rule is one rules stage")
+				}
+				const member = navigatedAs({ kind: "perRead" })
+				assert.deepEqual(
+					member.where,
+					rule.where,
+					`${Formatter.format(c)}: a write member's rule over steps keeps its filters as written`
+				)
+				const statement = navigatedAs({ kind: "perStatement", extent: "units" })
+				const names = ["N0", "N1", "N2"] as const
+				assert.deepEqual(
+					negatedThroughSteps(statement),
+					{
+						navigated: Arr.flatMap(names, (name, i) => ((c[i] ?? "none") === "none" ? [] : [name])),
+						asWritten: []
+					},
+					`${Formatter.format(c)}: a rule statement's rule over steps navigates each of its filters, none left as written`
+				)
+				if (Arr.contains(c, "gate by a parameter")) {
+					k.note("a gate by a parameter")
+				}
+				if (Arr.contains(c, "gate by a literal")) {
+					k.note("a gate by a literal")
+				}
+				if (Arr.filter(c, isGate).length >= 2) {
+					k.note("two gates")
+				}
+				const firstCorrelated = c.indexOf("correlated")
+				if (firstCorrelated >= 0 && Arr.some(c.slice(firstCorrelated + 1), isGate)) {
+					k.note("a gate declared after a correlated negation")
+				}
+			}),
+		oracle: {
+			kind: "specification",
+			name: "navigation's rule over a chain of steps restated: a write member's filters as written, a rule statement's gates among the chain's own conditions and every other a wrapper, each in declared order"
+		},
+		box: "every assignment of three negations' slots, each none, a gate by the parameter, a gate by a literal or correlated, over one step of A at the parameter joined to B",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original: '\t\tsharing.kind === "perStatement" && overSteps(read)\n',
+				replacement: "\t\toverSteps(read)\n",
+				why: "A write member's rule over steps has its filters navigated too, as the navigation fix first had it: its filters are no longer as written, as edullm's ledger's recordEvaluations refused; the property fails."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original: '\t\tsharing.kind === "perStatement" && overSteps(read)\n',
+				replacement:
+					'\t\tsharing.kind === "perStatement" && overSteps(read) && read.where.length < 0\n',
+				why: "A rule statement's rule over steps keeps its filters as written, as before the navigation fix: no wrapper navigates a correlated negation; the property fails."
 			}
 		]
 	})

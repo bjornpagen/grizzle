@@ -1,8 +1,10 @@
 /** What the properties of navigation.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
-import { Array as Arr, Option, Record as Rec, Result, Struct } from "effect"
+import { Array as Arr, Option, Record as Rec, Result, String as Str, Struct } from "effect"
 import { queryColumns } from "#compiler/analysis/theory/columns.ts"
+import { varRef } from "#compiler/analysis/theory/leaves.ts"
 import { Navigation, navigateQuery } from "#compiler/analysis/theory/navigate.ts"
 import { buildTheory } from "#compiler/analysis/theory/theory.ts"
 import { checkQuery } from "#compiler/check/index.ts"
@@ -331,5 +333,81 @@ export const oneColumnNegationSketchGen: Gen<CaseSketch> = (source) => {
 				negation: { ...read.rule.negation, picks: read.rule.negation.picks.slice(0, 1) }
 			}
 		}))
+	}
+}
+
+/**
+ * A gate case's query (`gateQueryOf`) as a rule over a chain of steps: its reads, A at p joined to B, one step its rule
+ * matches, delivering the variables the negations read, and the slots' negations the rule's own filters, as written. A
+ * probe's row over a region of keys and the meeting part over such rows stand so (analysis/theory/query.ts overRegion).
+ */
+export const overStepsOf = (c: GateCase): InferredRule => {
+	const stage = gateQueryOf(c).stage
+	if (stage.kind !== "rules") {
+		return assert.fail("a gate case's query is one rules stage")
+	}
+	const [rule] = stage.arms
+	const p = Arr.findFirst(rule.matches, (m) => m.bindings["id"]?.kind === "param").pipe(
+		Option.flatMap((m) => Option.fromUndefinedOr(m.bindings["id"]))
+	)
+	if (Option.isNone(p)) {
+		return assert.fail("a gate case's A is matched at the parameter p")
+	}
+	const delivered = Rec.fromEntries(Arr.map(rule.vars, (d) => [d.id, varRef(d.id)] as const))
+	const inner: InferredRule = {
+		...rule,
+		where: Arr.filter(rule.where, (w) => w.kind !== "absent"),
+		head: delivered
+	}
+	return {
+		...rule,
+		matches: [
+			{
+				source: {
+					kind: "step",
+					query: { stage: { kind: "rules", arms: [inner], loc } },
+					bind: { p: p.value }
+				},
+				bindings: delivered,
+				loc
+			}
+		],
+		where: Arr.filter(rule.where, (w) => w.kind === "absent")
+	}
+}
+
+/**
+ * The negations a navigated rule over steps holds along its chain of steps, its own and each step's rule's, at any depth:
+ * those navigated (a step reading the negated relation, `negatedRelation`) and those left as written (a negation of
+ * the relation itself), each by its relation, sorted.
+ */
+export const negatedThroughSteps = (
+	rule: InferredRule
+): { readonly navigated: ReadonlyArray<string>; readonly asWritten: ReadonlyArray<string> } => {
+	const navigated: Array<string> = []
+	const asWritten: Array<string> = []
+	const visit = (r: InferredRule): void => {
+		for (const w of r.where) {
+			if (w.kind === "absent") {
+				if (w.source.kind === "relation") {
+					asWritten.push(w.source.name)
+				}
+				for (const name of negatedRelation(w)) {
+					navigated.push(name)
+				}
+			}
+		}
+		for (const m of r.matches) {
+			if (m.source.kind === "step" && m.source.query.stage.kind === "rules") {
+				for (const arm of m.source.query.stage.arms) {
+					visit(arm)
+				}
+			}
+		}
+	}
+	visit(rule)
+	return {
+		navigated: Arr.sort(navigated, Str.Order),
+		asWritten: Arr.sort(asWritten, Str.Order)
 	}
 }
