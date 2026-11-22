@@ -3,11 +3,12 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { isAsciiDigit, isAsciiDigits } from "@bjornpagen/grizzle-text/text"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { nominal } from "#compiler/core/brand.ts"
-import { catchRefusal, everyProperty, Refusal } from "#compiler/core/canonical.ts"
+import { catchRefusal, everyProperty, Refusal, unwrap } from "#compiler/core/canonical.ts"
 import {
 	type CompileError,
 	malformedArtifact,
-	malformedDescription
+	malformedDescription,
+	unsupported
 } from "#compiler/core/errors.ts"
 import { digest } from "#compiler/core/fingerprint.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
@@ -22,9 +23,12 @@ import {
 	timestampWidths
 } from "#compiler/deploy/render/layout.ts"
 import {
+	holdsPlaceholder,
 	isWords,
+	type StatementDigest,
 	type StatementToken,
 	splitStatements,
+	statementDigest,
 	statementTokens,
 	writtenAs
 } from "#compiler/deploy/render/markers.ts"
@@ -62,25 +66,46 @@ export interface MetaLosses {
 	}>
 }
 
-/** One step of a drafted file, every statement in its place, each as the file spells it from its first token:
- * - `statement`: a drafted statement, the reviewer's to keep or edit;
- * - `loss`: a statement that loses stored data no declaration names, decided by being written in;
- * - `confirm`: statements kept whole or removed whole. */
+/** One step of a drafted file as meta.json records it, every statement in its place:
+ * - `statement`: a drafted statement, the reviewer's to keep, edit or fill, by its text as the file spells it from its
+ *   first token: one that holds a placeholder, which a written statement fills by any value (markers.ts writtenAs), as
+ *   generate records it, or any, as a meta.json of format 7 or before records every statement, which `grizzle upgrade`
+ *   reads;
+ * - `digest`: any other drafted statement by the digest of its tokens (markers.ts statementDigest), which a written
+ *   statement's tokens give exactly when it is written as drafted;
+ * - `loss`: a statement that loses stored data no declaration names, decided by being written in, by its text;
+ * - `confirm`: statements kept whole or removed whole, by their texts.
+ *
+ * Every reader of a statement's text keeps it: a decision's, which `grizzle check` reads a review's decision by
+ * (lossDecisions), and one a reviewer fills. Every other is recorded by its digest alone (provedRecord). */
 export type MetaStep =
 	| { readonly kind: "statement"; readonly statement: string }
+	| { readonly kind: "digest"; readonly digest: StatementDigest }
 	| { readonly kind: "loss"; readonly loses: MetaLosses; readonly statement: string }
 	| { readonly kind: "confirm"; readonly statements: NonEmptyReadonlyArray<string> }
+
+/** One step of a drafted file as generate drafts it, every statement by its text as the file spells it from its first
+ * token, a `statement` holding a placeholder or none: what generate proves its decision record over (provedRecord),
+ * before meta.json records it (MetaStep). */
+export type DraftedStep = Exclude<MetaStep, { readonly kind: "digest" }>
 
 /**
  * A drafted file's steps, in draft order, and its lock demand: the most objects one transaction of it holds locked as
  * drafted, the runner's ledger fence and rows among them, counted from its drafted statements (deploy/locks/demand.ts
- * fileLockSets), which `grizzle migrate` holds the server's lock table to before it runs anything (statedLocks).
+ * fileLockSets), which `grizzle migrate` holds the server's lock table to before it runs anything (statedLocks). Its
+ * steps are meta.json's (MetaStep), or generate's every text (DraftedStep).
  */
-export interface MetaFile {
+interface FileRecord<S> {
 	readonly name: string
-	readonly steps: ReadonlyArray<MetaStep>
+	readonly steps: ReadonlyArray<S>
 	readonly locks: number
 }
+
+/** A drafted file as meta.json records it (MetaStep). */
+export type MetaFile = FileRecord<MetaStep>
+
+/** A drafted file as generate drafts it, every statement by its text (DraftedStep). */
+export type DraftedFile = FileRecord<DraftedStep>
 
 /**
  * The laws a refusal of a folder's statements names, as `grizzle generate` records them in its meta.json once, where it
@@ -107,7 +132,8 @@ interface MetaFields {
 
 /** The meta of a folder the generator drafted: the renames and drops it was drafted under, as `--rename` and `--drop`
  * declared them, and its decision record, every drafted statement of every file in its place in the draft, so each
- * statement's owner is its position. */
+ * statement's owner is its position, each a decision's or one holding a placeholder by its text and every other by its
+ * digest (MetaStep), as generate proved and recorded it (provedRecord). */
 export interface DraftedMeta extends MetaFields {
 	readonly kind: "drafted"
 	readonly declared: Declarations
@@ -121,7 +147,7 @@ export interface CustomMeta extends MetaFields {
 
 export type MigrationMeta = DraftedMeta | CustomMeta
 
-/** A recorded statement: its text as meta.json records it, and its tokens, read once (statementTokens). */
+/** A statement by its text: as the file spells it from its first token, and its tokens, read once (statementTokens). */
 export interface Spelled {
 	readonly text: string
 	readonly tokens: ReadonlyArray<StatementToken>
@@ -135,52 +161,58 @@ export interface ReadLoss {
 	readonly statement: Spelled
 }
 
-/** A step of the record, read. */
+/** A step of the record, read: each statement recorded by its text read once (Spelled), a digest as recorded. */
 type ReadStep =
 	| { readonly kind: "statement"; readonly statement: Spelled }
+	| { readonly kind: "digest"; readonly digest: StatementDigest }
 	| ReadLoss
 	| { readonly kind: "confirm"; readonly statements: NonEmptyReadonlyArray<Spelled> }
 
-interface ReadFile {
-	readonly name: string
-	readonly steps: ReadonlyArray<ReadStep>
-	/** The file's lock demand as drafted (MetaFile). */
-	readonly locks: number
-}
+/** A step of a drafted file, read: every statement by its text read once (Spelled). */
+type SpelledStep = Exclude<ReadStep, { readonly kind: "digest" }>
 
 interface RecordBody {
-	readonly files: ReadonlyArray<ReadFile>
+	readonly files: ReadonlyArray<FileRecord<ReadStep>>
 }
 
 declare const decisionRecordBrand: unique symbol
 
-/** A drafted folder's decisions, proved readable by its one constructor (decisionRecord): every statement whose
- * presence decides something, a loss's statement or a confirmed statement, is written unlike every other recorded
- * statement, so a review's text tells each decision apart. */
+/** A drafted folder's decisions, read from its meta.json's record (decisionRecord), which generate proved readable
+ * before it recorded it (provedRecord), and the seal carries since: every statement whose presence decides something, a
+ * loss's statement or a confirmed statement, is written unlike every other recorded statement, so a review's text
+ * tells each decision apart. */
 export type DecisionRecord = RecordBody & { readonly [decisionRecordBrand]: true }
 
 const proved = nominal<RecordBody, DecisionRecord>()
 
 /** A recorded statement where it stands, as a refusal names it. */
-export interface RecordSite {
+interface RecordSite {
 	readonly file: string
 	readonly statement: string
 	readonly at: string
 }
 
 /** Why a record is unreadable: two statements a review cannot tell apart, one of them deciding something. */
-export interface RecordFault {
+interface RecordFault {
 	readonly kind: "indistinct"
 	readonly decided: RecordSite
 	readonly other: RecordSite
 }
 
 /** The rule a record breaks, as a refusal says it. */
-export const recordFaultText = (fault: RecordFault): string =>
+const recordFaultText = (fault: RecordFault): string =>
 	`${fault.decided.at} in ${fault.decided.file} and ${fault.other.at} in ${fault.other.file} are spelled alike (${fault.decided.statement}), so the reviewed SQL cannot tell the two decisions apart`
 
-/** A record step, read. */
-const readStep = (s: MetaStep): ReadStep => {
+/** A decision record that does not read, as the draft's refusal: two decisions spelled alike, which a review cannot
+ * tell apart. */
+const recordRefusal = (fault: RecordFault): CompileError =>
+	unsupported(
+		SourceLoc("grizzle generate", []),
+		`a draft whose decisions read apart: ${recordFaultText(fault)}; make the changes in two migrations`
+	)
+
+/** A drafted step, read: each statement's tokens read once. */
+const spellStep = (s: DraftedStep): SpelledStep => {
 	switch (s.kind) {
 		case "statement":
 			return { kind: "statement", statement: spell(s.statement) }
@@ -191,14 +223,17 @@ const readStep = (s: MetaStep): ReadStep => {
 	}
 }
 
+/** A recorded step, read: each statement recorded by its text spelled (spellStep), a digest as recorded. */
+const readStep = (s: MetaStep): ReadStep => (s.kind === "digest" ? s : spellStep(s))
+
 /** A recorded statement where it stands, and whether its presence decides something. */
 interface Site extends RecordSite {
 	readonly spelled: Spelled
 	readonly decides: boolean
 }
 
-/** A step's recorded statements where they stand in the file `file` (Site). */
-const stepSites = (file: string, s: ReadStep): ReadonlyArray<Site> => {
+/** A drafted step's statements where they stand in the file `file` (Site). */
+const stepSites = (file: string, s: SpelledStep): ReadonlyArray<Site> => {
 	const site = (spelled: Spelled, at: string, decides: boolean): Site => ({
 		file,
 		statement: spelled.text,
@@ -216,13 +251,13 @@ const stepSites = (file: string, s: ReadStep): ReadonlyArray<Site> => {
 	}
 }
 
-/** Every recorded statement of a file where it stands (Site). */
-const sitesIn = (file: ReadFile): ReadonlyArray<Site> =>
+/** Every drafted statement of a file where it stands (Site). */
+const sitesIn = (file: FileRecord<SpelledStep>): ReadonlyArray<Site> =>
 	file.steps.flatMap((s) => stepSites(file.name, s))
 
-/** Every statement whose presence decides something is written unlike every other recorded statement, either way
+/** Every statement whose presence decides something is written unlike every other drafted statement, either way
  * round, a placeholder filled by any value; the first pair that is not. */
-const indistinct = (files: ReadonlyArray<ReadFile>): RecordFault | undefined => {
+const indistinct = (files: ReadonlyArray<FileRecord<SpelledStep>>): RecordFault | undefined => {
 	const sites = files.flatMap((f) => sitesIn(f))
 	for (const p of sites) {
 		if (!p.decides) {
@@ -245,20 +280,56 @@ const indistinct = (files: ReadonlyArray<ReadFile>): RecordFault | undefined => 
 	return undefined
 }
 
-/** The one constructor of a decision record, which `grizzle generate` builds its meta.json through and `grizzle check`
- * and `grizzle migrate` read it through: every statement's tokens read once, and the record's proof (DecisionRecord)
- * checked, or the fault that breaks it. */
-export const decisionRecord = (
-	files: ReadonlyArray<MetaFile>
-): Result.Result<DecisionRecord, RecordFault> => {
-	const read = files.map((f): ReadFile => ({
-		name: f.name,
-		steps: f.steps.map(readStep),
-		locks: f.locks
-	}))
-	const fault = indistinct(read)
-	return fault === undefined ? Result.ok(proved({ files: read })) : Result.err(fault)
+/** A drafted step as meta.json records it (MetaStep): a statement holding a placeholder, and every decision's, by its
+ * text; any other statement by its tokens' digest (statementDigest), refused where it has none. */
+const recordedStep = (s: SpelledStep): MetaStep => {
+	switch (s.kind) {
+		case "statement":
+			return holdsPlaceholder(s.statement.tokens)
+				? { kind: "statement", statement: s.statement.text }
+				: { kind: "digest", digest: unwrap(statementDigest(s.statement.tokens)) }
+		case "loss":
+			return { kind: "loss", loses: s.loses, statement: s.statement.text }
+		case "confirm":
+			return { kind: "confirm", statements: mapNonEmpty(s.statements, (x) => x.text) }
+	}
 }
+
+/** The one constructor of meta.json's record, which `grizzle generate` drafts it through: every drafted statement's
+ * tokens read once and the record's proof (DecisionRecord) checked over every statement's text, a draft whose record
+ * breaks it refused, naming the first pair of statements a review cannot tell apart; then the files as meta.json
+ * records them (MetaStep), each statement that is no decision's and holds no placeholder by its digest. The seal of the
+ * meta that holds them carries the proof to every reader (writeMeta, the shell's boundary/meta.ts), which reads the
+ * record without proving it again (decisionRecord). */
+export const provedRecord = (
+	files: ReadonlyArray<DraftedFile>
+): Result.Result<ReadonlyArray<MetaFile>, CompileError> =>
+	catchRefusal(() => {
+		const spelled = files.map((f): FileRecord<SpelledStep> => ({
+			name: f.name,
+			steps: f.steps.map(spellStep),
+			locks: f.locks
+		}))
+		const fault = indistinct(spelled)
+		if (fault !== undefined) {
+			throw new Refusal(recordRefusal(fault))
+		}
+		return spelled.map((f): MetaFile => ({
+			name: f.name,
+			steps: f.steps.map(recordedStep),
+			locks: f.locks
+		}))
+	})
+
+/** The decision record of a meta.json's files, which `grizzle check` and `grizzle migrate` read it through: each
+ * statement recorded by its text read once, each digest as recorded. Its proof (DecisionRecord) is no check of this
+ * reading: generate proved it over every drafted statement's text where it recorded the files (provedRecord), and the
+ * meta's seal carries it, since a meta.json is read only once its seal holds (the shell's boundary/meta.ts); a draft's
+ * own record is read from the files it recorded. */
+export const decisionRecord = (files: ReadonlyArray<MetaFile>): DecisionRecord =>
+	proved({
+		files: files.map((f) => ({ name: f.name, steps: f.steps.map(readStep), locks: f.locks }))
+	})
 
 /** What a loss loses, as a refusal names it. */
 export const lossText = (loses: MetaLosses): string =>
@@ -290,22 +361,47 @@ export const lossDecisions = (
 		})
 	})
 
+/** A recorded statement as a written one is held to: by its text read once (Spelled), or by its tokens' digest. */
+type RecordedStatement =
+	| { readonly kind: "spelled"; readonly spelled: Spelled }
+	| { readonly kind: "digest"; readonly digest: StatementDigest }
+
 /** Every statement a recorded step holds, in its place. */
-const stepStatements = (s: ReadStep): ReadonlyArray<Spelled> => {
+const stepStatements = (s: ReadStep): ReadonlyArray<RecordedStatement> => {
 	switch (s.kind) {
 		case "statement":
 		case "loss":
-			return [s.statement]
+			return [{ kind: "spelled", spelled: s.statement }]
+		case "digest":
+			return [s]
 		case "confirm":
-			return s.statements
+			return s.statements.map((x) => ({ kind: "spelled", spelled: x }))
+	}
+}
+
+/** Whether a written statement, by its tokens, is the recorded one: written as its text (writtenAs: a placeholder
+ * filled by any value), or, recorded by its digest, of tokens whose digest it is (statementDigest), which for a
+ * statement holding no placeholder is writtenAs exactly. Written tokens with no digest, their canonical text past V8's
+ * longest string, are no drafted statement's, whose tokens had one. */
+const writtenAsRecorded = (
+	recorded: RecordedStatement,
+	written: ReadonlyArray<StatementToken>
+): boolean => {
+	switch (recorded.kind) {
+		case "spelled":
+			return writtenAs(recorded.spelled.tokens, written)
+		case "digest": {
+			const digested = statementDigest(written)
+			return digested.ok && digested.value === recorded.digest
+		}
 	}
 }
 
 /**
  * Whether a folder's meta records a file exactly as its text holds it: a drafted folder's record holds the file, and the
  * file's statements are the record's every statement of it, in draft order, one for one, each written as its recorded
- * statement (writtenAs: a placeholder filled by any value). So a loss left out or a confirmed group removed is no file
- * the record states. A custom migration records no statement, so no file.
+ * statement (writtenAsRecorded: a placeholder filled by any value). So a loss left out or a confirmed group removed is
+ * no file the record states. A custom migration records no statement, so no file.
  */
 export const recordsAsWritten = (
 	meta: ReadMeta,
@@ -324,7 +420,7 @@ export const recordsAsWritten = (
 		drafted.length === written.length &&
 		written.every((w, i) => {
 			const d = drafted[i]
-			return d !== undefined && writtenAs(d.tokens, statementTokens(w))
+			return d !== undefined && writtenAsRecorded(d, statementTokens(w))
 		})
 	)
 }
@@ -370,10 +466,11 @@ interface MigrationFile {
  * own. A drafted folder records the renames
  * and drops it was drafted under (`declared`) and its decision record in `files`: every drafted statement of every
  * file in draft order, each group of statements the reviewer confirms as one, and each statement that loses stored
- * data no declaration names, with what it loses. So `grizzle check` reads back that each group stands whole or is gone
- * whole and that every loss is decided (lossDecisions), comparing statements as PostgreSQL's scanner reads them
- * (`writtenAs`). A custom migration drafts nothing, so it has no record: grizzle does not read its hand-written
- * statements. */
+ * data no declaration names, with what it loses, each by its text, as is each statement holding a placeholder, and
+ * every other statement by its tokens' digest (MetaStep). So `grizzle check` reads back that every loss is decided
+ * (lossDecisions), and `grizzle migrate` that a file stands as recorded (recordsAsWritten), comparing statements as
+ * PostgreSQL's scanner reads them (`writtenAs`, statementDigest). A custom migration drafts nothing, so it has no
+ * record: grizzle does not read its hand-written statements. */
 export interface MigrationFolder {
 	/** `<timestamp>_<name>`. */
 	readonly name: string
@@ -570,9 +667,9 @@ export const writeMeta = (meta: MigrationMeta): Result.Result<string, CompileErr
 	Result.flatMap(metaSeal(meta), (seal) => writeJsonText({ meta, seal }))
 
 /** Reads a folder's meta: what its form alone does not say. The shell trusts meta.json's meta once its seal holds
- * (boundary/meta.ts), and hands the meta here. A custom migration's source and target are one
- * snapshot; a drafted folder's files read as its decision record (decisionRecord), a fault refused as a malformed
- * meta.json. */
+ * (boundary/meta.ts), and hands the meta here. A custom migration's source and target are one snapshot; a drafted
+ * folder's files read as its decision record (decisionRecord), proved where generate recorded it (provedRecord) and
+ * carried by the seal, so no proof of it runs here. */
 export const readDecodedMeta = (meta: MigrationMeta): Result.Result<ReadMeta, CompileError> => {
 	switch (meta.kind) {
 		case "custom":
@@ -586,21 +683,16 @@ export const readDecodedMeta = (meta: MigrationMeta): Result.Result<ReadMeta, Co
 						)
 					)
 		case "drafted":
-			return Result.map(
-				Result.mapError(decisionRecord(meta.files), (fault) =>
-					malformedArtifact("meta", ["files"], recordFaultText(fault))
-				),
-				(record) => ({
-					kind: "drafted",
-					schemaName: meta.schemaName,
-					schema: meta.schema,
-					source: meta.source,
-					target: meta.target,
-					laws: meta.laws,
-					declared: meta.declared,
-					record
-				})
-			)
+			return Result.ok({
+				kind: "drafted",
+				schemaName: meta.schemaName,
+				schema: meta.schema,
+				source: meta.source,
+				target: meta.target,
+				laws: meta.laws,
+				declared: meta.declared,
+				record: decisionRecord(meta.files)
+			})
 	}
 }
 

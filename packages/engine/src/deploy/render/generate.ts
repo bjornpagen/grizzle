@@ -30,8 +30,7 @@ import {
 	folderName,
 	type MigrationFolder,
 	type MigrationName,
-	type RecordFault,
-	recordFaultText,
+	provedRecord,
 	upgradeMigrationName,
 	writeMeta
 } from "#compiler/deploy/render/folder.ts"
@@ -94,7 +93,7 @@ type DraftChange = "none" | "schema"
 interface DraftOf<F> {
 	readonly change: DraftChange
 	readonly folder: F
-	/** The folder's meta.json files, read as `grizzle check` reads them (decisionRecord). */
+	/** The folder's meta.json files, read as `grizzle check` reads them (decisionRecord), once proved (provedRecord). */
 	readonly record: DecisionRecord
 	readonly snapshot: DeploySnapshot
 	readonly derived: SnapshotDerived
@@ -138,24 +137,17 @@ const folderLaws = (snapshot: DeploySnapshot, swaps: ReadonlyArray<Swap>): Folde
 	}
 })
 
-/** A decision record that does not read, as the draft's refusal: two decisions spelled alike, which a review cannot
- * tell apart. */
-const recordRefusal = (fault: RecordFault): CompileError =>
-	unsupported(
-		SourceLoc("grizzle generate", []),
-		`a draft whose decisions read apart: ${recordFaultText(fault)}; make the changes in two migrations`
-	)
-
 /** `grizzle check`'s draft, and `grizzle generate`'s before it names the folder, as a pure function.
  *
  * draftMigration drafts the next folder of a declared schema from its previous committed snapshot (the empty snapshot
  * before the first migration), the current schema's compiled installation and its logins' workloads: it builds the
  * target snapshot state with the ledger's objects, diffs the two, groups the plan into files and renders them, with
- * meta.json's decision record of every file built through the record's one constructor (decisionRecord), the one
- * `grizzle check` reads it through. It returns the folder's contents and the new snapshot. It reads no file and no
- * clock. The installation is compiled under the codes drafted from `previous`'s (ir/codes.ts draftCodebook over
- * snapshot/build.ts codebookOf): codes that give a code `previous` recorded another meaning are a defect of the caller,
- * never drafted.
+ * meta.json's decision record of every file built through the record's one constructor (provedRecord), which proves it
+ * over every drafted statement's text before it records each statement that is no decision's and holds no placeholder
+ * by its digest, and the meta sealed over it, so `grizzle check` and `grizzle migrate` read it (decisionRecord) without
+ * proving it again. It returns the folder's contents and the new snapshot. It reads no file and no clock. The
+ * installation is compiled under the codes drafted from `previous`'s (ir/codes.ts draftCodebook over snapshot/build.ts
+ * codebookOf): codes that give a code `previous` recorded another meaning are a defect of the caller, never drafted.
  *
  * A schema whose target equals its previous snapshot drafts nothing: the change is none, the snapshot is the previous
  * one and the folder holds no file, so the CLI can report that there is nothing to generate. */
@@ -254,7 +246,7 @@ const draftOver = (
 		const spelledOf = (f: (typeof drafted)[number]): SpelledFile =>
 			defined(spelled.get(f), "a drafted file is spelled")
 		const files = drafted.map((f) => ({ name: f.name, text: unwrap(renderFile(spelledOf(f))) }))
-		const recorded = fileLockSets({
+		const draftedRecord = fileLockSets({
 			schema: installation.names.schema,
 			catalog: migrationCatalog(
 				previous,
@@ -262,7 +254,8 @@ const draftOver = (
 			),
 			files: drafted
 		}).map((f) => unwrap(recordFile(spelledOf(f.file), f.locks.size)))
-		const record = unwrap(Result.mapError(decisionRecord(recorded), recordRefusal))
+		const recorded = unwrap(provedRecord(draftedRecord))
+		const record = decisionRecord(recorded)
 		const meta: DraftedMeta = {
 			kind: "drafted",
 			schemaName: snapshot.schemaName,

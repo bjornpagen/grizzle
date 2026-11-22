@@ -442,9 +442,10 @@ What a declaration drafts:
   SCHEMA` commented, as a data loss: the old schema keeps its rows and is never migrated again. Uncomment it to start
   the new schema empty; to keep the rows, keep the old name and delete the folder.
 
-meta.json records the declarations a folder was drafted under, and every drafted statement of every file in its place,
-so `check` refuses a confirmed group kept in part and a loss left undecided, and reads every reviewed statement back
-as PostgreSQL's scanner reads it: whitespace, comments and the case of unquoted words are yours.
+meta.json records the declarations a folder was drafted under, and every drafted statement of every file in its place: a
+data loss's, a confirmed group's and one holding a placeholder by its text, every other by the SHA-256 digest of its
+tokens. So `check` refuses a confirmed group kept in part and a loss left undecided, and reads every reviewed statement
+back as PostgreSQL's scanner reads it: whitespace, comments and the case of unquoted words are yours.
 
 ## Legal edits
 
@@ -483,9 +484,9 @@ as PostgreSQL's scanner reads it: whitespace, comments and the case of unquoted 
   login's OpenAPI document differs from the one its served file gives (an ungenerated change); run grizzle generate,
   which writes the OpenAPI document again.
 - `meta.json`: it records the folder's place in the chain, the renames and drops it was drafted under, every
-  drafted statement of every file in its place, its confirmed groups and data losses among them, which `check` reads
-  every reviewed file against, the law of each constraint the folder installs, by which `migrate` names the law a
-  refused statement of the folder breaks, and each file's lock demand, the most objects one transaction of it locks as
+  drafted statement of every file in its place (by its text, or by the SHA-256 digest of its tokens), its confirmed
+  groups and data losses among them, which `check` reads every reviewed file against, the law of each constraint the
+  folder installs, by which `migrate` names the law a refused statement of the folder breaks, and each file's lock demand, the most objects one transaction of it locks as
   drafted, which `migrate` holds the server's lock table to before anything runs. `check` says: meta.json does not decode as a
   migration's meta.json, or names another schema; restore it from git, or broken chain: this migration does not start
   where the previous one ends; regenerate; never hand-edit meta.json.

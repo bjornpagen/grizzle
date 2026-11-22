@@ -27,17 +27,20 @@ import { jsonText, trusted } from "#compiler/core/trusted.ts"
 import type { Declarations, Rename } from "#compiler/deploy/diff/plan.ts"
 import {
 	type CustomMeta,
+	type DraftedFile,
+	type DraftedStep,
 	type FolderLaws,
 	type MetaFile,
 	metaFileName,
 	metaSeal,
-	type MetaStep,
-	type MigrationMeta
+	type MigrationMeta,
+	provedRecord
 } from "#compiler/deploy/render/folder.ts"
 import { maxMigrationNameLength } from "#compiler/deploy/render/layout.ts"
 import { closedId } from "#compiler/public/fields.ts"
 import { closed, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { placeholderToken } from "#compiler/sql/print.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { daysIn, digitsOf, type Second, secondGen, secondOfDigits } from "#test/support/calendar.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
@@ -281,9 +284,11 @@ type MetaKey =
 	| "declared"
 	| "files"
 
-/** A decision record short of its proof, refused: a statement whose presence decides something, a loss's or a
- * confirmed one, written as another recorded statement, which a review could not tell apart from it. */
-type RecordMiss = "a loss written as another statement" | "a confirmed statement written twice"
+/** A drafted record short of its proof, which generate refuses: a statement whose presence decides something, a loss's
+ * or a confirmed one, written as another drafted statement, which a review could not tell apart from it. */
+export type RecordMiss =
+	| "a loss written as another statement"
+	| "a confirmed statement written twice"
 
 export type Fault =
 	| { readonly kind: "none" }
@@ -291,7 +296,6 @@ export type Fault =
 	| { readonly kind: "field"; readonly key: MetaKey; readonly value: unknown }
 	| { readonly kind: "removed"; readonly key: MetaKey }
 	| { readonly kind: "custom with two snapshots" }
-	| { readonly kind: "record"; readonly miss: RecordMiss }
 
 const fingerprintGen = matching(regex("^[0-9a-f]{64}$"))
 
@@ -325,7 +329,7 @@ const declaredGen: Gen<Declarations> = (source) => ({
 })
 
 /** The loss a schema's first migration states when its directory holds an abandoned schema: their rows. */
-const abandonedLoss = (statement: string): MetaStep => ({
+const abandonedLoss = (statement: string): DraftedStep => ({
 	kind: "loss",
 	loses: {
 		kind: "schema",
@@ -335,9 +339,10 @@ const abandonedLoss = (statement: string): MetaStep => ({
 	statement
 })
 
-/** A record of a draft: statements spelt each apart from every other, a confirmed group of two, and in Setup the loss of
- * an abandoned schema's rows where the draft starts its schema beside one. */
-const recordOf = (lossDrawn: boolean): ReadonlyArray<MetaFile> => {
+/** A draft's files as generate drafts them, every statement by its text: statements spelt each apart from every other,
+ * one holding a placeholder, a confirmed group of two, and in Setup the loss of an abandoned schema's rows where the
+ * draft starts its schema beside one. */
+const draftedOf = (lossDrawn: boolean): ReadonlyArray<DraftedFile> => {
 	let n = 0
 	const fresh = (verb: string): string => {
 		n++
@@ -348,7 +353,8 @@ const recordOf = (lossDrawn: boolean): ReadonlyArray<MetaFile> => {
 			name: fileNames[0],
 			steps: [
 				...(lossDrawn ? [abandonedLoss(`CREATE SCHEMA "repro${n}"`)] : []),
-				{ kind: "statement", statement: fresh("ADD COLUMN") }
+				{ kind: "statement", statement: fresh("ADD COLUMN") },
+				{ kind: "statement", statement: fresh(`ALTER COLUMN "a" SET DEFAULT ${placeholderToken}`) }
 			],
 			locks: 1
 		},
@@ -361,6 +367,26 @@ const recordOf = (lossDrawn: boolean): ReadonlyArray<MetaFile> => {
 			locks: 1
 		}
 	]
+}
+
+/** How a drawn meta records its draft's statements: as generate records them (provedRecord), or every statement by its
+ * text, as a meta.json of format 7 or before records them, which `grizzle upgrade` reads. */
+type RecordForm = "as generate records it" | "every statement by its text"
+
+const recordForms: Arr.NonEmptyReadonlyArray<RecordForm> = [
+	"as generate records it",
+	"every statement by its text"
+]
+
+/** A draft's record in a form (RecordForm). */
+const recordOf = (lossDrawn: boolean, form: RecordForm): ReadonlyArray<MetaFile> => {
+	const drafted = draftedOf(lossDrawn)
+	switch (form) {
+		case "as generate records it":
+			return succeeded(provedRecord(drafted), "a drafted record proved")
+		case "every statement by its text":
+			return drafted
+	}
 }
 
 /** An installed identifier's spelling: a PostgreSQL schema's, an owner's, a constraint's or a law's. */
@@ -419,7 +445,7 @@ export const metaGen: Gen<MigrationMeta> = (source) => {
 	const target = SchemaFingerprint(source.draw(fingerprintGen))
 	const custom = source.draw(boolean)
 	const declared = source.draw(declaredGen)
-	const files = recordOf(source.draw(boolean))
+	const files = recordOf(source.draw(boolean), source.draw(element(recordForms)))
 	return custom
 		? { kind: "custom", ...fields, target: fields.source }
 		: { kind: "drafted", ...fields, target, declared, files }
@@ -448,12 +474,12 @@ const wrong: Arr.NonEmptyReadonlyArray<{
 	{ key: "files", values: [null, {}, [{ name: "", steps: [] }], [{ name: "01-setup.sql" }]] }
 ]
 
-/** A record's near miss, made from a valid record: the first decision's statement recorded again as a plain
+/** A drafted record's near miss, made from a valid one: the first decision's statement drafted again as a plain
  * statement, or none where the record holds no such decision. */
-export const missed = (
-	files: ReadonlyArray<MetaFile>,
+const missed = (
+	files: ReadonlyArray<DraftedFile>,
 	miss: RecordMiss
-): ReadonlyArray<MetaFile> | undefined => {
+): ReadonlyArray<DraftedFile> | undefined => {
 	const decided = Arr.flatMap(files, (f) =>
 		Arr.flatMap(f.steps, (step): ReadonlyArray<string> => {
 			switch (miss) {
@@ -476,8 +502,7 @@ export const recordMisses: Arr.NonEmptyReadonlyArray<RecordMiss> = [
 	"a confirmed statement written twice"
 ]
 
-/** The faults of a meta: a field holding a wrong value, one of its keys removed, or its record, of the form, short of
- * its proof. */
+/** The faults of a meta: a field holding a wrong value, or one of its keys removed. */
 export const faultGen = (meta: MigrationMeta): Gen<Fault> => {
 	const removable = Arr.filter(wrong, (w) => w.key in meta)
 	const arms: Arr.NonEmptyReadonlyArray<Weighted<Fault>> = [
@@ -504,11 +529,7 @@ export const faultGen = (meta: MigrationMeta): Gen<Fault> => {
 		],
 		[1, constant({ kind: "custom with two snapshots" })]
 	]
-	const recordArm: Weighted<Fault> = [
-		4,
-		map(element(recordMisses), (miss): Fault => ({ kind: "record", miss }))
-	]
-	return weighted(meta.kind === "drafted" ? Arr.append(arms, recordArm) : arms)
+	return weighted(arms)
 }
 
 /**
@@ -534,10 +555,7 @@ export const twoSnapshots = (meta: MigrationMeta): CustomMeta => ({
 
 export const faultedMeta = (
 	meta: MigrationMeta,
-	fault: Exclude<
-		Fault,
-		{ readonly kind: "record" } | { readonly kind: "custom with two snapshots" }
-	>
+	fault: Exclude<Fault, { readonly kind: "custom with two snapshots" }>
 ): unknown => {
 	const fields: Readonly<Record<string, unknown>> = { ...meta }
 	switch (fault.kind) {
@@ -552,9 +570,64 @@ export const faultedMeta = (
 	}
 }
 
-export type MetaFeature = "a drafted meta with a loss, read" | "declarations, read" | RecordMiss
+export type MetaFeature =
+	| "a drafted meta with a loss, read"
+	| "declarations, read"
+	| "a meta of format 7, every statement by its text, read"
 
 export const namesGen = weighted<ReadonlyArray<string>>([
 	[4, array(folderEntryGen, { min: 0, max: 5 })],
 	[1, ordinalTwiceGen]
 ])
+
+/** A draft's files, a near miss of its proof planted or none (missed): what generate's proof of a record reads. */
+export interface ProofCase {
+	readonly files: ReadonlyArray<DraftedFile>
+	readonly miss: Option.Option<RecordMiss>
+}
+
+/** A draft's files, with a loss or none, a near miss planted where the draft holds the decision it needs. */
+export const proofCaseGen: Gen<ProofCase> = (source) => {
+	const drafted = draftedOf(source.draw(boolean))
+	const planted = source.draw(boolean)
+		? Option.some(source.draw(element(recordMisses)))
+		: Option.none<RecordMiss>()
+	return Option.match(planted, {
+		onNone: (): ProofCase => ({ files: drafted, miss: Option.none() }),
+		onSome: (miss): ProofCase => {
+			const files = missed(drafted, miss)
+			return files === undefined
+				? { files: drafted, miss: Option.none() }
+				: { files, miss: Option.some(miss) }
+		}
+	})
+}
+
+/** A drafted meta of a record: its other fields fixed, as no reader of its record reads them. */
+export const draftedMetaOf = (files: ReadonlyArray<MetaFile>): MigrationMeta => ({
+	kind: "drafted",
+	schemaName: "Repro",
+	schema: "repro",
+	source: SchemaFingerprint(Str.repeat(64)("0")),
+	target: SchemaFingerprint(Str.repeat(64)("1")),
+	laws: { schemas: ["repro"], constraintToLaw: { tables: {}, domains: {} } },
+	declared: { renames: [], drops: [] },
+	files
+})
+
+/** A drafted file as a reviewer writes it: every statement in its place, a loss's written in, a confirmed group kept, a
+ * placeholder filled by `1`, each ended by a semicolon. */
+export const writtenText = (file: DraftedFile): string =>
+	Arr.join(
+		Arr.flatMap(file.steps, (s): ReadonlyArray<string> => {
+			switch (s.kind) {
+				case "statement":
+					return [Str.replaceAll(placeholderToken, "1")(s.statement)]
+				case "loss":
+					return [s.statement]
+				case "confirm":
+					return s.statements
+			}
+		}),
+		";\n"
+	)

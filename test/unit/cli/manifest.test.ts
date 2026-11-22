@@ -155,7 +155,7 @@ export const aSnapshotOfAnotherFormatIsItsOwnFindingASealNamingNoFormatOrAHandEd
 		kills: [
 			{
 				file: "packages/engine/src/core/format.ts",
-				original: "export const artifactFormat = 7",
+				original: "export const artifactFormat = 8",
 				replacement: "export const artifactFormat = 3",
 				why: "The format left at 3, which changes of what its files hold rode: a draft of format 3 whose constants record no language passes the format check under its seal and is read as this grizzle's record, which the drift check replayed as a stub of no language and crashed printing (TypeError: name.replaceAll is not a function), as metis met over edullm's reset folder."
 			},

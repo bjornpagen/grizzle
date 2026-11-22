@@ -1,5 +1,10 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { isAsciiDigit } from "@bjornpagen/grizzle-text/text"
+import { nominal } from "#compiler/core/brand.ts"
+import { everyProperty } from "#compiler/core/canonical.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
+import { digest } from "#compiler/core/fingerprint.ts"
 import { type Lexeme, lex, lexemesOf, type Token } from "#compiler/sql/lexer.ts"
 import { placeholderToken } from "#compiler/sql/print.ts"
 
@@ -241,6 +246,10 @@ const placeholderUpper = placeholderToken.toUpperCase()
 /** Whether a drafted token is the placeholder token, a hole the reviewer's value fills. */
 const isHole = (t: StatementToken): boolean => t.kind === "word" && t.upper === placeholderUpper
 
+/** Whether a drafted statement holds a placeholder token, a hole the reviewer's value fills (writtenAs). */
+export const holdsPlaceholder = (tokens: ReadonlyArray<StatementToken>): boolean =>
+	tokens.some(isHole)
+
 /** Whether tokens nest their parentheses and brackets, as a value's do. */
 const balanced = (tokens: ReadonlyArray<StatementToken>): boolean => {
 	let depth = 0
@@ -295,3 +304,24 @@ export const writtenAs = (
 	}
 	return from(0, 0)
 }
+
+declare const statementDigestBrand: unique symbol
+
+/** A statement's token digest (statementDigest): 64 lowercase hex characters. */
+export type StatementDigest = string & { readonly [statementDigestBrand]: true }
+
+const mintStatementDigest = nominal<string, StatementDigest>()
+
+/**
+ * The digest of a statement's tokens (statementTokens), as meta.json records a drafted statement that holds no
+ * placeholder (render/folder.ts MetaStep): core/fingerprint.ts digest under the domain "statement-tokens", SHA-256 of
+ * the frame and the canonical text of every property of the tokens, each token's kind and every field sameToken
+ * compares it by. Two token lists have one canonical text exactly when each token of either is the other's (sameToken),
+ * so two statements' digests are one exactly when their tokens are, SHA-256 colliding aside: a written statement is a
+ * drafted one that holds no placeholder (writtenAs) exactly when its tokens' digest is the drafted one's. Refused, as
+ * every digest is, where that canonical text passes V8's longest string, as ResourceBound.
+ */
+export const statementDigest = (
+	tokens: ReadonlyArray<StatementToken>
+): Result.Result<StatementDigest, CompileError> =>
+	Result.map(digest("statement-tokens", tokens, everyProperty), mintStatementDigest)

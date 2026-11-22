@@ -1,7 +1,7 @@
 /** What the properties of tamper.test.ts read: its spaces, models and helpers. */
 
-import { assert, containsEqual, defined } from "@bjornpagen/testing/assert"
-import { boolean, type Gen } from "@bjornpagen/testing/gen"
+import { assert, assertVariant, containsEqual, defined } from "@bjornpagen/testing/assert"
+import { boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { type Need, NeedFailed } from "@bjornpagen/testing/property"
 import {
 	Array as Arr,
@@ -15,12 +15,20 @@ import {
 	String as Str
 } from "effect"
 import { decodeMeta } from "#adapter/boundary/meta.ts"
-import { check } from "#cli/check.ts"
+import { migrationLocks } from "#adapter/public/locks.ts"
+import { check, checkFiles } from "#cli/check.ts"
 import { type ChainBreak, CliError, type CliStage, type TreeRefused } from "#cli/errors.ts"
 import type { refusalText } from "#cli/refusals.ts"
+import type { Json } from "#compiler/core/canonical.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { silentPhases } from "#compiler/core/phase.ts"
-import { metaFileName, writeMeta } from "#compiler/deploy/render/folder.ts"
+import { jsonText, trusted } from "#compiler/core/trusted.ts"
+import {
+	metaFileName,
+	metaSeal,
+	type MigrationMeta,
+	writeMeta
+} from "#compiler/deploy/render/folder.ts"
 import { manifestFileName, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
 import { defineConfig } from "#index.ts"
 import {
@@ -32,7 +40,7 @@ import {
 	workspace,
 	writeConfig
 } from "#test/pg/cli/support.ts"
-import { succeeded } from "#test/support/assert.ts"
+import { failed, succeeded } from "#test/support/assert.ts"
 import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { migrationFolders } from "#test/support/migrate/kit.ts"
@@ -505,3 +513,168 @@ export const committedNeed = {
 		})
 	)
 } as const satisfies Need<unknown>
+
+/**
+ * A meta.json edited by hand under the seal grizzle wrote for it, as each of its readers meets it: one statement's
+ * recorded digest changed, or the text of a decision, the loss a schema's first migration records beside an abandoned
+ * schema, changed.
+ */
+export type MetaEdit = "a digest changed" | "a decision's text changed"
+
+export const metaEdits: Arr.NonEmptyReadonlyArray<MetaEdit> = [
+	"a digest changed",
+	"a decision's text changed"
+]
+
+/** What a decision's text is edited by: words, a comment or whitespace written after it. */
+const decisionSuffixes: Arr.NonEmptyReadonlyArray<string> = [
+	' AUTHORIZATION "edited"',
+	" -- edited",
+	"  "
+]
+
+/** Where a case edits a meta.json each way (MetaEdit): the digest step it changes, by its place among the record's
+ * digest steps (modulo their count), and the hex digit of it it changes; and what it writes after a decision's text. */
+export interface MetaEditCase {
+	readonly step: number
+	readonly digit: number
+	readonly suffix: string
+}
+
+export const metaEditGen: Gen<MetaEditCase> = (source) => ({
+	step: source.draw(int(0, 255)),
+	digit: source.draw(int(0, 63)),
+	suffix: source.draw(element(decisionSuffixes))
+})
+
+/** A recorded digest with its digit at `at` changed, to 1 where it is 0 and to 0 otherwise: another digest of the same
+ * form. */
+const otherDigest = (digest: string, at: number): string =>
+	`${Str.slice(0, at)(digest)}${Str.slice(at, at + 1)(digest) === "0" ? "1" : "0"}${Str.slice(at + 1)(digest)}`
+
+/** A meta's value with `edit` made where `e` places it, the step of its record it names, which its record must hold. */
+const editedMeta = (meta: MigrationMeta, edit: MetaEdit, e: MetaEditCase): unknown => {
+	assertVariant(meta, "kind", "drafted", "a drafted folder's meta")
+	const digests = Arr.flatMap(meta.files, (f) => Arr.filter(f.steps, (s) => s.kind === "digest"))
+	assert.ok(Arr.isReadonlyArrayNonEmpty(digests), "the record holds a digest")
+	const target = digests[e.step % digests.length]
+	let decided = false
+	const files = Arr.map(meta.files, (f) => ({
+		...f,
+		steps: Arr.map(f.steps, (s): unknown => {
+			if (edit === "a digest changed" && s.kind === "digest" && s === target) {
+				return { kind: "digest", digest: otherDigest(s.digest, e.digit) }
+			}
+			if (edit === "a decision's text changed" && s.kind === "loss" && !decided) {
+				decided = true
+				return { ...s, statement: `${s.statement}${e.suffix}` }
+			}
+			return s
+		})
+	}))
+	assert.ok(edit === "a digest changed" || decided, "the record holds a decision")
+	return { ...meta, files }
+}
+
+/** A drafted directory whose one folder holds a decision: TamperShop's first migration, drafted beside TamperOther's
+ * directory, which the configuration no longer lists, so the folder records the loss of TamperOther's rows. */
+const decidedDraft = (base: string) =>
+	Effect.gen(function* () {
+		const fs = yield* FileSystem.FileSystem
+		const dir = `${base}/decided`
+		yield* fs.makeDirectory(dir)
+		for (const [i, name] of ["TamperOther", "TamperShop"].entries()) {
+			yield* writeConfig(dir, {
+				schemas: [{ name, fixture: "shop", version: 1, workload: "none" }],
+				connection: unconnected
+			})
+			const generated = yield* cli(dir, ["generate", configName], at(i))
+			assert.equal(generated.code, 0, `${name} drafts`)
+		}
+		return dir
+	})
+
+/** The drafted directory every case edits a copy of (decidedDraft), built once per worker. */
+export const decidedNeed = {
+	key: "test/unit/cli/tamper.fixtures.ts decidedNeed",
+	budget: fixtureNeedBudget,
+	runNeeds: [],
+	open: Effect.flatMap(workspace("decided"), decidedDraft).pipe(
+		Effect.mapBoth({
+			onFailure: (error) =>
+				NeedFailed.make({
+					need: "test/unit/cli/tamper.fixtures.ts decidedNeed",
+					message: Cause.pretty(Cause.fail(error))
+				}),
+			onSuccess: (made) => Effect.succeed(made)
+		})
+	)
+} as const satisfies Need<unknown>
+
+/**
+ * A copy of the decided directory whose folder's meta.json is edited by hand (editedMeta) under its seal, read by each
+ * of meta.json's readers, which all decode it through its seal (boundary/meta.ts readMeta): generate's committed tree,
+ * refused at `snapshot` with ChainRefused `unreadableMeta` naming the folder; check, and migrate's reading before it
+ * connects (check.ts checkFiles), each finding `unreadableMeta` at the folder's meta.json, and migrate itself refused
+ * before connecting; upgrade's chain, refused as generate's is before it connects; and the lock report
+ * (adapter/public/locks.ts migrationLocks), refused. The copy as drafted is read by every one of them first.
+ */
+export const metaEdited = (edit: MetaEdit, e: MetaEditCase, decided: string) =>
+	Effect.scoped(
+		Effect.gen(function* () {
+			const fs = yield* FileSystem.FileSystem
+			const ws = yield* workspace("meta-edited")
+			yield* fs.copy(decided, ws, { overwrite: true })
+			const schema = `${ws}/${schemaDir}`
+			const entries = yield* fs.readDirectory(schema)
+			const folder = folderAt(Arr.head(migrationFolders(entries)))
+			const meta = `${schema}/${folder}/${metaFileName}`
+			const metaWhere = `${schemaDir}/${folder}/${metaFileName}`
+			const locks = migrationLocks(`${ws}/migrations`)
+			const drafted = yield* Effect.result(locks)
+			succeeded(drafted, "the lock report reads the drafted meta.json")
+			const text = yield* fs.readFileString(meta)
+			const original = succeeded(decodeMeta(text), "the drafted meta.json")
+			const seal = succeeded(metaSeal(original), "the drafted meta's seal")
+			yield* fs.writeFileString(
+				meta,
+				jsonText(trusted<Json>({ meta: editedMeta(original, edit, e), seal }))
+			)
+			const spec = yield* Effect.orDie(specConfig(ws))
+			const read = yield* resolvedConfig(defineConfig(spec), `${ws}/${configName}`)
+			const resolved = succeeded(read, "the configuration")
+			const unreadable: Named = { tag: "ChainRefused", fault: "unreadableMeta", folder }
+			for (const command of ["generate", "upgrade"] as const) {
+				const report = (yield* cli(ws, [command, configName], at(9))).report
+				assert.ok(report.outcome === "refused", `${edit}: ${command} ${report.outcome}`)
+				const refusal = report.refusal
+				assert.ok(refusal instanceof CliError, `${edit}: ${command} refused by ${refusal._tag}`)
+				assert.deepEqual(
+					{ stage: refusal.stage, named: namedOf(refusal.reason) },
+					{ stage: "snapshot", named: unreadable },
+					`${edit}: ${command}`
+				)
+			}
+			const finding: Finding = { kind: "unreadableMeta", where: metaWhere }
+			const [checked] = yield* Effect.orDie(check(resolved, ws, silentPhases))
+			const [filed] = yield* checkFiles(resolved, ws)
+			for (const [reader, findings] of [
+				["check", defined(checked, "the schema's check").findings],
+				["migrate", defined(filed, "the schema's files").findings]
+			] as const) {
+				containsEqual(
+					Arr.map(findings, (f) => ({ kind: f.kind, where: entryOf(f.where) })),
+					finding,
+					`${edit}: ${reader}`
+				)
+			}
+			const migrated = (yield* cli(ws, ["migrate", configName], at(10))).report
+			assert.deepEqual(
+				{ outcome: migrated.outcome, code: migrated.code },
+				{ outcome: "ran", code: 1 },
+				`${edit}: migrate refused before connecting`
+			)
+			const edited = yield* Effect.result(locks)
+			failed(edited, `${edit}: the lock report reads it`)
+		})
+	)

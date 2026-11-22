@@ -13,7 +13,74 @@
  * anything, so `grizzle upgrade` refuses such a change by name (CONTRIBUTING.md, Settled decisions). Format 6 retyped
  * the ledger's and the proofs' digests, so no format 5 installation is rebased onto it: each is drafted afresh.
  *
- * @formatConstant grizzle's artifact format: 7. Format 7 (pin+1): a session table, a rule judge's delta (physical/ddl/rules.ts
+ * @formatConstant grizzle's artifact format: 8. Format 8 (pin+2): a drafted folder's meta.json records a drafted
+ * statement by its text only where a reader reads its text: a loss's statement and each statement of a confirmed group,
+ * the decisions `grizzle check` reads a review by, and a statement that holds a placeholder, which a reviewer fills;
+ * every other statement is the step `{ kind: "digest", digest }`, the SHA-256 digest of its tokens as PostgreSQL's
+ * scanner reads them (deploy/render/markers.ts statementDigest, core/fingerprint.ts digest under the domain
+ * "statement-tokens"), which a written statement's tokens give exactly when it is written as drafted, where format 7
+ * recorded every drafted statement's whole text, past V8's longest string in a large installation's draft, whose
+ * meta.json no seal could then digest and no reader read back. `grizzle generate` proves the record over every drafted
+ * statement's text before it records it (deploy/render/folder.ts provedRecord), and meta.json's seal carries that proof
+ * to every reader, so no reader proves it again (readDecodedMeta), where format 7 proved it at every read of a
+ * meta.json; a written statement is held to a digest by its tokens' digest (recordsAsWritten, statedLocks). A meta.json
+ * records no format, and `grizzle upgrade` reads a format 7 folder's, every statement by its text, as it reads its own.
+ * A write's single statement holds the evaluation of a call its parts read as one statement over every argument of the
+ * call, so a sub-query two arguments read is one MATERIALIZED CTE of the evaluation's WITH, and builds its parts lowest
+ * first, so an evaluation reads the sub-queries the statement carries as parts of their own and a carried sub-query
+ * reads the evaluations below it (lower/shapes/share/statements.ts StatementSharing evaluation,
+ * write/program/compile.ts heldParts), where format 7 lowered each argument as a statement of its own and built every
+ * evaluation before the carried sub-queries; and an existence test whose right side is no scan of one source,
+ * restricted at every relation by its join columns and derived anew by the statement, is read per left row, a step
+ * correlated inside its EXISTS (lower/conservative/semi-join/exists.ts readPerLeftRow, step/index.ts fencedRead), where
+ * format 7 left every right side in a bare EXISTS. A write's read bound to a column of a derived table of a context's
+ * fact, one row of values the call holds once, binds one group for the call, as one bound to the context itself does,
+ * and the row an INSERT's arbitration met, read through a query CTE that holds its met rows whole, is read as the row
+ * met (program/isolation/extract.ts callRow, namedIn), where format 7 read each as a read of one group per own row and
+ * as an outside read of its relation, so a role that reads by a claim, or beside a SERIALIZABLE inserter of what it
+ * reads, may certify READ COMMITTED where format 7 left it SERIALIZABLE: its served level, its relations' guards and
+ * its login's fences move. A rule judge's delta reader returns its delta's rows as they stand, deduplicating nothing
+ * (physical/ddl/deltas.ts addReaders), where format 7 returned them DISTINCT, so every reader's body moves. A shared
+ * join the statement's own values restrict is computed once, a carried part, a MATERIALIZED CTE of a write's statement
+ * or of a read's (lower/optimize/cte-policy restrictedByValues, rule 5d; lower/shapes/share/statements.ts sharedOnce),
+ * where format 7 restated it at each read of a write and left it NOT MATERIALIZED in a read. A call an attachment's
+ * child reads at its parent's values alone is evaluated once for each parent key, a MATERIALIZED CTE of the statement
+ * every attachment under the parent's rows reads at its parent's values (lower/conservative/call/index.ts
+ * parentEvaluations), where format 7 evaluated it again in each attachment's child; and each block of a rule judge's
+ * part is a function of its own (physical/ddl/rules.ts partBody, identity.ruleJudgeBlock), which the part calls under
+ * the block's guard, where format 7 held every block's statement in its part, so 04-validate.sql creates a function per
+ * block and 05-publish.sql comments each. Each clock's and place's head is a table of its children's last stamps beside
+ * its relation, with the stamp function that advances it, one manifest object of kind `head` (physical/ddl/stamps.ts),
+ * which a statement that stamps calls in its stamps' CTE and a migration fills from its relation as it creates it,
+ * where format 7 read each child's head from the relation's primary key backwards and had no such object. A call's
+ * evaluation a write's single statement holds is one statement of its share planning, its arguments read by it alone,
+ * and a sub-query whose only stage that is no scan is a carried part is read where it stands
+ * (lower/shapes/share/statements.ts planStatementShares, HeldEvaluation, statementCtes), where format 7 counted every
+ * member reading a field of the call as reading its arguments, each argument a MATERIALIZED CTE of the statement, and
+ * gave a read of a carried part a CTE of its own; and no block probes a relation's added rows that a sibling stored
+ * match of the probed arm covers through one of the schema's containments (analysis/theory/query.ts covered), where
+ * format 7 probed every touched side, so a judge holds fewer blocks; and a judged statement's step looks its relation
+ * up by every column an equality chain of its rule fixes to a value the steps before it hold
+ * (analysis/theory/navigate.ts implied), where format 7 bound only the columns equated with such a value directly, so a
+ * read of an import inlined into an arm of a definition read at a written row's keys gains the equality of each key
+ * column the arm equates with its channel. An installation sets no database default and its snapshot records none
+ * (physical/ddl/isolation.ts), where format 7 set default_transaction_isolation SERIALIZABLE on the database, its
+ * snapshot's `databaseDefault` object, so an owner's session starts SERIALIZABLE by its startup options
+ * (adapter/wire/session.ts ownerOptions) and `grizzle upgrade` resets the former default (adapter/admission/upgrade.ts
+ * formerDefault). A probe whose every row reads a stored relation keyed by no field of the unit its arms bind, at that
+ * unit, runs inside a guard of that relation's rows at the written rows' units, carried along the ways that yield a row
+ * of the probe's side alone (analysis/theory/query.ts probeGuard, Carry), where format 7 ran every probe of a written
+ * side: a guarded block's function holds the guard's PERFORM and IF FOUND around the probe's (physical/ddl/rules.ts
+ * probedBlocks). Every login's role stores plan_cache_mode at force_generic_plan beside its other fixed defaults
+ * (physical/ddl/roles.ts genericPlans, roleDefaultSettings), so each installation's roles gain an ALTER ROLE ... SET
+ * and each served file's startup options the setting, and its session texts the generic plans an owner's session starts
+ * under beside its default level (served/forms.ts ServedSession ownerStartup, roles.ts ownerStartupOptions), so every
+ * session of a login's pool and every owner's session plan generically. A join no value of a write's single statement
+ * restricts, which its parts read joined to a carried part by its columns, is one part of the statement, its rows kept
+ * by an EXISTS over that part (lower/shapes/share/statements.ts restrictedShares), where format 7 restated it at each
+ * read.
+ *
+ * Format 7 (pin+1): a session table, a rule judge's delta (physical/ddl/rules.ts
  * emptied) or a write program's carrier (sql/print.ts carrierStandUp), is emptied by DELETE, and by TRUNCATE only once
  * its heap or its TOAST table's heap holds more than its one page (sql/print.ts sessionTableEmptied), where format 6
  * truncated each written delta at every judged COMMIT and each carrier at every use, so each judge function's body and
@@ -116,63 +183,8 @@
  * outside the base they type a value by (derived.params.contracts). Format 3's files were written in several shapes,
  * changes of what they hold riding its number (a constant recorded with no language before 56f26ca01), so a reader that
  * trusted a sealed record of 3 met shapes it never wrote; every one is refused here.
- *
- * Pending, for the next format, which grizzle main bumps once for the batch: a write's single statement holds the
- * evaluation of a call its parts read as one statement over every argument of the call, so a sub-query two arguments
- * read is one MATERIALIZED CTE of the evaluation's WITH, and builds its parts lowest first, so an evaluation reads the
- * sub-queries the statement carries as parts of their own and a carried sub-query reads the evaluations below it
- * (lower/shapes/share/statements.ts StatementSharing evaluation, write/program/compile.ts heldParts), where format 7
- * lowered each argument as a statement of its own and built every evaluation before the carried sub-queries; and an
- * existence test whose right side is no scan of one source, restricted at every relation by its join columns and
- * derived anew by the statement, is read per left row, a step correlated inside its EXISTS (lower/conservative/
- * semi-join/exists.ts readPerLeftRow, step/index.ts fencedRead), where format 7 left every right side in a bare EXISTS. A
- * write's read bound to a column of a derived table of a context's fact, one row of values the call holds once, binds
- * one group for the call, as one bound to the context itself does, and the row an INSERT's arbitration met, read
- * through a query CTE that holds its met rows whole, is read as the row met (program/isolation/extract.ts callRow,
- * namedIn), where format 7 read each as a read of one group per own row and as an outside read of its relation, so a
- * role that reads by a claim, or beside a SERIALIZABLE inserter of what it reads, may certify READ COMMITTED where
- * format 7 left it SERIALIZABLE: its served level, its relations' guards and its login's fences move. A rule judge's
- * delta reader returns its delta's rows as they stand, deduplicating nothing (physical/ddl/deltas.ts addReaders), where
- * format 7 returned them DISTINCT, so every reader's body moves. A shared join the statement's own values restrict is
- * computed once, a carried part, a MATERIALIZED CTE of a write's statement or of a read's (lower/optimize/cte-policy
- * restrictedByValues, rule 5d; lower/shapes/share/statements.ts sharedOnce), where format 7 restated it at each read of a
- * write and left it NOT MATERIALIZED in a read. A call an attachment's child reads at its parent's values alone is
- * evaluated once for each parent key, a MATERIALIZED CTE of the statement every attachment under the parent's rows reads
- * at its parent's values (lower/conservative/call/index.ts parentEvaluations), where format 7 evaluated it again in each
- * attachment's child; and each block of a rule judge's part is a function of its own (physical/ddl/rules.ts partBody,
- * identity.ruleJudgeBlock), which the part calls under the block's guard, where format 7 held every block's statement
- * in its part, so 04-validate.sql creates a function per block and 05-publish.sql comments each. Each clock's and
- * place's head is a table of its children's last stamps beside its relation, with the stamp function that advances it,
- * one manifest object of kind `head` (physical/ddl/stamps.ts), which a statement that stamps calls in its stamps' CTE
- * and a migration fills from its relation as it creates it, where format 7 read each child's head from the relation's
- * primary key backwards and had no such object. A call's evaluation a write's single statement holds is one
- * statement of its share planning, its arguments read by it alone, and a sub-query whose only stage that is no scan is
- * a carried part is read where it stands (lower/shapes/share/statements.ts planStatementShares, HeldEvaluation,
- * statementCtes), where format 7 counted every member reading a field of the call as reading its arguments, each
- * argument a MATERIALIZED CTE of the statement, and gave a read of a carried part a CTE of its own.; and no block probes a relation's added rows that a sibling stored match of the
- * probed arm covers through one of the schema's containments (analysis/theory/query.ts covered), where format 7 probed
- * every touched side, so a judge holds fewer blocks; and a
- * judged statement's step looks its relation up by every column an equality chain of its rule fixes to a value the
- * steps before it hold (analysis/theory/navigate.ts implied), where format 7 bound only the columns equated with such a
- * value directly, so a read of an import inlined into an arm of a definition read at a written row's keys gains the
- * equality of each key column the arm equates with its channel. An installation sets no database default and its
- * snapshot records none (physical/ddl/isolation.ts), where format 7 set default_transaction_isolation SERIALIZABLE on
- * the database, its snapshot's `databaseDefault` object, so an owner's session starts SERIALIZABLE by its startup
- * options (adapter/wire/session.ts ownerOptions) and `grizzle upgrade` resets the former default
- * (adapter/admission/upgrade.ts formerDefault). A probe whose every row reads a stored relation keyed by no field of
- * the unit its arms bind, at that unit, runs inside a guard of that relation's rows at the written rows' units, carried
- * along the ways that yield a row of the probe's side alone (analysis/theory/query.ts probeGuard, Carry), where format
- * 7 ran every probe of a written side: a guarded block's function holds the guard's PERFORM and IF FOUND around the
- * probe's (physical/ddl/rules.ts probedBlocks). Every login's role stores plan_cache_mode at force_generic_plan beside
- * its other fixed defaults (physical/ddl/roles.ts genericPlans, roleDefaultSettings), so each installation's roles
- * gain an ALTER ROLE ... SET and each served file's startup options the setting, and its session texts the generic
- * plans an owner's session starts under beside its default level (served/forms.ts ServedSession ownerStartup, roles.ts
- * ownerStartupOptions), so every session of a login's pool and every owner's session plan generically. A join no value
- * of a write's single statement restricts, which its parts read joined to a carried part by its columns, is one part of
- * the statement, its rows kept by an EXISTS over that part (lower/shapes/share/statements.ts restrictedShares), where
- * format 7 restated it at each read.
  */
-export const artifactFormat = 7
+export const artifactFormat = 8
 
 /** The member of a snapshot.json or a served file that records its format (artifactFormat). */
 export const formatKey = "format"

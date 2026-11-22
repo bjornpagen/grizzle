@@ -23,7 +23,7 @@ import {
 } from "#compiler/deploy/diff/plan.ts"
 import type { DraftFile } from "#compiler/deploy/phases/files.ts"
 import { filed } from "#compiler/deploy/render/filed.ts"
-import type { MetaFile, MetaLosses, MetaStep } from "#compiler/deploy/render/folder.ts"
+import type { DraftedFile, DraftedStep, MetaLosses } from "#compiler/deploy/render/folder.ts"
 import {
 	confirmMarker,
 	lossMarker,
@@ -411,11 +411,15 @@ export const renderFile = (file: SpelledFile): Result.Result<string, CompileErro
 		})
 	)
 
-/** A drafted step as meta.json records it, every statement it drafts in its place, as the file spells it from its first
- * token: an action's statements one by one; a loss with what it loses; a confirmed group. */
-const recordStep = (spelledDraft: SpelledDraft): ReadonlyArray<MetaStep> => {
+/** A drafted step as generate proves its record over it (render/folder.ts provedRecord), every statement it drafts in
+ * its place, as the file spells it from its first token: an action's statements one by one; a loss with what it loses;
+ * a confirmed group. */
+const recordStep = (spelledDraft: SpelledDraft): ReadonlyArray<DraftedStep> => {
 	if (spelledDraft.kind === "spelled") {
-		return spelledDraft.statements.map((x): MetaStep => ({ kind: "statement", statement: x.text }))
+		return spelledDraft.statements.map((x): DraftedStep => ({
+			kind: "statement",
+			statement: x.text
+		}))
 	}
 	const d = spelledDraft.draft
 	switch (d.kind) {
@@ -433,12 +437,13 @@ const recordStep = (spelledDraft: SpelledDraft): ReadonlyArray<MetaStep> => {
 	}
 }
 
-/** One drafted file's decision record, as meta.json records it: every step it drafts, in draft order, and its lock
- * demand, `locks` (deploy/locks/demand.ts fileLockSets). */
+/** One drafted file's decision record, every statement by its text, which meta.json records once generate proved it
+ * (render/folder.ts provedRecord): every step it drafts, in draft order, and its lock demand, `locks`
+ * (deploy/locks/demand.ts fileLockSets). */
 export const recordFile = (
 	file: SpelledFile,
 	locks: number
-): Result.Result<MetaFile, CompileError> =>
+): Result.Result<DraftedFile, CompileError> =>
 	catchRefusal(() => ({
 		name: file.file.name,
 		steps: file.drafts.flatMap((d) => recordStep(d)),

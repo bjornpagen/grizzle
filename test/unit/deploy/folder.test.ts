@@ -11,8 +11,13 @@
  *   and domain's constraint names to the laws they report; a custom migration's source is its target. A drafted
  *   folder also holds the renames and drops it was drafted under, and its decisions, empty when it has none:
  *   each drafted statement in its place, each group of statements it confirms, one at least, and each loss of stored
- *   data, what it loses and its statement. A value short of any of it is refused as malformed, a decision written as
- *   another recorded statement among it, and a valid one reads back as written, byte for byte when written again.
+ *   data, what it loses and its statement, each by its text, and every other statement by its tokens' digest, but one
+ *   holding a placeholder, by its text; a meta.json of format 7, every statement by its text, reads as well. A value
+ *   short of any of it is refused as malformed, and a valid one reads back as written, byte for byte when written
+ *   again, its record as recorded, with no proof of it run again: generate proved it.
+ * - generate proves a draft's record before it records it (provedRecord): a decision written as another drafted
+ *   statement is refused; every other record is recorded with each statement that holds no placeholder by its tokens'
+ *   digest, and reads back holding each of its files as written, a placeholder filled.
  * - A drafted folder is named after its change.
  *
  * Features: a folder name accepted and refused; a migration name admitted and refused, a timestamp refused; a folder of
@@ -27,18 +32,28 @@ import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter, Option, Order, Result, String as Str } from "effect"
 import { decodeMeta, readMeta } from "#adapter/boundary/meta.ts"
 import {
+	type DraftedStep,
 	folderName,
 	isFolderName,
-	metaFileName,
 	type MetaStep,
 	type MigrationMeta,
+	metaFileName,
 	orderFolderFiles,
 	parseMigrationName,
+	provedRecord,
+	recordsAsWritten,
+	statedLocks,
 	writeMeta
 } from "#compiler/deploy/render/folder.ts"
 import { generateMigration } from "#compiler/deploy/render/generate.ts"
+import {
+	splitStatements,
+	statementDigest,
+	statementTokens
+} from "#compiler/deploy/render/markers.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
-import { succeeded } from "#test/support/assert.ts"
+import { placeholderToken } from "#compiler/sql/print.ts"
+import { failed, succeeded } from "#test/support/assert.ts"
 import { secondOfDigits } from "#test/support/calendar.ts"
 import {
 	asDrafted,
@@ -49,6 +64,7 @@ import {
 	noDeclarations
 } from "#test/support/migrate/kit.ts"
 import {
+	draftedMetaOf,
 	type Fault,
 	faultedMeta,
 	faultGen,
@@ -61,14 +77,16 @@ import {
 	labelsGen,
 	type MetaFeature,
 	metaGen,
-	missed,
 	monthPastRange,
 	nameBound,
 	namesGen,
+	proofCaseGen,
+	type RecordMiss,
 	recordMisses,
 	timestampGen,
 	twoSnapshots,
-	wordsGen
+	wordsGen,
+	writtenText
 } from "#test/unit/deploy/folder.fixtures.ts"
 
 /** The situations of a drawn folder name. */
@@ -303,8 +321,8 @@ export const migrationFoldersGeneratedNamesADraftAfterItsFirstChangeAClosedRelat
 		]
 	})
 
-/** Meta.json, generated reads back exactly what it writes, byte for byte, its declarations and every decision, and refuses a value short of the format or its proof. Its budget is its suite's before it was a property (test/unit/deploy/folder.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
-export const metaJsonGeneratedReadsBackExactlyWhatItWritesByteForByteItsDeclarationsAndEveryDecisionAndRefusesAValueShortOfTheFormatOrItsProof =
+/** Meta.json, generated reads back exactly what it writes, byte for byte, its declarations and every decision, and refuses a value short of the format. Its budget is its suite's before it was a property (test/unit/deploy/folder.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
+export const metaJsonGeneratedReadsBackExactlyWhatItWritesByteForByteItsDeclarationsAndEveryDecisionAndRefusesAValueShortOfTheFormat =
 	property.explore(
 		(source): readonly [MigrationMeta, Fault] => {
 			const meta = source.draw(metaGen)
@@ -316,7 +334,7 @@ export const metaJsonGeneratedReadsBackExactlyWhatItWritesByteForByteItsDeclarat
 			situations: [
 				"a drafted meta with a loss, read",
 				"declarations, read",
-				...recordMisses
+				"a meta of format 7, every statement by its text, read"
 			] satisfies ReadonlyArray<Reached<MetaFeature>>,
 			check:
 				(_, c: Case<MetaFeature>) =>
@@ -350,26 +368,11 @@ export const metaJsonGeneratedReadsBackExactlyWhatItWritesByteForByteItsDeclarat
 							if (Arr.some(meta.files, (f) => Arr.some(f.steps, (step) => step.kind === "loss"))) {
 								c.note("a drafted meta with a loss, read")
 							}
-							return
-						}
-						if (fault.kind === "record") {
-							if (meta.kind !== "drafted") {
-								return
+							if (
+								Arr.every(meta.files, (f) => Arr.every(f.steps, (step) => step.kind !== "digest"))
+							) {
+								c.note("a meta of format 7, every statement by its text, read")
 							}
-							const files = missed(meta.files, fault.miss)
-							if (files === undefined) {
-								return
-							}
-							c.note(fault.miss)
-							const text = succeeded(
-								writeMeta({ ...meta, files }),
-								"a sealed meta short of its record"
-							)
-							const read = readMeta(text)
-							if (Result.isSuccess(read)) {
-								assert.fail(`${fault.miss} is read`)
-							}
-							assert.equal(read.failure.reason._tag, "MalformedArtifact")
 							return
 						}
 						const text =
@@ -398,3 +401,164 @@ export const metaJsonGeneratedReadsBackExactlyWhatItWritesByteForByteItsDeclarat
 			]
 		}
 	)
+
+/** What a draft's record comes to as generate proves it (provedRecord). */
+type ProofFeature =
+	| RecordMiss
+	| "a record proved, each statement by its digest"
+	| "a placeholder kept by its text"
+
+/** A drafted step as meta.json records it, the rule restated apart from provedRecord: a statement whose text holds no
+ * placeholder token by its tokens' digest, every other step as drafted. */
+const recordedAs = (s: DraftedStep): MetaStep =>
+	s.kind === "statement" && !Str.includes(placeholderToken)(s.statement)
+		? {
+				kind: "digest",
+				digest: succeeded(statementDigest(statementTokens(s.statement)), "a statement's digest")
+			}
+		: s
+
+/** Generate proves a draft's record before it records it, generated: a draft whose decision is written as another drafted statement is refused, and every other is recorded with each statement that holds no placeholder by its tokens' digest, its record holding each of its files as a reviewer writes it, its placeholder filled. */
+export const generateProvesADraftsRecordRefusingADecisionWrittenAsAnotherStatementAndRecordingEveryOtherStatementByItsTokensDigest =
+	property.explore(proofCaseGen, {
+		needs: {},
+		budget: { runs: 40, steered: 40 },
+		situations: [
+			...recordMisses,
+			"a record proved, each statement by its digest",
+			"a placeholder kept by its text"
+		] satisfies ReadonlyArray<Reached<ProofFeature>>,
+		check:
+			(_, c: Case<ProofFeature>) =>
+			({ files, miss }) =>
+				Effect.sync(() => {
+					const proved = provedRecord(files)
+					if (Option.isSome(miss)) {
+						c.note(miss.value)
+						assert.equal(
+							failed(proved, `${miss.value} is recorded`).reason._tag,
+							"UnsupportedOperation"
+						)
+						return
+					}
+					const recorded = succeeded(proved, "a draft whose decisions read apart")
+					assert.deepEqual(
+						recorded,
+						Arr.map(files, (f) => ({ ...f, steps: Arr.map(f.steps, recordedAs) })),
+						"each statement recorded as its readers read it"
+					)
+					const read = succeeded(
+						readMeta(succeeded(writeMeta(draftedMetaOf(recorded)), "a drafted meta written")),
+						"a drafted meta read"
+					)
+					for (const f of files) {
+						const written = { name: f.name, text: writtenText(f) }
+						assert.ok(recordsAsWritten(read, written), `${f.name} is recorded as written`)
+						assert.equal(statedLocks(read, written), f.locks, `${f.name}'s locks`)
+					}
+					c.note("a record proved, each statement by its digest")
+					if (Arr.some(recorded, (f) => Arr.some(f.steps, (s) => s.kind === "statement"))) {
+						c.note("a placeholder kept by its text")
+					}
+				}),
+		oracle: {
+			kind: "specification",
+			name: "the record's rule restated (recordedAs): a decision written as another statement refused, a statement holding no placeholder by its tokens' digest, every file of the record read back as written"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/deploy/render/folder.ts",
+				original: "\t\tconst fault = indistinct(spelled)",
+				replacement: "\t\tconst fault = undefined",
+				why: "generate records a draft whose decision is written as another drafted statement, which no reader proves again, so a review cannot tell the two apart (lane META8)."
+			},
+			{
+				file: "packages/engine/src/deploy/render/folder.ts",
+				original: "\t\t\treturn holdsPlaceholder(s.statement.tokens)",
+				replacement: "\t\t\treturn holdsPlaceholder([])",
+				why: "A statement holding a placeholder is recorded by its digest, which no filled statement gives, so no reviewed file that fills it is recorded as written (lane META8)."
+			}
+		]
+	})
+
+/** A chain of two drafts, its schema's first migration and a change, drafted, then drafted again: each folder's
+ * meta.json alike byte for byte, and each file of the redraft, as it is drafted and as a reviewer lays its statements
+ * out apart, recorded as written by the first draft's meta.json, with the locks it records. Budget: 20 runs and 20
+ * steered cases, each drafting four folders. */
+export const aDraftDraftedAgainRecordsAlikeByteForByteAndItsMetaJsonHoldsEveryFileOfTheRedraftAsWritten =
+	property.explore(labelsGen, {
+		needs: {},
+		budget: { runs: 20, steered: 20 },
+		situations: [
+			"a refined payload changed alone",
+			"a handle appended",
+			"both at once"
+		] satisfies ReadonlyArray<Reached<LabelFeature>>,
+		check: (_, c: Case<LabelFeature>) => (l) =>
+			Effect.sync(() => {
+				const changed = Arr.some(l.before, (label, i) => l.after[i] !== label)
+				const grown = l.after.length > l.before.length
+				c.note(
+					changed && grown
+						? "both at once"
+						: grown
+							? "a handle appended"
+							: "a refined payload changed alone"
+				)
+				const chain = () =>
+					draftChain(
+						Arr.map([l.before, l.after], (labels) => ({
+							desc: labelSchema(labels),
+							options: asDrafted,
+							declared: noDeclarations
+						})),
+						fromEmpty
+					)
+				const drafted = chain()
+				const redrafted = chain()
+				for (const [i, again] of redrafted.entries()) {
+					const first = defined(drafted[i], "the first draft of the redraft's folder")
+					assert.equal(
+						again.folder.metaText,
+						first.folder.metaText,
+						`${again.folder.name}'s meta.json`
+					)
+					assertVariant(first.folder.meta, "kind", "drafted", "a drafted folder's meta")
+					const read = succeeded(readMeta(first.folder.metaText), "the first draft's meta.json")
+					for (const file of again.folder.files) {
+						const locks = Arr.findFirst(first.folder.meta.files, (f) => f.name === file.name)
+						const laidOut = {
+							name: file.name,
+							text: Arr.join(
+								Arr.map(splitStatements(file.text), (x) => `${x};`),
+								"\n\n-- reviewed\n"
+							)
+						}
+						for (const written of [file, laidOut]) {
+							assert.ok(recordsAsWritten(read, written), `${file.name} recorded as written`)
+							assert.deepEqual(
+								Option.fromNullishOr(statedLocks(read, written)),
+								Option.map(locks, (f) => f.locks),
+								`${file.name}'s locks`
+							)
+						}
+					}
+				}
+			}),
+		oracle: {
+			kind: "universal",
+			name: "a draft is a function of its inputs, and its meta.json records each file it writes as written"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/deploy/render/folder.ts",
+				original:
+					'\t\t\t\t: { kind: "digest", digest: unwrap(statementDigest(s.statement.tokens)) }',
+				replacement:
+					'\t\t\t\t: { kind: "digest", digest: unwrap(statementDigest(s.statement.tokens.slice(1))) }',
+				why: "meta.json records each statement by a digest of fewer tokens than a reader digests, so no redraft's file, nor the draft's own, is recorded as written (lane META8)."
+			}
+		]
+	})

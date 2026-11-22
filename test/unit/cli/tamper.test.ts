@@ -19,6 +19,12 @@
  * the fields a refusal names, and the finding check reports there; never a refusal's or a finding's prose.
  *
  * Features: each kind of tampering.
+ *
+ * A second property edits a drafted folder's meta.json by hand under the seal grizzle wrote for it, a statement's
+ * recorded digest or a decision's text, and reads it with each of meta.json's readers: generate's committed tree,
+ * check, migrate before it connects, upgrade's chain before it connects, and the lock report. Each refuses it, by the
+ * reason or the finding that names the folder's meta.json, since every reader decodes meta.json through its seal and
+ * none proves its record again.
  */
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -27,8 +33,13 @@ import { cliClock } from "#test/pg/cli/support.ts"
 import {
 	casesGen,
 	committedNeed,
+	decidedNeed,
 	type Kind,
 	kinds,
+	type MetaEdit,
+	metaEdited,
+	metaEditGen,
+	metaEdits,
 	tampered
 } from "#test/unit/cli/tamper.fixtures.ts"
 
@@ -87,6 +98,51 @@ export const aCommittedMigrationsDirectoryTamperedWithGeneratedGenerateRefusesBy
 				original: "\t\t? timestampParts(timestamp)\n",
 				replacement: "\t\t? undefined\n",
 				why: "Operator mutant (boolean-return) at packages/engine/src/deploy/render/folder.ts:477 in isFolderName: `{\n\tconst timestamp = folderTimestamp(name)\n\tconst prefix = folderPrefix(timestam` becomes `{ return false }`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
+	})
+
+/**
+ * A meta.json edited by hand under its seal, generated: a recorded statement's digest changed at any digit, or a
+ * decision's text changed by words, a comment or whitespace, is refused by every reader of meta.json (generate, check,
+ * migrate, upgrade and the lock report), each naming the folder's meta.json, where the folder as drafted reads.
+ *
+ * Budget: every case edits a copy of the drafted directory (decidedNeed) each way, where it draws, and runs the five
+ * readers over each, so each kill turns its floor's one case red; four cases.
+ */
+export const aMetaJsonEditedByHandUnderItsSealIsRefusedByEveryReaderOfMetaJsonEachNamingTheFolder =
+	property.explore(metaEditGen, {
+		needs: { decidedNeed },
+		situations: metaEdits satisfies ReadonlyArray<Reached<MetaEdit>>,
+		check:
+			({ decidedNeed }, c: Case<MetaEdit>) =>
+			(e) =>
+				Effect.gen(function* () {
+					const decided = yield* decidedNeed
+					yield* Effect.forEach(
+						metaEdits,
+						(edit) =>
+							Effect.andThen(
+								Effect.sync(() => {
+									c.note(edit)
+								}),
+								metaEdited(edit, e, decided)
+							),
+						{ discard: true }
+					)
+				}),
+		oracle: {
+			kind: "specification",
+			name: "every reader decodes meta.json through its seal: the refusal and the finding a meta.json that does not decode gives each reader"
+		},
+		budget: { runs: 4, steered: 0 },
+		kept: [],
+		kills: [
+			{
+				file: "packages/grizzle/src/adapter/boundary/meta.ts",
+				original: '\treturn computed.ok && computed.value === file["seal"]',
+				replacement: "\treturn computed.ok",
+				why: "meta.json's seal is not checked: a meta.json edited by hand, a digest or a decision's text, is read as grizzle wrote it, and no reader proves its record again (lane META8)."
 			}
 		]
 	})

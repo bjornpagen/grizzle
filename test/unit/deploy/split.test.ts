@@ -26,8 +26,15 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
-import { splitStatements, statementTokens, writtenAs } from "#compiler/deploy/render/markers.ts"
+import {
+	type StatementToken,
+	splitStatements,
+	statementDigest,
+	statementTokens,
+	writtenAs
+} from "#compiler/deploy/render/markers.ts"
 import { placeholderToken } from "#compiler/sql/print.ts"
+import { succeeded } from "#test/support/assert.ts"
 import {
 	anyRunEnds,
 	balancedRunEnds,
@@ -129,7 +136,15 @@ export const splittingANoTransactionFileIntoItsStatementsGeneratedSplitsExactlyA
 		]
 	})
 
-/** A reviewed statement read against its draft is written as drafted exactly when it holds the draft's tokens, each placeholder filled by a balanced run. Its budget is its suite's before it was a property (test/unit/deploy/split.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
+/** A word as a reviewer may spell it: its ASCII letters in lower case, which PostgreSQL folds as it reads an unquoted
+ * word. */
+const asciiLower = (text: string): string =>
+	Arr.join(
+		Arr.map(Array.from(text), (ch) => (ch >= "A" && ch <= "Z" ? Str.toLowerCase(ch) : ch)),
+		""
+	)
+
+/** A reviewed statement read against its draft is written as drafted exactly when it holds the draft's tokens, each placeholder filled by a balanced run, and a draft that holds no placeholder, which meta.json records by its tokens' digest (statementDigest), is written as drafted exactly when the reviewed statement's tokens digest alike, respelled (its words in lower case, a comment and a newline between its tokens) or edited. Its budget is its suite's before it was a property (test/unit/deploy/split.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
 export const aReviewedStatementReadAgainstItsDraftIsWrittenAsDraftedExactlyWhenItHoldsTheDraftsTokensEachPlaceholderFilledByABalancedRun =
 	property.explore(draftGen, {
 		needs: {},
@@ -141,7 +156,9 @@ export const aReviewedStatementReadAgainstItsDraftIsWrittenAsDraftedExactlyWhenI
 			"another token edited",
 			"a string kept",
 			"an edit the placeholders absorb",
-			"an edit only unbalanced runs absorb"
+			"an edit only unbalanced runs absorb",
+			"a draft recorded by its digest, respelled as drafted",
+			"a draft recorded by its digest, edited"
 		] satisfies ReadonlyArray<Reached<WrittenFeature>>,
 		check: (_, c: Case<WrittenFeature>) => (d) =>
 			Effect.sync(() => {
@@ -168,6 +185,38 @@ export const aReviewedStatementReadAgainstItsDraftIsWrittenAsDraftedExactlyWhenI
 					writtenAs(drafted, written(Option.none())),
 					"the draft with its placeholders filled"
 				)
+				/** The draft's tokens where it holds no placeholder, which meta.json records it by their digest. */
+				const scanned = Arr.flatMap(d.tokens, (t) => (t.kind === "token" ? [t] : []))
+				const recorded =
+					scanned.length === d.tokens.length
+						? Option.some(succeeded(statementDigest(drafted), "a drafted statement's digest"))
+						: Option.none()
+				/** Whether the draft is recorded by its digest, and if so, that reviewed tokens digest as it does exactly
+				 * when they are written as drafted. */
+				const digestsAsDrafted = (
+					reviewed: ReadonlyArray<StatementToken>,
+					label: string
+				): boolean =>
+					Option.match(recorded, {
+						onNone: () => false,
+						onSome: (digest) => {
+							assert.equal(
+								succeeded(statementDigest(reviewed), "a reviewed statement's digest") === digest,
+								writtenAs(drafted, reviewed),
+								label
+							)
+							return true
+						}
+					})
+				const respelled = statementTokens(
+					Arr.join(
+						Arr.map(scanned, (t) => (t.is === "word" ? asciiLower(t.text) : t.text)),
+						" /* reviewed */\n"
+					)
+				)
+				if (digestsAsDrafted(respelled, "the draft respelled") && writtenAs(drafted, respelled)) {
+					c.note("a draft recorded by its digest, respelled as drafted")
+				}
 				if (Arr.some(d.tokens, (t) => t.kind === "hole")) {
 					c.note("a placeholder filled")
 				}
@@ -182,6 +231,9 @@ export const aReviewedStatementReadAgainstItsDraftIsWrittenAsDraftedExactlyWhenI
 				const slots = Arr.map(drafted, slotOf)
 				const absorbed = fillable(slots, edit, balancedRunEnds)
 				assert.equal(writtenAs(drafted, edit), absorbed, `the draft with ${edited.text} edited`)
+				if (digestsAsDrafted(edit, `the draft with ${edited.text} edited`)) {
+					c.note("a draft recorded by its digest, edited")
+				}
 				if (absorbed) {
 					c.note("an edit the placeholders absorb")
 				} else if (fillable(slots, edit, anyRunEnds)) {
@@ -197,7 +249,7 @@ export const aReviewedStatementReadAgainstItsDraftIsWrittenAsDraftedExactlyWhenI
 			}),
 		oracle: {
 			kind: "second-implementation",
-			name: "a draft with each placeholder filled is written as drafted, and one with a token outside a placeholder changed exactly when the offsets each prefix of its slots can end at reach the end"
+			name: "a draft with each placeholder filled is written as drafted, and one with a token outside a placeholder changed exactly when the offsets each prefix of its slots can end at reach the end; a draft that holds no placeholder digests as a reviewed statement exactly when writtenAs holds"
 		},
 		kept: [
 			{
@@ -215,6 +267,14 @@ export const aReviewedStatementReadAgainstItsDraftIsWrittenAsDraftedExactlyWhenI
 				original: 'b.kind === "word" && a.upper === b.upper',
 				replacement: 'b.kind === "word"',
 				why: 'Operator mutant db15f59d86 at packages/engine/src/deploy/render/markers.ts:226 in sameToken: `b.kind === "word" && a.upper === b.upper` becomes `b.kind === "word"`; the property fails (the census, lane TESTPOLICY2).'
+			},
+			{
+				file: "packages/engine/src/deploy/render/markers.ts",
+				original:
+					'\tResult.map(digest("statement-tokens", tokens, everyProperty), mintStatementDigest)',
+				replacement:
+					'\tResult.map(digest("statement-tokens", tokens.slice(1), everyProperty), mintStatementDigest)',
+				why: "A weaker key: a statement's digest leaves its first token out, so a draft edited in its first token, or a one-token draft edited at all, digests as drafted, and meta.json's record holds a file a reviewer changed as written (lane META8)."
 			}
 		]
 	})

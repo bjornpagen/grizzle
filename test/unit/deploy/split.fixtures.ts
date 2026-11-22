@@ -650,3 +650,5 @@ export type WrittenFeature =
 	| "a string kept"
 	| "an edit the placeholders absorb"
 	| "an edit only unbalanced runs absorb"
+	| "a draft recorded by its digest, respelled as drafted"
+	| "a draft recorded by its digest, edited"
