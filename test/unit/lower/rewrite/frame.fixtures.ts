@@ -72,7 +72,7 @@ export const passesNeed = {
  */
 export const structureSites = Object.freeze({
 	rewriteCx: { file: "packages/engine/src/lower/optimize/demand/frame.ts", name: "rewriteCx" },
-	cellState: { file: "packages/engine/src/lower/optimize/demand/editor.ts", name: "cellState" },
+	state: { file: "packages/engine/src/lower/optimize/demand/editor.ts", name: "#state" },
 	structureOf: { file: "packages/engine/src/analysis/demand/demand.ts", name: "structureOf" },
 	feedbackReadsOf: {
 		file: "packages/engine/src/lower/optimize/demand/editor.ts",
@@ -155,8 +155,9 @@ export type PotentialFeature =
  * shared restriction weighs (pushdown/shared.ts restrictable), at each of which it reads one.
  */
 export const readersSites = Object.freeze({
-	cellState: { file: "packages/engine/src/lower/optimize/demand/editor.ts", name: "cellState" },
-	readers: { file: "packages/engine/src/lower/optimize/demand/editor.ts", name: "readersIn" },
+	state: { file: "packages/engine/src/lower/optimize/demand/editor.ts", name: "#state" },
+	readers: { file: "packages/engine/src/lower/optimize/demand/editor.ts", name: "#keptReaders" },
+	walked: { file: "packages/engine/src/lower/optimize/demand/editor.ts", name: "readersIn" },
 	restrictable: {
 		file: "packages/engine/src/lower/optimize/pushdown/shared.ts",
 		name: "restrictable"

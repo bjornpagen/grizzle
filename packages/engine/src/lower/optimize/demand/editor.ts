@@ -37,6 +37,7 @@ import {
 	type ValidDag,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
+import { KeptOrder } from "#compiler/lower/optimize/demand/order.ts"
 
 /** What one replaced column reference becomes: another expression of the same type. */
 type ColumnRemap = (ref: ColumnRef, expr: ExprOf<"column">) => ScalarExpr | undefined
@@ -179,6 +180,11 @@ export class FreshIds {
 		this.#taken.add(id)
 	}
 
+	/** How many identifiers of the kind were drawn so far, taken or passed over: it moves with every take. */
+	get drawn(): number {
+		return this.#counter
+	}
+
 	take(): string {
 		for (;;) {
 			this.#counter += 1
@@ -220,6 +226,11 @@ class Readers {
 	changed(cell: Cell, before: EditNode): void {
 		this.#reads(before, (readers) => readers.delete(cell))
 		this.#reads(cell.current, (readers) => readers.add(cell))
+	}
+
+	/** Every cell whose node reads `cell` through a data edge, those no root reaches included. */
+	byEdge(cell: Cell): Iterable<Cell> {
+		return this.#byEdge.get(cell) ?? []
 	}
 
 	/** Every cell whose node reads `cell`, through a data edge or a column reference, in creation order. */
@@ -332,6 +343,31 @@ export interface CellState {
 	readonly moved: (cell: Cell) => number
 }
 
+/**
+ * What a reader of the cells reads of them, heard while a rewrite pass's driver judges a cell (DagEditor observe): through
+ * a state of the cells (CellState) or the editor's roots. A rule decides at a cell by the nodes of the cell's subtree, by
+ * what it reads here, and by the analyses a decision reads; the driver's quiet index (quiet.ts) keeps what it heard, so
+ * it knows which edits could change the verdict.
+ *
+ * - `subtree`: the nodes of a cell and of every cell it reaches through data edges (CellState stamp; the readers a state
+ *   handed out, whose nodes the reader may read next);
+ * - `reach`: how a cell is read: its references, whether a scope expression names it, its readers, whether a root stands
+ *   at it (CellState references, lateral, readers, moved; DagEditor isRoot);
+ * - `whole`: the order of every reached cell, which every edit may move.
+ */
+export interface Reads {
+	readonly subtree: (cell: Cell) => void
+	readonly reach: (cell: Cell) => void
+	readonly whole: () => void
+}
+
+/** Nobody hears the reads: an editor no driver judges with. */
+const unobserved: Reads = {
+	subtree: () => undefined,
+	reach: () => undefined,
+	whole: () => undefined
+}
+
 /** What a node of a cell reads: its data edges, one per input position, and the labels its scope expressions name. */
 interface NodeShape {
 	readonly edges: ReadonlyArray<Cell>
@@ -344,14 +380,10 @@ const nodeShape = (node: EditNode): NodeShape => ({
 	lateral: scopeLabels(node)
 })
 
-/**
- * What an editor keeps of a cell (DagEditor #entries): the node it held when last read and what that node reads, and the
- * number of the last walk of the cells that reached it (DagEditor #walk), which marks it reached in that walk.
- */
+/** What an editor keeps of a cell (DagEditor #entries): the node it held when last read and what that node reads. */
 interface CellEntry {
 	node: EditNode
 	shape: NodeShape
-	walked: number
 }
 
 /**
@@ -362,20 +394,23 @@ interface CellEntry {
 interface Epoch {
 	readonly references: Map<Cell, number>
 	readonly named: Map<NodeId, number>
+	readonly readers: Map<Cell, ReadonlyMap<Cell, number>>
 	next: Epoch | undefined
 }
 
 /**
- * How the cells the roots reach are read, kept as the editor changes them (CellState references and lateral, which
- * analysis/demand structureOf works out of a finished DAG): each reached cell's references, one per input position of a
- * reached cell that names it plus each root standing at it, and how many times the scope expressions of reached cells
- * name each label. A cell is reached while it has a reference: its first brings its own edges and names into the
- * counts, its last takes them out, so a change costs the edges it moves and those of the cells it brings into reach or
- * takes out of it, never the cells. A state reads the counts as they were when it was taken (Epoch).
+ * How the cells the roots reach are read, kept as the editor changes them (CellState references, lateral and readers,
+ * which analysis/demand structureOf works out of a finished DAG): each reached cell's readers among the reached cells, by
+ * how many input positions each reads it at, its references, one per input position of a reached cell that names it plus
+ * each root standing at it, and how many times the scope expressions of reached cells name each label. A cell is reached
+ * while it has a reference: its first brings its own edges and names into the counts, its last takes them out, so a
+ * change costs the edges it moves and those of the cells it brings into reach or takes out of it, never the cells. A
+ * state reads them as they were when it was taken (Epoch).
  */
 class Reach {
 	readonly #references = new Map<Cell, number>()
 	readonly #named = new Map<NodeId, number>()
+	readonly #readers = new Map<Cell, Map<Cell, number>>()
 	/** What a cell's node reads now. */
 	readonly #shape: (cell: Cell) => NodeShape
 	/** The newest state's epoch, which every change records what it moves in. */
@@ -387,9 +422,14 @@ class Reach {
 	constructor(shape: (cell: Cell) => NodeShape, roots: ReadonlyArray<Cell>) {
 		this.#shape = shape
 		for (const root of roots) {
-			this.reached(root, 1)
+			this.reached(root, 1, undefined)
 		}
 		this.drainMoved()
+	}
+
+	/** Whether a root reaches `cell` now. */
+	has(cell: Cell): boolean {
+		return this.#references.has(cell)
 	}
 
 	/** What the change under way moved (#movedReferences, #movedNamed), the next change's starting from none. */
@@ -400,24 +440,36 @@ class Reach {
 		return moved
 	}
 
-	/** The cells' references and lateral reads as they are now, read so by a state taken now whatever changes after. */
-	taken(): Pick<CellState, "references" | "lateral"> {
+	/**
+	 * The cells' references, lateral reads and readers as they are now, read so by a state taken now whatever changes
+	 * after: each reached reader of a cell, by how many input positions it reads it at.
+	 */
+	taken(): Pick<CellState, "references" | "lateral"> & {
+		readonly readers: (cell: Cell) => ReadonlyMap<Cell, number>
+	} {
 		const epoch = this.#open()
 		return {
 			references: (cell) =>
 				Reach.#at(epoch, (e) => e.references, cell) ?? this.#references.get(cell) ?? 0,
 			lateral: (cell) =>
-				(Reach.#at(epoch, (e) => e.named, cell.id) ?? this.#named.get(cell.id) ?? 0) > 0
+				(Reach.#at(epoch, (e) => e.named, cell.id) ?? this.#named.get(cell.id) ?? 0) > 0,
+			readers: (cell) =>
+				Reach.#at(epoch, (e) => e.readers, cell) ?? this.#readers.get(cell) ?? noReaders
 		}
 	}
 
 	/** The newest epoch where nothing moved in it yet, which a state taken now shares, else a new one after it. */
 	#open(): Epoch {
 		const open = this.#epoch
-		if (open?.references.size === 0 && open.named.size === 0) {
+		if (open?.references.size === 0 && open.named.size === 0 && open.readers.size === 0) {
 			return open
 		}
-		const epoch: Epoch = { references: new Map(), named: new Map(), next: undefined }
+		const epoch: Epoch = {
+			references: new Map(),
+			named: new Map(),
+			readers: new Map(),
+			next: undefined
+		}
 		if (open !== undefined) {
 			open.next = epoch
 		}
@@ -425,8 +477,8 @@ class Reach {
 		return epoch
 	}
 
-	/** A count as the state of `from` reads it: the first epoch's from it on that recorded it, none if none did. */
-	static #at<K>(from: Epoch, log: (e: Epoch) => Map<K, number>, key: K): number | undefined {
+	/** A value as the state of `from` reads it: the first epoch's from it on that recorded it, none if none did. */
+	static #at<K, V>(from: Epoch, log: (e: Epoch) => Map<K, V>, key: K): V | undefined {
 		for (let e: Epoch | undefined = from; e !== undefined; e = e.next) {
 			const was = log(e).get(key)
 			if (was !== undefined) {
@@ -462,22 +514,46 @@ class Reach {
 		return now
 	}
 
+	/** One input position of the reached cell `reader` that reads `cell`, added (`by` 1) or taken away (-1). */
+	#read(cell: Cell, reader: Cell, by: 1 | -1): void {
+		const readers = this.#readers.get(cell)
+		const epoch = this.#epoch
+		if (epoch !== undefined && !epoch.readers.has(cell)) {
+			epoch.readers.set(cell, new Map(readers ?? []))
+		}
+		const now = (readers?.get(reader) ?? 0) + by
+		if (now !== 0) {
+			this.#readers.getOrInsertComputed(cell, () => new Map()).set(reader, now)
+			return
+		}
+		readers?.delete(reader)
+		if (readers?.size === 0) {
+			this.#readers.delete(cell)
+		}
+	}
+
 	/**
-	 * A reference to `cell` added (`by` 1) or taken away (-1): a root moved, or an input position of a reached cell. A
-	 * cell it brings into reach, or takes out of it, brings or takes its own edges and names with it, each a step.
+	 * A reference to `cell` added (`by` 1) or taken away (-1): a root moved (no reader), or an input position of the
+	 * reached cell `reader`. A cell it brings into reach, or takes out of it, brings or takes its own edges and names with
+	 * it, each a step.
 	 */
-	reached(cell: Cell, by: 1 | -1): void {
-		const steps = [cell]
+	reached(cell: Cell, by: 1 | -1, reader: Cell | undefined): void {
+		const steps: Array<{ readonly cell: Cell; readonly reader: Cell | undefined }> = [
+			{ cell, reader }
+		]
 		for (let at = steps.pop(); at !== undefined; at = steps.pop()) {
-			if (!this.#reachStep(at, by)) {
+			if (at.reader !== undefined) {
+				this.#read(at.cell, at.reader, by)
+			}
+			if (!this.#reachStep(at.cell, by)) {
 				continue
 			}
-			const shape = this.#shape(at)
+			const shape = this.#shape(at.cell)
 			for (const label of shape.lateral) {
 				this.#move(this.#named, (e) => e.named, this.#movedNamed, label, by)
 			}
 			for (const input of shape.edges) {
-				steps.push(input)
+				steps.push({ cell: input, reader: at.cell })
 			}
 		}
 	}
@@ -497,16 +573,22 @@ class Reach {
 			this.#move(this.#named, (e) => e.named, this.#movedNamed, label, 1)
 		}
 		for (const input of after.edges) {
-			this.reached(input, 1)
+			this.reached(input, 1, cell)
 		}
 		for (const label of before.lateral) {
 			this.#move(this.#named, (e) => e.named, this.#movedNamed, label, -1)
 		}
 		for (const input of before.edges) {
-			this.reached(input, -1)
+			this.reached(input, -1, cell)
 		}
 	}
 }
+
+/** No readers: a cell no reached cell reads. */
+const noReaders: ReadonlyMap<Cell, number> = new Map()
+
+/** No cells: the feedback of a DAG no recursion's feedback scan is reached in. */
+const noCells: ReadonlySet<Cell> = new Set()
 
 export class DagEditor<R extends Roots = Roots> {
 	/**
@@ -515,15 +597,36 @@ export class DagEditor<R extends Roots = Roots> {
 	 */
 	readonly #readers = new Readers()
 	/**
-	 * What the editor keeps of each cell it has read (CellEntry): what its node reads, while the cell holds that node, and
-	 * the last walk that reached it. A node is replaced, never changed, when a cell is redefined, so what it reads is its
-	 * own, and a state of the cells reads each kept shape where every state built them again for every cell.
+	 * What the editor keeps of each cell it has read (CellEntry): what its node reads, while the cell holds that node. A
+	 * node is replaced, never changed, when a cell is redefined, so what it reads is its own, and a state of the cells
+	 * reads each kept shape where every state built them again for every cell.
 	 */
 	readonly #entries = new Map<Cell, CellEntry>()
-	/** The walks of the cells so far (#walk), each one's number what it marks the cells it reaches with. */
-	#walks = 0
 	/** How the cells the roots reach are read, kept as every change moves it (Reach). */
 	readonly #reach: Reach
+	/**
+	 * The cells the roots reach in order, kept as the edits change it (KeptOrder), walked when a state of the cells is
+	 * first taken.
+	 */
+	#kept: KeptOrder | undefined
+	/** The cells whose node a change set since the kept order was last patched, which the next patch walks again. */
+	#touched = new Set<Cell>()
+	/** The cells whose node is a recursion's feedback scan, which alone start a recursive step (readsFeedback). */
+	readonly #selfRefs = new Set<Cell>()
+	/**
+	 * Each cell's stamp (CellState stamp) as of the last time they were brought up to date (#stamped), and the cells set
+	 * since, whose stamps and those of the cells above them that wait for it.
+	 */
+	readonly #stamps = new Map<Cell, number>()
+	#unstamped: Array<Cell> = []
+	/**
+	 * What moved since a driver last drained it (drainMoves): the cells whose stamp moved, and the labels of the cells
+	 * whose reach counts moved (Reach).
+	 */
+	#restamped = new Set<Cell>()
+	#reachMoved = new Set<NodeId>()
+	/** Who hears what a reader reads of the cells while a driver judges one (Reads); none hears outside a driver. */
+	#reads: Reads = unobserved
 	/** The cell of each node of the base, made when the editor starts. */
 	readonly #cellOf: ReadonlyMap<RelNode, Cell>
 	/**
@@ -561,7 +664,7 @@ export class DagEditor<R extends Roots = Roots> {
 		this.#cellOf = cellTable(dag.roots, (cell) => {
 			cells.push(cell)
 			this.#readers.created(cell)
-			this.#note(cell.id, cell.current)
+			this.#note(cell, cell.current)
 		})
 		for (const e of exprClosure(cells.flatMap((c) => exprsOf(c.current)))) {
 			this.#fresh.expr.note(e.id)
@@ -569,9 +672,14 @@ export class DagEditor<R extends Roots = Roots> {
 		this.#reach = new Reach((cell) => this.#entryOf(cell).shape, this.roots)
 	}
 
-	/** Records the labels a node holds as taken. */
-	#note(id: NodeId, node: EditNode): void {
-		this.#fresh.node.note(id)
+	/** Records the labels a node of `cell` holds as taken, and whether the cell is a recursion's feedback scan. */
+	#note(cell: Cell, node: EditNode): void {
+		if (node.kind === "SelfRef") {
+			this.#selfRefs.add(cell)
+		} else {
+			this.#selfRefs.delete(cell)
+		}
+		this.#fresh.node.note(cell.id)
 		if (node.kind === "Base") {
 			this.#fresh.occ.note(node.occurrence)
 		}
@@ -608,9 +716,24 @@ export class DagEditor<R extends Roots = Roots> {
 		return this.base.roots.map((root) => this.#rootCell(root))
 	}
 
-	/** Whether a root stands at `cell`. */
+	/** Whether a root stands at `cell`: a read of the cell's reach (Reads). */
 	isRoot(cell: Cell): boolean {
+		this.#reads.reach(cell)
 		return this.base.roots.some((root) => this.#rootCell(root) === cell)
+	}
+
+	/**
+	 * Every reader of the cells a driver judges reports what it reads to `reads` from now on (Reads): the driver's quiet
+	 * index (quiet.ts).
+	 */
+	observe(reads: Reads): void {
+		this.#reads = reads
+	}
+
+	/** How many fresh identifiers the editor has drawn, of every kind: a rule that drew one changed what the next draws. */
+	get draws(): number {
+		const f = this.#fresh
+		return f.node.drawn + f.expr.drawn + f.var.drawn + f.occ.drawn + f.scope.drawn
 	}
 
 	freshVar(): VarId {
@@ -653,7 +776,7 @@ export class DagEditor<R extends Roots = Roots> {
 	add(node: EditNode): Cell {
 		const cell: Cell = { id: NodeId(this.#fresh.node.take()), current: node }
 		this.#readers.created(cell)
-		this.#note(cell.id, node)
+		this.#note(cell, node)
 		this.#changed([cell])
 		return cell
 	}
@@ -665,7 +788,7 @@ export class DagEditor<R extends Roots = Roots> {
 		cell.current = node
 		this.#readers.changed(cell, before)
 		this.#reach.changed(cell, was, this.#entryOf(cell).shape)
-		this.#note(cell.id, node)
+		this.#note(cell, node)
 		this.#changed([cell])
 	}
 
@@ -715,54 +838,38 @@ export class DagEditor<R extends Roots = Roots> {
 
 	/**
 	 * Every cell the roots reach, in topological order, inputs first (a postorder over each node's edges, as ir/dag.ts
-	 * topoOrder walks a DAG's, read off the kept shapes, #entries; a SelfRef's feedback is a
-	 * name, not followed). The walk ends over any edges: a cycle a rewrite made is finish's refusal. Computed at each
-	 * call: a reader that reads the order of one state of the cells more than once holds it (cellState).
+	 * topoOrder walks a DAG's, read off the kept shapes, #entries; a SelfRef's feedback is a name, not followed): the kept
+	 * order, patched to the edits since it was last read (KeptOrder). The walk ends over any edges: a cycle a rewrite made
+	 * is finish's refusal.
 	 */
 	topoOrder(): ReadonlyArray<Cell> {
-		return this.#walk().order
+		const kept = this.#order()
+		return kept.cells(kept.generation)
 	}
 
 	/**
-	 * One walk of the cells the roots reach (topoOrder's postorder over the kept shapes), which finds as it ends each cell
-	 * whether it lies on a recursive step, its inputs ended before it (feedbackReadsOf's rule, readsFeedback): what a
-	 * state's order and feedback read, one lookup of each cell's shape, where the two were two walks of every cell.
+	 * The kept order (KeptOrder), walked when first read and patched to the edits since it was last read: the cells it
+	 * placed anew or labelled again.
 	 */
-	#walk(): { readonly order: ReadonlyArray<Cell>; readonly feedback: ReadonlySet<Cell> } {
-		const order: Array<Cell> = []
-		const feedback = new Set<Cell>()
-		this.#walks += 1
-		const walk = this.#walks
-		for (const root of this.roots) {
-			const top = this.#entryOf(root)
-			if (top.walked === walk) {
-				continue
-			}
-			top.walked = walk
-			const stack: Array<{
-				readonly cell: Cell
-				readonly edges: ReadonlyArray<Cell>
-				next: number
-			}> = [{ cell: root, edges: top.shape.edges, next: 0 }]
-			for (let frame = stack.at(-1); frame !== undefined; frame = stack.at(-1)) {
-				const input = frame.edges[frame.next]
-				if (input === undefined) {
-					stack.pop()
-					order.push(frame.cell)
-					if (readsFeedback(frame.cell.current, frame.edges, feedback)) {
-						feedback.add(frame.cell)
-					}
-					continue
-				}
-				frame.next++
-				const entry = this.#entryOf(input)
-				if (entry.walked !== walk) {
-					entry.walked = walk
-					stack.push({ cell: input, edges: entry.shape.edges, next: 0 })
-				}
-			}
+	#patched(): { readonly kept: KeptOrder; readonly moved: ReadonlyArray<Cell> } {
+		const known = this.#kept
+		const touched = this.#touched
+		this.#touched = new Set()
+		if (known === undefined) {
+			const kept = new KeptOrder(
+				this.roots,
+				(cell) => this.#entryOf(cell).shape.edges,
+				(cell) => this.#reach.has(cell)
+			)
+			this.#kept = kept
+			return { kept, moved: kept.cells(kept.generation) }
 		}
-		return { order, feedback }
+		return { kept: known, moved: known.patch(this.roots, touched) }
+	}
+
+	/** The kept order, patched to the edits since it was last read (#patched). */
+	#order(): KeptOrder {
+		return this.#patched().kept
 	}
 
 	/**
@@ -772,7 +879,7 @@ export class DagEditor<R extends Roots = Roots> {
 	#entryOf(cell: Cell): CellEntry {
 		const known = this.#entries.get(cell)
 		if (known === undefined) {
-			const made: CellEntry = { node: cell.current, shape: nodeShape(cell.current), walked: 0 }
+			const made: CellEntry = { node: cell.current, shape: nodeShape(cell.current) }
 			this.#entries.set(cell, made)
 			return made
 		}
@@ -785,48 +892,152 @@ export class DagEditor<R extends Roots = Roots> {
 
 	/**
 	 * The cells the roots reach now, in topological order, those of them on a recursive step, and how each is read, off
-	 * the reach the editor keeps (CellState, Reach).
+	 * the reach and the order the editor keeps (CellState, Reach, KeptOrder), the order read out once for the state.
 	 */
 	cellState(): CellState {
-		const { order, feedback } = this.#walk()
-		const read = this.#reach.taken()
-		let readers: ((cell: Cell) => ReadonlyArray<Cell>) | undefined
-		let stamps: ReadonlyMap<Cell, number> | undefined
-		const version = this.#version
+		const kept = this.#order()
+		const read = this.#read(kept)
+		return this.#state(kept, () => read.order, read.feedback)
+	}
+
+	/**
+	 * The kept order read out now, with its cells on a recursive step found as each is read where a recursion's feedback
+	 * scan is reached, none where none is.
+	 */
+	#read(kept: KeptOrder): {
+		readonly order: ReadonlyArray<Cell>
+		readonly feedback: ReadonlySet<Cell>
+	} {
+		return [...this.#selfRefs].some((cell) => kept.has(cell))
+			? kept.read(kept.generation, (cell, edges, found) =>
+					readsFeedback(cell.current, edges, found)
+				)
+			: { order: kept.cells(kept.generation), feedback: noCells }
+	}
+
+	/**
+	 * The state a rewrite pass's driver reads its cells at (rewritePass): cellState's, its order read out of the kept
+	 * order only when a reader asks for it, before the next state is taken; and the cells the kept order placed anew or
+	 * labelled again since the last state, which a reader keyed by the order takes again.
+	 */
+	drivenState(): { readonly cells: CellState; readonly moved: ReadonlyArray<Cell> } {
+		const { kept, moved } = this.#patched()
+		const generation = kept.generation
+		if ([...this.#selfRefs].some((cell) => kept.has(cell))) {
+			const read = this.#read(kept)
+			return { cells: this.#state(kept, () => read.order, read.feedback), moved }
+		}
+		let order: ReadonlyArray<Cell> | undefined
 		return {
-			order,
-			feedback,
-			references: read.references,
-			lateral: read.lateral,
-			readers: (cell) => {
-				readers ??= this.readersIn(order)
-				return readers(cell)
-			},
-			stamp: (cell) => {
-				stamps ??= this.#stampsIn(order, version)
-				return stamps.get(cell) ?? 0
-			},
-			set: (cell) => this.#changedAt.get(cell) ?? 0,
-			moved: (cell) => Math.max(this.#movedAt.get(cell) ?? 0, this.#namedAt.get(cell.id) ?? 0)
+			cells: this.#state(
+				kept,
+				() => {
+					order ??= kept.cells(generation)
+					return order
+				},
+				noCells
+			),
+			moved
 		}
 	}
 
 	/**
-	 * The stamp of each cell of `order`, a state's cells taken at `version` (CellState stamp): the latest version its node
-	 * or a node it reaches through data inputs was set at, each cell's after its inputs'. Worked out at the state's
-	 * version alone: the nodes a later edit set are another state's.
+	 * The label that orders `cell` in the kept order as it was last patched (KeptOrder label), none for a cell no root
+	 * reached then.
 	 */
-	#stampsIn(order: ReadonlyArray<Cell>, version: number): ReadonlyMap<Cell, number> {
-		invariant(this.#version === version, "a state's stamps read before the next edit")
-		const stamps = new Map<Cell, number>()
-		for (const cell of order) {
-			let at = this.#changedAt.get(cell) ?? 0
-			for (const input of this.#entryOf(cell).shape.edges) {
-				at = Math.max(at, stamps.get(input) ?? 0)
+	labelAt(cell: Cell): number | undefined {
+		const kept = this.#kept
+		return kept?.has(cell) === true ? kept.label(cell) : undefined
+	}
+
+	/**
+	 * A state of the cells over the kept order `kept` as it stands now, its cells in order `order` (read out of it now, or
+	 * when first asked) and those of them on a recursive step `feedback`; its counts as Reach keeps them; its readers, each
+	 * list in the order's order, read off Reach where first asked before an edit, else off the order and the edges then, as
+	 * a reader who asked after its own edit read them; its stamps, read before the next edit. Every read but the
+	 * feedback's is reported to the editor's listener (Reads).
+	 */
+	#state(
+		kept: KeptOrder,
+		order: () => ReadonlyArray<Cell>,
+		feedback: ReadonlySet<Cell>
+	): CellState {
+		const version = this.#version
+		const generation = kept.generation
+		const read = this.#reach.taken()
+		let readers: ((cell: Cell) => ReadonlyArray<Cell>) | undefined
+		const listen = (): Reads => this.#reads
+		return {
+			get order(): ReadonlyArray<Cell> {
+				listen().whole()
+				return order()
+			},
+			feedback,
+			references: (cell) => {
+				listen().reach(cell)
+				return read.references(cell)
+			},
+			lateral: (cell) => {
+				listen().reach(cell)
+				return read.lateral(cell)
+			},
+			readers: (cell) => {
+				readers ??=
+					this.#version === version
+						? this.#keptReaders(read.readers, kept, generation, order)
+						: this.readersIn(order())
+				const out = readers(cell)
+				const reads = listen()
+				reads.reach(cell)
+				for (const reader of out) {
+					reads.subtree(reader)
+				}
+				return out
+			},
+			stamp: (cell) => {
+				invariant(this.#version === version, "a state's stamps read before the next edit")
+				listen().subtree(cell)
+				this.#stamped()
+				return kept.has(cell) ? (this.#stamps.get(cell) ?? 0) : 0
+			},
+			set: (cell) => {
+				listen().subtree(cell)
+				return this.#changedAt.get(cell) ?? 0
+			},
+			moved: (cell) => {
+				listen().reach(cell)
+				return Math.max(this.#movedAt.get(cell) ?? 0, this.#namedAt.get(cell.id) ?? 0)
 			}
-			stamps.set(cell, at)
 		}
-		return stamps
+	}
+
+	/**
+	 * The readers of each cell (CellState readers), one per input position, off the reached readers Reach keeps for the
+	 * state (`readers`), in the order of the state's cells: by their labels in the kept order while it stands at
+	 * `generation`, else by their places in the state's order `order`; each cell's list worked out once.
+	 */
+	#keptReaders(
+		readers: (cell: Cell) => ReadonlyMap<Cell, number>,
+		kept: KeptOrder,
+		generation: number,
+		order: () => ReadonlyArray<Cell>
+	): (cell: Cell) => ReadonlyArray<Cell> {
+		let places: ReadonlyMap<Cell, number> | undefined
+		const rank = (cell: Cell): number => {
+			if (kept.generation === generation) {
+				return kept.label(cell)
+			}
+			places ??= new Map(order().map((c, i) => [c, i]))
+			return defined(places.get(cell), "a reader the state reaches")
+		}
+		const lists = new Map<Cell, ReadonlyArray<Cell>>()
+		return (cell) =>
+			lists.getOrInsertComputed(cell, () =>
+				[...readers(cell)]
+					.map(([reader, count]) => ({ reader, count, at: rank(reader) }))
+					.toSorted((a, b) => a.at - b.at)
+					.flatMap(({ reader, count }) => Array.from({ length: count }, () => reader))
+			)
 	}
 
 	/**
@@ -921,25 +1132,74 @@ export class DagEditor<R extends Roots = Roots> {
 				continue
 			}
 			this.#moved.set(root, to)
-			this.#reach.reached(to, 1)
-			this.#reach.reached(from, -1)
+			this.#reach.reached(to, 1, undefined)
+			this.#reach.reached(from, -1, undefined)
 		}
 		this.#changed(rewritten)
 	}
 
-	/** A change: the version moves on, and each cell whose node it set was set at it. */
+	/**
+	 * A change: the version moves on, each cell whose node it set was set at it, and waits for the order's next patch and
+	 * for its stamp and the stamps above it (#stamped).
+	 */
 	#changed(set: ReadonlyArray<Cell>): void {
 		this.#version++
 		for (const cell of set) {
 			this.#changedAt.set(cell, this.#version)
+			this.#touched.add(cell)
+			this.#unstamped.push(cell)
 		}
 		const moved = this.#reach.drainMoved()
 		for (const cell of moved.references) {
 			this.#movedAt.set(cell, this.#version)
+			this.#reachMoved.add(cell.id)
 		}
 		for (const label of moved.named) {
 			this.#namedAt.set(label, this.#version)
+			this.#reachMoved.add(label)
 		}
+	}
+
+	/**
+	 * Every cell's stamp brought up to date: each cell set since, from the latest change down, stamps itself and every
+	 * cell above it through data edges (Readers, those no root reaches included) whose stamp is older, so a stamp is the
+	 * latest version a node of the cell's subtree was set at. A cell whose stamp moved is one a driver drains
+	 * (drainMoves).
+	 */
+	#stamped(): void {
+		const pending = this.#unstamped
+		if (pending.length === 0) {
+			return
+		}
+		this.#unstamped = []
+		const set = (cell: Cell): number => this.#changedAt.get(cell) ?? 0
+		const byLatest = pending.toSorted((a, b) => set(b) - set(a))
+		for (const from of byLatest) {
+			const at = set(from)
+			const up = [from]
+			for (let cell = up.pop(); cell !== undefined; cell = up.pop()) {
+				if ((this.#stamps.get(cell) ?? 0) >= at) {
+					continue
+				}
+				this.#stamps.set(cell, at)
+				this.#restamped.add(cell)
+				for (const reader of this.#readers.byEdge(cell)) {
+					up.push(reader)
+				}
+			}
+		}
+	}
+
+	/**
+	 * What moved since the last drain, which a driver reads to know whose verdicts an edit could have changed: the cells
+	 * whose stamp moved (#stamped), and the labels of the cells whose reach counts moved (Reach).
+	 */
+	drainMoves(): { readonly stamped: ReadonlySet<Cell>; readonly reach: ReadonlySet<NodeId> } {
+		this.#stamped()
+		const moves = { stamped: this.#restamped, reach: this.#reachMoved }
+		this.#restamped = new Set()
+		this.#reachMoved = new Set()
+		return moves
 	}
 
 	/**

@@ -483,9 +483,9 @@ export const aRewriteReadsHowEachCellIsReadOffTheStatesCellsWorkedOutOnceAStateA
 						: "a simplification that changed nothing"
 				)
 				assert.equal(
-					counts.cellState,
+					counts.state,
 					counts.rewriteCx,
-					`${counts.cellState} states of the cells over ${counts.rewriteCx} the driver worked out`
+					`${counts.state} states of the cells over ${counts.rewriteCx} the driver worked out`
 				)
 				assert.equal(counts.structureOf, 0, "no structure worked out of the cells")
 				assert.equal(
@@ -511,10 +511,11 @@ export const aRewriteReadsHowEachCellIsReadOffTheStatesCellsWorkedOutOnceAStateA
 			},
 			{
 				file: "packages/engine/src/lower/optimize/demand/editor.ts",
-				original: "\t\tconst { order, feedback } = this.#walk()\n",
+				original:
+					"\t\t\t? kept.read(kept.generation, (cell, edges, found) =>\n\t\t\t\t\treadsFeedback(cell.current, edges, found)\n\t\t\t\t)\n",
 				replacement:
-					"\t\tconst { order } = this.#walk()\n\t\tconst feedback = feedbackReadsOf(cellGraph, order)\n",
-				why: "A state works out its cells' recursive steps in a walk of its own after its order, each cell's edges read again, as before the walk found them as it ended each cell."
+					"\t\t\t? { order: kept.cells(kept.generation), feedback: feedbackReadsOf(cellGraph, kept.cells(kept.generation)) }\n",
+				why: "A state works out its cells' recursive steps in a walk of its own after its order, each cell's edges read again, as before the order's one reading found them as it read each cell."
 			}
 		]
 	})
@@ -978,12 +979,12 @@ export const aRewriteReadsEachStatesReadersOffItsCellsWorkedOutAtMostOnceAState 
 				if (counts.readers > 0) {
 					c.note("a state whose readers a rule read")
 				}
-				if (counts.restrictable > counts.cellState) {
+				if (counts.restrictable > counts.state) {
 					c.note("a state the shared restriction weighed several cells of")
 				}
 				assert.ok(
-					counts.readers <= counts.cellState,
-					`${counts.readers} reader maps over ${counts.cellState} states`
+					counts.readers + counts.walked <= counts.state,
+					`${counts.readers + counts.walked} reader maps over ${counts.state} states`
 				)
 			}),
 		oracle: {

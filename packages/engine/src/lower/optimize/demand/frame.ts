@@ -10,6 +10,7 @@ import type { Pass, PassContext } from "#compiler/ir/pass.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { Cell, Rooted, Roots, VarDecl } from "#compiler/ir/rel.ts"
 import { type CellState, DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
+import { QuietCells } from "#compiler/lower/optimize/demand/quiet.ts"
 
 /**
  * Demand analysis (analysis/demand) of one snapshot of the editor, read cell by cell: each cell is read as its node in
@@ -194,18 +195,38 @@ const withPhysical = (
 	return { analyses, computed: { kind: "physical", analyses } }
 }
 
-/** The rewrite cx over one editor's cells as they are now, under the compilation's catalog. */
-const rewriteCx = (editor: DagEditor, ctx: PassContext, pass: string): RewriteCx => ({
+/** The rewrite cx over one editor's cells `cells`, under the compilation's catalog. */
+const rewriteCx = (
+	editor: DagEditor,
+	ctx: PassContext,
+	pass: string,
+	cells: CellState
+): RewriteCx => ({
 	editor,
 	ctx,
 	pass,
 	catalog: ctx.catalog,
-	cells: editor.cellState(),
+	cells,
 	certify: (input) => {
 		const cert = unwrap(makeCertificate(input))
 		ctx.certificates.record(cert)
 	}
 })
+
+/**
+ * The rewrite cx at the next state of a pass's cells (DagEditor drivenState), its quiet cells told what the edits since
+ * the last state moved (QuietCells taken).
+ */
+const drivenCx = (
+	editor: DagEditor,
+	ctx: PassContext,
+	pass: string,
+	quiet: QuietCells
+): RewriteCx => {
+	const { cells, moved } = editor.drivenState()
+	quiet.taken(cells, moved, editor.drainMoves())
+	return rewriteCx(editor, ctx, pass, cells)
+}
 
 /** A potential's value over the editor's DAG, with the analyses computed for it. */
 const measured = (
@@ -234,11 +255,13 @@ const measured = (
  * the rule, grizzle's and never the query's, so it breaks an internal invariant (core/invariant.ts).
  *
  * A rule reads how each cell is read, its references and whether a scope expression reads it, off the state's cells
- * (CellState structure), which the driver works out with their order, one visit of each cell: whether a rewrite may
- * change a cell's set is what it asks, and no demand of the DAG's columns answers that, so no state's demand is
- * computed. A rule whose shape matches at a cell may answer a decision over the finished DAG or its physical analysis
- * (Decision). The driver computes each of a state of the DAG once, the first time a decision or the potential reads it,
- * and hands it to every later one until an edit, so an analysis no decision reads is never computed.
+ * (CellState structure), which the editor keeps with their order as the edits move them (editor.ts Reach, order.ts
+ * KeptOrder): whether a rewrite may change a cell's set is what it asks, and no demand of the DAG's columns answers
+ * that, so no state's demand is computed. A rule whose shape matches at a cell may answer a decision over the finished
+ * DAG or its physical analysis (Decision). The driver computes each of a state of the DAG once, the first time a
+ * decision or the potential reads it, and hands it to every later one until an edit, so an analysis no decision reads
+ * is never computed. A state's scan judges again only the cells an edit could have changed the verdict of (quiet.ts
+ * QuietCells), in order, so a firing costs what its edits reach, never the DAG.
  *
  * Every applied rewrite records a certificate: its rule, the nodes it read and wrote, the premises
  * its proof used, the evidence context it requires, the heading it preserves, and through its constraint premises the
@@ -253,15 +276,16 @@ export const rewritePass = (spec: RewritePassSpec): Pass<LogicalQuery, LogicalQu
 		catchRefusal(() => {
 			const editor = new DagEditor(query.dag)
 			const props = passProps(ctx)
-			let cx = rewriteCx(editor, ctx, spec.name)
+			const quiet = new QuietCells(editor)
+			let cx = drivenCx(editor, ctx, spec.name, quiet)
 			const potential = spec.potential(cx)
 			let start = measured(potential, cx, noneComputed)
 			for (
-				let fired = fireNext(spec.rules, cx, props, start.computed);
+				let fired = fireNext(spec.rules, cx, props, start.computed, quiet);
 				fired !== undefined;
-				fired = fireNext(spec.rules, cx, props, start.computed)
+				fired = fireNext(spec.rules, cx, props, start.computed, quiet)
 			) {
-				cx = rewriteCx(editor, ctx, spec.name)
+				cx = drivenCx(editor, ctx, spec.name, quiet)
 				const after = measured(potential, cx, noneComputed)
 				invariant(
 					Number.isInteger(after.value) && after.value >= 0 && after.value < start.value,
@@ -282,13 +306,17 @@ interface Fired {
 /**
  * Applies the first rule that fires at the first cell in topological order where one does, over the analyses of the
  * current DAG `computed` holds and those its decisions read, each computed once, the physical ones through the pass's
- * properties `props` (rewritePass). No rule is applied at a cell that reads a recursion's feedback.
+ * properties `props` (rewritePass). No rule is applied at a cell that reads a recursion's feedback. The cells are judged
+ * in order from the first one the pass's quiet cells (QuietCells) hold to judge, a quiet cell passed over: every rule
+ * would settle false there again, drawing nothing, so the first rule that fires at the first cell is the one a scan of
+ * every cell finds, and every identifier is drawn as that scan draws it.
  */
 const fireNext = (
 	rules: ReadonlyArray<Rule>,
 	cx: RewriteCx,
 	props: PropsUnder,
-	computed: Computed
+	computed: Computed,
+	quiet: QuietCells
 ): Fired | undefined => {
 	const editor = cx.editor
 	let known = computed
@@ -313,16 +341,24 @@ const fireNext = (
 			}
 		}
 	}
-	for (const cell of cx.cells.order) {
-		if (cx.cells.feedback.has(cell)) {
-			continue
-		}
+	for (
+		let cell = quiet.next(cx.cells.feedback);
+		cell !== undefined;
+		cell = quiet.next(cx.cells.feedback)
+	) {
+		const hearing = quiet.hear(cell)
+		let asked = false
 		for (const rule of rules) {
-			if (settled(rule.at(cell, cx))) {
+			const verdict = rule.at(cell, cx)
+			asked ||= typeof verdict !== "boolean"
+			if (settled(verdict)) {
+				quiet.ended()
 				return { cell, rule }
 			}
 		}
+		quiet.settledFalse(hearing, asked)
 	}
+	quiet.ended()
 	return undefined
 }
 
@@ -335,7 +371,7 @@ export const traversalPass = (spec: {
 	run: (query, ctx) =>
 		catchRefusal(() => {
 			const editor = new DagEditor(query.dag)
-			const cx = rewriteCx(editor, ctx, spec.name)
+			const cx = rewriteCx(editor, ctx, spec.name, editor.cellState())
 			spec.step(cx)
 			return settle(query, editor)
 		})
