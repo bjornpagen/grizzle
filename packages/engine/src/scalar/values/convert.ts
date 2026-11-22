@@ -92,7 +92,8 @@ const convertBits =
  * The conversion of PostgreSQL's output text of a column into its host value, one per carrier.
  *
  * A conversion yields the value in its carrier's one form, so equal values PostgreSQL spells differently (1.50 and 1.5,
- * -0 and 0) convert to one host value: decode is conversion only, into the canonical form.
+ * a vector component's -0 and 0) convert to one host value: decode is conversion only, into the canonical form. A
+ * float's -0 is no spelling of 0 but a value of its own (float.ts), read back as -0.
  *
  * A conversion trusts its text. Every text it meets is PostgreSQL's own output of a value of the column's type in the
  * fixed execution context Db.open verifies (extra_float_digits = 1, DateStyle ISO, the C.UTF-8 monetary context), written by grizzle's
@@ -104,8 +105,8 @@ const convertBits =
  * | int2, int4 | int2out, int4out | Number |
  * | int8 | int8out | BigInt |
  * | numeric | numeric_out, at any display scale | Decimal.fromOutput, the one form: trailing fractional zeros dropped |
- * | float8 | float8out | Number, -0 as +0 |
- * | float4 | float4out, shortest binary32 text | the binary32 value exactly (float.ts convertReal), -0 as +0 |
+ * | float8 | float8out | Number, -0 its own |
+ * | float4 | float4out, shortest binary32 text | the binary32 value exactly (float.ts convertReal), -0 its own |
  * | money | money::numeric | Money.fromOutput, the minor-unit count |
  * | bool | `true`/`false` (bool::text), `t`/`f` (boolout) | the first letter is t |
  * | uuid, text | uuid_out, the string | the text itself |

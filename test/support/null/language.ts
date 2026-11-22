@@ -1019,7 +1019,8 @@ export const silent: Trace = { reached: () => {}, source: () => {}, decided: () 
 /**
  * A value of the model: an integer of any integer sort, and a numeric's tenths, as a bigint; a flag's code, a set's
  * mask of codes (bit `code` for each member) and a float as a number; a text; a boolean. NULL is null. A float's zero
- * is 0, never -0, as grizzle delivers it, and every float operation's zero is too.
+ * keeps its sign, -0 a value of its own, as PostgreSQL computes it (float8um of 0 is -0) and grizzle stores, computes
+ * and delivers it (scalar/values/float.ts), equal to 0 under every comparison (order).
  */
 export type Val = bigint | number | string | boolean
 
@@ -1089,11 +1090,8 @@ const order = (a: Val, b: Val): -1 | 0 | 1 =>
 				? 1
 				: 0
 
-/** A float operation's result at a float sort: rounded once to binary32 for a real, its zero 0. */
-export const floatOf = (sort: Sort, x: number): number => {
-	const rounded = sort === "f4" ? Math.fround(x) : x
-	return rounded === 0 ? 0 : rounded
-}
+/** A float operation's result at a float sort: rounded once to binary32 for a real, its zero's sign kept. */
+export const floatOf = (sort: Sort, x: number): number => (sort === "f4" ? Math.fround(x) : x)
 
 /**
  * IEEE 754's +, -, * and /, as grizzle's SQL computes them: a quotient by zero is an infinity of the dividend's sign,

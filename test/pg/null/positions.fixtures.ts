@@ -48,6 +48,7 @@ import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { writeAnswerOf, readOnce, type WriteAnswer } from "#test/support/calls.ts"
+import { identicalValue } from "#test/support/equivalence.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import {
 	buildPred,
@@ -635,7 +636,7 @@ export const nullCase = (nc: NullCase, notes: Case<Feature>) =>
 						[`PostgreSQL, expression ${at} at row ${id}`, answer(id, at)],
 						["the model of language.ts", model]
 					],
-					exact
+					identicalValue
 				)
 			}
 		}
@@ -703,7 +704,7 @@ export const nullCase = (nc: NullCase, notes: Case<Feature>) =>
 							value.ok ? fromHost(sort, value.value) : `no value: ${Formatter.format(value.error)}`
 						]
 					],
-					exact
+					identicalValue
 				)
 			})
 		}
@@ -970,7 +971,7 @@ export const nullCase = (nc: NullCase, notes: Case<Feature>) =>
 					],
 					["grizzle's head", rows]
 				],
-				exact
+				identicalValue
 			)
 			notes.note("a head delivers its value")
 		}
@@ -997,7 +998,7 @@ export const nullCase = (nc: NullCase, notes: Case<Feature>) =>
 						)
 					]
 				],
-				exact
+				identicalValue
 			)
 		}
 		const totals = yield* owner.values(

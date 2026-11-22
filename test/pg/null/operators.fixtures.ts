@@ -34,6 +34,7 @@ import { generatedField, generatedRelation } from "#compiler/schema/relation.ts"
 import { checkBuilder, selectBuilder } from "#compiler/schema/statements.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { type FixtureSchema, testArtifacts, testCompile } from "#test/support/compile.ts"
+import { identicalValue } from "#test/support/equivalence.ts"
 import {
 	buildPred,
 	buildTerm,
@@ -758,6 +759,6 @@ export const operatorCase = (owner: CaseSession, oc: OperatorCase, c: Case<Featu
 					host.ok ? fromHost(sort, host.value) : `no value: ${Formatter.format(host.error)}`
 				]
 			],
-			exact
+			identicalValue
 		)
 	})

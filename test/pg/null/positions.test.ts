@@ -138,8 +138,23 @@ export const nULLInEveryPositionIsJudgedByPostgreSQLsThreeValuedLogicInEveryRule
 					reason:
 						"a closed read with no bound: a generated integer narrowing mul(n, Pick.at(n, kind)) under Num.within and a generated bigint casting add(n, Pick.at(n, kind)) compile, the first taking its otherwise at k1 and the second refused by its NOT NULL",
 					since: "2026-11-19"
+				},
+				{
+					token: ReplayToken(
+						"test/pg/null/positions.test.ts#nULLInEveryPositionIsJudgedByPostgreSQLsThreeValuedLogicInEveryRuleAndQueryByTheHostEvaluatorAndTheWriterAlike:40000000000000000.42:0.0.1.2.0.0.1.0.0.0.1.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.1.2.0.0.0.0.1.0.0.0.0.0.1.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.1.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.1.0.1.3.0.0.0.0.0.0.0.0.0.0.1.3.0.1.1.0.1.0.0.1.0.1.0.1.0.0.0.1.0.0.8.1.2.0.0.0.0"
+					),
+					reason:
+						"a head neg(0.0::float8), which PostgreSQL computes as -0 and grizzle delivers as -0, a value of its own: the model read every float zero as 0 and refused a delivered -0 (trunk's pg tier at f1bf91a2f, seed 2219874524, the steered phase's case 39)",
+					since: "2026-11-21"
 				}
 			],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/scalar/values/float.ts",
+					original: "export const convertDouble = (text: string): number => Number(text)",
+					replacement: "export const convertDouble = (text: string): number => Number(text) + 0",
+					why: "A delivered double's -0 is read as 0, the zero a value of its own is no spelling of: the head neg(0.0::float8) PostgreSQL computes as -0 is delivered as 0, and the property fails."
+				}
+			]
 		}
 	)

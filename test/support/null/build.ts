@@ -451,7 +451,7 @@ export const fromStored = (sort: StoredSort, text: unknown): Val | null => {
 	}
 }
 
-/** A value a query delivered, as the model's, by its sort: a float's zero is 0, never -0. */
+/** A value a query delivered, as the model's, by its sort: a float's zero with its sign. */
 export const fromDelivered = (sort: Sort, value: unknown): Val | null => {
 	switch (sort) {
 		case "int":
@@ -471,8 +471,6 @@ export const fromDelivered = (sort: Sort, value: unknown): Val | null => {
 			return typeof value === "boolean" ? value : undefinedValue(sort, value)
 		case "f8":
 		case "f4":
-			return typeof value === "number" && !Object.is(value, -0)
-				? value
-				: undefinedValue(sort, value)
+			return typeof value === "number" ? value : undefinedValue(sort, value)
 	}
 }
