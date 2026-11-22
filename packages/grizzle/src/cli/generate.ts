@@ -601,6 +601,42 @@ export const draftSchema = Effect.fn("draftSchema")(function* (
 })
 
 /**
+ * A schema's draft as check keeps it past the draft phase (`keptOf`), beside its installation and served basis: what
+ * `draftSchema` drafts, its plan and decision record left behind, so check's served files compile without them.
+ */
+export const keptSchemaDraft = (
+	...args: Parameters<typeof draftSchema>
+): Effect.Effect<
+	Drafted<MigrationDraft> & { readonly installation: Installation; readonly served: ServedBasis },
+	CliError
+> =>
+	Effect.map(draftSchema(...args), (draft) => ({
+		...keptOf(draft),
+		installation: draft.installation,
+		served: draft.served
+	}))
+
+/**
+ * What the CLI keeps of a draft past the draft phase: what it changes, its folder, its snapshot and the derived facts
+ * snapshot.json records, which the served files, check's findings and write read. The draft's plan (every step's
+ * statement as its tree) and its decision record (every statement's tokens) are the draft's own, which nothing after it
+ * reads, so they are left behind at the draft's end rather than held through the served files' compile and the write
+ * (edullm's qti App at hub 5374a0575: the plan alone 217 MB of the 2.2 GB live as the served phase starts).
+ */
+type Drafted<D extends MigrationDraft | GenerateResult> = Pick<
+	D,
+	"change" | "folder" | "snapshot" | "derived"
+>
+
+/** A draft as the CLI keeps it (`Drafted`). */
+export const keptOf = <D extends MigrationDraft | GenerateResult>(draft: D): Drafted<D> => ({
+	change: draft.change,
+	folder: draft.folder,
+	snapshot: draft.snapshot,
+	derived: draft.derived
+})
+
+/**
  * The draft of a schema's change from `previous` as `grizzle generate` writes it, its folder named by `naming` and
  * `timestamp` (draftInput, then the pure generator's generateMigration). Nothing is written.
  */
@@ -612,7 +648,7 @@ const generateSchema = Effect.fn("generateSchema")(function* (
 	abandoned: ReadonlyArray<AbandonedSchema>,
 	declared: Declarations,
 	phases: Phases
-): Effect.fn.Return<GenerateResult & { readonly served: ServedBasis }, CliError> {
+): Effect.fn.Return<Drafted<GenerateResult> & { readonly served: ServedBasis }, CliError> {
 	const { input, served } = yield* draftInput(schema, previous, abandoned, declared, phases)
 	const generated = yield* Effect.mapError(
 		fromEngine(
@@ -622,7 +658,7 @@ const generateSchema = Effect.fn("generateSchema")(function* (
 		),
 		draftRefused(schema.configured.declared, "draft")
 	)
-	return { ...generated, served }
+	return { ...keptOf(generated), served }
 })
 
 /** What a draft's snapshot files are written from: its snapshot and the derived runtime facts snapshot.json records. */

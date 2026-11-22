@@ -36,7 +36,7 @@ export type WholeFeature =
 	| "a foreign key added after every table"
 
 /** The installation of a drawn schema, with no login. */
-const installationOf = (spec: FillSpec): Installation => {
+export const installationOf = (spec: FillSpec): Installation => {
 	const built = buildFill(spec)
 	const owned = owning(schema("Whole", Rec.values(built.relations), built.statements))
 	return succeeded(

@@ -27,7 +27,7 @@ import {
 	readSchemaTree,
 	type SchemaTree
 } from "#cli/files.ts"
-import { draftSchema, servedFiles } from "#cli/generate.ts"
+import { keptSchemaDraft, servedFiles } from "#cli/generate.ts"
 import { phasedEffect } from "#cli/phases.ts"
 import { refusalText } from "#cli/refusals.ts"
 import {
@@ -434,7 +434,7 @@ const checkSchema = Effect.fn("checkSchema")(function* (
 	const committed = yield* checkCommitted(schema, cwd)
 	const snapshot = Option.map(committed.committed, (c) => c.snapshot)
 	const draft = Option.isSome(snapshot)
-		? yield* Effect.result(draftSchema(compiled, snapshot.value, [], noDeclarations, phases))
+		? yield* Effect.result(keptSchemaDraft(compiled, snapshot.value, [], noDeclarations, phases))
 		: undefined
 	const installation =
 		draft !== undefined && Result.isSuccess(draft) ? draft.success.installation : undefined
