@@ -100,8 +100,9 @@ export const aLookupImportedThroughSeveralQueriesAtOneParentsValueIsOneNode = pr
 		kills: [
 			{
 				file: "packages/engine/src/check/checker.ts",
-				original: '\t\t\treturn resolved.kind !== "column" || this.cx.held(resolved)\n',
-				replacement: '\t\t\treturn resolved.kind !== "column"\n',
+				original: "\t\t\treturn resolved\n",
+				replacement:
+					'\t\t\treturn resolved.kind === "column" ? this.#slotValue(this.#paramSlot(term.cell, loc), node) : resolved\n',
 				why: "A parameter bound to an outer value is read through a column of the reading rule's own region, as it was: each query's rule binds the lookup to a column of its own, so every read builds the lookup again and adds more where it is larger."
 			}
 		]

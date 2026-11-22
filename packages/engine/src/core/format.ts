@@ -19,8 +19,8 @@
  * truncated each written delta at every judged COMMIT and each carrier at every use, so each judge function's body and
  * each served carrier stand-up read the table's size before they empty it. A whole rule's judged statement spells each
  * definition its containment's sides read at one set of values once: a relational filter's SELECT holds its region's
- * shared CTEs (lower/optimize/cte-policy filteredRegion), an import a nested rule reads at a re-exposed value is bound at
- * its outermost re-exposure (check/checker.ts Checker held), a whole rule's unit channel keeps its name at every depth
+ * shared CTEs (lower/optimize/cte-policy filteredRegion), an import a nested rule reads at a value its importer bound is bound
+ * to that value itself (check/checker.ts RuleCheck #bindValue), a whole rule's unit channel keeps its name at every depth
  * (analysis/theory/navigate.ts received) and a filter passes a term its rule fixes as that term (pinnedBy), where format
  * 6 spelled such a definition again at each read inside the negation of the met side. A shared correlated node every
  * read of which is a region's occurrence is MATERIALIZED in the SELECT of the outermost region that lies on every path
@@ -33,12 +33,12 @@
  * function and each served write program, over an import of its body's every bound variable, which navigation reads
  * as a chain of steps (analysis/theory/navigate.ts foldedOverBody), where format 6 left the fold's join as written for
  * PostgreSQL to order. An import or a call a query or a write binds to outer values is one node for every read of it at
- * those values (check/checker.ts importedKey), and a parameter an importer bound to a value a region holds from outside
- * it, a region's parameter or parent slot or a parent's column an attachment reads, is bound to that column in every
- * reading (Checker held, RuleCheck #bindValue), where format 6 did so in a rule judge's region reads alone and built
- * every other such import at each read: a judge function or a served statement that reads one lookup under several
- * imports reads it once, correlated to the region that holds its values, and reads a value such a region holds as the
- * outer column it re-exposes. A key's constraint (a primary key, a UNIQUE, a WITHOUT OVERLAPS) maps, in snapshot.json's
+ * those values (check/checker.ts importedKey), and a parameter is bound to the value its importer bound it to, a
+ * column of the unit, of an enclosing region or of an attachment's parent among them, in every reading (RuleCheck
+ * #bindValue), where format 6 did so in a rule judge's region reads alone and built every other such import at each
+ * read: a judge function or a served statement that reads one lookup under several imports reads it once, held in the
+ * outermost region every read lies in that sees its values, and reads the outer column where it read a region's
+ * re-exposure of it. A key's constraint (a primary key, a UNIQUE, a WITHOUT OVERLAPS) maps, in snapshot.json's
  * constraintToLaw, a served file's constraints above and meta.json's folder laws, to the laws its refusal breaks: every
  * law it serves but a containment or a rule whose foreign key references it (laws/model/model.ts refusedLaws), where
  * format 6 mapped it to every law it serves, so a duplicate under a superkey a containment references named that

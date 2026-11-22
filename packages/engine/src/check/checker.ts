@@ -275,9 +275,6 @@ interface ImportKey {
 	readonly closed: boolean
 }
 
-/** The key of a node's column among the held ones (Checker `#held`). */
-const heldKey = (node: NodeId, column: string): string => `${node} ${column}`
-
 interface ParentScope {
 	/** The parent's label, which the child's correlation references name. */
 	readonly node: NodeId
@@ -1060,13 +1057,6 @@ export class Checker {
 	readonly #imported = new Map<string, RelNode>()
 	/** The imports bound to outer values, each built once by its key (`importedKey`), correlated to the values' node. */
 	readonly #regional = new Map<string, RelNode>()
-	/**
-	 * The columns that hold a value from outside the region reading them, each by node and column (`heldKey`): a rule
-	 * region's slot that re-exposes a parameter's value or its parent row's column (RuleCheck `#declare`), and a parent's
-	 * own column an attachment child's import reads, the outer reference its statement carries in its parent key
-	 * (RuleCheck `#bindValue`).
-	 */
-	readonly #held = new Set<string>()
 	/**
 	 * Each import's node by its key (`#imported`, `#regional`), which a call over it reads its argument's key by
 	 * (`#callArgs`): a closed import's closed, a correlated one's correlated to the node its values are read from.
@@ -2608,25 +2598,6 @@ export class Checker {
 		return this.#keyedImport(src, values, loc, importedKey(this.options.session, src.query, values))
 	}
 
-	/** Records `column` of `node` as holding a value from outside the region that reads it (`#held`). */
-	holds(node: NodeId, column: string): void {
-		this.#held.add(heldKey(node, column))
-	}
-
-	/**
-	 * Whether `value` holds a value from outside the region that reads it (`#held`), so an import below binds a parameter
-	 * the importer bound to it to that column itself (RuleCheck `#bindValue`). Each import binds so at every level, so a
-	 * region nested in another receives the value as the outermost region that holds it holds it, and so does every
-	 * import below: every import of one query at that value is one node (`importedKey`), whatever rule under that region
-	 * reads it, which the lowering computes once in that region (lower/optimize/cte-policy rule 3b), where bound at each
-	 * reader's own column it was a node of each reader's region, so inlined at every read: a containment's negation read
-	 * every definition its arms share, at the unit's channels, once in each arm, and edullm's decideStage read-back, each
-	 * argument of a session's run importing the session's lookup at the parent's terms, was 113K nodes in one query.
-	 */
-	held(value: { readonly node: NodeId; readonly name: string }): boolean {
-		return this.#held.has(heldKey(value.node, value.name))
-	}
-
 	/** The values an import's bind map binds its parameters to. */
 	boundValues(
 		src: Pick<Extract<ResolvedSource, { readonly kind: "query" | "step" }>, "bind">,
@@ -3438,9 +3409,6 @@ class RuleCheck {
 	readonly hidden: Array<HiddenSlot> = []
 	/** The first match column each parent variable a match binds is bound to, which gives it its type. */
 	readonly #parentBindings = new Map<VarId, Binding>()
-	/** The parent variables some match of the rule binds, by their parent column: each one's region variable takes its
-	 * value from a match's column, not its parent's (`#defineRegion`, `#bindValue`). */
-	readonly #boundParents: ReadonlySet<string>
 	/** The imported parameters bound to an outer value that a filter, the head or a fallback equality reads. */
 	readonly #needed = new Set<VarId>()
 	readonly names = new Set<string>()
@@ -3458,11 +3426,6 @@ class RuleCheck {
 		this.scope = scope
 		this.loc = loc
 		this.region = cx.reserve()
-		this.#boundParents = new Set(
-			rule.matches.flatMap((m) =>
-				entries(m.bindings).flatMap(([, e]) => (e.kind === "parent" ? [e.column] : []))
-			)
-		)
 	}
 
 	at(...segments: ReadonlyArray<string | number>): SourceLoc {
@@ -3575,7 +3538,6 @@ class RuleCheck {
 					outer: { node: origin.parent.node, name: column.parent, type: column.type }
 				}
 				this.parents.set(column.parent, slot)
-				this.cx.holds(this.region, slot.name)
 				this.correlation.push({ column, slot })
 			}
 		}
@@ -3606,7 +3568,6 @@ class RuleCheck {
 				outer: { node: value.node, name: value.name, type: value.type }
 			}
 			this.paramSlots.set(p.name, slot)
-			this.cx.holds(this.region, slot.name)
 			if (needed.has(p)) {
 				this.#needed.add(slot.id)
 			}
@@ -3931,19 +3892,19 @@ class RuleCheck {
 	 * is read through a column of `node`, the node the import is read over: a match's import over the rule's region, and a
 	 * relational filter's over the node it filters, which delivers the region's columns unchanged (`#relational`).
 	 *
-	 * A parent variable is read there too where the region holds its value before the import's source: a match resolved
-	 * before this one binds it (`#parentBindings`), whose occurrence the region places first, or no match binds it and
-	 * the region correlates it to its parent column (`#defineRegion`). Where the match itself or a later one binds it,
-	 * the region's variable is that match's column, which no source reads before the match is placed, so the import reads
-	 * the parent's own column, the value the attachment equates the binding with: an outer reference to the parent, which
-	 * the attachment's statement carries in its parent key (lower/conservative/deliver.ts parentColumnsRead).
+	 * A parent variable is bound to the parent's own column, the value the attachment equates every binding of it with,
+	 * whichever match of the rule binds it, before the import's source or after, or none: an outer reference to the
+	 * parent, which the attachment's statement carries in its parent key (lower/conservative/deliver.ts
+	 * parentColumnsRead).
 	 *
-	 * A parameter the importer bound to a column that holds a value from outside its region (Checker `held`: a region's
-	 * parameter or parent slot, or a parent's column an attachment child's import reads) is bound to that column itself,
-	 * in every reading, where a column of this rule's region would read it again: so every read below that region of one
-	 * query at that value has one key (`importedKey`) and is one node, correlated to that region, which the lowering
-	 * computes once there (lower/optimize/cte-policy rule 3b). A parameter bound to any other column is read through this
-	 * region's own slot (`#paramSlot`), a value the region is correlated to.
+	 * A parameter is bound to the value its importer bound it to, a column of the unit, of an enclosing region or of an
+	 * attachment's parent among them, in every reading, never to a column of this rule's region that re-exposes it: so
+	 * every read of one query at that value, at any depth below the rows that bind it, has one key (`importedKey`) and is
+	 * one node, correlated to the value's node, which the lowering holds once in the outermost region every read lies in
+	 * that sees the value (lower/optimize/cte-policy holdingRegion, rule 3b). Bound at each reader's own region's column,
+	 * it was a node of each reader's region, inlined at every read; bound at the outermost region that re-exposed it, the
+	 * rules of a union each bound it at their own region's: edullm's decideStage read-back, each argument of a session's
+	 * run importing the session's lookup at the parent's terms, was 113K nodes, 58K, and is 34K.
 	 */
 	#bindValue(term: ResolvedBound, param: string, loc: SourceLoc, node: NodeId): BindValue {
 		if (term.kind === "relationParam") {
@@ -3968,10 +3929,6 @@ class RuleCheck {
 					`a parent variable inside an attachment; ${term.column} is not one`
 				)
 			}
-			if (this.#parentBindings.has(slot.id) || !this.#boundParents.has(term.column)) {
-				return this.#slotValue(slot, node)
-			}
-			this.cx.holds(slot.outer.node, slot.outer.name)
 			return { kind: "column", ...slot.outer }
 		}
 		if (term.kind === "param") {
@@ -3979,9 +3936,7 @@ class RuleCheck {
 			if (resolved.kind === "param") {
 				this.cx.useParam(resolved.cell, this.cx.paramType(term, loc), loc)
 			}
-			return resolved.kind !== "column" || this.cx.held(resolved)
-				? resolved
-				: this.#slotValue(this.#paramSlot(term.cell, loc), node)
+			return resolved
 		}
 		if (term.kind === "literal") {
 			return {

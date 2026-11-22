@@ -118,10 +118,9 @@ export const anAttachmentChildsImportBoundToAParentVariableReadsTheRowsTheParent
 		kills: [
 			{
 				file: "packages/engine/src/check/checker.ts",
-				original:
-					"\t\t\tif (this.#parentBindings.has(slot.id) || !this.#boundParents.has(term.column)) {\n",
-				replacement: "\t\t\tif (true) {\n",
-				why: "A bind map reads a parent variable as the region's variable wherever a match binds it, so the reads whose import's own match binds it have a region with no order, and the installation refuses their workload."
+				original: '\t\t\treturn { kind: "column", ...slot.outer }\n',
+				replacement: "\t\t\treturn this.#slotValue(slot, node)\n",
+				why: "A bind map reads a parent variable as the region's variable, a match binding it or not, so the reads whose import's own match binds it have a region with no order, and the installation refuses their workload."
 			}
 		]
 	})

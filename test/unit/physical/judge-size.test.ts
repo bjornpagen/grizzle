@@ -126,8 +126,9 @@ export const aWholeRulesStatementOverReadsOfAUnionReadsEachOfItsRulesOnceHowever
 			},
 			{
 				file: "packages/engine/src/check/checker.ts",
-				original: '\t\t\treturn resolved.kind !== "column" || this.cx.held(resolved)\n',
-				replacement: '\t\t\treturn resolved.kind !== "column"\n',
+				original: "\t\t\treturn resolved\n",
+				replacement:
+					'\t\t\treturn resolved.kind === "column" ? this.#slotValue(this.#paramSlot(term.cell, loc), node) : resolved\n',
 				why: "Each rule of a union reads the level below at the column its own region re-exposes the unit's channels at, as before, so each rule's read is a node of its own, and a chain of unions three deep reads Node eight times, four deep sixteen; the property fails."
 			},
 			{
@@ -185,8 +186,9 @@ export const aWholeRulesContainmentReadsEachDefinitionItsSidesShareOncePerSetOfV
 			},
 			{
 				file: "packages/engine/src/check/checker.ts",
-				original: '\t\t\treturn resolved.kind !== "column" || this.cx.held(resolved)\n',
-				replacement: '\t\t\treturn resolved.kind !== "column"\n',
+				original: "\t\t\treturn resolved\n",
+				replacement:
+					'\t\t\treturn resolved.kind === "column" ? this.#slotValue(this.#paramSlot(term.cell, loc), node) : resolved\n',
 				why: "An import at the unit's channels is bound at its reader's region's column, as before, so each rule inside the negation reads a node of its own region, spelled at its read, and a containment with the negation reads Node 15 times, past its 9; the property fails."
 			},
 			{
