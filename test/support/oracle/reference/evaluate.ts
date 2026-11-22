@@ -1658,7 +1658,7 @@ export class Reference {
 			const inner = bind(scope, [...sources, [node.id, regionTuple(values)]])
 			const stage = staged[i]
 			if (stage === undefined) {
-				appendAll(out, Option.toArray(this.finishMatch(node, values, inner)))
+				appendAll(out, Option.toArray(this.finishMatch(node, values)))
 				return
 			}
 			const { plan, index } = stage
@@ -1714,7 +1714,7 @@ export class Reference {
 			const inner = bind(scope, [...sources, [node.id, regionTuple(values)]])
 			const o = node.occurrences[i]
 			if (o === undefined) {
-				appendAll(out, Option.toArray(this.finishMatch(node, values, inner)))
+				appendAll(out, Option.toArray(this.finishMatch(node, values)))
 				return
 			}
 			const source = this.eval(o.source, inner)
@@ -1750,37 +1750,24 @@ export class Reference {
 	}
 
 	/**
-	 * The values a region holds from its start: each correlated variable whose expression reads the scope around the
-	 * region alone, neither the region nor an occurrence's source, fixed before any occurrence is read, as SQL holds an
-	 * outer value through the whole of a correlated subquery, so an occurrence's source correlated with the region reads
-	 * it; any other correlated variable is fixed once every occurrence is bound (finishMatch).
+	 * The values a region holds from its start: each correlated variable, fixed before any occurrence is read, as SQL
+	 * holds an outer value through the whole of a correlated subquery, so an occurrence's source correlated with the
+	 * region reads it and an occurrence that binds it is held to it (`extended`). Every producer of a region correlates
+	 * its variables with outer values alone, never the region or its occurrences: the checker with an attachment's parent
+	 * column or an importer's (check/checker.ts #defineRegion), the pushdown with its holder's column
+	 * (lower/optimize/pushdown/shared.ts), the oracle's generator with an enclosing region's source (gen/query.ts
+	 * boundRegion), so each is read in the scope around the region.
 	 */
 	correlatedStart(node: NodeOf<"MatchRegion">, scope: Bindings): ReadonlyMap<VarDecl, Value> {
-		const own = new Set<NodeId>([node.id, ...Arr.map(node.occurrences, (o) => o.source.id)])
 		const start = new Map<VarDecl, Value>()
 		for (const c of node.correlated) {
-			if (Arr.every(c.expr.deps.nodes, (n) => !own.has(n))) {
-				start.set(c.var, this.expr(c.expr, scope))
-			}
+			start.set(c.var, this.expr(c.expr, scope))
 		}
 		return start
 	}
 
-	finishMatch(
-		node: NodeOf<"MatchRegion">,
-		bound: ReadonlyMap<VarDecl, Value>,
-		scope: Bindings
-	): Option.Option<Row> {
+	finishMatch(node: NodeOf<"MatchRegion">, bound: ReadonlyMap<VarDecl, Value>): Option.Option<Row> {
 		const values = new Map(bound)
-		for (const c of node.correlated) {
-			const v = this.expr(c.expr, scope)
-			const prior = values.get(c.var)
-			if (prior === undefined) {
-				values.set(c.var, v)
-			} else if (!equal(prior, v, c.var.type)) {
-				return Option.none()
-			}
-		}
 		/** An equality gives an unbound variable its partner's value and compares two bound ones. */
 		let pending: ReadonlyArray<Equality> = node.equalities
 		for (;;) {
@@ -2076,10 +2063,9 @@ class ScaledReference extends Reference {
 
 	override finishMatch(
 		node: NodeOf<"MatchRegion">,
-		bound: ReadonlyMap<VarDecl, Value>,
-		scope: Bindings
+		bound: ReadonlyMap<VarDecl, Value>
 	): Option.Option<Row> {
-		const row = super.finishMatch(node, bound, scope)
+		const row = super.finishMatch(node, bound)
 		if (Option.isSome(row)) {
 			this.#completed++
 			if (this.#completed > scaledRegionRows) {
