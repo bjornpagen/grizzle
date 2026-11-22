@@ -557,6 +557,21 @@ const inherit = (
 	namespace: string,
 	rowAs: string
 ): void => {
+	inheritFixed(fixed, input, reps)
+	for (const c of input.columns) {
+		chain(reps(c), (first, other) => {
+			fds.equate(first.column, other.column, joinJustifications([first.just, other.just]))
+		})
+	}
+	fds.embed(input.dependencies, { namespace, column: reps, row: rowAs, localize: asTheyAre })
+}
+
+/** An input's fixed facts, each of its columns' as each of its representatives' (inherit). */
+const inheritFixed = (
+	fixed: Map<string, FixedFacts>,
+	input: PhysicalProps,
+	reps: (column: string) => ReadonlyArray<Rep>
+): void => {
 	for (const [c, facts] of input.fixed) {
 		for (const r of reps(c)) {
 			for (const f of facts) {
@@ -564,12 +579,6 @@ const inherit = (
 			}
 		}
 	}
-	for (const c of input.columns) {
-		chain(reps(c), (first, other) => {
-			fds.equate(first.column, other.column, joinJustifications([first.just, other.just]))
-		})
-	}
-	fds.embed(input.dependencies, { namespace, column: reps, row: rowAs, localize: asTheyAre })
 }
 
 const sameName =
@@ -590,12 +599,32 @@ const inheritSame = (node: RelNode, input: PhysicalProps): FixedState => {
 }
 
 /**
+ * A node over its one input alone whose heading carries its input's columns under the same names, each of its rows one
+ * of the input's, with its input's evidence (inheritSame): where its heading holds every column of the input's, its
+ * table extends the input's (fds.ts DependencyDraft extend), the input's dependencies its own by reference, which
+ * inheritSame's embedding copied one by one; a node whose heading lacks one of them embeds the input as inheritSame does.
+ * A node that reads a table beside its input (an intersection's right) inherits by inheritSame.
+ */
+const extendSame = (node: RelNode, input: PhysicalProps): FixedState => {
+	const columns = node.heading.map((c) => c.name)
+	const fds = new DependencyDraft(columns)
+	const fixed = new Map<string, FixedFacts>()
+	if (!input.columns.every((c) => fds.has(c))) {
+		inherit(fds, fixed, input, sameName(fds), "input", rowAttribute)
+		return { fds, fixed }
+	}
+	inheritFixed(fixed, input, sameName(fds))
+	fds.extend(input.dependencies)
+	return { fds, fixed }
+}
+
+/**
  * A filter keeps its input's keys and can fix key components. A span held to contain a point the input's columns, or
  * values fixed per evaluation, give has that point known.
  */
 const filterProps = (node: NodeOf<"Filter">, cx: RuleContext): PhysicalProps => {
 	const input = cx.props(node.input)
-	const s = inheritSame(node, input)
+	const s = extendSame(node, input)
 	const fds = s.fds
 	const inputId = node.input.id
 	const locals = new Set([inputId])
@@ -670,7 +699,7 @@ const semiProps = (
 	cx: RuleContext
 ): PhysicalProps => {
 	const left = cx.props(node.left)
-	const s = inheritSame(node, left)
+	const s = extendSame(node, left)
 	if (node.kind === "SemiJoin") {
 		fixFromRight(node, cx, s)
 	}
@@ -700,7 +729,7 @@ const fixFromRight = (node: NodeOf<"SemiJoin">, cx: RuleContext, s: FixedState):
 /** A take keeps its input's keys, its correlation's fixed values fix their columns, and a literal bound caps its rows. */
 const takeProps = (node: NodeOf<"Take">, cx: RuleContext): PhysicalProps => {
 	const input = cx.props(node.input)
-	const s = inheritSame(node, input)
+	const s = extendSame(node, input)
 	const locals = new Set([node.input.id])
 	for (const c of node.correlation) {
 		const r = valueRep(c.expr, locals)
@@ -895,7 +924,7 @@ export const physicalPropsOf = (node: RelNode, cx: RuleContext): PhysicalProps =
 		case "Intersect":
 		case "Difference": {
 			const left = cx.props(node.left)
-			const s = inheritSame(node, left)
+			const s = node.kind === "Intersect" ? inheritSame(node, left) : extendSame(node, left)
 			let maxCard = left.maxCard
 			if (node.kind === "Intersect") {
 				const right = cx.props(node.right)
@@ -918,7 +947,7 @@ export const physicalPropsOf = (node: RelNode, cx: RuleContext): PhysicalProps =
 			return groupProps(node, cx)
 		case "Window": {
 			const input = cx.props(node.input)
-			const s = inheritSame(node, input)
+			const s = extendSame(node, input)
 			if (node.fn === "rowNumber") {
 				s.fds.identify(
 					[...node.partition, node.out],
@@ -968,7 +997,7 @@ export const physicalPropsOf = (node: RelNode, cx: RuleContext): PhysicalProps =
 		case "OrderedResult":
 		case "Step": {
 			const input = cx.props(node.kind === "ApproximateNearest" ? node.source : node.input)
-			const s = inheritSame(node, input)
+			const s = extendSame(node, input)
 			const maxCard =
 				node.kind === "ApproximateNearest"
 					? leastCardinality([input.maxCard, atMost(node.take)])

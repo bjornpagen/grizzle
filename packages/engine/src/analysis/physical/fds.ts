@@ -1071,6 +1071,8 @@ export class DependencyDraft {
 	readonly #points: Array<PointRule> = []
 	/** The namespaces of the draft's embeddings, each its own (embed). */
 	readonly #namespaces = new Set<string>()
+	/** Whether the draft extends a table (extend), which makes it a draft of no other table. */
+	#extended = false
 	/** How many hidden attributes of embedded tables the draft has named (embed). */
 	#hidden = 0
 
@@ -1155,6 +1157,11 @@ export class DependencyDraft {
 		if (this.#namespaces.has(ns)) {
 			throw defect(`physical: two embeddings of one dependency draft under the namespace ${ns}`)
 		}
+		if (this.#extended) {
+			throw defect(
+				`physical: an embedding under ${ns} into a dependency draft that extends a table`
+			)
+		}
 		this.#namespaces.add(ns)
 		/** Each attribute's name in the embedding, made once for every implication and point rule that reads it. */
 		const renamed = new Map<string, string>()
@@ -1213,6 +1220,46 @@ export class DependencyDraft {
 				originOf(rule.origin)
 			)
 		}
+	}
+
+	/**
+	 * Every implication and point rule of `table`, the very ones, where the draft is the table's own extended: a draft of
+	 * no table before it and of no other after it (embed refuses one), whose universe holds every column of the table's
+	 * heading under its own name, and whose rows are the table's rows, its justifications holding as they are
+	 * (analysis/physical/rules.ts extendSame: a filter, a semi-join's left, a step, a take, a window). That is the identity
+	 * embedding, which embed copied each dependency through under the namespace `input`, and the copies are the same
+	 * dependencies but for two things no answer reads:
+	 *
+	 * - a hidden attribute's name: embed numbered each anew so that two embeddings of one draft never meet, and with no
+	 *   other embedding the table's own names meet none either, the draft's own rules naming its heading's columns and
+	 *   its row alone, which are the table's;
+	 * - an origin: embed added the namespace before every origin it carried, an implication's and each of its joined
+	 *   occurrences' alike, and adding one namespace before every origin, or none, keeps which of them lies within which
+	 *   (`within`, a prefix): the joined occurrences a closure's `directly` compares an implication's origin with are
+	 *   carried with it, and the draft's own dependencies, whose origin is its own, lie within no occurrence's, which
+	 *   holds at least the region's namespace for it.
+	 *
+	 * So every closure, proof, key and explanation of the draft is the copying draft's, and a chain of nodes that keep
+	 * their input's rows shares one set of dependencies, where each node held a copy of its input's (edullm's qti and
+	 * pantry drafts: 31% of the dependencies the analysis embedded).
+	 */
+	extend(table: Dependencies): void {
+		if (
+			this.#extended ||
+			this.#namespaces.size > 0 ||
+			this.#imps.length > 0 ||
+			this.#points.length > 0
+		) {
+			throw defect("physical: a dependency draft extends a table only as the first table it holds")
+		}
+		for (const c of table.columns) {
+			if (!this.#members.has(c)) {
+				throw defect(`physical: an extended table's column ${c} is no column of its draft`)
+			}
+		}
+		this.#extended = true
+		appendAll(this.#imps, table.implications)
+		appendAll(this.#points, table.points)
 	}
 
 	/** A hidden attribute of a table the embedding `namespace` brings, named anew: numbered among the draft's. */
