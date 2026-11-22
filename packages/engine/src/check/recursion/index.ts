@@ -3,9 +3,10 @@ import type { RecursionPlugin } from "#compiler/check/context.ts"
 import { only as onlyMember } from "#compiler/check/defined.ts"
 import { factorArms } from "#compiler/check/recursion/factor.ts"
 import { carryOrigin, correlationColumns, originParents } from "#compiler/check/recursion/origin.ts"
-import { scanArms } from "#compiler/check/recursion/scan.ts"
+import { entryRules, type RelationReads, scanArms } from "#compiler/check/recursion/scan.ts"
 import { conform, declaredRow, requireHashing } from "#compiler/check/recursion/state.ts"
 import { certificate, terminationVerdict } from "#compiler/check/recursion/termination.ts"
+import type { SchemaReading } from "#compiler/check/schema.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 
@@ -46,11 +47,32 @@ const only = (list: ReadonlyArray<{ readonly loc: SourceLoc }>, fallback: Source
  * Every refusal is a RecursionRefused at the arm or clause that causes it, its cause a RecursionRefusal
  * (core/causes.ts) naming the rule.
  */
+/**
+ * How a recursion's step reads a relation it names (RelationReads): in a role's world, a query entry of the role, read
+ * through its view, whose definition PostgreSQL reads in its place, is a union where its definition holds several rules
+ * (README "A recursive rule joins `self`": RecursionRefused, cause unionStep), as a query of them the step imports is;
+ * nothing else a name reads is.
+ */
+const worldReads =
+	(schema: SchemaReading): RelationReads =>
+	(name) => {
+		const world = schema.world
+		if (world.kind !== "role" || !Object.hasOwn(world.role.relations, name)) {
+			return undefined
+		}
+		const entry = world.role.relations[name]
+		if (entry?.kind !== "world") {
+			return undefined
+		}
+		const rules = entryRules(entry.query.stage)
+		return rules > 1 ? { kind: "unionStep", rules } : undefined
+	}
+
 export const recursion: RecursionPlugin = {
 	check: (stage, scope, loc, cx) => {
 		const def = stage.recursive
 		const at = childLoc(loc, "recursive")
-		const arms = scanArms(def)
+		const arms = scanArms(def, worldReads(cx.schema))
 		const row = declaredRow(def, at, cx)
 		const baseLoc = childLoc(at, "base")
 		const recLoc = childLoc(at, "rec")

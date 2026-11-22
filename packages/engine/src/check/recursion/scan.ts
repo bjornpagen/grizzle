@@ -13,7 +13,7 @@ import { entries } from "#compiler/check/scan.ts"
 import type { RecursionArm } from "#compiler/core/causes.ts"
 import { childLoc, locBelow, type SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import { exprChildren } from "#compiler/ir/desc.ts"
+import { exprChildren, type QueryStageDesc } from "#compiler/ir/desc.ts"
 
 /** One arm of the definition, with the location every refusal inside it names. */
 export interface Arm {
@@ -158,7 +158,7 @@ const isSelf = (s: ResolvedSource): boolean => s.kind === "self"
  * PostgreSQL computes once as a CTE, a relation with no index, and a union of several rules, which it deduplicates
  * before any join reaches it, so neither is ever read at the row a step extends.
  */
-type WholeRead =
+export type WholeRead =
 	| { readonly kind: "recursiveStep"; readonly inner: string }
 	| { readonly kind: "unionStep"; readonly rules: number }
 
@@ -167,26 +167,55 @@ type WholeRead =
  * recursion before a union where a stage holds both; none for a stage of one rule over stored relations and such
  * stages alone.
  */
-const wholeRead = (stage: ResolvedStage): WholeRead | undefined => {
+const wholeRead = (stage: ResolvedStage, reads: RelationReads): WholeRead | undefined => {
 	switch (stage.kind) {
 		case "rules":
-			return rulesWhole(stage.arms)
+			return rulesWhole(stage.arms, reads)
 		case "union": {
-			const input = wholeRead(stage.input)
+			const input = wholeRead(stage.input, reads)
 			return input?.kind === "recursiveStep"
 				? input
-				: firstWhole(stage.arms, { kind: "unionStep", rules: unionRules(stage) })
+				: firstWhole(stage.arms, { kind: "unionStep", rules: unionRules(stage) }, reads)
 		}
 		case "recursive":
 			return { kind: "recursiveStep", inner: stage.recursive.name }
 		case "attach":
-			return wholeRead(stage.input) ?? wholeRead(stage.attach.child.stage)
+			return wholeRead(stage.input, reads) ?? wholeRead(stage.attach.child.stage, reads)
 		case "named":
 		case "order":
 		case "take":
-			return wholeRead(stage.input)
+			return wholeRead(stage.input, reads)
 		case "approx":
 			return undefined
+	}
+}
+
+/**
+ * What a relation a rule names by name is read as, where it is read whole for every row a step extends: a role's query
+ * entry, read through its view, whose definition PostgreSQL reads in its place, is a union where its definition holds
+ * several rules (`entryRules`), as a query of them a step imports is (check/recursion/index.ts); none for any other.
+ */
+export type RelationReads = (name: string) => WholeRead | undefined
+
+/**
+ * The rules a query entry's definition reads as one union: its rules' arms, a union's arms beside its input's, through a
+ * name; one for any other stage, whose rows its order and take, its attachment, its approximate search or its recursion
+ * make.
+ */
+export const entryRules = <L>(stage: QueryStageDesc<L>): number => {
+	switch (stage.kind) {
+		case "rules":
+			return stage.arms.length
+		case "union":
+			return stage.arms.length + entryRules(stage.input)
+		case "named":
+			return entryRules(stage.input)
+		case "order":
+		case "take":
+		case "attach":
+		case "approx":
+		case "recursive":
+			return 1
 	}
 }
 
@@ -217,26 +246,39 @@ const inputRules = (input: ResolvedStage): number => {
 }
 
 /** The first whole read of a list of rules: a union where they are several, else the one rule's. */
-const rulesWhole = (rules: NonEmptyReadonlyArray<ResolvedRule>): WholeRead | undefined => {
+const rulesWhole = (
+	rules: NonEmptyReadonlyArray<ResolvedRule>,
+	reads: RelationReads
+): WholeRead | undefined => {
 	const [only, ...more] = rules
 	return more.length > 0
-		? firstWhole(rules, { kind: "unionStep", rules: rules.length })
-		: ruleWhole(only)
+		? firstWhole(rules, { kind: "unionStep", rules: rules.length }, reads)
+		: ruleWhole(only, reads)
 }
 
 /** A recursion read by any of `rules`, else the union they make. */
-const firstWhole = (rules: ReadonlyArray<ResolvedRule>, union: WholeRead): WholeRead =>
-	rules.map(ruleWhole).find((w) => w?.kind === "recursiveStep") ?? union
+const firstWhole = (
+	rules: ReadonlyArray<ResolvedRule>,
+	union: WholeRead,
+	reads: RelationReads
+): WholeRead =>
+	rules.map((rule) => ruleWhole(rule, reads)).find((w) => w?.kind === "recursiveStep") ?? union
+
+/** The whole read of a source a rule matches or negates: a query's or a step's stage's, a named relation's (RelationReads). */
+const sourceWhole = (source: ResolvedSource, reads: RelationReads): WholeRead | undefined =>
+	source.kind === "query" || source.kind === "step"
+		? wholeRead(source.query.stage, reads)
+		: source.kind === "relation"
+			? reads(source.name)
+			: undefined
 
 /** The first whole read of one rule, below the sources it matches or negates and in its interiors. */
-const ruleWhole = (rule: ResolvedRule): WholeRead | undefined => {
-	const reads = [
-		...ownSources(rule, rule.loc).flatMap(({ source }) =>
-			source.kind === "query" || source.kind === "step" ? [wholeRead(source.query.stage)] : []
-		),
-		...rule.interiors.map((interior) => rulesWhole(interior.arms))
+const ruleWhole = (rule: ResolvedRule, reads: RelationReads): WholeRead | undefined => {
+	const found = [
+		...ownSources(rule, rule.loc).map(({ source }) => sourceWhole(source, reads)),
+		...rule.interiors.map((interior) => rulesWhole(interior.arms, reads))
 	]
-	return reads.find((w) => w?.kind === "recursiveStep") ?? reads.find((w) => w !== undefined)
+	return found.find((w) => w?.kind === "recursiveStep") ?? found.find((w) => w !== undefined)
 }
 
 /**
@@ -273,9 +315,10 @@ const ruleWhole = (rule: ResolvedRule): WholeRead | undefined => {
  * A recursive arm that reads no `self` adds the same facts on every iteration, so it is folded into the base: the least
  * fixed point of B ∪ C ∪ T(R) is that of (B ∪ C) ∪ T(R).
  *
- * The arms of a definition, checked against the structural admission rules above.
+ * The arms of a definition, checked against the structural admission rules above, a relation a step names read as
+ * `reads` says.
  */
-export const scanArms = (def: ResolvedRecursive): ScannedArms => {
+export const scanArms = (def: ResolvedRecursive, reads: RelationReads): ScannedArms => {
 	const name = def.name
 	const row = Object.keys(def.row).toSorted(compareStrings)
 	const nested = new Nested(name)
@@ -359,10 +402,7 @@ export const scanArms = (def: ResolvedRecursive): ScannedArms => {
 		nested.rule(arm.rule, arm.loc, true)
 		if (firstSelf !== undefined) {
 			for (const { source, loc } of ownSources(arm.rule, arm.loc)) {
-				const whole =
-					source.kind === "query" || source.kind === "step"
-						? wholeRead(source.query.stage)
-						: undefined
+				const whole = sourceWhole(source, reads)
 				if (whole !== undefined) {
 					failRecursion(loc, { ...whole, recursion: name })
 				}
