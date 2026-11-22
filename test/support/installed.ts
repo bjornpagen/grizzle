@@ -9,7 +9,7 @@ import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { type DraftWorkload, noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import type { InstallExtension } from "#compiler/physical/install/extension.ts"
-import { parseSchemaInput } from "#compiler/program/schema.ts"
+import { parseSchemaInput } from "#compiler/program/input.ts"
 import { compileWorkload } from "#compiler/program/workload/compile.ts"
 import {
 	type AnyClosed,

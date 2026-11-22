@@ -282,7 +282,7 @@ export interface LiveEnv {
 	readonly definition: (relation: string) => InferredQuery | undefined
 	/**
 	 * The descriptor each column of `query`, read as a definition of `relation`, is delivered at, as the checker types
-	 * it: the inferred field's own (analysis/derived/fields.ts fieldDescOf), a computed numeric's among them, which a
+	 * it: the inferred field's own (schema/field-desc.ts fieldDescOf), a computed numeric's among them, which a
 	 * bare head literal of the column is typed by, so the literal stands wherever a term of the column does.
 	 */
 	readonly columnType: (relation: string, query: InferredQuery, loc: SourceLoc) => ColumnTypes

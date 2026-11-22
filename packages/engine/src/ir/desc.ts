@@ -129,7 +129,7 @@ export type PgScalarName = (typeof pgScalarNames)[number]
 
 /**
  * A field's descriptor, as a declaration states it, the Description boundary carries it (fieldDescShape) and a derived
- * relation's heading infers it (analysis/derived/fields.ts fieldDescOf): numeric is numeric(p, s), its precision and
+ * relation's heading infers it (schema/field-desc.ts fieldDescOf): numeric is numeric(p, s), its precision and
  * scale both declared, and `pg` numeric is numeric of no typmod, which holds every numeric value (ir/scalar.ts
  * NumericValueType at numeric's own limits); computedNumeric is numeric of no typmod within a narrower bound
  * (ir/scalar.ts NumericBound), a sum's, a mean's or an operation's, which a derived relation's column carries and a

@@ -120,7 +120,6 @@ import { accumulations, type CombineFn, combine, monoidSpecs } from "#compiler/i
 import type { RelNode } from "#compiler/ir/rel.ts"
 import { conservativeMeta, type HeadingColumn } from "#compiler/ir/rel.ts"
 import { baseOf, type ContractInfo, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
-import type { StatedEntry } from "#compiler/runtime/law-entry.ts"
 import { countOverload, unaryOverload } from "#compiler/scalar/aggregate.ts"
 import { irLiteral, oppositeLiteral } from "#compiler/scalar/compute/literal.ts"
 import { type LowerEnv, lowerPredicate, lowerTerm } from "#compiler/scalar/compute/lower.ts"
@@ -143,6 +142,7 @@ import {
 	type EntryColumn,
 	setDatumBound
 } from "#compiler/schema/representability.ts"
+import type { StatedEntry } from "#compiler/types/changeset/changeset.ts"
 
 /** A row check as its statement states it: its relation, its name and predicate, and its constraint identifier, which
  * ownership named. */

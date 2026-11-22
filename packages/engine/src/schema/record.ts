@@ -1,13 +1,11 @@
-import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import {
-	type BindContext,
 	type Column,
 	columnForm,
 	type Decoded,
+	type DecoderForm,
 	decoderOf,
 	type FieldForm,
-	type Layout,
 	Named,
 	type Part,
 	type RecordFieldOf,
@@ -18,7 +16,6 @@ import {
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { derivedHeld } from "#compiler/ir/desc.ts"
-import { recordsReader } from "#compiler/runtime/read/record.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -105,17 +102,20 @@ const assembled = <R>(entries: ReadonlyArray<readonly [string, unknown]>): R => 
 }
 
 /**
- * A decoder bound to every heading group's layout (groupsReader), once per compiled program: each delivered Row read to
- * a record of its builder's type A. A layout that does not hold a field the decoder reads, or an attachment the analysis
- * did not prove in the stated delivery, is the binding's CompileError.
+ * A decoder bound by `reader`, the runtime's reader of its form bound to every heading group's layout, once per compiled
+ * program (runtime/read/record.ts recordsReader): each delivered Row read to a record of its builder's type A. A layout
+ * that does not hold a field the decoder reads, or an attachment the analysis did not prove in the stated delivery, is
+ * the binding's CompileError, `reader`'s. The reading is the runtime's and the record's type this module's, its one
+ * assertion, so the builders, which state the type, load none of the runtime that reads.
  */
 export const bindGroups = <A>(
 	decoder: RowDecoder<A>,
-	layouts: NonEmptyReadonlyArray<Layout>,
-	context: BindContext
+	reader: (
+		form: DecoderForm
+	) => Result.Result<(row: Row) => Readonly<Record<string, unknown>>, CompileError>
 ): Result.Result<(row: Row) => A, CompileError> =>
 	Result.map(
-		recordsReader(decoder.form, layouts, context),
+		reader(decoder.form),
 		(read) =>
 			(row: Row): A =>
 				claimed<A>(read(row))

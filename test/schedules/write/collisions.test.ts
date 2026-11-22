@@ -46,8 +46,8 @@ import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Fiber, Formatter, Option, Result } from "effect"
 import { openServed } from "#adapter/db/served.ts"
+import { lawsByStatement, lawsOf } from "#compiler/program/laws.ts"
 import { sameLaw } from "#compiler/public/changeset.ts"
-import { lawsByStatement, lawsOf } from "#compiler/public/schema.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 import {
 	addedTo,

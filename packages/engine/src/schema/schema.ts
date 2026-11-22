@@ -17,7 +17,7 @@ import {
 	levelChain,
 	schemaLevelDesc
 } from "#compiler/ir/desc.ts"
-import { type DeclaredEntries, mergedDeclared } from "#compiler/runtime/law-entry.ts"
+import { type DeclaredEntries, mergedDeclared } from "#compiler/schema/declared-entries.ts"
 import { fragmentName, fragmentReach } from "#compiler/schema/fragment.ts"
 import { functionDescOf } from "#compiler/schema/function.ts"
 import { declaredEntriesOf } from "#compiler/schema/law-entries.ts"

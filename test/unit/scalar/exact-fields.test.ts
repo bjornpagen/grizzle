@@ -5,7 +5,7 @@
  * - Typing: for each carrier, a drawn digit bound an operation computes its exact value at, and a drawn value of the
  *   field's, from within a signed 64-bit count to hundreds of digits: the field's Description is the exact arm of its
  *   carrier and its type the exact value at numeric's own limit; the descriptor a derived relation's or a records
- *   relation's column of the computed type writes (analysis/derived/fields.ts fieldDescOf) is the field's, whose type
+ *   relation's column of the computed type writes (schema/field-desc.ts fieldDescOf) is the field's, whose type
  *   it reads back; the computed value enters the field's column (ir/scalar.ts entersColumn), and no value of the other
  *   carrier does; the field's column converts numeric_out's text of the value to it bit-exactly, the codec writes that
  *   text and reads it back, and the live wire parses it at the field's spec; and the wire's spec of the computed bound
@@ -27,7 +27,6 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
-import { fieldDescOf } from "#compiler/analysis/derived/fields.ts"
 import { derivedAnalysis } from "#compiler/analysis/schema.ts"
 import { compileReasonText } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -41,6 +40,7 @@ import { bareEnv, describeField, scalarTypeOf } from "#compiler/scalar/registry.
 import { converterOf } from "#compiler/scalar/values/convert.ts"
 import { numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
+import { fieldDescOf } from "#compiler/schema/field-desc.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { refused, refusedKeys, succeeded } from "#test/support/assert.ts"
 import { checkedIn, ownedInput } from "#test/support/policy.ts"
@@ -167,7 +167,7 @@ export const anExactFieldIsArithmeticsExactTypeAtNumericsOwnLimitAndHoldsEveryVa
 				why: "An exact field is the exact value of a bigint's digits, not numeric's own limit: its type differs, and a computed value of more digits enters no field; the typing property fails."
 			},
 			{
-				file: "packages/engine/src/analysis/derived/fields.ts",
+				file: "packages/engine/src/schema/field-desc.ts",
 				original: '\t\t\treturn Result.ok({ kind: "exact", carrier: type.carrier })',
 				replacement: '\t\t\treturn Result.ok({ kind: "exact", carrier: "exactInteger" })',
 				why: "A computed exact money column's descriptor is the exact integer's, so a derived or records relation of it reads integers; the typing property fails."

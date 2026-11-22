@@ -58,8 +58,9 @@ import {
 	statisticsKinds
 } from "#compiler/physical/statistics/statistics.ts"
 
+import type { SchemaInput } from "#compiler/program/input.ts"
 import { certification } from "#compiler/program/isolation/certification.ts"
-import type { ArtifactsWorld, SchemaArtifacts, SchemaInput } from "#compiler/program/schema.ts"
+import type { ArtifactsWorld, SchemaArtifacts } from "#compiler/program/schema.ts"
 import {
 	type ChangeLogin,
 	type ChangeRefused,

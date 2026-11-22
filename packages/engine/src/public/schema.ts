@@ -66,21 +66,6 @@ export {
 	tree,
 	unit
 } from "#compiler/schema/api.ts"
-export { constraintNamesOf, lawsByStatement, lawsOf } from "#compiler/program/laws.ts"
-export type {
-	AdmittedRow,
-	CheckNameOf,
-	CheckVerdict,
-	DomainRefused,
-	EvaluatedRow,
-	GeneratedFieldOf,
-	RowEvaluation,
-	RowEvaluator,
-	RowSource,
-	SourceRelation,
-	Unevaluated,
-	ValueRefused
-} from "#compiler/types/schema/evaluation.ts"
 export { type NameFault, nameFaultText, parseDeclaredName } from "#compiler/core/identity.ts"
 export { schemaNameOf } from "#compiler/program/names.ts"
 export { login } from "#compiler/program/workload/login.ts"

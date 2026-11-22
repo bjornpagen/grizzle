@@ -3,7 +3,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { exact } from "@bjornpagen/testing/oracle"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
-import { queryInput } from "#compiler/program/compile.ts"
+import { queryInput } from "#compiler/program/input.ts"
 import { templateFor } from "#compiler/program/template.ts"
 import { inputArtifacts, schemaInputOf, testCompile } from "#test/support/compile.ts"
 import { buildRoot, buildSchema } from "#test/support/oracle/public/build.ts"
@@ -72,7 +72,7 @@ export const compilingAgainEveryGeneratedReadCompilesAsADbCompilesItAndCompiling
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/program/compile.ts",
+				file: "packages/engine/src/program/input.ts",
 				original:
 					'\tif (built !== undefined) {\n\t\treturn Result.flatMap(\n\t\t\tcatchCompileError(() => publicDesc(built, "query")),\n\t\t\t(desc) =>\n\t\t\t\tResult.map(parseOver(built.schema.over.value), (schema): QueryInput => ({\n\t\t\t\t\tkind: "built",\n\t\t\t\t\tdesc,\n\t\t\t\t\tschema\n\t\t\t\t}))\n\t\t)\n\t}',
 				replacement: "\t{}",

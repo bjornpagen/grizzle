@@ -28,7 +28,6 @@ import type { Source } from "@bjornpagen/testing/source"
 import { bigint, double, uuid } from "@bjornpagen/testing/values"
 import { regex } from "arkregex"
 import { Array as Arr, Option, Order, Record as Rec, String as Str } from "effect"
-import { declaredDescOf } from "#compiler/analysis/derived/fields.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { hasProperties } from "#compiler/core/record.ts"
@@ -71,6 +70,7 @@ import { numericMaxFractionDigits, numericMaxIntegerDigits } from "#compiler/sca
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { closed } from "#compiler/schema/api.ts"
+import { declaredDescOf } from "#compiler/schema/field-desc.ts"
 import {
 	accumulatedField,
 	admittedClosedId,

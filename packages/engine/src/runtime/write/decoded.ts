@@ -49,9 +49,6 @@ export const recordDecoded = (rows: ReadonlyArray<unknown>, input: DecodedInput)
 	decoded.set(rows, input)
 }
 
-/** Whether `rows` is an array decode admitted, frozen with its rows, whose reads it recorded. */
-export const isDecoded = (rows: ReadonlyArray<unknown>): boolean => decoded.has(rows)
-
 /** The reads recorded of `facts`, where it is an array decode admitted. */
 const decodedOf = (facts: Iterable<unknown>): DecodedInput | undefined =>
 	isList(facts) ? decoded.get(facts) : undefined

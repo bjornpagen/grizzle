@@ -98,8 +98,9 @@ import {
 	spanColumns,
 	spanConstraintLaws
 } from "#compiler/physical/span/storage.ts"
-import { type DeclaredEntries, derivedStatement, recordedLaw } from "#compiler/runtime/law-entry.ts"
+import { recordedLaw } from "#compiler/runtime/law-entry.ts"
 import { constraintLawsOf } from "#compiler/runtime/write/laws.ts"
+import { type DeclaredEntries, derivedStatement } from "#compiler/schema/declared-entries.ts"
 import { installationsOf, type Owned } from "#compiler/schema/own.ts"
 import type { Slice } from "#compiler/schema/reach.ts"
 import type { AboveLaw, RecordedLaw } from "#compiler/types/changeset/changeset.ts"

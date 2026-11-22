@@ -435,7 +435,7 @@ export const decodeAndTheInsertOfWhatItAdmittedReadEachRowOnceInAll = property.e
 		},
 		{
 			file: "packages/engine/src/write/changeset/value.ts",
-			original: "\tisDecoded(facts) ? facts : Object.freeze(facts.map(frozenFact))",
+			original: "\tfixedFacts(facts) ? facts : Object.freeze(facts.map(frozenFact))",
 			replacement: "\tObject.freeze(facts.map(frozenFact))",
 			why: "A ChangeSet copies a decoded array, so its insert meets no array decode admitted and reads every row again."
 		}

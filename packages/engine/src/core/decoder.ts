@@ -413,8 +413,8 @@ export type AttachedForm = Exclude<FieldForm, { readonly kind: "column" }>
  * both records' fields; a union of two decoders' records, a layout binding the arm that owns the largest heading it
  * delivers; a parent's records with the alternatives arm of `handle` under `name`, Some of the child where the parent's
  * `field` holds `handle` and None elsewhere; or the decoder of a query whose rows no builder can decode, which refuses
- * every layout. Its interpreter is schema/record.ts bindGroups, which a served file's decoder runs through as one a
- * builder made.
+ * every layout. Its interpreter is runtime/read/record.ts recordsReader, which schema/record.ts bindGroups types, and
+ * which a served file's decoder runs through as one a builder made.
  */
 export type DecoderForm =
 	| { readonly kind: "record"; readonly fields: ReadonlyArray<readonly [string, FieldForm]> }
@@ -456,8 +456,9 @@ export interface RecordField<out A> extends Phantom<{ readonly host: A }> {
  * in the stated delivery, is the binding's CompileError, once per compiled program.
  *
  * A decoder is data (DecoderForm), built once per program value, its record type A a phantom of its builder's: the same
- * data a served file carries for it. Binding it (schema/record.ts bindGroups) resolves it against the layout of the
- * statement that delivers its rows, once per compiled program; the bound decoder is a straight closure over one row.
+ * data a served file carries for it. Binding it (runtime/read/record.ts recordsReader, typed by schema/record.ts
+ * bindGroups) resolves it against the layout of the statement that delivers its rows, once per compiled program; the
+ * bound decoder is a straight closure over one row.
  */
 export interface RowDecoder<out A> extends Phantom<{ readonly host: A }> {
 	readonly form: DecoderForm

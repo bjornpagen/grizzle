@@ -47,12 +47,13 @@ import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
 import type { DeliveredPart } from "#compiler/lower/shapes/index.ts"
 import { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
-import { queryInput } from "#compiler/program/compile.ts"
+import { queryInput } from "#compiler/program/input.ts"
 import type { InstalledArtifacts } from "#compiler/program/schema.ts"
 import { servedSession } from "#compiler/program/served.ts"
 import { type CompiledTemplate, templateFor } from "#compiler/program/template.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { isOrderedValue, isQueryValue } from "#compiler/query/build/query.ts"
+import { recordsReader } from "#compiler/runtime/read/record.ts"
 import { bindGroups } from "#compiler/schema/record.ts"
 import { type ServedSpine, servedSource } from "#compiler/served/read.ts"
 import { servedSpine } from "#compiler/served/spine.ts"
@@ -603,10 +604,9 @@ export const deliver = Effect.fn("deliver")(
 			codes
 		)
 		const read = unwrap(
-			bindGroups(compiled.decoder, program.layouts, {
-				options: rowOptions,
-				names: codeNames(codes)
-			}),
+			bindGroups(compiled.decoder, (form) =>
+				recordsReader(form, program.layouts, { options: rowOptions, names: codeNames(codes) })
+			),
 			"the query's decoder bound"
 		)
 		const flight = yield* Effect.mapError(

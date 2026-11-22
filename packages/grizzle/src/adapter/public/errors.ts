@@ -1,3 +1,4 @@
+export { CredentialError } from "#adapter/errors/credential.ts"
 export { OpenError, type OpenReason, type OpenStage } from "#adapter/errors/execution.ts"
 
 export {
@@ -6,7 +7,6 @@ export {
 	type ClaimFault,
 	ClaimRefused,
 	ConnectionEnvironmentRefused,
-	CredentialError,
 	DbConfigRefused,
 	ExpiryRefused,
 	LiveSourceMissing,

@@ -93,7 +93,6 @@ import {
 import { baseOf, type ContractInfo, Roster, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
 import type { StoredUnit } from "#compiler/ir/unit.ts"
 import type { ContainmentFact } from "#compiler/logical/attach.ts"
-import { derivedStatement, mergedEntry, type StatedEntry } from "#compiler/runtime/law-entry.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
 import { CompilePatterns, type PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import {
@@ -102,8 +101,10 @@ import {
 	scalarTypeOf,
 	type TextLookup
 } from "#compiler/scalar/registry.ts"
+import { derivedStatement, mergedEntry } from "#compiler/schema/declared-entries.ts"
 import type { Owned } from "#compiler/schema/own.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
+import type { StatedEntry } from "#compiler/types/changeset/changeset.ts"
 
 /**
  * What the statement a containment's law is from refuses two of its paired fields of other identities for: an

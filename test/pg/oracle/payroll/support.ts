@@ -6,7 +6,7 @@ import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
 import { type ConservativeParamSlot, flight } from "#compiler/lower/conservative/types.ts"
-import { parseSchemaInput } from "#compiler/program/schema.ts"
+import { parseSchemaInput } from "#compiler/program/input.ts"
 import { isOrderedValue, isQueryValue } from "#compiler/query/build/query.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import {

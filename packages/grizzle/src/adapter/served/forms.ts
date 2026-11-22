@@ -41,6 +41,7 @@ import {
 	transactionClock,
 	prose,
 	type QueryDesc,
+	recordsReader,
 	type RowDecoder,
 	type SchemaArtifacts,
 	type SchemaFingerprint,
@@ -68,7 +69,7 @@ export const boundReads = <R>(
 	decoder: RowDecoder<R>
 ): Result.Result<BoundReads<R>, CompileError> => {
 	const runs = entry.readBacks
-	const read = bindGroups(decoder, [runs.layout], entry.bind)
+	const read = bindGroups(decoder, (form) => recordsReader(form, [runs.layout], entry.bind))
 	return read.ok ? Result.succeed({ runs, read: read.value }) : Result.fail(read.error)
 }
 
@@ -118,10 +119,15 @@ const bindArtifacts = <A>(
 	compiled: ReadArtifacts,
 	decoder: () => RowDecoder<A>
 ): Result.Result<Bound<A>, CompileError> =>
-	Result.map(toResult(bindGroups(decoder(), compiled.program.layouts, role.bind)), (read) => ({
-		compiled,
-		read
-	}))
+	Result.map(
+		toResult(
+			bindGroups(decoder(), (form) => recordsReader(form, compiled.program.layouts, role.bind))
+		),
+		(read) => ({
+			compiled,
+			read
+		})
+	)
 
 /**
  * The rows form of `query` for `role`, the parameters `clock` names bound to the database's clock, its readings of it

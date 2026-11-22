@@ -62,14 +62,10 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
 import { rowEvaluator } from "#adapter/public/host.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
+import { constraintNamesOf, lawsByStatement, lawsOf } from "#compiler/program/laws.ts"
 import { previewOver } from "#compiler/program/preview.ts"
 import { sameLaw } from "#compiler/public/changeset.ts"
-import {
-	type AnyRelation,
-	constraintNamesOf,
-	lawsByStatement,
-	lawsOf
-} from "#compiler/public/schema.ts"
+import { type AnyRelation } from "#compiler/public/schema.ts"
 import { derivedEntry, derivedLaw } from "#compiler/runtime/law-entry.ts"
 import { constraintLawsOf } from "#compiler/runtime/write/laws.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"

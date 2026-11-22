@@ -28,6 +28,7 @@ import {
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { natural } from "#compiler/public/fields.ts"
 import { records, recordsQuery, schema } from "#compiler/public/schema.ts"
+import { recordsReader } from "#compiler/runtime/read/record.ts"
 import { bindGroups } from "#compiler/schema/record.ts"
 import { describeDeclared } from "#compiler/schema/relation.ts"
 import {
@@ -135,7 +136,9 @@ export const aQuerysRecordsHoldEachColumnAsItsOwnFieldAndReadBackThroughItsOwnDe
 					const program = programOf(read, level)
 					for (const layouts of program.layouts) {
 						const [first, ...rest] = layouts
-						const bound = bindGroups(read.rows, [first, ...rest], program.bind)
+						const bound = bindGroups(read.rows, (form) =>
+							recordsReader(form, [first, ...rest], program.bind)
+						)
 						assert.ok(bound.ok, `${what}: the query's decoder binds its read's program`)
 					}
 				}),
@@ -154,7 +157,7 @@ export const aQuerysRecordsHoldEachColumnAsItsOwnFieldAndReadBackThroughItsOwnDe
 					why: "A union's text literals are stored as a text of the first literal's pattern alone, which refuses the second: the column does not hold exactly its literals."
 				},
 				{
-					file: "packages/engine/src/analysis/derived/fields.ts",
+					file: "packages/engine/src/schema/field-desc.ts",
 					original:
 						"\tisNumericValue(type) ? Result.ok(numericBoundDesc(type.bound)) : declaredDescOf(type, contracts)",
 					replacement:

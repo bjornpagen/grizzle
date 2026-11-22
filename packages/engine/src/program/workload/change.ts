@@ -13,15 +13,10 @@ import { type Phases, phased, silentPhases } from "#compiler/core/phase.ts"
 import type { ClockBinding, ClockSource } from "#compiler/ir/clock.ts"
 import type { NamedLogin, NamedRole } from "#compiler/physical/ddl/names.ts"
 import type { ParamSource } from "#compiler/physical/install/plan.ts"
+import { type ParsedRole, parseOver } from "#compiler/program/input.ts"
 import type { ExtractNames } from "#compiler/program/isolation/extract.ts"
 import { compiledFacts, extractNames } from "#compiler/program/isolation/member-facts.ts"
-import {
-	type ParsedRole,
-	parseOver,
-	programSchema,
-	roleArtifacts,
-	type SchemaArtifacts
-} from "#compiler/program/schema.ts"
+import { programSchema, roleArtifacts, type SchemaArtifacts } from "#compiler/program/schema.ts"
 import type { PlannedFrontends } from "#compiler/program/workload/planned.ts"
 import { loginRole, programsOn } from "#compiler/program/workload/roles.ts"
 import { writeWorldOf } from "#compiler/program/write-world.ts"

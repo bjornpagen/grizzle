@@ -220,7 +220,8 @@
 							"test/unit/adapter/bind.fixtures.ts",
 							"test/unit/adapter/flight-bound.test.ts",
 							"test/unit/adapter/flight-bound.fixtures.ts",
-							"test/unit/adapter/pool.fixtures.ts"
+							"test/unit/adapter/pool.fixtures.ts",
+							"test/unit/entry/dsl.fixtures.ts"
 						],
 						"options": {
 							"diagnosticSeverity": {
@@ -256,6 +257,7 @@
 							"packages/grizzle/src/adapter/db/ops.ts",
 							"packages/grizzle/src/adapter/db/served.ts",
 							"packages/grizzle/src/adapter/engine.ts",
+							"packages/grizzle/src/adapter/errors/credential.ts",
 							"packages/grizzle/src/adapter/errors/execution.ts",
 							"packages/grizzle/src/adapter/errors/failures.ts",
 							"packages/grizzle/src/adapter/outcomes/index.ts",

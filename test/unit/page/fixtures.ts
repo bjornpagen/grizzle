@@ -8,7 +8,8 @@ import {
 	type PageTemplate,
 	statedOrderOf
 } from "#compiler/lower/shapes/page/compile.ts"
-import { type QueryTemplate, queryInput, querySchema } from "#compiler/program/compile.ts"
+import { type QueryTemplate, querySchema } from "#compiler/program/compile.ts"
+import { queryInput } from "#compiler/program/input.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, contained, on, relation, schema } from "#compiler/public/schema.ts"

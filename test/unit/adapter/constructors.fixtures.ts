@@ -1,5 +1,6 @@
 /** What the properties of constructors.test.ts read: its spaces, models and helpers. */
 
+import * as Runtime from "@bjornpagen/grizzle/runtime"
 import { assert, defined } from "@bjornpagen/testing/assert"
 import {
 	aimed,
@@ -62,7 +63,7 @@ import { wild } from "#test/support/kernel/naming.ts"
  */
 
 /** The errors a caller meets as classes: Db.open's and DbLayer.make's, and the compile's. */
-type PublicChannel = Public.OpenError | CompileError
+type PublicChannel = Runtime.OpenError | CompileError
 
 /** The errors the adapter classifies, the public ones and those a call's CallError reads (live/call-error.ts). */
 type Channel = PublicChannel | Execution.ReadError | Execution.ApplyError
@@ -94,39 +95,39 @@ const constructors: {
 		...args: never
 	) => Extract<Failure, { readonly _tag: T }>
 } = {
-	AttestationRefused: Public.AttestationRefused,
+	AttestationRefused: Runtime.AttestationRefused,
 	CallInputRefused: Failures.CallInputRefused,
-	ClaimRefused: Public.ClaimRefused,
+	ClaimRefused: Runtime.ClaimRefused,
 	CommitLost: Failures.CommitLost,
 	CommitUnknown: Execution.CommitUnknown,
 	CompileError,
 	ConcurrentRefresh: Failures.ConcurrentRefresh,
 	ConnectionClosed: Failures.ConnectionClosed,
-	ConnectionEnvironmentRefused: Public.ConnectionEnvironmentRefused,
+	ConnectionEnvironmentRefused: Runtime.ConnectionEnvironmentRefused,
 	ConnectionLost: Failures.ConnectionLost,
 	CredentialError: Public.CredentialError,
-	DbConfigRefused: Public.DbConfigRefused,
+	DbConfigRefused: Runtime.DbConfigRefused,
 	Deadlock: Failures.Deadlock,
 	DriverFailure: Failures.DriverFailure,
 	DriverRefused: Failures.DriverRefused,
 	EncodingFailure,
 	ExecutionFailure: Execution.ExecutionFailure,
-	ExpiryRefused: Public.ExpiryRefused,
+	ExpiryRefused: Runtime.ExpiryRefused,
 	InputRejected: Failures.InputRejected,
 	InputTooLarge: Failures.InputTooLarge,
 	LawRejected: Failures.LawRejected,
 	LayerReleased: Failures.LayerReleased,
-	LiveSourceMissing: Public.LiveSourceMissing,
+	LiveSourceMissing: Runtime.LiveSourceMissing,
 	Migrated: Failures.Migrated,
 	Migrating: Failures.Migrating,
 	NoCancelKey: Failures.NoCancelKey,
-	OpenError: Public.OpenError,
+	OpenError: Runtime.OpenError,
 	ParamRejected: Failures.ParamRejected,
 	PutTargetConflict: Failures.PutTargetConflict,
 	ReadFailure: Execution.ReadFailure,
-	RoleOutsideLayers: Public.RoleOutsideLayers,
+	RoleOutsideLayers: Runtime.RoleOutsideLayers,
 	SerializationFailure: Failures.SerializationFailure,
-	ServedLoginRefused: Public.ServedLoginRefused,
+	ServedLoginRefused: Runtime.ServedLoginRefused,
 	ServerError: Failures.ServerError,
 	SocketFailed: Failures.SocketFailed,
 	SpanKeyChange: Failures.SpanKeyChange,
@@ -134,13 +135,13 @@ const constructors: {
 	StartupRefused: Failures.StartupRefused,
 	TemporaryRefused: Failures.TemporaryRefused,
 	TlsRefused: Failures.TlsRefused,
-	TokenMalformed: Public.TokenMalformed,
-	TokenRefused: Public.TokenRefused,
+	TokenMalformed: Runtime.TokenMalformed,
+	TokenRefused: Runtime.TokenRefused,
 	TransientFailure: Execution.TransientFailure,
 	TransportFailure: Execution.TransportFailure,
 	UnreadableAnswer: Failures.UnreadableAnswer,
 	UnseenOccupant: Failures.UnseenOccupant,
-	VerifierUnavailable: Public.VerifierUnavailable
+	VerifierUnavailable: Runtime.VerifierUnavailable
 }
 
 /** Whether the adapter built `failure` with the public constructor of its tag. */

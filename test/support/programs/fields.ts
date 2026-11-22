@@ -5,7 +5,6 @@
  */
 export {
 	accumulated,
-	codecText,
 	contract,
 	generated,
 	lexical,
@@ -16,4 +15,5 @@ export {
 	Type,
 	uuid
 } from "#index.ts"
+export { codecText } from "@bjornpagen/grizzle/compile"
 export { Id } from "#test/support/ids.ts"

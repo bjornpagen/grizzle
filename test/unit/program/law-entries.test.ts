@@ -42,7 +42,7 @@ import {
 	writeSnapshot
 } from "#compiler/deploy/snapshot/build.ts"
 import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
-import { lawsByStatement, lawsOf } from "#compiler/public/schema.ts"
+import { lawsByStatement, lawsOf } from "#compiler/program/laws.ts"
 import { namedAbove } from "#compiler/runtime/law-entry.ts"
 import { lawBuilder } from "#compiler/schema/law-entries.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
@@ -499,7 +499,7 @@ export const everyLawCarriesTheCatalogEntryItsDeclarationStatesToEveryPlaceThatN
 				why: "A field of a writing of its own reads none of its type's entry: an accumulated field's pattern law is derived where its type declares one."
 			},
 			{
-				file: "packages/engine/src/runtime/law-entry.ts",
+				file: "packages/engine/src/schema/declared-entries.ts",
 				original:
 					'\treturn b.kind === "derived" || (a.name === b.name && a.source === b.source) ? a : undefined',
 				replacement: "\treturn a",

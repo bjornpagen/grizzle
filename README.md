@@ -419,13 +419,13 @@ less):
 ```ts
 import {
 	ChangeSet,
-	Db,
 	type Fact,
 	role,
 	wholeEntriesOf,
 	workload,
 	writableNamesOf
 } from "@bjornpagen/grizzle"
+import { Db } from "@bjornpagen/grizzle/runtime"
 
 /** A role that reads all of Billing and writes every relation in it but the closed ones. */
 export const Admin = role(Billing, "admin", wholeEntriesOf(Billing), {
@@ -882,7 +882,6 @@ import {
 	ChangeSet,
 	check,
 	counted,
-	Db,
 	drawn,
 	type Fact,
 	fin,
@@ -893,6 +892,7 @@ import {
 	wholeEntriesOf,
 	workload
 } from "@bjornpagen/grizzle"
+import { Db } from "@bjornpagen/grizzle/runtime"
 
 /** A grant of credits, by the Stripe payment that bought it. */
 const StripePayment = str.regex("^pi_[0-9A-Za-z]{1,64}$")
@@ -1413,7 +1413,7 @@ Then depend on it from your package, beside its peers:
 }
 ```
 
-Import it as `@bjornpagen/grizzle`, `@bjornpagen/grizzle/runtime`, `@bjornpagen/grizzle/compile`, `@bjornpagen/grizzle/dynamic`, `@bjornpagen/grizzle/client`, `@bjornpagen/grizzle/http` and `@bjornpagen/grizzle/locks`. `pnpm exec grizzle` runs the command line from `src/cli/bin.ts`, which turns on Node's compile cache before it loads the rest. To upgrade, move the submodule to a newer commit and run `pnpm install`.
+Import it as `@bjornpagen/grizzle`, `@bjornpagen/grizzle/runtime`, `@bjornpagen/grizzle/compile`, `@bjornpagen/grizzle/dynamic`, `@bjornpagen/grizzle/client`, `@bjornpagen/grizzle/http` and `@bjornpagen/grizzle/locks`. `@bjornpagen/grizzle` is the authoring entry: the builders a schema, its logins and its workloads are written with, `defineConfig` and `CredentialError`, and nothing that compiles or runs them, so a schema module or a `grizzle.config.ts` loads no compiler. A running application imports `@bjornpagen/grizzle/runtime` (`served`, `DbLayer`, `LiveSource`, `Db`, every runtime error, `roleNameOf`); a test that reads a schema's compile on the host imports `@bjornpagen/grizzle/compile` (`compileServed`, `indexesOf`, `lawsOf`, `lawsByStatement`, `constraintNamesOf`, `rowEvaluator`, `insertPreview`, `factsDecoder`, `codecText`, `rowText`). `pnpm exec grizzle` runs the command line from `src/cli/bin.ts`, which turns on Node's compile cache before it loads the rest. To upgrade, move the submodule to a newer commit and run `pnpm install`.
 
 The agent guide is `vendor/grizzle/packages/grizzle/skills/grizzle/SKILL.md`: copy it to where your agent reads skills, and again after upgrading grizzle.
 
@@ -1670,7 +1670,8 @@ A `login` is one PostgreSQL user, the one `roleNameOf(Web, {})` names (here `blo
 
 ```ts
 import net from "node:net"
-import { CredentialError, DbLayer, LiveSource, served, TokenRefused } from "@bjornpagen/grizzle/runtime"
+import { CredentialError } from "@bjornpagen/grizzle"
+import { DbLayer, LiveSource, served, TokenRefused } from "@bjornpagen/grizzle/runtime"
 import { verifyToken } from "@clerk/backend"
 import { attachDatabasePool } from "@vercel/functions/db-connections"
 import { Config, Effect, Layer } from "effect"
@@ -1752,7 +1753,7 @@ grizzle states no number of its own, and there is no isolation level, statement 
 ### The route handler
 
 ```ts
-import { Db } from "@bjornpagen/grizzle"
+import { Db } from "@bjornpagen/grizzle/runtime"
 import { ManagedRuntime, Schema } from "effect"
 
 /** A post's slug, checked as the schema's Slug checks it: lowercase letters, digits and hyphens. */
@@ -3055,9 +3056,8 @@ prefix. `WebServed.decoder` is the installation's decoder login as the file name
 `DecoderLogin` where its type proves it serves a read, `{ kind: "none" }` where it proves it serves none, either where it
 cannot tell; `roleNameOf(WebServed.decoder, connection)` is the role `LiveSource.layer` logs in as. `WebServed.roles.member.isolation` is the level `grizzle generate` certified the role's writes at,
 `readCommitted` or `serializable` ([READ COMMITTED writes](#read-committed-writes)): read it there, never from the
-file's JSON, whose encoding is grizzle's own. There is one `roleNameOf`, in `@bjornpagen/grizzle/runtime` and
-re-exported by `@bjornpagen/grizzle`: it reads the stem a login, a role, a served login or a decoder login carries and
-loads no schema module. `DbLayer.make({ login: WebServed, ... })` builds the login's pool and loads its workloads, compiling nothing, and
+file's JSON, whose encoding is grizzle's own. There is one `roleNameOf`, in `@bjornpagen/grizzle/runtime`: it reads
+the stem a login, a role, a served login or a decoder login carries and loads no schema module. `DbLayer.make({ login: WebServed, ... })` builds the login's pool and loads its workloads, compiling nothing, and
 refuses a file of another login than the name it was served as, at stage `config`. It requires `verify`
 exactly when one of the login's roles declares a context of a token's claims. A layer with `verify` runs it on every
 token it is handed, for a role that declares no such context too.
@@ -4745,8 +4745,7 @@ export const ShopApp = login(Shop, "shop", [JobWorker], {
 
 ```ts
 import net from "node:net"
-import { defineConfig } from "@bjornpagen/grizzle"
-import { CredentialError } from "@bjornpagen/grizzle/runtime"
+import { CredentialError, defineConfig } from "@bjornpagen/grizzle"
 import { Config, Effect } from "effect"
 import pgDriver from "pg"
 import { Blog, caPem, EtlJob, Web } from "./src/blog.ts"
@@ -5175,7 +5174,8 @@ that states it, as grizzle spells it. One rule takes one entry: two declarations
 refused as `MalformedDescription`, and so is `law(...)` of a `mutable` or `race`, which states no rule, of a value that
 declares none, or of a declaration already given one.
 
-`lawsOf(schema)` lists every rule the schema states, each once, as `{ law, id }`: `law` exactly as an outcome names
+`lawsOf(schema)`, from `@bjornpagen/grizzle/compile` as `lawsByStatement`, `constraintNamesOf` and `rowEvaluator` are,
+lists every rule the schema states, each once, as `{ law, id }`: `law` exactly as an outcome names
 it, its entry included, so every rule an outcome over the schema names is one of them, and `id` the one a refusal names it by, a refused
 law's own. Name the rules you handle by their ids once, then read a refusal's `laws` by `id`, with no search and no
 table of ids of your own. In order, however you declared the schema: each table's primary key, by table

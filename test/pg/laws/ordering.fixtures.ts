@@ -4,10 +4,11 @@ import { assert } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Data, Effect, Equivalence, Formatter, Option, Order, Result } from "effect"
 import { rowEvaluator } from "#adapter/public/host.ts"
+import { constraintNamesOf } from "#compiler/program/laws.ts"
 import { Range } from "#compiler/public/compute.ts"
 import { contract, pg, span } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { check, constraintNamesOf, derived, relation, schema } from "#compiler/public/schema.ts"
+import { check, derived, relation, schema } from "#compiler/public/schema.ts"
 import {
 	type Seat,
 	type SeatCase,

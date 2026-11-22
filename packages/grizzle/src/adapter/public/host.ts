@@ -23,7 +23,9 @@ import {
 
 /**
  * Public barrel: the host's readings of a schema's values, which send no SQL: insertPreview, factsDecoder,
- * rowEvaluator, codecText and rowText. packages/grizzle/src/index.ts re-exports it. Each answers Effect's Result, the one Result a caller reads:
+ * rowEvaluator, codecText and rowText. packages/grizzle/src/compile.ts re-exports it, beside lawsOf, lawsByStatement and
+ * constraintNamesOf: each compiles the schema it is given, so none is the authoring entry's. Each answers Effect's
+ * Result, the one Result a caller reads:
  * the engine computes each answer in its own (core/result.ts) and spells it through toResult (adapter/engine.ts), the
  * PublicResult each takes, where the answer is made, so an item computed where it is first read stays so.
  */

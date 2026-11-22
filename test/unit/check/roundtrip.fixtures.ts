@@ -53,7 +53,7 @@ import {
 	textPatterns,
 	vectorTypmodOf
 } from "#compiler/ir/scalar.ts"
-import { queryInput } from "#compiler/program/compile.ts"
+import { queryInput } from "#compiler/program/input.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { ordinarySession } from "#test/support/ambient.ts"

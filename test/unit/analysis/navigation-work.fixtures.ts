@@ -9,7 +9,7 @@ import { Navigation, navigateQuery } from "#compiler/analysis/theory/navigate.ts
 import { buildTheory } from "#compiler/analysis/theory/theory.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { descIdentity, type InferredQuery } from "#compiler/ir/desc.ts"
-import { queryInput } from "#compiler/program/compile.ts"
+import { queryInput } from "#compiler/program/input.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"

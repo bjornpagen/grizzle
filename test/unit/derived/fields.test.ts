@@ -1,5 +1,5 @@
 /**
- * Field inference for derived relations: every head term carries its field descriptor (analysis/derived/fields.ts
+ * Field inference for derived relations: every head term carries its field descriptor (schema/field-desc.ts
  * fieldDescOf), so a derived relation's heading needs no restatement.
  *
  * - Declared kinds: over drawn relations of one to four fields of every declarable type (field-sketch.ts: every pg
@@ -26,13 +26,13 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record } from "effect"
-import { fieldDescOf } from "#compiler/analysis/derived/fields.ts"
 import { derivedAnalysis } from "#compiler/analysis/schema.ts"
 import { instant, pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
+import { fieldDescOf } from "#compiler/schema/field-desc.ts"
 import {
 	materializedDerived as runtimeDerived,
 	closedBuilder,
@@ -133,7 +133,7 @@ export const derivedFieldInferenceGivesBackTheDescriptorOfEveryDeclarableFieldTy
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/analysis/derived/fields.ts",
+				file: "packages/engine/src/schema/field-desc.ts",
 				original: '\t\t\treturn Result.ok({ kind: "pg", type: "smallint" })',
 				replacement: '\t\t\treturn Result.ok({ kind: "pg", type: "integer" })',
 				why: "declaredDescOf gives an int2 column integer's descriptor; the declared kinds' round trip fails."
@@ -231,7 +231,7 @@ export const derivedFieldInferenceRefusesAContractTheSchemaDeclaresOnNoRelationI
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/analysis/derived/fields.ts",
+				file: "packages/engine/src/schema/field-desc.ts",
 				original: '\t\t\treturn Result.err({ kind: "undeclared", contract: contract.name })',
 				replacement:
 					'\t\t\treturn Result.err({ kind: "undeclared", contract: contract.base.carrier })',

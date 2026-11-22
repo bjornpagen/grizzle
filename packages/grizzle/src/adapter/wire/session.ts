@@ -108,11 +108,11 @@ import {
 } from "#compiler/plan/runtime.ts"
 
 import type { ParsedConnection, ParsedTransport } from "#adapter/connection/config.ts"
+import { CredentialError } from "#adapter/errors/credential.ts"
 import {
 	type AcquireRefusal,
 	ConnectionClosed,
 	type ConnectRefusal,
-	CredentialError,
 	DriverFailure,
 	DriverRefused,
 	LayerReleased,

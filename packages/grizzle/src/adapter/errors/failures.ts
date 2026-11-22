@@ -1,6 +1,7 @@
 import * as Arr from "effect/Array"
 import * as Data from "effect/Data"
 import type { RefusedVariable } from "#adapter/connection/environment.ts"
+import type { CredentialError } from "#adapter/errors/credential.ts"
 import type {
 	ExecutionPart,
 	FamilyRowBound,
@@ -109,19 +110,6 @@ export class ServerError extends Data.TaggedError("ServerError")<{
 
 /** The server's report, as a sentence names it: its SQLSTATE and its message. */
 const reportText = (error: ServerError): string => `SQLSTATE ${error.sqlstate}: ${error.message}`
-
-/**
- * A password Effect failed, for example an AWS provider that could not resolve credentials: the application fails its
- * password Effect with it, the provider's failure as its `cause`. grizzle never fails with it on its own: it is the
- * reason of an OpenError, a ReadFailure or a TransportFailure, at stage `credential`.
- */
-export class CredentialError extends Data.TaggedError("CredentialError")<{
-	readonly cause: unknown
-}> {
-	override get message(): string {
-		return "the password Effect failed"
-	}
-}
 
 /**
  * The transport failed with a socket error code, such as ECONNREFUSED (nothing listens), ENOTFOUND (the host does not

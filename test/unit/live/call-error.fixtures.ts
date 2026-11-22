@@ -12,6 +12,7 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec, String as Str } from "effect"
+import { CredentialError } from "#adapter/errors/credential.ts"
 import {
 	type ApplyError,
 	ExecutionFailure,
@@ -25,7 +26,6 @@ import {
 	type ConnectRefusal,
 	ConnectionClosed,
 	ConnectionLost,
-	CredentialError,
 	DriverFailure,
 	DriverRefused,
 	LayerReleased,

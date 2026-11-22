@@ -4,116 +4,8 @@ import { type CompileError, derivedRefused } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
-import {
-	isNumericValue,
-	languageOctets,
-	languageOfText,
-	type NumericValueType,
-	type ScalarType,
-	textPatterns
-} from "#compiler/ir/scalar.ts"
-import { numericBoundDesc } from "#compiler/scalar/registry.ts"
+import { fieldDescOf } from "#compiler/schema/field-desc.ts"
 import type { OwnedContract } from "#compiler/schema/own.ts"
-
-/** Why a column type has no field descriptor: a contract the owned schema does not declare. */
-interface Undescribed {
-	readonly kind: "undeclared"
-	readonly contract: string
-}
-
-/**
- * The field descriptor of one column type, the descriptor of a field that holds every value of it and is of it exactly,
- * so its type is the column's again (scalar/registry.ts scalarTypeOf): numeric of no typmod by its bound
- * (numericBoundDesc), a computed numeric's or pg.numeric's, or the descriptor a declaration of the type writes
- * (declaredDescOf). A derived relation's heading is described by it, and so is a stored field of a read's column.
- * `contracts` are the owned schema's contracts.
- */
-export const fieldDescOf = (
-	type: ScalarType,
-	contracts: Readonly<Record<string, OwnedContract>>
-): Result.Result<FieldDesc, Undescribed> =>
-	isNumericValue(type) ? Result.ok(numericBoundDesc(type.bound)) : declaredDescOf(type, contracts)
-
-/**
- * The descriptor a declaration of `type` writes. A contract column's descriptor is the schema's own declaration of that
- * contract, so a derived field and a declared field of one contract are one descriptor.
- */
-export const declaredDescOf = (
-	type: Exclude<ScalarType, NumericValueType>,
-	contracts: Readonly<Record<string, OwnedContract>>
-): Result.Result<FieldDesc, Undescribed> => {
-	const { contract } = type
-	if (contract !== undefined) {
-		const declared = contracts[contract.name]
-		if (declared === undefined) {
-			return Result.err({ kind: "undeclared", contract: contract.name })
-		}
-		return Result.ok(declared.desc)
-	}
-	switch (type.carrier) {
-		case "int2":
-			return Result.ok({ kind: "pg", type: "smallint" })
-		case "int4":
-			return Result.ok({ kind: "pg", type: "integer" })
-		case "int8":
-			return Result.ok({ kind: "pg", type: "bigint" })
-		case "float4":
-			return Result.ok({ kind: "pg", type: "real" })
-		case "float8":
-			return Result.ok({ kind: "pg", type: "double precision" })
-		case "money":
-			return Result.ok({ kind: "pg", type: "money" })
-		case "bool":
-			return Result.ok({ kind: "pg", type: "boolean" })
-		case "uuid":
-			return Result.ok({ kind: "uuid" })
-		case "bytes":
-			return Result.ok({ kind: "bytes" })
-		case "sha256":
-			return Result.ok({ kind: "sha256" })
-		case "date":
-			return Result.ok({ kind: "pg", type: "date" })
-		case "inet":
-			return Result.ok({ kind: "pg", type: "inet" })
-		case "cidr":
-			return Result.ok({ kind: "pg", type: "cidr" })
-		case "numeric":
-			return Result.ok({
-				kind: "numeric",
-				precision: type.typmod.precision,
-				scale: type.typmod.scale
-			})
-		case "text": {
-			const language = languageOfText(type.text)
-			return Result.ok({
-				kind: "text",
-				patterns: textPatterns(type.text),
-				bytes: languageOctets(language),
-				language
-			})
-		}
-		case "code":
-			return Result.ok({ kind: "closedId", roster: type.roster.closed, only: type.only })
-		case "bits":
-			return Result.ok({ kind: "bits", roster: type.roster.closed })
-		case "range4":
-		case "range8":
-		case "rangeDate": {
-			const endpoint = declaredDescOf(type.span.endpoint, contracts)
-			if (!endpoint.ok) {
-				return endpoint
-			}
-			return Result.ok({ kind: "span", endpoint: endpoint.value, width: type.span.width })
-		}
-		case "vector":
-			return Result.ok({ kind: "vector", dimensions: type.typmod.dims })
-		case "tsvector":
-			return Result.ok({ kind: "search", configuration: type.configuration })
-		case "exactInteger":
-		case "exactMoney":
-			return Result.ok({ kind: "exact", carrier: type.carrier })
-	}
-}
 
 /**
  * The inferred field descriptors of a definition's heading, by field name in heading order.
@@ -122,8 +14,8 @@ export const declaredDescOf = (
  *
  * Every term in a definition's head carries its descriptor, so a derived relation's heading needs no restatement: the
  * checker types each head term exactly as PostgreSQL types the expression it lowers to (check/checker.ts), and this
- * module states that type as the field descriptor of it (ir/desc.ts FieldDesc, fieldDescOf), a computed numeric's
- * among them. The rules it realizes, each pinned by
+ * module states that type as the field descriptor of it (ir/desc.ts FieldDesc, schema/field-desc.ts fieldDescOf), a
+ * computed numeric's among them. The rules it realizes, each pinned by
  * test/unit/derived/fields.test.ts:
  *
  * - `r.count()` is `natural`, which every schema holds (schema/own.ts #collectFields; test/unit/check/count.test.ts);

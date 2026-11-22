@@ -42,19 +42,16 @@ import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { type FieldWriting, columnKeyOf } from "#compiler/ir/law.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
-import { type CompiledSchema, compiledSchema, parseBuiltSchema } from "#compiler/program/schema.ts"
-import {
-	fieldEntry,
-	namedGenerated,
-	namedLaw,
-	recordedGenerated
-} from "#compiler/runtime/law-entry.ts"
+import { parseBuiltSchema } from "#compiler/program/input.ts"
+import { type CompiledSchema, compiledSchema } from "#compiler/program/schema.ts"
+import { namedGenerated, namedLaw, recordedGenerated } from "#compiler/runtime/law-entry.ts"
 import { bindRows, type HostBinding, type InsertedRow } from "#compiler/runtime/write/bind.ts"
 import type { CountedFamily } from "#compiler/runtime/write/binding.ts"
 import type { ClosedTable } from "#compiler/runtime/write/fill.ts"
 import type { MemberFacts } from "#compiler/runtime/write/normalize.ts"
 import type { Transport } from "#compiler/runtime/write/transport.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
+import { fieldEntry } from "#compiler/schema/declared-entries.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import { writesOf } from "#compiler/schema/reach.ts"
 import { insertableNamesOf, writableNamesOf } from "#compiler/schema/world.ts"

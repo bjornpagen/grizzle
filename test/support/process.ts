@@ -1,5 +1,8 @@
-import { Effect, Stream } from "effect"
+import { pathToFileURL } from "node:url"
+import { defined } from "@bjornpagen/testing/assert"
+import { Array as Arr, Effect, FileSystem, Option, Order, Stream, String as Str } from "effect"
 import { ChildProcess } from "effect/process"
+import { trustedJson } from "#compiler/core/trusted.ts"
 
 const repoRoot = `${import.meta.dirname}/../../`
 
@@ -76,3 +79,51 @@ export const run = Effect.fn("run")(
 	Effect.scoped,
 	Effect.orDie
 )
+
+/** The line test/support/load-probe.ts writes as the process exits: its marker, then the loaded modules' URLs. */
+const probeMarker = "loadProbe "
+
+/**
+ * `entry`, a path in the checkout at `checkout`, run under hardened Node over `argv` with test/support/load-probe.ts
+ * imported before it, in an empty directory of its own: its exit status, its stdout, its stderr but the probe's line,
+ * the path in the checkout of every file module it loaded, and the URL of every other it loaded (a dependency, which a
+ * worker tree's node_modules links to outside it), each in code point order.
+ */
+export const probedRun = (checkout: string, entry: string, argv: ReadonlyArray<string>) =>
+	Effect.scoped(
+		Effect.gen(function* () {
+			const fs = yield* FileSystem.FileSystem
+			const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "grizzle-probe-" })
+			const ran = yield* run(
+				process.execPath,
+				[
+					...hardenedNode,
+					"--import",
+					`${checkout}/test/support/load-probe.ts`,
+					`${checkout}/${entry}`,
+					...argv
+				],
+				{ cwd, env: {} }
+			)
+			const lines = Str.split(ran.stderr, "\n")
+			const probed = defined(
+				Option.getOrUndefined(Arr.findFirst(lines, Str.startsWith(probeMarker))),
+				`the probe's line among stderr:\n${ran.stderr}`
+			)
+			const root = `${pathToFileURL(checkout).href}/`
+			const urls = trustedJson<ReadonlyArray<string>>(Str.slice(probeMarker.length)(probed))
+			const modules = Arr.filter(urls, Str.startsWith("file:"))
+			const files = Arr.filter(modules, Str.startsWith(root))
+			const outside = Arr.filter(modules, (url) => !Str.startsWith(root)(url))
+			return {
+				status: ran.status,
+				stdout: ran.stdout,
+				stderr: Arr.join(
+					Arr.filter(lines, (line) => line !== "" && !Str.startsWith(probeMarker)(line)),
+					"\n"
+				),
+				loaded: Arr.sort(Arr.map(files, Str.slice(root.length)), Order.String),
+				outside: Arr.sort(outside, Order.String)
+			}
+		})
+	)

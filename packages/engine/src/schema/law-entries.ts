@@ -1,15 +1,15 @@
 import { isPlainRecord } from "#compiler/core/record.ts"
 import {
-	type DeclaredEntries,
-	mergedEntry,
-	noDeclaredEntries
-} from "#compiler/runtime/law-entry.ts"
-import {
 	descriptorCopy,
 	isOwnedDescriptor,
 	isTextDescriptor,
 	writtenTypeOf
 } from "#compiler/scalar/registry.ts"
+import {
+	type DeclaredEntries,
+	mergedEntry,
+	noDeclaredEntries
+} from "#compiler/schema/declared-entries.ts"
 import type { CanonicalStatement } from "#compiler/schema/own.ts"
 import { isName, malformed, ownedCopy, ownedEntry } from "#compiler/schema/protocol.ts"
 import { generatedFieldCopy } from "#compiler/schema/relation.ts"
@@ -141,7 +141,7 @@ const membersOf = (value: unknown): Readonly<Record<string, unknown>> | undefine
 		: undefined
 
 /**
- * The entries the declarations `values` of one level declare (runtime/law-entry.ts DeclaredEntries): each ordinary
+ * The entries the declarations `values` of one level declare (schema/declared-entries.ts DeclaredEntries): each ordinary
  * relation's, for its primary key; each of its fields' a generated law's, where law(...) named the field; the entry of
  * the type of each of its stored fields, where law(...) named a str.regex, str.and or str.bytes type, for the field's
  * pattern law, the type's one entry at every field it types, a field of a writing of its own (a drawn, accumulated or

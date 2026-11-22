@@ -75,7 +75,7 @@ import { namedRole, roleReadNames, worldNames } from "#compiler/physical/ddl/nam
 import { installationTypes, vectorTypes } from "#compiler/physical/ddl/type-schemas.ts"
 import { keyTermText } from "#compiler/physical/indexes/engine.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
-import { parseSchemaInput } from "#compiler/program/schema.ts"
+import { parseSchemaInput } from "#compiler/program/input.ts"
 import { sameLaw } from "#compiler/public/changeset.ts"
 import {
 	type AnyRelation,

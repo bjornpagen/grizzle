@@ -56,20 +56,14 @@ import { everySlice } from "#compiler/schema/reach.ts"
 import { carrierScope } from "#compiler/sql/naming.ts"
 import { textOfParam } from "#test/support/wire.ts"
 
-import {
-	compileQuery,
-	type QueryTemplate,
-	queryInput,
-	querySchema
-} from "#compiler/program/compile.ts"
+import { compileQuery, type QueryTemplate, querySchema } from "#compiler/program/compile.ts"
+import { queryInput, parseSchemaInput, type SchemaInput } from "#compiler/program/input.ts"
 
 import {
 	baseArtifacts,
 	type InstalledArtifacts,
-	parseSchemaInput,
 	roleArtifacts,
 	type SchemaArtifacts,
-	type SchemaInput,
 	schemaArtifacts
 } from "#compiler/program/schema.ts"
 

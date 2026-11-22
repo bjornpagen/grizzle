@@ -181,19 +181,21 @@ export { servedSession } from "#compiler/program/served.ts"
 export { loginStem } from "#compiler/schema/stem.ts"
 export {
 	baseArtifacts,
-	type BuiltSchema,
 	type InstalledArtifacts,
 	type InstalledSource,
+	type Raisable,
+	raisableOf,
+	roleArtifacts,
+	type SchemaArtifacts
+} from "#compiler/program/schema.ts"
+export {
+	type BuiltSchema,
 	levelSchema,
 	parseBuiltSchema,
 	type ParsedRole,
 	parseSchemaInput,
-	type Raisable,
-	raisableOf,
-	roleArtifacts,
-	type SchemaArtifacts,
 	type SchemaInput
-} from "#compiler/program/schema.ts"
+} from "#compiler/program/input.ts"
 export { type SchemaContent, sameLevel } from "#compiler/schema/levels.ts"
 export { levelChain } from "#compiler/ir/desc.ts"
 export {
@@ -210,6 +212,7 @@ export {
 export { ownedEntry, ownedKind } from "#compiler/schema/protocol.ts"
 export { writesOf } from "#compiler/schema/reach.ts"
 export { bindGroups } from "#compiler/schema/record.ts"
+export { recordsReader } from "#compiler/runtime/read/record.ts"
 export { admitDerived, derivedDraftOf } from "#compiler/schema/relation.ts"
 export { schemaDescOf } from "#compiler/schema/schema.ts"
 export { queryUses } from "#compiler/schema/walk.ts"
@@ -247,7 +250,21 @@ export type {
 } from "#compiler/types/db/workload.ts"
 export type { Evidence } from "#compiler/types/evidence/evidence.ts"
 export type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
-export type { RowEvaluator } from "#compiler/types/schema/evaluation.ts"
+export { constraintNamesOf, lawsByStatement, lawsOf } from "#compiler/program/laws.ts"
+export type {
+	AdmittedRow,
+	CheckNameOf,
+	CheckVerdict,
+	DomainRefused,
+	EvaluatedRow,
+	GeneratedFieldOf,
+	RowEvaluation,
+	RowEvaluator,
+	RowSource,
+	SourceRelation,
+	Unevaluated,
+	ValueRefused
+} from "#compiler/types/schema/evaluation.ts"
 export type { AnySchema, LevelsOf } from "#compiler/types/schema/schema.ts"
 export type { CandidateKey, KeyValues } from "#compiler/types/schema/statements.ts"
 export type {

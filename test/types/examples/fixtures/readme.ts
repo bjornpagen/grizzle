@@ -16,7 +16,7 @@ import {
 	context,
 	contract,
 	counted,
-	Db,
+	CredentialError,
 	type Decimal,
 	defineConfig,
 	derived,
@@ -79,7 +79,7 @@ import {
 	writableNamesOf
 } from "@bjornpagen/grizzle"
 import {
-	CredentialError,
+	Db,
 	DbLayer,
 	LiveSource,
 	type LiveOf,

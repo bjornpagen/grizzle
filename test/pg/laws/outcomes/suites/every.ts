@@ -3,6 +3,7 @@ import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { type Case as PropertyCase } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order, Result } from "effect"
 import { Db } from "#adapter/public/db.ts"
+import { lawsOf } from "#compiler/program/laws.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
 import { Type } from "#compiler/public/compute.ts"
 import { accumulated, closedId, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
@@ -12,7 +13,6 @@ import {
 	counted,
 	fin,
 	fold,
-	lawsOf,
 	Monoid,
 	on,
 	relation,

@@ -2239,6 +2239,15 @@ export interface LawEntry {
 export type DeclaredEntry = LawEntry & { readonly kind: "declared" }
 
 /**
+ * What a statement's author states of the catalog entry (types/changeset LawEntry) of the laws it states: the entry,
+ * `law({ name, source }, statement)`'s, or none, so each law's entry is derived. A law is named where it is read (runtime/law-entry.ts): an
+ * author's entry rides beside what the law states (RecordedLaw), and every other law's is derived there, from what the
+ * law states, wherever the law is read, lawsOf, a preview's refusal and a Db's refusal naming each by namedLaw, so a
+ * recorded law and the law an application reads differ by a derived entry alone, which no artifact holds.
+ */
+export type StatedEntry = DeclaredEntry | { readonly kind: "derived" }
+
+/**
  * A law as the schema states it and names it, which an `invariant-rejected` outcome names: what it states (StatedLaw),
  * which an application matches on directly, and its catalog entry (`entry`), the same arm shape for every kind.
  *

@@ -18,7 +18,7 @@ import {
 	optimizedInput,
 	type OptimizedProgram
 } from "#compiler/lower/optimize/pipeline.ts"
-import { queryInput } from "#compiler/program/compile.ts"
+import { queryInput } from "#compiler/program/input.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"

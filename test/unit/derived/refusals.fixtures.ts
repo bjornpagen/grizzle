@@ -16,7 +16,7 @@ import type {
 } from "#compiler/ir/desc.ts"
 import { withDerivedRelations } from "#compiler/physical/derived/objects.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
-import { parseSchemaInput } from "#compiler/program/schema.ts"
+import { parseSchemaInput } from "#compiler/program/input.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import { type CaseSketch, caseSketchGen, type GenSchema } from "#test/pg/derived/oracle/gen.ts"

@@ -28,6 +28,7 @@ import { windowIntake } from "#adapter/page/execute.ts"
 import type { SentRuns } from "#adapter/reader/execution.ts"
 import { deliveredRows } from "#adapter/reader/run.ts"
 import { type Delivery, licenses, type Row, UnlawfulDelivery } from "#compiler/core/decoder.ts"
+import { recordsReader } from "#compiler/runtime/read/record.ts"
 import { bindGroups, named, record } from "#compiler/schema/record.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { codebookFor, firstCodes, schemaInputOf } from "#test/support/compile.ts"
@@ -86,10 +87,8 @@ export const anAttachmentsDeliveryDeliversWhatItsProofAllowsAndIsADefectNamingTh
 					}
 					const codes = succeeded(codebookFor(schemaInputOf(Paging), firstCodes))
 					const parent = succeeded(
-						bindGroups(
-							record(named("kids", fieldOf(reader))),
-							[parentLayout(proved)],
-							context(codes)
+						bindGroups(record(named("kids", fieldOf(reader))), (form) =>
+							recordsReader(form, [parentLayout(proved)], context(codes))
 						)
 					)
 					const read = (row: Row): unknown => parent(row).kids

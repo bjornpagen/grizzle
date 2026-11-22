@@ -11,21 +11,15 @@ import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
 import { rowEvaluator } from "#adapter/public/host.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
+import { constraintNamesOf } from "#compiler/program/laws.ts"
 import { Logic } from "#compiler/public/compute.ts"
 import { closedId, contract, pg } from "#compiler/public/fields.ts"
-import {
-	closed,
-	constraintNamesOf,
-	derived,
-	relation,
-	schema,
-	type Unevaluated,
-	type RelationName
-} from "#compiler/public/schema.ts"
+import { closed, derived, relation, schema, type RelationName } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { query, v } from "#compiler/query/build/query.ts"
 import { generatedField, generatedRelation } from "#compiler/schema/relation.ts"
 import { checkBuilder, selectBuilder } from "#compiler/schema/statements.ts"
+import { type Unevaluated } from "#compiler/types/schema/evaluation.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"

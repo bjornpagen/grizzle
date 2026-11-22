@@ -1,6 +1,6 @@
 import { sameContent } from "#compiler/core/canonical.ts"
 import { levelChain, type RelationDesc, type SchemaDesc } from "#compiler/ir/desc.ts"
-import { type DeclaredEntries, noDeclaredEntries } from "#compiler/runtime/law-entry.ts"
+import { type DeclaredEntries, noDeclaredEntries } from "#compiler/schema/declared-entries.ts"
 import { type CanonicalStatement, canonicalStatementOf } from "#compiler/schema/own.ts"
 import type { RoleLevel } from "#compiler/schema/world.ts"
 

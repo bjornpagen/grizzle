@@ -1,11 +1,9 @@
 /** What the properties of entry.test.ts read: its space and the run of one entry point. */
 
-import { pathToFileURL } from "node:url"
-import { assert, defined } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
-import { Array as Arr, Effect, FileSystem, Option, Order, String as Str } from "effect"
-import { trustedJson } from "#compiler/core/trusted.ts"
-import { hardenedNode, run } from "#test/support/process.ts"
+import { Array as Arr, Effect, FileSystem, Order } from "effect"
+import { hardenedNode, probedRun, run } from "#test/support/process.ts"
 
 /** The command line's two modules a script may run: the bin, its entry point, and the module the bin loads. */
 export type Entry = "bin.ts" | "main.ts"
@@ -79,49 +77,14 @@ export const usageModules: ReadonlyArray<string> = Arr.sort(
 	Order.String
 )
 
-/** The line load-probe.ts writes as the process exits: its marker, then the loaded modules' URLs. */
-const probeMarker = "loadProbe "
-
 /**
- * The bin of the checkout at `checkout` run over `argv` as runEntry runs it, with load-probe.ts imported before it:
- * its exit status, its stdout, its stderr but the probe's line, and the path in the checkout of every file module it
- * loaded, in code point order.
+ * The bin of the checkout at `checkout` run over `argv` as runEntry runs it, with test/support/load-probe.ts imported
+ * before it (probedRun): its exit status, its stdout, its stderr but the probe's line, and the path in the checkout of
+ * every file module it loaded, in code point order. A module it loads from outside the checkout, a dependency, fails
+ * the case.
  */
 export const probedBin = (checkout: string, argv: ReadonlyArray<string>) =>
-	Effect.scoped(
-		Effect.gen(function* () {
-			const fs = yield* FileSystem.FileSystem
-			const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "grizzle-entry-" })
-			const ran = yield* run(
-				process.execPath,
-				[
-					...hardenedNode,
-					"--import",
-					`${checkout}/test/unit/cli/load-probe.ts`,
-					`${checkout}/packages/grizzle/src/cli/bin.ts`,
-					...argv
-				],
-				{ cwd, env: {} }
-			)
-			const lines = Str.split(ran.stderr, "\n")
-			const probed = defined(
-				Option.getOrUndefined(Arr.findFirst(lines, Str.startsWith(probeMarker))),
-				`the probe's line among stderr:\n${ran.stderr}`
-			)
-			const root = `${pathToFileURL(checkout).href}/`
-			const urls = trustedJson<ReadonlyArray<string>>(Str.slice(probeMarker.length)(probed))
-			const files = Arr.filter(urls, Str.startsWith("file:"))
-			for (const url of files) {
-				assert.ok(Str.startsWith(root)(url), `a module of the checkout: ${url}`)
-			}
-			return {
-				status: ran.status,
-				stdout: ran.stdout,
-				stderr: Arr.join(
-					Arr.filter(lines, (line) => line !== "" && !Str.startsWith(probeMarker)(line)),
-					"\n"
-				),
-				loaded: Arr.sort(Arr.map(files, Str.slice(root.length)), Order.String)
-			}
-		})
-	)
+	Effect.map(probedRun(checkout, "packages/grizzle/src/cli/bin.ts", argv), (ran) => {
+		assert.deepEqual(ran.outside, [], "every module it loads is the checkout's")
+		return ran
+	})

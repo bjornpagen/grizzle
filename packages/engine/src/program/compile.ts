@@ -2,11 +2,11 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { clockParams, sourcedParams } from "#compiler/check/clock.ts"
 import { type AdmittedQuery, checkQuery } from "#compiler/check/index.ts"
 import { CheckSession } from "#compiler/check/session.ts"
-import { catchCompileError, catchRefusal } from "#compiler/core/canonical.ts"
+import { catchRefusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { ClockBinding, ClockSource } from "#compiler/ir/clock.ts"
-import { decodeDesc, isOrderedQuery, type QueryDesc } from "#compiler/ir/desc.ts"
+import { isOrderedQuery, type QueryDesc } from "#compiler/ir/desc.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import {
 	type CallerParamDecl,
@@ -28,15 +28,8 @@ import {
 } from "#compiler/lower/optimize/pipeline.ts"
 
 import { type SpecifiedArtifact, specifiedProgram } from "#compiler/lower/template.ts"
-import {
-	type Over,
-	parseOver,
-	programSchema,
-	type SchemaArtifacts,
-	type SchemaInput
-} from "#compiler/program/schema.ts"
-import { hostArguments } from "#compiler/query/build/host.ts"
-import { publicDesc, queryState } from "#compiler/query/build/state.ts"
+import type { QueryInput, SchemaInput } from "#compiler/program/input.ts"
+import { programSchema, type SchemaArtifacts } from "#compiler/program/schema.ts"
 
 export interface QueryTemplate extends ProgramArtifacts {
 	readonly kind: "query" | "ordered"
@@ -97,41 +90,6 @@ export interface CompileQueryOptions extends TemplateReading {
 	readonly source: ClockSource
 	/** The schema's artifacts: its installed names, law model and evidence catalog (program/schema.ts). */
 	readonly artifacts: SchemaArtifacts
-}
-
-/**
- * A query as the compiler takes it, parsed once at the facade that received it (queryInput): a query or ordered value
- * the builder made over a schema, a fragment or a role, with that value parsed (program/schema.ts parseOver); or a bare
- * Description, which carries none and compiles against the schema the caller names.
- */
-export type QueryInput =
-	| { readonly kind: "built"; readonly desc: QueryDesc; readonly schema: Over }
-	| { readonly kind: "described"; readonly desc: QueryDesc }
-
-/**
- * The parse of a caller's query value, the one door from `unknown`: the Description of a query or ordered value with
- * the schema it was built over, or a QueryDesc given directly. A value the builder did not make is the caller's, read
- * once at the builder's boundary (query/build/host.ts hostArguments) before it is decoded, so one whose reading throws
- * is refused as MalformedDescription, never a defect.
- */
-export const queryInput = (query: unknown): Result.Result<QueryInput, CompileError> => {
-	const built = queryState(query)
-	if (built !== undefined) {
-		return Result.flatMap(
-			catchCompileError(() => publicDesc(built, "query")),
-			(desc) =>
-				Result.map(parseOver(built.schema.over.value), (schema): QueryInput => ({
-					kind: "built",
-					desc,
-					schema
-				}))
-		)
-	}
-	return Result.flatMap(
-		catchCompileError(() => hostArguments("compile", [query])),
-		() =>
-			Result.map(decodeDesc("query", query), (desc): QueryInput => ({ kind: "described", desc }))
-	)
 }
 
 /**

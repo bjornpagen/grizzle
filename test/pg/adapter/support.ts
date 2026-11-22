@@ -1,6 +1,6 @@
 import { liveSleep } from "@bjornpagen/testing/live"
 import { Array as Arr, Duration, Effect, Redacted, type Scope } from "effect"
-import type { CredentialError } from "#adapter/errors/failures.ts"
+import type { CredentialError } from "#adapter/errors/credential.ts"
 import type { BatchRefused } from "#adapter/errors/failures.ts"
 import type { ConnectionPool, PoolBounds, Transport } from "#adapter/types/layer.ts"
 import { type ApartFailure, oneShotStatement } from "#adapter/wire/batch.ts"

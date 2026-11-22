@@ -40,7 +40,8 @@ import {
 	sameScalarType,
 	type ScalarType
 } from "#compiler/ir/scalar.ts"
-import { parseSchemaInput, type SchemaArtifacts } from "#compiler/program/schema.ts"
+import { parseSchemaInput } from "#compiler/program/input.ts"
+import { type SchemaArtifacts } from "#compiler/program/schema.ts"
 import { bits, closedId, Decimal, Money, Vector } from "#compiler/public/fields.ts"
 import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"

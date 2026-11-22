@@ -25,7 +25,7 @@ import type {
 	SchemaDesc,
 	VarDesc
 } from "#compiler/ir/desc.ts"
-import { parseSchemaInput, type ParsedRole, type SchemaInput } from "#compiler/program/schema.ts"
+import { parseSchemaInput, type ParsedRole, type SchemaInput } from "#compiler/program/input.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {

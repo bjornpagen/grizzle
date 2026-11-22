@@ -1,4 +1,4 @@
-import { int8ExactDigits } from "#compiler/ir/physical.ts"
+import { int8ExactDigits } from "#compiler/ir/carriers.ts"
 import { roundToFloat } from "#compiler/lower/conservative/expr/total.ts"
 import { binary64MinExponent } from "#compiler/scalar/compute/cast.ts"
 import { binary64MaxExponent, binary64Precision } from "#compiler/scalar/lexical.ts"

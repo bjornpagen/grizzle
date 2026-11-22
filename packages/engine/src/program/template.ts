@@ -5,12 +5,12 @@ import type { QueryDesc } from "#compiler/ir/desc.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import {
 	compileQuery,
-	type QueryInput,
 	type QueryTemplate,
 	querySchema,
 	type TemplateReading
 } from "#compiler/program/compile.ts"
-import type { SchemaArtifacts, SchemaInput } from "#compiler/program/schema.ts"
+import type { QueryInput, SchemaInput } from "#compiler/program/input.ts"
+import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 
 /**
  * One execution's request: the context it runs in, how the template is read, the parameters its member binds to the

@@ -62,7 +62,6 @@ import {
 } from "#compiler/query/build/state.ts"
 import { headValueOf } from "#compiler/query/build/terms.ts"
 import { spellRows } from "#compiler/query/build/walk.ts"
-import { isDecoded } from "#compiler/runtime/write/decoded.ts"
 import { termExpr } from "#compiler/scalar/compute/term.ts"
 import { bareEnv } from "#compiler/scalar/registry.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
@@ -915,12 +914,20 @@ const frozenFact = (fact: unknown): unknown =>
 	isPlainRecord(fact) ? Object.freeze({ ...fact }) : fact
 
 /**
- * A member's facts as the ChangeSet holds them, fixed from now on: an array decode admitted as it is, frozen with its
- * rows, whose reads decode recorded for its write (runtime/write/decoded.ts); any other array copied, each plain record
- * a frozen copy of its fields as they are read now.
+ * Whether `facts` is fixed already: frozen, every plain record of it frozen too, as an array decode admitted is (frozen
+ * with its rows, program/decode.ts frozen), so nothing of it can change after the ChangeSet holds it.
+ */
+const fixedFacts = (facts: ReadonlyArray<unknown>): boolean =>
+	Object.isFrozen(facts) && facts.every((fact) => !isPlainRecord(fact) || Object.isFrozen(fact))
+
+/**
+ * A member's facts as the ChangeSet holds them, fixed from now on: an array fixed already as it is (fixedFacts), shared
+ * by reference, so an array decode admitted keeps the reads decode recorded against it for its write
+ * (runtime/write/decoded.ts); any other array copied, each plain record a frozen copy of its fields as they are read
+ * now.
  */
 const heldFacts = (facts: ReadonlyArray<unknown>): ReadonlyArray<unknown> =>
-	isDecoded(facts) ? facts : Object.freeze(facts.map(frozenFact))
+	fixedFacts(facts) ? facts : Object.freeze(facts.map(frozenFact))
 
 /**
  * The identity digest of a decoded part of a member's Description: a query, or a field-equality member's fields (ir/desc.ts

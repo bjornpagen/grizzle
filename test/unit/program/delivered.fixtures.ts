@@ -15,10 +15,11 @@ import { topoOrder } from "#compiler/ir/dag.ts"
 import { toQueryDescription } from "#compiler/ir/describe.ts"
 import type { NodeOf } from "#compiler/ir/rel.ts"
 import type { DeliveredPart } from "#compiler/lower/shapes/index.ts"
-import { queryInput } from "#compiler/program/compile.ts"
+import { queryInput } from "#compiler/program/input.ts"
 import { queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import type { StatementTree } from "#compiler/runtime/lower/tree.ts"
+import { recordsReader } from "#compiler/runtime/read/record.ts"
 import { bindGroups } from "#compiler/schema/record.ts"
 import { servedSource } from "#compiler/served/read.ts"
 import { servedSpine } from "#compiler/served/spine.ts"
@@ -234,7 +235,7 @@ const binds = (
 			throw new Error(`${what}: a program of no layout`)
 		}
 		return refusedAt(
-			bindGroups(decoders.rows, [first, ...rest], read.bind),
+			bindGroups(decoders.rows, (form) => recordsReader(form, [first, ...rest], read.bind)),
 			`${what} (${program.artifact})`,
 			c
 		)
@@ -565,8 +566,13 @@ const removedKeys = (
 				}
 				const what = `the ${program.artifact} layout without ${key}`
 				assert.ok(
-					refusedAt(bindGroups(query.rows, [first, ...rest], compiledRead.bind), what, c) !==
-						undefined,
+					refusedAt(
+						bindGroups(query.rows, (form) =>
+							recordsReader(form, [first, ...rest], compiledRead.bind)
+						),
+						what,
+						c
+					) !== undefined,
 					`${what} binds\n${printCase(c)}`
 				)
 				note(
@@ -649,7 +655,7 @@ export const mixedRead = (
 			throw new Error(`a mixed root's ${artifact} program of no layout`)
 		}
 		const read = succeeded(
-			bindGroups(mixed.rows, [first, ...rest], program.bind),
+			bindGroups(mixed.rows, (form) => recordsReader(form, [first, ...rest], program.bind)),
 			`a mixed root's rows bind (${artifact})`
 		)
 		const rows = Arr.flatMap(cells, (groupRows, g) => {

@@ -17,7 +17,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record as Rec } from "effect"
-import { parseSchemaInput } from "#compiler/program/schema.ts"
+import { parseSchemaInput } from "#compiler/program/input.ts"
 import { refused, succeeded } from "#test/support/assert.ts"
 import { ownInput } from "#test/support/policy.ts"
 import {

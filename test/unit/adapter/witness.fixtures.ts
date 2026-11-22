@@ -28,11 +28,8 @@ import { always } from "#compiler/ir/needs.ts"
 import { rosterOf } from "#compiler/ir/scalar.ts"
 import { strataAt } from "#compiler/ir/stratum.ts"
 import type { ConstraintLaw, ConstraintLawOf, DomainUse } from "#compiler/laws/model/model.ts"
-import {
-	parseSchemaInput,
-	type SchemaArtifacts,
-	schemaArtifacts
-} from "#compiler/program/schema.ts"
+import { parseSchemaInput } from "#compiler/program/input.ts"
+import { type SchemaArtifacts, schemaArtifacts } from "#compiler/program/schema.ts"
 import { changeTag, type ConcurrentChangeTag, keyTag } from "#compiler/runtime/write/refusal.ts"
 import type { UniqueAbort, WriteStep } from "#compiler/runtime/write/steps.ts"
 import type { Refuser, StatementAt } from "#compiler/runtime/write/witness.ts"

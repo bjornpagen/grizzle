@@ -1,6 +1,6 @@
 import { Effect, Layer, type Redacted, Ref, Scope } from "effect"
+import { CredentialError } from "#adapter/errors/credential.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"
-import { CredentialError } from "#adapter/errors/failures.ts"
 import { DbLayer, LiveSource } from "#adapter/public/layer.ts"
 import { roleNameOf } from "#adapter/served/served.ts"
 import type {

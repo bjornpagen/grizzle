@@ -13,11 +13,11 @@ import {
 	type TableRelation
 } from "#compiler/ir/law.ts"
 import {
-	fieldEntry,
 	type RecordedGenerated,
 	recordedGenerated,
 	recordedLaw
 } from "#compiler/runtime/law-entry.ts"
+import { fieldEntry } from "#compiler/schema/declared-entries.ts"
 import type { DeclaredEntry, RecordedLaw, StatedLaw } from "#compiler/types/changeset/changeset.ts"
 
 /**

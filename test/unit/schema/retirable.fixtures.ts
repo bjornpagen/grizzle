@@ -3,7 +3,7 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Result as EffectResult } from "effect"
-import { parseSchemaInput } from "#compiler/program/schema.ts"
+import { parseSchemaInput } from "#compiler/program/input.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { relationBuilder as relation, retirementField } from "#compiler/schema/relation.ts"
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"

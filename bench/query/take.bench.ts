@@ -75,7 +75,7 @@ import {
 import { ledgerStatements } from "#compiler/deploy/ledger/ledger.ts"
 import { lateralParentMax, type DeliveredPart } from "#compiler/lower/shapes/index.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
-import { parseSchemaInput } from "#compiler/program/schema.ts"
+import { parseSchemaInput } from "#compiler/program/input.ts"
 import { servedSession } from "#compiler/program/served.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
 import { printStatement } from "#compiler/sql/print.ts"

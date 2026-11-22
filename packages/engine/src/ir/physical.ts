@@ -12,7 +12,7 @@ import {
 } from "#compiler/core/identity.ts"
 import type { ColumnIdent, DomainName, RelationIdent } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
+import { int8ExactDigits } from "#compiler/ir/carriers.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { ClosedTheoryRelation } from "#compiler/ir/law.ts"
@@ -30,31 +30,6 @@ import type {
 import { arrayOf, cUtf8Collation, namedType, numericType, types } from "#compiler/sql/build.ts"
 import type { ClosedConstant } from "#compiler/sql/constants.ts"
 import type { StoredColumns } from "#compiler/sql/stored.ts"
-
-/** The greatest d with 10^d - 1 at most `bound`, a magnitude. */
-const exactDigits = (bound: bigint): number => {
-	const digits = String(bound).length
-	return 10n ** BigInt(digits) - 1n <= bound ? digits : digits - 1
-}
-
-/**
- * The decimal digits of the greatest magnitude in [min, max] every integer of that many digits reaches: the greatest d
- * with 10^d - 1 within the range on both sides.
- */
-const rangeExactDigits = (min: bigint, max: bigint): number =>
-	Math.min(exactDigits(-min), exactDigits(max))
-
-/**
- * The most decimal digits every integer of which is a bigint: an exact integer that many digits long travels as one.
- *
- * @limitKind derived
- * @owner PostgreSQL 19.0
- * @unit decimal digits
- * @scope the exact integers SQL computes in bigint rather than numeric
- * @derivation the greatest d with 10^d - 1 within bigint's range on both sides
- * @from {@link int8Min}, {@link int8Max}
- */
-export const int8ExactDigits = rangeExactDigits(int8Min, int8Max)
 
 /**
  * A selection key's law column: a key over a selected side, `key(on(select(R, φ), f))`, installs the generated column

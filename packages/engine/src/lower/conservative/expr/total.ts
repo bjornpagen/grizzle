@@ -4,8 +4,8 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import { exactParts, nanParts } from "#compiler/core/decimal.ts"
+import { int8ExactDigits } from "#compiler/ir/carriers.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
-import { int8ExactDigits } from "#compiler/ir/physical.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { ExactCarrier } from "#compiler/scalar/aggregate.ts"
 import { binary64MinExponent } from "#compiler/scalar/compute/cast.ts"

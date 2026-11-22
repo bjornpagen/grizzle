@@ -18,7 +18,7 @@ import { settled } from "#compiler/core/canonical.ts"
 import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import { type ExprDesc, type FieldDesc, fieldTypes } from "#compiler/ir/desc.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
-import { parseSchemaInput } from "#compiler/program/schema.ts"
+import { parseSchemaInput } from "#compiler/program/input.ts"
 import { natural } from "#compiler/public/fields.ts"
 import { str } from "#compiler/public/text.ts"
 import {

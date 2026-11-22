@@ -1,4 +1,3 @@
-import { fieldDescOf } from "#compiler/analysis/derived/fields.ts"
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { refuse } from "#compiler/analysis/theory/build.ts"
 import type { ColumnTypes } from "#compiler/analysis/theory/leaves.ts"
@@ -13,12 +12,13 @@ import { unwrap } from "#compiler/core/canonical.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import type { InferredQuery } from "#compiler/ir/desc.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { fieldDescOf } from "#compiler/schema/field-desc.ts"
 
 /**
  * The descriptor each column of `query`, read as the definition of `relation` (a derived relation, or the query a
  * navigation imports), is delivered at: its heading as the checker types it against the checked schema, a bare head
  * literal's column by its value or by its position in a union, each column the inferred field's own descriptor
- * (analysis/derived/fields.ts fieldDescOf), a computed numeric's its bound, whatever its value, NaN, an infinity or one
+ * (schema/field-desc.ts fieldDescOf), a computed numeric's its bound, whatever its value, NaN, an infinity or one
  * past numeric(p, s)'s limits included. The query is checked at the first column read, and once.
  */
 const definitionColumns = (

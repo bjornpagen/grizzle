@@ -11,7 +11,7 @@ import { readProgram } from "#adapter/reader/run.ts"
 import type { BindContext, Layout } from "#compiler/core/decoder.ts"
 import { codeNames } from "#compiler/ir/codes.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
-import { queryInput } from "#compiler/program/compile.ts"
+import { queryInput } from "#compiler/program/input.ts"
 import { Num } from "#compiler/public/compute.ts"
 import {
 	bits,

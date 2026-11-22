@@ -4,7 +4,7 @@ import { constant } from "@bjornpagen/testing/gen"
 import { drawnFeature, lsw, passed, WILD_KINDS, type WildKind } from "@bjornpagen/testing/lsw"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { absurd, Array as Arr, Effect, Option } from "effect"
-import { parseSchemaInput } from "#compiler/program/schema.ts"
+import { parseSchemaInput } from "#compiler/program/input.ts"
 import { failed, succeeded } from "#test/support/assert.ts"
 import {
 	accessorFaults,
@@ -125,7 +125,7 @@ export const thePublicBoundaryAdmitsABuiltSchemaAtTheSchemaDoorAndRefusesEveryOt
 			kept: [],
 			kills: [
 				{
-					file: "packages/engine/src/program/schema.ts",
+					file: "packages/engine/src/program/input.ts",
 					original:
 						'\tif (built !== undefined) {\n\t\treturn Result.ok(\n\t\t\tObject.freeze<SchemaInput>({\n\t\t\t\tkind: "built",\n\t\t\t\tvalue: built.value,\n\t\t\t\tdesc: built.desc,\n\t\t\t\tcontent: built.content\n\t\t\t})\n\t\t)\n\t}',
 					replacement: "\t{}",

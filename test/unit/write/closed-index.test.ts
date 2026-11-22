@@ -24,7 +24,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { type CheckedSchema, checkedRoleOver, closedTableOf } from "#compiler/analysis/schema.ts"
 import type { ChangeSetDesc } from "#compiler/ir/desc.ts"
-import { parseSchemaInput } from "#compiler/program/schema.ts"
+import { parseSchemaInput } from "#compiler/program/input.ts"
 import { closedIndexOf } from "#compiler/runtime/write/fill.ts"
 import { ownRole } from "#compiler/schema/own.ts"
 import {

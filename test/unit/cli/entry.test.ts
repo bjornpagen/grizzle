@@ -10,7 +10,7 @@
  * The usage is the bin's alone: a command line that asks for it (no argument, or `--help` or `-h` anywhere) prints the
  * usage and loads the bin, the usage module and the engine's usage facade over its one module of constants, and nothing
  * else, where it loaded the whole command line and the engine (967 modules, 3.1 s of CPU). Oracle: the bin's module
- * set as cli/usage.ts and engine plan/usage.ts state it, read off a load hook in the child (load-probe.ts), and the
+ * set as cli/usage.ts and engine plan/usage.ts state it, read off a load hook in the child (test/support/load-probe.ts), and the
  * usage as the command line prints it.
  */
 

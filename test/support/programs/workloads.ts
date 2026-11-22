@@ -6,7 +6,8 @@ export type { Effect } from "effect"
 export type { DbOf } from "#adapter/types/db.ts"
 export { workload } from "#compiler/public/workload.ts"
 export type { Workload } from "#compiler/public/workload.ts"
-export { Db, login, served } from "#index.ts"
+export { login } from "#index.ts"
+export { Db, served } from "@bjornpagen/grizzle/runtime"
 export type { LoginRole } from "#compiler/plan/common.ts"
 export {
 	Account,

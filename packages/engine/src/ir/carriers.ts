@@ -123,6 +123,31 @@ export const int4Digits = rangeDigits(BigInt(int4Min), BigInt(int4Max))
  */
 export const int8Digits = rangeDigits(int8Min, int8Max)
 
+/** The greatest d with 10^d - 1 at most `bound`, a magnitude. */
+const exactDigits = (bound: bigint): number => {
+	const digits = String(bound).length
+	return 10n ** BigInt(digits) - 1n <= bound ? digits : digits - 1
+}
+
+/**
+ * The decimal digits of the greatest magnitude in [min, max] every integer of that many digits reaches: the greatest d
+ * with 10^d - 1 within the range on both sides.
+ */
+const rangeExactDigits = (min: bigint, max: bigint): number =>
+	Math.min(exactDigits(-min), exactDigits(max))
+
+/**
+ * The most decimal digits every integer of which is a bigint: an exact integer that many digits long travels as one.
+ *
+ * @limitKind derived
+ * @owner PostgreSQL 19.0
+ * @unit decimal digits
+ * @scope the exact integers SQL computes in bigint rather than numeric
+ * @derivation the greatest d with 10^d - 1 within bigint's range on both sides
+ * @from {@link int8Min}, {@link int8Max}
+ */
+export const int8ExactDigits = rangeExactDigits(int8Min, int8Max)
+
 /**
  * pgvector's most dimensions a vector holds: its storage limit, not the HNSW index's 2,000.
  *

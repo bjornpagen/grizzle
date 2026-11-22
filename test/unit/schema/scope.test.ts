@@ -20,7 +20,7 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record as Rec, Result } from "effect"
 import { CompileError } from "#compiler/core/errors.ts"
-import { parseSchemaInput } from "#compiler/program/schema.ts"
+import { parseSchemaInput } from "#compiler/program/input.ts"
 import { role, scopedEntriesOf } from "#compiler/public/schema.ts"
 import {
 	built,

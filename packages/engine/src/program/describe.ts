@@ -5,8 +5,9 @@ import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { toQueryDescription } from "#compiler/ir/describe.ts"
 import type { LoweredProgram } from "#compiler/ir/products.ts"
-import { compileQuery, queryInput, querySchema } from "#compiler/program/compile.ts"
-import { type SchemaInput, schemaArtifacts } from "#compiler/program/schema.ts"
+import { compileQuery, querySchema } from "#compiler/program/compile.ts"
+import { queryInput, type SchemaInput } from "#compiler/program/input.ts"
+import { schemaArtifacts } from "#compiler/program/schema.ts"
 import { type Owned, own, ownRole, rostersOf } from "#compiler/schema/own.ts"
 
 /**

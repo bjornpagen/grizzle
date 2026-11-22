@@ -8,18 +8,20 @@ export { indexesOf } from "#adapter/public/compile.ts"
 export type { Err, Ok } from "@bjornpagen/grizzle-text/base/result"
 export {
 	check,
-	codecText,
 	type FactsDecoder,
-	factsDecoder,
 	generated,
-	insertPreview,
 	type InsertPreview,
 	pg,
 	relation,
-	rowEvaluator,
-	type RowEvaluation,
-	type RowEvaluator,
 	schema,
 	uuid
 } from "#index.ts"
+export {
+	codecText,
+	factsDecoder,
+	insertPreview,
+	rowEvaluator,
+	type RowEvaluation,
+	type RowEvaluator
+} from "@bjornpagen/grizzle/compile"
 export { Id } from "#test/support/ids.ts"

@@ -11,15 +11,15 @@ import {
 	type QueryDesc,
 	type WorkloadDesc
 } from "#compiler/ir/desc.ts"
-import { queryInput } from "#compiler/program/compile.ts"
 import {
+	queryInput,
 	levelSchema,
 	type Over,
 	parseBuiltSchema,
 	parseOver,
 	parseSchemaInput,
 	type SchemaInput
-} from "#compiler/program/schema.ts"
+} from "#compiler/program/input.ts"
 import { isKeyPosition, type KeyPosition, keyLookup } from "#compiler/query/build/key.ts"
 import {
 	isOrderedValue,

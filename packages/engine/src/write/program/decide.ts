@@ -28,7 +28,7 @@ import { baseOf, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { witnessFields } from "#compiler/laws/model/uniques.ts"
-import { derivedStatement, recordedLaw } from "#compiler/runtime/law-entry.ts"
+import { recordedLaw } from "#compiler/runtime/law-entry.ts"
 import type {
 	Binding,
 	CountedFamily,
@@ -62,6 +62,7 @@ import type {
 	WitnessUnique
 } from "#compiler/runtime/write/witness.ts"
 import { tablePatterns, typePatterns } from "#compiler/scalar/regex/patterns.ts"
+import { derivedStatement } from "#compiler/schema/declared-entries.ts"
 import { headingData, nestedLayoutData, nestingData } from "#compiler/write/family/nesting.ts"
 import {
 	endColumns,

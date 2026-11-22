@@ -59,7 +59,8 @@ export type {
 } from "#compiler/lower/shapes/page/seek.ts"
 export { type ChoiceInput, type RelationInput } from "#compiler/lower/shapes/take/index.ts"
 export type { SpecifiedStatement } from "#compiler/lower/template.ts"
-export { queryInput, type QueryInput, type QueryTemplate } from "#compiler/program/compile.ts"
+export { type QueryTemplate } from "#compiler/program/compile.ts"
+export { queryInput, type QueryInput } from "#compiler/program/input.ts"
 export {
 	pageKey,
 	servedPage,

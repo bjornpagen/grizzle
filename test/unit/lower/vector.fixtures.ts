@@ -20,7 +20,7 @@ import {
 } from "#compiler/ir/rel.ts"
 import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
-import { queryInput } from "#compiler/program/compile.ts"
+import { queryInput } from "#compiler/program/input.ts"
 
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"

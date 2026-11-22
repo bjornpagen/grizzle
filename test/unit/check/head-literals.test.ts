@@ -3,7 +3,7 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Result } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
-import { queryInput } from "#compiler/program/compile.ts"
+import { queryInput } from "#compiler/program/input.ts"
 import { refused, succeeded, throwsRefused } from "#test/support/assert.ts"
 import { checkOptions } from "#test/support/policy.ts"
 import {

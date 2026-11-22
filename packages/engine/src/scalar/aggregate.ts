@@ -1,9 +1,8 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { type CompileError, resourceBound, unsupported } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { int8Digits } from "#compiler/ir/carriers.ts"
+import { int8Digits, int8ExactDigits } from "#compiler/ir/carriers.ts"
 import { type CatalogOpId, OpId as opId } from "#compiler/ir/expr.ts"
-import { int8ExactDigits } from "#compiler/ir/physical.ts"
 import type { AggregateCallOver, AggregateFn } from "#compiler/ir/rel.ts"
 import {
 	type Carrier,

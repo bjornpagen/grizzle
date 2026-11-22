@@ -2,12 +2,8 @@ import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import {
-	levelSchema,
-	type ParsedRole,
-	parseSchemaInput,
-	programSchema
-} from "#compiler/program/schema.ts"
+import { levelSchema, type ParsedRole, parseSchemaInput } from "#compiler/program/input.ts"
+import { programSchema } from "#compiler/program/schema.ts"
 import { type WorkloadProgram, workloadState } from "#compiler/program/workload/value.ts"
 import type { OwnedLogin, OwnedRole } from "#compiler/schema/own.ts"
 

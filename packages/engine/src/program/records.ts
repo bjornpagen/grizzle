@@ -5,7 +5,7 @@
  *
  * - records(stem, query, owner, ownerKey): the root relation `${stem}Row`, the owner's fields, then one stored field per
  *   column of the query's heading, then a drawn count under the name of each array attachment, keyed by the owner's
- *   key. A column's field is its type's (analysis/derived fieldDescOf over the column's ScalarType, the one reading of a
+ *   key. A column's field is its type's (schema/field-desc.ts fieldDescOf over the column's ScalarType, the one reading of a
  *   column's type as a field's, a derived relation's among its readers), its column the query's own (core/decoder.ts
  *   Column), so a contract column is the schema's own declaration of the contract, brand and check, a closed id a closed
  *   id of its roster, resolved by name in the level that lists the records, a refined text the text of its patterns, a
@@ -36,7 +36,6 @@
  */
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { fieldDescOf } from "#compiler/analysis/derived/fields.ts"
 import { decoderOf, headingsOf } from "#compiler/core/decoder.ts"
 import { CompileError, unsupported } from "#compiler/core/errors.ts"
 import { maxIdentifierBytes, parseDeclaredName } from "#compiler/core/identity.ts"
@@ -60,6 +59,7 @@ import {
 } from "#compiler/query/build/state.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
 import { defineField, type ScalarEnv } from "#compiler/scalar/registry.ts"
+import { fieldDescOf } from "#compiler/schema/field-desc.ts"
 import type { Level } from "#compiler/schema/level.ts"
 import { literalsField } from "#compiler/schema/literals.ts"
 import { type Owned, own, ownRole } from "#compiler/schema/own.ts"

@@ -1,11 +1,8 @@
 import type { Effect, Layer, Redacted } from "effect"
 import type { Token } from "#adapter/db/token.ts"
+import type { CredentialError } from "#adapter/errors/credential.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"
-import type {
-	CredentialError,
-	TokenRefused,
-	VerifierUnavailable
-} from "#adapter/errors/failures.ts"
+import type { TokenRefused, VerifierUnavailable } from "#adapter/errors/failures.ts"
 import type { PgDriver, PgSocket, PoolListener } from "#adapter/types/driver.ts"
 import type { ReadShape, ShapeOf } from "#compiler/live/index.ts"
 import type {

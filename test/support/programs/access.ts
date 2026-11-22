@@ -7,21 +7,20 @@ export type { DbOf } from "#adapter/types/db.ts"
 export type { DbConfigShape, Verify } from "#adapter/types/layer.ts"
 export {
 	ChangeSet,
-	Db,
-	DbLayer,
-	lawsOf,
 	login,
 	query,
 	refresh,
 	role,
 	schema,
-	served,
 	v,
 	wholeEntriesOf,
 	workload,
 	writableNamesOf
 } from "#index.ts"
-export type { CallError, OpenError, Refreshed, WriteListOf } from "#index.ts"
+export { lawsOf } from "@bjornpagen/grizzle/compile"
+export { Db, DbLayer, served } from "@bjornpagen/grizzle/runtime"
+export type { WriteListOf } from "#index.ts"
+export type { CallError, OpenError, Refreshed } from "@bjornpagen/grizzle/runtime"
 export {
 	Account,
 	AccountNames,

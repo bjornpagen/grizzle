@@ -101,16 +101,15 @@ import type { Inserts } from "#compiler/ir/law.ts"
 import type { OwnedSchema } from "#compiler/ir/products.ts"
 import type { DeclaredKey } from "#compiler/ir/rel.ts"
 import { Roster } from "#compiler/ir/scalar.ts"
+import { isNaturalDesc, naturalDescriptor } from "#compiler/scalar/natural.ts"
+import { descCapabilities } from "#compiler/scalar/registry.ts"
 import {
 	type DeclaredEntries,
 	derivedStatement,
 	mergedDeclared,
 	mergedEntry,
-	noDeclaredEntries,
-	type StatedEntry
-} from "#compiler/runtime/law-entry.ts"
-import { isNaturalDesc, naturalDescriptor } from "#compiler/scalar/natural.ts"
-import { descCapabilities } from "#compiler/scalar/registry.ts"
+	noDeclaredEntries
+} from "#compiler/schema/declared-entries.ts"
 import { type WritableEntry, writableEntry } from "#compiler/schema/entry.ts"
 import {
 	canonicalFunctions,
@@ -122,6 +121,7 @@ import { type KeyLayout, keyLayout } from "#compiler/schema/representability.ts"
 import { determines, entryScope, type Scope } from "#compiler/schema/scope.ts"
 import { foreignInput } from "#compiler/schema/terms.ts"
 import { approximates, attachesHeading, queryUses } from "#compiler/schema/walk.ts"
+import type { StatedEntry } from "#compiler/types/changeset/changeset.ts"
 
 /**
  * The most UTF-8 bytes of one roster handle. A roster's names constant holds its handles as one name[], and a name
@@ -318,7 +318,7 @@ export interface Owned extends OwnedSchema {
 	readonly statementLevels: ReadonlyArray<number>
 	/**
 	 * Each statement's catalog entry, by its index in `statements`: the entry its author declares for the laws it states
-	 * (law(...)), or none, so each law's is derived (runtime/law-entry.ts StatedEntry).
+	 * (law(...)), or none, so each law's is derived (types/changeset StatedEntry).
 	 */
 	readonly statementEntries: ReadonlyArray<StatedEntry>
 	/** Every unit the schema's levels declare, by its name, each with the stored relations under it (OwnedUnit). */
@@ -327,7 +327,7 @@ export interface Owned extends OwnedSchema {
 	readonly unitOf: ReadonlyMap<string, UnitMember>
 	/**
 	 * The catalog entries the schema's declarations declare for the laws no statement states: a relation's primary key's,
-	 * a generated field's, a refined text's pattern law's and a contract's (runtime/law-entry.ts DeclaredEntries).
+	 * a generated field's, a refined text's pattern law's and a contract's (schema/declared-entries.ts DeclaredEntries).
 	 */
 	readonly declared: DeclaredEntries
 	readonly contracts: Readonly<Record<string, OwnedContract>>
@@ -1297,7 +1297,7 @@ export const canonicalSelection = everyRule.selection
  * A statement in canonical form and that form's canonical text: equal statements, however written, have one, and a
  * schema keeps one statement of each (Owner's collectStatements, schema/levels.ts levelContent). Beside them, outside
  * both and so outside the statement's identity, the catalog entry its author declares for the laws it states
- * (law(...), statements.ts lawBuilder), or none, so each law's is derived (runtime/law-entry.ts StatedEntry).
+ * (law(...), statements.ts lawBuilder), or none, so each law's is derived (types/changeset StatedEntry).
  */
 export interface CanonicalStatement {
 	readonly form: StatementDesc

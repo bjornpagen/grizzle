@@ -4,7 +4,7 @@
 		"test/**/*.child.ts",
 		"test/support/programs/**/*.ts",
 		"test/unit/deps/runtime-probe.ts",
-		"test/unit/cli/load-probe.ts",
+		"test/support/load-probe.ts",
 		"bench/**/main.ts",
 		// The performance gates, which the bench runner discovers by name (bench/harness/runner.ts).
 		"bench/**/*.bench.ts",
@@ -243,6 +243,98 @@
 				]
 			},
 			{
+				// The authoring DSL: @bjornpagen/grizzle (packages/grizzle/src/index.ts, dsl-index) and every module it loads
+				// beside browser-core, values and grizzle-text, so a schema module or a grizzle.config.ts evaluates its builders
+				// and nothing that compiles, installs or runs them. Each dsl-<zone> holds the DSL's part of <zone> (all of text/
+				// and of the two index modules), and its rule allows by value only what <zone>'s did of the DSL, browser-core,
+				// values and grizzle-text, naming every other zone by type alone; a zone that allowed <zone> allows dsl-<zone> as
+				// it did. The SQL printer (dsl-sql) is the one part of the compiler here: a str.regex descriptor's admission
+				// analyzes its patterns once (text/refinement.ts analyzeText) and chooses its CHECK, `VALUE IN (...)` or
+				// `VALUE ~ 'ARE'`, by which prints shorter, which only the printer measures. test/unit/entry/dsl.test.ts holds a
+				// program over the entry to these zones and allows the printer by name.
+				"name": "dsl-core",
+				"patterns": [
+					"packages/engine/src/core/{allen,clock,decoder,fingerprint,function,hex,identity,ids,lines,page,phantom,set,sha256,stems,temporary,wire}.ts"
+				]
+			},
+			{
+				"name": "dsl-sql",
+				"patterns": [
+					"packages/engine/src/sql/{ast,build,catalog,escape,generation,lexer,print,transform}.ts"
+				]
+			},
+			{
+				"name": "dsl-allen",
+				"patterns": ["packages/engine/src/allen/mask.ts"]
+			},
+			{
+				"name": "dsl-ir",
+				"patterns": [
+					"packages/engine/src/ir/{cells,clock,codes,desc,expr,fold,instant,pattern,pattern-space,proof,rel,scalar,scalar-shape,search,shape,slots}.ts"
+				]
+			},
+			{
+				"name": "dsl-scalar",
+				"patterns": [
+					"packages/engine/src/scalar/{aggregate,bytes,closed-id,contract,date,exact,instant,lexical,literal,minted,native,natural,pg,registry,search,sha256,span,uuid,vector}.ts",
+					"packages/engine/src/scalar/compute/{bounds,builders,cast,closed,evaluate,float,literal,native,numeric,registry,spelling,tables,term,types,typing}.ts",
+					"packages/engine/src/scalar/regex/{admit,matcher,pattern,patterns,translate,whitespace}.ts",
+					"packages/engine/src/scalar/values/{bits,bytes,convert,identity,integer,sha256}.ts"
+				]
+			},
+			{
+				"name": "dsl-text",
+				"patterns": ["packages/engine/src/text/{bounds,field,refinement}.ts"]
+			},
+			{
+				"name": "dsl-schema",
+				"patterns": [
+					"packages/engine/src/schema/{admit,api,declared-entries,entry,field-desc,fragment,function,function-own,law-entries,level,levels,literal,literals,own,protocol,record,relation,representability,schema,scope,statements,stem,terms,walk,world}.ts"
+				]
+			},
+			{
+				"name": "dsl-query",
+				"patterns": [
+					"packages/engine/src/query/build/{attach,call,heading,host,key,query,rule,scope,state,terms,walk}.ts"
+				]
+			},
+			{
+				"name": "dsl-write",
+				"patterns": [
+					"packages/engine/src/write/changeset/{levels,value}.ts",
+					"packages/engine/src/write/delta/source.ts"
+				]
+			},
+			{
+				"name": "dsl-program",
+				"patterns": [
+					"packages/engine/src/program/{input,names,records}.ts",
+					"packages/engine/src/program/workload/{login,value}.ts"
+				]
+			},
+			{
+				"name": "dsl-public",
+				"patterns": [
+					"packages/engine/src/public/{allen,changeset,compute,errors,fields,query,schema,text,workload}.ts"
+				]
+			},
+			{
+				"name": "dsl-adapter",
+				"patterns": [
+					"packages/grizzle/src/adapter/config/define.ts",
+					"packages/grizzle/src/adapter/errors/credential.ts",
+					"packages/grizzle/src/adapter/public/config.ts"
+				]
+			},
+			{
+				"name": "dsl-engine-index",
+				"patterns": ["packages/engine/src/index.ts"]
+			},
+			{
+				"name": "dsl-index",
+				"patterns": ["packages/grizzle/src/index.ts"]
+			},
+			{
 				"name": "core",
 				"patterns": ["packages/engine/src/core/**"]
 			},
@@ -269,10 +361,6 @@
 			{
 				"name": "types",
 				"patterns": ["packages/engine/src/types/**"]
-			},
-			{
-				"name": "text",
-				"patterns": ["packages/engine/src/text/**"]
 			},
 			{
 				"name": "codec",
@@ -391,10 +479,6 @@
 				"patterns": ["packages/grizzle/src/cli/**"]
 			},
 			{
-				"name": "engine-index",
-				"patterns": ["packages/engine/src/index.ts"]
-			},
-			{
 				"name": "runtime-entry",
 				"patterns": ["packages/grizzle/src/runtime.ts"]
 			},
@@ -411,10 +495,6 @@
 				// type alone.
 				"name": "http",
 				"patterns": ["packages/grizzle/src/http/**"]
-			},
-			{
-				"name": "index",
-				"patterns": ["packages/grizzle/src/index.ts"]
 			},
 			{
 				// @bjornpagen/grizzle/client: the browser client, which loads the engine through its client facade alone.
@@ -519,6 +599,8 @@
 				"allow": [
 					"browser-core",
 					"core",
+					"dsl-core",
+					"dsl-ir",
 					"grizzle-text",
 					"ir",
 					"live-model",
@@ -533,17 +615,17 @@
 				// Browser-safe by construction: no zone here imports one that reaches a Node module.
 				"from": "browser-core",
 				"allow": ["grizzle-text"],
-				"allowTypeOnly": ["core"]
+				"allowTypeOnly": ["core", "dsl-core"]
 			},
 			{
 				"from": "values",
 				"allow": ["browser-core", "grizzle-text"],
-				"allowTypeOnly": ["core", "ir", "scalar", "types"]
+				"allowTypeOnly": ["core", "dsl-core", "dsl-ir", "dsl-scalar", "ir", "scalar", "types"]
 			},
 			{
 				"from": "live-model",
 				"allow": ["browser-core", "grizzle-text"],
-				"allowTypeOnly": ["core", "live", "live-wire", "types"]
+				"allowTypeOnly": ["core", "dsl-core", "live", "live-wire", "types"]
 			},
 			{
 				"from": "plan-client",
@@ -564,6 +646,7 @@
 				"allowTypeOnly": [
 					"browser-core",
 					"core",
+					"dsl-core",
 					"live",
 					"live-model",
 					"live-wire",
@@ -574,7 +657,18 @@
 			},
 			{
 				"from": "reader",
-				"allow": ["browser-core", "codec", "core", "grizzle-text", "ir", "scalar", "values"]
+				"allow": [
+					"browser-core",
+					"codec",
+					"core",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-scalar",
+					"grizzle-text",
+					"ir",
+					"scalar",
+					"values"
+				]
 			},
 			{
 				"from": "decode",
@@ -584,6 +678,13 @@
 					"check",
 					"codec",
 					"core",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-query",
+					"dsl-scalar",
+					"dsl-schema",
+					"dsl-sql",
+					"dsl-write",
 					"grizzle-text",
 					"ir",
 					"laws",
@@ -610,6 +711,15 @@
 					"core",
 					"decode",
 					"deploy",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-program",
+					"dsl-query",
+					"dsl-scalar",
+					"dsl-schema",
+					"dsl-sql",
+					"dsl-text",
+					"dsl-write",
 					"grizzle-text",
 					"ir",
 					"laws",
@@ -626,7 +736,6 @@
 					"schema",
 					"served",
 					"sql",
-					"text",
 					"types",
 					"values",
 					"write"
@@ -645,6 +754,15 @@
 					"core",
 					"decode",
 					"deploy",
+					"dsl-adapter",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-program",
+					"dsl-query",
+					"dsl-scalar",
+					"dsl-schema",
+					"dsl-sql",
+					"dsl-write",
 					"grizzle-text",
 					"install",
 					"ir",
@@ -674,48 +792,317 @@
 					"codec",
 					"core",
 					"decode",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-scalar",
 					"grizzle-text",
 					"ir",
 					"scalar",
 					"values"
 				],
-				"allowTypeOnly": ["laws", "lower", "sql", "types", "write"]
+				"allowTypeOnly": ["dsl-sql", "dsl-write", "laws", "lower", "sql", "types", "write"]
+			},
+			{
+				"from": "dsl-core",
+				"allow": ["browser-core", "grizzle-text"],
+				"allowTypeOnly": ["core"]
+			},
+			{
+				"from": "dsl-sql",
+				"allow": ["browser-core", "dsl-core", "grizzle-text"],
+				"allowTypeOnly": ["core", "sql"]
+			},
+			{
+				"from": "dsl-allen",
+				"allow": ["browser-core", "dsl-core", "dsl-sql", "grizzle-text"],
+				"allowTypeOnly": ["allen", "core", "sql"]
+			},
+			{
+				"from": "dsl-ir",
+				"allow": ["browser-core", "dsl-core", "dsl-sql", "grizzle-text", "values"],
+				"allowTypeOnly": ["core", "ir", "sql"]
+			},
+			{
+				"from": "dsl-scalar",
+				"allow": ["browser-core", "dsl-core", "dsl-ir", "grizzle-text", "values"],
+				"allowTypeOnly": ["core", "ir", "scalar"]
+			},
+			{
+				"from": "dsl-text",
+				"allow": [
+					"browser-core",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-scalar",
+					"dsl-sql",
+					"grizzle-text",
+					"values"
+				],
+				"allowTypeOnly": ["core", "ir", "scalar", "sql", "types"]
+			},
+			{
+				"from": "dsl-schema",
+				"allow": [
+					"browser-core",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-scalar",
+					"dsl-sql",
+					"dsl-text",
+					"grizzle-text",
+					"values"
+				],
+				"allowTypeOnly": ["codec", "core", "ir", "runtime", "scalar", "schema", "sql", "types"]
+			},
+			{
+				"from": "dsl-query",
+				"allow": [
+					"browser-core",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-scalar",
+					"dsl-schema",
+					"dsl-text",
+					"grizzle-text",
+					"values"
+				],
+				"allowTypeOnly": ["core", "ir", "query", "scalar", "schema", "types"]
+			},
+			{
+				"from": "dsl-write",
+				"allow": [
+					"browser-core",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-query",
+					"dsl-scalar",
+					"dsl-schema",
+					"dsl-sql",
+					"grizzle-text",
+					"values"
+				],
+				"allowTypeOnly": [
+					"analysis",
+					"check",
+					"codec",
+					"core",
+					"decode",
+					"ir",
+					"laws",
+					"logical",
+					"lower",
+					"query",
+					"runtime",
+					"scalar",
+					"schema",
+					"served",
+					"sql",
+					"types",
+					"write"
+				]
+			},
+			{
+				"from": "dsl-program",
+				"allow": [
+					"browser-core",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-query",
+					"dsl-scalar",
+					"dsl-schema",
+					"dsl-sql",
+					"dsl-write",
+					"grizzle-text",
+					"values"
+				],
+				"allowTypeOnly": [
+					"analysis",
+					"check",
+					"codec",
+					"core",
+					"decode",
+					"ir",
+					"laws",
+					"live",
+					"live-model",
+					"logical",
+					"lower",
+					"physical",
+					"program",
+					"query",
+					"runtime",
+					"scalar",
+					"schema",
+					"served",
+					"sql",
+					"types",
+					"write"
+				]
+			},
+			{
+				"from": "dsl-public",
+				"allow": [
+					"browser-core",
+					"dsl-allen",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-program",
+					"dsl-query",
+					"dsl-scalar",
+					"dsl-schema",
+					"dsl-text",
+					"dsl-write",
+					"grizzle-text",
+					"values"
+				],
+				"allowTypeOnly": [
+					"allen",
+					"core",
+					"ir",
+					"program",
+					"public",
+					"query",
+					"scalar",
+					"schema",
+					"types",
+					"write"
+				]
+			},
+			{
+				"from": "dsl-adapter",
+				"allow": [
+					"browser-core",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-program",
+					"dsl-query",
+					"dsl-scalar",
+					"dsl-schema",
+					"dsl-sql",
+					"dsl-write",
+					"grizzle-text",
+					"values"
+				],
+				"allowTypeOnly": [
+					"adapter",
+					"adapter-decode",
+					"adapter-runtime",
+					"analysis",
+					"check",
+					"codec",
+					"core",
+					"decode",
+					"deploy",
+					"ir",
+					"live",
+					"live-model",
+					"logical",
+					"lower",
+					"physical",
+					"plan",
+					"program",
+					"query",
+					"runtime",
+					"scalar",
+					"schema",
+					"served",
+					"sql",
+					"types",
+					"write"
+				]
+			},
+			{
+				"from": "dsl-engine-index",
+				"allow": ["dsl-public", "grizzle-text"],
+				"allowTypeOnly": ["public"]
+			},
+			{
+				"from": "dsl-index",
+				"allow": ["dsl-adapter", "dsl-engine-index", "grizzle-text"],
+				"allowTypeOnly": ["adapter", "adapter-runtime"]
 			},
 			{
 				"from": "core",
-				"allow": ["browser-core", "grizzle-text"]
+				"allow": ["browser-core", "dsl-core", "grizzle-text"]
 			},
 			{
 				"from": "sql",
-				"allow": ["browser-core", "core", "grizzle-text"]
+				"allow": ["browser-core", "core", "dsl-core", "dsl-sql", "grizzle-text"]
 			},
 			{
 				"from": "allen",
-				"allow": ["browser-core", "core", "grizzle-text", "sql"]
+				"allow": ["browser-core", "core", "dsl-allen", "dsl-core", "dsl-sql", "grizzle-text", "sql"]
 			},
 			{
 				"from": "ir",
-				"allow": ["browser-core", "core", "grizzle-text", "sql", "values"]
+				"allow": [
+					"browser-core",
+					"core",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-sql",
+					"grizzle-text",
+					"sql",
+					"values"
+				]
 			},
 			{
 				"from": "scalar",
-				"allow": ["browser-core", "core", "grizzle-text", "ir", "values"]
+				"allow": [
+					"browser-core",
+					"core",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-scalar",
+					"grizzle-text",
+					"ir",
+					"values"
+				]
 			},
 			{
 				"from": "logical",
-				"allow": ["browser-core", "core", "grizzle-text", "ir", "scalar", "values"]
+				"allow": [
+					"browser-core",
+					"core",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-scalar",
+					"grizzle-text",
+					"ir",
+					"scalar",
+					"values"
+				]
 			},
 			{
 				"from": "types",
-				"allow": ["allen", "browser-core", "core", "grizzle-text", "ir", "scalar", "values"]
-			},
-			{
-				"from": "text",
-				"allow": ["browser-core", "core", "grizzle-text", "ir", "scalar", "sql", "types", "values"]
+				"allow": [
+					"allen",
+					"browser-core",
+					"core",
+					"dsl-allen",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-scalar",
+					"grizzle-text",
+					"ir",
+					"scalar",
+					"values"
+				]
 			},
 			{
 				"from": "codec",
-				"allow": ["browser-core", "core", "grizzle-text", "ir", "scalar", "types", "values"]
+				"allow": [
+					"browser-core",
+					"core",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-scalar",
+					"grizzle-text",
+					"ir",
+					"scalar",
+					"types",
+					"values"
+				]
 			},
 			{
 				"from": "schema",
@@ -723,12 +1110,17 @@
 					"browser-core",
 					"codec",
 					"core",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-scalar",
+					"dsl-schema",
+					"dsl-sql",
+					"dsl-text",
 					"grizzle-text",
 					"ir",
 					"runtime",
 					"scalar",
 					"sql",
-					"text",
 					"types",
 					"values"
 				]
@@ -739,12 +1131,17 @@
 					"allen",
 					"browser-core",
 					"core",
+					"dsl-allen",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-scalar",
+					"dsl-schema",
+					"dsl-text",
 					"grizzle-text",
 					"ir",
 					"logical",
 					"scalar",
 					"schema",
-					"text",
 					"values"
 				]
 			},
@@ -754,13 +1151,17 @@
 					"browser-core",
 					"check",
 					"core",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-scalar",
+					"dsl-schema",
+					"dsl-text",
 					"grizzle-text",
 					"ir",
 					"logical",
 					"runtime",
 					"scalar",
 					"schema",
-					"text",
 					"types",
 					"values"
 				]
@@ -773,6 +1174,11 @@
 					"analysis",
 					"browser-core",
 					"core",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-scalar",
+					"dsl-schema",
+					"dsl-sql",
 					"grizzle-text",
 					"ir",
 					"scalar",
@@ -787,11 +1193,16 @@
 				"allow": [
 					"browser-core",
 					"core",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-query",
+					"dsl-scalar",
+					"dsl-schema",
+					"dsl-text",
 					"grizzle-text",
 					"ir",
 					"scalar",
 					"schema",
-					"text",
 					"types",
 					"values"
 				]
@@ -804,6 +1215,10 @@
 					"check",
 					"codec",
 					"core",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-scalar",
+					"dsl-sql",
 					"grizzle-text",
 					"ir",
 					"logical",
@@ -822,6 +1237,13 @@
 					"codec",
 					"core",
 					"decode",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-query",
+					"dsl-scalar",
+					"dsl-schema",
+					"dsl-sql",
+					"dsl-write",
 					"grizzle-text",
 					"ir",
 					"laws",
@@ -844,6 +1266,13 @@
 					"browser-core",
 					"check",
 					"core",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-scalar",
+					"dsl-schema",
+					"dsl-sql",
+					"dsl-text",
+					"dsl-write",
 					"grizzle-text",
 					"ir",
 					"laws",
@@ -855,7 +1284,6 @@
 					"scalar",
 					"schema",
 					"sql",
-					"text",
 					"types",
 					"values",
 					"write"
@@ -871,6 +1299,14 @@
 					"codec",
 					"core",
 					"decode",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-program",
+					"dsl-query",
+					"dsl-scalar",
+					"dsl-schema",
+					"dsl-sql",
+					"dsl-write",
 					"grizzle-text",
 					"ir",
 					"laws",
@@ -895,6 +1331,11 @@
 				"allow": [
 					"browser-core",
 					"core",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-schema",
+					"dsl-sql",
+					"dsl-text",
 					"grizzle-text",
 					"ir",
 					"laws",
@@ -904,7 +1345,6 @@
 					"physical",
 					"schema",
 					"sql",
-					"text",
 					"values"
 				],
 				"allowTypeOnly": ["install"]
@@ -915,13 +1355,22 @@
 					"allen",
 					"browser-core",
 					"core",
+					"dsl-allen",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-program",
+					"dsl-public",
+					"dsl-query",
+					"dsl-scalar",
+					"dsl-schema",
+					"dsl-text",
+					"dsl-write",
 					"grizzle-text",
 					"ir",
 					"program",
 					"query",
 					"scalar",
 					"schema",
-					"text",
 					"types",
 					"values",
 					"write"
@@ -930,9 +1379,22 @@
 			{
 				// The served forms name the compiled structures they hold by type alone: the file is data, rebuilt at load.
 				"from": "served",
-				"allow": ["browser-core", "check", "core", "grizzle-text", "ir", "scalar", "values"],
+				"allow": [
+					"browser-core",
+					"check",
+					"core",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-scalar",
+					"grizzle-text",
+					"ir",
+					"scalar",
+					"values"
+				],
 				"allowTypeOnly": [
 					"codec",
+					"dsl-sql",
+					"dsl-write",
 					"laws",
 					"live-served",
 					"lower",
@@ -953,6 +1415,14 @@
 					"core",
 					"decode",
 					"deploy",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-program",
+					"dsl-query",
+					"dsl-scalar",
+					"dsl-schema",
+					"dsl-sql",
+					"dsl-write",
 					"grizzle-text",
 					"ir",
 					"live",
@@ -975,6 +1445,8 @@
 				"allowTypeOnly": ["laws"]
 			},
 			{
+				// A session's password Effect fails with the config's CredentialError, which the DSL defines
+				// (adapter/errors/credential.ts) so a grizzle.config.ts names it without loading the runtime.
 				"from": "adapter-runtime",
 				"allow": [
 					"adapter-decode",
@@ -983,6 +1455,10 @@
 					"codec",
 					"core",
 					"decode",
+					"dsl-adapter",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-scalar",
 					"grizzle-text",
 					"ir",
 					"live",
@@ -1002,6 +1478,12 @@
 					"core",
 					"decode",
 					"deploy",
+					"dsl-program",
+					"dsl-query",
+					"dsl-schema",
+					"dsl-sql",
+					"dsl-text",
+					"dsl-write",
 					"install",
 					"ir",
 					"laws",
@@ -1017,7 +1499,6 @@
 					"schema",
 					"served",
 					"sql",
-					"text",
 					"types",
 					"values",
 					"write"
@@ -1032,6 +1513,9 @@
 					"codec",
 					"core",
 					"decode",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-scalar",
 					"grizzle-text",
 					"ir",
 					"plan-runtime",
@@ -1050,6 +1534,13 @@
 					"core",
 					"decode",
 					"deploy",
+					"dsl-adapter",
+					"dsl-program",
+					"dsl-query",
+					"dsl-schema",
+					"dsl-sql",
+					"dsl-text",
+					"dsl-write",
 					"install",
 					"ir",
 					"laws",
@@ -1065,7 +1556,6 @@
 					"schema",
 					"served",
 					"sql",
-					"text",
 					"types",
 					"values",
 					"write"
@@ -1073,18 +1563,30 @@
 			},
 			{
 				"from": "live",
-				"allow": ["browser-core", "core", "grizzle-text", "live-model", "types"]
+				"allow": ["browser-core", "core", "dsl-core", "grizzle-text", "live-model", "types"]
 			},
 			{
 				"from": "live-wire",
 				"allow": ["browser-core", "grizzle-text", "live-model", "values"],
-				"allowTypeOnly": ["core", "ir", "live", "scalar", "types"]
+				"allowTypeOnly": [
+					"core",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-scalar",
+					"ir",
+					"live",
+					"scalar",
+					"types"
+				]
 			},
 			{
 				"from": "live-served",
 				"allow": [
 					"browser-core",
 					"core",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-scalar",
 					"grizzle-text",
 					"ir",
 					"live",
@@ -1103,6 +1605,9 @@
 					"codec",
 					"core",
 					"decode",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-scalar",
 					"grizzle-text",
 					"ir",
 					"live",
@@ -1120,7 +1625,17 @@
 				// The OpenAPI facade re-exports what the document's writer reads: the served file, the live event model, the
 				// wire's shapes and scalar table, canonical JSON, digests and sharing.
 				"from": "plan-openapi",
-				"allow": ["browser-core", "core", "ir", "live-model", "live-served", "live-wire", "served"]
+				"allow": [
+					"browser-core",
+					"core",
+					"dsl-core",
+					"dsl-ir",
+					"ir",
+					"live-model",
+					"live-served",
+					"live-wire",
+					"served"
+				]
 			},
 			{
 				"from": "runtime-entry",
@@ -1128,7 +1643,7 @@
 			},
 			{
 				"from": "dynamic-entry",
-				"allow": ["grizzle-text", "public"]
+				"allow": ["dsl-public", "grizzle-text", "public"]
 			},
 			{
 				"from": "http",
@@ -1136,6 +1651,7 @@
 					"adapter-runtime",
 					"browser-core",
 					"core",
+					"dsl-core",
 					"grizzle-text",
 					"http",
 					"live",
@@ -1143,7 +1659,7 @@
 					"live-wire",
 					"plan-runtime"
 				],
-				"allowTypeOnly": ["adapter", "plan", "served", "types"]
+				"allowTypeOnly": ["adapter", "dsl-adapter", "plan", "served", "types"]
 			},
 			{
 				"from": "adapter",
@@ -1157,6 +1673,15 @@
 					"core",
 					"decode",
 					"deploy",
+					"dsl-adapter",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-program",
+					"dsl-query",
+					"dsl-scalar",
+					"dsl-schema",
+					"dsl-sql",
+					"dsl-write",
 					"grizzle-text",
 					"ir",
 					"live",
@@ -1186,6 +1711,12 @@
 					"browser-core",
 					"core",
 					"deploy",
+					"dsl-adapter",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-program",
+					"dsl-schema",
+					"dsl-sql",
 					"grizzle-text",
 					"install",
 					"ir",
@@ -1203,92 +1734,89 @@
 				]
 			},
 			{
-				"from": "engine-index",
-				"allow": ["grizzle-text", "public"]
-			},
-			{
-				"from": "index",
-				"allow": ["adapter", "adapter-runtime", "engine-index", "grizzle-text"]
-			},
-			{
 				// grizzle's public entries, as fallow reads an import of one: the zones each re-exports from (the index's engine
 				// authoring API and shell, the runtime entry's served layer, the client and http entries), the suites' support,
 				// and the generator's model and runtime, whose JSON trees, pointers and readers the tier's twins compare against.
 				"from": "cli-generator-grizzle-tier",
 				"allow": [
-					"grizzle-text",
-					"cli-generator",
-					"cli-generator-suites",
-					"cli-generator-model",
-					"cli-generator-runtime",
-					"index",
-					"runtime-entry",
-					"client",
-					"http",
 					"adapter",
 					"adapter-runtime",
-					"public",
-					"schema",
+					"cli-generator",
+					"cli-generator-model",
+					"cli-generator-runtime",
+					"cli-generator-suites",
+					"client",
+					"dsl-adapter",
+					"dsl-index",
+					"dsl-program",
+					"dsl-public",
+					"dsl-query",
+					"dsl-schema",
+					"dsl-text",
+					"grizzle-text",
+					"http",
 					"program",
+					"public",
 					"query",
-					"text"
+					"runtime-entry",
+					"schema"
 				]
 			},
 			{
 				// Every stage of the generator, its corpus and scripts, and the grizzle tier's support.
 				"from": "cli-generator-suites",
 				"allow": [
-					"grizzle-text",
 					"cli-generator",
-					"cli-generator-corpus",
-					"cli-generator-scripts",
-					"cli-generator-model",
-					"cli-generator-runtime",
-					"cli-generator-load",
-					"cli-generator-validate",
-					"cli-generator-resolve",
 					"cli-generator-check",
-					"cli-generator-normalize",
-					"cli-generator-names",
+					"cli-generator-corpus",
 					"cli-generator-emit",
-					"cli-generator-write",
+					"cli-generator-grizzle-tier",
+					"cli-generator-load",
+					"cli-generator-model",
+					"cli-generator-names",
+					"cli-generator-normalize",
 					"cli-generator-report",
-					"cli-generator-grizzle-tier"
+					"cli-generator-resolve",
+					"cli-generator-runtime",
+					"cli-generator-scripts",
+					"cli-generator-validate",
+					"cli-generator-write",
+					"grizzle-text"
 				]
 			},
 			{
 				"from": "cli-generator-corpus",
 				"allow": [
-					"grizzle-text",
 					"cli-generator",
-					"cli-generator-model",
-					"cli-generator-runtime",
-					"cli-generator-load",
-					"cli-generator-validate",
-					"cli-generator-resolve",
 					"cli-generator-check",
-					"cli-generator-normalize",
-					"cli-generator-names",
 					"cli-generator-emit",
+					"cli-generator-load",
+					"cli-generator-model",
+					"cli-generator-names",
+					"cli-generator-normalize",
+					"cli-generator-report",
+					"cli-generator-resolve",
+					"cli-generator-runtime",
+					"cli-generator-validate",
 					"cli-generator-write",
-					"cli-generator-report"
+					"grizzle-text"
 				]
 			},
 			{
 				"from": "cli-generator-scripts",
 				"allow": [
-					"grizzle-text",
-					"cli-generator-model",
-					"cli-generator-runtime",
-					"cli-generator-load",
-					"cli-generator-validate",
-					"cli-generator-resolve",
 					"cli-generator-check",
-					"cli-generator-normalize",
-					"cli-generator-names",
 					"cli-generator-emit",
+					"cli-generator-load",
+					"cli-generator-model",
+					"cli-generator-names",
+					"cli-generator-normalize",
+					"cli-generator-report",
+					"cli-generator-resolve",
+					"cli-generator-runtime",
+					"cli-generator-validate",
 					"cli-generator-write",
-					"cli-generator-report"
+					"grizzle-text"
 				]
 			},
 			{
@@ -1300,128 +1828,128 @@
 			},
 			{
 				"from": "cli-generator-model",
-				"allow": ["grizzle-text", "cli-generator-runtime"]
+				"allow": ["cli-generator-runtime", "grizzle-text"]
 			},
 			{
 				// A stage imports the model, the runtime and the stages before it, in pipeline order.
 				"from": "cli-generator-load",
-				"allow": ["grizzle-text", "cli-generator-model", "cli-generator-runtime"]
+				"allow": ["cli-generator-model", "cli-generator-runtime", "grizzle-text"]
 			},
 			{
 				"from": "cli-generator-validate",
 				"allow": [
-					"grizzle-text",
+					"cli-generator-load",
 					"cli-generator-model",
 					"cli-generator-runtime",
-					"cli-generator-load"
+					"grizzle-text"
 				]
 			},
 			{
 				"from": "cli-generator-resolve",
 				"allow": [
-					"grizzle-text",
+					"cli-generator-load",
 					"cli-generator-model",
 					"cli-generator-runtime",
-					"cli-generator-load",
-					"cli-generator-validate"
+					"cli-generator-validate",
+					"grizzle-text"
 				]
 			},
 			{
 				"from": "cli-generator-check",
 				"allow": [
-					"grizzle-text",
-					"cli-generator-model",
-					"cli-generator-runtime",
 					"cli-generator-load",
+					"cli-generator-model",
+					"cli-generator-resolve",
+					"cli-generator-runtime",
 					"cli-generator-validate",
-					"cli-generator-resolve"
+					"grizzle-text"
 				]
 			},
 			{
 				"from": "cli-generator-normalize",
 				"allow": [
-					"grizzle-text",
-					"cli-generator-model",
-					"cli-generator-runtime",
+					"cli-generator-check",
 					"cli-generator-load",
-					"cli-generator-validate",
+					"cli-generator-model",
 					"cli-generator-resolve",
-					"cli-generator-check"
+					"cli-generator-runtime",
+					"cli-generator-validate",
+					"grizzle-text"
 				]
 			},
 			{
 				"from": "cli-generator-names",
 				"allow": [
-					"grizzle-text",
-					"cli-generator-model",
-					"cli-generator-runtime",
-					"cli-generator-load",
-					"cli-generator-validate",
-					"cli-generator-resolve",
 					"cli-generator-check",
-					"cli-generator-normalize"
+					"cli-generator-load",
+					"cli-generator-model",
+					"cli-generator-normalize",
+					"cli-generator-resolve",
+					"cli-generator-runtime",
+					"cli-generator-validate",
+					"grizzle-text"
 				]
 			},
 			{
 				"from": "cli-generator-emit",
 				"allow": [
-					"grizzle-text",
-					"cli-generator-model",
-					"cli-generator-runtime",
-					"cli-generator-load",
-					"cli-generator-validate",
-					"cli-generator-resolve",
 					"cli-generator-check",
+					"cli-generator-load",
+					"cli-generator-model",
+					"cli-generator-names",
 					"cli-generator-normalize",
-					"cli-generator-names"
+					"cli-generator-resolve",
+					"cli-generator-runtime",
+					"cli-generator-validate",
+					"grizzle-text"
 				]
 			},
 			{
 				"from": "cli-generator-write",
 				"allow": [
-					"grizzle-text",
-					"cli-generator-model",
-					"cli-generator-runtime",
-					"cli-generator-load",
-					"cli-generator-validate",
-					"cli-generator-resolve",
 					"cli-generator-check",
-					"cli-generator-normalize",
+					"cli-generator-emit",
+					"cli-generator-load",
+					"cli-generator-model",
 					"cli-generator-names",
-					"cli-generator-emit"
+					"cli-generator-normalize",
+					"cli-generator-resolve",
+					"cli-generator-runtime",
+					"cli-generator-validate",
+					"grizzle-text"
 				]
 			},
 			{
 				"from": "cli-generator-report",
 				"allow": [
-					"grizzle-text",
-					"cli-generator-model",
-					"cli-generator-runtime",
-					"cli-generator-load",
-					"cli-generator-validate",
-					"cli-generator-resolve",
 					"cli-generator-check",
-					"cli-generator-normalize",
-					"cli-generator-names",
 					"cli-generator-emit",
-					"cli-generator-write"
+					"cli-generator-load",
+					"cli-generator-model",
+					"cli-generator-names",
+					"cli-generator-normalize",
+					"cli-generator-resolve",
+					"cli-generator-runtime",
+					"cli-generator-validate",
+					"cli-generator-write",
+					"grizzle-text"
 				]
 			},
 			{
 				"from": "cli-generator",
 				"allow": [
-					"grizzle-text",
-					"cli-generator-model",
-					"cli-generator-runtime",
-					"cli-generator-load",
-					"cli-generator-validate",
-					"cli-generator-resolve",
 					"cli-generator-check",
-					"cli-generator-normalize",
-					"cli-generator-names",
 					"cli-generator-emit",
+					"cli-generator-load",
+					"cli-generator-model",
+					"cli-generator-names",
+					"cli-generator-normalize",
+					"cli-generator-report",
+					"cli-generator-resolve",
+					"cli-generator-runtime",
+					"cli-generator-validate",
 					"cli-generator-write",
-					"cli-generator-report"
+					"grizzle-text"
 				]
 			}
 		],
@@ -1507,7 +2035,7 @@
 		{ "file": "packages/engine/src/lower/shapes/index.ts", "exports": ["asDelivered"] },
 		{ "file": "packages/engine/src/lower/shapes/take/index.ts", "exports": ["RelationInput"] },
 		{ "file": "packages/engine/src/ir/physical.ts", "exports": ["ColumnType"] },
-		{ "file": "packages/engine/src/program/schema.ts", "exports": ["BuiltSchema"] },
+		{ "file": "packages/engine/src/program/input.ts", "exports": ["BuiltSchema"] },
 		{ "file": "packages/engine/src/program/workload/value.ts", "exports": ["workload"] },
 		{ "file": "packages/engine/src/scalar/values/identity.ts", "exports": ["compareValues"] },
 		{

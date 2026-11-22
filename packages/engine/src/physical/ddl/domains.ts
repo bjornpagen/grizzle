@@ -52,7 +52,7 @@ import { calledLibrary } from "#compiler/physical/ddl/library.ts"
 import type { ContractSource, InstallNames } from "#compiler/physical/ddl/names.ts"
 import { digestedHooks, digestedTypes } from "#compiler/physical/ddl/type-schemas.ts"
 import { enforcement, lawReasons, type Node } from "#compiler/physical/obligations/graph.ts"
-import { fieldEntry } from "#compiler/runtime/law-entry.ts"
+import { fieldEntry } from "#compiler/schema/declared-entries.ts"
 import type { Owned, OwnedRelation } from "#compiler/schema/own.ts"
 import {
 	type Collation,

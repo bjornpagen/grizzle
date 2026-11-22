@@ -750,7 +750,8 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   name }`, `{ kind: "statement" }` for a write statement's refusal, or `{ kind: "notNull", table, column }` for a
   generated column. A pattern's law names its field, `{ kind: "pattern", relation, field, patterns }`, each `{ source, flags }`
   spelled as that field spells it, every pattern of a `str.and` in order and one law for the field all the same, so two
-  fields of one pattern are two laws. `lawsOf(schema)` lists every law a schema states,
+  fields of one pattern are two laws. `lawsOf(schema)` (from `@bjornpagen/grizzle/compile`, as are `lawsByStatement`,
+  `constraintNamesOf`, `rowEvaluator`, `insertPreview` and `codecText`) lists every law a schema states,
   each once, as `{ law, id }`, `law` as an outcome names it and `id` the one a refused law carries: each table's primary key, each statement's laws, each contract's, each stored
   field's pattern law and each generated field's law, none for a pattern every text matches, which grizzle drops, or
   for a contract's pattern, whose law is the contract's. Key your names for laws by these ids and read a refusal by
