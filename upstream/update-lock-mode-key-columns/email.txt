@@ -1,0 +1,98 @@
+To: Tomas Vondra <tomas.vondra@enterprisedb.com>
+Cc: Andres Freund <andres@anarazel.de>,
+ Tom Lane <tgl@sss.pgh.pa.us>,
+ Jakub Wartak <jakub.wartak@enterprisedb.com>,
+ pgsql-hackers@lists.postgresql.org
+Subject: Re: memory leak in trigger handling (since PG12)
+In-Reply-To: <CAKZiRmxadz_2UT02yVGvzJ3hp=v27K8kNuHxahV1O9gJR17j5w@mail.gmail.com>
+References: <222a3442-7f7d-246c-ed9b-a76209d19239@enterprisedb.com>
+ <CAKZiRmxadz_2UT02yVGvzJ3hp=v27K8kNuHxahV1O9gJR17j5w@mail.gmail.com>
+Attach: v1-0001-Use-per-tuple-context-for-the-key-columns-in-Exec.patch
+
+Hi,
+
+Reviving this thread for the one per-row allocation it left behind.
+f24523672de moved the bitmap ExecGetAllUpdatedCols() builds into the
+per-tuple context, but ExecUpdateLockMode() builds a second one on
+every call: RelationGetIndexAttrBitmap(rel, INDEX_ATTR_BITMAP_KEY)
+returns a fresh bms_copy() in CurrentMemoryContext, which is still
+ExecutorState.  It is the other half of the profile upthread:
+
+Jakub Wartak <jakub.wartak@enterprisedb.com> writes:
+> palloc <- bms_copy <- RelationGetIndexAttrBitmap <- ExecUpdateLockMode
+> (size=16, 49.73%)
+
+ExecUpdateLockMode() runs once per row from ExecBRUpdateTriggers(),
+ExecOnConflictUpdate() and ExecMergeMatched(), so on master, 19.0 and
+the back branches ExecutorState still grows by about 40 bytes for every
+row of
+
+  - an UPDATE of a table with any BEFORE ROW UPDATE trigger, and
+  - an INSERT ... ON CONFLICT DO UPDATE, for each row it updates, with
+    no trigger at all.
+
+That is 400MB for an upsert that updates 10 million rows.  To
+reproduce, with a statement-level AFTER trigger reading ExecutorState
+before the executor ends:
+
+    \set n 100000
+    CREATE TABLE probe (kind text, executor_state bigint);
+    CREATE FUNCTION probe() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+      INSERT INTO probe SELECT TG_ARGV[0], sum(total_bytes)
+      FROM pg_backend_memory_contexts WHERE name = 'ExecutorState';
+      RETURN NULL;
+    END $$;
+    CREATE FUNCTION keep() RETURNS trigger LANGUAGE plpgsql
+      AS $$ BEGIN RETURN NEW; END $$;
+
+    CREATE TABLE t (id int PRIMARY KEY, a int NOT NULL DEFAULT 0);
+    INSERT INTO t (id) SELECT generate_series(1, :n);
+    CREATE TRIGGER keep BEFORE UPDATE ON t
+      FOR EACH ROW EXECUTE FUNCTION keep();
+    CREATE TRIGGER probe AFTER UPDATE ON t
+      FOR EACH STATEMENT EXECUTE FUNCTION probe('update, BEFORE ROW trigger');
+    UPDATE t SET a = 1;
+
+    CREATE TABLE u (id int PRIMARY KEY, a int NOT NULL DEFAULT 0);
+    INSERT INTO u (id) SELECT generate_series(1, :n);
+    CREATE TRIGGER probe AFTER UPDATE ON u
+      FOR EACH STATEMENT EXECUTE FUNCTION probe('upsert');
+    INSERT INTO u (id) SELECT generate_series(1, :n)
+      ON CONFLICT (id) DO UPDATE SET a = 1;
+
+    CREATE TABLE c (id int PRIMARY KEY, a int NOT NULL DEFAULT 0);
+    INSERT INTO c (id) SELECT generate_series(1, :n);
+    CREATE TRIGGER probe AFTER UPDATE ON c
+      FOR EACH STATEMENT EXECUTE FUNCTION probe('update, no trigger');
+    UPDATE c SET a = 1;
+
+    SELECT kind, pg_size_pretty(executor_state) FROM probe;
+
+ExecutorState at the end of each statement, master at 892cfb4cbfe
+(assertions on) and an unmodified 19.0 alike:
+
+    rows      upsert    BR-trigger UPDATE    plain UPDATE
+    100000    4152 kB   4152 kB              120 kB
+    200000    8248 kB   8248 kB              120 kB
+    400000      16 MB     16 MB              120 kB
+
+With the attached patch, on master, REL_19_STABLE and REL_18_STABLE,
+both stay at 120 kB at every size, like the plain UPDATE: that bitmap
+was the whole of the growth.
+
+The patch builds the key-column copy in the per-tuple context, as
+f24523672de does for the updated columns; nothing uses it past the
+function, whose result is a LockTupleMode.  It applies as is to master
+and REL_15_STABLE through REL_19_STABLE.  meson test passes on master,
+REL_19_STABLE and REL_18_STABLE with assertions and TAP; regress and
+isolation pass on REL_17_STABLE, REL_16_STABLE and REL_15_STABLE.  Like
+f24523672de, it adds no test: regress can't check the memory without a
+fragile size threshold.
+
+Computing the lock mode once per ResultRelInfo, as Andres suggested
+upthread for the updated columns, would avoid the work altogether, but
+it needs a new field, so not in the back branches.  This is the minimal
+fix.
+
+Regards

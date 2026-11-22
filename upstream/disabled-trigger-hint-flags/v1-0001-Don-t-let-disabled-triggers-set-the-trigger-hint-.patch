@@ -1,0 +1,148 @@
+From d001aed599541b2fcd1182654221697239836930 Mon Sep 17 00:00:00 2001
+From: Bjorn Pagen <11238136+bjornpagen@users.noreply.github.com>
+Date: Sat, 21 Nov 2026 12:30:17 -0600
+Subject: [PATCH v1] Don't let disabled triggers set the trigger hint flags
+
+SetTriggerFlags() sets a TriggerDesc's trig_* flags for every trigger
+of the relation, including one that ALTER TABLE ... DISABLE TRIGGER has
+disabled, which TriggerEnabled() never lets fire in any
+session_replication_role.  The flags tell the executor whether to look
+for triggers at all, so a disabled trigger still costs every row.  A
+disabled BEFORE ROW UPDATE trigger makes an UPDATE lock each row
+through GetTupleForTrigger() before updating it, which writes a lock
+WAL record and leaves the locker on the new tuple's xmax, and compute
+every stored generated column whatever the UPDATE assigns, since
+ExecInitGenerated() cannot skip any when the flag is set.  On a table
+with one stored generated column, an UPDATE of 100,000 rows assigning
+a column it does not read evaluated the generation expression 100,000
+times and wrote 5.6MB more WAL than without the trigger.  Likewise a
+disabled BEFORE INSERT trigger keeps COPY from batching its inserts, a
+disabled AFTER trigger with a transition table keeps every statement
+capturing transition tuples, and disabled row triggers keep
+postgres_fdw from pushing an UPDATE or DELETE down.
+
+Skip disabled triggers when setting the flags.  Enabling or disabling a
+trigger invalidates the relcache entry, so the flags follow ALTER TABLE
+... ENABLE and DISABLE TRIGGER, and so do the plans that read them.
+Triggers enabled for replica or origin only still set the flags, since
+whether they fire depends on session_replication_role, which can change
+without an invalidation.  INSTEAD OF triggers exist only on views, where
+ALTER TABLE ... DISABLE TRIGGER is refused, so only a hand-edited
+pg_trigger can disable one; such a trigger is now taken as absent, like
+any other disabled trigger, where an UPDATE of the view reported its
+rows and changed nothing.
+---
+ src/backend/commands/trigger.c         | 11 +++++++++
+ src/test/regress/expected/triggers.out | 34 ++++++++++++++++++++++++++
+ src/test/regress/sql/triggers.sql      | 22 +++++++++++++++++
+ 3 files changed, 67 insertions(+)
+
+diff --git a/src/backend/commands/trigger.c b/src/backend/commands/trigger.c
+index 838eae31660..40be50a21e9 100644
+--- a/src/backend/commands/trigger.c
++++ b/src/backend/commands/trigger.c
+@@ -2050,12 +2050,23 @@ RelationBuildTriggers(Relation relation)
+ 
+ /*
+  * Update the TriggerDesc's hint flags to include the specified trigger
++ *
++ * The flags tell callers whether to look for triggers to fire at all, so a
++ * trigger disabled by ALTER TABLE ... DISABLE TRIGGER sets none of them: it
++ * never fires, whatever session_replication_role says (see TriggerEnabled),
++ * and each flag it set would cost every row its work, such as locking each
++ * row before an UPDATE in ExecBRUpdateTriggers and computing every stored
++ * generated column in ExecInitGenerated.  Enabling or disabling a trigger
++ * invalidates the relcache entry, so the flags follow it.
+  */
+ static void
+ SetTriggerFlags(TriggerDesc *trigdesc, Trigger *trigger)
+ {
+ 	int16		tgtype = trigger->tgtype;
+ 
++	if (trigger->tgenabled == TRIGGER_DISABLED)
++		return;
++
+ 	trigdesc->trig_insert_before_row |=
+ 		TRIGGER_TYPE_MATCHES(tgtype, TRIGGER_TYPE_ROW,
+ 							 TRIGGER_TYPE_BEFORE, TRIGGER_TYPE_INSERT);
+diff --git a/src/test/regress/expected/triggers.out b/src/test/regress/expected/triggers.out
+index 16e71341766..5206e786637 100644
+--- a/src/test/regress/expected/triggers.out
++++ b/src/test/regress/expected/triggers.out
+@@ -545,6 +545,40 @@ select *  from trigtest;
+ 
+ drop table trigtest2;
+ drop table trigtest;
++-- A disabled row trigger costs an UPDATE nothing per row: under a disabled
++-- BEFORE ROW UPDATE trigger, it neither locks each row before updating it
++-- nor computes stored generated columns that its target columns do not feed
++create function trigtest_generation(b int) returns int immutable as $$
++begin
++	raise notice 'generation computed from %', b;
++	return b;
++end;$$ language plpgsql;
++create table trigtest (a int, b int,
++  g int generated always as (trigtest_generation(b)) stored);
++insert into trigtest values (1, 1);
++NOTICE:  generation computed from 1
++create trigger trigtest_b_row_tg before update on trigtest
++for each row execute procedure trigtest();
++alter table trigtest disable trigger trigtest_b_row_tg;
++update trigtest set a = 2;  -- computes nothing, locks nothing
++select a, g, xmax = '0' as unlocked from trigtest;
++ a | g | unlocked 
++---+---+----------
++ 2 | 1 | t
++(1 row)
++
++alter table trigtest enable trigger trigtest_b_row_tg;
++update trigtest set a = 3;  -- fires, so computes g, which it might change
++NOTICE:  trigtest UPDATE BEFORE ROW
++NOTICE:  generation computed from 1
++select a, g from trigtest;
++ a | g 
++---+---
++ 3 | 1
++(1 row)
++
++drop table trigtest;
++drop function trigtest_generation(int);
+ -- dump trigger data
+ CREATE TABLE trigger_test (
+         i int,
+diff --git a/src/test/regress/sql/triggers.sql b/src/test/regress/sql/triggers.sql
+index 99e85fac394..7cd5c10aa5e 100644
+--- a/src/test/regress/sql/triggers.sql
++++ b/src/test/regress/sql/triggers.sql
+@@ -336,6 +336,28 @@ select *  from trigtest;
+ drop table trigtest2;
+ drop table trigtest;
+ 
++-- A disabled row trigger costs an UPDATE nothing per row: under a disabled
++-- BEFORE ROW UPDATE trigger, it neither locks each row before updating it
++-- nor computes stored generated columns that its target columns do not feed
++create function trigtest_generation(b int) returns int immutable as $$
++begin
++	raise notice 'generation computed from %', b;
++	return b;
++end;$$ language plpgsql;
++create table trigtest (a int, b int,
++  g int generated always as (trigtest_generation(b)) stored);
++insert into trigtest values (1, 1);
++create trigger trigtest_b_row_tg before update on trigtest
++for each row execute procedure trigtest();
++alter table trigtest disable trigger trigtest_b_row_tg;
++update trigtest set a = 2;  -- computes nothing, locks nothing
++select a, g, xmax = '0' as unlocked from trigtest;
++alter table trigtest enable trigger trigtest_b_row_tg;
++update trigtest set a = 3;  -- fires, so computes g, which it might change
++select a, g from trigtest;
++drop table trigtest;
++drop function trigtest_generation(int);
++
+ 
+ -- dump trigger data
+ CREATE TABLE trigger_test (
+-- 
+2.53.0
+

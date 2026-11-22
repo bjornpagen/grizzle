@@ -1,0 +1,57 @@
+EVIDENCE: ExecUpdateLockMode's key-column bitmap, allocated once per row in ExecutorState
+
+Measured 2026-11-21 on cassowary (Linux 7.0, aarch64, 64 cores). PostgreSQL clone: github.com/postgres/postgres at
+master 892cfb4cbfe, REL_19_STABLE 0155c32fafd, REL_18_STABLE 4fe8b64dc69, REL_17_STABLE 04137cd764c, REL_16_STABLE
+0c539dcd640, REL_15_STABLE d9c7185ee46. Unmodified release: the pinned PostgreSQL 19.0 (grizzle's pnpm pg:build).
+
+1. THE CAUSE IN THE SOURCE (master 892cfb4cbfe)
+   src/backend/executor/execMain.c, ExecUpdateLockMode():
+       updatedCols = ExecGetAllUpdatedCols(relinfo, estate);       -- per-tuple context since f24523672de
+       keyCols = RelationGetIndexAttrBitmap(relinfo->ri_RelationDesc,
+                                            INDEX_ATTR_BITMAP_KEY); -- bms_copy() in CurrentMemoryContext
+   RelationGetIndexAttrBitmap() (src/backend/utils/cache/relcache.c) returns bms_copy() of the cached bitmap, palloc'd
+   in the caller's context. Nothing frees it and the function does not switch contexts.
+   Callers, each once per row with ExecutorState current:
+     - src/backend/commands/trigger.c ExecBRUpdateTriggers(): every row of an UPDATE of a table with
+       trig_update_before_row set (which a DISABLED trigger sets too, see upstream/disabled-trigger-hint-flags);
+     - src/backend/executor/nodeModifyTable.c ExecOnConflictUpdate(): every row an INSERT ... ON CONFLICT DO UPDATE
+       updates;
+     - src/backend/executor/nodeModifyTable.c ExecMergeMatched(): every row a MERGE re-locks after a concurrent update.
+   Master, REL_19_STABLE through REL_15_STABLE and the 19.0 release hold the same function body.
+
+2. HISTORY
+   - 0ac5ad5134f (Alvaro Herrera, 2013-01-23, 9.3) "Improve concurrency of foreign key locking" computes the lock mode
+     from RelationGetIndexAttrBitmap() per row in GetTupleForTrigger().
+   - 168d5805e4c (Andres Freund, 2015-05-08, 9.5) "Add support for INSERT ... ON CONFLICT DO NOTHING/UPDATE" moves it to
+     ExecUpdateLockMode() and calls it per conflicting row too.
+   - f24523672de (Tomas Vondra, 2023-06-07) "Use per-tuple context in ExecGetAllUpdatedCols", back-patched to 12, after
+     the pgsql-hackers thread "memory leak in trigger handling (since PG12)"
+     (https://postgr.es/m/222a3442-7f7d-246c-ed9b-a76209d19239@enterprisedb.com). Jakub Wartak's profile in that thread
+     (CAKZiRmxadz_2UT02yVGvzJ3hp=v27K8kNuHxahV1O9gJR17j5w@mail.gmail.com, 2023-05-24) shows two allocations under
+     ExecBRUpdateTriggers, half each: bms_copy <- ExecUpdateLockMode (the union, fixed) and bms_copy <-
+     RelationGetIndexAttrBitmap <- ExecUpdateLockMode (this one). No message in the thread takes the second up, and no
+     later commit to execMain.c touches it (git log -S'INDEX_ATTR_BITMAP_KEY' on master).
+
+3. BEFORE AND AFTER (repro.sql: ExecutorState summed from pg_backend_memory_contexts by a statement-level AFTER UPDATE
+   trigger, so read before the executor ends)
+   Unmodified 19.0 release (postgres-ram, psql -X -v n=N -f repro.sql), and master 892cfb4cbfe built with
+   -Dcassert=true, run by its own pg_regress in a temporary instance, alike:
+       rows      INSERT ... ON CONFLICT DO UPDATE   UPDATE, BEFORE ROW trigger   UPDATE, no trigger (control)
+       100000    4152 kB                            4152 kB                      120 kB
+       200000    8248 kB                            8248 kB                      120 kB
+       400000      16 MB                              16 MB                      120 kB
+   About 41 bytes a row: a one-word Bitmapset and its chunk header.
+   With the patch, master, REL_19_STABLE and REL_18_STABLE: 120 kB in all three at 100,000, 200,000 (master) and
+   400,000 rows. The control does not call ExecUpdateLockMode and stays at 120 kB throughout.
+
+4. TESTS
+   - git apply --check of the master patch against master and REL_15_STABLE..REL_19_STABLE tips: applies to all six.
+   - Assertions on (-Dcassert=true), TAP on (IPC::Run 20260402.0), meson test, every suite:
+       master + patch          368 ok, 0 fail, 52 skipped (suites needing PG_TEST_EXTRA, LDAP, Kerberos and the like)
+       REL_19_STABLE + patch   356 ok, 0 fail, 34 skipped
+       REL_18_STABLE + patch   326 ok, 0 fail, 26 skipped
+   - meson test --suite setup --suite regress --suite isolation: REL_17_STABLE + patch and REL_16_STABLE + patch pass.
+   - REL_15_STABLE + patch (autoconf, --enable-cassert): make check, all 221 tests passed; src/test/isolation, all 123
+     tests passed.
+   - No regression test: the memory needs a size threshold to check, and f24523672de added none for its sibling.
+   - pgindent (pg_bsd_indent from the master build, typedefs.list) leaves execMain.c unchanged; git diff --check clean.

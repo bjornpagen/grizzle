@@ -1,0 +1,90 @@
+To: pgsql-hackers@lists.postgresql.org
+Subject: [PATCH] Don't let disabled triggers set the trigger hint flags
+Attach: v1-0001-Don-t-let-disabled-triggers-set-the-trigger-hint-.patch, repro.sql
+
+Hi,
+
+A trigger disabled with ALTER TABLE ... DISABLE TRIGGER never fires,
+but it still costs every row.  SetTriggerFlags() sets the TriggerDesc
+trig_* flags from tgtype alone, for every trigger of the relation, and
+the executor reads those flags to decide whether to look for triggers
+at all.  So with only a disabled BEFORE ROW UPDATE trigger, each row of
+an UPDATE
+
+  - is locked through GetTupleForTrigger() before it is updated, which
+    writes a lock WAL record and leaves the locker on the new tuple's
+    xmax, before ExecBRUpdateTriggers()'s loop skips the trigger;
+  - computes every stored generated column, whatever the UPDATE assigns,
+    since ExecInitGenerated() cannot skip any once trig_update_before_row
+    is set; and
+  - leaks ExecUpdateLockMode()'s key-column bitmap into ExecutorState,
+    about 40 bytes (reported separately, in the "memory leak in trigger
+    handling (since PG12)" thread).
+
+Elsewhere a disabled BEFORE INSERT trigger keeps COPY from batching, a
+disabled AFTER trigger with a transition table keeps every statement
+capturing transition tuples, and disabled row triggers keep
+postgres_fdw from pushing an UPDATE or DELETE down.
+
+To reproduce, an UPDATE of 100,000 rows that assigns a column the one
+stored generated column doesn't read, the generation expression counting
+its calls (the whole script is attached as repro.sql):
+
+    CREATE FUNCTION counted(b int) RETURNS int LANGUAGE plpgsql IMMUTABLE AS $$
+    BEGIN
+      PERFORM set_config('dis.calls', (coalesce(nullif(current_setting('dis.calls', true), ''), '0')::bigint + 1)::text, false);
+      RETURN b;
+    END $$;
+    CREATE FUNCTION keep() RETURNS trigger LANGUAGE plpgsql
+      AS $$ BEGIN RETURN NEW; END $$;
+    CREATE TABLE t (id int PRIMARY KEY, a int NOT NULL DEFAULT 0,
+      b int NOT NULL DEFAULT 0, g int GENERATED ALWAYS AS (counted(b)) STORED);
+    INSERT INTO t (id) SELECT generate_series(1, 100000);
+    CREATE TRIGGER keep BEFORE UPDATE ON t FOR EACH ROW EXECUTE FUNCTION keep();
+    ALTER TABLE t DISABLE TRIGGER keep;
+    VACUUM (FREEZE) t;
+    UPDATE t SET a = 1;
+    SELECT current_setting('dis.calls') AS generations,
+           count(*) FILTER (WHERE xmax <> '0') AS locked FROM t;
+
+On an unmodified 19.0:
+
+    variant              generations   WAL bytes    ms     locked
+    no trigger                     0   22,923,064   450          0
+    disabled trigger         100,000   28,539,736   730    100,000
+    enabled trigger          100,000   28,539,688   802    100,000
+
+With the attached patch, on master (an assert-enabled build, so the
+times only compare within the run), the disabled trigger costs what no
+trigger does: no generation, the same WAL to within 16 bytes, no row
+left locked.
+
+The patch makes SetTriggerFlags() return early for a trigger whose
+tgenabled is TRIGGER_DISABLED, which TriggerEnabled() never lets fire
+in any session_replication_role.  EnableDisableTrigger() invalidates the
+relcache entry when it changes tgenabled, so the flags follow ALTER
+TABLE ... ENABLE/DISABLE TRIGGER, and so do plans built on them
+(has_row_triggers(), postgres_fdw's direct modify).  Triggers enabled
+for origin only (the default) or replica only keep setting the flags:
+whether they fire depends on session_replication_role, which can change
+without an invalidation.  The trigger stays in trigdesc->triggers, so
+nothing else changes.
+
+One behaviour change to call out: INSTEAD OF triggers exist only on
+views, where ALTER TABLE ... DISABLE TRIGGER is refused, so only a
+hand-edited pg_trigger can disable one.  Today such a view's UPDATE goes
+through ExecIRUpdateTriggers(), skips the trigger, reports its rows and
+changes nothing; with the patch the trigger is absent like any other
+disabled trigger, so the view is auto-updated if it can be and refused
+if not.  That seems more honest to me, but it's easy to keep the
+INSTEAD OF flags as they are if anyone would rather.
+
+The regression test, in triggers.sql after the enable/disable block,
+checks that a disabled BEFORE ROW UPDATE trigger neither computes a
+generated column the UPDATE doesn't feed nor leaves the row locked, and
+that enabling it again brings both back; it fails on master without the
+fix.  meson test passes with assertions and TAP.  The patch is for
+master; it also applies as is to REL_19_STABLE and REL_18_STABLE, if
+it's thought worth back-patching as a performance fix.
+
+Regards

@@ -1,0 +1,74 @@
+EVIDENCE: a disabled trigger still sets the TriggerDesc hint flags, so it costs every row its work
+
+Measured 2026-11-21 on cassowary (Linux 7.0, aarch64, 64 cores). PostgreSQL clone: github.com/postgres/postgres at
+master 892cfb4cbfe. Unmodified release: the pinned PostgreSQL 19.0 (grizzle's pnpm pg:build).
+
+1. THE CAUSE IN THE SOURCE (master 892cfb4cbfe; 19.0 the same)
+   - src/backend/commands/trigger.c RelationBuildTriggers() calls SetTriggerFlags() for every trigger of the relation,
+     and SetTriggerFlags() sets each trig_* flag from tgtype alone, never reading tgenabled.
+   - TriggerEnabled() returns false for tgenabled = TRIGGER_DISABLED ('D') in every session_replication_role (origin,
+     local and replica alike): a disabled trigger never fires.
+   - The flags gate per-row work before any trigger is looked at:
+       nodeModifyTable.c ExecUpdatePrologue(): trig_update_before_row -> ExecBRUpdateTriggers(), which computes the lock
+         mode (ExecUpdateLockMode, see upstream/update-lock-mode-key-columns) and locks the row through
+         GetTupleForTrigger() before its loop skips the disabled trigger;
+       nodeModifyTable.c ExecInitGenerated(): trig_update_before_row -> updatedCols = NULL -> every stored generated
+         column is computed for every row, whatever the UPDATE assigns;
+       copyfrom.c: trig_insert_before_row -> no multi-insert batching;
+       transition capture (MakeTransitionCaptureState): trig_*_new_table/old_table -> tuples captured;
+       plancat.c has_row_triggers(), postgres_fdw: row-trigger flags -> no direct UPDATE/DELETE push-down;
+       execReplication.c, appendinfo.c: the same flags.
+   - ALTER TABLE ... ENABLE/DISABLE TRIGGER (EnableDisableTrigger) calls CacheInvalidateRelcache() when tgenabled
+     changes, so flags derived from tgenabled = 'D' stay current, and plans that read them are invalidated with the
+     relcache entry.
+   - INSTEAD OF triggers exist only on views, and ALTER TABLE ... DISABLE TRIGGER on a view is refused on 19.0
+     ("ALTER action DISABLE TRIGGER cannot be performed on relation ... This operation is not supported for views"), so
+     only a hand-edited pg_trigger disables one. With tgenabled set to 'D' that way on 19.0, rewriteHandler.c
+     view_has_instead_trigger() still routes the view's UPDATE to ExecIRUpdateTriggers(), which skips the trigger:
+     "UPDATE 1", and the base table unchanged. With the patch such a trigger is absent like any disabled one, so the
+     view is auto-updated where it can be and refused where it cannot.
+   - Triggers enabled for origin only ('O', the default) or replica only ('R') fire or not by session_replication_role,
+     which a session can change with no invalidation, so they keep setting the flags.
+
+2. HISTORY
+   The flags in their present form date from 2ec993a7cbd (Tom Lane, 2010-10-10, "Support triggers on views"), which
+   computed them from tgtype alone; ALTER TABLE ... DISABLE TRIGGER (8.1, 2005) predates them. ExecInitGenerated()'s
+   use of trig_update_before_row dates from c6679e4fca2 (Peter Eisentraut, 2020-02-17, "Optimize update of tables with
+   generated columns"). No pgsql-hackers thread on a disabled trigger's per-row cost was found; the 2019 thread
+   "unexpected rowlock mode when trigger is on the table" and a 2025 pgsql-general thread on the xmax a BEFORE ROW
+   trigger leaves are about enabled triggers.
+
+3. BEFORE AND AFTER (repro.sql, n = 100,000; UPDATE t SET a = 1 on a table whose one stored generated column reads b
+   through an IMMUTABLE function that counts its calls in a setting; "generations" its calls, "locked" the rows whose
+   xmax is set after the UPDATE)
+   Unmodified 19.0 release, postgres-ram (fsync off), psql -X -v n=100000 -f repro.sql:
+       variant                    generations   WAL bytes    ms      locked
+       no trigger                           0   22,923,064    449.9        0
+       disabled BEFORE ROW UPDATE     100,000   28,539,736    729.9  100,000
+       enabled BEFORE ROW UPDATE      100,000   28,539,688    801.8  100,000
+   master 892cfb4cbfe, -Dcassert=true, its own pg_regress temporary instance (machine at load 500, so the times are
+   for comparison within a row only):
+       no trigger                           0   29,423,976    794.9        0
+       disabled BEFORE ROW UPDATE     100,000   35,040,416  1,351.6  100,000
+       enabled BEFORE ROW UPDATE      100,000   35,041,272  1,266.0  100,000
+   master 892cfb4cbfe + patch, same build options:
+       disabled BEFORE ROW UPDATE           0   29,423,960    757.4        0
+       no trigger                           0   29,423,976    609.0        0
+       enabled BEFORE ROW UPDATE      100,000   35,041,248  1,451.7  100,000
+   A disabled trigger cost about 56 bytes of WAL a row (the lock record), one generation expression a row and the lock
+   left on each new tuple; with the patch it costs what no trigger costs. The ExecutorState growth a disabled trigger
+   also caused (about 41 bytes a row, upstream/update-lock-mode-key-columns) goes with it, since ExecBRUpdateTriggers()
+   is no longer called.
+
+4. TESTS
+   - The new regression test (triggers.sql, after the enable/disable block): a table with a stored generated column over
+     an IMMUTABLE function that raises a NOTICE, under a BEFORE ROW UPDATE trigger; disabled, UPDATE SET a raises no
+     NOTICE and leaves xmax = 0; enabled again, it fires and computes the column. Against unpatched master (its
+     binaries, the patched test files) it fails exactly there:
+         +NOTICE:  generation computed from 1
+         - 2 | 1 | t
+         + 2 | 1 | f
+   - Assertions on, TAP on (IPC::Run 20260402.0), meson test, every suite, master + patch: 368 ok, 0 fail, 52 skipped
+     (suites needing PG_TEST_EXTRA, LDAP, Kerberos and the like).
+   - git apply --check: the master patch also applies to REL_19_STABLE and REL_18_STABLE as is, untested there.
+   - pgindent (pg_bsd_indent from the master build, typedefs.list) leaves trigger.c unchanged; git diff --check clean.

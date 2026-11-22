@@ -1,0 +1,14 @@
+NOTES: a disabled trigger still sets the TriggerDesc hint flags
+
+grizzle's side (lane WRITEREDS, 2026-11-21): grizzle's immutability guard is a BEFORE UPDATE row trigger on every
+immutable relation's table (physical/ddl/immutable.ts). A migration's data steps (backfills, fills, a reviewer's UPDATE)
+update such tables in bulk, and with the guard merely disabled, as an earlier version did, every row of every step paid
+this: test/pg/migrate/generated-fill-memory measured the step's ExecutorState growing with the rows and every one of
+Member's 49 stored generated columns computed for each. Since 423e9a9f6 the data steps drop the guard and create it
+again after them in the same transaction (immutable.ts dataStepBracket, deploy/diff/diff.ts unguard, adapter/migrate
+apply.ts), which costs an ACCESS EXCLUSIVE lock on each guarded table for the migration, harmless since migrations are
+downtime. With this patch released, disabling would cost nothing per row and need only SHARE ROW EXCLUSIVE; the drop
+stays until production runs a release that has it, which none does. README's PostgreSQL known issues states it.
+
+Where the commits live: the patch file here is the git format-patch of the commit on master 892cfb4cbfe, made in a
+PostgreSQL clone that was deleted once this folder held everything: git am it to recreate the commit.

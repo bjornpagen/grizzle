@@ -1,0 +1,62 @@
+From 88d2ddb9e116b13a291f2661c24de9a26c3a4d78 Mon Sep 17 00:00:00 2001
+From: Bjorn Pagen <11238136+bjornpagen@users.noreply.github.com>
+Date: Sat, 21 Nov 2026 12:29:04 -0600
+Subject: [PATCH v1] Use per-tuple context for the key columns in
+ ExecUpdateLockMode
+
+ExecUpdateLockMode() reads the relation's key columns with
+RelationGetIndexAttrBitmap(), which returns a fresh copy of the bitmap
+in CurrentMemoryContext.  Its callers, ExecBRUpdateTriggers(),
+ExecOnConflictUpdate() and ExecMergeMatched(), call it once per row
+with the long-lived ExecutorState current, so the copies pile up until
+the end of the query: about 40 bytes per row, 400MB for an INSERT ...
+ON CONFLICT DO UPDATE that updates 10 million rows, and as much for an
+UPDATE of as many rows of a table with any BEFORE ROW UPDATE trigger,
+even a disabled one.
+
+Commit f24523672de moved the other bitmap this function builds, the
+result of ExecGetAllUpdatedCols(), into the per-tuple context.  The
+key-column copy showed up in the profile posted to the same thread, but
+was left out.  Build it in the per-tuple context too; nothing uses it
+past the function.
+
+The leak dates back to 0ac5ad5134f, which introduced the key-column
+lock modes.  Backpatch to all supported branches.
+
+Reported-by: REPLACE-ME <REPLACE-ME>
+Discussion: https://postgr.es/m/222a3442-7f7d-246c-ed9b-a76209d19239@enterprisedb.com
+Backpatch-through: 15
+---
+ src/backend/executor/execMain.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/src/backend/executor/execMain.c b/src/backend/executor/execMain.c
+index cfe1c2a801b..3412dca12fb 100644
+--- a/src/backend/executor/execMain.c
++++ b/src/backend/executor/execMain.c
+@@ -2596,15 +2596,22 @@ ExecUpdateLockMode(EState *estate, ResultRelInfo *relinfo)
+ {
+ 	Bitmapset  *keyCols;
+ 	Bitmapset  *updatedCols;
++	MemoryContext oldcxt;
+ 
+ 	/*
+ 	 * Compute lock mode to use.  If columns that are part of the key have not
+ 	 * been modified, then we can use a weaker lock, allowing for better
+ 	 * concurrency.
++	 *
++	 * Callers do this once per row, so build the bitmap of key columns, which
++	 * RelationGetIndexAttrBitmap returns as a fresh copy, in the per-tuple
++	 * context, as ExecGetAllUpdatedCols does with the updated columns.
+ 	 */
+ 	updatedCols = ExecGetAllUpdatedCols(relinfo, estate);
++	oldcxt = MemoryContextSwitchTo(GetPerTupleMemoryContext(estate));
+ 	keyCols = RelationGetIndexAttrBitmap(relinfo->ri_RelationDesc,
+ 										 INDEX_ATTR_BITMAP_KEY);
++	MemoryContextSwitchTo(oldcxt);
+ 
+ 	if (bms_overlap(keyCols, updatedCols))
+ 		return LockTupleExclusive;
+-- 
+2.53.0
+

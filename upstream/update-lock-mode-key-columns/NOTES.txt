@@ -1,0 +1,16 @@
+NOTES: ExecUpdateLockMode's key-column bitmap, allocated once per row in ExecutorState
+
+grizzle's side (lane WRITEREDS, 2026-11-21): grizzle carries no patch to PostgreSQL, and its statements meet this
+where PostgreSQL runs ExecUpdateLockMode per row:
+- a write's insert that meets stored rows ON CONFLICT DO UPDATE (sql/print.ts, write/insert/protocol.ts) keeps about
+  41 bytes of ExecutorState for each row it updates, until the statement ends;
+- an UPDATE of an immutable relation's table runs under its immutability guard, a BEFORE UPDATE row trigger
+  (physical/ddl/immutable.ts), so it keeps the same for each row: grizzle's own in-place rewrites of such a table (a
+  family member's copy of a mutable owner's column, a retirement) and a migration's data steps would. The data steps
+  drop the guard and create it again after them (immutable.ts dataStepBracket), so they meet none of it; a disabled
+  guard would not have helped, since PostgreSQL counts a disabled trigger as one (upstream/disabled-trigger-hint-flags).
+Nothing in grizzle works around the leak: it is small per row, bounded by the statement, and only its memory differs.
+README's PostgreSQL known issues states it.
+
+Where the commits live: the patch file here is the git format-patch of the commit on master 892cfb4cbfe, made in a
+PostgreSQL clone that was deleted once this folder held everything: git am it to recreate the commit on any branch.
