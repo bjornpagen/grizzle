@@ -171,6 +171,52 @@ const probedByKey = (node: RelNode, columns: ReadonlyArray<string>): boolean => 
 	return kept !== undefined && probedByKey(kept.input, columns)
 }
 
+/** The sources whose rows a restriction of any column restricts as it stands: each reads no input it could fix. */
+const restrictedLeaves: ReadonlyArray<RelKind> = ["Base", "Closed", "Context", "InputSet", "Delta"]
+
+/**
+ * Whether fixing each of `columns` of `node` restricts every relation it reads to the rows those values pick, so a read
+ * of it with them fixed derives nothing whole: through the rows a node keeps of its input (ir/rel.ts keptRowsOf, a
+ * take's aside, whose bound is counted before any restriction above it), projections of columns, every arm of a union
+ * and a fold's grouping columns, to a stored or given relation; in a region, each column a variable some occurrence
+ * binds whose source the column restricts so, PostgreSQL carrying a fixed value through the region's equalities to every
+ * occurrence that binds it. Where probedByKey asks one stored relation's range to bind them all, the range an index
+ * reads per key, this asks only that no fixed value stop at a fold's aggregate, a bound, a window or a recursion, past
+ * which PostgreSQL derives the rows whole for each value (an existence test's right side read per left row,
+ * lower/conservative/semi-join/exists.ts).
+ */
+export const restrictedByKeys = (node: RelNode, columns: ReadonlyArray<string>): boolean => {
+	if (restrictedLeaves.includes(node.kind)) {
+		return true
+	}
+	if (node.kind === "Union") {
+		return unionArms(node.groups).every((arm) => restrictedByKeys(arm, columns))
+	}
+	if (node.kind === "ProjectSet") {
+		const read = columns.flatMap((c) => {
+			const e = node.out.find((o) => o.name === c)?.expr
+			return e?.kind === "column" && e.column.node === node.input.id ? [e.column.name] : []
+		})
+		return read.length === columns.length && restrictedByKeys(node.input, read)
+	}
+	if (node.kind === "Group") {
+		return columns.every((c) => node.keys.includes(c)) && restrictedByKeys(node.input, columns)
+	}
+	if (node.kind === "MatchRegion") {
+		const vars = columns.flatMap((c) => node.vars.filter((v) => v.name === c))
+		return (
+			vars.length === columns.length &&
+			vars.every((v) =>
+				node.occurrences.some((o) =>
+					o.bindings.some((b) => b.var === v && restrictedByKeys(o.source, [b.column]))
+				)
+			)
+		)
+	}
+	const kept = node.kind === "Take" ? undefined : keptRowsOf(node)
+	return kept !== undefined && restrictedByKeys(kept.input, columns)
+}
+
 /**
  * A fold a region reads per key (`foldsReadByKey`): the fold, the nodes its occurrence reads it through, from the
  * occurrence's source down, and each grouping column it restricts with the variable the occurrence binds through it.

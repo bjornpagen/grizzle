@@ -122,7 +122,10 @@
  * read is one MATERIALIZED CTE of the evaluation's WITH, and builds its parts lowest first, so an evaluation reads the
  * sub-queries the statement carries as parts of their own and a carried sub-query reads the evaluations below it
  * (lower/shapes/share/statements.ts StatementSharing evaluation, write/program/compile.ts heldParts), where format 7
- * lowered each argument as a statement of its own and built every evaluation before the carried sub-queries
+ * lowered each argument as a statement of its own and built every evaluation before the carried sub-queries; and an
+ * existence test whose right side is no scan of one source, restricted at every relation by its join columns and
+ * derived anew by the statement, is read per left row, a step correlated inside its EXISTS (lower/conservative/
+ * semi-join/exists.ts readPerLeftRow, step/index.ts fencedRead), where format 7 left every right side in a bare EXISTS
  */
 export const artifactFormat = 7
 
