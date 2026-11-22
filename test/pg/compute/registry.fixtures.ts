@@ -30,9 +30,20 @@ export const sameOperands = (a: Operands, b: Operands): boolean =>
 
 /**
  * The namespaces of carriers' own overloads, whose OpIds prefix the code that implements them: the exact carriers'
- * over numeric's code, and a closed id's over smallint's (scalar/compute/registry.ts, "code:int2eq").
+ * over numeric's code, a closed id's over smallint's ("code:int2eq"), a cidr's comparison over inet's ("cidr:network_eq"),
+ * a digest's over bytea's ("sha256:byteaeq") and a network containment over an inet and a cidr or two cidrs over
+ * inet's, by its operands' carriers ("inet,cidr:network_subeq"), as scalar/compute/registry.ts's OpId rule states them.
  */
-const overloadNamespaces: ReadonlyArray<string> = ["exact:", "exactMoney:", "code:"]
+const overloadNamespaces: ReadonlyArray<string> = [
+	"exact:",
+	"exactMoney:",
+	"code:",
+	"sha256:",
+	"cidr:",
+	"inet,cidr:",
+	"cidr,inet:",
+	"cidr,cidr:"
+]
 
 /** The operator's code an entry's OpId lists: the id itself, or, for a carrier's own overload, the code it prefixes. */
 const listedCode = (id: NativeOp["id"]): string => {

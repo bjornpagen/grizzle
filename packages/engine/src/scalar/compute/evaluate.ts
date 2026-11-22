@@ -580,7 +580,8 @@ type Apply = (args: ReadonlyArray<HostValue>, patterns: PatternReads) => SqlResu
  * double's parse from its decimal text, a decimal's from its text, a bytes value's SHA-256 digest, its bytes read off
  * the hex digest worked out where the value was admitted (scalar/values/bytes.ts AdmittedBytes), and a text's, the
  * digest of its UTF-8 as core/sha256.ts sha256Digest hashes a well-formed text, which every text a check reads is, a
- * date's epoch day and an epoch day's date by the proleptic Gregorian day count (ir/date.ts), span endpoints, LEAST
+ * date's epoch day, an epoch day's date and a date some days after another by the proleptic Gregorian day count
+ * (ir/date.ts), span endpoints, LEAST
  * and GREATEST by the type's order, and a set's union, intersection, difference, cardinality, subset and
  * disjointness, and a set with one more handle, over its handles. Each case reads its operands as the host values of
  * the carriers its overload takes (identity.ts hostOf); the IR's typing guarantees them, so another is a defect. `and`,
@@ -775,6 +776,15 @@ const applied = (op: NativeOp, argTypes: ReadonlyArray<ScalarType>, type: Scalar
 			const days = integerOf(c)
 			return (args) => {
 				const n = days(a(args))
+				return n < epochDayRange.low || n > epochDayRange.high
+					? undefinedAt("fits")
+					: Result.ok(dateOfEpochDay(n))
+			}
+		}
+		case "datePlus": {
+			const days = integerOf(baseOf(defined(argTypes[1], "datePlus's days")).carrier)
+			return (args) => {
+				const n = BigInt(epochDayOf(hostOf("date", a(args)))) + days(b(args))
 				return n < epochDayRange.low || n > epochDayRange.high
 					? undefinedAt("fits")
 					: Result.ok(dateOfEpochDay(n))

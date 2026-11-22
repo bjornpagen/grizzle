@@ -322,6 +322,7 @@ export const predicateAtoms = (
 		case "wall":
 		case "epochDay":
 		case "dateOfEpochDay":
+		case "datePlus":
 		case "regexpCount":
 		case "concat":
 		case "startsWith":

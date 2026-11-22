@@ -234,7 +234,8 @@ type CatalogRef =
  * over a roster, the text operations, a bytes value's digest and the casts; cond has no entry, it is the IR's cond node. The complement serves
  * only the difference and the subset test: it sets a set's hole and padding bits, so no scalar operation yields it;
  * right serves only the suffix test, endsWith; strpos only the containment test, contains; replace and btrim serve only the whiteSpace collapse, and regexp_count
- * only a text's UTF-16 code units, utf16Length. canonicalZero serves no scalar operation
+ * only a text's UTF-16 code units, utf16Length; datePlus, date + integer, only the date of an epoch day,
+ * dateOfEpochDay. canonicalZero serves no scalar operation
  * either: it is the canonical zero a set delivers wherever it may merge -0 and +0 (check/merge.ts).
  */
 export type NativeFn =
@@ -318,6 +319,7 @@ export type NativeFn =
 	| "wall"
 	| "epochDay"
 	| "dateOfEpochDay"
+	| "datePlus"
 	| "cast"
 	| "canonicalZero"
 
@@ -413,6 +415,7 @@ export const nullRules: { readonly [F in NativeFn]: NullRule } = Object.freeze({
 	wall: "strict",
 	epochDay: "strict",
 	dateOfEpochDay: "strict",
+	datePlus: "strict",
 	cast: "node",
 	canonicalZero: "strict"
 })
@@ -1278,6 +1281,30 @@ const dateOfEpochDayFrom = (carrier: "int4" | "int8"): FixedOverload =>
 	})
 
 /**
+ * date + integer, a date the integer's days after another (date_pli), which only the date of an epoch day reads
+ * (dateOfEpochDayFrom, `'1970-01-01'::date + n`), since grizzle admits no date arithmetic: an entry of its own, so the
+ * catalog's operator, its result type and its volatility are the registry's to state and its catalog check's to hold.
+ * PostgreSQL refuses a date past its range ("date out of range"), so it is defined where the result fits, as the
+ * construct that reads it is.
+ */
+const datePlus: FixedOverload = frozen({
+	fn: "datePlus",
+	operands: positional(["date", "int4"]),
+	result: "date",
+	sql: { kind: "infix", op: "+", owner: "catalog" },
+	catalog: {
+		kind: "operator",
+		name: "+",
+		operands: { kind: "infix", left: "date", right: "integer" },
+		result: "date",
+		owner: "catalog"
+	},
+	volatility: "immutable",
+	totality: narrowing,
+	reads: "value"
+})
+
+/**
  * A zone's wall clock at an instant, Time.wall in a query (compute/typing.ts wall): the instant's milliseconds since
  * the Unix epoch, as PostgreSQL's tzdata reads the zone, counted as milliseconds since the local epoch, by a call of the
  * installation's library function `wall` (physical/ddl/library.ts wallDefinition) over the instant and the zone's
@@ -1410,8 +1437,9 @@ const endpoint = (
  * - a function: its regprocedure signature, such as "abs(bigint)" or "round(numeric,integer)"; pgvector's one function
  *   is prefixed with its extension, "vector:cosine_distance(vector,vector)", because its schema is the installation's;
  * - a closed id's operator: smallint's, its code's, prefixed "code:", as "code:int2eq"; a cidr's comparison, inet's
- *   read through cidr's binary coercion, prefixed "cidr:", as "cidr:network_eq"; and a network containment over an
- *   inet and a cidr, or two cidrs, prefixed by its operands' carriers, as "inet,cidr:network_subeq";
+ *   read through cidr's binary coercion, prefixed "cidr:", as "cidr:network_eq"; a digest's comparison, bytea's over
+ *   its 32 bytes, prefixed "sha256:", as "sha256:byteaeq"; and a network containment over an inet and a cidr, or two
+ *   cidrs, prefixed by its operands' carriers, as "inet,cidr:network_subeq";
  * - a construct: "between:<type>", "in:<type>", "least:<type>", "greatest:<type>", "and", "or", "not", a set's
  *   "difference:bits", "subset:bits" and "disjoint:bits", a text's "endsWith:text", "contains:text" and its ASCII
  *   case fold's "lowerAscii:text", a reference's resolution "resolveReference:text", a pattern's test
@@ -1422,7 +1450,7 @@ const endpoint = (
  *
  * What the registry admits is the catalogue, not the catalog: same-type operands only, because the scalar operations
  * take two terms of one type, but right(text, integer), which only the suffix test reads, strpos(text, text), which only
- * the containment test reads, and set_bit over a set and a closed id's code, which only Bits.singleton reads; of text's
+ * the containment test reads, date + integer, which only the date of an epoch day reads, and set_bit over a set and a closed id's code, which only Bits.singleton reads; of text's
  * functions only its length, concatenation, prefix, suffix and containment tests, regex match, translate and lower
  * under the C collation, no array
  * function, of bit's only the set algebra over a roster, and of bytea's only its SHA-256 digest; no money * money,
@@ -1765,6 +1793,7 @@ const catalogOverloads = {
 	 * span's width alone (compute/typing.ts width), since grizzle admits no date arithmetic.
 	 */
 	date_mi: infix("sub", "-", "date", "int4", total, "value"),
+	date_pli: datePlus,
 	date_eq: comparison("eq", "date"),
 	date_ne: comparison("ne", "date"),
 	date_lt: comparison("lt", "date"),

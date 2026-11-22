@@ -113,6 +113,7 @@ const evaluationOf = (op: NativeOp): Evaluation => {
 			return "database"
 		case "epochDay":
 		case "dateOfEpochDay":
+		case "datePlus":
 		case "union":
 		case "intersection":
 		case "difference":
@@ -931,6 +932,15 @@ const catalogApply = (
 					? undefinedAt("fits")
 					: Result.succeed(dateText(a))
 				: mismatch(op)
+		case "datePlus": {
+			if (!isString(a) || !isBigint(b)) {
+				return mismatch(op)
+			}
+			const days = daysOfDate(a) + b
+			return days < daysOfDate("0001-01-01") || days > daysOfDate("9999-12-31")
+				? undefinedAt("fits")
+				: Result.succeed(dateText(days))
+		}
 		case "wall":
 			return declined(op, "database", "PostgreSQL's tzdata alone reads a zone")
 		case "netWithin":
