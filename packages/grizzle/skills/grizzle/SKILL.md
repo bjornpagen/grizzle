@@ -993,7 +993,10 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   that attachment's relation name in records' options, `{ names: { "<path>": "<Name>" } }`, or shorten the stem for the
   root; never a name cut short or hashed by grizzle. To retire them with their owner's group, list `on(R, ...ownerKeyFields)` among a
   `retirable`'s bodies, one side standing for each of their relations (never `R.relations.map(...)`; records holding an
-  arm are no body). Two
+  arm are no body). Records keyed by a row's digest alone are stored once however many roots found the row: keep each
+  root's references in a body of its unit and declare `reachable(on(R, ...ownerKeyFields), [on(Ref, ...fields)])`,
+  which states each reference's containment in the records (no `contained` of your own beside it) and lets a
+  retirement remove the records no reference names any more; their writers run SERIALIZABLE. Two
   declared names that
   convert alike are one name (two fields of a relation, two head fields of a derived relation or a role's query, two
   relations of a role, two logins or roles of a schema, a contract a context names beside a relation, roster or
