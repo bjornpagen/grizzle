@@ -179,130 +179,139 @@ export const holdsDemandToItsWidth = property.explore(caseGen, {
 							 */
 							let refusedWithin = 0
 							let poolCalls = 0
-							for (const demand of x.demands) {
-								const free = Math.max(0, x.width - demanded)
-								const refusedHere = Math.max(0, demandOf(demand) - free)
-								switch (demand.kind) {
-									case "raw session": {
-										const opened = yield* outcomeOf(
-											"a raw session",
-											openSession(cluster, {
-												database: installed.database,
-												credentials: probe,
-												label: "budget probe"
-											})
-										)
-										assert.ok(
-											refusedHere === 0
-												? Exit.isSuccess(opened)
-												: Exit.isFailure(opened) && exhaustedAt(opened.cause, x.width),
-											`a raw session with ${free} of ${x.width} permits free: ${Formatter.format(opened)}`
-										)
-										if (refusedHere > 0) {
-											note("a refused raw session")
-										}
-										break
-									}
-									case "refused login": {
-										const opened = yield* outcomeOf(
-											"a refused login",
-											openSession(cluster, {
-												database: installed.database,
-												credentials: { role: probe.role, password: Redacted.make(wrongPassword) },
-												label: "budget refused"
-											})
-										)
-										assert.ok(
-											free === 0
-												? Exit.isFailure(opened) && exhaustedAt(opened.cause, x.width)
-												: Exit.isFailure(opened) &&
-														Option.exists(Cause.findErrorOption(opened.cause), refusedLogin),
-											`a refused login with ${free} of ${x.width} permits free: ${Formatter.format(opened)}`
-										)
-										if (free > 0) {
-											refusedWithin = Math.max(refusedWithin, demanded + 1)
-										}
-										break
-									}
-									case "psql writer": {
-										const opened = yield* outcomeOf(
-											"a psql writer",
-											psqlWriter(cluster, installed.database, substrate.admin, rolePsql(probe))
-										)
-										assert.ok(
-											refusedHere === 0
-												? Exit.isSuccess(opened)
-												: Exit.isFailure(opened) && exhaustedAt(opened.cause, x.width),
-											`a psql writer with ${free} of ${x.width} permits free: ${Formatter.format(opened)}`
-										)
-										if (refusedHere > 0) {
-											note("a refused psql writer")
-										}
-										break
-									}
-									case "pool": {
-										const context = yield* Layer.buildWithScope(
-											sourcedDbLayer(installed, {
-												...clusterConnection(
-													cluster,
-													installed.database,
-													installed.as(web).password
-												),
-												pool: { ...clusterPool, max: demand.max },
-												login: served.login,
-												verify: testVerify
-											}),
-											scope
-										)
-										const forked = yield* Effect.forEach(
-											upTo(demand.calls, Function.identity),
-											() =>
-												Effect.forkScoped(
-													Effect.flatMap(
-														Effect.exit(Effect.provideContext(read, context)),
-														(exit) => Ref.update(calls, (ended) => Arr.append(ended, exit))
-													)
-												)
-										)
-										callFibers = Arr.appendAll(callFibers, forked)
-										poolCalls += demand.calls
-										yield* awaited(
-											`every one of ${poolCalls} pool calls waiting on the holder's lock or ended`,
-											Effect.zipWith(backends, Ref.get(calls), (b, ended) => ({
-												b,
-												ended: ended.length
-											})),
-											(x) => x.b.waiting + x.ended >= poolCalls,
-											(x) =>
-												`${x.b.waiting} backends waiting on a lock, ${x.ended} calls ended, of ${poolCalls} pool calls; ${x.b.all} backends in all`
-										)
-										const ended = yield* Ref.get(calls)
-										const refused = Arr.filter(
-											ended,
-											(exit) => Exit.isFailure(exit) && exhaustedAt(exit.cause, x.width)
-										)
-										assert.equal(
-											ended.length,
-											refused.length,
-											`a pool call ended other than refused while the holder held the lock: ${Formatter.format(ended)}`
-										)
-										if (refusedHere > 0) {
-											note("a refused pool call")
-											if (refusedHere < demand.calls) {
-												note("a pool's calls split by the width")
+							/**
+							 * The case's demands, each opened or called while the holder holds the lock. A failed demand lets the
+							 * lock go before the case's scope closes: the scope interrupts the pool calls it forked, each blocked on
+							 * the lock in a query no interruption ends, and the holder, which alone ends those queries, closes after
+							 * them, so a case failed here held its cleanup forever.
+							 */
+							const underTheLock = Effect.gen(function* () {
+								for (const demand of x.demands) {
+									const free = Math.max(0, x.width - demanded)
+									const refusedHere = Math.max(0, demandOf(demand) - free)
+									switch (demand.kind) {
+										case "raw session": {
+											const opened = yield* outcomeOf(
+												"a raw session",
+												openSession(cluster, {
+													database: installed.database,
+													credentials: probe,
+													label: "budget probe"
+												})
+											)
+											assert.ok(
+												refusedHere === 0
+													? Exit.isSuccess(opened)
+													: Exit.isFailure(opened) && exhaustedAt(opened.cause, x.width),
+												`a raw session with ${free} of ${x.width} permits free: ${Formatter.format(opened)}`
+											)
+											if (refusedHere > 0) {
+												note("a refused raw session")
 											}
+											break
 										}
-										break
+										case "refused login": {
+											const opened = yield* outcomeOf(
+												"a refused login",
+												openSession(cluster, {
+													database: installed.database,
+													credentials: { role: probe.role, password: Redacted.make(wrongPassword) },
+													label: "budget refused"
+												})
+											)
+											assert.ok(
+												free === 0
+													? Exit.isFailure(opened) && exhaustedAt(opened.cause, x.width)
+													: Exit.isFailure(opened) &&
+															Option.exists(Cause.findErrorOption(opened.cause), refusedLogin),
+												`a refused login with ${free} of ${x.width} permits free: ${Formatter.format(opened)}`
+											)
+											if (free > 0) {
+												refusedWithin = Math.max(refusedWithin, demanded + 1)
+											}
+											break
+										}
+										case "psql writer": {
+											const opened = yield* outcomeOf(
+												"a psql writer",
+												psqlWriter(cluster, installed.database, substrate.admin, rolePsql(probe))
+											)
+											assert.ok(
+												refusedHere === 0
+													? Exit.isSuccess(opened)
+													: Exit.isFailure(opened) && exhaustedAt(opened.cause, x.width),
+												`a psql writer with ${free} of ${x.width} permits free: ${Formatter.format(opened)}`
+											)
+											if (refusedHere > 0) {
+												note("a refused psql writer")
+											}
+											break
+										}
+										case "pool": {
+											const context = yield* Layer.buildWithScope(
+												sourcedDbLayer(installed, {
+													...clusterConnection(
+														cluster,
+														installed.database,
+														installed.as(web).password
+													),
+													pool: { ...clusterPool, max: demand.max },
+													login: served.login,
+													verify: testVerify
+												}),
+												scope
+											)
+											const forked = yield* Effect.forEach(
+												upTo(demand.calls, Function.identity),
+												() =>
+													Effect.forkScoped(
+														Effect.flatMap(
+															Effect.exit(Effect.provideContext(read, context)),
+															(exit) => Ref.update(calls, (ended) => Arr.append(ended, exit))
+														)
+													)
+											)
+											callFibers = Arr.appendAll(callFibers, forked)
+											poolCalls += demand.calls
+											yield* awaited(
+												`every one of ${poolCalls} pool calls waiting on the holder's lock or ended`,
+												Effect.zipWith(backends, Ref.get(calls), (b, ended) => ({
+													b,
+													ended: ended.length
+												})),
+												(x) => x.b.waiting + x.ended >= poolCalls,
+												(x) =>
+													`${x.b.waiting} backends waiting on a lock, ${x.ended} calls ended, of ${poolCalls} pool calls; ${x.b.all} backends in all`
+											)
+											const ended = yield* Ref.get(calls)
+											const refused = Arr.filter(
+												ended,
+												(exit) => Exit.isFailure(exit) && exhaustedAt(exit.cause, x.width)
+											)
+											assert.equal(
+												ended.length,
+												refused.length,
+												`a pool call ended other than refused while the holder held the lock: ${Formatter.format(ended)}`
+											)
+											if (refusedHere > 0) {
+												note("a refused pool call")
+												if (refusedHere < demand.calls) {
+													note("a pool's calls split by the width")
+												}
+											}
+											break
+										}
 									}
+									demanded += demandOf(demand)
+									const held = yield* backends
+									assert.equal(
+										held.all,
+										Math.min(demanded, x.width),
+										`the case's backends once ${demanded} connections were asked of a width of ${x.width}`
+									)
 								}
-								demanded += demandOf(demand)
-								const held = yield* backends
-								assert.equal(
-									held.all,
-									Math.min(demanded, x.width),
-									`the case's backends once ${demanded} connections were asked of a width of ${x.width}`
-								)
-							}
+							})
+							yield* underTheLock.pipe(Effect.onError(() => Effect.ignore(holder.rollback)))
 							const refusedCalls = (yield* Ref.get(calls)).length
 							yield* holder.rollback
 							yield* Fiber.joinAll(callFibers)
