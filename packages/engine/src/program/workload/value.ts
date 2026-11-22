@@ -253,6 +253,17 @@ export const clockedMember = <X, B>(
 const answeredValues = new WeakMap<object, unknown>()
 
 /**
+ * Whether `read` is a read answered(...) takes: a query, an ordered query, a paged(...) ordered query or a relation's
+ * key, each known by what made it (its registration), so no property of the value is read and a caller's value, a
+ * refusing proxy among them, runs none of its code.
+ */
+export const isAnswerableRead = (read: unknown): boolean =>
+	(hasProperties(read) && pagedValues.has(read)) ||
+	isQueryValue(read) ||
+	isOrderedValue(read) ||
+	isKeyPosition(read)
+
+/**
  * answered(read): the workload member that answers `read`, a query, an ordered query, a paged(...) ordered query or a
  * relation's key, at its call's instant alone and never live: its handle holds `once`, its explains and no `watch`, and
  * over HTTP its answer is its reset, its upserts, its ready, then its end, since no change wakes it. Its workload plans
@@ -265,12 +276,7 @@ export const answeredMember = <X>(read: X, ...extra: ReadonlyArray<unknown>): An
 	if (extra.length > 0) {
 		throw malformed("answered", "answered(read): one argument")
 	}
-	const isRead =
-		(hasProperties(read) && pagedValues.has(read)) ||
-		isQueryValue(read) ||
-		isOrderedValue(read) ||
-		isKeyPosition(read)
-	if (!isRead) {
+	if (!isAnswerableRead(read)) {
 		throw malformed(
 			"answered",
 			"answered takes a read: a query, an ordered query, a paged one or a relation's key"
@@ -300,10 +306,8 @@ export const deferrableMember = <X>(read: X, ...extra: ReadonlyArray<unknown>): 
 	}
 	const clocked = hasProperties(read) ? clockedValues.get(read) : undefined
 	const isRead =
-		(hasProperties(read) && (pagedValues.has(read) || answeredValues.has(read))) ||
-		isQueryValue(read) ||
-		isOrderedValue(read) ||
-		isKeyPosition(read) ||
+		isAnswerableRead(read) ||
+		(hasProperties(read) && answeredValues.has(read)) ||
 		(clocked !== undefined && !isChangeSetValue(clocked.program))
 	if (!isRead) {
 		throw malformed(
@@ -314,6 +318,17 @@ export const deferrableMember = <X>(read: X, ...extra: ReadonlyArray<unknown>): 
 	const value: Deferrable<X> = Object.freeze({ deferrable: read })
 	deferrableValues.set(value, read)
 	return value
+}
+
+/**
+ * The read a deferrable(...) member defers, known by what made it (its registration), or none for any other value: no
+ * property of the value is read.
+ */
+export const deferredReadOf = (value: unknown): { readonly read: unknown } | undefined => {
+	if (!hasProperties(value) || !deferrableValues.has(value)) {
+		return undefined
+	}
+	return { read: deferrableValues.get(value) }
 }
 
 /** The relations each value refresh(relations) made refreshes, as its list held them at the call (refreshMember). */

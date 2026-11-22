@@ -14,16 +14,20 @@ import type { ApplyOutcome } from "#adapter/types/db.ts"
 import type { ServedLogin, ServedRole } from "#adapter/types/layer.ts"
 import type { Json } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { isRecord } from "#compiler/core/record.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { projectWrite } from "#compiler/plan/change.ts"
-import { isOrderedValue, isQueryValue, servedReadBacks } from "#compiler/plan/read.ts"
+import { servedReadBacks } from "#compiler/plan/read.ts"
 import { defect } from "#compiler/plan/runtime.ts"
 import type { ServedTables } from "#compiler/plan/serve.ts"
 import { programsOn } from "#compiler/program/workload/roles.ts"
-import { answeredMember, deferrableMember, workload } from "#compiler/program/workload/value.ts"
+import {
+	answeredMember,
+	deferrableMember,
+	deferredReadOf,
+	isAnswerableRead,
+	workload
+} from "#compiler/program/workload/value.ts"
 import type { AnyLogin, AnyLoginRole, AnyRole } from "#compiler/public/schema.ts"
-import { isKeyPosition } from "#compiler/query/build/key.ts"
 import type { ServedMember, ServedRoleForm, ServedVariants } from "#compiler/served/forms.ts"
 import { servedFile, servedText } from "#compiler/served/json.ts"
 import type { UnservedMember } from "#compiler/served/unserved.ts"
@@ -375,17 +379,11 @@ export const withServedDb = <A, E, R>(
  * ChangeSet, a clocked one, which is answered already, a refresh, or a value no workload admits, as it stands.
  */
 const answeredRead = (program: unknown): unknown => {
-	if (
-		isQueryValue(program) ||
-		isOrderedValue(program) ||
-		isKeyPosition(program) ||
-		(isRecord(program) && Rec.has(program, "paged"))
-	) {
+	if (isAnswerableRead(program)) {
 		return answeredMember(program)
 	}
-	return isRecord(program) && Rec.has(program, "deferrable")
-		? deferrableMember(answeredRead(program["deferrable"]))
-		: program
+	const deferred = deferredReadOf(program)
+	return deferred === undefined ? program : deferrableMember(answeredRead(deferred.read))
 }
 
 /** `programs` with each read answered (answeredRead), under their names. */

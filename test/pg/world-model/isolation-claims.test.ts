@@ -20,5 +20,12 @@ export const isolationClaims = programProperty({
 	lead: dbSession(claimsRequired),
 	check: noCheck,
 	kept: [],
-	kills: []
+	kills: [
+		{
+			file: "test/support/served-db.ts",
+			original: "\tif (isAnswerableRead(program)) {",
+			replacement: '\tif (isAnswerableRead(program) || Object.hasOwn(Object(program), "paged")) {',
+			why: "The served file a session's read is answered in knows a paged read by its own property, as answeredRead did, so a refusing proxy a wild read passes runs its trap before workload(...) refuses it."
+		}
+	]
 })
