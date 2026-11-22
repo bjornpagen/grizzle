@@ -5,11 +5,14 @@ import { termText } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { MemberShape } from "#compiler/ir/family.ts"
 import type { FamilyId, LawField, TheoryRelation } from "#compiler/ir/law.ts"
+import { languagePattern, predicateSource } from "#compiler/scalar/compute/predicate-source.ts"
 
-/** A conjunct of a side as a law's statement spells it: its canonical text, and the names of the fields of its relation
- * it reads, in the relation's field order. */
+/** A conjunct of a side as a law's statement spells it: its canonical text, which its identity states, its author's
+ * predicate (scalar/compute/predicate-source.ts), which its display reads, and the names of the fields of its relation it reads, in
+ * the relation's field order. */
 export interface SpelledConjunct {
 	readonly text: string
+	readonly display: string
 	readonly reads: ReadonlyArray<string>
 }
 
@@ -30,6 +33,8 @@ export interface Spelling {
 	) => ReadonlyArray<SpelledConjunct>
 	/** A side of a rule over a query's conjuncts' canonical texts (query.ts LawSide), in canonical order. */
 	readonly texts: (side: LawSide) => ReadonlyArray<string>
+	/** A side of a rule over a query's conjuncts as their author's predicates, in the order of its texts. */
+	readonly displays: (side: LawSide) => ReadonlyArray<string>
 	readonly literal: (value: TypedLiteral, at: LawField) => TypedLiteral
 }
 
@@ -38,8 +43,14 @@ export const ownSpelling: Spelling = Object.freeze({
 	relation: (relation: string) => relation,
 	field: (_relation: string, field: string) => field,
 	conjuncts: (_relation: TheoryRelation, selection: ResolvedSelection) =>
-		selection.conjuncts.map((c) => ({ text: c.text, reads: c.reads.map((f) => f.name) })),
+		selection.conjuncts.map((c) => ({
+			text: c.text,
+			display: predicateSource(c.predicate, (f) => f, languagePattern),
+			reads: c.reads.map((f) => f.name)
+		})),
 	texts: (side: LawSide) => side.texts,
+	displays: (side: LawSide) =>
+		side.selection.conjuncts.map((c) => predicateSource(c, (f) => f, languagePattern)),
 	literal: (value: TypedLiteral) => value
 })
 
@@ -67,11 +78,11 @@ export const sideStem = (side: ResolvedSide, spell: Spelling): ReadonlyArray<str
 export const sideTerms = (side: ResolvedSide, spell: Spelling): ReadonlyArray<string> =>
 	side.terms.map((t) => spelledTerm(side, t, spell))
 
-/** A side as a law's display spells it: its relation and terms, then each conjunct by its canonical text. */
+/** A side as a law's display spells it: its relation and terms, then each conjunct as its author's predicate. */
 export const sideDisplay = (side: ResolvedSide, spell: Spelling): string => {
 	const conjuncts = spell.conjuncts(side.rel, side.selection)
 	return `${spell.relation(side.relation)}(${sideTerms(side, spell).join(", ")})${
-		conjuncts.length === 0 ? "" : ` where ${conjuncts.map((c) => c.text).join(" and ")}`
+		conjuncts.length === 0 ? "" : ` where ${conjuncts.map((c) => c.display).join(" and ")}`
 	}`
 }
 

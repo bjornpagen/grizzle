@@ -222,7 +222,7 @@ export const aDerivedLawNameSpellsItsSelectionAsTheAuthorsPredicate = property.e
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/runtime/law-entry.ts",
+				file: "packages/engine/src/scalar/compute/predicate-source.ts",
 				original: "\t\t\treturn call(spelling[e.op], [go(e.left), go(e.right)])",
 				replacement: "\t\t\treturn ownedText(e, withoutSourceLocs)",
 				why: "A comparison is spelled as its canonical JSON again, as every derived name spelled a selection; every case holding one names its key otherwise than its author wrote it."

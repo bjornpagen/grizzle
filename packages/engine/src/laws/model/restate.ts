@@ -17,6 +17,7 @@ import { identityValueOf, type TypedLiteral } from "#compiler/ir/expr.ts"
 import type { LawField, TheoryRelation } from "#compiler/ir/law.ts"
 import { rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { LawColumnPlan } from "#compiler/laws/model/plan.ts"
+import { languagePattern, predicateSource } from "#compiler/scalar/compute/predicate-source.ts"
 import { canonicalSelection } from "#compiler/schema/own.ts"
 
 /**
@@ -469,21 +470,22 @@ const restatedConjuncts = (
 	})
 	return restated.map((p) => ({
 		text: ownedText(p, withoutSourceLocs),
+		display: predicateSource(p, (f) => f, languagePattern),
 		reads: previousFields.filter((f) => mentions(p, f))
 	}))
 }
 
 /**
- * A side of a rule over a query's conjuncts' texts (analysis/theory/query.ts LawSide) as the previous snapshot spells
- * them, its selection restated as a stored relation's is (restatedSelection): its relation's fields' rosters where it is
- * a stored relation, and none for a derived relation's head, whose handles a declaration renames nowhere. None where a
+ * A side of a rule over a query's conjuncts (analysis/theory/query.ts LawSide) as the previous snapshot spells them,
+ * its selection restated as a stored relation's is (restatedSelection): its relation's fields' rosters where it is a
+ * stored relation, and none for a derived relation's head, whose handles a declaration renames nowhere. None where a
  * conjunct does not restate.
  */
-const restatedTexts = (
+const restatedSideSelection = (
 	side: LawSide,
 	names: PreviousNames,
 	relations: Relations
-): ReadonlyArray<string> | undefined => {
+): ReadonlyArray<ExprDesc> | undefined => {
 	const stored = relations[side.relation]
 	const rosters = new Map(
 		stored === undefined ? [] : stored.fields.map((f) => [f.name, fieldRoster(f)] as const)
@@ -494,7 +496,7 @@ const restatedTexts = (
 		side.selection.conjuncts,
 		names,
 		relations
-	)?.map((p) => ownedText(p, withoutSourceLocs))
+	)
 }
 
 /**
@@ -585,12 +587,21 @@ class PreviousSpelling implements RestatingSpelling {
 	}
 
 	readonly texts = (side: LawSide): ReadonlyArray<string> => {
-		const restated = restatedTexts(side, this.#names, this.#relations)
+		const restated = restatedSideSelection(side, this.#names, this.#relations)
 		if (restated === undefined) {
 			this.#complete = false
 			return side.texts
 		}
-		return restated
+		return restated.map((p) => ownedText(p, withoutSourceLocs))
+	}
+
+	readonly displays = (side: LawSide): ReadonlyArray<string> => {
+		const restated = restatedSideSelection(side, this.#names, this.#relations)
+		if (restated === undefined) {
+			this.#complete = false
+			return side.selection.conjuncts.map((p) => predicateSource(p, (f) => f, languagePattern))
+		}
+		return restated.map((p) => predicateSource(p, (f) => f, languagePattern))
 	}
 
 	readonly literal = (value: TypedLiteral, at: LawField): TypedLiteral => {
@@ -647,12 +658,15 @@ const lawColumnStatement = (
 				field: spell.field(plan.target.name, plan.field.name),
 				value: identityValueOf(spell.literal(plan.value, plan.field))
 			}
-		case "term":
+		case "term": {
+			const conjuncts = spell.conjuncts(plan.relation, plan.selection)
 			return {
 				kind: "term",
 				term: { kind: plan.term.kind, field: spell.field(plan.relation.name, plan.term.field) },
-				selection: spell.conjuncts(plan.relation, plan.selection).map((c) => c.text)
+				selection: conjuncts.map((c) => c.text),
+				displays: conjuncts.map((c) => c.display)
 			}
+		}
 		case "drawn":
 		case "indexPred": {
 			const named = plan.named

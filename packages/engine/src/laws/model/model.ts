@@ -128,6 +128,7 @@ import {
 import { rowColumn, wideRow } from "#compiler/laws/model/rows.ts"
 import { type RelationLaws, relationLaws } from "#compiler/laws/model/uniques.ts"
 import { lowerPredicate, lowerTerm } from "#compiler/scalar/compute/lower.ts"
+import { languagePattern, predicateSource } from "#compiler/scalar/compute/predicate-source.ts"
 import { type ClosedRelations, type LeafDesc, noParams } from "#compiler/scalar/compute/typing.ts"
 import { guardedTerm } from "#compiler/scalar/natural.ts"
 import { ProgramPatterns, tablePatterns, typePatterns } from "#compiler/scalar/regex/patterns.ts"
@@ -1965,7 +1966,10 @@ const lawColumnIdentity = (plan: LawColumnPlan): Identity<"lawColumn"> => {
 			return identity.lawColumn({
 				kind: "term",
 				term: { kind: plan.term.kind, field: plan.term.field },
-				selection: plan.selection.conjuncts.map((c) => c.text)
+				selection: plan.selection.conjuncts.map((c) => c.text),
+				displays: plan.selection.conjuncts.map((c) =>
+					predicateSource(c.predicate, (f) => f, languagePattern)
+				)
 			})
 		case "drawn":
 			return identity.lawColumn(plan.named)

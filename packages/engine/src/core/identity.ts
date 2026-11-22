@@ -1083,7 +1083,10 @@ export type LawColumnStatement =
 	| {
 			readonly kind: "term"
 			readonly term: { readonly kind: "field" | "pred"; readonly field: string }
+			/** Its selection's conjuncts by their canonical texts, which its identity states. */
 			readonly selection: ReadonlyArray<string>
+			/** Its selection's conjuncts as their author's predicates, in the same order, which its display reads. */
+			readonly displays: ReadonlyArray<string>
 	  }
 	| {
 			readonly kind: "copy" | "index" | "predecessor"
@@ -1260,13 +1263,13 @@ export const identity = Object.freeze({
 					hashed
 				)
 			case "term": {
-				const { term, selection } = column
+				const { term, selection, displays } = column
 				const spelled = term.kind === "pred" ? `pred(${term.field})` : term.field
 				return mint(
 					"lawColumn",
 					["term", [term.kind, term.field], selection],
 					term.kind === "pred" ? ["pred", ...nameSegments(term.field)] : nameSegments(term.field),
-					`${spelled}${selection.length === 0 ? "" : ` where ${selection.join(" and ")}`}`,
+					`${spelled}${displays.length === 0 ? "" : ` where ${displays.join(" and ")}`}`,
 					hashed
 				)
 			}

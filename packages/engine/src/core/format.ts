@@ -60,7 +60,12 @@
  * (ir/dag-digest.ts ShareKeys, lower/shapes/share/statements.ts ShareIndex): a carrier or a MATERIALIZED CTE stands for
  * every read one stratum's members or one statement make of sub-queries built alike block by block, a sealed node met
  * in two blocks keyed by its own key, where format 6 shared only reads whose whole reaches were one, so two reads over
- * one sealed node built twice alike under two parents share one statement or CTE. Format 6's snapshot.json records each
+ * one sealed node built twice alike under two parents share one statement or CTE. A law's object and a law column are
+ * commented with each conjunct of the selection they read as its author wrote it, each scalar builder by its public
+ * spelling and each literal as written (scalar/compute/predicate-source.ts), `key T(id where Logic.gt(u, 1))`, where format 6
+ * spelled each conjunct by its canonical JSON, so every COMMENT over a selection moves, and a declared rename of a field
+ * a selection reads comments the renamed object with the field's new name; no identifier moves, since an identity's
+ * parts keep each conjunct's canonical text. Format 6's snapshot.json records each
  * schema level's fingerprint over its
  * identity text, every part the level holds written once as its identity digest's token (core/fingerprint.ts
  * schemaFingerprint), and each level's statements in their identity digests' order; its index keys hold every column as

@@ -338,9 +338,9 @@ const rulePart = (side: LawSide, spell: Spelling): Part => [
 	spell.texts(side)
 ]
 
-/** A side of a rule over a query as its law's display spells it. */
+/** A side of a rule over a query as its law's display spells it: each conjunct as its author's predicate. */
 const ruleDisplay = (side: LawSide, spell: Spelling): string => {
-	const texts = spell.texts(side)
+	const texts = spell.displays(side)
 	return `${spell.relation(side.relation)}(${side.terms
 		.map((t) => termText({ ...t, field: spell.field(side.relation, t.field) }))
 		.join(", ")})${texts.length === 0 ? "" : ` where ${texts.join(" and ")}`}`
