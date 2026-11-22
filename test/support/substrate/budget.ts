@@ -86,10 +86,18 @@ export const connectionBudget = (width: number): ConnectionBudget => {
 		drawn += count
 		return true
 	}
+	/**
+	 * `count` permits, drawn at once or refused at once, given back when their scope closes. The draw is synchronous, so
+	 * its acquisition is interruptible at no cost: only a wait for a permit, which a budget never makes, could be
+	 * interrupted, and a defect's wait so ends with whatever bounds its caller (test/pg/substrate/budget.test.ts
+	 * barrierWait) where it held its case until the case's hang.
+	 */
 	const permits = (count: number): Effect.Effect<void, never, Scope.Scope> =>
 		Effect.acquireRelease(
-			Effect.suspend(() =>
-				draw(count) ? Effect.void : Effect.die(new ConnectionBudgetExhausted({ width }))
+			Effect.interruptible(
+				Effect.suspend(() =>
+					draw(count) ? Effect.void : Effect.die(new ConnectionBudgetExhausted({ width }))
+				)
 			),
 			() =>
 				Effect.sync(() => {

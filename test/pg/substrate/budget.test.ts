@@ -31,6 +31,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import {
 	Array as Arr,
 	Cause,
+	Duration,
 	Effect,
 	Exit,
 	Fiber,
@@ -46,6 +47,7 @@ import { Db } from "#adapter/public/db.ts"
 import {
 	accountIds,
 	backendsQuery,
+	barrierWait,
 	type BudgetCase,
 	type BudgetFeature,
 	budgetFeatures,
@@ -60,6 +62,7 @@ import {
 } from "#test/pg/substrate/budget.fixtures.ts"
 
 import { assert } from "@bjornpagen/testing/assert"
+import { awaitFact } from "@bjornpagen/testing/fact"
 import { rowsOf } from "#test/support/calls.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { workFacts } from "#test/support/fixtures/golden/work.ts"
@@ -101,12 +104,52 @@ export const holdsDemandToItsWidth = property.explore(caseGen, {
 						substrate.admin.queryValues(backendsQuery, [roles]),
 						([row]) => ({ all: Number(row?.[0]), waiting: Number(row?.[1]) })
 					)
+					/**
+					 * Waits for `reached` to hold of `state` (awaitFact), within the barrier's wait (barrierWait); past it, fails
+					 * the case with the state it last read, shown by `show`, where the wait spun until the case's hang (trunk at
+					 * f1bf91a2f: three hours, which no guard ended).
+					 */
+					const awaited = <A, E>(
+						what: string,
+						state: Effect.Effect<A, E>,
+						reached: (a: A) => boolean,
+						show: (a: A) => string
+					) =>
+						Effect.gen(function* () {
+							const done = yield* Effect.timeoutOption(
+								awaitFact(Effect.map(state, (a) => (reached(a) ? Option.some(a) : Option.none()))),
+								barrierWait
+							)
+							if (Option.isNone(done)) {
+								const last = yield* state
+								return assert.fail(
+									`${what} did not come within ${Duration.format(barrierWait)}: ${show(last)}`
+								)
+							}
+						})
+					/**
+					 * An opener's outcome, within the barrier's wait (barrierWait): opened within the width, or refused at once
+					 * past it, before any connection is sent; one neither opened nor refused past it, waiting for a permit the
+					 * width never frees, fails the case, where it held the case until its hang: a permit's acquisition is
+					 * interruptible (test/support/substrate/budget.ts permits), so the bound ends the wait it times.
+					 */
+					const outcomeOf = <A, E, R>(what: string, open: Effect.Effect<A, E, R>) =>
+						Effect.gen(function* () {
+							const ended = yield* Effect.timeoutOption(Effect.exit(open), barrierWait)
+							if (Option.isNone(ended)) {
+								return assert.fail(
+									`${what} was neither opened nor refused within ${Duration.format(barrierWait)}`
+								)
+							}
+							return ended.value
+						})
 					/** Returns once none of the case's backends is left: every session the install opened has ended. */
-					const untilGone = Effect.gen(function* () {
-						while ((yield* backends).all > 0) {
-							yield* Effect.yieldNow
-						}
-					})
+					const untilGone = awaited(
+						"the end of every session of the case",
+						backends,
+						(b) => b.all === 0,
+						(b) => `${b.all} backends left, ${b.waiting} of them waiting on a lock`
+					)
 					const read = Effect.gen(function* () {
 						const db = yield* Db.open(served.login.roles.reader, {})
 						const rows = yield* rowsOf(db.workload.accounts.once({ params: {}, facts: {} }))
@@ -141,7 +184,8 @@ export const holdsDemandToItsWidth = property.explore(caseGen, {
 								const refusedHere = Math.max(0, demandOf(demand) - free)
 								switch (demand.kind) {
 									case "raw session": {
-										const opened = yield* Effect.exit(
+										const opened = yield* outcomeOf(
+											"a raw session",
 											openSession(cluster, {
 												database: installed.database,
 												credentials: probe,
@@ -160,7 +204,8 @@ export const holdsDemandToItsWidth = property.explore(caseGen, {
 										break
 									}
 									case "refused login": {
-										const opened = yield* Effect.exit(
+										const opened = yield* outcomeOf(
+											"a refused login",
 											openSession(cluster, {
 												database: installed.database,
 												credentials: { role: probe.role, password: Redacted.make(wrongPassword) },
@@ -180,7 +225,8 @@ export const holdsDemandToItsWidth = property.explore(caseGen, {
 										break
 									}
 									case "psql writer": {
-										const opened = yield* Effect.exit(
+										const opened = yield* outcomeOf(
+											"a psql writer",
 											psqlWriter(cluster, installed.database, substrate.admin, rolePsql(probe))
 										)
 										assert.ok(
@@ -220,9 +266,16 @@ export const holdsDemandToItsWidth = property.explore(caseGen, {
 										)
 										callFibers = Arr.appendAll(callFibers, forked)
 										poolCalls += demand.calls
-										while ((yield* backends).waiting + (yield* Ref.get(calls)).length < poolCalls) {
-											yield* Effect.yieldNow
-										}
+										yield* awaited(
+											`every one of ${poolCalls} pool calls waiting on the holder's lock or ended`,
+											Effect.zipWith(backends, Ref.get(calls), (b, ended) => ({
+												b,
+												ended: ended.length
+											})),
+											(x) => x.b.waiting + x.ended >= poolCalls,
+											(x) =>
+												`${x.b.waiting} backends waiting on a lock, ${x.ended} calls ended, of ${poolCalls} pool calls; ${x.b.all} backends in all`
+										)
 										const ended = yield* Ref.get(calls)
 										const refused = Arr.filter(
 											ended,
@@ -294,8 +347,8 @@ export const holdsDemandToItsWidth = property.explore(caseGen, {
 		{
 			file: "test/support/substrate/budget.ts",
 			original:
-				"\t\t\t\tdraw(count) ? Effect.void : Effect.die(new ConnectionBudgetExhausted({ width }))",
-			replacement: "\t\t\t\tdraw(count) ? Effect.void : Effect.never",
+				"\t\t\t\t\tdraw(count) ? Effect.void : Effect.die(new ConnectionBudgetExhausted({ width }))",
+			replacement: "\t\t\t\t\tdraw(count) ? Effect.void : Effect.never",
 			why: "An opener past the width waits for a permit instead of being refused at once with ConnectionBudgetExhausted; the case's past-width opener never returns."
 		},
 		{

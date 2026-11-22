@@ -1,7 +1,7 @@
 /** What the property of budget.test.ts reads: its space, the installation it reads through, and its judgments. */
 
 import { array, type Gen, int, weighted } from "@bjornpagen/testing/gen"
-import { Array as Arr, Cause, Order, Record as Rec, Result } from "effect"
+import { Array as Arr, Cause, Duration, Order, Record as Rec, Result } from "effect"
 import { query, v } from "#compiler/public/query.ts"
 import { login, role, schema } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
@@ -99,6 +99,39 @@ export const worldsOver = (Work: W.WorkNamed<string>) => {
 export const backendsQuery = `SELECT count(*)::int4, (count(*) FILTER (WHERE a.wait_event_type = 'Lock'))::int4
 FROM pg_catalog.pg_stat_activity AS a
 WHERE a.datname = pg_catalog.current_database() AND a.usename = ANY ($1::text[])`
+
+/**
+ * How long one barrier of a case waits for the state it observes before it fails the case with what it last saw: every
+ * session of the case ended (its first barrier), every pool call waiting on the holder's lock or refused, and an opener
+ * opened within the width or refused past it. Each is reached in milliseconds, so a state that never comes, an opener
+ * left waiting for a permit the width never frees (the property's first kill), fails its case here, where it held the
+ * case until its hang (trunk at f1bf91a2f: three hours).
+ *
+ * @limitKind measured
+ * @owner grizzle's network tier (test/pg/substrate/budget.test.ts)
+ * @unit milliseconds
+ * @scope one barrier or opener of one case of test/pg/substrate/budget.test.ts, on the local cluster
+ * @evidence the property run by path (TEST_SEED=2219874524) with each barrier's wait timed, performance.now() around
+ *   its awaitFact, appended to a file; its samples kept at ~/.cache/grizzle/unitreds-scratch/budget-waits-1.tsv on
+ *   cassowary
+ * @observed 2026-11-22 06:47 to 06:49 UTC, one run
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores, load average 94 to 156 from other sessions; the
+ *   shared PostgreSQL 19 cluster; grizzle 893cc9611 with this property's barriers
+ * @workload 239 barriers over the property's cases and its mutants' first cases: 114 ends of every session, 125 pool
+ *   calls waiting or refused
+ * @result every session ended within 185.5 ms (mean 24.0), every pool call waiting or refused within 215.3 ms (mean
+ *   32.1). Openers were not timed: a refused opener sends nothing, and an opened one opens one connection, as each pool
+ *   call that waits does
+ * @decision 30,000 ms, about 140 times the most observed, which takes in a network tier's full run loading cassowary
+ *   to 340 to 440 (limits.ts hangLimit), three times the measured load, unmeasured; a mutant's case fails within it
+ *   instead of the hang limit's hour
+ * @revalidate a case red here whose state did come; a change to the budget, the pool or the substrate's sessions; a
+ *   PostgreSQL repin; another machine
+ */
+const barrierWaitMillis = 30_000
+
+/** How long one barrier or opener of a case waits (barrierWaitMillis). */
+export const barrierWait = Duration.millis(barrierWaitMillis)
 
 /** The password no role has, which the server refuses at authentication. */
 export const wrongPassword = "not-the-password"
