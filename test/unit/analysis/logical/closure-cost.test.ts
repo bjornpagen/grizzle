@@ -786,7 +786,8 @@ export const anAnalysisHoldsThePropertiesOfTheNodesItsCallerKeepsAndOfNoOther = 
 		kills: [
 			{
 				file: "packages/engine/src/logical/annotate.ts",
-				original: "\t\treturn { node: annotation.node, judged: annotation.judged }",
+				original:
+					"\t\treturn { node: annotation.node, judged: annotation.judged, restated: annotation.restated }",
 				replacement: "\t\treturn annotation",
 				why: "The fold's memo holds each node's annotation with its properties (logical/annotate.ts run), so the analysis holds every node's for as long as it lives."
 			},

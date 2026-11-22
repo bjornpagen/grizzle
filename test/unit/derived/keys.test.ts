@@ -158,18 +158,32 @@ export const derivedRelationKeysAreProvenKeysInHeadingOrderNarrowestFirstNoneImp
 						"test/unit/derived/keys.test.ts#derivedRelationKeysAreProvenKeysInHeadingOrderNarrowestFirstNoneImpliedByAnotherTheWholeHeadingOnlyAlone:f.0:0.1.3.0.0.8.0.1.1.2.0.0.0.2.2.0.0.0.0.0.0.0.1.3.0.0.0.0.3.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0"
 					),
 					reason:
-						"a derived relation of the first fact by a double precision column, a take of one over a projection of that column alone: the take's one row is natively distinct and keyed by nothing, where the projection's rows, two of which may be apart in a zero's sign alone, are told apart as members (trunk red at 055ecb6fd)",
+						"a derived relation of the first fact by a double precision column a match reads of the one fact its constant key fixes, a take of one over a projection of that column alone: a field of one fact every row reads, so the projection's rows are natively distinct and keyed (trunk red at 055ecb6fd, where every float a projection delivered told its rows apart as members)",
+					since: "2026-11-22"
+				},
+				{
+					token: ReplayToken(
+						"test/unit/derived/keys.test.ts#derivedRelationKeysAreProvenKeysInHeadingOrderNarrowestFirstNoneImpliedByAnotherTheWholeHeadingOnlyAlone:f.0:0.1.3.0.0.8.0.1.1.2.0.0.0.2.2.0.0.0.0.0.0.0.1.3.0.0.0.0.3.1.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0"
+					),
+					reason:
+						"the same derived relation of the first two facts: a take of two, over the same projection",
+					since: "2026-11-22"
+				},
+				{
+					token: ReplayToken(
+						"test/unit/derived/keys.test.ts#derivedRelationKeysAreProvenKeysInHeadingOrderNarrowestFirstNoneImpliedByAnotherTheWholeHeadingOnlyAlone:f.0:0.1.3.0.1.8.1.1.1.2.0.0.0.2.2.0.0.1.0.0.0.0.2.1.3.0.0.0.0.3.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0"
+					),
+					reason:
+						"a derived relation of the first fact by an integer and a double precision column, a take of one over their projection: the float a match reads of the one fact the integer's variable keys",
 					since: "2026-11-22"
 				}
 			],
 			kills: [
 				{
 					file: "packages/engine/src/logical/props.ts",
-					original:
-						'\treading.kind === "Take" && reading.bound.kind === "literal" && reading.bound.k <= 1n',
-					replacement:
-						'\treading.kind === "Take" && reading.bound.kind === "literal" && reading.bound.k < 1n',
-					why: "A take of one row is told apart as its input's members (logical/props.ts boundToOneRow), so a derived relation of the first fact by a float claims no key; the kept case fails."
+					original: "\t\t\t\t\t\taddFactKey(out, v, key)",
+					replacement: "\t\t\t\t\t\t{}",
+					why: "A region's variable bound by an occurrence of one fact is no fact field (logical/props.ts factFieldsOf), so a projection of a float a match reads of the one fact its constant key fixes tells its rows apart as members and claims no key; the kept take of two fails."
 				},
 				{
 					file: "packages/engine/src/analysis/logical/derived.ts",

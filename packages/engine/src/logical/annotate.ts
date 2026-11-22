@@ -80,6 +80,12 @@ export const queryEvidence: LogicalEnv = Object.freeze({ ...checkerEvidence, key
 export interface AnnotatedNode {
 	readonly node: RelNode
 	readonly judged: RelNode
+	/**
+	 * Whether `node` restates a field of the analyzed node's own besides its metadata and its inputs: an attachment's
+	 * judged delivered type, a view's keys under keyed views. Where it restates none, it is the analyzed node with its
+	 * inputs annotated and its metadata the analysis's (withLogicalMeta).
+	 */
+	readonly restated: boolean
 }
 
 /** A node's logical properties, with its annotated node and its judged twin. */
@@ -446,7 +452,8 @@ const reviseChild = (
 	const revision: Annotated = {
 		props: relative,
 		node: withClaims(value.node, claimsOf(relative)),
-		judged: value.judged
+		judged: value.judged,
+		restated: value.restated
 	}
 	revised.set(child, revision)
 	return revision.node
@@ -583,7 +590,12 @@ class Annotator<R extends Roots> {
 					primaryKey !== undefined &&
 					!(sameOrder(inputs.primaryKey, primaryKey) && sameKeySets(inputs.keys, keys))
 				const body = primaryKey !== undefined && restated ? { ...inputs, primaryKey, keys } : inputs
-				return { props, node: rebuilt(node, body, restated, claimsOf(props)), judged: unjudged }
+				return {
+					props,
+					node: rebuilt(node, body, restated, claimsOf(props)),
+					judged: unjudged,
+					restated
+				}
 			}
 			if (
 				node.kind !== "Attach" ||
@@ -592,7 +604,12 @@ class Annotator<R extends Roots> {
 				values.kind !== "Attach" ||
 				twins.kind !== "Attach"
 			) {
-				return { props, node: rebuilt(node, inputs, false, claimsOf(props)), judged: unjudged }
+				return {
+					props,
+					node: rebuilt(node, inputs, false, claimsOf(props)),
+					judged: unjudged,
+					restated: false
+				}
 			}
 			/** The attachment's delivered shape rests on the child's evidence too. */
 			const d = delivery(node, reading, {
@@ -629,7 +646,8 @@ class Annotator<R extends Roots> {
 				judged:
 					twins.judged === judged.delivered
 						? unjudged
-						: relNode(node.id, { ...twins, judged: judged.delivered, meta: metaSpecOf(node.meta) })
+						: relNode(node.id, { ...twins, judged: judged.delivered, meta: metaSpecOf(node.meta) }),
+				restated
 			}
 		}
 		const fold = new Fold<RelNode, AnnotatedNode>(
@@ -664,7 +682,10 @@ class Annotator<R extends Roots> {
 			}
 		}
 		const revisions = new Map<RelNode, AnnotatedNode>(
-			[...revised].map(([child, r]) => [child, { node: r.node, judged: r.judged }])
+			[...revised].map(([child, r]) => [
+				child,
+				{ node: r.node, judged: r.judged, restated: r.restated }
+			])
 		)
 		live.clear()
 		revised.clear()
@@ -730,7 +751,7 @@ const annotationStep = (
 		const values = yield* edgeValues<AnnotatedNode>(node)
 		const annotation = annotate(node, values)
 		made(node, annotation)
-		return { node: annotation.node, judged: annotation.judged }
+		return { node: annotation.node, judged: annotation.judged, restated: annotation.restated }
 	}
 
 /**
@@ -755,7 +776,8 @@ export const analyzeLogical = <R extends Roots>(
  * `dag` with every node carrying the metadata `analysis` (of `dag`) computed for it, and the body `bodyOf` gives it: its
  * own, or the checker's completion of a stated order (check/order.ts). No other judgment of the analysis is taken, an
  * attachment's delivered type among them, so a reader of the logical metadata (a node's keys and cardinality) reads the
- * DAG it was given.
+ * DAG it was given. A node whose own body it keeps, over the inputs the analysis annotated, and of which the analysis
+ * restated nothing is the analysis's annotated node itself (AnnotatedNode restated), never built again.
 
  */
 export const withLogicalMeta = <R extends Roots>(
@@ -770,7 +792,11 @@ export const withLogicalMeta = <R extends Roots>(
 		}
 		const source = bodyOf(node)
 		const body = yield* edgeValues<RelNode>(source)
-		const annotated = analysis.of(node).node
+		const annotation = analysis.of(node)
+		const annotated = annotation.node
+		if (source === node && !annotation.restated && unchangedEdges(annotated, body)) {
+			return annotated
+		}
 		return source === node && annotated === node && unchangedEdges(node, body)
 			? node
 			: relNode(node.id, { ...body, meta: metaSpecOf(annotated.meta) })

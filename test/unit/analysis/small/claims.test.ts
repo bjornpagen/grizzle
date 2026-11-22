@@ -85,10 +85,9 @@ export const theAnalysesOverASmallClosedUniverseEveryCoreQueryOfUpToTwoOperators
 			},
 			{
 				file: "packages/engine/src/logical/annotate.ts",
-				original:
-					"\t\t\t\treturn { props, node: rebuilt(node, inputs, false, claimsOf(props)), judged: unjudged }",
+				original: "\t\t\t\t\tnode: rebuilt(node, inputs, false, claimsOf(props)),",
 				replacement:
-					"\t\t\t\tconst shared = (count.get(node) ?? 0) > 1\n\t\t\t\tconst claimed = shared\n\t\t\t\t\t? { ...props, keys: props.keys.filter((k) => k.key.length === node.heading.length) }\n\t\t\t\t\t: props\n\t\t\t\treturn { props, node: rebuilt(node, inputs, false, claimsOf(claimed)), judged: unjudged }",
+					"\t\t\t\t\tnode: rebuilt(node, inputs, false, claimsOf(count(node) > 1 ? { ...props, keys: props.keys.filter((k) => k.key.length === node.heading.length) } : props)),",
 				why: "A child read twice claims only proofs of its whole heading as its keys (logical/annotate.ts); inexact for every shared child."
 			}
 		]

@@ -1,4 +1,4 @@
-import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { appendAll, sameOrder } from "@bjornpagen/grizzle-text/base/array"
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	isNonEmpty,
@@ -249,6 +249,12 @@ export interface Props {
 	 * apart as a set's members alone.
 	 */
 	readonly distinct: Distinctness
+	/**
+	 * Each column of its heading that is a field of one fact of a source, with the sets of its columns that hold that
+	 * fact's key (factFieldsOf): two rows natively equal on one of them read one fact, so they hold the column as one
+	 * value, as a set's member is, a float's zero's sign included. The empty set: one fact every row reads.
+	 */
+	readonly factFields: FactFields
 	readonly card: Card
 	/**
 	 * The stored facts each column of its heading was read from, those read from one or more (provenanceOf): none for a
@@ -1692,13 +1698,185 @@ const oneValuePerRow =
 			return column === undefined || floatCarrierOf(o.expr.type) !== undefined ? [] : [column]
 		})
 		const reached = reachedFrom(input, bitsOf(attributesOf(input), determinants))
+		const delivered = new Set(
+			projection.out.flatMap((o) => {
+				const column = copiedColumn(o.expr)
+				return column === undefined ? [] : [column]
+			})
+		)
 		return read.every(
 			(c) =>
-				columns.has(c) &&
-				!input.node.heading.some((h) => h.name === c && floatCarrierOf(h.type) !== undefined) &&
-				reaches(reached, c)
+				(input.factFields.get(c) ?? []).some((key) => key.every((k) => delivered.has(k))) ||
+				(columns.has(c) &&
+					!input.node.heading.some((h) => h.name === c && floatCarrierOf(h.type) !== undefined) &&
+					reaches(reached, c))
 		)
 	}
+
+/** Each column that is a field of one fact, with the sets of columns that hold that fact's key (Props factFields). */
+export type FactFields = ReadonlyMap<string, ReadonlyArray<ReadonlyArray<string>>>
+
+const noFactFields: FactFields = new Map()
+
+/** Whether an expression reads no column of any node: a literal, a parameter, or a computation of them alone. */
+const readsNoColumn = (e: ScalarExpr): boolean => e.deps.nodes.length === 0
+
+/** `fields` with `key` added among column `column`'s keys, a key it already holds once. */
+const addFactKey = (
+	fields: Map<string, Array<ReadonlyArray<string>>>,
+	column: string,
+	key: ReadonlyArray<string>
+): void => {
+	const keys = fields.get(column) ?? []
+	if (!keys.some((k) => sameOrder(k, key))) {
+		keys.push(key)
+	}
+	fields.set(column, keys)
+}
+
+/** The fact fields of a node keeping some of `input`'s rows (or all) under the input's names: those among `columns`. */
+const keptFactFields = (input: FactFields, columns: ReadonlyArray<string>): FactFields => {
+	if (input.size === 0) {
+		return noFactFields
+	}
+	const held = new Set(columns)
+	const out = new Map<string, Array<ReadonlyArray<string>>>()
+	for (const [column, keys] of input) {
+		if (!held.has(column)) {
+			continue
+		}
+		for (const key of keys) {
+			if (key.every((k) => held.has(k))) {
+				addFactKey(out, column, key)
+			}
+		}
+	}
+	return out
+}
+
+/**
+ * The fact fields of a node (Props factFields): every column of a relation parameter's one row or a context's one
+ * fact, keyed by nothing; a region's variable bound by an occurrence whose natively distinct source has a key the
+ * occurrence binds or fixes by a literal or a parameter, keyed by the variables bound to that key's other columns, and
+ * one bound to a source's fact field, keyed by the variables bound to its key there; a projection's output copying a
+ * fact field whose key it copies too, under the outputs' names; a group's keys among its input's; a node keeping its
+ * input's rows, its input's among its heading.
+ */
+const factFieldsOf = (node: RelNode, reading: PropsReading): FactFields => {
+	const all = node.heading.map((c) => c.name)
+	switch (reading.kind) {
+		case "InputSet":
+			return reading.input.kind === "row"
+				? new Map(all.map((c) => [c, [[]]] as const))
+				: noFactFields
+		case "Context":
+			return new Map(all.map((c) => [c, [[]]] as const))
+		case "MatchRegion": {
+			const heading = new Set(all)
+			const out = new Map<string, Array<ReadonlyArray<string>>>()
+			for (const o of reading.occurrences) {
+				const fixed = new Set(o.constants.flatMap((k) => (readsNoColumn(k.expr) ? [k.column] : [])))
+				const varOf = new Map<string, string>()
+				for (const b of o.bindings) {
+					if (!varOf.has(b.column)) {
+						varOf.set(b.column, b.var.name)
+					}
+				}
+				/** A key of the source's, read here: the variables bound to its columns no literal or parameter fixes. */
+				const keyHere = (key: ReadonlyArray<string>): ReadonlyArray<string> | undefined => {
+					const vars: Array<string> = []
+					for (const c of key) {
+						if (fixed.has(c)) {
+							continue
+						}
+						const v = varOf.get(c)
+						if (v === undefined || !heading.has(v)) {
+							return undefined
+						}
+						vars.push(v)
+					}
+					return vars
+				}
+				const sourceKeys =
+					o.source.distinct === "native"
+						? o.source.keys.flatMap((k) => {
+								const here = keyHere(k.key)
+								return here === undefined ? [] : [here]
+							})
+						: []
+				for (const b of o.bindings) {
+					const v = b.var.name
+					if (!heading.has(v)) {
+						continue
+					}
+					for (const key of sourceKeys) {
+						addFactKey(out, v, key)
+					}
+					for (const key of o.source.factFields.get(b.column) ?? []) {
+						const here = keyHere(key)
+						if (here !== undefined) {
+							addFactKey(out, v, here)
+						}
+					}
+				}
+			}
+			return out
+		}
+		case "ProjectSet": {
+			if (node.kind !== "ProjectSet") {
+				return noFactFields
+			}
+			const input = reading.input.factFields
+			const copyOf = new Map<string, string>()
+			for (const o of node.out) {
+				const column = copiedColumn(o.expr)
+				if (column !== undefined && !copyOf.has(column)) {
+					copyOf.set(column, o.name)
+				}
+			}
+			const out = new Map<string, Array<ReadonlyArray<string>>>()
+			for (const o of node.out) {
+				const column = copiedColumn(o.expr)
+				for (const key of column === undefined ? [] : (input.get(column) ?? [])) {
+					const named = key.map((k) => copyOf.get(k))
+					if (named.every((k) => k !== undefined)) {
+						addFactKey(out, o.name, named)
+					}
+				}
+			}
+			return out
+		}
+		case "Group":
+			return node.kind === "Group"
+				? keptFactFields(reading.input.factFields, node.keys)
+				: noFactFields
+		case "OrderedSetAggregate":
+		case "Base":
+		case "Closed":
+		case "Delta":
+		case "Union":
+		case "Recursive":
+		case "SelfRef":
+		case "Call":
+			return noFactFields
+		case "Filter":
+		case "Take":
+		case "Produce":
+		case "OrderedResult":
+		case "Window":
+		case "Step":
+		case "SemiJoin":
+		case "AntiJoin":
+		case "Difference":
+		case "Intersect":
+		case "ApproximateNearest":
+		case "Attach":
+		case "Forbid": {
+			const kept = keptInputOf(reading)
+			return kept === undefined ? noFactFields : keptFactFields(kept.factFields, all)
+		}
+	}
+}
 
 /**
  * Whether an occurrence of a region reads one fact of its source for each binding of its variables: its source is
@@ -1715,10 +1893,6 @@ const readsOneFact = (occurrence: ReadingOf<"MatchRegion">["occurrences"][number
 		occurrence.source.keys.some((k) => k.key.every((c) => read.has(c)))
 	)
 }
-
-/** Whether a node delivers at most one row for each evaluation by its own bound: a take of at most one row. */
-const boundToOneRow = (reading: PropsReading): boolean =>
-	reading.kind === "Take" && reading.bound.kind === "literal" && reading.bound.k <= 1n
 
 /**
  * Whether a projection delivers one row for each row of its input: its input is natively distinct and the outputs
@@ -1748,7 +1922,7 @@ const projectsOneRow = (projection: ReadingOf<"ProjectSet">): boolean => {
  * for any other node, any input.
  */
 const distinctOf = (node: RelNode, reading: PropsReading): Distinctness => {
-	if (!holdsZeroApart(node, reading) || boundToOneRow(reading)) {
+	if (!holdsZeroApart(node, reading)) {
 		return "native"
 	}
 	if (reading.kind === "InputSet") {
@@ -1777,7 +1951,7 @@ type Reach =
  * What a node's properties are of: the node, its reading, its inputs' views in their places, and the attachment they
  * are relative to, if any.
  */
-interface Subject extends Pick<Props, "node" | "attachment" | "outer" | "distinct"> {
+interface Subject extends Pick<Props, "node" | "attachment" | "outer" | "distinct" | "factFields"> {
 	readonly reading: PropsReading
 	readonly views: ViewReading
 }
@@ -1787,7 +1961,10 @@ interface Subject extends Pick<Props, "node" | "attachment" | "outer" | "distinc
  * their properties as the node's are built or from their views as a child is revised relative to its parent
  * (relativeProps).
  */
-interface Finished extends Pick<Props, "node" | "attachment" | "outer" | "distinct"> {
+interface Finished extends Pick<
+	Props,
+	"node" | "attachment" | "outer" | "distinct" | "factFields"
+> {
 	readonly reading: StepsReading
 	readonly views: ViewReading
 }
@@ -2185,6 +2362,7 @@ const finish = (subject: Finished, dependencies: ReadonlyArray<Dependency>, rest
 		prove,
 		whole,
 		distinct: subject.distinct,
+		factFields: subject.factFields,
 		card: atMostOne ? (rest.exactlyOne ? "one" : "atMostOne") : "many",
 		provenance,
 		context: rest.context,
@@ -2375,7 +2553,8 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 		views: viewsOf(reading),
 		attachment: undefined,
 		outer: env.scope(node).outer,
-		distinct: distinctOf(node, reading)
+		distinct: distinctOf(node, reading),
+		factFields: factFieldsOf(node, reading)
 	}
 	const all = node.heading.map((c) => c.name)
 	/**
@@ -3430,7 +3609,8 @@ export const relativeProps = (child: Props, attach: NodeOf<"Attach">): Props =>
 			views: child.view.reading,
 			attachment: attach,
 			outer: child.outer,
-			distinct: child.distinct
+			distinct: child.distinct,
+			factFields: child.factFields
 		},
 		[
 			...child.stated.rows.map((row) => row.dependency),

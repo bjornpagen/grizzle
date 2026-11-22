@@ -23,14 +23,18 @@ import {
 import { Array as Arr, Effect, Option, Record as Rec } from "effect"
 import { makeIdSupply } from "#compiler/core/ids.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
-import { assembledDag, topoOrder } from "#compiler/ir/dag.ts"
+import { assembledDag, edgeValues, relNode, topoOrder, unchangedEdges } from "#compiler/ir/dag.ts"
 import type { EvidenceContext, TemplateContext } from "#compiler/ir/evidence.ts"
 import { type ScalarExpr, storedColumn } from "#compiler/ir/expr.ts"
+import { Fold } from "#compiler/ir/fold.ts"
 import {
 	conservativeMeta,
 	type Heading,
 	type HeadingColumn,
 	headingOrder,
+	inputsOf,
+	mapRoots,
+	metaSpecOf,
 	type RelNode,
 	type ValidDag,
 	type VarDecl
@@ -40,8 +44,10 @@ import {
 	analyzeLogical,
 	everyNode,
 	keptNodes,
+	type LogicalAnalysis,
 	type LogicalEnv,
-	SharedAnalyses
+	SharedAnalyses,
+	withLogicalMeta
 } from "#compiler/logical/annotate.ts"
 import type { ContainmentFact } from "#compiler/logical/attach.ts"
 import { fixedColumns, type Props } from "#compiler/logical/props.ts"
@@ -577,6 +583,80 @@ const envOf = (contexted: Pick<Contexted, "execution" | "containments">): Logica
 	containments: contexted.containments,
 	keyedViews: false
 })
+
+/** What a restating case reaches: a node the analysis restated (an attachment's judged delivery) and one it did not. */
+type RestatedFeature = "a node the analysis restated" | "a node the analysis restated nothing of"
+
+/**
+ * `dag` with every node carrying the metadata `analysis` computed for it and its own body, each node built again
+ * where its metadata or an input changed (withLogicalMeta as it stood at 018bf56dc): what withLogicalMeta must state.
+ */
+const rebuiltWithMeta = (dag: ValidDag, analysis: LogicalAnalysis): ValidDag => {
+	const rebuilt = new Fold<RelNode, RelNode>(function* (node) {
+		const body = yield* edgeValues<RelNode>(node)
+		const annotated = analysis.of(node).node
+		return annotated === node && unchangedEdges(node, body)
+			? node
+			: relNode(node.id, { ...body, meta: metaSpecOf(annotated.meta) })
+	})
+	return assembledDag(mapRoots(dag.roots, (root) => rebuilt.of(root)))
+}
+
+/**
+ * Every case of `draw` annotated under the evidence it draws, its DAG restated with the analysis's metadata
+ * (withLogicalMeta, each node's own body): the restated DAG states every node as building each node again does, and
+ * each node the analysis restated nothing of in its sub-DAG is the analysis's annotated node itself, none built again.
+ */
+export const restatedOn = <S>(draw: CaseDraw<S>, stated: Stated<RestatedFeature>): Property =>
+	property.explore(draw.generator, {
+		needs: {},
+		budget: evidenceBudget,
+		situations: stated.situations,
+		check:
+			(_, c: Case<RestatedFeature>) =>
+			([drawnSketch, sketch]) =>
+				Effect.sync(() => {
+					const generated = c.draw(draw.resolve(drawnSketch))
+					const dag = generated.query.dag
+					const analysis = succeeded(
+						analyzeLogical(dag, envOf(contexted(generated, sketch)), everyNode),
+						"the annotation"
+					)
+					const restatedDag = withLogicalMeta(dag, analysis, (node) => node, new Set())
+					const restated = toTable(restatedDag)
+					const rebuilt = toTable(rebuiltWithMeta(dag, analysis))
+					if (!restated.ok || !rebuilt.ok) {
+						throw new Error("a restated DAG with one node per label")
+					}
+					assert.deepEqual(restated.value.nodes, rebuilt.value.nodes, "the restated DAG's nodes")
+					const restatedNodes = new Map(Arr.map(topoOrder(restatedDag), (n) => [n.id, n] as const))
+					/** The nodes no node of whose sub-DAG the analysis restated: each is its annotated node, none built again. */
+					const asAnnotated = new Set<RelNode>()
+					for (const node of topoOrder(dag)) {
+						const annotation = analysis.of(node)
+						if (annotation.restated) {
+							c.note("a node the analysis restated")
+							continue
+						}
+						if (!Arr.every(inputsOf(node), (input) => asAnnotated.has(input))) {
+							continue
+						}
+						asAnnotated.add(node)
+						c.note("a node the analysis restated nothing of")
+						assert.equal(
+							restatedNodes.get(node.id) === annotation.node,
+							true,
+							`${node.id} (${node.kind}) is the analysis's annotated node`
+						)
+					}
+				}),
+		oracle: {
+			kind: "second-implementation",
+			name: "each node built again with the analysis's metadata, as withLogicalMeta did at 018bf56dc"
+		},
+		kept: stated.kept,
+		kills: stated.kills
+	})
 
 /** What an idempotence case reaches: the claims and delivered types its annotation states. */
 type IdempotenceFeature =

@@ -37,6 +37,7 @@ import {
 	attachmentRooted,
 	holdsOn,
 	idempotentOn,
+	restatedOn,
 	narrowedProvingCases,
 	orphanedCases,
 	provingCases,
@@ -294,6 +295,48 @@ export const theLogicalAnalysisIsIdempotentAnnotatingTwiceStatesWhatAnnotatingOn
 					replacement:
 						"\t\t: relNode(node.id, {\n\t\t\t\t...body,\n\t\t\t\tmeta: { ...claims, logicalKeys: [...node.meta.logicalKeys, ...claims.logicalKeys] }\n\t\t\t})",
 					why: "A node's claimed keys gather its earlier claims beside the new ones (logical/annotate.ts rebuilt); the idempotence property fails."
+				}
+			]
+		}
+	)
+
+/**
+ * A DAG restated with its logical metadata states each node as building it again does and builds none the analysis
+ * already built: over cases rooted at plain rows, attachments and unions, every node of whose sub-DAG the analysis
+ * restated nothing is its annotated node itself.
+ */
+export const aDagRestatedWithItsLogicalMetadataReusesEveryNodeTheAnalysisAnnotatedAndRestatedNothingOf =
+	restatedOn(
+		sketchedCases({
+			...defaultGenConfig,
+			query: {
+				...defaultGenConfig.query,
+				roots: {
+					...defaultGenConfig.query.roots,
+					plain: 1,
+					attach: 2,
+					hetero: 1
+				}
+			}
+		}),
+		{
+			situations: ["a node the analysis restated", "a node the analysis restated nothing of"],
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/logical/annotate.ts",
+					original:
+						"\t\tif (source === node && !annotation.restated && unchangedEdges(annotated, body)) {",
+					replacement:
+						"\t\tif (source !== node && !annotation.restated && unchangedEdges(annotated, body)) {",
+					why: "withLogicalMeta builds every node again, as at 018bf56dc (logical/annotate.ts): a node the analysis restated nothing of is a new node, not its annotated one, and the property fails."
+				},
+				{
+					file: "packages/engine/src/logical/annotate.ts",
+					original:
+						"\t\tif (source === node && !annotation.restated && unchangedEdges(annotated, body)) {",
+					replacement: "\t\tif (source === node && unchangedEdges(annotated, body)) {",
+					why: "withLogicalMeta takes a node the analysis restated as it stands (logical/annotate.ts): an attachment's judged delivered type replaces its own, and the restated DAG differs from building each node again."
 				}
 			]
 		}
