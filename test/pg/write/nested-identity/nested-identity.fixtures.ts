@@ -107,8 +107,14 @@ const downstreamCases: ReadonlyArray<{
 	}
 ]
 
-/** The property's aims (downstream): each kept case's value at every situation it reaches. */
-export const downstreamAims: ReadonlyArray<readonly [Reached<BodiesFeature>, Gen<BodiesCase>]> =
-	Arr.flatMap(downstreamCases, (c) =>
+/**
+ * The property's aims: an owner with no members, the empty list of lengths, which a drawn list of none to four reaches
+ * a fifth of the time and its ten witnesses may miss; and each kept case's value at every situation it reaches
+ * (downstream).
+ */
+export const downstreamAims: ReadonlyArray<readonly [Reached<BodiesFeature>, Gen<BodiesCase>]> = [
+	["an owner with no members", constant({ lengths: [] })],
+	...Arr.flatMap(downstreamCases, (c) =>
 		Arr.map(c.reaches, (situation) => [situation, constant(c.value)] as const)
 	)
+]

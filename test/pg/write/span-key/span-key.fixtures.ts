@@ -1,6 +1,6 @@
 /** What the properties of span-key.test.ts read: its spaces, models and helpers. */
 
-import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
+import { type Aimed, aimed, array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -184,19 +184,24 @@ const factSketchGen =
 
 /**
  * A lawful stored state by construction: in each room up to two facts, each starting a drawn gap past the end of the
- * one before it (adjacent at a gap of none) and spanning a drawn length, so no two facts of a room overlap.
+ * one before it (adjacent at a gap of none) and spanning a drawn length, so no two facts of a room overlap; the first
+ * room holding at least `least`.
  */
-const storedGen: Gen<ReadonlyArray<Fact>> = (source) =>
-	Arr.flatMap([0, 1] as const, (room) => {
-		let end = 0n
-		return upTo(source.draw(int(0, 2)), (): Fact => {
-			const start = end + BigInt(source.draw(int(0, 4)))
-			end = start + BigInt(source.draw(int(1, 4)))
-			return { room, start, end, payload: source.draw(element<0 | 1>([0, 1])) }
+const storedOf =
+	(least: 0 | 1): Gen<ReadonlyArray<Fact>> =>
+	(source) =>
+		Arr.flatMap([0, 1] as const, (room) => {
+			let end = 0n
+			return upTo(source.draw(int(room === 0 ? least : 0, 2)), (): Fact => {
+				const start = end + BigInt(source.draw(int(0, 4)))
+				end = start + BigInt(source.draw(int(1, 4)))
+				return { room, start, end, payload: source.draw(element<0 | 1>([0, 1])) }
+			})
 		})
-	})
 
-export const spanCaseGen: Gen<SpanCase> = (source) => ({
+const storedGen: Gen<ReadonlyArray<Fact>> = storedOf(0)
+
+const spanCaseGen: Gen<SpanCase> = (source) => ({
 	relation: source.draw(element<Relation>(["Room", "Hold"])),
 	op: source.draw(element<Op>(["insert", "put"])),
 	form: source.draw(element<Form>(["enumerated", "described"])),
@@ -208,6 +213,23 @@ export const spanCaseGen: Gen<SpanCase> = (source) => ({
 		})
 	)
 })
+
+/**
+ * An insert every requested fact of which repeats a stored one, over a state of at least one fact: the model's
+ * unchanged insert, which a drawn ChangeSet reaches only when every one of its one to three facts is planted a repeat.
+ */
+const unchangedInsertGen: Gen<SpanCase> = (source) => ({
+	relation: source.draw(element<Relation>(["Room", "Hold"])),
+	op: "insert",
+	form: source.draw(element<Form>(["enumerated", "described"])),
+	stored: source.draw(storedOf(1)),
+	requested: source.draw(array(factSketchGen(["repeat"]), { min: 1, max: 3 }))
+})
+
+/** The cases, aimed at an unchanged insert while it is pending (`unchangedInsertGen`). */
+export const spanCases: Aimed<SpanCase, SpanFeature> = aimed(spanCaseGen, [
+	["insert unchanged", unchangedInsertGen]
+])
 
 const freshFact = (s: FactSketch): Fact => ({
 	room: s.room,

@@ -18,7 +18,7 @@ import {
 	same,
 	sameKey,
 	situations,
-	spanCaseGen,
+	spanCases,
 	type SpanFeature,
 	Spans,
 	unique,
@@ -38,7 +38,7 @@ import { withLayer } from "#test/support/with-layer.ts"
  * Its pre-conversion budget: runs 80, coverage cases 80 (test/pg/write/span-key/span-key.test.ts at 991e0f9ab).
  */
 export const insertsAndPutsIntoASpanPrimaryKeyAgreeWithTheIntervalModelOnDrawnStatesAndChangeSetsBothMutabilitiesAndMemberForms =
-	property.explore(spanCaseGen, {
+	property.explore(spanCases, {
 		needs: { fixture: Substrate.seat(spansTemplate) },
 		situations: situations satisfies ReadonlyArray<Reached<SpanFeature>>,
 		check:
