@@ -214,6 +214,14 @@ export interface JoinedOccurrence {
 	readonly origin: Origin
 }
 
+/** The one empty list every dependency's empty attributes and joins share: a table holds millions of dependencies, most
+ * with no span `at` and no region `join`, where each held an empty list of its own (qti's write compile at hub
+ * a8dbf06b8: 2.85M dependencies, about 91 MB of empty lists over its two placement analyses). */
+const nothing: ReadonlyArray<never> = Object.freeze([])
+
+/** `xs`, or the one empty list where it holds nothing. */
+const shared = <A>(xs: ReadonlyArray<A>): ReadonlyArray<A> => (xs.length === 0 ? nothing : xs)
+
 export interface Implication {
 	readonly from: ReadonlyArray<string>
 	/**
@@ -597,15 +605,10 @@ export class Dependencies {
 	readonly columns: ReadonlyArray<string>
 	readonly implications: ReadonlyArray<Implication>
 	readonly points: ReadonlyArray<PointRule>
-	readonly #waiting: Waiting
 	/** The heading's columns, which a closure's start is read among. */
-	readonly #heading: ReadonlySet<string>
+	readonly heading: ReadonlySet<string>
 	/** The evidence contexts the table's justifications hold in, least demanding first, one of each demand. */
-	readonly #stages: ReadonlyArray<EvidenceContext>
-	/** Each admission's counts a closure starts from (`#counts`), by the stage it closes through, built at its first. */
-	readonly #starts = new Map<Admission, Counts>()
-	/** Each attribute's deriving implications (`#derivers`), built at the table's first key reduction. */
-	#deriving: ReadonlyMap<string, ReadonlyArray<number>> | undefined = undefined
+	readonly stages: ReadonlyArray<EvidenceContext>
 	/** How many closures the table has run. */
 	#closures = 0
 	/** How many derivations the table has explained. */
@@ -619,13 +622,12 @@ export class Dependencies {
 		this.columns = columns
 		this.implications = implications
 		this.points = points
-		this.#waiting = indexed(implications, points)
-		this.#heading = new Set(columns)
+		this.heading = new Set(columns)
 		const used = new Set<EvidenceContext>([
 			...implications.map((i) => i.just.context),
 			...points.map((p) => p.just.context)
 		])
-		this.#stages = evidenceContexts
+		this.stages = evidenceContexts
 			.filter((c) => used.has(c))
 			.toSorted((a, b) => (lessDemanding(a, b) ? -1 : lessDemanding(b, a) ? 1 : 0))
 			.filter((c, i, all) => {
@@ -733,7 +735,7 @@ export class Dependencies {
 	 * the row and the attributes beyond the heading are what a closure derives, never what it starts from.
 	 */
 	closure(start: Iterable<string>): FactClosure {
-		return this.#closure(start, "every")
+		return new Questioning(this).closure(start, "every")
 	}
 
 	/** How many closures the table has run: the work of its questions, which a property bounds. */
@@ -746,44 +748,9 @@ export class Dependencies {
 		return this.#explanations
 	}
 
-	/**
-	 * What a closure through `admission` starts from: how many facts each implication and point rule waits on, -1 for one
-	 * it does not admit. Read off the table once for each admission its closures close through, every closure after the
-	 * first copying it, where each closure asked every dependency's justification again.
-	 */
-	#counts(admission: Admission): Counts {
-		return this.#starts.getOrInsertComputed(admission, () => {
-			const admit =
-				admission === "every"
-					? everything
-					: admittedThrough(defined(this.#stages[admission], "a stage the table holds"))
-			const implications = new Int32Array(this.implications.length)
-			for (const [i, imp] of this.implications.entries()) {
-				implications[i] = admit(imp.just) ? imp.from.length + imp.at.length : -1
-			}
-			const points = new Int32Array(this.points.length)
-			for (const [i, rule] of this.points.entries()) {
-				points[i] = admit(rule.just) ? rule.from.length : -1
-			}
-			return { implications, points }
-		})
-	}
-
-	/** Whether a dependency of the table reads `column`: an implication from it or at it, or a point rule from it. */
-	#reads(column: string): boolean {
-		return (
-			this.#waiting.fromColumn.has(column) ||
-			this.#waiting.atSpan.has(column) ||
-			this.#waiting.pointFrom.has(column)
-		)
-	}
-
-	#closure(start: Iterable<string>, admission: Admission): FactClosure {
+	/** Counts a closure of the table (Questioning closure). */
+	countClosure(): void {
 		this.#closures += 1
-		return new FactClosing(this, this.#waiting, this.#counts(admission)).closed(
-			start,
-			this.#heading
-		)
 	}
 
 	/**
@@ -860,22 +827,8 @@ export class Dependencies {
 	 * key alone, never through a deferrable one it also determines.
 	 */
 	proof(start: ReadonlyArray<string>): Justification | undefined {
-		const found = this.#staged(start, this.#stages.length - 1)
+		const found = new Questioning(this).staged(start, this.stages.length - 1)
 		return found === undefined ? undefined : this.#explained(found)
-	}
-
-	/**
-	 * The least demanding stage, among the first `last + 1`, whose closure of the start holds the row, with that closure:
-	 * the start's strongest proof among those stages, not yet explained.
-	 */
-	#staged(start: ReadonlyArray<string>, last: number): Staged | undefined {
-		for (let stage = 0; stage <= last; stage++) {
-			const closure = this.#closure(start, stage)
-			if (closure.columns.has(rowAttribute)) {
-				return { stage, closure }
-			}
-		}
-		return undefined
 	}
 
 	/** The justification of a staged proof: the derivation of the row in its closure (explain). */
@@ -888,12 +841,13 @@ export class Dependencies {
 	 * canonical minimal key among its columns (keyAmong).
 	 */
 	identification(start: Iterable<string>): Identification | undefined {
+		const asking = new Questioning(this)
 		const candidate = inHeadingOrder(this.columns, start)
-		const found = this.#staged(candidate, this.#stages.length - 1)
+		const found = asking.staged(candidate, this.stages.length - 1)
 		if (found === undefined) {
 			return undefined
 		}
-		return { just: this.#explained(found), key: this.#minimized(candidate, found).key }
+		return { just: this.#explained(found), key: asking.minimized(candidate, found).key }
 	}
 
 	/**
@@ -904,20 +858,104 @@ export class Dependencies {
 	 * and its proof holds wherever the whole candidate's does.
 	 */
 	keyAmong(columns: Iterable<string>): JustifiedKey | undefined {
+		const asking = new Questioning(this)
 		const candidate = inHeadingOrder(this.columns, columns)
-		const found = this.#staged(candidate, this.#stages.length - 1)
+		const found = asking.staged(candidate, this.stages.length - 1)
 		if (found === undefined) {
 			return undefined
 		}
-		const minimal = this.#minimized(candidate, found)
+		const minimal = asking.minimized(candidate, found)
 		const proof =
 			minimal.proof.kind === "closed"
 				? minimal.proof.staged
 				: defined(
-						this.#staged(minimal.key, found.stage),
+						asking.staged(minimal.key, found.stage),
 						"a key the reduction narrowed identifies a row at its candidate's stage"
 					)
 		return { columns: minimal.key, just: this.#explained(proof) }
+	}
+}
+
+/**
+ * One question asked of a dependency table (Dependencies closure, proof, identification, keyAmong): the index its
+ * closures read the table through, each admission's counts a closure starts from, and each attribute's deriving
+ * implications, each built at the question's first need of it and shared by every closure the question runs, so a key
+ * reduction's closures read the table once for each stage (`#counts`). None outlives the question: a table keeps its
+ * columns, dependencies and stages alone, where each kept its index and counts as long as it lived, as every node's
+ * properties do (qti's write compile at hub a8dbf06b8: 309 MB of its two placement analyses' 1,064 MB of tables).
+ */
+class Questioning {
+	readonly #table: Dependencies
+	#waiting: Waiting | undefined = undefined
+	/** Each admission's counts a closure starts from (`#counts`), by the stage it closes through, built at its first. */
+	readonly #starts = new Map<Admission, Counts>()
+	/** Each attribute's deriving implications (`#derivers`), built at the question's first key reduction. */
+	#deriving: ReadonlyMap<string, ReadonlyArray<number>> | undefined = undefined
+
+	constructor(table: Dependencies) {
+		this.#table = table
+	}
+
+	/** The index the question's closures read the table through, built at its first closure. */
+	#index(): Waiting {
+		this.#waiting ??= indexed(this.#table.implications, this.#table.points)
+		return this.#waiting
+	}
+
+	/**
+	 * What a closure through `admission` starts from: how many facts each implication and point rule waits on, -1 for one
+	 * it does not admit. Read off the table once for each admission the question's closures close through, every closure
+	 * after the first copying it, where each closure asked every dependency's justification again.
+	 */
+	#counts(admission: Admission): Counts {
+		return this.#starts.getOrInsertComputed(admission, () => {
+			const table = this.#table
+			const admit =
+				admission === "every"
+					? everything
+					: admittedThrough(defined(table.stages[admission], "a stage the table holds"))
+			const implications = new Int32Array(table.implications.length)
+			for (const [i, imp] of table.implications.entries()) {
+				implications[i] = admit(imp.just) ? imp.from.length + imp.at.length : -1
+			}
+			const points = new Int32Array(table.points.length)
+			for (const [i, rule] of table.points.entries()) {
+				points[i] = admit(rule.just) ? rule.from.length : -1
+			}
+			return { implications, points }
+		})
+	}
+
+	/** Whether a dependency of the table reads `column`: an implication from it or at it, or a point rule from it. */
+	#reads(column: string): boolean {
+		const waiting = this.#index()
+		return (
+			waiting.fromColumn.has(column) || waiting.atSpan.has(column) || waiting.pointFrom.has(column)
+		)
+	}
+
+	/** Every fact `start` determines through `admission` (Dependencies closure). */
+	closure(start: Iterable<string>, admission: Admission): FactClosure {
+		const table = this.#table
+		table.countClosure()
+		return new FactClosing(table, this.#index(), this.#counts(admission)).closed(
+			start,
+			table.heading
+		)
+	}
+
+	/**
+	 * The least demanding stage, among the first `last + 1`, whose closure of the start holds the row, with that closure:
+	 * the start's strongest proof among those stages, not yet explained.
+	 */
+	staged(start: ReadonlyArray<string>, last: number): Staged | undefined {
+		for (let stage = 0; stage <= last; stage++) {
+			const closure = this.closure(start, stage)
+			if (closure.columns.has(rowAttribute)) {
+				return { stage, closure }
+			}
+		}
+		return undefined
 	}
 
 	/**
@@ -930,7 +968,7 @@ export class Dependencies {
 	 * with no closure: a fact no dependency waits on fires nothing, so the rest of the key reaches what the key reached,
 	 * at every stage and by the same derivations, and the key's proof stands for the narrower key's.
 	 */
-	#minimized(candidate: KeySet, found: Staged): Minimized {
+	minimized(candidate: KeySet, found: Staged): Minimized {
 		let key = candidate
 		let proof: Minimized["proof"] = { kind: "closed", staged: found }
 		const held = new Set(key)
@@ -949,7 +987,7 @@ export class Dependencies {
 				proof = { kind: "narrowed" }
 				continue
 			}
-			const narrower = this.#staged(without, found.stage)
+			const narrower = this.staged(without, found.stage)
 			if (narrower !== undefined) {
 				key = without
 				proof = { kind: "closed", staged: narrower }
@@ -966,7 +1004,7 @@ export class Dependencies {
 	 */
 	#derivedFrom(column: string, held: ReadonlySet<string>, counts: Counts): boolean {
 		for (const i of this.#derivers().get(column) ?? []) {
-			const imp = defined(this.implications[i], indexedImplication)
+			const imp = defined(this.#table.implications[i], indexedImplication)
 			if (
 				defined(counts.implications[i], indexedImplication) >= 0 &&
 				imp.from.every((c) => held.has(c)) &&
@@ -978,11 +1016,12 @@ export class Dependencies {
 		return false
 	}
 
-	/** Each attribute's deriving implications, by index, in the table's order: built at the first key reduction. */
+	/** Each attribute's deriving implications, by index, in the table's order: built at the question's first key
+	 * reduction. */
 	#derivers(): ReadonlyMap<string, ReadonlyArray<number>> {
 		if (this.#deriving === undefined) {
 			const deriving = new Map<string, Array<number>>()
-			for (const [i, imp] of this.implications.entries()) {
+			for (const [i, imp] of this.#table.implications.entries()) {
 				for (const t of imp.to) {
 					deriving.getOrInsertComputed(t, () => []).push(i)
 				}
@@ -1196,17 +1235,17 @@ export class DependencyDraft {
 		origin: Origin,
 		join: ReadonlyArray<JoinedOccurrence>
 	): void {
-		const f = [...new Set(from)]
-		const a = [...new Set(at)].filter((c) => !f.includes(c))
+		const f = shared([...new Set(from)])
+		const a = shared([...new Set(at)].filter((c) => !f.includes(c)))
 		const t = [...new Set(to)].filter((c) => this.has(c) && !f.includes(c))
 		if (t.length === 0 || !f.every((c) => this.has(c)) || !a.every((c) => this.has(c))) {
 			return
 		}
-		this.#imps.push({ from: f, at: a, to: t, just, origin, join })
+		this.#imps.push({ from: f, at: a, to: t, just, origin, join: shared(join) })
 	}
 
 	#pin(from: ReadonlyArray<string>, span: string, just: Justification, origin: Origin): void {
-		const f = [...new Set(from)]
+		const f = shared([...new Set(from)])
 		if (!this.has(span) || f.includes(span) || !f.every((c) => this.has(c))) {
 			return
 		}

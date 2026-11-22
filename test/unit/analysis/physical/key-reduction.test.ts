@@ -116,9 +116,9 @@ export const theKeyReductionIsTheReferencesClosesEachRemovalOnlyThroughTheKeysSt
 			{
 				file: "packages/engine/src/analysis/physical/fds.ts",
 				original:
-					"\t\t\tconst narrower = this.#staged(without, found.stage)\n\t\t\tif (narrower !== undefined) {\n",
+					"\t\t\tconst narrower = this.staged(without, found.stage)\n\t\t\tif (narrower !== undefined) {\n",
 				replacement:
-					"\t\t\tconst narrower = this.#staged(without, this.#stages.length - 1)\n\t\t\tif (narrower !== undefined && narrower.stage <= found.stage) {\n",
+					"\t\t\tconst narrower = this.staged(without, this.#table.stages.length - 1)\n\t\t\tif (narrower !== undefined && narrower.stage <= found.stage) {\n",
 				why: "Each removal closes through every stage and refuses a proof more demanding than the key's, as the reduction at 94aa830e1 did: the same keys, but a refused removal runs every stage's closure, past the bound, and the search fails."
 			},
 			{
@@ -126,7 +126,7 @@ export const theKeyReductionIsTheReferencesClosesEachRemovalOnlyThroughTheKeysSt
 				original:
 					"\t\t\tif (closure.columns.has(rowAttribute)) {\n\t\t\t\treturn { stage, closure }\n",
 				replacement:
-					"\t\t\tif (closure.columns.has(rowAttribute)) {\n\t\t\t\tthis.explain(closure, [rowAttribute])\n\t\t\t\treturn { stage, closure }\n",
+					"\t\t\tif (closure.columns.has(rowAttribute)) {\n\t\t\t\tthis.#table.explain(closure, [rowAttribute])\n\t\t\t\treturn { stage, closure }\n",
 				why: "Every staged proof is explained as it is found, as proof() did for each narrower key at 94aa830e1: the reduction explains every key it proves, more than once per question, and the search fails."
 			}
 		]
@@ -135,7 +135,7 @@ export const theKeyReductionIsTheReferencesClosesEachRemovalOnlyThroughTheKeysSt
 type ReadSituation = "a candidate column no dependency reads" | "every candidate column read"
 
 /**
- * A key reduction closes only to try the columns some dependency reads (analysis/physical/fds.ts Dependencies `#reads`):
+ * A key reduction closes only to try the columns some dependency reads (analysis/physical/fds.ts Questioning `#reads`):
  * a column no implication or point rule reads fires nothing, so the rest of the key reaches what the key did and the
  * column is dropped with no closure. A reduction of a candidate whose r columns are read, proved at stage c, runs at
  * most S + r(c + 1) closures over a table of S stages; its key and proof are the reference's, by the property above.
