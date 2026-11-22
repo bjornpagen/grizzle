@@ -41,7 +41,7 @@ import {
 	plainRender,
 	renderSql,
 	spelledExpr,
-	storedLiteral,
+	admittedStored,
 	type TestField,
 	v
 } from "#test/unit/compute/support.ts"
@@ -82,7 +82,7 @@ const refusalState = (reason: CompileReason): string | undefined =>
 
 /**
  * A value the sides disagree on: its domain cast, PostgreSQL's answer, compilation's verdict, and whether the value is
- * admitted as a literal stated as one of the contract (storedLiteral), coerced to its typmod as the domain cast coerces
+ * admitted as a literal stated as one of the contract (admittedStored), coerced to its typmod as the domain cast coerces
  * it, then held to its predicate.
  */
 interface Problem {
@@ -408,7 +408,7 @@ export const contractProperty = (f: Fixture) =>
 						 * The domain cast of each value from the base's value type, on both sides: PostgreSQL's CAST into the domain over
 						 * the value's literal, and compilation's, which judges a literal cast into a contract before any SQL and, where it
 						 * admits it, the host evaluator's. PostgreSQL admits a value exactly where compilation admits its cast, the host
-						 * delivers a value and the literal, stated as one of the contract (storedLiteral), is admitted; it refuses one
+						 * delivers a value and the literal, stated as one of the contract (admittedStored), is admitted; it refuses one
 						 * exactly where compilation refuses the cast for the reason PostgreSQL's SQLSTATE names and the literal is no value
 						 * of the contract.
 						 */
@@ -429,7 +429,7 @@ export const contractProperty = (f: Fixture) =>
 							return {
 								sql: `CAST((${renderSql(literal.root.expr, plainRender)}) AS ${target})`,
 								verdict,
-								admitted: storedLiteral(value, f.field.scalar).ok
+								admitted: admittedStored(value, f.field.scalar).ok
 							}
 						})
 						const rows = yield* db.values(

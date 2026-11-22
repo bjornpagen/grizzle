@@ -506,7 +506,7 @@ export const lowerWith = (
  * is written (scalar/compute/literal.ts LiteralMeeting `compared`), refused where it has more digits than the type holds,
  * since PostgreSQL compares it at the base type exactly, and lowering runs the ContractLiteral check of its contract and
  * regex refinement, as a match's literal binding does. A literal stated as a value of the type meets it as stored
- * instead (`storedLiteral`).
+ * instead (`admittedStored`).
  */
 export const adoptedLiteral = (
 	value: LiteralDesc,
@@ -527,7 +527,7 @@ export const adoptedLiteral = (
  * `stored`): coerced to the type's typmod as an assignment coerces it, and PostgreSQL's cast into a domain, then held to
  * its contract and regex refinements by the reference patterns (scalar/compute/evaluate.ts admitLiteral).
  */
-export const storedLiteral = (value: LiteralDesc, type: ScalarType) =>
+export const admittedStored = (value: LiteralDesc, type: ScalarType) =>
 	admitLiteral(value, type, { kind: "refinements", patterns: referencePatterns() }, "stored")
 
 const builtinNames: Readonly<Partial<Record<Carrier, TypeRef>>> = {

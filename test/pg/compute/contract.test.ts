@@ -38,7 +38,7 @@ import {
 	adoptedLiteral,
 	plainRender,
 	renderSql,
-	storedLiteral
+	admittedStored
 } from "#test/unit/compute/support.ts"
 
 /** Contract predicates against PostgreSQL 19 domains admit exactly the values PostgreSQL's domain admits, for every generated value of each contract. */
@@ -80,7 +80,7 @@ export const contractPredicatesRoundALiteralToTheContractsScaleBeforeItsPredicat
 						const disagreements = Arr.flatMap(literals, (l, i) => {
 							const answer = parseAnswer(String(rows[i]?.[0]))
 							const written = Decimal.of(l)
-							const stored = storedLiteral(written, Rate.scalar)
+							const stored = admittedStored(written, Rate.scalar)
 							const compared = adoptedLiteral(written, Rate.scalar)
 							const pgAdmits = answer.kind !== "error"
 							/** The cast admitted the literal as it is written: its value is the literal's own, not a rounding. */
