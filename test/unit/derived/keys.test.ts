@@ -45,7 +45,7 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { assert, deepEquals, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed, boolean, finite, int } from "@bjornpagen/testing/gen"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order, Record as Rec } from "effect"
 import { derivedKeyLayout } from "#compiler/analysis/derived/keys.ts"
 import { derivedAnalysis } from "#compiler/analysis/schema.ts"
@@ -152,8 +152,25 @@ export const derivedRelationKeysAreProvenKeysInHeadingOrderNarrowestFirstNoneImp
 				kind: "specification",
 				name: "proven keys in heading order, narrowest first, none implied by another, the whole heading only alone, one fact by its first representable column, a level one above what it reads"
 			},
-			kept: [],
+			kept: [
+				{
+					token: ReplayToken(
+						"test/unit/derived/keys.test.ts#derivedRelationKeysAreProvenKeysInHeadingOrderNarrowestFirstNoneImpliedByAnotherTheWholeHeadingOnlyAlone:f.0:0.1.3.0.0.8.0.1.1.2.0.0.0.2.2.0.0.0.0.0.0.0.1.3.0.0.0.0.3.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0"
+					),
+					reason:
+						"a derived relation of the first fact by a double precision column, a take of one over a projection of that column alone: the take's one row is natively distinct and keyed by nothing, where the projection's rows, two of which may be apart in a zero's sign alone, are told apart as members (trunk red at 055ecb6fd)",
+					since: "2026-11-22"
+				}
+			],
 			kills: [
+				{
+					file: "packages/engine/src/logical/props.ts",
+					original:
+						'\treading.kind === "Take" && reading.bound.kind === "literal" && reading.bound.k <= 1n',
+					replacement:
+						'\treading.kind === "Take" && reading.bound.kind === "literal" && reading.bound.k < 1n',
+					why: "A take of one row is told apart as its input's members (logical/props.ts boundToOneRow), so a derived relation of the first fact by a float claims no key; the kept case fails."
+				},
 				{
 					file: "packages/engine/src/analysis/logical/derived.ts",
 					original: "\t\tconst single = heading.find((c) => representable(c))",

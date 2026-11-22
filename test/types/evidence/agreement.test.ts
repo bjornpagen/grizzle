@@ -76,7 +76,7 @@ export const evidence = agreement(agreementCases, {
 				"test/types/evidence/agreement.test.ts#evidence:-:1m.2.1.2.1.2.2.1.1.2.0.2.2.1.0.1.1.3.0.3.1.0.2.0.0.1.1.1.2.3.2.0.3.0.0.1.3.2.1.2.2.1.2.0.1.3.1.3.3.0.1.3.0.3.3.3.3.1.3.2.2.3.1.1.2.1.0.0.4.2.4.2.0.0.1.1.1.2.1.0.1.0.1.4.2.0.1.0.1.0.0.0.6.2.1.1.1.1.3.2.1.2.1.1.2.5.0.1.1.4.1"
 			),
 			reason:
-				"a rule fixing Slot's key by a constant item and r.allen(slot.during, ALLEN.converse(ALLEN.equals), a span parameter): the engine proves get, an equality its equals mask lowers to, where the types read every mask as stating nothing (TEST_SEED=2458598146)",
+				"a rule fixing Slot's key by a constant item and r.allen(slot.during, ALLEN.converse(ALLEN.equals), a span parameter): the engine proves get, an equality its equals mask lowers to, where the types read every mask as stating nothing (TEST_SEED=2458598146); its head's cosine distance reads Slot's embedding, which the fixed key determines, one value per delivered row, so the head's rows are natively distinct and keyed (trunk red at 055ecb6fd, where every float a projection computed told its rows apart as members)",
 			since: "2026-11-16"
 		},
 		{
@@ -105,6 +105,12 @@ export const evidence = agreement(agreementCases, {
 		}
 	],
 	kills: [
+		{
+			file: "packages/engine/src/logical/props.ts",
+			original: "\t\t\t\treaches(reached, c)",
+			replacement: "\t\t\t\tfalse",
+			why: "A float a projection computes from columns its delivered row determines is held apart in a zero's sign (logical/props.ts oneValuePerRow), so the kept allen-mask query's head claims no key, where the types prove one; the program fails."
+		},
 		{
 			file: "packages/engine/src/types/db/workload.ts",
 			original:

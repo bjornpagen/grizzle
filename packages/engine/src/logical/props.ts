@@ -1661,15 +1661,44 @@ export type WholeKey =
 export type Distinctness = "native" | "members"
 
 /**
- * Whether a column of a node may hold a float's -0 apart from its +0: a float column, but for a projection's output it
- * delivers through the float's canonical zero (check/merge.ts, ir/expr.ts zeroPeeled), which holds +0 alone.
+ * Whether a column of a node may hold a float's -0 apart from its +0 between two rows natively equal: a float column,
+ * but for a projection's output it delivers through the float's canonical zero (check/merge.ts, ir/expr.ts zeroPeeled),
+ * which holds +0 alone, or one value per row it delivers (oneValuePerRow).
  */
-const holdsZeroApart = (node: RelNode): boolean =>
-	node.kind === "ProjectSet"
-		? node.out.some(
-				(o) => floatCarrierOf(o.expr.type) !== undefined && !zeroPeeled(o.expr).canonical
-			)
-		: node.heading.some((c) => floatCarrierOf(c.type) !== undefined)
+const holdsZeroApart = (node: RelNode, reading: PropsReading): boolean => {
+	if (node.kind !== "ProjectSet" || reading.kind !== "ProjectSet") {
+		return node.heading.some((c) => floatCarrierOf(c.type) !== undefined)
+	}
+	const apart = node.out.filter(
+		(o) => floatCarrierOf(o.expr.type) !== undefined && !zeroPeeled(o.expr).canonical
+	)
+	return apart.length > 0 && !apart.every(oneValuePerRow(node, reading.input))
+}
+
+/**
+ * Whether a projection's output computes one value for every input row whose outputs are natively equal: it reads only
+ * columns of its input that are no float and that the outputs copying a column that is no float determine, the input's
+ * fixed columns among them (check/merge.ts pickFree, a float one fact's field). Two such rows hold those columns
+ * natively equal, which for a column that is no float is one value (scalar/values/identity.ts), and every scalar
+ * operation gives one result of one operand, its zero's sign included.
+ */
+const oneValuePerRow =
+	(projection: NodeOf<"ProjectSet">, input: Props) =>
+	(output: { readonly expr: ScalarExpr }): boolean => {
+		const read = readColumns(output.expr, input.node.id)
+		const columns = new Set(input.columns)
+		const determinants = projection.out.flatMap((o) => {
+			const column = copiedColumn(o.expr)
+			return column === undefined || floatCarrierOf(o.expr.type) !== undefined ? [] : [column]
+		})
+		const reached = reachedFrom(input, bitsOf(attributesOf(input), determinants))
+		return read.every(
+			(c) =>
+				columns.has(c) &&
+				!input.node.heading.some((h) => h.name === c && floatCarrierOf(h.type) !== undefined) &&
+				reaches(reached, c)
+		)
+	}
 
 /**
  * Whether an occurrence of a region reads one fact of its source for each binding of its variables: its source is
@@ -1686,6 +1715,10 @@ const readsOneFact = (occurrence: ReadingOf<"MatchRegion">["occurrences"][number
 		occurrence.source.keys.some((k) => k.key.every((c) => read.has(c)))
 	)
 }
+
+/** Whether a node delivers at most one row for each evaluation by its own bound: a take of at most one row. */
+const boundToOneRow = (reading: PropsReading): boolean =>
+	reading.kind === "Take" && reading.bound.kind === "literal" && reading.bound.k <= 1n
 
 /**
  * Whether a projection delivers one row for each row of its input: its input is natively distinct and the outputs
@@ -1715,7 +1748,7 @@ const projectsOneRow = (projection: ReadingOf<"ProjectSet">): boolean => {
  * for any other node, any input.
  */
 const distinctOf = (node: RelNode, reading: PropsReading): Distinctness => {
-	if (!holdsZeroApart(node)) {
+	if (!holdsZeroApart(node, reading) || boundToOneRow(reading)) {
 		return "native"
 	}
 	if (reading.kind === "InputSet") {
