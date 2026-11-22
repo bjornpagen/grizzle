@@ -337,6 +337,13 @@ export const aReadOfAParameterRelationDeliversEachOfItsFactsByBothLoweringsAndAP
 				original: "\tfloat8: (v) => floatText(v),",
 				replacement: "\tfloat8: (v) => floatText(v === 0 ? 0 : v),",
 				why: "The codec holds -0 and +0 one fact of a parameter relation, so neither lowering's read delivers both."
+			},
+			{
+				file: "packages/engine/src/logical/props.ts",
+				original:
+					'\t(props.distinct === "members" && props.columns.every((c) => columns.includes(c)))',
+				replacement: "\tfalse",
+				why: "Only a key tells a source's rows apart as facts (logical/props.ts identifiesFacts), so a rule's head reading a relation parameter whole, whose facts are a set's members with no key, merges its float through the canonical zero (check/merge.ts pickFree) and the optimized whole read delivers +0 for the fact -0."
 			}
 		]
 	})

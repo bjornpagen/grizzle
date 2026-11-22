@@ -19,7 +19,7 @@ import {
 } from "#compiler/ir/rel.ts"
 import { isFloat, typeLabel } from "#compiler/ir/scalar.ts"
 import type { LogicalAnalysis } from "#compiler/logical/annotate.ts"
-import { fixedColumns, readColumns } from "#compiler/logical/props.ts"
+import { fixedColumns, identifiesFacts, readColumns } from "#compiler/logical/props.ts"
 import { canonicalZeroSpec } from "#compiler/scalar/compute/registry.ts"
 
 /**
@@ -43,9 +43,10 @@ import { canonicalZeroSpec } from "#compiler/scalar/compute/registry.ts"
  *
  * A float a rule delivers is one fact's field when every variable it reads is (pickFree): a variable bound by one field
  * of one match whose source fields, those bound to a variable the delivered row determines and those a constant fixes,
- * hold a key of the source, so two matches that deliver one row match one fact there; or a variable no match binds, a
- * parameter's or an outer value's, one per evaluation. A variable bound by two fields, of two facts that are equal, is
- * one of two equal values.
+ * tell the source's rows apart as facts (logical/props.ts identifiesFacts: a key of the source, or its whole heading
+ * where its rows are a set's members, a relation parameter's facts among them, two of which may be natively equal), so
+ * two matches that deliver one row match one fact there; or a variable no match binds, a parameter's or an outer
+ * value's, one per evaluation. A variable bound by two fields, of two facts that are equal, is one of two equal values.
  *
  * A stated merge is a projection whose floats a merge may take, which the checker records as it builds it, with its
  * rule, settled under the checked DAG's logical analysis (canonicalMerges):
@@ -251,8 +252,10 @@ const canonicalOuts = (analysis: LogicalAnalysis, merge: StatedMerge): ReadonlyS
 				)
 			])
 			const keyed = (source: RelNode, fields: ReadonlyArray<string>): boolean =>
-				defined(analysis.props.get(source), "a matched source, kept (mergeReads)").prove(fields) !==
-				undefined
+				identifiesFacts(
+					defined(analysis.props.get(source), "a matched source, kept (mergeReads)"),
+					fields
+				)
 			return new Set(
 				floats
 					.filter((o) =>

@@ -597,6 +597,15 @@ const positionsOf = (attributes: Attributes, names: Iterable<string>): ReadonlyA
 /** The columns of a node fixed per evaluation: what nothing determines. */
 export const fixedColumns = (props: Props): ReadonlyArray<string> => [...props.fixed.keys()]
 
+/**
+ * Whether `columns` tell a node's rows apart as facts, two rows equal on them one fact: a key (prove), or the whole
+ * heading of rows told apart as a set's members alone (Distinctness `members`), no two of which hold the same values, a
+ * float's -0 and +0 two values (scalar/values/identity.ts), though two may be natively equal and the node claims no key.
+ */
+export const identifiesFacts = (props: Props, columns: ReadonlyArray<string>): boolean =>
+	props.prove(columns) !== undefined ||
+	(props.distinct === "members" && props.columns.every((c) => columns.includes(c)))
+
 /** Every name of the value a fixed column holds per evaluation, undefined when the column is not fixed (Props.fixed). */
 export const fixedNames = (props: Fixes, column: string): ReadonlyArray<NamedValue> | undefined =>
 	props.fixed.get(column)
