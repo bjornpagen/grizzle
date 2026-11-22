@@ -677,7 +677,7 @@ const exclusionOf = (s: InstalledShape, call: ChangeCall): ReadonlyArray<RaceSta
  * Db's prologue sends it before the statement that takes the snapshot, then the call's statements, the served file's,
  * compiled for that level (program/workload/change.ts RoleChanges `level`).
  */
-const changeTxnOf = (
+export const changeTxnOf = (
 	s: InstalledShape,
 	call: ChangeCall
 ): Effect.Effect<RaceTxn<never>, InputFailure> =>

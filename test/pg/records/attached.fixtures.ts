@@ -65,7 +65,7 @@ const bookGen: Gen<BookFacts> = (source) => ({
 	chapters: source.draw(array(chapterGen, { min: 0, max: 2 }))
 })
 
-const factsGen: Gen<ShelvesFacts> = (source) => ({
+export const factsGen: Gen<ShelvesFacts> = (source) => ({
 	books: source.draw(array(bookGen, { min: 0, max: 3 })),
 	other: source.draw(boolean)
 })
