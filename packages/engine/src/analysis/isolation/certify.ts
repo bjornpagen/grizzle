@@ -25,6 +25,7 @@ import {
 	type WriteFact
 } from "#compiler/analysis/isolation/facts.ts"
 import type { Witness } from "#compiler/analysis/theory/query.ts"
+import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import { noReadCommittedFormText } from "#compiler/core/errors.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { compareStrings } from "#compiler/core/order.ts"
@@ -1250,7 +1251,11 @@ const fixedFor = (
  * publication case). A raced relation's arbitration fixes only the row at its race key (fixesAt). Reads come in the order
  * statementReads finds them, each read's modes in the order its reaches take them.
  */
-const readsOf = (installation: Installation, member: MemberFacts): ReadonlyArray<PlacedRead> => {
+const placementsOf = (
+	installation: Installation,
+	member: MemberFacts,
+	visit: (statement: number, s: StatementFacts, placed: StatementPlacement) => void
+): void => {
 	const stated = member.statements.map((s) => ({ s, reads: statementReads(s) }))
 	const fixed: Array<Fixed> = []
 	for (const [statement, { reads }] of stated.entries()) {
@@ -1275,32 +1280,127 @@ const readsOf = (installation: Installation, member: MemberFacts): ReadonlyArray
 			}
 		}
 	}
-	return stated.flatMap(({ s, reads }, statement) => {
+	for (const [statement, { s, reads }] of stated.entries()) {
 		const sealed = sealedOf(s, (read): ReadSeal => {
 			const seal = sealOf(installation, read)
 			const by = seal.kind === "point" ? fixedFor(fixed, read, statement) : undefined
 			return by === undefined ? seal : { kind: "arbitrated", key: by.key }
 		})
 		const reaches = reachesOf(s, groundsOf(s, reads), sealed)
-		return reads.flatMap(({ at, read }): ReadonlyArray<PlacedRead> => {
-			const seal = sealed.seals(at)
-			if (seal === undefined) {
-				return []
-			}
-			const modes = new Set(
-				(reaches.get(at.cte) ?? []).map((r) =>
-					r.neutral && read.probes.every((id) => r.probes[id] !== undefined) ? read.base : read.mode
-				)
-			)
-			const query = at.cte === undefined ? undefined : s.ctes[at.cte]?.query
-			return [...modes].map((mode) => ({ statement, at, query, read, seal, mode }))
+		visit(statement, s, {
+			reads,
+			seal: (at) => sealed.seals(at),
+			modes: (at, read) =>
+				new Set(
+					(reaches.get(at.cte) ?? []).map((r) =>
+						r.neutral && read.probes.every((id) => r.probes[id] !== undefined)
+							? read.base
+							: read.mode
+					)
+				),
+			query: (at) => (at.cte === undefined ? undefined : s.ctes[at.cte]?.query)
 		})
-	})
+	}
 }
 
 /**
- * Each mode each read of `member` takes, by its statement and its body and place there, and whether the read is an
- * outside read, among the installation's roles each served its READ COMMITTED form (readsOf).
+ * One statement as readsOf places it: every read some site reaches, in statementReads' order, each read's seal at its
+ * place, each mode it takes at the instance that reads it (reachesOf), and the query CTE an instance walks.
+ */
+interface StatementPlacement {
+	readonly reads: ReadonlyArray<StatedRead>
+	readonly seal: (at: ReadAt) => ReadSeal | undefined
+	readonly modes: (at: ReadAt, read: ReadFact) => ReadonlySet<ReadFact["mode"]>
+	readonly query: (at: ReadAt) => number | undefined
+}
+
+/**
+ * A member's reads as the conditions read them (MemberView): each read placed once for every mode it takes, the instances
+ * of one query at one place reading one read, one read fact alike (its canonical text), one read of the statement
+ * (PlacedRead), its seal its read's at its statement (sealOf, fixedFor), in the order statementReads finds them; and, for each write of each statement, what condition 5b reads of
+ * the reads that feed it (Fed), taken at the instances its rows come through.
+ */
+interface MemberReads {
+	readonly placed: ReadonlyArray<PlacedRead>
+	readonly fed: ReadonlyArray<ReadonlyArray<Fed>>
+}
+
+/**
+ * What condition 5b reads of the reads one write's rows are positively joined with (WriteFact `from`), each at the
+ * instance it is read at: the groups they read (groupOf), and whether one of them is the call's own row read positively.
+ */
+interface Fed {
+	readonly joined: ReadonlySet<string>
+	readonly own: boolean
+}
+
+/** A read placed (PlacedRead): one for each read of a statement, mode and seal the conditions read (readsOf). */
+const placedRead = (
+	statement: number,
+	at: ReadAt,
+	query: number | undefined,
+	read: ReadFact,
+	seal: ReadSeal,
+	mode: ReadFact["mode"]
+): PlacedRead => ({ statement, at, query, read, seal, mode })
+
+const readsOf = (installation: Installation, member: MemberFacts): MemberReads => {
+	const placed: Array<PlacedRead> = []
+	const fed: Array<ReadonlyArray<Fed>> = []
+	/** Each read fact's canonical text, written once for every instance that holds it (readKey). */
+	const texts = new Map<ReadFact, string>()
+	const readKey = (read: ReadFact): string =>
+		texts.getOrInsertComputed(read, () => canonicalTextOf(read))
+	placementsOf(installation, member, (statement, s, at) => {
+		const seen = new TupleSet<readonly [number | undefined, number, string, ReadFact["mode"]]>()
+		for (const { at: place, read } of at.reads) {
+			const seal = at.seal(place)
+			if (seal === undefined) {
+				continue
+			}
+			const query = at.query(place)
+			for (const mode of at.modes(place, read)) {
+				const key = [
+					place.cte === undefined ? undefined : query,
+					place.read,
+					readKey(read),
+					mode
+				] as const
+				if (place.cte !== undefined && seen.has(key)) {
+					continue
+				}
+				seen.add(key)
+				placed.push(placedRead(statement, place, query, read, seal, mode))
+			}
+		}
+		fed.push(
+			s.writes.map((w): Fed => {
+				const joined = new Set<string>()
+				let own = false
+				for (const place of w.from) {
+					const read = bodyAt(s, place.cte)?.reads[place.read]
+					const seal = at.seal(place)
+					if (read === undefined || seal === undefined) {
+						continue
+					}
+					const modes = at.modes(place, read)
+					if (modes.size === 0) {
+						continue
+					}
+					joined.add(groupOf(read))
+					own ||= seal.kind === "own" && modes.has("positive")
+				}
+				return { joined, own }
+			})
+		)
+	})
+	return { placed, fed }
+}
+
+/**
+ * Each mode each read of `member` takes, by its statement and its body and place there, at every instance that reads
+ * it, and whether the read is an outside read, among the installation's roles each served its READ COMMITTED form
+ * (placementsOf).
  */
 export const readModes = (
 	input: IsolationInput,
@@ -1310,14 +1410,33 @@ export const readModes = (
 	readonly at: ReadAt
 	readonly mode: ReadFact["mode"]
 	readonly outside: boolean
-}> =>
-	readsOf(
+}> => {
+	const out: Array<{
+		readonly statement: number
+		readonly at: ReadAt
+		readonly mode: ReadFact["mode"]
+		readonly outside: boolean
+	}> = []
+	placementsOf(
 		installationOf(
 			input.relations,
 			input.roles.map((role) => ({ role, members: writtenFacts(role) }))
 		),
-		member
-	).map((p) => ({ statement: p.statement, at: p.at, mode: p.mode, outside: outside(p.seal) }))
+		member,
+		(statement, _s, at) => {
+			for (const { at: place, read } of at.reads) {
+				const seal = at.seal(place)
+				if (seal === undefined) {
+					continue
+				}
+				for (const mode of at.modes(place, read)) {
+					out.push({ statement, at: place, mode, outside: outside(seal) })
+				}
+			}
+		}
+	)
+	return out
+}
 
 /** The text that names one group a read reads: its relation, its fields and what they are bound to. */
 const groupOf = (r: ReadFact): string =>
@@ -1495,6 +1614,8 @@ interface MemberView {
 	readonly member: MemberFacts
 	readonly reads: ReadonlyArray<PlacedRead>
 	readonly outsides: ReadonlyArray<PlacedRead>
+	/** What condition 5b reads of the reads that feed each write, by statement then write (Fed). */
+	readonly fed: ReadonlyArray<ReadonlyArray<Fed>>
 	readonly checks: ReadonlyArray<Check>
 }
 
@@ -1566,11 +1687,12 @@ const fencedSite = (at: Installation, login: string, c: Check): boolean =>
 	c.side === "referenced" && at.writers.fences(login, c.write)
 
 const memberView = (at: Installation, member: MemberFacts): MemberView => {
-	const reads = readsOf(at, member)
+	const { placed, fed } = readsOf(at, member)
 	return {
 		member,
-		reads,
-		outsides: reads.filter((p) => outside(p.seal)),
+		reads: placed,
+		outsides: placed.filter((p) => outside(p.seal)),
+		fed,
 		checks: checksOf(at, member)
 	}
 }
@@ -1685,7 +1807,14 @@ const broken = (
 const roleView = (at: Installation, served: Served): RoleView => {
 	const members = served.members.map((m) => memberView(at, m))
 	const sites = new Map<string, Array<ReadSite>>()
+	/** Each site once, whatever reads or modes reach it there. */
+	const seen = new TupleSet<readonly [string, string, number, ReadSite["by"]]>()
 	const site = (relation: string, s: ReadSite): void => {
+		const key = [relation, s.member, s.statement, s.by] as const
+		if (seen.has(key)) {
+			return
+		}
+		seen.add(key)
 		const held = sites.getOrInsertComputed(relation, () => [])
 		held.push(s)
 	}
@@ -1837,7 +1966,14 @@ const absenceSites = (
 	views: ReadonlyArray<RoleView>
 ): ReadonlyMap<string, ReadonlyArray<AbsenceSite>> => {
 	const out = new Map<string, Array<AbsenceSite>>()
+	/** Each site once, whatever reads or modes reach it there. */
+	const seen = new TupleSet<readonly [string, RoleFacts, string, number, string]>()
 	const add = (relation: string, s: AbsenceSite): void => {
+		const key = [relation, s.reader, s.member, s.statement, s.how] as const
+		if (seen.has(key)) {
+			return
+		}
+		seen.add(key)
 		const held = out.getOrInsertComputed(relation, () => [])
 		held.push(s)
 	}
@@ -1969,7 +2105,7 @@ const pivotReasons = (view: RoleView): ReadonlyArray<IsolationReason> =>
 				: []
 		)
 		const writes = v.member.statements.flatMap((s, statement) =>
-			s.writes.map((w) => ({ statement, w }))
+			s.writes.map((w, place) => ({ statement, w, fed: v.fed[statement]?.[place] }))
 		)
 		if (v.outsides.length === 0 || writes.length === 0) {
 			return checks
@@ -1994,20 +2130,14 @@ const pivotReasons = (view: RoleView): ReadonlyArray<IsolationReason> =>
 			(least, p) => Math.min(least, p.statement),
 			Number.POSITIVE_INFINITY
 		)
-		const readsAt = byStatement(v.reads)
 		const outsidesAt = byStatement(v.outsides)
-		const unjoined = writes.flatMap(({ statement, w }) => {
+		const unjoined = writes.flatMap(({ statement, w, fed }) => {
 			const where = atStatement(name, statement, w.relation)
-			const from = new TupleSet<readonly [number | undefined, number]>()
-			for (const at of w.from) {
-				from.add([at.cte, at.read])
-			}
-			const fed = (readsAt.get(statement) ?? []).filter((p) => from.has([p.at.cte, p.at.read]))
-			const joined = new Set(fed.map((p) => groupOf(p.read)))
+			const joined = fed?.joined ?? new Set<string>()
 			const [missed, ...more] = distinctReads(
 				(outsidesAt.get(statement) ?? []).filter((p) => !joined.has(groupOf(p.read)))
 			)
-			const own = fed.some((p) => p.seal.kind === "own" && p.mode === "positive")
+			const own = fed?.own ?? false
 			return [
 				...(missed === undefined
 					? []
@@ -2040,6 +2170,24 @@ const pivotReasons = (view: RoleView): ReadonlyArray<IsolationReason> =>
 		})
 		return [...checks, ...unsealed, ...unjoined]
 	})
+
+/**
+ * Reasons each once, in their order: a reason names one site (IsolationReason), so two of one condition, place and detail
+ * are one reason, however many reads, modes or instances of a query CTE gave it.
+ */
+const distinctReasons = (
+	reasons: ReadonlyArray<IsolationReason>
+): ReadonlyArray<IsolationReason> => {
+	const seen = new Set<string>()
+	return reasons.filter((r) => {
+		const key = canonicalTextOf(r)
+		if (seen.has(key)) {
+			return false
+		}
+		seen.add(key)
+		return true
+	})
+}
 
 /** Every reason a role fails that no other role's verdict changes. */
 const ownReasons = (
@@ -2260,7 +2408,7 @@ const round = <R, S, E>(
 					kind: "judged",
 					candidate: standing.candidate,
 					view,
-					own: ownReasons(at, view, absent)
+					own: distinctReasons(ownReasons(at, view, absent))
 				}
 			: { ...standing, view }
 	)
@@ -2283,9 +2431,11 @@ const round = <R, S, E>(
 		const failed =
 			r.own.length > 0 || !serializable.has(r)
 				? r.own
-				: serializableReasons(
-						r.view,
-						[...serializable].flatMap((other) => (other === r ? [] : [other.view]))
+				: distinctReasons(
+						serializableReasons(
+							r.view,
+							[...serializable].flatMap((other) => (other === r ? [] : [other.view]))
+						)
 					)
 		return isNonEmpty(failed)
 			? { kind: "serializable", candidate: r.candidate, reasons: failed }

@@ -821,10 +821,10 @@ export const theIsolationCertifierReadsAStatementsQueryCTEInstancesAsTheirExpans
 								Order.String
 							),
 							Arr.sort(
-								Arr.map(expected, (u) => u.key),
+								Arr.dedupe(Arr.map(expected, (u) => u.key)),
 								Order.String
 							),
-							`r${i}'s writes joined with none of some outside reads, each read counted once`
+							`r${i}'s writes joined with none of some outside reads, each read counted once, each reason once`
 						)
 						if (Arr.some(expected, (u) => u.places < u.reads)) {
 							k.note("a write joined with none of a CTE's read at two sites or arrivals")
