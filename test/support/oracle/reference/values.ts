@@ -345,6 +345,10 @@ const rowIdentityBy = (identityOf: IdentityOf, row: Row, heading: Heading): Valu
 export const rowIdentity = (row: Row, heading: Heading): ValueIdentity =>
 	rowIdentityBy(valueIdentity, row, heading)
 
+/** A row's identity on `heading` as a set's member (memberIdentity): a float's -0 and +0 apart. */
+export const factRowIdentity = (row: Row, heading: Heading): ValueIdentity =>
+	rowIdentityBy(memberIdentity, row, heading)
+
 /**
  * The identity of each row on `heading`, interned in `identities`, where the reference decides it: two rows that agree
  * on every column no row of `rows` leaves declined and differ in a column some row leaves declined may or may not be one

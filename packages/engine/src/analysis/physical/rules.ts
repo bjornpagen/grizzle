@@ -67,9 +67,11 @@ import {
 	inputSetPlaceholder,
 	inputsOf,
 	type NodeOf,
+	type PlaceholderInput,
 	type RelKind,
 	type RelNode,
-	unionArms
+	unionArms,
+	type VarDecl
 } from "#compiler/ir/rel.ts"
 import { baseOf, floatCarrierOf, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import { chain } from "#compiler/logical/defined.ts"
@@ -443,6 +445,16 @@ type DraftDedup =
 
 const placed: DraftDedup = { kind: "placed" }
 
+/** Why a relation parameter's facts are a set: its placeholder's codec, which forms them by their identity. */
+const factSet = (node: NodeOf<"InputSet">, input: PlaceholderInput): Justification =>
+	withReason(
+		joinJustifications([
+			justify({ premises: [paramPremise(inputSetPlaceholder(input)), nodePremise(node.id)] }),
+			comparing(node.heading.map((c) => c.type))
+		]),
+		["deduplicatedInput"]
+	)
+
 /** What a node's exact duplicate elimination identifies its whole heading by, if it identifies it (DraftDedup). */
 const realizedDeduplication = (node: RelNode, dedup: DraftDedup): Justification | undefined => {
 	switch (dedup.kind) {
@@ -517,8 +529,89 @@ const finish = (node: RelNode, cx: RuleContext, draft: Draft): PhysicalProps => 
 		fixed,
 		maxCard,
 		uniqueness,
-		realization
+		realization,
+		facts: dependencies.identification(columns)?.just ?? factsOf(node, cx)
 	}
+}
+
+/**
+ * Why a node's rows hold no two equal facts under identity equality where no native key of its whole heading says so
+ * (PhysicalProps facts): a relation parameter's facts, a set by their identity under every realization (DraftDedup);
+ * a filter, a semi- or anti-join, a bound, a step or an ordering of such rows, which keeps some of them as they are; a
+ * projection copying every column of such rows; and a region whose every occurrence reads such rows and binds or
+ * fixes each of their columns, every variable in its heading, no float variable bound twice, equated or correlated, so
+ * two distinct tuples of its occurrences' rows are two distinct rows of it, a float's -0 and +0 apart. A region that
+ * joins two occurrences at a float variable compares them under PostgreSQL's equality, which delivers one of its
+ * occurrences' values for both: it proves nothing.
+ */
+const factsOf = (node: RelNode, cx: RuleContext): Justification | undefined => {
+	switch (node.kind) {
+		case "InputSet":
+			return node.input.kind === "row" ? undefined : factSet(node, node.input)
+		case "Filter":
+		case "Take":
+		case "Step":
+		case "OrderedResult":
+			return cx.props(node.input).facts
+		case "SemiJoin":
+		case "AntiJoin":
+			return cx.props(node.left).facts
+		case "ProjectSet": {
+			const input = node.input
+			const copied = new Set(
+				node.out.flatMap((o) =>
+					o.expr.kind === "column" && o.expr.column.node === input.id ? [o.expr.column.name] : []
+				)
+			)
+			return input.heading.every((c) => copied.has(c.name)) ? cx.props(input).facts : undefined
+		}
+		case "MatchRegion":
+			return regionFacts(node, cx)
+		case "Base":
+		case "Closed":
+		case "Context":
+		case "Delta":
+		case "Call":
+		case "Union":
+		case "Intersect":
+		case "Difference":
+		case "Group":
+		case "OrderedSetAggregate":
+		case "Window":
+		case "Produce":
+		case "Recursive":
+		case "SelfRef":
+		case "ApproximateNearest":
+		case "Attach":
+		case "Forbid":
+			return undefined
+	}
+}
+
+/** A region's facts (factsOf): its occurrences' joined, where each reads its source's every column into its heading. */
+const regionFacts = (node: NodeOf<"MatchRegion">, cx: RuleContext): Justification | undefined => {
+	const heading = new Set(node.heading.map((c) => c.name))
+	if (!node.vars.every((v) => heading.has(v.name))) {
+		return undefined
+	}
+	const bindings = node.occurrences.flatMap((o) => o.bindings)
+	const shared = (v: VarDecl): boolean =>
+		bindings.filter((b) => b.var.id === v.id).length > 1 ||
+		node.equalities.some((e) => e.a.id === v.id || e.b.id === v.id) ||
+		node.correlated.some((c) => c.var.id === v.id)
+	if (node.vars.some((v) => floatCarrierOf(v.type) !== undefined && shared(v))) {
+		return undefined
+	}
+	const justs: Array<Justification> = []
+	for (const o of node.occurrences) {
+		const read = new Set([...o.bindings.map((b) => b.column), ...o.constants.map((k) => k.column)])
+		const facts = cx.props(o.source).facts
+		if (facts === undefined || !o.source.heading.every((c) => read.has(c.name))) {
+			return undefined
+		}
+		justs.push(facts)
+	}
+	return joinJustifications(justs)
 }
 
 /** A node's dependency table and the facts its fixed columns are fixed to. */
@@ -907,18 +1000,7 @@ export const physicalPropsOf = (node: RelNode, cx: RuleContext): PhysicalProps =
 			 */
 			const apart = node.heading.some((c) => floatCarrierOf(c.type) !== undefined)
 			if (!apart) {
-				fds.identify(
-					columns,
-					withReason(
-						joinJustifications([
-							justify({
-								premises: [paramPremise(inputSetPlaceholder(input)), nodePremise(node.id)]
-							}),
-							comparing(node.heading.map((c) => c.type))
-						]),
-						["deduplicatedInput"]
-					)
-				)
+				fds.identify(columns, factSet(node, input))
 			}
 			return finish(node, cx, {
 				fds,

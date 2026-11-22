@@ -76,6 +76,17 @@ export interface PhysicalProps {
 	readonly maxCard: Cardinality
 	readonly uniqueness: Uniqueness
 	readonly realization: Realization
+	/**
+	 * Why the fragment's rows, as realized, hold no two equal facts under identity equality, where a float's -0 and +0
+	 * are two values (values/identity.ts factIdentity), or undefined where nothing proves it: its whole heading's native
+	 * identification, or its relation parameters' sets of facts read whole (rules.ts factsOf). It discharges a consumer
+	 * that observes repeats by counting or delivering each row (analyze.ts obligations): a fold's contributions, a
+	 * bound, row numbering, a step's per-row reads, the program's result, an attached child, each of which reads -0 and
+	 * +0 as two facts as the conservative lowering delivers them. It never stands in for a native key: a GROUP BY, a
+	 * DISTINCT, a join or a lookup compares under PostgreSQL's equality, which holds -0 and +0 equal, so every key, every
+	 * elision and every uniqueness proof reads `dependencies` alone.
+	 */
+	readonly facts: Justification | undefined
 }
 
 /**

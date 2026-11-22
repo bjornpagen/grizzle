@@ -10,7 +10,7 @@ import type { PhysicalProps, Realization } from "#compiler/analysis/physical/pro
 import type { NodeId } from "#compiler/core/ids.ts"
 import type { Heading, KeySet, NodeOf, RelDag, RelNode } from "#compiler/ir/rel.ts"
 import type { Ir } from "#test/support/fixtures/ir/build.ts"
-import { Identities, type Interned } from "#test/support/kernel/identity.ts"
+import { Identities, type Interned, type ValueIdentity } from "#test/support/kernel/identity.ts"
 import {
 	type Bindings,
 	layoutOf,
@@ -19,7 +19,12 @@ import {
 	type RelationValue
 } from "#test/support/oracle/reference/evaluate.ts"
 import { RecordingReference } from "#test/support/oracle/reference/evaluations.ts"
-import { decidedKeys, type Row, rowIdentity } from "#test/support/oracle/reference/values.ts"
+import {
+	decidedKeys,
+	factRowIdentity,
+	type Row,
+	rowIdentity
+} from "#test/support/oracle/reference/values.ts"
 
 /**
  * Shared helpers for the physical analysis tests: running the analysis, and a fragment evaluator that computes the rows
@@ -221,8 +226,23 @@ const projectTo = (
 	}
 }
 
-/** Whether `rows` hold at most one row per value of `columns`. */
+/** Whether `rows` hold at most one row per value of `columns` under native equality. */
 export const uniqueOn = (
+	heading: Heading,
+	rows: ReadonlyArray<Row>,
+	columns: ReadonlyArray<string>
+): boolean => uniqueBy(rowIdentity, heading, rows, columns)
+
+/** Whether `rows` hold no two equal facts on `columns`: a float's -0 and +0 apart (values.ts factRowIdentity). */
+const distinctFactsOn = (
+	heading: Heading,
+	rows: ReadonlyArray<Row>,
+	columns: ReadonlyArray<string>
+): boolean => uniqueBy(factRowIdentity, heading, rows, columns)
+
+/** Whether `rows` hold at most one row per identity of their `columns` by `identityOf`. */
+const uniqueBy = (
+	identityOf: (row: Row, heading: Heading) => ValueIdentity,
 	heading: Heading,
 	rows: ReadonlyArray<Row>,
 	columns: ReadonlyArray<string>
@@ -231,7 +251,7 @@ export const uniqueOn = (
 	const seen = new Set<Interned>()
 	for (const row of rows) {
 		const p = projectTo(heading, columns, row)
-		const k = identities.of(rowIdentity(p.row, p.heading))
+		const k = identities.of(identityOf(p.row, p.heading))
 		if (seen.has(k)) {
 			return false
 		}
@@ -277,6 +297,9 @@ export const soundness = (
 			...(owed.kind === "none" && !uniqueOn(rel.heading, rel.rows, p.columns)
 				? [{ node: id, claim: "nothing owed" }]
 				: []),
+			...(p.facts !== undefined && !distinctFactsOn(rel.heading, rel.rows, p.columns)
+				? [{ node: id, claim: "distinct facts" }]
+				: []),
 			...(p.uniqueness.kind === "plain" &&
 			!uniqueOn(rel.heading, rel.rows, [...p.uniqueness.key.columns])
 				? [
@@ -296,7 +319,7 @@ export const soundness = (
 		Arr.map(
 			Arr.filter(
 				delivered.evaluations.of(o.edge.input),
-				(rel) => !uniqueOn(rel.heading, rel.rows, o.heading)
+				(rel) => !distinctFactsOn(rel.heading, rel.rows, o.heading)
 			),
 			(): Violation => ({
 				node: o.edge.input.id,

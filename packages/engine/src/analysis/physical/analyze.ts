@@ -264,15 +264,22 @@ const analysisOver = (
 			return []
 		}
 		const heading = edge.requires
-		const found = keyedBy(props.of(edge.input), heading)
+		const input = props.of(edge.input)
+		/**
+		 * A consumer that observes repeats counts or delivers each row, so rows that are distinct facts discharge it,
+		 * -0 and +0 two (PhysicalProps facts), as a key of its heading does.
+		 */
+		const found =
+			keyedBy(input, heading)?.just ??
+			(input.columns.every((c) => heading.includes(c)) ? input.facts : undefined)
 		if (found === undefined) {
 			return [{ edge, heading, discharged: false }]
 		}
 		/** An attached child is judged per parent binding. */
 		const proof =
 			consumerIn(edge.consumer, "child") !== undefined
-				? withReason(found.just, ["perParentAttachment"])
-				: found.just
+				? withReason(found, ["perParentAttachment"])
+				: found
 		return [{ edge, heading, discharged: true, proof }]
 	})
 	return {

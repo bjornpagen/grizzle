@@ -236,8 +236,8 @@ const observingEdges = (
 
 /**
  * Every observing edge of the verifier's own table (observingEdges) whose input's physical keys, under the plan's
- * realization, do not identify a row by the input's whole heading: a consumer that would see repeats nothing proves
- * away.
+ * realization, do not identify a row by the input's whole heading and whose rows nothing proves distinct facts
+ * (PhysicalProps facts): a consumer that would see repeats nothing proves away.
  */
 const obligations = (
 	dag: RelDag,
@@ -246,7 +246,7 @@ const obligations = (
 ): ReadonlyArray<VerificationProblem> =>
 	Arr.flatMap(observingEdges(dag, a.order, roots), (o): ReadonlyArray<VerificationProblem> => {
 		const props = a.of(o.input).props
-		return keyedBy(props, props.columns) !== undefined
+		return keyedBy(props, props.columns) !== undefined || props.facts !== undefined
 			? []
 			: [
 					problem(

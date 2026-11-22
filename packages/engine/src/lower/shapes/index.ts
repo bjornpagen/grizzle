@@ -552,12 +552,12 @@ export class ShapeState<I extends ChoiceInput> implements ShapeLog<I> {
 /**
  * A query without its outermost set boundary: the plain realization of a conservative plug-in whose query is a SELECT
  * DISTINCT or a set of facts (ir/compare.ts factSet, grouped by its targets and its floats' signs alone), under the
- * proof the physical analysis made of it (`certified`), or an operand where it made none and the node's consumers make
- * its rows a set. A set operation, DISTINCT ON, or a query of neither boundary is returned unchanged.
+ * proof the physical analysis made of it (`certified`), as its sets' facts read through every column (`keyed`), or an
+ * operand where it made neither and the node's consumers make its rows a set. A set operation, DISTINCT ON, or a query of neither boundary is returned unchanged.
  */
 export const withoutBoundary = (
 	query: OperandSelect,
-	rows: "certified" | "operand"
+	rows: "certified" | "keyed" | "operand"
 ): OperandSelect => {
 	const body = query.body
 	if (body.kind !== "core" || !boundaryCore(body)) {
@@ -597,13 +597,21 @@ export const withBoundary = (cx: LowerContext, node: RelNode, query: OperandSele
 	return select(cx.setOf(node, headingTargets(node.heading, source.map), [source.item], undefined))
 }
 
+/**
+ * What a plain realization's rows are: proved unique (certified); its sources' facts read through every column, a set
+ * of facts by their identity, -0 and +0 apart, as each source's is (keyed, ShapeFacts distinctFacts); or rows that may
+ * repeat (an operand).
+ */
+const plainRows = (facts: ShapeFacts, node: RelNode): "certified" | "keyed" | "operand" =>
+	facts.unique(node) !== undefined ? "certified" : facts.distinctFacts(node) ? "keyed" : "operand"
+
 /** A conservative plug-in realized as the placement decided. */
 const realized =
 	<K extends RelKind>(facts: ShapeFacts, lower: NodeLowerer<K>): NodeLowerer<K> =>
 	(node, cx, env) => {
 		const query = lower(node, cx, env)
 		return facts.realization(node) === "plain"
-			? withoutBoundary(query, facts.unique(node) === undefined ? "operand" : "certified")
+			? withoutBoundary(query, plainRows(facts, node))
 			: withBoundary(cx, node, query)
 	}
 

@@ -9,7 +9,7 @@ import { ParamId } from "#compiler/core/ids.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
-import { nativeEqualityKey, type TypedLiteral } from "#compiler/ir/expr.ts"
+import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { LogicalQuery, ParamDecl } from "#compiler/ir/products.ts"
 import type { Heading, NodeOf, RelDag, RelNode } from "#compiler/ir/rel.ts"
@@ -141,9 +141,9 @@ const byKey: Order.Order<readonly [string, unknown]> = Order.mapInput(
 )
 
 /**
- * The case with every relation parameter normalized as the runtime sends it: each fact once under
- * native equality, the first spelling kept (the generator stores one spelling per value class, gen/domain.ts), in a
- * canonical order.
+ * The case with every relation parameter normalized as the runtime sends it: each fact once by its identity, as the
+ * host codec forms the set (codec/recordset.ts), a float's -0 and +0 two facts, the first spelling kept (the generator
+ * stores one spelling per value class, gen/domain.ts), in a canonical order.
  */
 const normalizedCase = <C extends QueryCase>(c: C): C => {
 	const params: Record<string, GenParam> = {}
@@ -160,7 +160,7 @@ const normalizedCase = <C extends QueryCase>(c: C): C => {
 					(row) =>
 						[
 							Arr.join(
-								Arr.map(row, (v) => nativeEqualityKey(v)),
+								Arr.map(row, (v) => canonicalTextOf(v)),
 								"\u0000"
 							),
 							row

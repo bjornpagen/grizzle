@@ -51,6 +51,11 @@ export interface ShapeFacts {
 	/** The proof that a node's rows, as realized, are physically unique on its whole heading, where there is one. */
 	readonly unique: (node: RelNode) => Unique | undefined
 	/**
+	 * Whether a node's rows, as realized, are distinct facts under identity equality, -0 and +0 apart (PhysicalProps
+	 * facts): a plain realization of it reads as a set of its sources' facts, never as a native key.
+	 */
+	readonly distinctFacts: (node: RelNode) => boolean
+	/**
 	 * The physical analysis's proof that `columns` determine a key of the node's rows, where they do: then one evaluation
 	 * of the node has at most one row per value of `columns`, and an order over them is total over it. A node that reads
 	 * an enclosing node is evaluated once per binding of what it reads, so the key holds within each binding.
@@ -114,6 +119,7 @@ export const shapeFactsFromPlan = (
 			const uniqueness = propsOf(node).uniqueness
 			return uniqueness.kind === "none" ? undefined : uniqueness
 		},
+		distinctFacts: (node) => propsOf(node).facts !== undefined,
 		keyedBy: (node, columns) => keyedBy(propsOf(node), columns),
 		maxCard: (node) => propsOf(node).maxCard,
 		/**
