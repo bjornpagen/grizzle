@@ -275,9 +275,20 @@ interface ImportKey {
 	readonly closed: boolean
 }
 
+/**
+ * The node at the head of `node`'s chain of attachments: `node` itself unless it is an attachment, which the checker
+ * builds over its parent's heading (Checker `#attach`) and which delivers each row of its parent as it stands, its
+ * child's rows beside it, so each of its columns holds in every row the value its parent's does, and so, down the
+ * chain, the head's. A link that renames, filters or groups is no attachment, and the chain stops there.
+ */
+const attachmentHead = (node: RelNode): RelNode =>
+	node.kind === "Attach" ? attachmentHead(node.parent) : node
+
 interface ParentScope {
 	/** The parent's label, which the child's correlation references name. */
 	readonly node: NodeId
+	/** The node at the head of the parent's chain of attachments (attachmentHead), whose columns the parent's are. */
+	readonly head: NodeId
 	readonly heading: Heading
 	readonly columns: ReadonlyArray<ParentColumn>
 }
@@ -505,7 +516,8 @@ interface SlotOf<Kind extends string> {
  */
 type ReservedUser = SlotOf<"user">
 type UserSlot = ReservedUser & { readonly binding: Binding }
-type ParentSlot = SlotOf<"parent"> & { readonly outer: Outer }
+/** A parent variable's slot: its parent column (`outer`), and the head of the parent's chain of attachments. */
+type ParentSlot = SlotOf<"parent"> & { readonly outer: Outer; readonly head: NodeId }
 type ParamSlot = SlotOf<"param"> & { readonly outer: Outer }
 type HiddenSlot = SlotOf<"hidden"> & { readonly binding: Binding }
 type Slot = UserSlot | ParentSlot | ParamSlot | HiddenSlot
@@ -1946,7 +1958,10 @@ export class Checker {
 		const childScope: Scope = {
 			kind: "scope",
 			params: scope.params,
-			origin: { kind: "attachChild", parent: { node: parent.id, heading, columns } },
+			origin: {
+				kind: "attachChild",
+				parent: { node: parent.id, head: attachmentHead(parent).id, heading, columns }
+			},
 			self: undefined
 		}
 		const child = this.stage(desc.child.stage, childScope)
@@ -3535,7 +3550,8 @@ class RuleCheck {
 					kind: "parent",
 					id: this.cx.b.ids.var(),
 					name: this.fresh(column.name),
-					outer: { node: origin.parent.node, name: column.parent, type: column.type }
+					outer: { node: origin.parent.node, name: column.parent, type: column.type },
+					head: origin.parent.head
 				}
 				this.parents.set(column.parent, slot)
 				this.correlation.push({ column, slot })
@@ -3892,10 +3908,14 @@ class RuleCheck {
 	 * is read through a column of `node`, the node the import is read over: a match's import over the rule's region, and a
 	 * relational filter's over the node it filters, which delivers the region's columns unchanged (`#relational`).
 	 *
-	 * A parent variable is bound to the parent's own column, the value the attachment equates every binding of it with,
-	 * whichever match of the rule binds it, before the import's source or after, or none: an outer reference to the
-	 * parent, which the attachment's statement carries in its parent key (lower/conservative/deliver.ts
-	 * parentColumnsRead).
+	 * A parent variable is bound to its column of the head of the parent's chain of attachments (ParentSlot `head`,
+	 * attachmentHead), the value the attachment equates every binding of it with, whichever match of the rule binds it,
+	 * before the import's source or after, or none: an outer reference to the delivered rows, which the attachment's
+	 * statement carries in its parent key (lower/conservative/deliver.ts parentColumnsRead reads one to any node of the
+	 * rows' spine, the head among them). So every attachment of one chain that imports one query at one parent column
+	 * reads one node, where each bound it at its own parent, the attachment before it, and each import was a node of
+	 * its own: edullm's decideStage read-back, every attachment of a session's record importing the session's start at
+	 * the session's terms, was 34K nodes, and is 4.6K.
 	 *
 	 * A parameter is bound to the value its importer bound it to, a column of the unit, of an enclosing region or of an
 	 * attachment's parent among them, in every reading, never to a column of this rule's region that re-exposes it: so
@@ -3929,7 +3949,7 @@ class RuleCheck {
 					`a parent variable inside an attachment; ${term.column} is not one`
 				)
 			}
-			return { kind: "column", ...slot.outer }
+			return { kind: "column", ...slot.outer, node: slot.head }
 		}
 		if (term.kind === "param") {
 			const resolved = this.cx.resolveParam(term.cell, this.scope, loc)

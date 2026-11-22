@@ -166,3 +166,71 @@ export const nestedNodes = (size: LookupSize, readers: Readers): number =>
 	topoOrder(
 		succeeded(checkQuery(checking(Nested), nestedQueryOf(size, readers), checkOptions("query"))).dag
 	).length
+
+/** How many attachments a chained case holds: each one attached to the one before it, the first to the items. */
+export type Links = 1 | 2 | 3 | 4
+
+export const linksGen: Gen<Links> = element([1, 2, 3, 4] as const)
+
+/**
+ * A chained case's query: each item and its kind, and `links` attachments, each attached to the one before it, the
+ * first to the items, the `j`-th reading the item's seed of at least `j` through the lookup bound to its parent's id:
+ * the parent of every link but the first is the link before it, whose columns are the items', as edullm's session
+ * record attaches each of its parts to the one before it, every part reading the session's start at the session's
+ * terms. Each link is written out: an attachment's name is a literal of its chain's type.
+ */
+const chainedQueryOf = (size: LookupSize, links: Links): InferredQuery => {
+	const lookup = lookups[size]
+	const items = query(Nested).rule((r) => {
+		const { id, kind } = v(Item, "item")
+		return r.match(Item, { id, kind }).find({ id, kind })
+	})
+	const one = items.attach(
+		"link0",
+		(item) =>
+			query(Nested).rule((r) => {
+				const looked = lookup.bind({ id: item.id })
+				const { seed } = v(looked, "looked")
+				return r.match(looked, { seed }).where(r.ge(seed, 0)).find({ seed })
+			}),
+		"array"
+	)
+	const two = one.attach(
+		"link1",
+		(item) =>
+			query(Nested).rule((r) => {
+				const looked = lookup.bind({ id: item.id })
+				const { seed } = v(looked, "looked")
+				return r.match(looked, { seed }).where(r.ge(seed, 1)).find({ seed })
+			}),
+		"array"
+	)
+	const three = two.attach(
+		"link2",
+		(item) =>
+			query(Nested).rule((r) => {
+				const looked = lookup.bind({ id: item.id })
+				const { seed } = v(looked, "looked")
+				return r.match(looked, { seed }).where(r.ge(seed, 2)).find({ seed })
+			}),
+		"array"
+	)
+	const four = three.attach(
+		"link3",
+		(item) =>
+			query(Nested).rule((r) => {
+				const looked = lookup.bind({ id: item.id })
+				const { seed } = v(looked, "looked")
+				return r.match(looked, { seed }).where(r.ge(seed, 3)).find({ seed })
+			}),
+		"array"
+	)
+	const chained = links === 1 ? one : links === 2 ? two : links === 3 ? three : four
+	return succeeded(queryInput(chained), "a query value").desc
+}
+
+/** The nodes of a chained case's query as a query read checks it. */
+export const chainedNodes = (size: LookupSize, links: Links): number =>
+	topoOrder(
+		succeeded(checkQuery(checking(Nested), chainedQueryOf(size, links), checkOptions("query"))).dag
+	).length

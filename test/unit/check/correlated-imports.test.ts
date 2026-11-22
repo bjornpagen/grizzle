@@ -15,16 +15,23 @@
  * and the bound arguments' count changing no read's nodes. Kill: an import bound to an outer value has no key, built at
  * each read, so each field read builds the bound arguments again and adds more where more are bound.
  *
- * And a parameter the importer bound to a column that holds a value from outside its region is bound to that column
- * itself, in every reading (Checker held, #bindValue), never to a column of the reading rule's region that reads it
- * again, so a lookup imported by several queries, each bound to its own parameter, which their reader binds to
+ * And a parameter is bound to the value its importer bound it to, in every reading (RuleCheck #bindValue), never to a
+ * column of the reading rule's region that reads it again, so a lookup imported by several queries, each bound to its own parameter, which their reader binds to
  * one parent's id, is one node for all of them, where each query's rule bound it to a column of its own. The box: one
  * attachment under each Item making 1 to 4 reads, each its own query importing one lookup of Seed (one match or three)
  * bound to its own parameter, bound to the parent's id. Property: each read adds the same nodes whatever the lookup's
  * size. Kill: a parameter bound to an outer value is read through the rule's own column, so each read builds the
  * lookup again and adds more where the lookup is larger.
  *
- * Features: one field read, several; one bound argument, three; one read, several.
+ *
+ * And a parent variable is bound to its column of the head of the parent's chain of attachments (attachmentHead, an
+ * attachment's columns being its parent's, row for row), so a lookup every attachment of one chain imports at one
+ * parent column is one node, where each attachment bound it at its own parent, the attachment before it. The box: 1 to
+ * 4 attachments chained under each Item, each reading the item's seed through the lookup bound to its parent's id.
+ * Property: each link adds the same nodes whatever the lookup's size. Kill: a parent variable bound at the attachment's
+ * own parent, so each link builds the lookup again and adds more where it is larger.
+ *
+ * Features: one field read, several; one bound argument, three; one read, several; one link, several.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
@@ -32,8 +39,10 @@ import { finite } from "@bjornpagen/testing/gen"
 import { property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
+	chainedNodes,
 	checkedNodes,
 	fieldsGen,
+	linksGen,
 	nestedNodes,
 	readersGen
 } from "#test/unit/check/correlated-imports.fixtures.ts"
@@ -104,6 +113,41 @@ export const aLookupImportedThroughSeveralQueriesAtOneParentsValueIsOneNode = pr
 				replacement:
 					'\t\t\treturn resolved.kind === "column" ? this.#slotValue(this.#paramSlot(term.cell, loc), node) : resolved\n',
 				why: "A parameter bound to an outer value is read through a column of the reading rule's own region, as it was: each query's rule binds the lookup to a column of its own, so every read builds the lookup again and adds more where it is larger."
+			}
+		]
+	}
+)
+
+/** A lookup every attachment of one chain imports at one parent's value is one node: each link adds its own alone. */
+export const aLookupEveryAttachmentOfAChainImportsAtOneParentsValueIsOneNode = property.exhaust(
+	finite(linksGen),
+	{
+		needs: {},
+		situations: ["one link", "several links"],
+		check: (_, k) => (links) =>
+			Effect.sync(() => {
+				k.note(links === 1 ? "one link" : "several links")
+				const step = chainedNodes("small", 2) - chainedNodes("small", 1)
+				for (const size of ["small", "large"] as const) {
+					assert.equal(
+						chainedNodes(size, links),
+						chainedNodes(size, 1) + (links - 1) * step,
+						`${links} links over a ${size} lookup add what one link and ${links - 1} links more of one link's own nodes do`
+					)
+				}
+			}),
+		oracle: {
+			kind: "universal",
+			name: "linearity: l links add l − 1 times one link's own nodes, whatever the lookup's size"
+		},
+		box: "1 to 4 attachments chained under each Item, each attached to the one before it, each reading the item's seed through one lookup of Seed, one match or three, bound to its parent's id",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/check/checker.ts",
+				original: '\t\t\treturn { kind: "column", ...slot.outer, node: slot.head }\n',
+				replacement: '\t\t\treturn { kind: "column", ...slot.outer }\n',
+				why: "A parent variable is bound at the attachment's own parent, as it was: each link binds the lookup at the link before it, so every link builds the lookup again and adds more where it is larger."
 			}
 		]
 	}
