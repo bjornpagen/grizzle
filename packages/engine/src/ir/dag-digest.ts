@@ -505,31 +505,23 @@ const numbered = (numbering: Numbering, naming: Naming): void => {
 }
 
 /**
- * The templates of one DAG's nodes and expressions (nodeTemplateOf, exprTemplateOf), each written on its first read
- * and kept for every key of the DAG that reaches it, and the DAG's labels, read once where a name first needs its node.
- * Its lifetime is its DAG's.
+ * The templates of nodes and expressions (nodeTemplateOf, exprTemplateOf), each written on its first read and kept for
+ * every key and digest that reaches it, whichever reads it: a template is a function of its node or expression alone,
+ * never of a DAG's labels or of what reads it, so one store serves every reader of one compile's nodes, the share
+ * planning's keys (ShareKeys), the lowering's evaluation keys (lower/conservative/call/keys.ts EvaluationKeys), a
+ * delivery's attachment share keys (lower/shapes/share/index.ts shareKey) and a read-back's digest
+ * (write/readback/lower.ts QueryDigest), where each held a store of its own and wrote each node's template again (on
+ * edullm's qti, 213,278 of the changes phase's first 400,000 template writes wrote one written before). Its lifetime is
+ * its holder's: one write compile (write/program/compile.ts compileAt), or one reader's own.
  */
-class Templates {
-	readonly #labels: () => ReadonlyMap<NodeId, RelNode>
-	#index: ReadonlyMap<NodeId, RelNode> | undefined
+export class DagTemplates {
 	readonly #nodes = new Map<RelNode, Template>()
 	readonly #exprs = new Map<ScalarExpr, Template>()
 	#written = 0
 
-	constructor(labels: () => ReadonlyMap<NodeId, RelNode>) {
-		this.#labels = labels
-	}
-
 	/** How many templates are written: one for each node and expression any key reached, at most. */
 	get written(): number {
 		return this.#written
-	}
-
-	/** The context's labels, read once, where a key first needs them. */
-	context(): ReadonlyMap<NodeId, RelNode> {
-		const index = this.#index ?? this.#labels()
-		this.#index = index
-		return index
 	}
 
 	/** A node's template, written on its first read. */
@@ -554,6 +546,22 @@ class Templates {
 		this.#exprs.set(expr, template)
 		this.#written += 1
 		return template
+	}
+}
+
+/** A DAG's labels, read once, where a name first needs its node (`of`). */
+class LabelIndex {
+	readonly #labels: () => ReadonlyMap<NodeId, RelNode>
+	#index: ReadonlyMap<NodeId, RelNode> | undefined
+
+	constructor(labels: () => ReadonlyMap<NodeId, RelNode>) {
+		this.#labels = labels
+	}
+
+	of(): ReadonlyMap<NodeId, RelNode> {
+		const index = this.#index ?? this.#labels()
+		this.#index = index
+		return index
 	}
 }
 
@@ -651,23 +659,22 @@ const writeEntry = (
 
 /**
  * The claimed-form digests of one DAG's sub-queries (evaluation keys, a DAG's digest), each node's and expression's
- * template written once, and every digest written by one writer (Sha256Messages), so a digest copies its reach's bytes
- * and builds no text. Its lifetime is its DAG's: an EvaluationKeys'.
+ * template read from a store (DagTemplates) that writes it once for every reader of the store, and every digest written
+ * by one writer (Sha256Messages), so a digest copies its reach's bytes and builds no text. Its lifetime is its DAG's: an
+ * EvaluationKeys'.
  */
 export class DagDigests {
-	readonly #templates: Templates
+	readonly #templates: DagTemplates
+	readonly #labels: LabelIndex
 	readonly #messages = new Sha256Messages(messageChunk)
 	/** The longest table text a digest writes, past which it is refused: V8's longest string in production. */
 	readonly #limit: number
 
-	constructor(labels: () => ReadonlyMap<NodeId, RelNode>, limit: number) {
-		this.#templates = new Templates(labels)
+	/** The digests of the DAG labelled `labels`, every template read from `templates`. */
+	constructor(labels: () => ReadonlyMap<NodeId, RelNode>, limit: number, templates: DagTemplates) {
+		this.#templates = templates
+		this.#labels = new LabelIndex(labels)
 		this.#limit = limit
-	}
-
-	/** How many templates are written: one for each node and expression any digest reached, at most. */
-	get written(): number {
-		return this.#templates.written
 	}
 
 	/** The digest under `domain` of what `roots` reach, its enclosing nodes read as `outer` says (OuterNames). */
@@ -689,7 +696,8 @@ export class DagDigests {
 	): Result.Result<string, CompileError> {
 		return catchRefusal(() => {
 			const templates = this.#templates
-			const numbering = new ReachNumbering(() => templates.context(), roots, outer)
+			const labels = this.#labels
+			const numbering = new ReachNumbering(() => labels.of(), roots, outer)
 			const rootNumbers = numberReach(numbering, roots, (met) => {
 				const template = met.kind === "node" ? templates.node(met.node) : templates.expr(met.expr)
 				for (const naming of template.namings) {
@@ -893,7 +901,8 @@ interface Place {
  * (templateForm), so the two are of two keys.
  */
 export class ShareKeys {
-	readonly #templates: Templates
+	readonly #templates: DagTemplates
+	readonly #labels: LabelIndex
 	readonly #sealed: (node: RelNode) => boolean
 	readonly #messages = new Sha256Messages(messageChunk)
 	/** The share domain's frame line. */
@@ -916,9 +925,11 @@ export class ShareKeys {
 	constructor(
 		labels: () => ReadonlyMap<NodeId, RelNode>,
 		limit: number,
-		sealed: (node: RelNode) => boolean
+		sealed: (node: RelNode) => boolean,
+		templates: DagTemplates
 	) {
-		this.#templates = new Templates(labels)
+		this.#templates = templates
+		this.#labels = new LabelIndex(labels)
 		this.#limit = limit
 		this.#sealed = sealed
 		this.#line = unwrap(fingerprintDomain("share"))
@@ -972,7 +983,8 @@ export class ShareKeys {
 	/** The block of `root` (BlockNumbering), every node and expression it reads numbered. */
 	#block(root: RelNode): BlockNumbering {
 		const templates = this.#templates
-		const block = new BlockNumbering(root, () => templates.context(), this.#sealed)
+		const labels = this.#labels
+		const block = new BlockNumbering(root, () => labels.of(), this.#sealed)
 		for (const met of block.met) {
 			const template = met.kind === "node" ? templates.node(met.node) : templates.expr(met.expr)
 			for (const naming of template.namings) {
@@ -1076,7 +1088,7 @@ export class ShareKeys {
 			this.#declarers ??
 			(() => {
 				const made = new Map<OccurrenceId, Array<RelNode>>()
-				for (const node of this.#templates.context().values()) {
+				for (const node of this.#labels.of().values()) {
 					if (node.kind === "Base") {
 						made.getOrInsertComputed(node.occurrence, () => []).push(node)
 					} else if (node.kind === "MatchRegion") {

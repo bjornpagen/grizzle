@@ -1,5 +1,6 @@
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { ParamId, StoredRelationName } from "#compiler/core/ids.ts"
+import type { DagTemplates } from "#compiler/ir/dag-digest.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { FilledRows, LogicalQuery, PageFill, ParamDecl } from "#compiler/ir/products.ts"
 import type {
@@ -100,6 +101,18 @@ export interface ReadBackLowering {
 	 * statement. Each later statement names past the one before (context.ts beginStatement).
 	 */
 	readonly start: NameSupplyStart
+	/** The templates of its write's compile, which its keys and digests read (WriteLowering `templates`). */
+	readonly templates: DagTemplates
+}
+
+/**
+ * What lowering a write program's members adds to lowering a query: the store of the templates every key and digest of
+ * its compile reads (ir/dag-digest.ts DagTemplates), its share planning's, its own and its read-backs' (ReadBackLowering
+ * `templates`), each node's written once for all of them (write/program/compile.ts compileAt).
+ */
+interface WriteLowering {
+	readonly kind: "write"
+	readonly templates: DagTemplates
 }
 
 /**
@@ -136,7 +149,7 @@ export interface MembershipLowering {
  */
 type ConservativeSubject =
 	| { readonly kind: "query" }
-	| { readonly kind: "write" }
+	| WriteLowering
 	| RegionLowering
 	| { readonly kind: "violationProbe" }
 	| ReadBackLowering

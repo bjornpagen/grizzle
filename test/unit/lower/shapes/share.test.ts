@@ -12,6 +12,7 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
+import { DagTemplates } from "#compiler/ir/dag-digest.ts"
 import { conservativeMeta } from "#compiler/ir/rel.ts"
 import { shareKey } from "#compiler/lower/shapes/share/index.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -36,7 +37,9 @@ export const theShareKeyIsEqualForTwoCopiesAtAnyAllocationExactlyWhenTheyReadThe
 						}
 						const b = tasksOf(q, second)
 						const built = q.build(q.union([a, b], []))
-						const same = succeeded(shareKey(built.dag, a)) === succeeded(shareKey(built.dag, b))
+						const same =
+							succeeded(shareKey(built.dag, a, new DagTemplates())) ===
+							succeeded(shareKey(built.dag, b, new DagTemplates()))
 						assert.equal(same, first === second)
 						c.note(same ? "shared" : "apart")
 					}),
@@ -49,8 +52,8 @@ export const theShareKeyIsEqualForTwoCopiesAtAnyAllocationExactlyWhenTheyReadThe
 			kills: [
 				{
 					file: "packages/engine/src/lower/shapes/share/index.ts",
-					original: '.digest([node], "share", "followed")',
-					replacement: `.digest([node], \`share \${node.id}\`, "followed")`,
+					original: '\t\t[node],\n\t\t"share",\n',
+					replacement: `\t\t[node],\n\t\t\`share \${node.id}\`,\n`,
 					why: "The share key reads the node's label, so two copies read apart whenever their allocations differ; the search fails."
 				}
 			]

@@ -6,6 +6,7 @@ import { Array as Arr } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { makeIdSupply, type ParamId } from "#compiler/core/ids.ts"
 import { type Direction, directions } from "#compiler/core/order.ts"
+import { DagTemplates } from "#compiler/ir/dag-digest.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { LogicalQuery, ParamDecl } from "#compiler/ir/products.ts"
@@ -93,7 +94,8 @@ export const optionsFor = (
 						]
 					}),
 					breach: breachGuard("Ledger"),
-					start: freshNames
+					start: freshNames,
+					templates: new DagTemplates()
 				}
 })
 

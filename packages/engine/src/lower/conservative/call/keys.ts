@@ -2,7 +2,7 @@ import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { encode, everyProperty, maxStringLength, unwrap } from "#compiler/core/canonical.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import { wellFormed } from "#compiler/core/text.ts"
-import { DagDigests } from "#compiler/ir/dag-digest.ts"
+import { DagDigests, type DagTemplates } from "#compiler/ir/dag-digest.ts"
 import { nodeShapes, nodesByLabel, relNode, topoOrder } from "#compiler/ir/dag.ts"
 import { conservativeMeta, type NodeOf, type RelDag, type RelNode } from "#compiler/ir/rel.ts"
 
@@ -43,7 +43,7 @@ const evaluationDigest = (digests: DagDigests, node: NodeOf<"Call">): string => 
  * encoded the whole reach of its arguments.
  */
 export class EvaluationKeys {
-	/** The DAG's digests, each node's template written once for every evaluation key that reaches it. */
+	/** The DAG's digests, each node's template read from the lowering's store (LowerContext templates). */
 	readonly #digests: DagDigests
 	readonly #shapes = nodeShapes()
 	/** How many reads of the DAG are of each evaluation shape, to the second. */
@@ -59,8 +59,9 @@ export class EvaluationKeys {
 	readonly #numbers = new Map<object, number>()
 	#digested = 0
 
-	constructor(dag: RelDag) {
-		this.#digests = new DagDigests(() => nodesByLabel(dag), maxStringLength)
+	/** The keys of `dag`'s reads, every template read from `templates`. */
+	constructor(dag: RelDag, templates: DagTemplates) {
+		this.#digests = new DagDigests(() => nodesByLabel(dag), maxStringLength, templates)
 		for (const node of topoOrder(dag)) {
 			if (node.kind === "Call" && node.function.kind === "field") {
 				const shape = this.#shapeOf(node)

@@ -28,6 +28,7 @@ import { sha256Hex } from "#compiler/core/sha256.ts"
 import { wellFormed } from "#compiler/core/text.ts"
 import {
 	DagDigests,
+	type DagTemplates,
 	digestedFields,
 	numberReach,
 	type OuterNames,
@@ -929,20 +930,20 @@ export const nodeShapes = (): Fold<RelNode, string> =>
 		return sha256Hex(wellFormed(text))
 	})
 
-/** The digest of the DAG `roots` reach within `context` (normalizeWithin): a sub-query's share key. */
-const dagDigestWithin = (
-	context: RelDag,
-	roots: Roots,
-	domain: string
+/** The digest of a whole DAG (normalizeWithin), every template read from `templates`. */
+export const dagDigest = (
+	dag: RelDag,
+	domain: string,
+	templates: DagTemplates
 ): Result.Result<DagDigest, CompileError> =>
 	Result.map(
-		new DagDigests(() => nodesByLabel(context), maxStringLength).digest(roots, domain, "followed"),
+		new DagDigests(() => nodesByLabel(dag), maxStringLength, templates).digest(
+			dag.roots,
+			domain,
+			"followed"
+		),
 		DagDigest
 	)
-
-/** The digest of a whole DAG. */
-export const dagDigest = (dag: RelDag, domain: string): Result.Result<DagDigest, CompileError> =>
-	dagDigestWithin(dag, dag.roots, domain)
 
 /**
  * A closed relation's facts as a meaning digest reads them (closedReadFacts): its theory handle, whose primary fields

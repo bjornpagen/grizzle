@@ -4,6 +4,7 @@ import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { array, boolean, finite, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order } from "effect"
+import { DagTemplates } from "#compiler/ir/dag-digest.ts"
 import { conservativeMeta, type RelNode, type ValidDag } from "#compiler/ir/rel.ts"
 import { shareKey } from "#compiler/lower/shapes/share/index.ts"
 import type { ShareIndex } from "#compiler/lower/shapes/share/statements.ts"
@@ -106,7 +107,7 @@ export const referenceShares = (
 	readonly copies: ReadonlyArray<RelNode>
 }> => {
 	const keyOf = (node: RelNode): string | undefined =>
-		index.eligible(node) ? succeeded(shareKey(dag, node)) : undefined
+		index.eligible(node) ? succeeded(shareKey(dag, node, new DagTemplates())) : undefined
 	const chosen: Array<{ readonly key: string; readonly node: RelNode }> = []
 	const carriedKeys = new Set<string>()
 	const copiesOf = new Map<string, Array<RelNode>>()

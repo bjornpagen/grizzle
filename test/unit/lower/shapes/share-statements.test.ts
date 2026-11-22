@@ -24,6 +24,7 @@ import { finite, int } from "@bjornpagen/testing/gen"
 import { agree, exact, set, structuralHash } from "@bjornpagen/testing/oracle"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Order } from "effect"
+import { DagTemplates } from "#compiler/ir/dag-digest.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
 import {
 	type CarriedShare,
@@ -57,7 +58,7 @@ export const subQueriesCarriedAcrossAStratumsStatementsCarryPickOnceEveryCopyThr
 		check: (_, c: Case<"carried" | "inline">) => (statements) =>
 			Effect.sync(() => {
 				const p = program(statements)
-				const index = new ShareIndex(p.dag)
+				const index = new ShareIndex(p.dag, new DagTemplates())
 				const shares = succeeded(planStatementShares(index, p.roots))
 				if (statements < 2) {
 					assert.deepEqual(shares, [])
@@ -95,7 +96,7 @@ export const subQueriesRepeatedInsideOneStatementComputeAnUnboundedSubQueryOnceE
 		check: (_, c: Case<"shared" | "inline">) => (reads) =>
 			Effect.gen(function* () {
 				const { built, copies } = repeated(reads)
-				const index = new ShareIndex(built.dag)
+				const index = new ShareIndex(built.dag, new DagTemplates())
 				const ctes = statementCtes(index, built.dag.roots[0], () => false)
 				const expected =
 					reads > 1 ? [present(index.key(present(copies[0], "a copy")), "its key")] : []
@@ -192,8 +193,10 @@ export const twoCallsOfAVolatileFunctionAreNeverOneCarrierOrOneCteWhereOneCallRe
 			({ volatility, twice }) =>
 				Effect.sync(() => {
 					const p = drawnCalls(volatility, twice)
-					const shares = succeeded(planStatementShares(new ShareIndex(p.dag), p.roots))
-					const ctes = statementCtes(new ShareIndex(p.dag), p.root, () => false)
+					const shares = succeeded(
+						planStatementShares(new ShareIndex(p.dag, new DagTemplates()), p.roots)
+					)
+					const ctes = statementCtes(new ShareIndex(p.dag, new DagTemplates()), p.root, () => false)
 					if (volatility === "volatile" && !twice) {
 						assert.deepEqual(
 							Arr.map(shares, (s) => s.key),
@@ -357,9 +360,9 @@ export const theCarriedSharesPlanningReadsAStatementAgainOnlyInARoundWhoseKeyItR
 			(reads) =>
 				Effect.sync(() => {
 					const p = chained(reads)
-					const counting = new CountingIndex(p.dag)
+					const counting = new CountingIndex(p.dag, new DagTemplates())
 					const shares = succeeded(planStatementShares(counting, p.roots))
-					const reference = new CountingIndex(p.dag)
+					const reference = new CountingIndex(p.dag, new DagTemplates())
 					const byRounds = plannedByRounds(reference, p.roots)
 					const view = (all: ReadonlyArray<CarriedShare>) =>
 						Arr.map(all, (s) => ({

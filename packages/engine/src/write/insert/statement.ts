@@ -2,6 +2,7 @@ import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { ConstraintName, EntryName, StoredRelationName } from "#compiler/core/ids.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
+import type { DagTemplates } from "#compiler/ir/dag-digest.ts"
 import { columnReads } from "#compiler/ir/expr.ts"
 import { generationOf, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
 import type { Needs } from "#compiler/ir/needs.ts"
@@ -260,6 +261,8 @@ interface WriteContextOptions {
 	readonly share: StatementShare
 	readonly level: Isolation
 	readonly generation: (relation: string) => TableGeneration
+	/** The templates of the write's compile (lower/conservative/types.ts WriteLowering). */
+	readonly templates: DagTemplates
 }
 
 export const writeContext = (dag: ValidDag, options: WriteContextOptions): WriteContext => {
@@ -268,7 +271,7 @@ export const writeContext = (dag: ValidDag, options: WriteContextOptions): Write
 		{
 			names: options.reads,
 			params: options.params,
-			subject: { kind: "write" }
+			subject: { kind: "write", templates: options.templates }
 		},
 		options.dispatch
 	)

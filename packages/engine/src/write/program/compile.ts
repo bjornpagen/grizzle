@@ -14,6 +14,7 @@ import type { Isolation } from "#compiler/core/isolation.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
 import type { ClockBinding, ClockSource } from "#compiler/ir/clock.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
+import { DagTemplates } from "#compiler/ir/dag-digest.ts"
 import type { ChangeSetDesc } from "#compiler/ir/desc.ts"
 import { isSequence, isTreeOf } from "#compiler/ir/family.ts"
 import { appendStartOf, familyDrawn } from "#compiler/ir/fill.ts"
@@ -1104,7 +1105,8 @@ const optimizedPlacement = (
 		reads: options.reads,
 		entries: frontend.deltaEntries,
 		params: frontend.params,
-		schema: frontend
+		schema: frontend,
+		templates: w.cx.templates
 	}
 	/** The statement `build` builds in its forms, placed after `dependsOn` with the step `step` gives of it. */
 	const placed = <S extends WriteStatement | PutStatement>(
@@ -1945,8 +1947,14 @@ const compileAt = (
 	/** A write's described members lower statement by statement in each per-execution mode, and no CTE policy shares
 	 * their stages. */
 	const state = new ShapeState<RelationInput>("small", emptyCtePlan)
+	/**
+	 * The templates of the compile's nodes (ir/dag-digest.ts DagTemplates), which its share planning's keys, its
+	 * lowering's evaluation keys and attachment share keys and its read-backs' digests and lowerings all read, each
+	 * node's written once for the compile.
+	 */
+	const templates = new DagTemplates()
 	const sharing = new StatementSharing(
-		new ShareIndex(restated.ir.dag),
+		new ShareIndex(restated.ir.dag, templates),
 		optimizedDispatch(placed.facts, state)
 	)
 	const lowering: Lowering = {
@@ -1959,7 +1967,8 @@ const compileAt = (
 			dispatch: sharing.dispatch,
 			share,
 			level: options.level,
-			generation: generations(options.laws, options.world)
+			generation: generations(options.laws, options.world),
+			templates
 		})
 	}
 	const plan = planWrite(

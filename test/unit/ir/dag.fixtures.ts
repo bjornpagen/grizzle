@@ -16,6 +16,7 @@ import {
 } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
+import { DagTemplates } from "#compiler/ir/dag-digest.ts"
 import { dagDigest, relNode, topoOrder, unchangedEdges } from "#compiler/ir/dag.ts"
 import {
 	builtExpr,
@@ -207,7 +208,7 @@ export const labelled = weighted([
 export type Clash = "two nodes" | "two expressions" | "a DAG holding no two of a kind"
 
 /** The digest of the fixture DAG. */
-export const digest = succeeded(dagDigest(dag, "dag"))
+export const digest = succeeded(dagDigest(dag, "dag", new DagTemplates()))
 
 /** A rewrite the digest must not see: the fixture built from an advanced supply, its labels respelled, a location moved. */
 export type Invariance = "a supply advanced" | "labels respelled" | "a location moved"
@@ -437,7 +438,8 @@ export const buildNeed = {
 		const reference = succeeded(
 			dagDigest(
 				build(cents(succeeded(normalizeExprTable(predicate("e3", "e1", "e2")))), makeIdSupply()),
-				"dag"
+				"dag",
+				new DagTemplates()
 			)
 		)
 		return Effect.succeed({ build, reference })

@@ -4,6 +4,7 @@ import { Array as Arr } from "effect"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
+import { DagTemplates } from "#compiler/ir/dag-digest.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { DeltaSide } from "#compiler/ir/rel.ts"
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
@@ -135,7 +136,10 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 	/** Whether a relation owns a family, whose count and ends grizzle draws on the owner's row. */
 	const ownsFamily = (relation: string): boolean =>
 		Arr.some(frontend.laws.families, (f) => f.owner.name === relation)
+	/** The templates of the realization's keys and digests, its write's and its read-backs', as a compile's. */
+	const templates = new DagTemplates()
 	const w: WriteContext = writeContext(ir.dag, {
+		templates,
 		level: options.level,
 		names: options.names,
 		reads: options.reads,
@@ -381,7 +385,8 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 					kind: "readBack",
 					deltas: deltaSource,
 					breach: breachGuard(options.names.schema),
-					start: freshNames
+					start: freshNames,
+					templates
 				}
 			}
 		)

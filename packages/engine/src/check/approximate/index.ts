@@ -10,6 +10,7 @@ import { fail } from "#compiler/check/fail.ts"
 import { unwrap } from "#compiler/core/canonical.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
+import { DagTemplates } from "#compiler/ir/dag-digest.ts"
 import { dagDigest } from "#compiler/ir/dag.ts"
 import type { Heading, RelNode } from "#compiler/ir/rel.ts"
 
@@ -100,7 +101,7 @@ export const approximate: ApproximatePlugin = {
 		 * Two HNSW scans of one statement could see different graphs under concurrent inserts, so two
 		 * evaluations of one search are not interchangeable with one.
 		 */
-		const identity = `${unwrap(dagDigest(cx.builder.build([input]), "approximate source"))}\u0000${stage.by}\u0000${stage.take}`
+		const identity = `${unwrap(dagDigest(cx.builder.build([input]), "approximate source", new DagTemplates()))}\u0000${stage.by}\u0000${stage.take}`
 		const shared = cx.searches.get(identity)
 		if (shared !== undefined) {
 			return shared

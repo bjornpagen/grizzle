@@ -40,6 +40,7 @@ import { encode, everyProperty } from "#compiler/core/canonical.ts"
 import { makeIdSupply, NodeId, ParamId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
+import { DagTemplates } from "#compiler/ir/dag-digest.ts"
 import {
 	cellTable,
 	dagDigest,
@@ -420,7 +421,10 @@ export const traversalsOfGeneratedDAGsHandleAChainOfAnyDepthPastWhatTheCallStack
 					finishCells(built.roots, (root) => defined(cellOf.get(root), "a root's cell"), new Map())
 				)
 				assert.equal(cells.length, depth + 1)
-				assert.equal(succeeded(dagDigest(finished.dag, "dag")), succeeded(dagDigest(built, "dag")))
+				assert.equal(
+					succeeded(dagDigest(finished.dag, "dag", new DagTemplates())),
+					succeeded(dagDigest(built, "dag", new DagTemplates()))
+				)
 				assert.equal(
 					topoOrder(
 						mergeDags(mergeDags(emptyDag, built, () => undefined).dag, built, () => undefined).dag
@@ -561,7 +565,10 @@ export const dagDigestIgnoresAllocationOrderLabelSpellingAndSourceLocations = pr
 							for (const kind of burn) {
 								supply[kind]()
 							}
-							assert.equal(succeeded(dagDigest(everyKind(supply).dag, "dag")), digest)
+							assert.equal(
+								succeeded(dagDigest(everyKind(supply).dag, "dag", new DagTemplates())),
+								digest
+							)
 							return
 						}
 						case "labels respelled": {
@@ -570,7 +577,10 @@ export const dagDigestIgnoresAllocationOrderLabelSpellingAndSourceLocations = pr
 								(label) => `x${salt}${Arr.join(Arr.reverse(Str.split(label, "")), "")}`
 							)
 							validateDag(other)
-							assert.equal(succeeded(dagDigest(other, "dag")), succeeded(dagDigest(d, "dag")))
+							assert.equal(
+								succeeded(dagDigest(other, "dag", new DagTemplates())),
+								succeeded(dagDigest(d, "dag", new DagTemplates()))
+							)
 							return
 						}
 						case "a location moved": {
@@ -582,7 +592,10 @@ export const dagDigestIgnoresAllocationOrderLabelSpellingAndSourceLocations = pr
 								moved,
 								relNode(moved.id, { ...moved, loc: SourceLoc("moved", ["a"]) })
 							)
-							assert.equal(succeeded(dagDigest(withLoc, "dag")), succeeded(dagDigest(d, "dag")))
+							assert.equal(
+								succeeded(dagDigest(withLoc, "dag", new DagTemplates())),
+								succeeded(dagDigest(d, "dag", new DagTemplates()))
+							)
 							return
 						}
 					}
@@ -617,20 +630,23 @@ export const dagDigestChangesWithAnySemanticChange = property.explore(labelled, 
 	>,
 	check: (_, c: Case<Change>) => (d) =>
 		Effect.sync(() => {
-			const digest = succeeded(dagDigest(d, "dag"))
+			const digest = succeeded(dagDigest(d, "dag", new DagTemplates()))
 			c.note("another domain")
-			assert.notEqual(succeeded(dagDigest(d, "other-domain")), digest)
+			assert.notEqual(succeeded(dagDigest(d, "other-domain", new DagTemplates())), digest)
 			const changed = Arr.findFirst(exprsIn(d), (e) =>
 				Option.map(changedLiteral(e), (value) => ({ e, value }))
 			)
 			if (Option.isSome(changed)) {
 				c.note("a literal changed")
 				const edited = replacedExpr(d, changed.value.e, changed.value.value)
-				assert.notEqual(succeeded(dagDigest(edited, "dag")), digest)
+				assert.notEqual(succeeded(dagDigest(edited, "dag", new DagTemplates())), digest)
 			}
 			if (new Set(d.roots).size > 1) {
 				c.note("the roots reversed")
-				assert.notEqual(succeeded(dagDigest({ roots: Arr.reverse([...d.roots]) }, "dag")), digest)
+				assert.notEqual(
+					succeeded(dagDigest({ roots: Arr.reverse([...d.roots]) }, "dag", new DagTemplates())),
+					digest
+				)
 			}
 		}),
 	oracle: {
@@ -721,7 +737,10 @@ export const normalizeDagIgnoresTheAllocationOrderOfARegionsVariablesAndFindsThe
 					c.note("y allocated first")
 				}
 				const { dag: d, child, vars } = build(yFirst)
-				assert.equal(succeeded(dagDigest(d, "dag")), succeeded(dagDigest(reference, "dag")))
+				assert.equal(
+					succeeded(dagDigest(d, "dag", new DagTemplates())),
+					succeeded(dagDigest(reference, "dag", new DagTemplates()))
+				)
 				assert.equal(
 					succeeded(encode(succeeded(normalizeDag(d)), everyProperty)),
 					succeeded(encode(succeeded(normalizeDag(reference)), everyProperty))
@@ -777,7 +796,11 @@ export const normalizeDagGivesOneDigestToDAGsWhoseContractPredicatesWereAllocate
 							}
 							assert.equal(
 								succeeded(
-									dagDigest(build(cents(succeeded(normalizeExprTable(spelled))), supply), "dag")
+									dagDigest(
+										build(cents(succeeded(normalizeExprTable(spelled))), supply),
+										"dag",
+										new DagTemplates()
+									)
 								),
 								reference
 							)

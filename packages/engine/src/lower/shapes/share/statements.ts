@@ -6,7 +6,7 @@ import { outerOf } from "#compiler/analysis/physical/rules.ts"
 import { catchRefusal, maxStringLength, unwrap } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
-import { ShareKeys } from "#compiler/ir/dag-digest.ts"
+import { type DagTemplates, ShareKeys } from "#compiler/ir/dag-digest.ts"
 import { freeVars, type NodeScope, nodeScopes, nodesByLabel, topoOrder } from "#compiler/ir/dag.ts"
 import { Fold } from "#compiler/ir/fold.ts"
 import { edgesOf, inputsOf, type RelNode, type ValidDag } from "#compiler/ir/rel.ts"
@@ -82,7 +82,8 @@ export class ShareIndex {
 		return h
 	})
 
-	constructor(dag: ValidDag) {
+	/** The index of `dag`, its share keys' templates read from `templates`. */
+	constructor(dag: ValidDag, templates: DagTemplates) {
 		this.dag = dag
 		this.#demand = analyzeDemand(dag, noPins)
 		this.#feedback = feedbackReadsOf(nodeGraph, topoOrder(dag))
@@ -91,7 +92,8 @@ export class ShareIndex {
 		this.#shareKeys = new ShareKeys(
 			() => this.#labels,
 			maxStringLength,
-			(node) => this.#scopes.of(node).outer.size === 0 && !this.#feedback.has(node)
+			(node) => this.#scopes.of(node).outer.size === 0 && !this.#feedback.has(node),
+			templates
 		)
 	}
 

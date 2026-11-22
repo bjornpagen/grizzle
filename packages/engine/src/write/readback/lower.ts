@@ -4,6 +4,7 @@ import { admitQuery } from "#compiler/check/index.ts"
 import { everyProperty, unwrap } from "#compiler/core/canonical.ts"
 import { ownedDigest } from "#compiler/core/fingerprint.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import type { DagTemplates } from "#compiler/ir/dag-digest.ts"
 import { dagDigest, rooted, topoOrder } from "#compiler/ir/dag.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
@@ -29,6 +30,8 @@ interface ReadBackOptions {
 	readonly schema: CatalogSchema
 	/** The query entries whose deltas the read-backs name, by name (`WriteFrontend.deltaEntries`). */
 	readonly entries: ReadonlyMap<string, CheckedEntry>
+	/** The templates of the write's compile, which a read-back's digest and lowering read (ReadBackLowering `templates`). */
+	readonly templates: DagTemplates
 }
 
 /** Where a read-back's Delta nodes read each delta it names, by the relation the Delta names and its side. */
@@ -115,7 +118,7 @@ export const lowerReadBack = (
 		() => []
 	)
 	const query = new QueryDigest(read.node)
-	const found = alike.find((kept) => kept.query.equals(query))
+	const found = alike.find((kept) => kept.query.equals(query, options.templates))
 	if (found !== undefined) {
 		return found.program
 	}
@@ -159,18 +162,21 @@ class QueryDigest {
 		this.#root = root
 	}
 
-	/** Whether the two queries are one: both digests taken, and one. */
-	equals(other: QueryDigest): boolean {
-		const digest = this.#taken()
-		return digest !== undefined && digest === other.#taken()
+	/**
+	 * Whether the two queries are one: both digests taken, each from the templates of the compile comparing them, and one.
+	 * A kept query holds no compile's templates, which it may be compared in after its own compile is gone.
+	 */
+	equals(other: QueryDigest, templates: DagTemplates): boolean {
+		const digest = this.#taken(templates)
+		return digest !== undefined && digest === other.#taken(templates)
 	}
 
 	/** The digest, taken on the first read and the root let go: none where it is refused. */
-	#taken(): string | undefined {
+	#taken(templates: DagTemplates): string | undefined {
 		const root = this.#root
 		if (root !== undefined) {
 			this.#root = undefined
-			const digest = dagDigest(rooted([root]), "read-back")
+			const digest = dagDigest(rooted([root]), "read-back", templates)
 			this.#digest = digest.ok ? digest.value : undefined
 		}
 		return this.#digest
@@ -253,7 +259,8 @@ const loweredAfresh = (
 				kind: "readBack",
 				deltas,
 				breach: breachGuard(options.names.schema),
-				start
+				start,
+				templates: options.templates
 			},
 			/** A read-back runs in its write's transaction and records no constraint premise. */
 			catalog: evidenceCatalog(options.schema),

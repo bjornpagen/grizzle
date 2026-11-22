@@ -1443,7 +1443,7 @@ export class OptimizedDelivery<
 
 	/** The share key of `child` within the delivery's DAG; a DAG it cannot key is refused. */
 	#shareKey(child: RelNode): string {
-		return unwrap(shareKey(this.cx.dag, child))
+		return unwrap(shareKey(this.cx.dag, child, this.cx.templates))
 	}
 
 	/**

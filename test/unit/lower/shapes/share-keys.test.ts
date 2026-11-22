@@ -25,6 +25,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
+import { DagTemplates } from "#compiler/ir/dag-digest.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { edgesOf } from "#compiler/ir/rel.ts"
 import { shareKey } from "#compiler/lower/shapes/share/index.ts"
@@ -64,8 +65,10 @@ export const theSharePlanningKeyedByBlocksCarriesWhatThePlanningKeyedByEachNodes
 		check: (_, c: Case<Planned>) => (sketch) =>
 			Effect.sync(() => {
 				const p = programOf(sketch)
-				const shares = succeeded(planStatementShares(new ShareIndex(p.dag), p.roots))
-				const reference = referenceShares(new ShareIndex(p.dag), p.dag, p.roots)
+				const shares = succeeded(
+					planStatementShares(new ShareIndex(p.dag, new DagTemplates()), p.roots)
+				)
+				const reference = referenceShares(new ShareIndex(p.dag, new DagTemplates()), p.dag, p.roots)
 				const view = (
 					all: ReadonlyArray<{
 						readonly node: { readonly id: string }
@@ -115,10 +118,12 @@ export const theCarriedSharesDoNotDependOnTheOrderTheMembersStandIn = property.e
 							byCodePoints
 						)
 					}))
-				const inOrder = succeeded(planStatementShares(new ShareIndex(p.dag), p.roots))
+				const inOrder = succeeded(
+					planStatementShares(new ShareIndex(p.dag, new DagTemplates()), p.roots)
+				)
 				const permuted = succeeded(
 					planStatementShares(
-						new ShareIndex(p.dag),
+						new ShareIndex(p.dag, new DagTemplates()),
 						Arr.map(order, (i) => present(p.roots[i], "a statement"))
 					)
 				)
@@ -170,10 +175,10 @@ export const aSealedNodeReadTwiceAndTwoBuiltAlikeAreOfOneKeyTheOneWayAKeyIsCoars
 		check: (_, c: Case<Coarsened>) => (same) =>
 			Effect.sync(() => {
 				const p = twiceAndCopies(same)
-				const index = new ShareIndex(p.dag)
+				const index = new ShareIndex(p.dag, new DagTemplates())
 				assert.notEqual(
-					succeeded(shareKey(p.dag, p.twice)),
-					succeeded(shareKey(p.dag, p.copies)),
+					succeeded(shareKey(p.dag, p.twice, new DagTemplates())),
+					succeeded(shareKey(p.dag, p.copies, new DagTemplates())),
 					"one node read twice and two copies are of two whole-reach digests"
 				)
 				assert.equal(
@@ -192,10 +197,8 @@ export const aSealedNodeReadTwiceAndTwoBuiltAlikeAreOfOneKeyTheOneWayAKeyIsCoars
 		kills: [
 			{
 				file: "packages/engine/src/ir/dag-digest.ts",
-				original:
-					"\t\tconst block = new BlockNumbering(root, () => templates.context(), this.#sealed)\n",
-				replacement:
-					"\t\tconst block = new BlockNumbering(root, () => templates.context(), () => false)\n",
+				original: "\t\tconst block = new BlockNumbering(root, () => labels.of(), this.#sealed)\n",
+				replacement: "\t\tconst block = new BlockNumbering(root, () => labels.of(), () => false)\n",
 				why: "No node is sealed, so every key is its whole reach's digest again: a task read twice and two copies are of two keys, and the search fails."
 			}
 		]
@@ -215,7 +218,7 @@ export const anAttachmentsChildReadingBelowItsSealedParentNamesItsPlaceSoCopiesB
 		check: (_, c: Case<Attached>) => (same) =>
 			Effect.sync(() => {
 				const p = attachedBelowItsParent(same)
-				const index = new ShareIndex(p.dag)
+				const index = new ShareIndex(p.dag, new DagTemplates())
 				const shares = succeeded(planStatementShares(index, p.roots))
 				const [first, second] = p.copies
 				assert.equal(
@@ -256,9 +259,10 @@ export const twoFoldsOfOneRegionAreOfOneKeyExactlyWhenTheyReadByOneOccurrence = 
 				Effect.sync(() => {
 					const p = foldsByOccurrence(first, second)
 					const [a, b] = p.folds
-					const index = new ShareIndex(p.dag)
+					const index = new ShareIndex(p.dag, new DagTemplates())
 					assert.equal(
-						succeeded(shareKey(p.dag, a)) === succeeded(shareKey(p.dag, b)),
+						succeeded(shareKey(p.dag, a, new DagTemplates())) ===
+							succeeded(shareKey(p.dag, b, new DagTemplates())),
 						first === second,
 						"the whole-reach digests"
 					)
@@ -299,7 +303,7 @@ export const keyingEveryNodeOfADagDigestsEachBlockOnceInUnitsLinearInItsDistinct
 				const dag = levels(depth)
 				const nodes = topoOrder(dag)
 				const edges = Arr.reduce(nodes, 0, (n, node) => n + edgesOf(node).length)
-				const index = new ShareIndex(dag)
+				const index = new ShareIndex(dag, new DagTemplates())
 				for (const node of nodes) {
 					index.key(node)
 				}
@@ -321,10 +325,8 @@ export const keyingEveryNodeOfADagDigestsEachBlockOnceInUnitsLinearInItsDistinct
 		kills: [
 			{
 				file: "packages/engine/src/ir/dag-digest.ts",
-				original:
-					"\t\tconst block = new BlockNumbering(root, () => templates.context(), this.#sealed)\n",
-				replacement:
-					"\t\tconst block = new BlockNumbering(root, () => templates.context(), () => false)\n",
+				original: "\t\tconst block = new BlockNumbering(root, () => labels.of(), this.#sealed)\n",
+				replacement: "\t\tconst block = new BlockNumbering(root, () => labels.of(), () => false)\n",
 				why: "No node is sealed, so every key re-numbers and re-writes its node's whole reach: the units digested grow with the levels squared, past the bound."
 			}
 		]

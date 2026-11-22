@@ -14,6 +14,7 @@ import type { NodeId, ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { TextsMap } from "#compiler/core/text.ts"
 import { factSet, typedEq } from "#compiler/ir/compare.ts"
+import { DagTemplates } from "#compiler/ir/dag-digest.ts"
 import { type NodeScope, nodeScopes, type OuterRefs } from "#compiler/ir/dag.ts"
 import { exprClosure } from "#compiler/ir/expr.ts"
 import type { Fold } from "#compiler/ir/fold.ts"
@@ -432,6 +433,8 @@ interface Shared {
 	evaluations: EvaluationLookup | undefined
 	readonly free: Map<RelNode, OuterRefs>
 	scopes: Fold<RelNode, NodeScope> | undefined
+	/** The templates its keys read (`templatesOf`). */
+	readonly templates: DagTemplates
 	/** The evaluation keys of the DAG's reads of fields of calls (call/keys.ts), made at the first key read. */
 	evaluationKeys: EvaluationKeys | undefined
 	/** What the lowering asks of the DAG about a node beside the node (dag-index.ts DagIndex), made at the first question. */
@@ -627,6 +630,24 @@ const spineBelow = (node: RelNode): ReadonlyArray<RelNode> => {
 	}
 }
 
+/**
+ * The store of the templates a lowering's keys and digests read (ir/dag-digest.ts DagTemplates): a write's and a
+ * read-back's, their compile's, which its share planning reads too (write/program/compile.ts compileAt); any other
+ * lowering's, its own.
+ */
+const templatesOf = (subject: ConservativeOptions["subject"]): DagTemplates => {
+	switch (subject.kind) {
+		case "write":
+		case "readBack":
+			return subject.templates
+		case "query":
+		case "ruleRegion":
+		case "violationProbe":
+		case "membership":
+			return new DagTemplates()
+	}
+}
+
 /** Where a lowering's first statement starts naming: a read-back's start, every other statement's r1 and c1. */
 const firstStart = (options: ConservativeOptions): NameSupplyStart =>
 	options.subject.kind === "readBack" ? options.subject.start : freshNames
@@ -667,6 +688,7 @@ export class LowerContext {
 			evaluations: undefined,
 			free: new Map(),
 			scopes: undefined,
+			templates: templatesOf(options.subject),
 			evaluationKeys: undefined,
 			index: undefined,
 			indexVisits: 0
@@ -758,9 +780,14 @@ export class LowerContext {
 		})
 	}
 
+	/** The templates the lowering's keys and digests read (`templatesOf`). */
+	get templates(): DagTemplates {
+		return this.#shared.templates
+	}
+
 	/** The evaluation key of `read`, a read of a field of a call (call/keys.ts EvaluationKeys). */
 	evaluationKey(read: NodeOf<"Call">): string {
-		const keys = this.#shared.evaluationKeys ?? new EvaluationKeys(this.dag)
+		const keys = this.#shared.evaluationKeys ?? new EvaluationKeys(this.dag, this.#shared.templates)
 		this.#shared.evaluationKeys = keys
 		return keys.of(read)
 	}

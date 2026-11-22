@@ -1,7 +1,7 @@
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { maxStringLength } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { DagDigests } from "#compiler/ir/dag-digest.ts"
+import { DagDigests, type DagTemplates } from "#compiler/ir/dag-digest.ts"
 import { nodesByLabel } from "#compiler/ir/dag.ts"
 import type { RelDag, RelNode } from "#compiler/ir/rel.ts"
 
@@ -25,7 +25,16 @@ import type { RelDag, RelNode } from "#compiler/ir/rel.ts"
  *   is a form R25 permits, never one it requires. A page and a `get` are separate calls, which no program sees
  *   together, and the fixed rule selects sharing, so no window count is built.
  *
- * The share key of the sub-query rooted at `node`, a node of `dag`, whose enclosing nodes it may read.
+ * The share key of the sub-query rooted at `node`, a node of `dag`, whose enclosing nodes it may read, every template
+ * read from `templates`.
  */
-export const shareKey = (dag: RelDag, node: RelNode): Result.Result<string, CompileError> =>
-	new DagDigests(() => nodesByLabel(dag), maxStringLength).digest([node], "share", "followed")
+export const shareKey = (
+	dag: RelDag,
+	node: RelNode,
+	templates: DagTemplates
+): Result.Result<string, CompileError> =>
+	new DagDigests(() => nodesByLabel(dag), maxStringLength, templates).digest(
+		[node],
+		"share",
+		"followed"
+	)

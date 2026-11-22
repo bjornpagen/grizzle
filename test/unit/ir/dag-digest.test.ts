@@ -17,7 +17,7 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { maxStringLength } from "#compiler/core/canonical.ts"
-import { DagDigests } from "#compiler/ir/dag-digest.ts"
+import { DagDigests, DagTemplates } from "#compiler/ir/dag-digest.ts"
 import { nodesByLabel, topoOrder } from "#compiler/ir/dag.ts"
 import { exprClosure } from "#compiler/ir/expr.ts"
 import { exprsOf } from "#compiler/ir/rel.ts"
@@ -42,7 +42,8 @@ export const everySubQuerysDigestFromItsDAGsTemplatesIsItsNormalFormsTablesDiges
 		] satisfies ReadonlyArray<Reached<DigestFeature>>,
 		check: (_, c: Case<DigestFeature>) => (k) =>
 			Effect.sync(() => {
-				const digests = new DagDigests(() => nodesByLabel(k.dag), maxStringLength)
+				const templates = new DagTemplates()
+				const digests = new DagDigests(() => nodesByLabel(k.dag), maxStringLength, templates)
 				const nodes = topoOrder(k.dag)
 				for (const node of nodes) {
 					assert.equal(
@@ -58,14 +59,14 @@ export const everySubQuerysDigestFromItsDAGsTemplatesIsItsNormalFormsTablesDiges
 				)
 				const exprs = new Set(exprClosure(Arr.flatMap(nodes, (node) => exprsOf(node))))
 				assert.ok(
-					digests.written <= nodes.length + exprs.size,
-					`${nodes.length + 1} digests write ${digests.written} templates, at most one each of ${nodes.length} nodes and ${exprs.size} expressions`
+					templates.written <= nodes.length + exprs.size,
+					`${nodes.length + 1} digests write ${templates.written} templates, at most one each of ${nodes.length} nodes and ${exprs.size} expressions`
 				)
-				const written = digests.written
+				const written = templates.written
 				for (const node of nodes) {
 					succeeded(digests.digest([node], k.domain, k.outer))
 				}
-				assert.equal(digests.written, written, "digesting every node again writes no template")
+				assert.equal(templates.written, written, "digesting every node again writes no template")
 				c.note(k.outer)
 				c.note(k.every ? "every kind of node" : "a generated DAG")
 			}),
@@ -107,7 +108,7 @@ export const aKeyWhoseTablesTextPassesItsLimitIsRefusedItsLengthStatedAsATrueLow
 				const length = succeeded(tableUnits(k.dag, roots, k.outer))
 				/** The refusal under `limit`, its length stated past the limit and within the text's. */
 				const atLeast = (limit: number): number => {
-					const under = new DagDigests(() => nodesByLabel(k.dag), limit).digest(
+					const under = new DagDigests(() => nodesByLabel(k.dag), limit, new DagTemplates()).digest(
 						roots,
 						"bound",
 						k.outer
@@ -131,7 +132,13 @@ export const aKeyWhoseTablesTextPassesItsLimitIsRefusedItsLengthStatedAsATrueLow
 					"refused at its last piece, the text's whole length"
 				)
 				c.note("refused")
-				succeeded(new DagDigests(() => nodesByLabel(k.dag), length).digest(roots, "bound", k.outer))
+				succeeded(
+					new DagDigests(() => nodesByLabel(k.dag), length, new DagTemplates()).digest(
+						roots,
+						"bound",
+						k.outer
+					)
+				)
 				c.note("at its limit")
 			}),
 		oracle: {

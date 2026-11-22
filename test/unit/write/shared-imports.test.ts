@@ -54,6 +54,7 @@ import { finite } from "@bjornpagen/testing/gen"
 import { property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, String as Str } from "effect"
 import { CheckSession } from "#compiler/check/session.ts"
+import { DagTemplates } from "#compiler/ir/dag-digest.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
 import { EvaluationKeys } from "#compiler/lower/conservative/call/keys.ts"
@@ -134,7 +135,7 @@ export const aClosedImportReadByEveryMemberOfAWriteIsOneNodeOfItsDagItsEveryRead
 					Math.min(members, 2),
 					"the members' reads of one field of the call are one node"
 				)
-				const keys = new EvaluationKeys(dag)
+				const keys = new EvaluationKeys(dag, new DagTemplates())
 				const evaluations = new Set(Arr.map(calls, (n) => keys.of(n)))
 				assert.equal(evaluations.size, 1, "every read of a field of the call reads one evaluation")
 				assert.equal(
