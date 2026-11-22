@@ -4,7 +4,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen, int, subset } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Data, Effect, Formatter, Option, Order, Record as Rec } from "effect"
-import { parsePlan, rowsTouched } from "#bench/harness/explain.ts"
+import { parsePlan, type PlanNode, rowsGenerated, rowsRead } from "#bench/harness/explain.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { natural, pg } from "#compiler/public/fields.ts"
@@ -1511,8 +1511,8 @@ const probesOfAttempt = (
 }
 
 /**
- * Each probe of Attempt's rows' work, every row each node of its plan handles over all of its loops (rowsTouched), explained
- * on `session` while the deltas hold the touch's rows, before the judge reads them, in a transaction rolled back.
+ * Each probe of Attempt's rows' work (`scannedWork`), explained on `session` while the deltas hold the touch's rows,
+ * before the judge reads them, in a transaction rolled back.
  */
 const touchedWork = (shape: Shape, installed: Installed, built: Built, session: RawSession) =>
 	Effect.gen(function* () {
@@ -1535,7 +1535,7 @@ const touchedWork = (shape: Shape, installed: Installed, built: Built, session: 
 							[]
 						),
 						(explained) =>
-							rowsTouched(succeeded(parsePlan(explained[0]?.[0]), "one EXPLAIN plan").plan)
+							scannedWork(succeeded(parsePlan(explained[0]?.[0]), "one EXPLAIN plan").plan)
 					)
 				)
 			}),
@@ -1544,6 +1544,15 @@ const touchedWork = (shape: Shape, installed: Installed, built: Built, session: 
 		yield* session.rollback
 		return work
 	})
+
+/**
+ * A plan's work as its scans read it: every row each scan of a stored relation reads (rowsRead) and each read of a
+ * session's delta through its reader function yields (rowsGenerated), over all of their loops. A row is counted where a
+ * scan reads it, never again at a node it passes through: PostgreSQL sorted a touched group's two attempts read by
+ * (child, n) beside a few hundred groups, and read them in order by the primary key beside a thousand, the same two rows
+ * read either way.
+ */
+const scannedWork = (plan: PlanNode): number => rowsRead(plan) + rowsGenerated(plan)
 
 /** Statements run as one transaction committed on `session`, the judge run at its COMMIT. */
 const committed = (session: RawSession, statements: ReadonlyArray<string>) =>

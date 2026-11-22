@@ -28,9 +28,9 @@
  * - **Locality:** an invariance, never a time. A shape's touched group stored beside 200 to 400 untouched groups, each an
  *   attempt of its own that is a group of its own under any grouping, and then beside 600 to 900 more; each time a
  *   second attempt of the touched group written in a transaction rolled back, and every judged statement explained while
- *   the deltas hold it, under the planner settings of a table large beside one group's rows. Each statement handles the
- *   same rows both times: a probe of a touched group reads that group alone, never the groups beside it. The settings
- *   are the test's, never grizzle's output, which carries none: what this proves is that a plan of every judged
+ *   the deltas hold it, under the planner settings of a table large beside one group's rows. Each statement's scans
+ *   read the same rows both times: a probe of a touched group reads that group alone, never the groups beside it. The
+ *   settings are the test's, never grizzle's output, which carries none: what this proves is that a plan of every judged
  *   statement exists whose work is bounded by the touched group, the same at both counts of groups; not that
  *   PostgreSQL's planner, with no statistics, picks it.
  */
@@ -145,7 +145,7 @@ export const aProbeOfTheGroupsAWriteTouchedReadsThoseGroupsAloneHoweverManyGroup
 				),
 		oracle: {
 			kind: "universal",
-			name: "invariance: each judged statement handles the same rows for a write of one group beside a few hundred untouched groups and beside a thousand"
+			name: "invariance: each judged statement's scans read the same rows, of stored relations and of the deltas, for a write of one group beside a few hundred untouched groups and beside a thousand"
 		},
 		show: Formatter.format,
 		kept: [
@@ -156,6 +156,14 @@ export const aProbeOfTheGroupsAWriteTouchedReadsThoseGroupsAloneHoweverManyGroup
 				reason:
 					"a count grouped by n and Topic's topic beside 200 groups and then 800, whose fold's join of Attempt and Topic PostgreSQL ordered one way and then the other while its body was read as written (14 rows, then 15, at 95abc7176), so no planner choice of join order is left inside a grouped read",
 				since: "2026-11-21"
+			},
+			{
+				token: ReplayToken(
+					"test/pg/laws/rule-aggregate.test.ts#aProbeOfTheGroupsAWriteTouchedReadsThoseGroupsAloneHoweverManyGroupsStandBesideThem:-:0.0.3.1.0.0.1.1.0.0.0.2.0.1.2j.0"
+				),
+				reason:
+					"a count grouped by child, item and n under a key of child and n beside 291 groups and then 891, whose touched group's two attempts PostgreSQL read by (child, n) and sorted, then read in order by the primary key: 12 rows handled, then 10, for the same two rows read (trunk's TEST_SEED=552969958 at f1bf91a2f), so the measure counts the rows scans read alone (rule-aggregate.fixtures.ts scannedWork)",
+				since: "2026-11-22"
 			}
 		],
 		kills: [
@@ -171,6 +179,14 @@ export const aProbeOfTheGroupsAWriteTouchedReadsThoseGroupsAloneHoweverManyGroup
 				original: "\t\t\tconst rule = foldedOverBody(arm, interned)",
 				replacement: "\t\t\tconst rule = arm",
 				why: "An aggregating rule's body is read as written, one join PostgreSQL orders by its estimates: a group of n and topic folds Attempt and Topic in one order beside a few hundred groups and in the other beside a thousand, so its probe handles a row more."
+			},
+			{
+				file: "bench/harness/explain.ts",
+				original:
+					"export const rowsRead = (plan: PlanNode): number => scanned(planNodes(plan).filter(storedScan))",
+				replacement:
+					'export const rowsRead = (plan: PlanNode): number => scanned(planNodes(plan).filter((n) => storedScan(n) || n.nodeType === "Sort"))',
+				why: "A sort's rows are counted as rows read, as every node's were: PostgreSQL sorts the kept case's touched group's two attempts beside a few hundred groups and reads them in order by the primary key beside a thousand, so its probe reads two rows more beside fewer groups for the same two rows of Attempt; the property fails."
 			}
 		]
 	})

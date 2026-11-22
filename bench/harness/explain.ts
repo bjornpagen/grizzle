@@ -764,7 +764,8 @@ export const rowsTouched = (plan: PlanNode): number =>
 	)
 
 /** Rows the plan generated from functions and VALUES lists, a figure kept apart from the rows it read. */
-const rowsGenerated = (plan: PlanNode): number => scanned(planNodes(plan).filter(generatingScan))
+export const rowsGenerated = (plan: PlanNode): number =>
+	scanned(planNodes(plan).filter(generatingScan))
 
 export interface AccessCondition {
 	readonly nodeType: string
