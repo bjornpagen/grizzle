@@ -46,7 +46,8 @@ import type { CarrierName } from "#compiler/sql/naming.ts"
  * within one statement a query imported twice, such as `claimable`, which both rules of `pick` match. Every import is
  * its own copy in the DAG, so two copies share no node id; they share a share key (index.ts shareKey), the semantic
  * digest of the sub-DAG they reach, which is equal exactly when they compute the same set under the same parameter
- * bindings.
+ * bindings. A call of a volatile function draws its own rows at each evaluation, so its key holds its label (ir/dag-
+ * digest.ts callsVolatile): two calls built alike are never one carrier or one CTE, and one call read twice is.
  *
  * Two placements, by where the copies are read:
  *

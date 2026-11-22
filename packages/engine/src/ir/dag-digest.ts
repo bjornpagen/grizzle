@@ -7,7 +7,8 @@
  * variables "v#i", occurrences "o#i" and scopes "s#i". ReachNumbering is that numbering, the one the table
  * (normalizeWithin) and the digests read.
  *
- * A digest of the claimed form (claimedNode, tableExprOf) is SHA-256 of its table's canonical text. DagDigests writes
+ * A digest of the claimed form (claimedNode, tableExprOf) is SHA-256 of its table's canonical text, a call of a
+ * volatile function's form holding its label besides (templateForm), so no two calls are one. DagDigests writes
  * each node's and each expression's claimed form once for a DAG, as its canonical bytes with a hole where each name it
  * holds goes (core/canonical.ts writeTemplate), beside the names it gives in the numbering's order (its namings). A
  * digest numbers its reach by replaying those namings (numberReach), then streams the table's text into SHA-256 (core/
@@ -267,6 +268,24 @@ export const claimedNode = (node: TableNode): object => ({
 })
 
 /**
+ * Whether a node calls a volatile function, a declared function's rows (Fn.rows), the one volatile evaluation a DAG
+ * holds: its expressions are immutable or stable (ir/expr.ts Volatility), a volatile function never a term or a read of
+ * a row's field. Each call draws its own rows, so two equal calls are two evaluations, never one set.
+ */
+const callsVolatile = (node: RelNode): boolean =>
+	node.kind === "Call" &&
+	node.function.kind === "declared" &&
+	node.function.volatility === "volatile"
+
+/**
+ * A node's claimed form (claimedNode) as its template writes it: a call of a volatile function (callsVolatile) holds its
+ * own label as its `evaluation`, which no other node holds, so two equal calls, and every node above either, are of two
+ * keys, and one call read twice is of one, its one evaluation.
+ */
+const templateForm = (node: RelNode, entry: TableNode): object =>
+	callsVolatile(node) ? { ...claimedNode(entry), evaluation: node.id } : claimedNode(entry)
+
+/**
  * An expression of a normal form: its spec with its arguments named, its volatility, its own name, and its
  * dependencies, its parameters and the names of the nodes it reads (ReachNumbering.deps).
  */
@@ -387,7 +406,7 @@ const nodeTemplateOf = (node: RelNode): Template => {
 			const entry = drive(mapNode<LiveRefs, TableRefs>(node, refs), (input) =>
 				NodeId(marker({ kind: "edge", node: input }))
 			)
-			return claimedNode({ ...entry, id: NodeId(`~slot${family}:${namings.length}`) })
+			return templateForm(node, { ...entry, id: NodeId(`~slot${family}:${namings.length}`) })
 		},
 		(count) => count + 1,
 		namings

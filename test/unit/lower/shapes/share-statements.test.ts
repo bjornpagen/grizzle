@@ -8,12 +8,14 @@
  *   than one; the highest shared sub-query is chosen, so `first`, which pick reads, is never carried beside it;
  * - a statement reading r copies of an unbounded union computes it once as a CTE exactly when r is more than one;
  * - an attachment of a parent is fed the rows of the first earlier attachment part of that parent computing its
- *   sub-query, and every other is a part of its own, the parts in the order the program holds them.
+ *   sub-query, and every other is a part of its own, the parts in the order the program holds them;
+ * - two calls of a volatile function, each drawing its own rows, are never one carrier or one CTE, where one call read
+ *   twice is, as two equal calls of an immutable or stable function are.
  *
  * Oracle: each rule's statement as a checker (a specification): the share keys and copies the statements read, and
  * the part each attachment reads computed from the filters in program order.
  *
- * Features: carried and inline; shared and inline; fed and sent.
+ * Features: carried and inline; shared and inline; fed and sent; volatile calls apart and read twice.
  */
 
 import { assert, unorderedEqual } from "@bjornpagen/testing/assert"
@@ -39,6 +41,8 @@ import {
 	attachmentFilters,
 	chained,
 	chainedGen,
+	drawnCalls,
+	drawnCallsGen,
 	expectedAnswers,
 	Jobs,
 	program,
@@ -164,6 +168,68 @@ export const attachmentPartsFedFromAnEarlierOneFeedALaterAttachmentFromTheFirstE
 				original: "\t\t\tconst feeder = siblings.find((s) => this.#sameRows(s, attach, parentKey))",
 				replacement: "\t\t\tconst feeder = siblings.find(() => false)",
 				why: "No attachment part is fed from an earlier one, each placed as a part of its own; the feeding search fails."
+			}
+		]
+	})
+
+type DrawnFeature =
+	| "two volatile calls apart"
+	| "one volatile call read twice"
+	| "two calls of an immutable or stable function"
+
+/** Two calls of a volatile function are never one carrier or one CTE; one call read twice is, as two equal calls of an immutable or stable function are. */
+export const twoCallsOfAVolatileFunctionAreNeverOneCarrierOrOneCteWhereOneCallReadTwiceIsAsTwoEqualCallsOfAnImmutableOrStableFunctionAre =
+	property.exhaust(drawnCallsGen, {
+		needs: {},
+		situations: [
+			"two volatile calls apart",
+			"one volatile call read twice",
+			"two calls of an immutable or stable function"
+		] satisfies ReadonlyArray<Reached<DrawnFeature>>,
+		check:
+			(_, c: Case<DrawnFeature>) =>
+			({ volatility, twice }) =>
+				Effect.sync(() => {
+					const p = drawnCalls(volatility, twice)
+					const shares = succeeded(planStatementShares(new ShareIndex(p.dag), p.roots))
+					const ctes = statementCtes(new ShareIndex(p.dag), p.root, () => false)
+					if (volatility === "volatile" && !twice) {
+						assert.deepEqual(
+							Arr.map(shares, (s) => s.key),
+							[],
+							"two volatile calls carried as one"
+						)
+						assert.equal(ctes.size, 0, "two volatile calls computed as one CTE")
+						c.note("two volatile calls apart")
+						return
+					}
+					assert.equal(shares.length, 1, `the shares of ${volatility} calls`)
+					const share = present(shares[0], "the carried share")
+					unorderedEqual([...share.copies], p.calls)
+					assert.equal(new Set(ctes.values()).size, 1, "one CTE")
+					unorderedEqual(
+						[...ctes.keys()],
+						Arr.map(p.calls, (call) => call.id)
+					)
+					c.note(
+						volatility === "volatile"
+							? "one volatile call read twice"
+							: "two calls of an immutable or stable function"
+					)
+				}),
+		oracle: {
+			kind: "specification",
+			name: "each call of a volatile function its own evaluation, never one carrier or CTE with another; one call read twice, or equal calls of an immutable or stable function, one"
+		},
+		box: "two statements reading the rows of a declared function of each volatility, by two calls built alike or one call read twice, and one statement reading them both",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/ir/dag-digest.ts",
+				original:
+					"\tcallsVolatile(node) ? { ...claimedNode(entry), evaluation: node.id } : claimedNode(entry)",
+				replacement: "\tclaimedNode(entry)",
+				why: "A volatile call is keyed by its shape, as every node is: two calls built alike share one key, so the statements carry them as one share and the statement computes them as one CTE, one evaluation where there are two."
 			}
 		]
 	})

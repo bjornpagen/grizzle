@@ -4,7 +4,8 @@
  *
  * - Exactness: every sub-query's digest, and the roots' together, is the digest of its normal form's table encoded
  *   whole (normalizeReach, claimedNode, digest), whichever way its enclosing nodes are read. Oracle: the table's own
- *   digest, a second implementation of the same bytes.
+ *   digest, a second implementation of the same bytes. Its DAGs call no volatile function, whose form also holds its
+ *   label (test/unit/lower/shapes/share-statements pins that).
  * - Work: digesting every node of a DAG writes at most one template for each node and expression it holds, however
  *   many digests reach it, where each digest encoded its whole reach.
  *

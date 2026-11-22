@@ -901,7 +901,9 @@ export const normalizeReach = (
 
 /**
  * The semantic fingerprint of a DAG: SHA-256 over its normalized canonical text, source locations excluded. Two DAGs
- * of one domain that differ only in allocation order and the proofs of their claimed keys have one digest.
+ * of one domain that differ only in allocation order and the proofs of their claimed keys have one digest, but for
+ * their calls of a volatile function, each its own evaluation, which the text names by its label (ir/dag-digest.ts
+ * callsVolatile).
  */
 type DagDigest = string & { readonly [dagDigestBrand]: true }
 declare const dagDigestBrand: unique symbol

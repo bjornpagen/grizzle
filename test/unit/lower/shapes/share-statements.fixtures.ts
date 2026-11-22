@@ -1,14 +1,18 @@
 /** What the properties of share-statements.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
-import { finite, type Gen, int } from "@bjornpagen/testing/gen"
+import { boolean, element, finite, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
+import { withoutSourceLocs } from "#compiler/core/canonical.ts"
+import { functionDigest } from "#compiler/core/fingerprint.ts"
+import { type FunctionVolatility, functionVolatilities } from "#compiler/core/function.ts"
 import { conservativeMeta, type RelNode } from "#compiler/ir/rel.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { upTo } from "#test/support/up-to.ts"
+import { heading } from "#test/unit/ir/fixture.ts"
 import { asc, Q, T, Task } from "#test/unit/lower/conservative/fixtures.ts"
 
 /**
@@ -223,3 +227,43 @@ export const chainedGen: Gen<ReadonlyArray<ReadonlyArray<0 | 1 | 2>>> = (s) =>
 		const levels = Arr.filter([0, 1, 2] as const, () => s.draw(int(0, 1)) === 1)
 		return levels.length === 0 ? ([0] as const) : levels
 	})
+
+/**
+ * Two reads of the rows of a declared function `drawn` of volatility `volatility` at one parameter (Fn.rows), each an
+ * expensive closed node the share planning may key: two calls built alike, or one call read twice (`twice`). Statement
+ * `i` reads read `i` under its own name; the program's one root reads both, so as one statement it reads the call or
+ * calls twice.
+ */
+export const drawnCalls = (volatility: FunctionVolatility, twice: boolean) => {
+	const q = new Q()
+	const call = () =>
+		q.node({
+			kind: "Call",
+			function: {
+				kind: "declared",
+				name: "drawn",
+				volatility,
+				definition: functionDigest(`drawn ${volatility}`, withoutSourceLocs)
+			},
+			args: [{ kind: "value", name: "n", expr: q.param("n", T.int8, "compare"), type: T.int8 }],
+			heading: heading(["id", T.uuid]),
+			loc: undefined,
+			meta: conservativeMeta
+		})
+	const first = call()
+	const reads = [first, twice ? first : call()] as const
+	const roots = Arr.map(reads, (read, i) => q.project(read, [[`id${i}`, "id"]], conservativeMeta))
+	const built = q.build(
+		q.union(
+			Arr.map(roots, (root, i) => q.project(root, [["id", `id${i}`]], conservativeMeta)),
+			[]
+		)
+	)
+	return { dag: built.dag, root: built.dag.roots[0], roots, calls: [...new Set(reads)] }
+}
+
+/** A function's volatility, and whether its rows are read by two calls or by one call twice. */
+export const drawnCallsGen = finite((source) => ({
+	volatility: source.draw(element(functionVolatilities)),
+	twice: source.draw(boolean)
+}))
