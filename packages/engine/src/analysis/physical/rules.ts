@@ -430,14 +430,36 @@ interface Draft {
 }
 
 /**
- * A placed DISTINCT, comparing the heading under native equality; or a Recursive node's recursive UNION, which
- * removes repeated states of its working table with `just`.
+ * A placed DISTINCT, comparing the heading under native equality; a Recursive node's recursive UNION, which
+ * removes repeated states of its working table with `just`; or a relation parameter's set of facts, formed by their
+ * identity whatever its realization (lower/conservative/input-set lowerInputSet, context.ts factSetSelect), which
+ * identifies its rows under native equality exactly where its plain form does: two facts apart in a float zero's sign
+ * alone stay two rows PostgreSQL's equality holds equal.
  */
 type DraftDedup =
 	| { readonly kind: "placed" }
 	| { readonly kind: "recursiveUnion"; readonly just: Justification }
+	| { readonly kind: "facts" }
 
 const placed: DraftDedup = { kind: "placed" }
+
+/** What a node's exact duplicate elimination identifies its whole heading by, if it identifies it (DraftDedup). */
+const realizedDeduplication = (node: RelNode, dedup: DraftDedup): Justification | undefined => {
+	switch (dedup.kind) {
+		case "placed":
+			return withReason(
+				joinJustifications([
+					justify({ premises: [nodePremise(node.id)] }),
+					comparing(node.heading.map((c) => c.type))
+				]),
+				["exactDeduplication"]
+			)
+		case "recursiveUnion":
+			return dedup.just
+		case "facts":
+			return undefined
+	}
+}
 
 /**
  * A node of at most one row identifies its row by nothing; one realized with an exact duplicate-eliminating operator
@@ -452,19 +474,9 @@ const finish = (node: RelNode, cx: RuleContext, draft: Draft): PhysicalProps => 
 		draft.fds.identify([], withReason(ownPremise(node), ["atMostOneRow"]))
 	}
 	const plain = draft.fds.freeze(columns)
-	if (realization === "distinct") {
-		draft.fds.identify(
-			columns,
-			draft.dedup.kind === "recursiveUnion"
-				? draft.dedup.just
-				: withReason(
-						joinJustifications([
-							justify({ premises: [nodePremise(node.id)] }),
-							comparing(node.heading.map((c) => c.type))
-						]),
-						["exactDeduplication"]
-					)
-		)
+	const realized = realization === "distinct" ? realizedDeduplication(node, draft.dedup) : undefined
+	if (realized !== undefined) {
+		draft.fds.identify(columns, realized)
 	}
 	const dependencies = realization === "distinct" ? draft.fds.freeze(columns) : plain
 	const plainUnique = plain.keyAmong(columns)
@@ -871,7 +883,8 @@ const callProps = (node: NodeOf<"Call">, cx: RuleContext): PhysicalProps =>
  * - Attach is its parent unchanged; Forbid its violation query.
  *
  * Every node realized with an exact duplicate-eliminating operator also has its whole heading as a key
- * (exactDeduplication), and a node proved to have at most one row has the empty key. A key is an identification in
+ * (exactDeduplication), but a relation parameter, whose facts are a set by their identity under every realization
+ * (DraftDedup), and a node proved to have at most one row has the empty key. A key is an identification in
  * the node's dependency table (fds.ts Dependencies), never one entry of a list of keys.
  */
 export const physicalPropsOf = (node: RelNode, cx: RuleContext): PhysicalProps => {
@@ -910,7 +923,7 @@ export const physicalPropsOf = (node: RelNode, cx: RuleContext): PhysicalProps =
 			return finish(node, cx, {
 				fds,
 				fixed: new Map(),
-				dedup: placed,
+				dedup: { kind: "facts" },
 				maxCard: unbounded
 			})
 		}

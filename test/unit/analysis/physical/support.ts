@@ -12,12 +12,14 @@ import type { Heading, KeySet, NodeOf, RelDag, RelNode } from "#compiler/ir/rel.
 import type { Ir } from "#test/support/fixtures/ir/build.ts"
 import { Identities, type Interned } from "#test/support/kernel/identity.ts"
 import {
+	type Bindings,
+	layoutOf,
 	noBindings,
 	type ReferenceInput,
 	type RelationValue
 } from "#test/support/oracle/reference/evaluate.ts"
 import { RecordingReference } from "#test/support/oracle/reference/evaluations.ts"
-import { type Row, rowIdentity } from "#test/support/oracle/reference/values.ts"
+import { decidedKeys, type Row, rowIdentity } from "#test/support/oracle/reference/values.ts"
 
 /**
  * Shared helpers for the physical analysis tests: running the analysis, and a fragment evaluator that computes the rows
@@ -164,6 +166,32 @@ export class FragmentReference extends RecordingReference {
 			node.kind === "Difference" ||
 			this.#realization(node) === "distinct"
 		)
+	}
+
+	/**
+	 * A node realized `distinct` (a placed DISTINCT or a set UNION) delivers what PostgreSQL's DISTINCT does: one row of
+	 * each class of rows its equality holds equal, the first, where a set's members are told apart by their values, a
+	 * float's -0 and +0 two (values.ts distinctRows); a relation parameter's facts enter as they are, as the reference
+	 * reads them.
+	 */
+	override relation(node: RelNode, scope: Bindings): RelationValue {
+		if (node.kind === "InputSet" || this.#realization(node) !== "distinct") {
+			return super.relation(node, scope)
+		}
+		const rows = this.rows(node, scope)
+		const keys = decidedKeys(rows, node.heading, `${node.kind} ${node.id}`, this.identities)
+		const seen = new Set<unknown>()
+		return {
+			...layoutOf(node.heading),
+			rows: Arr.filter(rows, (_, i) => {
+				const key = keys[i]
+				if (seen.has(key)) {
+					return false
+				}
+				seen.add(key)
+				return true
+			})
+		}
 	}
 
 	/** Every row the fold's input fragment delivers contributes, as both lowerings fold it: none is deduplicated first. */

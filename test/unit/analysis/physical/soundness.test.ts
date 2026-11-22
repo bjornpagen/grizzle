@@ -98,8 +98,23 @@ export const everyPhysicalClaimHoldsOnTheDeliveredRowsGeneratedCasesEveryNodeDed
 			kind: "second-implementation",
 			name: "the fragment evaluator: what each node's plain SQL delivers"
 		},
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/unit/analysis/physical/soundness.test.ts#everyPhysicalClaimHoldsOnTheDeliveredRowsGeneratedCasesEveryNodeDeduplicated:-:2.0.1.1.3.0.1.b.0.0.0.0.0.0.0.0.2.1.0.0.0.0.0.0.0.1.1.0.0.0.0.0.0.0.0.0.0.0.9.8.5.2.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.2.1.3.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.b.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.1.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.0.0.0.0.0.0.0.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
+				),
+				reason:
+					"a relation parameter of a real column holding 0 and -0, realized distinct, was identified by its whole heading as a key, though its facts are a set by their identity, two facts PostgreSQL's equality holds equal",
+				since: "2026-11-22"
+			}
+		],
 		kills: [
+			{
+				file: "packages/engine/src/analysis/physical/rules.ts",
+				original: '\t\t\t\tdedup: { kind: "facts" },',
+				replacement: "\t\t\t\tdedup: placed,",
+				why: "A relation parameter realized distinct is identified by its whole heading under native equality (analysis/physical/rules.ts InputSet), as a placed DISTINCT would be, though its facts stay a set by their identity: the kept case fails."
+			},
 			{
 				file: "packages/engine/src/core/ids.ts",
 				original: "\t\tcounts[kind] += 1",
