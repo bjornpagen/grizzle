@@ -39,7 +39,10 @@ export interface JudgedStatement {
 	readonly raise: Raise
 }
 
-/** The statements `body` tests a rule by (`JudgedStatement`), at any depth of the guards they stand under. */
+/**
+ * The statements `body` tests a rule by (`JudgedStatement`), at any depth of the guards they stand under: an IF's, or a
+ * probe's guard (analysis/theory/query.ts probeGuard), a statement whose rows raise nothing but run what it guards.
+ */
 export const judgedStatementsIn = (
 	body: ReadonlyArray<PlStatement>
 ): ReadonlyArray<JudgedStatement> =>
@@ -54,7 +57,7 @@ export const judgedStatementsIn = (
 			return []
 		}
 		const [first] = s.body
-		return first.kind === "raise" ? [{ query: s.query, raise: first }] : []
+		return first.kind === "raise" ? [{ query: s.query, raise: first }] : judgedStatementsIn(s.body)
 	})
 
 /** Every statement the judge and its parts test a rule by (`JudgedStatement`), in their bodies' order. */

@@ -159,7 +159,11 @@
  * snapshot records none (physical/ddl/isolation.ts), where format 7 set default_transaction_isolation SERIALIZABLE on
  * the database, its snapshot's `databaseDefault` object, so an owner's session starts SERIALIZABLE by its startup
  * options (adapter/wire/session.ts ownerOptions) and `grizzle upgrade` resets the former default
- * (adapter/admission/upgrade.ts formerDefault)
+ * (adapter/admission/upgrade.ts formerDefault). A probe whose every row reads a stored relation keyed by no field of
+ * the unit its arms bind, at that unit, runs inside a guard of that relation's rows at the written rows' units, carried
+ * along the ways that yield a row of the probe's side alone (analysis/theory/query.ts probeGuard, Carry), where format
+ * 7 ran every probe of a written side: a guarded block's function holds the guard's PERFORM and IF FOUND around the
+ * probe's (physical/ddl/rules.ts probedBlocks)
  */
 export const artifactFormat = 7
 

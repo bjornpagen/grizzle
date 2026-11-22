@@ -14,8 +14,10 @@ import {
 	everyRowProbe,
 	type LawSide,
 	type ProbedRule,
+	type KeysOf,
 	type ProbeSide,
 	probe,
+	probeGuard,
 	type QueryRule,
 	type RuleLaw,
 	touchedOn,
@@ -42,7 +44,7 @@ import {
 import type { IndexRequest, PhysicalReason } from "#compiler/ir/products.ts"
 import type { DeltaSide, RelNode } from "#compiler/ir/rel.ts"
 import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
-import type { RuleTable, RuleTrigger } from "#compiler/laws/model/model.ts"
+import type { LawModel, RuleTable, RuleTrigger } from "#compiler/laws/model/model.ts"
 import { queryEvidence } from "#compiler/logical/annotate.ts"
 import type { DeltaRelation } from "#compiler/lower/conservative/types.ts"
 import { lowerOptimized, optimizedInput } from "#compiler/lower/optimize/pipeline.ts"
@@ -142,6 +144,15 @@ const conditionOfLaw = (law: RuleLaw<LawSide>): string => {
 /** The column identifiers of `relation`'s fields named `fields`. */
 const columnsOf = (relation: RelationInfo, fields: ReadonlyArray<string>): ReadonlyArray<string> =>
 	fields.flatMap((name) => relation.fields.flatMap((f) => (f.name === name ? [f.column] : [])))
+
+/**
+ * The fields of each stored relation's primary key the model holds, by its name (analysis/theory/query.ts KeysOf), which
+ * chooses the relation a probe's guard reads (probeGuard); none for a relation it holds no key of, a closed one.
+ */
+const primaryKeysOf =
+	(model: LawModel): KeysOf =>
+	(name) =>
+		model.relations.get(name)?.relation.primaryFields.map((f) => f.name)
 
 /**
  * A block's probe (analysis/theory/query.ts probe), the rule's meeting part over every row the transaction's write of
@@ -1039,9 +1050,14 @@ export const addRules = (
 		const delta = side === "met" ? undefined : deltaOf(t, side)
 		return delta === undefined ? undefined : deltaRelation(t.relation, delta)
 	}
+	const keysOf = primaryKeysOf(b.model)
 	/**
 	 * The judge's blocks of a probed rule over one table it reads: one per side of the table its touches name, each
-	 * probe of it (analysis/theory/query.ts probe), read over that side's delta.
+	 * probe of it (analysis/theory/query.ts probe), read over that side's delta, inside its guard where it has one
+	 * (probeGuard): the guard runs first, and the probe, which PL/pgSQL plans when it first runs it, only where the guard
+	 * finds a row, a write whose units hold no row of the relation every row of the probe reads planning and running
+	 * none of it (edullm's first publish of a package: the learner-side rules over the content, 31.5 of the catalog
+	 * part's 43.2 MB and 21 s of its 30 s planning, PUBLISH's census).
 	 */
 	const probedBlocks = (
 		rule: RuleTrigger,
@@ -1073,6 +1089,15 @@ export const addRules = (
 			}
 			const compiled = compileProbe(b, catalog, rule, relation, query, deltas, heads)
 			appendAll(requests, compiled.requests)
+			const judged = whenFound(compiled.statement, [raise])
+			const guard = probeGuard(probed, relation.name, side, keysOf, rule.law.loc)
+			const guarded =
+				guard === undefined
+					? undefined
+					: compileProbe(b, catalog, rule, relation, guard, deltas, heads)
+			if (guarded !== undefined) {
+				appendAll(requests, guarded.requests)
+			}
 			return delta === undefined
 				? []
 				: [
@@ -1085,7 +1110,7 @@ export const addRules = (
 								side
 							}),
 							reads: [delta],
-							body: [whenFound(compiled.statement, [raise])]
+							body: [guarded === undefined ? judged : whenFound(guarded.statement, [judged])]
 						}
 					]
 		}

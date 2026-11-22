@@ -2936,6 +2936,381 @@ export const probe = (
 	return isNonEmpty(rows) ? probeOf(rule, rows, loc) : undefined
 }
 
+/** The fields of each stored relation's primary key, in key order, by its name; none for a closed relation. */
+export type KeysOf = (relation: string) => ReadonlyArray<string> | undefined
+
+/**
+ * What a probe's guard reads (`probeGuard`): the stored relation `relation` every row of the probe reads as it stands
+ * at the unit, its fields `fields` there, and the fields `delta` of the written relation's delta that hold the same unit,
+ * position by position.
+ */
+interface Guard {
+	readonly relation: string
+	readonly fields: NonEmptyReadonlyArray<string>
+	readonly delta: NonEmptyReadonlyArray<string>
+}
+
+/**
+ * The guard of the probe of `rule` over what a transaction wrote of `relation` on `side` (`probe`): the rows of a stored
+ * relation S at the units of that side's delta, a query the judge runs before the probe and the probe only where it
+ * finds a row (physical/ddl/rules.ts), so a write whose units hold no row of S neither plans nor runs the probe:
+ * PL/pgSQL plans a statement when it first runs it. None where no such S is found.
+ *
+ * The guard is the probe's own necessary condition. S qualifies where every arm of the rule's breaking side matches S,
+ * a relation other than the written one, each binding the same fields of S, `fields`, to variables of its own, the
+ * arm's unit (a learner's rows' package and path beside the content they read), and every way the written relation
+ * reaches the arm carries that unit to it (`Carry`): each of its matches of the written relation
+ * binds the unit at the same fields of it, `delta`, and each definition, group or negation through which the arm reads
+ * it binds the unit at heading fields its every arm holds as its own unit in turn. Every row of the probe (`rowsOf`) is
+ * then an arm's candidate whose region is some rows of the written side, a delta's rows or what they move of a
+ * definition, so its unit is the unit of some row of that side's delta; and it reads every other match of its arm as
+ * it stands at COMMIT (`gainedBy`, `movedBy`), S's among them, at that unit, so a unit of the delta that holds no row
+ * of S holds no row of the probe. A containment's target loses tuples by rows of the written side too (`lostRows`):
+ * each such row reads the source's tuples at the row's terms, so S qualifies there only where the source's unit
+ * variables are terms of each of its arms, at positions every arm of the target holds as variables the written
+ * relation carries the unit to. A written S is no guard: a row the write adds is a row the probe reads, which the
+ * delta holds, not S as it stood. The guard reads S as it stands at COMMIT, a row the same transaction wrote among
+ * them.
+ *
+ * Which S rows can break an arm: only those its match of S reads, and that match binds S's `fields` to the unit
+ * variables, so a fact of the arm holds an S row whose `fields` are the fact's unit. And a fact the write may break the
+ * rule at is a row of the probe, whose unit is, by the carry, the `delta` fields of a row of the written side: every
+ * occurrence of the written relation in the arm, at any depth, binds those variables at those fields, so a row that
+ * starts from it holds the written row's values there. An S row of another unit than every written row's is no row
+ * of any fact a row of the probe holds. The carry is checked on every way the arm reads the written relation, never
+ * on matches that read none of it: a closed relation, a roster's constant rows (qti's kinds and base types beside the
+ * content in Human within maximum), holds no stored row a write moves, so no row of the probe starts from it, and its
+ * rows, which bind no unit, join a fact at whatever unit the fact's other matches hold, as a definition over other
+ * relations does. An arm that reaches the written relation through a match binding the unit's variable to nothing of
+ * the written row (Carry `#occurrence` refuses it), or reads S other than at the unit's variables (`armUnit` finds no
+ * match), is no guarded arm: no guard stands before its probe (test/pg/laws/rule-guard, Linked). The unit is each field
+ * of S whose variable the written relation carries alone, all of them together.
+ *
+ * The carry is checked on the ways that yield a row of the probe's side, never on the others (Carry `Yields`). A row is
+ * a fact the side's write may break the rule at: a breaking arm's fact it adds (`gainedOf`), which an occurrence of the
+ * written relation at the side's polarity yields, positive under an even count of negations where the side adds rows,
+ * negative where it removes them; or, of a containment, a target's fact it withdraws (`lostRows`, `relaxedOf`), which
+ * an occurrence at the other polarity yields; an aggregating rule's groups move both ways for either. An occurrence at
+ * the other polarity only moves its arm's facts the other way, into the rule's favour, so no row of this probe starts
+ * from it: an S row at the unit it would bind, or at none, breaks nothing the probe judges. qti's ItemSession in
+ * Servable reads Node two ways: under one negation at the item's own package (an unresolved processing), and under two
+ * at a published template's package, any package. Adding a Node only makes items servable by the second, so the probe
+ * of Node's added rows is guarded by ItemSession at the written package; removing one can make an item of another
+ * package unservable by it, so the probe of Node's removed rows is not (test/pg/laws/rule-guard, Ready).
+ *
+ * Which S guards is a cost, never a soundness, choice: the guard is one more statement of each COMMIT that writes the
+ * relation, which pays only where a write of it finds no row of S at its units. S guards where its key leads with no
+ * field of the unit (`keys`): its rows at a unit are another lifecycle's, a learner's rows keyed by the learner beside
+ * the content they read, which a first publish of the content precedes; a relation keyed by a field of the unit holds
+ * the unit's own rows, which every write of the unit's other rows accompanies, so its guard would always find a row.
+ */
+export const probeGuard = (
+	rule: ProbedRule,
+	relation: string,
+	side: ProbeSide,
+	keys: KeysOf,
+	loc: SourceLoc
+): InferredQuery | undefined => {
+	const breaking = breakingArms(rule)
+	for (const m of breaking[0].matches) {
+		if (m.kind !== "stored" || m.relation === relation) {
+			continue
+		}
+		const fields = Object.entries(m.bindings)
+			.flatMap(([f, e]) =>
+				e.kind === "var" && guardOf(rule, relation, side, m.relation, [f]) !== undefined ? [f] : []
+			)
+			.toSorted(compareStrings)
+		const lead = keys(m.relation)?.[0]
+		if (!isNonEmpty(fields) || lead === undefined || fields.includes(lead)) {
+			continue
+		}
+		const guard = guardOf(rule, relation, side, m.relation, fields)
+		if (guard !== undefined) {
+			const vars = mapNonEmpty(guard.fields, (_, k) => ({ id: guardId(k), origin: undefined, loc }))
+			return queryOf(
+				[
+					ruleDesc(
+						vars,
+						[
+							{
+								source: { kind: "delta", side, relation },
+								bindings: Object.fromEntries(
+									guard.delta.map((f, k) => [f, varRef(guardId(k))] as const)
+								),
+								loc
+							},
+							{
+								source: { kind: "relation", name: guard.relation },
+								bindings: Object.fromEntries(
+									guard.fields.map((f, k) => [f, varRef(guardId(k))] as const)
+								),
+								loc
+							}
+						],
+						[],
+						Object.fromEntries(guard.fields.map((f, k) => [f, varRef(guardId(k))] as const)),
+						loc
+					)
+				],
+				loc
+			)
+		}
+	}
+	return undefined
+}
+
+/** The variable a probe's guard reads position `k` of the unit in (`probeGuard`). */
+const guardId = (k: number): string => `guard.${k}`
+
+/**
+ * The guard of `rule`'s probes of `written` on `side` by the stored relation `relation` at its fields `fields`
+ * (`probeGuard`): none where some arm of the breaking side does not match it there at its unit, or the written relation
+ * does not carry every arm's unit to fields of its own along every way that yields a row of the side (`Carry`), the
+ * target's arms' too for a containment: a breaking arm gains facts by its occurrences of the side's polarity, a
+ * positive one where the side adds rows and a negative one where it removes them (`gainedOf`), and a target arm loses
+ * them by the other (`lostRows`, `relaxedOf`).
+ */
+const guardOf = (
+	rule: ProbedRule,
+	written: string,
+	side: ProbeSide,
+	relation: string,
+	fields: NonEmptyReadonlyArray<string>
+): Guard | undefined => {
+	const carry = new Carry(written, fields.length)
+	const gains: Polarity = side === "added" ? "positive" : "negative"
+	const breaking = breakingArms(rule)
+	const units: Array<ReadonlyMap<string, number>> = []
+	for (const arm of breaking) {
+		const unit = armUnit(arm, relation, fields)
+		if (unit === undefined || !carry.arm(arm, unit, gains)) {
+			return undefined
+		}
+		units.push(unit)
+	}
+	if (rule.kind === "contained") {
+		const positions = fields.map((_, k) => {
+			const at = breaking.map((arm, i) =>
+				arm.terms.findIndex((t) => t.kind === "var" && units[i]?.get(t.var) === k)
+			)
+			const [j, ...rest] = at
+			return j !== undefined && j >= 0 && rest.every((x) => x === j) ? j : undefined
+		})
+		for (const arm of rule.to.arms) {
+			const unit = new Map<string, number>()
+			for (const [k, j] of positions.entries()) {
+				const term = j === undefined ? undefined : arm.terms[j]
+				if (term?.kind !== "var") {
+					return undefined
+				}
+				unit.set(term.var, k)
+			}
+			if (unit.size !== fields.length || !carry.arm(arm, unit, flipped(gains))) {
+				return undefined
+			}
+		}
+	}
+	const delta = carry.fields()
+	return delta === undefined ? undefined : { relation, fields, delta }
+}
+
+/**
+ * The unit of `arm` a match of `relation` at `fields` reads it at: each field's variable, one a position, where `arm`
+ * matches `relation` binding every field of `fields` to a variable of its own; none otherwise.
+ */
+const armUnit = (
+	arm: LiveArm,
+	relation: string,
+	fields: NonEmptyReadonlyArray<string>
+): ReadonlyMap<string, number> | undefined => {
+	for (const m of arm.matches) {
+		if (m.kind !== "stored" || m.relation !== relation) {
+			continue
+		}
+		const unit = new Map<string, number>()
+		for (const [k, f] of fields.entries()) {
+			const e = m.bindings[f]
+			if (e?.kind !== "var" || unit.has(e.var)) {
+				break
+			}
+			unit.set(e.var, k)
+		}
+		if (unit.size === fields.length) {
+			return unit
+		}
+	}
+	return undefined
+}
+
+/**
+ * The polarity of an occurrence of the written relation, read from the arm it stands in, that yields a row of a probe
+ * (`Carry`): one polarity, or either under an aggregating rule's groups, which a write of their body touches both ways
+ * (`matchTouches`).
+ */
+type Yields = Polarity | "both"
+
+/** Whether an occurrence of polarity `p` yields a row where `yields` does. */
+const yieldsAt = (yields: Yields, p: Polarity): boolean => yields === "both" || yields === p
+
+/** What a negation turns `yields` into: an occurrence below it moves the negating arm the other way. */
+const flippedYields = (yields: Yields): Yields => (yields === "both" ? "both" : flipped(yields))
+
+/**
+ * Whether the written relation carries a unit to every way an arm reads it that yields a row of the probe
+ * (`probeGuard`), and the fields of it that hold each position of the unit, the same at every such occurrence
+ * (`fields`).
+ */
+class Carry {
+	readonly #written: string
+	readonly #at: Array<string | undefined>
+	/** Whether an arm reads the written relation at a polarity that yields a row, by the arm and the polarity. */
+	readonly #reads = new WeakMap<LiveArm, Map<Yields, boolean>>()
+
+	constructor(written: string, width: number) {
+		this.#written = written
+		this.#at = Array.from({ length: width }, () => undefined)
+	}
+
+	/** The written relation's fields that hold each position of the unit, none where it is read nowhere. */
+	fields(): NonEmptyReadonlyArray<string> | undefined {
+		const [first, ...rest] = this.#at
+		if (first === undefined) {
+			return undefined
+		}
+		const out: Array<string> = []
+		for (const f of rest) {
+			if (f === undefined) {
+				return undefined
+			}
+			out.push(f)
+		}
+		return [first, ...out]
+	}
+
+	/**
+	 * Whether every way `arm`, whose variables `unit` hold its unit by position, reads the written relation at a
+	 * polarity `yields` admits carries the unit to it: each such match of it binds every position at one field of it,
+	 * the field of every other occurrence; each definition, group or negation that reads it so binds every position at
+	 * a heading field each of its arms holds as a variable, carried in that arm in turn, a negation's at the polarity
+	 * turned. An occurrence of the other polarity moves the arm's facts the other way only, so it yields no row of the
+	 * probe and need carry nothing.
+	 */
+	arm(arm: LiveArm, unit: ReadonlyMap<string, number>, yields: Yields): boolean {
+		for (const m of arm.matches) {
+			switch (m.kind) {
+				case "stored":
+					if (
+						m.relation === this.#written &&
+						yieldsAt(yields, "positive") &&
+						!this.#occurrence(m.bindings, unit)
+					) {
+						return false
+					}
+					break
+				case "defined":
+					if (!this.#through(m.bindings, m.arms, unit, yields)) {
+						return false
+					}
+					break
+				case "grouped":
+					if (!this.#through(m.bindings, m.groups.body, unit, "both")) {
+						return false
+					}
+					break
+			}
+		}
+		return arm.negated.every((n) => this.#through(n.bindings, n.arms, unit, flippedYields(yields)))
+	}
+
+	/** Whether an occurrence of the written relation binding `bindings` binds every position of `unit` where the others do. */
+	#occurrence(bindings: InferredBindings, unit: ReadonlyMap<string, number>): boolean {
+		const at = [...this.#at]
+		for (const [f, e] of Object.entries(bindings)) {
+			const k = e.kind === "var" ? unit.get(e.var) : undefined
+			if (k !== undefined && at[k] === undefined) {
+				at[k] = f
+			}
+		}
+		for (const [k, f] of at.entries()) {
+			const e = f === undefined ? undefined : bindings[f]
+			if (e?.kind !== "var" || unit.get(e.var) !== k) {
+				return false
+			}
+			this.#at[k] = f
+		}
+		return true
+	}
+
+	/**
+	 * Whether a definition, group or negation over `arms`, read at `bindings`, carries the unit: it reads the written
+	 * relation nowhere, or it binds every position at a heading field each of its arms holds as a variable of its own,
+	 * which carries it in that arm.
+	 */
+	#through(
+		bindings: InferredBindings,
+		arms: NonEmptyReadonlyArray<LiveArm>,
+		unit: ReadonlyMap<string, number>,
+		yields: Yields
+	): boolean {
+		if (!arms.some((a) => this.#readsWritten(a, yields))) {
+			return true
+		}
+		const fields = new Map<string, number>()
+		for (const [f, e] of Object.entries(bindings)) {
+			const k = e.kind === "var" ? unit.get(e.var) : undefined
+			if (k !== undefined && ![...fields.values()].includes(k)) {
+				fields.set(f, k)
+			}
+		}
+		if (fields.size !== unit.size) {
+			return false
+		}
+		return arms.every((a) => {
+			const inner = new Map<string, number>()
+			for (const [f, k] of fields) {
+				const head = a.head[f]
+				if (head?.kind !== "var" || inner.has(head.var)) {
+					return false
+				}
+				inner.set(head.var, k)
+			}
+			return this.arm(a, inner, yields)
+		})
+	}
+
+	/**
+	 * Whether `arm` reads the written relation at any depth at a polarity `yields` admits, a match, a definition, a
+	 * group or a negation of it.
+	 */
+	#readsWritten(arm: LiveArm, yields: Yields): boolean {
+		const memo = this.#reads.get(arm) ?? new Map<Yields, boolean>()
+		this.#reads.set(arm, memo)
+		const known = memo.get(yields)
+		if (known !== undefined) {
+			return known
+		}
+		memo.set(yields, false)
+		const reads =
+			arm.matches.some((m) => this.#matchReads(m, yields)) ||
+			arm.negated.some((n) => n.arms.some((a) => this.#readsWritten(a, flippedYields(yields))))
+		memo.set(yields, reads)
+		return reads
+	}
+
+	/** Whether match `m` reads the written relation at any depth at a polarity `yields` admits (`#readsWritten`). */
+	#matchReads(m: ArmMatch, yields: Yields): boolean {
+		switch (m.kind) {
+			case "stored":
+				return m.relation === this.#written && yieldsAt(yields, "positive")
+			case "defined":
+				return m.arms.some((a) => this.#readsWritten(a, yields))
+			case "grouped":
+				return m.groups.body.some((a) => this.#readsWritten(a, "both"))
+		}
+	}
+}
+
 /**
  * A probe's identity up to its variables' names (`probes`): its canonical text, source locations omitted, with every
  * variable renamed `v0`, `v1`, … in the order a walk of it first names one, each record's members in canonical order.
