@@ -145,9 +145,9 @@ export const aChangeSetRetiresAUnitsGroupsInOneStatementForEachStratumThatRetire
 					}
 					assert.equal(step.header, StoredRelationName("Root"))
 					assert.deepEqual(
-						Arr.sort(step.bodies, Order.String),
+						Arr.sort(step.removed, Order.String),
 						[StoredRelationName("Claim"), StoredRelationName("Step")],
-						"the unit's bodies"
+						"the relations it removes rows of: the unit's bodies, no records released"
 					)
 					const slot = ParamId(retireSlot(s))
 					const read = slotsRead(artifact, statement)

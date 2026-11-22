@@ -1,5 +1,9 @@
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import { type Identity, identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { rowEq } from "#compiler/ir/compare.ts"
@@ -9,7 +13,7 @@ import { fieldColumnType } from "#compiler/ir/physical.ts"
 import { generations, reality } from "#compiler/laws/model/generation.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { enforcement, type Node } from "#compiler/physical/obligations/graph.ts"
-import type { OwnedStatement } from "#compiler/schema/own.ts"
+import { type OwnedStatement, releasesOf } from "#compiler/schema/own.ts"
 import type {
 	Cte,
 	Delete,
@@ -19,6 +23,7 @@ import type {
 	FunctionName,
 	FunctionParam,
 	ObjectName,
+	OperandSelect,
 	PerformQuery,
 	PlFunction,
 	PlStatement,
@@ -26,6 +31,7 @@ import type {
 	Select,
 	SetOf,
 	SetOperand,
+	Target,
 	Update
 } from "#compiler/sql/ast.ts"
 import {
@@ -66,9 +72,39 @@ interface UnitBody {
 }
 
 /**
+ * A holder of released records as a retirement reads it: its declared name and its table, its fields naming a key of the records in the owner
+ * key's order, and how it stands to the unit retired: a body of it, grouped by its group fields in the header key's
+ * order, or a body of another unit, every row of which the retirement leaves.
+ */
+interface ReleaseHolder {
+	readonly relation: string
+	readonly table: ObjectName
+	readonly names: NonEmptyReadonlyArray<LawField>
+	readonly of:
+		| { readonly kind: "unit"; readonly group: NonEmptyReadonlyArray<LawField> }
+		| { readonly kind: "other" }
+}
+
+/** A relation of released records: its declared name, its table and its fields carrying the owner key, in its order. */
+interface ReleasedRelation {
+	readonly relation: string
+	readonly table: ObjectName
+	readonly carried: NonEmptyReadonlyArray<LawField>
+}
+
+/**
+ * The records a unit's retirement releases, by a reachable statement one of whose holders is a body of the unit
+ * (schema/own.ts releasesOf): each relation of the records, their root first, and each holder.
+ */
+interface Release {
+	readonly records: NonEmptyReadonlyArray<ReleasedRelation>
+	readonly holders: NonEmptyReadonlyArray<ReleaseHolder>
+}
+
+/**
  * A retirable unit as its functions are built from it: its header's table, key fields and retirement field; each body
- * relation's table and group fields; and the fence a hold refuses by, the law that keeps its first body's rows in open
- * groups, with that body.
+ * relation's table and group fields; the fence a hold refuses by, the law that keeps its first body's rows in open
+ * groups, with that body; and the records its retirement releases, in statement order.
  */
 interface UnitPlan {
 	readonly header: string
@@ -77,6 +113,7 @@ interface UnitPlan {
 	readonly lifecycle: LawField
 	readonly bodies: NonEmptyReadonlyArray<UnitBody>
 	readonly fence: { readonly law: LawId; readonly body: UnitBody }
+	readonly releases: ReadonlyArray<Release>
 }
 
 /** The handle of `relation`, which the law model holds for every ordinary relation of the installation. */
@@ -147,6 +184,25 @@ const unitPlans = (b: InstallBuilder): ReadonlyArray<UnitPlan> =>
 			}
 		})
 		const first = bodies[0]
+		const releases = releasesOf(
+			b.owned.statements,
+			bodies.map((body) => body.relation)
+		).map((r): Release => ({
+			records: mapNonEmpty(r.target, (side): ReleasedRelation => ({
+				relation: side.relation,
+				table: b.names.relation(side.relation),
+				carried: fieldsNamed(relationInfo(b, side.relation), termNames(side.terms))
+			})),
+			holders: mapNonEmpty(r.holders, (side): ReleaseHolder => {
+				const body = bodies.find((u) => u.relation === side.relation)
+				return {
+					relation: side.relation,
+					table: b.names.relation(side.relation),
+					names: fieldsNamed(relationInfo(b, side.relation), termNames(side.terms)),
+					of: body === undefined ? { kind: "other" } : { kind: "unit", group: body.group }
+				}
+			})
+		}))
 		return [
 			{
 				header: s.header.relation,
@@ -154,7 +210,8 @@ const unitPlans = (b: InstallBuilder): ReadonlyArray<UnitPlan> =>
 				key: fieldsNamed(header, termNames(s.header.terms)),
 				lifecycle,
 				bodies,
-				fence: { law: fenceLaw(b, first.relation, s.header.relation), body: first }
+				fence: { law: fenceLaw(b, first.relation, s.header.relation), body: first },
+				releases
 			}
 		]
 	})
@@ -215,12 +272,21 @@ const atGroup = (b: InstallBuilder, unit: UnitPlan, header: string, group: strin
 
 /** A body's rows in a group: its group fields, each equal to the group's column of its position, at its type. */
 const bodyAtGroup = (b: InstallBuilder, body: UnitBody, alias: string, group: string): Expr =>
+	fieldsAt(b, body.group, alias, group)
+
+/** The row `alias` at the row `at`: each of `fields` equal to `at`'s column of its position, at its type. */
+const fieldsAt = (
+	b: InstallBuilder,
+	fields: NonEmptyReadonlyArray<LawField>,
+	alias: string,
+	at: string
+): Expr =>
 	rowEq(
 		{
-			fields: body.group,
+			fields,
 			typeOf: (f) => f.type,
 			left: (f) => col(alias, f.column),
-			right: (f) => col(group, keyColumn(body.group.indexOf(f)))
+			right: (f) => col(at, keyColumn(fields.indexOf(f)))
 		},
 		b.names
 	)
@@ -313,9 +379,10 @@ const refuseClosed = (
 
 /**
  * The retirement of the groups the locked headers head, one statement, which returns its counts: every body's rows in
- * them deleted, then each header's retirement field set, so the fence's NO ACTION check, at the statement's end, finds
- * no row of the group; and the count of each, the header's groups retired first, then each body's rows removed, in body
- * order, one array:
+ * them deleted, the records its unit's holders held released where no holder names them any more (releaseOf, after
+ * the body deletes, a release's aliases past every count's), then each header's retirement field set, so the fence's
+ * NO ACTION check, at the statement's end, finds no row of the group; and the count of each, the header's groups
+ * retired first, then each body's rows removed, in body order, then each released relation's rows removed, one array:
  *
  *   RETURN QUERY
  *   WITH r1(c1, …) AS MATERIALIZED (SELECT r2.<key> FROM <header> AS r2 JOIN <groups> AS r3 ON <r2 at r3>
@@ -375,6 +442,14 @@ const retireLocked = (
 	})
 	const n = 5 + 3 * deletes.length
 	const [retired, header, groups, counted] = [alias(n), alias(n + 1), alias(n + 2), alias(n + 3)]
+	const releasedRelations = unit.releases.reduce((sum, r) => sum + r.records.length, 0)
+	const supply = { next: n + 6 + deletes.length + releasedRelations }
+	const take = (): string => {
+		const name = alias(supply.next)
+		supply.next += 1
+		return name
+	}
+	const releases = unit.releases.map((release) => releaseOf(b, release, locked.name, one, take))
 	const retirement: Update = {
 		kind: "update",
 		with: undefined,
@@ -389,7 +464,7 @@ const retireLocked = (
 	}
 	const [order, count, carried] = [keyColumn(0), keyColumn(1), keyColumn(2)]
 	const counts = mapNonEmpty(
-		[retired, ...deletes.map((d) => d.name)] as const,
+		[retired, ...deletes.map((d) => d.name), ...releases.flatMap((r) => r.removals)] as const,
 		(cte, at): SetOperand =>
 			core(
 				[
@@ -434,10 +509,130 @@ const retireLocked = (
 				ctes: [
 					locked,
 					...deletes,
+					...releases.flatMap((r) => r.ctes),
 					{ name: retired, columns: [], materialized: undefined, query: retirement }
 				]
 			}
 		}
+	}
+}
+
+/** A release's CTEs, in order, and the names of its removals, one per relation of its records, in their order. */
+interface ReleaseCtes {
+	readonly ctes: ReadonlyArray<Cte>
+	readonly removals: ReadonlyArray<string>
+}
+
+/** A probe of a row's existence over `from` where `where` holds: `SELECT 1 FROM <from> WHERE <where>`. */
+const probed = (from: ReadonlyArray<FromItem>, where: Expr): OperandSelect =>
+	operandSelect(core([target(lit.int(1, types.integer))], from, where))
+
+/**
+ * A release of a retirement's statement (`retireLocked`), over the groups it locked, the CTE `locked`, every alias it
+ * names taken from `take`:
+ *
+ *   rC(c1, …) AS MATERIALIZED (SELECT DISTINCT rU.c1, … FROM (SELECT h.<names> FROM <holder> AS h JOIN locked AS g ON
+ *       <h at g> UNION ALL …) AS rU(c1, …)),
+ *   rR(c1, …) AS MATERIALIZED (SELECT c.c1, … FROM rC AS c WHERE NOT EXISTS (SELECT 1 FROM <holder> AS h WHERE
+ *       <h.<names> at c> AND NOT EXISTS (SELECT 1 FROM locked AS g WHERE <h at g>)) AND …),
+ *   rD AS (DELETE FROM <records relation> AS t USING rR AS o WHERE <t.<carried> at o> RETURNING 1 AS c1), …
+ *
+ * The candidates, rC, are the keys of the records the unit's own holders name in the locked groups, each once; the
+ * released, rR, those of them no holder names outside the locked groups: no row of a holder of the unit outside them,
+ * no row at all of another unit's holder. Every CTE reads the statement's one snapshot, in which the rows its sibling
+ * body deletes remove still stand, so a holder of the unit is read outside the locked groups alone. Then each relation
+ * of the records loses its rows at the released keys, at its fields carrying the owner key. The records' own laws and
+ * the holders' containments are NO ACTION, checked at the statement's end, when every row naming a released row is
+ * gone with it. Each holder's containment carries its reverse index over the fields it names, so the release reads an
+ * index range per candidate.
+ */
+const releaseOf = (
+	b: InstallBuilder,
+	release: Release,
+	locked: string,
+	one: ReadonlyArray<Target>,
+	take: () => string
+): ReleaseCtes => {
+	const columns = mapNonEmpty(release.records[0].carried, (_, at) => keyColumn(at))
+	const arms = release.holders.flatMap((h): ReadonlyArray<SetOperand> => {
+		if (h.of.kind !== "unit") {
+			return []
+		}
+		const [row, group] = [take(), take()]
+		return [
+			core(
+				h.names.map((f, at) => targetAs(col(row, f.column), keyColumn(at))),
+				[
+					join(
+						table(h.table.schema, h.table.name, row),
+						cteRefAs(locked, group),
+						fieldsAt(b, h.of.group, row, group)
+					)
+				],
+				undefined
+			)
+		]
+	})
+	if (!isNonEmpty(arms)) {
+		throw defect("a release held by a body of the unit whose retirement releases it")
+	}
+	const [candidates, unioned] = [take(), take()]
+	const candidatesCte: Cte = {
+		name: candidates,
+		columns,
+		materialized: "MATERIALIZED",
+		query: operandSelect(
+			distinctCore(
+				mapNonEmpty(columns, (c) => targetAs(col(unioned, c), c)),
+				[derived(operandSelect(operandUnionAll(arms)), unioned, columns, false)],
+				undefined
+			)
+		)
+	}
+	const [released, candidate] = [take(), take()]
+	const unheld = mapNonEmpty(release.holders, (h): Expr => {
+		const row = take()
+		const named = fieldsAt(b, h.names, row, candidate)
+		const outside = (): Expr => {
+			if (h.of.kind === "other") {
+				return named
+			}
+			const group = take()
+			return and([
+				named,
+				notExists(probed([cteRefAs(locked, group)], fieldsAt(b, h.of.group, row, group)))
+			])
+		}
+		return notExists(probed([table(h.table.schema, h.table.name, row)], outside()))
+	})
+	const releasedCte: Cte = {
+		name: released,
+		columns,
+		materialized: "MATERIALIZED",
+		query: operandSelect(
+			core(
+				columns.map((c) => targetAs(col(candidate, c), c)),
+				[cteRefAs(candidates, candidate)],
+				and(unheld)
+			)
+		)
+	}
+	const removals = release.records.map((r): Cte => {
+		const [name, row, at] = [take(), take(), take()]
+		const removal: Delete = {
+			kind: "delete",
+			with: undefined,
+			table: r.table,
+			alias: row,
+			using: [cteRefAs(released, at)],
+			where: fieldsAt(b, r.carried, row, at),
+			returning: one
+		}
+		return { name, columns: [], materialized: undefined, query: removal }
+	})
+	return {
+		ctes: [candidatesCte, releasedCte, ...removals],
+		removals: removals.map((r) => r.name)
 	}
 }
 
@@ -500,9 +695,10 @@ export interface UnitFunctions {
  * - The retirement, `<retire>(keys_1 <key 1>[], …) RETURNS SETOF bigint[]`, which a ChangeSet's retire member calls
  *   (write/hold/statement.ts buildUnitCall): it locks the open header of each group it is given, UPDATE, in key order,
  *   so it waits for every call that holds one and every insert whose foreign key check holds one, then, in a statement
- *   of its own, deletes every body's rows of the locked groups and sets their headers' retirement field, and returns
- *   one row, its counts: the groups it retired, then each body's rows it removed, in body order (retireLocked). A group
- *   already retired or absent is no change. No role holds UPDATE or DELETE on a unit's tables for it, so a group is
+ *   of its own, deletes every body's rows of the locked groups, releases the reachable records no holder names any more
+ *   (releaseOf), and sets their headers' retirement field, and returns one row, its counts: the groups it retired, then
+ *   each body's rows it removed, in body order, then each released relation's rows it removed, in statement and
+ *   records order (retireLocked). A group already retired or absent is no change. No role holds UPDATE or DELETE on a unit's tables for it, so a group is
  *   retired whole and only by it, and its header is never reopened. A row outside the unit that references a row it
  *   removes, by a containment into a body, refuses it (23503 on that containment's foreign key).
  */
@@ -513,6 +709,10 @@ export const addUnitFunctions = (b: InstallBuilder): ReadonlyMap<string, UnitFun
 		const after = [
 			b.table(unit.header),
 			...unit.bodies.map((body) => b.table(body.relation)),
+			...unit.releases.flatMap((r) => [
+				...r.records.map((record) => b.table(record.relation)),
+				...r.holders.flatMap((h) => (h.of.kind === "other" ? [b.table(h.relation)] : []))
+			]),
 			b.refusal
 		]
 		const add = (

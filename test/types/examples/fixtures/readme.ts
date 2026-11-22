@@ -49,6 +49,7 @@ import {
 	pred,
 	query,
 	race,
+	reachable,
 	records,
 	recordsFacts,
 	recordsQuery,
@@ -1427,6 +1428,26 @@ export const Graph = schema.extend(
 	"Graph",
 	[Root, ...kept.relations],
 	[...kept.rules, retirable(Root, [on(kept, "root")])]
+)
+
+/**
+ * README: "Records of a query": the found lessons stored once under their digest alone, however many roots found them,
+ * each root's references to them a body of its retirable unit, and the lessons released once no reference names them.
+ */
+const shared = records("Lessons", lessonsOf, { digest: sha256 }, ["digest"])
+export const LessonRef = relation("LessonRef", { root: RootId, at: natural, digest: sha256 }, [
+	"root",
+	"at"
+])
+export const Library = schema.extend(
+	[School],
+	"Library",
+	[Root, LessonRef, ...shared.relations],
+	[
+		...shared.rules,
+		retirable(Root, [on(LessonRef, "root")]),
+		reachable(on(shared, "digest"), [on(LessonRef, "digest")])
+	]
 )
 
 /** README: "Levels". */

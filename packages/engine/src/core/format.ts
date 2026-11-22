@@ -65,7 +65,10 @@
  * spelling and each literal as written (scalar/compute/predicate-source.ts), `key T(id where Logic.gt(u, 1))`, where format 6
  * spelled each conjunct by its canonical JSON, so every COMMENT over a selection moves, and a declared rename of a field
  * a selection reads comments the renamed object with the field's new name; no identifier moves, since an identity's
- * parts keep each conjunct's canonical text. Format 6's snapshot.json records each
+ * parts keep each conjunct's canonical text. A retirement's served step names the relations it removes rows of,
+ * `removed`, its unit's bodies and then each relation of the reachable records it releases (runtime/write/steps.ts
+ * RetireStep), where format 6 named its bodies alone as `bodies`; and a law of a reachable statement records that
+ * statement's kind as its source (ir/law.ts LawSource `reachable`). Format 6's snapshot.json records each
  * schema level's fingerprint over its
  * identity text, every part the level holds written once as its identity digest's token (core/fingerprint.ts
  * schemaFingerprint), and each level's statements in their identity digests' order; its index keys hold every column as

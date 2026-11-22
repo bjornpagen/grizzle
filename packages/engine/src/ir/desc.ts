@@ -1407,6 +1407,9 @@ export interface ArmDesc {
  * - alternatives(parent, discriminator, roster, arms) is its own statement, which expandAlternatives states.
  * - retirable(header, bodies) is its own statement, which expandRetirable states: the groups of `header`, each a value of
  *   its key, and each group's rows of every body relation, which a retirement removes whole while the header stays.
+ * - reachable(target, holders) is its own statement, which expandReachable states: each holder's facts name a key of
+ *   the target records, and the records at a key live while some holder's fact names it, so a retirement that removes
+ *   the last one removes them (physical/ddl/retire.ts).
  * - race(R) makes R's primary key first come, first held: an insertion at a key another row holds meets that row,
  *   never refused for differing from it (ir/law.ts Inserts).
  */
@@ -1462,6 +1465,19 @@ export type StatementDesc<L = Located> = L &
 				 */
 				readonly bodies: NonEmptyReadonlyArray<SideDesc>
 		  }
+		| {
+				readonly kind: "reachable"
+				/**
+				 * The records it releases: each of their relations' side over every fact at the fields carrying their owner's
+				 * whole key, in the key's order, their root's first, whose terms are its primary key.
+				 */
+				readonly target: NonEmptyReadonlyArray<SideDesc>
+				/**
+				 * Each holder relation's side over every fact, in statement order, its terms the fields that name a key of the
+				 * records, paired by position with the owner's key.
+				 */
+				readonly holders: NonEmptyReadonlyArray<SideDesc>
+		  }
 	)
 
 /** A contained statement's Description. */
@@ -1502,6 +1518,23 @@ export const expandRetirable = (r: RetirableDesc): NonEmptyReadonlyArray<Contain
 		kind: "contained",
 		left: body,
 		right: open,
+		loc: r.loc
+	}))
+}
+
+/** A reachable statement's Description. */
+export type ReachableDesc<L = Located> = Extract<StatementDesc<L>, { readonly kind: "reachable" }>
+
+/**
+ * The containments a reachable statement states: per holder, its facts' keys among the keys of the records' root, so
+ * every fact of a holder names a key the records hold. Pure: ownership and the theory call it.
+ */
+export const expandReachable = (r: ReachableDesc): NonEmptyReadonlyArray<ContainedDesc> => {
+	const [root] = r.target
+	return mapNonEmpty(r.holders, (holder): ContainedDesc => ({
+		kind: "contained",
+		left: holder,
+		right: root,
 		loc: r.loc
 	}))
 }

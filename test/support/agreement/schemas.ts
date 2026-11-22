@@ -22,6 +22,7 @@ import { jsonText } from "#compiler/core/trusted.ts"
 import {
 	descText,
 	expandAlternatives,
+	expandReachable,
 	type RoleDesc,
 	type FieldDecl,
 	type FieldDesc,
@@ -5401,6 +5402,11 @@ const statementType = (desc: StatementDesc, ids: Ids): string => {
 				Arr.map(desc.bodies, (b) => sideType(b, ids)),
 				", "
 			)}]>`
+		case "reachable":
+			return `St.Reachable<St.Side<typeof ${ids(desc.target[0].relation)}>, readonly [${Arr.join(
+				Arr.map(desc.holders, (h) => sideType(h, ids)),
+				", "
+			)}]>`
 	}
 }
 
@@ -5454,6 +5460,8 @@ const containmentTypes = (views: ReadonlyArray<StatementView>, ids: Ids): Readon
 					return [statementType(s, ids)]
 				case "alternatives":
 					return Arr.map(expandAlternatives(s), (c) => statementType(c, ids))
+				case "reachable":
+					return Arr.map(expandReachable(s), (c) => statementType(c, ids))
 				case "key":
 				case "mutable":
 				case "race":

@@ -269,6 +269,8 @@ export type EntryKind = "relation" | "closed" | "derived" | "query"
  * - `writeAndInsert`: a role stating both a write list and an insert list, where it writes by one of them.
  * - `writeRetirableHeader`: a write list writing `relation`, a retirable statement's header, which every role only
  *   inserts: its row is kept for good, and only its group's retirement changes it.
+ * - `writeReachableHolder`: a write list writing `relation`, a holder of reachable records, which every role only
+ *   inserts: only its unit's retirement removes its rows, and releases the records no holder names any more.
  * - `refreshKind`: a refresh list naming an entry that is no derived whole entry.
  * - `retireOutside`: a retire list naming `name`, no relation of the role.
  * - `retireNotHeader`: a retire list naming `name`, an entry that is no whole entry of a retirable statement's header.
@@ -291,6 +293,7 @@ export type RoleRule =
 	  }
 	| { readonly kind: "writeAndInsert" }
 	| { readonly kind: "writeRetirableHeader"; readonly relation: string }
+	| { readonly kind: "writeReachableHolder"; readonly relation: string }
 	| { readonly kind: "refreshOutside"; readonly name: string }
 	| {
 			readonly kind: "refreshKind"
@@ -550,6 +553,8 @@ export const roleRuleText = (rule: RoleRule): string => {
 			return "a write list or an insert list; the role states both"
 		case "writeRetirableHeader":
 			return `an insert list over a retirable header, whose row is kept for good; the role writes ${rule.relation}`
+		case "writeReachableHolder":
+			return `an insert list over a holder of reachable records, whose rows only a retirement removes; the role writes ${rule.relation}`
 		case "refreshOutside":
 			return `a refresh list of the role's relations; ${rule.name} is none of them`
 		case "refreshKind":

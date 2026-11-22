@@ -28,6 +28,7 @@ import {
 	orderedBuilder,
 	predBuilder,
 	raceBuilder,
+	reachableBuilder,
 	retirableBuilder,
 	selectBuilder,
 	treeBuilder
@@ -141,6 +142,7 @@ import type {
 	KeyShows,
 	Pred,
 	Race,
+	Reachable,
 	Retirable,
 	RowScalars,
 	Selection,
@@ -592,8 +594,9 @@ export const check = <
 /**
  * A side reads at least one term of its source, each once (ir/desc.ts SideDesc): a field, or pred of a natural field,
  * whose fact has no tuple on the side where the field is zero. A side over records (records(...)) names fields of
- * their owner's key, which their heading shows: a retirable body standing for each of their relations, flat or
- * attached, each on its own fields carrying those (schema/statements.ts admitRetirable).
+ * their owner's key, which their heading shows: a retirable body or a reachable target standing for each of their
+ * relations, flat or attached, each on its own fields carrying those (schema/statements.ts admitRetirable,
+ * admitReachable).
  */
 export const on = <
 	R extends
@@ -697,6 +700,21 @@ export const retirable = <
 	header: H,
 	bodies: B
 ): Retirable<H, readonly [...B]> => retirableBuilder<H, B>(header, bodies)
+
+/**
+ * reachable(target, holders): the records `target` names, a side over records at their whole owner key, live while some
+ * holder names their key. Each holder, a side over every fact of a retirable unit's body, its fields paired by position
+ * with the owner key, is contained in the records' root (ir/desc.ts expandReachable), and a retirement that removes
+ * the last holder fact naming a key removes the records' rows at that key from every relation of them, in its own
+ * statement, counted as deletes in its outcome (physical/ddl/retire.ts).
+ */
+export const reachable = <
+	T extends Side<AnyRecords>,
+	const H extends NonEmptyReadonlyArray<AnySide>
+>(
+	target: T,
+	holders: H
+): Reachable<T, readonly [...H]> => reachableBuilder<T, H>(target, holders)
 
 /**
  * fin(O, n): the slots of O's count n: over an ordinary O, its drawn count, a family's second argument; over a closed O,

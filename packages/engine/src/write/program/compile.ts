@@ -1433,12 +1433,14 @@ const optimizedPlacement = (
 				break
 			}
 			case "retire": {
-				/** A retirement writes its unit's header and bodies, which no other statement of the write reads or
-				 * writes. */
+				/** A retirement writes its unit's header and bodies and the reachable records it releases, which no other
+				 * statement of the write reads or writes. */
 				const { unit } = step.retired
 				const deps = tracker.add(
 					[],
-					[unit.header, ...unit.bodies.keys()].map((relation) => `relation:${relation}`)
+					[unit.header, ...unit.bodies.keys(), ...unit.released].map(
+						(relation) => `relation:${relation}`
+					)
 				)
 				placed(
 					() => buildRetire(w, step.retired),
@@ -1447,7 +1449,7 @@ const optimizedPlacement = (
 						kind: "retire",
 						stratum: step.retired.stratum,
 						header: statement.result.header,
-						bodies: statement.result.bodies
+						removed: statement.result.removed
 					})
 				)
 				break

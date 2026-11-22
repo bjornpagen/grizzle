@@ -57,17 +57,24 @@ import { printObjectName } from "#compiler/sql/print.ts"
  * - `fieldOf`: the field a column of a relation's table is, none for a column of no field (a law column);
  * - `readsNoTable`: whether a schema function a statement calls reads no relation's table, as a refusal, a constant, a
  *   vector reads none; a world's filter function reads the relations of its membership;
- * - `retirementOf`: the tables a retirable unit's retirement function writes, its header's and its bodies', none for any
- *   other function: a call of it is the unit's retirement (analysis/isolation/facts.ts WriteFact `retire`), which reads
- *   no row besides the groups it locks;
+ * - `retirementOf`: the tables a retirable unit's retirement function writes, none for any other function: its header's
+ *   and its bodies' by the unit's retirement (analysis/isolation/facts.ts WriteFact `retire`), which reads no row besides
+ *   the groups it locks; and each relation's of the reachable records it releases by a deletion, which reads the rows
+ *   that reference what it deletes, its holders' among them, as every deletion does;
  * - `arbitersOf`: the columns of each object an ON CONFLICT DO NOTHING with no target arbitrates on a relation's table,
  *   its primary key, each UNIQUE and each span key, each by the columns of its fields, a law column's left out.
  */
+/** A table a retirable unit's retirement function writes, and how (ExtractNames `retirementOf`). */
+export interface RetiredTable {
+	readonly table: ObjectName
+	readonly op: "retire" | "delete"
+}
+
 export interface ExtractNames {
 	readonly relationOf: (table: ObjectName) => string | undefined
 	readonly fieldOf: (relation: string, column: string) => string | undefined
 	readonly readsNoTable: (fn: QualifiedFunctionRef) => boolean
-	readonly retirementOf: (fn: QualifiedFunctionRef) => ReadonlyArray<ObjectName> | undefined
+	readonly retirementOf: (fn: QualifiedFunctionRef) => ReadonlyArray<RetiredTable> | undefined
 	readonly arbitersOf: (relation: string) => ReadonlyArray<ReadonlyArray<string>>
 }
 
@@ -1257,7 +1264,8 @@ export class Walk<Top extends Arrival> {
 
 	/**
 	 * An expression's reads: a sublink's query, a call of a function that may read tables as an opaque read, and a call of
-	 * a retirable unit's retirement as its unit's writes by a retirement, each relation once whatever sites call it.
+	 * a retirable unit's retirement as its unit's writes by a retirement and its released records' by a deletion, each
+	 * relation once whatever sites call it.
 	 */
 	expr(e: Expr, c: Context<Top>): void {
 		if (e.kind === "exists") {
@@ -1272,14 +1280,13 @@ export class Walk<Top extends Arrival> {
 		if (e.kind === "call" && e.fn.kind === "qualified") {
 			const retired = this.#statement.names.retirementOf(e.fn)
 			if (retired !== undefined) {
-				for (const table of retired) {
+				for (const { table, op } of retired) {
 					if (
 						!this.#statement.writes.some(
-							(w) =>
-								w.op === "retire" && w.table.schema === table.schema && w.table.name === table.name
+							(w) => w.op === op && w.table.schema === table.schema && w.table.name === table.name
 						)
 					) {
-						this.#statement.writes.push({ table, op: "retire" })
+						this.#statement.writes.push({ table, op })
 					}
 				}
 			} else if (!this.#statement.names.readsNoTable(e.fn)) {

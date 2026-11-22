@@ -24,6 +24,7 @@ import {
 import type { LawField } from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
+import { releasesOf } from "#compiler/schema/own.ts"
 import { memberFamilies } from "#compiler/write/family/statements.ts"
 import type { WriteFrontend } from "#compiler/write/frontend/compile.ts"
 import { familyNodeRelations } from "#compiler/write/frontend/schedule.ts"
@@ -45,14 +46,16 @@ export const storedReads = (
 
 /**
  * A retirable unit as a write holds it (schema/own.ts, the retirable statement): its header, its key's fields in key
- * order, which type the hold function's arrays (physical/ddl/retire.ts), its retirement field, and each body relation
- * with its group, in the key's order.
+ * order, which type the hold function's arrays (physical/ddl/retire.ts), its retirement field, each body relation
+ * with its group, in the key's order, and each relation of the reachable records its retirement releases, in the order
+ * its counts hold them (schema/own.ts releasesOf, each statement's records in their order, their root first).
  */
 export interface WriteUnit {
 	readonly header: StoredRelationName
 	readonly key: NonEmptyReadonlyArray<LawField>
 	readonly lifecycle: string
 	readonly bodies: ReadonlyMap<string, NonEmptyReadonlyArray<GroupField>>
+	readonly released: ReadonlyArray<string>
 }
 
 /** A field of a body that names one field of its header's key, `key`; or of the header, that key field itself. */
@@ -189,7 +192,10 @@ const unitPlaces = (frontend: WriteFrontend): ReadonlyMap<string, UnitPlace> => 
 					] as const
 			)
 		)
-		const unit: WriteUnit = { header: header.name, key, lifecycle: s.lifecycle, bodies }
+		const released = releasesOf(frontend.schema.owned.statements, [...bodies.keys()]).flatMap((r) =>
+			r.target.map((side) => side.relation)
+		)
+		const unit: WriteUnit = { header: header.name, key, lifecycle: s.lifecycle, bodies, released }
 		places.set(header.name, {
 			kind: "header",
 			relation: header.name,
@@ -357,8 +363,64 @@ export const heldUnits = (frontend: WriteFrontend): ReadonlyArray<HeldUnit> => {
 	}
 	/** The headers of the units the write retires, which no other member or read-back of it touches. */
 	const retired = new Set(retiredUnits(frontend).map((r) => r.unit.header))
+	/** Each relation of the reachable records a unit the write retires releases, with that unit's header: no other
+	 * member or read-back of the write touches it either. */
+	const releasedBy = new Map<string, string>()
+	for (const place of places.values()) {
+		if (place.kind === "header" && retired.has(place.unit.header)) {
+			for (const relation of place.unit.released) {
+				releasedBy.set(relation, place.unit.header)
+			}
+		}
+	}
 	const gathered = new Gathered()
 	const changeSet = SourceLoc("ChangeSet", [])
+	/** A touch at `at` of `relation`, refused as RetiredUnitTouched where a unit the write retires releases it. */
+	const releaseTouched = (
+		at: SourceLoc,
+		relation: string,
+		how: "written" | "read" | "delta"
+	): void => {
+		const header = releasedBy.get(relation)
+		if (header !== undefined) {
+			throw new Refusal(
+				CompileError.make({ _tag: "RetiredUnitTouched", at, relation, header, how })
+			)
+		}
+	}
+	/** The first relation `query` reads, through its imports, that a unit the write retires releases. */
+	const definitionReleased = (query: QueryDesc): string | undefined => {
+		if (releasedBy.size === 0) {
+			return undefined
+		}
+		const found: Array<string> = []
+		const source = (s: SourceDesc): void => {
+			if (s.kind === "query") {
+				walk(s.query)
+			} else if (s.kind === "relation" && releasedBy.has(s.name)) {
+				found.push(s.name)
+			}
+		}
+		const walk = (q: QueryDesc): void => {
+			stageRules(q.stage, (r) => {
+				for (const m of r.matches) {
+					source(m.source)
+				}
+				for (const e of [...r.where, ...Object.values(r.head)]) {
+					filters(e, source)
+				}
+			})
+		}
+		walk(query)
+		return found[0]
+	}
+	/** A read at `at` of the query `query` through which the write reads, refused where it reads released records. */
+	const readThrough = (at: SourceLoc, query: QueryDesc): void => {
+		const relation = definitionReleased(query)
+		if (relation !== undefined) {
+			releaseTouched(at, relation, "read")
+		}
+	}
 	/** A touch at `at` of `place`, written or read, refused as RetiredUnitTouched where the write retires its unit. */
 	const touched = (at: SourceLoc, place: UnitPlace, how: "written" | "read" | "delta"): void => {
 		if (retired.has(place.unit.header)) {
@@ -459,6 +521,7 @@ export const heldUnits = (frontend: WriteFrontend): ReadonlyArray<HeldUnit> => {
 		pinned: ReadonlyMap<string, string>
 	): void => {
 		if (s.kind === "query") {
+			readThrough(at, s.query)
 			const touch = definitionTouch(s.query)
 			if (touch !== undefined) {
 				refuse(at, touch, { kind: "derived", through: "an imported query" })
@@ -468,6 +531,9 @@ export const heldUnits = (frontend: WriteFrontend): ReadonlyArray<HeldUnit> => {
 		if (s.kind === "delta") {
 			const read = resolved(s.relation)
 			const relation = read.kind === "base" ? read.relation : writtenBy(s.relation)?.relation
+			if (relation !== undefined) {
+				releaseTouched(at, relation, "delta")
+			}
 			const place = relation === undefined ? undefined : places.get(relation)
 			if (place !== undefined) {
 				touched(at, place, "delta")
@@ -479,11 +545,16 @@ export const heldUnits = (frontend: WriteFrontend): ReadonlyArray<HeldUnit> => {
 		}
 		const read = resolved(s.name)
 		if (read.kind === "through") {
+			const entry = world.kind === "role" ? world.role.relations[s.name] : undefined
+			if (entry !== undefined && entry.kind !== "whole") {
+				readThrough(at, entry.query)
+			}
 			if (read.touch !== undefined) {
 				refuse(at, read.touch, { kind: "derived", through: s.name })
 			}
 			return
 		}
+		releaseTouched(at, read.relation, "read")
 		const place = touchOf({ kind: "relation", name: read.relation }, bindings)
 		if (place === undefined) {
 			return
@@ -535,6 +606,9 @@ export const heldUnits = (frontend: WriteFrontend): ReadonlyArray<HeldUnit> => {
 				continue
 			}
 			const written = writtenBy(member.relation)
+			if (written !== undefined) {
+				releaseTouched(member.loc, written.relation, "written")
+			}
 			const place = written === undefined ? undefined : places.get(written.relation)
 			if (place !== undefined) {
 				touched(member.loc, place, "written")
@@ -574,6 +648,7 @@ export const heldUnits = (frontend: WriteFrontend): ReadonlyArray<HeldUnit> => {
 		for (const input of group.inputs) {
 			if (input.kind === "nested") {
 				for (const reached of input.reached.keys()) {
+					releaseTouched(memberAt(relation), reached, "written")
 					const inner = places.get(reached)
 					if (inner?.kind !== "body") {
 						continue
@@ -616,6 +691,7 @@ export const heldUnits = (frontend: WriteFrontend): ReadonlyArray<HeldUnit> => {
 		}
 		for (const { node } of stratum.family) {
 			for (const relation of familyNodeRelations(node)) {
+				releaseTouched(memberAt(relation), relation, "written")
 				const place = places.get(relation)
 				if (place?.kind !== "body") {
 					continue

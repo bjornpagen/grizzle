@@ -840,6 +840,7 @@ const lawsOf = (o: Opened): ReadonlyArray<LawSpec> => {
 			case "fold":
 			case "alternatives":
 			case "retirable":
+			case "reachable":
 				throw new Error(`the schedule model states no meaning for a ${statement.kind} statement`)
 		}
 	})

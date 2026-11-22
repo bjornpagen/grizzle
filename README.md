@@ -2820,7 +2820,9 @@ export const Flows = schema(
   retirement field; a schema that breaks one is refused when it compiles (`MalformedDescription`). A containment into a
   body may come from any relation: a body of the unit carrying the group goes with it, and any other row refuses the
   retirement of a group whose rows it references (below). The header is immutable, no family's, tree's or alternatives
-  statement's relation, and no role's `write` list names it (`RoleRefused`, `writeRetirableHeader`).
+  statement's relation, and no role's `write` list names it (`RoleRefused`, `writeRetirableHeader`). A body may hold
+  reachable records ([Records of a query](#records-of-a-query)): its unit's retirement releases the ones no reference
+  names any more.
 - **The fence.** The statement states, for each body, that its group is one of the header's open groups: a foreign key
   from the body's group into the header's open groups, over columns grizzle generates, whichever adds less to the
   schema: a constant column on each body, referencing the header's key and retirement field, or one column on the
@@ -4126,6 +4128,49 @@ export const Graph = schema.extend(
 	[...kept.rules, retirable(Root, [on(kept, "root")])]
 )
 ```
+
+Records keyed by a row's digest alone are stored once, however many runs found the row, and each run keeps its own
+references to them. `reachable(on(records, ...ownerKey), holders)` declares that such records live while some
+reference names them: each holder is a side over every fact of a retirable unit's body, its fields paired by position
+with the records' whole owner key, and the statement states each holder's containment in the records' root, its one
+spelling. A retirement that removes the last holder row naming a key removes the records' rows at that key, from every
+relation of them, flat or attached, in the retirement's own statement, and its outcome counts each as a `delete` of its
+relation:
+
+```ts
+const shared = records("Lessons", lessonsOf, { digest: sha256 }, ["digest"])
+export const LessonRef = relation("LessonRef", { root: RootId, at: natural, digest: sha256 }, [
+	"root",
+	"at"
+])
+export const Library = schema.extend(
+	[School],
+	"Library",
+	[Root, LessonRef, ...shared.relations],
+	[
+		...shared.rules,
+		retirable(Root, [on(LessonRef, "root")]),
+		reachable(on(shared, "digest"), [on(LessonRef, "digest")])
+	]
+)
+```
+
+- **Only a retirement lets a reference go.** Every holder is a retirable body, and no role's `write` list names one
+  (`RoleRefused`, `writeReachableHolder`), so a holder row goes only by its unit's retirement, which releases what it
+  held. No relation of the records is a unit's header or body, a holder, or another reachable statement's records, and
+  every containment into them comes from the records themselves or is a holder's, which the statement states: another
+  reference would block a release, so declare it a holder instead (`MalformedDescription` when the schema compiles).
+- **The release reads the references.** The retirement's statement takes the keys its retired groups' holder rows
+  name, keeps those any holder row outside its groups still names, every row of another unit's holder among them, and
+  deletes the rest from every relation of the records, each holder's reverse index read once per key. Nothing counts
+  references and nothing sweeps.
+- **Every writer of the records runs SERIALIZABLE.** generate reads a release as the retiring role's deletion of the
+  records, so their inserters and the retirer are certified SERIALIZABLE ([READ COMMITTED writes](#read-committed-writes)).
+  Two retirements of a row's last two holders, or a retirement beside a call that adds a holder of the row, commit one
+  serial order or fail one call with a retryable `transient`: a row stays exactly while a reference to it remains.
+- **A ChangeSet that retires** the unit of a holder touches no relation of the records it releases, by no member,
+  read-back or delta (`RetiredUnitTouched`).
+- **A row no holder ever named** is never released: insert each row beside its reference, in one call.
 
 ## Declared functions
 

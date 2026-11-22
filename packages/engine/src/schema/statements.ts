@@ -69,6 +69,7 @@ import type {
 	OrderedFamily,
 	Pred,
 	Race,
+	Reachable,
 	Retirable,
 	Selection,
 	Side,
@@ -215,7 +216,7 @@ const sideOf = (value: unknown, label: string): SideDesc => {
 	if (ownedDesc(value, "recordsSide") !== undefined) {
 		throw builderRefusal(
 			label,
-			"a side over records is read only as a retirable body: a law over one of their relations takes on(relation, …)"
+			"a side over records is read only as a retirable body or a reachable target: a law over one of their relations takes on(relation, …)"
 		)
 	}
 	throw malformed(label, "a law side built by on(...)")
@@ -763,6 +764,64 @@ export const retirableBuilder = <H, const B extends ReadonlyArray<unknown>>(
 ): Retirable<H, readonly [...B]> => {
 	const desc = admitRetirable(header, bodies)
 	return ownedStatement({ kind: "retirable", header, bodies: frozenTuple<B>(bodies) }, desc)
+}
+
+/**
+ * The admission core of reachable(...): the arguments checked and the statement described.
+ *
+ * reachable(target, holders) is one statement of a schema (ir/desc.ts expandReachable states its containments): its
+ * target a side over records, standing for each of their relations at the fields carrying the owner key fields it
+ * names (recordsSides), their root's first; and each holder a side over every fact of a stored relation, of the
+ * target's width, its terms paired by position with the owner key fields, each holder relation named once. Ownership
+ * holds the target to the whole owner key and each holder to a retirable body (schema/own.ts).
+ */
+const admitReachable = (target: unknown, holders: unknown): StatementDesc => {
+	const sides = ownedDesc(target, "recordsSide")
+	if (sides === undefined) {
+		throw builderRefusal(
+			"reachable",
+			"a reachable target is a side over records, on(records, …their owner's key fields)"
+		)
+	}
+	const [root] = sides
+	const label = `reachable ${root.relation}`
+	if (!isList(holders)) {
+		throw malformed(label, "a list of holder sides built by on(relation, ...fields)")
+	}
+	const holderSides = holders.map((holder, at) => sideOf(holder, `${label} holder ${at}`))
+	const named = new Set<string>()
+	for (const side of holderSides) {
+		const holderLabel = `${label} holder ${side.relation}`
+		if (side.selection.conjuncts.length > 0) {
+			throw builderRefusal(holderLabel, "a holder is every fact of its relation")
+		}
+		if (side.terms.length !== root.terms.length) {
+			throw builderRefusal(holderLabel, "a holder's fields do not match the records' owner key")
+		}
+		if (named.has(side.relation)) {
+			throw builderRefusal(holderLabel, "a reachable statement names each holder once")
+		}
+		named.add(side.relation)
+	}
+	const [first, ...rest] = holderSides
+	if (first === undefined) {
+		throw builderRefusal(label, "a reachable statement is held by at least one holder relation")
+	}
+	return admitted({
+		kind: "reachable",
+		target: sides,
+		holders: Object.freeze([first, ...rest]),
+		loc: builderLoc(label, [root.relation, "reachable"])
+	})
+}
+
+/** The value holds its two inputs, the holder list a frozen copy. */
+export const reachableBuilder = <T, const H extends ReadonlyArray<unknown>>(
+	target: T,
+	holders: H
+): Reachable<T, readonly [...H]> => {
+	const desc = admitReachable(target, holders)
+	return ownedStatement({ kind: "reachable", target, holders: frozenTuple<H>(holders) }, desc)
 }
 
 /**

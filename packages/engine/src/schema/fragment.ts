@@ -32,6 +32,8 @@ const decidedRelations = (s: StatementDesc): ReadonlyArray<string> => {
 			return [s.family.owner, s.step.relation, s.end.relation]
 		case "retirable":
 			return [s.header.relation, ...s.bodies.map((b) => b.relation)]
+		case "reachable":
+			return [...s.target.map((t) => t.relation), ...s.holders.map((h) => h.relation)]
 		case "check":
 		case "contained":
 		case "alternatives":

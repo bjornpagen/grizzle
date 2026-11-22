@@ -122,12 +122,12 @@ export interface HoldResult {
 }
 
 /** A retirable unit's retirement of the groups a stratum's retire members state (write/hold/statement.ts), by its
- * header: its one row is its counts, one bigint array, the groups it retired, then each of `bodies`' rows it removed,
- * in that order. */
+ * header: its one row is its counts, one bigint array, the groups it retired, then each of `removed`' rows it removed,
+ * its bodies' then the released records' relations' (write/hold/stated.ts WriteUnit), in that order. */
 export interface RetireResult {
 	readonly kind: "retire"
 	readonly header: StoredRelationName
-	readonly bodies: ReadonlyArray<StoredRelationName>
+	readonly removed: ReadonlyArray<StoredRelationName>
 }
 
 /** The admission of a write's caller parameters (write/admission/statement.ts), first in its flight; its row carries

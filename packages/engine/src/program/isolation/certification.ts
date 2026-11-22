@@ -20,7 +20,11 @@ import { triggerLawsOver } from "#compiler/laws/model/model.ts"
 import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
 import { checkedRole, grantedPrivileges, readableRelations } from "#compiler/physical/ddl/roles.ts"
 import type { ParamSource } from "#compiler/physical/install/plan.ts"
-import { type ExtractNames, memberFacts } from "#compiler/program/isolation/extract.ts"
+import {
+	type ExtractNames,
+	memberFacts,
+	type RetiredTable
+} from "#compiler/program/isolation/extract.ts"
 import { isolationInput, type RoleSource } from "#compiler/program/isolation/input.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import {
@@ -30,6 +34,7 @@ import {
 	serializableChanges
 } from "#compiler/program/workload/change.ts"
 import { reachOf } from "#compiler/runtime/write/steps.ts"
+import { releasesOf } from "#compiler/schema/own.ts"
 import type { LockTable, ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
 import { emitText } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
@@ -151,15 +156,28 @@ const extractNames = (role: RoleChanges): ExtractNames => {
 			}
 		}
 	}
-	const retirements = new TupleMap<readonly [string, string], ReadonlyArray<ObjectName>>()
+	const retirements = new TupleMap<readonly [string, string], ReadonlyArray<RetiredTable>>()
 	for (const st of owned.base.statements) {
-		if (st.kind === "retirable") {
-			const fn = names.retire(st.header.relation)
-			retirements.set(
-				[fn.schema, fn.name],
-				[st.header.relation, ...st.bodies.map((b) => b.relation)].map((r) => names.relation(r))
-			)
+		if (st.kind !== "retirable") {
+			continue
 		}
+		const fn = names.retire(st.header.relation)
+		const bodies = st.bodies.map((b) => b.relation)
+		retirements.set(
+			[fn.schema, fn.name],
+			[
+				...[st.header.relation, ...bodies].map((r): RetiredTable => ({
+					table: names.relation(r),
+					op: "retire"
+				})),
+				...releasesOf(owned.base.statements, bodies).flatMap((r) =>
+					r.target.map((side): RetiredTable => ({
+						table: names.relation(side.relation),
+						op: "delete"
+					}))
+				)
+			]
+		)
 	}
 	const arbiters = new Map<string, Array<ReadonlyArray<string>>>()
 	for (const { object } of artifacts.laws.natives) {

@@ -648,6 +648,7 @@ export type Statement =
 	| MirrorsBase
 	| AlternativesBase
 	| RetirableBase
+	| ReachableBase
 	| AnyFamily
 	| Fold<unknown, unknown, unknown, unknown>
 
@@ -881,6 +882,22 @@ export interface Retirable<H, B> {
 
 /** Any retirable statement: Retirable is covariant in what it names. */
 export type RetirableBase = Retirable<unknown, unknown>
+
+/**
+ * A reachable statement: one statement of a schema whose target T, a side over records at their whole owner key,
+ * stands for each of their relations, and whose holders H, sides over every fact of retirable bodies, name a key of the
+ * records each, paired by position with the owner key. Each holder is contained in the records' root, and the records at
+ * a key live while some holder names it: a retirement that removes the last one removes the records' rows at that key
+ * from every relation of them, in its own statement (ir/desc.ts expandReachable states the containments).
+ */
+export interface Reachable<T, H> {
+	readonly kind: "reachable"
+	readonly target: T
+	readonly holders: H
+}
+
+/** Any reachable statement: Reachable is covariant in what it names. */
+export type ReachableBase = Reachable<unknown, unknown>
 
 /** Any alternatives law: Alternatives is covariant in what it names. */
 export type AlternativesBase = Alternatives<unknown, string, unknown, unknown>

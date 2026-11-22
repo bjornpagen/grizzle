@@ -391,7 +391,7 @@ export type OwnedStatement =
 	  })
 	| Extract<
 			StatementDesc,
-			{ readonly kind: "family" | "tree" | "fold" | "alternatives" | "retirable" }
+			{ readonly kind: "family" | "tree" | "fold" | "alternatives" | "retirable" | "reachable" }
 	  >
 
 /**
@@ -482,6 +482,22 @@ function failWith(reason: CompileReason): never {
 /** A retirable statement as ownership admitted it. */
 type OwnedUnit = Extract<OwnedStatement, { readonly kind: "retirable" }>
 
+/** A reachable statement as ownership admitted it. */
+export type OwnedReachable = Extract<OwnedStatement, { readonly kind: "reachable" }>
+
+/**
+ * The reachable statements whose records a retirement of a unit with the bodies `bodies` releases, in statement order:
+ * each held by one of them at least. Its release (physical/ddl/retire.ts) and its counts (write/hold/stated.ts
+ * WriteUnit `released`) read this one order.
+ */
+export const releasesOf = (
+	statements: ReadonlyArray<OwnedStatement>,
+	bodies: ReadonlyArray<string>
+): ReadonlyArray<OwnedReachable> =>
+	statements.flatMap((s) =>
+		s.kind === "reachable" && s.holders.some((h) => bodies.includes(h.relation)) ? [s] : []
+	)
+
 /**
  * The unit a relation belongs to, by its name: as the header of `unit`, or as one of its bodies, grouped by `group`,
  * the body's fields paired by position with the header's key.
@@ -523,6 +539,17 @@ const selectionFields = (selection: SelectionDesc): ReadonlySet<string> =>
  *   (physical/ddl/retire.ts), until they go;
  * - no statement but its unit's reads a retirement field: its value is its group's state, which the unit's fence alone
  *   reads.
+ *
+ * And the rules every reachable statement keeps, so that a retirement releases exactly the records no holder names
+ * any more, whole (physical/ddl/retire.ts):
+ *
+ * - every holder is a body of a retirable unit, whose rows only its unit's retirement removes, so a holder's fact goes
+ *   only where a retirement can release what it named;
+ * - no relation of its records is a unit's header or body, a holder, or another reachable statement's records, so a
+ *   row of them goes only by a release;
+ * - every containment into a relation of its records comes from one of them, but its holders', which the statement
+ *   states itself, and a family, a fold or an alternatives statement over one of them is over them alone, so a
+ *   release removes every row that names a row it removes and no law over them reads a row it leaves.
  */
 const checkUnits = (
 	statements: ReadonlyArray<OwnedStatement>,
@@ -598,10 +625,57 @@ const checkUnits = (
 	}
 	const refuse = (st: OwnedStatement, why: string): never =>
 		fail("MalformedDescription", st.loc, `${ownedLabel(st)} ${why}`)
+	const released = new Map<string, OwnedReachable>()
+	const holders = new Set(
+		statements.flatMap((st) => (st.kind === "reachable" ? st.holders.map((h) => h.relation) : []))
+	)
+	for (const st of statements) {
+		if (st.kind !== "reachable") {
+			continue
+		}
+		for (const holder of st.holders) {
+			if (roles.get(holder.relation)?.kind !== "body") {
+				refuse(
+					st,
+					`held by bodies of retirable units, whose rows only a retirement removes; ${holder.relation} is no unit's body`
+				)
+			}
+		}
+		for (const side of st.target) {
+			if (roles.has(side.relation) || holders.has(side.relation)) {
+				refuse(
+					st,
+					`over records no retirable unit and no holder names; ${side.relation} is a unit's or a holder`
+				)
+			}
+			const prior = released.get(side.relation)
+			if (prior !== undefined && prior !== st) {
+				refuse(
+					st,
+					`over records no other reachable statement releases; ${side.relation} is in ${ownedLabel(prior)} too`
+				)
+			}
+			released.set(side.relation, st)
+		}
+	}
+	/** Whether `named` lie all within one reachable statement's records or all outside every one's. */
+	const apart = (named: ReadonlyArray<string>): boolean => {
+		const [first, ...rest] = named.map((r) => released.get(r))
+		return rest.every((st) => st === first)
+	}
+	const outsideRecords = (st: OwnedStatement, named: ReadonlyArray<string>): void => {
+		if (!apart(named)) {
+			refuse(
+				st,
+				"over the relations of reachable records alone or over none of them: a release removes their rows together"
+			)
+		}
+	}
 	for (const st of statements) {
 		switch (st.kind) {
 			case "retirable":
 			case "race":
+			case "reachable":
 				continue
 			case "mutable":
 				if (roles.get(st.relation)?.kind === "header") {
@@ -627,6 +701,13 @@ const checkUnits = (
 				if (readsLifecycle(left) || readsLifecycle(right)) {
 					refuse(st, "reading no retirement field: its group's state is its unit's to read")
 				}
+				const into = released.get(st.right.relation)
+				if (into !== undefined && released.get(st.left.relation) !== into) {
+					refuse(
+						st,
+						`into reachable records from a relation of them alone: ${st.left.relation} holds rows of ${st.right.relation} only as a holder of ${ownedLabel(into)}`
+					)
+				}
 				continue
 			}
 			case "tree":
@@ -640,6 +721,7 @@ const checkUnits = (
 				if (owner?.kind === "header" || member?.kind === "header") {
 					refuse(st, "over no retirable header: a header's row is kept for good")
 				}
+				outsideRecords(st, [st.slots.owner, st.member.relation])
 				if (owner?.kind === "body") {
 					const ownerRelation = relations[st.slots.owner]
 					const primaryKey: ReadonlyArray<string> =
@@ -662,11 +744,13 @@ const checkUnits = (
 				continue
 			}
 			case "fold":
+				outsideRecords(st, [st.family.owner, st.step.relation, st.end.relation])
 				continue
 			case "alternatives":
 				if (roles.has(st.parent.relation) || st.arms.some((a) => roles.has(a.arm.relation))) {
 					refuse(st, "over relations no retirable statement names")
 				}
+				outsideRecords(st, [st.parent.relation, ...st.arms.map((a) => a.arm.relation)])
 				continue
 		}
 	}
@@ -1026,6 +1110,16 @@ const canonicalizer = (): Canonicalizer => {
 				const form: StatementDesc = Object.freeze({ ...s, bodies })
 				return asIs(form)
 			}
+			case "reachable": {
+				const [first, ...rest] = s.holders.toSorted((a, b) =>
+					compareStrings(a.relation, b.relation)
+				)
+				if (first === undefined) {
+					return asIs(s)
+				}
+				const holders: NonEmptyReadonlyArray<SideDesc> = [first, ...rest]
+				return asIs(Object.freeze({ ...s, holders }))
+			}
 		}
 	}
 
@@ -1092,6 +1186,8 @@ export const statementLabel = (s: StatementDesc): string => {
 			return `alternatives ${s.parent.relation}.${s.discriminator}`
 		case "retirable":
 			return `retirable ${s.header.relation}`
+		case "reachable":
+			return `reachable ${s.target[0].relation}`
 	}
 }
 
@@ -2046,6 +2142,8 @@ class Owner {
 				return reach([d.parent.relation, ...d.arms.map((a) => a.arm.relation)])
 			case "retirable":
 				return reach([d.header.relation, ...d.bodies.map((b) => b.relation)])
+			case "reachable":
+				return reach([...d.target.map((t) => t.relation), ...d.holders.map((h) => h.relation)])
 		}
 	}
 
@@ -2281,6 +2379,46 @@ class Owner {
 						)
 					}
 					pairSides(body, open, s)
+				}
+				return d
+			}
+			case "reachable": {
+				const [root] = d.target
+				const records = this.#ordinary(root.relation, s, "is no reachable records' root")
+				const rootKey = candidateKeyFields(root)
+				if (
+					rootKey === undefined ||
+					rootKey.length !== records.desc.primaryKey.length ||
+					rootKey.some((field, at) => records.desc.primaryKey[at] !== field)
+				) {
+					fail(
+						"MalformedDescription",
+						s.desc.loc,
+						`${statementLabel(d)} over its records' whole owner key, the primary key of ${root.relation} in its order`
+					)
+				}
+				for (const side of d.target) {
+					this.#ordinary(side.relation, s, "is no relation of reachable records")
+					this.#checkSide(side, s)
+					if (candidateKeyFields(side) === undefined || side.terms.length !== root.terms.length) {
+						fail(
+							"MalformedDescription",
+							s.desc.loc,
+							`${statementLabel(d)} over every fact of each relation of its records, at the fields carrying their owner's key`
+						)
+					}
+				}
+				for (const holder of d.holders) {
+					this.#ordinary(holder.relation, s, "is no reachable holder")
+					this.#checkSide(holder, s)
+					if (candidateKeyFields(holder) === undefined) {
+						fail(
+							"MalformedDescription",
+							s.desc.loc,
+							`${statementLabel(d)} held by every fact of ${holder.relation}, at fields alone, no pred term or selection`
+						)
+					}
+					pairSides(holder, root, s)
 				}
 				return d
 			}
@@ -2973,6 +3111,13 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 		for (const s of base.statements) {
 			if (s.kind === "retirable" && targets.has(s.header.relation)) {
 				broken(desc.loc, { kind: "writeRetirableHeader", relation: s.header.relation })
+			}
+			if (s.kind === "reachable") {
+				for (const holder of s.holders) {
+					if (targets.has(holder.relation)) {
+						broken(desc.loc, { kind: "writeReachableHolder", relation: holder.relation })
+					}
+				}
 			}
 		}
 	}

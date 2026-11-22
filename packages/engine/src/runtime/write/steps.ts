@@ -107,15 +107,16 @@ export interface HoldStep {
 /**
  * A retirable unit's retirement of the groups a stratum's retire members state (write/hold/statement.ts), by its
  * header: its one row is its counts (RetireResult), the groups it retired, which the outcome counts as puts of the
- * header, each header's fact at its key now a retired one, then each of `bodies`' rows it removed with their groups,
- * which it counts as deletes (outcome.ts retiredCounts). No other statement of the write reads or writes the unit
+ * header, each header's fact at its key now a retired one, then each of `removed`' rows it removed, its bodies' rows
+ * with their groups and then each relation's of the reachable records it released, which it counts as deletes
+ * (outcome.ts retiredCounts). No other statement of the write reads or writes the unit or those records
  * (RetiredUnitTouched), so its rows are no delta's.
  */
 export interface RetireStep {
 	readonly kind: "retire"
 	readonly stratum: StratumAt
 	readonly header: StoredRelationName
-	readonly bodies: ReadonlyArray<StoredRelationName>
+	readonly removed: ReadonlyArray<StoredRelationName>
 }
 
 /**

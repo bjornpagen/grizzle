@@ -297,7 +297,7 @@ const refusalsOf = (role: LayerRole): ServedRefusals => {
 				...Arr.flatMap(writes, (write) => Arr.map(write.frontend.written, (r) => r.name)),
 				...Arr.flatMap(writes, (write) =>
 					Arr.flatMap(write.artifact.statements, (s) =>
-						s.step.kind === "retire" ? [s.step.header, ...s.step.bodies] : []
+						s.step.kind === "retire" ? [s.step.header, ...s.step.removed] : []
 					)
 				)
 			]),

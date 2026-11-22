@@ -343,6 +343,8 @@ const statementNames = (desc: StatementDesc): ReadonlyArray<string> => {
 			return [desc.parent.relation, desc.roster, ...desc.arms.map((a) => a.arm.relation)]
 		case "retirable":
 			return [desc.header.relation, ...desc.bodies.map((b) => b.relation)]
+		case "reachable":
+			return [...desc.target.map((t) => t.relation), ...desc.holders.map((h) => h.relation)]
 	}
 }
 

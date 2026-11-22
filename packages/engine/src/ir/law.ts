@@ -342,6 +342,7 @@ export interface LawSource {
 		| "fold"
 		| "alternatives"
 		| "retirable"
+		| "reachable"
 	readonly statement: number
 }
 

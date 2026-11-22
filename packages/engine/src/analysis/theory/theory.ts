@@ -102,6 +102,8 @@ const containmentPairing = (source: LawSource): Refused => {
 			return "the arm's key does not match the parent key"
 		case "retirable":
 			return "a body's group does not match the header key"
+		case "reachable":
+			return "a holder's fields do not match the records' owner key"
 		case "relation":
 		case "key":
 		case "contract":

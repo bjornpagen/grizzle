@@ -50,9 +50,10 @@ const internal = (purpose: string) => ({ kind: "internal", purpose }) as const
  * in key order, FOR KEY SHARE, until the transaction ends, so no retirement of a group the write states commits while it
  * runs, and refuses a group whose header is absent or retired on the fence of the unit's first body, as the refusal
  * function raises a law (write/refusal.ts); its one row carries nothing to decode. The retirement locks the open header
- * of each FOR UPDATE, so it waits for every call that holds one, then removes the groups' rows and sets their headers'
- * retirement field, and its one row is its counts, the groups it retired, then each body's rows it removed, in body
- * order, one bigint array (RetireResult). A write that states no group touches nothing: array_agg over no row is NULL,
+ * of each FOR UPDATE, so it waits for every call that holds one, then removes the groups' rows, releases the reachable
+ * records no holder names any more and sets their headers' retirement field, and its one row is its counts, the groups
+ * it retired, then each body's rows it removed, in body order, then each released relation's, one bigint array
+ * (RetireResult). A write that states no group touches nothing: array_agg over no row is NULL,
  * which each function reads as no group, and a retirement of none counts nothing.
  */
 const buildUnitCall = <R extends HoldResult | RetireResult>(
@@ -136,6 +137,6 @@ export const buildRetire = (w: WriteContext, retired: RetiredUnit): WriteStateme
 		result: {
 			kind: "retire",
 			header: retired.unit.header,
-			bodies: [...retired.unit.bodies.keys()].map(StoredRelationName)
+			removed: [...retired.unit.bodies.keys(), ...retired.unit.released].map(StoredRelationName)
 		}
 	})

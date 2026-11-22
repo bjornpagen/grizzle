@@ -129,7 +129,9 @@ export const NAMES: ExtractNames = {
 		relation === "W" || relation === "R" || relation === "S" ? FIELDS.get(column) : undefined,
 	readsNoTable: (fn) => fn.schema === "app" && fn.name === NO_TABLE,
 	retirementOf: (fn) =>
-		fn.schema === "app" && fn.name === RETIRES ? Arr.map(RETIRED, (rel) => TABLES[rel]) : undefined,
+		fn.schema === "app" && fn.name === RETIRES
+			? Arr.map(RETIRED, (rel) => ({ table: TABLES[rel], op: "retire" }) as const)
+			: undefined,
 	arbitersOf: (relation) =>
 		relation === "W" || relation === "R" || relation === "S" ? ARBITERS : []
 }

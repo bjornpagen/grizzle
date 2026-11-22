@@ -81,6 +81,7 @@ import {
 	everyFact,
 	exprChildren,
 	expandAlternatives,
+	expandReachable,
 	expandRetirable,
 	type FieldDesc,
 	type InferredExpr,
@@ -1367,6 +1368,17 @@ export class Normalizer {
 				}
 				return
 			}
+			case "reachable":
+				for (const c of expandReachable(s)) {
+					this.containment(
+						scopeOf(c.left),
+						scopeOf(c.right),
+						pairedTerms(c.left, c.right, loc),
+						{ statement: index, kind: "reachable" },
+						loc
+					)
+				}
+				return
 			case "family":
 				this.#family(s, index)
 				return

@@ -1073,6 +1073,24 @@ const statedOf = (
 				? [{ from: member.name, to: owner.name, pairs, selection: [] }]
 				: []
 		}
+		case "reachable": {
+			const [root] = s.target
+			return stored(root.relation) === undefined || !held(root.relation)
+				? []
+				: s.holders.flatMap((holder): ReadonlyArray<FieldContainment> => {
+						const pairs = holder.terms.flatMap((t, at) => {
+							const key = root.terms[at]
+							return t.kind === "field" && key?.kind === "field"
+								? [{ from: t.field, to: key.field }]
+								: []
+						})
+						return stored(holder.relation) !== undefined &&
+							isNonEmpty(pairs) &&
+							pairs.length === holder.terms.length
+							? [{ from: holder.relation, to: root.relation, pairs, selection: [] }]
+							: []
+					})
+		}
 		case "key":
 		case "mutable":
 		case "race":

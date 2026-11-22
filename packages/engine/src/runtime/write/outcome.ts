@@ -249,9 +249,10 @@ const insertedCounts = (
 
 /**
  * What a write's retirements changed, by relation (RetireStep): each a unit's, its row its counts, one bigint array
- * PostgreSQL printed, the groups it retired, then each body's rows it removed, in body order. A group retired is a put
- * of its header, the header's fact at its key now a retired one, and a body row it removed a delete. No other statement
- * of the write reads or writes a retired unit (RetiredUnitTouched), so its counts are no stratum's to net. The text is
+ * PostgreSQL printed, the groups it retired, then each relation's rows it removed, its bodies' in body order, then the
+ * reachable records' it released. A group retired is a put of its header, the header's fact at its key now a retired
+ * one, and a row it removed a delete of its relation. No other statement of the write reads or writes a retired unit or
+ * the records it releases (RetiredUnitTouched), so its counts are no stratum's to net. The text is
  * PostgreSQL's own output, its integers' decimal digits, converted without a check.
  */
 const retiredCounts = (
@@ -277,10 +278,10 @@ const retiredCounts = (
 		)
 		const [groups, ...removed] = text.slice(1, -1).split(",").map(BigInt)
 		add(step.header, { ...noCounts, put: defined(groups, "the count of the groups retired") })
-		step.bodies.forEach((body, at) => {
-			add(body, {
+		step.removed.forEach((relation, at) => {
+			add(relation, {
 				...noCounts,
-				deleted: defined(removed[at], `the count of ${body}'s rows removed`)
+				deleted: defined(removed[at], `the count of ${relation}'s rows removed`)
 			})
 		})
 	}
