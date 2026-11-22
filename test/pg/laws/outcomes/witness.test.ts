@@ -150,9 +150,24 @@ export const statementTimeNativeViolationsAreRaisedUnderTheirLawsConstraintAndAS
 				reason:
 					"qti-pie's shape: one pattern source in two relations, Club's code and Member's code, one domain PostgreSQL names alike; a member's code past it is refused by Member's code's law, never Club's",
 				since: "2026-11-19"
+			},
+			{
+				token: ReplayToken(
+					"test/pg/laws/outcomes/witness.test.ts#statementTimeNativeViolationsAreRaisedUnderTheirLawsConstraintAndAServedWriteReportsTheLaw:7f.0:0.0.0.0.0.0.0.0.0"
+				),
+				reason:
+					"a member who is no captain, of the stored club whose captain holds the club's code, at the stored captain's email: the email key refuses it, never the captain key, whose guard the member is outside (trunk red at f1bf91a2f, seed 2219874524)",
+				since: "2026-11-22"
 			}
 		],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/write/probe.ts",
+				original: "\t\t() => withinRow(w.cx, u, (f) => col(rows, column(f)))",
+				replacement: "\t\t() => []",
+				why: "A met row at SERIALIZABLE is classed at a guarded key wherever a stored row inside its guards agrees with it at the key's fields, its own guards unread: a member who is no captain, refused by the email key, is classed at the captain key, which comes first, and the served write names the captain key's law."
+			}
+		]
 	})
 
 /**

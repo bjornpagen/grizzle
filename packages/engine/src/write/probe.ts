@@ -310,7 +310,8 @@ export const storedAt = (
 }
 
 /** Where a met row of the `metRows` source `rows` reaches a relation's rows: each column bound to a column of `rows`,
- * and the conditions over the stored row, read under the alias `inner` names, that narrow it further. */
+ * and the conditions over the stored row, read under the alias `inner` names, and over the met row, that narrow it
+ * further. */
 export interface MetAccess {
 	readonly rows: string
 	readonly key: ReadonlyArray<MetKey>
@@ -320,8 +321,9 @@ export interface MetAccess {
 
 /**
  * Where a met row of `rows`, each field of `relation` its column `column(f)`, conflicts at the unique object `u`: u's
- * compared fields bound to its columns, and over the stored row u's guards and, at a span object, its span overlapping
- * the met row's.
+ * compared fields bound to its columns, over the stored row u's guards and, at a span object, its span overlapping the
+ * met row's, and u's guards over the met row itself. Two rows conflict at u only where both meet its guards: a met row
+ * outside them is held by no row of u, so it met none there, whatever stored row of u agrees with it at u's fields.
  */
 export const metAtObject = (
 	w: WriteContext,
@@ -330,18 +332,21 @@ export const metAtObject = (
 	rows: string,
 	column: (f: LawField) => string
 ): MetAccess =>
-	u.kind === "guarded" && u.reach.kind === "index"
-		? {
-				rows,
-				placed: placedBy(w, relation, u),
-				key: u.reach.columns.map((c) => ({
-					column: nativeName(w, relation, c.column),
-					from: column(c.field),
-					schema: operatorSchemaOf(w.names, rowType(c.field))
-				})),
-				filter: () => []
-			}
-		: metAtFields(w, relation, u, rows, column)
+	metNarrowed(
+		u.kind === "guarded" && u.reach.kind === "index"
+			? {
+					rows,
+					placed: placedBy(w, relation, u),
+					key: u.reach.columns.map((c) => ({
+						column: nativeName(w, relation, c.column),
+						from: column(c.field),
+						schema: operatorSchemaOf(w.names, rowType(c.field))
+					})),
+					filter: () => []
+				}
+			: metAtFields(w, relation, u, rows, column),
+		() => withinRow(w.cx, u, (f) => col(rows, column(f)))
+	)
 
 /** A met row's access at the unique object `u` through its compared fields, its guards and its span over the stored
  * row (metAtObject). */
