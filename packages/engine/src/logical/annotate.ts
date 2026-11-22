@@ -411,7 +411,12 @@ export const orderSubjectOf = (
 ): OrderSubject => ({
 	heading: node.heading,
 	keys: props.keys.filter(admits).map(keyFactors),
-	fixed: [...new Set([...fixed, ...fixedColumns(props)])],
+	/**
+	 * The props' fixed columns break no tie of natively distinct rows. Rows told apart as a set's members alone have no
+	 * key, and a float the analysis fixes may hold both its zeros there, so their order reads every column but those
+	 * constant per evaluation (logical/props.ts Distinctness).
+	 */
+	fixed: props.distinct === "native" ? [...new Set([...fixed, ...fixedColumns(props)])] : fixed,
 	discriminant: props.discriminant,
 	loc: SourceLoc(`node ${node.id}`, [])
 })

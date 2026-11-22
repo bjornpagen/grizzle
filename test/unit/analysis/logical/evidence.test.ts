@@ -84,6 +84,22 @@ export const theLogicalAnalysissClaimsHoldOnTheFactsKeysCardinalityAndDeterminis
 		kept: [
 			{
 				token: ReplayToken(
+					"test/unit/analysis/logical/evidence.test.ts#theLogicalAnalysissClaimsHoldOnTheFactsKeysCardinalityAndDeterminismOverCasesWithLateralSourcesSharedNodesWindowsAndApproximateSearches:-:1.b.0.1.1.0.0.0.0.0.0.0.0.0.0.0.0.8.9.3.1.2.1.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.b.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
+				),
+				reason:
+					"a relation parameter's two facts apart in a float zero's sign alone, natively equal, were claimed to be told apart by its whole heading as a key",
+				since: "2026-11-22"
+			},
+			{
+				token: ReplayToken(
+					"test/unit/analysis/logical/evidence.test.ts#theLogicalAnalysissClaimsHoldOnTheFactsKeysCardinalityAndDeterminismOverCasesWithLateralSourcesSharedNodesWindowsAndApproximateSearches:-:1.b.0.1.2.0.0.0.0.0.0.0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.b.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.5.2.1.3.1.0.0.7.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.2.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
+				),
+				reason:
+					"a region binding a stored relation's float but no key of it read two facts whose floats were the two zeros and was claimed to be told apart by that float as a key",
+				since: "2026-11-22"
+			},
+			{
+				token: ReplayToken(
 					"test/unit/analysis/logical/evidence.test.ts#theLogicalAnalysissClaimsHoldOnTheFactsKeysCardinalityAndDeterminismOverCasesWithLateralSourcesSharedNodesWindowsAndApproximateSearches:-:2.2.0.1.0.1.a.0.0.1.1.0.0.0.0.0.0.0.1.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.2.0.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.c.0.0.0.0.0.0.0.0.0.0.0.0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.0.0.0.0.0.0.0.0.0.1"
 				),
 				reason: "a correlated take over one fact was claimed exactly one row and had none",
@@ -109,6 +125,12 @@ export const theLogicalAnalysissClaimsHoldOnTheFactsKeysCardinalityAndDeterminis
 		kills: [
 			{
 				file: "packages/engine/src/logical/props.ts",
+				original: '\t\treturn reading.occurrences.every(readsOneFact) ? "native" : "members"',
+				replacement: '\t\treturn "native"',
+				why: "A region binding a float of its source but no key of it claims its rows natively distinct (logical/props.ts distinctOf), so two facts whose bound floats are the two zeros give it two natively equal rows under a key; the property fails."
+			},
+			{
+				file: "packages/engine/src/logical/props.ts",
 				original:
 					'\tname.kind !== "outer" || props.outer.get(name.node)?.has(name.column) === true ? name : undefined',
 				replacement: '\tname.kind !== "outer" || props.outer.size >= 0 ? name : undefined',
@@ -126,7 +148,16 @@ export const theLogicalAnalysissClaimsHoldOnTheFactsDeliveredTypesOverCasesRoote
 			"an orphaned containment inside a transaction"
 		],
 		aims: [["an orphaned containment inside a transaction", orphanedCases(attachmentRooted)]],
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/unit/analysis/logical/evidence.test.ts#theLogicalAnalysissClaimsHoldOnTheFactsDeliveredTypesOverCasesRootedAtAttachmentsUnderEveryContext:-:1.b.0.1.1.0.0.0.0.0.0.0.0.0.0.0.5.2.8.8.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.1.9.3.1.2.1.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.b.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.1.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.4.0.0.0.0.0.2.0.0.0.0.0.0.0.0.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
+				),
+				reason:
+					"a relation parameter's two facts apart in a float zero's sign alone, natively equal, were claimed to be told apart by its whole heading as a key",
+				since: "2026-11-22"
+			}
+		],
 		kills: [
 			{
 				file: "packages/engine/src/ir/expr.ts",
@@ -156,6 +187,22 @@ export const theLogicalAnalysissClaimsHoldOnTheFactsBareChildrenAlongDeclaredCon
 		kept: [
 			{
 				token: ReplayToken(
+					"test/unit/analysis/logical/evidence.test.ts#theLogicalAnalysissClaimsHoldOnTheFactsBareChildrenAlongDeclaredContainmentsAndFiltersOverOneFact:-:1.b.1.0.0.2.4.0.0.0.0.4.0.0.0.0.0.0.4.1.1.1.0.0.0.0.0.1.0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.b.0.0.0.0.0.0.0.0.0.0.0.0.0.1.8.3.8.1.2.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.1.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.1.1.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.0.0.1.1.11xc.0.0"
+				),
+				reason:
+					"a projection copying a stored relation's float but no key of it delivered two facts whose floats were the two zeros and was claimed to be told apart by that float as a key",
+				since: "2026-11-22"
+			},
+			{
+				token: ReplayToken(
+					"test/unit/analysis/logical/evidence.test.ts#theLogicalAnalysissClaimsHoldOnTheFactsBareChildrenAlongDeclaredContainmentsAndFiltersOverOneFact:-:1.7.0.1.1.0.0.0.0.0.0.0.0.0.0.0.0.0.3.9.9.1.2.1.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.b.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0"
+				),
+				reason:
+					"a relation parameter's two facts apart in a float zero's sign alone, natively equal, were claimed to be told apart by its whole heading as a key",
+				since: "2026-11-22"
+			},
+			{
+				token: ReplayToken(
 					"test/unit/analysis/logical/evidence.test.ts#theLogicalAnalysissClaimsHoldOnTheFactsBareChildrenAlongDeclaredContainmentsAndFiltersOverOneFact:-:1.6.0.2.1.0.0.0.0.0.0.0.0.3.0.0.0.3.0.0.0.1.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.1.8.1.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.1.f.0.0.0.1.0.1.0.1.0.2.0.0.0.1.0.0.0.0.2.6.0.0.0.0.0.0.0.0.0.0.7.0.3.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.0.2.0.0.0.0.0.0.1.0.1.0.0.0.0.0.1"
 				),
 				reason:
@@ -180,6 +227,18 @@ export const theLogicalAnalysissClaimsHoldOnTheFactsBareChildrenAlongDeclaredCon
 			}
 		],
 		kills: [
+			{
+				file: "packages/engine/src/logical/props.ts",
+				original: '\t\treturn projectsOneRow(reading) ? "native" : "members"',
+				replacement: '\t\treturn "native"',
+				why: "A projection copying a float of its input but no key of it claims its rows natively distinct (logical/props.ts distinctOf), so two input rows whose floats are the two zeros give it two natively equal rows under a key; the property fails."
+			},
+			{
+				file: "packages/engine/src/logical/props.ts",
+				original: '\t\treturn reading.input.kind === "row" ? "native" : "members"',
+				replacement: '\t\treturn "native"',
+				why: "A relation parameter's set claims its rows natively distinct (logical/props.ts distinctOf), so its whole heading is a key though two facts apart in a float zero's sign alone are natively equal; the property fails."
+			},
 			{
 				file: "packages/engine/src/ir/expr.ts",
 				original:

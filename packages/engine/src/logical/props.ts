@@ -17,7 +17,8 @@ import {
 	exprClosure,
 	nativeEqualityKey,
 	type ScalarExpr,
-	type TypedLiteral
+	type TypedLiteral,
+	zeroPeeled
 } from "#compiler/ir/expr.ts"
 import { drive } from "#compiler/ir/fold.ts"
 import { comparedValue } from "#compiler/ir/injective.ts"
@@ -70,6 +71,7 @@ import {
 import {
 	type Card,
 	closedColumn,
+	edgesOf,
 	type Heading,
 	type KeySet,
 	type KindOver,
@@ -81,7 +83,7 @@ import {
 	type ValueRefs
 } from "#compiler/ir/rel.ts"
 
-import { type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
+import { floatCarrierOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import {
 	type Attributes,
 	attributesOver,
@@ -242,6 +244,11 @@ export interface Props {
 	 * several heading groups (`discriminant`) has none.
 	 */
 	readonly whole: () => WholeKey
+	/**
+	 * How the node's rows are told apart (Distinctness): the equality its keys hold under, native, or none for rows told
+	 * apart as a set's members alone.
+	 */
+	readonly distinct: Distinctness
 	readonly card: Card
 	/**
 	 * The stored facts each column of its heading was read from, those read from one or more (provenanceOf): none for a
@@ -1632,10 +1639,101 @@ const classesIn = (
 	return out
 }
 
-/** Whether the whole heading is a key: proved for rows of one heading group, never for rows of several. */
+/**
+ * Whether the whole heading is a key: proved for natively distinct rows of one heading group, never for rows of several,
+ * nor for rows told apart as a set's members alone (Distinctness).
+ */
 export type WholeKey =
 	| { readonly kind: "set"; readonly key: KeyProof }
 	| { readonly kind: "groups" }
+	| { readonly kind: "members" }
+
+/**
+ * How a node's rows are told apart. Every node's rows are a set whose members are told apart by their values, a float's
+ * -0 and +0 two values (scalar/values/identity.ts), which PostgreSQL's equality holds equal. A node's rows are natively
+ * distinct (`native`), no two of them natively equal, unless two may be apart in a float zero's sign alone (`members`):
+ * a relation parameter's facts are delivered as they are (lower/conservative/input-set factSetSelect), so two that differ
+ * in a zero's sign alone are two rows, and so are they where a node keeps them unmerged; a merge reads a float through
+ * its canonical zero (check/merge.ts), and a group keys its rows natively. A key is a key under native equality, which
+ * no set of columns is of rows two of which are natively equal, so a node whose rows are told apart as members alone
+ * claims none.
+ */
+export type Distinctness = "native" | "members"
+
+/**
+ * Whether a column of a node may hold a float's -0 apart from its +0: a float column, but for a projection's output it
+ * delivers through the float's canonical zero (check/merge.ts, ir/expr.ts zeroPeeled), which holds +0 alone.
+ */
+const holdsZeroApart = (node: RelNode): boolean =>
+	node.kind === "ProjectSet"
+		? node.out.some(
+				(o) => floatCarrierOf(o.expr.type) !== undefined && !zeroPeeled(o.expr).canonical
+			)
+		: node.heading.some((c) => floatCarrierOf(c.type) !== undefined)
+
+/**
+ * Whether an occurrence of a region reads one fact of its source for each binding of its variables: its source is
+ * natively distinct and one of the source's keys is among the columns it binds or fixes to a constant, so two facts it
+ * reads differ natively in a variable.
+ */
+const readsOneFact = (occurrence: ReadingOf<"MatchRegion">["occurrences"][number]): boolean => {
+	const read = new Set([
+		...occurrence.bindings.map((b) => b.column),
+		...occurrence.constants.map((k) => k.column)
+	])
+	return (
+		occurrence.source.distinct === "native" &&
+		occurrence.source.keys.some((k) => k.key.every((c) => read.has(c)))
+	)
+}
+
+/**
+ * Whether a projection delivers one row for each row of its input: its input is natively distinct and the outputs
+ * copy one of the input's keys, so two input rows it reads differ natively in an output.
+ */
+const projectsOneRow = (projection: ReadingOf<"ProjectSet">): boolean => {
+	const copied = new Set(
+		projection.out.flatMap((o) => {
+			const column = copiedColumn(o.expr)
+			return column === undefined ? [] : [column]
+		})
+	)
+	return (
+		projection.input.distinct === "native" &&
+		projection.input.keys.some((k) => k.key.every((c) => copied.has(c)))
+	)
+}
+
+/**
+ * How a node's rows are told apart (Distinctness), from its inputs': natively wherever no column of it holds a float's
+ * -0 apart (holdsZeroApart), since two members apart and natively equal hold the two zeros of one float; a relation
+ * parameter's set as its members; a group's natively; a region's natively where each occurrence reads one fact of its
+ * source for each binding (readsOneFact), and as its members where one may read two facts that differ only in columns
+ * it leaves unbound, whose bound floats may then be the two zeros; a projection's likewise, natively where it delivers
+ * one row for each of its input's (projectsOneRow), a float it delivers through the canonical zero aside
+ * (holdsZeroApart); any other node's as members where an input whose rows it reads is, the input whose rows it keeps or,
+ * for any other node, any input.
+ */
+const distinctOf = (node: RelNode, reading: PropsReading): Distinctness => {
+	if (!holdsZeroApart(node)) {
+		return "native"
+	}
+	if (reading.kind === "InputSet") {
+		return reading.input.kind === "row" ? "native" : "members"
+	}
+	if (reading.kind === "Group" || reading.kind === "OrderedSetAggregate") {
+		return "native"
+	}
+	if (reading.kind === "MatchRegion") {
+		return reading.occurrences.every(readsOneFact) ? "native" : "members"
+	}
+	if (reading.kind === "ProjectSet") {
+		return projectsOneRow(reading) ? "native" : "members"
+	}
+	const kept = keptInputOf(reading)
+	const read = kept === undefined ? edgesOf<Props>(reading) : [kept]
+	return read.some((input) => input.distinct === "members") ? "members" : "native"
+}
 
 /** What the closure of a key reaches: the whole heading, or a kept input's key for rows of several heading groups. */
 type Reach =
@@ -1646,7 +1744,7 @@ type Reach =
  * What a node's properties are of: the node, its reading, its inputs' views in their places, and the attachment they
  * are relative to, if any.
  */
-interface Subject extends Pick<Props, "node" | "attachment" | "outer"> {
+interface Subject extends Pick<Props, "node" | "attachment" | "outer" | "distinct"> {
 	readonly reading: PropsReading
 	readonly views: ViewReading
 }
@@ -1656,7 +1754,7 @@ interface Subject extends Pick<Props, "node" | "attachment" | "outer"> {
  * their properties as the node's are built or from their views as a child is revised relative to its parent
  * (relativeProps).
  */
-interface Finished extends Pick<Props, "node" | "attachment" | "outer"> {
+interface Finished extends Pick<Props, "node" | "attachment" | "outer" | "distinct"> {
 	readonly reading: StepsReading
 	readonly views: ViewReading
 }
@@ -2018,20 +2116,24 @@ const finish = (subject: Finished, dependencies: ReadonlyArray<Dependency>, rest
 					reach.inner,
 					membersOf(key)
 				)
+	/** Rows told apart as a set's members alone, two of which may be natively equal, have no key (Distinctness). */
+	const keyed = subject.distinct === "native"
 	const prove = (cs: ReadonlyArray<string>): KeyProof | undefined => {
 		const key = intersect(bitsOf(attributes, cs), heading)
-		const reach = reachOf(key)
+		const reach = keyed ? reachOf(key) : undefined
 		return reach === undefined ? undefined : proofOf(attributeNames(attributes, key), reach)
 	}
 	/** The closure of the whole heading reaches every column of it. */
 	const whole = (): WholeKey =>
-		discriminant.length === 0
-			? {
-					kind: "set",
-					key: proofOf(columns, { kind: "rows", reached: coverOf({ stated }, heading) })
-				}
-			: { kind: "groups" }
-	const keys = keysOf(steps, rest, classes, reachOf, proofOf, membersOf)
+		!keyed
+			? { kind: "members" }
+			: discriminant.length === 0
+				? {
+						kind: "set",
+						key: proofOf(columns, { kind: "rows", reached: coverOf({ stated }, heading) })
+					}
+				: { kind: "groups" }
+	const keys = keyed ? keysOf(steps, rest, classes, reachOf, proofOf, membersOf) : []
 	const atMostOne = keys.some((k) => k.key.length === 0)
 	const nothing = closureOf(table, noBits(attributes))
 	const provenance = provenanceOver(columns, rest.provenance)
@@ -2049,6 +2151,7 @@ const finish = (subject: Finished, dependencies: ReadonlyArray<Dependency>, rest
 		forest,
 		prove,
 		whole,
+		distinct: subject.distinct,
 		card: atMostOne ? (rest.exactlyOne ? "one" : "atMostOne") : "many",
 		provenance,
 		context: rest.context,
@@ -2238,7 +2341,8 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 		reading,
 		views: viewsOf(reading),
 		attachment: undefined,
-		outer: env.scope(node).outer
+		outer: env.scope(node).outer,
+		distinct: distinctOf(node, reading)
 	}
 	const all = node.heading.map((c) => c.name)
 	/**
@@ -3292,7 +3396,8 @@ export const relativeProps = (child: Props, attach: NodeOf<"Attach">): Props =>
 			reading: child.view.reading,
 			views: child.view.reading,
 			attachment: attach,
-			outer: child.outer
+			outer: child.outer,
+			distinct: child.distinct
 		},
 		[
 			...child.stated.rows.map((row) => row.dependency),

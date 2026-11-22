@@ -4,7 +4,10 @@ import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { defined } from "@bjornpagen/testing/assert"
 import { array, boolean, constant, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
+import { conservativeMeta, type RelNode, type ValidDag } from "#compiler/ir/rel.ts"
 import { plainType } from "#compiler/scalar/native.ts"
+import { Ir } from "#test/support/fixtures/ir/build.ts"
+import { workModel } from "#test/support/fixtures/ir/work.ts"
 
 /**
  * The minimal keys a dependency table proves (logical/closure.ts minimalKeys): from the whole heading alone, closed
@@ -208,3 +211,38 @@ export type ForgeFeature =
 
 /** A column no node of the cases has. */
 export const ghost = "ghost"
+
+/**
+ * A relation parameter's facts kept unmerged: optionally a region binding every column of them, then each of `filters`,
+ * a filter where true and a semi-join reading the rows as its left where false.
+ */
+export interface Keeping {
+	readonly region: boolean
+	readonly filters: ReadonlyArray<boolean>
+}
+
+export const keepingGen: Gen<Keeping> = (source) => ({
+	region: source.draw(boolean),
+	filters: source.draw(array(boolean, { min: 1, max: 3 }))
+})
+
+/**
+ * A relation parameter of a double precision column x and an int4 column n, its facts kept unmerged by `keeping`: two of
+ * its facts may differ in x's zero's sign alone, (0, 1) and ('-0', 1), natively equal.
+ */
+export const keptParameterFacts = (keeping: Keeping): ValidDag => {
+	const q = new Ir(workModel())
+	const facts = q.input("facts", [
+		["x", plainType("float8")],
+		["n", int4]
+	])
+	const read = keeping.region
+		? q.region([{ source: facts, bind: { x: "x", n: "n" }, constants: {} }], conservativeMeta)
+		: facts
+	const kept = Arr.reduce(keeping.filters, read, (rows: RelNode, filter) =>
+		filter
+			? q.filter(rows, q.eq(q.col(rows, "n"), q.lit(1, int4)))
+			: q.semi(rows, q.input("probes", [["n", int4]]), [["n", "n"]])
+	)
+	return q.build(kept).dag
+}

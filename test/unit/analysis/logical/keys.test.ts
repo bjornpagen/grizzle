@@ -10,9 +10,12 @@
  *   of the union is closed under them. Oracle: each arm's partition, intersected.
  * - Forged union equalities (test/support/keys/kernel.ts): the key kernel accepts an arms witness only when each
  *   arm's derivation steps by equalities alone. Oracle: that rule.
+ * - A relation parameter's facts kept unmerged (logical/props.ts Distinctness): filters and semi-joins over a parameter
+ *   of a double precision column, or over a region binding every column of it, may hold two facts apart in its zero's
+ *   sign alone, which PostgreSQL's equality holds equal, so they claim no key. Oracle: the specification.
  *
  * Features: one or several minimal keys and a key of several columns; each class shape and projection; each arm's
- * copies and equalities; each forged mapping.
+ * copies and equalities; each forged mapping; each keeping of a parameter's facts.
  */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
@@ -30,7 +33,12 @@ import {
 	projectionCloses
 } from "#compiler/ir/keys.ts"
 import { conservativeMeta, type RelNode } from "#compiler/ir/rel.ts"
-import { analyzeLogical, checkerEvidence, everyNode } from "#compiler/logical/annotate.ts"
+import {
+	analyzeLogical,
+	checkerEvidence,
+	everyNode,
+	keptNodes
+} from "#compiler/logical/annotate.ts"
 import { attributesOver, bitsOf, namesOf } from "#compiler/logical/attributes.ts"
 import { minimalKeys } from "#compiler/logical/closure.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -43,6 +51,8 @@ import {
 	type ForgeFeature,
 	ghost,
 	int4,
+	keepingGen,
+	keptParameterFacts,
 	type KeysFeature,
 	mappingsGen,
 	partition,
@@ -638,6 +648,60 @@ export const theKeyKernelsUnionEqualitiesRefusesAForgedEqualStepWhoseArmsOnlyDet
 				original: "\treturn [head, ...tail, ...rest.flatMap((g) => g.arms)]",
 				replacement: "\treturn [head, ...rest.flatMap((g) => g.arms)]",
 				why: "Operator mutant (element) at packages/engine/src/ir/rel.ts:580 in unionArms: `[head, ...tail, ...rest.flatMap((g) => g.arms)]` becomes `[head, ...rest.flatMap((g) => g.arms)]`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
+	})
+
+type KeepingFeature = "a region binding every column" | "a filter" | "a semi-join"
+
+/**
+ * A node keeping a relation parameter's facts unmerged claims no key where two of them may be apart in a float zero's
+ * sign alone: over a parameter of a double precision column and an int4 column, a chain of one to three filters and
+ * semi-joins reading it as their left, over the parameter or a region binding every column of it, claims no key and many
+ * rows, since (0, 1) and ('-0', 1) are two of its rows that PostgreSQL's equality holds equal.
+ */
+export const aNodeKeepingARelationParametersFactsUnmergedClaimsNoKeyWhereTwoMayBeApartInAFloatZerosSignAlone =
+	property.explore(keepingGen, {
+		needs: {},
+		budget: { runs: 100, steered: 100 },
+		situations: [
+			"a region binding every column",
+			"a filter",
+			"a semi-join"
+		] satisfies ReadonlyArray<Reached<KeepingFeature>>,
+		check: (_, c: Case<KeepingFeature>) => (keeping) =>
+			Effect.sync(() => {
+				if (keeping.region) {
+					c.note("a region binding every column")
+				}
+				for (const filter of keeping.filters) {
+					c.note(filter ? "a filter" : "a semi-join")
+				}
+				const dag = keptParameterFacts(keeping)
+				const root = defined(dag.roots[0], "the keeping node")
+				const analysis = succeeded(analyzeLogical(dag, checkerEvidence, keptNodes([root])))
+				const props = defined(analysis.props.get(root), "the keeping node's properties, kept")
+				assert.deepEqual(props.keys, [], "no key of facts two of which may be natively equal")
+				assert.equal(props.card, "many", "many rows")
+				assert.equal(props.distinct, "members", "rows told apart as members")
+			}),
+		oracle: {
+			kind: "specification",
+			name: "two facts apart in a float zero's sign alone are natively equal, so no key holds of them"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/logical/props.ts",
+				original: '\t\treturn reading.input.kind === "row" ? "native" : "members"',
+				replacement: '\t\treturn "native"',
+				why: "A relation parameter's set claims its rows natively distinct (logical/props.ts distinctOf); every keeping of it claims a key."
+			},
+			{
+				file: "packages/engine/src/logical/props.ts",
+				original: "\tconst read = kept === undefined ? edgesOf<Props>(reading) : [kept]",
+				replacement: "\tconst read: ReadonlyArray<Props> = []",
+				why: "A node keeping a relation parameter's facts claims its rows natively distinct (logical/props.ts distinctOf); a filter or a semi-join over them claims a key."
 			}
 		]
 	})
