@@ -234,7 +234,7 @@ export const plannedStatements = (
 		if (
 			text !== prologue.fence.text.sql &&
 			text !== prologue.enter.text.sql &&
-			!regex("^\\s*CREATE\\b", "i").test(text) &&
+			!regex("^\\s*(?:CREATE|DO)\\b", "i").test(text) &&
 			!regex("^\\s*ANALYZE\\b", "i").test(text)
 		) {
 			out.push({ name: bound, text })

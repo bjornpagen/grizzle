@@ -31,8 +31,8 @@ import type { ServedTables } from "#compiler/plan/serve.ts"
  *
  * Each planned statement is sent as its EXPLAIN, PostgreSQL's unnamed statement over the served statement's text
  * (sql/emit.ts explainOf), with the parameters the application binds to the named prepared statement, and is reported
- * under that statement's name. A carrier's CREATE TEMPORARY TABLE, which has no plan, runs as the application runs
- * it, so every statement after it plans against the carrier.
+ * under that statement's name. A carrier's stand-up (sql/print.ts carrierStandUp), a DO block that creates or empties
+ * it and has no plan, runs as the application runs it, so every statement after it plans against the carrier.
  */
 
 /** One statement an explain sends: planned, for the served statement it names, or run as it is, with what it does. */
