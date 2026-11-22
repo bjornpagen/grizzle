@@ -34,6 +34,7 @@ import { ieeeForm } from "#compiler/lower/conservative/expr/total.ts"
 import { libraryIdentity } from "#compiler/physical/ddl/library.ts"
 import { spellExpr } from "#compiler/query/build/walk.ts"
 import { scalarTerm } from "#compiler/scalar/compute/builders.ts"
+import { admitLiteral } from "#compiler/scalar/compute/evaluate.ts"
 import {
 	exprEmitter,
 	type Lowered,
@@ -501,8 +502,11 @@ export const lowerWith = (
 }
 
 /**
- * A literal compared with a column of `type`, lowered in a query predicate: the literal adopts the column's type, so
- * lowering runs the ContractLiteral check of its contract and regex refinement, as a match's literal binding does.
+ * A literal compared with a column of `type`, lowered in a query predicate: the literal adopts the column's type as it
+ * is written (scalar/compute/literal.ts LiteralMeeting `compared`), refused where it has more digits than the type holds,
+ * since PostgreSQL compares it at the base type exactly, and lowering runs the ContractLiteral check of its contract and
+ * regex refinement, as a match's literal binding does. A literal stated as a value of the type meets it as stored
+ * instead (`storedLiteral`).
  */
 export const adoptedLiteral = (
 	value: LiteralDesc,
@@ -517,6 +521,14 @@ export const adoptedLiteral = (
 		},
 		env("query", { c: { kind: "column", type } }, sink().emit, baseParams)
 	)
+
+/**
+ * A literal stated as a value of `type`, as a stored value meets its type (scalar/compute/literal.ts LiteralMeeting
+ * `stored`): coerced to the type's typmod as an assignment coerces it, and PostgreSQL's cast into a domain, then held to
+ * its contract and regex refinements by the reference patterns (scalar/compute/evaluate.ts admitLiteral).
+ */
+export const storedLiteral = (value: LiteralDesc, type: ScalarType) =>
+	admitLiteral(value, type, { kind: "refinements", patterns: referencePatterns() }, "stored")
 
 const builtinNames: Readonly<Partial<Record<Carrier, TypeRef>>> = {
 	int2: builtinType("smallint"),

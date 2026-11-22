@@ -4,10 +4,14 @@
  *
  * - Admission: for every drawn value, the edges its predicate turns on weighted among them, a literal's cast into the
  *   contract compiles exactly where PostgreSQL's CAST into the domain succeeds, the host evaluator's value then a value
- *   and the literal adopting the contract; and it is refused exactly where PostgreSQL refuses it, for the reason its
- *   SQLSTATE names (23514 for the predicate, 22003 for the typmod).
- * - Rounding: a literal is rounded to a numeric contract's scale before its predicate, as the domain cast does: the
- *   host admits a drawn literal about the predicate's bounds exactly where PostgreSQL does.
+ *   and the literal, stated as one of the contract, admitted; and it is refused exactly where PostgreSQL refuses it, for
+ *   the reason its SQLSTATE names (23514 for the predicate, 22003 for the typmod).
+ * - Rounding: a literal stated as a value of a numeric contract is rounded to its scale before its predicate, as the
+ *   domain cast does (scalar/compute/literal.ts LiteralMeeting `stored`): the host admits a drawn literal about the
+ *   predicate's bounds exactly where PostgreSQL's cast does. A literal compared with a column of the contract is held to
+ *   it as written (`compared`), since PostgreSQL compares it at the base type: the host admits it exactly where the cast
+ *   admits it and leaves it as written, and refuses it where the cast would round it, so a comparison never reads a value
+ *   its literal does not state (README Arithmetic, main's ruling on a bare literal).
  *
  * Oracle: PostgreSQL itself, the domain cast of each value.
  *
@@ -18,7 +22,7 @@ import { family, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record as Rec } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { predicateTree } from "#compiler/ir/expr.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { compareDecimal, Decimal } from "#compiler/scalar/values/decimal.ts"
 import {
 	contractProperty,
 	domainRuns,
@@ -30,7 +34,12 @@ import {
 import { parseAnswer } from "#test/pg/compute/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { adoptedLiteral, plainRender, renderSql } from "#test/unit/compute/support.ts"
+import {
+	adoptedLiteral,
+	plainRender,
+	renderSql,
+	storedLiteral
+} from "#test/unit/compute/support.ts"
 
 /** Contract predicates against PostgreSQL 19 domains admit exactly the values PostgreSQL's domain admits, for every generated value of each contract. */
 export const contracts = family(
@@ -38,8 +47,9 @@ export const contracts = family(
 )
 
 /**
- * Contract predicates against PostgreSQL 19 domains round a literal to the contract's scale before its predicate, as
- * PostgreSQL's domain cast does.
+ * Contract predicates against PostgreSQL 19 domains round a literal stated as a value of the contract to its scale
+ * before its predicate, as PostgreSQL's domain cast does, and refuse a literal compared with one that the cast would
+ * round.
  *
  * Its pre-conversion budget: runs 2, no coverage cases, so no steered phase (test/pg/compute/contract.test.ts at
  * c568eb123).
@@ -69,16 +79,23 @@ export const contractPredicatesRoundALiteralToTheContractsScaleBeforeItsPredicat
 						)
 						const disagreements = Arr.flatMap(literals, (l, i) => {
 							const answer = parseAnswer(String(rows[i]?.[0]))
-							const host = adoptedLiteral(Decimal.of(l), Rate.scalar)
+							const written = Decimal.of(l)
+							const stored = storedLiteral(written, Rate.scalar)
+							const compared = adoptedLiteral(written, Rate.scalar)
 							const pgAdmits = answer.kind !== "error"
-							return host.ok === pgAdmits &&
-								(pgAdmits || ["23514", "22003"].includes(answer.sqlstate))
+							/** The cast admitted the literal as it is written: its value is the literal's own, not a rounding. */
+							const unrounded =
+								answer.kind === "value" && compareDecimal(Decimal.of(answer.text), written) === 0
+							return stored.ok === pgAdmits &&
+								(pgAdmits || ["23514", "22003"].includes(answer.sqlstate)) &&
+								compared.ok === unrounded
 								? []
 								: [
 										{
 											literal: l,
 											pg: answer,
-											host: host.ok ? "admitted" : host.error.reason
+											stored: stored.ok ? "admitted" : stored.error.reason,
+											compared: compared.ok ? "admitted" : compared.error.reason._tag
 										}
 									]
 						})
@@ -90,5 +107,20 @@ export const contractPredicatesRoundALiteralToTheContractsScaleBeforeItsPredicat
 		oracle: { kind: "postgresql", name: "the domain cast of each literal into numeric(7, 6)" },
 		budget: { runs: domainRuns, steered: domainRuns },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/scalar/compute/literal.ts",
+				original:
+					"\tif (exact.ok) {\n\t\treturn undefined\n\t}\n\tconst shown = parsed.value.toString()\n",
+				replacement:
+					'\tif (exact.ok || exact.error === "numericScale") {\n\t\treturn undefined\n\t}\n\tconst shown = parsed.value.toString()\n',
+				why: "A literal compared with a column of the contract is admitted past its scale, as a stored one is rounded: 0.0000005 compared with Rate compiles, where PostgreSQL's comparison at numeric reads it as written and its cast would round it, so the host must refuse it."
+			},
+			{
+				file: "packages/engine/src/scalar/compute/literal.ts",
+				original: "stored: (value, t) => irLiteral(value, t),",
+				replacement: "stored: (value, t) => oppositeLiteral(value, t),",
+				why: "A literal stated as a value of the contract is held to its type as written: 0.0000005 is refused, where PostgreSQL's domain cast rounds it to 0.000001 and admits it."
+			}
+		]
 	})

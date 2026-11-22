@@ -34,7 +34,6 @@ import { succeeded } from "#test/support/assert.ts"
 import { type CatalogResult, constantEnv, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import {
-	adoptedLiteral,
 	baseParams,
 	testContract,
 	lowerWith,
@@ -42,6 +41,7 @@ import {
 	plainRender,
 	renderSql,
 	spelledExpr,
+	storedLiteral,
 	type TestField,
 	v
 } from "#test/unit/compute/support.ts"
@@ -81,8 +81,9 @@ const refusalState = (reason: CompileReason): string | undefined =>
 			: undefined
 
 /**
- * A value the sides disagree on: its domain cast, PostgreSQL's answer, compilation's verdict, and whether the
- * ContractLiteral check admits the value as a literal of the contract.
+ * A value the sides disagree on: its domain cast, PostgreSQL's answer, compilation's verdict, and whether the value is
+ * admitted as a literal stated as one of the contract (storedLiteral), coerced to its typmod as the domain cast coerces
+ * it, then held to its predicate.
  */
 interface Problem {
 	readonly sql: string
@@ -407,8 +408,9 @@ export const contractProperty = (f: Fixture) =>
 						 * The domain cast of each value from the base's value type, on both sides: PostgreSQL's CAST into the domain over
 						 * the value's literal, and compilation's, which judges a literal cast into a contract before any SQL and, where it
 						 * admits it, the host evaluator's. PostgreSQL admits a value exactly where compilation admits its cast, the host
-						 * delivers a value and the literal adopts the contract; it refuses one exactly where compilation refuses the cast
-						 * for the reason PostgreSQL's SQLSTATE names and the literal is no value of the contract.
+						 * delivers a value and the literal, stated as one of the contract (storedLiteral), is admitted; it refuses one
+						 * exactly where compilation refuses the cast for the reason PostgreSQL's SQLSTATE names and the literal is no value
+						 * of the contract.
 						 */
 						const cast = spelledExpr(computeCore.cast(v("x", f.base), f.field).expr)
 						const operand = spelledExpr(v("x", f.base).expr)
@@ -427,7 +429,7 @@ export const contractProperty = (f: Fixture) =>
 							return {
 								sql: `CAST((${renderSql(literal.root.expr, plainRender)}) AS ${target})`,
 								verdict,
-								admitted: adoptedLiteral(value, f.field.scalar).ok
+								admitted: storedLiteral(value, f.field.scalar).ok
 							}
 						})
 						const rows = yield* db.values(
