@@ -50,7 +50,6 @@ import { isPlainQuery } from "#compiler/lower/delivery.ts"
 import { emptyCtePlan } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { placeDeduplication } from "#compiler/lower/optimize/dedup/place.ts"
 import type { DedupPlan } from "#compiler/lower/optimize/dedup/plan.ts"
-import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
 import { partQuery, type TaggedPart } from "#compiler/lower/parts.ts"
 import {
 	type OptimizedDeliveryProgram,
@@ -1545,7 +1544,11 @@ const ridingPartOf = (
 interface RidingContext {
 	readonly frontend: WriteFrontend
 	readonly made: WritePlan["made"]
-	readonly lower: (read: ReadBack, deltas: DeltasOf, start: NameSupplyStart) => OptimizedProgram
+	readonly lower: (
+		read: ReadBack,
+		deltas: DeltasOf,
+		start: NameSupplyStart
+	) => OptimizedDeliveryProgram<RelationChoice>
 }
 
 /**

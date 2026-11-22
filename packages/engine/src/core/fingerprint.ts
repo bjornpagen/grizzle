@@ -250,7 +250,8 @@ const framedDigest = (domain: WellFormedText, text: WellFormedText): string => {
 
 /**
  * The domains the compiler digests the values it owns under: one-line names, each a fingerprint domain. A constant's
- * domain digests the content its function is named by (ConstantDomain).
+ * domain digests the content its function is named by (ConstantDomain); `read-back-lowering`, what decides a read-back's
+ * lowering, the key its program is kept under (write/readback/lower.ts readBackKey).
  */
 export type OwnedDomain =
 	| "empty-snapshot"
@@ -259,6 +260,7 @@ export type OwnedDomain =
 	| "drift-proof"
 	| "row-type-definition"
 	| "function-definition"
+	| "read-back-lowering"
 	| ConstantDomain
 
 /**
@@ -305,6 +307,7 @@ const ownedDomains: { readonly [D in OwnedDomain]: WellFormedText } = {
 	"drift-proof": wellFormed("drift-proof"),
 	"row-type-definition": wellFormed("row-type-definition"),
 	"function-definition": wellFormed("function-definition"),
+	"read-back-lowering": wellFormed("read-back-lowering"),
 	"closed-constant": wellFormed("closed-constant"),
 	"roster-names": wellFormed("roster-names"),
 	"roster-live": wellFormed("roster-live"),

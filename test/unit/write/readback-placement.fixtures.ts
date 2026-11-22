@@ -42,7 +42,7 @@ type Side = NamedSide["side"]
 
 /** A case: M's first-stratum action, the opposite action beside it, a second stratum's insert of M; W, where it is
  * written; and what the read-back reads beside M's sides. */
-interface Sketch {
+export interface Sketch {
 	readonly op: Op
 	readonly beside: boolean
 	readonly again: boolean
@@ -211,8 +211,11 @@ const subjectOf = (value: FixtureSchema, name: string, m: unknown, a: unknown, z
 
 type Subject = ReturnType<typeof subjectOf>
 
+/** The box's subject built afresh: its names and artifacts objects of their own, which no compile has read under. */
+export const freshSubject = (): Subject => subjectOf(S, schemaName, M, A, Z)
+
 /** The box's subject, built once when a worker loads the module and read by every case. */
-export const subject: Subject = subjectOf(S, schemaName, M, A, Z)
+export const subject: Subject = freshSubject()
 
 /** The read-back's rule: each source it reads matched by id, its payload under a name of its own. */
 const readBackOf = (s: Sketch, at: Subject, other: unknown) => (d: DeltaValue) =>
