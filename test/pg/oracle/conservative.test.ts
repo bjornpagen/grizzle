@@ -35,8 +35,10 @@ export const generated = conservativeAgreement(
 		},
 		{
 			file: "packages/engine/src/ir/dag-digest.ts",
-			original: "\t\tif (!this.exprs.has(expr.id)) {",
-			replacement: "\t\tif (this.exprs.has(expr.id)) {",
+			original:
+				'\t\tif (!this.exprs.has(expr.id)) {\n\t\t\tthis.met.push({ kind: "expr", expr })\n\t\t}\n\t\treturn this.exprs.index(expr.id)\n\t}\n\n\t/**\n\t * An expression\'s dependencies as the form names them',
+			replacement:
+				'\t\tif (this.exprs.has(expr.id)) {\n\t\t\tthis.met.push({ kind: "expr", expr })\n\t\t}\n\t\treturn this.exprs.index(expr.id)\n\t}\n\n\t/**\n\t * An expression\'s dependencies as the form names them',
 			why: "Operator mutant (negation) at packages/engine/src/ir/dag-digest.ts ReachNumbering.expr, formerly ir/dag.ts:856 in exprRef: `!e.has(expr.id)` becomes `e.has(expr.id)`; the property fails (lane CATCH, grizzle 0baff5d6, against the mutation tester's oracle subset scripts/dev/mutate/oracle/queries.test.ts, which this property's agreement replaces)."
 		}
 	],

@@ -28,10 +28,4 @@ import type { RelDag, RelNode } from "#compiler/ir/rel.ts"
  * The share key of the sub-query rooted at `node`, a node of `dag`, whose enclosing nodes it may read.
  */
 export const shareKey = (dag: RelDag, node: RelNode): Result.Result<string, CompileError> =>
-	shareKeyIn(new DagDigests(() => nodesByLabel(dag), maxStringLength), node)
-
-/** The share key of `node` (shareKey) from the templates of its DAG's digests, which every key of the DAG reads. */
-export const shareKeyIn = (
-	digests: DagDigests,
-	node: RelNode
-): Result.Result<string, CompileError> => digests.digest([node], "share", "followed")
+	new DagDigests(() => nodesByLabel(dag), maxStringLength).digest([node], "share", "followed")

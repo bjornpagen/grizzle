@@ -6,15 +6,8 @@ import { outerOf } from "#compiler/analysis/physical/rules.ts"
 import { catchRefusal, maxStringLength, unwrap } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
-import { DagDigests, type Signature } from "#compiler/ir/dag-digest.ts"
-import {
-	freeVars,
-	type NodeScope,
-	nodeScopes,
-	nodeShapes,
-	nodesByLabel,
-	topoOrder
-} from "#compiler/ir/dag.ts"
+import { ShareKeys } from "#compiler/ir/dag-digest.ts"
+import { freeVars, type NodeScope, nodeScopes, nodesByLabel, topoOrder } from "#compiler/ir/dag.ts"
 import { Fold } from "#compiler/ir/fold.ts"
 import { edgesOf, inputsOf, type RelNode, type ValidDag } from "#compiler/ir/rel.ts"
 import { statementEvaluations } from "#compiler/lower/conservative/call/index.ts"
@@ -30,7 +23,6 @@ import {
 } from "#compiler/lower/conservative/context.ts"
 import { costClass } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { feedbackReadsOf, nodeGraph } from "#compiler/lower/optimize/demand/editor.ts"
-import { shareKeyIn } from "#compiler/lower/shapes/share/index.ts"
 import type { OperandSelect } from "#compiler/sql/ast.ts"
 import { col, core, operandSelect, target } from "#compiler/sql/build.ts"
 import type { CarrierName } from "#compiler/sql/naming.ts"
@@ -44,10 +36,11 @@ import type { CarrierName } from "#compiler/sql/naming.ts"
  * A program's statements often compute one sub-query several times: the members of a ChangeSet stratum that all read
  * the same described query, such as the work queue's `pick`, which each of the claim's three members matches, and
  * within one statement a query imported twice, such as `claimable`, which both rules of `pick` match. Every import is
- * its own copy in the DAG, so two copies share no node id; they share a share key (index.ts shareKey), the semantic
- * digest of the sub-DAG they reach, which is equal exactly when they compute the same set under the same parameter
- * bindings. A call of a volatile function draws its own rows at each evaluation, so its key holds its label (ir/dag-
- * digest.ts callsVolatile): two calls built alike are never one carrier or one CTE, and one call read twice is.
+ * its own copy in the DAG, so two copies share no node id; they share a share key (ir/dag-digest.ts ShareKeys), the
+ * digest of the sub-query's block, what it reaches without entering a node that reads nothing outside itself, each such
+ * node by its own key, which is equal only when they compute the same set under the same parameter bindings. A call of a
+ * volatile function draws its own rows at each evaluation, so its key holds its label (ir/dag-digest.ts templateForm):
+ * two calls built alike are never one carrier or one CTE, and one call read twice is.
  *
  * Two placements, by where the copies are read:
  *
@@ -73,16 +66,12 @@ export class ShareIndex {
 	readonly #feedback: ReadonlySet<RelNode>
 	readonly #scopes: Fold<RelNode, NodeScope>
 	readonly #labels: ReadonlyMap<NodeId, RelNode>
-	/** The DAG's digests, each node's template written once for every share key that reaches it. */
-	readonly #digests: DagDigests
+	/** The DAG's share keys, each node's block digested once for every key that reaches it. */
+	readonly #shareKeys: ShareKeys
 	/** Each node's share key or its absence, by label, computed on its first read. */
 	readonly #keys = new Map<NodeId, { readonly key: string | undefined }>()
 	/** Whether each node may be shared, by label, decided on its first read. */
 	readonly #eligible = new Map<NodeId, boolean>()
-	/** Each node's shape (ir/dag.ts nodeShapes): equal for every two nodes of one share key. */
-	readonly #shapes = nodeShapes()
-	/** How many share keys the index has digested. */
-	#digested = 0
 	/** The longest path from each node to a leaf, folded from its inputs'. */
 	readonly #heights = new Fold<RelNode, number>(function* (node) {
 		let h = 0
@@ -99,7 +88,11 @@ export class ShareIndex {
 		this.#feedback = feedbackReadsOf(nodeGraph, topoOrder(dag))
 		this.#scopes = nodeScopes()
 		this.#labels = nodesByLabel(dag)
-		this.#digests = new DagDigests(() => this.#labels, maxStringLength)
+		this.#shareKeys = new ShareKeys(
+			() => this.#labels,
+			maxStringLength,
+			(node) => this.#scopes.of(node).outer.size === 0 && !this.#feedback.has(node)
+		)
 	}
 
 	/** The node's inputs, once per reference: a region that matches one input twice lowers it twice. */
@@ -112,23 +105,9 @@ export class ShareIndex {
 		return this.#heights.of(node)
 	}
 
-	/** The node's shape: two nodes of one share key are of one shape. */
-	shape(node: RelNode): string {
-		return this.#shapes.of(node)
-	}
-
-	/**
-	 * The node's structural signature (ir/dag-digest.ts DagDigests signature), undigested: two nodes of one share key
-	 * are of one signature, so a node alone in its signature among nodes that could share its key is alone in its key.
-	 * Undefined where its digest is refused, which its reader then takes.
-	 */
-	signature(node: RelNode): Signature {
-		return this.#digests.signature(node)
-	}
-
-	/** How many share keys the index has digested, each a normalized, encoded reach: the planning's work. */
-	get digested(): number {
-		return this.#digested
+	/** How many blocks the index has digested and the code units their tables hold, each block's once: the keying's work. */
+	get work(): { readonly blocks: number; readonly units: number } {
+		return { blocks: this.#shareKeys.blocks, units: this.#shareKeys.units }
 	}
 
 	/**
@@ -163,10 +142,9 @@ export class ShareIndex {
 		return eligible
 	}
 
-	/** The share key of an eligible node; a DAG it cannot key is refused. */
+	/** The share key of an eligible node (ir/dag-digest.ts ShareKeys); a DAG it cannot key is refused. */
 	#shareKey(node: RelNode): string {
-		this.#digested += 1
-		return unwrap(shareKeyIn(this.#digests, node))
+		return unwrap(this.#shareKeys.key(node))
 	}
 }
 
@@ -214,23 +192,12 @@ export const planStatementShares = (
 	catchRefusal(() => {
 		const chosen: Array<CarriedShare> = []
 		const carriedKeys = new Set<string>()
-		/** The shapes of the carried sub-queries: a copy of one is of its shape (ShareIndex.shape). */
-		const carriedShapes = new Set<string>()
 		/** Each node the statements have read that may be shared, carried by no key then, in the order they first read it,
 		 * by the round they first read it in. */
 		const seen = new Map<RelNode, number>()
-		/** The structural signatures of the carried sub-queries: a copy of one is of its signature (ShareIndex.signature). */
-		const carriedSignatures = new Set<Signature>()
-		/** Whether a node is a copy of a carried sub-query, which its carrier's reader reads instead: one of a carried
-		 * shape and signature whose key is carried, a node of no carried signature undigested. */
+		/** Whether a node is a copy of a carried sub-query, which its carrier's reader reads instead: one whose key is
+		 * carried. */
 		const carried = (node: RelNode): boolean => {
-			if (!carriedShapes.has(index.shape(node))) {
-				return false
-			}
-			const signature = index.signature(node)
-			if (signature !== undefined && !carriedSignatures.has(signature)) {
-				return false
-			}
 			const key = index.key(node)
 			return key !== undefined && carriedKeys.has(key)
 		}
@@ -288,8 +255,7 @@ export const planStatementShares = (
 			enter(root, undefined, 0)
 		}
 		for (let round = 0; ; round++) {
-			/** The highest classes enough statements read this round (decidingClasses), the least key among them chosen,
-			 * each digested. */
+			/** The highest classes enough statements read this round (decidingClasses), the least key among them chosen. */
 			const tied = decidingClasses(index, [...seen.keys()], readers)
 			if (!isNonEmpty(tied)) {
 				break
@@ -301,27 +267,19 @@ export const planStatementShares = (
 			const winner = keyed.reduce((a, b) => (b.key < a.key ? b : a))
 			const node = defined(winner.nodes[0], "a class's first node")
 			carriedKeys.add(winner.key)
-			carriedShapes.add(index.shape(node))
-			carriedSignatures.add(index.signature(node))
 			chosen.push({ key: winner.key, node, copies: [] })
 			for (const u of units.keys()) {
 				reread(u)
 			}
 			enter(node, winner.key, round + 1)
 		}
-		/** Each carried key's copies: the nodes of its shape the statements read before it was carried, by its key. */
+		/** Each carried key's copies: the nodes of its key the statements read before it was carried. */
 		const roundOf = new Map(chosen.map((c, i) => [c.key, i] as const))
 		return chosen
 			.map((c) => {
-				const shape = index.shape(c.node)
-				const signature = index.signature(c.node)
-				const copies = [...seen].flatMap(([node, round]) =>
-					round <= defined(roundOf.get(c.key), "a carried key's round") &&
-					index.shape(node) === shape &&
-					(signature === undefined || index.signature(node) === signature) &&
-					index.key(node) === c.key
-						? [node]
-						: []
+				const round = defined(roundOf.get(c.key), "a carried key's round")
+				const copies = [...seen].flatMap(([node, at]) =>
+					at <= round && index.key(node) === c.key ? [node] : []
 				)
 				return { ...c, copies }
 			})
@@ -331,17 +289,8 @@ export const planStatementShares = (
 /**
  * The classes of one share key among `nodes`, each a node that may be shared, in the order the statements first read
  * them, that a round's choice reads: every class two statements read at least (`readers`), at the highest height such
- * a class stands at, each class in that order, its first node the one the statements read first; none where no class
- * is read twice.
- *
- * Two nodes of one key are of one shape (ShareIndex.shape), and so of one height, since a shape folds its inputs'
- * shapes in order. So the nodes go in buckets of one shape, the buckets in levels of one height, and the levels are
- * classed from the highest down until one holds a class two statements read: no level below it is classed. A bucket of
- * one node is a class by itself, its key no other node's, undigested. A bucket of several is classed by its nodes' keys,
- * digested, unless fewer than two statements read any of its nodes, when no class of it is read twice and none is
- * digested. Before, every bucket of several nodes was digested, so the share planning digested every node of a
- * colliding shape the statements read, at every height, where each round's choice reads only the highest classes read
- * twice.
+ * a class stands at, the classes in the order of their first nodes, each its nodes in that order; none where no class is
+ * read twice. Two nodes of one key are of one height, a key holding its node's inputs' keys in order.
  */
 export const decidingClasses = (
 	index: ShareIndex,
@@ -351,59 +300,26 @@ export const decidingClasses = (
 	/** How many statements read some node of `group`. */
 	const statementsOf = (group: ReadonlyArray<RelNode>): number =>
 		new Set(group.flatMap((n) => [...(readers.get(n) ?? [])])).size
-	const byShape = new Map<string, Array<RelNode>>()
-	for (const node of nodes) {
-		const shape = index.shape(node)
-		byShape.getOrInsertComputed(shape, () => []).push(node)
-	}
-	/** The buckets two statements read, by their height, each level's in the order the statements first read them. */
-	const levels = new Map<number, Array<ReadonlyArray<RelNode>>>()
-	for (const same of byShape.values()) {
-		if (statementsOf(same) < 2) {
-			continue
-		}
-		const height = index.height(defined(same[0], "a bucket's first node"))
-		levels.getOrInsertComputed(height, () => []).push(same)
-	}
-	for (const height of [...levels.keys()].toSorted((a, b) => b - a)) {
-		const classes = defined(levels.get(height), "a level of buckets")
-			.flatMap((same) => (same.length === 1 ? [same] : keyClasses(index, same)))
-			.filter((group) => statementsOf(group) >= 2)
-		if (classes.length > 0) {
-			return classes
-		}
-	}
-	return []
-}
-
-/**
- * The nodes `same`, all of one shape, as classes of one share key, each in their order, the classes in the order of
- * their first nodes: a node alone in its structural signature among them (aloneInSignature) a class by itself,
- * undigested, and the rest classed by their keys, digested.
- */
-const keyClasses = (
-	index: ShareIndex,
-	same: ReadonlyArray<RelNode>
-): ReadonlyArray<ReadonlyArray<RelNode>> => {
-	const alone = aloneInSignature(index, same)
 	const byKey = new Map<string, Array<RelNode>>()
-	const classes: Array<ReadonlyArray<RelNode>> = []
-	for (const node of same) {
-		if (alone(node)) {
-			classes.push([node])
+	for (const node of nodes) {
+		byKey.getOrInsertComputed(defined(index.key(node), "an eligible key"), () => []).push(node)
+	}
+	let highest: { readonly height: number; readonly classes: Array<ReadonlyArray<RelNode>> } = {
+		height: -1,
+		classes: []
+	}
+	for (const group of byKey.values()) {
+		if (statementsOf(group) < 2) {
 			continue
 		}
-		const key = defined(index.key(node), "an eligible key")
-		const known = byKey.get(key)
-		if (known === undefined) {
-			const made = [node]
-			byKey.set(key, made)
-			classes.push(made)
-		} else {
-			known.push(node)
+		const height = index.height(defined(group[0], "a class's first node"))
+		if (height > highest.height) {
+			highest = { height, classes: [group] }
+		} else if (height === highest.height) {
+			highest.classes.push(group)
 		}
 	}
-	return classes
+	return highest.classes
 }
 
 /**
@@ -451,88 +367,16 @@ const occurrencesByKey = (
 	return byKey
 }
 
-/** How many times the statement rooted at `root` lowers each node it reaches, every use of a node lowered anew. */
-const usesOf = (
-	index: ShareIndex,
-	root: RelNode,
-	order: ReadonlyArray<RelNode>,
-	carried: (node: RelNode) => boolean
-): ReadonlyMap<RelNode, number> => {
-	const uses = new Map<RelNode, number>([[root, 1]])
-	for (const node of order) {
-		const used = uses.get(node) ?? 0
-		for (const input of index.inputs(node)) {
-			if (!carried(input)) {
-				uses.set(input, (uses.get(input) ?? 0) + used)
-			}
-		}
-	}
-	return uses
-}
-
-/**
- * Whether a node of `nodes`, nodes any two of which could be of one share key, is the only one of its key among them:
- * the only one of its structural signature (ShareIndex.signature), every node of a key being of one signature. A node
- * whose signature is undefined is never alone, so its digest is taken, refused as it was.
- */
-const aloneInSignature = (
-	index: ShareIndex,
-	nodes: ReadonlyArray<RelNode>
-): ((node: RelNode) => boolean) => {
-	if (nodes.length < 2) {
-		return () => true
-	}
-	const count = new Map<string, number>()
-	for (const node of nodes) {
-		const signature = index.signature(node)
-		if (signature !== undefined) {
-			count.set(signature, (count.get(signature) ?? 0) + 1)
-		}
-	}
-	return (node) => {
-		const signature = index.signature(node)
-		return signature !== undefined && count.get(signature) === 1
-	}
-}
-
-/**
- * The share key of each node of a statement that may be read twice in it: one the statement lowers more than once
- * (`uses`), or one another node of the statement could share a key with, of its kind, height and width and of its
- * structural signature, as every node of its share key is. Any other node is the only one of its key in the statement
- * and lowered once, so no count of its key reaches two and nothing reads its key: no digest of it is taken.
- */
+/** The share key of each node of a statement that may be shared (ShareIndex.key), by label. */
 const keyedNodes = (
 	index: ShareIndex,
-	order: ReadonlyArray<RelNode>,
-	uses: ReadonlyMap<RelNode, number>
+	order: ReadonlyArray<RelNode>
 ): ReadonlyMap<NodeId, string> => {
-	const alike = new Map<string, Map<number, Map<number, Array<RelNode>>>>()
-	for (const node of order) {
-		const byHeight = alike.getOrInsertComputed(
-			node.kind,
-			() => new Map<number, Map<number, Array<RelNode>>>()
-		)
-		const height = index.height(node)
-		const byWidth = byHeight.getOrInsertComputed(height, () => new Map<number, Array<RelNode>>())
-		const width = node.heading.length
-		const nodes = byWidth.getOrInsertComputed(width, () => [])
-		nodes.push(node)
-	}
 	const keyed = new Map<NodeId, string>()
-	for (const byHeight of alike.values()) {
-		for (const byWidth of byHeight.values()) {
-			for (const nodes of byWidth.values()) {
-				const alone = aloneInSignature(index, nodes)
-				for (const node of nodes) {
-					if (alone(node) && (uses.get(node) ?? 0) < 2) {
-						continue
-					}
-					const key = index.key(node)
-					if (key !== undefined) {
-						keyed.set(node.id, key)
-					}
-				}
-			}
+	for (const node of order) {
+		const key = index.key(node)
+		if (key !== undefined) {
+			keyed.set(node.id, key)
 		}
 	}
 	return keyed
@@ -543,8 +387,7 @@ const keyedNodes = (
  * entering a node `carried` names (the statement reads its carrier), each with the nodes of the statement that are its
  * copies, by label. Occurrences are counted in the statement as it is lowered, every use of a node lowered anew: a
  * copy under a CTE already chosen is lowered once, in the CTE's body. The highest such sub-query is chosen first
- * (cte-policy rule 5: a shared expensive node is MATERIALIZED). Only the nodes that may be read twice are keyed
- * (keyedNodes).
+ * (cte-policy rule 5: a shared expensive node is MATERIALIZED).
  */
 export const statementCtes = (
 	index: ShareIndex,
@@ -554,7 +397,7 @@ export const statementCtes = (
 	const nodes = reach(index, root, carried)
 	/** Parents before children: by decreasing height, a node's inputs being strictly lower. */
 	const order = [...nodes].toSorted((a, b) => index.height(b) - index.height(a))
-	const keyed = keyedNodes(index, order, usesOf(index, root, order, carried))
+	const keyed = keyedNodes(index, order)
 	const chosen = new Set<string>()
 	for (;;) {
 		const byKey = occurrencesByKey(index, root, order, keyed, chosen, carried)

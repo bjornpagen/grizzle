@@ -56,7 +56,12 @@
  * (analysis/theory/query.ts probe), and a negation of a definition of several arms is one anti-join of the definition as
  * declared (absentsOf), where format 6 compiled a statement for each occurrence of the touched relation, each spelling
  * the whole target again, and spelled a negated definition once for each arm of its flattening, the product of the
- * widths of the unions it matches at every depth. Format 6's snapshot.json records each schema level's fingerprint over its
+ * widths of the unions it matches at every depth. A write program's sub-queries are shared by the keys of their blocks
+ * (ir/dag-digest.ts ShareKeys, lower/shapes/share/statements.ts ShareIndex): a carrier or a MATERIALIZED CTE stands for
+ * every read one stratum's members or one statement make of sub-queries built alike block by block, a sealed node met
+ * in two blocks keyed by its own key, where format 6 shared only reads whose whole reaches were one, so two reads over
+ * one sealed node built twice alike under two parents share one statement or CTE. Format 6's snapshot.json records each
+ * schema level's fingerprint over its
  * identity text, every part the level holds written once as its identity digest's token (core/fingerprint.ts
  * schemaFingerprint), and each level's statements in their identity digests' order; its index keys hold every column as
  * itself, never an image of it, a lookup's index naming the columns it leaves out as filters in its identity; its row

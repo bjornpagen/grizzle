@@ -1,6 +1,7 @@
 /**
  * A DAG's normal form, numbered once and written as share and evaluation keys from encoded templates (ir/dag.ts
- * normalizeWithin, dagDigestWithin; lower/shapes/share ShareIndex, lower/conservative/call/keys.ts EvaluationKeys).
+ * normalizeWithin, dagDigestWithin; lower/shapes/share/index.ts shareKey, lower/conservative/call/keys.ts
+ * EvaluationKeys), and the share planning's keys digested from blocks (ShareKeys; lower/shapes/share ShareIndex).
  *
  * The normal form names what roots reach by first occurrence, breadth-first from the roots in structural order (rel.ts
  * mapNode, then an expression's arguments in operand order and its column's node): nodes "n#i", expressions "e#i",
@@ -18,16 +19,18 @@
  * normal form, and each node's form is walked once for every digest of the DAG.
  */
 
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { postorder } from "@bjornpagen/grizzle-text/base/graph"
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import type { WellFormedText } from "@bjornpagen/grizzle-text/utf8"
+import type { Utf8Writer, WellFormedText } from "@bjornpagen/grizzle-text/utf8"
 import {
 	boundCanonicalText,
 	type CanonicalTemplate,
 	catchRefusal,
 	omitSourceLocs,
 	Refusal,
+	unwrap,
 	writeCanonicalString,
 	writeTemplate
 } from "#compiler/core/canonical.ts"
@@ -311,32 +314,6 @@ type Naming =
 	| { readonly kind: "occurrence"; readonly id: OccurrenceId }
 	| { readonly kind: "scope"; readonly id: ScopeId }
 
-/** Gives a naming its number in `numbering`, as normalizeReach numbers the name it holds. */
-const numbered = (numbering: ReachNumbering, naming: Naming): void => {
-	switch (naming.kind) {
-		case "edge":
-			numbering.edge(naming.node)
-			return
-		case "label":
-			if (!numbering.outside(naming.label)) {
-				numbering.label(naming.label)
-			}
-			return
-		case "expr":
-			numbering.expr(naming.expr)
-			return
-		case "var":
-			numbering.vars.index(naming.id)
-			return
-		case "occurrence":
-			numbering.occurrences.index(naming.id)
-			return
-		case "scope":
-			numbering.scopes.index(naming.id)
-			return
-	}
-}
-
 /**
  * A node's or an expression's template: its namings in the numbering's order, and its claimed form's canonical text
  * with a hole for each naming's name (hole i, the i-th naming's), its own name (hole `namings.length`) and an
@@ -474,66 +451,223 @@ const quoted: { readonly [N in Namespace]: string } = {
 	s: '"s#'
 }
 
-/** A node's or an expression's structural signature (DagDigests signature), undefined where a template is refused. */
-export type Signature = string | undefined
-
 /**
- * Two FNV-1a 32-bit hashes of different offsets over a signature's bytes and parts, each part closed by a unit no part
- * holds: a signature's collisions cost a digest each, never a wrong class, so a fast hash suffices.
+ * The names a table's entries are written with: a digest's numbering of its reach (ReachNumbering), or a share key's of
+ * its block (BlockNumbering). A name of a node outside what the roots reach (`outside`) is written as its label.
  */
-class SignatureHash {
-	#a = 0x811c9dc5
-	#b = 0x01000193
+interface EntryNames {
+	readonly nodes: Names<NodeId>
+	readonly exprs: Names<ExprId>
+	readonly vars: Names<VarId>
+	readonly occurrences: Names<OccurrenceId>
+	readonly scopes: Names<ScopeId>
+	/** The text a name of a node is written as where the numbering gives it no number of its own: undefined for none. */
+	nodeText(id: NodeId): string | undefined
+	/** The text a name of an occurrence is written as where the numbering gives it no number of its own. */
+	occurrenceText(id: OccurrenceId): string | undefined
+}
 
-	bytes(bytes: Uint8Array): void {
-		for (const byte of bytes) {
-			this.#unit(byte)
-		}
-	}
+/** A numbering that names what it meets as it meets it: a reach's (ReachNumbering) or a block's (BlockNumbering). */
+interface Numbering {
+	readonly vars: Names<VarId>
+	readonly occurrences: Names<OccurrenceId>
+	readonly scopes: Names<ScopeId>
+	outside(id: NodeId): boolean
+	edge(node: RelNode): number
+	label(id: NodeId): void
+	expr(expr: ScalarExpr): number
+}
 
-	text(part: string): void {
-		for (let i = 0; i < part.length; i++) {
-			this.#unit(part.charCodeAt(i))
-		}
-		this.#unit(0x10000)
-	}
-
-	#unit(unit: number): void {
-		this.#a = Math.imul(this.#a ^ unit, 0x01000193)
-		this.#b = Math.imul(this.#b ^ unit, 0x01000193) ^ (this.#b >>> 15)
-	}
-
-	done(): string {
-		return `${(this.#a >>> 0).toString(36)}.${(this.#b >>> 0).toString(36)}`
+/** Gives a naming its number in `numbering`, as normalizeReach numbers the name it holds. */
+const numbered = (numbering: Numbering, naming: Naming): void => {
+	switch (naming.kind) {
+		case "edge":
+			numbering.edge(naming.node)
+			return
+		case "label":
+			if (!numbering.outside(naming.label)) {
+				numbering.label(naming.label)
+			}
+			return
+		case "expr":
+			numbering.expr(naming.expr)
+			return
+		case "var":
+			numbering.vars.index(naming.id)
+			return
+		case "occurrence":
+			numbering.occurrences.index(naming.id)
+			return
+		case "scope":
+			numbering.scopes.index(naming.id)
+			return
 	}
 }
 
 /**
- * The claimed-form digests of one DAG's sub-queries (share and evaluation keys), each node's and expression's
- * template written once, and every digest written by one writer (Sha256Messages), so a digest copies its reach's bytes
- * and builds no text. Its lifetime is its DAG's: a ShareIndex's, an EvaluationKeys'.
+ * The templates of one DAG's nodes and expressions (nodeTemplateOf, exprTemplateOf), each written on its first read
+ * and kept for every key of the DAG that reaches it, and the DAG's labels, read once where a name first needs its node.
+ * Its lifetime is its DAG's.
  */
-export class DagDigests {
-	/** The context's labels, read where a name a node holds is of a node the walk has not met. */
+class Templates {
 	readonly #labels: () => ReadonlyMap<NodeId, RelNode>
 	#index: ReadonlyMap<NodeId, RelNode> | undefined
 	readonly #nodes = new Map<RelNode, Template>()
 	readonly #exprs = new Map<ScalarExpr, Template>()
-	/** Each node's and expression's signature (signature), worked out on its first read. */
-	readonly #signatures = new Map<RelNode | ScalarExpr, Signature>()
+	#written = 0
+
+	constructor(labels: () => ReadonlyMap<NodeId, RelNode>) {
+		this.#labels = labels
+	}
+
+	/** How many templates are written: one for each node and expression any key reached, at most. */
+	get written(): number {
+		return this.#written
+	}
+
+	/** The context's labels, read once, where a key first needs them. */
+	context(): ReadonlyMap<NodeId, RelNode> {
+		const index = this.#index ?? this.#labels()
+		this.#index = index
+		return index
+	}
+
+	/** A node's template, written on its first read. */
+	node(node: RelNode): Template {
+		const known = this.#nodes.get(node)
+		if (known !== undefined) {
+			return known
+		}
+		const template = nodeTemplateOf(node)
+		this.#nodes.set(node, template)
+		this.#written += 1
+		return template
+	}
+
+	/** An expression's template, written on its first read. */
+	expr(expr: ScalarExpr): Template {
+		const known = this.#exprs.get(expr)
+		if (known !== undefined) {
+			return known
+		}
+		const template = exprTemplateOf(expr)
+		this.#exprs.set(expr, template)
+		this.#written += 1
+		return template
+	}
+}
+
+/** A name "<ns>#<i>" written as its JSON string, no text of it built. */
+const writeName = (out: Utf8Writer, ns: Namespace, index: number): void => {
+	out.ascii(quoted[ns])
+	out.jsonNumber(index)
+	out.ascii('"')
+}
+
+/** The name `names` gives what a naming names. */
+const writeNaming = (out: Utf8Writer, names: EntryNames, naming: Naming): void => {
+	switch (naming.kind) {
+		case "edge":
+			writeName(out, "n", names.nodes.index(naming.node.id))
+			return
+		case "label": {
+			const text = names.nodeText(naming.label)
+			if (text !== undefined) {
+				writeCanonicalString(out, wellFormed(text))
+			} else {
+				writeName(out, "n", names.nodes.index(naming.label))
+			}
+			return
+		}
+		case "expr":
+			writeName(out, "e", names.exprs.index(naming.expr.id))
+			return
+		case "var":
+			writeName(out, "v", names.vars.index(naming.id))
+			return
+		case "occurrence": {
+			const text = names.occurrenceText(naming.id)
+			if (text !== undefined) {
+				writeCanonicalString(out, wellFormed(text))
+			} else {
+				writeName(out, "o", names.occurrences.index(naming.id))
+			}
+			return
+		}
+		case "scope":
+			writeName(out, "s", names.scopes.index(naming.id))
+			return
+	}
+}
+
+/**
+ * One entry of a table's text, the `at`-th of its record: its name, then its template's pieces, each hole filled with
+ * the name `names` gives it, its own name, or its dependencies; a template whose form is refused is refused here, at
+ * its entry.
+ */
+const writeEntry = (
+	out: Utf8Writer,
+	names: EntryNames,
+	ns: "n" | "e",
+	index: number,
+	at: number,
+	template: Template,
+	deps: ReadonlyArray<string>
+): void => {
+	if (at > 0) {
+		out.ascii(",")
+	}
+	writeName(out, ns, index)
+	out.ascii(":")
+	const text = template.text
+	if (!text.ok) {
+		const name = ns === "n" ? names.nodes.nameOf(index) : names.exprs.nameOf(index)
+		throw new Refusal(within(text.error, [ns === "n" ? "nodes" : "exprs", name]))
+	}
+	const { pieces, units, holes } = text.value
+	for (const [k, hole] of holes.entries()) {
+		out.encoded(defined(pieces[k], "a piece before each hole"), defined(units[k], "its units"))
+		const naming = template.namings[hole]
+		if (naming !== undefined) {
+			writeNaming(out, names, naming)
+		} else if (hole === template.namings.length) {
+			writeName(out, ns, index)
+		} else {
+			out.ascii("[")
+			for (const [d, dep] of deps.entries()) {
+				if (d > 0) {
+					out.ascii(",")
+				}
+				writeCanonicalString(out, wellFormed(dep))
+			}
+			out.ascii("]")
+		}
+	}
+	out.encoded(
+		defined(pieces[holes.length], "the piece after the last hole"),
+		defined(units[holes.length], "its units")
+	)
+}
+
+/**
+ * The claimed-form digests of one DAG's sub-queries (evaluation keys, a DAG's digest), each node's and expression's
+ * template written once, and every digest written by one writer (Sha256Messages), so a digest copies its reach's bytes
+ * and builds no text. Its lifetime is its DAG's: an EvaluationKeys'.
+ */
+export class DagDigests {
+	readonly #templates: Templates
 	readonly #messages = new Sha256Messages(messageChunk)
 	/** The longest table text a digest writes, past which it is refused: V8's longest string in production. */
 	readonly #limit: number
-	#written = 0
 
 	constructor(labels: () => ReadonlyMap<NodeId, RelNode>, limit: number) {
-		this.#labels = labels
+		this.#templates = new Templates(labels)
 		this.#limit = limit
 	}
 
 	/** How many templates are written: one for each node and expression any digest reached, at most. */
 	get written(): number {
-		return this.#written
+		return this.#templates.written
 	}
 
 	/** The digest under `domain` of what `roots` reach, its enclosing nodes read as `outer` says (OuterNames). */
@@ -554,10 +688,10 @@ export class DagDigests {
 		outer: OuterNames
 	): Result.Result<string, CompileError> {
 		return catchRefusal(() => {
-			const numbering = new ReachNumbering(() => this.#context(), roots, outer)
+			const templates = this.#templates
+			const numbering = new ReachNumbering(() => templates.context(), roots, outer)
 			const rootNumbers = numberReach(numbering, roots, (met) => {
-				const template =
-					met.kind === "node" ? this.#nodeTemplate(met.node) : this.#exprTemplate(met.expr)
+				const template = met.kind === "node" ? templates.node(met.node) : templates.expr(met.expr)
 				for (const naming of template.namings) {
 					numbered(numbering, naming)
 				}
@@ -572,20 +706,37 @@ export class DagDigests {
 				}
 			}
 			const deps = exprs.map((expr) => numbering.deps(expr))
+			/** The reach's names, a node outside it by its label (OuterNames). */
+			const names: EntryNames = {
+				nodes: numbering.nodes,
+				exprs: numbering.exprs,
+				vars: numbering.vars,
+				occurrences: numbering.occurrences,
+				scopes: numbering.scopes,
+				nodeText: (id) => (numbering.outside(id) ? id : undefined),
+				occurrenceText: () => undefined
+			}
 			const out = this.#messages.out
 			writeFrame(out, line)
 			const start = out.units
 			out.ascii('{"exprs":{')
 			for (const [at, index] of nameOrder(exprs.length).entries()) {
 				const expr = defined(exprs[index], "an expression the numbering met")
-				const template = this.#exprTemplate(expr)
-				this.#entry(numbering, "e", index, at, template, defined(deps[index], "its dependencies"))
+				writeEntry(
+					out,
+					names,
+					"e",
+					index,
+					at,
+					templates.expr(expr),
+					defined(deps[index], "its dependencies")
+				)
 				boundCanonicalText(out.units - start, this.#limit)
 			}
 			out.ascii('},"nodes":{')
 			for (const [at, index] of nameOrder(nodes.length).entries()) {
 				const node = defined(nodes[index], "a node the numbering met")
-				this.#entry(numbering, "n", index, at, this.#nodeTemplate(node), [])
+				writeEntry(out, names, "n", index, at, templates.node(node), [])
 				boundCanonicalText(out.units - start, this.#limit)
 			}
 			out.ascii('},"roots":[')
@@ -593,203 +744,435 @@ export class DagDigests {
 				if (at > 0) {
 					out.ascii(",")
 				}
-				this.#name("n", index)
+				writeName(out, "n", index)
 			}
 			out.ascii("]}")
 			boundCanonicalText(out.units - start, this.#limit)
 			return this.#messages.hex()
 		})
 	}
+}
 
-	/**
-	 * A node's structural signature: its template's text with each hole read as what it names, the signature of a data
-	 * input or of an expression, and the kind of any other name, folded into a hash. Two nodes of one digest have tables
-	 * that correspond entry for entry, so their templates are one text and their inputs and expressions correspond: they
-	 * have one signature. Two nodes of two signatures are of two digests, and need no digest to be told apart; two of one
-	 * may still be of two, and are digested apart. Undefined where a template it reads is refused, so its reader digests
-	 * the node, which refuses as it did. Each node's and expression's is worked out once, its inputs' and arguments'
-	 * first, deepest first, so a chain of any depth signs with no deeper call stack.
-	 */
-	signature(node: RelNode): Signature {
-		const known = this.#signatures.get(node)
-		if (known !== undefined || this.#signatures.has(node)) {
-			return known
-		}
-		const edges = (at: RelNode): ReadonlyArray<RelNode> =>
-			this.#nodeTemplate(at).namings.flatMap((n) =>
-				n.kind === "edge" && !this.#signatures.has(n.node) ? [n.node] : []
-			)
-		for (const at of postorder([node], edges)) {
-			const template = this.#nodeTemplate(at)
-			for (const naming of template.namings) {
-				if (naming.kind === "expr") {
-					this.#exprSignature(naming.expr)
-				}
-			}
-			this.#signatures.set(at, this.#signed(template))
-		}
-		return this.#signatures.get(node)
+/** A node a block numbers, by its number: read by the block, or sealed, an entry its own share key fills. */
+interface BlockEntry {
+	readonly node: RelNode
+	readonly sealed: boolean
+}
+
+/**
+ * A share key's block (ShareKeys): what its root reaches by data edges without entering a sealed node, numbered by first
+ * occurrence as a digest numbers its reach (ReachNumbering). Each sealed node it meets is numbered beside its nodes, an
+ * entry its own share key fills, and read no further. A name of a node no data edge of the block meets is numbered
+ * nowhere in it (`named`): it lies under a sealed node, an attachment's child reading a node of its parent's delivered
+ * rows below the parent, and is written as its place there (ShareKeys #place, `texts`).
+ */
+class BlockNumbering implements Numbering, EntryNames {
+	readonly nodes = new Names("n", NodeId)
+	readonly exprs = new Names("e", ExprId)
+	readonly vars = new Names("v", VarId)
+	readonly occurrences = new Names("o", OccurrenceId)
+	readonly scopes = new Names("s", ScopeId)
+	/** Every node and expression the block reads, in the order it was met: each namespace's in its numbers' order. */
+	readonly met: Array<Reached> = []
+	/** Every node numbered, in its numbers' order. */
+	readonly entries: Array<BlockEntry> = []
+	/** The nodes a name holds that no data edge of the block meets, in the order first named. */
+	readonly named: Array<RelNode> = []
+	readonly #named = new Set<NodeId>()
+	/** The text each such node, and each occurrence the block reads by and none of its nodes declares, is written as. */
+	readonly nodeTexts = new Map<NodeId, string>()
+	readonly occurrenceTexts = new Map<OccurrenceId, string>()
+	readonly #root: RelNode
+	readonly #labels: () => ReadonlyMap<NodeId, RelNode>
+	readonly #sealed: (node: RelNode) => boolean
+
+	constructor(
+		root: RelNode,
+		labels: () => ReadonlyMap<NodeId, RelNode>,
+		sealed: (node: RelNode) => boolean
+	) {
+		this.#root = root
+		this.#labels = labels
+		this.#sealed = sealed
+		this.edge(root)
 	}
 
-	/** An expression's signature (signature): its template's, its arguments' first. */
-	#exprSignature(expr: ScalarExpr): void {
-		if (this.#signatures.has(expr)) {
+	/** A data edge's node, numbered, and read where it is new and not sealed. */
+	edge(node: RelNode): number {
+		if (!this.nodes.has(node.id)) {
+			const sealed = node !== this.#root && this.#sealed(node)
+			this.entries.push({ node, sealed })
+			if (!sealed) {
+				this.met.push({ kind: "node", node })
+			}
+		}
+		return this.nodes.index(node.id)
+	}
+
+	/**
+	 * A name a node holds: its node, read through the context's labels, named where no data edge has met it; a name the
+	 * context does not hold is MalformedDescription.
+	 */
+	label(id: NodeId): void {
+		if (this.nodes.has(id) || this.#named.has(id)) {
 			return
 		}
-		const args = (at: ScalarExpr): ReadonlyArray<ScalarExpr> =>
-			at.args.filter((arg) => !this.#signatures.has(arg))
-		for (const at of postorder([expr], args)) {
-			this.#signatures.set(at, this.#signed(this.#exprTemplate(at)))
+		const node = this.#labels().get(id)
+		if (node === undefined) {
+			throw new Refusal(malformed(["nodes"], `a node named ${id} in the table`))
 		}
+		this.#named.add(id)
+		this.named.push(node)
 	}
 
-	/**
-	 * A template's signature: its pieces' bytes and, at each hole, the signature of the input or expression it names
-	 * (each signed already) or the kind of the name, folded into two FNV-1a hashes; undefined where the template, or
-	 * one it names, is refused.
-	 */
-	#signed(template: Template): Signature {
-		const text = template.text
-		if (!text.ok) {
+	/** Every name is the block's own: none is outside. */
+	outside(_id: NodeId): boolean {
+		return false
+	}
+
+	/** A node no data edge of the block met is written as its place (`nodeTexts`). */
+	nodeText(id: NodeId): string | undefined {
+		if (this.nodes.has(id)) {
 			return undefined
 		}
-		const hash = new SignatureHash()
-		const { pieces, holes } = text.value
-		for (const [k, hole] of holes.entries()) {
-			hash.bytes(defined(pieces[k], "a piece before each hole"))
-			const naming = template.namings[hole]
-			const part =
-				naming === undefined
-					? hole === template.namings.length
-						? "own"
-						: "deps"
-					: naming.kind === "edge"
-						? this.#signatures.get(naming.node)
-						: naming.kind === "expr"
-							? this.#signatures.get(naming.expr)
-							: naming.kind
-			if (part === undefined) {
-				return undefined
-			}
-			hash.text(part)
-		}
-		hash.bytes(defined(pieces[holes.length], "the piece after the last hole"))
-		return hash.done()
+		return defined(this.nodeTexts.get(id), "the place of a node the block names")
 	}
 
-	/** The context's labels, read once, where a digest first needs them. */
-	#context(): ReadonlyMap<NodeId, RelNode> {
-		const index = this.#index ?? this.#labels()
-		this.#index = index
-		return index
+	/** An occurrence a node of another block declares is written as its place there (`occurrenceTexts`). */
+	occurrenceText(id: OccurrenceId): string | undefined {
+		return this.occurrenceTexts.get(id)
 	}
 
-	/** A node's template, written on its first read. */
-	#nodeTemplate(node: RelNode): Template {
-		const known = this.#nodes.get(node)
-		if (known !== undefined) {
-			return known
+	/** An expression, numbered and read where it is new. */
+	expr(expr: ScalarExpr): number {
+		if (!this.exprs.has(expr.id)) {
+			this.met.push({ kind: "expr", expr })
 		}
-		const template = nodeTemplateOf(node)
-		this.#nodes.set(node, template)
-		this.#written += 1
-		return template
-	}
-
-	/** An expression's template, written on its first read. */
-	#exprTemplate(expr: ScalarExpr): Template {
-		const known = this.#exprs.get(expr)
-		if (known !== undefined) {
-			return known
-		}
-		const template = exprTemplateOf(expr)
-		this.#exprs.set(expr, template)
-		this.#written += 1
-		return template
+		return this.exprs.index(expr.id)
 	}
 
 	/**
-	 * One entry of the table's text, the `at`-th of its record: its name, then its template's pieces, each hole filled
-	 * with the name this digest gives it, its own name, or its dependencies; a template whose form is refused is
-	 * refused here, at its entry.
+	 * An expression's dependencies as the block names them, distinct and in code unit order: each node by its number's
+	 * name, or by its place where no data edge of the block met it (ReachNumbering.deps).
 	 */
-	#entry(
-		numbering: ReachNumbering,
-		ns: "n" | "e",
-		index: number,
-		at: number,
-		template: Template,
-		deps: ReadonlyArray<NodeId>
-	): void {
-		const out = this.#messages.out
-		if (at > 0) {
-			out.ascii(",")
-		}
-		this.#name(ns, index)
-		out.ascii(":")
-		const text = template.text
-		if (!text.ok) {
-			const name = ns === "n" ? numbering.nodes.nameOf(index) : numbering.exprs.nameOf(index)
-			throw new Refusal(within(text.error, [ns === "n" ? "nodes" : "exprs", name]))
-		}
-		const { pieces, units, holes } = text.value
-		for (const [k, hole] of holes.entries()) {
-			out.encoded(defined(pieces[k], "a piece before each hole"), defined(units[k], "its units"))
-			const naming = template.namings[hole]
-			if (naming !== undefined) {
-				this.#naming(numbering, naming)
-			} else if (hole === template.namings.length) {
-				this.#name(ns, index)
-			} else {
-				out.ascii("[")
-				for (const [d, dep] of deps.entries()) {
-					if (d > 0) {
-						out.ascii(",")
-					}
-					writeCanonicalString(out, wellFormed(dep))
-				}
-				out.ascii("]")
-			}
-		}
-		out.encoded(
-			defined(pieces[holes.length], "the piece after the last hole"),
-			defined(units[holes.length], "its units")
+	deps(expr: ScalarExpr): ReadonlyArray<string> {
+		return sortedUnique(
+			expr.deps.nodes.map((label) =>
+				this.nodes.has(label)
+					? this.nodes.nameOf(this.nodes.index(label))
+					: defined(this.nodeTexts.get(label), "the place of a node an expression reads")
+			)
 		)
 	}
+}
 
-	/** The name this digest gives what a naming names. */
-	#naming(numbering: ReachNumbering, naming: Naming): void {
-		switch (naming.kind) {
-			case "edge":
-				this.#name("n", numbering.nodes.index(naming.node.id))
-				return
-			case "label":
-				if (numbering.outside(naming.label)) {
-					writeCanonicalString(this.#messages.out, wellFormed(naming.label))
-				} else {
-					this.#name("n", numbering.nodes.index(naming.label))
-				}
-				return
-			case "expr":
-				this.#name("e", numbering.exprs.index(naming.expr.id))
-				return
-			case "var":
-				this.#name("v", numbering.vars.index(naming.id))
-				return
-			case "occurrence":
-				this.#name("o", numbering.occurrences.index(naming.id))
-				return
-			case "scope":
-				this.#name("s", numbering.scopes.index(naming.id))
-				return
+/** Where a node stands under a block: the names of the sealed entries descended to it, and the block that numbers it. */
+interface Place {
+	readonly path: string
+	readonly block: BlockNumbering
+}
+
+/**
+ * The share keys of one DAG's sub-queries, each digested from its own block, never from its whole reach: a Merkle
+ * digest. A sealed node (`sealed`) reads nothing outside what it reaches, so its rows are its own whatever reads it; a
+ * sub-query's block is what it reaches without entering a sealed node, numbered as a digest numbers its reach
+ * (BlockNumbering), and its key is SHA-256 of the block's table under the share domain, each sealed node it meets an
+ * entry its own key fills. Keys are worked out children first, each once for the DAG, so the bytes digested are the
+ * blocks', each written once, where a digest of every reach wrote each node again for every key above it.
+ *
+ * A name a block holds of a node under a sealed node, which no data edge of the block meets, is written as its place:
+ * the names of the sealed entries descended to it, each in the block above it, then its name in the block that numbers
+ * it, "n#3/n#0/n#2" (#place); a key fixes its block's numbering, so the place names one position of the rows the key
+ * stands for. An occurrence a node of the block reads by and no node of it declares is written as its declarer's place
+ * and its name there. So a key names everything its block reads.
+ *
+ * Two sub-queries of one key are the same rows under the same parameters: their blocks are one table and their sealed
+ * nodes are, entry for entry, of one key. A key is coarser than a digest of the whole reach in one way alone: whether
+ * two sealed nodes met in different blocks are one node or two built alike, which no table of a block states. Two
+ * sealed nodes built alike are the same rows, a call of a volatile function aside, whose template names its label
+ * (templateForm), so the two are of two keys.
+ */
+export class ShareKeys {
+	readonly #templates: Templates
+	readonly #sealed: (node: RelNode) => boolean
+	readonly #messages = new Sha256Messages(messageChunk)
+	/** The share domain's frame line. */
+	readonly #line: WellFormedText
+	/** The longest block text a key writes, past which it is refused: V8's longest string in production. */
+	readonly #limit: number
+	/** Each node's key, worked out once. */
+	readonly #keys = new Map<RelNode, string>()
+	/** Each keyed node's block, which a place under it reads. */
+	readonly #blocks = new Map<RelNode, BlockNumbering>()
+	/** Each node a place was asked for, by the nodes known to reach it or not. */
+	readonly #reaching = new Map<RelNode, Map<RelNode, boolean>>()
+	/** The longest path from each node to a leaf, folded from its inputs'. */
+	readonly #heights = new Map<RelNode, number>()
+	/** The scans and regions that declare each occurrence, indexed on the first occurrence a place is asked for. */
+	#declarers: ReadonlyMap<OccurrenceId, ReadonlyArray<RelNode>> | undefined
+	#digested = 0
+	#units = 0
+
+	constructor(
+		labels: () => ReadonlyMap<NodeId, RelNode>,
+		limit: number,
+		sealed: (node: RelNode) => boolean
+	) {
+		this.#templates = new Templates(labels)
+		this.#limit = limit
+		this.#sealed = sealed
+		this.#line = unwrap(fingerprintDomain("share"))
+	}
+
+	/** How many blocks are digested: one for each node keyed, its own or a sealed node's under it. */
+	get blocks(): number {
+		return this.#digested
+	}
+
+	/** How many code units the blocks' tables hold, every block's once: the keying's work. */
+	get units(): number {
+		return this.#units
+	}
+
+	/** The share key of `node`: its block's digest (the class doc); a DAG it cannot key is refused. */
+	key(node: RelNode): Result.Result<string, CompileError> {
+		const keyed = catchRefusal(() => this.#key(node))
+		if (!keyed.ok) {
+			this.#messages.discard()
+		}
+		return keyed
+	}
+
+	/**
+	 * The key of `root`, each sealed node its block meets keyed first, deepest first, so a chain of any depth keys with no
+	 * deeper call stack; each block numbered once.
+	 */
+	#key(root: RelNode): string {
+		const pending: Array<RelNode> = [root]
+		for (let at = pending.at(-1); at !== undefined; at = pending.at(-1)) {
+			if (this.#keys.has(at)) {
+				pending.pop()
+				continue
+			}
+			const block = this.#blocks.get(at) ?? this.#block(at)
+			this.#blocks.set(at, block)
+			const unkeyed = block.entries.flatMap((e) =>
+				e.sealed && !this.#keys.has(e.node) ? [e.node] : []
+			)
+			if (unkeyed.length > 0) {
+				appendAll(pending, unkeyed)
+				continue
+			}
+			pending.pop()
+			this.#keys.set(at, this.#digest(block))
+		}
+		return defined(this.#keys.get(root), "the key of the node asked")
+	}
+
+	/** The block of `root` (BlockNumbering), every node and expression it reads numbered. */
+	#block(root: RelNode): BlockNumbering {
+		const templates = this.#templates
+		const block = new BlockNumbering(root, () => templates.context(), this.#sealed)
+		for (const met of block.met) {
+			const template = met.kind === "node" ? templates.node(met.node) : templates.expr(met.expr)
+			for (const naming of template.namings) {
+				numbered(block, naming)
+			}
+		}
+		return block
+	}
+
+	/**
+	 * Where `node` stands under `block`: the block itself where it numbers the node; otherwise under the first sealed
+	 * entry, in the block's numbering, that reaches it, there. Undefined where no sealed entry reaches it: a node outside
+	 * what the block's root reaches.
+	 */
+	#place(block: BlockNumbering, node: RelNode): Place | undefined {
+		let path = ""
+		for (let at = block; ;) {
+			if (at.nodes.has(node.id)) {
+				return { path, block: at }
+			}
+			const seal = at.entries.find((e) => e.sealed && this.#reaches(e.node, node))
+			if (seal === undefined) {
+				return undefined
+			}
+			path = `${path}${at.nodes.nameOf(at.nodes.index(seal.node.id))}/`
+			at = defined(this.#blocks.get(seal.node), "a sealed node's block, keyed first")
 		}
 	}
 
-	/** A name "<ns>#<i>" written as its JSON string, no text of it built. */
-	#name(ns: Namespace, index: number): void {
+	/** The text a node `block` names but no data edge of it meets is written as: its place, or its label outside. */
+	#nodeText(block: BlockNumbering, node: RelNode): string {
+		const place = this.#place(block, node)
+		return place === undefined
+			? node.id
+			: `${place.path}${place.block.nodes.nameOf(place.block.nodes.index(node.id))}`
+	}
+
+	/**
+	 * The text an occurrence a node of `block` reads by, and no node it reads declares, is written as: its declarer's
+	 * place, then its name in the block that reads the declarer, the least such text where several nodes declare it;
+	 * undefined where no declarer stands under the block, so the block numbers it as its own.
+	 */
+	#occurrenceText(block: BlockNumbering, id: OccurrenceId): string | undefined {
+		const texts = this.#declarersOf(id).flatMap((declarer) => {
+			const place = this.#place(block, declarer)
+			if (place === undefined) {
+				return []
+			}
+			const at = place.block
+			const index = at.nodes.index(declarer.id)
+			const sealed = defined(at.entries[index], "the declarer's entry").sealed
+			const reader = sealed
+				? defined(this.#blocks.get(declarer), "a sealed declarer's block, keyed first")
+				: at
+			const path = sealed ? `${place.path}${at.nodes.nameOf(index)}/` : place.path
+			return [`${path}${reader.occurrences.nameOf(reader.occurrences.index(id))}`]
+		})
+		return texts.toSorted().at(0)
+	}
+
+	/** Whether `node` lies under `from`: it is a node `from`'s inputs reach, every answer for `node` kept. */
+	#reaches(from: RelNode, node: RelNode): boolean {
+		if (this.#height(from) <= this.#height(node)) {
+			return false
+		}
+		const known = this.#reaching.getOrInsertComputed(node, () => new Map([[node, true]]))
+		const unknown = (n: RelNode): ReadonlyArray<RelNode> =>
+			inputsOf(n).filter((i) => !known.has(i) && this.#height(i) >= this.#height(node))
+		for (const at of postorder([from], unknown)) {
+			known.set(
+				at,
+				inputsOf(at).some((i) => known.get(i) === true)
+			)
+		}
+		return known.get(from) === true
+	}
+
+	/** The longest path from a node to a leaf, its inputs' worked out first. */
+	#height(node: RelNode): number {
+		const known = this.#heights.get(node)
+		if (known !== undefined) {
+			return known
+		}
+		const unknown = (n: RelNode): ReadonlyArray<RelNode> =>
+			inputsOf(n).filter((i) => !this.#heights.has(i))
+		for (const at of postorder([node], unknown)) {
+			this.#heights.set(
+				at,
+				inputsOf(at).reduce(
+					(h, i) => Math.max(h, defined(this.#heights.get(i), "an input's height") + 1),
+					0
+				)
+			)
+		}
+		return defined(this.#heights.get(node), "the height asked")
+	}
+
+	/** The scans and regions of the DAG that declare an occurrence: a scan's own, and each of a region's. */
+	#declarersOf(id: OccurrenceId): ReadonlyArray<RelNode> {
+		const index =
+			this.#declarers ??
+			(() => {
+				const made = new Map<OccurrenceId, Array<RelNode>>()
+				for (const node of this.#templates.context().values()) {
+					if (node.kind === "Base") {
+						made.getOrInsertComputed(node.occurrence, () => []).push(node)
+					} else if (node.kind === "MatchRegion") {
+						for (const o of node.occurrences) {
+							made.getOrInsertComputed(o.id, () => []).push(node)
+						}
+					}
+				}
+				return made
+			})()
+		this.#declarers = index
+		return index.get(id) ?? []
+	}
+
+	/**
+	 * The texts of what a block names under its sealed nodes: each node no data edge met (`named`), and each occurrence
+	 * a node it reads reads by that none of them declares.
+	 */
+	#placed(block: BlockNumbering): void {
+		for (const node of block.named) {
+			if (!block.nodes.has(node.id)) {
+				block.nodeTexts.set(node.id, this.#nodeText(block, node))
+			}
+		}
+		const read = block.met.flatMap((m) => (m.kind === "node" ? [m.node] : []))
+		const declared = new Set(
+			read.flatMap((node) =>
+				node.kind === "Base"
+					? [node.occurrence]
+					: node.kind === "MatchRegion"
+						? node.occurrences.map((o) => o.id)
+						: []
+			)
+		)
+		for (const node of read) {
+			for (const naming of this.#templates.node(node).namings) {
+				if (
+					naming.kind !== "occurrence" ||
+					block.occurrenceTexts.has(naming.id) ||
+					declared.has(naming.id)
+				) {
+					continue
+				}
+				const text = this.#occurrenceText(block, naming.id)
+				if (text !== undefined) {
+					block.occurrenceTexts.set(naming.id, text)
+				}
+			}
+		}
+	}
+
+	/** A block's digest: its table, each sealed node's entry its key, under the share domain's frame. */
+	#digest(block: BlockNumbering): string {
+		this.#placed(block)
+		const templates = this.#templates
+		const exprs = block.met.flatMap((m) => (m.kind === "expr" ? [m.expr] : []))
+		const deps = exprs.map((expr) => block.deps(expr))
 		const out = this.#messages.out
-		out.ascii(quoted[ns])
-		out.jsonNumber(index)
-		out.ascii('"')
+		writeFrame(out, this.#line)
+		const start = out.units
+		out.ascii('{"exprs":{')
+		for (const [at, index] of nameOrder(exprs.length).entries()) {
+			const expr = defined(exprs[index], "an expression the block met")
+			writeEntry(
+				out,
+				block,
+				"e",
+				index,
+				at,
+				templates.expr(expr),
+				defined(deps[index], "its dependencies")
+			)
+			boundCanonicalText(out.units - start, this.#limit)
+		}
+		out.ascii('},"nodes":{')
+		for (const [at, index] of nameOrder(block.entries.length).entries()) {
+			const entry = defined(block.entries[index], "a node the block numbered")
+			if (entry.sealed) {
+				if (at > 0) {
+					out.ascii(",")
+				}
+				writeName(out, "n", index)
+				out.ascii(':"')
+				out.ascii(defined(this.#keys.get(entry.node), "a sealed node's key, worked out first"))
+				out.ascii('"')
+			} else {
+				writeEntry(out, block, "n", index, at, templates.node(entry.node), [])
+			}
+			boundCanonicalText(out.units - start, this.#limit)
+		}
+		out.ascii('},"roots":[')
+		writeName(out, "n", 0)
+		out.ascii("]}")
+		boundCanonicalText(out.units - start, this.#limit)
+		this.#digested += 1
+		this.#units += out.units - start
+		return this.#messages.hex()
 	}
 }

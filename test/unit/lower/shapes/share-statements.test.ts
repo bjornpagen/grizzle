@@ -25,7 +25,6 @@ import { agree, exact, set, structuralHash } from "@bjornpagen/testing/oracle"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Order } from "effect"
 import type { RelNode } from "#compiler/ir/rel.ts"
-import { shareKey } from "#compiler/lower/shapes/share/index.ts"
 import {
 	type CarriedShare,
 	decidingClasses,
@@ -58,7 +57,8 @@ export const subQueriesCarriedAcrossAStratumsStatementsCarryPickOnceEveryCopyThr
 		check: (_, c: Case<"carried" | "inline">) => (statements) =>
 			Effect.sync(() => {
 				const p = program(statements)
-				const shares = succeeded(planStatementShares(new ShareIndex(p.dag), p.roots))
+				const index = new ShareIndex(p.dag)
+				const shares = succeeded(planStatementShares(index, p.roots))
 				if (statements < 2) {
 					assert.deepEqual(shares, [])
 					c.note("inline")
@@ -67,7 +67,7 @@ export const subQueriesCarriedAcrossAStratumsStatementsCarryPickOnceEveryCopyThr
 				const [pick] = p.picks
 				assert.equal(shares.length, 1)
 				const share = present(shares[0], "the carried share")
-				assert.equal(share.key, succeeded(shareKey(p.dag, present(pick, "a pick"))))
+				assert.equal(share.key, present(index.key(present(pick, "a pick")), "pick's key"))
 				unorderedEqual([...share.copies], p.picks)
 				c.note("carried")
 			}),
@@ -80,8 +80,8 @@ export const subQueriesCarriedAcrossAStratumsStatementsCarryPickOnceEveryCopyThr
 		kills: [
 			{
 				file: "packages/engine/src/lower/shapes/share/statements.ts",
-				original: "\t\t\t.filter((group) => statementsOf(group) >= 2)\n",
-				replacement: "\t\t\t.filter((group) => statementsOf(group) >= 4)\n",
+				original: "\t\tif (statementsOf(group) < 2) {\n",
+				replacement: "\t\tif (statementsOf(group) < 4) {\n",
 				why: "A sub-query is carried only when more than three statements read it; the carried search fails."
 			}
 		]
@@ -95,9 +95,10 @@ export const subQueriesRepeatedInsideOneStatementComputeAnUnboundedSubQueryOnceE
 		check: (_, c: Case<"shared" | "inline">) => (reads) =>
 			Effect.gen(function* () {
 				const { built, copies } = repeated(reads)
-				const ctes = statementCtes(new ShareIndex(built.dag), built.dag.roots[0], () => false)
+				const index = new ShareIndex(built.dag)
+				const ctes = statementCtes(index, built.dag.roots[0], () => false)
 				const expected =
-					reads > 1 ? [succeeded(shareKey(built.dag, present(copies[0], "a copy")))] : []
+					reads > 1 ? [present(index.key(present(copies[0], "a copy")), "its key")] : []
 				yield* agree(
 					[
 						["the share keys the statement computes once", [...new Set(ctes.values())]],

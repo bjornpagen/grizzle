@@ -89,8 +89,8 @@ export const everySubQuerysDigestFromItsDAGsTemplatesIsItsNormalFormsTablesDiges
 			},
 			{
 				file: "packages/engine/src/ir/dag-digest.ts",
-				original: "\t\t\t\tif (numbering.outside(naming.label)) {",
-				replacement: "\t\t\t\tif (false) {",
+				original: "\t\t\t\tnodeText: (id) => (numbering.outside(id) ? id : undefined),\n",
+				replacement: "\t\t\t\tnodeText: () => undefined,\n",
 				why: "A name of a node outside the reach is written as a number where the labelled form writes its label: an evaluation key that reads an enclosing node differs."
 			}
 		]

@@ -49,8 +49,8 @@ export const theShareKeyIsEqualForTwoCopiesAtAnyAllocationExactlyWhenTheyReadThe
 			kills: [
 				{
 					file: "packages/engine/src/lower/shapes/share/index.ts",
-					original: '=> digests.digest([node], "share", "followed")',
-					replacement: `=> digests.digest([node], \`share \${node.id}\`, "followed")`,
+					original: '.digest([node], "share", "followed")',
+					replacement: `.digest([node], \`share \${node.id}\`, "followed")`,
 					why: "The share key reads the node's label, so two copies read apart whenever their allocations differ; the search fails."
 				}
 			]
