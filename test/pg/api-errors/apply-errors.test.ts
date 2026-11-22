@@ -160,10 +160,11 @@ export const applyErrorThroughThePublicAPIAValueItsCodecRefusesIsRefusedAsInputN
 		],
 		kills: [
 			{
-				file: "packages/grizzle/src/adapter/apply/shares.ts",
-				original: "\tconst read = readHost(unread, () =>",
-				replacement: "\tconst read = Result.flatMap(Result.succeed(unread), () =>",
-				why: "Shares read a call's facts outside the boundary's reader, as valueBytes did before the codec read them, so a refusing proxy's trap escapes as a defect where the codec refuses the value with its fault and slot."
+				file: "packages/engine/src/runtime/write/read-call.ts",
+				original: "\t\t\t\tconst given = members.get(member.name)\n",
+				replacement:
+					"\t\t\t\tconst given = members.get(member.name)\n\t\t\t\tfor (const fact of given ?? []) {\n\t\t\t\t\tvalueBytes(fact)\n\t\t\t\t}\n",
+				why: "The call's facts are measured off the caller's values before the write reads them, as shares measured them before the codec read them, so a refusing proxy's trap escapes as a defect where the codec refuses the value with its fault and slot."
 			}
 		]
 	})

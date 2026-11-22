@@ -14,7 +14,7 @@ import {
 	readsRow,
 	riddenRows
 } from "#adapter/apply/readback.ts"
-import { callShares, sendsAlone } from "#adapter/apply/shares.ts"
+import { drawShares, sendsAlone } from "#adapter/apply/shares.ts"
 import {
 	type ApplyError,
 	CommitUnknown,
@@ -519,38 +519,53 @@ export const runWrite = <R>(
 /** A share of a streamed write a host normalization refused within it, which the whole call judges (runWriteShares). */
 class ShareRejected extends Data.TaggedError("ShareRejected") {}
 
-/** A call drawn in shares (shares.ts callShares), and the inputs of its call of no facts, which its read-backs read. */
-export interface DrawnCall {
+/** A call drawn in shares (shares.ts drawShares), and the inputs of its call of no facts, which its read-backs read. */
+export interface SharedCall {
 	readonly shares: Iterable<HostCall>
 	readonly empty: BoundInputs
 }
 
 /**
+ * A call as its application binds it: `whole`, the call its whole bind binds, its facts as the call's one read took
+ * them where its write's facts are drawn in shares (shares.ts drawShares), else the caller's; and `shared`, its shares,
+ * none where it is bound whole.
+ */
+export interface DrawnCall {
+	readonly whole: HostCall
+	readonly shared: SharedCall | undefined
+}
+
+/**
  * A call's facts drawn in shares of whole groups, where its write's every statement is fed by its facts and no
- * read-back rides one of them (shares.ts callShares): none where they fit one share, or the write is no such write,
- * which the call binds whole.
+ * read-back rides one of them (shares.ts drawShares): none where they fit one share, or the write is no such write,
+ * which the call binds whole; or the first refusal of the call's one read of its facts, as its bind would meet it.
  */
 export const drawnCall = <R>(
 	entry: WriteEntry,
 	call: HostCall,
 	reads: BoundReads<R>
-): Effect.Effect<DrawnCall | undefined, InputFailure> =>
+): Effect.Effect<DrawnCall, InputFailure> =>
 	Effect.gen(function* () {
+		const unshared: DrawnCall = { whole: call, shared: undefined }
 		if (Arr.some(reads.runs.runs, (run) => run.kind === "riding")) {
-			return undefined
+			return unshared
 		}
 		const none = new Map(Arr.map(entry.program.binding.members, (m) => [m.slot, []] as const))
 		const empty = yield* hostInputs(entry, { ...call, members: none })
 		if (empty.kind !== "bound") {
-			return undefined
+			return unshared
 		}
-		const shares = callShares(
+		const drawn = drawShares(
 			entry.program,
 			call,
 			writeBatching.bytes,
 			sendsAlone(entry.program, empty.bound.skip)
 		)
-		return shares === undefined ? undefined : { shares, empty }
+		if (Result.isFailure(drawn)) {
+			return yield* Effect.fail(valuesFailure(drawn.failure))
+		}
+		const { whole, shares } = drawn.success
+		return { whole, shared: shares === undefined ? undefined : { shares, empty } }
 	})
 
 /** Each relation's counts of `counts` added to those `into` holds, by relation. */
@@ -587,7 +602,7 @@ export const runWriteShares = <R>(
 	session: Session,
 	frame: Frame,
 	entry: WriteEntry,
-	drawn: DrawnCall,
+	drawn: SharedCall,
 	reads: BoundReads<R>,
 	whole: (session: Session) => Effect.Effect<ApplyOutcome<R>, ApplyError>
 ): Effect.Effect<ApplyOutcome<R>, ApplyError> =>

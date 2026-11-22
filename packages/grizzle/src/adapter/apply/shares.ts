@@ -1,5 +1,5 @@
 /**
- * A call's facts drawn as shares of whole groups (`callShares`), each share a call of its own facts through the
+ * A call's facts drawn as shares of whole groups (`drawShares`), each share a call of its own facts through the
  * write's one bind, so the host holds one share's facts, normalized and encoded, never every fact of the call: the
  * statements of a share are sent, then its facts are dropped and the next share is drawn, all in the call's one
  * transaction (apply/run.ts runWriteShares).
@@ -16,16 +16,17 @@
  * ir/needs.ts), its members insert, its one stratum, and no relation parameter, so a share's statements are the call's
  * statements over that share's facts alone. Every other write is bound whole.
  *
- * A share reads each fact once, its bytes and its group keys, through the boundary's reader (adapter/engine.ts
- * readHost, core/host.ts hostRead), and nothing after reads the fact for it (`factReads`): a fact whose reading throws,
- * a refusing proxy, a throwing getter, makes the call no drawn one, bound whole, where the codec's one read of it
- * refuses it with its own fault and slot.
+ * A call is read once before any share of it is drawn: every slot's facts by the write's own readers, as its bind reads
+ * them (runtime/write/read-call.ts readCall), its first refusal the bind's, at its slot. Its shares' bytes and groups
+ * are the read's, and each share, or the whole call where it is bound whole after all, is the read's arrays of its facts,
+ * whose bind takes the reads and reads no fact again; nothing after the read reflects on a caller's fact.
  */
-import { Array as Arr, Effect, Record as Rec, Result } from "effect"
+import { Array as Arr, Effect, Result } from "effect"
 import type { HostCall } from "#adapter/apply/run.ts"
-import { readHost } from "#adapter/engine.ts"
+import { toResult } from "#adapter/engine.ts"
 import type { FlightWrite } from "#compiler/plan/change.ts"
-import { isRecord } from "#compiler/plan/runtime.ts"
+import type { EncodingFailure } from "#compiler/plan/common.ts"
+import { readCall, type SlotReads } from "#compiler/plan/runtime.ts"
 
 /** The slots of a family's owner and members, and how a fact of each names its group. */
 interface FamilySlots {
@@ -34,37 +35,6 @@ interface FamilySlots {
 	readonly memberFields: ReadonlyArray<string>
 	readonly ownerFields: ReadonlyArray<string>
 	readonly id: number
-}
-
-/**
- * The bytes a caller's value takes on the host, as a share counts it: a text's code units, a binary value's bytes, a
- * scalar's eight, and a container's elements, each field's name with it.
- */
-export const valueBytes = (value: unknown): number => {
-	if (typeof value === "string") {
-		return value.length + 1
-	}
-	if (value instanceof Uint8Array) {
-		return value.byteLength + 1
-	}
-	if (Arr.isArray(value)) {
-		return Arr.reduce(value, 1, (sum, element) => sum + valueBytes(element))
-	}
-	if (value instanceof Set) {
-		let sum = 1
-		for (const element of value) {
-			sum += valueBytes(element)
-		}
-		return sum
-	}
-	if (isRecord(value)) {
-		let sum = 1
-		for (const [name, field] of Rec.toEntries(value)) {
-			sum += name.length + valueBytes(field)
-		}
-		return sum
-	}
-	return 8
 }
 
 /** A value of a group field as text, by its kind, so a text and a number of one spelling are two groups. */
@@ -79,12 +49,16 @@ const keyText = (value: unknown): string =>
 					? `b${String(value)}`
 					: `o${String(value)}`
 
-/** A fact's group key under a family: the family, then each of its group fields' values. */
-const groupKey = (family: number, fact: unknown, fields: ReadonlyArray<string>): string => {
+/** Fact `at`'s group key under a family, as the call's read found it: the family, then each of its group fields' values. */
+const groupKey = (
+	family: number,
+	reads: SlotReads,
+	at: number,
+	fields: ReadonlyArray<string>
+): string => {
 	let key = String(family)
 	for (const field of fields) {
-		const value = isRecord(fact) && Rec.has(fact, field) ? fact[field] : undefined
-		key += `\u0000${keyText(value)}`
+		key += `\u0000${keyText(reads.field(at, field))}`
 	}
 	return key
 }
@@ -145,96 +119,87 @@ const unionFind = () => {
 	}
 }
 
-/**
- * What shares read of one fact, once (`factReads`): its bytes (`valueBytes`), and its group key under each family whose
- * member or owner its slot is, in the families' order (`groupKey`).
- */
-interface FactRead {
-	readonly bytes: number
-	readonly keys: ReadonlyArray<string>
-}
+/** The positions 0 … n − 1 of a slot of `n` facts. */
+const positions = (n: number): Array<number> => Array.from({ length: n }, (_, at) => at)
 
-/** No fact read: a call one of whose facts throws as it is read, which shares never draw. */
-const unread = "unread" as const
+/** What a share takes of each member slot: its facts' positions in the slot, every slot of the write named. */
+type ShareAts = Map<string, Array<number>>
 
 /**
- * Each slot's facts as shares read them, each read once through the boundary's reader (adapter/engine.ts readHost):
- * its bytes and its group keys, which every count and cut of the shares reads after; or none, where the reading of one
- * throws, so the call is bound whole and the codec's one read of the fact refuses it with its own fault and slot.
+ * A call as its write binds it (`drawShares`): `whole`, the call bound whole, its facts the read's where the call was
+ * read (its bind takes the reads), else the caller's, which a write no share is drawn of binds as it reads any; and
+ * `shares`, its shares, none where it is bound whole.
  */
-const factReads = (
-	given: ReadonlyMap<string, ReadonlyArray<unknown>>,
-	families: ReadonlyArray<FamilySlots>,
-	grouped: ReadonlySet<string>
-): ReadonlyMap<string, ReadonlyArray<FactRead>> | undefined => {
-	const read = readHost(unread, () =>
-		Result.succeed(
-			new Map(
-				Arr.map([...given], ([slot, facts]) => {
-					const fold = grouped.has(slot)
-					const reads = Arr.map(facts, (fact): FactRead => {
-						const keys: Array<string> = []
-						for (const f of fold ? families : []) {
-							if (f.member.includes(slot)) {
-								keys.push(groupKey(f.id, fact, f.memberFields))
-							}
-							if (f.owner.includes(slot)) {
-								keys.push(groupKey(f.id, fact, f.ownerFields))
-							}
-						}
-						return { bytes: valueBytes(fact), keys }
-					})
-					return [slot, reads] as const
-				})
-			)
-		)
-	)
-	return Result.isSuccess(read) ? read.success : undefined
+export interface DrawnShares {
+	readonly whole: HostCall
+	readonly shares: Iterable<HostCall> | undefined
 }
-
-/** A share's facts of each member slot, every slot of the write named, none it draws no fact of empty. */
-type ShareFacts = Map<string, Array<unknown>>
 
 /**
  * The call's facts as shares of whole groups within `bytes` each (see the header), in the members' order and each
- * slot's facts' order, the family groups first; or none where the write is no drawable one or its facts fit one share,
- * which the call binds whole. `alone` says whether the write's call of no facts sends a statement (`sendsAlone`).
+ * slot's facts' order, the family groups first: none where the write is no drawable one, which the call binds whole as
+ * the caller gave it, or where its facts fit one share, which it binds whole as the read took it; or the first refusal
+ * the read meets. `alone` says whether the write's call of no facts sends a statement (`sendsAlone`).
  */
-export const callShares = (
+export const drawShares = (
 	program: FlightWrite,
 	call: HostCall,
 	bytes: number,
 	alone: boolean
-): Iterable<HostCall> | undefined => {
+): Result.Result<DrawnShares, EncodingFailure> => {
 	if (!drawable(program, alone)) {
-		return undefined
+		return Result.succeed({ whole: call, shares: undefined })
 	}
+	return Result.map(toResult(readCall(program.prepared, program.codes, call.members)), (read) =>
+		sharesOf(program, call, read, bytes)
+	)
+}
+
+/** The read call `read`'s shares within `bytes` each (`drawShares`). */
+const sharesOf = (
+	program: FlightWrite,
+	call: HostCall,
+	read: ReadonlyMap<string, SlotReads>,
+	bytes: number
+): DrawnShares => {
 	const slots = Arr.map(program.binding.members, (m) => m.slot)
-	const factsOf = (slot: string): ReadonlyArray<unknown> => {
-		const given = call.members.get(slot)
-		return given === undefined ? [] : Arr.isArray(given) ? given : Arr.fromIterable(given)
-	}
-	const given = new Map(Arr.map(slots, (slot) => [slot, factsOf(slot)] as const))
-	const families = familySlots(program)
-	const grouped = new Set(Arr.flatMap(families, (f) => [...f.member, ...f.owner]))
-	const read = factReads(given, families, grouped)
-	if (read === undefined) {
-		return undefined
-	}
+	const readOf = (slot: string): SlotReads | undefined => read.get(slot)
+	const callOf = (ats: ShareAts): HostCall => ({
+		params: call.params,
+		bound: call.bound,
+		members: new Map(
+			Arr.map(slots, (slot) => [slot, readOf(slot)?.take(ats.get(slot) ?? []) ?? []] as const)
+		)
+	})
+	const countOf = (slot: string): number => readOf(slot)?.count ?? 0
+	const bytesOf = (slot: string, at: number): number => readOf(slot)?.bytes(at) ?? 0
+	const whole = callOf(new Map(Arr.map(slots, (slot) => [slot, positions(countOf(slot))] as const)))
 	let total = 0
-	for (const reads of read.values()) {
-		for (const one of reads) {
-			total += one.bytes
+	for (const slot of slots) {
+		for (let at = 0; at < countOf(slot); at++) {
+			total += bytesOf(slot, at)
 		}
 	}
 	if (total <= bytes) {
-		return undefined
+		return { whole, shares: undefined }
 	}
+	const families = familySlots(program)
+	const grouped = new Set(Arr.flatMap(families, (f) => [...f.member, ...f.owner]))
+	/** Each grouped fact's group keys, under every family whose member or owner its slot is, in the families' order. */
+	const keysOf = (slot: string, reads: SlotReads, at: number): ReadonlyArray<string> =>
+		Arr.flatMap(families, (f) => [
+			...(f.member.includes(slot) ? [groupKey(f.id, reads, at, f.memberFields)] : []),
+			...(f.owner.includes(slot) ? [groupKey(f.id, reads, at, f.ownerFields)] : [])
+		])
 	/** Each grouped slot's facts' groups, by the union of their families' keys. */
 	const groups = unionFind()
+	const keys = new Map<string, ReadonlyArray<ReadonlyArray<string>>>()
 	for (const slot of grouped) {
-		for (const one of read.get(slot) ?? []) {
-			const [first, ...rest] = one.keys
+		const reads = readOf(slot)
+		const slotKeys =
+			reads === undefined ? [] : Arr.map(positions(reads.count), (at) => keysOf(slot, reads, at))
+		keys.set(slot, slotKeys)
+		for (const [first, ...rest] of slotKeys) {
 			for (const key of rest) {
 				if (first !== undefined) {
 					groups.union(first, key)
@@ -247,10 +212,10 @@ export const callShares = (
 	const byGroup = new Map<string, Int32Array>()
 	const ofGroup = new Map<string, Int32Array>()
 	for (const slot of grouped) {
-		const reads = read.get(slot) ?? []
-		const ids = new Int32Array(reads.length)
-		for (const [at, one] of reads.entries()) {
-			const root = groups.root(one.keys[0] ?? "")
+		const slotKeys = keys.get(slot) ?? []
+		const ids = new Int32Array(slotKeys.length)
+		for (const [at, factKeys] of slotKeys.entries()) {
+			const root = groups.root(factKeys[0] ?? "")
 			const known = numbers.get(root)
 			const id = known ?? numbers.size
 			if (known === undefined) {
@@ -258,79 +223,77 @@ export const callShares = (
 			}
 			ids[at] = id
 		}
-		const order = Int32Array.from(indicesSorted(ids))
 		ofGroup.set(slot, ids)
-		byGroup.set(slot, order)
+		byGroup.set(slot, Int32Array.from(indicesSorted(ids)))
 	}
 	return {
-		[Symbol.iterator]: function* () {
-			const empty = (): ShareFacts => new Map(Arr.map(slots, (slot) => [slot, []] as const))
-			let share = empty()
-			let held = 0
-			let count = 0
-			const flush = function* () {
-				if (count === 0) {
-					return
-				}
-				yield { params: call.params, bound: call.bound, members: share }
-				share = empty()
-				held = 0
-				count = 0
-			}
-			const add = (slot: string, fact: unknown, size: number): void => {
-				share.get(slot)?.push(fact)
-				held += size
-				count += 1
-			}
-			/** Each grouped slot's next position in its group order: its facts are drawn a group at a time. */
-			const cursors = new Map(Arr.map([...grouped], (slot) => [slot, 0] as const))
-			for (let group = 0; group < numbers.size; group++) {
-				let size = 0
-				for (const slot of grouped) {
-					const order = byGroup.get(slot) ?? new Int32Array()
-					const ids = ofGroup.get(slot) ?? new Int32Array()
-					const reads = read.get(slot) ?? []
-					for (let at = cursors.get(slot) ?? 0; at < order.length; at++) {
-						const position = order[at] ?? 0
-						if (ids[position] !== group) {
-							break
-						}
-						size += reads[position]?.bytes ?? 0
+		whole,
+		shares: {
+			[Symbol.iterator]: function* () {
+				const empty = (): ShareAts => new Map(Arr.map(slots, (slot) => [slot, []] as const))
+				let share = empty()
+				let held = 0
+				let count = 0
+				const flush = function* () {
+					if (count === 0) {
+						return
 					}
+					yield callOf(share)
+					share = empty()
+					held = 0
+					count = 0
 				}
-				if (held > 0 && held + size > bytes) {
-					yield* flush()
+				const add = (slot: string, at: number, size: number): void => {
+					share.get(slot)?.push(at)
+					held += size
+					count += 1
 				}
-				for (const slot of grouped) {
-					const order = byGroup.get(slot) ?? new Int32Array()
-					const ids = ofGroup.get(slot) ?? new Int32Array()
-					const slotFacts = given.get(slot) ?? []
-					const reads = read.get(slot) ?? []
-					let at = cursors.get(slot) ?? 0
-					for (; at < order.length; at++) {
-						const position = order[at] ?? 0
-						if (ids[position] !== group) {
-							break
+				/** Each grouped slot's next position in its group order: its facts are drawn a group at a time. */
+				const cursors = new Map(Arr.map([...grouped], (slot) => [slot, 0] as const))
+				for (let group = 0; group < numbers.size; group++) {
+					let size = 0
+					for (const slot of grouped) {
+						const order = byGroup.get(slot) ?? new Int32Array()
+						const ids = ofGroup.get(slot) ?? new Int32Array()
+						for (let at = cursors.get(slot) ?? 0; at < order.length; at++) {
+							const position = order[at] ?? 0
+							if (ids[position] !== group) {
+								break
+							}
+							size += bytesOf(slot, position)
 						}
-						add(slot, slotFacts[position], reads[position]?.bytes ?? 0)
 					}
-					cursors.set(slot, at)
-				}
-			}
-			for (const slot of slots) {
-				if (grouped.has(slot)) {
-					continue
-				}
-				const reads = read.get(slot) ?? []
-				for (const [at, fact] of (given.get(slot) ?? []).entries()) {
-					const size = reads[at]?.bytes ?? 0
 					if (held > 0 && held + size > bytes) {
 						yield* flush()
 					}
-					add(slot, fact, size)
+					for (const slot of grouped) {
+						const order = byGroup.get(slot) ?? new Int32Array()
+						const ids = ofGroup.get(slot) ?? new Int32Array()
+						let at = cursors.get(slot) ?? 0
+						for (; at < order.length; at++) {
+							const position = order[at] ?? 0
+							if (ids[position] !== group) {
+								break
+							}
+							add(slot, position, bytesOf(slot, position))
+						}
+						cursors.set(slot, at)
+					}
 				}
+				for (const slot of slots) {
+					if (grouped.has(slot)) {
+						continue
+					}
+					for (let at = 0; at < countOf(slot); at++) {
+						const size = bytesOf(slot, at)
+						if (held > 0 && held + size > bytes) {
+							yield* flush()
+						}
+						add(slot, at, size)
+					}
+				}
+				yield* flush()
 			}
-			yield* flush()
 		}
 	}
 }
@@ -358,7 +321,7 @@ const indicesSorted = (ids: Int32Array): Int32Array => {
 }
 
 /**
- * Each share of a call (`callShares`) bound by `bind` and then sent by `send`, one at a time: a share is drawn and bound
+ * Each share of a call (`drawShares`) bound by `bind` and then sent by `send`, one at a time: a share is drawn and bound
  * only once the one before it has been sent, so the host holds one share's bound facts, its statements' parameters
  * among them, and the sends' answers, never every share's. The answers are in the shares' order.
  */

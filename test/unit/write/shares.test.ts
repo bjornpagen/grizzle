@@ -1,5 +1,5 @@
 /**
- * A call's facts past one share are drawn, bound and sent a share at a time (adapter/apply/shares.ts callShares and
+ * A call's facts past one share are drawn, bound and sent a share at a time (adapter/apply/shares.ts drawShares and
  * eachShare), so the host holds one share's bound facts and its statements' parameters, never every fact's: a call of
  * one, four and sixteen shares' worth of facts binds one share at a time, the next only once the last is sent and its
  * executions built, each share within one share's bytes, and the shares together every fact once, where binding every

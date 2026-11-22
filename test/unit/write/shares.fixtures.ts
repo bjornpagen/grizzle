@@ -1,16 +1,19 @@
 /** What shares.test.ts reads: its schema, its space, and each case's run. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Order, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Order, Result, String as Str } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import type { HostCall } from "#adapter/apply/run.ts"
-import { callShares, eachShare, sendsAlone, valueBytes } from "#adapter/apply/shares.ts"
+import { type DrawnShares, drawShares, eachShare, sendsAlone } from "#adapter/apply/shares.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
+import type { EncodingFailure } from "#compiler/core/errors.ts"
 import { drawn, natural, pg } from "#compiler/public/fields.ts"
 import { counted, fin, on, ordered, relation, schema, tree } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
+import { valueBytes } from "#compiler/runtime/write/read-call.ts"
 import { inForce, writeBatching } from "#compiler/runtime/write/transport.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
@@ -50,7 +53,13 @@ const factOf = (c: Drawn, i: number) => ({
 	body: `${Str.repeat(c.body)("b")}${String(i)}`
 })
 
-/** The facts a call holds and their bytes, as a share counts them (adapter/apply/shares.ts valueBytes). */
+/** A call as drawShares draws it, its facts read; a refusal of the read fails the case. */
+const drawnOf = (drawn: Result.Result<DrawnShares, EncodingFailure>): DrawnShares =>
+	Result.isFailure(drawn)
+		? assert.fail(`a call of lawful facts reads: ${Formatter.format(drawn.failure)}`)
+		: drawn.success
+
+/** The facts a call holds and their bytes, as a share counts them (runtime/write/read-call.ts valueBytes). */
 const heldBy = (call: HostCall): { readonly facts: number; readonly bytes: number } => {
 	let facts = 0
 	let bytes = 0
@@ -64,7 +73,7 @@ const heldBy = (call: HostCall): { readonly facts: number; readonly bytes: numbe
 }
 
 /**
- * What one call of `shares` shares' worth of facts binds at once, drawn share by share (`callShares`) and bound and sent
+ * What one call of `shares` shares' worth of facts binds at once, drawn share by share (`drawShares`) and bound and sent
  * a share at a time (`eachShare`), each share's statements' executions built as the write sends them: the most shares
  * bound and not yet sent at any moment, which the work of binding and building holds, and each share's facts and bytes.
  * It counts the binder's own work, so its verdict is the program's and no collection's timing reads into it.
@@ -81,7 +90,8 @@ const sharesOf = (c: Drawn, shares: number) =>
 		const write = flightOf(program, program.frontend.codes)
 		const members = yield* collectInputs(program.binding.groups, parsedOf(change).inputs)
 		const call = { params: {}, bound: new Map(), members }
-		const drawn = callShares(write, call, writeBatching.bytes, false) ?? [call]
+		const read = drawnOf(drawShares(write, call, writeBatching.bytes, false))
+		const drawn = read.shares ?? [read.whole]
 		const held: Array<{ readonly facts: number; readonly bytes: number }> = []
 		let pending = 0
 		let most = 0
@@ -240,7 +250,7 @@ const insertedRows = (
 }
 
 /**
- * One case: the call of every family's facts bound whole, and drawn in shares of `bytes` (callShares) each bound alone:
+ * One case: the call of every family's facts bound whole, and drawn in shares of `bytes` (drawShares) each bound alone:
  * every share's inserted rows together are the whole call's, every count, end, slot, tree position and member slot the
  * host draws as the whole call draws it, since a share holds whole groups.
  */
@@ -296,7 +306,9 @@ export const runGrouped = (c: Grouped, k: Case<GroupedFeature>) =>
 		if (!empty.ok || empty.value.kind !== "bound") {
 			return yield* Effect.die(new Error("a call of no facts binds"))
 		}
-		const drawn = callShares(write, call, c.bytes, sendsAlone(write, empty.value.skip))
+		const drawn = drawnOf(
+			drawShares(write, call, c.bytes, sendsAlone(write, empty.value.skip))
+		).shares
 		if (drawn === undefined) {
 			return { whole, shared: whole, shares: 1 }
 		}

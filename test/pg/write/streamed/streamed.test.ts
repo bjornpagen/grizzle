@@ -1,6 +1,6 @@
 /**
  * A call past one share of facts, through a Db's served change member, is drawn in shares of whole groups and sent as
- * one flight a share of its one transaction (adapter/apply/shares.ts callShares, adapter/apply/run.ts runWriteShares,
+ * one flight a share of its one transaction (adapter/apply/shares.ts drawShares, adapter/apply/run.ts runWriteShares,
  * adapter/wire/batch.ts runFramedFlights), so the host holds one share's facts at a time (test/unit/write/shares holds
  * the heap to it), and answers what one execution of every fact answers: on PostgreSQL 19, every distinct fact added
  * and stored once, a fact repeated across shares once, every area's counted members counted though its members are

@@ -64,6 +64,7 @@ export {
 } from "#compiler/program/workload/value.ts"
 export type { WriteNames } from "#compiler/write/insert/statement.ts"
 export { type GroupData, type MemberFacts, memberSlots } from "#compiler/runtime/write/normalize.ts"
+export { valueBytes } from "#compiler/runtime/write/read-call.ts"
 export type { UniqueAbort, WriteStep } from "#compiler/runtime/write/steps.ts"
 export type { ArtifactStatement, WriteArtifact } from "#compiler/write/program/artifact.ts"
 export {

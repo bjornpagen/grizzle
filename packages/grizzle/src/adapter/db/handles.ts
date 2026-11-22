@@ -625,10 +625,17 @@ const applyChange = (
 	Effect.gen(function* () {
 		const frame = dbChangeFrame(ctx, change.entry.program.exclusion)
 		const lease = Effect.mapError(ctx.pool.lease, (reason) => new TransportFailure({ reason }))
+		const drawn = yield* Effect.mapError(
+			drawnCall(change.entry, host, change.reads),
+			inputApplyError
+		)
 		/** The call bound whole, every fact at once, and run in its one transaction on `session`. */
 		const whole = (session: Session) =>
 			Effect.gen(function* () {
-				const inputs = yield* Effect.mapError(hostInputs(change.entry, host), inputApplyError)
+				const inputs = yield* Effect.mapError(
+					hostInputs(change.entry, drawn.whole),
+					inputApplyError
+				)
 				if (inputs.kind === "rejected") {
 					return applyOutcome.invariantRejected(
 						{ kind: "every", laws: [inputs.refused] },
@@ -637,18 +644,15 @@ const applyChange = (
 				}
 				return yield* runWrite(session, frame, change.entry, inputs, change.reads)
 			})
-		const drawn = yield* Effect.mapError(
-			drawnCall(change.entry, host, change.reads),
-			inputApplyError
-		)
-		if (drawn !== undefined) {
+		const shared = drawn.shared
+		if (shared !== undefined) {
 			return yield* Effect.scoped(
 				Effect.flatMap(lease, (session) =>
-					runWriteShares(session, frame, change.entry, drawn, change.reads, whole)
+					runWriteShares(session, frame, change.entry, shared, change.reads, whole)
 				)
 			)
 		}
-		const inputs = yield* Effect.mapError(hostInputs(change.entry, host), inputApplyError)
+		const inputs = yield* Effect.mapError(hostInputs(change.entry, drawn.whole), inputApplyError)
 		if (inputs.kind === "rejected") {
 			return applyOutcome.invariantRejected(
 				{ kind: "every", laws: [inputs.refused] },

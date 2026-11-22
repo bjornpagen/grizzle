@@ -271,18 +271,22 @@ export const nestedRows = (
 	ReadonlyArray<NestedFact>,
 	EncodingFailure | MessageBound | NestedGeneratedNull
 > => {
-	const normalizerOf = (relation: StoredRelationName, heading: Heading): Level => {
+	const levelOf = (relation: StoredRelationName, level: ReadLevel): Level => {
 		const columns = walk.columns(relation)
-		const normalize = levelNormalizer(relation, heading, member, walk.codes)
 		return {
-			normalize,
-			fields: normalize.fields.map((name) => ({ name, at: columns.at(columnKeyOf(name)) }))
+			normalize: level.normalize,
+			fields: level.normalize.fields.map((name) => ({ name, at: columns.at(columnKeyOf(name)) }))
 		}
 	}
+	const readLevels = nestingLevels(nesting, member, walk.codes)
+	const relationOf = new Map(nesting.sequences.map((f) => [f.id, f.member] as const))
 	const normalizers: NestingLevels<Level> = {
-		own: normalizerOf(nesting.relation, nesting.own),
+		own: levelOf(nesting.relation, readLevels.own),
 		members: new Map(
-			nesting.sequences.map((f) => [f.id, normalizerOf(f.member, f.heading)] as const)
+			[...readLevels.members].map(
+				([id, level]) =>
+					[id, levelOf(defined(relationOf.get(id), "a sequence's member relation"), level)] as const
+			)
 		)
 	}
 	/** Every level's refusal is placed at the member slot, which each level's normalizer names alike. */
@@ -490,6 +494,30 @@ interface Level {
 	readonly normalize: RelationNormalizer
 	readonly fields: ReadonlyArray<{ readonly name: string; readonly at: number }>
 }
+
+/** A level of a nesting as its facts are read: the normalizer it reads them by (`nestingLevels`). */
+export interface ReadLevel {
+	readonly normalize: RelationNormalizer
+}
+
+/**
+ * Each level of `nesting` with the normalizer it reads its facts by, under `codes`, each refusal placed at the nested
+ * input's member slot `member` (`levelNormalizer`): its own facts' and each sequence's members', by the family the
+ * sequence is. A nested write reads its facts by them (`nestedRows`), and so does a call's one read of them before its
+ * shares are drawn (runtime/write/read-call.ts).
+ */
+export const nestingLevels = (
+	nesting: NestingData,
+	member: string,
+	codes: Codebook
+): NestingLevels<ReadLevel> => ({
+	own: { normalize: levelNormalizer(nesting.relation, nesting.own, member, codes) },
+	members: new Map(
+		nesting.sequences.map(
+			(f) => [f.id, { normalize: levelNormalizer(f.member, f.heading, member, codes) }] as const
+		)
+	)
+})
 
 /**
  * The normalizer of a nesting's level, `relation`'s facts admitted by `heading` under `codes`, each refusal placed at
