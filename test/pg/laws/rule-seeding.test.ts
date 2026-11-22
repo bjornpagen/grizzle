@@ -145,10 +145,9 @@ export const commitExactlyTheTransactionsWhoseStateTheRulesWholeCheckFindsLawful
 								{
 									file: "packages/engine/src/analysis/theory/query.ts",
 									original:
-										'\t\t(nesting, direction) => (direction === "removed" ? odd(nesting) : even(nesting)),',
-									replacement:
-										'\t\t(nesting, direction) => (direction === "removed" ? nesting === 1 : even(nesting)),',
-									why: "A relation under three negations probed by no deletion: a block deleted, which makes its member paceless and its root no longer rate-paced, brings back a fact the check refuses, and it commits."
+										'\t...movedCandidates(arms, "removed", relation, side, depth, memo, loc)\n',
+									replacement: "",
+									why: "A relation under three negations probed by no deletion: a fact a negation now blocks is withdrawn by no candidate, so a block deleted, which makes its member paceless and its root no longer rate-paced, brings back a fact the check refuses, and it commits."
 								}
 							]
 						: shape === "lifted"
@@ -156,9 +155,9 @@ export const commitExactlyTheTransactionsWhoseStateTheRulesWholeCheckFindsLawful
 									{
 										file: "packages/engine/src/analysis/theory/query.ts",
 										original:
-											'\t\t(nesting, direction) => (direction === "added" ? odd(nesting) : even(nesting)),',
+											"\t\t\tmovedOf(n, turned(direction), relation, side, depth + 1, memo, loc).map((moved) => ({\n",
 										replacement:
-											'\t\t(nesting, direction) => (direction === "added" ? odd(nesting) : odd(nesting)),',
+											"\t\t\tmovedOf(n, direction, relation, side, depth + 1, memo, loc).map((moved) => ({\n",
 										why: "A target's relation under two negations probed by no deletion: a mark deleted, which lets a block stand again and withdraws the target facts it holds out, is judged by no probe, so the containment it breaks commits."
 									}
 								]
@@ -166,9 +165,10 @@ export const commitExactlyTheTransactionsWhoseStateTheRulesWholeCheckFindsLawful
 								? [
 										{
 											file: "packages/engine/src/analysis/theory/query.ts",
-											original: "const even = (depth: number): boolean => depth % 2 === 0",
+											original:
+												"\t\t\tmovedOf(n, turned(direction), relation, side, depth + 1, memo, loc).map((moved) => ({\n",
 											replacement:
-												"const even = (depth: number): boolean => depth % 2 === 0 && depth < 2",
+												"\t\t\tmovedOf(n, direction, relation, side, depth + 1, memo, loc).map((moved) => ({\n",
 											why: "A relation read under two negations probed by no write: a mark inserted, which lifts a standing block and brings back the facts it held out, is judged by no probe, so the key it breaks commits."
 										},
 										{
@@ -186,8 +186,8 @@ export const commitExactlyTheTransactionsWhoseStateTheRulesWholeCheckFindsLawful
 )
 
 /**
- * A kill of the shapes whose judge negates (`negating`): their probes' negations read the target keyed by each row's
- * terms, the key's and tagged's read none.
+ * A kill of the shapes whose probes meet a negation keyed by each row's terms (`negating`): a containment's target, or
+ * a key's side, that negates.
  */
 const decorrelated = Object.freeze({
 	file: "packages/engine/src/analysis/theory/navigate.ts",
@@ -198,15 +198,24 @@ const decorrelated = Object.freeze({
 	why: "A negation's arms are read whole, the target's facts at every key, and anti-joined with the row's terms after, where each arm is restricted by them inside: a probe's negation of the target reads every key's rows for one key's write, and takes their SIRead locks; the property fails."
 })
 
-/** The shapes whose judge reads a negation: every shape but key's and tagged's, which negate nothing. */
-const negating: ReadonlySet<string> = new Set([
-	"titles",
-	"viewed",
-	"deep",
-	"standing",
-	"lifted",
-	"budget"
-])
+/**
+ * A kill of every shape's probes, each of which holds a touched row, or what a write moves of a definition its rule
+ * negates (analysis/theory/query.ts movedOf), at a variable another match binds: held to its region by no pin, it reads
+ * every candidate.
+ */
+const unpinned = Object.freeze({
+	file: "packages/engine/src/analysis/theory/query.ts",
+	original: "\t\t\tpinned.push(equal(e, value))",
+	replacement: "\t\t\tvoid equal(e, value)",
+	why: "A probe whose touched row binds a variable another match binds, held to its region by no pin: it reads every candidate the rule's whole check reads, so it judges the same and reads every key's rows."
+})
+
+/**
+ * The shapes whose probes meet a negation the navigation keys by each row's terms: every shape but key's and tagged's,
+ * which negate nothing, and budget's, a check, which meets nothing, whose rows read each of its negations, of one arm
+ * and no union, among their own conditions, so PostgreSQL reads it at the row's key however navigation correlates it.
+ */
+const negating: ReadonlySet<string> = new Set(["titles", "viewed", "deep", "standing", "lifted"])
 
 /**
  * Read the same rows and take the same SIRead locks beside hundreds more keys, none on a whole relation, one property
@@ -263,15 +272,7 @@ export const readTheSameRowsAndTakeTheSameSireadLocksBesideHundredsMoreKeys = fa
 				show: Formatter.format,
 				budget: { runs: 6, steered: 0 },
 				kept: [],
-				kills: [
-					{
-						file: "packages/engine/src/analysis/theory/query.ts",
-						original: "\t\t\tpinned.push(equal(e, value))",
-						replacement: "\t\t\tvoid equal(e, value)",
-						why: "A probe whose touched row binds a variable another match binds, held to its region by no pin: it reads every candidate the rule's whole check reads, so it judges the same and reads every key's rows."
-					},
-					...(negating.has(shape) ? [decorrelated] : [])
-				]
+				kills: [unpinned, ...(negating.has(shape) ? [decorrelated] : [])]
 			})
 		])
 	)

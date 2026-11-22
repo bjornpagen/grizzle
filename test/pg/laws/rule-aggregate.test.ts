@@ -119,7 +119,7 @@ export const aRuleOverAnAggregatingDerivedRelationCommitsExactlyTheWritesWhoseSt
 			{
 				file: "packages/engine/src/analysis/theory/query.ts",
 				original:
-					"\t\t\t...lostOf([arm], () => keys.map(([, term]) => term), relation, side, depth, loc).map(\n\t\t\t\t({ candidate: c }) => deliver(c, c.where)\n\t\t\t)\n",
+					"\t\t\t...lostOf([arm], () => keys.map(([, term]) => term), relation, side, depth, memo, loc).map(\n\t\t\t\t({ candidate: c }) => deliver(c, c.where)\n\t\t\t)\n",
 				replacement: "",
 				why: "A group is touched only by the facts of its body a write may add, never by those it withdraws, so a delete or a put that takes an attempt out of its group leaves the group's fold unjudged: a delete that raises a group's least score past the check's bound, or lowers a count Expect holds, commits."
 			}

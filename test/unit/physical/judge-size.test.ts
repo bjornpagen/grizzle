@@ -288,16 +288,20 @@ export const aWholeRulesStatementsReadEveryDeltaThroughItsReader = property.exha
 )
 
 /**
- * A probed containment into a target that negates levels of definitions, each negating the one below, is judged by one
- * statement for each relation and side, and each statement spells the target once, each level's definition once, however
- * deep and wide (analysis/theory/query.ts probe, absentsOf): edullm's ledger judged its servable rule, a containment in
- * Servable whose leaves negate definitions that match unions and negate in turn, by 1083 probes of about 800 KB each,
- * the judge's two hours.
+ * A probed rule over levels of definitions, each negating the one below, a containment into them or a check of them, is
+ * judged by one statement for each relation and side, each spelling the target once, each level's definition once, and
+ * reading what the write moves of each level once, however deep and wide (analysis/theory/query.ts probe, absentsOf,
+ * movedOf): every statement reads Node at most twice for each rule of the description. edullm's ledger judged its servable rule, a
+ * containment in Servable whose leaves negate definitions that match unions and negate in turn, by 1083 probes of about
+ * 800 KB each, the judge's two hours; one statement per block, its rows a path each down the negated arms, still
+ * spelled a migration past V8's longest string.
  */
-export const aProbedContainmentIntoNestedNegationsSpellsItsTargetOnceInOneStatementPerBlock =
+export const aProbedRuleOverNestedNegationsReadsEachDefinitionOnceInOneStatementPerBlock =
 	property.exhaust(finite(nestedGen), {
 		needs: {},
 		situations: [
+			"a containment in Servable",
+			"a check of Servable",
 			"two rules a level",
 			"three rules a level",
 			"four levels deep"
@@ -306,9 +310,9 @@ export const aProbedContainmentIntoNestedNegationsSpellsItsTargetOnceInOneStatem
 			Effect.sync(() => judgedNested(nested, c.note)),
 		oracle: {
 			kind: "specification",
-			name: "the description: one statement per relation and side, and the target's Node read once for the root and once for each rule of each level"
+			name: "the description: one statement per relation and side, Node read at most twice for each rule of the description in each, and the target's Node once for the root and once for each rule of each level"
 		},
-		box: "every containment of Session's doc in Servable, the docs whose root no level holds, one to four levels, each one rule matching a union of two or three rules over Node and negating the level below",
+		box: "every containment of Session's doc in Servable, and every check of Servable's doc, Servable the docs whose root no level holds, one to four levels, each one rule matching a union of two or three rules over Node and negating the level below",
 		kept: [],
 		kills: [
 			{
@@ -316,6 +320,12 @@ export const aProbedContainmentIntoNestedNegationsSpellsItsTargetOnceInOneStatem
 				original: "\tn.arms.length > 1\n",
 				replacement: "\tn.arms.length > 1 && n.arms.length < 1\n",
 				why: "A negation of several arms is an anti-join of each arm, as before, each spelling the arm's unfolding, so the target spells each level once per arm of the level that negates it, Node read 1 + w + w² + … times; the property fails."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/query.ts",
+				original: '\t\tconst k = r.fields.join(",")\n',
+				replacement: '\t\tconst k = r.fields.join(",") + String(groups.size)\n',
+				why: "Each rule of what a write moves of a definition is a query of its own, as each path down the negated arms was a row of its own before: a level reads each rule of the level below apart, so the rows of Node's blocks grow as w to the depth, past twice each rule of the description; the property fails."
 			}
 		]
 	})

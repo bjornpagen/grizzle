@@ -947,16 +947,23 @@ export const judgedContainment = (c: Containment, note: (r: ContainmentReached) 
  * arms), a level is one arm per rule of its union, each negating the level below.
  */
 export interface Nested {
+	readonly law: "a containment in Servable" | "a check of Servable"
 	readonly width: 2 | 3
 	readonly depth: 1 | 2 | 3 | 4
 }
 
 export const nestedGen: Gen<Nested> = (s) => ({
+	law: s.draw(element<Nested["law"]>(["a containment in Servable", "a check of Servable"])),
 	width: s.draw(element<Nested["width"]>([2, 3])),
 	depth: s.draw(element<Nested["depth"]>([1, 2, 3, 4]))
 })
 
-export type NestedReached = "two rules a level" | "three rules a level" | "four levels deep"
+export type NestedReached =
+	| "a containment in Servable"
+	| "a check of Servable"
+	| "two rules a level"
+	| "three rules a level"
+	| "four levels deep"
 
 const NestNode = relation("Node", { doc: pg.integer, start: pg.integer, kind: pg.integer }, [
 	"doc",
@@ -1035,7 +1042,11 @@ const nestedSchemaOf = (c: Nested): FixtureSchema => {
 		[NestBase],
 		"judge_nested_top",
 		[Servable],
-		[contained(on(Session, "doc"), on(Servable, "doc"))]
+		[
+			c.law === "a containment in Servable"
+				? contained(on(Session, "doc"), on(Servable, "doc"))
+				: check("Positive", Servable, (s) => s.gt(s.doc, 0))
+		]
 	)
 }
 
@@ -1051,6 +1062,7 @@ const nestedSchemaOf = (c: Nested): FixtureSchema => {
 export const judgedNested = (c: Nested, note: (r: NestedReached) => void): void => {
 	const owned = owning(nestedSchemaOf(c))
 	const installation = succeeded(compileInstallation(owned, installOptions(owned)))
+	note(c.law)
 	note(c.width === 2 ? "two rules a level" : "three rules a level")
 	if (c.depth === 4) {
 		note("four levels deep")
@@ -1062,6 +1074,17 @@ export const judgedNested = (c: Nested, note: (r: NestedReached) => void): void 
 	)
 	const overDoc = Arr.filter(reads, (r) => Arr.some([...r.deltas], Str.includes("_doc_")))
 	assert.ok(overDoc.length > 0, `${Formatter.format(c)}: a statement over Doc's delta`)
+	const linear = 2 + 2 * (c.depth + 1) * c.width
+	for (const { statement } of reads) {
+		const nodes = nodeReadsOf(statement.query)
+		assert.ok(
+			nodes <= linear,
+			`${Formatter.format(c)}: a statement reads Node ${nodes} times, past ${linear}, twice each rule of the description and the root's`
+		)
+	}
+	if (c.law === "a check of Servable") {
+		return
+	}
 	const bound = 1 + (c.depth + 1) * c.width
 	for (const { statement } of overDoc) {
 		const nodes = nodeReadsOf(statement.query)
