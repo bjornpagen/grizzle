@@ -80,10 +80,11 @@ export const thePreviewsRowsAreTheRowsTheSameInsertAllStoresFreshAndMigratedAndI
 		kills: [
 			{
 				file: "packages/engine/src/scalar/compute/evaluate.ts",
-				original: "\t\t\t\treturn castExpr(expr.args[0], base)",
+				original:
+					"\t\t\t\treturn (leaves) => {\n\t\t\t\t\tconst read = leaves.column(ref)\n\t\t\t\t\treturn read === undefined ? stop : Result.ok(read)\n",
 				replacement:
-					'\t\t\t\tconst coerce = castExpr(expr.args[0], base)\n\t\t\t\treturn (leaves, patterns) => Result.flatMap(coerce(leaves, patterns), (coerced) => coerced === sqlNull ? Result.ok(coerced) : Result.flatMap(membership(coerced, expr.type, patterns), (member) => (member ? Result.ok(coerced) : undefinedAt("contract"))))',
-				why: "A domain cast's membership is the evaluation's precondition again: the fresh fill stops on a long label's tag, past Label, and the preview and the write refuse the call as input, a refusal naming no law, where PostgreSQL refuses the row by the label's domain law."
+					'\t\t\t\treturn (leaves, patterns) => {\n\t\t\t\t\tconst read = leaves.column(ref)\n\t\t\t\t\treturn read === undefined ? stop : read === sqlNull ? Result.ok(read) : Result.flatMap(membership(read, expr.type, patterns), (member) => (member ? Result.ok(read) : undefinedAt("contract")))\n',
+				why: "A field's domain membership is the evaluation's precondition: the fresh fill stops on a long label, past Label, as it reads it for the tag its dabs copy, and the preview and the write refuse the call as input, a refusal naming no law, where PostgreSQL refuses the row by the label's domain law. (A domain cast its operand's bounds prove holds no cast node, scalar/compute/typing.ts, so the tag reads the label bare and the evaluation's domainCast meets only a literal or a parameter, which never stands past its domain on the host.)"
 			},
 			{
 				file: "packages/engine/src/runtime/write/bind.ts",
