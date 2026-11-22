@@ -236,12 +236,12 @@ export const computeSha256OnPostgreSQLAGeneratedDigestIsPostgreSQLsOwnReadBackAs
 								)
 							}
 							const rows = yield* owner.values(
-								`SELECT ${names.column(Entry, "id")}::text, ${names.column(Entry, "digest")} = pg_catalog.sha256(${content}), pg_catalog.octet_length(${names.column(Entry, "digest")}) = pg_catalog.octet_length(pg_catalog.sha256(${content})) FROM ${names.table(Entry)} ORDER BY ${names.column(Entry, "id")}`,
+								`SELECT ${names.column(Entry, "id")}::text, (${names.column(Entry, "digest")} = pg_catalog.sha256(${content}))::text, (pg_catalog.octet_length(${names.column(Entry, "digest")}) = pg_catalog.octet_length(pg_catalog.sha256(${content})))::text FROM ${names.table(Entry)} ORDER BY ${names.column(Entry, "id")}`,
 								[]
 							)
 							assert.deepEqual(
 								Arr.map(rows, (row) => [textCell(row, 0), textCell(row, 1), textCell(row, 2)]),
-								Arr.map(rows, (row) => [textCell(row, 0), "t", "t"]),
+								Arr.map(rows, (row) => [textCell(row, 0), "true", "true"]),
 								"each stored digest is PostgreSQL's own sha256(content), of its length"
 							)
 							assert.deepEqual(

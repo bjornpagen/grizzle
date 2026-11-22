@@ -1415,8 +1415,7 @@ const endpoint = (
  * - a construct: "between:<type>", "in:<type>", "least:<type>", "greatest:<type>", "and", "or", "not", a set's
  *   "difference:bits", "subset:bits" and "disjoint:bits", a text's "endsWith:text", "contains:text" and its ASCII
  *   case fold's "lowerAscii:text", a reference's resolution "resolveReference:text", a pattern's test
- *   "isXsdPattern:text", a bytes value's "sha256:bytea", and a float's identity image "floatBits:float8" and
- *   "floatBits:float4";
+ *   "isXsdPattern:text", and a float's identity image "floatBits:float8" and "floatBits:float4";
  * - a range-polymorphic operator or function, one catalog object for both range carriers: its code and the carrier
  *   (ir/expr.ts rangeOp), listed by both in spanOverloads;
  * - a cast: "cast:<source>-><target>" over its carriers, as castOverloads lists it.
@@ -1639,7 +1638,7 @@ const catalogOverloads = {
 	"isXsdPattern:text": textIsXsdPattern,
 	"parseDouble:text": textParseDouble,
 	"parseDecimal:text": textParseDecimal,
-	"sha256:bytea": bytesDigest,
+	"sha256(bytea)": bytesDigest,
 	"floatBits:float8": floatBitsOf("float8"),
 	"floatBits:float4": floatBitsOf("float4"),
 	"sha256:text": textSha256,
