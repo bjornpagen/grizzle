@@ -403,6 +403,7 @@ export const aNodesStepsReadTheirSourcesOffItsReadingIndexedOnceAffineInItsColum
 				c.note(step === 2 ? "from m = 8" : "from m = 12")
 				const counted = new Map<number, number>()
 				for (const m of [4 * step, 8 * step, 12 * step]) {
+					analyzedOnce(indexedReading(m))
 					const [analysis, counts] = yield* callCountsIn(
 						Effect.sync(() => {
 							const dag = indexedReading(m)
@@ -729,9 +730,11 @@ export type HeldFeature = "chains of 40 and 60" | "chains of 60 and 90"
 const functionsAlive = (): number => queryObjects(Function, { format: "count" })
 
 /**
- * A first analysis of `dag`, which reads its relation's reading every later analysis shares (logical/props.ts
- * leafProps), made in a frame of its own: an interpreted frame holds a value it no longer reads until it returns, so
- * one made in the caller's frame would stay alive beside the analysis the caller counts.
+ * A first analysis of `dag`, uncounted, made in a frame of its own before a count of its twin: it reads its relation's
+ * reading every later analysis shares (logical/props.ts leafProps), and it runs every function the count reads, which V8
+ * counts the calls of only once the function has its feedback, which a warm worker's earlier properties may have left
+ * it without (kernel/calls.ts); an interpreted frame holds a value it no longer reads until it returns, so one made in
+ * the caller's frame would stay alive beside the analysis the caller counts.
  */
 const analyzedOnce = (dag: ValidDag): void => {
 	succeeded(analyzeLogical(dag, checkerEvidence, keptNodes(dag.roots)), "a first analysis")
