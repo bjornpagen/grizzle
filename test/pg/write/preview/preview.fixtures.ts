@@ -154,8 +154,10 @@ const Label = str.bytes(4, str.regex("^[a-z]*$"))
  * fold of its members' shades and an or fold of their marks, and Stroke's ordered family; Dab, whose tone and lum are
  * copies of its swatch's along the counted family's owner axis, the lum a copy of a generated field the fresh fill
  * evaluates; Stroke, whose prior is a predecessor copy of its sequence's shades, a at its base. A swatch's label is a
- * Label, its tag the label collapsed and cast into Label, as a document's id is its lexical's (generated), and each dab
- * copies its swatch's tag along the counted family's owner axis, a copy of a generated field the fresh fill evaluates.
+ * Label, its tag the label collapsed and cast into Label, as a document's id is its lexical's (generated), and its width
+ * the octets of that cast, a domain cast nested in its generation, which keeps its cast where a generation's own outer
+ * cast into its field's type holds none (scalar/compute/evaluate.ts domainCast); each dab copies its swatch's tag and
+ * width along the counted family's owner axis, copies of generated fields the fresh fill evaluates.
  */
 const paletteOf = (hues: Hues) => {
 	const Hue = closed.ordered("Hue", hues)
@@ -191,7 +193,8 @@ const paletteOf = (hues: Hues) => {
 		["hue", "id"],
 		(row) => ({
 			lum: generated(pg.bigint, Glow.at("lum", row.tone)),
-			tag: generated(Label, Type.cast(Text.collapse(row.label), Label))
+			tag: generated(Label, Type.cast(Text.collapse(row.label), Label)),
+			width: generated(pg.integer, Text.octetLength(Type.cast(Text.collapse(row.label), Label)))
 		})
 	)
 	const Dab = relation(
@@ -204,7 +207,8 @@ const paletteOf = (hues: Hues) => {
 			marks: bits(Hue),
 			tone: accumulated(hue, "a"),
 			lum: accumulated(pg.bigint, 0n),
-			tag: accumulated(Label, "")
+			tag: accumulated(Label, ""),
+			width: accumulated(pg.integer, 0)
 		},
 		["id"],
 		[]
@@ -230,6 +234,7 @@ const paletteOf = (hues: Hues) => {
 			contained(on(Dab, "hue", "swatch", "tone"), on(Swatch, "hue", "id", "tone")),
 			contained(on(Dab, "hue", "swatch", "lum"), on(Swatch, "hue", "id", "lum")),
 			contained(on(Dab, "hue", "swatch", "tag"), on(Swatch, "hue", "id", "tag")),
+			contained(on(Dab, "hue", "swatch", "width"), on(Swatch, "hue", "id", "width")),
 			strokes,
 			contained(
 				on(Stroke, "hue", "swatch", pred("at"), "prior"),

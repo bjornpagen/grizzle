@@ -30,8 +30,9 @@
  *   fill reads, the write is refused by the same law with the same witness; where it refuses an orphan counted member,
  *   the write is refused by the member's counted family's law among the laws its foreign key carries;
  * - where a row the preview gives is past its domain, rowEvaluator's DomainRefused, the write is refused by that
- *   field's domain law, which PostgreSQL judges once it stores the row: a long label, past Label, and the tag the fresh
- *   fill draws from it and copies to its dabs, the fill never refusing a drawn value its domain judges.
+ *   field's domain law, which PostgreSQL judges once it stores the row: a long label, past Label, and the tag and
+ *   width the fresh fill draws from it and copies to its dabs, the width through a domain cast nested in its
+ *   generation, the fill never refusing a drawn value its domain judges.
  *
  * Oracle: PostgreSQL itself, which draws nothing the host does not send and proves every family value of the stored
  * rows by its natives.
@@ -78,6 +79,13 @@ export const thePreviewsRowsAreTheRowsTheSameInsertAllStoresFreshAndMigratedAndI
 			}
 		],
 		kills: [
+			{
+				file: "packages/engine/src/scalar/compute/evaluate.ts",
+				original: "\t\t\t\treturn castExpr(expr.args[0], base)",
+				replacement:
+					'\t\t\t\tconst coerce = castExpr(expr.args[0], base)\n\t\t\t\treturn (leaves, patterns) => Result.flatMap(coerce(leaves, patterns), (coerced) => coerced === sqlNull ? Result.ok(coerced) : Result.flatMap(membership(coerced, expr.type, patterns), (member) => (member ? Result.ok(coerced) : undefinedAt("contract"))))',
+				why: "A domain cast's membership is the evaluation's precondition again: the fresh fill stops on a long label's width, the octets of the label cast into Label, a cast nested in the generation that keeps its node, and the preview and the write refuse the call as input, a refusal naming no law, where PostgreSQL refuses the row by the label's domain law."
+			},
 			{
 				file: "packages/engine/src/scalar/compute/evaluate.ts",
 				original:
