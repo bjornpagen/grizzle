@@ -311,9 +311,17 @@ export const stepsOf = (real: Subject): Real<Model, BoundaryParameters, never, n
 		)
 })
 
-/** The key of the first row of the paged member `other`, read live. */
+/**
+ * The key of the first row of the paged member `other`, read once: a Db the test opens over an installation of no live
+ * source serves every read answered (test/support/served-db.ts answeredPrograms), so its answer is an answered list.
+ */
 export const foreignKeyOf = (other: OnceCalls): Effect.Effect<RowKey, CallError> => {
-	assertVariant(other, "shape", "list", "the other paged member reads a list")
+	assertVariant(
+		other,
+		"shape",
+		"answeredList",
+		"the other paged member, served answered, reads a list"
+	)
 	return Effect.flatMap(other.once({ params: {}, facts: {}, window: first(1) }), (value) =>
 		Option.match(Arr.head(Arr.fromIterable(value.entries())), {
 			onNone: () => Effect.die(new Error("the other ordered query delivers no row")),
