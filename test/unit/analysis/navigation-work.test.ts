@@ -69,6 +69,12 @@ export const navigatingAChainOfUnionsWorksOnceALevelHoweverDeepTheChain = proper
 			},
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original: "\t\tconst known = this.#overSteps.get(rule)",
+				replacement: "\t\tconst known = undefined",
+				why: "Whether a rule reads a chain of steps is asked again at every read of it, as 8e6462c59 had it (Navigation `overSteps`): the walk down each level's import of a union takes both of its rules, so a chain each rule of which reads the level below once is walked twice for each level more, 2^d; the property fails."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
 				original: "\t\tconst known = this.#reads.get(rule)",
 				replacement: "\t\tconst known = undefined",
 				why: "Each read of a union reads its rules again, as before: whether a rule over the unions below it joins walks each union's two rules at every read of it, every level once for every path down the chain to it; the property fails."

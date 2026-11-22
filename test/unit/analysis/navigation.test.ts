@@ -243,15 +243,15 @@ export const aRuleOverStepsKeepsItsFiltersAsWrittenInAWriteMemberAndNavigatesThe
 		kills: [
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
-				original: '\t\tsharing.kind === "perStatement" && overSteps(read)\n',
-				replacement: "\t\toverSteps(read)\n",
+				original: '\t\tsharing.kind === "perStatement" && interned.overSteps(read)\n',
+				replacement: "\t\tinterned.overSteps(read)\n",
 				why: "A write member's rule over steps has its filters navigated too, as the navigation fix first had it: its filters are no longer as written, as edullm's ledger's recordEvaluations refused; the property fails."
 			},
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
-				original: '\t\tsharing.kind === "perStatement" && overSteps(read)\n',
+				original: '\t\tsharing.kind === "perStatement" && interned.overSteps(read)\n',
 				replacement:
-					'\t\tsharing.kind === "perStatement" && overSteps(read) && read.where.length < 0\n',
+					'\t\tsharing.kind === "perStatement" && interned.overSteps(read) && read.where.length < 0\n',
 				why: "A rule statement's rule over steps keeps its filters as written, as before the navigation fix: no wrapper navigates a correlated negation; the property fails."
 			}
 		]

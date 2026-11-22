@@ -230,6 +230,8 @@ export class Navigation {
 	readonly #navigations = new Map<string, InferredQuery>()
 	/** What navigation reads of each rule this navigation asked about (`reads`), by the rule. */
 	readonly #reads = new Map<InferredRule, RuleReads>()
+	/** Whether each rule this navigation asked about reads a chain of steps (`overSteps`), by the rule. */
+	readonly #overSteps = new Map<InferredRule, boolean>()
 	/**
 	 * The containments the schema states over every row of their source (RegionFacts `containments`, no selection), by
 	 * the source: a containment over the rows a selection admits says nothing of the rows a read of the whole relation
@@ -327,6 +329,36 @@ export class Navigation {
 		const reads = ruleReads(rule, (r) => this.reads(r))
 		this.#reads.set(rule, reads)
 		return reads
+	}
+
+	/**
+	 * Whether `rule` reads a chain of steps navigation reads no further (`RuleReads`), its filters left to be navigated
+	 * after it (`Navigator.filteredOverSteps`): it matches a step, or an import of a rule that does, a probe's rows over
+	 * its region (analysis/theory/query.ts overRegion) and the union of them its meeting part reads; and its head folds
+	 * and produces nothing and it attaches and nests nothing, as a chain's rule does. Asked once for each rule, as
+	 * `reads` is: every read of a query of one identity is the one navigation of it (`navigated`), so a chain of unions,
+	 * each rule of a level importing the level below, asks each level's rules once, where asked again at each read the
+	 * walk down an import of two rules took both, and a chain d levels deep was walked 2^d times (3.5 M calls at depth 16,
+	 * test/unit/analysis/navigation-work).
+	 */
+	overSteps(rule: InferredRule): boolean {
+		const known = this.#overSteps.get(rule)
+		if (known !== undefined) {
+			return known
+		}
+		const over =
+			rule.interiors.length === 0 &&
+			rule.attach.length === 0 &&
+			Object.values(rule.head).every((h) => h.kind !== "aggregate" && h.kind !== "producer") &&
+			rule.matches.some(
+				(m) =>
+					m.source.kind === "step" ||
+					(m.source.kind === "query" &&
+						m.source.query.stage.kind === "rules" &&
+						m.source.query.stage.arms.some((arm) => this.overSteps(arm)))
+			)
+		this.#overSteps.set(rule, over)
+		return over
 	}
 }
 
@@ -1561,29 +1593,11 @@ const navigatedRule = (
 	})
 	const read = matches.every((m, i) => m === rule.matches[i]) ? rule : { ...rule, matches }
 	return [
-		sharing.kind === "perStatement" && overSteps(read)
+		sharing.kind === "perStatement" && interned.overSteps(read)
 			? new Navigator(loc, columns, sharing, interned).filteredOverSteps(read, 0)
 			: read
 	]
 }
-
-/**
- * Whether `rule` reads a chain of steps navigation reads no further (`RuleReads`), its filters left to be navigated
- * after it (`Navigator.filteredOverSteps`): it matches a step, or an import of a rule that does, a probe's rows over its
- * region (analysis/theory/query.ts overRegion) and the union of them its meeting part reads; and its head folds and
- * produces nothing and it attaches and nests nothing, as a chain's rule does.
- */
-const overSteps = (rule: InferredRule): boolean =>
-	rule.interiors.length === 0 &&
-	rule.attach.length === 0 &&
-	Object.values(rule.head).every((h) => h.kind !== "aggregate" && h.kind !== "producer") &&
-	rule.matches.some(
-		(m) =>
-			m.source.kind === "step" ||
-			(m.source.kind === "query" &&
-				m.source.query.stage.kind === "rules" &&
-				m.source.query.stage.arms.some(overSteps))
-	)
 
 /** An import a rule matches (ir/desc.ts SourceDesc `query`). */
 type Imported = Extract<InferredSource, { readonly kind: "query" }>

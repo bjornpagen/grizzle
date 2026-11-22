@@ -379,7 +379,7 @@ export const aRuleOverAQueryCompilesANegationAtATermAnInlinedDefinitionComputes 
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
 				original:
-					'\t\tsharing.kind === "perStatement" && overSteps(read)\n\t\t\t? new Navigator(loc, columns, sharing, interned).filteredOverSteps(read, 0)\n\t\t\t: read\n',
+					'\t\tsharing.kind === "perStatement" && interned.overSteps(read)\n\t\t\t? new Navigator(loc, columns, sharing, interned).filteredOverSteps(read, 0)\n\t\t\t: read\n',
 				replacement: "\t\tread\n",
 				why: "A rule over steps keeps its filters as written, as before: the meeting part over two rows of a region of keys negates the target, whose negation binds the collapsed title, and the checker refuses it; the two-rule containment into Unmarked fails."
 			}
