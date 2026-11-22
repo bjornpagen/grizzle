@@ -50,6 +50,12 @@ export const aReadThatJoinsAFoldByItsKeysFoldsEachBindingsGroupAloneSoItsWorkIsT
 				why: "The region reads every fold whole, joined by its keys beside its aggregate, so each count folds every standard's supports for the read, whatever pairs it delivers."
 			},
 			{
+				file: "packages/engine/src/lower/optimize/cte-policy/index.ts",
+				original: "\t\t\t(perKey.get(node) ?? 0) >= references\n",
+				replacement: "\t\t\tfalse\n",
+				why: "A fold two occurrences share is MATERIALIZED for the statement (rule 5, sharedExpensive), which the region's probe never reads per key: the CTE folds every standard's supports, and the read's scans of Supports read all of them."
+			},
+			{
 				file: "packages/engine/src/lower/conservative/match-region/index.ts",
 				original:
 					"\t\t\tconst keysReady = keyed.get(o)?.keys.every((k) => value.has(k.variable)) ?? true",

@@ -338,6 +338,27 @@ const readPerRow = (order: ReadonlyArray<RelNode>): ReadonlySet<RelNode> => {
 }
 
 /**
+ * How many of each node's references are a region's reads of a fold it reads per key (foldsReadByKey): the
+ * occurrence's source and each node on its way down to the fold, which the region reads for each binding as that
+ * binding's groups alone (lower/shapes/region foldProbe). A node every reference of which is such a read is read per key
+ * at each (rule 5c): shared as a CTE, it would be derived whole once for the statement and joined beside, and the
+ * region's probe of it, which a shared node never takes, would fold every row of the fold's input.
+ */
+const perKeyReads = (order: ReadonlyArray<RelNode>): ReadonlyMap<RelNode, number> => {
+	const out = new Map<RelNode, number>()
+	for (const node of order) {
+		if (node.kind === "MatchRegion") {
+			for (const [o, byKey] of foldsReadByKey(node)) {
+				for (const read of new Set([o.source, ...byKey.through, byKey.fold])) {
+					out.set(read, (out.get(read) ?? 0) + 1)
+				}
+			}
+		}
+	}
+	return out
+}
+
+/**
  * The policy's decision for every node of a DAG it computes as a CTE, in topological order: a node read more than
  * once, and, in a workload's read (`reads`), a node read once per row of another (readPerRow).
  */
@@ -347,11 +368,15 @@ const ctePlan = (dag: ValidDag, reads: CteSubject): ReadonlyArray<Decided> => {
 	const labels = nodesByLabel(dag)
 	const feedback = feedbackReadsOf(nodeGraph, d.order)
 	const perRow = reads === "query" ? readPerRow(d.order) : new Set<RelNode>()
+	const perKey = reads === "query" ? perKeyReads(d.order) : new Map<RelNode, number>()
 	const regionOf = holdingRegion(d.order, (node) => scopes.of(node).outer)
 	const decided: Array<Decided> = []
 	for (const node of d.order) {
 		const references = d.references(node)
-		if (references < 2 && !(perRow.has(node) && node.kind !== "Recursive")) {
+		if (
+			(references < 2 && !(perRow.has(node) && node.kind !== "Recursive")) ||
+			(perKey.get(node) ?? 0) >= references
+		) {
 			continue
 		}
 		const cost = costClass(node)
@@ -564,6 +589,11 @@ const holdingRegion = (
  *    attachment's ItemSet once per term). Its readers then join or test each row against rows the statement holds, and
  *    read no relation again. A rule's probe and every other compilation keep rule 1: they read a unit's rows, which a
  *    once-derived relation would read all of.
+ * 5c. In a workload's read, a node every read of which is a region's read of a fold by its keys (foldsReadByKey) is
+ *    no CTE and takes no decision, as a node read once (perKeyReads): the region reads it for each binding as that
+ *    binding's groups alone (lower/shapes/region foldProbe, which a node the policy decides never takes), through
+ *    the index the workload requests on the keys, where one evaluation for the statement folds every row of the fold's
+ *    input (learning-commons' crosswalk, two counts of one standard's supports, each a read of one shared fold).
  * 5. A node that folds, sorts, bounds, deduplicates a set operation or recurses is expensive. Shared, it is
  *    MATERIALIZED: one evaluation feeds every use.
  * 6. Any other shared node, a join of several sources, is NOT MATERIALIZED: PostgreSQL may optimize each use jointly
