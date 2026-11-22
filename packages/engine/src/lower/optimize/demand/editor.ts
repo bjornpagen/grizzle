@@ -345,6 +345,16 @@ const nodeShape = (node: EditNode): NodeShape => ({
 })
 
 /**
+ * What an editor keeps of a cell (DagEditor #entries): the node it held when last read and what that node reads, and the
+ * number of the last walk of the cells that reached it (DagEditor #walk), which marks it reached in that walk.
+ */
+interface CellEntry {
+	node: EditNode
+	shape: NodeShape
+	walked: number
+}
+
+/**
  * What moved in the reach (Reach) while a state of the cells was the newest one taken: each count a change moved, at its
  * value before the first such change, and the epoch of the next state taken after a change. A state reads a count from
  * the first epoch from its own on that holds it, else as the count is now: as it was when the state was taken.
@@ -505,11 +515,13 @@ export class DagEditor<R extends Roots = Roots> {
 	 */
 	readonly #readers = new Readers()
 	/**
-	 * What each node a cell held reads, kept by the node: its data edges and the labels its scope expressions name
-	 * (NodeShape). A node is replaced, never changed, when a cell is redefined, so what it reads is its own, and a state of
-	 * the cells reads each kept node's where every state built them again for every cell.
+	 * What the editor keeps of each cell it has read (CellEntry): what its node reads, while the cell holds that node, and
+	 * the last walk that reached it. A node is replaced, never changed, when a cell is redefined, so what it reads is its
+	 * own, and a state of the cells reads each kept shape where every state built them again for every cell.
 	 */
-	readonly #shapes = new WeakMap<EditNode, NodeShape>()
+	readonly #entries = new Map<Cell, CellEntry>()
+	/** The walks of the cells so far (#walk), each one's number what it marks the cells it reaches with. */
+	#walks = 0
 	/** How the cells the roots reach are read, kept as every change moves it (Reach). */
 	readonly #reach: Reach
 	/** The cell of each node of the base, made when the editor starts. */
@@ -554,7 +566,7 @@ export class DagEditor<R extends Roots = Roots> {
 		for (const e of exprClosure(cells.flatMap((c) => exprsOf(c.current)))) {
 			this.#fresh.expr.note(e.id)
 		}
-		this.#reach = new Reach((cell) => this.#shapeOf(cell.current), this.roots)
+		this.#reach = new Reach((cell) => this.#entryOf(cell).shape, this.roots)
 	}
 
 	/** Records the labels a node holds as taken. */
@@ -649,9 +661,10 @@ export class DagEditor<R extends Roots = Roots> {
 	/** Redefines `cell` as `node` in place: every reader holding the cell reads the new node. */
 	set(cell: Cell, node: EditNode): void {
 		const before = cell.current
+		const was = this.#entryOf(cell).shape
 		cell.current = node
 		this.#readers.changed(cell, before)
-		this.#reach.changed(cell, this.#shapeOf(before), this.#shapeOf(node))
+		this.#reach.changed(cell, was, this.#entryOf(cell).shape)
 		this.#note(cell.id, node)
 		this.#changed([cell])
 	}
@@ -702,7 +715,7 @@ export class DagEditor<R extends Roots = Roots> {
 
 	/**
 	 * Every cell the roots reach, in topological order, inputs first (a postorder over each node's edges, as ir/dag.ts
-	 * topoOrder walks a DAG's, read off the kept shapes, #shapes; a SelfRef's feedback is a
+	 * topoOrder walks a DAG's, read off the kept shapes, #entries; a SelfRef's feedback is a
 	 * name, not followed). The walk ends over any edges: a cycle a rewrite made is finish's refusal. Computed at each
 	 * call: a reader that reads the order of one state of the cells more than once holds it (cellState).
 	 */
@@ -718,17 +731,19 @@ export class DagEditor<R extends Roots = Roots> {
 	#walk(): { readonly order: ReadonlyArray<Cell>; readonly feedback: ReadonlySet<Cell> } {
 		const order: Array<Cell> = []
 		const feedback = new Set<Cell>()
-		const seen = new Set<Cell>()
+		this.#walks += 1
+		const walk = this.#walks
 		for (const root of this.roots) {
-			if (seen.has(root)) {
+			const top = this.#entryOf(root)
+			if (top.walked === walk) {
 				continue
 			}
-			seen.add(root)
+			top.walked = walk
 			const stack: Array<{
 				readonly cell: Cell
 				readonly edges: ReadonlyArray<Cell>
 				next: number
-			}> = [{ cell: root, edges: this.#shapeOf(root.current).edges, next: 0 }]
+			}> = [{ cell: root, edges: top.shape.edges, next: 0 }]
 			for (let frame = stack.at(-1); frame !== undefined; frame = stack.at(-1)) {
 				const input = frame.edges[frame.next]
 				if (input === undefined) {
@@ -740,24 +755,32 @@ export class DagEditor<R extends Roots = Roots> {
 					continue
 				}
 				frame.next++
-				if (!seen.has(input)) {
-					seen.add(input)
-					stack.push({ cell: input, edges: this.#shapeOf(input.current).edges, next: 0 })
+				const entry = this.#entryOf(input)
+				if (entry.walked !== walk) {
+					entry.walked = walk
+					stack.push({ cell: input, edges: entry.shape.edges, next: 0 })
 				}
 			}
 		}
 		return { order, feedback }
 	}
 
-	/** What `node` reads (NodeShape), worked out on its first read and kept by the node (#shapes). */
-	#shapeOf(node: EditNode): NodeShape {
-		const known = this.#shapes.get(node)
-		if (known !== undefined) {
-			return known
+	/**
+	 * What the editor keeps of `cell` (CellEntry, #entries): what its node reads worked out again only where the cell
+	 * holds another node than when it was last read.
+	 */
+	#entryOf(cell: Cell): CellEntry {
+		const known = this.#entries.get(cell)
+		if (known === undefined) {
+			const made: CellEntry = { node: cell.current, shape: nodeShape(cell.current), walked: 0 }
+			this.#entries.set(cell, made)
+			return made
 		}
-		const made = nodeShape(node)
-		this.#shapes.set(node, made)
-		return made
+		if (known.node !== cell.current) {
+			known.node = cell.current
+			known.shape = nodeShape(cell.current)
+		}
+		return known
 	}
 
 	/**
@@ -798,7 +821,7 @@ export class DagEditor<R extends Roots = Roots> {
 		const stamps = new Map<Cell, number>()
 		for (const cell of order) {
 			let at = this.#changedAt.get(cell) ?? 0
-			for (const input of this.#shapeOf(cell.current).edges) {
+			for (const input of this.#entryOf(cell).shape.edges) {
 				at = Math.max(at, stamps.get(input) ?? 0)
 			}
 			stamps.set(cell, at)
@@ -814,7 +837,7 @@ export class DagEditor<R extends Roots = Roots> {
 	readersIn(order: ReadonlyArray<Cell>): (cell: Cell) => ReadonlyArray<Cell> {
 		const out = new Map<Cell, Array<Cell>>()
 		for (const cell of order) {
-			for (const input of this.#shapeOf(cell.current).edges) {
+			for (const input of this.#entryOf(cell).shape.edges) {
 				out.getOrInsertComputed(input, () => []).push(cell)
 			}
 		}
@@ -884,13 +907,14 @@ export class DagEditor<R extends Roots = Roots> {
 			}
 			rewritten.push(cell)
 			const node = cell.current
+			const was = this.#entryOf(cell).shape
 			const copy = this.copier(remap)
 			cell.current = drive(
 				mapNode<EditRefs, EditRefs>(node, { ...keptRefs, expr: (e) => copy.of(e) }),
 				(input) => (input === from ? to : input)
 			)
 			this.#readers.changed(cell, node)
-			this.#reach.changed(cell, this.#shapeOf(node), this.#shapeOf(cell.current))
+			this.#reach.changed(cell, was, this.#entryOf(cell).shape)
 		}
 		for (const root of this.base.roots) {
 			if (this.#rootCell(root) !== from) {

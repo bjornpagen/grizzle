@@ -695,7 +695,7 @@ export const howEachCellIsReadIsTheEditorsReachKeptAsEveryEditMovesItAndAStateRe
 					file: "packages/engine/src/lower/optimize/demand/editor.ts",
 					original: "\t\tconst read = this.#reach.taken()\n",
 					replacement:
-						"\t\tconst read = new Reach((cell) => this.#shapeOf(cell.current), this.roots).taken()\n",
+						"\t\tconst read = new Reach((cell) => this.#entryOf(cell).shape, this.roots).taken()\n",
 					why: "Every state works out how each cell is read anew, a walk of every cell the roots reach, as structureOf did at every state: taking a state moves every count."
 				},
 				{
@@ -1004,7 +1004,7 @@ export const aRewriteReadsEachStatesReadersOffItsCellsWorkedOutAtMostOnceAState 
 
 /**
  * A state of the editor's cells reads what each node reads (its edges and the labels its scope expressions name) off
- * the node, worked out once a node (lower/optimize/demand/editor.ts #shapes): over generated queries, the semantic
+ * the node, worked out once a node a cell holds (lower/optimize/demand/editor.ts #entries): over generated queries, the semantic
  * simplification and the relational rewrites work out what no more nodes read than the editor ever held, its
  * cells as they started and each node a rewrite set in one's place, where every state of every pass worked them out for
  * every cell it reached.
@@ -1052,9 +1052,9 @@ export const aStateOfTheCellsReadsWhatEachNodeReadsOffTheNodeWorkedOutOnceANode 
 		kills: [
 			{
 				file: "packages/engine/src/lower/optimize/demand/editor.ts",
-				original: "\t\tconst known = this.#shapes.get(node)\n",
-				replacement: "\t\tconst known = undefined\n",
-				why: "Every state works out what each reached cell's node reads again, as before nodes kept it: the scope readings outnumber the nodes the editor held."
+				original: "\t\tif (known.node !== cell.current) {\n",
+				replacement: "\t\tif (known.node === known.node) {\n",
+				why: "Every state works out what each reached cell's node reads again, as before cells kept it: the scope readings outnumber the nodes the editor held."
 			}
 		]
 	}
