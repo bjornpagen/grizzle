@@ -1,0 +1,9 @@
+{
+	"$schema": "../../node_modules/@effect/tsgo/schema.json",
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"lib": ["dom", "dom.iterable", "esnext"],
+		"noEmit": true
+	},
+	"include": ["src/http"]
+}

@@ -67,6 +67,32 @@ const fetchHeaders = (raw: ReadonlyArray<string>): Headers => {
  * body, a stream of its chunks, for a method that holds one. A request without a method or a target, which a server's
  * never is, and one Fetch refuses (a method it forbids, such as TRACE) are none.
  */
+/**
+ * A request's body as a web stream: ReadableStream.from's algorithm (the Streams Standard's ReadableStreamFromIterable)
+ * over the request's async iterator, written with the constructor every lib declares, where it called
+ * ReadableStream.from, which Node declares and the DOM's lib does not, so a consumer typechecking this module under the
+ * DOM's lib found no `from`. Each pull takes the iterator's next chunk, closing the stream once it is done, its high-water
+ * mark 0 so nothing is read before the handler reads; a cancel returns the iterator with its reason, as
+ * ReadableStream.from does.
+ */
+const bodyOf = (request: NodeRequest): ReadableStream<Uint8Array> => {
+	const iterator = request[Symbol.asyncIterator]()
+	return new ReadableStream<Uint8Array>(
+		{
+			pull: (controller) =>
+				iterator.next().then((next) => {
+					if (next.done === true) {
+						controller.close()
+					} else {
+						controller.enqueue(next.value)
+					}
+				}),
+			cancel: (reason: unknown) => iterator.return?.(reason).then(() => undefined)
+		},
+		{ highWaterMark: 0 }
+	)
+}
+
 const fetchRequest = (request: NodeRequest, signal: AbortSignal): Option.Option<Request> =>
 	Option.flatMap(
 		Option.all({
@@ -82,7 +108,7 @@ const fetchRequest = (request: NodeRequest, signal: AbortSignal): Option.Option<
 						...(bodiless.has(method)
 							? {}
 							: {
-									body: ReadableStream.from(request),
+									body: bodyOf(request),
 									duplex: "half"
 								}),
 						signal

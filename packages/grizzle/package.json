@@ -30,7 +30,7 @@
 	},
 	"sideEffects": false,
 	"scripts": {
-		"typecheck": "rm -rf types && toolchain-typecheck -p tsconfig.json",
+		"typecheck": "rm -rf types && toolchain-typecheck -p tsconfig.json && toolchain-typecheck -p tsconfig.dom.json",
 		"oxlint": "toolchain-oxlint"
 	},
 	"dependencies": {
