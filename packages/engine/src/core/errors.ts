@@ -163,9 +163,9 @@ const regexSpaceText = (measure: RegexSpaceMeasure): string => {
  * - `regexCompileSpace`: the pattern `pattern`, which `measure` puts past a limit of PostgreSQL's regex compiler;
  * - `stringLength`: a text grizzle builds as one string, `needed` UTF-16 code units long, past V8's longest string,
  *   `limit` (maxStringLength);
- * - `stringLengthAtLeast`: a text grizzle writes piece by piece, refused at the piece where it passes V8's longest
+ * - `stringLengthAtLeast`: a text grizzle builds piece by piece, refused at the piece where it passes V8's longest
  *   string, `limit`, so its whole length, which no writer measures, is at least `atLeast` UTF-16 code units (a canonical
- *   text, core/canonical.ts boundCanonicalText);
+ *   text encode builds, core/canonical.ts boundCanonicalText; never one a digest only hashes);
  * - `tableColumns`: the table, view or materialized view `table` (a write program's carrier among them), of `needed`
  *   columns, past PostgreSQL's `limit` (tableMaxColumns);
  * - `selectList`: a select list of `needed` entries, past PostgreSQL's `limit` (selectMaxEntries);

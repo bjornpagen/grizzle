@@ -14,11 +14,17 @@
  * domain of two lines.
  */
 
-import { assert, defined } from "@bjornpagen/testing/assert"
+import { assert, assertVariant, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Formatter, Record } from "effect"
-import { canonicalTag, encode, everyProperty, withoutSourceLocs } from "#compiler/core/canonical.ts"
+import {
+	canonicalTag,
+	encode,
+	everyProperty,
+	maxStringLength,
+	withoutSourceLocs
+} from "#compiler/core/canonical.ts"
 import {
 	digest,
 	digestCarrying,
@@ -51,6 +57,10 @@ import {
 	located,
 	type Parts,
 	partsGen,
+	pastLongestGen,
+	pastLongestMember,
+	pastLongestRecord,
+	streamedDigest,
 	stripped
 } from "#test/unit/core/fingerprint.fixtures.ts"
 
@@ -380,6 +390,43 @@ export const aDigestCarryingAContainersTextWritesItWhereTheContainerStandsAndRea
 				replacement:
 					"\t\tconst text = container === this ? this.#carried.texts.get(container) : undefined\n",
 				why: "A carried container is read again where it stands, as every digest read a closed read's facts: each carrying digest reads it as many times as it holds it."
+			}
+		]
+	})
+
+/** A digest over a canonical text longer than any string V8 builds is a digest: its text streams into the hash and is never built, so no length bounds it (ByteSink), where `encode`, which builds the text, refuses it past V8's longest string (TextSink). Budget: one case, one string of a third or a half of V8's longest string referenced by every member, whose digest hashes past it (about 18 s): a text below the bound cannot tell a bound ByteSink from a free one. */
+export const aDigestOverACanonicalTextPastV8sLongestStringIsADigestWhereEncodeWhichBuildsItRefusesIt =
+	property.explore(pastLongestGen, {
+		needs: {},
+		budget: { runs: 1, steered: 0 },
+		situations: [],
+		check: () => (p) =>
+			Effect.sync(() => {
+				const member = pastLongestMember(p)
+				const v = pastLongestRecord(p, member)
+				const reason = refused(encode(v, everyProperty), "ResourceBound").reason
+				assertVariant(reason, "_tag", "ResourceBound", "encode refuses the text it would build")
+				assertVariant(reason.bound, "kind", "stringLengthAtLeast", "past a string's length")
+				assert.equal(reason.bound.limit, maxStringLength, "V8's longest string")
+				assert.equal(
+					succeeded(digest("past-longest", v, everyProperty), "a digest of a text past the bound"),
+					streamedDigest("past-longest", p, member),
+					"the digest of the framed text, streamed"
+				)
+			}),
+		oracle: {
+			kind: "second-implementation",
+			name: "SHA-256 of the frame and the record's canonical text written piece by piece into node:crypto's hash (streamedDigest), never built"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/core/canonical.ts",
+				original:
+					'\t\tif (typeof value === "string") {\n\t\t\tthis.#out.jsonString(value)\n\t\t} else if (typeof value === "number") {',
+				replacement:
+					'\t\tif (typeof value === "string") {\n\t\t\tthis.#out.jsonString(value)\n\t\t\tboundCanonicalText(this.#out.units, maxStringLength)\n\t\t} else if (typeof value === "number") {',
+				why: "ByteSink bounded again by V8's longest string, as a built text is: a digest of a text no string holds, a snapshot's content fingerprint past it, is refused, as metis's installation's was (lane META8)."
 			}
 		]
 	})

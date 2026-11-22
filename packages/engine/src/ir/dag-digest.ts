@@ -667,7 +667,12 @@ export class DagDigests {
 	readonly #templates: DagTemplates
 	readonly #labels: LabelIndex
 	readonly #messages = new Sha256Messages(messageChunk)
-	/** The longest table text a digest writes, past which it is refused: V8's longest string in production. */
+	/**
+	 * The longest table text a digest writes, past which it is refused: V8's longest string in production. The table text
+	 * is hashed and never built, as a digest's text is (core/canonical.ts ByteSink, which has no bound), but this digest
+	 * is a claimed form's, which must refuse where `encode` refuses the form it claims to be (test/unit/ir/dag-digest),
+	 * so it keeps the bound a built text has.
+	 */
 	readonly #limit: number
 
 	/** The digests of the DAG labelled `labels`, every template read from `templates`. */

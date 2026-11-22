@@ -15,10 +15,11 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order, Record, String as Str } from "effect"
-import type { Path } from "#compiler/core/canonical.ts"
+import { maxStringLength, type Path } from "#compiler/core/canonical.ts"
 import { type SourceLoc, sitedLoc } from "#compiler/core/loc.ts"
 import { isRecord } from "#compiler/core/record.ts"
-import { sha256Hex } from "#compiler/core/sha256.ts"
+import { messageChunk, Sha256Messages, sha256Hex } from "#compiler/core/sha256.ts"
+import { wellFormed } from "#compiler/core/text.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { isList } from "#test/support/list.ts"
 import { Exact, specified, value } from "#test/unit/core/canonical.fixtures.ts"
@@ -289,3 +290,63 @@ export const containersOf = (v: unknown): ReadonlyArray<object> => {
 /** A union chain's depth and its levels' reads (chainLevel), and how many times the level is asked again. */
 export const askedChainGen: Gen<readonly [number, number, number]> = (source) =>
 	[source.draw(int(1, 8)), source.draw(int(2, 3)), source.draw(int(1, 3))] as const
+
+/**
+ * A record whose canonical text is longer than any string V8 builds (maxStringLength): its members, two or three, each
+ * one string of `unit` long enough that together they pass it, the same string under every key, so the record holds
+ * one string's worth of memory. Its unit is written as itself in JSON, so its text is known without being built.
+ */
+interface PastLongest {
+	readonly keys: Arr.NonEmptyReadonlyArray<string>
+	readonly unit: string
+}
+
+export const pastLongestGen: Gen<PastLongest> = (source) => ({
+	keys: source.draw(
+		element<Arr.NonEmptyReadonlyArray<string>>([
+			["a", "b"],
+			["a", "b", "c"]
+		])
+	),
+	unit: source.draw(element(["a", "é", "z"]))
+})
+
+/** The member string of a record past V8's longest string (PastLongest): its unit repeated, one past an even share. */
+export const pastLongestMember = (p: PastLongest): string =>
+	Str.repeat(Math.floor(maxStringLength / p.keys.length) + 1)(p.unit)
+
+/** The record (PastLongest), each key holding `member`. */
+export const pastLongestRecord = (
+	p: PastLongest,
+	member: string
+): { readonly [key: string]: string } =>
+	Record.fromEntries(Arr.map(p.keys, (key) => [key, member] as const))
+
+/** The code units of a member string (pastLongestMember) hashed as one piece (streamedDigest). */
+const streamedPiece = 2 ** 20
+
+/**
+ * SHA-256 of a digest's frame and the canonical text of the record (pastLongestRecord), as the specification writes it
+ * (framedText, the member's JSON literal its unit written as itself), written into a SHA-256 message (Sha256Messages)
+ * a piece at a time and never built: each member a piece of its unit's UTF-8, encoded once by the platform
+ * (TextEncoder), written again for each piece of the member, and the rest. The second implementation of a digest over a
+ * text no string holds, which no canonical writer reaches.
+ */
+export const streamedDigest = (domain: string, p: PastLongest, member: string): string => {
+	const message = new Sha256Messages(messageChunk)
+	const write = (text: string): void => message.out.text(wellFormed(text))
+	const piece = new TextEncoder().encode(Str.repeat(streamedPiece)(p.unit))
+	const pieces = Math.floor(member.length / streamedPiece)
+	const rest = Str.repeat(member.length - pieces * streamedPiece)(p.unit)
+	write(framedText(domain, "{"))
+	for (const [i, key] of p.keys.entries()) {
+		write(`${i > 0 ? "," : ""}${jsonText(key)}:"`)
+		for (let k = 0; k < pieces; k++) {
+			message.out.encoded(piece, streamedPiece)
+		}
+		write(rest)
+		write('"')
+	}
+	write("}")
+	return message.hex()
+}

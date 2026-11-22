@@ -1282,7 +1282,7 @@ const writePending = <T>(
 
 /**
  * An array's identity text (writeIdentityText): "[", each item's token or scalar text after a comma from the second,
- * and "]", each scalar bounded by V8's longest string from its own first unit, as `encode` writes a scalar alone.
+ * and "]", hashed as it is written and never built, so no length bounds it (ByteSink).
  */
 const writeIdentityArray = <T>(
 	out: Utf8Writer,
@@ -1310,8 +1310,7 @@ const writeIdentityArray = <T>(
 
 /**
  * A record's identity text (writeIdentityText): `encode`'s text of it, each member a token was taken for written as
- * that token, as Walk.over writes it, and bounded as it bounds it, from the record's opening brace, so a member is
- * refused in the order `encode` refuses it.
+ * that token, as Walk.over writes it, hashed as it is written and never built, so no length bounds it (ByteSink).
  */
 const writeIdentityRecord = <T>(
 	out: Utf8Writer,
@@ -1477,20 +1476,22 @@ const canonicalTextLoc = SourceLoc("canonical text", [])
 /**
  * The sink that writes the canonical text's UTF-8 into a byte writer (grizzle-text Utf8Writer) as it is read: each
  * scalar's and key's JSON literal (Utf8Writer.jsonString, jsonNumber, the ASCII of a boolean), its punctuation and the
- * canonical texts Walk.over writes, each byte written once, in place, with no string built. Past V8's longest string the
- * traversal stops (boundCanonicalText), the text measured in UTF-16 code units from where the sink began, after each
- * piece is written and before anything is built of it.
+ * canonical texts Walk.over writes, each byte written once, in place, with no string built.
+ *
+ * Its text is never built, so no length bounds it: its bytes stream into a hash (core/fingerprint.ts, a digest, an
+ * identity digest) or a template's kept bytes (TemplateSink), and V8's longest string bounds a string that is built
+ * (TextSink, boundCanonicalText), never one that is hashed. Each scalar it writes is a string that already exists, so it
+ * is within that bound already; a digest over a canonical text longer than any string V8 builds is a digest like any
+ * other, where a bound here refused a snapshot's content fingerprint past it (deploy/snapshot/build.ts
+ * snapshotFingerprint, metis's installation).
  */
 class ByteSink implements Sink {
 	readonly #out: Utf8Writer
-	/** How many UTF-16 code units the writer held before the canonical text, a digest's frame. */
-	readonly #start: number
 	/** Whether a value was written in the container being written, so the next item or member follows a comma. */
 	#after = false
 
 	constructor(out: Utf8Writer) {
 		this.#out = out
-		this.#start = out.units
 	}
 
 	scalar(value: string | number | boolean): void {
@@ -1503,7 +1504,6 @@ class ByteSink implements Sink {
 			this.#out.ascii(value ? "true" : "false")
 		}
 		this.#after = true
-		this.#bound()
 	}
 
 	/** A value whose canonical text is `text`, written as it is (Walk.over). */
@@ -1511,7 +1511,6 @@ class ByteSink implements Sink {
 		this.#separate()
 		this.#out.text(text)
 		this.#after = true
-		this.#bound()
 	}
 
 	/** A container's token, written by `write` where the container stands (writeIdentityText). */
@@ -1519,14 +1518,12 @@ class ByteSink implements Sink {
 		this.#separate()
 		write(this.#out, token)
 		this.#after = true
-		this.#bound()
 	}
 
 	open(kind: ContainerKind): void {
 		this.#separate()
 		this.#out.ascii(kind === "array" ? "[" : "{")
 		this.#after = false
-		this.#bound()
 	}
 
 	key(key: string): void {
@@ -1534,13 +1531,11 @@ class ByteSink implements Sink {
 		this.#out.jsonString(key)
 		this.#out.ascii(":")
 		this.#after = false
-		this.#bound()
 	}
 
 	close(kind: ContainerKind): void {
 		this.#out.ascii(kind === "array" ? "]" : "}")
 		this.#after = true
-		this.#bound()
 	}
 
 	#separate(): void {
@@ -1556,11 +1551,6 @@ class ByteSink implements Sink {
 	hole(): void {
 		this.#separate()
 		this.#after = true
-	}
-
-	/** Refused where the text written passes V8's longest string. */
-	#bound(): void {
-		boundCanonicalText(this.#out.units - this.#start, maxStringLength)
 	}
 }
 
@@ -1578,9 +1568,9 @@ const punctuation = {
 /**
  * Refuses a canonical text of which `written` UTF-16 code units are written past `limit`, V8's longest string in
  * production (maxStringLength), as ResourceBound (stringLengthAtLeast): the text is refused as it is written, so its
- * whole length is at least what it holds when it passes the limit, the one true number it states. The one bound every
- * writer of a canonical text checks, whether it builds the text (TextSink) or streams it (ByteSink, ir/dag-digest.ts
- * DagDigests).
+ * whole length is at least what it holds when it passes the limit, the one true number it states. The bound is for
+ * strings that get built: the writer that builds a canonical text checks it (TextSink), and one that streams it into a
+ * hash does not (ByteSink), but for ir/dag-digest.ts DagDigests, whose claimed-form digest refuses where `encode` does.
  */
 export const boundCanonicalText = (written: number, limit: number): void => {
 	if (written > limit) {
