@@ -254,6 +254,61 @@ export const readSchemaTree = Effect.fn("readSchemaTree")(
 )
 
 /**
+ * The runs of `text` writeText encodes and writes one at a time, in order: each of at most `units` UTF-16 code units,
+ * one longer where it would end between the two halves of a surrogate pair, so the runs' UTF-8 encodings together are
+ * exactly the text's.
+ */
+export const textRuns = function* (text: string, units: number): Generator<string> {
+	let at = 0
+	while (at < text.length) {
+		let end = Math.min(text.length, at + units)
+		const last = Option.getOrElse(Str.charCodeAt(text, end - 1), () => 0)
+		if (end < text.length && last >= 0xd800 && last <= 0xdbff) {
+			end += 1
+		}
+		yield Str.slice(at, end)(text)
+		at = end
+	}
+}
+
+/**
+ * How many UTF-16 code units of a file's text writeText encodes and writes at once: Node's default high-water mark of a
+ * byte stream, the run a file stream of Node's own writes at, so a run's encoding is at most three times it.
+ *
+ * @limitKind published
+ * @owner Node.js 26.13.0 stream
+ * @unit UTF-16 code units of a run (writeText)
+ * @scope each run of a generated file's text encoded and written alone
+ * @constraint documented default
+ * @source https://nodejs.org/docs/v26.13.0/api/stream.html#streamgetdefaulthighwatermarkobjectmode
+ * @quote Returns the default highWaterMark used by streams. Defaults to `65536` (64 KiB), or `16` for `objectMode`.
+ * @verified 2026-11-22
+ */
+export const textRunUnits = 65_536
+
+const utf8 = new TextEncoder()
+
+/**
+ * `text` written to `path` a run at a time (textRuns), each run of textRunUnits code units, encoded alone and written
+ * before the next is encoded, so the file's bytes are
+ * exactly the text's UTF-8 and no encoding of the whole text is ever held beside it: a file of a hundred megabytes
+ * encoded whole, its UTF-8 copy beside its text, is what edullm's qti generate ran out of heap on as it wrote.
+ */
+export const writeText = (
+	path: string,
+	text: string
+): Effect.Effect<void, PlatformError.PlatformError, FileSystem.FileSystem> =>
+	Effect.scoped(
+		Effect.gen(function* () {
+			const fs = yield* FileSystem.FileSystem
+			const file = yield* fs.open(path, { flag: "w" })
+			for (const run of textRuns(text, textRunUnits)) {
+				yield* file.writeAll(utf8.encode(run))
+			}
+		})
+	)
+
+/**
  * Writes `final` by way of a hidden scratch path beside it: whatever was left at the scratch path is removed, `write`
  * fills it, and it is renamed into place; if anything fails or is interrupted before the rename, the scratch path is
  * removed again, so `final` is written whole or not at all. The scratch path is named after the process alone, never
@@ -301,9 +356,9 @@ export const writeFolder = Effect.fn("writeFolder")(
 		return yield* writeAtomically(directory, folder.name, (scratch) =>
 			Effect.gen(function* () {
 				yield* fs.makeDirectory(scratch)
-				yield* fs.writeFileString(path.join(scratch, metaFileName), folder.metaText)
+				yield* writeText(path.join(scratch, metaFileName), folder.metaText)
 				for (const f of folder.files) {
-					yield* fs.writeFileString(path.join(scratch, f.name), f.text)
+					yield* writeText(path.join(scratch, f.name), f.text)
 				}
 			})
 		)
@@ -330,10 +385,10 @@ export const writeSnapshotFiles = Effect.fn("writeSnapshotFiles")(
 		const fs = yield* FileSystem.FileSystem
 		yield* fs.makeDirectory(directory, { recursive: true })
 		const manifest = yield* writeAtomically(directory, manifestFileName, (scratch) =>
-			fs.writeFileString(scratch, files.manifest)
+			writeText(scratch, files.manifest)
 		)
 		const snapshot = yield* writeAtomically(directory, snapshotFileName, (scratch) =>
-			fs.writeFileString(scratch, files.snapshot)
+			writeText(scratch, files.snapshot)
 		)
 		return [manifest, snapshot]
 	},
@@ -377,7 +432,7 @@ export const writeLoginFiles = Effect.fn("writeLoginFiles")(
 		const written: Array<string> = []
 		for (const file of write) {
 			const target = yield* writeAtomically(directory, files.path(file.login), (scratch) =>
-				fs.writeFileString(scratch, file.text)
+				writeText(scratch, file.text)
 			)
 			written.push(target)
 		}
