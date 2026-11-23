@@ -286,7 +286,10 @@ export const underDatabaseLock = (statement: string): string =>
  * Drops a role a test made: one the owner administers by terminating its sessions, dropping what it owns and every
  * privilege granted to it in this database, the TEMPORARY on the database an installation grants it among them, under
  * the database lock (underDatabaseLock), then the role; an owner login (ownerLogin), the one kind
- * of test role that is a member of the owner, which owns nothing, as the bootstrap superuser who made it. A no-op once
+ * of test role that is a member of the owner, which owns nothing, as the bootstrap superuser who made it. A role that
+ * holds an operator attribute, one only a superuser grants (SUPERUSER, BYPASSRLS, REPLICATION, CREATEDB), which a test
+ * gives a role by hand, has them taken by the bootstrap superuser first, since only a superuser may grant, alter or drop
+ * a role holding SUPERUSER: so the release is one procedure, whatever was given the role and whenever. A no-op once
  * the role is gone; a backend that outlives its termination is a defect.
  */
 export const dropRole = (
@@ -296,15 +299,20 @@ export const dropRole = (
 ): Effect.Effect<void, SqlError> =>
 	Effect.gen(function* () {
 		const [found] = yield* admin.queryValues(
-			"SELECT EXISTS (SELECT FROM pg_catalog.pg_auth_members AS m WHERE m.member = r.oid AND m.roleid = CURRENT_USER::regrole), pg_catalog.current_database()::text FROM pg_catalog.pg_roles AS r WHERE r.rolname = $1::text",
+			"SELECT EXISTS (SELECT FROM pg_catalog.pg_auth_members AS m WHERE m.member = r.oid AND m.roleid = CURRENT_USER::regrole), pg_catalog.current_database()::text, r.rolsuper OR r.rolbypassrls OR r.rolreplication OR r.rolcreatedb FROM pg_catalog.pg_roles AS r WHERE r.rolname = $1::text",
 			[role]
 		)
 		if (found === undefined) {
 			return
 		}
-		const [ownerMember, database] = found
+		const [ownerMember, database, operator] = found
 		if (ownerMember === true) {
 			return yield* dropOwnerLogin(cluster, String(database), role)
+		}
+		if (operator === true) {
+			yield* asSuperuser(cluster, String(database), [
+				`ALTER ROLE ${quoteIdent(role)} NOSUPERUSER NOBYPASSRLS NOREPLICATION NOCREATEDB`
+			])
 		}
 		yield* admin.query(`GRANT ${quoteIdent(role)} TO CURRENT_USER WITH INHERIT TRUE`, [])
 		/**

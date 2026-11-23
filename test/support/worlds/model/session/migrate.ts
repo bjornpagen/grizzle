@@ -414,28 +414,41 @@ type Resumed =
 			readonly ledger: LedgerStanding
 	  }
 
+/** Where a run stops at a folder that departs (departedOnto): the place of its file, and what each statement over a
+ * departed catalog there may report, the first of them in the file being the one that stops it. */
+interface Departs {
+	readonly at: number
+	readonly reported: Arr.NonEmptyReadonlyArray<ActionOutcome>
+}
+
 /**
  * The place among a folder's files, from a state's installation to `to`, of the first that runs a statement over what a
- * perturbation of the state removed or made (catalog.ts departedAt), which stops there and rolls back; none where no
- * statement of the folder departs. Structure's precedes every statement over the folder's data, which runs in Validate
- * and in the concurrent indexes after it; Publish's follows them.
+ * perturbation of the state removed or made (catalog.ts departedAt), which stops there and rolls back, with what the
+ * departures there report; none where no statement of the folder departs. Structure's precedes every statement over the
+ * folder's data, which runs in Validate and in the concurrent indexes after it; Publish's follows them.
  */
 const departedOnto = (
 	state: Pick<Unnamed, "install" | "tampered">,
 	to: InstallSpec
-): number | undefined => {
-	const departures = Arr.flatMap(state.tampered, (p) => {
-		const file = departedAt(state.install, to, p)
-		return file === undefined ? [] : [file]
+): Departs | undefined => {
+	const found = Arr.flatMap(state.tampered, (p) => {
+		const departure = departedAt(state.install, to, p)
+		return departure === undefined ? [] : [departure]
 	})
-	if (!Arr.isReadonlyArrayNonEmpty(departures)) {
+	if (!Arr.isReadonlyArrayNonEmpty(found)) {
 		return undefined
 	}
 	const files = folderFiles(state.install, to)
-	return Arr.min(
-		Arr.map(departures, (file) => fileAt(files, file)),
+	const departures = Arr.map(found, (d) => ({ at: fileAt(files, d.file), reported: d.reported }))
+	const at = Arr.min(
+		Arr.map(departures, (d) => d.at),
 		Order.Number
 	)
+	const [first, ...rest] = Arr.dedupeWith(
+		Arr.flatMap(departures, (d) => (d.at === at ? [d.reported] : [])),
+		(a, b) => samePlain(a, b)
+	)
+	return first === undefined ? undefined : { at, reported: [first, ...rest] }
 }
 
 /** The place of a departed file among a folder's files (folderFiles), which a folder that drops or creates again a world
@@ -452,10 +465,6 @@ const fileAt = (files: ReadonlyArray<FolderFile>, file: DepartedFile): number =>
 const departedStanding = (from: InstallSpec, to: InstallSpec, at: number): LedgerStanding =>
 	standingAfter(folderFiles(from, to), at)
 
-/** The stop of a run at a folder from a state's installation to `to` that drops or creates again an object a change
- * outside any migration removed (`departedOnto`). */
-const departed: Arr.NonEmptyReadonlyArray<ActionOutcome> = [{ kind: "migration-drifted" }]
-
 /** The pending folders run oldest first, from `reached`: each whose catalog and data hold lands, and the first that
  * departs or breaks stops. */
 const resume = (reached: Reached, folders: ReadonlyArray<InstallSpec>): Resumed => {
@@ -466,19 +475,20 @@ const resume = (reached: Reached, folders: ReadonlyArray<InstallSpec>): Resumed 
 	const departs = departedOnto(reached.state, folder)
 	const [first, ...rest] = brokenOnto(reached.state, folder)
 	if (departs !== undefined) {
-		const departsFirst = departs === folderFiles(reached.state.install, folder).indexOf("structure")
+		const departsFirst =
+			departs.at === folderFiles(reached.state.install, folder).indexOf("structure")
 		return first === undefined || departsFirst
 			? {
 					kind: "stopped",
 					reached,
-					refusals: departed,
+					refusals: departs.reported,
 					pending: [folder, ...later],
-					ledger: departedStanding(reached.state.install, folder, departs)
+					ledger: departedStanding(reached.state.install, folder, departs.at)
 				}
 			: {
 					kind: "stopped",
 					reached,
-					refusals: [first, ...rest, ...departed],
+					refusals: [first, ...rest, ...departs.reported],
 					pending: [folder, ...later],
 					ledger: stoppedStanding()
 				}
@@ -522,7 +532,9 @@ const pendingFolders = (state: ModelState): ReadonlyArray<InstallSpec> =>
  *   role's previous grants takes, stops at its DROP ROLE (2BP01) in Publish, where a law's statement over its data may
  *   come first: its file rolled back, the files before it committed, the folder and every later one pending
  *   (departedStanding), and the report says the installation may have drifted, with `grizzle drift` to see what
- *   changed (`migration-drifted`); a half-applied run meets it where its session ends past that file;
+ *   changed (`migration-drifted`); one that grants, revokes or drops a role given SUPERUSER outside any migration stops
+ *   at that statement in Publish, refused 42501, the rest alike; a half-applied run meets either where its session
+ *   ends past that file;
  * - else the installation becomes the new one (landedOn), and the run ends by refusing drift, so a catalog tampered
  *   with beforehand is migrated and then refused, unless the folder rewrote what was tampered with.
  * A direct writer's open transaction would block the migration, which a serial run never does.
@@ -549,12 +561,12 @@ export const migrateBranches = (
 	const departs = departedOnto(from.state, to)
 	/** Whether the folder departs in Structure, before every statement over its data, so no law of it refuses first. */
 	const departsFirst =
-		departs !== undefined && departs === folderFiles(from.state.install, to).indexOf("structure")
-	/** The run's stops at the new folder's file `at`, where it departs, the folder pending after the files before it, and
-	 * at a law its data breaks, whose statement may come first where the folder departs in Publish. */
-	const departedStops = (at: number): Arr.NonEmptyReadonlyArray<Allowed> => {
+		departs !== undefined && departs.at === folderFiles(from.state.install, to).indexOf("structure")
+	/** The run's stops at the new folder's file where it departs, the folder pending after the files before it, and at a
+	 * law its data breaks, whose statement may come first where the folder departs in Publish. */
+	const departedStops = ({ at, reported }: Departs): Arr.NonEmptyReadonlyArray<Allowed> => {
 		const [stop, ...others] = stopped(
-			departed,
+			reported,
 			from,
 			pendingOn([to], departedStanding(from.state.install, to, at))
 		)
@@ -566,7 +578,7 @@ export const migrateBranches = (
 	}
 	switch (how) {
 		case "half-applied":
-			return departs !== undefined && departs < killedAt(folderFiles(from.state.install, to))
+			return departs !== undefined && departs.at < killedAt(folderFiles(from.state.install, to))
 				? departedStops(departs)
 				: [
 						allowedAt(

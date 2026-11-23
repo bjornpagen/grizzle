@@ -22,6 +22,7 @@ import {
 } from "#test/support/worlds/model/session/writes.ts"
 
 import type {
+	ActionOutcome,
 	BaseSpec,
 	CatalogPerturbation,
 	EntrySpec,
@@ -683,25 +684,56 @@ export const healedBy = (from: InstallSpec, to: InstallSpec, p: CatalogPerturbat
 /** A file of a folder a statement over a departed catalog stops in (departedAt): Structure or Publish. */
 export type DepartedFile = "structure" | "publish"
 
+/** Where a folder's statement over a departed catalog stops its run (departedAt), and what the run reports there. */
+export interface Departure {
+	readonly file: DepartedFile
+	readonly reported: ActionOutcome
+}
+
+/** A stop that adapter/migrate/errors.ts StatementFailed reports as the installation having drifted. */
+const drifted = (file: DepartedFile): Departure => ({
+	file,
+	reported: { kind: "migration-drifted" }
+})
+
 /**
- * The file of a migration from one installation to another that runs a statement over what a perturbation removed or
- * made, which PostgreSQL refuses, so the run stops there, its file rolled back (adapter/migrate/errors.ts
- * StatementFailed drifted): Structure, where its folder drops a world object a dropped policy was or creates it again
- * under a new definition, each by its DROP (42704, the object gone); Publish, where it drops a role a privilege was
- * granted to by hand that no revoke of the role's previous grants takes (handGrantRevokedForDrop), by its DROP ROLE (2BP01, the
- * privilege depending on the role). None for every other perturbation, which leaves what a folder names in place or
- * changes what no statement of a folder refuses: a membership goes with its role.
+ * Whether a folder grants, revokes or drops the role or login `name`: a role it drops, or whose membership in a login
+ * it grants or revokes (deploy/diff/diff.ts, a membership added, changed or gone, a dropped login's among them), or a
+ * login it drops.
+ */
+const roleStatementOver = (from: InstallSpec, to: InstallSpec, name: string): boolean => {
+	if (roleOf(from, name) === undefined) {
+		return loginOf(from, name) !== undefined && loginOf(to, name) === undefined
+	}
+	const holders = (install: InstallSpec) =>
+		Arr.map(
+			Arr.filter(install.logins, (l) => l.roles.includes(name)),
+			(l) => l.name
+		)
+	return roleOf(to, name) === undefined || !sameNames(holders(from), holders(to))
+}
+
+/**
+ * The stop of a migration from one installation to another at a statement over what a perturbation removed or made,
+ * which PostgreSQL refuses, so the run stops there, its file rolled back: Structure, where its folder drops a world
+ * object a dropped policy was or creates it again under a new definition, each by its DROP (42704, the object gone),
+ * reported drifted (adapter/migrate/errors.ts StatementFailed); Publish, where it drops a role a privilege was granted
+ * to by hand that no revoke of the role's previous grants takes (handGrantRevokedForDrop), by its DROP ROLE (2BP01, the
+ * privilege depending on the role), reported drifted; and Publish, where it grants, revokes or drops a role or login
+ * given SUPERUSER by hand (roleStatementOver), refused 42501, since PostgreSQL lets only a superuser grant, revoke,
+ * alter or drop a role that holds SUPERUSER and the migrator is none. None for every other perturbation, which leaves
+ * what a folder names in place or changes what no statement of a folder refuses: a membership goes with its role.
  */
 export const departedAt = (
 	from: InstallSpec,
 	to: InstallSpec,
 	p: CatalogPerturbation
-): DepartedFile | undefined => {
+): Departure | undefined => {
 	switch (p.kind) {
 		case "policy-dropped": {
 			const object = perturbedObject(from, p)
 			return object !== undefined && rewritten(from, to, object.role, object.identity)
-				? "structure"
+				? drifted("structure")
 				: undefined
 		}
 		case "extra-grant":
@@ -709,7 +741,11 @@ export const departedAt = (
 			return roleOf(from, p.role) !== undefined &&
 				roleOf(to, p.role) === undefined &&
 				!handGrantRevokedForDrop(from, p)
-				? "publish"
+				? drifted("publish")
+				: undefined
+		case "role-attribute":
+			return p.attribute === "SUPERUSER" && roleStatementOver(from, to, p.role)
+				? { file: "publish", reported: { kind: "refused", sqlstate: "42501" } }
 				: undefined
 		case "row-security":
 		case "grant-revoked":
@@ -719,7 +755,6 @@ export const departedAt = (
 		case "membership-revoked":
 		case "membership-extra":
 		case "member-extra":
-		case "role-attribute":
 		case "role-setting":
 		case "database-setting":
 		case "inherited-grant":

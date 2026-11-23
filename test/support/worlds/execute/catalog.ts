@@ -341,7 +341,10 @@ export interface Catalog {
 	readonly superuser: (sql: string) => Effect.Effect<void>
 }
 
-/** The role attributes only a superuser grants: an operator with every right, which drift must catch. */
+/**
+ * The role attributes only a superuser grants: an operator with every right, which drift must catch. The substrate's
+ * release of a role takes them first (substrate.ts dropRole), so none outlives the realization.
+ */
 const operatorAttributes: ReadonlySet<string> = new Set([
 	"SUPERUSER",
 	"BYPASSRLS",
@@ -702,7 +705,6 @@ const perturbationStatements = (
 					return [`ALTER ROLE ${role} ${p.attribute}`]
 				}
 				yield* catalog.superuser(`ALTER ROLE ${role} ${p.attribute}`)
-				yield* catalog.restoring(catalog.superuser(`ALTER ROLE ${role} NO${p.attribute}`))
 				return []
 			}
 			case "role-setting":

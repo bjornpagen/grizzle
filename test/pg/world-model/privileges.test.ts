@@ -11,14 +11,12 @@ import {
  * privilege to, stops at that statement with its file rolled back and a report saying the installation may have
  * drifted, for each perturbation kind of the catalog
  * (README "Migrations": the run ends with the drift check): never an `ok` over a catalog that still departs from the
- * contract, a PUBLIC grant or an extra grant among them. Its budget is its landed one until the model knows that a role
- * tampered to SUPERUSER stops a folder's next statement over it (42501).
+ * contract, a PUBLIC grant or an extra grant among them.
  */
 export const privilegesTamperMigrated = programProperty({
 	installs,
 	focus: ["tamper", "migrate", "open-db", "drift"],
 	steps: 4,
-	budget: { runs: 64, steered: 256 },
 	required: tamperMigratedRequired,
 	realities: drawnRealities,
 	lead: tamperThenMigrate(tamperMigratedRequired),
