@@ -83,8 +83,10 @@ export const aRuleOverATextsTokensIsJudgedAsXMLReadsTheListItsTokensSplitAtEachR
 			},
 			{
 				file: "packages/engine/src/analysis/theory/unit.ts",
-				original: '\t\tcase "split":\n\t\t\treturn { unit: { kind: "none" }, source }',
-				replacement: '\t\tcase "split":\n\t\t\treturn { unit: { kind: "hidden" }, source }',
+				original:
+					'\t\tcase "split":\n\t\tcase "series":\n\t\t\treturn { unit: { kind: "none" }, source }',
+				replacement:
+					'\t\tcase "series":\n\t\t\treturn { unit: { kind: "none" }, source }\n\t\tcase "split":\n\t\t\treturn { unit: { kind: "hidden" }, source }',
 				why: "A split hides its unit, so every rule whose definition matches it beside the attributes is no unit-local rule, and the probes, which read no token split, refuse the schema: no rule over a text's tokens compiles."
 			}
 		]
