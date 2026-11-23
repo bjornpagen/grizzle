@@ -151,9 +151,9 @@ export const servedFilesCheckRefusesAServedFileThatIsNotItsLoginsCompileOneMissi
 			{
 				file: "packages/engine/src/deploy/snapshot/build.ts",
 				original:
-					"\t...membersForm(s, relation),\n\tmanifest: recordedManifestForm(s.manifest, units)",
+					"\t...membersForm(s, forms.relation),\n\tmanifest: forms.manifest(s.manifest, units)",
 				replacement:
-					'\t...membersForm(s, relation),\n\tmanifest: recordedManifestForm({ ...s.manifest, objects: s.manifest.objects.filter((o) => !o.ident.includes(".__param_")) }, units)',
+					'\t...membersForm(s, forms.relation),\n\tmanifest: forms.manifest({ ...s.manifest, objects: s.manifest.objects.filter((o) => !o.ident.includes(".__param_")), edges: s.manifest.edges.filter((e) => !e.to.includes(".__param_")) }, units)',
 				why: "The snapshot is recorded without the parameters' pattern domains its migration installs, so every generate drafts them again."
 			},
 			{

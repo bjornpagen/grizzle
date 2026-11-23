@@ -4833,9 +4833,19 @@ deploy.
   statement compact on a line of its own, but a PL/pgSQL function and a constant, each recorded by its header alone, a
   function with the SHA-256 of its source as PostgreSQL stores it (`pg_proc.prosrc`), a constant by its name, which
   digests its content. Their whole text is in the migration file that installed them, never twice in a file of its
-  size. It records no object's reasons, state or phase, which only the compile reads, and carries its own seal, the
-  digest of both files, so a file edited, corrupted or merged, or one of another snapshot, is refused; `check` holds
-  the record to the one the schemas compile to.
+  size. Each object lists what it is created after, `after`, one identity a line, so a dependency is stated once,
+  under the object that has it. It records no object's reasons, state or phase, which only the compile reads, and
+  carries its own seal, the digest of both files, so a file edited, corrupted or merged, or one of another snapshot,
+  is refused; `check` holds the record to the one the schemas compile to.
+- **No generated file is larger than 50 MiB**, the size GitHub warns at (it refuses a file past 100 MiB). `manifest.json`
+  and each file of a migration folder (`meta.json`, `NN-<phase>.sql`) that would be larger are written as parts,
+  `manifest.1.json`, `manifest.2.json`, … or `04-validate.1.sql`, `04-validate.2.sql`, …, each at most 50 MiB and each
+  ending, where it can, at a blank line between statements, else at the end of a line; every command reads the parts
+  back as the one file before it reads anything of it, so a seal, a ledger digest or a statement is the whole file's.
+  Commit them all, and never rename one: parts that lay out no file (one missing between two, one alone, or parts
+  beside the whole file) are refused by name. `snapshot.json` and each `served/` and `openapi/` file, which an
+  application imports whole by its path, are never split: `generate` refuses one larger than 50 MiB, `FileTooLarge`,
+  before writing anything.
 - **Every file grizzle reads back records its format**: `snapshot.json` and each served file as their `format`
   member, and `manifest.json`'s seal digests both snapshot files under it. A pair whose `snapshot.json` records another
   format, or none, is read no further: `check` reports it with the format it records and the one this grizzle reads
@@ -6187,6 +6197,7 @@ grizzle fits applications that own their data end to end, with rules worth decla
 - **A call's flight is at most 1,908,342,784 bytes** (`flightMaxBytes`): every message the driver writes for it, its statements' texts and parameters among them, in the one write a round trip is. Node hands that write to one `SSL_write`, whose length is a C int, and its ciphertext to one send, which macOS refuses past 2,147,483,647 bytes, so the bound is the whole TLS 1.2 records whose largest ciphertext fits one send. A longer flight is `InputTooLarge` (`flight`) before any byte is written: grizzle never splits a call into more round trips, so split the input across calls. Without the bound such a write fails whole, the connection ends with a transaction open, and a write would report `CommitLost` though nothing committed.
 - **A statement's Parse message is at most 1,073,741,822 bytes** (`messageMaxBytes`): its text and 8 bytes of fields, as the driver writes it. A longer one is `InputTooLarge` (`parse`) before any byte of its flight is written, where the server would end the connection at it.
 - **A generated text is at most 536,870,888 UTF-16 code units**, about 512 MiB of ASCII: each SQL statement, migration file, `snapshot.json` and fingerprint text. `generate` and `check` refuse a schema past it with `ResourceBound`.
+- **A generated file is at most 52,428,800 bytes** (50 MiB, GitHub's warning size): `manifest.json` and a migration folder's files are written in parts within it, and `snapshot.json`, a served file or an OpenAPI document past it is `FileTooLarge` ([Migrations](#migrations)).
 - **A closed relation is as large as its key's code space**: a cell per combination of its key fields' codes, written in its migration as one hex literal of a digit per four bits of code space times its cell's bits, whatever its rows. Prefer dense coordinates, such as slots, whose space is each owner's counts, to a sparse product of rosters ([Closed relations](#closed-relations)). Its constant has at most 2,147,483,640 bits, PostgreSQL's longest bit string, payload codes whose product is at most 2,147,483,647, the most a cell read as an integer holds, and a literal of at most 536,870,888 digits. Past any, the schema is `ResourceBound` when it compiles, the literal's as `stringLength`. `grizzle check` refuses a literal its comment or its function's name does not digest, naming the first cell that differs from the declared rows, and that cell's key.
 - **PostgreSQL's own limits are `ResourceBound` where grizzle emits what they bound**: a table's 1,600 columns, a relation's generated rule columns included (checked when its schema compiles), as for a view, a derived table or a write's temporary table; a select list's 1,664 entries; and a statement's 1,073,741,822 bytes and 65,535 parameters (a 16-bit count). Dropped columns count toward the 1,600, so PostgreSQL itself refuses an added column past them. A row must fit one 8 KB heap page once its long values are stored out of line, which PostgreSQL checks when it writes the row.
 - **A window's size is any safe integer of at least 1**, bound as a bigint: there is no largest.

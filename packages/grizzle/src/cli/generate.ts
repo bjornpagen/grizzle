@@ -36,9 +36,11 @@ import {
 import {
 	type LoginFileKind,
 	loginFileKinds,
+	loginFiles,
 	type LoginPaths,
 	type LoginText,
 	readSchemaTree,
+	unsplitWithin,
 	writeFolder,
 	writeLoginFiles,
 	writeSnapshotFiles
@@ -76,6 +78,7 @@ import {
 	draftMigration,
 	findMarkers,
 	type FolderNaming,
+	generatedFileMaxBytes,
 	generateMigration,
 	type GenerateResult,
 	type Installation,
@@ -695,6 +698,21 @@ export const snapshotFilesOf = (
 		draftRefused(schema.configured.declared, "draft")
 	)
 
+/** A draft's snapshot files (snapshotFilesOf), refused where snapshot.json, which an application imports whole, is past
+ * generatedFileMaxBytes (files.ts unsplitWithin); manifest.json is laid out in parts within it as it is written. */
+const importedSnapshotFiles = (
+	schema: ConfiguredSchema,
+	compiled: CompiledSchema,
+	draft: DraftSnapshot
+): Effect.Effect<SnapshotFiles, CliError> =>
+	Effect.tap(snapshotFilesOf(compiled, draft), (files) =>
+		unsplitWithin(
+			schema.declared,
+			[{ file: snapshotFileName, text: files.snapshot }],
+			generatedFileMaxBytes
+		)
+	)
+
 /**
  * Each login's served file, in configured order: its workload compiled under the snapshot.json text the draft lays out,
  * the draft's (adapter/served/compile.ts servedEntry), over the artifacts `served` holds for it, its ChangeSets as the
@@ -836,6 +854,13 @@ const draftFor = Effect.fn("draftFor")(function* (
 		options.phases
 	)
 	const files = yield* servedFiles(compiled, generated, generated.served, options.phases)
+	yield* unsplitWithin(
+		schema.declared,
+		Arr.flatMap(loginFileKinds, (kind) =>
+			Arr.map(files, (f) => ({ file: loginFiles[kind].path(f.login), text: loginText(f, kind) }))
+		),
+		generatedFileMaxBytes
+	)
 	const served = yield* servedWrites(schema, files, tree.logins)
 	const certification = generated.served.kind === "logins" ? generated.served.certification : []
 	const fences = generated.served.kind === "logins" ? generated.served.fences : []
@@ -846,7 +871,7 @@ const draftFor = Effect.fn("draftFor")(function* (
 			? ({
 					schema,
 					snapshot: previous,
-					snapshotFiles: yield* snapshotFilesOf(compiled, generated),
+					snapshotFiles: yield* importedSnapshotFiles(schema, compiled, generated),
 					served,
 					certification,
 					fences,
@@ -865,7 +890,7 @@ const draftFor = Effect.fn("draftFor")(function* (
 		schema,
 		folder: generated.folder,
 		snapshot: generated.snapshot,
-		snapshotFiles: yield* snapshotFilesOf(compiled, generated),
+		snapshotFiles: yield* importedSnapshotFiles(schema, compiled, generated),
 		served,
 		certification,
 		fences,
@@ -960,7 +985,8 @@ const writeSchemaDraft = Effect.fn("writeSchemaDraft")(function* (
 			snapshotPaths: yield* writeSnapshotFiles(
 				schema.declared,
 				schema.directory,
-				draft.snapshotFiles
+				draft.snapshotFiles,
+				generatedFileMaxBytes
 			),
 			files: [],
 			markers: [],
@@ -972,7 +998,7 @@ const writeSchemaDraft = Effect.fn("writeSchemaDraft")(function* (
 	const folder = draft.folder
 	const written = {
 		folder: folder.name,
-		path: yield* writeFolder(schema.declared, schema.directory, folder),
+		path: yield* writeFolder(schema.declared, schema.directory, folder, generatedFileMaxBytes),
 		files: Arr.map(folder.files, (f) => f.name),
 		markers: Arr.flatMap(folder.files, (f) =>
 			Arr.map(findMarkers(new ChunkView(f.text)), (m) => ({
@@ -1001,7 +1027,12 @@ const writeSchemaDraft = Effect.fn("writeSchemaDraft")(function* (
 	const drafted: SchemaWritten = {
 		...written,
 		kind: "drafted",
-		snapshotPaths: yield* writeSnapshotFiles(schema.declared, schema.directory, draft.snapshotFiles)
+		snapshotPaths: yield* writeSnapshotFiles(
+			schema.declared,
+			schema.directory,
+			draft.snapshotFiles,
+			generatedFileMaxBytes
+		)
 	}
 	return drafted
 })

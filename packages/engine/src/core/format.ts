@@ -112,6 +112,22 @@
  * A served read records no `deferrable`, and a served session's read BEGIN is one text, SERIALIZABLE READ ONLY
  * (served/forms.ts ServedRead, ServedSession), where format 7 recorded whether a read's member was declared
  * deferrable(...) and keyed the read BEGINs `immediate` and `deferrable`, without and with DEFERRABLE.
+ * manifest.json states each object's edges on the object, its `after`, the identities of the objects it is created after
+ * in code point order, and lists no edges of its own, which its reader gives back from the objects
+ * (deploy/snapshot/build.ts laidOutManifestForm, joinedManifest); the record the seal digests holds the edges by their
+ * dependents, each object's in install order and an object's in code point order (recordedManifestForm), where format 7
+ * listed every edge with both its ends, the dependent's identity once per dependency, in the compile's order: metis's
+ * suite manifest.json of 327,449 edges, 44.7 MB of its 107.9 MB, is 78.8 MB laid out so. And a file generate writes
+ * that is larger than GitHub's warning size, 50 MiB (deploy/render/parts.ts generatedFileMaxBytes), is written as its
+ * parts, `<stem>.<n><extension>` from 1, each within it and cut at the text's coarsest joint within it, after a blank
+ * line, else a line, else a code point (grizzle-text partsOf), which every reader joins back into the one text before
+ * it reads it: manifest.json and each migration folder's meta.json and SQL files (laidOut, laidOutFiles, the shell's
+ * adapter/boundary/files.ts readLaidOut), where format 7 wrote each whole, whatever its size, so metis's 107.9 MB
+ * manifest.json and 96.9 MB 04-validate.sql were files GitHub refuses, now parts of 52.4 MB and 26.3 MB, and of 52.4 MB
+ * and 44.5 MB; parts that lay out no file (one missing, one alone, parts beside the whole) are refused by name
+ * (TreeRefused `brokenParts`). snapshot.json, a served file and an OpenAPI document, which an application imports whole
+ * by its path, are never laid out in parts: generate refuses one past the bound, before writing anything
+ * (FileTooLarge, the shell's cli/files.ts unsplitWithin).
  *
  * Format 7 (pin+1): a session table, a rule judge's delta (physical/ddl/rules.ts
  * emptied) or a write program's carrier (sql/print.ts carrierStandUp), is emptied by DELETE, and by TRUNCATE only once

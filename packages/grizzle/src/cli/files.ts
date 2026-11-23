@@ -1,5 +1,6 @@
 import { openApiDirectory, openApiPath } from "@bjornpagen/grizzle-openapi/openapi"
 import { chunkBytes, type TextChunks } from "@bjornpagen/grizzle-text/chunks"
+import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import {
 	Array as Arr,
 	Effect,
@@ -10,10 +11,12 @@ import {
 	type PlatformError,
 	String as Str
 } from "effect"
-import { readText } from "#adapter/boundary/files.ts"
+import { readLaidOut } from "#adapter/boundary/laid-out.ts"
+import { toResult } from "#adapter/engine.ts"
 import type { FolderTexts } from "#adapter/migrate/input.ts"
 import {
 	type CliError,
+	FileTooLarge,
 	FolderExists,
 	FolderUnwritten,
 	cliError,
@@ -22,7 +25,14 @@ import {
 	TreeRefused,
 	TreeUnread
 } from "#cli/errors.ts"
-import { metaFileName, type MigrationFolder } from "#compiler/plan/migration.ts"
+import {
+	isEntryOf,
+	type LaidOutFile,
+	laidOut,
+	laidOutFiles,
+	metaFileName,
+	type MigrationFolder
+} from "#compiler/plan/migration.ts"
 import {
 	manifestFileName,
 	servedDirectory,
@@ -117,29 +127,45 @@ const entryType = (
 ): Effect.Effect<FileSystem.File.Type, PlatformError.PlatformError> =>
 	Effect.map(fs.stat(path), (info) => info.type)
 
+/** The files a directory's entries lay out (adapter/boundary/files.ts laidOutFiles), or the refusal of a file whose
+ * parts are no layout generate writes. */
+const laidOutIn = (
+	schema: string,
+	directory: string,
+	entries: ReadonlyArray<string>
+): Effect.Effect<ReadonlyArray<LaidOutFile>, CliError> =>
+	Effect.mapError(Effect.fromResult(toResult(laidOutFiles(entries))), (broken) =>
+		strayIn(schema, { kind: "brokenParts", directory, file: broken.name })
+	)
+
 const readFolder = Effect.fnUntraced(function* (schema: string, directory: string, name: string) {
 	const fs = yield* FileSystem.FileSystem
 	const paths = yield* Path.Path
 	const path = paths.join(directory, name)
 	const entries = yield* visibleEntries(fs, path)
-	const join = (entry: string) => paths.join(path, entry)
-	const metaPresent =
-		Arr.contains(entries, metaFileName) && (yield* entryType(fs, join(metaFileName))) === "File"
-	if (!metaPresent) {
+	const laid = yield* laidOutIn(schema, path, entries)
+	/** The first entry of `file` that is not a file, none when each is. */
+	const notAFile = (file: LaidOutFile) =>
+		Effect.map(
+			Effect.forEach(file.entries, (entry) => entryType(fs, paths.join(path, entry))),
+			(types) => Arr.findFirst(file.entries, (_, i) => types[i] !== "File")
+		)
+	const meta = Arr.findFirst(laid, (f) => f.name === metaFileName)
+	const metaStray = Option.isSome(meta) ? yield* notAFile(meta.value) : Option.none()
+	if (Option.isNone(meta) || Option.isSome(metaStray)) {
 		return yield* strayIn(schema, { kind: "noMeta", folder: path })
 	}
 	const files: Array<{ readonly name: string; readonly text: TextChunks }> = []
-	for (const entry of Arr.filter(entries, (e) => e !== metaFileName)) {
-		if ((yield* entryType(fs, join(entry))) !== "File") {
-			return yield* strayIn(schema, { kind: "notAFile", folder: path, entry })
+	for (const file of Arr.filter(laid, (f) => f.name !== metaFileName)) {
+		const stray = yield* notAFile(file)
+		if (Option.isSome(stray)) {
+			return yield* strayIn(schema, { kind: "notAFile", folder: path, entry: stray.value })
 		}
-		files.push({ name: entry, text: yield* readText(join(entry)) })
+		const text = yield* readLaidOut(path, file)
+		files.push({ name: file.name, text })
 	}
-	const folder: FolderTexts = {
-		name,
-		metaText: yield* readText(join(metaFileName)),
-		files
-	}
+	const metaText = yield* readLaidOut(path, meta.value)
+	const folder: FolderTexts = { name, metaText, files }
 	return folder
 })
 
@@ -203,24 +229,33 @@ export const readSchemaTree = Effect.fn("readSchemaTree")(
 		const logins: { -readonly [K in LoginFileKind]: ReadonlyMap<string, string> } = {
 			...noLoginPaths
 		}
-		for (const entry of yield* visibleEntries(fs, directory)) {
-			const type = yield* entryType(fs, path.join(directory, entry))
-			if ((entry === snapshotFileName || entry === manifestFileName) && type === "File") {
-				const text = yield* readText(path.join(directory, entry))
-				snapshotTexts.set(entry, text)
+		const entries = yield* visibleEntries(fs, directory)
+		for (const file of yield* laidOutIn(schema, directory, entries)) {
+			const types = yield* Effect.forEach(file.entries, (entry) =>
+				entryType(fs, path.join(directory, entry))
+			)
+			const [entry] = file.entries
+			const [type] = types
+			if (
+				(file.name === manifestFileName ||
+					(file.name === snapshotFileName && file.entries.length === 1)) &&
+				Arr.every(types, (t) => t === "File")
+			) {
+				const text = yield* readLaidOut(directory, file)
+				snapshotTexts.set(file.name, text)
 				continue
 			}
-			const loginKind = loginDirectoryKind(entry)
-			if (Option.isSome(loginKind) && type === "Directory") {
+			const loginKind = loginDirectoryKind(file.name)
+			if (file.entries.length > 1 || entry === undefined || type !== "Directory") {
+				return yield* strayIn(schema, { kind: "strayEntry", directory, entry: entry ?? file.name })
+			}
+			if (Option.isSome(loginKind)) {
 				logins[loginKind.value] = yield* readLoginFiles(
 					schema,
 					path.join(directory, entry),
 					loginKind.value
 				)
 				continue
-			}
-			if (type !== "Directory") {
-				return yield* strayIn(schema, { kind: "strayEntry", directory, entry })
 			}
 			const folder = yield* readFolder(schema, directory, entry)
 			folders.push(folder)
@@ -278,6 +313,32 @@ export const writeText = (
 		})
 	)
 
+/** How many bytes a text's UTF-8 holds. */
+const textBytes = (text: TextChunks): number =>
+	Arr.reduce(text, 0, (bytes, chunk) => bytes + utf8Length(chunk))
+
+/**
+ * Succeeds where each file an application imports whole by its path (snapshot.json, a login's served file and OpenAPI
+ * document), which generate lays out in no parts, is within `bound` bytes (deploy/render/parts.ts
+ * generatedFileMaxBytes); else refuses the first that is not, by its path in the schema's directory, FileTooLarge,
+ * before anything is written.
+ */
+export const unsplitWithin = (
+	schema: string,
+	files: ReadonlyArray<{ readonly file: string; readonly text: TextChunks }>,
+	bound: number
+): Effect.Effect<void, CliError> =>
+	Effect.forEach(
+		files,
+		({ file, text }) => {
+			const bytes = textBytes(text)
+			return bytes > bound
+				? Effect.fail(cliError(new FileTooLarge({ schema, file, bytes, bound })))
+				: Effect.void
+		},
+		{ discard: true }
+	)
+
 /**
  * Writes `final` by way of a hidden scratch path beside it: whatever was left at the scratch path is removed, `write`
  * fills it, and it is renamed into place; if anything fails or is interrupted before the rename, the scratch path is
@@ -304,13 +365,15 @@ const writeAtomically = Effect.fn("writeAtomically")(function* <R>(
 })
 
 /**
- * Writes a drafted folder into the schema's directory, whole or not at all; returns its path.
+ * Writes a drafted folder into the schema's directory, whole or not at all, meta.json and each SQL file laid out within
+ * `bound` bytes (`laidOut`); returns its path.
  */
 export const writeFolder = Effect.fn("writeFolder")(
 	function* (
 		schema: string,
 		directory: string,
-		folder: MigrationFolder
+		folder: MigrationFolder,
+		bound: number
 	): Effect.fn.Return<
 		string,
 		CliError | PlatformError.PlatformError,
@@ -326,9 +389,10 @@ export const writeFolder = Effect.fn("writeFolder")(
 		return yield* writeAtomically(directory, folder.name, (scratch) =>
 			Effect.gen(function* () {
 				yield* fs.makeDirectory(scratch)
-				yield* writeText(path.join(scratch, metaFileName), folder.metaText)
-				for (const f of folder.files) {
-					yield* writeText(path.join(scratch, f.name), f.text)
+				for (const f of [{ name: metaFileName, text: folder.metaText }, ...folder.files]) {
+					for (const part of laidOut(f.name, f.text, bound)) {
+						yield* writeText(path.join(scratch, part.entry), part.text)
+					}
 				}
 			})
 		)
@@ -340,27 +404,42 @@ export const writeFolder = Effect.fn("writeFolder")(
 )
 
 /**
- * Replaces the schema's manifest.json and then its snapshot.json, each by rename; returns their paths. snapshot.json,
- * which records the fingerprint over both, is replaced last, so an interrupted write leaves the files of two snapshots,
- * whose fingerprint does not hold, and the next generate refuses them.
+ * Replaces the schema's manifest.json, laid out within `bound` bytes (`laidOut`), each of its entries by rename and then
+ * every entry of the manifest it held before and no longer does removed, and then its snapshot.json, by rename; returns
+ * the paths written. snapshot.json, which records the fingerprint over both, is replaced last, so an interrupted write
+ * leaves the files of two snapshots, or parts of two manifests, whose seal does not hold or whose parts do not lay out
+ * one file, and the next generate refuses them.
  */
 export const writeSnapshotFiles = Effect.fn("writeSnapshotFiles")(
 	function* (
-		...[, directory, files]: [schema: string, directory: string, files: SnapshotFiles]
+		...[, directory, files, bound]: [
+			schema: string,
+			directory: string,
+			files: SnapshotFiles,
+			bound: number
+		]
 	): Effect.fn.Return<
 		ReadonlyArray<string>,
 		PlatformError.PlatformError,
 		FileSystem.FileSystem | Path.Path
 	> {
 		const fs = yield* FileSystem.FileSystem
+		const path = yield* Path.Path
 		yield* fs.makeDirectory(directory, { recursive: true })
-		const manifest = yield* writeAtomically(directory, manifestFileName, (scratch) =>
-			writeText(scratch, files.manifest)
+		const parts = laidOut(manifestFileName, files.manifest, bound)
+		const manifest = yield* Effect.forEach(parts, (part) =>
+			writeAtomically(directory, part.entry, (scratch) => writeText(scratch, part.text))
 		)
+		const kept = new Set(Arr.map(parts, (p) => p.entry))
+		for (const entry of yield* visibleEntries(fs, directory)) {
+			if (isEntryOf(entry, manifestFileName) && !kept.has(entry)) {
+				yield* fs.remove(path.join(directory, entry))
+			}
+		}
 		const snapshot = yield* writeAtomically(directory, snapshotFileName, (scratch) =>
 			writeText(scratch, files.snapshot)
 		)
-		return [manifest, snapshot]
+		return [...manifest, snapshot]
 	},
 	(effect, schema) =>
 		Effect.catchTag(effect, "PlatformError", (cause) =>

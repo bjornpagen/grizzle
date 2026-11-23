@@ -2,7 +2,7 @@
 
 import { defined } from "@bjornpagen/testing/assert"
 import { element, finite } from "@bjornpagen/testing/gen"
-import { Array as Arr, Record as Rec } from "effect"
+import { Array as Arr, Option, Record as Rec } from "effect"
 import { decode, everyProperty, type Json, noRevivers } from "#compiler/core/canonical.ts"
 import { digest } from "#compiler/core/fingerprint.ts"
 import { artifactFormat, formatKey, type RecordedFormat } from "#compiler/core/format.ts"
@@ -80,13 +80,27 @@ export const formatlessSealed = (snapshot: string, manifest: string): string =>
 		)
 	})
 
-/** The record `record` with its last edge left out, an edit no draft reads: sealed again over the edit, or under the
- * seal it carries. */
+/** The record `record` with its last edge left out, the last dependency of the last object that has one, an edit no
+ * draft reads: sealed again over the edit, or under the seal it carries. */
 export const editedManifest = (snapshot: string, record: string, sealed: boolean): string => {
 	const members = recordOf(record)
 	const manifest = manifestOf(members)
-	const edges = trustedJson<ReadonlyArray<Json>>(jsonText(defined(manifest["edges"], "the edges")))
-	const edited = jsonText({ ...members, manifest: { ...manifest, edges: Arr.dropRight(edges, 1) } })
+	const objects = trustedJson<ReadonlyArray<Members & { readonly after: ReadonlyArray<Json> }>>(
+		jsonText(defined(manifest["objects"], "the objects"))
+	)
+	const last = defined(
+		Option.getOrUndefined(Arr.findLastIndex(objects, (o) => o.after.length > 0)),
+		"an object created after another"
+	)
+	const edited = jsonText({
+		...members,
+		manifest: {
+			...manifest,
+			objects: Arr.map(objects, (o, i) =>
+				i === last ? { ...o, after: Arr.dropRight(o.after, 1) } : o
+			)
+		}
+	})
 	if (!sealed) {
 		return edited
 	}
@@ -104,6 +118,7 @@ type Members = { readonly [key: string]: Json }
  * `databaseDefault`, its one statement setting default_transaction_isolation SERIALIZABLE on the database.
  */
 const formerDefault: Members = {
+	after: [],
 	kind: "databaseDefault",
 	ident: "databaseDefault:default_transaction_isolation",
 	ddl: [
@@ -116,7 +131,7 @@ const formerDefault: Members = {
 }
 
 /** An object of kind advanceFunction, which 10a0cd919 removed and no grizzle this one reads installed. */
-const removedKind: Members = { kind: "advanceFunction", ident: "advance:s.f", ddl: [] }
+const removedKind: Members = { after: [], kind: "advanceFunction", ident: "advance:s.f", ddl: [] }
 
 /** The record `record` with `object` its first object, sealed again over both files. */
 export const recordHolding = (

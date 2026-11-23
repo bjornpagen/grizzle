@@ -14,7 +14,7 @@
  */
 import { defect, defined } from "#text/base/invariant.ts"
 import * as Result from "#text/base/result.ts"
-import { isWellFormedText, utf8, type WellFormedText } from "#text/utf8.ts"
+import { isWellFormedText, unitsWithin, utf8, utf8Length, type WellFormedText } from "#text/utf8.ts"
 
 declare const chunksBrand: unique symbol
 
@@ -141,6 +141,96 @@ export const chunksLength = (chunks: TextChunks): number => {
 		units += chunk.length
 	}
 	return units
+}
+
+/** A place in a list of pieces: the piece, and how many of its code units come before it. */
+interface PieceCut {
+	readonly piece: number
+	readonly at: number
+}
+
+/**
+ * The last place in `pieces` that ends `seam`, a run of line feeds, read across the pieces' seams, or none: the place
+ * after its last line feed, so the text before it ends in `seam` and is never empty.
+ */
+const lastEnding = (pieces: ReadonlyArray<string>, seam: "\n\n" | "\n"): PieceCut | undefined => {
+	for (let i = pieces.length - 1; i >= 0; i -= 1) {
+		const piece = defined(pieces[i], "a piece of a part")
+		const at = piece.lastIndexOf(seam)
+		if (at >= 0) {
+			return { piece: i, at: at + seam.length }
+		}
+		const before = pieces[i - 1]
+		if (seam === "\n\n" && before?.endsWith("\n") === true && piece.startsWith("\n")) {
+			return { piece: i, at: 1 }
+		}
+	}
+	return undefined
+}
+
+/**
+ * The texts a text is laid out in when no one of them may be longer than `bound` bytes of UTF-8, each a run of the text,
+ * in order, together the text (`joinedParts` gives it back), each but the last as long as it can be within the bound and
+ * ending at the text's coarsest joint within it: after a blank line, where a drafted file's statements and comments part;
+ * else after a line, where a JSON file's members and items part; else, in a line longer than the bound, after the last
+ * whole code point within it. A text within the bound is one part, itself; the empty text is one empty part. The cuts
+ * are the text's alone, so one text is laid out alike every time. `bound` is at least four, a code point's longest UTF-8,
+ * so every part holds one.
+ */
+export const partsOf = (text: TextChunks, bound: number): ReadonlyArray<TextChunks> => {
+	if (bound < 4) {
+		throw defect("a part's bound holds a code point's longest UTF-8")
+	}
+	const parts: Array<TextChunks> = []
+	const pending: Array<string> = [...text].toReversed()
+	let part: Array<string> = []
+	let bytes = 0
+	const close = (pieces: ReadonlyArray<string>): void => {
+		const chunks = pieces.filter((p) => p.length > 0).map(wellFormedChunk)
+		minted(chunks)
+		parts.push(chunks)
+	}
+	for (let piece = pending.pop(); piece !== undefined; piece = pending.pop()) {
+		const size = utf8Length(piece)
+		if (bytes + size <= bound) {
+			part.push(piece)
+			bytes += size
+			continue
+		}
+		const fit = unitsWithin(piece, bound - bytes)
+		const pieces = [...part, piece.slice(0, fit)]
+		const cut = lastEnding(pieces, "\n\n") ?? lastEnding(pieces, "\n")
+		const kept =
+			cut === undefined
+				? pieces
+				: [
+						...pieces.slice(0, cut.piece),
+						defined(pieces[cut.piece], "the piece a part ends in").slice(0, cut.at)
+					]
+		const carried =
+			cut === undefined
+				? []
+				: [
+						defined(pieces[cut.piece], "the piece a part ends in").slice(cut.at),
+						...pieces.slice(cut.piece + 1)
+					].filter((p) => p.length > 0)
+		close(kept)
+		pending.push(piece.slice(fit))
+		for (const p of carried.toReversed()) {
+			pending.push(p)
+		}
+		part = []
+		bytes = 0
+	}
+	close(part)
+	return parts
+}
+
+/** A text's parts (`partsOf`) joined back into the text, as its chunks, in order. */
+export const joinedParts = (parts: ReadonlyArray<TextChunks>): TextChunks => {
+	const chunks = parts.flat()
+	minted(chunks)
+	return chunks
 }
 
 /** Each chunk's UTF-8, in order, encoded as it is read: together, exactly the text's. */

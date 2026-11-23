@@ -58,6 +58,8 @@ export type Kind =
 	| "meta.json of another schema"
 	| "meta.json source edited"
 	| "stray file"
+	| "manifest parts beside it"
+	| "a lone part of a migration file"
 
 export const kinds: Arr.NonEmptyReadonlyArray<Kind> = [
 	"snapshot of another schema",
@@ -70,7 +72,9 @@ export const kinds: Arr.NonEmptyReadonlyArray<Kind> = [
 	"meta.json malformed",
 	"meta.json of another schema",
 	"meta.json source edited",
-	"stray file"
+	"stray file",
+	"manifest parts beside it",
+	"a lone part of a migration file"
 ]
 
 interface Case {
@@ -193,6 +197,11 @@ type Named =
 	  }
 	| {
 			readonly tag: "TreeRefused"
+			readonly fault: Extract<TreeKind, "brokenParts">
+			readonly file: string
+	  }
+	| {
+			readonly tag: "TreeRefused"
 			readonly fault: Extract<TreeKind, "notDirectory" | "strayServed" | "strayDocument">
 	  }
 	| { readonly tag: "another reason"; readonly reason: CliError["reason"]["_tag"] }
@@ -228,6 +237,8 @@ const strayAt = (fault: TreeRefused["fault"]): Named => {
 			}
 		case "noMeta":
 			return { tag: "TreeRefused", fault: fault.kind, folder: lastSegment(fault.folder) }
+		case "brokenParts":
+			return { tag: "TreeRefused", fault: fault.kind, file: fault.file }
 		case "notDirectory":
 		case "strayServed":
 		case "strayDocument":
@@ -262,6 +273,7 @@ const namedOf = (reason: CliError["reason"]): Named => {
 		case "FolderUnwritten":
 		case "SnapshotUnwritten":
 		case "ServedUnwritten":
+		case "FileTooLarge":
 		case "MigrationsUnread":
 		case "SnapshotUnreadable":
 		case "SnapshotFormat":
@@ -432,6 +444,30 @@ const tamper = (c: Case, dir: string, other: string) =>
 				const tampered: Tampered = {
 					stage: "filesystem",
 					named: { tag: "TreeRefused", fault: "strayEntry", entry: "notes.txt" },
+					finding: unreadTree
+				}
+				return tampered
+			}
+			case "manifest parts beside it": {
+				yield* fs.copyFile(manifest, `${schema}/manifest.1.json`)
+				yield* fs.copyFile(manifest, `${schema}/manifest.2.json`)
+				const tampered: Tampered = {
+					stage: "filesystem",
+					named: { tag: "TreeRefused", fault: "brokenParts", file: manifestFileName },
+					finding: unreadTree
+				}
+				return tampered
+			}
+			case "a lone part of a migration file": {
+				const files = yield* fs.readDirectory(`${schema}/${folder}`)
+				const sql = folderAt(
+					Arr.head(Arr.sort(Arr.filter(files, Str.endsWith(".sql")), Order.String))
+				)
+				const stem = Str.slice(0, -".sql".length)(sql)
+				yield* fs.rename(`${schema}/${folder}/${sql}`, `${schema}/${folder}/${stem}.1.sql`)
+				const tampered: Tampered = {
+					stage: "filesystem",
+					named: { tag: "TreeRefused", fault: "brokenParts", file: sql },
 					finding: unreadTree
 				}
 				return tampered

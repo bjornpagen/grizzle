@@ -1148,6 +1148,7 @@ const compilerRefusal = (refusal: CliError): Option.Option<CompileError> => {
 		case "FolderUnwritten":
 		case "SnapshotUnwritten":
 		case "ServedUnwritten":
+		case "FileTooLarge":
 		case "MigrationsUnread":
 		case "SnapshotUnreadable":
 		case "SnapshotFormat":

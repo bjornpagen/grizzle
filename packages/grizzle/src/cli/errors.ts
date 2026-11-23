@@ -491,6 +491,7 @@ type TreeFault =
 	  }
 	| { readonly kind: "noMeta"; readonly folder: string }
 	| { readonly kind: "notAFile"; readonly folder: string; readonly entry: string }
+	| { readonly kind: "brokenParts"; readonly directory: string; readonly file: string }
 
 export class TreeRefused extends Data.TaggedError("TreeRefused")<{
 	readonly schema: string
@@ -513,6 +514,8 @@ export class TreeRefused extends Data.TaggedError("TreeRefused")<{
 				return `migration folder ${fault.folder} has no ${metaFileName}; every drafted folder has one`
 			case "notAFile":
 				return `migration folder ${fault.folder} holds ${fault.entry}, which is not a file; a folder holds meta.json and its NN-<phase>.sql files`
+			case "brokenParts":
+				return `${fault.directory} holds parts of ${fault.file} that lay out no file grizzle generate writes: a file in parts is its parts numbered from 1 with none missing, at least two, and no whole ${fault.file} beside them, so restore them from version control`
 		}
 	}
 }
@@ -556,6 +559,22 @@ export class SnapshotUnwritten extends Data.TaggedError("SnapshotUnwritten")<{
 }> {
 	override get message(): string {
 		return `${snapshotFileName} and ${manifestFileName} of ${this.schema} could not be written${codeOf(this.cause)}`
+	}
+}
+
+/**
+ * A file of `schema` generate would write, `file` in its migrations directory, holds `bytes` bytes, past `bound`
+ * (cli/files.ts generatedFileMaxBytes, GitHub's warning size): an application imports it whole by its path, so generate
+ * lays it out in no parts, and refuses it before writing anything.
+ */
+export class FileTooLarge extends Data.TaggedError("FileTooLarge")<{
+	readonly schema: string
+	readonly file: string
+	readonly bytes: number
+	readonly bound: number
+}> {
+	override get message(): string {
+		return `${this.file} would hold ${String(this.bytes)} bytes, past the ${String(this.bound)} GitHub warns at; an application imports it whole by its path, so grizzle lays it out in no parts`
 	}
 }
 
@@ -869,6 +888,7 @@ type CliReason =
 	| FolderUnwritten
 	| SnapshotUnwritten
 	| ServedUnwritten
+	| FileTooLarge
 	| MigrationsUnread
 	| SnapshotUnreadable
 	| SnapshotFormat
@@ -900,6 +920,7 @@ const stageOf: { readonly [Tag in CliReason["_tag"]]: CliStage } = {
 	FolderUnwritten: "filesystem",
 	SnapshotUnwritten: "filesystem",
 	ServedUnwritten: "filesystem",
+	FileTooLarge: "generate",
 	MigrationsUnread: "filesystem",
 	SnapshotUnreadable: "snapshot",
 	SnapshotFormat: "format",

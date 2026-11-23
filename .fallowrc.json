@@ -188,6 +188,7 @@
 					"packages/grizzle/src/adapter/admission/expectation.ts",
 					"packages/grizzle/src/adapter/admission/history.ts",
 					"packages/grizzle/src/adapter/admission/upgrade.ts",
+					"packages/grizzle/src/adapter/boundary/laid-out.ts",
 					"packages/grizzle/src/adapter/boundary/meta.ts",
 					"packages/grizzle/src/adapter/migrate/**",
 					"packages/grizzle/src/adapter/public/compile.ts",

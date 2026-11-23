@@ -1215,26 +1215,68 @@ const recordedObjectForm = <S>(o: RecordedObject, units: Units<S>): RecordOf<S> 
 	ddl: o.ddl.map(units.statement)
 })
 
-/** The members a manifest holds besides its objects: the dependencies, the logins' defaults, the PUBLIC revokes and
+/** The members a manifest holds besides its objects and its dependencies: the logins' defaults, the PUBLIC revokes and
  * the comments, the compile's and the record's alike. */
-const manifestRest = <S>(m: Omit<RecordedManifest, "objects">, units: Units<S>): RecordOf<S> => ({
-	edges: m.edges.map((e) => ({ from: e.from, to: e.to })),
+const manifestRest = <S>(
+	m: Pick<RecordedManifest, "roleDefaults" | "publicRevokes" | "comments">,
+	units: Units<S>
+): RecordOf<S> => ({
 	roleDefaults: m.roleDefaults.map(units.statement),
 	publicRevokes: m.publicRevokes.map(units.statement),
 	comments: m.comments.map(units.statement)
 })
 
-/** The compile's manifest as the fingerprint digests it. */
+/** The compile's manifest as the fingerprint digests it, its edges in the compile's order. */
 const manifestForm = <S>(m: InstallationManifest<SqlStatement>, units: Units<S>): RecordOf<S> => ({
 	objects: m.objects.map((o) => objectForm(o, units)),
+	edges: m.edges.map((e) => ({ from: e.from, to: e.to })),
 	...manifestRest(m, units)
 })
 
-/** A manifest as manifest.json records it. */
-const recordedManifestForm = <S>(m: RecordedManifest, units: Units<S>): RecordOf<S> => ({
-	objects: m.objects.map((o) => recordedObjectForm(o, units)),
-	...manifestRest(m, units)
-})
+/**
+ * What each object of a recorded manifest is created after, by its identity: the `from` of each edge whose `to` it is,
+ * in code point order, none for an object no edge leads to. Every edge leads to an object of its manifest (the
+ * obligation graph's own, physical/obligations/graph.ts, and build.ts targetState's), so the lists hold every edge once.
+ */
+const dependenciesOf = (m: RecordedManifest): ReadonlyMap<string, ReadonlyArray<string>> => {
+	const after = new Map(m.objects.map((o) => [o.ident, new Array<string>()] as const))
+	for (const e of m.edges) {
+		defined(after.get(e.to), "an edge's dependent among its manifest's objects").push(e.from)
+	}
+	return new Map([...after].map(([ident, from]) => [ident, from.toSorted(compareStrings)] as const))
+}
+
+/** What an object is created after (dependenciesOf). */
+const dependencies = (
+	after: ReadonlyMap<string, ReadonlyArray<string>>,
+	o: RecordedObject
+): ReadonlyArray<string> => defined(after.get(o.ident), "an object's dependencies")
+
+/** A manifest as its record holds it, the one value the seal digests of it: its edges by their dependents, each
+ * object's in install order, an object's dependencies in code point order (dependenciesOf), whatever order the compile
+ * listed them in, so manifest.json's layout of them (laidOutManifestForm) gives them back alike. */
+const recordedManifestForm = <S>(m: RecordedManifest, units: Units<S>): RecordOf<S> => {
+	const after = dependenciesOf(m)
+	return {
+		objects: m.objects.map((o) => recordedObjectForm(o, units)),
+		edges: m.objects.flatMap((o) => dependencies(after, o).map((from) => ({ from, to: o.ident }))),
+		...manifestRest(m, units)
+	}
+}
+
+/** A manifest as manifest.json writes it: each object with what it is created after (`after`, dependenciesOf), its
+ * identity stated once where the record (recordedManifestForm) states it in every edge leading to it, and no list of
+ * edges, which joinedSnapshot gives back from the objects' lists. */
+const laidOutManifestForm = <S>(m: RecordedManifest, units: Units<S>): RecordOf<S> => {
+	const after = dependenciesOf(m)
+	return {
+		objects: m.objects.map((o) => ({
+			...recordedObjectForm(o, units),
+			after: dependencies(after, o)
+		})),
+		...manifestRest(m, units)
+	}
+}
 
 const requestForm = (r: StoredIndexRequest): SnapshotForm => ({
 	relation: r.relation,
@@ -1382,15 +1424,25 @@ const membersForm = (
 	accessPaths: c.accessPaths.map(requestForm)
 })
 
-/** The members of a committed snapshot manifest.json holds, the theory's relations written by `relation`, its
- * manifest recorded: every member but the ones snapshot.json holds (runtimeForm). */
-const migrationForm = <S>(
-	s: DeploySnapshot,
-	units: Units<S>,
-	relation: (r: SnapshotRelation) => SnapshotForm
-): RecordOf<S> => ({
-	...membersForm(s, relation),
-	manifest: recordedManifestForm(s.manifest, units)
+/** How a committed snapshot's members are written: each relation's record and the manifest, as the record holds them
+ * (`recordedMembers`) or as manifest.json lays them out (`laidOutMembers`). */
+interface MemberForms {
+	readonly relation: (r: SnapshotRelation) => SnapshotForm
+	readonly manifest: <S>(m: RecordedManifest, units: Units<S>) => RecordOf<S>
+}
+
+/** The members as the record holds them, which the seal digests (recordForm). */
+const recordedMembers: MemberForms = { relation: relationForm, manifest: recordedManifestForm }
+
+/** The members as manifest.json writes them: a roster without its codes, which snapshot.json holds, and each object with
+ * what it is created after, the manifest's edges no list of their own (joinedSnapshot undoes both). */
+const laidOutMembers: MemberForms = { relation: laidOutRelationForm, manifest: laidOutManifestForm }
+
+/** The members of a committed snapshot manifest.json holds, written by `forms`: every member but the ones snapshot.json
+ * holds (runtimeForm). */
+const migrationForm = <S>(s: DeploySnapshot, units: Units<S>, forms: MemberForms): RecordOf<S> => ({
+	...membersForm(s, forms.relation),
+	manifest: forms.manifest(s.manifest, units)
 })
 
 /** The JSON form of a snapshot's content: every field of the snapshot but its fingerprint, its manifest the compile's
@@ -1406,7 +1458,7 @@ const contentForm = <S>(c: SnapshotContent, units: Units<S>): RecordOf<S> => ({
 /** The JSON form of a committed snapshot whole, both its files' members joined, its fingerprint included and its
  * derived facts left out: the value its seal digests (snapshotSeal), as joinedSnapshot puts it back together. */
 const recordForm = <S>(s: DeploySnapshot, units: Units<S>): RecordOf<S> => ({
-	...migrationForm(s, units, relationForm),
+	...migrationForm(s, units, recordedMembers),
 	levels: levelsForm(s.levels, units),
 	constraintToLaw: s.constraintToLaw,
 	live: liveForm(s.live),
@@ -1549,9 +1601,10 @@ const fileText = (form: RecordOf<CompactLine>): TextChunks =>
 	})
 
 /** The texts of a snapshot's two files in `migrations/<schema>/`: snapshot.json, what an application imports
- * (runtimeForm), and manifest.json, every other member (migrationForm), each member in one of them, and the seal of the
- * whole (snapshotSeal). Together they are the committed snapshot's canonical JSON form laid out for review, so a
- * changed statement is one changed line and the same snapshot is the same bytes on every machine. The layout is the
+ * (runtimeForm), and manifest.json, every other member as it lays them out (migrationForm, laidOutMembers), each member in one
+ * of them, and the seal of the whole (snapshotSeal). Together they are the committed snapshot's canonical JSON form laid
+ * out for review, so a changed statement or dependency is one changed line and the same snapshot is the same bytes on
+ * every machine. The layout is the
  * writer's: the seal digests the record's canonical text (recordForm) and the fingerprint the content's (contentForm),
  * which no layout changes, and joinedSnapshot puts the two files back together. */
 export const writeSnapshot = (
@@ -1561,7 +1614,7 @@ export const writeSnapshot = (
 	catchRefusal(() => ({
 		snapshot: fileText(runtimeForm(snapshot, derived, asLines)),
 		manifest: fileText({
-			...migrationForm(snapshot, asLines, laidOutRelationForm),
+			...migrationForm(snapshot, asLines, laidOutMembers),
 			seal: unwrap(snapshotSeal(recordForm(snapshot, asValues)))
 		})
 	}))
@@ -1663,11 +1716,62 @@ export const joinedSnapshot = (
 		return Result.err(unjoined(manifestFileName, ["seal"], "carrying the seal of both files"))
 	}
 	const { seal, ...members } = migration
-	return Result.ok({
-		content: { ...members, ...served, theory: { ...theory, relations: joined } },
+	return Result.map(joinedManifest(migration["manifest"]), (manifest) => ({
+		content: { ...members, ...served, theory: { ...theory, relations: joined }, manifest },
 		seal,
 		derived
-	})
+	}))
+}
+
+/**
+ * The record of a manifest from manifest.json's layout of it (laidOutManifestForm): each object without what it is
+ * created after (`after`), and the manifest's edges, each object's list in install order, each a list's `from` and the
+ * object's identity as its `to`, as the record holds them (recordedManifestForm). A manifest whose objects do not each
+ * state their identity and such a list of identities, or that lists its edges itself, is no layout grizzle wrote.
+ */
+const joinedManifest = (
+	manifest: unknown
+): Result.Result<Record<string, unknown>, CompileError> => {
+	const objects = isRecord(manifest) ? manifest["objects"] : undefined
+	if (!isRecord(manifest) || !isList(objects) || Object.hasOwn(manifest, "edges")) {
+		return Result.err(
+			unjoined(
+				manifestFileName,
+				["manifest"],
+				"laying out the manifest's objects, each with its dependencies"
+			)
+		)
+	}
+	const recordedObjects: Array<Record<string, unknown>> = []
+	const edges: Array<{ readonly from: string; readonly to: string }> = []
+	for (const [at, o] of objects.entries()) {
+		const ident = isRecord(o) ? o["ident"] : undefined
+		const after = isRecord(o) ? o["after"] : undefined
+		if (!isRecord(o) || typeof ident !== "string" || !isList(after)) {
+			return Result.err(
+				unjoined(
+					manifestFileName,
+					["manifest", "objects", String(at)],
+					"recording each object's identity and what it is created after"
+				)
+			)
+		}
+		for (const from of after) {
+			if (typeof from !== "string") {
+				return Result.err(
+					unjoined(
+						manifestFileName,
+						["manifest", "objects", String(at), "after"],
+						"naming each dependency by its identity"
+					)
+				)
+			}
+			edges.push({ from, to: ident })
+		}
+		const { after: _after, ...object } = o
+		recordedObjects.push(object)
+	}
+	return Result.ok({ ...manifest, objects: recordedObjects, edges })
 }
 
 /**

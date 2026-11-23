@@ -50,6 +50,7 @@ export {
 	servedFileFix
 } from "#compiler/core/format.ts"
 export {
+	type Artifact,
 	type CodecFault,
 	CompileError,
 	compileReasonText,

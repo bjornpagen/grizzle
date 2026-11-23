@@ -6,8 +6,9 @@
  * oldest folder where the tampering applies to either: the snapshot's files replaced by another schema's or removed,
  * or manifest.json removed from beside snapshot.json; a folder renamed out of `<YYYYMMDDHHMMSS>_<name>`, removed, or
  * holding a directory; a meta.json removed, malformed, naming another schema, or breaking the chain (a source that is
- * no previous target); a stray file beside the folders. Every kind of tampering runs in every case, on directories and
- * folders the case draws.
+ * no previous target); a stray file beside the folders; two parts of manifest.json beside the whole file, or a
+ * migration file renamed as a lone part of itself, neither a layout generate writes (deploy/render/parts.ts laidOutFiles). Every
+ * kind of tampering runs in every case, on directories and folders the case draws.
  *
  * - **generate refuses by the entry's reason:** `grizzle generate` is refused, its CliError's reason the one the
  *   directory's reading gives the tampering, by its tag and the fields that name the entry (cli/files.ts TreeRefused,
@@ -98,6 +99,20 @@ export const aCommittedMigrationsDirectoryTamperedWithGeneratedGenerateRefusesBy
 				original: "\t\t? timestampParts(timestamp)\n",
 				replacement: "\t\t? undefined\n",
 				why: "Operator mutant (boolean-return) at packages/engine/src/deploy/render/folder.ts:477 in isFolderName: `{\n\tconst timestamp = folderTimestamp(name)\n\tconst prefix = folderPrefix(timestam` becomes `{ return false }`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			},
+			{
+				file: "packages/engine/src/deploy/render/parts.ts",
+				original:
+					"\t\tif (whole.has(name) || ordered.length < 2 || ordered.some((p, i) => p.number !== i + 1)) {",
+				replacement: "\t\tif (ordered.length < 2 || ordered.some((p, i) => p.number !== i + 1)) {",
+				why: "Parts beside the whole file lay out a file too: manifest.json is read as its two parts joined, not refused by name."
+			},
+			{
+				file: "packages/engine/src/deploy/render/parts.ts",
+				original:
+					"\t\tif (whole.has(name) || ordered.length < 2 || ordered.some((p, i) => p.number !== i + 1)) {",
+				replacement: "\t\tif (whole.has(name) || ordered.some((p, i) => p.number !== i + 1)) {",
+				why: "A lone part is read as its file whole, so a migration file renamed as one is read as the file and nothing is refused."
 			}
 		]
 	})

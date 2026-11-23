@@ -67,6 +67,13 @@ export {
 } from "#compiler/deploy/render/folder.ts"
 export { timestampLength, type TimestampParts } from "#compiler/deploy/render/layout.ts"
 export {
+	generatedFileMaxBytes,
+	isEntryOf,
+	type LaidOutFile,
+	laidOut,
+	laidOutFiles
+} from "#compiler/deploy/render/parts.ts"
+export {
 	customMigration,
 	type DraftInput,
 	draftMigration,

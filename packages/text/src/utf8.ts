@@ -129,6 +129,24 @@ export const utf8Length = (text: string): number => {
 }
 
 /**
+ * How many code units of a text, from its start, UTF-8 writes in at most `bytes` bytes, whole code points alone (`widthAt`):
+ * the longest start of the text no longer than that, which parts no surrogate pair.
+ */
+export const unitsWithin = (text: string, bytes: number): number => {
+	let used = 0
+	let at = 0
+	while (at < text.length) {
+		const width = widthAt(text, at)
+		if (used + width > bytes) {
+			return at
+		}
+		used += width
+		at += unitsOf(width)
+	}
+	return at
+}
+
+/**
  * Writes the code point at code unit `i` of `text`, of `width` bytes (`widthAt`), into `out` from `to`: the one spelling
  * of a code point's UTF-8, which `writeUtf8` and the JSON writer (`Utf8Writer.jsonString`) write by.
  */
