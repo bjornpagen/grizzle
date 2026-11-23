@@ -30,7 +30,7 @@ const Key = pg.integer
  * tree; or a plain relation keyed (pkg, path, start), its start stated. */
 type Shape = "tree" | "plain"
 
-/** The field the owner's insert computes from the call's parameter (ChangeSet.insertComputed): `pkg`, a field of its
+/** The field the owner's insert computes from the call's parameter (ChangeSet.insertAllComputed): `pkg`, a field of its
  * key, a tree's root field, which every member carries in its group; `note`, a payload field; or none, an insert. */
 type Computes = "key" | "payload" | "nothing"
 
@@ -263,9 +263,15 @@ export const copyingOf = (c: CopyCase, name: string): CopyWrite => {
 			const withNodes = (() => {
 				switch (c.computes) {
 					case "key":
-						return ChangeSet.empty(S).insertComputed(Node, nodeFacts, { pkg: param("pkg", Key) })
+						return ChangeSet.empty(S).insertAllComputed(
+							{ Node: nodeFacts },
+							{ pkg: param("pkg", Key) }
+						)
 					case "payload":
-						return ChangeSet.empty(S).insertComputed(Node, nodeFacts, { note: param("note", Key) })
+						return ChangeSet.empty(S).insertAllComputed(
+							{ Node: nodeFacts },
+							{ note: param("note", Key) }
+						)
 					case "nothing":
 						return ChangeSet.empty(S).insert(Node, nodeFacts)
 				}
@@ -276,7 +282,7 @@ export const copyingOf = (c: CopyCase, name: string): CopyWrite => {
 				case "stated":
 					return withNodes.insert(Attr, attrFacts)
 				case "computed":
-					return withNodes.insertComputed(Attr, attrFacts, { pkg: param("pkg", Key) })
+					return withNodes.insertAllComputed({ Attr: attrFacts }, { pkg: param("pkg", Key) })
 			}
 		},
 		facts: { insert: c.members === "nested" ? { Node: nodes } : { Node: nodes, Attr: attrs } },

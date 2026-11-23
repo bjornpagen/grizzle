@@ -32,6 +32,7 @@ type MemberShape = {
  */
 export type MemberForm =
 	| { readonly op: "delete" | "put" | "insert" | "insertAll"; readonly kind: "query" | "array" }
+	| { readonly op: "insertAllComputed"; readonly kind: "array" }
 	| { readonly op: "deleteWhere"; readonly kind: "selection" }
 
 /** The cells of memberForms, minted as a dictionary in its door (test/types/changeset/budget/members.dictionary.ts). */
@@ -39,6 +40,7 @@ export const memberFormsItems: readonly [MemberForm, ...ReadonlyArray<MemberForm
 	...Arr.flatMap(["delete", "put", "insert", "insertAll"] as const, (op) =>
 		Arr.map(["query", "array"] as const, (kind): MemberForm => ({ op, kind }))
 	),
+	{ op: "insertAllComputed", kind: "array" },
 	{ op: "deleteWhere", kind: "selection" }
 ]
 
@@ -60,15 +62,20 @@ const memberOf = (i: number, kind: MemberForm["kind"]): string => {
 	}
 }
 
-/** The ChangeSet's members: one call of the op for each, or one insertAll or deleteWhere keyed by their relations. */
+/** The ChangeSet's members: one call of the op for each, or one insertAll, insertAllComputed or deleteWhere keyed by
+ * their relations, insertAllComputed's computing every relation's package from the package parameter, as pantry's
+ * publish does. */
 const membersOf = (shape: MemberShape): string => {
+	const keyed = Arr.join(
+		Arr.map(indices(shape.members), (i) => `\t\tR${i}: ${memberOf(i, shape.kind)}`),
+		",\n"
+	)
 	switch (shape.op) {
 		case "insertAll":
 		case "deleteWhere":
-			return `\t.${shape.op}({\n${Arr.join(
-				Arr.map(indices(shape.members), (i) => `\t\tR${i}: ${memberOf(i, shape.kind)}`),
-				",\n"
-			)}\n\t})`
+			return `\t.${shape.op}({\n${keyed}\n\t})`
+		case "insertAllComputed":
+			return `\t.insertAllComputed({\n${keyed}\n\t}, { package: param("package", Name) })`
 		case "delete":
 		case "put":
 		case "insert":
@@ -79,14 +86,15 @@ const membersOf = (shape: MemberShape): string => {
 	}
 }
 
-/** Each array member's facts, declared at the relation's Fact. */
+/** Each array member's facts, declared at the relation's Fact, less its package where insertAllComputed computes it. */
 const factsOf = (shape: MemberShape): string => {
 	switch (shape.kind) {
 		case "array":
 			return Arr.join(
-				Arr.map(
-					indices(shape.members),
-					(i) => `declare const facts${i}: ReadonlyArray<Fact<typeof R${i}>>\n`
+				Arr.map(indices(shape.members), (i) =>
+					shape.op === "insertAllComputed"
+						? `declare const facts${i}: ReadonlyArray<Omit<Fact<typeof R${i}>, "package">>\n`
+						: `declare const facts${i}: ReadonlyArray<Fact<typeof R${i}>>\n`
 				),
 				""
 			)
@@ -100,7 +108,7 @@ const factsOf = (shape: MemberShape): string => {
 const onceFactsOf = (shape: MemberShape): string => {
 	switch (shape.kind) {
 		case "array":
-			return `{ ${shape.op === "insertAll" ? "insert" : shape.op}: { ${Arr.join(
+			return `{ ${shape.op === "insertAll" || shape.op === "insertAllComputed" ? "insert" : shape.op}: { ${Arr.join(
 				Arr.map(indices(shape.members), (i) => `R${i}: facts${i}`),
 				", "
 			)} } }`

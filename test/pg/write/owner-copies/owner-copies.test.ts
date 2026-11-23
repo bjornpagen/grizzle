@@ -1,6 +1,6 @@
 /**
  * Every row of a call that inserts a counted family's owners beside its members is stored as the rule writes it, on
- * PostgreSQL 19, where the owner's insert or its members' computes a field from the call (ChangeSet.insertComputed): a
+ * PostgreSQL 19, where the owner's insert or its members' computes a field from the call (ChangeSet.insertAllComputed): a
  * stamp is taken once in its stratum, by the statement that writes the rows carrying it, so the host draws each fresh
  * group from the rows it holds (runtime/write/bind.ts freshOwners), matching a member to its owner by the group fields
  * both hold, a group field both compute by one term of the call's parameters a unit every row shares, which the

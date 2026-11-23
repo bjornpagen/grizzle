@@ -2,7 +2,7 @@
  * A member's copy of its owner's field reads the owner's rows as its family statement holds them (write/frontend/
  * schedule.ts CopySource, HeldSource), and a counted family's fresh groups are drawn on the host from the rows it holds
  * (runtime/write/bind.ts freshOwners, write/frontend/compile.ts FreshFill): a stamp, a field an insert computes from the
- * call (ChangeSet.insertComputed) or a head stamps, is taken once in its stratum, by the statement that writes the rows
+ * call (ChangeSet.insertAllComputed) or a head stamps, is taken once in its stratum, by the statement that writes the rows
  * carrying it (ir/instant.ts stampText), so no row the host holds holds it. A statement that appends the owner reads the
  * owner's rows as it appends them, its stamps among them, and any other as the host sends them, without a stamp: a copy
  * whose group or column another statement stamps reads the owner's table once that statement has run (`drawn`). The

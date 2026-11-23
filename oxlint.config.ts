@@ -41,6 +41,7 @@ const DICTIONARY_MINTS = [
 	"test/types/changeset/budget/members.dictionary.ts",
 	"test/types/changeset/delete-where.dictionary.ts",
 	"test/types/changeset/entry-owner.dictionary.ts",
+	"test/types/changeset/insert-all-computed.dictionary.ts",
 	"test/types/changeset/instants.dictionary.ts",
 	"test/types/schema/stored-kinds.dictionary.ts",
 	"test/types/schema/scoped-entries.dictionary.ts",

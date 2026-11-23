@@ -106,8 +106,8 @@ export default defineConfig({
   one instant, and a clocked read is an answered one with its clock, answering `once` alone, never live. Bind a lease's, a timer's or a due instant's `now`
   so, never the host's clock; a reading lies in PostgreSQL's timestamptz range in its unit, so `now + delay`, the delay a
   contract its predicate bounds, casts into its field with no guard where those bounds fit (millis: into a bigint).
-  Rows an array or a Stream inserts take such a field from the call: `insertComputed(Claim, [], { until: Type.cast(
-  Num.add(Type.base(param("now", Instant)), Type.base(param("budget", Budget))), Instant) })`, its rows
+  Rows an array or a Stream inserts take such a field from the call: `insertAllComputed({ Claim: [] }, { until:
+  Type.cast(Num.add(Type.base(param("now", Instant)), Type.base(param("budget", Budget))), Instant) })`, its rows
   leaving `until` out, the record evaluated once per call in the statement that writes the rows, a nested owner's
   members carrying a computed key field holding the owner's one value (README "Writes"). A
   reading is a value, a `bigint`, never an `instant`: a row records when it was written

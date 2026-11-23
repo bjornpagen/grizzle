@@ -106,6 +106,9 @@
  * fresh layout leaves out its members' key and group fields a stamp fills, the call's one value of each, which its
  * additions statement stamps the host's members with (write/family/additions.ts hostDrawnOf), where format 7 drew every
  * fresh group on the host from fields no row the host held held.
+ * ChangeSet.insertAllComputed(rows, computed) is the one computed insert: insertAll's record, every relation it names
+ * computing each field of one record of terms over the call, a relation lacking one refused at its key, where format 7
+ * had insertComputed(R, rows, computed) of one relation alone.
  *
  * Format 7 (pin+1): a session table, a rule judge's delta (physical/ddl/rules.ts
  * emptied) or a write program's carrier (sql/print.ts carrierStandUp), is emptied by DELETE, and by TRUNCATE only once

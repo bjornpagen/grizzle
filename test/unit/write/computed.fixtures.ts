@@ -53,11 +53,11 @@ export const computingFeatures = (c: Computing): ReadonlyArray<ComputingFeature>
 export const computingOf = (c: Computing) => {
 	const Spans = relation("Spans", { span: Span }, ["span"])
 	const key = { q: pg.integer, due: pg.bigint }
-	const { S, Owner } = ((): { readonly S: AnySchema; readonly Owner: unknown } => {
+	const S = ((): AnySchema => {
 		switch (c.depth) {
 			case 0: {
 				const Owner = relation("Owner", { ...key, until: pg.bigint }, ["q", "due"])
-				return { S: schema("Computing", [Spans, Owner], []), Owner }
+				return schema("Computing", [Spans, Owner], [])
 			}
 			case 1: {
 				const Owner = relation("Owner", { ...key, until: pg.bigint, ms: drawn(natural) }, [
@@ -65,14 +65,11 @@ export const computingOf = (c: Computing) => {
 					"due"
 				])
 				const M1 = relation("M1", { ...key, at: drawn(natural), v: pg.integer }, ["q", "due", "at"])
-				return {
-					S: schema(
-						"Computing",
-						[Spans, Owner, M1],
-						[ordered(on(M1, "q", "due", "at"), fin(Owner, "ms"))]
-					),
-					Owner
-				}
+				return schema(
+					"Computing",
+					[Spans, Owner, M1],
+					[ordered(on(M1, "q", "due", "at"), fin(Owner, "ms"))]
+				)
 			}
 			case 2: {
 				const Owner = relation("Owner", { ...key, until: pg.bigint, ms: drawn(natural) }, [
@@ -90,17 +87,14 @@ export const computingOf = (c: Computing) => {
 					"at",
 					"bt"
 				])
-				return {
-					S: schema(
-						"Computing",
-						[Spans, Owner, M1, M2],
-						[
-							ordered(on(M1, "q", "due", "at"), fin(Owner, "ms")),
-							ordered(on(M2, "q", "due", "at", "bt"), fin(M1, "ns"))
-						]
-					),
-					Owner
-				}
+				return schema(
+					"Computing",
+					[Spans, Owner, M1, M2],
+					[
+						ordered(on(M1, "q", "due", "at"), fin(Owner, "ms")),
+						ordered(on(M2, "q", "due", "at", "bt"), fin(M1, "ns"))
+					]
+				)
 			}
 		}
 	})()
@@ -112,6 +106,6 @@ export const computingOf = (c: Computing) => {
 		schema: S,
 		/** The relations whose rows carry a computed field: the owner's, and every member's where its key's `due` is one. */
 		carrying: c.where === "key" ? ["Owner", "M1", "M2"].slice(0, c.depth + 1) : ["Owner"],
-		changeSet: () => ChangeSet.empty(S).insertComputed(Owner, [], computed)
+		changeSet: () => ChangeSet.empty(S).insertAllComputed({ Owner: [] }, computed)
 	}
 }

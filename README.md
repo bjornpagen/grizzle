@@ -3644,7 +3644,7 @@ export const UsageClock = workload(Usage, { ranBefore: clocked(ranBefore, { now:
 - **Never live.** Time passing is no change, so a clocked read is an answered one ([Reading](#reading)) with its clock: answered at its call's instant alone, its handle holds `once`, `explain` and `explainAnalyze`, and no `watch`, and over HTTP its answer is `reset`, its upserts, `ready`, then `end`. It needs no live source. To wake at an instant, watch a read of the due instants that reads no clock, and read the clocked one when an instant passes. A clocked ChangeSet is a ChangeSet member like any other, whose `watch` is its outcome, then the end.
 - **The reading is the parameter's value.** It stands wherever the parameter does, cast to the parameter's type, so a contract judges it as it judges a caller's value, `refused` on the contract. The member's input holds the program's other parameters alone. A law, a check, a contract, a generated field, a derived relation and a role's entry read no parameter, so none reads the clock: a law judged against the clock would turn false with no write. PostgreSQL accepts `now()` in a table's or a domain's CHECK and judges it only at write; grizzle emits none.
 - **What a binding binds.** A binding names at least one parameter of the program whose values are `bigint`s, each with its unit; any other name is a type error, a take's or a page's bound is refused, and a paged member, a key and a refresh are never clocked. A micros reading past the year 294,247 on the server's clock is out of bigint's range, and refuses the call.
-- **A host row's deadline is computed from the reading.** An insert's computed fields (`insertComputed`,
+- **A host row's deadline is computed from the reading.** An insert's computed fields (`insertAllComputed`,
   [Writes](#writes)) read the reading as any parameter, so the rows a caller states, an owner's with its members nested among them, take a lease's
   end or a due instant from the call's own clock in the statement that writes them, never from the host's.
 - **A reading is a value, never an instant.** Its parameter is a `bigint` or a contract over one, never `instant`, which no parameter is: a deadline, a lease's end or a due instant is a reading and some arithmetic, while when a row was written is the insert's to stamp, ordered per child as no reading is ([Instants](#instants)).
@@ -3740,7 +3740,7 @@ A write is a ChangeSet: rows to insert, delete and put, applied as one transacti
 ChangeSet.empty(Blog)               a write over a schema, or over a role: ChangeSet.empty(MemberBlog)
   .insert(Post, rows)               add these rows; a row already present is no change, which delta.met returns
   .insertAll({ Post: rows })        an insert of each relation the record names by its key
-  .insertComputed(Lease, rows, { until })    rows that leave out the fields the call computes, once per call
+  .insertAllComputed({ Lease: rows }, { until })   each relation's rows leaving out the fields the call computes, once
   .delete(Comment, rows)            remove these rows
   .deleteWhere({ Comment: { post: param("post", Slug) } })     remove the rows whose fields equal these values
   .put(PostViews, rows)             after the change, the row at each key is the one given
@@ -3785,14 +3785,16 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
   every row, its key among them, and a row that leaves one out is an `EncodingFailure`
   ([Identity: natural keys](#identity-natural-keys)). An instant is no caller's: an insert's row leaves it out and the
   database stamps it ([Instants](#instants)).
-- **`insertComputed`** inserts host rows that leave fields for the call to compute: `insertComputed(R, rows,
-  computed)` takes an array or a Stream and a record of R's caller-written fields, at least one, to terms over the
-  call's parameters, its clock reading and literals, each written at its field's own type as a query member's head is:
-  `ChangeSet.empty(Den).insertComputed(Claim, [], { until: Type.cast(Num.add(Type.base(param("now",
-  DenInstant)), Type.base(param("budget", Budget))), DenInstant) })`, served `clocked(…, { now: "millis" })`, whose
-  rows `{ step, holds: [{ resource }] }` leave `until` out (the row type omits every computed field). The call
-  evaluates the record once, one value of each field for every row of R the stratum's host rows insert, in the
-  statement that writes them: a plain insert's own, or a nested insert's family statement, where every member field
+- **`insertAllComputed`** inserts host rows that leave fields for the call to compute: `insertAllComputed(rows,
+  computed)` takes insertAll's record, under each relation's name an array or a Stream of its rows, and a record of
+  fields, at least one, to terms over the call's parameters, its clock reading and literals, each a caller-written
+  field of every relation the record names, written at its field's own type as a query member's head is, a relation
+  that lacks one refused at its key: `ChangeSet.empty(Den).insertAllComputed({ Claim: [] }, { until:
+  Type.cast(Num.add(Type.base(param("now", DenInstant)), Type.base(param("budget", Budget))), DenInstant) })`, served
+  `clocked(…, { now: "millis" })`, whose rows `{ step, holds: [{ resource }] }` leave `until` out (the row type omits
+  every computed field), and edullm's pantry inserts every relation of a package computing `package` from its one
+  parameter. The call evaluates the record once for each relation, one value of each field for every row of it the
+  stratum's host rows insert, in the statement that writes them: a plain insert's own, or a nested insert's family statement, where every member field
   filled from a computed field of its owner, by its group or by its copy along the owner axis, holds its owner's one
   value, at any depth, never a value of its own; a generated field over one is PostgreSQL's, and a fold or a copy that
   reads one on the host is refused as `UnfillableField` (`stamped`). A computed field is part of the fact the call states, so a stored row at its key that differs there is refused

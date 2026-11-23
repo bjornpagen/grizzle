@@ -1,6 +1,6 @@
 /**
  * An insert's computed fields hold the call's one value of each in every row the call writes, on PostgreSQL 19: an
- * insert's host rows leave out the fields it computes (ChangeSet.insertComputed), each a term over the call's
+ * insert's host rows leave out the fields it computes (ChangeSet.insertAllComputed), each a term over the call's
  * parameters and its reading of the database's clock, and the statement that writes the rows evaluates the record once,
  * one MATERIALIZED CTE of a row (write/insert/stamp.ts callValuesCte), which every row joins: a plain insert's own
  * statement (stampedInput), a nested insert's family statement, its owner's rows and every member that carries a computed

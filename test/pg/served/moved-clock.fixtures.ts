@@ -44,7 +44,7 @@ const untilOf = Logic.when(
 const programs = Object.freeze({
 	take: clocked(
 		ChangeSet.empty(Moved)
-			.insertComputed(Lease, [], { until: untilOf })
+			.insertAllComputed({ Lease: [] }, { until: untilOf })
 			.insert(Mark, [])
 			.read("reading", () => query(Moved).rule((r) => r.find({ now: r.param("now", pg.bigint) }))),
 		{ now: "micros" }

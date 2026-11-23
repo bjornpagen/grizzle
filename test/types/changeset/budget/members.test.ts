@@ -1,7 +1,8 @@
 /**
  * The ChangeSet members' type cost against the schema they write (changeset/budget/members.ts): for each op, a delete,
- * a put, an insert or an insertAll's key, and each member kind, a query or an array of facts, and for a deleteWhere's
- * key, a selection by the package parameter, the program of `members`
+ * a put, an insert or an insertAll's key, and each member kind, a query or an array of facts, an insertAllComputed's
+ * key, an array of facts computing the package from its parameter, and for a deleteWhere's key, a selection by the
+ * package parameter, the program of `members`
  * members and the program of twice as many, each beside a query member under a package parameter, joined with a
  * ChangeSet over an extension of the schema and applied through the extension's workload's handle with that parameter,
  * and checked alone over a schema of `small` relations and over one of `large`, as edullm's pantry writes one member per
@@ -17,6 +18,30 @@
  * with no diagnostic: the handle's once takes the package parameter beside every array member's facts, each fact
  * holding a field named `params`, as pantry's Reference does. Oracle: the compiler's own counts and diagnostics
  * (test/types/batch/measured.ts), compared across the two schemas.
+ *
+ * What the record forms cost beside it, which the law leaves free, measured when insertAllComputed came to share
+ * insertAll's InsertAt (one implementation, at main's ruling over a copy of its skeleton):
+ *
+ * @limitKind measured
+ * @owner the ChangeSet's types (types/changeset/changeset.ts InsertAt, InsertOf, ComputedRefusals)
+ * @unit TypeScript instantiations
+ * @scope one program of this gate's shape: a ChangeSet of insertAll's or insertAllComputed's array members, applied
+ *   through its workload's handle
+ * @evidence ~/.cache/grizzle-release/COPYFIX2-measure/ (measure.sh, its README and its four count files): this gate's
+ *   programs, instrumented to append each program's counts, run in a checkout at c8cf6d6fb and in the lane's tree
+ * @observed 2026-11-23, about 16:30 to 17:00 CST
+ * @environment cassowary (64 cores, 247 GiB, Ubuntu 26.04 arm64), grizzle.slice capped at half the machine, load in the
+ *   hundreds; the checkout's tsgo (TypeScript 7.1.0-beta) and vendor/toolchain e0e444e9
+ * @workload the gate's four programs of each form, 5 and 10 members over 10 and 40 relations, and its 116 relations and
+ *   116 members, pantry's publish of Qti's 116 insertable relations
+ * @result insertAll: 108,389 instantiations at c8cf6d6fb and 108,412 after (+23 a program), 1,156 and then 1,160 a member
+ *   (+4, the shared InsertOf's one test of whether a record computes, +0.35%); at 116 by 116, insertAllComputed 325,265
+ *   (55,958 types) beside insertAll's 310,481 at c8cf6d6fb (+4.8%, about 127 a member: each key's computed check and its
+ *   rows less the computed fields, which MemberFit walks where insertAll's identical rows take its shortcut); both forms
+ *   invariant in schema size by this gate
+ * @decision keep the one InsertAt: main ruled one implementation over insertAll's +4 a member; no gate pins an absolute
+ *   count, which moves with every declaration the checker meets (test/types/batch/measured.ts)
+ * @revalidate a TypeScript upgrade, a change of InsertAt, InsertOf, MemberFit or ComputedRow, or pantry's width past 116
  */
 import { costGate } from "#test/types/batch/measured.ts"
 import { memberForms } from "#test/types/changeset/budget/members.dictionary.ts"

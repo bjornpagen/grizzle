@@ -516,27 +516,34 @@ type InsertChecks<S, R, Done extends Strata, Last extends Stratum> = WritableChe
 	EditsOnce<Done, EditsWith<Last, S, R>>
 
 /**
- * What insertAll requires of its members at key K: a required key, since a key that may be missing inserts nothing its
- * type states; a key naming a relation the ChangeSet writes; then what insert requires of that relation, and of its
- * members, its facts (MemberCheck), each refused at the key.
+ * What insertAll and insertAllComputed require of their members at key K: a required key, since a key that may be
+ * missing inserts nothing its type states; a key naming a relation the ChangeSet writes; then what insert requires of
+ * that relation; then, for insertAllComputed, C its computed record, that relation computing every field of C
+ * (ComputedRefusals); then its members, its facts (MemberCheck), each refused at the key: insertAll's rows, C never,
+ * or rows leaving out every field of C.
  */
 type InsertAt<
 	S,
 	Rows,
 	K extends keyof Rows,
 	Done extends Strata,
-	Last extends Stratum
+	Last extends Stratum,
+	C
 > = Rows extends { readonly [P in K]-?: unknown }
-	? InsertOf<S, InsertedRelation<S, K>, Rows[K], Done, Last>
+	? InsertOf<S, InsertedRelation<S, K>, Rows[K], Done, Last, C>
 	: Refusal<"insertAll names each relation by a required key: an optional key may insert nothing">
 
 /** InsertAt of a required key, once its relation is read. */
-type InsertOf<S, R, M, Done extends Strata, Last extends Stratum> = [R] extends [never]
+type InsertOf<S, R, M, Done extends Strata, Last extends Stratum, C> = [R] extends [never]
 	? Refusal<"a ChangeSet writes only the ordinary relations of its schema and the world relations its role writes">
-	: InsertChecks<S, R, Done, Last> extends infer C
-		? unknown extends C
-			? MemberCheck<M, AdditionIn<S, R>, R>
-			: C
+	: InsertChecks<S, R, Done, Last> extends infer Checked
+		? unknown extends Checked
+			? [C] extends [never]
+				? MemberCheck<M, AdditionIn<S, R>, R>
+				: [ComputedRefusals<C, R>] extends [never]
+					? MemberCheck<M, ComputedRow<AdditionIn<S, R>, keyof C>, R>
+					: ComputedRefusals<C, R>
+			: Checked
 		: never
 
 /** The relations insertAll's members write: each key's relation and the members its insert nests (NestedWrites). */
@@ -562,9 +569,9 @@ type InsertedEdits<Last extends Stratum, S, Rows> = boolean extends Last["edits"
  * insertAll's array members (ArrayAdded), inserts all, one for each key whose members are an array: that key's
  * relation's, in the stratum after the strata Done, over S; none where no key's members are an array.
  */
-type InsertedArrays<S, Rows, Done extends Strata> = {
+type InsertedArrays<S, Rows, Done extends Strata, Computed> = {
 	[K in keyof Rows]-?: IsArrayMember<Rows[K]> extends true
-		? MemberOf<"insert", InsertedRelation<S, K>, PositionOf<Done>, S>
+		? MemberOf<"insert", InsertedRelation<S, K>, PositionOf<Done>, S, Computed>
 		: never
 }[keyof Rows]
 
@@ -822,18 +829,20 @@ export interface ChangeSetOf<
 	 */
 	readonly insert: ChangeSetInsert
 	/**
-	 * Adds each member fact as insert does, its rows, an array or a Stream, leaving out every field `computed` names,
-	 * which the call computes: under each field a term over the call's parameters, its clock reading and literals,
-	 * written at the field's type, evaluated once for every row of R its stratum's host rows insert, in the statement
-	 * that writes them; a nested member whose group carries a computed field of its owner's key holds its owner's value.
-	 */
-	readonly insertComputed: ChangeSetInsertComputed
-	/**
 	 * Adds the members of each relation the record names by its key, as one insert of each would: the members at each
 	 * key are what insert takes for that relation, checked as insert checks them and refused at their key. Inserts within
 	 * one stratum are one set, so the record's order is no part of the ChangeSet.
 	 */
 	readonly insertAll: ChangeSetInsertAll
+	/**
+	 * Adds the members of each relation the record names, as insertAll does, each an array or a Stream of rows leaving
+	 * out every field `computed` names, which the call computes: under each field a term over the call's parameters, its
+	 * clock reading and literals, written at the field's type, evaluated once for every row of each relation its
+	 * stratum's host rows insert, in the statement that writes them; every relation the record names computes every
+	 * field, refused at its key where it lacks one; a nested member whose group carries a computed field of its owner's
+	 * key holds its owner's value.
+	 */
+	readonly insertAllComputed: ChangeSetInsertAllComputed
 	/**
 	 * Removes each member fact, stated as its caller writes it (Addition<R>): the fields PostgreSQL and grizzle write are
 	 * no part of a fact's identity a caller states, so an insert and a delete of one fact state one row. A tree's delete
@@ -994,30 +1003,31 @@ type ChangeSetInsert = <
 >
 
 /**
- * The rows an insert takes whose fields Computed its call computes: Row less those fields (ChangeSet.insertComputed),
+ * The rows an insert takes whose fields Computed its call computes: Row less those fields (ChangeSet.insertAllComputed),
  * Row itself where it computes none.
  */
 type ComputedRow<Row, Computed> = [Computed] extends [never] ? Row : Omit<Row, Computed & keyof Row>
 
 /**
- * What insertComputed computes of R's host rows, C: at least one field, and under each a field of R its caller
- * writes, a term the call evaluates once, over its parameters, its clock reading and literals, that writes the field
- * at its own type (WritesAt), as a query member's head does: a JavaScript value of its language, or a term of its
- * identity and SQL type exactly, Type.cast making one of any other. The record is the head of a query member that
- * matches nothing, so a field its caller does not write, an instant among them, is refused as such a head's is.
+ * What insertAllComputed computes of the host rows of R, a relation its record names, C: under each field a field of R
+ * its caller writes, a term the call evaluates once, over its parameters, its clock reading and literals, that writes
+ * the field at its own type (WritesAt), as a query member's head does: a JavaScript value of its language, or a term of
+ * its identity and SQL type exactly, Type.cast making one of any other. The record is the head of a query member that
+ * matches nothing, so a field its caller does not write, an instant among them, is refused as such a head's is. Each
+ * field that is not so, by its refusal; never where every one is.
  */
-type ComputedCheck<C, R> = [keyof C] extends [never]
-	? Refusal<"insertComputed computes at least one field: insert writes rows that state every field">
-	: {
-			readonly [K in keyof C]: K extends Exclude<
-				keyof Fact<R>,
-				UnwrittenFieldsOf<R> | InstantFieldsOf<R>
-			>
-				? WritesAt<C[K], CarrierAt<R, K>> extends true
-					? unknown
-					: Refusal<"a member's head writes each field at its type: an exact value re-enters a plain field only by Type.cast">
-				: Refusal<"the query's head is not a fact of the relation">
-		}
+type ComputedRefusals<C, R> = {
+	[K in keyof C]-?: K extends Exclude<keyof Fact<R>, UnwrittenFieldsOf<R> | InstantFieldsOf<R>>
+		? WritesAt<C[K], CarrierAt<R, K>> extends true
+			? never
+			: Refusal<"a member's head writes each field at its type: an exact value re-enters a plain field only by Type.cast">
+		: Refusal<"the query's head is not a fact of the relation">
+}[keyof C]
+
+/** A computed record names at least one field: one that names none computes nothing, which is insertAll's. */
+type ComputedSome<C> = [keyof C] extends [never]
+	? Refusal<"a computed insert computes at least one field: insert writes rows that state every field">
+	: unknown
 
 /** The parameters an insert's computed fields need together, each term's (ParamsOfTerm), unknown where none names one. */
 type ComputedParams<C> = {
@@ -1025,45 +1035,6 @@ type ComputedParams<C> = {
 }[keyof C] extends (params: infer P) => void
 	? P
 	: unknown
-
-/** ChangeSet.insertComputed over the ChangeSet it is called on (ChangeSet): insert's, its rows an array or a Stream
- * that leave out every field C computes. */
-type ChangeSetInsertComputed = <
-	S,
-	Params,
-	Writes extends string,
-	Reads,
-	Cx,
-	Done extends Strata,
-	Last extends Stratum,
-	Arrays,
-	R extends AnyRelation | AnyWorld,
-	const M extends ReadonlyArray<unknown> | Stream.Stream<unknown>,
-	const C extends Readonly<Record<string, unknown>>
->(
-	this: ChangeSetOf<S, Params, Writes, Reads, Cx, Done, Last, Arrays>,
-	relation: R &
-		WritableCheck<S, R> &
-		NotSequenceMember<S, R> &
-		EditsOnce<Done, EditsWith<Last, S, R>>,
-	facts: M & MemberCheck<M, ComputedRow<AdditionIn<S, R>, keyof C>, R>,
-	computed: C & ComputedCheck<C, R>
-) => ChangeSetOf<
-	S,
-	JointParams<Params, ComputedParams<C>>,
-	Writes | NameOf<R> | NestedWrites<S, R>,
-	Reads,
-	Cx | ContextsOf<C[keyof C]>,
-	Done,
-	Stratum<
-		Last["inserts"] | NameOf<R> | NestedWrites<S, R>,
-		Last["needs"] | FixedOwnerOf<S, R>,
-		EditsWith<Last, S, R>,
-		Last["puts"],
-		Last["doomed"]
-	>,
-	Arrays | ArrayAdded<"insert", R, M, S, Done, keyof C>
->
 
 /** ChangeSet.insertAll over the ChangeSet it is called on (ChangeSet). */
 type ChangeSetInsertAll = <
@@ -1078,7 +1049,7 @@ type ChangeSetInsertAll = <
 	const Rows extends { readonly [K in keyof Rows]: Member<S, unknown> }
 >(
 	this: ChangeSetOf<S, Params, Writes, Reads, Cx, Done, Last, Arrays>,
-	rows: Rows & { readonly [K in keyof Rows]: InsertAt<S, Rows, K, Done, Last> }
+	rows: Rows & { readonly [K in keyof Rows]: InsertAt<S, Rows, K, Done, Last, never> }
 ) => ChangeSetOf<
 	S,
 	JointParams<Params, InsertedParams<Rows>>,
@@ -1093,7 +1064,43 @@ type ChangeSetInsertAll = <
 		Last["puts"],
 		Last["doomed"]
 	>,
-	Arrays | InsertedArrays<S, Rows, Done>
+	Arrays | InsertedArrays<S, Rows, Done, never>
+>
+
+/** ChangeSet.insertAllComputed over the ChangeSet it is called on (ChangeSet): insertAll's, each key's rows an array or
+ * a Stream that leave out every field C computes, which every relation the record names computes (InsertAt). */
+type ChangeSetInsertAllComputed = <
+	S,
+	Params,
+	Writes extends string,
+	Reads,
+	Cx,
+	Done extends Strata,
+	Last extends Stratum,
+	Arrays,
+	const Rows extends {
+		readonly [K in keyof Rows]: ReadonlyArray<unknown> | Stream.Stream<unknown>
+	},
+	const C extends Readonly<Record<string, unknown>>
+>(
+	this: ChangeSetOf<S, Params, Writes, Reads, Cx, Done, Last, Arrays>,
+	rows: Rows & { readonly [K in keyof Rows]: InsertAt<S, Rows, K, Done, Last, C> },
+	computed: C & ComputedSome<C>
+) => ChangeSetOf<
+	S,
+	JointParams<Params, ComputedParams<C>>,
+	Writes | InsertedWrites<S, Rows>,
+	Reads,
+	Cx | ContextsOf<C[keyof C]>,
+	Done,
+	Stratum<
+		Last["inserts"] | InsertedWrites<S, Rows>,
+		Last["needs"] | InsertedNeeds<S, Rows>,
+		InsertedEdits<Last, S, Rows>,
+		Last["puts"],
+		Last["doomed"]
+	>,
+	Arrays | InsertedArrays<S, Rows, Done, keyof C>
 >
 
 /** ChangeSet.delete over the ChangeSet it is called on (ChangeSet). */

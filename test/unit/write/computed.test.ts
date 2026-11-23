@@ -1,5 +1,5 @@
 /**
- * An insert's computed fields (ChangeSet.insertComputed) are evaluated once per call: the record is checked as
+ * An insert's computed fields (ChangeSet.insertAllComputed) are evaluated once per call: the record is checked as
  * the head of an insert member that matches nothing (write/frontend/compile.ts strataComputed), so den's lease, the
  * millis reading plus a Span, a contract its predicate bounds, casts into bigint with no guard (core/clock.ts
  * clockReadingRange), and the one statement that writes its rows evaluates it by one MATERIALIZED CTE of a row

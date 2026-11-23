@@ -97,26 +97,29 @@ const reading = () => query(Computed).rule((r) => r.find({ now: r.param("now", p
 const programs = Object.freeze({
 	lease: clocked(
 		ChangeSet.empty(Computed)
-			.insertComputed(Lease, [], { until: after("budget") })
+			.insertAllComputed({ Lease: [] }, { until: after("budget") })
 			.read("reading", reading),
 		{ now: "micros" }
 	),
 	flat: clocked(
 		ChangeSet.empty(Computed)
-			.insertComputed(Flat, [], { due: after("delay"), until: after("budget") })
+			.insertAllComputed({ Flat: [] }, { due: after("delay"), until: after("budget") })
 			.read("reading", reading),
 		{ now: "micros" }
 	),
 	deep: clocked(
 		ChangeSet.empty(Computed)
-			.insertComputed(Deep, [], { due: after("delay"), until: after("budget") })
+			.insertAllComputed({ Deep: [] }, { due: after("delay"), until: after("budget") })
 			.read("reading", reading),
 		{ now: "micros" }
 	),
 	/** Slot's rows, `at` its key field computed as the call's parameter `t` cast into Span, as den's is. */
-	slot: ChangeSet.empty(Computed).insertComputed(Slot, [], {
-		at: Type.cast(Type.base(param("t", Span)), Span)
-	})
+	slot: ChangeSet.empty(Computed).insertAllComputed(
+		{ Slot: [] },
+		{
+			at: Type.cast(Type.base(param("t", Span)), Span)
+		}
+	)
 })
 
 export const computedInstall = Object.freeze({ label: "computed", programs })
