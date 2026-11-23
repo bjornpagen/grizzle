@@ -18,12 +18,12 @@
  * adapter/live/changes.ts transactionReader).
  *
  * The oracle is computed on the host from the history alone: each write's images (an insert's new row, a delete's old
- * one, an update's both, an immutable relation's update a delete and an insert), and for each image of a table the
+ * one, an update's both), and for each image of a table the
  * plan routes by columns, the keyed key of each routed column at the image's value, the decimal text of its integer, or
  * the table's key for a table the plan reads by no route; a table no live program reads is published by no publication,
  * and decodes to nothing.
  *
- * Features: an insert, a delete, an update of a mutable relation, an update of an immutable one, a write of a routed
+ * Features: an insert, a delete, an update of an open relation, a write of a routed
  * table, a write of a table read whole, a direct writer's commit, a grizzle call's commit, a rolled-back transaction
  * that wrote, the live source opens, a login's read of the secret refused.
  */
@@ -65,8 +65,7 @@ export const theLiveSourceDecodesEachCommitsTransactionToExactlyItsRowsRouteKeys
 		situations: [
 			"an insert",
 			"a delete",
-			"an update of a mutable relation",
-			"an update of an immutable relation",
+			"an update of an open relation",
 			"a write of a routed table",
 			"a write of a table read whole",
 			"a direct writer's commit",
@@ -119,9 +118,7 @@ export const theLiveSourceDecodesEachCommitsTransactionToExactlyItsRowsRouteKeys
 								for (const write of writesOf(commit)) {
 									notes.note(
 										write.kind === "update"
-											? c.mutable[write.relation]
-												? "an update of a mutable relation"
-												: "an update of an immutable relation"
+											? "an update of an open relation"
 											: write.kind === "insert"
 												? "an insert"
 												: "a delete"
@@ -131,15 +128,16 @@ export const theLiveSourceDecodesEachCommitsTransactionToExactlyItsRowsRouteKeys
 							}
 						}).pipe(withLayer(live.layer))
 						const last = Arr.lastNonEmpty(statesOf(c))
-						const held = Arr.findFirst([0, 1] as const, (place) =>
-							Arr.isReadonlyArrayNonEmpty(last[place])
+						const held = Arr.findFirst(
+							[0, 1] as const,
+							(place) => c.mutable[place] && Arr.isReadonlyArrayNonEmpty(last[place])
 						)
 						if (Option.isSome(held)) {
 							const [fact] = last[held.value]
 							if (fact !== undefined) {
 								notes.note("a rolled-back transaction that wrote")
 								yield* live.writer.begin
-								for (const sql of commitStatements(installed.plan, c, {
+								for (const sql of commitStatements(installed.plan, {
 									writer: "psql",
 									writes: [{ kind: "delete", relation: held.value, fact }]
 								})) {

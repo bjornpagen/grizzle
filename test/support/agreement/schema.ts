@@ -8,10 +8,12 @@ import {
 	contained,
 	derived,
 	key,
+	mutable,
 	on,
 	relation,
 	role,
-	schema
+	schema,
+	unit
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { Id } from "#test/support/ids.ts"
@@ -129,10 +131,14 @@ export const ToneWeightTyped = relation(
 
 export const byOwner = key(on(Item, "owner", "n"))
 
+/**
+ * The agreement's schema. An item's rows, Tag, Note and Slot, each keyed by its item, sit in the item's unit, and Note
+ * is open, which a ChangeSet of the admission agreement deletes (agreement/admission.ts idsWrite).
+ */
 export const Agree = schema(
 	"Agree",
 	[Tone, Shade, Item, Tag, Note, Batch, Cell, Slot, ToneWeight, ToneWeightTyped],
-	[byOwner]
+	[byOwner, unit("Item", { item: Id }), mutable(Note)]
 )
 
 /** Agree's entries a full role holds whole: every relation and roster but the closed relation. */

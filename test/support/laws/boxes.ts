@@ -12,7 +12,6 @@ import {
 	contained,
 	key,
 	type Mutable,
-	mutable,
 	on,
 	relation,
 	schema,
@@ -32,6 +31,8 @@ import {
 } from "#test/support/laws/model.ts"
 
 import { relationBuilder } from "#compiler/schema/relation.ts"
+import type { FieldBase } from "#compiler/types/fields/field.ts"
+import type { UnitBase } from "#compiler/types/schema/statements.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import {
 	type AlternativesLaws,
@@ -46,6 +47,7 @@ import {
 	runtimeSession,
 	type LawSession
 } from "#test/support/laws/support.ts"
+import { type Openable, opened } from "#test/support/open.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import type { Substrate } from "#test/support/substrate/substrate.ts"
@@ -206,12 +208,15 @@ const uniformly = <R extends string>(
 ): Arr.NonEmptyReadonlyArray<Mutability<R>> =>
 	Arr.map(booleans, (declared) => Rec.map(relations, () => declared))
 
-/** The `mutable` statements of the relations a mutability declares mutable. */
-export const mutables = <R extends string, V extends AnyRelation>(
+/**
+ * The relations a mutability declares mutable, open: each in the unit over its primary key's first field, then its
+ * `mutable` (test/support/open.ts opened).
+ */
+export const mutables = <R extends string, V extends AnyRelation & Openable<FieldBase>>(
 	m: Mutability<R>,
 	relations: Readonly<Record<R, V>>
-): ReadonlyArray<Mutable<V>> =>
-	Arr.flatMap(Rec.toEntries(relations), ([name, r]) => (m[name] ? [mutable(r)] : []))
+): ReadonlyArray<UnitBase | Mutable<V>> =>
+	opened(Arr.flatMap(Rec.toEntries(relations), ([name, r]) => (m[name] ? [r] : [])))
 
 /** A mutability as a schema's description names it: every relation's, or the mutable ones'. */
 export const describeMutability = (m: Readonly<Record<string, boolean>>): string => {
@@ -287,8 +292,10 @@ export const runs = (p: RunsParams) => (name: string) => {
 	return schema(name, Rec.values(d.relations), [
 		d.stage,
 		...Arr.map(d.pays, (pay) => pay.runKey),
-		...(p.runMutable ? [mutable(d.Run)] : []),
-		...Arr.flatMap(d.pays, (pay) => (pay.mutable ? [mutable(pay.value)] : []))
+		...opened([
+			...(p.runMutable ? [d.Run] : []),
+			...Arr.flatMap(d.pays, (pay) => (pay.mutable ? [pay.value] : []))
+		])
 	])
 }
 

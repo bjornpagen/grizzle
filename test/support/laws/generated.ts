@@ -21,6 +21,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import type { IdentifiedLaw } from "#compiler/types/changeset/changeset.ts"
+import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { namedText } from "#test/support/closed/stored.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import {
@@ -48,6 +49,7 @@ import {
 	type HostValue
 } from "#test/support/laws/model.ts"
 import { openWriter, servedApply, type LawSession } from "#test/support/laws/support.ts"
+import type { Openable } from "#test/support/open.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -202,7 +204,7 @@ type PointStatement = Parameters<typeof schema>[2][number]
 interface Point {
 	readonly name: string
 	readonly traits: ReadonlyArray<string>
-	readonly values: Readonly<Record<string, AnyRelation>>
+	readonly values: Readonly<Record<string, AnyRelation & Openable<FieldBase>>>
 	readonly statements: ReadonlyArray<PointStatement>
 	readonly relations: ReadonlyArray<Rel>
 	readonly laws: HostLaws
@@ -465,8 +467,8 @@ const openRotaKeyI8 = key(on(openRotasI8, "site", "during"))
  * span key over a selected target the coverage needs, none into every rota.
  */
 const coveragePoint = (
-	rota: AnyRelation & { readonly name: string },
-	visit: AnyRelation & { readonly name: string },
+	rota: AnyRelation & Openable<FieldBase>,
+	visit: AnyRelation & Openable<FieldBase>,
 	k: Encoding,
 	law: ReturnType<typeof contained>,
 	keys: ReadonlyArray<ReturnType<typeof key>>,

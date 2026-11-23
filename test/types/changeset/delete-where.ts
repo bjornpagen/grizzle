@@ -48,9 +48,7 @@ const subjectRefusal = (s: Subject): Refused | undefined => {
 		case "Ticket":
 		case "Ledger":
 		case "Tag":
-		case "Order":
 		case "Cart":
-		case "Pool":
 		case "Bin":
 		case "Node":
 			return undefined

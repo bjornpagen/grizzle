@@ -6,7 +6,6 @@ import { emit } from "#compiler/sql/emit.ts"
 import { assignments, ungenerated } from "#compiler/sql/generation.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import {
-	type LiveCase,
 	type LiveCommit,
 	type LiveWrite,
 	probeRelation,
@@ -125,14 +124,10 @@ export const updateRow = (plan: InstallPlan, relation: string, row: DirectRow): 
 	emitted(updateOf(tableOf(plan, relation), row))
 
 /**
- * The statements one write sends: an INSERT, a DELETE by key, and an update an UPDATE of its relation where the relation
- * is mutable, else its DELETE then its INSERT at the same key, since no role holds UPDATE on an immutable relation.
+ * The statements one write sends: an INSERT, a DELETE by key, and an UPDATE, each a delete's and an update's of an open
+ * relation (world.ts writeGen), whose role holds both.
  */
-const writeStatements = (
-	plan: InstallPlan,
-	c: LiveCase,
-	write: LiveWrite
-): ReadonlyArray<string> => {
+const writeStatements = (plan: InstallPlan, write: LiveWrite): ReadonlyArray<string> => {
 	const table = tableOf(plan, relationName(write.relation))
 	switch (write.kind) {
 		case "insert":
@@ -140,9 +135,7 @@ const writeStatements = (
 		case "delete":
 			return [emitted(deleteOf(table, write.fact))]
 		case "update":
-			return c.mutable[write.relation]
-				? [emitted(updateOf(table, write.to))]
-				: [emitted(deleteOf(table, write.from)), emitted(insertOf(table, write.to))]
+			return [emitted(updateOf(table, write.to))]
 	}
 }
 
@@ -151,12 +144,8 @@ export const fenceStatement = (plan: InstallPlan, id: number): string =>
 	insertRow(plan, probeRelation, { id })
 
 /** Every statement a direct writer's commit sends, in order. */
-export const commitStatements = (
-	plan: InstallPlan,
-	c: LiveCase,
-	commit: LiveCommit
-): ReadonlyArray<string> =>
-	Arr.flatMap(writesOf(commit), (write) => writeStatements(plan, c, write))
+export const commitStatements = (plan: InstallPlan, commit: LiveCommit): ReadonlyArray<string> =>
+	Arr.flatMap(writesOf(commit), (write) => writeStatements(plan, write))
 
 /** Whether a failure is one PostgreSQL asks a SERIALIZABLE transaction to run again for: 40001 or 40P01. */
 const transient = (error: unknown): boolean => {

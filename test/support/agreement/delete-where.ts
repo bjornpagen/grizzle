@@ -15,13 +15,13 @@ import { compileWrite } from "#compiler/write/program/compile.ts"
 import {
 	Book,
 	Budget,
+	Cart,
 	Cents,
 	Item,
 	Kind,
 	Ledger,
 	Line,
 	Node,
-	Order,
 	Tag,
 	Task,
 	Ticket,
@@ -34,7 +34,7 @@ import { checking } from "#test/support/policy.ts"
 /**
  * The deleteWhere box (test/types/changeset/delete-where.ts, test/unit/write/changeset/delete-where.test.ts): over the
  * ChangeSet agreement's Work (./changeset-schema.ts) and a role writing Task through a world entry, every relation a
- * deleteWhere key may name, each kind of delete among them (a plain relation, a tree's root, a family's owner, a
+ * deleteWhere key may name, each kind of delete among them (a plain relation, a tree's root, an open family's owner, a
  * family's member, a member that owns a sequence, a world entry, a closed relation), each with each selection shape:
  * none, every field its delete's rows state as a parameter or as a literal, a field outside its rows, a parameter of
  * another type, a typed constant, a scalar term and a variable in place of a parameter. Each case's engine verdict is
@@ -92,9 +92,7 @@ const subjects = [
 	"Ticket",
 	"Ledger",
 	"Tag",
-	"Order",
 	"Cart",
-	"Pool",
 	"Bin",
 	"Node",
 	"Line",
@@ -209,14 +207,12 @@ const rowFields = (s: Subject): ReadonlyArray<Selectable> => {
 					literal: literalOf(`"pass"`, "pass")
 				}
 			]
-		case "Order":
 		case "Cart":
-		case "Pool":
 		case "Bin":
 			return [
 				{
 					field: "id",
-					param: paramOf(s, "id", (n) => param(n, Order.fields.id)),
+					param: paramOf(s, "id", (n) => param(n, Cart.fields.id)),
 					literal: uuidLiteral
 				}
 			]
@@ -286,11 +282,10 @@ const rowFields = (s: Subject): ReadonlyArray<Selectable> => {
 /** A field the subject holds outside its delete's rows, which no selection names: a drawn, generated or non-root field. */
 const outsideField = (s: Subject): Option.Option<Selectable> => {
 	switch (s) {
-		case "Order":
 		case "Cart":
 			return Option.some({
 				field: "total",
-				param: paramOf(s, "total", (n) => param(n, Order.fields.total)),
+				param: paramOf(s, "total", (n) => param(n, Cart.fields.total)),
 				literal: Option.none()
 			})
 		case "Node":
@@ -312,7 +307,6 @@ const outsideField = (s: Subject): Option.Option<Selectable> => {
 		case "Ticket":
 		case "Ledger":
 		case "Tag":
-		case "Pool":
 		case "Bin":
 		case "Line":
 		case "Entry":

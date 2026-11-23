@@ -8,10 +8,10 @@
 import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr } from "effect"
 import { descText, type FieldDesc } from "#compiler/ir/desc.ts"
-import type { Statement } from "#compiler/public/schema.ts"
 import { describedDesc } from "#compiler/schema/protocol.ts"
 import { mutableBuilder, unitBuilder } from "#compiler/schema/statements.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
+import type { Mutable, UnitBase } from "#compiler/types/schema/statements.ts"
 import {
 	type AuthoredStatementDesc,
 	type FixtureField,
@@ -27,7 +27,7 @@ export interface Openable<T> {
 }
 
 /** A unit's heading of one field: the field and its type, and the unit's name, the field's and its place among its types. */
-interface Leading<T> {
+export interface Leading<T> {
 	readonly name: string
 	readonly field: string
 	readonly type: T
@@ -38,7 +38,7 @@ interface Leading<T> {
  * type's text, telling types apart), in the order the relations first lead with it. A unit is named by its field and its
  * place among the types that field leads a key with, `a0`, `a1`, ….
  */
-const leadingHeadings = <T>(
+export const leadingHeadings = <T>(
 	relations: ReadonlyArray<Openable<T>>,
 	textOf: (type: T, at: string) => string
 ): ReadonlyArray<Leading<T>> => {
@@ -68,14 +68,16 @@ const typeText = (desc: FieldDesc, at: string): string => {
 }
 
 /** The units `relations` sit in, one over each primary key's first field (leadingHeadings), as schema values. */
-const leadingUnits = (relations: ReadonlyArray<Openable<FieldBase>>): ReadonlyArray<Statement> =>
+const leadingUnits = (relations: ReadonlyArray<Openable<FieldBase>>): ReadonlyArray<UnitBase> =>
 	Arr.map(
 		leadingHeadings(relations, (type, at) => typeText(describedDesc(type, at), at)),
 		(h) => unitBuilder(h.name, { [h.field]: h.type }, [])
 	)
 
 /** `relations` open: the units they lead with (leadingUnits), then each one's `mutable`. */
-export const opened = (relations: ReadonlyArray<Openable<FieldBase>>): ReadonlyArray<Statement> => [
+export const opened = <R extends Openable<FieldBase>>(
+	relations: ReadonlyArray<R>
+): ReadonlyArray<UnitBase | Mutable<R>> => [
 	...leadingUnits(relations),
 	...Arr.map(relations, (r) => mutableBuilder(r))
 ]

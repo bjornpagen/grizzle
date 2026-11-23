@@ -4,9 +4,10 @@ import { Array as Arr } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { drawn, natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { closed, counted, fin, mutable, on, relation, schema } from "#compiler/public/schema.ts"
+import { closed, counted, fin, on, relation, schema } from "#compiler/public/schema.ts"
 import { paged } from "#compiler/public/workload.ts"
 import { relationBuilder } from "#compiler/schema/relation.ts"
+import { opened } from "#test/support/open.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 
@@ -14,18 +15,19 @@ import { fullWorld } from "#test/support/worlds.ts"
  * The live world: the schemas, programs, subscriptions and write histories the live suites search, each drawn from a box
  * whose every axis is a choice the live machinery branches on.
  *
- * A schema holds two relations, `Item0` and `Item1`, each `{ id, g, o, val }` keyed by `id`, mutable or not, and the
+ * A schema holds two relations, `Item0` and `Item1`, each `{ id, g, o, val }` keyed by `id`, open or closed, and the
  * fence's `Probe` (probeRelation), a counted family no read reads (familyRelations), and a closed relation read by
  * one constant member alone (closedRead): `g` is the group a keyed read binds its parameter `g` to, the column a commit's
  * notification names its value of, `o` the order an ordered read delivers by, and `val` a value no read binds. Its
  * programs are the reads the box draws, each one of the shapes the live machinery routes and diffs differently
- * (WorldRead), the probe member, one insert, delete and put member per item relation and the family's two inserts
- * (familyMembers), whose facts are each call's. A
+ * (WorldRead), the probe member, one insert member per item relation and a delete and a put member per open one, and
+ * the family's two inserts (familyMembers), whose facts are each call's. An open item relation is mutable inside the
+ * unit its key leads with, and a closed one's rows are inserted, never changed or deleted. A
  * subscription is a read with what its call binds (LiveBinding). A history is commits, each a grizzle call of one write
  * member, or one SERIALIZABLE transaction of a direct SQL writer of the role, which may write several rows of either
- * relation, an immutable relation's row moved as its delete and its insert at one key. Every write changes what it
- * writes: an insert's key is free, a delete's and an update's row is stored, and an update moves at least one of `g`,
- * `o` and `val`, so every commit touches exactly the rows it names.
+ * relation, a closed relation's by insertion alone. Every write changes what it writes: an insert's key is free, a
+ * delete's and an update's row is stored, and an update moves at least one of `g`, `o` and `val`, so every commit
+ * touches exactly the rows it names.
  */
 
 /** A row of a live relation: its key `id`, its group `g`, its order `o` and its value `val`. */
@@ -113,9 +115,12 @@ export type LiveCommit =
 /** The stored rows of both relations, by place. */
 export type LiveState = readonly [ReadonlyArray<LiveFact>, ReadonlyArray<LiveFact>]
 
+/** Each item relation's openness, by place: open, mutable inside its unit, or closed. */
+type Openness = readonly [boolean, boolean]
+
 /** A drawn live case (see the header). */
 export interface LiveCase {
-	readonly mutable: readonly [boolean, boolean]
+	readonly mutable: Openness
 	readonly reads: Arr.NonEmptyReadonlyArray<WorldRead>
 	readonly subscriptions: Arr.NonEmptyReadonlyArray<LiveSubscription>
 	readonly facts: LiveState
@@ -251,12 +256,13 @@ const movedGen =
 	}
 
 /**
- * One write over `state`, never to a row `taken` names: an insert where the relation it draws has no row left to delete or
- * move, else an insert, a delete or an update as drawn.
+ * One write over `state`, never to a row `taken` names: an insert where the relation it draws is closed or has no row
+ * left to delete or move, else an insert, a delete or an update as drawn.
  */
 const writeGen =
 	(
 		bounds: LiveBounds,
+		open: Openness,
 		state: LiveState,
 		taken: ReadonlyArray<readonly [RelationPlace, number]>
 	): Gen<LiveWrite> =>
@@ -269,7 +275,7 @@ const writeGen =
 			relation: place,
 			fact: source.draw(factGen(bounds, source.draw(freeKeyGen(bounds, rows, takenHere))))
 		})
-		if (!Arr.isReadonlyArrayNonEmpty(rows)) {
+		if (!open[place] || !Arr.isReadonlyArrayNonEmpty(rows)) {
 			return insert()
 		}
 		const stored = rows[source.draw(int(0, rows.length - 1))] ?? rows[0]
@@ -298,17 +304,17 @@ const rowOf = (write: LiveWrite): readonly [RelationPlace, number] => [
 
 /** One commit over `state`: a grizzle call of one write, or a direct writer's transaction of several, no two of one row. */
 const commitGen =
-	(bounds: LiveBounds, state: LiveState): Gen<LiveCommit> =>
+	(bounds: LiveBounds, open: Openness, state: LiveState): Gen<LiveCommit> =>
 	(source) => {
 		if (source.draw(boolean)) {
-			return { writer: "grizzle", write: source.draw(writeGen(bounds, state, [])) }
+			return { writer: "grizzle", write: source.draw(writeGen(bounds, open, state, [])) }
 		}
 		const count = source.draw(int(1, bounds.writes))
-		const first = source.draw(writeGen(bounds, state, []))
+		const first = source.draw(writeGen(bounds, open, state, []))
 		const writes: Array<LiveWrite> = []
 		let at = written(state, first)
 		for (let k = 1; k < count; k++) {
-			const next = source.draw(writeGen(bounds, at, Arr.map([first, ...writes], rowOf)))
+			const next = source.draw(writeGen(bounds, open, at, Arr.map([first, ...writes], rowOf)))
 			writes.push(next)
 			at = written(at, next)
 		}
@@ -317,13 +323,13 @@ const commitGen =
 
 /** A history of commits from `facts`, each drawn over the state the commits before it left. */
 const historyGen =
-	(bounds: LiveBounds, facts: LiveState): Gen<ReadonlyArray<LiveCommit>> =>
+	(bounds: LiveBounds, open: Openness, facts: LiveState): Gen<ReadonlyArray<LiveCommit>> =>
 	(source) => {
 		const count = source.draw(int(0, bounds.commits))
 		const commits: Array<LiveCommit> = []
 		let state = facts
 		for (let k = 0; k < count; k++) {
-			const commit = source.draw(commitGen(bounds, state))
+			const commit = source.draw(commitGen(bounds, open, state))
 			commits.push(commit)
 			state = committed(state, commit)
 		}
@@ -384,8 +390,9 @@ export const liveCaseGen =
 			...source.draw(array(readGen(bounds), { min: 0, max: bounds.reads - 1 }))
 		]
 		const facts: LiveState = [source.draw(rowsGen(bounds)), source.draw(rowsGen(bounds))]
+		const open: Openness = [source.draw(boolean), source.draw(boolean)]
 		return {
-			mutable: [source.draw(boolean), source.draw(boolean)],
+			mutable: open,
 			reads,
 			subscriptions: [
 				source.draw(subscriptionGen(bounds, reads)),
@@ -394,7 +401,7 @@ export const liveCaseGen =
 				)
 			],
 			facts,
-			history: source.draw(historyGen(bounds, facts))
+			history: source.draw(historyGen(bounds, open, facts))
 		}
 	}
 
@@ -456,9 +463,7 @@ export const liveWorld = (c: LiveCase, name: string) => {
 		name,
 		[Item0, Item1, Probe, Shelf, Book, Tier],
 		[
-			...(c.mutable[0] ? [mutable(Item0)] : []),
-			...(c.mutable[1] ? [mutable(Item1)] : []),
-			mutable(Shelf),
+			...opened([...(c.mutable[0] ? [Item0] : []), ...(c.mutable[1] ? [Item1] : []), Shelf]),
 			counted(on(Book, "shelf"), fin(Shelf, "n"))
 		]
 	)
@@ -525,8 +530,10 @@ export const liveWorld = (c: LiveCase, name: string) => {
 	for (const place of [0, 1] as const) {
 		const Item = items[place]
 		programs[writeMember("insert", place)] = ChangeSet.empty(base).insert(Item, [])
-		programs[writeMember("delete", place)] = ChangeSet.empty(base).delete(Item, [])
-		programs[writeMember("put", place)] = ChangeSet.empty(base).put(Item, [])
+		if (c.mutable[place]) {
+			programs[writeMember("delete", place)] = ChangeSet.empty(base).delete(Item, [])
+			programs[writeMember("put", place)] = ChangeSet.empty(base).put(Item, [])
+		}
 	}
 	programs[closedRead.member] = query(base).rule((r) => {
 		const { id } = v(Tier, "tier")

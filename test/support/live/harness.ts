@@ -84,7 +84,7 @@ export const installLive = (
 		const json = defined(generated.served.get(liveLogin), `the served file of ${liveLogin}`)
 		const writer = yield* substrate.session(worldSession(installed.world(world.app)))
 		for (const commit of factsCommit(c)) {
-			yield* commitDirectly(writer, commitStatements(installed.plan, c, commit))
+			yield* commitDirectly(writer, commitStatements(installed.plan, commit))
 		}
 		const tap = makeTap(installed.cluster)
 		const file = served(json, liveLogin)

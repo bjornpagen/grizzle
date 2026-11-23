@@ -74,7 +74,7 @@ const callOf = (write: LiveWrite): { readonly member: string; readonly input: Ca
  */
 export const commitLive = (live: LiveInstallation, calls: LiveCalls, commit: LiveCommit) => {
 	if (commit.writer === "psql") {
-		return commitDirectly(live.writer, commitStatements(live.installed.plan, live.c, commit))
+		return commitDirectly(live.writer, commitStatements(live.installed.plan, commit))
 	}
 	const call = callOf(commit.write)
 	return Effect.asVoid(calls.write(call.member, call.input))

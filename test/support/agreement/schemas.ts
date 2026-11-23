@@ -94,7 +94,8 @@ import {
 	predBuilder,
 	selectBuilder,
 	statementDescOf,
-	treeBuilder
+	treeBuilder,
+	unitBuilder
 } from "#compiler/schema/statements.ts"
 import { rowHelpers } from "#compiler/schema/terms.ts"
 import { insertableNamesOf, roleBuilder as role, roleDescOf } from "#compiler/schema/world.ts"
@@ -116,6 +117,7 @@ import {
 import { admitContract, spanDescriptor } from "#test/support/fixtures/descriptors.ts"
 import { Id } from "#test/support/ids.ts"
 import { messageOf } from "#test/support/message.ts"
+import { type Leading, leadingHeadings } from "#test/support/open.ts"
 import { checking } from "#test/support/policy.ts"
 import { upTo } from "#test/support/up-to.ts"
 import {
@@ -1096,6 +1098,7 @@ type StatementSpec =
 	| { readonly kind: "key"; readonly side: LawSide }
 	| { readonly kind: "contained" | "mirrors"; readonly left: LawSide; readonly right: LawSide }
 	| { readonly kind: "mutable"; readonly relation: string }
+	| { readonly kind: "unit"; readonly heading: Leading<FieldType> }
 
 /**
  * A derived relation over the base, in an extension of its schema: its definition groups a relation's facts by one of
@@ -1164,6 +1167,24 @@ interface Base {
 	readonly publics: ReadonlyArray<PublicValue>
 	readonly spellings: ReadonlyArray<readonly [PgSpelling, PgSpelling]>
 }
+
+/** A field type's text, which tells two types apart as a unit's heading and a key field are compared. */
+const fieldTypeText = (t: FieldType): string => fieldSource(t, (name) => name)
+
+/** The headings `relations` lead with: the unit over each one's primary key's first field (test/support/open.ts). */
+const headingsOver = (relations: ReadonlyArray<RelationSpec>): ReadonlyArray<Leading<FieldType>> =>
+	leadingHeadings(
+		Arr.map(relations, (r) => ({
+			name: r.name,
+			fields: Rec.fromEntries(Arr.map(r.fields, (f) => [f.name, f.type] as const)),
+			primaryKey: r.key
+		})),
+		fieldTypeText
+	)
+
+/** The units `relations` sit in once open, each over a primary key's first field, as statements. */
+const unitsOver = (relations: ReadonlyArray<RelationSpec>): ReadonlyArray<StatementSpec> =>
+	Arr.map(headingsOver(relations), (heading): StatementSpec => ({ kind: "unit", heading }))
 
 /**
  * The slots pack: Parent, whose natural children counts its slots, and Child, each at a slot of its parent, related by
@@ -2023,9 +2044,12 @@ const baseOf = (d: Drawing): Base => {
 		...(alternation === undefined ? [] : alternation.relations),
 		...(slots === undefined ? [] : slotRelations(slots))
 	]
-	const mutable = Arr.flatMap(ordinary, (r): ReadonlyArray<StatementSpec> =>
-		d.keep("mutableStatement") ? [{ kind: "mutable", relation: r.name }] : []
-	)
+	const open = Arr.filter(ordinary, () => d.keep("mutableStatement"))
+	/** Each mutable relation open: in the unit over its primary key's first field (unitsOver), then mutable. */
+	const mutable: ReadonlyArray<StatementSpec> = [
+		...unitsOver(open),
+		...Arr.map(open, (r): StatementSpec => ({ kind: "mutable", relation: r.name }))
+	]
 	const groupable = Arr.flatMap(ordinary, (r) =>
 		Arr.flatMap(r.fields, (f) => (keyable(f.type, contracts) ? [{ over: r.name, by: f.name }] : []))
 	)
@@ -2342,7 +2366,7 @@ const sideValue = (s: SideSpec, relations: ReadonlyMap<string, AnyRelation>) =>
 
 const statementValue = (
 	s: StatementSpec,
-	relations: ReadonlyMap<string, AnyRelation>
+	{ relations, rosters, contracts }: Pick<Env, "relations" | "rosters" | "contracts">
 ): Statement => {
 	switch (s.kind) {
 		case "key":
@@ -2353,6 +2377,12 @@ const statementValue = (
 			return mirrorsBuilder(lawSideValue(s.left, relations), lawSideValue(s.right, relations))
 		case "mutable":
 			return mutableBuilder(got(relations, s.relation))
+		case "unit":
+			return unitBuilder(
+				s.heading.name,
+				{ [s.heading.field]: fieldValue(s.heading.type, rosters, contracts) },
+				[]
+			)
 	}
 }
 
@@ -2458,7 +2488,7 @@ const envOf = (base: Base): Env => {
 			: [["Gen", generatedValue(base.closedRelation, rule, rosters)] as const])
 	])
 	const core: ReadonlyArray<Statement> = [
-		...Arr.map(base.statements, (s) => statementValue(s, relations)),
+		...Arr.map(base.statements, (s) => statementValue(s, { relations, rosters, contracts })),
 		...(base.family === undefined ? [] : familyValues(base.family, relations))
 	]
 	const statements: ReadonlyArray<Statement> = [
@@ -3206,18 +3236,37 @@ const keyedAlone = (base: Base, r: RelationSpec, field: string): boolean =>
 			s.side.terms[0].field === field
 	)
 
-/** mutable over an ordinary relation, a roster, or the derived relation. */
+/** Whether the base states `relation` mutable. */
+const statesMutable = (base: Base, relation: string): boolean =>
+	Arr.some(base.statements, (s) => s.kind === "mutable" && s.relation === relation)
+
+/**
+ * The unit an ordinary relation the base leaves closed sits in once open, where the base states none it leads with: the
+ * heading over its primary key's first field, beside the base's own units (unitsOver), so it nests none of them.
+ */
+const unitToOpen = (base: Base, relation: RelationSpec): ReadonlyArray<Leading<FieldType>> => {
+	const open = Arr.filter(ordinaryOf(base), (r) => statesMutable(base, r.name))
+	const stated = headingsOver(open)
+	return Arr.filter(
+		headingsOver([...open, relation]),
+		(h) => !Arr.some(stated, (u) => u.name === h.name)
+	)
+}
+
+/**
+ * mutable over an ordinary relation, a roster, or the derived relation. Over an ordinary relation it opens the
+ * relation: its unit beside it where the base states none its key leads with (unitToOpen), the unit the type tier never
+ * reads.
+ */
 const mutableProbe = (d: Drawing, base: Base): Probe => {
 	const target = d.from<
-		| { readonly kind: "relation"; readonly name: string }
+		| { readonly kind: "relation"; readonly relation: RelationSpec; readonly name: string }
 		| { readonly kind: "roster"; readonly name: string }
 		| { readonly kind: "derived"; readonly name: string }
 	>([
 		{ kind: "roster", name: d.from(base.rosters).name },
 		...Arr.flatMap(ordinaryOf(base), (r) =>
-			Arr.some(base.statements, (s) => s.kind === "mutable" && s.relation === r.name)
-				? []
-				: [{ kind: "relation", name: r.name } as const]
+			statesMutable(base, r.name) ? [] : [{ kind: "relation", relation: r, name: r.name } as const]
 		),
 		...(base.derived === undefined ? [] : [{ kind: "derived", name: base.derived.name } as const])
 	])
@@ -3234,7 +3283,12 @@ const mutableProbe = (d: Drawing, base: Base): Probe => {
 			switch (target.kind) {
 				case "relation":
 					return compiling(() =>
-						probeSchema(env, [mutableBuilder(got(env.relations, target.name))])
+						probeSchema(env, [
+							...Arr.map(unitToOpen(base, target.relation), (heading) =>
+								statementValue({ kind: "unit", heading }, env)
+							),
+							mutableBuilder(got(env.relations, target.name))
+						])
 					)
 				case "roster":
 					return compiling(() => probeSchema(env, [mutableBuilder(got(env.rosters, target.name))]))
@@ -5199,6 +5253,8 @@ const statementSource = (s: StatementSpec, ids: Ids): string => {
 			return `Sc.${s.kind}(${lawSideSource(s.left, ids)}, ${lawSideSource(s.right, ids)})`
 		case "mutable":
 			return `Sc.mutable(${ids(s.relation)})`
+		case "unit":
+			return `Sc.unit(${jsonText(s.heading.name)}, { ${s.heading.field}: ${fieldSource(s.heading.type, ids)} })`
 	}
 }
 
@@ -5374,7 +5430,7 @@ const sideType = (side: SideDesc, ids: Ids): string =>
  * as the value the case declares under that name, so the schema's captured tuple reads back as the engine states it.
  * A fold names its family by `family`, the one family a case declares.
  */
-const statementType = (desc: StatementDesc, ids: Ids): string => {
+const statementType = (desc: StatementDesc, base: Base, ids: Ids): string => {
 	switch (desc.kind) {
 		case "key":
 			return `St.Key<${sideType(desc.side, ids)}>`
@@ -5397,7 +5453,9 @@ const statementType = (desc: StatementDesc, ids: Ids): string => {
 		case "alternatives":
 			return `St.Alternatives<typeof ${ids(desc.parent.relation)}, ${jsonText(desc.discriminator)}, typeof ${ids(desc.roster)}, ${objectType(Arr.map(desc.arms, (a) => [a.handle, `typeof ${ids(a.arm.relation)}`] as const))}>`
 		case "unit":
-			return `St.UnitBase`
+			return `St.Unit<${jsonText(desc.name)}, ${objectType(
+				Arr.map(desc.heading, (f) => [f.field, valueDescriptorType(f.type, base, ids)] as const)
+			)}>`
 		case "series":
 			return `St.Series<typeof ${ids(desc.relation)}>`
 	}
@@ -5426,10 +5484,10 @@ const statementView = (value: Statement): StatementView => {
 }
 
 /** A statement view as its type: a mirrors over its first containment's two sides. */
-const viewType = (view: StatementView, ids: Ids): string => {
+const viewType = (view: StatementView, base: Base, ids: Ids): string => {
 	switch (view.kind) {
 		case "statement":
-			return statementType(view.desc, ids)
+			return statementType(view.desc, base, ids)
 		case "mirrors": {
 			const [forward] = view.expansion.statements
 			return `St.Mirrors<${sideType(forward.left, ids)}, ${sideType(forward.right, ids)}>`
@@ -5441,20 +5499,24 @@ const viewType = (view: StatementView, ids: Ids): string => {
  * The containments a schema states, as the engine reads them: each containment, each mirrors' two, each alternatives
  * law's expansion.
  */
-const containmentTypes = (views: ReadonlyArray<StatementView>, ids: Ids): ReadonlyArray<string> =>
+const containmentTypes = (
+	views: ReadonlyArray<StatementView>,
+	base: Base,
+	ids: Ids
+): ReadonlyArray<string> =>
 	Arr.dedupe(
 		Arr.flatMap(views, (view) => {
 			if (view.kind === "mirrors") {
-				return Arr.map(view.expansion.statements, (c) => statementType(c, ids))
+				return Arr.map(view.expansion.statements, (c) => statementType(c, base, ids))
 			}
 			const s = view.desc
 			switch (s.kind) {
 				case "contained":
-					return [statementType(s, ids)]
+					return [statementType(s, base, ids)]
 				case "alternatives":
-					return Arr.map(expandAlternatives(s), (c) => statementType(c, ids))
+					return Arr.map(expandAlternatives(s), (c) => statementType(c, base, ids))
 				case "series":
-					return [statementType(expandSeries(s), ids)]
+					return [statementType(expandSeries(s), base, ids)]
 				case "key":
 				case "mutable":
 				case "race":
@@ -5831,11 +5893,12 @@ const statementAssertions = (base: Base, env: Env, ids: Ids): ReadonlyArray<stri
 				)
 	const containments = containmentTypes(
 		Arr.map(named, ([, view]) => view),
+		base,
 		ids
 	)
 	return [
 		...Arr.map(named, ([name, view]) =>
-			expect(`statement_${name}`, `typeof ${ids(name)}`, viewType(view, ids))
+			expect(`statement_${name}`, `typeof ${ids(name)}`, viewType(view, base, ids))
 		),
 		expect(
 			"statements",
@@ -7522,13 +7585,13 @@ const slotContainmentProbe = (d: Drawing, base: Base): Probe | undefined => {
 			head: [],
 			line: `export const ${own} = ${statementSource(statement, ids)}`,
 			tail:
-				fault === undefined && statement.kind !== "key" && statement.kind !== "mutable"
+				fault === undefined && (statement.kind === "contained" || statement.kind === "mirrors")
 					? [
 							`export type ${own}_law = Expect<Equals<typeof ${own}, St.${statement.kind === "contained" ? "Containment" : "Mirrors"}<${lawSideType(statement.left, ids)}, ${lawSideType(statement.right, ids)}>>>`
 						]
 					: []
 		}),
-		judge: (env) => compiling(() => probeSchema(env, [statementValue(statement, env.relations)]))
+		judge: (env) => compiling(() => probeSchema(env, [statementValue(statement, env)]))
 	}
 }
 

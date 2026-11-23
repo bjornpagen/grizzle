@@ -104,8 +104,8 @@ import {
  * nesting takes it (a root field below a tree's root, a field its relation lacks or a drawn one in a nested member, a
  * nested member missing a field, a counted member nested, an accumulated field or a count in a put, a generated field
  * in an insert), a family write the engine cannot plan (a sequence's member written
- * alone or by its row, a tree's row put, a counted member that owns a sequence put or deleted, an immutable owner put,
- * a member of an immutable owner's family deleted), a fold over a delta reading no key, ChangeSets over schemas that are
+ * alone or by its row, a tree's row put, a counted member that owns a sequence put or deleted), a fold over a delta
+ * reading no key, ChangeSets over schemas that are
  * no levels of one another, a role that does not write the relation (or a member its insert nests), a parameter left
  * unbound, an argument naming no parameter, ChangeSet.bind given a value that is no record. The floor's witnesses
  * (changeSetWitnesses), the same in every run, each aimed at a requirement, reach every fault and every construct.
@@ -382,8 +382,6 @@ const changeSetFaults = [
 	"a sequence member edited by its row",
 	"a tree row edited",
 	"a member owning a sequence edited",
-	"an immutable owner put",
-	"a member of an immutable family deleted",
 	"an append to an owner its stratum does not insert",
 	"a family's members edited in two strata",
 	"a drawn count stated in a delete",
@@ -513,8 +511,6 @@ export const changeSetRefusals: Arr.NonEmptyReadonlyArray<RefusalNote> = [
 	"refused: an unstated key",
 	"refused: a tree row",
 	"refused: a member owning a sequence",
-	"refused: an immutable owner",
-	"refused: a fixed family",
 	"refused: an append to a stored owner",
 	"refused: edits in two strata",
 	"refused: a put beside a whole delete",
@@ -1040,8 +1036,9 @@ const memberOf = (d: Drawing, fault: ChangeSetFault | undefined, clean: boolean)
 
 /**
  * The faults a family's member fact carries, and the writes of a family's relation the engine cannot plan: a sequence's
- * member written alone or by its row, a tree's row put, a counted member that owns a sequence put or deleted,
- * an immutable owner put, a member of an immutable owner's family deleted.
+ * member written alone or by its row, a tree's row put, a counted member that owns a sequence put or deleted. Each puts or
+ * deletes an open relation of Work, as every put and delete does: a closed relation, an immutable family's owner or
+ * member, is inserted alone, its owner with it.
  */
 const familyFaults = [
 	"a nested root field",
@@ -1057,8 +1054,6 @@ const familyFaults = [
 	"a sequence member edited by its row",
 	"a tree row edited",
 	"a member owning a sequence edited",
-	"an immutable owner put",
-	"a member of an immutable family deleted",
 	"an append to an owner its stratum does not insert",
 	"a family's members edited in two strata",
 	"a drawn count stated in a delete"
@@ -1205,9 +1200,7 @@ const plantedFamilyMember = (d: Drawing, fault: FamilyFault): MemberSpec => {
 		case "a sequence member written alone":
 			return familyOf(d, "insert", d.from(["Line", "Entry"] as const), [keyedRow(d)])
 		case "a sequence member edited by its row":
-			return familyOf(d, d.choose(["delete", "put"] as const), d.from(["Line", "Entry"] as const), [
-				keyedRow(d)
-			])
+			return familyOf(d, d.choose(["delete", "put"] as const), "Entry", [keyedRow(d)])
 		case "a tree row edited":
 			return familyOf(d, "put", "Node", [
 				[
@@ -1222,12 +1215,6 @@ const plantedFamilyMember = (d: Drawing, fault: FamilyFault): MemberSpec => {
 					["shelf", familyValue(d.from(uuids))]
 				]
 			])
-		case "an immutable owner put":
-			return familyOf(d, "put", d.from(["Order", "Pool"] as const), [
-				[["id", familyValue(d.from(uuids))]]
-			])
-		case "a member of an immutable family deleted":
-			return familyOf(d, "delete", "Item", [countedFact(d.from(uuids), 0)])
 		case "an append to an owner its stratum does not insert":
 			d.note("a counted member")
 			return familyOf(d, "insert", "Item", [countedFact(d.from(uuids), 0)])
@@ -1237,11 +1224,11 @@ const plantedFamilyMember = (d: Drawing, fault: FamilyFault): MemberSpec => {
 				countedFact(d.from(uuids), 0)
 			])
 		case "a drawn count stated in a delete": {
-			const owner = d.from(["Order", "Cart", "Pool", "Bin"] as const)
+			const owner = d.from(["Cart", "Bin"] as const)
 			return familyOf(d, "delete", owner, [
 				[
 					["id", familyValue(d.from(uuids))],
-					[owner === "Order" || owner === "Cart" ? "n" : "k", familyValue(zero)]
+					[owner === "Cart" ? "n" : "k", familyValue(zero)]
 				]
 			])
 		}
@@ -1250,9 +1237,10 @@ const plantedFamilyMember = (d: Drawing, fault: FamilyFault): MemberSpec => {
 
 /**
  * A member of one of Work's families, each over an immutable owner and a mutable one: an ordered family's owner
- * inserted with its members nested, or deleted, and put where it is mutable; a counted family's owner inserted, deleted,
- * and put where it is mutable; a counted member put, inserted where its owner is mutable and beside an insert of its
- * owner where it is not, and deleted where its owner is mutable; or a tree inserted from its root, or deleted by it. A counted member is
+ * inserted with its members nested, and deleted and put where it is mutable, open; a counted family's owner inserted,
+ * and deleted and put where it is mutable; a counted member inserted where its owner is mutable and beside an insert of
+ * its owner where it is not, and put and deleted where its owner is mutable; or a tree inserted from its root, or deleted
+ * by it. An immutable family's owner and member are closed, inserted alone. A counted member is
  * an edit of its family, which a ChangeSet writes in one stratum: a sequence of two cases that write one is refused, so
  * only a case that plants no fault (`clean`) writes one, and no planted fault meets that refusal first. A put of a
  * mutable owner meets a whole delete of it in its stratum, which the types refuse at the ChangeSet where a planted
@@ -1282,9 +1270,9 @@ const familyMemberOf = (d: Drawing, clean: boolean): MemberSpec => {
 		return familyOf(d, "insert", relation, [treeOf(d, undefined)])
 	}
 	const op = d.choose(
-		relation === "Item"
-			? (["insert", "put"] as const)
-			: relation === "Order" || relation === "Pool" || !clean
+		relation === "Item" || relation === "Order" || relation === "Pool"
+			? (["insert"] as const)
+			: !clean
 				? (["insert", "delete"] as const)
 				: (["insert", "delete", "put"] as const)
 	)

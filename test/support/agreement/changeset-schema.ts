@@ -37,6 +37,8 @@ import { Id } from "#test/support/ids.ts"
  * for exact arithmetic, and families: ordered families whose members sum into their owners, counted families whose counts fold
  * into their owners and whose members have a generated field, each over an immutable and a mutable owner, a counted
  * member that owns an ordered family, and a tree),
+ * every relation a ChangeSet puts or deletes open, mutable inside the unit its key leads with (the plain relations, the
+ * mutable owners and their members, the tree), and the immutable families closed, inserted with their owners alone,
  * an extension of it, a level above it, and two schemas of which neither is a level of Work, one of its name; and
  * Work's worlds.
  */
@@ -194,10 +196,25 @@ export const Work = schema(
 		pages,
 		tree(on(Node, "parent", "at"), fin(Node, "children"), { root: ["doc"] }),
 		unit("Entity", { id: Id }),
+		unit("Task", { task: Id }),
+		unit("Numbered", { id: pg.bigint }),
+		unit("Pair", { a: pg.bigint }),
+		unit("Owner", { owner: Id }),
+		unit("Document", { doc: Id }),
+		mutable(Task),
+		mutable(Budget),
+		mutable(Ticket),
+		mutable(Pair),
+		mutable(Ledger),
+		mutable(Tag),
 		mutable(Cart),
+		mutable(Entry),
 		mutable(Bin),
+		mutable(Chip),
 		mutable(Shelf),
-		mutable(Book)
+		mutable(Book),
+		mutable(Page),
+		mutable(Node)
 	]
 )
 
