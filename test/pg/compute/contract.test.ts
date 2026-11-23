@@ -18,8 +18,8 @@ import { jsonText } from "#compiler/core/trusted.ts"
 import { predicateTree } from "#compiler/ir/expr.ts"
 import { compareDecimal, Decimal } from "#compiler/scalar/values/decimal.ts"
 import {
+	contractEvaluator,
 	domainRuns,
-	evaluatorSchema,
 	Rate,
 	roundingBatch
 } from "#test/pg/compute/contract.fixtures.ts"
@@ -63,54 +63,50 @@ import {
  */
 export const contractPredicatesRoundALiteralToTheContractsScaleBeforeItsPredicateAsPostgreSQLsDomainCastDoes =
 	property.explore(roundingBatch, {
-		needs: { substrate: Substrate.installing },
+		needs: { evaluator: Substrate.rolledBack(contractEvaluator) },
 		situations: [],
 		check:
-			({ substrate }) =>
+			({ evaluator }) =>
 			(batch) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const { db, s } = yield* evaluatorSchema
-						const predicate = Rate.scalar.contract?.predicate
-						if (predicate === undefined) {
-							return yield* Effect.die(new Error("Rate has no predicate table"))
-						}
-						yield* db.query(
-							`CREATE DOMAIN "${s}".rate AS numeric(7, 6) CONSTRAINT rate_check CHECK ((${renderSql(succeeded(predicateTree(predicate)), plainRender)}) IS TRUE)`,
-							[]
-						)
-						const literals = batch
-						const rows = yield* db.values(
-							`SELECT "${s}".try_eval(c.q, c.q) FROM jsonb_to_recordset($1::text::jsonb) AS c(ord int4, q text) ORDER BY c.ord`,
-							[jsonText(Arr.map(literals, (l, ord) => ({ ord, q: `'${l}'::"${s}".rate` })))]
-						)
-						const disagreements = Arr.flatMap(literals, (l, i) => {
-							const answer = parseAnswer(String(rows[i]?.[0]))
-							const written = Decimal.of(l)
-							const stored = admittedStored(written, Rate.scalar)
-							const compared = adoptedLiteral(written, Rate.scalar)
-							const pgAdmits = answer.kind !== "error"
-							/** The cast admitted the literal as it is written: its value is the literal's own, not a rounding. */
-							const unrounded =
-								answer.kind === "value" && compareDecimal(Decimal.of(answer.text), written) === 0
-							return stored.ok === pgAdmits &&
-								(pgAdmits || ["23514", "22003"].includes(answer.sqlstate)) &&
-								compared.ok === unrounded
-								? []
-								: [
-										{
-											literal: l,
-											pg: answer,
-											stored: stored.ok ? "admitted" : stored.error.reason,
-											compared: compared.ok ? "admitted" : compared.error.reason._tag
-										}
-									]
-						})
-						assert.deepEqual(disagreements, [])
-					}),
-					Substrate,
-					substrate
-				),
+				Effect.gen(function* () {
+					const { session: db, value: s } = yield* evaluator
+					const predicate = Rate.scalar.contract?.predicate
+					if (predicate === undefined) {
+						return yield* Effect.die(new Error("Rate has no predicate table"))
+					}
+					yield* db.query(
+						`CREATE DOMAIN "${s}".rate AS numeric(7, 6) CONSTRAINT rate_check CHECK ((${renderSql(succeeded(predicateTree(predicate)), plainRender)}) IS TRUE)`,
+						[]
+					)
+					const literals = batch
+					const rows = yield* db.values(
+						`SELECT "${s}".try_eval(c.q, c.q) FROM jsonb_to_recordset($1::text::jsonb) AS c(ord int4, q text) ORDER BY c.ord`,
+						[jsonText(Arr.map(literals, (l, ord) => ({ ord, q: `'${l}'::"${s}".rate` })))]
+					)
+					const disagreements = Arr.flatMap(literals, (l, i) => {
+						const answer = parseAnswer(String(rows[i]?.[0]))
+						const written = Decimal.of(l)
+						const stored = admittedStored(written, Rate.scalar)
+						const compared = adoptedLiteral(written, Rate.scalar)
+						const pgAdmits = answer.kind !== "error"
+						/** The cast admitted the literal as it is written: its value is the literal's own, not a rounding. */
+						const unrounded =
+							answer.kind === "value" && compareDecimal(Decimal.of(answer.text), written) === 0
+						return stored.ok === pgAdmits &&
+							(pgAdmits || ["23514", "22003"].includes(answer.sqlstate)) &&
+							compared.ok === unrounded
+							? []
+							: [
+									{
+										literal: l,
+										pg: answer,
+										stored: stored.ok ? "admitted" : stored.error.reason,
+										compared: compared.ok ? "admitted" : compared.error.reason._tag
+									}
+								]
+					})
+					assert.deepEqual(disagreements, [])
+				}),
 		oracle: { kind: "postgresql", name: "the domain cast of each literal into numeric(7, 6)" },
 		budget: { runs: 1, steered: domainRuns },
 		kept: [],

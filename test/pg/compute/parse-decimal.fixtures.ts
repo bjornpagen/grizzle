@@ -36,7 +36,6 @@ import {
 } from "#test/support/oracle/evaluate/decimal-text.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { owning } from "#test/support/policy.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
 import {
 	baseParams,
 	field,
@@ -243,16 +242,16 @@ const Ranges = relation.generated(
 
 const parsed = schema("ParseDecimal", [Ranges], [])
 
-export const parseDecimalInstallation = Effect.gen(function* () {
-	const substrate = yield* Substrate
-	const schemaName = yield* substrate.schema({ create: false, label: "parse_decimal" })
-	const owned = owning(parsed)
-	const real = compileInstallation(owned, {
-		...installOptions(owned),
-		levels: [identity.schema(parsedSchemaName(schemaName))]
+/** The parse's relation compiled as an installation under the schema `schemaName`, a schema the case's own. */
+export const parseDecimalInstallation = (schemaName: string) =>
+	Effect.gen(function* () {
+		const owned = owning(parsed)
+		const real = compileInstallation(owned, {
+			...installOptions(owned),
+			levels: [identity.schema(parsedSchemaName(schemaName))]
+		})
+		return real.ok ? real.value : yield* Effect.die(new Error(`compile ${real.error.message}`))
 	})
-	return real.ok ? real.value : yield* Effect.die(new Error(`compile ${real.error.message}`))
-})
 
 /** One stored row: its generated fields as PostgreSQL's text prints them. */
 interface StoredRow {
@@ -261,38 +260,37 @@ interface StoredRow {
 	readonly stored: string
 }
 
-/** Installs the relation on the pinned session in a transaction, stores `pairs`, reads each row back, rolls back. */
+/**
+ * Installs the relation in the case's transaction on `connection`, stores `pairs` and reads each row back, all of which
+ * the case's rollback undoes.
+ */
 export const storedRows = (
-	pinned: PgConnection,
+	connection: PgConnection,
 	database: string,
 	installation: Installation,
 	pairs: ReadonlyArray<Pair>
 ): Effect.Effect<ReadonlyArray<StoredRow>, SqlError> =>
-	Effect.ensuring(
-		Effect.gen(function* () {
-			const names = installationNamesOf(installation)
-			const column = (name: "id" | "low" | "high" | "below" | "same" | "stored") =>
-				names.column(Ranges, name)
-			yield* pinned.query("BEGIN", [])
-			for (const statement of installationSql(installation, database)) {
-				yield* pinned.query(statement, [])
-			}
-			yield* pinned.query(
-				`INSERT INTO ${names.table(Ranges)} (${column("id")}, ${column("low")}, ${column("high")}) SELECT r.ord, r.low, r.high FROM jsonb_to_recordset($1::text::jsonb) AS r(ord int4, low text, high text)`,
-				[jsonText(Arr.map(pairs, (pair, ord) => ({ ord, low: pair.low, high: pair.high })))]
-			)
-			const rows = yield* pinned.queryValues(
-				`SELECT ${column("below")}::text, ${column("same")}::text, ${column("stored")}::text FROM ${names.table(Ranges)} ORDER BY ${column("id")}`,
-				[]
-			)
-			return Arr.map(rows, (row) => ({
-				below: String(row[0]),
-				same: String(row[1]),
-				stored: String(row[2])
-			}))
-		}),
-		Effect.orDie(pinned.query("ROLLBACK", []))
-	)
+	Effect.gen(function* () {
+		const names = installationNamesOf(installation)
+		const column = (name: "id" | "low" | "high" | "below" | "same" | "stored") =>
+			names.column(Ranges, name)
+		for (const statement of installationSql(installation, database)) {
+			yield* connection.query(statement, [])
+		}
+		yield* connection.query(
+			`INSERT INTO ${names.table(Ranges)} (${column("id")}, ${column("low")}, ${column("high")}) SELECT r.ord, r.low, r.high FROM jsonb_to_recordset($1::text::jsonb) AS r(ord int4, low text, high text)`,
+			[jsonText(Arr.map(pairs, (pair, ord) => ({ ord, low: pair.low, high: pair.high })))]
+		)
+		const rows = yield* connection.queryValues(
+			`SELECT ${column("below")}::text, ${column("same")}::text, ${column("stored")}::text FROM ${names.table(Ranges)} ORDER BY ${column("id")}`,
+			[]
+		)
+		return Arr.map(rows, (row) => ({
+			below: String(row[0]),
+			same: String(row[1]),
+			stored: String(row[2])
+		}))
+	})
 
 /** The value PostgreSQL's numeric_out text names, by the reference mapping. */
 export const printed = (text: unknown): DecimalValue =>

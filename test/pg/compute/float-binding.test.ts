@@ -50,8 +50,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Guarded float forms on PostgreSQL 19 bind their operands once per row and compute the reference's values, over
- * generated terms: each case on a substrate of its own (Substrate.installing), its oracle seat over it as the Vitest
- * suite's OracleSeat.layer gave one (OracleSeat.ofSubstrate), since its EXPLAIN ANALYZE reads the substrate beside it.
+ * generated terms: each case one owner transaction, rolled back after it (Substrate.transaction), its oracle seat over
+ * that transaction (OracleSeat.rolledBack), where its EXPLAIN ANALYZE reads the case's own schema.
  *
  * Its budget, measured (fastcycle's cull):
  *

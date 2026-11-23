@@ -15,7 +15,7 @@ import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
 import { type CatalogResult, declinedOps } from "#test/support/oracle/evaluate/catalog.ts"
 import type { PgConnection, RawQueryResult, SqlError } from "#test/support/pg.ts"
 import { noTables } from "#test/support/substrate/replace.ts"
-import type { RawSession } from "#test/support/substrate/session.ts"
+import type { CaseSession } from "#test/support/substrate/session.ts"
 import {
 	installTemplate,
 	ownerSession,
@@ -47,7 +47,7 @@ const concreteTypeName: { readonly [C in Carrier]: string } = {
  * is a mismatch, and so is a host evaluation that meets an operation where its precondition fails.
  */
 export const installEvaluator = (
-	db: RawSession,
+	db: CaseSession,
 	schema: string
 ): Effect.Effect<RawQueryResult, SqlError> =>
 	db.query(
@@ -65,8 +65,8 @@ END $body$`,
 
 /**
  * A schema holding the evaluator (installEvaluator) as a template (substrate.ts installTemplate): made once per member,
- * where each search made it before its cases, so a case seated on it (Substrate.seat) evaluates over its clone's schema
- * and installs nothing. Its cases write nothing, so nothing is emptied after one.
+ * where each search made it before its cases, so a case's transaction on it (Substrate.rolledBack) evaluates over its
+ * schema and installs nothing.
  */
 export const evaluatorTemplate = (
 	declaredIn: ImportMeta,
@@ -127,7 +127,7 @@ export const caseChunk = 1500
 
 /** Runs every case through try_eval, in chunks of `size` cases, and returns the answers in case order. */
 export const runCases = (
-	db: RawSession,
+	db: CaseSession,
 	schema: string,
 	cases: ReadonlyArray<EvalCase>,
 	size: number

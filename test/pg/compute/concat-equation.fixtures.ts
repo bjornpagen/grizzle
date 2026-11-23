@@ -23,7 +23,7 @@ import { lawIdOf, namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 import { refusalOf } from "#test/support/substrate.ts"
-import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import type { CaseSession } from "#test/support/substrate/session.ts"
 import {
 	type EquationCase,
 	type EquationFeature,
@@ -57,14 +57,12 @@ const presentColumns = (row: EquationRow): Readonly<Record<string, string>> =>
 const mostParts = 5
 
 /**
- * One case on PostgreSQL: the equation lowered at both sites, a query's and a check's, each over every row in one
- * statement, `jsonb_to_recordset` the rows; at each, PostgreSQL's value is the host's and the plain meaning, NULL
- * included, and the reference evaluator's where no operand is NULL.
+ * One case on PostgreSQL, over its transaction's session `db`: the equation lowered at both sites, a query's and a
+ * check's, each over every row in one statement, `jsonb_to_recordset` the rows; at each, PostgreSQL's value is the
+ * host's and the plain meaning, NULL included, and the reference evaluator's where no operand is NULL.
  */
-export const runEquation = (c: EquationCase, k: Case<EquationFeature>) =>
+export const runEquation = (db: CaseSession, c: EquationCase, k: Case<EquationFeature>) =>
 	Effect.gen(function* () {
-		const s = yield* Substrate
-		const db = yield* s.session(ownerSession())
 		const label = Formatter.format({
 			parts: c.parts,
 			shape: c.shape,

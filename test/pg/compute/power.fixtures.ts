@@ -161,7 +161,7 @@ export const floatPowerExpr: ExprDesc = spelledExpr(
 	computeCore.power(v("a", testPg.double), v("b", testPg.double)).expr
 )
 
-/** The evaluator's schema the properties seat their cases on (compute/support.ts evaluatorTemplate). */
+/** The evaluator's schema each case's transaction evaluates over (compute/support.ts evaluatorTemplate). */
 export const powerEvaluator = evaluatorTemplate(import.meta, "power evaluator")
 
 /**

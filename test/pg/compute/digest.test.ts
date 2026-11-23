@@ -27,7 +27,7 @@ import {
 	type Value
 } from "#test/pg/compute/digest.fixtures.ts"
 import { textCell } from "#test/pg/compute/support.ts"
-import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Crypto.sha256 on PostgreSQL the host's digest of any bytes is PostgreSQL's sha256(v), its 32 bytes, as a check and a query lower it.
@@ -57,7 +57,7 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const computeSha256OnPostgreSQLTheHostsDigestOfAnyBytesIsPostgreSQLsSha256VAsACheckAndAQueryLowerIt =
 	property.explore(batch, {
-		needs: { substrate: Substrate.installing, checkNeed },
+		needs: { tx: Substrate.transaction, checkNeed },
 		situations: [
 			"the empty value",
 			"one byte",
@@ -67,37 +67,32 @@ export const computeSha256OnPostgreSQLTheHostsDigestOfAnyBytesIsPostgreSQLsSha25
 			"a long value"
 		] satisfies ReadonlyArray<Reached<SqlFeature>>,
 		check:
-			({ substrate, checkNeed }, c: Case<SqlFeature>) =>
+			({ tx, checkNeed }, c: Case<SqlFeature>) =>
 			(values: ReadonlyArray<Value>) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const check = yield* checkNeed
-						const s = yield* Substrate
-						const db = yield* s.session(ownerSession())
+				Effect.gen(function* () {
+					const check = yield* checkNeed
+					const { session: db } = yield* tx
 
-						for (const feature of sqlNotes(values)) {
-							c.note(feature)
+					for (const feature of sqlNotes(values)) {
+						c.note(feature)
+					}
+					const bodies = Arr.map(values, bodyOf)
+					const rows = yield* db.values(digestsSql(check, read), [Arr.map(bodies, hexOf)])
+					assert.equal(rows.length, bodies.length, "a row per value")
+					for (const [row, body] of Arr.zip(rows, bodies)) {
+						const oracle = textCell(row, 2)
+						assert.equal(textCell(row, 0), oracle, "a check's digest is PostgreSQL's")
+						assert.equal(textCell(row, 1), oracle, "a query's digest is PostgreSQL's")
+						assert.equal(
+							textCell(row, 3),
+							"true",
+							"a check's digest is as many bytes as PostgreSQL's own"
+						)
+						for (const term of [check, read]) {
+							assert.equal(hostDigest(term, body), oracle, "the host's digest is PostgreSQL's")
 						}
-						const bodies = Arr.map(values, bodyOf)
-						const rows = yield* db.values(digestsSql(check, read), [Arr.map(bodies, hexOf)])
-						assert.equal(rows.length, bodies.length, "a row per value")
-						for (const [row, body] of Arr.zip(rows, bodies)) {
-							const oracle = textCell(row, 2)
-							assert.equal(textCell(row, 0), oracle, "a check's digest is PostgreSQL's")
-							assert.equal(textCell(row, 1), oracle, "a query's digest is PostgreSQL's")
-							assert.equal(
-								textCell(row, 3),
-								"true",
-								"a check's digest is as many bytes as PostgreSQL's own"
-							)
-							for (const term of [check, read]) {
-								assert.equal(hostDigest(term, body), oracle, "the host's digest is PostgreSQL's")
-							}
-						}
-					}),
-					Substrate,
-					substrate
-				),
+					}
+				}),
 		oracle: {
 			kind: "second-implementation",
 			name: "PostgreSQL's sha256(v)"

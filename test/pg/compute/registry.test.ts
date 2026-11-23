@@ -16,7 +16,7 @@ import { Array as Arr, Effect } from "effect"
 import { describeOp } from "#compiler/ir/expr.ts"
 import { nativeOps, operandCarriers } from "#compiler/scalar/compute/registry.ts"
 import { type EntryKind, entryProblems, sameOperands } from "#test/pg/compute/registry.fixtures.ts"
-import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * The scalar registry against pg_operator, pg_proc and pg_cast names the catalog's operator, function or cast for every entry, with its result type and volatility, once per node and operands.
@@ -30,36 +30,31 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const theComputeRegistryAgainstPgOperatorPgProcAndPgCastNamesTheCatalogsOperatorFunctionOrCastForEveryEntryWithItsResultTypeAndVolatilityOncePerNodeAndOperands =
 	property.exhaust(finite(int(0, nativeOps.length - 1)), {
-		needs: { substrate: Substrate.installing },
+		needs: { tx: Substrate.transaction },
 		situations: ["operator", "function", "cast", "input", "construct"] satisfies ReadonlyArray<
 			Reached<EntryKind>
 		>,
 		check:
-			({ substrate }, c: Case<EntryKind>) =>
+			({ tx }, c: Case<EntryKind>) =>
 			(i) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const { session } = yield* Substrate
-						const db = yield* session(ownerSession())
+				Effect.gen(function* () {
+					const { session: db } = yield* tx
 
-						const op = defined(nativeOps[i], `entry ${i}`)
-						const doubled =
-							op.fn !== "cast" &&
-							Arr.some(
-								Arr.take(nativeOps, i),
-								(o) => o.fn === op.fn && sameOperands(o.operands, op.operands)
-							)
-								? [
-										`${describeOp(op.id)}: a second ${op.fn} over ${Arr.join(operandCarriers(op.operands), ", ")}`
-									]
-								: []
-						const problems = yield* entryProblems(db, op)
-						assert.deepEqual([...doubled, ...problems], [])
-						c.note(op.catalog.kind)
-					}),
-					Substrate,
-					substrate
-				),
+					const op = defined(nativeOps[i], `entry ${i}`)
+					const doubled =
+						op.fn !== "cast" &&
+						Arr.some(
+							Arr.take(nativeOps, i),
+							(o) => o.fn === op.fn && sameOperands(o.operands, op.operands)
+						)
+							? [
+									`${describeOp(op.id)}: a second ${op.fn} over ${Arr.join(operandCarriers(op.operands), ", ")}`
+								]
+							: []
+					const problems = yield* entryProblems(db, op)
+					assert.deepEqual([...doubled, ...problems], [])
+					c.note(op.catalog.kind)
+				}),
 		oracle: {
 			kind: "postgresql",
 			name: "pg_operator, pg_proc, pg_cast and pg_type's entries for the object an entry names"

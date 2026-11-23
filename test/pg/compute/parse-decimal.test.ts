@@ -41,7 +41,7 @@ import {
 	ariaRanges
 } from "#test/pg/compute/parse-decimal.fixtures.ts"
 import { canonicalDecimal, decimalOrder } from "#test/support/oracle/evaluate/decimal-text.ts"
-import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Text.parseDecimal on PostgreSQL 19 the parse's SQL, a stored range, the host evaluator and XML Schema's decimal mapping agree exactly on every decimal text.
@@ -71,68 +71,63 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const computeParseDecimalOnPostgreSQL19TheParsesSQLAStoredRangeTheHostEvaluatorAndXMLSchemasDecimalMappingAgreeExactlyOnEveryDecimalText =
 	property.explore(recorded(array(pairGen, { min: 1, max: 24 }), ariaRanges), {
-		needs: { substrate2: Substrate.installing },
+		needs: { tx: Substrate.transaction },
 		situations: features satisfies ReadonlyArray<Reached<Feature>>,
 		check:
-			({ substrate2 }, c: Case<Feature>) =>
+			({ tx }, c: Case<Feature>) =>
 			(pairs) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const substrate = yield* Substrate
-						const db = yield* substrate.session(ownerSession())
-						return yield* Effect.scoped(
-							Effect.gen(function* () {
-								const texts = Arr.flatMap(pairs, (pair) => [pair.low, pair.high])
-								const computed = yield* db.values(
-									`SELECT (${parseSql})::text FROM jsonb_to_recordset($1::text::jsonb) AS r0(ord int4, v text) ORDER BY r0.ord`,
-									[jsonText(Arr.map(texts, (text, ord) => ({ ord, v: text })))]
+				Effect.gen(function* () {
+					const { connection, database, schema, session: db } = yield* tx
+					return yield* Effect.scoped(
+						Effect.gen(function* () {
+							const texts = Arr.flatMap(pairs, (pair) => [pair.low, pair.high])
+							const computed = yield* db.values(
+								`SELECT (${parseSql})::text FROM jsonb_to_recordset($1::text::jsonb) AS r0(ord int4, v text) ORDER BY r0.ord`,
+								[jsonText(Arr.map(texts, (text, ord) => ({ ord, v: text })))]
+							)
+							assert.equal(computed.length, texts.length, "a value per text")
+							for (const [i, text] of texts.entries()) {
+								const reference = valueOf(text)
+								const label = `${Formatter.format(text)}: reference ${canonicalDecimal(reference)}`
+								const host = hostValue(text)
+								const database = printed(defined(computed[i], "its row")[0])
+								assert.ok(
+									sameDecimalValue(host, reference),
+									`${label}, host ${canonicalDecimal(host)}`
 								)
-								assert.equal(computed.length, texts.length, "a value per text")
-								for (const [i, text] of texts.entries()) {
-									const reference = valueOf(text)
-									const label = `${Formatter.format(text)}: reference ${canonicalDecimal(reference)}`
-									const host = hostValue(text)
-									const database = printed(defined(computed[i], "its row")[0])
+								assert.ok(
+									sameDecimalValue(database, reference),
+									`${label}, PostgreSQL ${canonicalDecimal(database)}`
+								)
+								c.noteAll(textFeatures(text))
+							}
+							const schemaName = yield* schema("parse_decimal")
+							const installation = yield* parseDecimalInstallation(schemaName)
+							const rows = yield* storedRows(connection, database, installation, pairs)
+							assert.equal(rows.length, pairs.length, "a row per pair")
+							for (const [i, pair] of pairs.entries()) {
+								const row = defined(rows[i], "its stored row")
+								const order = decimalOrder(valueOf(pair.low), valueOf(pair.high))
+								const label = `${Formatter.format(pair)}: order ${order}`
+								assert.equal(row.below, order < 0 ? "true" : "false", `${label}, below`)
+								assert.equal(row.same, order === 0 ? "true" : "false", `${label}, same`)
+								if (pair.low.length <= storedBytes) {
 									assert.ok(
-										sameDecimalValue(host, reference),
-										`${label}, host ${canonicalDecimal(host)}`
+										sameDecimalValue(printed(row.stored), valueOf(pair.low)),
+										`${label}, stored ${row.stored}`
 									)
-									assert.ok(
-										sameDecimalValue(database, reference),
-										`${label}, PostgreSQL ${canonicalDecimal(database)}`
-									)
-									c.noteAll(textFeatures(text))
+									c.note("a value stored")
 								}
-								const installation = yield* parseDecimalInstallation
-								const pinned = yield* substrate.admin.pin
-								const rows = yield* storedRows(pinned, substrate.database, installation, pairs)
-								assert.equal(rows.length, pairs.length, "a row per pair")
-								for (const [i, pair] of pairs.entries()) {
-									const row = defined(rows[i], "its stored row")
-									const order = decimalOrder(valueOf(pair.low), valueOf(pair.high))
-									const label = `${Formatter.format(pair)}: order ${order}`
-									assert.equal(row.below, order < 0 ? "true" : "false", `${label}, below`)
-									assert.equal(row.same, order === 0 ? "true" : "false", `${label}, same`)
-									if (pair.low.length <= storedBytes) {
-										assert.ok(
-											sameDecimalValue(printed(row.stored), valueOf(pair.low)),
-											`${label}, stored ${row.stored}`
-										)
-										c.note("a value stored")
-									}
-									if (order === 0 && pair.low !== pair.high) {
-										c.note("one value spelled twice")
-									}
-									if (order > 0) {
-										c.note("a pair out of order")
-									}
+								if (order === 0 && pair.low !== pair.high) {
+									c.note("one value spelled twice")
 								}
-							})
-						)
-					}),
-					Substrate,
-					substrate2
-				),
+								if (order > 0) {
+									c.note("a pair out of order")
+								}
+							}
+						})
+					)
+				}),
 		oracle: {
 			kind: "second-implementation",
 			name: "XML Schema 1.1's decimal lexical mapping in BigInt, against the host evaluator, the parse's SQL and a stored range's generated fields"

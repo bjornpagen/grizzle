@@ -66,7 +66,7 @@ import {
  */
 export const anEquationWithAConcatenationOfAnyNumberOfPartsIsOnPostgreSQLTheWholeAgainstThePartsInOrderInAQueryAndACheck =
 	property.explore(loweredEquationGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { tx: Substrate.transaction },
 		situations: [
 			"two parts",
 			"three parts",
@@ -81,9 +81,9 @@ export const anEquationWithAConcatenationOfAnyNumberOfPartsIsOnPostgreSQLTheWhol
 			"an empty part"
 		] satisfies ReadonlyArray<Reached<EquationFeature>>,
 		check:
-			({ substrate }, k: Case<EquationFeature>) =>
+			({ tx }, k: Case<EquationFeature>) =>
 			(c) =>
-				Effect.provideServiceEffect(runEquation(c, k), Substrate, substrate),
+				Effect.flatMap(tx, ({ session }) => runEquation(session, c, k)),
 		oracle: {
 			kind: "specification",
 			name: "the equation's plain meaning, the whole against the parts' texts joined in order, NULL at a NULL operand"

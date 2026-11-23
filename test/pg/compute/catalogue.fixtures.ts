@@ -990,5 +990,5 @@ export const lcmPastOperandDigits = (k: ReadCase, agreed: boolean): boolean => {
 	)
 }
 
-/** The evaluator's schema the property seats its cases on (compute/support.ts evaluatorTemplate). */
+/** The evaluator's schema each case's transaction evaluates over (compute/support.ts evaluatorTemplate). */
 export const catalogueEvaluator = evaluatorTemplate(import.meta, "catalogue evaluator")

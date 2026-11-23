@@ -10,7 +10,7 @@ import {
 } from "#compiler/scalar/compute/registry.ts"
 import { textCell } from "#test/pg/compute/support.ts"
 import type { SqlError } from "#test/support/pg.ts"
-import type { RawSession } from "#test/support/substrate/session.ts"
+import type { CaseSession } from "#test/support/substrate/session.ts"
 
 const vectorSchema = "vector_ext"
 
@@ -56,7 +56,7 @@ const listedCode = (id: NativeOp["id"]): string => {
 
 /** What pg_operator says against an operator entry. */
 const operatorProblems = (
-	db: RawSession,
+	db: CaseSession,
 	op: NativeOp,
 	c: Extract<Catalog, { readonly kind: "operator" }>
 ) =>
@@ -95,7 +95,7 @@ const operatorProblems = (
 
 /** What pg_proc says against a function entry. */
 const functionProblems = (
-	db: RawSession,
+	db: CaseSession,
 	op: NativeOp,
 	c: Extract<Catalog, { readonly kind: "function" }>
 ) =>
@@ -127,7 +127,7 @@ const functionProblems = (
 
 /** What pg_cast says against a cast entry. */
 const castProblems = (
-	db: RawSession,
+	db: CaseSession,
 	op: NativeOp,
 	c: Extract<Catalog, { readonly kind: "cast" }>
 ) =>
@@ -154,7 +154,7 @@ const volatilityRank = (code: string): number => (code === "i" ? 0 : code === "s
  * two (nodeFuncs.c check_functions_in_node, CoerceViaIO).
  */
 const inputProblems = (
-	db: RawSession,
+	db: CaseSession,
 	op: NativeOp,
 	c: Extract<Catalog, { readonly kind: "input" }>
 ) =>
@@ -184,7 +184,7 @@ const inputProblems = (
 
 /** What the catalog says against one entry: the object it names, its result type and its volatility. */
 export const entryProblems = (
-	db: RawSession,
+	db: CaseSession,
 	op: NativeOp
 ): Effect.Effect<ReadonlyArray<string>, SqlError> => {
 	const c = op.catalog

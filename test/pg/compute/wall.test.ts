@@ -115,7 +115,7 @@ const zonesRead = (names: ReadonlyArray<ZoneName>) =>
  */
 export const timeWallOnPostgreSQL19EveryProbesWallClockIsTheTzifReferencesOverTheServersOwnZoneFiles =
 	property.explore(caseGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: [
 			"an instant short of a transition into daylight time",
 			"an instant past a transition into daylight time",
@@ -228,7 +228,7 @@ const rosterGen: Gen<{ readonly zone: ZoneName; readonly unknown: boolean }> = (
 /** A zone roster's migration reads each handle as a time zone: one the server's tzdata lacks refuses it with 22023. */
 export const aZoneRostersMigrationReadsEachHandleAsATimeZoneOneTheServersTzdataLacksRefusesItWith22023 =
 	property.explore(rosterGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: ["a roster of tzdata's zones installs", "a roster naming no zone is refused"],
 		check:
 			(
@@ -317,7 +317,7 @@ export const aZoneRostersMigrationReadsEachHandleAsATimeZoneOneTheServersTzdataL
  */
 export const timeEpochDayAndDateOfEpochDayOnPostgreSQL19AndTheHostAreHinnantsDayCount =
 	property.explore(dayCaseGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: [
 			"a date before 1970",
 			"a date of 1970 or after",

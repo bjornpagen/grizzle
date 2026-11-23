@@ -1,9 +1,8 @@
 /** What the property of contract.test.ts reads: its contract Rate, its literals and its evaluator schema. */
 import { array, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
-import { Effect, pipe, String as Str } from "effect"
+import { pipe, String as Str } from "effect"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
-import { installEvaluator } from "#test/pg/compute/support.ts"
-import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { evaluatorTemplate } from "#test/pg/compute/support.ts"
 import { testContract, testPg } from "#test/unit/compute/support.ts"
 
 /**
@@ -12,14 +11,11 @@ import { testContract, testPg } from "#test/unit/compute/support.ts"
  */
 export const domainRuns = 2
 
-/** A schema with the evaluator installed: the session a contract's domain checks run on. */
-export const evaluatorSchema = Effect.gen(function* () {
-	const { session, schema } = yield* Substrate
-	const db = yield* session(ownerSession())
-	const s = yield* schema(freshSchema)
-	yield* installEvaluator(db, s)
-	return { db, s }
-})
+/**
+ * The evaluator's schema (compute/support.ts evaluatorTemplate) each case's transaction creates its contract's domain in
+ * and casts its literals over, the domain undone with the transaction.
+ */
+export const contractEvaluator = evaluatorTemplate(import.meta, "contract evaluator")
 
 /** The contract the rounding property casts into: a rate of numeric(7, 6) within [0, 1]. */
 export const Rate = testContract("Rate", testPg.numericOf(7, 6), (x) =>
