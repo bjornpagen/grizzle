@@ -1,3 +1,4 @@
+import { rowsEmptied } from "@bjornpagen/testing/resources"
 import { Array as Arr, Brand, Effect } from "effect"
 import type { Names } from "#test/support/kernel/naming.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
@@ -38,48 +39,18 @@ export const tablesGroup = (tables: ReadonlyArray<string>): ResetGroup =>
 export const noTables: ResetGroup = tablesGroup([])
 
 /**
- * The deletion of every row of `group`'s tables, a reset's one way, never a TRUNCATE: its own READ COMMITTED
- * transaction, under the replica role, so no trigger fires, neither a law's nor a foreign key's (each table of the
- * group is emptied, so no reference among them is left dangling), then one DO block deleting each table's rows; none
- * for a group of no table. A TRUNCATE gives each table and each of its indexes a new relation file, and its commit
- * drops the old files' pages by a scan of every shared buffer: 16 clients on one server reset 117 cases a second by
- * TRUNCATE, 2,662 by this deletion and 18,517 by a rollback (the factory, 2026-11-23, over the pg tier at f87b2aaab),
- * and a case that commits nothing takes a rollback (Substrate.rolledBack, Substrate.transaction). A READ COMMITTED
- * transaction takes no part in SSI: it holds no SIREAD lock, and a version it deleted is no serializable transaction's,
- * so no later SERIALIZABLE transaction that meets it counts a conflict with it (replaceRows), and its DELETE reads no
- * version another transaction wrote under SSI's eyes, the reason a SERIALIZABLE DELETE was refused here. The deleted
- * versions stay until a vacuum: the cases after meet them as no serializable transaction's, which changes what a plan
- * reads and never what a statement answers.
+ * `group` emptied on `connection`'s one backend by the testing library's one reset (resources rowsEmptied), never a
+ * TRUNCATE: a READ COMMITTED transaction of its own under the replica role deleting every row of the group's tables,
+ * so no trigger fires, neither a law's nor a foreign key's (each table of the group is emptied, so no reference among
+ * them is left dangling), and no SERIALIZABLE transaction after it counts a conflict with what it deleted (replaceRows);
+ * nothing for a group of no table. A case that commits nothing takes a rollback instead (Substrate.rolledBack,
+ * Substrate.transaction).
  */
-const rowsDeletion = (group: ResetGroup): ReadonlyArray<ReplacedStatement> =>
-	Arr.match(group.tables, {
-		onEmpty: () => [],
-		onNonEmpty: (tables) => [
-			{ sql: "BEGIN ISOLATION LEVEL READ COMMITTED", params: [] },
-			{ sql: "SET LOCAL session_replication_role = replica", params: [] },
-			{
-				sql: `DO $reset$\nBEGIN\n${Arr.join(
-					Arr.map(tables, (t) => `\tDELETE FROM ${t};`),
-					"\n"
-				)}\nEND\n$reset$`,
-				params: []
-			},
-			{ sql: "COMMIT", params: [] }
-		]
-	})
-
-/** `group` emptied (rowsDeletion) on `connection`'s one backend. */
 const emptied = (
 	connection: Pick<PgConnection, "query">,
 	group: ResetGroup
 ): Effect.Effect<void, SqlError> =>
-	Effect.forEach(
-		rowsDeletion(group),
-		(statement) => connection.query(statement.sql, statement.params),
-		{
-			discard: true
-		}
-	)
+	Effect.forEach(rowsEmptied(group.tables), (sql) => connection.query(sql, []), { discard: true })
 
 /**
  * One statement of a reset: the deletion's, or one of the replacing transaction's after it, an insert or a sequence's
@@ -105,7 +76,7 @@ export interface ReplacedStatement {
  * it. Run alone the suites pass; under a full parallel run, or two copies of one file, they fail.
  *
  * So a case's rows are written whole, in one transaction that reads no version another serializable transaction wrote:
- * the inserts, after the deletion that emptied the group (rowsDeletion), a READ COMMITTED transaction of its own,
+ * the inserts, after the deletion that emptied the group (emptied), a READ COMMITTED transaction of its own,
  * whose versions no serializable transaction counts a conflict with. The inserts' own checks (a foreign key's, a law's)
  * read the rows the transaction itself inserted, since no live row of the group outlives the deletion, and the
  * versions it deleted, which are no serializable transaction's, and a sequence's tuple is frozen: the transaction has
@@ -167,7 +138,7 @@ const insertedOn = (
 /**
  * Empties every table of `group` between the cases of a suite that clears its state rather than replacing it, on
  * `connection`'s one backend (a PgConnection, or a substrate proof's own RawSession): the deletion of its rows
- * (rowsDeletion), for replaceRows' reasons.
+ * (emptied), for replaceRows' reasons.
  */
 export const clearRows = (
 	connection: Pick<PgConnection, "query">,
