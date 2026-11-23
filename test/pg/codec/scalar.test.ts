@@ -162,7 +162,6 @@ export const exactScalarCodecsAgainstPostgreSQLStoresFactsThroughTheirArraysAndD
 					const { table, columns, create, encode, arrayColumns, selectList, decodeRow } =
 						readingOver(names)
 					yield* db.values(create, [])
-					yield* db.values(`TRUNCATE ${table}`, [])
 					const { arrays, count } = succeeded(encode(facts))
 					const inserted = yield* db.query(
 						`INSERT INTO ${table} SELECT ${selectList} FROM (SELECT ${arrayColumns}) AS r0`,
