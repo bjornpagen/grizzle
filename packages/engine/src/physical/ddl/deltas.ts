@@ -57,7 +57,6 @@ import {
 	le,
 	lit,
 	namedType,
-	not,
 	notExists,
 	objectName,
 	or,
@@ -68,7 +67,7 @@ import {
 	types,
 	windowOf
 } from "#compiler/sql/build.ts"
-import { sessionTableEmptied, sessionTableOurs, sessionTableStands } from "#compiler/sql/print.ts"
+import { sessionTableEmptied } from "#compiler/sql/print.ts"
 import { identityHooks, inertVisitor, Transform, visitSelect } from "#compiler/sql/transform.ts"
 
 /**
@@ -244,13 +243,10 @@ export const holding = (name: string, alias: string): Expr =>
 	exists(simpleSelect([], [{ kind: "table", table: sessionTable(name), alias }], undefined))
 
 /**
- * The refusal of a session table some other role made under the judge's name: a login that creates one first could
- * empty it before COMMIT, so the judge never reads a table its definer did not create.
+ * The refusal of a session table some other role made under the judge's name, the table's name `table`: a login that
+ * creates one first could empty it before COMMIT, so the judge never reads a table its definer did not create.
  */
-export const foreign = (name: string): PlStatement => foreignOf(lit.text(name, types.text))
-
-/** The refusal of a session table some other role made under the judge's name (`foreign`), the table's name `table`. */
-const foreignOf = (table: Expr): PlStatement => ({
+export const foreignOf = (table: Expr): PlStatement => ({
 	kind: "raise",
 	message: "a session table of the rule judge that the judge's definer does not own",
 	using: [
@@ -260,26 +256,17 @@ const foreignOf = (table: Expr): PlStatement => ({
 	]
 })
 
-/** Creates the delta where the session holds none, and refuses one the definer does not own (`foreign`). */
-export const ensured = (delta: SessionDelta): PlStatement => ({
-	kind: "if",
-	branches: [
-		{
-			condition: not(sessionTableStands(delta.name)),
-			body: [
-				{
-					kind: "createSessionTable",
-					name: delta.name,
-					columns: delta.table,
-					notNull: false,
-					primaryKey: undefined,
-					storage: delta.storage
-				}
-			]
-		},
-		{ condition: not(sessionTableOurs(delta.name, [], [])), body: [foreign(delta.name)] }
-	],
-	else: []
+/**
+ * The delta's table made in the session, where the session holds none (physical/ddl/rules.ts standing, which refuses a
+ * table some other role made under its name).
+ */
+export const deltaTable = (delta: SessionDelta): PlStatement => ({
+	kind: "createSessionTable",
+	name: delta.name,
+	columns: delta.table,
+	notNull: false,
+	primaryKey: undefined,
+	storage: delta.storage
 })
 
 /** A row's image on a side (`JudgedSide`): its primary key's columns, then every other column the side reads. */

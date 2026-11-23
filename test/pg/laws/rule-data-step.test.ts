@@ -43,9 +43,9 @@ export const aMigrationsDataStepThatBreaksARuleOverAQueryIsRefusedAtItsStatement
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
 				original:
-					"\t): ReadonlyArray<PlStatement> => [\n\t\tarmedSentinel(sentinel, judge),\n\t\t...writes,\n\t\t...arming(sentinel, deltas)\n\t]",
+					"\t): ReadonlyArray<PlStatement> => [\n\t\t...standing([\n\t\t\tsentinelStood(sentinel, judge),\n\t\t\t...deltas.map((d) => deltaStood(d, undefined)),\n\t\t\t...read\n\t\t]),\n\t\t...writes,\n\t\t...arming(sentinel, deltas)\n\t]",
 				replacement:
-					"\t): ReadonlyArray<PlStatement> => [\n\t\tarmedSentinel(sentinel, judge),\n\t\t...arming(sentinel, deltas),\n\t\t...writes\n\t]",
+					"\t): ReadonlyArray<PlStatement> => [\n\t\t...standing([\n\t\t\tsentinelStood(sentinel, judge),\n\t\t\t...deltas.map((d) => deltaStood(d, undefined)),\n\t\t\t...read\n\t\t]),\n\t\t...arming(sentinel, deltas),\n\t\t...writes\n\t]",
 				why: "The capture inserts the sentinel's row before its rows, as before, so the judge the data step fires reads none of them, and the breaking step runs on, refused only by the Validate file's full violation check."
 			}
 		]

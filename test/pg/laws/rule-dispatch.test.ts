@@ -88,9 +88,9 @@ export const theRuleJudgeRunsExactlyTheRulesOverTheRelationsATransactionWrote = 
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
 				original:
-					"\t\t\t\t\t\tbranches: [{ condition: anyRowed(besides), body: [ensured(delta)] }],",
+					"\t\t\t\t\t\t\t\t\tmapNonEmpty([s0, ...ss], (x) => deltaStood(x.delta, anyRowed(x.besides)))",
 				replacement:
-					"\t\t\t\t\t\tbranches: [{ condition: lit.bool(true), body: [ensured(delta)] }],",
+					"\t\t\t\t\t\t\t\t\tmapNonEmpty([s0, ...ss], (x) => deltaStood(x.delta, undefined))",
 				why: "Every delta a part's whole rule reads is stood up at every run of its part, as the judge stood every unit's delta up before the dispatch: a transaction that writes a learner's answers creates the visits' delta, and one that writes a package's parts the documents', a temporary table each, whose every COMMIT truncates it."
 			}
 		]

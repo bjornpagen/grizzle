@@ -2,6 +2,7 @@ import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	appendNonEmpty,
+	flatMapNonEmpty,
 	headNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
@@ -55,8 +56,8 @@ import {
 	captured,
 	deltaRelation,
 	emptied,
-	ensured,
-	foreign,
+	deltaTable,
+	foreignOf,
 	headed,
 	holding,
 	type JudgedSide,
@@ -86,15 +87,19 @@ import type {
 } from "#compiler/sql/ast.ts"
 import { transitionTables } from "#compiler/sql/ast.ts"
 import {
+	and,
 	call,
+	cast,
 	col,
 	core,
 	eq,
 	exists,
 	lit,
+	ne,
 	not,
 	notExists,
 	objectName,
+	or,
 	provedCore,
 	provedSelect,
 	qualifiedCall,
@@ -105,7 +110,7 @@ import {
 	whenFound
 } from "#compiler/sql/build.ts"
 import { assignments, ungenerated } from "#compiler/sql/generation.ts"
-import { printTableName, sessionTableOurs, sessionTableStands } from "#compiler/sql/print.ts"
+import { printTableName, sessionTablesStanding, stoodApart } from "#compiler/sql/print.ts"
 import { type StoredColumns, storedColumns } from "#compiler/sql/stored.ts"
 
 /** A compiled probe: the statement whose rows break the rule, its outputs unaliased, and its index requests. */
@@ -475,45 +480,161 @@ const catalogTable = (name: string, alias: string): FromSource => ({
 })
 
 /**
- * Creates the sentinel and its trigger, which runs `judge`, where the session holds none, and refuses one the definer
- * does not own or whose trigger runs no judge of this installation (`foreign`): a sentinel left without its trigger, by a
- * DROP ... CASCADE of the judge, would arm nothing.
+ * A session table a site of the judge stands up or reads (`standing`): its name, the statements that make it, none
+ * where the site only asks whether the session holds it, and the condition, beside the session holding none, it is
+ * made under, none where each run of the site makes it.
  */
-const armedSentinel = (sentinel: string, judge: ObjectName): PlStatement => ({
-	kind: "if",
-	branches: [
+interface Stood {
+	readonly name: string
+	readonly create: ReadonlyArray<PlStatement>
+	readonly when: Expr | undefined
+	/** What more its pg_class row under `alias` holds where it is the judge's own, beside its owner (`standing`). */
+	readonly owned: (alias: string) => ReadonlyArray<Expr>
+}
+
+/** The name of a site's variable that holds which of its session tables stand (`standing`). */
+const stoodName = "__stood"
+
+/**
+ * The sentinel as a site stands it up (`standing`): made with its trigger, which runs `judge`.
+ */
+const sentinelStood = (sentinel: string, judge: ObjectName): Stood => ({
+	name: sentinel,
+	create: [
 		{
-			condition: not(sessionTableStands(sentinel)),
-			body: [
-				{
-					kind: "createSessionTable",
-					name: sentinel,
-					columns: sentinelTable,
-					notNull: false,
-					primaryKey: undefined,
-					storage: "toasted"
-				},
-				{ kind: "createSessionTrigger", name: sentinel, table: sentinel, function: judge }
-			]
+			kind: "createSessionTable",
+			name: sentinel,
+			columns: sentinelTable,
+			notNull: false,
+			primaryKey: undefined,
+			storage: "toasted"
 		},
-		{
-			condition: not(
-				sessionTableOurs(
-					sentinel,
-					[catalogTable("pg_trigger", "r3")],
-					[
-						eq(col("r3", "tgrelid"), col("r2", "oid")),
-						eq(
-							col("r3", "tgfoid"),
-							call("to_regprocedure", [lit.text(`${printTableName(judge)}()`, types.text)])
-						)
-					]
-				)
-			),
-			body: [foreign(sentinel)]
-		}
+		{ kind: "createSessionTrigger", name: sentinel, table: sentinel, function: judge }
 	],
-	else: []
+	when: undefined,
+	owned: (alias) => [
+		exists(
+			simpleSelect(
+				[],
+				[catalogTable("pg_trigger", "r3")],
+				and([
+					eq(col("r3", "tgrelid"), col(alias, "oid")),
+					eq(
+						col("r3", "tgfoid"),
+						call("to_regprocedure", [lit.text(`${printTableName(judge)}()`, types.text)])
+					)
+				])
+			)
+		)
+	]
+})
+
+/** The side of news as a DELETE's site reads it (addCapture `removedFromNews`): asked after, never made. */
+const newsReadOf = (news: JudgedSide): Stood => ({
+	name: news.delta.name,
+	create: [],
+	when: undefined,
+	owned: () => []
+})
+
+/** A delta as a site stands it up (`standing`), under `when`. */
+const deltaStood = (delta: SessionDelta, when: Expr | undefined): Stood => ({
+	name: delta.name,
+	create: [deltaTable(delta)],
+	when,
+	owned: () => []
+})
+
+/**
+ * Each of a site's session tables `tables` stood up where the session holds none and its condition holds, read by one
+ * statement over the catalog for them all (sql/print.ts sessionTablesStanding), so a site plans one read of
+ * pg_catalog.pg_class however many tables it stands up, where each table's stand-up planned two of its own, a fresh
+ * backend's first write planning every one: a save's 23 at 10x, 10.5 ms. A table that stands but is not the definer's
+ * own temporary table, or a sentinel whose trigger runs no judge of this installation (a sentinel left without its
+ * trigger, by a DROP ... CASCADE of the judge, would arm nothing), is refused (deltas.ts foreignOf): a login that made
+ * one first could empty it before COMMIT.
+ *
+ *   __stood := <which of the tables stand, each the definer's own or marked apart (sessionTablesStanding)>
+ *   IF __stood && '{!<table>,...}' THEN <refused> END IF
+ *   IF NOT __stood @> '{<table>}' [AND <condition>] THEN <made> END IF ...
+ */
+const standing = (tables: NonEmptyReadonlyArray<Stood>): NonEmptyReadonlyArray<PlStatement> => {
+	const names = mapNonEmpty(tables, (t) => t.name)
+	const stood: Expr = { kind: "plVar", name: stoodName }
+	const apart = mapNonEmpty(names, (n) => `${stoodApart}${n}`)
+	/** Each table's own condition, where it is the row's table. */
+	const owned = (alias: string): ReadonlyArray<Expr> =>
+		tables.flatMap((t) => {
+			const [first, ...rest] = t.owned(alias)
+			return first === undefined
+				? []
+				: [
+						or([
+							ne(cast(col(alias, "relname"), types.text), lit.text(t.name, types.text)),
+							and([first, ...rest])
+						])
+					]
+		})
+	const firstApart: Expr = {
+		kind: "case",
+		operand: undefined,
+		whens: mapNonEmpty(names, (n) => ({
+			when: contains(stood, [`${stoodApart}${n}`]),
+			result: lit.text(n, types.text)
+		})),
+		else: lit.text(headNonEmpty(names), types.text)
+	}
+	return [
+		{ kind: "assign", target: stoodName, value: sessionTablesStanding(names, owned) },
+		{
+			kind: "if",
+			branches: [
+				{
+					condition: {
+						kind: "binary",
+						op: "&&",
+						left: stood,
+						right: namesOf(apart),
+						schema: undefined
+					},
+					body: [foreignOf(firstApart)]
+				}
+			],
+			else: []
+		},
+		...tables.flatMap((t): ReadonlyArray<PlStatement> => {
+			const [first, ...rest] = t.create
+			return first === undefined
+				? []
+				: [
+						{
+							kind: "if",
+							branches: [
+								{
+									condition: and([
+										not(contains(stood, [t.name])),
+										...(t.when === undefined ? [] : [t.when])
+									]),
+									body: [first, ...rest]
+								}
+							],
+							else: []
+						}
+					]
+		})
+	]
+}
+
+/** That a site's stand-up found the session holding the table `name` (`standing`). */
+const standingHolds = (name: string): Expr => contains({ kind: "plVar", name: stoodName }, [name])
+
+/** That the text[] `set` holds every one of `names`. */
+const contains = (set: Expr, names: NonEmptyReadonlyArray<string>): Expr => ({
+	kind: "binary",
+	op: "@>",
+	left: set,
+	right: namesOf(names),
+	schema: undefined
 })
 
 /**
@@ -821,7 +942,7 @@ const partsOf = (judged: ReadonlyArray<Judged>): ReadonlyArray<JudgePart> => {
  *   (`netted`), so it holds delta.added, and read again, since the images it held may all cancel; a side of olds holds
  *   the rows it was marked for. A delta the transaction did not write is never read: a session's deltas of every
  *   relation an earlier transaction wrote hold no row of this one;
- * - each delta a block reads beside the one that ran it, stood up where such a block runs (`ensured`, which refuses a
+ * - each delta a block reads beside the one that ran it, stood up where such a block runs (`standing`, which refuses a
  *   table another role made under its name): a whole rule's region reads the delta of each side it reads of each holder
  *   of its unit, and a transaction that wrote one of them need not have written the others, which the session then may
  *   not hold. A delta every block that reads it runs on alone stands wherever one of them runs, its own row having run
@@ -868,7 +989,8 @@ const partBody = (
 			else: []
 		}
 	})
-	const stoodUp = part.deltas.flatMap((delta): ReadonlyArray<PlStatement> => {
+	/** Each delta a block reads beside another, stood up where a delta read beside it holds a row. */
+	const besidesOf = part.deltas.flatMap((delta) => {
 		const besides = [
 			...new Set(
 				part.blocks.flatMap((j) =>
@@ -876,18 +998,31 @@ const partBody = (
 				)
 			)
 		].toSorted((x, y) => compareStrings(x.name, y.name))
-		return isNonEmpty(besides)
-			? [
+		return isNonEmpty(besides) ? [{ delta, besides }] : []
+	})
+	const [s0, ...ss] = besidesOf
+	const stoodUp: ReadonlyArray<PlStatement> =
+		s0 === undefined
+			? []
+			: [
 					{
 						kind: "if",
-						branches: [{ condition: anyRowed(besides), body: [ensured(delta)] }],
+						branches: [
+							{
+								condition: anyRowed(flatMapNonEmpty([s0, ...ss], (x) => x.besides)),
+								body: standing(
+									mapNonEmpty([s0, ...ss], (x) => deltaStood(x.delta, anyRowed(x.besides)))
+								)
+							}
+						],
 						else: []
 					}
 				]
-			: []
-	})
 	return {
-		declare: [{ name: rowedName, type: namesType }],
+		declare: [
+			{ name: rowedName, type: namesType },
+			...(isNonEmpty(stoodUp) ? [{ name: stoodName, type: namesType }] : [])
+		],
 		body: [
 			{ kind: "assign", target: rowedName, value: lit.text("{}", namesType) },
 			headNonEmpty(flags),
@@ -1001,9 +1136,10 @@ const emptiedWhereWritten = (delta: SessionDelta): PlStatement => ({
  * subset at every row of the delta. A probe's lookup of any other table at its key remains PostgreSQL's choice, which
  * statistics make (README, Rules over queries).
  * - Tamper: pg_temp is one namespace per session, which every role of it writes, so a login could create a delta or the
- *   sentinel first, own it and empty it before COMMIT. Every capture checks the sentinel and the delta it writes, and a
- *   part every delta it stands up: each must be the definer's own temporary table (`ours`), the sentinel's trigger the
- *   judge, or the statement is refused, insufficient_privilege naming the table (`foreign`). The judge reads only the
+ *   sentinel first, own it and empty it before COMMIT. Every capture checks the sentinel and the deltas it writes, and a
+ *   part every delta it stands up, each site in one read of the catalog (`standing`): each must be the definer's own
+ *   temporary table, the sentinel's trigger the judge, or the statement is refused, insufficient_privilege naming the
+ *   table (deltas.ts foreignOf). The judge reads only the
  *   deltas the written set names, each checked by the capture that marked it, and the set itself the sentinel's row,
  *   which no other role may write. Every function is SECURITY
  *   DEFINER under closedSearchPath, every name it reads schema-qualified, EXECUTE revoked from PUBLIC.
@@ -1452,15 +1588,21 @@ const addCapture = (
 	const news = side("added")
 	const olds = side("removed")
 	/**
-	 * The sentinel stood up, then the writes, each of which marks the deltas it writes in the standing row (`marked`),
-	 * then the row written where none stands, naming `deltas` that hold a row (`arming`): last, so the judge it fires
-	 * reads this capture's rows.
+	 * The sentinel and `deltas`, the deltas the writes write, stood up in one read of the catalog beside the tables
+	 * `read` the writes only ask after (`standing`), then the writes, each of which marks the deltas it writes in the
+	 * standing row (`marked`), then the row written where none stands, naming `deltas` that hold a row (`arming`):
+	 * last, so the judge it fires reads this capture's rows.
 	 */
 	const armed = (
 		deltas: NonEmptyReadonlyArray<SessionDelta>,
+		read: ReadonlyArray<Stood>,
 		writes: ReadonlyArray<PlStatement>
 	): ReadonlyArray<PlStatement> => [
-		armedSentinel(sentinel, judge),
+		...standing([
+			sentinelStood(sentinel, judge),
+			...deltas.map((d) => deltaStood(d, undefined)),
+			...read
+		]),
 		...writes,
 		...arming(sentinel, deltas)
 	]
@@ -1468,11 +1610,7 @@ const addCapture = (
 		s: JudgedSide,
 		rows: TransitionTable,
 		other: TransitionTable | undefined
-	): ReadonlyArray<PlStatement> => [
-		ensured(s.delta),
-		captured(relation, s, rows, other),
-		marked(sentinel, s.delta)
-	]
+	): ReadonlyArray<PlStatement> => [captured(relation, s, rows, other), marked(sentinel, s.delta)]
 	const updatedSides = [news, olds].flatMap((s): ReadonlyArray<JudgedSide> =>
 		s === undefined || s.read.length === 0 ? [] : [s]
 	)
@@ -1481,13 +1619,15 @@ const addCapture = (
 			? []
 			: s.side === "added"
 				? [
-						ensured(s.delta),
 						captured(relation, s, transitionTables.news, transitionTables.olds),
 						captured(relation, s, transitionTables.olds, transitionTables.news),
 						marked(sentinel, s.delta)
 					]
 				: into(s, transitionTables.olds, transitionTables.news)
 	)
+	/** The rows a DELETE removed counted out of the side of news, where the session holds that delta, which the site
+	 * reads (`newsRead`) and never makes: a transaction that wrote no image of the relation has none to cancel, and a
+	 * removal is counted only once the delta holds a row (deltas.ts captured). */
 	const removedFromNews: ReadonlyArray<PlStatement> =
 		news === undefined
 			? []
@@ -1496,25 +1636,18 @@ const addCapture = (
 						kind: "if",
 						branches: [
 							{
-								condition: sessionTableStands(news.delta.name),
-								body: [
-									{
-										kind: "if",
-										branches: [
-											{
-												condition: not(sessionTableOurs(news.delta.name, [], [])),
-												body: [foreign(news.delta.name)]
-											}
-										],
-										else: []
-									},
-									captured(relation, news, transitionTables.olds, undefined)
-								]
+								condition: standingHolds(news.delta.name),
+								body: [captured(relation, news, transitionTables.olds, undefined)]
 							}
 						],
 						else: []
 					}
 				]
+	/** The side of news as a DELETE's site reads it (`removedFromNews`): asked after, never made. */
+	const newsRead: ReadonlyArray<Stood> =
+		news === undefined
+			? []
+			: [{ name: news.delta.name, create: [], when: undefined, owned: () => [] }]
 	/**
 	 * `body` where the statement wrote a row, its transition table `rows` holding one: a statement that wrote none
 	 * captures nothing, stands up no delta and arms no judge, so a part of a write whose input held no fact, or whose
@@ -1545,7 +1678,7 @@ const addCapture = (
 						event: "insert" as const,
 						body: whereRowed(
 							transitionTables.news,
-							armed([news.delta], into(news, transitionTables.news, undefined))
+							armed([news.delta], [], into(news, transitionTables.news, undefined))
 						)
 					}
 				]),
@@ -1557,6 +1690,7 @@ const addCapture = (
 							transitionTables.news,
 							armed(
 								mapNonEmpty(updatedSides, (updatedSide) => updatedSide.delta),
+								[],
 								updated
 							)
 						)
@@ -1566,16 +1700,24 @@ const addCapture = (
 		...(olds === undefined
 			? news === undefined
 				? []
-				: [{ event: "delete" as const, body: whereRowed(transitionTables.olds, removedFromNews) }]
+				: [
+						{
+							event: "delete" as const,
+							body: whereRowed(transitionTables.olds, [
+								...standing([newsReadOf(news)]),
+								...removedFromNews
+							])
+						}
+					]
 			: [
 					{
 						event: "delete" as const,
 						body: whereRowed(
 							transitionTables.olds,
-							armed(
-								[olds.delta],
-								[...into(olds, transitionTables.olds, undefined), ...removedFromNews]
-							)
+							armed([olds.delta], newsRead, [
+								...into(olds, transitionTables.olds, undefined),
+								...removedFromNews
+							])
 						)
 					}
 				])
@@ -1596,7 +1738,10 @@ const addCapture = (
 			parallel: "UNSAFE",
 			security: "DEFINER",
 			body: {
-				declare: [{ name: armedName, type: namesType }],
+				declare: [
+					{ name: armedName, type: namesType },
+					{ name: stoodName, type: namesType }
+				],
 				body: [
 					{
 						kind: "if",

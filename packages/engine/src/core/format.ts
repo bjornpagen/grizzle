@@ -247,6 +247,9 @@
  * An attachment whose child reads a union or a fold through a rule that matches it as it stands reads it per parent key
  * inside its LATERAL (lower/optimize/cte-policy probedByKey, perKeyReads), where format 8 derived it whole, a
  * MATERIALIZED CTE the LATERAL filtered.
+ * Each capture's branch and each part stands its session tables up in one read of pg_catalog.pg_class
+ * (physical/ddl/rules.ts standing, sql/print.ts sessionTablesStanding), where format 8 asked whether each table stood
+ * and whether it was the definer's own in two statements of its own, so every capture function's and part's body moves
  */
 export const artifactFormat = 8
 

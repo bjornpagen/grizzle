@@ -104,16 +104,20 @@ import {
 import {
 	and,
 	call as builtinCall,
+	cast,
 	col,
 	conjunction,
 	cUtf8Collation,
 	eq,
 	exists,
 	gt,
+	isIn,
 	lit,
 	not,
 	objectName,
 	or,
+	provedCore,
+	select as selectOf,
 	simpleSelect,
 	types
 } from "#compiler/sql/build.ts"
@@ -1507,7 +1511,7 @@ const ownedSessionTable = (alias: string): NonEmptyReadonlyArray<Expr> => [
  * That the session's relation named `name` is a temporary table CURRENT_USER owns (`ownedSessionTable`), read with
  * `from` beside its pg_class row, r2, where each of `more` holds of it.
  */
-export const sessionTableOurs = (
+const sessionTableOurs = (
 	name: string,
 	from: ReadonlyArray<FromSource>,
 	more: ReadonlyArray<Expr>
@@ -1520,8 +1524,54 @@ export const sessionTableOurs = (
 		)
 	)
 
+/**
+ * Which of the session's tables `names` stand: each as its name where it is a temporary table CURRENT_USER owns
+ * (`ownedSessionTable`) of which each of `more(r1)` holds, and as `!` and its name where it stands otherwise, a table
+ * some other role made under it, all of them read by one statement over pg_catalog.pg_class, so a site that stands up
+ * several session tables plans one read of the catalog (physical/ddl/rules.ts standing):
+ *
+ *   ARRAY(SELECT CASE WHEN <owned r1> AND <more> THEN r1.relname::text ELSE '!' || r1.relname::text END
+ *     FROM pg_catalog.pg_class AS r1 WHERE r1.oid IN (pg_catalog.to_regclass('"pg_temp"."<name>"'), ...))
+ */
+export const sessionTablesStanding = (
+	names: NonEmptyReadonlyArray<string>,
+	more: (alias: string) => ReadonlyArray<Expr>
+): Expr => {
+	const name = cast(col("r1", "relname"), types.text)
+	return {
+		kind: "array",
+		query: selectOf(
+			provedCore(
+				"keyed",
+				[
+					{
+						expr: {
+							kind: "case",
+							operand: undefined,
+							whens: [{ when: and([...ownedSessionTable("r1"), ...more("r1")]), result: name }],
+							else: {
+								kind: "binary",
+								op: "||",
+								left: lit.text(stoodApart, types.text),
+								right: name,
+								schema: undefined
+							}
+						},
+						alias: undefined
+					}
+				],
+				[{ kind: "table", table: objectName("pg_catalog", "pg_class"), alias: "r1" }],
+				isIn(col("r1", "oid"), mapNonEmpty(names, sessionRegclass))
+			)
+		)
+	}
+}
+
+/** The mark a session table's name takes in `sessionTablesStanding` where some other role made it. */
+export const stoodApart = "!"
+
 /** That the session's temporary schema holds a relation named `name`: what a session table's stand-up asks. */
-export const sessionTableStands = (name: string): Expr =>
+const sessionTableStands = (name: string): Expr =>
 	exists(
 		simpleSelect(
 			[],
