@@ -21,7 +21,6 @@ import {
 } from "#test/support/pg.ts"
 import { testSql } from "#test/support/sql.ts"
 import { roleName } from "#test/support/substrate/names.ts"
-import { noTables } from "#test/support/substrate/replace.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
 import { installTemplate, Substrate } from "#test/support/substrate/substrate.ts"
 import { templatePassword } from "#test/support/substrate/templates.ts"
@@ -84,8 +83,7 @@ export const loginTemplate = (declaredIn: ImportMeta, name: string) =>
 		bind: (schema, binding): Credentials => {
 			const role = roleName(schema, "server")
 			return { role, password: Redacted.make(templatePassword(binding.cluster, role)) }
-		},
-		reset: () => noTables
+		}
 	})
 
 export interface PoolOptions {

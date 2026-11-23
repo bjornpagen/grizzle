@@ -2,9 +2,7 @@ import { Effect } from "effect"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { templateNeedBudget } from "#test/support/budgets.ts"
 import { installationSql } from "#test/support/compile.ts"
-import { installationNamesOf } from "#test/support/kernel/naming.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
-import { installationGroup } from "#test/support/substrate/replace.ts"
 import type { SubstrateWorld } from "#test/support/substrate/session.ts"
 import {
 	installTemplate,
@@ -37,8 +35,7 @@ interface ScriptSpec {
  * An installation's script as a template (substrate.ts installTemplate): compiled under the template's schema name by
  * every worker as it plans (`compile`), its script run as the owner once per member in one transaction and its oracle
  * login given its password, where a suite ran it in every case; each case's ScriptInstall the installation in its
- * clone, its world logging in with the password the template derived (worlds.ts templateOracleWorld), and the seat's
- * reset emptying every table of the installation.
+ * clone, its world logging in with the password the template derived (worlds.ts templateOracleWorld).
  */
 export const scriptTemplate = (spec: ScriptSpec): SubstrateTemplate<ScriptInstall> =>
 	installTemplate({
@@ -61,6 +58,5 @@ export const scriptTemplate = (spec: ScriptSpec): SubstrateTemplate<ScriptInstal
 			schema,
 			installation,
 			world: templateOracleWorld(installation, binding)
-		}),
-		reset: (installed) => installationGroup(installationNamesOf(installed.installation))
+		})
 	})

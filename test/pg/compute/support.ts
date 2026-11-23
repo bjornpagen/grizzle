@@ -14,7 +14,6 @@ import { strictIntegers, strictRead } from "#test/support/kernel/strict.ts"
 import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
 import { type CatalogResult, declinedOps } from "#test/support/oracle/evaluate/catalog.ts"
 import type { PgConnection, RawQueryResult, SqlError } from "#test/support/pg.ts"
-import { noTables } from "#test/support/substrate/replace.ts"
 import type { CaseSession } from "#test/support/substrate/session.ts"
 import {
 	installTemplate,
@@ -85,8 +84,7 @@ export const evaluatorTemplate = (
 				const db = yield* s.session(ownerSession())
 				yield* installEvaluator(db, schema)
 			}),
-		bind: (schema) => schema,
-		reset: () => noTables
+		bind: (schema) => schema
 	})
 
 export type PgAnswer =

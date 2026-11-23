@@ -80,12 +80,7 @@ import { schemaDescIn } from "#test/support/policy.ts"
 import type { BudgetedCluster } from "#test/support/substrate/budget.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { type TemplateNames } from "#test/support/substrate/names.ts"
-import {
-	installationGroup,
-	noTables,
-	replaceRows,
-	type ResetGroup
-} from "#test/support/substrate/replace.ts"
+import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import type { Credentials, SubstrateWorld } from "#test/support/substrate/session.ts"
 import {
 	type TemplateBinding,
@@ -913,22 +908,18 @@ interface HistorySpec {
 }
 
 /**
- * A history's template (historyTemplate's) as its build seeds it once the history is applied, and as a seat's reset
- * empties it after each case: `seed` writes, as the build's owner, what every case over a clone of it starts from, and
- * `reset` names the tables a case writes.
+ * What a history's template's build (historyTemplate's) writes once the history is applied, as the build's owner: what
+ * every case over a clone of it starts from.
  */
-interface Seeding<E> {
-	readonly seed: (installed: Installed) => Effect.Effect<void, E, Substrate | Scope.Scope>
-	readonly reset: (installed: Installed) => ResetGroup
-}
+type Seed<E> = (installed: Installed) => Effect.Effect<void, E, Substrate | Scope.Scope>
 
 /**
  * A history's template (substrate.ts installTemplate): `versions` drafted under the template's names (draftedHistory)
  * by every worker, applied once per member by the build exactly as installMigratedThrough applies a history
- * (appliedHistory) and seeded as `seeding` says, and each case's Installed the last version's, in the case's clone,
+ * (appliedHistory) and seeded by `seed`, and each case's Installed the last version's, in the case's clone,
  * every login logging in with the password its template derived.
  */
-const historyTemplate = <E>(spec: HistorySpec, seeding: Seeding<E>): SubstrateTemplate<Installed> =>
+const historyTemplate = <E>(spec: HistorySpec, seed: Seed<E>): SubstrateTemplate<Installed> =>
 	installTemplate({
 		budget: templateNeedBudget,
 		declaredIn: spec.declaredIn,
@@ -947,22 +938,17 @@ const historyTemplate = <E>(spec: HistorySpec, seeding: Seeding<E>): SubstrateTe
 				})
 			),
 		install: ({ names, history }) =>
-			Effect.flatMap(appliedHistory(history, names.schema, spec.options, new Map()), seeding.seed),
-		reset: seeding.reset,
+			Effect.flatMap(appliedHistory(history, names.schema, spec.options, new Map()), seed),
 		bind: ({ names, history }, binding) =>
 			templateInstalled(names, history, spec.options.ambient, new Map(), binding)
 	})
 
 /**
- * A history's template (historyTemplate) whose build seeds nothing and whose seat's reset empties every stored
- * relation's table of the installation. `content` is what tells this template from another its module declares (the
- * versions' and options' data): its module's import closure covers their code.
+ * A history's template (historyTemplate) whose build seeds nothing. `content` is what tells this template from another
+ * its module declares (the versions' and options' data): its module's import closure covers their code.
  */
 export const migratedTemplate = (spec: HistorySpec): SubstrateTemplate<Installed> =>
-	historyTemplate(spec, {
-		seed: () => Effect.void,
-		reset: (installed) => installationGroup(namesOf(installed))
-	})
+	historyTemplate(spec, () => Effect.void)
 
 /**
  * A template's installation of `history` (draftedHistory under the template's names), as a case over a clone of it sees
@@ -1072,18 +1058,15 @@ const installedSpec = (spec: {
 /**
  * installedTemplate's installation with what every case starts from written once per member, as the build's owner,
  * right after the install: `seed` (facts loaded, a materialized view refreshed) on the installation it made, where a
- * search did it once before its cases. Every case over a seat of it commits nothing (a transaction it rolls back): the
- * seat's reset empties no table, and the clone must hold the seeded state again after the case, or it is replaced and
- * the case fails.
+ * search did it once before its cases.
  */
 export const seededTemplate = <E>(spec: {
 	readonly declaredIn: ImportMeta
 	readonly name: string
 	readonly schema: FixtureSchema
 	readonly options: MigratedOptions
-	readonly seed: Seeding<E>["seed"]
-}): SubstrateTemplate<Installed> =>
-	historyTemplate(installedSpec(spec), { seed: spec.seed, reset: () => noTables })
+	readonly seed: Seed<E>
+}): SubstrateTemplate<Installed> => historyTemplate(installedSpec(spec), spec.seed)
 
 /**
  * A schema installed as `grizzle generate` drafts it with its logins (installGenerated), at one version of its history:
@@ -1440,8 +1423,7 @@ export const generatedTemplate = (spec: GeneratedSpec): SubstrateTemplate<Genera
 				binding
 			),
 			served: drafted.served
-		}),
-		reset: (generated) => installationGroup(namesOf(generated.installed))
+		})
 	})
 
 /**

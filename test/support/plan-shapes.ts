@@ -1,5 +1,5 @@
 import { element, type Gen } from "@bjornpagen/testing/gen"
-import { type Array as Arr, Effect, Record as Rec, type Scope } from "effect"
+import { type Array as Arr, Effect, Record as Rec } from "effect"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -7,7 +7,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * The plan shapes a read is held to one answer under, each a whole assignment of the planner settings it moves, so
  * one shape's assignment overrides every other's: hash joins and aggregates, merge joins and sorts, nested loops over
  * index scans, and every eligible query in a parallel worker (debug_parallel_query = regress). A test sets them on a
- * login in its case's database before its Db opens, for the case's scope (planShapeOn); grizzle sets none.
+ * login in its case's own database before its Db opens (planShapeOn); grizzle sets none.
  */
 const planShapes = {
 	hash: {
@@ -60,22 +60,15 @@ export const planShapeNames: Arr.NonEmptyReadonlyArray<PlanShape> = [
 export const planShapeGen: Gen<PlanShape> = element(planShapeNames)
 
 /**
- * `shape`'s settings, each made the default of the role `role` in the case's database, which a session it opens reads,
- * for the case's scope: its end resets them, so the database a seat holds is its template's again, since a role's
- * settings in a database are a row of pg_db_role_setting, which the seat's fingerprint reads.
+ * `shape`'s settings, each made the default of the role `role` in the case's database, which a session it opens reads:
+ * a row of pg_db_role_setting, gone with the case's own database when it is dropped.
  */
-export const planShapeOn = (
-	role: string,
-	shape: PlanShape
-): Effect.Effect<void, never, Substrate | Scope.Scope> =>
+export const planShapeOn = (role: string, shape: PlanShape): Effect.Effect<void, never, Substrate> =>
 	Effect.flatMap(Substrate, (substrate) => {
 		const target = `ALTER ROLE ${quoteIdent(role)} IN DATABASE ${quoteIdent(substrate.database)}`
-		return Effect.acquireRelease(
-			Effect.forEach(
-				Rec.toEntries(planShapes[shape]),
-				([parameter, value]) => substrate.superuser(`${target} SET ${parameter} = ${value}`),
-				{ discard: true }
-			),
-			() => substrate.superuser(`${target} RESET ALL`)
+		return Effect.forEach(
+			Rec.toEntries(planShapes[shape]),
+			([parameter, value]) => substrate.superuser(`${target} SET ${parameter} = ${value}`),
+			{ discard: true }
 		)
 	})

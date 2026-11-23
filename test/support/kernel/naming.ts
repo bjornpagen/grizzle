@@ -1,5 +1,5 @@
 import { exact, ordered } from "@bjornpagen/testing/oracle"
-import { Array as Arr, Formatter, Option, Order, Record as Rec } from "effect"
+import { Array as Arr, Formatter, Option, Record as Rec } from "effect"
 import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import {
@@ -377,14 +377,6 @@ export interface Names extends LawNames {
 	 * relation's stamps wrote: the tables a reset empties together (substrate/replace.ts installationGroup).
 	 */
 	readonly storedTables: ReadonlyArray<string>
-	/**
-	 * Every materialized derived relation's view, as `table` names it, lowest level first: the views a reset refreshes
-	 * once it has emptied storedTables (substrate/replace.ts installationGroup), which then hold what the installation's
-	 * migration populated them with. A view reads stored tables, closed relations and the views of lower levels only
-	 * (schema/own.ts refuses a definition that reads its own level or above), so this order refreshes each after what
-	 * it reads.
-	 */
-	readonly materializedViews: ReadonlyArray<string>
 	/** A field's column, quoted; a derived relation's view column by its head name. */
 	readonly column: <R extends AnyRelation | AnyDerived>(
 		relation: R,
@@ -1086,15 +1078,6 @@ const namesOver = (installation: Installation, schema: string): Names => {
 				return `${quoteIdent(q.schema)}.${quoteIdent(q.name)}`
 			})
 		],
-		materializedViews: Arr.map(
-			Arr.sort(
-				Arr.flatMap(Rec.values(installation.owned.relations), (r) =>
-					r.kind === "derived" && r.view.kind === "materialized" ? [r] : []
-				),
-				Order.mapInput(Order.Number, (r: { readonly level: number }) => r.level)
-			),
-			table
-		),
 		column: (relation, field) => quoteIdent(names.column(relation.name, field)),
 		code: (roster, handle) => {
 			const codec = names.codes.rosters.get(parsedName(roster.name))

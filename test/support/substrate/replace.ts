@@ -12,32 +12,21 @@ import { TransactionRolledBack } from "#test/support/substrate/errors.ts"
  * The tables one reset empties together (schema-qualified, quoted): a whole group, built only by installationGroup or
  * tablesGroup, and emptied only by deleting every row of all of it (replaceRows, clearRows).
  */
-export type ResetGroup = {
-	readonly tables: ReadonlyArray<string>
-	/**
-	 * The materialized views over the tables (schema-qualified, quoted), lowest level first, each of which a seat's
-	 * reset puts back as its case found it once the tables are empty (foundViews, viewsRestored): what a REFRESH writes
-	 * there outlives every deletion of the rows it read.
-	 */
-	readonly views: ReadonlyArray<string>
-} & Brand.Brand<"ResetGroup">
+export type ResetGroup = { readonly tables: ReadonlyArray<string> } & Brand.Brand<"ResetGroup">
 const ResetGroup = Brand.nominal<ResetGroup>()
 
 /**
  * Every stored relation's table of an installation, by its names (kernel/naming.ts namesOf, or installationNamesOf
- * for one installed from its compiled script), and every materialized view of its derived relations: its rows are the
- * state a case writes whole, and what a refresh computes from them. An installation of closed relations alone stores
- * nothing, and its group empties nothing.
+ * for one installed from its compiled script): its rows are the state a case writes whole. An installation of closed
+ * relations alone stores nothing, and its group empties nothing.
  */
-export const installationGroup = (names: Names): ResetGroup =>
-	ResetGroup({ tables: names.storedTables, views: names.materializedViews })
+export const installationGroup = (names: Names): ResetGroup => ResetGroup({ tables: names.storedTables })
 
 /**
  * Every table of `tables`, which a test creates by hand rather than installs, or an installation's stored tables
- * without its views (kernel/naming.ts Names storedTables): the write oracle's every group of a generated schema.
+ * (kernel/naming.ts Names storedTables): the write oracle's every group of a generated schema.
  */
-export const tablesGroup = (tables: ReadonlyArray<string>): ResetGroup =>
-	ResetGroup({ tables, views: [] })
+export const tablesGroup = (tables: ReadonlyArray<string>): ResetGroup => ResetGroup({ tables })
 
 /**
  * The fill of every head of `installation` from its relation as it stands (physical/ddl/stamps.ts headFill), each a
@@ -48,9 +37,6 @@ export const headFills = (installation: Installation): ReadonlyArray<string> =>
 	Arr.map(headsOf(installation.laws.theory.instants), (head) =>
 		printStatement(headFill(installation.names, head))
 	)
-
-/** No table: the group of a template whose cases write no table of its own (substrate.ts base). */
-export const noTables: ResetGroup = tablesGroup([])
 
 /**
  * `group` emptied on `connection`'s one backend by the testing library's one reset (resources rowsEmptied), never a
@@ -103,7 +89,7 @@ export interface ReplacedStatement {
  *
  * Replaces the rows of every table of `group` with what `statements` insert: the deletion that empties the group, then
  * the statements' transaction (inserted), on one backend of `connection`. A reload inside a case; a case's first load
- * over a seat or a fresh clone, whose tables its form already emptied, is `inserted` alone.
+ * over a clone of its own, whose tables hold what its template's do, is `inserted` alone.
  */
 export const replaceRows = (
 	connection: PgConnection,
@@ -158,52 +144,3 @@ export const clearRows = (
 	connection: Pick<PgConnection, "query">,
 	group: ResetGroup
 ): Effect.Effect<void, SqlError> => emptied(connection, group)
-
-/** A materialized view of a reset group as a case found it: whether PostgreSQL holds it populated (relispopulated). */
-export interface FoundView {
-	readonly view: string
-	readonly populated: boolean
-}
-
-/**
- * Each view of `group` as it stands now, read as a seat's case takes its clone, which the seat holds as its template
- * (Substrate.seat): populated, as the migration that creates a materialized view populates it (deploy/diff/diff.ts), or
- * not, as an installation from its compiled script leaves it WITH NO DATA. One catalog read, none for a group of no view.
- */
-export const foundViews = (
-	connection: Pick<PgConnection, "queryValues">,
-	group: ResetGroup
-): Effect.Effect<ReadonlyArray<FoundView>, SqlError> =>
-	Arr.isReadonlyArrayNonEmpty(group.views)
-		? Effect.map(
-				connection.queryValues(
-					"SELECT v.view, c.relispopulated FROM pg_catalog.unnest($1::text[]) WITH ORDINALITY AS v(view, n) JOIN pg_catalog.pg_class AS c ON c.oid = v.view::regclass ORDER BY v.n",
-					[group.views]
-				),
-				(rows) =>
-					Arr.map(rows, ([view, populated]) => ({
-						view: String(view),
-						populated: populated === true
-					}))
-			)
-		: Effect.succeed([])
-
-/**
- * The views a case found (foundViews) put back as it found them, lowest level first, over tables a reset has emptied:
- * a populated one refreshed, so it holds what its definition reads there, the rows its installation populated it with
- * over the same empty tables; one found unpopulated refreshed WITH NO DATA. Each is the view's owner's to refresh, the
- * reset's own role.
- */
-export const viewsRestored = (
-	connection: Pick<PgConnection, "query">,
-	found: ReadonlyArray<FoundView>
-): Effect.Effect<void, SqlError> =>
-	Effect.forEach(
-		found,
-		(v) =>
-			connection.query(
-				`REFRESH MATERIALIZED VIEW ${v.view}${v.populated ? "" : " WITH NO DATA"}`,
-				[]
-			),
-		{ discard: true }
-	)

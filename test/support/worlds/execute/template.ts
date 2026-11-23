@@ -10,10 +10,8 @@ import {
 	noVersionWorkload,
 	templateInstalled
 } from "#test/support/install-migrate.ts"
-import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { SqlError } from "#test/support/pg.ts"
-import { installationGroup } from "#test/support/substrate/replace.ts"
 import {
 	installTemplate,
 	Substrate,
@@ -103,8 +101,7 @@ export const worldTemplate = (spec: {
 		bind: ({ names, history, world }, binding) => ({
 			installed: templateInstalled(names, history, spec.ambient, world.first.files, binding),
 			plan: world
-		}),
-		reset: ({ installed }) => installationGroup(namesOf(installed))
+		})
 	})
 }
 

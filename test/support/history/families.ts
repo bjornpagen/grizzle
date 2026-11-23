@@ -205,8 +205,7 @@ const historyTemplates =
 					bound: Effect.map(
 						template.bound,
 						(bind) => (binding) => historyInstallOf(family, p, bind(binding))
-					),
-					reset: (i) => template.reset(i.installed)
+					)
 				}
 				return [String(at), value] as const
 			})

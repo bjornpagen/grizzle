@@ -41,9 +41,8 @@ import {
 	type Review,
 	templateInstalledOf
 } from "#test/support/install-migrate.ts"
-import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import type { SqlError } from "#test/support/pg.ts"
-import { installationGroup } from "#test/support/substrate/replace.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import {
 	dropRole,
@@ -341,8 +340,8 @@ const foldersThrough = (
  * migrated's installation as a template (substrate.ts installTemplate): every version drafted under the template's name
  * by every worker as it plans (migratedHistory), applied once per member by the real runner as the template's owner
  * login, as migrated applies them, each login given its password; each case's Installed the last version's in its
- * clone, every login logging in with the password the template derived (install-migrate.ts templateInstalledOf), and
- * the seat's reset emptying every stored relation's table. `name` tells it from its module's other templates.
+ * clone, every login logging in with the password the template derived (install-migrate.ts templateInstalledOf).
+ * `name` tells it from its module's other templates.
  */
 export const migratedOnceTemplate = (spec: {
 	readonly declaredIn: ImportMeta
@@ -385,6 +384,5 @@ export const migratedOnceTemplate = (spec: {
 				new Map(),
 				binding
 			)
-		},
-		reset: (installed) => installationGroup(namesOf(installed))
+		}
 	})

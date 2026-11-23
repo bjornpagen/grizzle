@@ -46,7 +46,6 @@ import { transaction } from "#test/support/oracle/install/transaction.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { owning } from "#test/support/policy.ts"
 import { serverError } from "#test/support/server-error.ts"
-import { noTables } from "#test/support/substrate/replace.ts"
 import { installTemplate, Substrate } from "#test/support/substrate/substrate.ts"
 
 /** A pattern a stored field declares. */
@@ -303,6 +302,5 @@ export const shopTemplate = installTemplate({
 		Effect.flatMap(Substrate, (s) =>
 			transaction(s.admin, installationSql(installation, s.database))
 		),
-	bind: ({ templates, witness }) => ({ templates, witness }),
-	reset: () => noTables
+	bind: ({ templates, witness }) => ({ templates, witness })
 })

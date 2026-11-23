@@ -14,7 +14,6 @@ import {
 	noVersionWorkload,
 	templateInstalled
 } from "#test/support/install-migrate.ts"
-import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import {
 	type ParamSketch,
@@ -22,7 +21,6 @@ import {
 	paramSketchGen,
 	payrollSketchGen
 } from "#test/support/oracle/gen/payroll.ts"
-import { installationGroup } from "#test/support/substrate/replace.ts"
 import { installTemplate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -80,7 +78,6 @@ export const payrollTemplate = installTemplate({
 		),
 	install: ({ names, history }) =>
 		Effect.asVoid(appliedHistory(history, names.schema, options, new Map())),
-	reset: ({ installed }: PayrollInstalled) => installationGroup(namesOf(installed)),
 	bind: ({ names, history, programs }, binding): PayrollInstalled => ({
 		installed: templateInstalled(names, history, options.ambient, new Map(), binding),
 		programs

@@ -3,7 +3,6 @@ import { regex } from "arkregex"
 import { Array as Arr, Effect, Option, type Scope, String as Str } from "effect"
 import { Client } from "pg"
 import { installationRoleOf } from "#compiler/core/identity.ts"
-import { quoteIdent } from "#compiler/core/text.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { InitializedCluster, lentVariable } from "#test/support/cluster.ts"
 import { adminUrl } from "#test/support/env.ts"
@@ -81,39 +80,6 @@ export const leftoversCheck: Check = {
 	},
 	read: (rows) => Arr.map(rows, ([what]) => String(what))
 }
-
-/**
- * Two effects of installing a schema reach past it, by design, and outlive the file's schemas:
- * - btree_gist is created outside the installed schema, because it must outlive every installed schema
- *   (packages/engine/src/physical/ddl/context.ts), and probes create it in a schema of their own;
- * - the installer revokes PUBLIC's global default privileges on the owner's future functions and types, which a
- *   per-schema default cannot.
- * Once the file's schemas are gone the release undoes both: it drops every extension the template does not carry,
- * with the extension's schema when that is not the template's and is left empty, and grants the owner's global
- * defaults back to PUBLIC. `leftoversCheck` then judges what remains.
- */
-export const undoInstallEffects = (admin: PgConnection): Effect.Effect<void> =>
-	Effect.gen(function* () {
-		const extensions = yield* admin.queryValues(
-			"SELECT e.extname::text, n.nspname::text FROM pg_catalog.pg_extension AS e JOIN pg_catalog.pg_namespace AS n ON n.oid = e.extnamespace WHERE e.extname::text NOT IN ('plpgsql', 'vector') ORDER BY 1",
-			[]
-		)
-		for (const [extension, schema] of extensions) {
-			yield* admin.query(`DROP EXTENSION ${quoteIdent(String(extension))}`, [])
-			if (schema !== "public" && schema !== "vector_ext") {
-				yield* Effect.ignore(admin.query(`DROP SCHEMA ${quoteIdent(String(schema))}`, []))
-			}
-		}
-		const defaults = yield* admin.queryValues(
-			"SELECT 1 FROM pg_catalog.pg_default_acl WHERE defaclrole = CURRENT_USER::regrole AND defaclnamespace = 0::oid",
-			[]
-		)
-		if (defaults.length === 0) {
-			return
-		}
-		yield* admin.query("ALTER DEFAULT PRIVILEGES GRANT EXECUTE ON FUNCTIONS TO PUBLIC", [])
-		yield* admin.query("ALTER DEFAULT PRIVILEGES GRANT USAGE ON TYPES TO PUBLIC", [])
-	}).pipe(Effect.ignore)
 
 /** A column's text as pg hands it over, unparsed. */
 const asText = (text: string): string => text

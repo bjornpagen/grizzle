@@ -2,7 +2,6 @@ import { type Need, type NeedContext, NeedFailed } from "@bjornpagen/testing/pro
 import {
 	type Content,
 	Database,
-	type DatabaseNeed,
 	type DatabaseTemplate,
 	type Opened,
 	Template
@@ -78,13 +77,6 @@ import {
 } from "#test/support/substrate/names.ts"
 import { type BackendCancel, openPsql, type PsqlWriter } from "#test/support/substrate/psql.ts"
 import {
-	clearRows,
-	foundViews,
-	noTables,
-	type ResetGroup,
-	viewsRestored
-} from "#test/support/substrate/replace.ts"
-import {
 	type Credentials,
 	beginSerializable,
 	connect,
@@ -100,12 +92,7 @@ import {
 	templatePassword
 } from "#test/support/substrate/templates.ts"
 
-import {
-	type Check,
-	leftoversCheck,
-	superuserClient,
-	undoInstallEffects
-} from "#test/support/substrate/shared.ts"
+import { type Check, leftoversCheck, superuserClient } from "#test/support/substrate/shared.ts"
 
 export interface SchemaOptions {
 	/** Run CREATE SCHEMA as the owner. Off when the code under test creates the schema itself (a migration). */
@@ -568,7 +555,7 @@ const build = Effect.fnUntraced(function* (
 	/**
 	 * The barriers' observer connection (awaitLockWait, awaitBlockedBy), opened the first time a barrier polls through it,
 	 * in the substrate's scope, and held for the rest of it: a substrate whose barriers never poll opens none, and a case
-	 * substrate (Substrate.installing, seat, freshOf, ...) opened one for every case, though few cases wait on a lock.
+	 * substrate (Substrate.fresh, freshOf) opened one for every case, though few cases wait on a lock.
 	 */
 	const opened = Scope.provide(
 		Effect.tap(connect(cluster, { database, credentials: owner, label: "observer" }), (made) =>
@@ -865,11 +852,6 @@ export type TemplateNeed<A> = Need<A> & Readonly<{ template: DatabaseTemplate }>
 export interface SubstrateTemplate<T> {
 	readonly database: DatabaseTemplate
 	readonly bound: Effect.Effect<(binding: TemplateBinding) => T, NeedFailed, NeedContext>
-	/**
-	 * The tables a case over the worker's own clone (Substrate.seat) writes, by its value: emptied after every case
-	 * (replace.ts clearRows), before the clone is checked against its template.
-	 */
-	readonly reset: (value: T) => ResetGroup
 }
 
 /**
@@ -878,8 +860,7 @@ export interface SubstrateTemplate<T> {
  */
 const base: SubstrateTemplate<void> = {
 	database: baseTemplate,
-	bound: Effect.succeed(Function.constVoid),
-	reset: () => noTables
+	bound: Effect.succeed(Function.constVoid)
 }
 
 /** A case over a clone of a template: its own substrate over the clone, and the template's value bound to it. */
@@ -894,8 +875,7 @@ export interface SubstrateCase<T> {
  * budgets.ts), and its install in three parts. `plan` is the pure part, what the install makes under the template's names (names.ts
  * templateNames: its schema and its owner login), which the build and every worker compute alike; `install` makes it
  * once per member, on a substrate over the template database whose allocations are the template's
- * (templateAllocations); `bind` reads it as a case over a clone sees it, by the case's database and budget; `reset`
- * names the tables a seat's case writes (SubstrateTemplate reset).
+ * (templateAllocations); `bind` reads it as a case over a clone sees it, by the case's database and budget.
  */
 interface InstallSpec<P, T, E1, E2> {
 	readonly declaredIn: ImportMeta
@@ -905,7 +885,6 @@ interface InstallSpec<P, T, E1, E2> {
 	readonly plan: (names: TemplateNames) => Effect.Effect<P, E1>
 	readonly install: (plan: P) => Effect.Effect<void, E2, Substrate | Scope.Scope>
 	readonly bind: (plan: P, binding: TemplateBinding) => T
-	readonly reset: (value: T) => ResetGroup
 }
 
 /** `effect`'s failure as NeedFailed of `need`, with the failure's printed cause. */
@@ -1026,7 +1005,7 @@ const builtThenEnded = <A, E, R, E2, R2>(
 /**
  * A template of an installation over the base template (InstallSpec): its database is built by planning under the
  * template's schema name and installing the plan on a substrate over the template database, each worker plans it once
- * to bind its cases, and its cases clone it by any form (Substrate.freshOf, seat, rolledBack). Its identity is the
+ * to bind its cases, and its cases clone it by either form (Substrate.freshOf, rolledBack). Its identity is the
  * toolchain's: the declaring module's import closure, the name and the content, so an install that changes is a new
  * template, under new names. Its build first gives its database the test database settings (pg.ts configureDatabase),
  * as the base template's build does, since a derived template is made from its origin with no database setting of the
@@ -1089,7 +1068,6 @@ export const installTemplate = <P, T, E1, E2>(
 	})
 	return {
 		database,
-		reset: spec.reset,
 		bound: Effect.map(
 			planned(database),
 			({ plan }) =>
@@ -1130,41 +1108,33 @@ const substrateOver = (
 	})
 
 /**
- * A need of cases over `template`'s clones, each by `database` (a form of it), its substrate and its bound value, and
- * `settled`, what the form does once the case's own allocations are released, before its substrate's connections
- * close and the clone goes back to `database`.
+ * A need of cases each over a clone of `template` of its own, made for the case and dropped after it (the toolchain's
+ * Database.fresh): its substrate and the template's value bound to it, the substrate's allocations released as the
+ * case's scope closes, before its connections close and the clone is dropped.
  */
-const substrateCases = <T>(
-	form: string,
-	template: SubstrateTemplate<T>,
-	database: DatabaseNeed<Database>,
-	settled: (substrate: SubstrateShape, value: T) => Effect.Effect<Effect.Effect<void>>
-): TemplateNeed<SubstrateCase<T>> => ({
-	key: `grizzle ${form} ${database.key}`,
-	template: database.template,
-	budget: database.budget,
-	runNeeds: database.runNeeds,
-	open: Effect.map(
-		Effect.all([
-			database.open,
-			Layer.build(nodeSpawner),
-			template.bound,
-			Effect.service(WorkerBudgets)
-		]),
-		([take, spawning, bind, budgets]) =>
-			Effect.gen(function* () {
-				const taken = yield* take
-				const substrate = yield* substrateOver(form, taken, budgets, spawning)
-				const value = bind(substrate)
-				const settle = yield* settled(substrate, value)
-				yield* Effect.addFinalizer(() => settle)
-				return { substrate, value }
-			})
-	)
-})
-
-/** What a case over a clone of its own leaves behind: nothing to settle, as its clone is dropped. */
-const dropped = (): Effect.Effect<Effect.Effect<void>> => Effect.succeed(Effect.void)
+const freshCases = <T>(form: string, template: SubstrateTemplate<T>): TemplateNeed<SubstrateCase<T>> => {
+	const database = Database.fresh(template.database)
+	return {
+		key: `grizzle ${form} ${database.key}`,
+		template: database.template,
+		budget: database.budget,
+		runNeeds: database.runNeeds,
+		open: Effect.map(
+			Effect.all([
+				database.open,
+				Layer.build(nodeSpawner),
+				template.bound,
+				Effect.service(WorkerBudgets)
+			]),
+			([take, spawning, bind, budgets]) =>
+				Effect.gen(function* () {
+					const taken = yield* take
+					const substrate = yield* substrateOver(form, taken, budgets, spawning)
+					return { substrate, value: bind(substrate) }
+				})
+		)
+	}
+}
 
 /**
  * One case's transaction on the worker's own clone of a template (Substrate.rolledBack): an owner connection inside the
@@ -1451,8 +1421,8 @@ const rolledBackCases = <T>(
 /**
  * The per-file PostgreSQL substrate: a database, unique schemas and roles, sessions, psql writers, a barrier.
  *
- A property's case takes its substrate through a need (Substrate.fresh, freshOf, seat, rolledBack, transaction,
- * installing), each over a clone of a template, and because logins and world roles are cluster-wide, each case uses
+ A property's case takes its substrate through a need (Substrate.fresh, freshOf, rolledBack, transaction), each over
+ * a clone of a template, and because logins and world roles are cluster-wide, each case uses
  * unique schema and role names; schemas, roles, sessions and psql writers are allocated in the case's own scope and
  * released when it closes. A bench builds Substrate.isolatedLayer, a database of its own.
  *
@@ -1483,54 +1453,13 @@ export class Substrate extends Context.Service<Substrate, SubstrateShape>()(
 		budget: baseTemplate.budget,
 		runNeeds: [],
 		open: Effect.map(
-			substrateCases("Substrate.fresh", base, Database.fresh(baseTemplate), dropped).open,
-			(take) => Effect.map(take, (taken) => taken.substrate)
-		)
-	}
-	/**
-	 * A case's own substrate over the worker's own clone of the base template, held across the worker's cases, for cases
-	 * that install grizzle and commit, which Substrate.fresh would give a clone each: after each case its allocations are
-	 * released (its schemas, roles and live sources), what an installation leaves past them is undone (shared.ts
-	 * undoInstallEffects: the extensions the base does not carry, the owner's global default privileges given back to
-	 * PUBLIC), every sequence is put back, and the clone must hold the base template's catalog again, or it is replaced
-	 * and the case fails. A case that changes the database itself (its settings, its options) needs Substrate.fresh.
-	 */
-	static readonly installing: TemplateNeed<SubstrateShape> = {
-		key: "grizzle Substrate.installing",
-		template: baseTemplate,
-		budget: baseTemplate.budget,
-		runNeeds: [],
-		open: Effect.map(
-			substrateCases("Substrate.installing", base, Database.seat(baseTemplate, []), (substrate) =>
-				Effect.succeed(undoInstallEffects(substrate.admin))
-			).open,
+			freshCases("Substrate.fresh", base).open,
 			(take) => Effect.map(take, (taken) => taken.substrate)
 		)
 	}
 	/** A case's own substrate over a clone of `template`, made for the case and dropped after it, and its value. */
 	static readonly freshOf = <T>(template: SubstrateTemplate<T>): TemplateNeed<SubstrateCase<T>> =>
-		substrateCases("Substrate.freshOf", template, Database.fresh(template.database), dropped)
-	/**
-	 * A case's own substrate over the worker's own clone of `template`, held across the worker's cases: after each, the
-	 * case's allocations are released, the template's reset group emptied (SubstrateTemplate reset) and its materialized
-	 * views put back as the case found them, which is as the template holds them (replace.ts foundViews, read as the case
-	 * takes the clone, and viewsRestored), every sequence put back, and the clone must hold its template's catalog and
-	 * rows again, or it is replaced and the case fails.
-	 */
-	static readonly seat = <T>(template: SubstrateTemplate<T>): TemplateNeed<SubstrateCase<T>> =>
-		substrateCases(
-			"Substrate.seat",
-			template,
-			Database.seat(template.database, []),
-			(substrate, value) => {
-				const group = template.reset(value)
-				return Effect.map(Effect.orDie(foundViews(substrate.admin, group)), (found) =>
-					Effect.orDie(
-						Effect.andThen(clearRows(substrate.admin, group), viewsRestored(substrate.admin, found))
-					)
-				)
-			}
-		)
+		freshCases("Substrate.freshOf", template)
 	/**
 	 * One case's owner transaction on the worker's own clone of `template` (RolledBack), held with its connection across
 	 * the worker's cases and rolled back when the case ends, its sequences put back and its session discarded: nothing the

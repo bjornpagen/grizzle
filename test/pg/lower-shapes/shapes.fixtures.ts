@@ -284,8 +284,7 @@ export const shapesTemplate = installTemplate({
 				yield* s.admin.query(statement, [])
 			}
 		}),
-	bind: (schema) => schema,
-	reset: fixtureTables
+	bind: (schema) => schema
 })
 
 export const others = Arr.filter(relations, (r) => r !== Task)

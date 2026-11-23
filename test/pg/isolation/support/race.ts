@@ -60,7 +60,6 @@ import { type Names, namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { everyRelation } from "#test/support/schedules/interleave.ts"
 import { type RaceStatement, type RaceTxn } from "#test/support/schedules/serial.ts"
-import { installationGroup } from "#test/support/substrate/replace.ts"
 import {
 	installTemplate,
 	type SubstrateCase,
@@ -429,8 +428,7 @@ export const certifiedShapeTemplate = (
 		install: ({ names, plan }) =>
 			Effect.asVoid(appliedHistory(plan.history, names.schema, plan.options, new Map())),
 		bind: ({ names, plan }, binding) =>
-			shapeOf(plan, templateInstalled(names, plan.history, ordinarySession, new Map(), binding)),
-		reset: (shape) => installationGroup(shape.names)
+			shapeOf(plan, templateInstalled(names, plan.history, ordinarySession, new Map(), binding))
 	})
 
 /** A shape a case races, and the substrate of the case's own clone it is installed in, where its race runs (raceOn). */
