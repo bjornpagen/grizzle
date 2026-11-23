@@ -98,9 +98,16 @@ export {
 } from "#compiler/deploy/snapshot/build.ts"
 export { decoderLoginOf } from "#compiler/deploy/snapshot/objects.ts"
 export {
+	type Borrow,
+	type BorrowAt,
+	type BorrowLock,
+	type BorrowMode,
 	type Giver,
 	type IsolationCondition,
 	type IsolationReason,
+	type KeySite,
+	type KeySource,
+	type LockOrder,
 	type OwnCondition,
 	type ReasonAt,
 	reasonsOf,

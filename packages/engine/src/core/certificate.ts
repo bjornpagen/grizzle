@@ -189,3 +189,73 @@ export interface RoleIsolation {
 	readonly role: string
 	readonly certificate: RoleCertificate
 }
+
+/**
+ * What a borrow locks: a declared unit (`unit`), by its name, at the keys its sites name; or the declared series lock
+ * (`series`) of a relation, one lock for the whole relation, which takes no key.
+ */
+export type BorrowLock =
+	| { readonly kind: "unit"; readonly unit: string }
+	| { readonly kind: "series"; readonly relation: string }
+
+/**
+ * How a call borrows a lock: `shared` (&), reading the unit's rows while no other call writes them; or `exclusive`
+ * (&mut), writing them while no other call reads or writes them. A call borrows each lock once, at the strongest mode
+ * any of its sites needs: no borrow is ever upgraded.
+ */
+export type BorrowMode = "shared" | "exclusive"
+
+/**
+ * Where a call takes a borrow: `flight`, in one statement of its last flight before any statement that reads or writes
+ * the unit's rows takes its snapshot; or `judge`, at COMMIT, before the deferred judge reads the rows the borrow holds.
+ * A lock a call borrows in flight is never borrowed again at the judge.
+ */
+export type BorrowAt = "flight" | "judge"
+
+/** One field of a unit key as a call holds it before its first snapshot: a declared parameter, or a field of the
+ * session's context. */
+export type KeySource =
+	| { readonly kind: "param"; readonly name: string }
+	| { readonly kind: "context"; readonly field: string }
+
+/**
+ * A place a call holds whole keys of a borrowed unit, by positions its lowering evaluates:
+ *
+ * - `bound`: one key, each of the unit's key fields in key order from a parameter or the context (KeySource);
+ * - `written`: the unit key fields of the rows write `write` of statement `statement` writes, by their places in the
+ *   member's flight and the statement's writes (analysis/isolation/facts.ts), one key per distinct group;
+ * - `read`: the key a sealed read binds, by its statement, the body it stands in (`cte`, none for the statement's own)
+ *   and its place there (facts.ts ReadAt): its group's parameters, context or own rows, or the row of a whole-key read
+ *   of an immutable fact read in a flight before the borrow;
+ * - `delta`: at the judge alone, the unit key fields of the rows the call wrote to `relation`.
+ */
+export type KeySite =
+	| { readonly kind: "bound"; readonly fields: NonEmptyReadonlyArray<KeySource> }
+	| { readonly kind: "written"; readonly statement: number; readonly write: number }
+	| {
+			readonly kind: "read"
+			readonly statement: number
+			readonly cte: number | undefined
+			readonly read: number
+	  }
+	| { readonly kind: "delta"; readonly relation: string }
+
+/**
+ * One borrow of one compiled write of a change member (its variant), as the certifier proves the write needs it and the
+ * lock plan places it: what it locks, how, where, and every site whose keys it locks (none for the series lock). The
+ * borrows of a compiled write are complete: its lowering takes no lock of its own.
+ */
+export interface Borrow {
+	readonly lock: BorrowLock
+	readonly mode: BorrowMode
+	readonly at: BorrowAt
+	readonly keys: ReadonlyArray<KeySite>
+}
+
+/**
+ * Every lock kind of an installation in the one order every call takes them in, each kind's rank its place here: a
+ * topological order of the edges from each lock a call borrows in flight to each it borrows at the judge, over every
+ * change member of every login, ties broken by name. The certifier refuses an installation whose edges cycle, so the
+ * order exists; the lock plan reads a kind's rank and orders by nothing else.
+ */
+export type LockOrder = ReadonlyArray<BorrowLock>
