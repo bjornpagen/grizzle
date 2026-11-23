@@ -1341,7 +1341,11 @@ type EducationSuite = Realization & {
 	/** What every program draws first (drive/suite.ts Lead). */
 	readonly lead: Lead
 	readonly steps: number
-	readonly cases: number
+	/**
+	 * Its search budget: the cases it stated before its conversion, its rotating stream's runs and its steered cases
+	 * alike, or the runner's own.
+	 */
+	readonly cases: number | "runner's"
 	readonly required: Situations<Feature>
 	readonly properties: Arr.NonEmptyReadonlyArray<Property>
 }
@@ -1397,7 +1401,8 @@ const educationCase = (
  * suite realized once takes a fresh clone of the fixture's world for each case (educationWorld); one realized per
  * case realizes the case's own world in a database of its own (drive/suite.ts ownWorld).
  *
- * Its pre-conversion budget: runs `cases`, coverage cases `cases` (test/pg/education/support.ts at c568eb123).
+ * A suite's stated cases are its pre-conversion budget: runs `cases`, coverage cases `cases`
+ * (test/pg/education/support.ts at c568eb123). Each suite must kill d5bd99bdd's defect, which each recorded as a red.
  */
 const educationProperty = (spec: EducationSuite) => {
 	const space = programDraw(
@@ -1412,9 +1417,16 @@ const educationProperty = (spec: EducationSuite) => {
 			kind: "second-implementation",
 			name: "the worlds model (test/support/worlds/model) at every action, and each suite's education property: a world shows its role's own records, a witness only what its caller submitted or holds whole"
 		},
-		budget: { runs: spec.cases, steered: spec.cases },
+		...(spec.cases === "runner's" ? {} : { budget: { runs: spec.cases, steered: spec.cases } }),
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/runtime/write/normalize.ts",
+				original: "relation: facts.relation,",
+				replacement: "relation: facts.stated,",
+				why: "d5bd99bdd's red, its fix reverted: a key refusal of facts written through a query entry names the entry where the key-law tables hold its stored relation, so a ChangeSet adding two facts of one key through MyProfile, GradeBook or ImportGrade is a defect, not invariant-rejected on the key law."
+			}
+		]
 	} as const
 	switch (spec.realization) {
 		case "once":

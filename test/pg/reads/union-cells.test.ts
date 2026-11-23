@@ -159,5 +159,19 @@ export const unionCellsDecodesAUnionsRowsToExactlyTheRecordsItsArmsDecodeToEachR
 		},
 		budget: { runs: 60, steered: 240 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/program/served.ts",
+				original:
+					'\tif (roots.length > 1) {\n\t\treturn { kind: "set", fields: headFields }\n\t}\n',
+				replacement: "",
+				why: "cde9595d9's red, its first fix reverted: a union delivered by a statement for each heading group is keyed by the physical proof over its root's heading, the fields its groups share, so two rows of one group share a key and a once of the union folds them into one."
+			},
+			{
+				file: "packages/engine/src/live/member.ts",
+				original: "columns.length < held.length ||",
+				replacement: "columns.length < record.length ||",
+				why: "cde9595d9's red, its second fix reverted: a key field must be a column of every heading, so a union of heading groups each holding a field of its own is refused at generate as an unsupported key, where its rows' key is that field, lacked by the other groups."
+			}
+		]
 	})

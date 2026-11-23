@@ -58,7 +58,8 @@ export const servicesSuites = educationTests([
 		),
 		focus: worldsFocus,
 		steps: 20,
-		cases: 40,
+		/** The runner's budget: d5bd99bdd's kill survives its stated 40 cases and dies at the runner's. */
+		cases: "runner's",
 		realization: "once",
 		required: [
 			"importer open-db opened",
