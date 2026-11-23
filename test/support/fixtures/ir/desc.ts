@@ -358,6 +358,19 @@ export const mutable = (relationName: string): AuthoredStatementDesc => ({
 	relation: relationName
 })
 
+/** A unit over a heading of fields in order, each with its type, which every member's primary key leads with. */
+export const unit = (
+	name: string,
+	heading: Readonly<Record<string, FieldDesc>>
+): AuthoredStatementDesc => ({
+	kind: "unit",
+	name,
+	heading: nonEmptyList(
+		Arr.map(Rec.toEntries(heading), ([field, type]) => ({ field, type })),
+		`the heading of unit ${name}`
+	)
+})
+
 export const check = (
 	name: string,
 	relationName: string,
