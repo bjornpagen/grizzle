@@ -39,16 +39,18 @@
  *
  * Every site a member reads, writes or checks takes a borrow, needs none, or is a fault (BorrowFault): memberBorrows
  * is total, so a write's compile places the borrows it proves and certification reports every fault, grouped by cause.
- * The order every call takes its locks in, over every member's borrows (core/certificate.ts LockOrder), comes with
- * certification's switch to these rules.
+ * The order every call takes its locks in, over every member's borrows (core/certificate.ts LockOrder), is the least
+ * by name of those that rank each lock a call borrows in flight before each it borrows at the judge, and each held
+ * site's `under` before the lock it keys (lockOrder); an installation whose members need a cycle has none.
  */
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
-import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import {
 	bodyAt,
 	breaksAt,
@@ -78,7 +80,8 @@ import type {
 	BorrowLock,
 	KeyField,
 	KeySite,
-	KeySource
+	KeySource,
+	LockOrder
 } from "#compiler/core/certificate.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
@@ -529,8 +532,125 @@ const keyText = (key: ReadonlyArray<KeyField>): string =>
 	key.map(({ field, source }) => `${field}=${bindingText(source)}`).join(",")
 
 /** A lock's name, which orders the locks of a member and breaks the ties of LockOrder. */
-const lockName = (lock: BorrowLock): string =>
+export const lockName = (lock: BorrowLock): string =>
 	lock.kind === "unit" ? `unit ${lock.unit}` : `series ${lock.relation}`
+
+/** A change member by its place in the installation: its login's name, its role's, and its own, as an error names it. */
+export interface MemberAt {
+	readonly login: string
+	readonly role: string
+	readonly member: string
+}
+
+/**
+ * One edge of the lock order (core/certificate.ts LockOrder), as a member's borrows need it: `from` ranks before `to`,
+ * a lock `by` borrows in flight before one it borrows at the judge (`flight`), or a held site's `under` before the lock
+ * that site keys (`under`), whose key the call reads only once it holds `under`.
+ */
+export interface OrderEdge {
+	readonly from: BorrowLock
+	readonly to: BorrowLock
+	readonly by: MemberAt
+	readonly why: "flight" | "under"
+}
+
+/** The edges one member's borrows need (OrderEdge): each flight lock before each judge lock, each held site's `under`
+ * before the lock it keys. */
+const edgesOf = (by: MemberAt, borrows: ReadonlyArray<Borrow>): ReadonlyArray<OrderEdge> => [
+	...borrows.flatMap((first) =>
+		first.at === "flight"
+			? borrows.flatMap((then): ReadonlyArray<OrderEdge> =>
+					then.at === "judge" ? [{ from: first.lock, to: then.lock, by, why: "flight" }] : []
+				)
+			: []
+	),
+	...borrows.flatMap((b) =>
+		b.keys.flatMap((site): ReadonlyArray<OrderEdge> =>
+			site.kind === "held" ? [{ from: site.under, to: b.lock, by, why: "under" }] : []
+		)
+	)
+]
+
+/**
+ * The order every call takes its locks in (core/certificate.ts LockOrder), over every change member's borrows: each
+ * lock any of them borrows or holds a site under, in a topological order of the edges their borrows need (OrderEdge),
+ * the least lock by name (lockName) first wherever several may come next, so the order is the least such by name;
+ * or, where the edges cycle, so no order meets them all, the edges of one cycle in its order, each as the first member
+ * that needs it states it (error `order`). An edge from a lock to itself, a held site under the lock it keys or one
+ * lock in flight and at the judge, is a cycle of one.
+ */
+export const lockOrder = (
+	members: ReadonlyArray<{ readonly at: MemberAt; readonly borrows: ReadonlyArray<Borrow> }>
+): Result.Result<LockOrder, NonEmptyReadonlyArray<OrderEdge>> => {
+	const locks = new Map<string, BorrowLock>()
+	const edges = new Map<string, OrderEdge>()
+	for (const { at, borrows } of members) {
+		for (const b of borrows) {
+			locks.getOrInsert(lockName(b.lock), b.lock)
+		}
+		for (const e of edgesOf(at, borrows)) {
+			locks.getOrInsert(lockName(e.from), e.from)
+			edges.getOrInsert(JSON.stringify([lockName(e.from), lockName(e.to)]), e)
+		}
+	}
+	/** The edges into each lock, by its name, each by the name of the lock it comes from. */
+	const into = new Map<string, Map<string, OrderEdge>>()
+	for (const e of edges.values()) {
+		into.getOrInsertComputed(lockName(e.to), () => new Map()).set(lockName(e.from), e)
+	}
+	const order: Array<BorrowLock> = []
+	const placed = new Set<string>()
+	const ready = (name: string): boolean =>
+		!placed.has(name) && [...(into.get(name)?.keys() ?? [])].every((from) => placed.has(from))
+	const names = [...locks.keys()].toSorted(compareStrings)
+	for (let next = names.find(ready); next !== undefined; next = names.find(ready)) {
+		placed.add(next)
+		order.push(defined(locks.get(next), "a lock of the order"))
+	}
+	if (order.length === names.length) {
+		return Result.ok(order)
+	}
+	return Result.err(
+		cycleAmong(
+			names.filter((name) => !placed.has(name)),
+			into
+		)
+	)
+}
+
+/**
+ * One cycle among `left`, locks no order can place, each with an edge into it from another of them (lockOrder's
+ * `into`, the first lock by name first): from the least, back along those edges until a lock comes again, its edges
+ * in the cycle's order.
+ */
+const cycleAmong = (
+	left: ReadonlyArray<string>,
+	into: ReadonlyMap<string, ReadonlyMap<string, OrderEdge>>
+): NonEmptyReadonlyArray<OrderEdge> => {
+	const unplaced = new Set(left)
+	const walked: Array<string> = []
+	const back: Array<OrderEdge> = []
+	for (let at = left[0]; at !== undefined;) {
+		const seen = walked.indexOf(at)
+		if (seen >= 0) {
+			const cycle = back.slice(seen).toReversed()
+			if (!isNonEmpty(cycle)) {
+				throw defect("a lock met again closes a cycle of one edge at least")
+			}
+			return cycle
+		}
+		walked.push(at)
+		const from = [...(into.get(at) ?? [])]
+			.filter(([name]) => unplaced.has(name))
+			.toSorted(([a], [b]) => compareStrings(a, b))[0]
+		if (from === undefined) {
+			throw defect("a lock no order places has an edge from another such lock")
+		}
+		back.push(from[1])
+		at = from[0]
+	}
+	throw defect("the locks no order places are some")
+}
 
 /** Faults each once, in their order. */
 const distinctFaults = (faults: ReadonlyArray<BorrowFault>): ReadonlyArray<BorrowFault> => {
