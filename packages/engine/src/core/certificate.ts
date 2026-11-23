@@ -214,15 +214,15 @@ export type BorrowMode = "shared" | "exclusive"
 export type BorrowAt = "flight" | "judge"
 
 /**
- * One field of a unit key as a call holds it before its first snapshot, by a binding alone: a declared parameter; a
- * field of the session's context; or a field of the call's own rows (`input`), a relation parameter's or a member slot's,
- * by its ParamId (a relation parameter's its name, a member slot's its reserved slot id, ir/slots.ts reservedSlot, one
- * space, inReservedSpace telling them apart) and a field of its heading by name, one key per distinct value among its
- * rows.
+ * One field of a unit key as a call holds it before its first snapshot, by a binding alone: a declared scalar
+ * parameter, by its name; a field of a context the session's claims hold, by the context's name and the field's; or a
+ * field of the call's own rows (`input`), a relation parameter's or a member slot's, by its ParamId (a relation
+ * parameter's its name, a member slot's its reserved slot id, ir/slots.ts reservedSlot, one space, inReservedSpace
+ * telling them apart) and a field of its heading by name, one key per distinct value among its rows.
  */
 export type KeySource =
 	| { readonly kind: "param"; readonly name: string }
-	| { readonly kind: "context"; readonly field: string }
+	| { readonly kind: "context"; readonly context: string; readonly field: string }
 	| { readonly kind: "input"; readonly parameter: ParamId; readonly field: string }
 
 /** One field of a key with the binding the call holds it by: the field by its name, and its source (KeySource). */

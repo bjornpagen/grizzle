@@ -41,11 +41,13 @@
  *   no member sends `?statement:<kind>`, each object named as SQL quotes it, which no two names share.
  * - A table's group is the fields of its columns its core's conditions (its WHERE and every ON of its FROM; a MERGE's
  *   ON and its clause's condition as the clause reads it) equate with a placeholder or a column of an own source in
- *   scope, its core's or an enclosing core's (a non-LATERAL derived table and a CTE see none of their reader's), the
- *   field-less column dropped, sorted; its binding is their texts in that order, one group for the call where each is a
- *   placeholder, the context's fact or a derived table of one row of it (one core over such sources alone, filtering,
- *   counting and projecting nothing beyond its column), else one per row. An ON CONFLICT's group is its conflict
- *   columns', each bound to EXCLUDED's. A table read through a derived table that only renames its columns (each named
+ *   scope, its core's or an enclosing core's (a non-LATERAL derived table and a CTE see none of their reader's), else,
+ *   by its first such equality, with another table's column of its core, the field of the row that table's read finds
+ *   (none where that column is no field), the field-less column dropped, sorted; its binding is what binds each in that
+ *   order (facts.ts bindingText; a stored row's field by the relation of the read that finds it), one group for the
+ *   call where each but the stored rows' is a placeholder, the context's claim or a derived table of one row of it (one
+ *   core over such sources alone, filtering, counting and projecting nothing beyond its column), else one per row. An
+ *   ON CONFLICT's group is its conflict columns', each bound to EXCLUDED's. A table read through a derived table that only renames its columns (each named
  *   as the table's, each the rotation's other) is keyed so by the conditions of the core that reads it, through the
  *   renaming, the derived table an outside table's value; one that also takes a LIMIT is keyed by none of them, read as
  *   its own query's, the derived table the call's own rows, so its own equalities equate it with no other table.
@@ -88,14 +90,15 @@ import { expanded } from "#test/support/expanded.ts"
 import {
 	buildStatement,
 	caseGen,
+	type Expected,
 	expected,
 	expectedOf,
 	gotRows,
 	NAMES,
-	PARAM_NAMES,
 	probeRows,
 	readKey,
 	type Shape,
+	slotFill,
 	sortedKeys,
 	writeKey
 } from "#test/unit/program/isolation/extract.fixtures.ts"
@@ -162,7 +165,8 @@ export const aChangeMembersFactsNameEveryReadByItsModeItsOwnItsGroupAndItsBindin
 			"the row an arbitration met, through a CTE that holds its met rows whole",
 			"a group bound by a derived table of the context's fact, one value",
 			"a group bound by a derived table of the context's fact and VALUES, one per row",
-			"a group bound by a column its own source's query fixes"
+			"a group bound by a column its own source's query fixes",
+			"a group bound by the row another table's read finds"
 		] satisfies ReadonlyArray<Reached<Shape>>,
 		check: (_2, k: Case<Shape>) => (c) =>
 			Effect.sync(() => {
@@ -170,7 +174,7 @@ export const aChangeMembersFactsNameEveryReadByItsModeItsOwnItsGroupAndItsBindin
 					"member",
 					Arr.map(c.statements, buildStatement),
 					NAMES,
-					(_, n) => PARAM_NAMES.get(n),
+					(_, n) => slotFill(n),
 					c.level
 				)
 				assert.equal(
@@ -181,6 +185,13 @@ export const aChangeMembersFactsNameEveryReadByItsModeItsOwnItsGroupAndItsBindin
 				Arr.forEach(c.statements, (spec, i) => {
 					const shared = Arr.getUnsafe(facts.statements, i)
 					const got = expanded(shared)
+					/** A flat read as the comparison reads it, among the reads of the body it stands in. */
+					const gotOf = (at: number): Expected => {
+						const origin = Arr.getUnsafe(got.origins, at)
+						const body = origin.cte === undefined ? shared : Arr.getUnsafe(shared.ctes, origin.cte)
+						return expectedOf(Arr.getUnsafe(body.reads, origin.read), body.reads)
+					}
+					const gotReads = Arr.map(got.reads, (_, at) => gotOf(at))
 					const x = expected(spec, c.level)
 					assert.equal(
 						new Set(Arr.map(shared.ctes, (cte) => cte.query)).size,
@@ -190,7 +201,7 @@ export const aChangeMembersFactsNameEveryReadByItsModeItsOwnItsGroupAndItsBindin
 					const shapes = new Map<number, string>()
 					for (const cte of shared.ctes) {
 						const shape = Arr.join(
-							Arr.map(cte.reads, (r) => readKey({ ...expectedOf(r), mode: "positive" })),
+							Arr.map(cte.reads, (r) => readKey({ ...expectedOf(r, cte.reads), mode: "positive" })),
 							";"
 						)
 						assert.equal(
@@ -204,18 +215,18 @@ export const aChangeMembersFactsNameEveryReadByItsModeItsOwnItsGroupAndItsBindin
 						k.note(shape)
 					}
 					assert.deepEqual(
-						sortedKeys(Arr.map(got.reads, expectedOf)),
+						sortedKeys(gotReads),
 						sortedKeys([...x.reads, ...x.tail]),
 						`statement ${i}'s reads`
 					)
 					assert.deepEqual(
-						sortedKeys(Arr.map(Arr.takeRight(got.reads, x.tail.length), expectedOf)),
+						sortedKeys(Arr.takeRight(gotReads, x.tail.length)),
 						sortedKeys(x.tail),
 						`statement ${i}'s ON CONFLICT arbitrations follow every other read`
 					)
 					assert.deepEqual(
 						Arr.sort(
-							Arr.map(got.reads, (r) => `${readKey(expectedOf(r))}|${r.base}|${r.probes.length}`),
+							Arr.map(got.reads, (r, at) => `${readKey(gotOf(at))}|${r.base}|${r.probes.length}`),
 							Order.String
 						),
 						Arr.sort(
@@ -238,7 +249,7 @@ export const aChangeMembersFactsNameEveryReadByItsModeItsOwnItsGroupAndItsBindin
 							),
 							","
 						)
-					const gotCores = Arr.map(got.cores, (sources) => gotRows(got.reads, sources))
+					const gotCores = Arr.map(got.cores, (sources) => gotRows(got.reads, gotOf, sources))
 					assert.deepEqual(
 						Arr.sort(
 							Arr.map(
@@ -267,7 +278,7 @@ export const aChangeMembersFactsNameEveryReadByItsModeItsOwnItsGroupAndItsBindin
 									"positive",
 									`statement ${i}'s write of ${w.relation} names a positive read`
 								)
-								return expectedOf(read)
+								return gotOf(at)
 							})
 						)
 					)
@@ -300,14 +311,14 @@ export const aChangeMembersFactsNameEveryReadByItsModeItsOwnItsGroupAndItsBindin
 		kills: [
 			{
 				file: "packages/engine/src/program/isolation/extract.ts",
-				original: "\tconst fixed = named.fixed.get(column)\n",
-				replacement: "\tconst fixed: string | undefined = undefined\n",
+				original:
+					'\t\t\treturn named.bound.get(column) ?? { kind: "own", alias: table, column, rows: named.rows }\n',
+				replacement: '\t\t\treturn { kind: "own", alias: table, column, rows: named.rows }\n',
 				why: "A column of an own source read as one value per row whatever its query fixes, as extract.ts read it: a read joined on a relation parameter's column its query fixes to a parameter binds one group per row, unsealed (edullm's QTIAPP-LEARNER: the ledger's `sittings`, a TestSession query at child = :child, left every read joined on it of no one group)."
 			},
 			{
 				file: "packages/engine/src/program/isolation/extract.ts",
-				original:
-					"\t\t\t\t\treturn anchor === undefined ? undefined : callText(anchor, named, this.paramOf)\n",
+				original: "\t\t\t\t\treturn anchor === undefined ? undefined : bindingOf(anchor)\n",
 				replacement: "\t\t\t\t\treturn undefined\n",
 				why: "A query's target fixed only where it is a parameter or a fixed column itself, never through its conditions' equalities: a target the WHERE equates with a parameter, the relation parameter's own key column, fixes nothing."
 			},

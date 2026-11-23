@@ -4,18 +4,25 @@
  * what certification compares of it (program/isolation/certification.ts), extracted once, as its member compiles
  * (program/workload/change.ts certifiableEntry), so nothing holds its statements' ASTs past its compile.
  */
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { isNonEmpty, mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { TupleMap, TupleSet } from "@bjornpagen/grizzle-text/base/tuple-map"
 import type { MemberFacts } from "#compiler/analysis/isolation/facts.ts"
+import type { ParamId } from "#compiler/core/ids.ts"
 import { headsOf } from "#compiler/ir/instant.ts"
 import type { NativeColumn, NativeObject } from "#compiler/ir/law.ts"
-import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
+import type {
+	ArrayPart,
+	RelationColumn,
+	WriteParamSlot
+} from "#compiler/lower/conservative/types.ts"
 import { libraryRef, tablelessLibrary } from "#compiler/physical/ddl/library.ts"
 import type { NamedRole } from "#compiler/physical/ddl/names.ts"
 import {
 	type ExtractNames,
 	memberFacts,
-	type RetiredTable
+	type RetiredTable,
+	type SlotFill
 } from "#compiler/program/isolation/extract.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import { reachOf } from "#compiler/runtime/write/steps.ts"
@@ -64,9 +71,42 @@ const flightStatements = (compiled: CompiledWrite): ReadonlyArray<SentStatement>
 	)
 ]
 
-/** The declared parameter a placeholder's slot carries when it is a scalar's, none for any other slot or no slot. */
-const scalarParam = (slot: WriteParamSlot | undefined): string | undefined =>
-	slot?.kind === "scalar" ? slot.param : undefined
+/**
+ * What fills a placeholder, as the extractor reads it (extract.ts SlotFill): a declared scalar's parameter, by its
+ * name; a relation parameter's or a member slot's array of one column, that field of its input's heading; and any other
+ * array, a stratum's nested rows' or an input's count.
+ */
+const slotFill = (slot: WriteParamSlot | undefined): SlotFill => {
+	if (slot === undefined) {
+		throw defect("a placeholder its statement allocates no slot for")
+	}
+	switch (slot.kind) {
+		case "scalar":
+			return { kind: "param", name: slot.param }
+		case "relation":
+			return inputFill(slot.param, slot.columns, slot.part)
+		case "member":
+			return inputFill(slot.slot, slot.columns, slot.part)
+		case "nestedRows":
+			return { kind: "rows" }
+	}
+}
+
+/** The fill of one array of a relation input: its column's field, or, for its count, none. */
+const inputFill = (
+	parameter: ParamId,
+	columns: ReadonlyArray<RelationColumn>,
+	part: ArrayPart
+): SlotFill => {
+	if (part.kind === "count") {
+		return { kind: "rows" }
+	}
+	const column = columns[part.index]
+	if (column === undefined) {
+		throw defect("an input's array of a column its input holds")
+	}
+	return { kind: "input", parameter, field: column.name }
+}
 
 /**
  * How the extractor reads a role's statements back (program/isolation/extract.ts ExtractNames), from the names its
@@ -232,7 +272,7 @@ export const compiledFacts = (
 					name,
 					mapNonEmpty(sent, (s) => s.ast),
 					names,
-					(statement, n) => scalarParam(sent[statement]?.slots[n - 1]),
+					(statement, n) => slotFill(sent[statement]?.slots[n - 1]),
 					write.level
 				)
 			]

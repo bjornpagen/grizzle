@@ -33,7 +33,7 @@ import {
 	buildStatement,
 	caseGen,
 	NAMES,
-	PARAM_NAMES
+	slotFill
 } from "#test/unit/program/isolation/extract.fixtures.ts"
 
 type Situation = "a member whose statements read a query CTE" | "a member of several statements"
@@ -87,13 +87,7 @@ export const aMembersFactsHoldNoWalkNoStatementsExtractionStateAndNoNodeOfItsSta
 			Effect.sync(() => {
 				const statements = Arr.map(drawn.statements, buildStatement)
 				const before = alive()
-				const facts = memberFacts(
-					"member",
-					statements,
-					NAMES,
-					(_s, n) => PARAM_NAMES.get(n),
-					drawn.level
-				)
+				const facts = memberFacts("member", statements, NAMES, (_s, n) => slotFill(n), drawn.level)
 				const after = alive()
 				assert.equal(after.walks - before.walks, 0, "no walk outlives the extraction")
 				assert.equal(

@@ -29,8 +29,7 @@ import {
 	faultKey,
 	gateGen,
 	installationOf,
-	memberOf,
-	sourceOf
+	memberOf
 } from "#test/unit/analysis/isolation/borrows.fixtures.ts"
 
 /** A member's borrows and faults are exactly the borrow rules' over its facts and the installation's. */
@@ -63,7 +62,7 @@ export const aMembersBorrowsAndFaultsAreExactlyTheBorrowRulesOverItsFactsAndTheI
 					for (const f of expected.features) {
 						c.note(f)
 					}
-					const proof = memberBorrows(memberOf(drawn), installationOf(drawn), sourceOf)
+					const proof = memberBorrows(memberOf(drawn), installationOf(drawn))
 					assert.deepEqual(
 						Arr.sort(Arr.dedupe(Arr.map(proof.faults, faultKey)), Order.String),
 						Arr.sort([...expected.faults], Order.String),
@@ -83,8 +82,8 @@ export const aMembersBorrowsAndFaultsAreExactlyTheBorrowRulesOverItsFactsAndTheI
 			kills: [
 				{
 					file: "packages/engine/src/analysis/isolation/borrows.ts",
-					original: '\t\t\t\ttake(place.unit, "exclusive", key)\n',
-					replacement: '\t\t\t\ttake(place.unit, "shared", key)\n',
+					original: '\t\t\t\ttake(place.unit, "exclusive", site)\n',
+					replacement: '\t\t\t\ttake(place.unit, "shared", site)\n',
 					why: "A unit a member writes borrowed shared, as a read alone needs: two writers of one learner run at once."
 				},
 				{

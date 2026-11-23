@@ -6,20 +6,26 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
-import type {
-	CteFacts,
-	CteUse,
-	ReadGroup,
-	MemberFacts,
-	ProbeFact,
-	ReadAt,
-	ReadFact,
-	RowSource,
-	SiteCore,
-	StatementFacts,
-	WriteFact
+import {
+	type Binding,
+	bindingRows,
+	type CteFacts,
+	type CteUse,
+	type FieldBinding,
+	type MemberFacts,
+	type ProbeFact,
+	type ReadAt,
+	type ReadFact,
+	type ReadGroup,
+	type RowSource,
+	type SiteCore,
+	type StatementFacts,
+	sameBinding,
+	type WriteFact
 } from "#compiler/analysis/isolation/facts.ts"
+import type { ParamId } from "#compiler/core/ids.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
+import { compareStrings } from "#compiler/core/order.ts"
 import { overRowsOf } from "#compiler/lower/conservative/expr/lateral.ts"
 import type {
 	Assignment,
@@ -86,23 +92,49 @@ export interface ExtractNames {
 type Polarity = "positive" | "negated" | "both"
 
 /**
- * What a name a core sees is: a stored table's alias, whose values the statement reads (`table`), an own source's, whose
+ * What a name a core sees is: a stored table's alias, whose values the statement reads (Stored), an own source's, whose
  * values are the call's own (OwnRows), or an INSERT's met rows, any number of them, named by their source, which a `met`
  * source reads through.
  */
-type Named = "table" | OwnRows | MetRows
+type Named = Stored | OwnRows | MetRows
+
+/**
+ * A stored table's alias as a core sees it, one for each source that names it, which the walk keeps beside that
+ * source's read (Walk `places`), so a column of it binds another read to the row this one finds (Binding `stored`).
+ */
+interface Stored {
+	readonly kind: "stored"
+}
+
+/** A stored table's source's name, its own for each source. */
+const stored = (): Stored => ({ kind: "stored" })
 
 /**
  * A source of the call's own rows as a core sees it: the session's context, one row (`one`), or a carrier, a CTE, a
  * relation input's arrays, a VALUES list, a function's or a derived table's rows, any number of rows (`many`); and each
- * column of it that holds one value for the call in every row, with that value's text (`fixed`, fixedColumns), which a
- * read bound to the column is bound to, once for the call, whatever rows the source holds.
+ * column of it that carries a binding in every row (`bound`, Statement.columnBindings): a context's field, a relation
+ * input's, or one value the call holds once, which a read bound to the column is bound to, whatever rows the source
+ * holds.
  */
 interface OwnRows {
 	readonly kind: "own"
-	readonly rows: ReadGroup["rows"]
-	readonly fixed: ReadonlyMap<string, string>
+	readonly rows: "one" | "many"
+	readonly bound: ReadonlyMap<string, CallBinding>
 }
+
+/** A binding the call holds or its own rows carry, wherever it stands: any but a stored row's (Binding `stored`). */
+type CallBinding = Exclude<Binding, { readonly kind: "stored" }>
+
+/**
+ * What fills a placeholder $n of a statement, as its bindings read it: a declared scalar parameter, by its name
+ * (`param`); one array of a relation input, a relation parameter's or a member slot's, by its ParamId, the array of its
+ * heading's `field` (`input`); or any other array (`rows`), a stratum's nested rows' or an input's count, which binds no
+ * read by itself.
+ */
+export type SlotFill =
+	| { readonly kind: "param"; readonly name: string }
+	| { readonly kind: "input"; readonly parameter: ParamId; readonly field: string }
+	| { readonly kind: "rows" }
 
 type Scope = ReadonlyMap<string, Named>
 
@@ -118,12 +150,20 @@ interface Scoped {
 	readonly scope: Scope
 }
 
-/** A column a read's conditions bind, with what it is bound to and how many values that takes for the call. */
+/** A column a read's conditions bind, and what it is bound to (BoundTo). */
 interface Bound {
 	readonly column: string
-	readonly by: string
-	readonly rows: ReadGroup["rows"]
+	readonly by: BoundTo
 }
+
+/**
+ * What a column a read's conditions bind is bound to as the walk finds it: a binding the call holds or its own rows
+ * carry (CallBinding), or a column of a stored table's source in scope (`column`), which the body's facts resolve to the
+ * field of that source's read (Binding `stored`).
+ */
+type BoundTo =
+	| CallBinding
+	| { readonly kind: "column"; readonly of: Stored; readonly column: string }
 
 /**
  * What a CTE name refers to: a query, read where a source names it, under the scope and the CTEs it was defined in; a
@@ -247,11 +287,12 @@ type Found =
 			readonly probes: ReadonlyArray<number>
 	  }
 
-/** An INSERT's ON CONFLICT arbitration of the table it writes: its conflict columns, none for a constraint's. */
+/** An INSERT's ON CONFLICT arbitration of the table it writes: its conflict columns, none for a constraint's, and the
+ * binding each column it writes carries (insertValues). */
 interface Arbitration {
 	readonly table: ObjectName
 	readonly columns: ReadonlyArray<string> | undefined
-	readonly values: ReadonlyMap<string, string>
+	readonly values: ReadonlyMap<string, CallBinding>
 }
 
 /** The parts of one core the walk reads. */
@@ -604,7 +645,7 @@ const callRow = (q: OperandSelect): boolean => {
  * What a source's alias names: a stored table's values, a derived table's that only renames one's columns among them,
  * or the call's own, of one row (a context's fact, a derived table of one, callRow) or many.
  */
-const nameOf = (source: FromSource): readonly [string, "table" | ReadGroup["rows"] | MetRows] => {
+const nameOf = (source: FromSource): readonly [string, "table" | OwnRows["rows"] | MetRows] => {
 	switch (source.kind) {
 		case "table":
 			return [source.alias, typeof source.table === "string" ? "many" : "table"]
@@ -671,7 +712,9 @@ const metRowsHeld = (query: OperandSelect, columns: ReadonlyArray<string>): MetR
 /**
  * What a source's alias names where `ctes` are in scope (nameOf): a query CTE that holds an INSERT's met rows whole
  * (metRowsHeld) names them, as their own source does, so a `met` source driven by its rows is read as the met row it is
- * (metSealed); an own source names its rows with the columns it fixes (OwnRows, Statement.fixedColumns).
+ * (metSealed); a stored table's source names its rows (Stored); an own source names its rows with the binding each of
+ * its columns carries (OwnRows `bound`): a context's each its field's, a relation input's arrays each its field's, a
+ * derived table's or a query CTE's each its query's (Statement.columnBindings).
  */
 const namedIn = (
 	source: FromSource,
@@ -686,21 +729,50 @@ const namedIn = (
 		}
 	}
 	const [alias, named] = nameOf(source)
-	if (named === "table" || typeof named === "object") {
+	if (named === "table") {
+		return [alias, stored()]
+	}
+	if (typeof named === "object") {
 		return [alias, named]
 	}
+	return [alias, { kind: "own", rows: named, bound: ownColumns(source, ctes, statement) }]
+}
+
+/** The binding each column of an own source carries (OwnRows `bound`), none where it carries none. */
+const ownColumns = (
+	source: FromSource,
+	ctes: Ctes,
+	statement: Statement
+): ReadonlyMap<string, CallBinding> => {
+	if (source.kind === "context") {
+		return new Map(
+			source.columns.map((c) => [
+				c.column.name,
+				{ kind: "context", context: source.context, field: c.field }
+			])
+		)
+	}
+	if (source.kind === "arrays") {
+		return source.source.kind === "columns"
+			? new Map(
+					source.source.columns.flatMap((c): ReadonlyArray<readonly [string, CallBinding]> => {
+						const fill = statement.slotOf(c.array.number)
+						return fill.kind === "input"
+							? [
+									[
+										c.definition.name,
+										{ kind: "input", parameter: fill.parameter, field: fill.field }
+									]
+								]
+							: []
+					})
+				)
+			: new Map()
+	}
 	const defined = definedOf(source, ctes)
-	return [
-		alias,
-		{
-			kind: "own",
-			rows: named,
-			fixed:
-				defined === undefined
-					? new Map()
-					: statement.fixedColumns(defined.query, defined.columns, defined.ctes)
-		}
-	]
+	return defined === undefined
+		? new Map()
+		: statement.columnBindings(defined.query, defined.columns, defined.ctes)
 }
 
 /** The names of a body's columns as its targets give them: its first core's aliases, which name a set operation's. */
@@ -730,18 +802,18 @@ const columnName = (e: Expr): string | undefined => {
 }
 
 /**
- * The value an expression of a core holds for the call, by its canonical text, where it holds one: a placeholder's
- * (placeholderName), through casts; or a column of an own source among `named`, the core's sources, that holds one in
- * every row of it, a fixed column's text (OwnRows `fixed`), or any column of a source of one row by its alias and column,
- * as a read bound to it is (bindingsOf). None for any other: a stored table's column, a computed value.
+ * The binding an expression of a core carries, where it carries one (CallBinding): a placeholder's
+ * (placeholderBinding), through casts; or a column of an own source among `named`, the core's sources, the binding its
+ * source carries there (OwnRows `bound`), else, of a source of one row, the column itself, as a read bound to it is
+ * (bindingsOf). None for any other: a stored table's column, a computed value.
  */
-const callText = (
+const callBinding = (
 	e: Expr,
 	named: ReadonlyMap<string, Named>,
-	paramOf: (n: number) => string | undefined
-): string | undefined => {
+	slotOf: (n: number) => SlotFill
+): CallBinding | undefined => {
 	const u = uncast(e)
-	const placeholder = placeholderName(u, paramOf)
+	const placeholder = placeholderBinding(u, slotOf)
 	if (placeholder !== undefined) {
 		return placeholder
 	}
@@ -749,31 +821,30 @@ const callText = (
 		return undefined
 	}
 	const own = named.get(u.table)
-	if (own === undefined || typeof own === "string" || own.kind !== "own") {
+	if (own?.kind !== "own") {
 		return undefined
 	}
-	return own.fixed.get(u.column) ?? (own.rows === "one" ? `${u.table}.${u.column}` : undefined)
-}
-
-/** A parameter's canonical name: the declared parameter it carries, else its number. */
-const paramName = (n: number, paramOf: (n: number) => string | undefined): string => {
-	const named = paramOf(n)
-	return named === undefined ? `$${n}` : `:${named}`
+	return (
+		own.bound.get(u.column) ??
+		(own.rows === "one"
+			? { kind: "own", alias: u.table, column: u.column, rows: "one" }
+			: undefined)
+	)
 }
 
 /**
- * The canonical name of what a placeholder carries, where `e` is one: a slot's parameter (paramName), or the declared
- * parameter a clock reading binds, which is one value for the call as a parameter is, so a column equal to it is bound
- * to one value; a stamp's reading binds none.
+ * What a placeholder binds, where `e` is one: a declared scalar parameter's, by its name, or the declared parameter a
+ * clock reading binds, which is one value for the call as a parameter is, so a column equal to it is bound to one value;
+ * none for a stamp's reading or an array's placeholder, which an arrays source reads (ownColumns).
  */
-const placeholderName = (
-	e: Expr,
-	paramOf: (n: number) => string | undefined
-): string | undefined => {
+const placeholderBinding = (e: Expr, slotOf: (n: number) => SlotFill): CallBinding | undefined => {
 	if (e.kind === "param") {
-		return paramName(e.slot.number, paramOf)
+		const fill = slotOf(e.slot.number)
+		return fill.kind === "param" ? { kind: "param", name: fill.name } : undefined
 	}
-	return e.kind === "clock" && e.of.kind === "param" ? `:${e.of.param}` : undefined
+	return e.kind === "clock" && e.of.kind === "param"
+		? { kind: "param", name: e.of.param }
+		: undefined
 }
 
 /** The query and column names a source of the call's own rows reads, a derived table's or a query CTE's; none else. */
@@ -796,21 +867,25 @@ const definedOf = (
 }
 
 /**
- * The value each column an INSERT writes carries for the call, where it carries one: each item of its one VALUES row
- * that holds one (callText, over no source), or each column its source query fixes (Statement.fixedColumns).
+ * The binding each column an INSERT writes carries, where it carries one: each item of its one VALUES row that carries
+ * one (callBinding, over no source), or each column its source query carries one in (Statement.columnBindings).
  */
-const insertValues = (s: Insert, ctes: Ctes, statement: Statement): ReadonlyMap<string, string> => {
+const insertValues = (
+	s: Insert,
+	ctes: Ctes,
+	statement: Statement
+): ReadonlyMap<string, CallBinding> => {
 	if (s.source.kind === "query") {
-		return statement.fixedColumns(s.source.query, s.columns, ctes)
+		return statement.columnBindings(s.source.query, s.columns, ctes)
 	}
 	const [only, ...rest] = s.source.rows
-	const out = new Map<string, string>()
+	const out = new Map<string, CallBinding>()
 	if (rest.length > 0) {
 		return out
 	}
 	for (const [i, column] of s.columns.entries()) {
 		const item = only[i]
-		const value = item === undefined ? undefined : callText(item, new Map(), statement.paramOf)
+		const value = item === undefined ? undefined : callBinding(item, new Map(), statement.slotOf)
 		if (value !== undefined) {
 			out.set(column, value)
 		}
@@ -870,6 +945,8 @@ const targetConditions = (w: MergeWhen, on: ReadonlyArray<Expr>): ReadonlyArray<
  */
 export class Walk<Top extends Arrival> {
 	readonly found: Array<Found> = []
+	/** The place of the read of each stored table's source among `found` (Stored), the first where several read it. */
+	readonly places = new Map<Stored, number>()
 	readonly probes: Array<WalkProbe<number | Top>> = []
 	readonly cores: Array<ReadonlyArray<RowSource>> = []
 	readonly uses: Array<CteUse> = []
@@ -1004,7 +1081,7 @@ export class Walk<Top extends Arrival> {
 			...(conflict?.action.kind === "doUpdate" ? this.#writeOf(s.table, "update") : [])
 		]
 		const scope: Scope =
-			s.alias === undefined ? inner.scope : new Map([...inner.scope, [s.alias, "table"]])
+			s.alias === undefined ? inner.scope : new Map([...inner.scope, [s.alias, stored()]])
 		const after: Context<Top> = { ...inner, scope }
 		this.#feedingWrites(at, () => {
 			if (s.source.kind === "query") {
@@ -1100,7 +1177,7 @@ export class Walk<Top extends Arrival> {
 		const using = sourcesOf([s.using])
 		const scope: Scope = new Map([
 			...inner.scope,
-			[s.alias, "table"],
+			[s.alias, stored()],
 			...using.map(({ source }) => namedIn(source, inner.ctes, this.#statement))
 		])
 		const here: Context<Top> = { ...inner, scope }
@@ -1401,7 +1478,7 @@ export class Walk<Top extends Arrival> {
 		here: Context<Top>,
 		met: ReadonlyArray<string> | undefined
 	): RowSource {
-		const scope: Scope = new Map([...here.scope, [inner, "table"]])
+		const scope: Scope = new Map([...here.scope, [inner, stored()]])
 		const conditions = [
 			...columns.map((c) => eq(col(inner, c.column), c.value)),
 			...filter.flatMap(conjunctsOf)
@@ -1410,7 +1487,7 @@ export class Walk<Top extends Arrival> {
 			kind: "table",
 			table,
 			alias: inner,
-			context: here,
+			context: { ...here, scope },
 			conditions: conditions.map((expr) => ({ expr, scope })),
 			feeds: this.#feeds(),
 			columns: undefined,
@@ -1422,10 +1499,15 @@ export class Walk<Top extends Arrival> {
 		return read
 	}
 
-	/** A table read found, as the row source it is: its place among the reads. */
-	#table(found: Found): RowSource {
+	/** A table read found, as the row source it is: its place among the reads, which its source's name (Stored) keeps. */
+	#table(found: Extract<Found, { readonly kind: "table" }>): RowSource {
+		const place = this.found.length
 		this.found.push(found)
-		return { kind: "read", read: this.found.length - 1 }
+		const named = found.context.scope.get(found.alias)
+		if (named?.kind === "stored") {
+			this.places.getOrInsert(named, place)
+		}
+		return { kind: "read", read: place }
 	}
 
 	/**
@@ -1560,7 +1642,7 @@ export class Statement {
 	readonly arbitrations: Array<Arbitration> = []
 	readonly instances: Array<Instance> = []
 	readonly names: ExtractNames
-	readonly paramOf: (n: number) => string | undefined
+	readonly slotOf: (n: number) => SlotFill
 	readonly level: Isolation
 	readonly #keyed = new TupleMap<InstanceKey, number>()
 	readonly #templates = new TupleMap<TemplateKey, Template>()
@@ -1568,33 +1650,34 @@ export class Statement {
 	readonly #reading: Array<Array<Nested>> = []
 	readonly #queries = new Map<OperandSelect, number>()
 
-	readonly #fixed = new Map<OperandSelect, ReadonlyMap<string, string>>()
+	readonly #carried = new Map<OperandSelect, ReadonlyMap<string, CallBinding>>()
 
-	constructor(names: ExtractNames, paramOf: (n: number) => string | undefined, level: Isolation) {
+	constructor(names: ExtractNames, slotOf: (n: number) => SlotFill, level: Isolation) {
 		this.names = names
-		this.paramOf = paramOf
+		this.slotOf = slotOf
 		this.level = level
 	}
 
 	/**
-	 * The columns of a query, named `columns` (or its targets' aliases where none), that hold one value for the call in
-	 * every row it yields, each with that value's text (callText), found once per query of the statement: a core's
-	 * target that holds one itself, or is a column its conditions equate with one, its WHERE's and its inner joins',
-	 * through any chain of their equalities (equalityClosure, the one closure grizzle reads a conjunction's equalities
-	 * by), a column of each own source among them its fixed columns; a UNION's or UNION ALL's where every arm fixes it to
-	 * the same. A query with a WITH of its own fixes none, nor does any other set operation. A row that fixes a column so
-	 * equals the value there, so a read bound to the column reads one group for the call (ReadGroup `one`), however many
-	 * rows the query yields: a relation parameter's query at `child = :child` binds every read joined on its `child` to
-	 * `:child`.
+	 * The columns of a query, named `columns` (or its targets' aliases where none), that carry a binding in every row it
+	 * yields (callBinding), each with it, found once per query of the statement: a core's target that carries one
+	 * itself, or is a column its conditions equate with one, its WHERE's and its inner joins', through any chain of
+	 * their equalities (equalityClosure, the one closure grizzle reads a conjunction's equalities by), a value the call
+	 * holds once before any its own rows carry, a column of each own source among them the binding its source carries
+	 * there; a UNION's or UNION ALL's where every arm carries the same. A query with a WITH of its own carries none, nor
+	 * does any other set operation. A row that carries a binding in a column equals it there, so a read bound to the
+	 * column is bound to it, however many rows the query yields: a relation parameter's query at `child = :child` binds
+	 * every read joined on its `child` to `:child`, and an input's query binds every read joined on a column of its
+	 * arrays to that field of the input.
 	 */
-	fixedColumns(
+	columnBindings(
 		q: OperandSelect,
 		columns: ReadonlyArray<string>,
 		ctes: Ctes
-	): ReadonlyMap<string, string> {
-		return this.#fixed.getOrInsertComputed(q, () => {
-			const targets = q.with === undefined ? this.#fixedTargets(q.body, ctes) : undefined
-			const out = new Map<string, string>()
+	): ReadonlyMap<string, CallBinding> {
+		return this.#carried.getOrInsertComputed(q, () => {
+			const targets = q.with === undefined ? this.#targetBindings(q.body, ctes) : undefined
+			const out = new Map<string, CallBinding>()
 			if (targets === undefined) {
 				return out
 			}
@@ -1609,9 +1692,12 @@ export class Statement {
 		})
 	}
 
-	/** The value each target of a body holds for the call, by its place, where it holds one (fixedColumns); none for a
-	 * body no target of which can be said to. */
-	#fixedTargets(body: OperandBody, ctes: Ctes): ReadonlyArray<string | undefined> | undefined {
+	/** The binding each target of a body carries, by its place, where it carries one (columnBindings); none for a body
+	 * no target of which can be said to. */
+	#targetBindings(
+		body: OperandBody,
+		ctes: Ctes
+	): ReadonlyArray<CallBinding | undefined> | undefined {
 		switch (body.kind) {
 			case "core": {
 				const sources = sourcesOf(body.from)
@@ -1620,39 +1706,46 @@ export class Statement {
 					(e): ReadonlyArray<readonly [Expr, Expr]> =>
 						e.kind === "binary" && e.op === "=" ? [[e.left, e.right]] : []
 				)
-				const anchorOf = equalityClosure(
-					equalities,
-					columnName,
-					(e) => callText(e, named, this.paramOf) !== undefined
-				)
+				const bindingOf = (e: Expr): CallBinding | undefined => callBinding(e, named, this.slotOf)
+				const once = equalityClosure(equalities, columnName, (e) => {
+					const b = bindingOf(e)
+					return b !== undefined && bindingRows(b) === "one"
+				})
+				const carried = equalityClosure(equalities, columnName, (e) => bindingOf(e) !== undefined)
 				return body.targets.map((t) => {
-					const direct = callText(t.expr, named, this.paramOf)
+					const direct = bindingOf(t.expr)
 					if (direct !== undefined) {
 						return direct
 					}
 					const name = columnName(t.expr)
-					const anchor = name === undefined ? undefined : anchorOf(name)
-					return anchor === undefined ? undefined : callText(anchor, named, this.paramOf)
+					const anchor = name === undefined ? undefined : (once(name) ?? carried(name))
+					return anchor === undefined ? undefined : bindingOf(anchor)
 				})
 			}
 			case "select":
-				return body.with === undefined ? this.#fixedTargets(body.body, ctes) : undefined
+				return body.with === undefined ? this.#targetBindings(body.body, ctes) : undefined
 			case "setOp": {
 				if (body.op !== "UNION" && body.op !== "UNION ALL") {
 					return undefined
 				}
 				const [first, ...rest] = body.arms.map((arm) =>
 					arm.kind === "core"
-						? this.#fixedTargets(arm, ctes)
+						? this.#targetBindings(arm, ctes)
 						: arm.with === undefined
-							? this.#fixedTargets(arm.body, ctes)
+							? this.#targetBindings(arm.body, ctes)
 							: undefined
 				)
 				if (first === undefined || rest.some((arm) => arm === undefined)) {
 					return undefined
 				}
 				return first.map((value, i) =>
-					rest.every((arm) => arm?.[i] === value) ? value : undefined
+					value !== undefined &&
+					rest.every((arm) => {
+						const other = arm?.[i]
+						return other !== undefined && sameBinding(other, value)
+					})
+						? value
+						: undefined
 				)
 			}
 		}
@@ -1740,62 +1833,46 @@ const siteCore = (core: number | Arrival): number | undefined => {
 	return core
 }
 
-const byColumn = (a: Bound, b: Bound): number => {
-	if (a.column < b.column) {
-		return -1
-	}
-	return a.column > b.column ? 1 : 0
+/**
+ * A read's group, from the fields it binds (each FieldBinding's), sorted by field; none where it binds none.
+ */
+const boundGroup = (bound: ReadonlyArray<FieldBinding>): ReadGroup | undefined => {
+	const sorted = bound.toSorted((a, b) => compareStrings(a.field, b.field))
+	return isNonEmpty(sorted) ? { bound: sorted } : undefined
 }
 
 /**
- * A read's group, from the fields it binds (each Bound's column a field), each with what it is bound to, sorted by
- * field: one value for the call where every field takes one, else one group per own row; none where it binds none.
+ * What a column of a source in scope binds a column equal to it to: a stored table's column, the row its source's read
+ * finds (BoundTo `column`); an INSERT's met rows' column, one per row; an own source's, the binding it carries there
+ * (OwnRows `bound`), else the column itself, one value or one per row as its source holds; none for an unknown name.
  */
-const boundGroup = (bound: ReadonlyArray<Bound>): ReadGroup | undefined => {
-	const sorted = bound.toSorted(byColumn)
-	return isNonEmpty(sorted)
-		? {
-				bound: mapNonEmpty(sorted, (b) => ({ field: b.column, by: b.by })),
-				rows: sorted.every((b) => b.rows === "one") ? "one" : "many"
-			}
-		: undefined
-}
-
-/**
- * What a column of the call's own sources binds a column equal to it to: a fixed column's value, once for the call
- * (OwnRows `fixed`), else the column itself, one value or one per row as its source holds; an INSERT's met rows' one
- * per row; none for a stored table's or an unknown name.
- */
-const ownBinding = (
-	scope: Scope,
-	table: string,
-	column: string
-): { readonly by: string; readonly rows: ReadGroup["rows"] } | undefined => {
+const ownBinding = (scope: Scope, table: string, column: string): BoundTo | undefined => {
 	const named = scope.get(table)
-	if (named === undefined || named === "table") {
+	if (named === undefined) {
 		return undefined
 	}
-	if (named.kind === "metRows") {
-		return { by: `${table}.${column}`, rows: "many" }
+	switch (named.kind) {
+		case "stored":
+			return { kind: "column", of: named, column }
+		case "metRows":
+			return { kind: "own", alias: table, column, rows: "many" }
+		case "own":
+			return named.bound.get(column) ?? { kind: "own", alias: table, column, rows: named.rows }
 	}
-	const fixed = named.fixed.get(column)
-	return fixed === undefined
-		? { by: `${table}.${column}`, rows: named.rows }
-		: { by: fixed, rows: "one" }
 }
 
 /**
  * The columns of a table source its core's conditions bind, through a projection's renaming (`columns`, none for a
- * table read directly), each by its first equality, in the conditions' order:
- * with a parameter, one value, or with a column of a source the scope names the call's own, one value or one per row.
- * Each comes with the text of what it is bound to: a parameter by the declared parameter it carries (`:name`), so two
- * placeholders of one parameter bind one value, or by its number where it carries none.
+ * table read directly), each by its first equality, in the conditions' order, with a binding the call holds or its own
+ * rows carry before one with a column of another stored table's source: with a parameter, one value; with a column of
+ * a source the scope names the call's own, the binding it carries there or the column itself; or with a column of
+ * another stored table's source, the row that source's read finds (BoundTo `column`).
  */
 const bindingsOf = (
 	alias: string,
 	conditions: ReadonlyArray<Scoped>,
 	columns: ReadonlyMap<string, string> | undefined,
-	paramOf: (n: number) => string | undefined
+	slotOf: (n: number) => SlotFill
 ): ReadonlyArray<Bound> => {
 	const side = (mine: Expr, other: Expr, scope: Scope): ReadonlyArray<Bound> => {
 		if (mine.kind !== "column" || mine.table !== alias) {
@@ -1805,23 +1882,27 @@ const bindingsOf = (
 		if (column === undefined) {
 			return []
 		}
-		const placeholder = placeholderName(other, paramOf)
+		const placeholder = placeholderBinding(other, slotOf)
 		if (placeholder !== undefined) {
-			return [{ column, by: placeholder, rows: "one" }]
+			return [{ column, by: placeholder }]
 		}
-		if (other.kind !== "column" || other.table === undefined) {
+		if (other.kind !== "column" || other.table === undefined || other.table === alias) {
 			return []
 		}
-		const bound = ownBinding(scope, other.table, other.column)
-		return bound === undefined ? [] : [{ column, ...bound }]
+		const by = ownBinding(scope, other.table, other.column)
+		return by === undefined ? [] : [{ column, by }]
 	}
 	const out = new Map<string, Bound>()
+	const learned = new Map<string, Bound>()
 	for (const { expr: e, scope } of conditions) {
 		if (e.kind === "binary" && e.op === "=") {
 			for (const b of [...side(e.left, e.right, scope), ...side(e.right, e.left, scope)]) {
-				out.getOrInsert(b.column, b)
+				;(b.by.kind === "column" ? learned : out).getOrInsert(b.column, b)
 			}
 		}
+	}
+	for (const [column, b] of learned) {
+		out.getOrInsert(column, b)
 	}
 	return [...out.values()]
 }
@@ -1903,23 +1984,48 @@ const modeOf = (c: Context, arbiter: boolean): ReadFact["mode"] => {
 const statementFacts = (
 	s: SqlStatement,
 	names: ExtractNames,
-	paramOf: (n: number) => string | undefined,
+	slotOf: (n: number) => SlotFill,
 	level: Isolation
 ): StatementFacts => {
-	const statement = new Statement(names, paramOf, level)
+	const statement = new Statement(names, slotOf, level)
 	const walk = new Walk<undefined>(statement, [])
 	walk.statement(s)
 	const relation = (t: ObjectName): string => names.relationOf(t) ?? `?${printObjectName(t)}`
-	const fields = (rel: string, bound: ReadonlyArray<Bound>): ReadonlyArray<Bound> =>
-		bound.flatMap((b): ReadonlyArray<Bound> => {
+	/**
+	 * What a read's column is bound to as its body's facts state it (Binding): a stored table's column resolved to the
+	 * field of its source's read among `body`'s, a projection's column through its renaming; none where no read of the
+	 * body is that source's or the column is of no field.
+	 */
+	const resolved = (body: Body, by: BoundTo): Binding | undefined => {
+		if (by.kind !== "column") {
+			return by
+		}
+		const read = body.places.get(by.of)
+		const f = read === undefined ? undefined : body.found[read]
+		if (read === undefined || f?.kind !== "table" || typeof f.table === "string") {
+			return undefined
+		}
+		const column = f.columns === undefined ? by.column : f.columns.get(by.column)
+		const field = column === undefined ? undefined : names.fieldOf(relation(f.table), column)
+		return field === undefined ? undefined : { kind: "stored", read, field }
+	}
+	/** The fields of `rel` a read's bound columns are, each with what it is bound to, in `body` (resolved); none for a
+	 * column of no field, a law column, or a binding its body cannot state. */
+	const fields = (
+		body: Body,
+		rel: string,
+		bound: ReadonlyArray<Bound>
+	): ReadonlyArray<FieldBinding> =>
+		bound.flatMap((b): ReadonlyArray<FieldBinding> => {
 			const field = names.fieldOf(rel, b.column)
-			return field === undefined ? [] : [{ ...b, column: field }]
+			const by = resolved(body, b.by)
+			return field === undefined || by === undefined ? [] : [{ field, by }]
 		})
 	/** The relations the statement's DML writes, which a probe of arbitrates; a retirement arbitrates nothing. */
 	const written = new Set(
 		statement.writes.flatMap((w) => (w.op === "retire" ? [] : [relation(w.table)]))
 	)
-	const readOf = (f: Found): Placed => {
+	const readOf = (body: Body, f: Found): Placed => {
 		if (f.kind === "opaque") {
 			return {
 				read: {
@@ -1955,16 +2061,16 @@ const statementFacts = (
 				base: baseOf(arbiter),
 				probes: f.context.probes,
 				own: false,
-				group: boundGroup(fields(rel, bindingsOf(f.alias, f.conditions, f.columns, paramOf)))
+				group: boundGroup(fields(body, rel, bindingsOf(f.alias, f.conditions, f.columns, slotOf)))
 			},
 			feeds: f.feeds
 		}
 	}
-	const reads = walk.found.map(readOf)
+	const reads = walk.found.map((f) => readOf(walk, f))
 	/** Each query CTE walk's reads, read once for every instance of it (Template). */
 	const walked = new Map<Template, ReadonlyArray<Placed>>()
 	const readsOf = (t: Template): ReadonlyArray<Placed> =>
-		walked.getOrInsertComputed(t, () => t.walk.found.map(readOf))
+		walked.getOrInsertComputed(t, () => t.walk.found.map((f) => readOf(t.walk, f)))
 	/** Each query CTE walk's read facts, one list every instance of it holds. */
 	const stated = new Map<Template, ReadonlyArray<ReadFact>>()
 	const readFactsOf = (t: Template): ReadonlyArray<ReadFact> =>
@@ -1979,13 +2085,12 @@ const statementFacts = (
 			own: false,
 			group: boundGroup(
 				fields(
+					walk,
 					rel,
-					(a.columns ?? []).map((column): Bound => {
-						const value = a.values.get(column)
-						return value === undefined
-							? { column, by: `excluded.${column}`, rows: "many" }
-							: { column, by: value, rows: "one" }
-					})
+					(a.columns ?? []).map((column): Bound => ({
+						column,
+						by: a.values.get(column) ?? { kind: "proposed", column }
+					}))
 				)
 			)
 		}
@@ -2038,6 +2143,12 @@ const nestedAt = (instance: Instance, place: number): number => {
 	return at
 }
 
+/** A body's walk as its facts read it back: every read it found, and the place of each stored table's source's read. */
+interface Body {
+	readonly found: ReadonlyArray<Found>
+	readonly places: ReadonlyMap<Stored, number>
+}
+
 /** A read a walk found as its facts state it, and the writes its rows feed as the walk recorded them (Feeds). */
 interface Placed {
 	readonly read: ReadFact
@@ -2075,16 +2186,19 @@ const probeAt = <Core extends SiteCore>(
  *   it states no fact of. Each object is named as the printer quotes it (sql/print.ts printObjectName), so two names are
  *   one text only where they are one name, as `?every:schema.name` was for `"a.b"."c"` and `"a"."b.c"`, and the
  *   refusal shows it as SQL spells it.
- * - A table read's group is the fields its core's conditions bind to a parameter or to a column of a source in scope,
- *   the enclosing cores' included, that is the call's own: one value for the call where each is a parameter or the
- *   session's context's, else one group per own row. An ON CONFLICT's is its conflict columns', each bound to
- *   EXCLUDED's, one per proposed row.
+ * - A table read's group is the fields its core's conditions bind (analysis/isolation/facts.ts Binding), the
+ *   enclosing cores' included: to a parameter; to a column of a source in scope that is the call's own, the binding it
+ *   carries there, a context's field, a relation input's or one its query carries, else the column itself; or, where
+ *   no such binding binds the field, to a column of another stored table's source of the same body, the field of the
+ *   row that source's read finds. An ON CONFLICT's is its conflict columns', each bound to what its proposed value
+ *   carries, else to EXCLUDED's.
  * - A derived table that only renames a relation's columns (projectionOf) reads that relation where it stands, keyed by
  *   the conditions of the core that reads it, through the renaming. A derived table that keeps each row of its one core
  *   as one of its own (rowPreserving) carries each equality over its columns into that core (pushedInto), level by level,
  *   so a group binds through every such layer; any other derived table's reads are keyed by its own conditions alone.
- * - A parameter binds by the declared parameter it carries, `:name`, where the caller's `params` names it, else by its
- *   number; an ON CONFLICT's conflict columns bind by the parameters their proposed values carry, where they carry one.
+ * - A placeholder binds by what the caller's `slots` says fills it (SlotFill): a declared scalar parameter by its name,
+ *   so two placeholders of one parameter, in one statement or two, bind one value; an array of a relation input, read
+ *   by an arrays source, binds each read bound to that source's column to the input's field.
  * - Every flip of polarity and every count opens a probe, gating the writes its place feeds; each read lists the probes
  *   of its body it stands beneath and its base mode, the certifier's to judge (analysis/isolation/certify.ts
  *   reachesOf).
@@ -2106,11 +2220,9 @@ export const memberFacts = (
 	name: string,
 	statements: NonEmptyReadonlyArray<SqlStatement>,
 	names: ExtractNames,
-	params: (statement: number, n: number) => string | undefined,
+	slots: (statement: number, n: number) => SlotFill,
 	level: Isolation
 ): MemberFacts => ({
 	name,
-	statements: mapNonEmpty(statements, (s, i) =>
-		statementFacts(s, names, (n) => params(i, n), level)
-	)
+	statements: mapNonEmpty(statements, (s, i) => statementFacts(s, names, (n) => slots(i, n), level))
 })

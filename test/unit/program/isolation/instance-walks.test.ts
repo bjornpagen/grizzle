@@ -41,7 +41,7 @@ import {
 	types
 } from "#compiler/sql/build.ts"
 import { callCounts } from "#test/support/kernel/calls.ts"
-import { NAMES } from "#test/unit/program/isolation/extract.fixtures.ts"
+import { NAMES, slotFill } from "#test/unit/program/isolation/extract.fixtures.ts"
 
 type Situation =
 	| "a chain read by several writes"
@@ -141,7 +141,7 @@ export const aStatementsQueryCtesAreWalkedOnceForEachPolarityAndCountTheyAreRead
 			Effect.gen(function* () {
 				const [facts, counts] = yield* callCounts(
 					Effect.sync(() =>
-						memberFacts("member", [statementOf(d)], NAMES, () => undefined, "serializable")
+						memberFacts("member", [statementOf(d)], NAMES, (_, n) => slotFill(n), "serializable")
 					),
 					{ walks: { file: "packages/engine/src/program/isolation/extract.ts", name: "Walk" } }
 				)

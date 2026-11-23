@@ -15,21 +15,23 @@ import {
 	type ReadSeal,
 	readSeal
 } from "#compiler/analysis/isolation/certify.ts"
-import type {
-	BodyFacts,
-	CteFacts,
-	CteUse,
-	InsertsFact,
-	IsolationInput,
-	MemberFacts,
-	ReadAt,
-	ReadFact,
-	RoleFacts,
-	RoleWrites,
-	RowSource,
-	SiteCore,
-	StatementFacts,
-	Unformed
+import {
+	type BodyFacts,
+	type Binding,
+	bindingText,
+	type CteFacts,
+	type CteUse,
+	type InsertsFact,
+	type IsolationInput,
+	type MemberFacts,
+	type ReadAt,
+	type ReadFact,
+	type RoleFacts,
+	type RoleWrites,
+	type RowSource,
+	type SiteCore,
+	type StatementFacts,
+	type Unformed
 } from "#compiler/analysis/isolation/facts.ts"
 import {
 	type IsolationCondition,
@@ -2264,6 +2266,12 @@ export const lawsOver = (
 const byOf = (r: ReadSketch, field: string): string =>
 	`$p${field === "k1" && r.split ? 1 - r.binding : r.binding}`
 
+/** The binding byOf names, as a read's fact binds it: that parameter, or, one group per own row, that own column. */
+const bindingOf = (r: ReadSketch, field: string): Binding =>
+	r.rows === "one"
+		? { kind: "param", name: byOf(r, field) }
+		: { kind: "own", alias: "own", column: byOf(r, field), rows: "many" }
+
 export const readFact = (r: ReadSketch): ReadFact => ({
 	relation: relationName(r.relation),
 	mode: r.mode,
@@ -2274,8 +2282,7 @@ export const readFact = (r: ReadSketch): ReadFact => ({
 		r.group === undefined
 			? undefined
 			: {
-					bound: Arr.map(keyOf(r.group), (field) => ({ field, by: byOf(r, field) })),
-					rows: r.rows
+					bound: Arr.map(keyOf(r.group), (field) => ({ field, by: bindingOf(r, field) }))
 				}
 })
 
@@ -2894,7 +2901,7 @@ export const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 		r.group === undefined
 			? `${r.relation}/-`
 			: `${r.relation}/${Arr.join(
-					Arr.map(keyOf(r.group), (f) => `${f}=${byOf(r, f)}`),
+					Arr.map(keyOf(r.group), (f) => `${f}=${bindingText(bindingOf(r, f))}`),
 					","
 				)}`
 	/** The fields of a read's group, none where it binds none. */
@@ -3809,7 +3816,7 @@ const sharedStatementGen =
 /** The group a read reads, as the row path features compare them: its relation and its bindings. */
 const groupKey = (r: ReadFact): string =>
 	`${r.relation}(${Arr.join(
-		Arr.map(r.group?.bound ?? [], (b) => `${b.field}=${b.by}`),
+		Arr.map(r.group?.bound ?? [], (b) => `${b.field}=${bindingText(b.by)}`),
 		","
 	)})`
 

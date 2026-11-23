@@ -13,7 +13,12 @@
  *   relation outside every unit is an insert-only append: no role updates or deletes the relation, and its
  *   arbitration, a read of mode `arbiter` sealed at a whole declared key, is decided by PostgreSQL's unique check.
  * - A read. A read of a unit's rows binding the unit's whole key is held, whatever its shape: negated, counted, one
- *   group per own row, the call borrowing the unit shared there (or exclusively, where it writes it at that key). A
+ *   group per own row, the call borrowing the unit shared there (or exclusively, where it writes it at that key). It
+ *   binds the key by bindings the call holds before its first snapshot (core/certificate.ts KeySite `bound`), a stored
+ *   row's field bound to one among them; or by the fields of the row one other read of its body finds, a positive
+ *   point lookup at a whole declared key bound so: of an immutable fact or a relation no role writes (`learned`), or of
+ *   a unit's rows at that unit's whole key (`held`), the call borrowing that unit shared there too, before the unit the
+ *   lookup keys. A
  *   read of the call's own rows, of a relation no role writes, an arbitration and a read of a row an arbitration
  *   fixed are sealed (certify.ts ReadSeal). Outside every unit, a positive whole-key or counted read of an
  *   insert-only relation is an immutable fact, gated (below); a negated or counted read, or an arbitration of no whole
@@ -38,39 +43,63 @@
  * certification's switch to these rules.
  */
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
-import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
+import {
+	bodyAt,
 	breaksAt,
 	cascaded,
 	groupOf,
+	keyIn,
 	madeBy,
 	type Made,
 	type PlacedRead,
 	permitted,
 	type ReadSeal,
 	readsUnder,
+	type SealOfRead,
 	type SealView,
 	sealOf
 } from "#compiler/analysis/isolation/certify.ts"
-import type {
-	MemberFacts,
-	ReadFact,
-	RelationFacts,
-	WriteFact
+import {
+	bindingText,
+	type FieldBinding,
+	type MemberFacts,
+	type ReadFact,
+	type RelationFacts,
+	type WriteFact
 } from "#compiler/analysis/isolation/facts.ts"
-import type { Borrow, BorrowLock, KeyField, KeySource } from "#compiler/core/certificate.ts"
+import type {
+	Borrow,
+	BorrowLock,
+	KeyField,
+	KeySite,
+	KeySource
+} from "#compiler/core/certificate.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
 
 /**
- * Which unit a relation's rows sit under: the unit, its key's fields (`key`, its heading's, in order), and the relation's
- * fields that hold them (`fields`, one for each of the key's, in its order).
+ * Which unit a relation's rows sit under: the unit, and each field of its key in the key's order (UnitField).
  */
 export interface UnitPlace {
 	readonly unit: string
-	readonly key: NonEmptyReadonlyArray<string>
-	readonly fields: NonEmptyReadonlyArray<string>
+	readonly fields: NonEmptyReadonlyArray<UnitField>
 }
+
+/** One field of a unit's key as a relation under it holds it: the key's field (`key`, its heading's) and the relation's. */
+export interface UnitField {
+	readonly key: string
+	readonly field: string
+}
+
+/** The relation's fields that hold a unit's key, in the key's order. */
+const heldBy = (place: UnitPlace): NonEmptyReadonlyArray<string> =>
+	mapNonEmpty(place.fields, (f) => f.field)
 
 /**
  * An installation as the borrow rules read it, built once from the IR (borrowInstallation): every relation's facts; the
@@ -185,44 +214,145 @@ export interface MemberBorrows {
 	readonly faults: ReadonlyArray<BorrowFault>
 }
 
-/** A unit key as a site binds it: the binding of each of the unit's key fields, in its order, or the fields it leaves. */
+/** A unit key as a read binds it: a place the call holds whole keys of the unit (KeySite), or the fields it leaves. */
 type KeyBinding =
-	| { readonly kind: "bound"; readonly key: NonEmptyReadonlyArray<KeyField> }
+	| { readonly kind: "site"; readonly site: KeySite }
 	| { readonly kind: "missing"; readonly fields: NonEmptyReadonlyArray<string> }
 
 /**
- * The unit key a read binds at its relation's place in a unit, each key field bound to a binding the call holds
- * (`sourceOf`, a FieldBinding's text as a KeySource, none for one the call does not hold before its first snapshot).
+ * What one field a read binds holds the unit key field at, in the body the read stands in (`reads`): a binding the call
+ * holds before its first snapshot (KeySource), a stored row's field bound to one included, as the equality makes it the
+ * same value; or the field of the row another read of the body finds (`lookup`, its place); none for any other.
  */
-const keyOf = (
-	read: ReadFact,
-	place: UnitPlace,
-	sourceOf: (by: string) => KeySource | undefined
-): KeyBinding => {
-	const missing: Array<string> = []
-	const key: Array<KeyField> = []
-	for (const [i, field] of place.fields.entries()) {
-		const bound = read.group?.bound.find((b) => b.field === field)
-		const source = bound === undefined ? undefined : sourceOf(bound.by)
-		const named = place.key[i]
-		if (source === undefined || named === undefined) {
-			missing.push(field)
-		} else {
-			key.push({ field: named, source })
+type FieldAt =
+	| { readonly kind: "source"; readonly source: KeySource }
+	| { readonly kind: "lookup"; readonly read: number; readonly field: string }
+
+const fieldAt = (reads: ReadonlyArray<ReadFact>, by: FieldBinding["by"]): FieldAt | undefined => {
+	switch (by.kind) {
+		case "param":
+		case "context":
+		case "input":
+			return { kind: "source", source: by }
+		case "stored": {
+			const learned = reads[by.read]?.group?.bound.find((b) => b.field === by.field)?.by
+			return learned !== undefined && isKeySource(learned)
+				? { kind: "source", source: learned }
+				: { kind: "lookup", read: by.read, field: by.field }
 		}
+		case "own":
+		case "proposed":
+			return undefined
 	}
-	return isNonEmpty(missing)
-		? { kind: "missing", fields: missing }
-		: isNonEmpty(key)
-			? { kind: "bound", key }
-			: { kind: "missing", fields: place.fields }
 }
 
-/** A borrow being gathered: its lock, its mode, and its keys, each once by its text. */
+/** Whether a binding is one the call holds before its first snapshot. */
+const isKeySource = (by: FieldBinding["by"]): by is KeySource =>
+	by.kind === "param" || by.kind === "context" || by.kind === "input"
+
+/** The fields of a read bound to bindings the call holds before its first snapshot, each with its source. */
+const sourcesOf = (read: ReadFact): ReadonlyArray<KeyField> =>
+	(read.group?.bound ?? []).flatMap((b) =>
+		isKeySource(b.by) ? [{ field: b.field, source: b.by }] : []
+	)
+
+/** A read of a stored relation by its statement, the body it stands in (ReadAt) and that body's reads. */
+interface SiteRead {
+	readonly read: ReadFact
+	readonly reads: ReadonlyArray<ReadFact>
+}
+
+/** A placed read as a SiteRead: its fact, and its body's reads. */
+const siteOf = (member: MemberFacts, p: PlacedRead): SiteRead => {
+	const s = member.statements[p.statement]
+	const body = s === undefined ? undefined : bodyAt(s, p.at.cte)
+	if (body === undefined) {
+		throw defect("a placed read stands in a body of its member's statement")
+	}
+	return { read: p.read, reads: body.reads }
+}
+
+/**
+ * The unit key a read binds at its relation's place in a unit (KeySite): each key field bound to a binding the call
+ * holds (`bound`); or each bound to the field of the row one other read of its body finds at a whole declared key it
+ * binds to such bindings alone, a point lookup, `learned` where that row is an immutable fact or of a relation no role
+ * writes, `held` where it is a unit's row the lookup binds the unit's whole key of, which the call so borrows; else the
+ * key fields it leaves.
+ */
+const keyOf = (at: BorrowInstallation, site: SiteRead, place: UnitPlace): KeyBinding => {
+	const fields = mapNonEmpty(place.fields, (f) => {
+		const bound = site.read.group?.bound.find((b) => b.field === f.field)
+		return { ...f, at: bound === undefined ? undefined : fieldAt(site.reads, bound.by) }
+	})
+	const missing = fields.flatMap((f) => (f.at === undefined ? [f.field] : []))
+	if (isNonEmpty(missing)) {
+		return { kind: "missing", fields: missing }
+	}
+	const sources = fields.flatMap((f) =>
+		f.at?.kind === "source" ? [{ field: f.key, source: f.at.source }] : []
+	)
+	if (isNonEmpty(sources) && sources.length === fields.length) {
+		return { kind: "site", site: { kind: "bound", fields: sources } }
+	}
+	const lookups = fields.flatMap((f) => (f.at?.kind === "lookup" ? [f.at] : []))
+	const lookup = isNonEmpty(lookups) ? site.reads[lookups[0].read] : undefined
+	const learned =
+		isNonEmpty(lookups) &&
+		lookup !== undefined &&
+		lookups.length === fields.length &&
+		lookups.every((l) => l.read === lookups[0].read)
+			? lookupSite(
+					at,
+					{ read: lookup, reads: site.reads },
+					mapNonEmpty(lookups, (l) => l.field)
+				)
+			: undefined
+	return learned === undefined
+		? { kind: "missing", fields: heldBy(place) }
+		: { kind: "site", site: learned }
+}
+
+/**
+ * The point lookup of `lookup` as a key site, its row's `columns` the unit key's: `learned` of an immutable fact or a
+ * relation no role writes, `held` of a unit's row it binds the unit's whole key of; none where it binds no whole
+ * declared key to bindings the call holds, or its row may change while the call holds no borrow of it.
+ */
+const lookupSite = (
+	at: BorrowInstallation,
+	lookup: SiteRead,
+	columns: NonEmptyReadonlyArray<string>
+): KeySite | undefined => {
+	const relation = lookup.read.relation
+	const facts = at.relations.get(relation)
+	const bound = sourcesOf(lookup.read)
+	const declared =
+		facts === undefined
+			? undefined
+			: keyIn(
+					facts,
+					bound.map((b) => b.field)
+				)
+	if (declared === undefined || lookup.read.mode !== "positive") {
+		return undefined
+	}
+	const key = declared.flatMap((field) => bound.filter((b) => b.field === field))
+	if (!isNonEmpty(key)) {
+		return undefined
+	}
+	const place = at.units.get(relation)
+	if (place !== undefined) {
+		return place.fields.every((f) => key.some((k) => k.field === f.field))
+			? { kind: "held", relation, key, columns, under: { kind: "unit", unit: place.unit } }
+			: undefined
+	}
+	return at.changed.has(relation) ? undefined : { kind: "learned", relation, key, columns }
+}
+
+/** A borrow being gathered: its lock, its mode, and its key sites, each once by its text. */
 interface Gathered {
 	readonly lock: BorrowLock
 	mode: Borrow["mode"]
-	readonly keys: Map<string, NonEmptyReadonlyArray<KeyField>>
+	readonly keys: Map<string, KeySite>
 }
 
 /** Whether a placed read's seal needs no borrow: the call's own rows, a relation no role writes, an arbitration, or a
@@ -239,27 +369,23 @@ const immutableFact = (p: PlacedRead): boolean =>
 	p.mode === "positive" && (p.seal.kind === "point" || p.seal.kind === "counted")
 
 /**
- * One member's proof under the borrow rules (the module's doc), over its facts and the installation's, each binding a
- * read's group holds read as a KeySource by `sourceOf`. Total: every site is a borrow, needs none, or is a fault.
+ * One member's proof under the borrow rules (the module's doc), over its facts and the installation's. Total: every
+ * site is a borrow, needs none, or is a fault.
  */
-export const memberBorrows = (
-	member: MemberFacts,
-	at: BorrowInstallation,
-	sourceOf: (by: string) => KeySource | undefined
-): MemberBorrows => {
+export const memberBorrows = (member: MemberFacts, at: BorrowInstallation): MemberBorrows => {
 	const view = sealView(at)
-	/** A read of a unit's rows at a key it binds seals as the call's own for placement: no other call writes them while
+	/** A read of a unit's rows at a key site seals as the call's own for placement: no other call writes them while
 	 * the call holds the unit, so no probe above it reads a write another call may make. */
-	const placementSeal = (read: ReadFact): ReadSeal => {
+	const placementSeal: SealOfRead = (read, reads) => {
 		const place = at.units.get(read.relation)
-		return place !== undefined && keyOf(read, place, sourceOf).kind === "bound"
+		return place !== undefined && keyOf(at, { read, reads }, place).kind === "site"
 			? { kind: "own" }
 			: sealOf(view, read)
 	}
 	const { placed, fed } = readsUnder(placementSeal, at.relations, member)
 	const faults: Array<BorrowFault> = []
 	const gathered = new Map<string, Gathered>()
-	const take = (unit: string, mode: Borrow["mode"], key: NonEmptyReadonlyArray<KeyField>): void => {
+	const take = (unit: string, mode: Borrow["mode"], site: KeySite): void => {
 		const held = gathered.getOrInsertComputed(unit, () => ({
 			lock: { kind: "unit", unit },
 			mode,
@@ -268,7 +394,11 @@ export const memberBorrows = (
 		if (mode === "exclusive") {
 			held.mode = "exclusive"
 		}
-		held.keys.set(keyText(key), key)
+		held.keys.set(siteText(site), site)
+		const under = site.kind === "held" ? at.units.get(site.relation) : undefined
+		if (site.kind === "held" && under !== undefined) {
+			take(under.unit, "shared", { kind: "bound", fields: siteUnder(site, under) })
+		}
 	}
 	/** The unit keys a statement's reads of a relation bind, for its writes of that relation. */
 	const writtenKeys = (statement: number, relation: string, op: WriteFact["op"]) =>
@@ -294,9 +424,9 @@ export const memberBorrows = (
 				continue
 			}
 			const keys = writtenKeys(statement, w.relation, w.op).map((p) =>
-				keyOf(p.read, place, sourceOf)
+				keyOf(at, siteOf(member, p), place)
 			)
-			const bound = keys.flatMap((k) => (k.kind === "bound" ? [k.key] : []))
+			const bound = keys.flatMap((k) => (k.kind === "site" ? [k.site] : []))
 			if (!isNonEmpty(bound)) {
 				const [first] = keys
 				faults.push({
@@ -304,12 +434,12 @@ export const memberBorrows = (
 					statement,
 					relation: w.relation,
 					unit: place.unit,
-					missing: first?.kind === "missing" ? first.fields : place.fields
+					missing: first?.kind === "missing" ? first.fields : heldBy(place)
 				})
 				continue
 			}
-			for (const key of bound) {
-				take(place.unit, "exclusive", key)
+			for (const site of bound) {
+				take(place.unit, "exclusive", site)
 			}
 		}
 	}
@@ -319,9 +449,9 @@ export const memberBorrows = (
 			if (p.read.own) {
 				continue
 			}
-			const key = keyOf(p.read, place, sourceOf)
-			if (key.kind === "bound") {
-				take(place.unit, "shared", key.key)
+			const key = keyOf(at, siteOf(member, p), place)
+			if (key.kind === "site") {
+				take(place.unit, "shared", key.site)
 			} else {
 				faults.push({
 					kind: "key",
@@ -362,28 +492,41 @@ export const memberBorrows = (
 			lock: g.lock,
 			mode: g.mode,
 			at: "flight",
-			keys: [...g.keys]
-				.toSorted(([a], [b]) => compareStrings(a, b))
-				.map(([, fields]) => ({ kind: "bound", fields }))
+			keys: [...g.keys].toSorted(([a], [b]) => compareStrings(a, b)).map(([, site]) => site)
 		}))
 	return { borrows, faults: distinctFaults(faults) }
 }
 
-/** A key's canonical text, by which the keys of one borrow are each kept once. */
-const keyText = (key: NonEmptyReadonlyArray<KeyField>): string =>
-	key.map(({ field, source }) => `${field}=${sourceText(source)}`).join(",")
+/** The key of `under` a held site's lookup binds: each of its unit's key fields with the lookup's source for it. */
+const siteUnder = (
+	site: Extract<KeySite, { readonly kind: "held" }>,
+	under: UnitPlace
+): NonEmptyReadonlyArray<KeyField> =>
+	mapNonEmpty(under.fields, (f) => {
+		const source = site.key.find((k) => k.field === f.field)?.source
+		if (source === undefined) {
+			throw defect("a held site's lookup binds its unit's whole key")
+		}
+		return { field: f.key, source }
+	})
 
-/** A binding's canonical text. */
-const sourceText = (source: KeySource): string => {
-	switch (source.kind) {
-		case "param":
-			return `:${source.name}`
-		case "context":
-			return `context.${source.field}`
-		case "input":
-			return `${source.parameter}.${source.field}`
+/** A key site's canonical text, by which the sites of one borrow are each kept once. */
+const siteText = (site: KeySite): string => {
+	switch (site.kind) {
+		case "bound":
+			return `bound ${keyText(site.fields)}`
+		case "learned":
+			return `learned ${site.relation}(${keyText(site.key)}).${site.columns.join(",")}`
+		case "held":
+			return `held ${site.relation}(${keyText(site.key)}).${site.columns.join(",")} under ${lockName(site.under)}`
+		case "delta":
+			return `delta ${site.relation}`
 	}
 }
+
+/** A key's canonical text. */
+const keyText = (key: ReadonlyArray<KeyField>): string =>
+	key.map(({ field, source }) => `${field}=${bindingText(source)}`).join(",")
 
 /** A lock's name, which orders the locks of a member and breaks the ties of LockOrder. */
 const lockName = (lock: BorrowLock): string =>

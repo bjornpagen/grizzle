@@ -9,6 +9,8 @@ import { TupleSet } from "@bjornpagen/grizzle-text/base/tuple-map"
 import {
 	type BodyFacts,
 	type CteUse,
+	bindingRows,
+	bindingText,
 	type FieldBinding,
 	groupFields,
 	type IsolationInput,
@@ -19,6 +21,7 @@ import {
 	type RoleFacts,
 	type RowSource,
 	type SiteCore,
+	sameBinding,
 	type StatementFacts,
 	type TriggerLaw,
 	type Unformed,
@@ -451,7 +454,25 @@ export interface SealView {
 	}
 }
 
-/** A read's seal among `at`'s writers (ReadSeal). */
+/**
+ * The group a read binds by values the call holds or its own rows carry: its bindings but each to the row another read
+ * finds (facts.ts Binding `stored`), which no rule here reads, and how many groups that is, `one` where every binding
+ * takes one value for the call, else `many`, one per own row; none where it binds no such field.
+ */
+export interface CallGroup {
+	readonly bound: NonEmptyReadonlyArray<FieldBinding>
+	readonly rows: "one" | "many"
+}
+
+/** A read's CallGroup. */
+export const callGroup = (read: ReadFact): CallGroup | undefined => {
+	const bound = (read.group?.bound ?? []).filter((b) => b.by.kind !== "stored")
+	return isNonEmpty(bound)
+		? { bound, rows: bound.every((b) => bindingRows(b.by) === "one") ? "one" : "many" }
+		: undefined
+}
+
+/** A read's seal among `at`'s writers (ReadSeal), by its CallGroup. */
 export const sealOf = (at: SealView, read: ReadFact): ReadSeal => {
 	if (read.own) {
 		return { kind: "own" }
@@ -463,7 +484,7 @@ export const sealOf = (at: SealView, read: ReadFact): ReadSeal => {
 	if (at.writers.unwritten(read.relation)) {
 		return { kind: "unwritten" }
 	}
-	const group = read.group
+	const group = callGroup(read)
 	if (read.mode === "arbiter") {
 		return at.writers.insertOnly(read.relation)
 			? arbiterSeal(facts, group === undefined ? undefined : groupFields(group))
@@ -508,7 +529,7 @@ const keyedSeal = (
 }
 
 /** A declared key of the relation whose every column `columns` holds, none where no key is. */
-const keyIn = (
+export const keyIn = (
 	facts: RelationFacts,
 	columns: ReadonlyArray<string>
 ): ReadonlyArray<string> | undefined => facts.keys.find((k) => k.every((c) => columns.includes(c)))
@@ -556,14 +577,21 @@ export interface PlacedRead {
 type Body = BodyFacts<SiteCore>
 
 /** The body of `s` at `cte`: its own, none, or its instance `cte`; none where it holds no such instance. */
-const bodyAt = (s: StatementFacts, cte: number | undefined): Body | undefined =>
+export const bodyAt = (s: StatementFacts, cte: number | undefined): Body | undefined =>
 	cte === undefined ? s : s.ctes[cte]
 
-/** One read of a statement by its body and place, with its fact. */
+/** One read of a statement by its body and place, with its fact and its body's reads. */
 interface StatedRead {
 	readonly at: ReadAt
 	readonly read: ReadFact
+	readonly body: ReadonlyArray<ReadFact>
 }
+
+/**
+ * A read's seal under some rules (ReadSeal), given the reads of the body it stands in (`body`), which a read bound to a
+ * row another of them finds reads (facts.ts Binding `stored`).
+ */
+export type SealOfRead = (read: ReadFact, body: ReadonlyArray<ReadFact>) => ReadSeal
 
 /**
  * Every read of a statement some site reaches, each once, in the order a walk that read each query CTE again at each of
@@ -579,7 +607,7 @@ const statementReads = (s: StatementFacts): ReadonlyArray<StatedRead> => {
 			for (; next < end; next++) {
 				const read = body.reads[next]
 				if (read !== undefined) {
-					out.push({ at: { cte, read: next }, read })
+					out.push({ at: { cte, read: next }, read, body: body.reads })
 				}
 			}
 		}
@@ -792,8 +820,11 @@ const groundsOf = (s: StatementFacts, reads: ReadonlyArray<StatedRead>): Grounds
 		joined: s.writes.map((w) =>
 			firstOfEach(
 				w.from.flatMap((at) => {
-					const read = bodyAt(s, at.cte)?.reads[at.read]
-					return read !== undefined && reached.has([at.cte, at.read]) ? [{ at, read }] : []
+					const body = bodyAt(s, at.cte)
+					const read = body?.reads[at.read]
+					return body !== undefined && read !== undefined && reached.has([at.cte, at.read])
+						? [{ at, read, body: body.reads }]
+						: []
 				})
 			)
 		)
@@ -861,9 +892,11 @@ interface Sealed {
 	readonly beneath: (cte: number | undefined, probe: number) => Beneath | undefined
 }
 
-const sealedOf = (s: StatementFacts, sealOfRead: (read: ReadFact) => ReadSeal): Sealed => {
-	const own = s.reads.map(sealOfRead)
-	const ctes = s.ctes.map((instance) => instance.reads.map(sealOfRead))
+const sealedOf = (s: StatementFacts, sealOfRead: SealOfRead): Sealed => {
+	const own = s.reads.map((read) => sealOfRead(read, s.reads))
+	const ctes = s.ctes.map((instance) =>
+		instance.reads.map((read) => sealOfRead(read, instance.reads))
+	)
 	const sealsOf = (cte: number | undefined): ReadonlyArray<ReadSeal> | undefined =>
 		cte === undefined ? own : ctes[cte]
 	const whole: Array<Beneath | undefined> = []
@@ -1102,14 +1135,16 @@ const fixedFor = (
 	read: ReadFact,
 	statement: number
 ): Fixed | undefined => {
-	const group = read.group
+	const group = callGroup(read)
 	return group === undefined
 		? undefined
 		: fixed.find(
 				(f) =>
 					f.relation === read.relation &&
 					f.statement < statement &&
-					f.bound.every((b) => group.bound.some((r) => r.field === b.field && r.by === b.by))
+					f.bound.every((b) =>
+						group.bound.some((r) => r.field === b.field && sameBinding(r.by, b.by))
+					)
 			)
 }
 
@@ -1125,7 +1160,7 @@ const fixedFor = (
  * statementReads finds them, each read's modes in the order its reaches take them.
  */
 const placementsOf = (
-	sealOfRead: (read: ReadFact) => ReadSeal,
+	sealOfRead: SealOfRead,
 	relations: ReadonlyMap<string, RelationFacts>,
 	member: MemberFacts,
 	visit: (statement: number, s: StatementFacts, placed: StatementPlacement) => void
@@ -1133,12 +1168,12 @@ const placementsOf = (
 	const stated = member.statements.map((s) => ({ s, reads: statementReads(s) }))
 	const fixed: Array<Fixed> = []
 	for (const [statement, { reads }] of stated.entries()) {
-		const seals = reads.map(({ read }) => ({ read, seal: sealOfRead(read) }))
+		const seals = reads.map(({ read, body }) => ({ read, seal: sealOfRead(read, body) }))
 		if (seals.some(({ seal }) => seal.kind !== "own" && seal.kind !== "arbiter")) {
 			break
 		}
 		for (const { read, seal } of seals) {
-			const group = read.group
+			const group = callGroup(read)
 			if (
 				read.mode === "arbiter" &&
 				seal.kind === "arbiter" &&
@@ -1155,8 +1190,8 @@ const placementsOf = (
 		}
 	}
 	for (const [statement, { s, reads }] of stated.entries()) {
-		const sealed = sealedOf(s, (read): ReadSeal => {
-			const seal = sealOfRead(read)
+		const sealed = sealedOf(s, (read, body): ReadSeal => {
+			const seal = sealOfRead(read, body)
 			const by = seal.kind === "point" ? fixedFor(fixed, read, statement) : undefined
 			return by === undefined ? seal : { kind: "arbitrated", key: by.key }
 		})
@@ -1228,7 +1263,7 @@ const readsOf = (installation: Installation, member: MemberFacts): MemberReads =
  * each write's rows are joined with (MemberReads).
  */
 export const readsUnder = (
-	sealOfRead: (read: ReadFact) => ReadSeal,
+	sealOfRead: SealOfRead,
 	relations: ReadonlyMap<string, RelationFacts>,
 	member: MemberFacts
 ): MemberReads => {
@@ -1327,11 +1362,13 @@ export const readModes = (
 	return out
 }
 
-/** The text that names one group a read reads: its relation, its fields and what they are bound to. */
-export const groupOf = (r: ReadFact): string =>
-	r.group === undefined
+/** The text that names one group a read reads: its relation, its CallGroup's fields and what they are bound to. */
+export const groupOf = (r: ReadFact): string => {
+	const group = callGroup(r)
+	return group === undefined
 		? `${r.relation}()`
-		: `${r.relation}(${groupFields(r.group).join(",")})=${r.group.bound.map((b) => b.by).join(",")}`
+		: `${r.relation}(${groupFields(group).join(",")})=${group.bound.map((b) => bindingText(b.by)).join(",")}`
+}
 
 /**
  * A read PostgreSQL makes for a foreign key, which no statement of the member shows: `referencing`, the insert or

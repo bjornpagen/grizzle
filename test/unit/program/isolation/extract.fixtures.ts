@@ -13,9 +13,10 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order, String as Str } from "effect"
-import type { ReadFact } from "#compiler/analysis/isolation/facts.ts"
+import { callGroup } from "#compiler/analysis/isolation/certify.ts"
+import { bindingText, type ReadFact } from "#compiler/analysis/isolation/facts.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
-import { type ExtractNames } from "#compiler/program/isolation/extract.ts"
+import { type ExtractNames, type SlotFill } from "#compiler/program/isolation/extract.ts"
 import type {
 	Cte,
 	Delete,
@@ -1082,20 +1083,26 @@ const otherExpr = (o: ResolvedOther): Expr => {
 	}
 }
 
-/** The text a binding names a resolved other side by, none for one that binds nothing. */
-/** The declared parameters the drawn placeholders carry: $1 and $3 one, $2 another, every other none. */
-export const PARAM_NAMES: ReadonlyMap<number, string> = new Map([
+/** The declared parameters the drawn placeholders carry: $1 and $3 one, $2 another, every other its own, p<n>. */
+const PARAM_NAMES: ReadonlyMap<number, string> = new Map([
 	[1, "a"],
 	[2, "b"],
 	[3, "a"]
 ])
 
-const paramText = (slot: number): string => {
-	const named = PARAM_NAMES.get(slot)
-	return named === undefined ? `$${slot}` : `:${named}`
-}
+/** What fills each drawn placeholder: a declared scalar parameter, by its name (PARAM_NAMES). */
+export const slotFill = (n: number): SlotFill => ({
+	kind: "param",
+	name: PARAM_NAMES.get(n) ?? `p${n}`
+})
 
-const bindingText = (o: ResolvedOther): string | undefined => {
+const paramText = (slot: number): string => `:${PARAM_NAMES.get(slot) ?? `p${slot}`}`
+
+/** The text the context's one claim binds by (facts.ts bindingText): the Session context's field sub. */
+const CONTEXT_TEXT = bindingText({ kind: "context", context: "Session", field: "sub" })
+
+/** The text a binding names a resolved other side by, none for one that binds nothing. */
+const otherText = (o: ResolvedOther): string | undefined => {
 	switch (o.kind) {
 		case "param":
 			return paramText(o.slot)
@@ -1193,9 +1200,7 @@ const fixedOfCore = (
 			case "cte":
 				return column === OWN_COLUMN ? fixedOfQuery(source.query, source.path, [], []) : undefined
 			case "plain":
-				return source.own === "context" && column === OWN_COLUMN
-					? `${alias}.${OWN_COLUMN}`
-					: undefined
+				return source.own === "context" && column === OWN_COLUMN ? CONTEXT_TEXT : undefined
 			case "carrier":
 			case "held":
 			case "met":
@@ -1489,6 +1494,49 @@ const filterExpr = (
 	}
 }
 
+/** A core's table source, as placed. */
+type PlacedTable = Extract<PlacedSource, { readonly kind: "table" }>
+
+/**
+ * Where each of a core's tables' equalities stands, each with its table, in their order: in its WHERE (`on` none), or
+ * in the ON of its join chain's source `on`, where it joins several sources and the equality is drawn there.
+ */
+interface EqualityPlace {
+	readonly table: PlacedTable
+	readonly e: Equality
+	readonly on: number | undefined
+}
+
+const equalityPlaces = (
+	sources: Arr.NonEmptyReadonlyArray<PlacedSource>
+): ReadonlyArray<EqualityPlace> => {
+	const tables = Arr.flatMap(sources, (s): ReadonlyArray<PlacedTable> =>
+		s.kind === "table" ? [s] : []
+	)
+	return Arr.flatMap(tables, (table, k) =>
+		Arr.map(table.equalities, (e): EqualityPlace => ({
+			table,
+			e,
+			on: sources.length > 1 && e.inJoin ? 1 + (k % (sources.length - 1)) : undefined
+		}))
+	)
+}
+
+/** A core's tables' equalities in the order the extractor reads its conditions (Walk #core): its WHERE's, then each
+ * ON's in its join chain's order. */
+const conditionOrder = (
+	sources: Arr.NonEmptyReadonlyArray<PlacedSource>
+): ReadonlyArray<{ readonly table: PlacedTable; readonly e: Equality }> => {
+	const places = equalityPlaces(sources)
+	return [
+		...Arr.filter(places, (p) => p.on === undefined),
+		...Arr.flatMap(
+			Array.from({ length: sources.length }, (_, i) => i),
+			(i) => Arr.filter(places, (p) => p.on === i)
+		)
+	]
+}
+
 /** The conjuncts of a core's tables' equalities, each in its WHERE or in one of its join chain's ONs. */
 const equalityConjuncts = (
 	sources: Arr.NonEmptyReadonlyArray<PlacedSource>,
@@ -1498,19 +1546,16 @@ const equalityConjuncts = (
 	const tables = Arr.flatMap(sources, (s) => (s.kind === "table" ? [s.alias] : []))
 	const where: Array<Expr> = []
 	const ons: Array<Array<Expr>> = Arr.map(sources, () => [])
-	const placedTables = Arr.flatMap(sources, (s) => (s.kind === "table" ? [s] : []))
-	Arr.forEach(placedTables, (s, k) => {
-		for (const e of s.equalities) {
-			const mine = col(s.alias, e.column)
-			const other = otherExpr(resolveOther(e.other, owns, tables, scope))
-			const conjunct = e.flipped ? eq(other, mine) : eq(mine, other)
-			if (sources.length > 1 && e.inJoin) {
-				Arr.getUnsafe(ons, 1 + (k % (sources.length - 1))).push(conjunct)
-			} else {
-				where.push(conjunct)
-			}
+	for (const { table, e, on } of equalityPlaces(sources)) {
+		const mine = col(table.alias, e.column)
+		const other = otherExpr(resolveOther(e.other, owns, tables, scope))
+		const conjunct = e.flipped ? eq(other, mine) : eq(mine, other)
+		if (on === undefined) {
+			where.push(conjunct)
+		} else {
+			Arr.getUnsafe(ons, on).push(conjunct)
 		}
-	})
+	}
 	return { where, ons }
 }
 
@@ -1891,7 +1936,7 @@ type Mode = "positive" | "negated" | "counted" | "arbiter"
 type Polarity = "positive" | "negated" | "both"
 
 /** A read as the oracle expects it, ReadFact's fields, and the writes its rows feed. */
-interface Expected {
+export interface Expected {
 	readonly relation: string
 	readonly mode: Mode
 	readonly own: boolean
@@ -1900,8 +1945,12 @@ interface Expected {
 	readonly rows: "one" | "many" | undefined
 }
 
-/** A fact as the comparison reads it: its group's fields, what they are bound to in their order, and rows side by side. */
-export const expectedOf = (r: ReadFact): Expected => ({
+/**
+ * A fact as the comparison reads it, among the reads of its body (`body`): its group's fields, what they are bound to
+ * in their order, a stored row's field by the relation of the read that finds it, and how many groups the call's own
+ * bindings read (certify.ts callGroup), side by side.
+ */
+export const expectedOf = (r: ReadFact, body: ReadonlyArray<ReadFact>): Expected => ({
 	relation: r.relation,
 	mode: r.mode,
 	own: r.own,
@@ -1910,11 +1959,27 @@ export const expectedOf = (r: ReadFact): Expected => ({
 		r.group === undefined
 			? undefined
 			: Arr.join(
-					Arr.map(r.group.bound, (b) => b.by),
+					Arr.map(r.group.bound, ({ by }) =>
+						by.kind === "stored"
+							? `stored ${Arr.getUnsafe(body, by.read).relation}.${by.field}`
+							: bindingText(by)
+					),
 					","
 				),
-	rows: r.group?.rows
+	rows: callGroup(r)?.rows
 })
+
+/** How many groups a read's bindings but stored rows' read (certify.ts CallGroup `rows`), none where it binds none. */
+const callRows = (
+	bound: ReadonlyArray<{ readonly rows: "one" | "many" | "stored" }>
+): "one" | "many" | undefined => {
+	const call = Arr.filter(bound, (b) => b.rows !== "stored")
+	return Arr.isReadonlyArrayNonEmpty(call)
+		? Arr.every(call, (b) => b.rows === "one")
+			? "one"
+			: "many"
+		: undefined
+}
 
 /** Where a read stands: its polarity, whether a count stands over it, whether it is a probe's, the writes its rows
  * feed, the own sources' aliases it sees, the probes above it, and the innermost core it stands in. */
@@ -1996,6 +2061,7 @@ export type Shape =
 	| "a probe at a group's last row"
 	| "a group bound by the context's fact"
 	| "a group bound by a column its own source's query fixes"
+	| "a group bound by the row another table's read finds"
 	| "an ON CONFLICT bound by the value its source query fixes"
 	| "a CTE that holds an INSERT's met rows whole"
 	| "the row an arbitration met, through a CTE that holds its met rows whole"
@@ -2005,8 +2071,22 @@ export type Shape =
 /** A column of a table read with what its conditions equate it with. */
 interface Bound {
 	readonly column: Column
-	readonly other: ResolvedOther
+	readonly other: ModelOther
 }
+
+/**
+ * The other side of an equality as the model reads it: a resolved other side, or a column of another table of the
+ * core (`incoming`), the side an equality that other table states reads this one by: its column `column`.
+ */
+type ModelOther =
+	| ResolvedOther
+	| { readonly kind: "incoming"; readonly alias: string; readonly column: Column }
+
+/** What a side binds a column equal to it to: a value the call holds or its own rows carry (`call`), or the field of the
+ * row another table's read finds (`stored`), its text none where that column is no field or its relation none. */
+type Binds =
+	| { readonly kind: "call"; readonly text: string; readonly rows: "one" | "many" }
+	| { readonly kind: "stored"; readonly text: string | undefined }
 
 /** Whether an aggregate makes its core count: every kind but none, a window call's among them. */
 const counts = (a: Aggregate): boolean => a.kind !== "none"
@@ -2046,24 +2126,49 @@ class Expect {
 	 * that value's text, by its alias. */
 	readonly fixedStacked = new Map<string, string>()
 
-	/** What a resolved other side binds a column equal to it to: its text and how many values that is for the call,
-	 * none for one that binds nothing (bindingText), a fixed own column's or stacked column's value once (fixedOwn,
-	 * fixedStacked). */
-	bound(o: ResolvedOther): { readonly text: string; readonly rows: "one" | "many" } | undefined {
+	/** Every context's fact placed so far, by its alias, whose one column binds by the context's claim (CONTEXT_TEXT). */
+	readonly contexts = new Set<string>()
+	/** Every direct or renaming table placed so far, by its alias, with its relation and form. */
+	readonly tablesAt = new Map<string, { readonly rel: Rel; readonly form: "direct" | "plain" }>()
+
+	/** The text a column of a direct or renaming table binds a column equal to it by: that field of the row its read
+	 * finds, `stored <relation>.<field>`, a renaming's column its table's ROTATED one; none where it is no field or its
+	 * relation none. */
+	storedText(alias: string, column: Column): string | undefined {
+		const at = this.tablesAt.get(alias)
+		const field =
+			at === undefined || at.rel === "X"
+				? undefined
+				: FIELDS.get(at.form === "plain" ? ROTATED[column] : column)
+		return at === undefined || field === undefined
+			? undefined
+			: `stored ${relationOf(at.rel)}.${field}`
+	}
+
+	/** What a side binds a column equal to it to (Binds), none for one that binds nothing (otherText): a fixed own
+	 * column's or stacked column's value once (fixedOwn, fixedStacked), the context's claim, another table's column. */
+	bound(o: ModelOther): Binds | undefined {
+		if (o.kind === "table") {
+			return { kind: "stored", text: this.storedText(o.alias, "c_b") }
+		}
+		if (o.kind === "incoming") {
+			return { kind: "stored", text: this.storedText(o.alias, o.column) }
+		}
 		const fixed =
 			o.kind === "own"
-				? this.fixedOwn.get(o.alias)
+				? (this.fixedOwn.get(o.alias) ?? (this.contexts.has(o.alias) ? CONTEXT_TEXT : undefined))
 				: o.kind === "limited"
 					? this.fixedStacked.get(o.alias)
 					: undefined
 		if (fixed !== undefined) {
-			return { text: fixed, rows: "one" }
+			return { kind: "call", text: fixed, rows: "one" }
 		}
-		const text = bindingText(o)
+		const text = otherText(o)
 		if (text === undefined) {
 			return undefined
 		}
 		return {
+			kind: "call",
 			text,
 			rows: o.kind === "param" || (o.kind === "own" && this.oneRows.has(o.alias)) ? "one" : "many"
 		}
@@ -2144,8 +2249,9 @@ class Expect {
 	}
 
 	/**
-	 * A table read under its conditions' bindings: each field bound by a placeholder or an own column, sorted; an
-	 * arbitration wherever it stands where it reads the row its statement's arbitration met (`met`).
+	 * A table read under its conditions' bindings: each field bound by a placeholder or an own column, else by another
+	 * table's column, the first such equality of each column, sorted; an arbitration wherever it stands where it reads
+	 * the row its statement's arbitration met (`met`).
 	 */
 	table(rel: Rel, place: Place, all: ReadonlyArray<Bound>, met: boolean): Rows {
 		const relation = relationOf(rel)
@@ -2153,7 +2259,10 @@ class Expect {
 			this.shapes.add("a read no relation names")
 		}
 		const bound = Arr.dedupeWith(
-			Arr.filter(all, (b) => this.bound(b.other) !== undefined),
+			[
+				...Arr.filter(all, (b) => this.bound(b.other)?.kind === "call"),
+				...Arr.filter(all, (b) => this.bound(b.other)?.kind === "stored")
+			],
 			(a: Bound, b: Bound) => a.column === b.column
 		)
 		const fields = Arr.flatMap(bound, (b) => {
@@ -2162,7 +2271,10 @@ class Expect {
 			if (at !== undefined && field === undefined) {
 				this.shapes.add("a law column dropped from a group")
 			}
-			if (at !== undefined && field !== undefined && rel !== "X" && at.rows === "one") {
+			if (at?.kind === "stored" && at.text !== undefined && field !== undefined && rel !== "X") {
+				this.shapes.add("a group bound by the row another table's read finds")
+			}
+			if (at?.kind === "call" && field !== undefined && rel !== "X" && at.rows === "one") {
 				if (
 					(b.other.kind === "own" && this.fixedOwn.has(b.other.alias)) ||
 					(b.other.kind === "limited" && this.fixedStacked.has(b.other.alias))
@@ -2170,9 +2282,10 @@ class Expect {
 					this.shapes.add("a group bound by a column its own source's query fixes")
 				}
 			}
-			return at === undefined || field === undefined || rel === "X"
+			const text = at?.text
+			return at === undefined || text === undefined || field === undefined || rel === "X"
 				? []
-				: [{ field, text: at.text, rows: at.rows }]
+				: [{ field, text, rows: at.kind === "call" ? at.rows : ("stored" as const) }]
 		})
 		const sorted = Arr.sort(
 			fields,
@@ -2190,11 +2303,7 @@ class Expect {
 							","
 						)
 					: undefined,
-				rows: Arr.isReadonlyArrayNonEmpty(sorted)
-					? Arr.every(sorted, (b) => b.rows === "one")
-						? "one"
-						: "many"
-					: undefined
+				rows: callRows(sorted)
 			},
 			place.feeds,
 			place
@@ -2296,6 +2405,12 @@ class Expect {
 			) {
 				this.oneRows.add(s.alias)
 			}
+			if (s.kind === "plain" && s.own === "context") {
+				this.contexts.add(s.alias)
+			}
+			if (s.kind === "table" && (s.form === "direct" || s.form === "plain")) {
+				this.tablesAt.set(s.alias, { rel: s.rel, form: s.form })
+			}
 			const fixed =
 				s.kind === "derived"
 					? fixedOfQuery(s.query, `${s.alias}q`, place.scope, env)
@@ -2324,14 +2439,29 @@ class Expect {
 			const r = resolveOther(o, owns, tables, place.scope)
 			return r.kind === "table" && limited.has(r.alias) ? { kind: "limited", alias: r.alias } : r
 		}
+		const ordered = conditionOrder(sources)
+		/**
+		 * The equalities of the core's conditions that read table `t`, in their order: each of its own, by its column, and
+		 * each another table states with it, by its c_b, the other side that table's column (ModelOther `incoming`).
+		 */
+		const keyedBy = (t: PlacedTable): ReadonlyArray<Bound> =>
+			Arr.flatMap(ordered, ({ table, e }): ReadonlyArray<Bound> => {
+				if (table.alias === t.alias) {
+					return [{ column: e.column, other: resolve(e.other) }]
+				}
+				const r = resolve(e.other)
+				return (r.kind === "table" || r.kind === "limited") && r.alias === t.alias
+					? [{ column: "c_b", other: { kind: "incoming", alias: table.alias, column: e.column } }]
+					: []
+			})
 		this.aggregateShapes(c.aggregate)
 		for (const s of sources) {
 			switch (s.kind) {
 				case "table":
 					if (s.form === "stacked") {
-						const outer = Arr.map(s.equalities, (e) => ({
-							column: ROTATED[ROTATED[e.column]],
-							other: resolve(e.other)
+						const outer = Arr.map(keyedBy(s), (b) => ({
+							column: ROTATED[ROTATED[b.column]],
+							other: b.other
 						}))
 						if (
 							Arr.some(
@@ -2372,9 +2502,9 @@ class Expect {
 						this.table(
 							s.rel,
 							here,
-							Arr.map(s.equalities, (e) => ({
-								column: s.form === "plain" ? ROTATED[e.column] : e.column,
-								other: resolve(e.other)
+							Arr.map(keyedBy(s), (b) => ({
+								column: s.form === "plain" ? ROTATED[b.column] : b.column,
+								other: b.other
 							})),
 							false
 						)
@@ -2385,7 +2515,7 @@ class Expect {
 							s.form === "plain" &&
 							FIELDS.has(ROTATED[e.column]) &&
 							s.rel !== "X" &&
-							bindingText(o) !== undefined
+							otherText(o) !== undefined
 						) {
 							this.shapes.add("a projection keyed by the conditions of the core that reads it")
 						}
@@ -2767,11 +2897,7 @@ class Expect {
 										","
 									)
 								: undefined,
-							rows: Arr.isReadonlyArrayNonEmpty(sorted)
-								? Arr.every(sorted, (b) => b.rows === "one")
-									? "one"
-									: "many"
-								: undefined
+							rows: callRows(sorted)
 						})
 					}
 				}
@@ -2985,21 +3111,26 @@ export const sortedKeys = (reads: ReadonlyArray<Expected>): ReadonlyArray<string
 export const writeKey = (relation: string, op: string, from: ReadonlyArray<Expected>): string =>
 	`${relation}|${op}|${Arr.join(sortedKeys(from), ";")}`
 
-/** The extractor's row sources as the oracle states them, each read by its key and the probes above it. */
+/** The extractor's row sources as the oracle states them, each read by its key (`expectedAt`, by its flat place) and
+ * the probes above it. */
 export const gotRows = (
 	reads: ReadonlyArray<ReadFact>,
+	expectedAt: (at: number) => Expected,
 	sources: ReadonlyArray<FlatRowSource>
 ): ReadonlyArray<Rows> =>
 	Arr.map(sources, (r): Rows => {
 		switch (r.kind) {
 			case "read": {
 				const read = Arr.getUnsafe(reads, r.read)
-				return { kind: "read", key: readKey(expectedOf(read)), probes: read.probes }
+				return { kind: "read", key: readKey(expectedAt(r.read)), probes: read.probes }
 			}
 			case "core":
 				return r
 			case "union":
-				return { kind: "union", arms: Arr.map(r.arms, (arm) => gotRows(reads, arm)) }
+				return {
+					kind: "union",
+					arms: Arr.map(r.arms, (arm) => gotRows(reads, expectedAt, arm))
+				}
 		}
 	})
 

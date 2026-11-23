@@ -1,7 +1,7 @@
 /** What borrows.test.ts reads: its drawn members and installations, and the borrow rules restated over them. */
 
 import { boolean, constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
-import { Array as Arr, String as Str } from "effect"
+import { Array as Arr } from "effect"
 import {
 	type BorrowFault,
 	type BorrowInstallation,
@@ -9,6 +9,7 @@ import {
 	type UnitPlace
 } from "#compiler/analysis/isolation/borrows.ts"
 import type {
+	Binding,
 	MemberFacts,
 	ReadFact,
 	ReadMode,
@@ -16,7 +17,7 @@ import type {
 	StatementFacts,
 	WriteFact
 } from "#compiler/analysis/isolation/facts.ts"
-import type { Borrow, KeySource } from "#compiler/core/certificate.ts"
+import type { Borrow } from "#compiler/core/certificate.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
 
 /** The box's relations: L and M, each keyed (k, n), under the unit Learner at k where drawn so; F, a fact keyed (k). */
@@ -94,9 +95,17 @@ export const drawnGen: Gen<Drawn> = (s) => {
 	}
 }
 
-/** The binding each placeholder text names: a parameter of its name; none for any other text. */
-export const sourceOf = (by: string): KeySource | undefined =>
-	Str.startsWith(":")(by) ? { kind: "param", name: Str.slice(1)(by) } : undefined
+/** What a drawn binding is (facts.ts Binding): the parameter :k or :n, or a column of the call's own rows, one per row. */
+const bindingOf = (by: By): Binding => {
+	switch (by) {
+		case ":k":
+			return { kind: "param", name: "k" }
+		case ":n":
+			return { kind: "param", name: "n" }
+		case "row.c":
+			return { kind: "own", alias: "row", column: "c", rows: "many" }
+	}
+}
 
 const relationFacts = (rel: Rel): RelationFacts => ({
 	triggerLaws: [],
@@ -115,7 +124,7 @@ export const installationOf = (d: Drawn): BorrowInstallation =>
 		new Map(
 			Arr.map([...d.inUnit], (rel): readonly [string, UnitPlace] => [
 				rel,
-				{ unit: "Learner", key: ["child"], fields: ["k"] }
+				{ unit: "Learner", fields: [{ key: "child", field: "k" }] }
 			])
 		),
 		new Set()
@@ -123,8 +132,8 @@ export const installationOf = (d: Drawn): BorrowInstallation =>
 
 const readOf = (r: DrawnRead): ReadFact => {
 	const bound = [
-		...(r.k === undefined ? [] : [{ field: "k", by: r.k }]),
-		...(r.n === undefined ? [] : [{ field: "n", by: r.n }])
+		...(r.k === undefined ? [] : [{ field: "k", by: bindingOf(r.k) }]),
+		...(r.n === undefined ? [] : [{ field: "n", by: bindingOf(r.n) }])
 	]
 	return {
 		relation: r.rel,
@@ -132,9 +141,7 @@ const readOf = (r: DrawnRead): ReadFact => {
 		base: r.mode,
 		probes: [],
 		own: false,
-		group: Arr.isReadonlyArrayNonEmpty(bound)
-			? { bound, rows: Arr.some(bound, (b) => b.by === "row.c") ? "many" : "one" }
-			: undefined
+		group: Arr.isReadonlyArrayNonEmpty(bound) ? { bound } : undefined
 	}
 }
 

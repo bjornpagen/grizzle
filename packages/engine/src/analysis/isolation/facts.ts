@@ -5,6 +5,7 @@
  */
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { Witness } from "#compiler/analysis/theory/query.ts"
+import type { KeySource } from "#compiler/core/certificate.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
 import type { OnUpdate } from "#compiler/ir/law.ts"
@@ -148,33 +149,92 @@ export interface ProbeFact<Core extends SiteCore = number | undefined> {
 export type SiteCore = number | "site" | undefined
 
 /**
- * One field a read binds to a value that comes from the call, and `by`, what it is bound to, as canonical text: a
- * parameter by the declared parameter it carries (`:name`), or by its number (`$n`) where it carries none, so two
- * placeholders of one parameter, in one statement or two, bind one value; a column of the call's own rows; or, for the
- * row an ON CONFLICT proposes, the parameter its conflict column's value carries, through the insert's source and the
- * call's own cores it reads, else EXCLUDED's column.
+ * What a field a read binds is bound to, resolved where the binding stands, so two bindings of one value are one
+ * binding wherever they stand, in one statement or two:
+ *
+ * - a binding the call holds before its first snapshot (core/certificate.ts KeySource): a declared scalar parameter's
+ *   placeholder, or a clock reading of one, by the parameter's name, one value for the call; a context's field, by the
+ *   context's name and the field's, one value for the call; or a field of a relation input's rows (`input`), a relation
+ *   parameter's or a member slot's, through every CTE and derived table that carries its column, one value per row;
+ * - `own`: a column of a source of the call's own rows that carries none of those, a CTE's, a derived table's, a
+ *   function's, VALUES or a stratum's nested rows, by the source's alias and the column: one value where the source is
+ *   one row the call holds once (`rows`), else one per row, which another call's rows may split, some seen and some
+ *   missed;
+ * - `proposed`: a column of the row an ON CONFLICT proposes (EXCLUDED's) that carries none of those, one per row;
+ * - `stored`: a field of the row another read of the same body finds, by that read's place in its body's `reads`
+ *   (BodyFacts) and the field: a value no binding of the call holds, the row that read finds holds it.
  */
+export type Binding =
+	| KeySource
+	| {
+			readonly kind: "own"
+			readonly alias: string
+			readonly column: string
+			readonly rows: "one" | "many"
+	  }
+	| { readonly kind: "proposed"; readonly column: string }
+	| { readonly kind: "stored"; readonly read: number; readonly field: string }
+
+/** One field a read binds, by its name, and what it is bound to (Binding). */
 export interface FieldBinding {
 	readonly field: string
-	readonly by: string
+	readonly by: Binding
 }
 
 /**
  * The fields a read binds, an ON CONFLICT arbitration's its conflict columns', each once and sorted by field, with what
  * each is bound to (`bound`). Two reads of one relation by the same bindings read one group, and a read whose bindings
- * on a declared key's fields are another's reads at most the row the other reads there. `rows` is how many groups that
- * is: `one` where every field is bound to a parameter or to the session's context, a value the call holds once, and
- * `many` where one is bound to a column of the call's own rows, one group per row, which another call's rows may split,
- * some seen and some missed.
+ * on a declared key's fields are another's reads at most the row the other reads there.
  */
 export interface ReadGroup {
 	readonly bound: NonEmptyReadonlyArray<FieldBinding>
-	readonly rows: "one" | "many"
 }
 
 /** The fields a group binds, sorted. */
 export const groupFields = (group: ReadGroup): NonEmptyReadonlyArray<string> =>
 	mapNonEmpty(group.bound, (b) => b.field)
+
+/**
+ * How many values a binding takes for the call: `one`, a declared parameter's, a context's field's or a column of an own
+ * source of one row; `many`, one per row of the call's own rows, an input's, an own source's of many or a proposed
+ * row's; and none (`stored`) for a field of a row another read finds, which no value of the call names.
+ */
+export const bindingRows = (b: Binding): "one" | "many" | "stored" => {
+	switch (b.kind) {
+		case "param":
+		case "context":
+			return "one"
+		case "own":
+			return b.rows
+		case "input":
+		case "proposed":
+			return "many"
+		case "stored":
+			return "stored"
+	}
+}
+
+/** Whether two bindings bind one value: the same parameter, context field, input field, own column, proposed column, or
+ * field of the read at one place of one body. */
+export const sameBinding = (a: Binding, b: Binding): boolean => bindingText(a) === bindingText(b)
+
+/** A binding's canonical text, which names its value once: `:name` for a parameter, as a statement spells it. */
+export const bindingText = (b: Binding): string => {
+	switch (b.kind) {
+		case "param":
+			return `:${b.name}`
+		case "context":
+			return `context ${JSON.stringify([b.context, b.field])}`
+		case "input":
+			return `input ${JSON.stringify([b.parameter, b.field])}`
+		case "own":
+			return `${b.alias}.${b.column}`
+		case "proposed":
+			return `excluded.${b.column}`
+		case "stored":
+			return `read ${b.read}.${b.field}`
+	}
+}
 
 /**
  * One source every row of a body's core comes through, the core's FROM sources joined inner or crosswise: a table read,
