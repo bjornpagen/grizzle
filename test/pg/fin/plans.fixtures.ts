@@ -130,8 +130,14 @@ export const planSituations: ReadonlyArray<Reached<PlanFeature>> = nonEmpty(
 export const probes = probeGen(byDepth.length - 1)
 
 /**
- * The tree with its planted load, written whole and analyzed once per member (installed.ts seededSeatTemplate), where
- * the search loaded and analyzed it once before its cases; a case reads it and writes nothing.
+ * The tree with its planted load, written whole and vacuumed once per member (installed.ts seededSeatTemplate), where
+ * the search loaded it once before its cases; a case reads it and writes nothing. Vacuumed, as autovacuum's insert
+ * threshold leaves a loaded table and as the plan-shape law's filled state is (test/pg/physical/plan-shape.test.ts): its
+ * pages all-visible and its size counted, every column's statistics the installation's declared ones, which an ANALYZE
+ * leaves as they are. Merely analyzed, its pages none all-visible, the export's plan turns on the unit's size: on
+ * PostgreSQL 19, over 20,000 rows of one doc, `WHERE doc = $1 ORDER BY start` sorts a bitmap scan of the unit for every
+ * declared unit of 2^1 to 2^12 rows and reads an index in order only at 2^0 and 2^14, where vacuumed it reads an index
+ * in order, alone, at every size (~/.cache/grizzle/DECLSTATS-work/unitscale/export.sh, export.log, 2026-11-23).
  */
 export const plansTree = seededSeatTemplate(import.meta, Trees, RELATIONS, "plans tree", (trees) =>
 	Effect.gen(function* () {
@@ -139,13 +145,14 @@ export const plansTree = seededSeatTemplate(import.meta, Trees, RELATIONS, "plan
 		yield* trees.session.begin
 		yield* trees.session.query(nodeBatchSql(trees), nodeBatchParams(rows))
 		yield* trees.session.commit
-		yield* s.admin.query(`ANALYZE ${trees.table("Node")}`, [])
+		yield* s.admin.query(`VACUUM ${trees.table("Node")}`, [])
 	})
 )
 
 /**
- * The ordered family with its planted load of 200 owners of 100 members, written and analyzed once per member
- * (family.ts seededFamilyTemplate), where the search loaded and analyzed it once before its cases.
+ * The ordered family with its planted load of 200 owners of 100 members, written and vacuumed once per member
+ * (family.ts seededFamilyTemplate), where the search loaded it once before its cases, vacuumed as the tree is
+ * (`plansTree`).
  */
 export const plansFamily = seededFamilyTemplate(import.meta, "ordered", "plans family", (family) =>
 	Effect.gen(function* () {
@@ -157,6 +164,6 @@ export const plansFamily = seededFamilyTemplate(import.meta, "ordered", "plans f
 			`INSERT INTO ${f.table("Member")} (${fc("Member", "member")}, ${fc("Member", "g")}, ${fc("Member", "at")}, ${fc("Member", "‹n›")}) SELECT o * ${load.members} + a, o, a, ${load.members} FROM pg_catalog.generate_series(1, ${load.owners}) AS o, pg_catalog.generate_series(0, ${load.members - 1}) AS a`
 		])
 		assert.equal(familyLoaded.kind, "committed", "the family load is a family state")
-		yield* s.admin.query(`ANALYZE ${f.table("Owner")}, ${f.table("Member")}`, [])
+		yield* s.admin.query(`VACUUM ${f.table("Owner")}, ${f.table("Member")}`, [])
 	})
 )

@@ -4,7 +4,7 @@
  * the index grizzle installs for them, with no sort, no sequential scan and no recursion, and return exactly the rows
  * the parent links say they should.
  *
- * The reads, each over a planted, analyzed load and each planned custom or generic as the search draws (R04), of a row
+ * The reads, each over a planted, vacuumed load and each planned custom or generic as the search draws (R04), of a row
  * drawn at every depth below the root alike and of an owner drawn among them all. A row's ancestors are no such read:
  * `start <= n.start AND end > n.start` reads every row before it in pre-order, so for a row late in it the planner
  * rightly scans the table, and no index grizzle installs serves it.
