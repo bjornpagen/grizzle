@@ -8,7 +8,16 @@ import { rowsTouched } from "#bench/harness/explain.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { check, derived, key, mutable, on, relation, schema } from "#compiler/public/schema.ts"
+import {
+	check,
+	derived,
+	key,
+	mutable,
+	on,
+	relation,
+	schema,
+	unit
+} from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import { judgedPlans, judgedStatementsOf } from "#test/support/judge.ts"
@@ -36,7 +45,11 @@ type Judged = (typeof judgings)[number]
 const regionSchema = (judged: Judged) => {
 	switch (judged) {
 		case "probed": {
-			const Base = schema("ProbedRegion", [T], [mutable(T)])
+			const Base = schema(
+				"ProbedRegion",
+				[T],
+				[mutable(T), unit("Package", { package: pg.integer })]
+			)
 			const Stated = derived(
 				"Stated",
 				query(Base).rule((r) => {

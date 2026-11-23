@@ -11,7 +11,8 @@ import {
 	on,
 	relation,
 	schema,
-	select
+	select,
+	unit
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { Id } from "#test/support/ids.ts"
@@ -25,17 +26,22 @@ import { Id } from "#test/support/ids.ts"
  * FOREIGN KEY ... MATCH SIMPLE from them or into a UNIQUE over them. A containment's target contains a key of its
  * relation, so each mirrors' child side is a key of the child.
  *
- * A schema is immutable or, with `mutable`, every relation of it is.
+ * A schema is immutable or, with `mutable`, every relation of it is, each inside the unit its key leads with.
  */
 
 /** Any text: the explicit wildcard. */
 const anyText = str.regex("^.*$", "su")
 
-/** The `mutable` statements of a schema's relations: none, or every one. */
-const mutables = <V extends AnyRelation>(
+/** The `mutable` statements of a schema's relations with the units their keys lead with: none, or every one. */
+const mutables = <V extends AnyRelation, U>(
 	declared: boolean,
-	relations: Readonly<Record<string, V>>
-): ReadonlyArray<Mutable<V>> => (declared ? Arr.map(Rec.values(relations), (r) => mutable(r)) : [])
+	relations: Readonly<Record<string, V>>,
+	units: ReadonlyArray<U>
+): ReadonlyArray<Mutable<V> | U> =>
+	declared ? [...Arr.map(Rec.values(relations), (r) => mutable(r)), ...units] : []
+
+/** The unit of the relations keyed by an integer id first. */
+const byId = unit("Row", { id: pg.integer })
 
 const Worker = relation("Worker", { id: pg.integer, name: anyText }, ["id"])
 const Assignment = relation(
@@ -80,7 +86,7 @@ const staffingOf = (p: StaffingParams) => (name: string) =>
 	schema(name, Rec.values(staffingRelations), [
 		staffed(p.selector),
 		issued(p.selector),
-		...mutables(p.mutable, staffingRelations)
+		...mutables(p.mutable, staffingRelations, [byId])
 	])
 
 export const staffing = (options: { readonly mutable: boolean }) =>
@@ -136,7 +142,10 @@ const rotaOf = (p: RotaParams) => (name: string) =>
 		[
 			shiftSheet(p.status),
 			...(p.keyed ? [oneShift(p.status)] : []),
-			...mutables(p.mutable, rotaRelations)
+			...mutables(p.mutable, rotaRelations, [
+				unit("Employee", { employee: Id }),
+				unit("Shifted", { id: Id })
+			])
 		]
 	)
 
@@ -162,7 +171,7 @@ const nodeParent = (live: boolean) =>
 
 /** Tree: a selected source into its own relation, one table that is both source and target. */
 const treeOf = (p: TreeParams) => (name: string) =>
-	schema(name, [Node], [nodeParent(p.live), ...mutables(p.mutable, { Node })])
+	schema(name, [Node], [nodeParent(p.live), ...mutables(p.mutable, { Node }, [byId])])
 
 export const tree = (options: { readonly mutable: boolean }) =>
 	treeOf({ mutable: options.mutable, live: true })("Tree")
@@ -191,7 +200,7 @@ const reasonsOf = (p: ReasonsParams) => (name: string) =>
 	schema(name, Rec.values(reasonsRelations), [
 		reasonKey,
 		mirrors(offCycleLines(p.selector), reasonLine),
-		...mutables(p.mutable, reasonsRelations)
+		...mutables(p.mutable, reasonsRelations, [byId])
 	])
 
 export const reasons = (options: { readonly mutable: boolean }) =>
@@ -233,7 +242,7 @@ const batchesOf = (p: BatchesParams) => (name: string) =>
 	schema(name, Rec.values(batchesRelations), [
 		noteKey,
 		mirrors(urgentBatches(p.selector), noteBatch),
-		...mutables(p.mutable, batchesRelations)
+		...mutables(p.mutable, batchesRelations, [unit("Tenant", { tenant: pg.integer }), byId])
 	])
 
 export const batches = () => batchesOf({ mutable: false, selector: true })("Batches")
@@ -293,7 +302,10 @@ const signalsOf = (p: SignalsParams) => (name: string) =>
 			mirrors(translationTicket, englishTickets),
 			mirrors(urgentTickets, pageTicket),
 			mirrors(watchedTickets, watchTicket),
-			...mutables(p.mutable, signalsRelations)
+			...mutables(p.mutable, signalsRelations, [
+				unit("Ticketed", { id: Id }),
+				unit("FollowUp", { ticket: Id })
+			])
 		]
 	)
 

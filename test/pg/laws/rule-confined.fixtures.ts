@@ -16,7 +16,8 @@ import {
 	on,
 	relation,
 	schema,
-	select
+	select,
+	unit
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { wholeStatementsOf } from "#test/pg/laws/rule-whole.fixtures.ts"
@@ -75,7 +76,8 @@ const Base = schema(
 				"gov"
 			),
 			on(Node, "pkg", "doc", "at", "kind", "gov")
-		)
+		),
+		unit("Package", { pkg: pg.integer })
 	]
 )
 const Placed = derived(

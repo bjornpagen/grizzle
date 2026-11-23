@@ -9,7 +9,16 @@ import { identifierOf } from "#compiler/core/identity.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { contained, derived, key, mutable, on, relation, schema } from "#compiler/public/schema.ts"
+import {
+	contained,
+	derived,
+	key,
+	mutable,
+	on,
+	relation,
+	schema,
+	unit
+} from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import { judgedPlans, judgedStatementsOf, raisedRule } from "#test/support/judge.ts"
@@ -62,7 +71,9 @@ const bindingSchema = (judged: Judged) => {
 		[Node, Ref, Named],
 		[
 			key(on(Named, "pkg", "name")),
-			...(judged === "probed" ? [mutable(Node), mutable(Ref), mutable(Named)] : [])
+			...(judged === "probed"
+				? [mutable(Node), mutable(Ref), mutable(Named), unit("Package", { pkg: pg.integer })]
+				: [])
 		]
 	)
 	const Resolved = derived(

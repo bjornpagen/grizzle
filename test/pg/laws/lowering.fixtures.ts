@@ -9,7 +9,6 @@ import { Array as Arr, Data, Effect, Formatter, Layer, Option, Record as Rec } f
 import { Db } from "#adapter/public/db.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import { sqlstates } from "#compiler/core/sqlstate.ts"
 import type { NativeColumn, TableRelation } from "#compiler/ir/law.ts"
 import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import type { CallError } from "#compiler/live/index.ts"
@@ -385,9 +384,8 @@ const caseGen: Gen<LoweringCase> = (s) => ({
 
 /**
  * A history aimed at a target row's write the rule refuses: a source built over an A row the shape's target holds, at
- * the kind its match fixes (lowering-support.ts fixedKinds) and group 0, then that row's delete.
- * A delete, since A is immutable and an update of the row is its immutability guard's to refuse before the rule
- * (physical/ddl/immutable.ts), so the drawn histories reach this write the more seldom.
+ * the kind its match fixes (lowering-support.ts fixedKinds) and group 0, then that row's delete, which the drawn
+ * histories reach seldom.
  */
 const targetRefusedGen =
 	(shape: Shape): Gen<LoweringCase> =>
@@ -742,47 +740,9 @@ const lawsOf = (installed: Installed, fields: PgErrorFields): ReadonlyArray<LawI
 			) ?? [])
 }
 
-/**
- * Who refused a statement, as the installation's schema decides: the laws the constraint its refusal names serves (`lawsOf`),
- * or an immutable relation's immutability guard, by the table its insufficient_privilege names, a relation of the box
- * the checked schema holds immutable (ir/law.ts RelationInfo `mutable`, physical/ddl/immutable.ts), whose refusal of
- * an UPDATE that changes its row names no law.
- */
-type Refuser =
-	| { readonly kind: "law"; readonly laws: Arr.NonEmptyReadonlyArray<LawId> }
-	| { readonly kind: "guard"; readonly relation: (typeof RELATIONS)[number] }
-
-const refuserOf = (installed: Installed, fields: PgErrorFields): Refuser | undefined => {
-	const laws = lawsOf(installed, fields)
-	if (Arr.isReadonlyArrayNonEmpty(laws)) {
-		return { kind: "law", laws }
-	}
-	const guarded = Option.flatMap(fields.table, (ident) =>
-		Arr.findFirst(
-			RELATIONS,
-			(rel) =>
-				installed.names.relation(rel).name === ident &&
-				installed.installation.checked.relations.get(rel)?.mutable === false
-		)
-	)
-	return fields.code === sqlstates.insufficientPrivilege && Option.isSome(guarded)
-		? { kind: "guard", relation: guarded.value }
-		: undefined
-}
-
-/** Whether two refusers are one: one set of laws, each map's in code point order, or one relation's guard. */
-const sameRefuser = (a: Refuser, b: Refuser): boolean =>
-	a.kind === "law"
-		? b.kind === "law" && Arr.join(a.laws, " ") === Arr.join(b.laws, " ")
-		: b.kind === "guard" && a.relation === b.relation
-
-/** A refuser as a disagreement names it. */
-const refuserText = (refuser: Refuser | undefined): string =>
-	refuser === undefined
-		? "law none"
-		: refuser.kind === "law"
-			? `laws ${Arr.join(refuser.laws, ", ")}`
-			: `${refuser.relation}'s immutability guard`
+/** The laws a refusal names, as a disagreement names them. */
+const lawsText = (laws: ReadonlyArray<LawId>): string =>
+	laws.length === 0 ? "law none" : `laws ${Arr.join(laws, ", ")}`
 
 /** The one rule over a query of an installation: the containment of S in D. */
 const ruleLaw = (installation: Installation): LawId =>
@@ -1209,12 +1169,15 @@ const fieldsOf = (rel: "A" | "B" | "S"): ReadonlyArray<string> => {
 	}
 }
 
-/** Whether two SQL verdicts agree: both committed, or both refused at one moment with one SQLSTATE naming one law. */
+/**
+ * Whether two SQL verdicts agree: both committed, or both refused at one moment with one SQLSTATE naming one set of
+ * laws, each installation's own constraint map's (lawsOf), in code point order.
+ */
 const sameVerdict = (
 	low: Attempted,
 	oracle: Attempted,
-	refuserLow: Refuser | undefined,
-	refuserOracle: Refuser | undefined
+	lawsLow: ReadonlyArray<LawId>,
+	lawsOracle: ReadonlyArray<LawId>
 ): boolean => {
 	if (low.kind === "committed" || oracle.kind === "committed") {
 		return low.kind === oracle.kind
@@ -1222,9 +1185,8 @@ const sameVerdict = (
 	return (
 		momentText(low.moment) === momentText(oracle.moment) &&
 		low.fields.code === oracle.fields.code &&
-		refuserLow !== undefined &&
-		refuserOracle !== undefined &&
-		sameRefuser(refuserLow, refuserOracle)
+		lawsLow.length > 0 &&
+		Arr.join(lawsLow, " ") === Arr.join(lawsOracle, " ")
 	)
 }
 
@@ -1428,10 +1390,8 @@ export const loweringCase = (pair: Pair) => (lc: LoweringCase, c: Case<Feature>)
 					oracle.session,
 					Arr.map(servedOps(facts), (op) => statementOf(oracle, op))
 				)
-				const oracleRefuser =
-					verdict.kind === "refused" ? refuserOf(oracle.installed, verdict.fields) : undefined
 				const oracleLaws: ReadonlyArray<LawId> =
-					oracleRefuser?.kind === "law" ? oracleRefuser.laws : []
+					verdict.kind === "refused" ? lawsOf(oracle.installed, verdict.fields) : []
 				const broken = brokenKeysOf(oracle.installed, state, facts)
 				const breaks = (law: LawId | string): boolean =>
 					broken.length === 0
@@ -1443,7 +1403,7 @@ export const loweringCase = (pair: Pair) => (lc: LoweringCase, c: Case<Feature>)
 					!Arr.some(oracleLaws, (l) => Arr.some(broken, (k) => k.law === l))
 				) {
 					return yield* new Disagreed({
-						message: `${shape}: the triggers' installation ${verdictText(verdict, oracleRefuser)}, where the facts break the keys ${Formatter.format(Arr.map(broken, (k) => k.law))}: ${Formatter.format(facts)}`
+						message: `${shape}: the triggers' installation ${verdictText(verdict, oracleLaws)}, where the facts break the keys ${Formatter.format(Arr.map(broken, (k) => k.law))}: ${Formatter.format(facts)}`
 					})
 				}
 				for (const [order, low] of pair.lows) {
@@ -1459,7 +1419,7 @@ export const loweringCase = (pair: Pair) => (lc: LoweringCase, c: Case<Feature>)
 						(outcome.laws.includes(rule) && outcome.witness.kind !== "unreported")
 					) {
 						return yield* new Disagreed({
-							message: `${shape}, installed ${order}: grizzle's served write answered ${Formatter.format(outcome)}, where the triggers' installation ${verdictText(verdict, oracleRefuser)}: ${Formatter.format(facts)}`
+							message: `${shape}, installed ${order}: grizzle's served write answered ${Formatter.format(outcome)}, where the triggers' installation ${verdictText(verdict, oracleLaws)}: ${Formatter.format(facts)}`
 						})
 					}
 					const key = Arr.findFirst(broken, (k) => outcome.laws.includes(k.law))
@@ -1530,13 +1490,9 @@ export const loweringCase = (pair: Pair) => (lc: LoweringCase, c: Case<Feature>)
 						message: `${shape}, installed ${order}: a broken containment refused by ${refusalText(onLow.fields)} names laws ${Arr.join(lawsLow, ", ") || "none"}, not the rule's ${rule}: ${Formatter.format(ops)}`
 					})
 				}
-				const refuserLow =
-					onLow.kind === "refused" ? refuserOf(seat.installed, onLow.fields) : undefined
-				const refuserOracle =
-					onOracle.kind === "refused" ? refuserOf(oracle.installed, onOracle.fields) : undefined
-				if (!sameVerdict(onLow, onOracle, refuserLow, refuserOracle)) {
+				if (!sameVerdict(onLow, onOracle, lawsLow, lawsOracle)) {
 					return yield* new Disagreed({
-						message: `${shape}, installed ${order}: the lowered installation ${verdictText(onLow, refuserLow)}, the triggers' ${verdictText(onOracle, refuserOracle)}: ${Formatter.format(ops)}`
+						message: `${shape}, installed ${order}: the lowered installation ${verdictText(onLow, lawsLow)}, the triggers' ${verdictText(onOracle, lawsOracle)}: ${Formatter.format(ops)}`
 					})
 				}
 			}
@@ -1571,10 +1527,10 @@ export const loweringCase = (pair: Pair) => (lc: LoweringCase, c: Case<Feature>)
 	})
 
 /** A refusal or commit as a disagreement names it. */
-const verdictText = (verdict: Attempted, refuser: Refuser | undefined): string =>
+const verdictText = (verdict: Attempted, laws: ReadonlyArray<LawId>): string =>
 	verdict.kind === "committed"
 		? "committed"
-		: `refused ${momentText(verdict.moment)} by ${refusalText(verdict.fields)} (${refuserText(refuser)})`
+		: `refused ${momentText(verdict.moment)} by ${refusalText(verdict.fields)} (${lawsText(laws)})`
 
 /** Whether an op writes an A row outside the constants of a shape's match: a kind other than the one it fixes. */
 const outsideConstants = (shape: Shape, op: Op): boolean =>

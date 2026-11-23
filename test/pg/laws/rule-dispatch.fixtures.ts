@@ -16,7 +16,8 @@ import {
 	on,
 	relation,
 	schema,
-	select
+	select,
+	unit
 } from "#compiler/public/schema.ts"
 import type { OperandSelect } from "#compiler/sql/ast.ts"
 import { objectName } from "#compiler/sql/build.ts"
@@ -94,7 +95,8 @@ const Base = schema(
 				"at"
 			),
 			on(Visit, "child", "at")
-		)
+		),
+		unit("Learner", { child: pg.integer })
 	]
 )
 

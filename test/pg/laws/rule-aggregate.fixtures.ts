@@ -18,7 +18,6 @@ import {
 	checkBuilder,
 	containedBuilder,
 	keyBuilder,
-	mutableBuilder,
 	onBuilder
 } from "#compiler/schema/statements.ts"
 import { rowHelpers } from "#compiler/schema/terms.ts"
@@ -33,6 +32,7 @@ import { installMigrated, type Installed } from "#test/support/install-migrate.t
 import { judgedDeltaReadsOf, type JudgedStatement, plannedQueryOf } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { argumentsOf } from "#test/support/list.ts"
+import { opened } from "#test/support/open.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
@@ -91,7 +91,8 @@ type LawSpec =
 /**
  * One drawn schema: the aggregate's group columns (canonical order), its fold, whether its body joins Topic, where
  * ItemMode is negated, how Read reads it, whether the aggregate is a query Read imports or a derived relation a level
- * below, whether Read keeps the fold in its heading, Read's second rule, whether Attempt is mutable, and the laws.
+ * below, whether Read keeps the fold in its heading, Read's second rule, whether its stored relations are mutable, and
+ * the laws. A mutable shape's writes insert, put and delete; an immutable one's insert alone.
  */
 interface Shape {
 	readonly groups: Arr.NonEmptyReadonlyArray<GroupColumn>
@@ -270,7 +271,8 @@ interface Built {
 }
 
 /**
- * A shape's schema under `name`: its stored relations at the root, Attempt mutable where drawn; the aggregate over
+ * A shape's schema under `name`: its stored relations at the root, every one open where drawn (support/open.ts
+ * opened); the aggregate over
  * them, Attempt's facts (joined to Topic's at the item, the adaptive items' negated where drawn) grouped by the group
  * columns with the fold; Read reading it as drawn, beside Extra's rule; and the laws over Read on Read's level.
  */
@@ -279,7 +281,9 @@ const builtOf = (shape: Shape, name: string): Built => {
 	const relations = new Map(Arr.map(stored, (s) => [s.name, relationOf(shape, s)] as const))
 	const relation = (n: StoredName): RelationValue => defined(relations.get(n), `the relation ${n}`)
 	const Attempt = relation("Attempt")
-	const baseStatements: ReadonlyArray<Statement> = shape.mutable ? [mutableBuilder(Attempt)] : []
+	const baseStatements: ReadonlyArray<Statement> = shape.mutable
+		? opened([...relations.values()])
+		: []
 	const Base = schemaBuilder(name, [...relations.values()], baseStatements, [])
 	/** The aggregate's one rule over `over`. */
 	const folding = (r: RuleValue): FinishedValue => {
@@ -655,7 +659,10 @@ const factOf = (shape: Shape, op: Op): Readonly<Record<string, unknown>> => {
 	)
 }
 
-/** A write's facts, as its ChangeSet's call takes them: each operation's rows of each relation. */
+/**
+ * A write's facts, as its ChangeSet's call takes them (changeSetOf): each operation's rows of each relation, the puts
+ * and deletes a mutable shape's alone.
+ */
 const factsOf = (shape: Shape, write: Write) => {
 	const of = (kind: Op["kind"]) =>
 		Rec.fromEntries(
@@ -667,13 +674,18 @@ const factsOf = (shape: Shape, write: Write) => {
 				)
 			])
 		)
-	return { insert: of("insert"), put: of("put"), delete: of("delete") }
+	return shape.mutable
+		? { insert: of("insert"), put: of("put"), delete: of("delete") }
+		: { insert: of("insert") }
 }
 
-/** The ChangeSet that inserts, puts and deletes rows of every stored relation of the shape, from its call's facts. */
-const changeSetOf = (built: Built) =>
+/**
+ * The ChangeSet that inserts rows of every stored relation of the shape, and puts and deletes them where the shape is
+ * mutable, from its call's facts.
+ */
+const changeSetOf = (shape: Shape, built: Built) =>
 	Arr.reduce([...built.relations.values()], changeSetOver.empty(built.schema), (changes, r) =>
-		changes.insert(r, []).put(r, []).delete(r, [])
+		shape.mutable ? changes.insert(r, []).put(r, []).delete(r, []) : changes.insert(r, [])
 	)
 
 /** The values a group column, an attempt's instant and its score range over. */
@@ -700,7 +712,7 @@ type ShapeAim = "free" | "negated" | "topic" | "under" | "extra" | "scored" | "i
 /**
  * A shape: the group columns, one to three of the attempt's (and the topic where the body joins), the fold, Read's
  * reading and second rule, the negation's place, and one or two laws of distinct kinds, `aim` forcing what an aimed
- * case needs. A shape whose rule could be unit-local makes Attempt mutable, so every rule is judged by its probes,
+ * case needs. A shape whose rule could be unit-local is mutable, so every rule is judged by its probes,
  * which is what the search is of. A locality shape keys Read by group columns alone and bounds its fold above any group
  * it stores, so every group it stores keeps every law.
  */
@@ -821,8 +833,8 @@ type Focus =
 
 /**
  * One op of a write over `state`, as `focus` allows: a relation, and on it an insert at a key no row holds, a put at
- * any key, or a delete of a stored row (a put of a stored attempt's score, under `scores`); none where its key is one
- * the write already writes.
+ * any key, or a delete of a stored row (a put of a stored attempt's score, under `scores`), an immutable shape's an
+ * insert alone; none where its key is one the write already writes, or one an immutable shape's relation holds.
  */
 const opGen =
 	(shape: Shape, state: State, used: ReadonlySet<string>, focus: Focus): Gen<Option.Option<Op>> =>
@@ -843,8 +855,9 @@ const opGen =
 			}
 		})()
 		const rows = rowsOf(state, relation.name)
-		const kind =
-			focus.kind === "deletes"
+		const kind = !shape.mutable
+			? "insert"
+			: focus.kind === "deletes"
 				? "delete"
 				: focus.kind === "scores"
 					? "put"
@@ -864,6 +877,9 @@ const opGen =
 			return Option.none()
 		}
 		const present = state.get(relation.name)?.has(keyText(relation, row)) === true
+		if (present && !shape.mutable) {
+			return Option.none()
+		}
 		return Option.some({
 			kind:
 				kind === "delete"
@@ -880,8 +896,8 @@ const opGen =
 
 /**
  * The ops that keep a write's state lawful where the write's other ops left it: Allowed rows for every group Read
- * holds that Allowed does not, and each Expect row put at the fold Read holds for its groups, or deleted where Read
- * holds none, where the shape states those laws; each at a key the write does not already write.
+ * holds that Allowed does not, and, in a mutable shape, each Expect row put at the fold Read holds for its groups, or
+ * deleted where Read holds none, where the shape states those laws; each at a key the write does not already write.
  */
 const coherentOps = (shape: Shape, after: State, used: ReadonlySet<string>): Write => {
 	const read = readOf(shape, after)
@@ -897,7 +913,7 @@ const coherentOps = (shape: Shape, after: State, used: ReadonlySet<string>): Wri
 				}
 			}
 		}
-		if (law.kind === "into" && expect !== undefined) {
+		if (law.kind === "into" && expect !== undefined && shape.mutable) {
 			for (const [key, row] of expect) {
 				if (used.has(`Expect:${key}`)) {
 					continue
@@ -1042,13 +1058,14 @@ export const caseGen: Gen<AggregateCase> = (s) => {
 }
 
 /**
- * A case aimed at a situation: a shape drawn with what it needs, `opening` written first, two to six writes kept
- * lawful, so its relations hold rows a law reads, and then one to three writes of the ops that reach it alone.
+ * A case aimed at a situation: a mutable shape drawn with what it needs, so its writes put and delete, `opening`
+ * written first, two to six writes kept lawful, so its relations hold rows a law reads, and then one to three writes
+ * of the ops that reach it alone.
  */
 const aimedCase =
 	(aim: ShapeAim, focus: Focus, opening: (shape: Shape) => Write): Gen<AggregateCase> =>
 	(s) => {
-		const shape = s.draw(shapeGen({ locality: false, aim }))
+		const shape = { ...s.draw(shapeGen({ locality: false, aim })), mutable: true }
 		return {
 			shape,
 			writes: s.draw(
@@ -1110,6 +1127,7 @@ export const aims: ReadonlyArray<readonly [Feature, Gen<AggregateCase>]> = [
  * item, n) with its count, DirectOpen its groups whose item ItemMode does not hold adaptive, keyed by (child, item). Its
  * history: two sessions of one item tried, which DirectOpen holds both of, refused; the item made adaptive, then both
  * tried, accepted; and the item made direct again, which brings both sessions back through ItemMode alone, refused.
+ * Mutable, as its put and delete of ItemMode need.
  */
 const trigger: AggregateCase = {
 	shape: {
@@ -1121,7 +1139,7 @@ const trigger: AggregateCase = {
 		aggregate: "query",
 		keepsFold: false,
 		union: "none",
-		mutable: false,
+		mutable: true,
 		laws: [{ kind: "key", terms: ["child", "item"] }]
 	},
 	writes: [
@@ -1289,7 +1307,7 @@ export const runHistory = (c: AggregateCase, note: Case<Feature>["note"]) =>
 		const world = fullWorld(built.schema, {})
 		const state = yield* withServedDb(done, world.server.roles.app, {}, ({ serve }) =>
 			Effect.gen(function* () {
-				const calls = yield* serve({ write: changeSetOf(built) })
+				const calls = yield* serve({ write: changeSetOf(shape, built) })
 				const apply = writeOnce(member(calls, "write"))
 				let state = emptyState(shape)
 				for (const [i, write] of c.writes.entries()) {

@@ -19,7 +19,8 @@ import {
 	mutable,
 	on,
 	relation,
-	schema
+	schema,
+	unit
 } from "#compiler/public/schema.ts"
 import type { PlStatement } from "#compiler/sql/ast.ts"
 import { printStatement } from "#compiler/sql/print.ts"
@@ -63,7 +64,9 @@ const Base = schema("Cover", stored, [
 	contained(on(S, "k"), on(R, "k")),
 	contained(on(T, "k"), on(S, "k")),
 	contained(on(U, "k"), on(V, "k")),
-	contained(on(V, "k"), on(U, "k"))
+	contained(on(V, "k"), on(U, "k")),
+	unit("Keyed", { k: pg.integer }),
+	unit("Group", { grp: pg.integer })
 ])
 
 /** S's score beside its group's maximum, at each k R holds: R read at its key alone, which S's row pins. */

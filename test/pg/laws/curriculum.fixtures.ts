@@ -23,7 +23,16 @@ import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Num, Text, Type } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { param, query, type Rule, v } from "#compiler/public/query.ts"
-import { contained, derived, key, on, relation, schema } from "#compiler/public/schema.ts"
+import {
+	contained,
+	derived,
+	key,
+	mutable,
+	on,
+	relation,
+	schema,
+	unit
+} from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
@@ -121,16 +130,29 @@ const partOf = "ispartof"
 /** An element's span when its one descendant is its text node: itself and one node. */
 const soleTextSpan = 2n
 
-/** The levels and laws of the curriculum, under `name` (the module's header). */
+/**
+ * The levels and laws of the curriculum, under `name` (the module's header). A package's content is replaced and its
+ * memberships rewritten, and a home is removed from the registry, so Node, the memberships and the homes are mutable,
+ * each inside its unit: a package's rows (its nodes and its memberships), and a home's by its slug.
+ */
 const curriculumLevels = (name: string, homed: boolean) => {
-	const Content = schema(name, [Package, Node], [])
+	const Content = schema(
+		name,
+		[Package, Node],
+		[mutable(Node), unit("Bundle", { package: PackageName })]
+	)
 	const Registry = schema.extend(
 		[Content],
 		`${name}_registry`,
 		[Course, Assessment, PackageCourse, PackageAssessment],
 		[
 			contained(on(PackageCourse, "course"), on(Course, "slug")),
-			contained(on(PackageAssessment, "assessment"), on(Assessment, "slug"))
+			contained(on(PackageAssessment, "assessment"), on(Assessment, "slug")),
+			mutable(Course),
+			mutable(Assessment),
+			mutable(PackageCourse),
+			mutable(PackageAssessment),
+			unit("Listing", { slug: Slug })
 		]
 	)
 	const claimRule = (kind: HomeKind) => (r: Rule<typeof Content>) => {

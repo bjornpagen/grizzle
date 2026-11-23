@@ -9,7 +9,7 @@ import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { check, derived, mutable, relation, schema } from "#compiler/public/schema.ts"
+import { check, derived, mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { migrationRefusedLaws } from "#test/pg/migrate/support.ts"
 import { migrated } from "#test/support/installed.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -40,7 +40,7 @@ const relationsOf = (withW: boolean) =>
 
 const versionOf = (name: string, withW: boolean) => {
 	const P = relationsOf(withW)
-	const Base = schema(name, [P], [mutable(P)])
+	const Base = schema(name, [P], [mutable(P), unit("Row", { id: pg.integer })])
 	const Seen = derived(
 		"Seen",
 		query(Base).rule((r) => {

@@ -13,8 +13,9 @@
  * first group column under the condition that the fold is below the cap, with or without the fold in its heading, and
  * with or without a second rule over Extra's rows, ItemMode negated there or not; and one or two laws over Read: a key
  * over some of its columns, a check that its fold is at most a bound, Expect's rows contained in it at the group
- * columns or at the fold too, and its groups contained in Allowed. A shape whose rule every relation it reads could
- * keep unit-local makes Attempt mutable, so every rule here is judged by its probes.
+ * columns or at the fold too, and its groups contained in Allowed. A mutable shape's stored relations are all mutable,
+ * each inside the unit its key leads with, and its writes insert, put and delete; an immutable shape's insert alone. A
+ * shape whose rule every relation it reads could keep unit-local is mutable, so every rule here is judged by its probes.
  *
  * - **Equivalence:** the specification turned into a checker. A history of ChangeSets of inserts, puts and deletes of
  *   the shape's stored relations, each applied through grizzle's served write as the full world's login, each drawn

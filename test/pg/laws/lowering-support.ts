@@ -8,7 +8,8 @@
  *
  * A holds a primary key `id` and a candidate key (grp, kind), B a primary key `id` and a candidate key `grp`, and S a
  * primary key `sid`, its `x` and `y` the source terms. A and B are the root level's, D and S the level above's, so S's
- * level is at least every level D's definition matches. A history installs the same schema through a migration from an
+ * level is at least every level D's definition matches. A case deletes and updates rows of each, so each is open,
+ * mutable inside the unit its key leads with (test/support/open.ts opened), in every version. A history installs the same schema through a migration from an
  * earlier version (Order), so a declared key's index and a lowering's UNIQUE over a superkey of it are created in every
  * order a deployment creates them.
  */
@@ -19,6 +20,7 @@ import { contained, derived, key, on, relation, schema } from "#compiler/public/
 import { str } from "#compiler/public/text.ts"
 import { succeeded } from "#test/support/assert.ts"
 import type { FixtureSchema } from "#test/support/compile.ts"
+import { opened } from "#test/support/open.ts"
 import { schemaDescIn } from "#test/support/policy.ts"
 
 export const A = relation(
@@ -38,15 +40,21 @@ export const S = relation("S", { sid: pg.integer, x: pg.integer, y: pg.integer }
 /** The stored relations, every one a case writes. */
 export const RELATIONS = ["A", "B", "S"] as const
 
+/** A and B open, as every version of the root level holds them. */
+const openRoot = opened([A, B])
+
 /** The root level: A and B with their candidate keys, A's (grp, kind) and B's grp. */
 const rootOf = (name: string) =>
-	schema(name, [A, B], [key(on(A, "grp", "kind")), key(on(B, "grp"))])
+	schema(name, [A, B], [key(on(A, "grp", "kind")), key(on(B, "grp")), ...openRoot])
 
 type Root = ReturnType<typeof rootOf>
 
 /** The root level with other candidate keys, A's (v, kind) and B's tag, each inside a superkey a lowering keys on. */
 const otherRoot = (name: string) =>
-	schema(name, [A, B], [key(on(A, "v", "kind")), key(on(B, "tag"))])
+	schema(name, [A, B], [key(on(A, "v", "kind")), key(on(B, "tag")), ...openRoot])
+
+/** The root level with no candidate key: A and B open alone. */
+const keylessRoot = (name: string) => schema(name, [A, B], openRoot)
 
 /**
  * `desc` with its root level's statements `statements`, every level above it as it is: the same schema over other
@@ -94,7 +102,12 @@ const above = (root: Root, name: string, shape: Shape) => {
 					return r.match(A, { grp, v: w, kind: 2 }).find({ id: grp, g: w })
 				})
 			)
-			return schema.extend([root], name, [S, D], [contained(on(S, "x", "y"), on(D, "id", "g"))])
+			return schema.extend(
+				[root],
+				name,
+				[S, D],
+				[contained(on(S, "x", "y"), on(D, "id", "g")), ...opened([S])]
+			)
 		}
 		case "join": {
 			const D = derived(
@@ -104,7 +117,12 @@ const above = (root: Root, name: string, shape: Shape) => {
 					return r.match(A, { id, grp, kind: 1 }).match(B, { grp, tag: 3 }).find({ id, g: grp })
 				})
 			)
-			return schema.extend([root], name, [S, D], [contained(on(S, "x", "y"), on(D, "id", "g"))])
+			return schema.extend(
+				[root],
+				name,
+				[S, D],
+				[contained(on(S, "x", "y"), on(D, "id", "g")), ...opened([S])]
+			)
 		}
 	}
 }
@@ -121,8 +139,8 @@ export type LoweringSchema = ReturnType<typeof loweringSchema>
 /**
  * The histories a lowered schema is migrated through, each from its first version: from the root alone, the level
  * above and its lowering added by a migration over the declared keys (aboveLater); from the same levels with no
- * candidate key, the keys added by a migration beside, or with, the lowering's UNIQUE over a superkey of them
- * (keysLater); or from other candidate keys inside that superkey, replaced by a migration after the lowering's UNIQUE
+ * candidate key (keylessRoot), the keys added by a migration beside, or with, the lowering's UNIQUE over a superkey of
+ * them (keysLater); or from other candidate keys inside that superkey, replaced by a migration after the lowering's UNIQUE
  * was created (keyChanged).
  */
 export const histories = ["aboveLater", "keysLater", "keyChanged"] as const
@@ -138,7 +156,10 @@ export const firstVersion = (history: History, shape: Shape, name: string): Fixt
 		case "aboveLater":
 			return rootOf(name)
 		case "keysLater":
-			return overRootStatements(succeeded(schemaDescIn(loweringSchema(shape, name))), [])
+			return overRootStatements(
+				succeeded(schemaDescIn(loweringSchema(shape, name))),
+				succeeded(schemaDescIn(keylessRoot(name))).statements
+			)
 		case "keyChanged":
 			return overRootStatements(
 				succeeded(schemaDescIn(loweringSchema(shape, name))),

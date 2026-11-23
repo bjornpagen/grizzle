@@ -22,7 +22,8 @@ import {
 	on,
 	relation,
 	schema,
-	select
+	select,
+	unit
 } from "#compiler/public/schema.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
@@ -235,7 +236,9 @@ const judgeSchema = (judge: Judge, shape: ShapeKey) => {
 					"start"
 				)
 			),
-			...(probed ? [mutable(Node), mutable(Expr), mutable(Tag)] : [])
+			...(probed
+				? [mutable(Node), mutable(Expr), mutable(Tag), unit("Document", { doc: pg.integer })]
+				: [])
 		]
 	)
 	const Typed = derived(

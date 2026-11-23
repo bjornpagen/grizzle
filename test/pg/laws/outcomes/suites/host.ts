@@ -18,7 +18,7 @@ import { Db } from "#adapter/public/db.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
 import { Logic, Type } from "#compiler/public/compute.ts"
 import { closedId, contract, generated, pg, Uuid, Vector } from "#compiler/public/fields.ts"
-import { check, closed, relation, schema } from "#compiler/public/schema.ts"
+import { check, closed, mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { derivedLaw } from "#compiler/runtime/law-entry.ts"
 import { fixtureTemplate, openedIn } from "#test/pg/reads/support.ts"
@@ -73,7 +73,12 @@ const positive = check("Positive", Account, (x) => x.gt(x.units, 0))
 const withinRate = check("WithinRate", Account, (x) => x.le(Type.base(x.units), x.rate))
 /** An account's two vectors differ: a row CHECK over vector fields, which the host judges by vector_cmp's order. */
 const distinct = check("Distinct", Account, (x) => x.ne(x.from, x.to))
-const Accounts = schema("Accounts", [Tier, Rate, Account], [positive, withinRate, distinct])
+/** Each account's row its own unit: accounts are put, so Account is mutable. */
+const Accounts = schema(
+	"Accounts",
+	[Tier, Rate, Account],
+	[positive, withinRate, distinct, mutable(Account), unit("Holder", { id: Id })]
+)
 
 /** The vectors an account's two fields hold: east in both, or east and north. */
 const east = succeeded(Vector.from(Float32Array.from([1, 0]), 2), "a unit vector")

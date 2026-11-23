@@ -5,7 +5,7 @@ import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Data, Formatter } from "effect"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { contained, derived, mutable, on, relation, schema } from "#compiler/public/schema.ts"
+import { contained, derived, mutable, on, relation, schema, unit } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { type SeatTemplate, seatTemplate } from "#test/pg/fin/installed.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -30,7 +30,7 @@ const ruleProbePattern = (standing: Standing) => {
 	const Base = schema(
 		"RuleProbePattern",
 		[Allowed, Closed, Item],
-		standing === "mutable" ? [mutable(Item)] : []
+		standing === "mutable" ? [mutable(Item), unit("Tagged", { id: pg.integer })] : []
 	)
 	const Open = derived(
 		"Open",
