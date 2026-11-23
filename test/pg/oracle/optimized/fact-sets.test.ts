@@ -51,8 +51,40 @@ export const twoFactsApartInAZerosSignAreTwoRowsUnderBothLoweringsCountedTwo = o
 			name: "the conservative lowering on the same installation and facts, and the facts' own count"
 		},
 		kept: [],
-		/** Its space is six cases, an observer over a carrier: 24 runs draw each of them, as do 24 steered cases. */
-		budget: { runs: 24, steered: 24 },
+		/**
+		 * Its search budget: the fewest runs at which each kill it declares still fails a witness, the cull rule's measure
+		 * (grizzle main, 2026-11-23).
+		 *
+		 * @limitKind measured
+		 * @owner test/pg/oracle/optimized/fact-sets.test.ts twoFactsApartInAZerosSignAreTwoRowsUnderBothLoweringsCountedTwo
+		 * @unit cases
+		 * @scope one search of this property: `runs` cases of its rotating stream and a quarter of them, rounded up, of its
+		 *   floor stream; `steered` the most its steered phase runs while a required situation is unreached
+		 * @evidence `toolchain-test kills` and `toolchain-test run` of test/pg/oracle's test files at TEST_SEED=2219874524
+		 *   (a property's witnesses, its kept cases, floor and steered phase, are fixed by its identity, the same on every
+		 *   seed), each killed kill's failing witness printed by an uncommitted line in vendor/toolchain's
+		 *   mutate/commands.ts; the logs kills0.log (the pre-conversion budgets), run1.log, kills2.log, run3.log,
+		 *   kills4.log, v1at5.log, fs5.log, fs9.log, fs13.log and run5.log in ~/.cache/grizzle/CULL-ORACLE-out on
+		 *   cassowary, uncommitted
+		 * @observed 2026-11-23 03:12 to 04:36 UTC
+		 * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB, load average 130 to 410 from other
+		 *   lanes; vendor/toolchain 2cc48172; the budgets measured on grizzle f87b2aaab with 47748474c's change and
+		 *   verified on dff9200ef (run5.log, every property green and every kill killed); lane CULL-ORACLE's in-memory
+		 *   family of two PostgreSQL 19 members
+		 * @workload its witnesses with its kill applied, on workers of its own, and its full run, at runs 24, 13, 9, 5 and
+		 *   1, steered 24
+		 * @result runs 24 (pre-conversion): the analysis/physical kill fails floor case 0; runs 13 (a floor of four):
+		 *   killed, its six situations reached with 16 steered cases, 33 cases in all where 5374a0575's record ran 46; runs
+		 *   9, 5 and 1: a situation of its six unreached (take over float4 at each, with take over float8 at 5 and 1 and
+		 *   result over float8 at 1), so the property fails with no kill
+		 * @decision runs 13, the fewest at which its situations are all reached, and the kill fails its first floor case
+		 *   there. steered stays its pre-conversion 24: at fewer runs the steered phase did not reach the three situations
+		 *   the floor left, so the floor's size is the lever
+		 * @revalidate a change of its generator, its check or a kill's file, a kill added, or a change of how the testing
+		 *   library draws a floor or steered case; the kill gate (toolchain-test kills, affected) reports a kill that
+		 *   survives
+		 */
+		budget: { runs: 13, steered: 24 },
 		kills: [
 			{
 				file: "packages/engine/src/analysis/physical/analyze.ts",

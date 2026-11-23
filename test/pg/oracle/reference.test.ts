@@ -44,8 +44,38 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 export const structure = property.explore(structureSpace, {
 	needs: { tx: Substrate.transaction },
 	situations: plantFeatures satisfies ReadonlyArray<Reached<PlantFeature>>,
-	/** Its pre-conversion budget: runs 40, coverage cases 300 (reference.test.ts at 4fbc3e95). */
-	budget: { runs: 40, steered: 300 },
+	/**
+	 * Its search budget: the fewest runs at which each kill it declares still fails a witness, the cull rule's measure
+	 * (grizzle main, 2026-11-23).
+	 *
+	 * @limitKind measured
+	 * @owner test/pg/oracle/reference.test.ts structure
+	 * @unit cases
+	 * @scope one search of this property: `runs` cases of its rotating stream and a quarter of them, rounded up, of its
+	 *   floor stream; `steered` the most its steered phase runs while a required situation is unreached
+	 * @evidence `toolchain-test kills` and `toolchain-test run` of test/pg/oracle's test files at TEST_SEED=2219874524 (a
+	 *   property's witnesses, its kept cases, floor and steered phase, are fixed by its identity, the same on every
+	 *   seed), each killed kill's failing witness printed by an uncommitted line in vendor/toolchain's
+	 *   mutate/commands.ts; the logs kills0.log (the pre-conversion budgets), run1.log, kills2.log, run3.log, kills4.log,
+	 *   v1at5.log, fs5.log, fs9.log, fs13.log and run5.log in ~/.cache/grizzle/CULL-ORACLE-out on cassowary, uncommitted
+	 * @observed 2026-11-23 03:12 to 04:36 UTC
+	 * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB, load average 130 to 410 from other
+	 *   lanes; vendor/toolchain 2cc48172; the budgets measured on grizzle f87b2aaab with 47748474c's change and verified
+	 *   on dff9200ef (run5.log, every property green and every kill killed); lane CULL-ORACLE's in-memory family of two
+	 *   PostgreSQL 19 members
+	 * @workload its witnesses with its kill applied, on workers of its own, and its full run, at runs 40, 17, 13, 5 and
+	 *   1, steered 300
+	 * @result runs 40 (pre-conversion): the runtime/lower/tree.ts kill fails floor case 4; runs 17: killed; runs 13:
+	 *   steered case 0; runs 5: steered case 4; runs 1 (a floor of one): it survives, every witness passing
+	 * @decision runs 5, a floor of two, the fewest at which the kill fails a witness: every run from 1 to 4 has the floor
+	 *   of one at which it survived. steered stays its pre-conversion 300: the phase stops once every required situation
+	 *   is reached, so a green run spends only its need, 16 here, and the cap only bounds a run whose situation went
+	 *   unreached
+	 * @revalidate a change of its generator, its check or a kill's file, a kill added, or a change of how the testing
+	 *   library draws a floor or steered case; the kill gate (toolchain-test kills, affected) reports a kill that
+	 *   survives
+	 */
+	budget: { runs: 5, steered: 300 },
 	check:
 		({ tx }, c: Case<PlantFeature>) =>
 		(sketch) =>

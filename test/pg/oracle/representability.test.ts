@@ -41,8 +41,38 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 /** The widest fact of every generated key the compiler accepts is one PostgreSQL's B-tree accepts. */
 export const acceptsTheWidestFact = property.explore(keyGen, {
 	needs: { substrate: Substrate.installing },
-	/** Its pre-conversion budget: runs 150, coverage cases 150 (representability.test.ts:240,262-266 at 41df7b58^). */
-	budget: { runs: 150, steered: 150 },
+	/**
+	 * Its search budget: the fewest runs at which each kill it declares still fails a witness, the cull rule's measure
+	 * (grizzle main, 2026-11-23).
+	 *
+	 * @limitKind measured
+	 * @owner test/pg/oracle/representability.test.ts acceptsTheWidestFact
+	 * @unit cases
+	 * @scope one search of this property: `runs` cases of its rotating stream and a quarter of them, rounded up, of its
+	 *   floor stream; `steered` the most its steered phase runs while a required situation is unreached
+	 * @evidence `toolchain-test kills` and `toolchain-test run` of test/pg/oracle's test files at TEST_SEED=2219874524 (a
+	 *   property's witnesses, its kept cases, floor and steered phase, are fixed by its identity, the same on every
+	 *   seed), each killed kill's failing witness printed by an uncommitted line in vendor/toolchain's
+	 *   mutate/commands.ts; the logs kills0.log (the pre-conversion budgets), run1.log, kills2.log, run3.log, kills4.log,
+	 *   v1at5.log, fs5.log, fs9.log, fs13.log and run5.log in ~/.cache/grizzle/CULL-ORACLE-out on cassowary, uncommitted
+	 * @observed 2026-11-23 03:12 to 04:36 UTC
+	 * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB, load average 130 to 410 from other
+	 *   lanes; vendor/toolchain 2cc48172; the budgets measured on grizzle f87b2aaab with 47748474c's change and verified
+	 *   on dff9200ef (run5.log, every property green and every kill killed); lane CULL-ORACLE's in-memory family of two
+	 *   PostgreSQL 19 members
+	 * @workload its witnesses with its kill applied, on workers of its own, and its full run, at runs 150, 29 and 25,
+	 *   steered 150
+	 * @result runs 150 (pre-conversion): the schema/representability.ts kill fails floor case 7; runs 29 (a floor of
+	 *   eight): killed, its situations reached on the floor, 37 cases in all where f1bf91a2f's gate ran 188; runs 25 (a
+	 *   floor of seven): it survives
+	 * @decision runs 29, the fewest whose floor holds case 7. steered stays its pre-conversion 150: the phase stops once
+	 *   every required situation is reached, so a green run spends only its need, none here, and the cap only bounds a
+	 *   run whose situation went unreached
+	 * @revalidate a change of its generator, its check or a kill's file, a kill added, or a change of how the testing
+	 *   library draws a floor or steered case; the kill gate (toolchain-test kills, affected) reports a kill that
+	 *   survives
+	 */
+	budget: { runs: 29, steered: 150 },
 	situations: ["accepted key", "key at the computed maximum"] satisfies ReadonlyArray<
 		Reached<ReprFeature>
 	>,
