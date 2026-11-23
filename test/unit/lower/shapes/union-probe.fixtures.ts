@@ -8,7 +8,7 @@ import { relation, schema } from "#compiler/public/schema.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
+import { compileTemplate, realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { checking } from "#test/support/policy.ts"
 import { descOf } from "#test/unit/write/changeset/fixtures.ts"
 
@@ -16,10 +16,11 @@ import { descOf } from "#test/unit/write/changeset/fixtures.ts"
  * Each session's attempts, each attempt's snapshot of its variables, and the assertions that replace a snapshot's
  * value, as edullm's ledger holds them: an outcome in force is a snapshot no assertion replaced, or an assertion.
  */
-const Attempt = relation("Attempt", { session: pg.integer, attempt: pg.integer }, [
-	"session",
-	"attempt"
-])
+const Attempt = relation(
+	"Attempt",
+	{ session: pg.integer, attempt: pg.integer, opened: pg.integer },
+	["session", "attempt"]
+)
 const fields = {
 	session: pg.integer,
 	attempt: pg.integer,
@@ -55,63 +56,75 @@ const inForce = query(Written)
 const sessions = { session: pg.integer } as const
 
 /**
- * How the write reads the outcomes in force: by the session of each of the call's sessions, or beside every session's
- * attempts, which no value of the call restricts.
+ * How the case reads the outcomes in force: a write at the call's sessions, a relation parameter; a write beside every
+ * stored attempt, which no value of the call restricts; or a workload's read beside every stored attempt.
  */
-export type Joined = "by the call's sessions" | "beside every attempt"
+export type Joined =
+	| "written at the call's sessions"
+	| "written beside every attempt"
+	| "read beside every attempt"
 
 export interface Box {
 	readonly joined: Joined
 }
 
 export const boxGen: Gen<Box> = element<Box>([
-	{ joined: "by the call's sessions" },
-	{ joined: "beside every attempt" }
+	{ joined: "written at the call's sessions" },
+	{ joined: "written beside every attempt" },
+	{ joined: "read beside every attempt" }
 ])
 
-/** The member: the outcomes in force at the call's sessions, or at every stored attempt. */
-const memberOf = (box: Box) =>
-	query(Written).rule((r) => {
-		const { session, attempt, variable, value } = v(inForce, "outcome")
-		switch (box.joined) {
-			case "by the call's sessions":
-				return r
-					.match(r.relation("sittings", sessions), { session })
-					.match(inForce, { session, attempt, variable, value })
-					.find({ session, attempt, variable, value })
-			case "beside every attempt":
-				return r
-					.match(Attempt, { session, attempt })
-					.match(inForce, { session, attempt, variable, value })
-					.find({ session, attempt, variable, value })
-		}
-	})
+/** The outcomes in force at the call's sessions. */
+const atSessions = query(Written).rule((r) => {
+	const { session, attempt, variable, value } = v(inForce, "outcome")
+	return r
+		.match(r.relation("sittings", sessions), { session })
+		.match(inForce, { session, attempt, variable, value })
+		.find({ session, attempt, variable, value })
+})
+
+/** Every stored attempt's outcomes in force, each with when the attempt opened, which only Attempt holds. */
+const besideAttempts = query(Written).rule((r) => {
+	const { session, attempt, variable, value } = v(inForce, "outcome")
+	const { opened } = v(Attempt, "attempt")
+	return r
+		.match(Attempt, { session, attempt, opened })
+		.match(inForce, { session, attempt, variable, value })
+		.find({ session, attempt, variable, value: opened })
+})
 
 /** The session the call names: the write's `sittings`. */
 const named = query(Written).rule((r) => r.find({ session: r.param("session", pg.integer) }))
 
 const reality = realityWrite(succeeded(testArtifacts(Written, testCompile)))
 
-/** The case's write: the member recorded, its sittings bound to the call's `session` where it reads them. */
-const changesOf = (box: Box) => {
-	const write = ChangeSet.empty(Written).insert(Recorded, memberOf(box))
-	switch (box.joined) {
-		case "by the call's sessions":
-			return write.bind({ sittings: named })
-		case "beside every attempt":
-			return write
-	}
-}
-
-/** The text of each statement the case's write sends. */
-export const statementsOf = (box: Box): ReadonlyArray<string> =>
+/** The text of each statement `write` sends. */
+const writeOf = (write: unknown): ReadonlyArray<string> =>
 	Arr.map(
-		succeeded(
-			compileWrite(checking(Written), descOf(changesOf(box)), reality),
-			"the case's write compiles"
-		).artifact.statements,
+		succeeded(compileWrite(checking(Written), descOf(write), reality), "the case's write compiles")
+			.artifact.statements,
 		(s) => s.spec.sql
 	)
+
+/** The text of each statement the case sends: its write's, or its read's optimized statements. */
+export const statementsOf = (box: Box): ReadonlyArray<string> => {
+	switch (box.joined) {
+		case "written at the call's sessions":
+			return writeOf(
+				ChangeSet.empty(Written).insert(Recorded, atSessions).bind({ sittings: named })
+			)
+		case "written beside every attempt":
+			return writeOf(ChangeSet.empty(Written).insert(Recorded, besideAttempts))
+		case "read beside every attempt":
+			return Arr.map(
+				succeeded(
+					compileTemplate(besideAttempts, undefined, testCompile),
+					"the case's read compiles"
+				).optimized,
+				(s) => s.sql
+			)
+	}
+}
 
 /** How many times `sql` scans `table` of the schema. */
 export const scans = (sql: string, table: "snapshot" | "assertion" | "attempt"): number =>
