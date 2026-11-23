@@ -775,7 +775,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 			case "instant":
 				return instantWriting
 			case "drawn":
-				if (!isDrawnType(f.desc, type)) {
+				if (!isDrawnType(f.desc)) {
 					return fail(
 						"MalformedDescription",
 						at,

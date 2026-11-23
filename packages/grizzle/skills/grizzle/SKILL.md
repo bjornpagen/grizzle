@@ -153,9 +153,10 @@ export default defineConfig({
   holds it shared, as generate derives from the ChangeSet: no borrow is written. Refused (`MalformedDescription`): a unit
   whose heading leads with another's or that another's leads with (no unit nests: each relation sits under one at
   most), one name over two headings, and a unit stated above a level whose relation leads with its heading (state it at
-  that level). A gapless number, one past the greatest, is `series(R)` over a relation keyed by one `natural` field: it
-  states the predecessor law itself and every write of R holds its one lock, the only lock no key splits (README
-  "Units").
+  that level). A gapless number, one past the greatest, is `series(R)` over a relation keyed by one field of a type
+  grizzle draws, `natural` or a contract over an integer (an int4 number keeps its `contract(…, pg.integer, …)`, whose
+  CHECK refuses one past its bound): it states the predecessor law itself and every write of R holds its one lock, the
+  only lock no key splits (README "Units").
 - A retirable unit's groups go by `ChangeSet.empty(S).retire(Header, [])`, a member of a role whose `retire` list names
   the header, `role(S, "retirer", entries, { retire: ["Header"] })`, which grants it EXECUTE on the unit's retirement
   and nothing on its tables; its call's facts are `{ retire: { Header: [{ id }] } }`, each a group, the header's key.

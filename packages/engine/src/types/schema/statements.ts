@@ -105,8 +105,8 @@ export interface Unit<Name extends string, Heading> {
 export type UnitBase = Unit<string, unknown>
 
 /**
- * series(R): R's one natural primary key field runs 0, 1, 2, … with no gap, and R's appends queue on one lock of their
- * own.
+ * series(R): R's one primary key field, natural or a contract over an integer, runs 0, 1, 2, … with no gap, and R's
+ * appends queue on one lock of their own.
  */
 export interface Series<R> {
 	readonly kind: "series"

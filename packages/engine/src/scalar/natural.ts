@@ -4,7 +4,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import { integerRanges } from "#compiler/ir/carriers.ts"
 import { descText, type ExprDesc, type FieldDesc, type TermDesc } from "#compiler/ir/desc.ts"
-import { isInstantType } from "#compiler/ir/instant.ts"
+import { isInstantDesc } from "#compiler/ir/instant.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { integerHostOf } from "#compiler/scalar/compute/literal.ts"
@@ -80,21 +80,37 @@ export const drawnTypes: Refused =
 	"drawn(type): natural or a contract over an integer, the types a family's index and count are of"
 
 /**
- * Whether grizzle draws values of a type, its descriptor and its scalar type: natural (isNaturalDesc), or a contract
- * whose base is an integer, int2, int4 or int8, but instant, the database's clock's. A drawn value is exact, counted
- * from 0, and enters its column as every value does: the column's carrier and the contract's CHECK refuse one they do
- * not hold.
+ * Whether grizzle draws values of a type, by its descriptor: a contract over an integer, int2, int4 or int8, at its last
+ * level, natural's among them, but instant, the database's clock's. A drawn value is exact, counted from 0, and enters
+ * its column as every value does: the column's carrier and the contract's CHECK refuse one they do not hold. It is the
+ * one rule over the types grizzle draws: drawn(type)'s (schema/relation.ts drawnField, analysis/schema.ts) and a
+ * series' key's (schema/statements.ts admitSeries, schema/own.ts).
  */
-export const isDrawnType = (desc: FieldDesc, scalar: ScalarType): boolean => {
-	if (isNaturalDesc(desc)) {
-		return true
+export const isDrawnType = (desc: FieldDesc): boolean =>
+	desc.kind === "contract" && !isInstantDesc(desc) && isIntegerDesc(desc.base)
+
+/** Whether a descriptor is of an integer at its last level: smallint, integer or bigint, through every contract over it. */
+const isIntegerDesc = (desc: FieldDesc): boolean => {
+	switch (desc.kind) {
+		case "contract":
+			return isIntegerDesc(desc.base)
+		case "pg":
+			return desc.type === "smallint" || desc.type === "integer" || desc.type === "bigint"
+		case "numeric":
+		case "exact":
+		case "computedNumeric":
+		case "uuid":
+		case "bytes":
+		case "sha256":
+		case "text":
+		case "pattern":
+		case "span":
+		case "closedId":
+		case "bits":
+		case "vector":
+		case "search":
+			return false
 	}
-	const carrier = baseOf(scalar).carrier
-	return (
-		scalar.contract !== undefined &&
-		!isInstantType(scalar) &&
-		(carrier === "int2" || carrier === "int4" || carrier === "int8")
-	)
 }
 
 /**

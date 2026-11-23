@@ -2861,8 +2861,8 @@ export const Assignments = schema(
   calls ever wait on each other in a cycle.
 
 **The series.** A number every new row takes as one past the greatest, with no gap, such as an assignment's place in
-its series, is the one thing no key splits. `series(R)` declares it, over a relation keyed by one `natural` field
-alone:
+its series, is the one thing no key splits. `series(R)` declares it, over a relation keyed by one field alone, of a
+type grizzle draws:
 
 ```ts
 /** What holds a number: an assignment, or nothing, where an import found the number skipped. */
@@ -2889,7 +2889,12 @@ export const Numbers = schema(
   other lock is a unit's, whose heading holds a field at least, a clock stays refused first in its key
   (`childless`) and a place first in its key (`groupless`). And the series carries its law, so it is never a lock to
   wrap other work in.
-- `R`'s primary key is its one `natural` field, and `R` is immutable: its numbers only grow by appends.
+- **Its numbers' type.** `R`'s primary key is its one field, `natural` or a contract over an integer, exactly the types
+  `drawn` takes ([Families](#families)): a test's number kept in an int4,
+  `contract("TestNumber", pg.integer, (n) => Logic.and(Logic.ge(n, 0), Logic.le(n, 2147483646)))`, keys its series as
+  itself, and a number past its bound is refused by the contract's own CHECK. Any other key, a second field or a type
+  of no integer carrier, is refused where `series(R)` is stated.
+- `R` is immutable: its numbers only grow by appends.
 
 ### Retirable units
 

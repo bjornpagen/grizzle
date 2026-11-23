@@ -602,9 +602,10 @@ export const unit = <const Name extends string, const Heading extends Record<str
 ): Unit<Name, Heading> => unitBuilder<Name, Heading>(name, heading, extra)
 
 /**
- * series(R): R's one natural primary key field runs 0, 1, 2, … with no gap, a law the statement states, and every write
- * of R holds the series' one lock from before its first read, so a write that appends one past the greatest number reads
- * the greatest exactly. It is the only lock no key splits: a call takes it only by writing R.
+ * series(R): R's one primary key field, natural or a contract over an integer, whose own CHECK refuses a number past its
+ * bound, runs 0, 1, 2, … with no gap, a law the statement states, and every write of R holds the series' one lock from
+ * before its first read, so a write that appends one past the greatest number reads the greatest exactly. It is the
+ * only lock no key splits: a call takes it only by writing R.
  */
 export const series = <R extends AnyRelation>(target: R): Series<R> => seriesBuilder<R>(target)
 

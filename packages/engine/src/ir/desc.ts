@@ -1416,8 +1416,9 @@ export interface ArmDesc {
  * - unit(name, heading) declares a unit: a key a family of rows sits under, each value of it one lock. It names no
  *   relation: every stored relation whose primary key leads with its heading's fields, by name and type in order, sits
  *   under it (schema/own.ts OwnedUnit), and states no law.
- * - series(R) declares R's one natural primary key field a series, 0, 1, 2, … with no gap, which expandSeries states,
- *   whose appends queue on one lock of their own: the only lock no key splits.
+ * - series(R) declares R's one primary key field, natural or a contract over an integer (scalar/natural.ts isDrawnType),
+ *   a series, 0, 1, 2, … with no gap, which expandSeries states, whose appends queue on one lock of their own: the only
+ *   lock no key splits.
  */
 export type StatementDesc<L = Located> = L &
 	(
@@ -1495,7 +1496,7 @@ export type StatementDesc<L = Located> = L &
 				readonly kind: "series"
 				/** The series' relation, whose primary key is `field` alone. */
 				readonly relation: string
-				/** Its one natural primary key field, which runs 0, 1, 2, … with no gap. */
+				/** Its one primary key field, of a drawn type, which runs 0, 1, 2, … with no gap. */
 				readonly field: string
 		  }
 	)

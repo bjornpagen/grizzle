@@ -289,7 +289,7 @@ export const drawnField = <F extends FieldBase>(
 		throw malformed("drawn", "drawn(type): one argument")
 	}
 	const described = valueTypeOf(type, "drawn type", () => builderRefusal("drawn", drawnTypes))
-	if (!isDrawnType(described.desc, described.scalar)) {
+	if (!isDrawnType(described.desc)) {
 		throw builderRefusal("drawn", drawnTypes)
 	}
 	const value: DrawnField<F> = Object.freeze({

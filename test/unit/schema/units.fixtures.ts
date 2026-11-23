@@ -2,6 +2,7 @@
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import type { SideDesc } from "#compiler/ir/desc.ts"
+import { Logic } from "#compiler/public/compute.ts"
 import { contract, natural, pg, uuid } from "#compiler/public/fields.ts"
 import { mutable, relation, schema, series, unit } from "#compiler/public/schema.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
@@ -19,8 +20,11 @@ export const pairs = ["nested", "sameHeading", "sameName", "apart"] as const
 /** Where U is stated beside R: at R's level, or at a level above it. */
 export const levels = ["same", "above"] as const
 
-/** How a series' relation S is keyed: by one natural, by a natural beside another field, or by one field of another type. */
-export const seriesKeys = ["natural", "wide", "notNatural"] as const
+/**
+ * How a series' relation S is keyed: by one natural; by one contract over an integer, an int4 number bounded as an int4
+ * serial is (TestNumber); by a natural beside another field; by a bare bigint; or by a contract over no integer.
+ */
+export const seriesKeys = ["natural", "integerContract", "wide", "bigint", "uuidContract"] as const
 
 /** A case of the space: one of the four groups of the units' and the series' rules. */
 export type UnitCase =
@@ -74,6 +78,11 @@ export const caseText = (c: UnitCase): UnitFeature => {
 /** An id of another type than Id, by its own contract over the same base. */
 const OtherId = contract("OtherId", uuid)
 
+/** A number kept in an int4, bounded below the int4 serial's greatest value, as a test's number is. */
+const TestNumber = contract("TestNumber", pg.integer, (n) =>
+	Logic.and(Logic.ge(n, 0), Logic.le(n, 2147483646))
+)
+
 /** R keyed as a member case says. */
 const memberR = (key: (typeof leads)[number]) => {
 	switch (key) {
@@ -107,10 +116,14 @@ const seriesS = (key: (typeof seriesKeys)[number]) => {
 	switch (key) {
 		case "natural":
 			return relation("S", { number: natural, held: pg.boolean }, ["number"])
+		case "integerContract":
+			return relation("S", { number: TestNumber, held: pg.boolean }, ["number"])
 		case "wide":
 			return relation("S", { number: natural, held: pg.boolean }, ["number", "held"])
-		case "notNatural":
+		case "bigint":
 			return relation("S", { number: pg.bigint, held: pg.boolean }, ["number"])
+		case "uuidContract":
+			return relation("S", { number: OtherId, held: pg.boolean }, ["number"])
 	}
 }
 
@@ -152,8 +165,24 @@ export const schemaOf = (
 	}
 }
 
-/** The oracle: whether a case's statements build, series(S) refusing at once a relation keyed by no one natural field. */
-export const builds = (c: UnitCase): boolean => c.kind !== "series" || c.key === "natural"
+/**
+ * The oracle: whether a case's statements build, series(S) refusing at once a relation keyed by no one field of a type
+ * grizzle draws, natural or a contract over an integer.
+ */
+export const builds = (c: UnitCase): boolean => c.kind !== "series" || drawnKey(c.key)
+
+/** Whether a series key is one field of a type grizzle draws, as drawn(c) takes it: natural or a contract over an integer. */
+const drawnKey = (key: (typeof seriesKeys)[number]): boolean => {
+	switch (key) {
+		case "natural":
+		case "integerContract":
+			return true
+		case "wide":
+		case "bigint":
+		case "uuidContract":
+			return false
+	}
+}
 
 /** The oracle: whether a case's schema owns, by the rules of README "Units" restated. */
 export const owns = (c: UnitCase): boolean => {
@@ -165,7 +194,7 @@ export const owns = (c: UnitCase): boolean => {
 		case "level":
 			return c.at === "same"
 		case "series":
-			return c.key === "natural" && !c.mutable
+			return drawnKey(c.key) && !c.mutable
 	}
 }
 

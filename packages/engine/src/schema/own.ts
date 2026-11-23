@@ -101,7 +101,7 @@ import type { Inserts } from "#compiler/ir/law.ts"
 import type { OwnedSchema } from "#compiler/ir/products.ts"
 import type { DeclaredKey } from "#compiler/ir/rel.ts"
 import { Roster } from "#compiler/ir/scalar.ts"
-import { isNaturalDesc, naturalDescriptor } from "#compiler/scalar/natural.ts"
+import { isDrawnType, isNaturalDesc, naturalDescriptor } from "#compiler/scalar/natural.ts"
 import { descCapabilities } from "#compiler/scalar/registry.ts"
 import {
 	type DeclaredEntries,
@@ -2411,16 +2411,12 @@ class Owner {
 				const entry = this.#ordinary(d.relation, s, "has fixed facts, which no write appends")
 				const [field, ...rest] = entry.desc.primaryKey
 				const decl = entry.desc.fields[d.field]
-				if (
-					field !== d.field ||
-					rest.length > 0 ||
-					decl === undefined ||
-					!isNaturalDesc(decl.type)
-				) {
+				if (field !== d.field || rest.length > 0 || decl === undefined || !isDrawnType(decl.type)) {
 					failWith({
 						_tag: "Refused",
 						at: d.loc,
-						refusal: "a series' relation is keyed by one natural field alone, the series' numbers"
+						refusal:
+							"a series' relation is keyed by one field alone, the series' numbers, of a type grizzle draws: natural or a contract over an integer"
 					})
 				}
 				return d

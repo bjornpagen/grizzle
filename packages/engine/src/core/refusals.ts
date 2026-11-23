@@ -97,7 +97,7 @@ export const refusals = [
 	"a served ChangeSet's facts name only the ops of its array members: insert, put, delete and retire",
 	"a served ChangeSet's facts name, under each op, only the relations of its array members of that op",
 	"a series is a stored relation, whose rows its writes append",
-	"a series' relation is keyed by one natural field alone, the series' numbers",
+	"a series' relation is keyed by one field alone, the series' numbers, of a type grizzle draws: natural or a contract over an integer",
 	"a set lists each of its handles once",
 	"a side lists each term once",
 	"a side over records is read only as a retirable body or a reachable target: a law over one of their relations takes on(relation, …)",

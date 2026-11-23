@@ -25,7 +25,7 @@ import {
 	termText,
 	type UnitFieldDesc
 } from "#compiler/ir/desc.ts"
-import { isNaturalDesc } from "#compiler/scalar/natural.ts"
+import { isDrawnType, isNaturalDesc } from "#compiler/scalar/natural.ts"
 import { descCapabilities } from "#compiler/scalar/registry.ts"
 import {
 	builderLoc,
@@ -388,8 +388,9 @@ export const unitBuilder = <const Name extends string, const Heading extends obj
 }
 
 /**
- * The admission core of series(...): a stored relation whose primary key is one natural field, the series' numbers. That
- * the relation is immutable, and its level, are ownership's (schema/own.ts).
+ * The admission core of series(...): a stored relation whose primary key is one field, the series' numbers, of a type
+ * grizzle draws (scalar/natural.ts isDrawnType): natural, or a contract over an integer, whose own CHECK refuses a number
+ * past its bound. That the relation is immutable, and its level, are ownership's (schema/own.ts).
  */
 const admitSeries = (relation: unknown): StatementDesc => {
 	const rel = namedRelation(relation, "series relation")
@@ -398,10 +399,10 @@ const admitSeries = (relation: unknown): StatementDesc => {
 		throw builderRefusal(label, "a series is a stored relation, whose rows its writes append")
 	}
 	const [field, ...rest] = rel.primaryKey
-	if (field === undefined || rest.length > 0 || !isNaturalDesc(fieldOf(rel, field, label))) {
+	if (field === undefined || rest.length > 0 || !isDrawnType(fieldOf(rel, field, label))) {
 		throw builderRefusal(
 			label,
-			"a series' relation is keyed by one natural field alone, the series' numbers"
+			"a series' relation is keyed by one field alone, the series' numbers, of a type grizzle draws: natural or a contract over an integer"
 		)
 	}
 	return admitted({
@@ -412,7 +413,7 @@ const admitSeries = (relation: unknown): StatementDesc => {
 	})
 }
 
-/** series(R): R's one natural primary key field runs 0, 1, 2, … with no gap, its appends queued on one lock. */
+/** series(R): R's one primary key field, of a drawn type, runs 0, 1, 2, … with no gap, its appends queued on one lock. */
 export const seriesBuilder = <R>(relation: R): Series<R> =>
 	ownedStatement({ kind: "series", relation }, admitSeries(relation))
 
