@@ -1,5 +1,5 @@
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
-import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { Refusal } from "#compiler/core/canonical.ts"
 import {
 	type RuleBreach,
@@ -378,8 +378,26 @@ export class ViolationBuilder {
 		return this.b.node(spec)
 	}
 
-	/** A fresh scan of a relation: a Base over its table, or the typed VALUES relation of a closed relation's facts. */
+	/**
+	 * A fresh scan of a relation: a Base over its table, a stored derived relation's read by its heading under its proven
+	 * keys, as a query reads it (check/checker.ts source), or the typed VALUES relation of a closed relation's facts.
+	 */
 	source(r: TheoryRelation): RelNode {
+		if (r.kind === "stored") {
+			const { heading, keys } = r.read
+			return this.node({
+				kind: "Base",
+				relation: r.name,
+				occurrence: this.b.ids.occurrence(),
+				primaryKey: mapNonEmpty(heading, (c) => c.name),
+				keys: [],
+				relationKind: "derived",
+				view: keys,
+				heading,
+				loc: undefined,
+				meta: conservativeMeta
+			})
+		}
 		if (r.kind === "closed") {
 			return this.node({
 				kind: "Closed",

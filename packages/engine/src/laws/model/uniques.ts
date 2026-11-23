@@ -278,6 +278,9 @@ const uniqueOf = (n: NamedNative, lawColumns: LawColumns): ReadonlyArray<Placed>
 		case "PrimaryKey":
 			return []
 		case "Unique": {
+			if (o.relation.kind === "stored") {
+				return []
+			}
 			const fields = plainFields(o.columns)
 			if (fields === undefined) {
 				const object = projected(o.relation, o.columns, lawColumns, named)

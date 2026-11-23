@@ -70,7 +70,8 @@ export const aJudgedCommitLeavesEverySessionTableItWroteEmptyEachDeltaOfThemWith
 			},
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
-				original: "\t\t\t})),\n\t\t\t...part.deltas.map(emptiedWhereWritten)\n",
+				original:
+					'\t\t\t})),\n\t\t\t...(part.pass === "rules" ? part.deltas.map(emptiedWhereWritten) : [])\n',
 				replacement: "\t\t\t}))\n",
 				why: "No part deletes the rows it read, so a delta keeps one transaction's rows past its COMMIT, and the next transaction's judge reads them again as its own."
 			}

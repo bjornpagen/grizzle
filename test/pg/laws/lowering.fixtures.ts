@@ -9,7 +9,7 @@ import { Array as Arr, Data, Effect, Formatter, Layer, Option, Record as Rec } f
 import { Db } from "#adapter/public/db.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import type { NativeColumn, TableRelation } from "#compiler/ir/law.ts"
+import type { NativeColumn } from "#compiler/ir/law.ts"
 import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import type { CallError } from "#compiler/live/index.ts"
 import {
@@ -758,9 +758,9 @@ const ruleLaw = (installation: Installation): LawId =>
 const nativeColumnName = (column: NativeColumn): string =>
 	column.kind === "field" ? column.field.name : "‹law column›"
 
-/** The relation of the box a planned constraint native lives on, none for any other. */
-const nativeRelation = (relation: TableRelation): Option.Option<"A" | "B" | "S"> =>
-	Arr.findFirst(RELATIONS, (r) => r === relation.name)
+/** The relation of the box a planned constraint native lives on, by its name, none for any other. */
+const nativeRelation = (name: string): Option.Option<"A" | "B" | "S"> =>
+	Arr.findFirst(RELATIONS, (r) => r === name)
 
 /**
  * The UNIQUEs a planned installation's lowering adds beside its declared keys: each unique native of A, B or S over no
@@ -775,12 +775,12 @@ const plannedSuperkeys = (installation: Installation): ReadonlyArray<ReadonlyArr
 		const placed =
 			object.kind === "Unique"
 				? Option.some({
-						relation: object.relation,
+						relation: object.relation.name,
 						columns: Arr.map(object.columns, nativeColumnName)
 					})
 				: object.kind === "PrimaryKey"
 					? Option.some({
-							relation: object.relation,
+							relation: object.relation.name,
 							columns: Arr.map(object.columns, (f) => f.name)
 						})
 					: Option.none()

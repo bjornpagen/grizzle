@@ -24,7 +24,7 @@ import {
 	type ScalarExpr,
 	type TypedLiteral
 } from "#compiler/ir/expr.ts"
-import type { GeneratedRead } from "#compiler/ir/keys.ts"
+import type { GeneratedRead, ViewRead } from "#compiler/ir/keys.ts"
 import type { DeclaredKey, HeadingColumn } from "#compiler/ir/rel.ts"
 import {
 	isSpanCarrier,
@@ -32,6 +32,7 @@ import {
 	type ScalarType,
 	type SpanCarrier
 } from "#compiler/ir/scalar.ts"
+import type { StoredUnit } from "#compiler/ir/unit.ts"
 
 /** The recognized shapes. */
 const lawShapes = [
@@ -116,18 +117,33 @@ export const generationOf = (field: Pick<LawField, "writing">): ScalarExpr | und
  * order. A law that names the relation carries this handle. A closed relation installs nothing by its name, so only a
  * stored relation's handle has an installed identifier (TableRelation).
  */
-export interface LawRelation {
+export interface LawRelation<
+	Named extends "primaryKey" | "key" | "derivedKey" = "primaryKey" | "key"
+> {
 	readonly name: string
 	readonly fields: NonEmptyReadonlyArray<LawField>
-	/** The keys ownership declared on it, the primary key first, each with its constraint identifier. */
-	readonly keyNames: ReadonlyArray<KeyName>
+	/**
+	 * The keys ownership declared on it, the primary key first, each with its constraint identifier; a stored derived
+	 * relation's proven keys, each with its index's.
+	 */
+	readonly keyNames: ReadonlyArray<KeyName<Named>>
 }
+
+/**
+ * An installed table of the theory, which a UNIQUE or a CHECK stands on and a rule over a query reads: an ordinary
+ * relation's, its keys named by their constraints, or a stored derived relation's, its keys named by their indexes,
+ * whose natives its own table's extension installs (physical/derived/objects.ts) and whose rows only the judge's phase
+ * A writes.
+ */
+export type TheoryTable = RelationInfo | StoredDerivedRelation
 
 /**
  * A stored relation's handle with its installed table's identifier: what a native object and a law column are
  * installed on.
  */
-export interface TableRelation extends LawRelation {
+export interface TableRelation<
+	Named extends "primaryKey" | "key" | "derivedKey" = "primaryKey" | "key"
+> extends LawRelation<Named> {
 	readonly name: StoredRelationName
 	readonly ident: RelationIdent
 }
@@ -150,11 +166,12 @@ export const fieldNames = (fields: ReadonlyArray<LawField>): ReadonlyArray<strin
  * A key ownership declared: the handles of its fields in key order, its span field if it has one (ownership refuses a
  * key of two), whether it is the primary key, and the identity its constraint is named by.
  */
-export interface KeyName {
+export interface KeyName<Named extends "primaryKey" | "key" | "derivedKey" = "primaryKey" | "key"> {
 	readonly fields: NonEmptyReadonlyArray<LawField>
 	readonly span: SpanField | undefined
 	readonly primary: boolean
-	readonly named: Identity<"primaryKey" | "key">
+	/** A declared key's constraint, or a stored derived relation's proven key's index (identity.derivedKey). */
+	readonly named: Identity<Named>
 }
 
 /**
@@ -163,7 +180,10 @@ export interface KeyName {
  * canonical order (`heading`), and its declared keys as names and as handles. A query, a write and the theory's laws
  * read this one handle.
  */
-interface StoredRelationOf<Kind extends "relation" | "closed"> extends LawRelation {
+interface StoredRelationOf<
+	Kind extends "relation" | "closed" | "stored",
+	Named extends "primaryKey" | "key" | "derivedKey" = "primaryKey" | "key"
+> extends LawRelation<Named> {
 	readonly kind: Kind
 	/** Its fields in canonical order (analysis/schema.ts CheckedSchema): the heading a query reads it as and a write
 	 * writes it as. */
@@ -287,8 +307,27 @@ export interface ClosedTheoryRelation extends StoredRelationOf<"closed"> {
 	readonly slots: ReadonlyArray<ClosedSlot>
 }
 
-/** A stored relation the theory's laws read: an ordinary relation, or a closed relation with its facts. */
-export type TheoryRelation = RelationInfo | ClosedTheoryRelation
+/**
+ * A stored derived relation as the theory reads it (D11): its table, which only the judge's upkeep writes, deleting and
+ * inserting its rows at the units a transaction wrote (physical/ddl/rules.ts upkeepBlock) and never updating one, so
+ * no field of it changes in place; its heading's fields, each written by that upkeep alone; its primary key, its
+ * narrowest proven key with the fields carrying its declared unit first (physical/derived/objects.ts unitFirst), and
+ * every other proven key, each named by its index (identity.derivedKey); and the unit its rows sit under. Rules,
+ * queries and programs read its rows; only its own upkeep reads its definition (analysis/theory/theory.ts).
+ */
+export interface StoredDerivedRelation
+	extends StoredRelationOf<"stored", "derivedKey">, TableRelation<"derivedKey"> {
+	readonly name: StoredRelationName
+	readonly unit: StoredUnit
+	/** How a Base over its table reads it: its heading and its proven keys narrowest first, each resting on its index. */
+	readonly read: ViewRead
+}
+
+/**
+ * A stored relation the theory's laws read: an ordinary relation, a closed relation with its facts, or a stored derived
+ * relation.
+ */
+export type TheoryRelation = RelationInfo | ClosedTheoryRelation | StoredDerivedRelation
 
 /** A heading's columns as an IR node carries them: each field's name and type, never its handle. */
 export const headingColumns = (
@@ -457,7 +496,10 @@ export const spanKeySet = (
 })
 
 /** The KeyColumnSet of a key ownership declared on `relation`: a span key's over its other fields and its span. */
-const declaredKeySet = (relation: string, key: KeyName): KeyColumnSet => {
+const declaredKeySet = (
+	relation: string,
+	key: KeyName<"primaryKey" | "key" | "derivedKey">
+): KeyColumnSet => {
 	const span = key.span
 	const columns = mapNonEmpty(key.fields, (field) => fieldColumn(field))
 	return span === undefined
@@ -485,7 +527,10 @@ const sameKey = (a: KeyColumnSet, b: KeyColumnSet): boolean => sameOrder(keyTupl
  * The key ownership declared on `relation` whose KeyColumnSet is `key`: one at most, as ownership refuses a second key
  * over one set of fields (schema/own.ts distinctKeys).
  */
-export const declaredKeyOf = (relation: LawRelation, key: KeyColumnSet): KeyName | undefined =>
+export const declaredKeyOf = <Named extends "primaryKey" | "key" | "derivedKey">(
+	relation: LawRelation<Named>,
+	key: KeyColumnSet
+): KeyName<Named> | undefined =>
 	relation.keyNames.find((k) => sameKey(declaredKeySet(relation.name, k), key))
 
 /**
@@ -640,7 +685,7 @@ type NativeBody =
 	| {
 			/** A UNIQUE NULLS DISTINCT: a row any of whose columns is null is outside it. */
 			readonly kind: "Unique"
-			readonly relation: TableRelation
+			readonly relation: TheoryTable
 			readonly columns: NonEmptyReadonlyArray<NativeColumn>
 	  }
 	| {
@@ -655,7 +700,7 @@ type NativeBody =
 	  }
 	| {
 			readonly kind: "TableCheck"
-			readonly relation: TableRelation
+			readonly relation: TheoryTable
 			readonly check: TableCheckOrigin
 			readonly predicate: ScalarExpr
 	  }

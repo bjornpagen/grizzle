@@ -98,12 +98,6 @@ export const aRuleOverARecursionCompilesExactlyWhereEveryStepCarriesItsUnitFromS
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/analysis/theory/query.ts",
-				original: "\t\t\t\t\t\trec: mapNonEmpty(st.recursive.rec, rule)",
-				replacement: "\t\t\t\t\t\trec: st.recursive.rec",
-				why: "A recursion's steps read as written, the stored Within in them by its name, which the walk reads as no relation of any unit; a step through the derived children in their document's unit no longer compiles as the whole rule it is."
-			},
-			{
 				file: "packages/engine/src/analysis/theory/unit.ts",
 				original: "\t\t\t(all.some((r) => r.mutable) &&",
 				replacement: "\t\t\t(false &&",

@@ -40,9 +40,10 @@ const Claim = relation("Claim", { doc: pg.integer, start: pg.integer }, ["doc", 
  * - `a fixed document`: a child whose document the step states as a literal, which leaves it;
  * - `derived child`: the child through a derived relation of the node's parent links within its document, which
  *   carries it: stored where the document is a unit, which it is local to, and live otherwise;
- * - `derived link`: the node through a live derived relation of the links, which leaves it. A rule reads either
- *   through its definition inside the recursion as anywhere, a stored one too (analysis/theory/query.ts liveQuery,
- *   which maps a recursion's steps), so its definition's matches are judged for the unit like the step's own.
+ * - `derived link`: the node through a live derived relation of the links, which leaves it. A rule reads a live one
+ *   through its definition, inside the recursion as anywhere, so its definition's matches are judged for the unit like
+ *   the step's own, and a stored one as its table, whose rows sit in the declared unit its admission decided
+ *   (analysis/theory/theory.ts regionFacts), a holder of the unit beside the step's own relations.
  */
 export type Step =
 	| "child"

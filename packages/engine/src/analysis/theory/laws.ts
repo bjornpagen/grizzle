@@ -1170,12 +1170,29 @@ export class Normalizer {
 		)
 	}
 
-	/** The key a key statement states over `r`, as the checked schema minted it. */
-	#statedKey(r: TheoryRelation, key: OwnedKey, loc: SourceLoc): KeyName {
+	/**
+	 * Whether a containment with a side over `relation` is a rule over a query, never a foreign key: a live derived
+	 * relation's, whose rows no table holds, and a stored derived relation's, whose rows only the judge's phase A writes
+	 * at COMMIT, after every statement a foreign key would be checked at (d11-design §3.2), so the rule reads its table
+	 * in phase B.
+	 */
+	#readByRule(relation: string): boolean {
 		return (
-			r.keyNames.find((k) => identifierOf(k.named) === key.constraint) ??
-			refuse("MalformedDescription", loc, `a key ownership owned over ${r.name}`)
+			this.env.definition(relation) !== undefined ||
+			this.env.relations.get(relation)?.kind === "stored"
 		)
+	}
+
+	/**
+	 * The key a key statement states over `r`, as the checked schema minted it: a candidate key, which ownership owns over
+	 * an authored or closed relation alone, a key over a derived relation being projected.
+	 */
+	#statedKey(r: TheoryRelation, key: OwnedKey, loc: SourceLoc): KeyName {
+		const named =
+			r.kind === "stored"
+				? undefined
+				: r.keyNames.find((k) => identifierOf(k.named) === key.constraint)
+		return named ?? refuse("MalformedDescription", loc, `a key ownership owned over ${r.name}`)
 	}
 
 	/** The contract `owned`, the `index`-th in name order, with every column and span endpoint that stores its values. */
@@ -1320,10 +1337,7 @@ export class Normalizer {
 				return
 			}
 			case "contained":
-				if (
-					this.env.definition(s.left.relation) !== undefined ||
-					this.env.definition(s.right.relation) !== undefined
-				) {
+				if (this.#readByRule(s.left.relation) || this.#readByRule(s.right.relation)) {
 					this.#queryContainment(s.left, s.right, s.pairs, index, sources, loc)
 					return
 				}

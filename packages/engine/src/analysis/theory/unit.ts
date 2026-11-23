@@ -1789,7 +1789,7 @@ interface UnitFound {
  */
 const unitAt = (
 	query: InferredQuery,
-	stored: NonEmptyReadonlyArray<RelationInfo>,
+	stored: NonEmptyReadonlyArray<HolderRelation>,
 	k: number,
 	calls: CallAdmission
 ): UnitFound | NotLocal => {
@@ -1851,7 +1851,7 @@ const unitAt = (
  */
 const inPlaceRead = (
 	found: UnitFound,
-	stored: ReadonlyArray<RelationInfo>
+	stored: ReadonlyArray<HolderRelation>
 ): { readonly relation: string; readonly column: string } | undefined => {
 	for (const r of found.reads) {
 		const relation = stored.find((s) => s.name === r.relation && !s.mutable)
@@ -1887,7 +1887,7 @@ export const wholeRule = (
 	if (first === undefined) {
 		return undefined
 	}
-	const all: NonEmptyReadonlyArray<RelationInfo> = [first, ...rest]
+	const all: NonEmptyReadonlyArray<HolderRelation> = [first, ...rest]
 	for (let k = widestOf(all); k >= 1; k--) {
 		const found = unitAt(violation, all, k, "rule")
 		if (found instanceof NotLocal) {
@@ -1927,7 +1927,7 @@ export const wholeRule = (
 }
 
 /** The widest unit a query over `stored` may have: the shortest primary key among them. */
-const widestOf = (stored: NonEmptyReadonlyArray<RelationInfo>): number =>
+const widestOf = (stored: NonEmptyReadonlyArray<HolderRelation>): number =>
 	stored.reduce(
 		(k, r) => Math.min(k, r.primaryFields.length),
 		headNonEmpty(stored).primaryFields.length
@@ -2022,7 +2022,7 @@ export const storedUnit = (
 			return { condition: "call", detail: `it calls ${fn}, ${why}` }
 		}
 	}
-	const all: NonEmptyReadonlyArray<RelationInfo> = [first, ...rest]
+	const all: NonEmptyReadonlyArray<HolderRelation> = [first, ...rest]
 	for (let k = widestOf(all); k >= 1; k--) {
 		const found = unitAt(definition, all, k, "stored")
 		if (found instanceof NotLocal) {
@@ -2104,11 +2104,12 @@ export const storedUpkeep = (
 	return Object.freeze({ relation, stored, region, judged, reads, definitionOf, loc })
 }
 
-/** The ordinary relations a query matches or filters by, at any depth, sorted by name, each once. */
+/** The ordinary and stored derived relations a query matches or filters by, at any depth, sorted by name, each once
+ * (HolderRelation). */
 const storedReads = (
 	query: InferredQuery,
 	relations: ReadonlyMap<string, TheoryRelation>
-): ReadonlyArray<RelationInfo> => {
+): ReadonlyArray<HolderRelation> => {
 	const names = new Set<string>()
 	const inSource = (s: InferredSource): void => {
 		if (s.kind === "relation") {
@@ -2158,8 +2159,28 @@ const storedReads = (
 	}
 	const inQuery = (q: InferredQuery): void => inStage(q.stage)
 	inQuery(query)
-	return [...names].toSorted(compareStrings).flatMap((name) => {
+	return [...names].toSorted(compareStrings).flatMap((name): ReadonlyArray<HolderRelation> => {
 		const r = relations.get(name)
-		return r?.kind === "relation" ? [r] : []
+		if (r?.kind === "relation") {
+			return [r]
+		}
+		return r?.kind === "stored"
+			? [
+					{
+						kind: "relation",
+						name: r.name,
+						primaryFields: r.primaryFields,
+						mutable: false,
+						inPlace: []
+					}
+				]
+			: []
 	})
 }
+
+/**
+ * A relation a query reads that may hold its unit, as unit-locality reads it (`storedReads`): an ordinary relation, or a
+ * stored derived relation, immutable, whose rows only the judge's phase A deletes and inserts, so none changes in place
+ * and its primary key leads with its unit's fields (analysis/theory/theory.ts storedRelationOf).
+ */
+type HolderRelation = Pick<RelationInfo, "kind" | "name" | "primaryFields" | "mutable" | "inPlace">

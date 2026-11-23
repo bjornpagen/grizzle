@@ -2238,7 +2238,7 @@ export class Checker {
 				 * the write front end delivers it in: empty, its target's projected onto its head, or refused there.
 				 */
 				const info = this.schema.relation(src.relation, loc)
-				if (info.kind === "world") {
+				if (info.kind === "world" || info.kind === "derived") {
 					const heading = info.analysis.read.heading.toSorted(byName)
 					return this.node(
 						{
@@ -2255,7 +2255,7 @@ export class Checker {
 					return fail(
 						"MalformedDescription",
 						loc,
-						`a delta of an ordinary relation or a world relation; ${info.name} is ${info.kind}, which no ChangeSet writes`
+						`a delta of an ordinary, stored derived or world relation; ${info.name} is ${info.kind}, which nothing writes`
 					)
 				}
 				return this.node(

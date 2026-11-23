@@ -65,9 +65,10 @@ export const aStoredRelationIsAdmittedAtTheUnitItsHeadDeliversOrRefusedByTheCond
 		check: (_, c: Case<StoredFeature>) => (stored) =>
 			Effect.sync(() => {
 				const compiled = compiledOf(storedSchemaOf(stored))
+				const relation = compiled.ok ? compiled.value.laws.theory.relations[storedName] : undefined
 				const stated = verdictStated(
 					compiled.ok
-						? { ok: true, stored: compiled.value.laws.theory.stored[storedName] }
+						? { ok: true, stored: relation?.kind === "stored" ? relation.unit : undefined }
 						: { ok: false, error: compiled.error }
 				)
 				const expected = verdictOf(stored)

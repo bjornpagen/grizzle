@@ -2573,8 +2573,8 @@ definition too.
   UNIQUE grizzle may add, one over its columns refusing rows the schema admits: the judge holds it where it is
   unit-local as above, and it is refused (`UnsupportedLawFamily`) anywhere else. A migration that moves a containment
   from its foreign key to the judge checks no row: the foreign key held this very law on every write.
-- **Judged live.** A rule reads its query as the tables stand at commit, a stored derived relation's definition
-  included.
+- **Judged live.** A rule reads its query as the tables stand at commit, a stored derived relation's table as its
+  upkeep left it there included: the judge keeps every stored relation first, then judges the rules.
 - **What PostgreSQL gets.** A rule that reads only tables is a constraint, as above. A rule that reads a query is
   judged once per transaction, over the rows it wrote: a unit-local rule over the units of those rows, any other over
   the rows themselves. On each table the query reads, an AFTER statement trigger for
@@ -4286,6 +4286,11 @@ where it fails: `notUnitLocal`, with `inPlace`, `unitKey`, `split`, `negation`, 
   the written units' and never the table's. A stored row that stays is never touched. After `SET CONSTRAINTS ALL
   IMMEDIATE` the judge runs at the end of each statement, so the stored rows are current after each. A statement
   earlier in the writing transaction reads them as the transaction found them, for the units it wrote.
+- **Laws over it.** A rule over a stored relation reads its table, its rows as the transaction leaves them. A key
+  over it is a unique index of its table (the index of the key it provably has, where it is one), a check over it its
+  table's CHECK, each refusing at the upkeep's insert of a row that breaks it, at COMMIT (23505, 23514). A containment
+  with it on either side is judged at COMMIT, after the upkeep, never a foreign key: a foreign key is checked by the
+  statement that writes the other table, before the upkeep writes this one.
 - **Its table.** `CREATE TABLE … AS <definition> WITH NO DATA`, each column of the type its definition delivers, its
   primary key the narrowest key the query provably has, the unit's fields first, and a unique index on each other: a choice of one key in each of its independent parts, such as one
   of the two keys of each table it joins, one index on one key and on each key one choice away from it, so k such
@@ -5316,8 +5321,8 @@ refusal names `rule`, and a handler for each `law` of `lawsOf(schema)` handles e
 `constraintNamesOf(schema)` compiles the rules once and gives a lookup of the name PostgreSQL holds each check under:
 bind it once, `const constraintNameOf = constraintNamesOf(Credits)`, then
 `constraintNameOf({ kind: "check", relation: "Grant", name: "WithinGrant" })` is `"within_grant"`, and a row check
-declared as `E1_derived` is `"e_1_derived"`. A check over a derived relation is held by a trigger on each table its
-query reads, named from its rule (`__<readable part>_<digest>`), since its own name could be a table's check's. A direct
+declared as `E1_derived` is `"e_1_derived"`. A check over a stored derived relation is its table's CHECK, named as
+declared. A check over a live derived relation is held by a trigger on each table its query reads, named from its rule (`__<readable part>_<digest>`), since its own name could be a table's check's. A direct
 writer's refusal by the check names it, so take it from grizzle and never spell it. A lookup compiles nothing, and
 throws `CompileError` for a rule that is no check of the schema.
 

@@ -92,7 +92,11 @@ const drawnText = (d: Drawn): string =>
  * A column of a native by what it is: a field by its name, a drawn law column by what it draws, a generated one by the
  * field whose values it holds. Every law column a native reads is a native of its relation.
  */
-export const columnText = (model: LawModel, relation: LawRelation, c: NativeColumn): string => {
+export const columnText = (
+	model: LawModel,
+	relation: Pick<LawRelation, "name">,
+	c: NativeColumn
+): string => {
 	if (c.kind === "field") {
 		return c.field.name
 	}
@@ -152,7 +156,7 @@ export const foreignKeyShapes = (model: LawModel): ReadonlyArray<ForeignKeyShape
 /** A key's columns as a sorted set. */
 const columnSet = (
 	model: LawModel,
-	relation: LawRelation,
+	relation: Pick<LawRelation, "name">,
 	columns: ReadonlyArray<NativeColumn>
 ): string =>
 	Arr.join(

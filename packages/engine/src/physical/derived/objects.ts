@@ -8,14 +8,20 @@ import { type DerivedAnalysis, derivedAnalysis } from "#compiler/analysis/schema
 import type { Theory } from "#compiler/analysis/theory/theory.ts"
 import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { compareIdentities, type Identity, identity } from "#compiler/core/identity.ts"
+import {
+	compareIdentities,
+	type Identity,
+	identifierOf,
+	identity
+} from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import type { Premise } from "#compiler/ir/evidence.ts"
-import { fieldNames } from "#compiler/ir/law.ts"
+import { fieldNames, type StoredDerivedRelation } from "#compiler/ir/law.ts"
 import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import { storedKeyPremise } from "#compiler/logical/props.ts"
 import type { InstallBuilder, TargetField } from "#compiler/physical/ddl/context.ts"
 import { columnDomains, emptyUse, usedNodes } from "#compiler/physical/ddl/domains.ts"
+import { lowerRow } from "#compiler/physical/ddl/expr.ts"
 import { lowerDefinition } from "#compiler/physical/derived/definition.ts"
 import type { InstallOptions } from "#compiler/physical/install/compile.ts"
 import {
@@ -86,26 +92,20 @@ const premiseLaws = (
 	return [...laws].toSorted(([, a], [, b]) => compareIdentities(a, b)).map(([id]) => id)
 }
 
-/**
- * The fields of a stored relation's primary key, its narrowest inherited key `fields`: the fields of it that carry the
- * declared unit its rows sit under, in that unit's key order, then its others in key order, so a key holding the unit
- * leads with it and the upkeep's reads of the stored rows at a unit are a range of the key's index; a key holding no
- * such field stands as proven. None declares a unit where no write of a holder changes the stored rows.
- */
-const unitFirst = (
-	fields: NonEmptyReadonlyArray<string>,
-	declared: ReadonlyArray<string>
-): NonEmptyReadonlyArray<string> => {
-	const lead = declared.filter((f) => fields.includes(f))
-	const [first, ...rest] = [...lead, ...fields.filter((f) => !lead.includes(f))]
-	if (first === undefined) {
-		throw defect("a key of at least one field")
+/** A stored derived relation as the theory reads it (ir/law.ts StoredDerivedRelation), its primary key among it. */
+const storedOf = (b: InstallBuilder, name: string): StoredDerivedRelation => {
+	const r = b.model.theory.relations[name]
+	if (r?.kind !== "stored") {
+		throw defect(`the stored derived relation ${name}, a relation of the theory`)
 	}
-	return [first, ...rest]
+	return r
 }
 
-/** The stored table, primary key and unique indexes of one derived relation. `lowerKeys` are the inherited keys of the
- * lower levels, each the unique index already planned for it. */
+/** The stored table, primary key and unique indexes of one derived relation, then the natives the law model planned on
+ * it (laws/model/plan.ts storedKey, a check over it): a UNIQUE over a proven key is that key's index, any other a unique
+ * index by its law's name, a CHECK its own ALTER TABLE ... ADD CONSTRAINT, each refusing at phase A's insert of a row that
+ * breaks it, the table's one writer. `lowerKeys` are the inherited keys of the lower levels, each the unique index
+ * already planned for it. */
 const viewObjects = (
 	b: InstallBuilder,
 	analysis: DerivedAnalysis,
@@ -142,10 +142,9 @@ const viewObjects = (
 	if (primary === undefined) {
 		throw defect(`the inherited keys of ${name}, its heading's at least`)
 	}
-	const keyFields = unitFirst(
-		primary.fields,
-		b.model.theory.upkeeps.find((u) => u.relation === name)?.stored.declared.fields ?? []
-	)
+	const stored = storedOf(b, name)
+	/** Its primary key's fields, the theory's (analysis/theory/theory.ts storedRelationOf). */
+	const keyFields = stored.primaryKey
 	/** The one name every evidence catalog gives the view's key (`derivedKeyConstraints`), which the derived analysis
 	 * names (`primary.index`): its primary key's, whose index PostgreSQL names after it, minted at the naming door. */
 	const primaryKey: PrimaryKey = {
@@ -240,6 +239,87 @@ const viewObjects = (
 			key: { relation: name, fields: k.fields, spans: [], kind: "uniqueIndex", constraint: index },
 			object,
 			columns: k.fields
+		})
+	}
+	for (const n of b.natives) {
+		const o = n.object
+		if (
+			n.namespace !== "constraint" ||
+			(o.kind !== "Unique" && o.kind !== "TableCheck") ||
+			o.relation.kind !== "stored" ||
+			o.relation.name !== name
+		) {
+			continue
+		}
+		const constraint = identifierOf(n.named)
+		if (o.kind === "TableCheck") {
+			b.name(n.named)
+			b.add(
+				{
+					kind: "check",
+					ident: b.constraintOf(name, n.named),
+					ddl: [
+						{
+							kind: "alterTable",
+							table: view,
+							actions: [
+								{
+									kind: "addConstraint",
+									constraint: {
+										kind: "check",
+										name: constraint,
+										predicate: lowerRow(b, stored, o.predicate, `check ${constraint}`)
+									},
+									notValid: false
+								}
+							]
+						}
+					],
+					reasons: o.lawIds.map((law) => ({ kind: "law", law })),
+					phase: "structure"
+				},
+				[viewObject]
+			)
+			continue
+		}
+		if (keys.some((k) => k.key.constraint === constraint)) {
+			continue
+		}
+		b.name(n.named)
+		const indexed = mapNonEmpty(o.columns, (c) => {
+			if (c.kind !== "field") {
+				throw defect(
+					`a key over the stored relation ${name} over its fields (laws/model/plan.ts storedKey)`
+				)
+			}
+			return c.field.name
+		})
+		const object = b.add(
+			{
+				kind: "uniqueIndex",
+				ident: b.qualifiedOf("index", name, n.named),
+				ddl: [
+					{
+						kind: "createIndex",
+						name: constraint,
+						table: view,
+						unique: true,
+						method: "btree",
+						keys: mapNonEmpty(indexed, (f) => columnKey(b.names.column(name, f))),
+						concurrently: false,
+						include: [],
+						where: undefined
+					}
+				],
+				reasons: o.lawIds.map((law) => ({ kind: "law", law })),
+				phase: "structure"
+			},
+			[viewObject]
+		)
+		keys.push({
+			key: { relation: name, fields: indexed, spans: [], kind: "uniqueIndex", constraint },
+			object,
+			columns: indexed
 		})
 	}
 	b.addIndexedView({

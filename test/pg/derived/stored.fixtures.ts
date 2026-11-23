@@ -13,10 +13,22 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { admittedIdentifier, notificationText } from "#compiler/plan/runtime.ts"
-import { Fn } from "#compiler/public/compute.ts"
+import { Fn, Logic } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { derived, fn, mutable, relation, rows, schema, unit } from "#compiler/public/schema.ts"
+import {
+	check,
+	contained,
+	derived,
+	fn,
+	key,
+	mutable,
+	on,
+	relation,
+	rows,
+	schema,
+	unit
+} from "#compiler/public/schema.ts"
 import { installDerived, OracleFixtureFailed, snapshotOf } from "#test/pg/derived/oracle/harness.ts"
 import { bytesOfHex } from "#test/pg/live/source.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
@@ -497,6 +509,197 @@ export const watchRun = (
 			if (!same) {
 				return yield* new OracleFixtureFailed({
 					message: `after transaction ${step}, decoded ${Formatter.format(Arr.map(decoded, (k) => [...k]))} where its stored rows' changes give ${Formatter.format(Arr.map(want, (k) => [...k]))}`
+				})
+			}
+		}
+	})
+
+/**
+ * The lawful schema: Placed and Counted stored over the document's places, and three laws over them, each judged over
+ * the stored rows as the transaction leaves them: every link at a place (a containment into Placed, a rule reading its
+ * table in phase B), no two places of a document of one value (a key over Placed that is no key it proves, its UNIQUE,
+ * refusing at phase A), and at most two places a document (a check over Counted, its CHECK).
+ */
+const lawfulOf = (openness: Openness, name: string) => {
+	const base = baseOf(openness, name)
+	const Placed = derived.stored(
+		"Placed",
+		query(base).rule((r) => {
+			const { doc, at, v: x } = v(Doc, "d")
+			return r.match(Doc, { doc, at, v: x }).find({ doc, at, v: x })
+		})
+	)
+	const Counted = derived.stored(
+		"Counted",
+		query(base).rule((r) => {
+			const { doc, at } = v(Doc, "d")
+			return r.match(Doc, { doc, at }).find({ doc, places: r.count() })
+		})
+	)
+	return schema.extend(
+		[base],
+		`${name}_top`,
+		[Placed, Counted],
+		[
+			contained(on(Link, "doc", "at"), on(Placed, "doc", "at")),
+			key(on(Placed, "doc", "v")),
+			check("few", Counted, (row) => Logic.le(row.places, 2n))
+		]
+	)
+}
+
+/** The host's model of the base relations: each place's value by its document and place, and each link. */
+interface Model {
+	readonly places: ReadonlyMap<string, number>
+	readonly links: ReadonlySet<string>
+}
+
+const placeKey = (doc: number, at: number): string => `${doc}:${at}`
+
+/** `m` after `w`, as the direct SQL of sqlOf writes it: a put place or link where none stands, a taken one, a changed value. */
+const applied = (m: Model, w: Write): Model => {
+	const k = placeKey(w.doc, w.at)
+	const places = new Map(m.places)
+	const links = new Set(m.links)
+	switch (w.kind) {
+		case "place":
+			if (!places.has(k)) {
+				places.set(k, w.value)
+			}
+			break
+		case "unplace":
+			places.delete(k)
+			break
+		case "link":
+			links.add(k)
+			break
+		case "unlink":
+			links.delete(k)
+			break
+		case "revalue":
+			if (places.has(k)) {
+				places.set(k, w.value)
+			}
+			break
+	}
+	return { places, links }
+}
+
+/** The law of the lawful schema `m` breaks, if any: a link at no place, two places of a document of one value, or more
+ * than two places a document. */
+const broken = (
+	m: Model
+): "a link at no place" | "a value twice in a document" | "three places" | undefined => {
+	if (Arr.some([...m.links], (k) => !m.places.has(k))) {
+		return "a link at no place"
+	}
+	const values = new Map<string, Array<number>>()
+	for (const [k, value] of m.places) {
+		const [doc] = Str.split(":")(k)
+		values.set(doc, [...(values.get(doc) ?? []), value])
+	}
+	if (Arr.some([...values.values()], (vs) => new Set(vs).size < vs.length)) {
+		return "a value twice in a document"
+	}
+	return Arr.some([...values.values()], (vs) => vs.length > 2) ? "three places" : undefined
+}
+
+/** What a case of the lawful property reached: a commit, each law's refusal, and an open Doc. */
+export type LawfulFeature =
+	| "a lawful transaction committed"
+	| `refused for ${NonNullable<ReturnType<typeof broken>>}`
+	| "Doc open"
+
+/**
+ * The lawful leg: each transaction of the case attempted on the lawful schema, which commits exactly where the state it
+ * leaves keeps every law over the stored relations, computed on the host from the base relations alone (`broken`), and
+ * is refused, an integrity violation (SQLSTATE class 23), changing nothing, where it breaks one; after each, every stored
+ * relation's rows its definition's, and Placed's rows the host's places.
+ */
+export const lawfulRun = (
+	c: UpkeepCase,
+	reached: Case<LawfulFeature>
+): Effect.Effect<
+	void,
+	OracleFixtureFailed | CompileError | SqlError | TransactionRolledBack,
+	Substrate | Scope.Scope
+> =>
+	Effect.gen(function* () {
+		const s = yield* Substrate
+		const opened = yield* installDerived(lawfulOf(c.openness, "stored_lawful"), {}, "lawful", [])
+		yield* standUpJudge(s.admin, opened.installed.installation)
+		if (c.openness === "open") {
+			reached.note("Doc open")
+		}
+		/** The key over Placed is its table's UNIQUE beside its primary key, and the check over Counted its CHECK, never a
+		 * rule reading their definitions. */
+		const natives = yield* s.admin.queryValues(
+			`SELECT (SELECT count(*) FROM pg_catalog.pg_index AS "i" WHERE "i".indrelid = '${opened.view("Placed")}'::regclass AND "i".indisunique)::text, (SELECT count(*) FROM pg_catalog.pg_constraint AS "k" WHERE "k".conrelid = '${opened.view("Counted")}'::regclass AND "k".contype = 'c')::text`,
+			[]
+		)
+		const [uniques, checks] = Arr.map(natives[0] ?? [], String)
+		if (uniques !== "2" || checks !== "1") {
+			return yield* new OracleFixtureFailed({
+				message: `Placed holds ${uniques ?? "no"} unique indexes where its primary key and its key's are two, and Counted ${checks ?? "no"} CHECKs where its check's is one`
+			})
+		}
+		let model: Model = { places: new Map(), links: new Set() }
+		for (const [step, writes] of c.transactions.entries()) {
+			const next = Arr.reduce(writes, model, applied)
+			const breaks = broken(next)
+			const outcome = yield* Effect.result(
+				transaction(
+					s.admin,
+					Arr.map(writes, (w) => sqlOf(opened.installed.names, w))
+				)
+			)
+			if (Result.isSuccess(outcome)) {
+				if (breaks !== undefined) {
+					return yield* new OracleFixtureFailed({
+						message: `transaction ${step} committed a state with ${breaks}`
+					})
+				}
+				reached.note("a lawful transaction committed")
+				model = next
+			} else {
+				const failure = outcome.failure
+				const code =
+					failure._tag === "SqlError" && failure.reason._tag === "ServerError"
+						? failure.reason.fields.code
+						: undefined
+				if (breaks === undefined || code === undefined || !Str.startsWith("23")(code)) {
+					return yield* new OracleFixtureFailed({
+						message: `transaction ${step} was refused (${code ?? failure._tag}) where its state keeps every law (${breaks ?? "none broken"})`
+					})
+				}
+				reached.note(`refused for ${breaks}`)
+			}
+			const snapshot = yield* snapshotOf(opened, ["Placed", "Counted"], ["Placed", "Counted"])
+			for (const name of ["Placed", "Counted"]) {
+				const stored = Arr.map(snapshot.stored.get(name) ?? [], (r) => r.value)
+				const defined = snapshot.defined.get(name) ?? []
+				if (Arr.join(stored, "\n") !== Arr.join(defined, "\n")) {
+					return yield* new OracleFixtureFailed({
+						message: `after transaction ${step}, ${name} holds [${Arr.join(stored, "; ")}] where its definition gives [${Arr.join(defined, "; ")}]`
+					})
+				}
+			}
+			const places = Arr.sort(
+				Arr.map([...model.places], ([k, value]) => `${k}:${value}`),
+				Order.String
+			)
+			const column = (field: string) => quoteIdent(opened.installed.names.column("Placed", field))
+			const placed = yield* s.admin.queryValues(
+				`SELECT ${column("doc")}::text || ':' || ${column("at")}::text || ':' || ${column("v")}::text FROM ${opened.view("Placed")}`,
+				[]
+			)
+			const held = Arr.sort(
+				Arr.map(placed, (row) => String(row[0])),
+				Order.String
+			)
+			if (Arr.join(places, ";") !== Arr.join(held, ";")) {
+				return yield* new OracleFixtureFailed({
+					message: `after transaction ${step}, Placed holds [${Arr.join(held, "; ")}] where the host's places are [${Arr.join(places, "; ")}]`
 				})
 			}
 		}

@@ -31,14 +31,9 @@ import type { NamedPrimaryKey } from "#compiler/laws/model/model.ts"
 import { addColumnChecks, columnChecks } from "#compiler/physical/ddl/column-checks.ts"
 import { closedMembership, planSides } from "#compiler/physical/ddl/constants.ts"
 import type { InstallBuilder, TargetField } from "#compiler/physical/ddl/context.ts"
-import { lowerPersistent } from "#compiler/physical/ddl/expr.ts"
+import { lowerRow } from "#compiler/physical/ddl/expr.ts"
 import { addIsolationTrigger } from "#compiler/physical/ddl/isolation.ts"
-import {
-	enforcement,
-	lawReasons,
-	type Node,
-	type NodeIdent
-} from "#compiler/physical/obligations/graph.ts"
+import { enforcement, lawReasons, type Node } from "#compiler/physical/obligations/graph.ts"
 import { isVectorType, vectorProvider } from "#compiler/physical/vector/storage.ts"
 import {
 	btreeEntry,
@@ -341,7 +336,7 @@ const addReference = (
 	b.add(
 		{
 			kind: "foreignKey",
-			ident: constraintIdent(b, relation, named),
+			ident: b.constraintOf(relation, named),
 			ddl: [
 				{
 					kind: "alterTable",
@@ -361,18 +356,6 @@ const onUpdateOf: Readonly<Record<NativeOf<"ForeignKey">["onUpdate"], "CASCADE" 
 	cascade: "CASCADE",
 	noAction: undefined
 }
-
-/** The graph identity of the constraint or column `named` of `relation`'s table. */
-const constraintIdent = (
-	b: InstallBuilder,
-	relation: string,
-	named: Identity<IdentityKind>
-): NodeIdent => ({
-	kind: "constraint",
-	schema: b.names.levelOf(relation),
-	relation: b.names.relationNamed(relation),
-	name: named
-})
 
 /** Where a native object lives: the identity of its table constraint or index, by the native's key. */
 interface PlacedNatives {
@@ -581,6 +564,9 @@ const planNatives = (b: InstallBuilder, inline: Inline): ReadonlyArray<NativePla
 				continue
 			}
 			case "Unique": {
+				if (o.relation.kind === "stored") {
+					continue
+				}
 				setUniqueBound(b, o.relation.name, o.columns)
 				const columns = mapNonEmpty(o.columns, (c) => nativeColumn(b, o.relation.name, c))
 				const lawColumns = lawColumnsAmong(o.columns)
@@ -677,6 +663,9 @@ const planNatives = (b: InstallBuilder, inline: Inline): ReadonlyArray<NativePla
 				continue
 			}
 			case "TableCheck":
+				if (o.relation.kind === "stored") {
+					continue
+				}
 				declareCheck(
 					o.relation,
 					named,
@@ -715,31 +704,6 @@ const lawColumnsRead = (
 ): ReadonlyArray<string> => {
 	const lawColumns = b.lawColumnsOf(relation.name)
 	return ownColumns(predicate).filter((column) => lawColumns.has(column))
-}
-
-/** A row expression of `relation`'s own columns, a CHECK's predicate, a generated field's expression or a law column's
- * selection or term, lowered as persistent SQL over the table's columns: a field's by its name, or a law column the
- * law model adds to the relation by its identifier, which a family's CHECKs and a generated law column read (`at <
- * ‹n›`, a fold's `after = combine(before, x)`). A reference to anything else is refused as MalformedDescription. */
-const lowerRow = (
-	b: InstallBuilder,
-	relation: TableRelation,
-	expr: ScalarExpr,
-	label: string
-): Expr => {
-	const lawColumns = b.lawColumnsOf(relation.name)
-	return lowerPersistent(b.names, expr, {
-		reads: {
-			kind: "row",
-			column: (ref) => {
-				const column =
-					relation.fields.find((f) => f.name === ref.name)?.column ??
-					(lawColumns.has(ref.name) ? ref.name : undefined)
-				return column === undefined ? undefined : tableCol(column)
-			}
-		},
-		loc: SourceLoc(label, [])
-	})
 }
 
 /**
@@ -872,7 +836,7 @@ const addNatives = (
 				const object = b.add(
 					{
 						kind: p.object,
-						ident: constraintIdent(b, p.relation, p.named),
+						ident: b.constraintOf(p.relation, p.named),
 						ddl: [],
 						reasons: lawReasons(p.laws),
 						phase: "structure"
@@ -900,7 +864,7 @@ const addNatives = (
 				b.add(
 					{
 						kind: "check",
-						ident: constraintIdent(b, p.relation, p.named),
+						ident: b.constraintOf(p.relation, p.named),
 						ddl,
 						reasons: lawReasons(p.laws),
 						phase: "structure"
@@ -913,7 +877,7 @@ const addNatives = (
 				const object = b.add(
 					{
 						kind: "unique",
-						ident: constraintIdent(b, p.relation, p.named),
+						ident: b.constraintOf(p.relation, p.named),
 						ddl: [
 							{
 								kind: "alterTable",

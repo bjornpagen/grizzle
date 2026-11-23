@@ -71,6 +71,7 @@ import {
 	scalarKeySet,
 	type SpanField,
 	spanKeySet,
+	type StoredDerivedRelation,
 	type TheoryRelation,
 	fieldColumn,
 	type FieldColumn
@@ -517,15 +518,19 @@ export type NativePlan =
 			readonly named: Identity<"primaryKey" | "key">
 	  }
 	| {
-			/** A UNIQUE, its B-tree entry judged where it was planned (`judgeEntry`), a declared key's by ownership. */
+			/**
+			 * A UNIQUE, its B-tree entry judged where it was planned (`judgeEntry`), a declared key's by ownership; on a stored
+			 * derived relation's table, a key over its fields (`storedKey`), which only the judge's phase A writes.
+			 */
 			readonly kind: "Unique"
-			readonly relation: RelationInfo
+			readonly relation: RelationInfo | StoredDerivedRelation
 			readonly columns: NonEmptyReadonlyArray<PlannedColumn>
 	  }
 	| { readonly kind: "Domain"; readonly contract: OwnedContract }
 	| {
 			readonly kind: "TableCheck"
-			readonly relation: RelationInfo
+			/** An authored relation's table, or a stored derived relation's, which only the judge's phase A writes. */
+			readonly relation: RelationInfo | StoredDerivedRelation
 			readonly name: string
 			readonly named: Identity<"check">
 			/** The predicate as the check states it, which specialization lowers over the relation's row. */
@@ -703,12 +708,50 @@ const termColumn = (
  * is a defect.
  */
 const tableOf = (r: TheoryRelation): RelationInfo => {
-	if (r.kind === "closed") {
-		throw defect(
-			`an object of an ordinary relation; ${r.name} is closed, which plan routes elsewhere`
+	switch (r.kind) {
+		case "closed":
+			throw defect(
+				`an object of an ordinary relation; ${r.name} is closed, which plan routes elsewhere`
+			)
+		case "stored":
+			throw defect(
+				`an object of an ordinary relation; ${r.name} is a stored derived relation, whose key plan routes to storedKey and whose containments the theory judges as rules`
+			)
+		case "relation":
+			return r
+	}
+}
+
+/**
+ * The native object of a key over a stored derived relation `rel`, `side`: a UNIQUE over its fields on its table, which
+ * only the judge's phase A writes, so the key refuses at the upkeep's insert of a second fact at one key, 23505 under the
+ * key law's constraint, and is never a rule (d11-design §3.2). A key over a proven key of `rel` is the index its table
+ * already has (laws/model/model.ts names it so). Its terms are fields over every row: a term or a selection would be a
+ * law column of a table no statement of the law model alters, refused, as a span term is, whose exclusion constraint a
+ * stored table holds no column for.
+ */
+const storedKey = (
+	side: ResolvedSide,
+	rel: StoredDerivedRelation,
+	loc: SourceLoc
+): ReadonlyArray<NativePlan> => {
+	if (
+		side.selection.conjuncts.length > 0 ||
+		side.terms.some((t) => t.kind !== "field" || isSpanField(t.column))
+	) {
+		return refuse(
+			"UnsupportedLawFamily",
+			loc,
+			`a key over the stored derived relation ${rel.name} over its scalar fields, over every row: ${sideText(side)} is not`
 		)
 	}
-	return r
+	return [
+		{
+			kind: "Unique",
+			relation: rel,
+			columns: mapNonEmpty(side.terms, (t): PlannedColumn => ({ kind: "field", field: t.column }))
+		}
+	]
 }
 
 /** A primary key's native object as planned: a PRIMARY KEY, or a primary key WITHOUT OVERLAPS. */
@@ -1136,7 +1179,8 @@ type RuleRoute =
 	| { readonly kind: "trigger"; readonly rule: QueryRule }
 
 /**
- * A rule's route: once by the migration, where it reads no ordinary relation; at every write by the foreign keys of its
+ * A rule's route: once by the migration, where it reads no ordinary or stored derived relation, a closed relation's
+ * rows changing with no write; at every write by the foreign keys of its
  * parts, where it lowers to them and the model discharges it natively (RuleDischarge); else at every COMMIT by its
  * deferred constraint triggers.
  */
@@ -1146,7 +1190,9 @@ const ruleRoute = (
 	relations: Readonly<Record<string, TheoryRelation>>,
 	discharge: RuleDischarge
 ): RuleRoute => {
-	if (!law.reads.some((r) => relations[r]?.kind === "relation")) {
+	if (
+		!law.reads.some((r) => relations[r]?.kind === "relation" || relations[r]?.kind === "stored")
+	) {
 		return { kind: "migration" }
 	}
 	return d.lowering.kind === "foreignKeys" && discharge === "native"
@@ -1692,7 +1738,11 @@ export const referenceChoice = (
 	}
 	for (const [name, sides] of projected) {
 		for (const side of sides) {
-			if (side.rel.kind === "closed" || side.terms.some((t) => isSpanField(t.column))) {
+			if (
+				side.rel.kind === "closed" ||
+				side.rel.kind === "stored" ||
+				side.terms.some((t) => isSpanField(t.column))
+			) {
 				continue
 			}
 			const columns = sideColumns(side)
@@ -2217,11 +2267,26 @@ export class Recognizer {
 		})
 		switch (d.kind) {
 			case "key":
-				return d.rel.kind === "closed" ? migrationPlan(law) : done(this.#key(d, d.rel))
+				switch (d.rel.kind) {
+					case "closed":
+						return migrationPlan(law)
+					case "stored":
+						throw defect(
+							`a candidate key over ${d.rel.name}: ownership owns a key over a derived relation projected`
+						)
+					case "relation":
+						return done(this.#key(d, d.rel))
+				}
 			case "projectedKey":
-				return d.side.rel.kind === "closed"
-					? migrationPlan(law)
-					: done(this.#projectedKey(d.side, loc))
+				switch (d.side.rel.kind) {
+					case "closed":
+						return migrationPlan(law)
+					case "stored":
+						return done(storedKey(d.side, d.side.rel, loc))
+					case "relation":
+						return done(this.#projectedKey(d.side, loc))
+				}
+
 			case "check":
 				return d.rel.kind === "closed"
 					? migrationPlan(law)
@@ -2344,6 +2409,11 @@ export class Recognizer {
 	): LawPlan {
 		const fromRel = d.from.rel
 		const toRel = d.to.rel
+		if (fromRel.kind === "stored" || toRel.kind === "stored") {
+			throw defect(
+				`a containment between ${d.from.relation} and ${d.to.relation} planned natively: the theory judges one with a stored derived side as a rule over a query (analysis/theory/laws.ts readByRule)`
+			)
+		}
 		if (fromRel.kind === "closed") {
 			if (toRel.kind !== "closed") {
 				return refuse(

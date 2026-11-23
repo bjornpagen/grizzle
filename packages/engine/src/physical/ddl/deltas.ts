@@ -17,7 +17,7 @@ import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import { type Identity, identity } from "#compiler/core/identity.ts"
 import { temporarySchema } from "#compiler/core/temporary.ts"
 import { weightOf } from "#compiler/core/zset.ts"
-import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
+import type { LawField, TheoryTable } from "#compiler/ir/law.ts"
 import { sessionTypeRef } from "#compiler/ir/physical.ts"
 import type { PhysicalReason } from "#compiler/ir/products.ts"
 import { heapTupleMaxBytes } from "#compiler/laws/model/model.ts"
@@ -184,7 +184,7 @@ export interface JudgedSide {
  */
 export const sessionDeltaOf = (
 	b: InstallBuilder,
-	relation: RelationInfo,
+	relation: TheoryTable,
 	side: ProbeSide
 ): SessionDelta => {
 	const columns = mapNonEmpty(relation.heading, (f): ColumnDefinition => {
@@ -230,7 +230,7 @@ export const sessionDeltaOf = (
  * statement reads it through (SessionDelta `head`), each field of its relation's heading in the column of its place,
  * c<n> (`instanceOf`).
  */
-export const deltaRelation = (relation: RelationInfo, delta: SessionDelta): DeltaRelation => ({
+export const deltaRelation = (relation: TheoryTable, delta: SessionDelta): DeltaRelation => ({
 	kind: "cte",
 	cte: delta.head.name,
 	columns: relation.heading.map((f, at) => ({ field: f.name, column: `c${at + 1}` }))
@@ -271,7 +271,7 @@ export const deltaTable = (delta: SessionDelta): PlStatement => ({
 })
 
 /** A row's image on a side (`JudgedSide`): its primary key's columns, then every other column the side reads. */
-const imageOf = (relation: RelationInfo, side: JudgedSide): NonEmptyReadonlyArray<string> => {
+const imageOf = (relation: TheoryTable, side: JudgedSide): NonEmptyReadonlyArray<string> => {
 	const [first, ...rest] = mapNonEmpty(relation.primaryFields, (f): string => f.column)
 	return [first, ...rest, ...side.read.filter((c) => c !== first && !rest.includes(c))]
 }
@@ -287,7 +287,7 @@ const imageOf = (relation: RelationInfo, side: JudgedSide): NonEmptyReadonlyArra
  * so a write that only removes rows logs none.
  */
 export const captured = (
-	relation: RelationInfo,
+	relation: TheoryTable,
 	side: JudgedSide,
 	rows: TransitionTable,
 	other: TransitionTable | undefined
@@ -350,7 +350,7 @@ export const captured = (
  * any it put. A later statement's captures count on from what the delta holds, so the judge at SET CONSTRAINTS ALL
  * IMMEDIATE nets it again from there.
  */
-export const netted = (relation: RelationInfo, side: JudgedSide): PlStatement => {
+export const netted = (relation: TheoryTable, side: JudgedSide): PlStatement => {
 	const image = mapNonEmpty(imageOf(relation, side), (c) => col("r2", c))
 	const counts = simpleSelect(
 		[
@@ -530,7 +530,7 @@ const instanceOf = (head: Cte, cte: string, inner: string): Cte => {
  */
 export const addReaders = (
 	b: InstallBuilder,
-	deltas: ReadonlyArray<{ readonly relation: RelationInfo; readonly delta: SessionDelta }>,
+	deltas: ReadonlyArray<{ readonly relation: TheoryTable; readonly delta: SessionDelta }>,
 	reasons: ReadonlyArray<PhysicalReason>
 ): ReadonlyMap<string, Node<"validate">> =>
 	new Map(

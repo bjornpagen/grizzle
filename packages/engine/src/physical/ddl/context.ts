@@ -436,6 +436,16 @@ export class InstallBuilder {
 		return { kind, schema: this.names.levelOf(relation), name }
 	}
 
+	/** The graph identity of the constraint or column `named` of `relation`'s table. */
+	constraintOf(relation: string, named: Identity<IdentityKind>): NodeIdent {
+		return {
+			kind: "constraint",
+			schema: this.names.levelOf(relation),
+			relation: this.names.relationNamed(relation),
+			name: named
+		}
+	}
+
 	/** The schema object of the level that declares `relation`, which every object of the relation is created after. */
 	levelNode(relation: string): Node<"setup"> {
 		return (

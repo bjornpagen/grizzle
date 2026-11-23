@@ -15,6 +15,7 @@ import {
 	type TypedLiteral,
 	withArgs
 } from "#compiler/ir/expr.ts"
+import type { TableRelation } from "#compiler/ir/law.ts"
 import { fieldColumnType, type PhysicalNames } from "#compiler/ir/physical.ts"
 import { baseOf, type ScalarType, spanCarrierOf } from "#compiler/ir/scalar.ts"
 import {
@@ -24,6 +25,7 @@ import {
 	type ScalarSite
 } from "#compiler/lower/conservative/expr/index.ts"
 import { sharedExpr } from "#compiler/lower/conservative/expr/share.ts"
+import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { closedLeaf } from "#compiler/runtime/write/fill.ts"
 import {
 	type EvalLeaves,
@@ -36,7 +38,7 @@ import { nativeOp, overloadOf } from "#compiler/scalar/compute/registry.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
-import { and, lit } from "#compiler/sql/build.ts"
+import { and, lit, tableCol } from "#compiler/sql/build.ts"
 
 const refusePersistent = (tag: ProseTag, loc: SourceLoc, capability: string): never => {
 	throw new Refusal(CompileError.make(prose(tag, loc, capability)))
@@ -277,6 +279,31 @@ export const lowerPersistent = (
 			size: (e) => printedSize(() => lowered(e))
 		})
 	)
+}
+
+/** A row expression of `relation`'s own columns, a CHECK's predicate, a generated field's expression or a law column's
+ * selection or term, lowered as persistent SQL over the table's columns: a field's by its name, or a law column the
+ * law model adds to the relation by its identifier, which a family's CHECKs and a generated law column read (`at <
+ * ‹n›`, a fold's `after = combine(before, x)`). A reference to anything else is refused as MalformedDescription. */
+export const lowerRow = (
+	b: Pick<InstallBuilder, "names" | "lawColumnsOf">,
+	relation: Pick<TableRelation, "name" | "fields">,
+	expr: ScalarExpr,
+	label: string
+): Expr => {
+	const lawColumns = b.lawColumnsOf(relation.name)
+	return lowerPersistent(b.names, expr, {
+		reads: {
+			kind: "row",
+			column: (ref) => {
+				const column =
+					relation.fields.find((f) => f.name === ref.name)?.column ??
+					(lawColumns.has(ref.name) ? ref.name : undefined)
+				return column === undefined ? undefined : tableCol(column)
+			}
+		},
+		loc: SourceLoc(label, [])
+	})
 }
 
 /** The persistent site of a tree in `scope` (lowerPersistent), each of `constants`, the subterms PostgreSQL's planner

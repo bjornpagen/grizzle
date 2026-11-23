@@ -48,16 +48,18 @@ export const borrowInstallationOf = <S extends ParamSource>(
 	for (const [relation, member] of owned.unitOf) {
 		units.set(relation, placeIn(owned.units, member.unit, member.fields))
 	}
-	const stored = artifacts.laws.theory.stored
-	for (const [relation, { declared }] of Object.entries(stored)) {
-		units.set(relation, placeIn(owned.units, declared.unit, declared.fields))
+	const stored = Object.values(artifacts.laws.theory.relations).flatMap((r) =>
+		r.kind === "stored" ? [r] : []
+	)
+	for (const r of stored) {
+		units.set(r.name, placeIn(owned.units, r.unit.declared.unit, r.unit.declared.fields))
 	}
 	return Result.ok(
 		borrowInstallation(
 			relationFacts(artifacts.laws, triggerLawsOver),
 			privileges,
 			units,
-			new Set(Object.keys(stored))
+			new Set(stored.map((r) => r.name))
 		)
 	)
 }

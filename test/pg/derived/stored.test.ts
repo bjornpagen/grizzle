@@ -32,6 +32,8 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
+	type LawfulFeature,
+	lawfulRun,
 	type UpkeepFeature,
 	upkeepCase,
 	upkeepRun,
@@ -94,8 +96,8 @@ export const aStoredRelationEqualsItsDefinitionAfterEveryCommitOfEveryWriteOfIts
 			},
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
-				original: "\t\t...b.model.theory.upkeeps.map(upkeepBlock),\n",
-				replacement: "",
+				original: "\tconst upkept = b.model.theory.upkeeps.map(upkeepBlock)\n",
+				replacement: "\tconst upkept: ReadonlyArray<Judged> = []\n",
 				why: "No upkeep runs at COMMIT: a stored relation keeps the rows its migration filled it with, empty, whatever is written after."
 			}
 		]
@@ -136,6 +138,60 @@ export const aWatchOfAStoredRelationHearsExactlyTheRouteKeysOfTheRowsEachCommits
 				original: '\t\t? "key"\n\t\t: "full"\n',
 				replacement: '\t\t? "key"\n\t\t: "key"\n',
 				why: "Placed, watched at a value outside its primary key (doc, at), is published by its key's columns alone, so a change of its rows carries no value and decodes to its table's key, where its rows' keyed keys are due."
+			}
+		]
+	})
+
+/**
+ * A law over a stored relation is judged over its rows as the transaction leaves them (d11-design §3.2, step C): a
+ * containment into Placed is a rule reading Placed's table in the judge's phase B, after phase A wrote it; a key over
+ * Placed it does not prove is its UNIQUE, and a check over Counted its CHECK, each refusing at phase A's insert. Over the
+ * same box with the three laws stated, each transaction commits exactly where the state it leaves keeps them, computed
+ * on the host from the base relations alone, and is refused as an integrity violation otherwise, changing nothing.
+ */
+export const aLawOverAStoredRelationIsJudgedOverItsRowsAsTheTransactionLeavesThem =
+	property.explore(upkeepCase, {
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
+		situations: [
+			"a lawful transaction committed",
+			"refused for a link at no place",
+			"refused for a value twice in a document",
+			"refused for three places",
+			"Doc open"
+		] satisfies ReadonlyArray<Reached<LawfulFeature>>,
+		check:
+			({ substrate }, c) =>
+			(value) =>
+				Effect.provideServiceEffect(
+					Effect.scoped(lawfulRun(value, c)),
+					Substrate,
+					Effect.map(substrate, (taken) => taken.substrate)
+				),
+		oracle: {
+			kind: "specification",
+			name: "the three laws restated over the host's model of the base relations, the stored rows against their definitions"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/physical/ddl/rules.ts",
+				original: "\t\t\t\t...(isNonEmpty(upkeep) ? [readWritten] : []),\n",
+				replacement: "",
+				why: "Phase B judges by the written set as it stood before phase A, so a place taken leaves Placed's removed rows unjudged and a link at it commits."
+			},
+			{
+				file: "packages/engine/src/laws/model/model.ts",
+				original:
+					'\t\t\treturn (relation?.kind === "relation" || relation?.kind === "stored") && touched !== undefined',
+				replacement: '\t\t\treturn relation?.kind === "relation" && touched !== undefined',
+				why: "Placed's table is no rule table: no write of it is judged, so a place taken under a link commits."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/theory.ts",
+				original:
+					'\t\tthis.sides.relations.get(relation)?.kind === "stored"\n\t\t\t? undefined\n\t\t\t: this.definitions.get(relation)\n',
+				replacement: "\t\tthis.definitions.get(relation)\n",
+				why: "A law over a stored relation reads its definition again, a key over it judged as a rule over every row of its units, and the stored rows it reads at COMMIT none of the judge's."
 			}
 		]
 	})

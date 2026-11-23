@@ -1,4 +1,5 @@
-import type { CheckedSchema } from "#compiler/analysis/schema.ts"
+import type { DerivedRelationAnalysis } from "#compiler/analysis/derived/analyze.ts"
+import { type CheckedSchema, derivedAnalysis } from "#compiler/analysis/schema.ts"
 import { ViolationBuilder } from "#compiler/analysis/theory/build.ts"
 import { type FieldClass, FieldClasses } from "#compiler/analysis/theory/classes.ts"
 import { knownColumns } from "#compiler/analysis/theory/columns.ts"
@@ -53,7 +54,7 @@ import {
 	type Part
 } from "#compiler/core/identity.ts"
 
-import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import {
@@ -63,7 +64,13 @@ import {
 	storedUnit,
 	storedUpkeep
 } from "#compiler/analysis/theory/unit.ts"
-import { type ConstraintName, FieldId, type LawId } from "#compiler/core/ids.ts"
+import {
+	type ConstraintName,
+	FieldId,
+	type LawId,
+	type RelationIdent,
+	StoredRelationName
+} from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
@@ -86,6 +93,7 @@ import {
 	type LawField,
 	type LawSource,
 	type RelationInfo,
+	type StoredDerivedRelation,
 	type TheoryRelation
 } from "#compiler/ir/law.ts"
 import type { CheckedTheory } from "#compiler/ir/products.ts"
@@ -239,7 +247,11 @@ export interface PrimaryKeyLaw {
 
 export interface Theory extends CheckedTheory {
 	readonly name: string
-	/** The relations and closed relations the laws read, typed; derived relations carry no law. */
+	/**
+	 * The relations the laws read, typed: the ordinary and closed relations, and each stored derived relation, whose
+	 * admitted unit (ir/law.ts StoredDerivedRelation `unit`) its upkeep and the isolation checker read; a live derived
+	 * relation is no relation of the laws, which read its definition.
+	 */
 	readonly relations: Readonly<Record<string, TheoryRelation>>
 	readonly classes: ReadonlyArray<FieldClass>
 	readonly laws: ReadonlyArray<TheoryLaw>
@@ -266,11 +278,6 @@ export interface Theory extends CheckedTheory {
 	/** Every instant field a clock or a reference (ir/instant.ts), as the classifier read them off the laws
 	 * (analysis/theory/instants.ts), which a write stamps by. */
 	readonly instants: Instants
-	/**
-	 * Each stored derived relation's unit, by its name (ir/unit.ts StoredUnit), as its admission decided it (`stored`):
-	 * the one record the stored relation's upkeep and the isolation checker read which unit its rows stand in from.
-	 */
-	readonly stored: Readonly<Record<string, StoredUnit>>
 	/** Each stored derived relation's upkeep (analysis/theory/unit.ts StoredUpkeep), in name order: what the judge's
 	 * phase A writes at COMMIT (physical/ddl/rules.ts). */
 	readonly upkeeps: ReadonlyArray<StoredUpkeep>
@@ -512,16 +519,105 @@ const sidesEnvOf = (checked: CheckedSchema): SidesEnv => {
 	}
 }
 
+/**
+ * The fields of a stored relation's primary key, its narrowest proven key `fields`: the fields of it that carry the
+ * declared unit its rows sit under, `declared`, in that unit's key order, then its others in key order, so a key holding
+ * the unit leads with it and the upkeep's reads of the stored rows at a unit are a range of the key's index; a key
+ * holding no such field stands as proven.
+ */
+const unitFirst = (
+	fields: NonEmptyReadonlyArray<string>,
+	declared: ReadonlyArray<string>
+): NonEmptyReadonlyArray<string> => {
+	const lead = declared.filter((f) => fields.includes(f))
+	const [first, ...rest] = [...lead, ...fields.filter((f) => !lead.includes(f))]
+	if (first === undefined) {
+		throw defect("a key of at least one field")
+	}
+	return [first, ...rest]
+}
+
+/**
+ * A stored derived relation as the theory reads it (ir/law.ts StoredDerivedRelation): its analysis `a`'s heading as its
+ * fields, each named as its table's column (physical/ddl/names.ts viewColumn) and written by its upkeep alone; its
+ * primary key its narrowest proven key with its unit first (`unitFirst`), and every other proven key, each named by its
+ * index; its table `ident`, its level and its admitted unit.
+ */
+const storedRelationOf = (
+	a: DerivedRelationAnalysis,
+	ident: RelationIdent,
+	level: number,
+	unit: StoredUnit
+): StoredDerivedRelation => {
+	const fields = mapNonEmpty(a.heading, (c, position): LawField => ({
+		name: c.name,
+		type: c.type,
+		desc: c.desc,
+		column: identifierOf(identity.column(c.name)),
+		position,
+		writing: { kind: "caller" }
+	}))
+	const field = (name: string): LawField =>
+		defined(
+			fields.find((f) => f.name === name),
+			`the field ${name} of stored relation ${a.name}`
+		)
+	const [primary, ...secondary] = a.keys
+	if (primary === undefined) {
+		throw defect(`the proven keys of ${a.name}, its heading's at least`)
+	}
+	const primaryKey = unitFirst(primary.fields, unit.declared.fields)
+	const primaryFields = mapNonEmpty(primaryKey, field)
+	const keyFields = secondary.map((k) => mapNonEmpty(k.fields, field))
+	return Object.freeze({
+		kind: "stored",
+		name: StoredRelationName(a.name),
+		ident,
+		fields,
+		heading: fields,
+		primaryKey,
+		keys: secondary.map((k) => k.fields),
+		primaryFields,
+		keyFields,
+		keyNames: [
+			{
+				fields: primaryFields,
+				span: undefined,
+				primary: true,
+				named: identity.derivedKey(a.name, primary.fields)
+			},
+			...secondary.map((k, i) => ({
+				fields: defined(keyFields[i], "a proven key's fields"),
+				span: undefined,
+				primary: false,
+				named: identity.derivedKey(a.name, k.fields)
+			}))
+		],
+		mutable: false,
+		level,
+		loc: a.loc,
+		unit,
+		read: a.read
+	})
+}
+
 class Builder {
 	readonly owned: Owned
-	/** What the theory's law sides are resolved in (sidesEnvOf). */
+	/**
+	 * What the theory's law sides are resolved in (sidesEnvOf): the checked schema's stored and closed relations, and
+	 * each stored derived relation as the theory reads it (ir/law.ts StoredDerivedRelation).
+	 */
 	readonly sides: SidesEnv
 	/** The checker's reading of the owned schema, which a rule over a query's violation query is checked against. */
 	readonly checked: CheckedSchema
-	/** Each derived relation's definition, by name. */
+	/** Each derived relation's definition, by name, a stored one's among them. */
 	readonly definitions: ReadonlyMap<string, QueryDesc>
-	/** The containments of the closure's statements a whole rule's region reads (unit.ts RegionFacts). */
+	/** The containments of the closure's statements a whole rule's region reads (unit.ts RegionFacts), and the declared
+	 * unit each relation's rows sit in, a stored derived relation's the one its admission decided (ir/unit.ts StoredUnit
+	 * `declared`), so a rule reading its table and its holders is judged whole under the one borrow that covers both. */
 	readonly regionFacts: RegionFacts
+	/** Each stored derived relation's upkeep (StoredUpkeep), in name order. */
+	readonly upkeeps: ReadonlyArray<StoredUpkeep>
 
 	constructor(checked: CheckedSchema) {
 		this.checked = checked
@@ -532,20 +628,46 @@ class Builder {
 			)
 		)
 		this.owned = checked.owned
-		this.sides = sidesEnvOf(checked)
-		this.regionFacts = regionFactsOf(
+		const authored = sidesEnvOf(checked)
+		const facts = regionFactsOf(
 			checked.closure.statements.map((s) => s.statement),
-			this.sides.relations,
+			authored.relations,
 			this.definitions,
 			checked.owned.unitOf
 		)
+		const { stored, upkeeps } = this.#stored(authored.relations, facts)
+		this.upkeeps = upkeeps
+		this.sides = {
+			...authored,
+			relations: new Map([...authored.relations, ...stored.map((r) => [r.name, r] as const)])
+		}
+		this.regionFacts = {
+			...facts,
+			members: new Map([...facts.members, ...stored.map((r) => [r.name, r.unit.declared] as const)])
+		}
 	}
 
 	/** The columns of each definition the theory reads, each checked once however many laws read it (columns.ts knownColumns). */
 	readonly #columns: NormalizeEnv["columnType"]
 
-	/** How the theory's violation queries read each relation live, each definition read once however many laws read it. */
-	readonly #live = liveReading((relation) => this.definitions.get(relation))
+	/**
+	 * The definition of a derived relation the theory's laws read live, by name: a live one's, none for a stored one, whose
+	 * table the laws read as a relation's (ir/law.ts StoredDerivedRelation), nor for an authored or closed relation.
+	 */
+	readonly #readLive = (relation: string): QueryDesc | undefined =>
+		this.sides.relations.get(relation)?.kind === "stored"
+			? undefined
+			: this.definitions.get(relation)
+
+	/** How the theory's violation queries read each relation, each live definition read once however many laws read it. */
+	readonly #live = liveReading((relation) => this.#readLive(relation))
+
+	/**
+	 * How a stored relation's own upkeep and admission read its definition: every derived relation it names, at any depth,
+	 * read through its own definition, a stored one's among them (d11-design §3.4), so every stored relation is a function
+	 * of tables alone and phase A has one level.
+	 */
+	readonly #maintained = liveReading((relation) => this.definitions.get(relation))
 
 	/**
 	 * What normalizing the schema's laws reads of it: its relations, each derived relation's definition and the types its
@@ -555,7 +677,7 @@ class Builder {
 	env(): NormalizeEnv {
 		return {
 			...this.sides,
-			definition: (relation) => this.definitions.get(relation),
+			definition: this.#readLive,
 			columnType: this.#columns,
 			live: this.#live,
 			named: lawIdentityOf,
@@ -607,7 +729,6 @@ class Builder {
 		const fill = unwrap(fillOrder(families, laws))
 		const relations = Object.freeze(Object.fromEntries(this.sides.relations))
 		const instants = unwrap(instantRoles(relations, laws))
-		const { stored, upkeeps } = this.#stored()
 		return Object.freeze({
 			schema: this.owned.fingerprint,
 			name: this.owned.name,
@@ -622,21 +743,25 @@ class Builder {
 			fill,
 			regionFacts: this.regionFacts,
 			instants,
-			stored,
-			upkeeps
+			upkeeps: this.upkeeps
 		})
 	}
 
 	/**
-	 * Each stored derived relation admitted, with its unit (ir/unit.ts StoredUnit), in name order: its definition, read
-	 * live, unit-local at the widest unit its head delivers, every declared function it calls immutable throughout
-	 * (analysis/theory/unit.ts storedUnit); refused, DerivedRefused `notUnitLocal`, by the first condition of
-	 * unit-locality it lacks. A function is unfit where it, or a function its body calls at any depth, is not immutable:
-	 * grizzle never reads a body, so a function's declared volatility and its declared calls are the author's promise,
-	 * as PostgreSQL's IMMUTABLE is.
+	 * Each stored derived relation admitted, as the theory reads it (ir/law.ts StoredDerivedRelation, storedRelationOf),
+	 * with its upkeep, in name order: its definition, every derived relation it names read through its own definition
+	 * (`maintained`) over the authored and closed relations `relations`, unit-local at the widest unit its head
+	 * delivers, every declared function it calls immutable throughout (analysis/theory/unit.ts storedUnit), its upkeep's
+	 * region read by the closure's facts `facts`; refused,
+	 * DerivedRefused `notUnitLocal`, by the first condition of unit-locality it lacks. A function is unfit where it, or a
+	 * function its body calls at any depth, is not immutable: grizzle never reads a body, so a function's declared
+	 * volatility and its declared calls are the author's promise, as PostgreSQL's IMMUTABLE is.
 	 */
-	#stored(): {
-		readonly stored: Readonly<Record<string, StoredUnit>>
+	#stored(
+		relations: ReadonlyMap<string, TheoryRelation>,
+		facts: RegionFacts
+	): {
+		readonly stored: ReadonlyArray<StoredDerivedRelation>
 		readonly upkeeps: ReadonlyArray<StoredUpkeep>
 	} {
 		const functions = this.owned.functions
@@ -663,16 +788,17 @@ class Builder {
 			}
 			return undefined
 		}
-		const admitted: Array<readonly [string, StoredUnit]> = []
+		const analyses = derivedAnalysis(this.checked).relations
+		const stored: Array<StoredDerivedRelation> = []
 		const upkeeps: Array<StoredUpkeep> = []
 		for (const r of Object.values(this.owned.relations).toSorted((a, b) =>
 			compareStrings(a.name, b.name)
 		)) {
-			if (r.desc.kind !== "derived" || r.desc.storage !== "stored") {
+			if (r.kind !== "derived" || r.view.kind !== "stored") {
 				continue
 			}
-			const definition = this.#live.query(r.desc.query)
-			const decided = storedUnit(definition, this.sides.relations, unfit, (relation) =>
+			const definition = this.#maintained.query(r.desc.query)
+			const decided = storedUnit(definition, relations, unfit, (relation) =>
 				this.owned.unitOf.get(relation)
 			)
 			if ("condition" in decided) {
@@ -680,19 +806,19 @@ class Builder {
 					derivedRefused(r.desc.loc, { kind: "notUnitLocal", relation: r.name, lacks: decided })
 				)
 			}
-			admitted.push([r.name, decided])
-			upkeeps.push(
-				storedUpkeep(
-					r.name,
-					definition,
-					decided,
-					this.sides.relations,
-					this.regionFacts,
-					r.desc.loc
+			stored.push(
+				storedRelationOf(
+					defined(analyses[r.name], `the derived analysis of ${r.name}`),
+					r.view.ident,
+					r.level,
+					decided
 				)
 			)
+			upkeeps.push(
+				storedUpkeep(r.name, definition, decided, relations, facts, r.desc.loc)
+			)
 		}
-		return { stored: Object.freeze(Object.fromEntries(admitted)), upkeeps: Object.freeze(upkeeps) }
+		return { stored: Object.freeze(stored), upkeeps: Object.freeze(upkeeps) }
 	}
 
 	/**

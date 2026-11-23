@@ -480,7 +480,6 @@ const installationIn = (
 				const declared = addFunctions(b)
 				const { keyIndexes, lawColumns, tables } = addTables(b)
 				const stamps = addStamps(b)
-				const rules = phased(phases, { name: "judge", of: [] }, () => addRules(b))
 				addImmutableGuards(b)
 				addSpanStorage(b, plan.spans)
 
@@ -494,6 +493,9 @@ const installationIn = (
 						claimedDerived.add(d)
 					}
 				}
+				/** The judge after the extensions, whose stored derived relations' tables its upkeep writes and its captures
+				 * stand on. */
+				const rules = phased(phases, { name: "judge", of: [] }, () => addRules(b))
 				const paramDomains = addParamDomains(b, plan.paramDomains)
 
 				const requests = [...reverseRequests(b), ...rules.requests, ...extensionRequests]

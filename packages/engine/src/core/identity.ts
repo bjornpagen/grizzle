@@ -1937,13 +1937,16 @@ export const identity = Object.freeze({
 	ruleJudgePart: (
 		relation: string,
 		sentinel: Identity<"ruleSentinel">,
-		deltas: NonEmptyReadonlyArray<Identity<"ruleDelta">>
+		deltas: NonEmptyReadonlyArray<Identity<"ruleDelta">>,
+		pass: "upkeep" | "rules"
 	): Identity<"ruleJudgePart"> =>
 		mint(
 			"ruleJudgePart",
-			[sentinel, ...deltas],
+			pass === "rules" ? [sentinel, ...deltas] : [sentinel, pass, ...deltas],
 			["judge", ...nameSegments(relation)],
-			`the rule judge of the deltas of ${relation} and the relations its rules join it to`,
+			pass === "rules"
+				? `the rule judge of the deltas of ${relation} and the relations its rules join it to`
+				: `the upkeep of the stored relations over the deltas of ${relation} and the relations they read beside it`,
 			hashed
 		),
 	/**

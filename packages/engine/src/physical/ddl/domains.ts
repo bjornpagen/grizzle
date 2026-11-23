@@ -686,6 +686,9 @@ export const planTextDomains = (
 	for (const [name, r] of Object.entries(theory.relations).toSorted(([a], [b]) =>
 		compareStrings(a, b)
 	)) {
+		if (r.kind === "stored") {
+			continue
+		}
 		const o = defined(owned.relations[name], "ownership holds every relation of the theory")
 		const table = theoryTable(o)
 		for (const c of r.fields) {

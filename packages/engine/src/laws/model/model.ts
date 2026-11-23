@@ -99,7 +99,8 @@ import {
 	type SpanField,
 	type SpanKeyScalars,
 	spanKeySet,
-	type TheoryRelation
+	type TheoryRelation,
+	type TheoryTable
 } from "#compiler/ir/law.ts"
 import type { ConstraintLaws } from "#compiler/ir/products.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
@@ -179,7 +180,9 @@ export type NamedNative =
 	| {
 			readonly object: NativeOf<ConstraintNativeKind>
 			readonly namespace: "constraint"
-			readonly named: Identity<"primaryKey" | "key" | "check" | "generatedCheck" | "foreignKey">
+			readonly named: Identity<
+				"primaryKey" | "key" | "derivedKey" | "check" | "generatedCheck" | "foreignKey"
+			>
 			readonly owner: RelationIdent
 			readonly described: RecordedLaw
 	  }
@@ -413,7 +416,7 @@ export interface RuleTrigger {
 
 /** One table a rule over a query reads, with what its writes can break of the rule and its trigger's function. */
 export interface RuleTable {
-	readonly relation: RelationInfo
+	readonly relation: TheoryTable
 	readonly touches: Touches
 	readonly function: Identity<"lawFunction">
 }
@@ -1102,7 +1105,7 @@ class Specializer {
 	}
 
 	/** The law column `column` of `relation`, with the identity every law column the model names was minted with. */
-	#planned(relation: LawRelation, column: ColumnIdent): PlannedLawColumn {
+	#planned(relation: Pick<LawRelation, "name">, column: ColumnIdent): PlannedLawColumn {
 		const planned = this.#lawColumns.get(relation.name)?.get(column)
 		if (planned === undefined) {
 			throw defect(`the law column ${column} of ${relation.name}, minted as it is planned`)
@@ -1111,7 +1114,7 @@ class Specializer {
 	}
 
 	/** The identity of the law column `column` of `relation`. */
-	#lawColumnNamed(relation: LawRelation, column: ColumnIdent): Identity<"lawColumn"> {
+	#lawColumnNamed(relation: Pick<LawRelation, "name">, column: ColumnIdent): Identity<"lawColumn"> {
 		return this.#planned(relation, column).named
 	}
 
@@ -1127,7 +1130,7 @@ class Specializer {
 
 	/** A native's columns as its name reads them: a field by its name, a law column by its identity. */
 	#keyNames(
-		relation: LawRelation,
+		relation: Pick<LawRelation, "name">,
 		columns: ReadonlyArray<NativeColumn>
 	): ReadonlyArray<KeyColumnName> {
 		return columns.map((c): KeyColumnName =>
@@ -1342,7 +1345,8 @@ class Specializer {
 	 * a law column of a field term under a selection a UNIQUE holds, with the UNIQUEs that hold one, which a query's
 	 * probe reads (physical/ddl/names.ts selectionKeysOf). Any other native of a relation the slice does not write, a
 	 * key, a CHECK, another law column or a foreign key's reverse index (`run`), only a write of that relation can break
-	 * or read, so the model holds none of it.
+	 * or read, so the model holds none of it; but a stored derived relation's UNIQUE and CHECK it holds always, since the
+	 * judge's upkeep writes its rows at every COMMIT that changes what it reads, whichever slice wrote that.
 	 */
 	#held(plans: ReadonlyArray<LawPlan>): (n: NativePlan) => boolean {
 		const writes = this.writes
@@ -1375,11 +1379,13 @@ class Specializer {
 					return writes.has(n.column.relation.name) || selectionKey(n.column)
 				case "Unique":
 					return (
+						n.relation.kind === "stored" ||
 						writes.has(n.relation.name) ||
 						n.columns.some((c) => c.kind === "law" && selectionKey(c.column))
 					)
-				case "PrimaryKey":
 				case "TableCheck":
+					return n.relation.kind === "stored" || writes.has(n.relation.name)
+				case "PrimaryKey":
 				case "GeneratedCheck":
 				case "WithoutOverlaps":
 					return writes.has(n.relation.name)
@@ -1428,7 +1434,7 @@ class Specializer {
 		const tables = law.reads.flatMap((name): ReadonlyArray<RuleTable> => {
 			const relation = this.theory.relations[name]
 			const touched = touches(rule, name)
-			return relation?.kind === "relation" && touched !== undefined
+			return (relation?.kind === "relation" || relation?.kind === "stored") && touched !== undefined
 				? [
 						{
 							relation,
@@ -1769,7 +1775,9 @@ class Specializer {
 	#name(object: NativeObject, reported: Identity<"law">, described: RecordedLaw): NamedNative {
 		const constraint = (
 			on: NativeOf<ConstraintNativeKind>,
-			named: Identity<"primaryKey" | "key" | "check" | "generatedCheck" | "foreignKey">
+			named: Identity<
+				"primaryKey" | "key" | "derivedKey" | "check" | "generatedCheck" | "foreignKey"
+			>
 		): NamedNative => ({
 			object: on,
 			named,
@@ -1791,14 +1799,19 @@ class Specializer {
 			case "PrimaryKey":
 				return constraint(object, object.named)
 			case "Unique": {
-				const k = declaredKeyOf(object.relation, scalarKeySet(object.relation.name, object.columns))
+				/** A UNIQUE over a declared candidate key's set is that key's; over a stored derived relation's proven key, its
+				 * primary one's among them, it is the index the relation's table already has (physical/derived/objects.ts),
+				 * which the law's refusal names. */
+				const relation = object.relation
+				const k =
+					relation.kind === "stored"
+						? declaredKeyOf(relation, scalarKeySet(relation.name, object.columns))
+						: declaredKeyOf(relation, scalarKeySet(relation.name, object.columns))
 				return constraint(
 					object,
-					k === undefined || k.primary
-						? this.#named(
-								identity.key(object.relation.name, this.#keyNames(object.relation, object.columns))
-							)
-						: k.named
+					k !== undefined && (relation.kind === "stored" || !k.primary)
+						? k.named
+						: this.#named(identity.key(relation.name, this.#keyNames(relation, object.columns)))
 				)
 			}
 			case "WithoutOverlaps":
