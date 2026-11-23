@@ -35,7 +35,7 @@ import { attachments, entryKey, keyWithout, reaches } from "#test/support/worlds
 import { actionKinds } from "#test/support/worlds/generate/weights.ts"
 import { enumeratePerturbations, worldFunctionsOf } from "#test/support/worlds/invalid/catalog.ts"
 import { refusedClaimSettings } from "#test/support/worlds/invalid/claims.ts"
-import { opKinds, type FactWriter } from "#test/support/worlds/invalid/facts.ts"
+import { entryKinds, opKinds, type FactWriter } from "#test/support/worlds/invalid/facts.ts"
 import { jsonObject, treeText } from "#test/support/worlds/invalid/json.ts"
 import { rosterMigrations, violatingLaws } from "#test/support/worlds/invalid/migrations.ts"
 import { patternEdges } from "#test/support/worlds/invalid/patterns.ts"
@@ -752,9 +752,9 @@ const directStarts = (
 }
 
 /**
- * The apply actions of a session in the box: each written entry's op kinds over its facts, one fact per op, one op per
- * fact kind, and inserts of a fact past a contract's bounds and past an integer type's range; and the role's union and
- * ordered writes.
+ * The apply actions of a session in the box: each written entry's op kinds over its facts (an insert, and a delete and a
+ * put where its relation is open: entryKinds), one fact per op, one op per fact kind, and inserts of a fact past a
+ * contract's bounds and past an integer type's range; and the role's union and ordered writes.
  */
 const applyActions = (
 	state: ModelState,
@@ -782,8 +782,9 @@ const applyActions = (
 			return []
 		}
 		const facts = entryFacts(state, writer, entry, spec, scoped)
+		const kinds = entryKinds(state, writer, entry)
 		const live = Arr.flatMap(facts, (f) =>
-			Arr.map(["insert", "delete", "put"] as const, (kind): EntryOp => ({
+			Arr.map(kinds, (kind): EntryOp => ({
 				relation: entry,
 				kind,
 				facts: [f]

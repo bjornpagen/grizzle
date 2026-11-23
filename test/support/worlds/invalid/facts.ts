@@ -20,6 +20,7 @@ import {
 	sameFact,
 	selectionOf
 } from "#test/support/worlds/model/host.ts"
+import { relationSpecOf } from "#test/support/worlds/model/session/state.ts"
 import { installedRole, keysOf, type Written } from "#test/support/worlds/model/session/writes.ts"
 
 import type {
@@ -416,12 +417,36 @@ interface OpDraw {
 	readonly met: boolean
 }
 
-const opDrawGen: Gen<OpDraw> = (source) => {
-	const kind = source.draw(element<EntryOp["kind"]>(["insert", "delete", "put"]))
-	const first = source.draw(int(0, 63))
-	const rest = source.draw(array(int(0, 63), { min: 0, max: 2 }))
-	return { kind, picks: [first, ...rest], met: source.draw(boolean) }
-}
+/** An op's draw among the kinds its entry takes (entryKinds). */
+const opDrawGen =
+	(kinds: Arr.NonEmptyReadonlyArray<EntryOp["kind"]>): Gen<OpDraw> =>
+	(source) => {
+		const kind = source.draw(element(kinds))
+		const first = source.draw(int(0, 63))
+		const rest = source.draw(array(int(0, 63), { min: 0, max: 2 }))
+		return { kind, picks: [first, ...rest], met: source.draw(boolean) }
+	}
+
+/**
+ * The kinds of op an entry of a writer's role takes: every kind through an entry the role writes onto an open relation,
+ * mutable inside its unit, and an insert alone through any other, a closed relation's facts being inserted, never
+ * changed or deleted.
+ */
+export const entryKinds = (
+	state: ModelState,
+	writer: FactWriter,
+	entry: string
+): Arr.NonEmptyReadonlyArray<EntryOp["kind"]> =>
+	Option.match(
+		Arr.findFirst(installedRole(state, writer.role.name).written, (w) => w.entry === entry),
+		{
+			onNone: () => ["insert"],
+			onSome: (w) =>
+				relationSpecOf(state.install.base, w.target)?.mutability === "mutable"
+					? ["insert", "delete", "put"]
+					: ["insert"]
+		}
+	)
 
 /** The picks the candidate search draws its pool facts with: fixed, so what a state offers is the state's alone. */
 const searchPicks: ReadonlyArray<number> = [0, 5, 11, 23, 42]
@@ -582,8 +607,9 @@ export const liveOpGen = (
 	const met = metFacts(state, writer, entry.name)
 	const pointings = pointingsOf(state, writer, entry.name)
 	const fresh = freshFields(state, writer, entry.name, pointings)
+	const drawOp = opDrawGen(entryKinds(state, writer, entry.name))
 	return (source) => {
-		const draw = source.draw(opDrawGen)
+		const draw = source.draw(drawOp)
 		return {
 			relation: entry.name,
 			kind: draw.kind,
@@ -612,6 +638,7 @@ export const opStrata = (
 	const fresh = freshFields(state, writer, entry.name, pointings)
 	const factsOf = (draw: OpDraw): Gen<Arr.NonEmptyReadonlyArray<HostFact>> =>
 		liveFacts(heading, met, pointings, fresh, draw)
+	const drawOp = opDrawGen(entryKinds(state, writer, entry.name))
 	const op = (kind: EntryOp["kind"], facts: ReadonlyArray<HostFact>): EntryOp => ({
 		relation: entry.name,
 		kind,
@@ -645,7 +672,7 @@ export const opStrata = (
 			{
 				invalid: "fact:duplicate-in-input",
 				gen: (source) => {
-					const draw = source.draw(opDrawGen)
+					const draw = source.draw(drawOp)
 					const [first] = source.draw(factsOf(draw))
 					return op(draw.kind, [first, first])
 				}
@@ -656,7 +683,7 @@ export const opStrata = (
 					{
 						invalid: "fact:domain-refused",
 						gen: (source) => {
-							const draw = source.draw(opDrawGen)
+							const draw = source.draw(drawOp)
 							const { at, outside } = source.draw(element(all))
 							const [first] = source.draw(factsOf(draw))
 							return op("insert", [{ ...first, [at.name]: outside }])

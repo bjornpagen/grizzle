@@ -1,3 +1,4 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import {
 	array,
 	boolean,
@@ -36,6 +37,7 @@ import {
 	type SchemaDesc,
 	type AuthoredStatementDesc as StatementDesc
 } from "#test/support/fixtures/ir/desc.ts"
+import { openedDescs } from "#test/support/open.ts"
 import {
 	allTypeSpecs,
 	baseTypeSpecs,
@@ -241,8 +243,9 @@ const payloadPatterns = (c: GenClosed): ReadonlyArray<RelationDesc> => {
 }
 
 /**
- * The schema's Description: relation, closed, key, mutable and contained, exactly what the
- * public constructors record for this schema. It is an admissible schema: ownership (packages/engine/src/schema/own.ts)
+ * The schema's Description: relation, closed, key, unit, mutable and contained, exactly what the
+ * public constructors record for this schema, each mutable relation open, in the unit over its primary key's first field
+ * (test/support/open.ts openedDescs). It is an admissible schema: ownership (packages/engine/src/schema/own.ts)
  * accepts it, every key representable. A roster declares its live handles alone: its codes are the installation's
  * (schemaCodes), and a Closed node's payload is the query's own.
  */
@@ -251,22 +254,24 @@ export const schemaDesc = (schema: GenSchema): SchemaDesc => {
 		{ kind: "closed", name: c.name, handles: c.handles },
 		...payloadPatterns(c)
 	])
-	const relations: Array<RelationDesc> = Arr.map(schema.relations, (r) => {
+	const relationOf = (r: GenRelation) => {
 		const fields: Record<string, FieldDesc> = {}
 		for (const col of r.columns) {
 			fields[col.name] = fieldDescOf(col.type)
 		}
 		return relation(r.name, fields, r.primaryKey)
-	})
+	}
+	const relations: Array<RelationDesc> = Arr.map(schema.relations, relationOf)
 	const statements: Array<StatementDesc> = []
 	for (const r of schema.relations) {
 		for (const key of r.keys) {
 			statements.push(keyOf(on(r.name, key)))
 		}
-		if (r.mutable) {
-			statements.push({ kind: "mutable", relation: r.name })
-		}
 	}
+	appendAll(
+		statements,
+		openedDescs(Arr.flatMap(schema.relations, (r) => (r.mutable ? [relationOf(r)] : [])))
+	)
 	for (const c of schema.containments) {
 		statements.push(contained(on(c.from.relation, c.from.fields), on(c.to.relation, c.to.fields)))
 	}
