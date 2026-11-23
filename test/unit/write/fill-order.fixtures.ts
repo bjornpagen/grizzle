@@ -345,35 +345,48 @@ const judged = (
 	}
 }
 
+/** Whether a family is a tree, whose own relation a whole delete of its root removes as its rows, never below them. */
+const ownTree = (f: FillSpec["families"][number]): boolean => f.kind === "tree"
+
 /**
- * Whether a delete of relation `r` is a whole delete the README refuses when its ChangeSet compiles (README
- * "Families", a group is deleted whole, through its owner): `r` owns a family and is no family's member but its own
- * tree's, so the delete removes its rows with every row nested under them through every family but a tree's own, to any
- * depth; and a relation so nested is a member of a family whose owner the delete does not remove, whose groups it
- * would leave partial. A cycle below `r` is the schema's refusal (`unitCycleRoots`), which no admitted schema holds.
+ * The relations a whole delete of relation `r` removes below its rows (README "Families", a group is deleted whole,
+ * through its owner): where `r` owns a family and is no family's member but its own tree's, every relation nested under
+ * its rows through every family but a tree's own, to any depth; none where a delete of `r` is no whole delete. A cycle
+ * below `r` is the schema's refusal (`unitCycleRoots`), which no admitted schema holds.
  */
-const wholeDeleteRefused = (spec: FillSpec, r: number): boolean => {
+const wholeDeleteBelow = (spec: FillSpec, r: number): ReadonlyArray<number> => {
 	const families = spec.families
-	const own = (f: FillSpec["families"][number]): boolean => f.kind === "tree"
-	const memberOf = Arr.filter(families, (f) => f.member === r && !own(f))
+	const memberOf = Arr.filter(families, (f) => f.member === r && !ownTree(f))
 	if (!Arr.some(families, (f) => f.owner === r) || Arr.isReadonlyArrayNonEmpty(memberOf)) {
-		return false
+		return []
 	}
 	const reached: Array<number> = [r]
 	for (const owner of reached) {
 		for (const f of families) {
-			if (f.owner === owner && !own(f) && !reached.includes(f.member)) {
+			if (f.owner === owner && !ownTree(f) && !reached.includes(f.member)) {
 				reached.push(f.member)
 			}
 		}
 	}
-	const into = (x: number) => Arr.filter(families, (f) => f.member === x && !own(f))
-	const below = Arr.filter(reached, (x) => x !== r)
-	return Arr.some(below, (x) => Arr.some(into(x), (f) => !reached.includes(f.owner)))
+	return Arr.filter(reached, (x) => x !== r)
+}
+
+/**
+ * Whether a delete of relation `r` is a whole delete the README refuses when its ChangeSet compiles: a relation nested
+ * below its rows (wholeDeleteBelow) is a member of a family whose owner the delete does not remove, whose groups it
+ * would leave partial.
+ */
+const wholeDeleteRefused = (spec: FillSpec, r: number): boolean => {
+	const below = wholeDeleteBelow(spec, r)
+	const removed = [r, ...below]
+	return Arr.some(below, (x) =>
+		Arr.some(spec.families, (f) => f.member === x && !ownTree(f) && !removed.includes(f.owner))
+	)
 }
 
 /** Whether the README's rules admit a write of relation `r` by `op`, which then must compile: a put or a delete only of
- * an open relation, mutable inside its unit, since a closed one's facts are inserted, never changed or deleted. */
+ * an open relation, mutable inside its unit, since a closed one's facts are inserted, never changed or deleted, and a
+ * whole delete only where every relation it removes below its rows is open too. */
 const ruleAdmits = (spec: FillSpec, r: number, op: "insert" | "put" | "delete"): boolean => {
 	const families = spec.families
 	const open = defined(spec.relations[r]).mutable
@@ -410,7 +423,14 @@ const ruleAdmits = (spec: FillSpec, r: number, op: "insert" | "put" | "delete"):
 		case "put":
 			return open && !tree && !nestsUnderMember
 		case "delete":
-			return open && !tree && !nestsUnderMember && !immutableOwner && !wholeDeleteRefused(spec, r)
+			return (
+				open &&
+				Arr.every(wholeDeleteBelow(spec, r), (x) => defined(spec.relations[x]).mutable) &&
+				!tree &&
+				!nestsUnderMember &&
+				!immutableOwner &&
+				!wholeDeleteRefused(spec, r)
+			)
 	}
 }
 
@@ -776,7 +796,7 @@ export const property = (
 			}
 			if (ruleAdmits(spec, r, "delete")) {
 				one(ChangeSet.empty(value).delete(relation, []), "delete")
-			} else if (wholeDeleteRefused(spec, r)) {
+			} else if (defined(spec.relations[r]).mutable && wholeDeleteRefused(spec, r)) {
 				const refusal = refusalOf(
 					compileWrite(checked, descOf(ChangeSet.empty(value).delete(relation, [])), options)
 				)

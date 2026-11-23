@@ -8,9 +8,11 @@ import { compileInstallation, installOptions } from "#compiler/physical/install/
 import { Logic, Num, Text, Type } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { contained, derived, mutable, on, relation, schema } from "#compiler/public/schema.ts"
+import { contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { type Openable, opened } from "#test/support/open.ts"
 import { owning } from "#test/support/policy.ts"
 
 /** The term a step binds U's g to, of T's x: a sum, a conditional, or a bounded text's guarded cast. */
@@ -37,9 +39,10 @@ const anyText = str.regex("^.*$", "su")
 const short = str.bytes(40, anyText)
 const wider = str.bytes(60, anyText)
 
-/** A case's judgement as its schema's statements: every relation mutable where its probes judge the rule. */
-const mutability = (c: Case, relations: ReadonlyArray<Parameters<typeof mutable>[0]>) =>
-	c.judged === "probes" ? Arr.map(relations, (r) => mutable(r)) : []
+/** A case's judgement as its schema's statements: every relation open, mutable inside the unit of its package, where its
+ * probes judge the rule. */
+const mutability = (c: Case, relations: ReadonlyArray<Openable<FieldBase>>) =>
+	c.judged === "probes" ? opened(relations) : []
 
 /**
  * Each term's schema: T(package, id, x), U(package, id, g, w) and S(package, w), each keyed by package first; D, the w

@@ -6,7 +6,8 @@ import { compileInstallation, installOptions } from "#compiler/physical/install/
 import { Logic, Num } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { contained, derived, mutable, on, relation, schema } from "#compiler/public/schema.ts"
+import { contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
+import { opened } from "#test/support/open.ts"
 import { owning } from "#test/support/policy.ts"
 
 /** The term D matches the union's g at, of T's x: a sum or a conditional. */
@@ -28,7 +29,7 @@ export type Feature = Case["term"] | `judged by ${Case["judged"]}`
 
 /**
  * The case's schema: T(package, id, x), U(package, id, g, w) and S(package, w), each keyed by package first, immutable
- * unless the case is probed; Low, the union of U's rows of w at most 5 and of w above 9, an import of two rules read
+ * unless the case is probed, open then inside the unit of its package; Low, the union of U's rows of w at most 5 and of w above 9, an import of two rules read
  * whole; D, the w of each Low row of a T row's package whose g is the case's term of the T row's x; and D in S.
  */
 const schemaOf = (c: Case) => {
@@ -38,11 +39,7 @@ const schemaOf = (c: Case) => {
 		"id"
 	])
 	const S = relation("S", { package: pg.integer, w: pg.integer }, ["package", "w"])
-	const Base = schema(
-		"computed_import",
-		[T, U, S],
-		c.judged === "probes" ? [mutable(T), mutable(U), mutable(S)] : []
-	)
+	const Base = schema("computed_import", [T, U, S], c.judged === "probes" ? opened([T, U, S]) : [])
 	const low = query(Base)
 		.rule((r) => {
 			const { package: unit, g, w } = v(U, "u")
