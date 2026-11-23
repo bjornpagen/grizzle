@@ -13,12 +13,13 @@ import type { NodeId } from "#compiler/core/ids.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { CompletedOrder, Heading, NodeOf, RelKind, RelNode } from "#compiler/ir/rel.ts"
 import { withAdmission } from "#compiler/lower/conservative/admission.ts"
-import { statementEvaluations } from "#compiler/lower/conservative/call/index.ts"
+import { parentEvaluations, statementEvaluations } from "#compiler/lower/conservative/call/index.ts"
 import {
 	columnIn,
 	type CteTable,
 	cteAtFirstUse,
 	type Env,
+	type EvaluationLookup,
 	emptyEnv,
 	freshCtes,
 	headingTargets,
@@ -922,6 +923,11 @@ export class OptimizedDelivery<
 	#placed: Array<LoweredPart> = []
 	/** The attachments placed under each parent's rows in the statement being lowered, by those rows, in part order. */
 	#siblings = new Map<DeliveredRows<I>, Array<PlacedAttachment>>()
+	/**
+	 * The evaluations the statement being lowered holds for each parent's rows, once for every attachment under them
+	 * (call/index.ts parentEvaluations), by those rows.
+	 */
+	#parentEvaluations = new Map<DeliveredRows<I>, EvaluationLookup>()
 
 	/** The part `part`, placed at the next position of the statement being lowered, as the runtime reads it. */
 	#place(part: LoweredPart): DeliveredPart {
@@ -1034,10 +1040,12 @@ export class OptimizedDelivery<
 		this.cx.hostStatementEvaluations(statementEvaluations(this.state.log.ctes, this.cx))
 		this.#placed = []
 		this.#siblings = new Map()
+		this.#parentEvaluations = new Map()
 		const roots = place()
 		const placed = this.#placed
 		this.#placed = []
 		this.#siblings = new Map()
+		this.#parentEvaluations = new Map()
 		const log = this.state.drain()
 		const cx = this.cx
 		const supply = cx.supply
@@ -1335,10 +1343,14 @@ export class OptimizedDelivery<
 		rows: DeliveredRows<I>,
 		parentKey: Heading
 	): PipelinedAttachment {
+		const spineNodes = new Set(spine.map((n) => n.id))
+		const evaluations = this.#parentEvaluations.getOrInsertComputed(rows, () =>
+			parentEvaluations(this.state.log.ctes, rows, spineNodes)
+		)
 		const child = this.inAttachment({
-			spine: new Set(spine.map((n) => n.id)),
+			spine: spineNodes,
 			parents: parentsOfRows(rows.bound)
-		})
+		}).withEvaluations(evaluations)
 		return (
 			seededAttachment(child, attach, spine, rows, this.facts, parentKey) ??
 			pipelinedAttachment(child, attach, spine, rows, this.facts, parentKey)

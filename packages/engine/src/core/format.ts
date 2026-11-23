@@ -136,7 +136,10 @@
  * format 7 returned them DISTINCT, so every reader's body moves. A shared join the statement's own values restrict is
  * computed once, a carried part, a MATERIALIZED CTE of a write's statement or of a read's (lower/optimize/cte-policy
  * restrictedByValues, rule 5d; lower/shapes/share/statements.ts sharedOnce), where format 7 restated it at each read of a
- * write and left it NOT MATERIALIZED in a read
+ * write and left it NOT MATERIALIZED in a read. A call an attachment's child reads at its parent's values alone is
+ * evaluated once for each parent key, a MATERIALIZED CTE of the statement every attachment under the parent's rows reads
+ * at its parent's values (lower/conservative/call/index.ts parentEvaluations), where format 7 evaluated it again in each
+ * attachment's child
  */
 export const artifactFormat = 7
 

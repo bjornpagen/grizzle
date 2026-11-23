@@ -286,19 +286,28 @@ interface RegionParts {
 
 /**
  * The calls a region's occurrences read the fields of that it evaluates once for them, by the occurrences that read
- * them: each call over an outer row (no statement holds it: call/index.ts readsOnlyParameters) whose evaluation key
- * two or more occurrences' field reads share, each occurrence by that key. Its evaluation stands in the region's FROM
- * list, LATERAL, before the first of them, once per binding of what it reads, and each of them reads it
+ * them: each call over an outer row (no statement holds it: call/index.ts readsOnlyParameters, and no host around the
+ * region holds it: an attachment's parent rows' evaluations, call/index.ts parentEvaluations) whose evaluation key two
+ * or more occurrences' field reads share, each occurrence by that key. Its evaluation stands in the region's FROM list,
+ * LATERAL, before the first of them, once per binding of what it reads, and each of them reads it
  * (LowerContext.withEvaluations), so a rule that matches several fields of one call calls it once per binding.
  */
-const regionEvaluations = (cx: LowerContext, node: Region): ReadonlyMap<Occurrence, string> => {
-	const keyed = node.occurrences.flatMap((o) =>
-		o.source.kind === "Call" &&
-		o.source.function.kind === "field" &&
-		!readsOnlyParameters(cx, o.source)
-			? [{ occurrence: o, key: cx.evaluationKey(o.source) }]
-			: []
-	)
+const regionEvaluations = (
+	cx: LowerContext,
+	node: Region,
+	env: Env
+): ReadonlyMap<Occurrence, string> => {
+	const keyed = node.occurrences.flatMap((o) => {
+		if (
+			o.source.kind !== "Call" ||
+			o.source.function.kind !== "field" ||
+			readsOnlyParameters(cx, o.source)
+		) {
+			return []
+		}
+		const key = cx.evaluationKey(o.source)
+		return cx.hostedEvaluation(o.source, key, env) === undefined ? [{ occurrence: o, key }] : []
+	})
 	return new Map(
 		keyed.flatMap((k) =>
 			keyed.filter((other) => other.key === k.key).length > 1
@@ -385,7 +394,7 @@ export const regionParts = (
 	const from: Array<PlacedOccurrence> = []
 	const items: Array<FromSource> = []
 	const shared = sharedSources(node)
-	const evaluating = regionEvaluations(cx, node)
+	const evaluating = regionEvaluations(cx, node, env)
 	const keyed: ReadonlyMap<Occurrence, KeyedFold> = folds === undefined ? new Map() : folds(node)
 	/** The attributes of each call's evaluation the region placed, by its evaluation key. */
 	const evaluated = new Map<string, NonEmptyReadonlyArray<Expr>>()

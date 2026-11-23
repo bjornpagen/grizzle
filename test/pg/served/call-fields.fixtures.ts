@@ -184,14 +184,61 @@ export const programsOf = (name: string) => {
 				return r.match(read, { k, v: x }).find({ k, v: x })
 			})
 		)
-	return { level, programs: { alone, pair, either, each, land } }
+	/**
+	 * Each session, its attachments `a` and `c` each reading machine's run at the session's key, the session's items
+	 * and its seed, one field each: one call of machine for every session, which the statement holds for the sessions'
+	 * rows and both attachments read (lower/conservative/call/index.ts parentEvaluations).
+	 */
+	const attached = query(level)
+		.rule((r) => {
+			const { session, seed } = v(Session, "session")
+			return r.match(Session, { session, seed }).find({ session, seed })
+		})
+		.attach(
+			"a",
+			(s) =>
+				query(level).rule((r) => {
+					const read = Fn.row(machine, {
+						items: itemsOf.bind({ session: s.session }),
+						seed: s.seed
+					}).a
+					const { k, v: x } = v(read, "a")
+					return r.match(read, { k, v: x }).find({ k, v: x })
+				}),
+			"array"
+		)
+		.attach(
+			"c",
+			(s) =>
+				query(level).rule((r) => {
+					const read = Fn.row(machine, {
+						items: itemsOf.bind({ session: s.session }),
+						seed: s.seed
+					}).c
+					const { k, v: x } = v(read, "c")
+					return r.match(read, { k, v: x }).find({ k, v: x })
+				}),
+			"array"
+		)
+	/** Each session's rows of one field of machine's run at its key, as `attached`'s attachment of the field reads them. */
+	const eachOf = (field: "a" | "c") =>
+		query(level).rule((r) => {
+			const { session, seed } = v(Session, "session")
+			const read = Fn.row(machine, { items: itemsOf.bind({ session }), seed })[field]
+			const { k, v: x } = v(read, "field")
+			return r.match(Session, { session, seed }).match(read, { k, v: x }).find({ session, k, v: x })
+		})
+	return {
+		level,
+		programs: { alone, pair, either, each, land, attached, eachA: eachOf("a"), eachC: eachOf("c") }
+	}
 }
 
 /** The installation of the case's schema as a template, which every case clones. */
 export const fieldsTemplate: SubstrateTemplate<Generated> = generatedTemplate({
 	declaredIn: import.meta,
 	name: "call_fields",
-	content: { programs: ["alone", "pair", "either", "each", "land"] },
+	content: { programs: ["alone", "pair", "either", "each", "land", "attached", "eachA", "eachC"] },
 	build: (name) => {
 		const { level, programs } = programsOf(name)
 		return { schema: level, logins: [fullWorld(level, programs).server] }
@@ -690,3 +737,45 @@ export const landingOf = (
 		? Result.fail(new CallRefused({ function: "machine", held: "a row holding NULL" }))
 		: Result.succeed({ a, b, c: cc })
 }
+
+/**
+ * A case of `attached` (programsOf): sessions with their seeds and their items, each item's mark drawn as every other
+ * program's, so machine refuses a session's row or field where a mark says.
+ */
+export const attachedCaseGen: Gen<FieldsCase<"each">> = caseOf(["each"] as const)
+
+/** Each session's rows of one field, as texts, sorted, by its session: an `each` program's answer grouped. */
+export const fieldBySession = (
+	rows: ReadonlyArray<unknown>
+): ReadonlyMap<string, ReadonlyArray<string>> => {
+	const out = new Map<string, Array<string>>()
+	for (const r of rows) {
+		if (isRecord(r)) {
+			const { session, ...field } = r
+			out.getOrInsertComputed(String(session), () => []).push(rowText(field))
+		}
+	}
+	return new Map(
+		Arr.map([...out], ([session, texts]) => [session, Arr.sort(texts, Order.String)] as const)
+	)
+}
+
+/** Each session's array of one attachment, as texts, sorted, by its session: `attached`'s answer, one field's. */
+export const attachedBySession = (
+	rows: ReadonlyArray<unknown>,
+	field: "a" | "c"
+): ReadonlyMap<string, ReadonlyArray<string>> =>
+	new Map(
+		Arr.flatMap(rows, (r) => {
+			if (!isRecord(r)) {
+				return []
+			}
+			const children = r[field]
+			const texts = Arr.isArray(children)
+				? Arr.flatMap(children, (child: unknown) =>
+						isRecord(child) ? [rowText(child)] : ["not a row"]
+					)
+				: ["not an array"]
+			return [[String(r["session"]), Arr.sort(texts, Order.String)] as const]
+		})
+	)

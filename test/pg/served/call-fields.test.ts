@@ -26,7 +26,10 @@ import { memberExplains, memberCalls } from "#adapter/db/handles.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import {
 	answeredTexts,
+	attachedBySession,
+	attachedCaseGen,
 	drawnFeatures,
+	fieldBySession,
 	factsOf,
 	type FieldsFeature,
 	type ReadProgram,
@@ -282,3 +285,117 @@ export const aStatementThatReadsSeveralFieldsOfOneCallCallsItOnce = property.exp
 		]
 	}
 )
+
+/** What a case of the attached read reaches: one session, several, or a call machine refuses. */
+type AttachedFeature = "one session" | "several sessions" | "a refused call, every read refused"
+
+const attachedFeatures = [
+	"one session",
+	"several sessions",
+	"a refused call, every read refused"
+] as const satisfies ReadonlyArray<Reached<AttachedFeature>>
+
+/**
+ * A read whose attachments read one call at their parent's key answers what a read of each field over the parents
+ * answers, and plans one call of machine: `attached`, each session with its attachments a and c each reading machine's
+ * run at the session's key, against `eachA` and `eachC`, each session's rows of one field read in a region.
+ */
+export const aReadWhoseAttachmentsReadOneCallAtTheirParentsKeyAnswersWhatEachFieldsReadAnswersInOneCall =
+	property.explore(attachedCaseGen, {
+		needs: Substrate.oneOf({ fields: fieldsTemplate }, Substrate.seat),
+		situations: attachedFeatures,
+		budget: { runs: 16, steered: attachedFeatures.length },
+		check: (templates, notes: Case<AttachedFeature>) => (c) =>
+			Effect.scoped(
+				Effect.gen(function* () {
+					const taken = yield* templates.fields
+					yield* Effect.provideService(
+						Effect.gen(function* () {
+							const installed = taken.value.installed
+							yield* loadMigrated(installed, factsOf(c))
+							const world = worldOf(installed.declared)
+							yield* withServedDb(
+								installed,
+								world.server.roles.app,
+								{},
+								({ ctx: db, loadWithTables }) =>
+									Effect.gen(function* () {
+										const loaded = yield* loadWithTables(programsOf(installed.declared).programs)
+										const input = { params: {}, facts: {} }
+										const run = (name: string) =>
+											Effect.result(readOnce(memberCalls(db, member(loaded.members, name)))(input))
+										const attached = yield* run("attached")
+										const [a, cs] = [yield* run("eachA"), yield* run("eachC")]
+										const explains = memberExplains(
+											db,
+											loaded.tables,
+											member(loaded.members, "attached")
+										)
+										if (explains.kind !== "read") {
+											return assert.fail("a read explains as a read")
+										}
+										if (Result.isFailure(a) || Result.isFailure(cs)) {
+											notes.note("a refused call, every read refused")
+											assert.ok(
+												Result.isFailure(attached),
+												`the attached read of a call machine refuses is refused: ${Formatter.format(attached)}`
+											)
+											return
+										}
+										if (Result.isFailure(attached)) {
+											return assert.fail(
+												`the attached read answers: ${Formatter.format(attached.failure)}`
+											)
+										}
+										notes.note(c.sessions.length > 1 ? "several sessions" : "one session")
+										const plans = yield* explains.explain(input)
+										assert.equal(
+											Arr.reduce(plans, 0, (n: number, p) => n + functionScans(p.plan)) - 2,
+											1,
+											`attached plans one call of machine beside its two fields' unnests: ${Formatter.format(Arr.map(plans, (p) => functionScans(p.plan)))}`
+										)
+										for (const [field, each] of [
+											["a", a.success],
+											["c", cs.success]
+										] as const) {
+											const by = fieldBySession(each)
+											for (const [session, children] of attachedBySession(
+												attached.success,
+												field
+											)) {
+												assert.deepEqual(
+													children,
+													by.get(session) ?? [],
+													`session ${session}'s attachment ${field} holds the rows of ${field} at its key`
+												)
+											}
+										}
+									})
+							)
+						}),
+						Substrate,
+						taken.substrate
+					)
+				})
+			),
+		oracle: {
+			kind: "second-implementation",
+			name: "each field's rows read in a region over the sessions, and PostgreSQL's plan of the attached read"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/lower/shapes/index.ts",
+				original: "\t\t}).withEvaluations(evaluations)\n",
+				replacement: "\t\t})\n",
+				why: "No host holds the attachments' call for the sessions' rows: each attachment's child calls machine again, and the attached read plans two calls."
+			},
+			{
+				file: "packages/engine/src/lower/conservative/call/index.ts",
+				original:
+					"\t\t\t\tconjunction(\n\t\t\t\t\tevaluation.keys.map((k) => cx.equal(k.type, col(at, k.column), valueAt(k.name)))\n\t\t\t\t),\n",
+				replacement: "\t\t\t\tundefined,\n",
+				why: "An attachment reads the evaluation of every session, never at its own parent's key: with two sessions of items each session's attachment holds both sessions' rows."
+			}
+		]
+	})

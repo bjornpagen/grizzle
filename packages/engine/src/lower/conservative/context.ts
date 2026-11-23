@@ -536,12 +536,13 @@ interface EvaluationHost {
 
 /**
  * A host's evaluation of the call a field read `read` reads, of evaluation key `key`, undefined where it holds none
- * (EvaluationHost).
+ * (EvaluationHost), the read standing in `cx` and `env`, which binds the outer values its call reads.
  */
 export type EvaluationLookup = (
 	read: NodeOf<"Call">,
 	key: string,
-	cx: LowerContext
+	cx: LowerContext,
+	env: Env
 ) => HostedEvaluation | undefined
 
 /**
@@ -816,14 +817,14 @@ export class LowerContext {
 	 * The evaluation of the call of evaluation key `key` a query around the scope hosts: the innermost host's that holds
 	 * it, undefined where none does, so the read evaluates the call itself.
 	 */
-	hostedEvaluation(read: NodeOf<"Call">, key: string): HostedEvaluation | undefined {
+	hostedEvaluation(read: NodeOf<"Call">, key: string, env: Env): HostedEvaluation | undefined {
 		for (let host = this.#scope.evaluations; host !== undefined; host = host.outer) {
-			const hosted = host.evaluation(read, key, this)
+			const hosted = host.evaluation(read, key, this, env)
 			if (hosted !== undefined) {
 				return hosted
 			}
 		}
-		return this.#shared.evaluations?.(read, key, this)
+		return this.#shared.evaluations?.(read, key, this, env)
 	}
 
 	/**

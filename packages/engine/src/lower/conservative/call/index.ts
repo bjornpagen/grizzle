@@ -4,10 +4,19 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
+import type { NodeId } from "#compiler/core/ids.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { fieldColumnType, rowTypeOf } from "#compiler/ir/physical.ts"
-import { type CallFunction, type NodeOf, type TextSplit, tokensHeading } from "#compiler/ir/rel.ts"
 import {
+	type CallFunction,
+	type Heading,
+	type NodeOf,
+	type TextSplit,
+	tokensHeading
+} from "#compiler/ir/rel.ts"
+import type { ScalarType } from "#compiler/ir/scalar.ts"
+import {
+	type ColumnMap,
 	columnIn,
 	distinctSelect,
 	type Env,
@@ -17,6 +26,7 @@ import {
 	type Lowerers,
 	type NodeLowerer
 } from "#compiler/lower/conservative/context.ts"
+import type { ParentRows } from "#compiler/lower/conservative/deliver.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { collapsedText } from "#compiler/lower/conservative/expr/ops.ts"
 import type { Cte, Expr, FromSource, OperandSelect, Select } from "#compiler/sql/ast.ts"
@@ -25,6 +35,9 @@ import {
 	call,
 	cast,
 	col,
+	conjunction,
+	cteRefAs,
+	derived,
 	keyedSet,
 	lit,
 	or,
@@ -291,6 +304,141 @@ export const statementEvaluations = (ctes: Set<Cte>, root: LowerContext): Evalua
 }
 
 /**
+ * The evaluations a statement holds once each for the rows of an attachment's parent (lower/shapes/index.ts
+ * pipelinedQuery), its WITH's entries, `ctes`: every call a read of a field reads whose call reads nothing outside it
+ * but columns of the parent's delivered rows, nodes of `spine` (no parameter-only call: the statement holds those), one
+ * MATERIALIZED CTE per evaluation key, the call evaluated once for each distinct value of the columns it reads among the
+ * parent's rows (`parents`' keys):
+ *
+ *   WITH r9(c1, c2, c3) AS MATERIALIZED (SELECT p.c1, e.c2, e.c3 FROM (<the parents' keys>) AS p(c1),
+ *     LATERAL (SELECT ... FROM <level>.<function>(<args at p.c1>) ...) AS e(c2, c3))
+ *
+ * and each read of it, in any attachment under those rows, reads it at its parent's values, which its environment
+ * binds, `LATERAL (SELECT r10.c2, r10.c3 FROM r9 AS r10 WHERE r10.c1 = <the parent's c1>)`. So N attachments of one
+ * parent that read one call at the parent's key, each the same function at the same arguments (edullm's sittingItem and
+ * servedItem, metis's sittingRead and memberRead: qti-pie's sessionStartOf reads the machine's run of a session's start,
+ * Fn.row at the session's key, in each of 44 attachments), call it once per parent row, where each attachment's child
+ * evaluated it again: 44 machine calls, 23 MB of statement.
+ */
+export const parentEvaluations = (
+	ctes: Set<Cte>,
+	parents: ParentRows,
+	spine: ReadonlySet<NodeId>
+): EvaluationLookup => {
+	const held = new Map<string, ParentEvaluation>()
+	return (read, key, cx, env) => {
+		const free = cx.freeRefs(read)
+		if (
+			free.size === 0 ||
+			cx.readsFeedback(read) ||
+			[...free.keys()].some((id) => !spine.has(id))
+		) {
+			return undefined
+		}
+		const readColumns = new Set([...free.values()].flatMap((columns) => [...columns]))
+		const demand = parents.heading.filter((c) => readColumns.has(c.name))
+		const evaluation = held.getOrInsertComputed(key, () =>
+			definedParentEvaluation(read, cx, ctes, parents, demand, spine)
+		)
+		const origin = originOf(read)
+		const at = cx.relationAlias(origin)
+		const columns = evaluation.attributes.map(() => cx.supply.column(origin))
+		const [first, ...rest] = columns
+		if (first === undefined) {
+			throw defect("a call's row, of at least one field")
+		}
+		const valueAt = (name: string): Expr => {
+			for (const [id, named] of free) {
+				const value = named.has(name) ? env.get(id)?.get(name) : undefined
+				if (value !== undefined) {
+					return value
+				}
+			}
+			throw defect(`the parent's column ${name} in the environment of a read of its evaluation`)
+		}
+		const from = cteRefAs(evaluation.name, at)
+		const query = select(
+			keyedSet(
+				evaluation.attributes.map((c) => target(col(at, c))),
+				[from],
+				conjunction(
+					evaluation.keys.map((k) => cx.equal(k.type, col(at, k.column), valueAt(k.name)))
+				),
+				"a call's one row at its parent's values"
+			)
+		)
+		const alias = cx.relationAlias(origin)
+		return {
+			from: [derived(query, alias, columns, true)],
+			attributes: mapNonEmpty([first, ...rest], (c) => col(alias, c))
+		}
+	}
+}
+
+/**
+ * A call's evaluation for each parent key (parentEvaluations): its CTE's name, its parent key columns, each the parent's
+ * column `name` of `type`, and its attributes' columns, one per field of the call's row.
+ */
+interface ParentEvaluation {
+	readonly name: string
+	readonly keys: ReadonlyArray<{
+		readonly name: string
+		readonly type: ScalarType
+		readonly column: string
+	}>
+	readonly attributes: NonEmptyReadonlyArray<string>
+}
+
+/**
+ * The call `read` reads evaluated for each distinct value of the parent's columns `demand` (parentEvaluations), a
+ * MATERIALIZED CTE of `ctes` entered after every entry its body defines: the parents' keys, and the call LATERAL beside
+ * each, its arguments lowered over the key's columns as the parent's.
+ */
+const definedParentEvaluation = (
+	read: NodeOf<"Call">,
+	cx: LowerContext,
+	ctes: Set<Cte>,
+	parents: ParentRows,
+	demand: Heading,
+	spine: ReadonlySet<NodeId>
+): ParentEvaluation => {
+	const origin = originOf(read)
+	const keys = cx.wrap(parents.keys(demand), demand, origin)
+	const keyMap: ColumnMap = keys.map
+	const env: Env = new Map([...spine].map((id) => [id, keyMap]))
+	const width = evaluationWidth(read)
+	const evaluated = Array.from({ length: width }, () => cx.supply.column(origin))
+	const at = cx.relationAlias(origin)
+	const query = select(
+		keyedSet(
+			[
+				...demand.map((c) => target(columnIn(keyMap, c.name))),
+				...evaluated.map((c) => target(col(at, c)))
+			],
+			[keys.item, derived(evaluationQuery(read, cx, env), at, evaluated, true)],
+			undefined,
+			"a call's one row at each of its parents' keys"
+		)
+	)
+	const name = cx.relationAlias(origin)
+	const keyColumns = demand.map(() => cx.supply.column(origin))
+	const [first, ...rest] = Array.from({ length: width }, () => cx.supply.column(origin))
+	if (first === undefined) {
+		throw defect("a call's row, of at least one field")
+	}
+	ctes.add({ name, columns: [...keyColumns, first, ...rest], materialized: "MATERIALIZED", query })
+	return {
+		name,
+		keys: demand.map((c, i) => ({
+			name: c.name,
+			type: c.type,
+			column: defined(keyColumns[i], "a parent key column of the evaluation")
+		})),
+		attributes: [first, ...rest]
+	}
+}
+
+/**
  * A call's evaluation as a MATERIALIZED CTE of `ctes` (evaluationQuery), its body lowered in `cx`, entered after every
  * entry its body defines: its name and columns, one per attribute of the call's row.
  */
@@ -336,7 +484,7 @@ const lowerField = (
 	cx: LowerContext,
 	env: Env
 ): OperandSelect => {
-	const hosted = cx.hostedEvaluation(node, cx.evaluationKey(node))
+	const hosted = cx.hostedEvaluation(node, cx.evaluationKey(node), env)
 	const evaluated =
 		hosted === undefined ? ownEvaluation(node, called, cx, env) : { ...hosted, where: [] }
 	const array = defined(
