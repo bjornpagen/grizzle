@@ -51,7 +51,6 @@ import {
 	cUtf8Collation,
 	derived,
 	desc,
-	distinctCore,
 	eq,
 	exists,
 	gt,
@@ -64,7 +63,6 @@ import {
 	or,
 	provedSelect,
 	qualifiedCall,
-	select,
 	simpleSelect,
 	targetAs,
 	types,
@@ -523,7 +521,14 @@ const instanceOf = (head: Cte, cte: string, inner: string): Cte => {
  * the function the judge's statements read the delta through, its rows' one SELECT, no count of a side of news among
  * them, which the part nets before any statement reads the delta (`netted`):
  *
- *   RETURN QUERY SELECT DISTINCT r1.<column>, ... FROM pg_temp.<delta> AS r1
+ *   RETURN QUERY SELECT r1.<column>, ... FROM pg_temp.<delta> AS r1
+ *
+ * It deduplicates nothing. A side of news holds each image once once it is netted (`netted` keeps one row of each image
+ * it keeps), and images are distinct rows; a side of olds may hold one row twice (a row found, put back and found
+ * again), and the statement reads every Delta node as the DISTINCT of the fields it delivers
+ * (lower/conservative/delta/index.ts lowerDelta), which takes those alike. A DISTINCT here sorted or hashed the delta's
+ * every column, toasted text among them, once for each statement that read the delta: 378 times, 9.75 million rows,
+ * 118.6 s of a 540-item package's COMMIT at f87b2aaab.
  *
  * A plan of a statement that reads the delta through it depends on the function, never on the table, so a TRUNCATE
  * the judge empties the table with once it has outgrown its page (`emptied`), a new file of the table and an
@@ -575,15 +580,13 @@ export const addReaders = (
 						body: [
 							{
 								kind: "returnQuery",
-								query: select(
-									distinctCore(
-										mapNonEmpty(delta.columns, (c) => ({
-											expr: col("r1", c.name),
-											alias: undefined
-										})),
-										[{ kind: "table", table: sessionTable(delta.name), alias: "r1" }],
-										undefined
-									)
+								query: simpleSelect(
+									mapNonEmpty(delta.columns, (c) => ({
+										expr: col("r1", c.name),
+										alias: undefined
+									})),
+									[{ kind: "table", table: sessionTable(delta.name), alias: "r1" }],
+									undefined
 								)
 							}
 						]

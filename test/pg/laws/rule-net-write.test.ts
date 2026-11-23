@@ -9,14 +9,15 @@
  * - **netWrite**: a schedule of direct SQL transactions at SERIALIZABLE, each of writes over two packages, two starts
  *   and two names (puts, removals, updates of the governor the rules read, of the note none reads and of the key,
  *   references, declarations, and deletes of a package that a direct writer's foreign key cascades into A), with the
- *   judge run inside a transaction that then writes on. At each judge and at each transaction's end every rule's whole
- *   check, its violation query lowered by the oracle baseline (deploy/snapshot/violation.ts baselineRuleChecks),
- *   judges the state first: the judge refuses exactly when one finds the state broken, under 23503 naming a rule it
- *   finds broken, and the transaction commits otherwise; and each rule's check over every row, the judge of the
- *   transaction that writes every row, which the migration that adds the rule runs (lawChecks), finds a row exactly
- *   when its whole check does. That is the verdict the judge gave when its probes
- *   read every row they judged again from its table, so the two judges agree wherever either agrees with the whole
- *   check. Each situation of the net write is required, a constructed case aiming at each.
+ *   judge run inside a transaction that then writes on. At each judge and at each transaction's end A's side of news,
+ *   netted as a part nets it and read through its reader, which deduplicates nothing, holds no row twice; and every
+ *   rule's whole check, its violation query lowered by the oracle baseline (deploy/snapshot/violation.ts
+ *   baselineRuleChecks), judges the state first: the judge refuses exactly when one finds the state broken, under 23503
+ *   naming a rule it finds broken, and the transaction commits otherwise; and each rule's check over every row, the
+ *   judge of the transaction that writes every row, which the migration that adds the rule runs (lawChecks), finds a
+ *   row exactly when its whole check does. That is the verdict the judge gave when its probes read every row they
+ *   judged again from its table, so the two judges agree wherever either agrees with the whole check. Each situation of
+ *   the net write is required, a constructed case aiming at each.
  * - **indexTie**: a database with no statistics, or analyzed, holding thousands of attributes of one package, name and
  *   governor, beside one row a transaction puts there: every probe of the facts that row adds reads the same rows
  *   whether a few thousand or twice as many share its (governor, name, package). Read from its table at its key, the
@@ -59,6 +60,12 @@ export const aRuleOverAQueryJudgesTheTransactionsNetWriteAsTheRulesWholeCheckJud
 		},
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/physical/ddl/deltas.ts",
+				original: '\t\t\t\t\t\tgt(col("r3", "c3"), lit.int(1, types.bigint))',
+				replacement: '\t\t\t\t\t\tgt(col("r3", "c3"), lit.int(2, types.bigint))',
+				why: "The judge's netting keeps two rows of an image a transaction put, removed and put again, so its side of news holds the image twice, and its reader, which deduplicates nothing, returns it twice to every statement that reads it."
+			},
 			{
 				file: "packages/engine/src/physical/ddl/deltas.ts",
 				original: '\t\t\t\t\t\tle(col("r3", "c2"), lit.int(0, types.bigint)),',

@@ -2184,12 +2184,14 @@ export type PlStatement =
 	  }
 	| {
 			/**
-			 * RETURN QUERY <query>: the query's rows appended to a set-returning function's result, in its order. Only a
-			 * retirement returns rows (physical/ddl/retire.ts): its deletes and its headers' state, one statement whose
-			 * data-modifying CTEs the query counts.
+			 * RETURN QUERY <query>: the query's rows appended to a set-returning function's result, in its order, each
+			 * as often as the query delivers it. A retirement returns its deletes and its headers' state, one statement
+			 * whose data-modifying CTEs the query counts (physical/ddl/retire.ts); a rule judge's delta reader returns
+			 * the delta's rows as they stand, which every statement that reads them takes as a Delta node's DISTINCT of
+			 * the fields it delivers (physical/ddl/deltas.ts addReaders).
 			 */
 			readonly kind: "returnQuery"
-			readonly query: Select
+			readonly query: OperandSelect
 	  }
 	| {
 			/**

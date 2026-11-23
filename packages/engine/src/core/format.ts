@@ -131,7 +131,9 @@
  * through a query CTE that holds its met rows whole, is read as the row met (program/isolation/extract.ts callRow,
  * namedIn), where format 7 read each as a read of one group per own row and as an outside read of its relation, so a
  * role that reads by a claim, or beside a SERIALIZABLE inserter of what it reads, may certify READ COMMITTED where
- * format 7 left it SERIALIZABLE: its served level, its relations' guards and its login's fences move
+ * format 7 left it SERIALIZABLE: its served level, its relations' guards and its login's fences move. A rule judge's
+ * delta reader returns its delta's rows as they stand, deduplicating nothing (physical/ddl/deltas.ts addReaders), where
+ * format 7 returned them DISTINCT, so every reader's body moves
  */
 export const artifactFormat = 7
 

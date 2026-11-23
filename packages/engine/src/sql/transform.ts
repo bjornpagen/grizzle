@@ -1148,7 +1148,7 @@ export class Transform {
 				return statement === s.statement ? s : { ...s, statement }
 			}
 			case "returnQuery": {
-				const query = this.setQuery(s.query)
+				const query = this.select(s.query)
 				return query === s.query ? s : { ...s, query }
 			}
 			case "createSessionTable": {

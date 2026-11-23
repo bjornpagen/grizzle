@@ -7,7 +7,7 @@ import { Array as Arr, Data, Effect, Formatter, Option, String as Str } from "ef
 import { rowsRead } from "#bench/harness/explain.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import { quoteIdent } from "#compiler/core/text.ts"
+import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import { baselineRuleChecks, lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import { countColumn } from "#compiler/physical/ddl/deltas.ts"
@@ -23,6 +23,7 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import {
 	foundQueryOf,
+	judgeBodiesOf,
 	judgedPlans,
 	readersOf,
 	type JudgedStatement,
@@ -165,6 +166,84 @@ const newsProbesOfA = (installation: Installation): ReadonlyArray<JudgedStatemen
 		Arr.some(readers, ([reader]) => Str.includes(`.${quoteIdent(reader)}()`)(plannedQueryOf(probe)))
 	)
 }
+
+/**
+ * A's side of news as the judge's statements read it: the delta A's capture creates with a count of each image, the
+ * part's netting of it, the DELETE whose WHERE reads the counts' sums (physical/ddl/deltas.ts netted), and its reader.
+ */
+const newsOfA = (installation: Installation) => {
+	const news = defined(
+		Arr.findFirst(deltasIn(bodyOf(installation, identifierOf(identity.ruleCapture("A")))), (d) =>
+			Arr.contains(d.columns, countColumn)
+		).pipe(Option.getOrUndefined),
+		"A's side of news"
+	)
+	const readerName = defined(
+		Arr.findFirst([...readersOf(installation)], ([, delta]) => delta === news.name).pipe(
+			Option.getOrUndefined
+		),
+		"the reader of A's side of news"
+	)[0]
+	const reader = defined(
+		Arr.findFirst(
+			installation.statements,
+			(s) => s.kind === "createFunction" && s.name.name === readerName
+		).pipe(
+			Option.flatMap((s) => (s.kind === "createFunction" ? Option.some(s.name) : Option.none())),
+			Option.getOrUndefined
+		),
+		"the reader's function"
+	)
+	const nettings = (body: ReadonlyArray<PlStatement>): ReadonlyArray<string> =>
+		Arr.flatMap(body, (s) =>
+			s.kind === "modify" &&
+			s.statement.kind === "delete" &&
+			typeof s.statement.table !== "string" &&
+			s.statement.table.name === news.name &&
+			s.statement.where !== undefined
+				? [printStatement(s.statement)]
+				: s.kind === "if"
+					? [...Arr.flatMap(s.branches, (b) => nettings(b.body)), ...nettings(s.else)]
+					: []
+		)
+	const [netting, ...others] = nettings(judgeBodiesOf(installation))
+	assert.ok(
+		netting !== undefined && others.length === 0,
+		"the judge nets A's side of news by one statement"
+	)
+	return {
+		delta: news.name,
+		reader: `${quoteIdent(reader.schema)}.${quoteIdent(reader.name)}`,
+		netting: defined(netting, "A's netting")
+	}
+}
+
+/**
+ * That the side of news the judge reads holds each image once (`newsOfA`): its rows netted, as a part nets them before
+ * any statement reads them, then read through its reader, which deduplicates nothing, as every judged statement reads
+ * them, hold no row twice. A delta the session has not stood up holds none.
+ */
+const newsOnce = (installed: Installed, session: RawSession, where: string) =>
+	Effect.gen(function* () {
+		const news = newsOfA(installed.installation)
+		const stands = yield* session.values(
+			`SELECT pg_catalog.to_regclass(${quoteString(`pg_temp.${quoteIdent(news.delta)}`)}) IS NOT NULL`,
+			[]
+		)
+		if (stands[0]?.[0] !== true) {
+			return
+		}
+		yield* session.query(news.netting, [])
+		const read = yield* session.values(
+			`SELECT count(*)::int, count(DISTINCT r.*)::int FROM ${news.reader}() AS r`,
+			[]
+		)
+		if (read[0]?.[0] !== read[0]?.[1]) {
+			return yield* new Disagreed({
+				message: `A's side of news read ${String(read[0]?.[0])} rows after its netting, ${String(read[0]?.[1])} of them distinct, ${where}`
+			})
+		}
+	})
 
 /** One write of a transaction, as drawn, over two packages of one document, at two starts and two names. */
 export type Op =
@@ -678,6 +757,7 @@ export const runSchedule = (
 			let judgedOnce = false
 			for (const op of ops) {
 				if (op.kind === "judge") {
+					yield* newsOnce(installed, session, where)
 					if (yield* judged(installed, session, where)) {
 						c.note("refused by a rule")
 						yield* session.rollback
@@ -699,6 +779,7 @@ export const runSchedule = (
 			if (ended) {
 				continue
 			}
+			yield* newsOnce(installed, session, where)
 			if (yield* judged(installed, session, where)) {
 				c.note("refused by a rule")
 				yield* session.rollback
