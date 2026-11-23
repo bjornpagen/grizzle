@@ -10,26 +10,41 @@
  *   reach by a search of its own, the definitions read directly.
  * - Depth: a chain of any depth, past what a small stack's recursion holds, open or closed into one component, walks.
  *   Oracle: the chain's own construction.
+ * - Dominators: over drawn DAGs of a few vertices (repeated inputs, a root another vertex reads, vertices no root
+ *   reaches), immediateDominators gives each vertex the roots reach the vertex nearest it that every path from a root to
+ *   it passes through, none for a root. Oracle: the definition read directly, a search from the roots that never enters
+ *   a candidate missing the vertex, for every candidate.
  * - postorder's properties are the relational DAG's traversals (test/unit/ir/dag.test.ts), which read it.
  *
  * Features: a cycle of several vertices, a self loop, an edge into a component already closed, a root already entered,
- * a vertex no root reaches; a chain a recursion holds and one past it, open and closed.
+ * a vertex no root reaches; a vertex of several readers, a root another vertex reads, a vertex no vertex dominates but a
+ * root, a chain of two dominators; a chain a recursion holds and one past it, open and closed.
  */
 
-import { stronglyConnected } from "@bjornpagen/grizzle-text/base/graph"
+import {
+	immediateDominators,
+	postorder,
+	stronglyConnected
+} from "@bjornpagen/grizzle-text/base/graph"
 import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { boolean } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Effect } from "effect"
+import { Array as Arr, Effect } from "effect"
 import {
 	type Chain,
 	type ChainWalkFeature,
 	chainComponents,
+	type DominatorFeature,
+	dagGen,
+	dominatorFeatures,
 	expectedComponents,
+	expectedDominators,
 	type GraphFeature,
 	graphFeatures,
 	graphGen,
+	inputsOf,
+	readersIn,
 	successorsOf,
 	walked
 } from "#test/unit/core/graph.fixtures.ts"
@@ -143,3 +158,57 @@ export const aChainOfAnyDepthPastWhatASmallStacksRecursionHoldsWalksOpenOrClosed
 			]
 		}
 	)
+
+/**
+ * immediateDominators gives each vertex the roots reach the vertex nearest it that every path from a root to it passes
+ * through, and none for a root, which a path meets directly whatever reads it.
+ */
+export const immediateDominatorsGivesEachVertexTheNearestVertexEveryPathFromARootToItPassesThrough =
+	property.explore(dagGen, {
+		needs: {},
+		situations: [
+			"a vertex of several readers",
+			"a root another vertex reads",
+			"a vertex no vertex dominates but a root",
+			"a chain of two dominators"
+		] satisfies ReadonlyArray<Reached<DominatorFeature>>,
+		check: (_, c: Case<DominatorFeature>) => (dag) =>
+			Effect.sync(() => {
+				const order = postorder(dag.roots, inputsOf(dag))
+				const readers = readersIn(dag, order)
+				const expected = expectedDominators(dag)
+				for (const feature of dominatorFeatures(dag, readers, expected)) {
+					c.note(feature)
+				}
+				const dominator = immediateDominators(order, readers, (v) => dag.roots.includes(v))
+				const actual: ReadonlyMap<number, number | undefined> = new Map(
+					Arr.map(order, (v) => [v, dominator(v)] as const)
+				)
+				assert.deepEqual(actual, expected, "each reached vertex's immediate dominator")
+			}),
+		oracle: {
+			kind: "second-implementation",
+			name: "the definition read directly: a search from the roots that never enters a candidate misses the vertex"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/text/src/base/graph.ts",
+				original: "\t\tconst [first, ...rest] = isRoot(vertex) ? [] : readers(vertex)\n",
+				replacement: "\t\tconst [first, ...rest] = readers(vertex)\n",
+				why: "A root another vertex reads is dominated by where its readers meet, though a path meets it directly; its dominator, and those of the vertices only it reaches, differ."
+			},
+			{
+				file: "packages/text/src/base/graph.ts",
+				original: "\t\tconst at = first === undefined ? undefined : rest.reduce(meet, first)\n",
+				replacement: "\t\tconst at = first\n",
+				why: "A vertex of several readers takes its first reader for its dominator, where the paths through the others pass it by; the dominators differ."
+			},
+			{
+				file: "packages/text/src/base/graph.ts",
+				original: "\t\tdepth.set(vertex, at === undefined ? 0 : depthOf(at) + 1)\n",
+				replacement: "\t\tdepth.set(vertex, 0)\n",
+				why: "Every chain is of one depth, so a meet walks both chains up together and passes where they meet when one is longer; the dominators differ."
+			}
+		]
+	})

@@ -1,4 +1,5 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { immediateDominators } from "@bjornpagen/grizzle-text/base/graph"
 import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { localCertificate } from "#compiler/ir/certificate.ts"
@@ -263,28 +264,39 @@ interface Held {
 /**
  * The columns of `cell` every reader keeps at one value per evaluation (`keptRows`) that its own rows do not already
  * hold there, each read by the variable an enclosing region is correlated to that value by, of the outermost such
- * region whose subtree holds every reader, the region of the unit's own step, whose correlated values every node inside
- * it reads in scope, where an inner region's own correlated column is no outer value of a CTE held inside it
- * (cte-policy holdingRegion holds the node's CTE in that region's SELECT, once per unit), a variable no occurrence of
- * that region binds, so no source inside the region reads what its own occurrence binds (a restriction this pass made
- * binds every column of its node and is correlated too); none where no column is so kept, or no enclosing region is
- * correlated to its value, which the restriction could read in no scope.
+ * region on the cell's chain of dominators (grizzle-text base/graph.ts immediateDominators), which every path from a
+ * root to every reader passes through, the region of the unit's own step, whose correlated values every node inside it
+ * reads in scope, where an inner region's own correlated column is no outer value of a CTE held inside it (cte-policy
+ * holdingRegion holds the node's CTE in that region's SELECT, once per unit), a variable no occurrence of that region
+ * binds, so no source inside the region reads what its own occurrence binds (a restriction this pass made binds every
+ * column of its node and is correlated too); none where no column is so kept, or no enclosing region is correlated to
+ * its value, which the restriction could read in no scope. A region whose subtree holds every reader without
+ * dominating them all is none: a reader shared with another region's subtree, an import two steps read at one key, is
+ * spelled outside it too, where the restriction's correlation named a column of no node in scope (edullm's result
+ * installation with imports of one Description identity made one node: a whole rule's step read through its channel's
+ * slot, n478.__unit0).
  */
 const heldOf = (
 	cell: Cell,
 	order: ReadonlyArray<Cell>,
 	readers: (cell: Cell) => ReadonlyArray<Cell>,
+	isRoot: (cell: Cell) => boolean,
 	values: Values,
 	kept: (cell: Cell) => Kept
 ): ReadonlyArray<Held> => {
 	const byId = new Map(order.map((c) => [c.id, c] as const))
 	const rs = [...new Set(readers(cell))]
-	const enclosing = order.filter((c) => {
-		const below = DagEditor.subtree(c)
-		return c.current.kind === "MatchRegion" && !rs.includes(c) && rs.every((r) => below.has(r))
-	})
+	const dominator = immediateDominators(order, readers, isRoot)
+	/** The regions dominating every reader, none of them a reader, innermost first; read outermost first. */
+	const enclosing: Array<Cell> = []
+	for (let at = dominator(cell); at !== undefined; at = dominator(at)) {
+		if (at.current.kind === "MatchRegion" && !rs.includes(at)) {
+			enclosing.push(at)
+		}
+	}
 	const readAt = (value: Outer): Outer | undefined =>
 		enclosing
+			.toReversed()
 			.flatMap((c) => {
 				const region = c.current
 				return region.kind !== "MatchRegion"
@@ -298,15 +310,10 @@ const heldOf = (
 								return []
 							}
 							const at = { node: c.id, column: k.var.name }
-							return sameOuter(values.canonical(at), value)
-								? [{ at, size: DagEditor.subtree(c).size }]
-								: []
+							return sameOuter(values.canonical(at), value) ? [at] : []
 						})
 			})
-			.reduce<{ readonly at: Outer; readonly size: number } | undefined>(
-				(most, x) => (most === undefined || x.size > most.size ? x : most),
-				undefined
-			)?.at
+			.at(0)
 	const held = kept(cell)
 	return cell.current.heading.flatMap((column) => {
 		const value = (held.get(column.name) ?? []).find(
@@ -365,7 +372,8 @@ const sharedPushRule: Rule = {
 			const ed = cx.editor
 			const values = valuesOf(physical, state.order)
 			const kept = keptRows(state.order, readers, values, isRoot)
-			const held = (c: Cell): ReadonlyArray<Held> => heldOf(c, state.order, readers, values, kept)
+			const held = (c: Cell): ReadonlyArray<Held> =>
+				heldOf(c, state.order, readers, isRoot, values, kept)
 			const pushable = (c: Cell): boolean =>
 				restrictable(c, state, readers, isRoot) && held(c).length > 0
 			const own = held(cell)

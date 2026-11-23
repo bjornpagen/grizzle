@@ -2,7 +2,7 @@
 
 import { defined } from "@bjornpagen/testing/assert"
 import { array, type Gen, int } from "@bjornpagen/testing/gen"
-import { Array as Arr, Order } from "effect"
+import { Array as Arr, Option, Order } from "effect"
 
 /** A graph of a few vertices, `0` to `size - 1`, each with its successors in order, and the roots a walk starts from. */
 export interface DrawnGraph {
@@ -167,4 +167,130 @@ export const chainComponents = (chain: Chain): ReadonlyArray<Arr.NonEmptyReadonl
 	return chain.closed && Arr.isReadonlyArrayNonEmpty(backwards)
 		? [backwards]
 		: Arr.map(backwards, (v) => Arr.of(v))
+}
+
+/**
+ * A directed acyclic graph of a few vertices, `0` to `size - 1`, each with its inputs, every one of a higher number, in
+ * order, and the roots a path starts from, any of them, a root another vertex reads included.
+ */
+export interface DrawnDag {
+	readonly size: number
+	readonly inputs: ReadonlyArray<ReadonlyArray<number>>
+	readonly roots: ReadonlyArray<number>
+}
+
+/**
+ * A DAG of up to seven vertices, each with up to three inputs drawn among the vertices numbered above it (a repeated
+ * input included), and one to three roots among them: few enough that a vertex of several readers, a root read by
+ * another vertex and a vertex the paths to which meet at no vertex are each common.
+ */
+export const dagGen: Gen<DrawnDag> = (source) => {
+	const size = source.draw(int(1, 7))
+	return {
+		size,
+		inputs: Array.from({ length: size }, (_, v) =>
+			v === size - 1 ? [] : source.draw(array(int(v + 1, size - 1), { min: 0, max: 3 }))
+		),
+		roots: source.draw(array(int(0, size - 1), { min: 1, max: 3 }))
+	}
+}
+
+/** A vertex's inputs in a drawn DAG, every vertex of which has its list. */
+export const inputsOf =
+	(dag: DrawnDag) =>
+	(v: number): ReadonlyArray<number> =>
+		defined(dag.inputs[v], `vertex ${v} of a DAG of ${dag.size}`)
+
+/** Each vertex `order` holds and its readers among them, one for each input position that names it. */
+export const readersIn = (
+	dag: DrawnDag,
+	order: ReadonlyArray<number>
+): ((v: number) => ReadonlyArray<number>) => {
+	const readers = new Map<number, Array<number>>()
+	for (const v of order) {
+		for (const input of inputsOf(dag)(v)) {
+			readers.getOrInsertComputed(input, () => []).push(v)
+		}
+	}
+	return (v) => readers.get(v) ?? []
+}
+
+export type DominatorFeature =
+	| "a vertex of several readers"
+	| "a root another vertex reads"
+	| "a vertex no vertex dominates but a root"
+	| "a chain of two dominators"
+
+/**
+ * The vertices a search from the roots meets without passing `without`, by the definition: every root but `without`,
+ * and every input of a vertex met but `without`.
+ */
+const reachedWithout = (dag: DrawnDag, without: number | undefined): ReadonlySet<number> => {
+	const met = new Set<number>()
+	const pending = Arr.filter(dag.roots, (r) => r !== without)
+	for (let v = pending.pop(); v !== undefined; v = pending.pop()) {
+		if (met.has(v)) {
+			continue
+		}
+		met.add(v)
+		for (const input of inputsOf(dag)(v)) {
+			if (input !== without) {
+				pending.push(input)
+			}
+		}
+	}
+	return met
+}
+
+/**
+ * Each vertex the roots reach and its immediate dominator, by the definitions read directly: `d` dominates `v` when no
+ * path from a root meets `v` without passing `d`, so a search from the roots that never enters `d` misses `v`; a root
+ * is met directly, by no vertex dominated; the immediate dominator is the strict dominator whose own strict dominators
+ * are the others.
+ */
+export const expectedDominators = (dag: DrawnDag): ReadonlyMap<number, number | undefined> => {
+	const reached = reachedWithout(dag, undefined)
+	const strict = new Map<number, ReadonlySet<number>>(
+		Arr.map([...reached], (v) => [
+			v,
+			new Set(Arr.filter([...reached], (d) => d !== v && !reachedWithout(dag, d).has(v)))
+		])
+	)
+	const strictOf = (v: number): ReadonlySet<number> =>
+		defined(strict.get(v), `vertex ${v}, reached`)
+	return new Map(
+		Arr.map([...reached], (v) => {
+			const ds = strictOf(v)
+			const nearest = Arr.findFirst([...ds], (d) => strictOf(d).size === ds.size - 1)
+			return [v, Option.getOrUndefined(nearest)] as const
+		})
+	)
+}
+
+/** The situations a DAG and its dominators reach. */
+export const dominatorFeatures = (
+	dag: DrawnDag,
+	readers: (v: number) => ReadonlyArray<number>,
+	dominators: ReadonlyMap<number, number | undefined>
+): ReadonlyArray<DominatorFeature> => {
+	const reached = [...dominators.keys()]
+	const features: Array<DominatorFeature> = []
+	if (Arr.some(reached, (v) => new Set(readers(v)).size > 1)) {
+		features.push("a vertex of several readers")
+	}
+	if (Arr.some(dag.roots, (r) => readers(r).length > 0)) {
+		features.push("a root another vertex reads")
+	}
+	if (Arr.some(reached, (v) => !dag.roots.includes(v) && dominators.get(v) === undefined)) {
+		features.push("a vertex no vertex dominates but a root")
+	}
+	if (
+		Arr.some(reached, (v) => {
+			const d = dominators.get(v)
+			return d !== undefined && dominators.get(d) !== undefined
+		})
+	) {
+		features.push("a chain of two dominators")
+	}
+	return features
 }

@@ -60,6 +60,51 @@ export const dependencyOrder = <A>(
 }
 
 /**
+ * Each vertex's immediate dominator in a directed acyclic graph: the vertex nearest it that every path from a root to it
+ * passes through, none for a root, which a path reaches directly whatever else reads it, nor for a vertex the paths to
+ * which meet at no vertex. `order` lists the vertices each after every vertex it has an edge to (postorder's order, every
+ * vertex after its inputs), `readers` each vertex's predecessors, the vertices with an edge to it, and `isRoot` the
+ * vertices the paths start at. Worked out once, readers before the vertices they read: a vertex's immediate dominator is
+ * where the chains of its readers, each reader on its own chain, meet (Cooper, Harvey and Kennedy's intersection, one
+ * pass over a topological order), each meet walking up the deeper chain first.
+ */
+export const immediateDominators = <V>(
+	order: ReadonlyArray<V>,
+	readers: (vertex: V) => ReadonlyArray<V>,
+	isRoot: (vertex: V) => boolean
+): ((vertex: V) => V | undefined) => {
+	const dominator = new Map<V, V | undefined>()
+	const depth = new Map<V, number>()
+	const depthOf = (vertex: V): number =>
+		defined(depth.get(vertex), "a reader's depth, worked out before the vertices it reads")
+	const meet = (a: V | undefined, b: V | undefined): V | undefined => {
+		let x = a
+		let y = b
+		while (x !== y) {
+			if (x === undefined || y === undefined) {
+				return undefined
+			}
+			const dx = depthOf(x)
+			const dy = depthOf(y)
+			if (dx >= dy) {
+				x = dominator.get(x)
+			}
+			if (dy >= dx) {
+				y = dominator.get(y)
+			}
+		}
+		return x
+	}
+	for (const vertex of order.toReversed()) {
+		const [first, ...rest] = isRoot(vertex) ? [] : readers(vertex)
+		const at = first === undefined ? undefined : rest.reduce(meet, first)
+		dominator.set(vertex, at)
+		depth.set(vertex, at === undefined ? 0 : depthOf(at) + 1)
+	}
+	return (vertex) => dominator.get(vertex)
+}
+
+/**
  * A vertex on Tarjan's walk: its successors and how many it has walked, its discovery index, its low link, which the
  * walk lowers, and its depth on the walk's stack of open vertices, where its component starts if it is its root.
  */

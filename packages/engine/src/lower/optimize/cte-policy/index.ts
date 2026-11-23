@@ -1,4 +1,4 @@
-import { postorder } from "@bjornpagen/grizzle-text/base/graph"
+import { immediateDominators, postorder } from "@bjornpagen/grizzle-text/base/graph"
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { analyzeDemand, noPins } from "#compiler/analysis/demand/demand.ts"
@@ -713,7 +713,7 @@ const ctePlan = (dag: ValidDag, reads: CteSubject): ReadonlyArray<Decided> => {
 	const feedback = feedbackReadsOf(nodeGraph, d.order)
 	const perRow = reads === "query" ? readPerRow(d.order) : new Set<RelNode>()
 	const perKey = reads === "query" ? perKeyReads(d.order) : new Map<RelNode, number>()
-	const regionOf = holdingRegion(d.order, (node) => scopes.of(node).outer)
+	const regionOf = holdingRegion(d.order, new Set(dag.roots), (node) => scopes.of(node).outer)
 	const decided: Array<Decided> = []
 	for (const node of d.order) {
 		const references = d.references(node)
@@ -808,11 +808,12 @@ export const filteredRegion = (node: RelNode): NodeOf<"MatchRegion"> | undefined
  * share sees them; inlined at each read, a chain of such definitions multiplied the statement at every level, and a
  * chain of unions by their rules at every level. None for any other node, which stays inlined (rule 3).
  *
- * The dominators are worked out once, readers before their inputs: each node's immediate dominator is where the
- * chains of its readers meet, a root's none.
+ * The dominators are worked out once (grizzle-text base/graph.ts immediateDominators), over the DAG's roots `roots`, each
+ * reached directly whatever reads it too.
  */
 const holdingRegion = (
 	order: ReadonlyArray<RelNode>,
+	roots: ReadonlySet<RelNode>,
 	outer: (node: RelNode) => OuterRefs
 ): ((node: RelNode, references: number) => NodeOf<"MatchRegion"> | undefined) => {
 	const readers = new Map<RelNode, Array<RelNode>>()
@@ -821,34 +822,11 @@ const holdingRegion = (
 			readers.getOrInsertComputed(input, () => []).push(n)
 		}
 	}
-	const dominator = new Map<RelNode, RelNode | undefined>()
-	const depth = new Map<RelNode, number>()
-	const depthOf = (n: RelNode): number =>
-		defined(depth.get(n), "a reader's depth, worked out first")
-	const meet = (a: RelNode | undefined, b: RelNode | undefined): RelNode | undefined => {
-		let x = a
-		let y = b
-		while (x !== y) {
-			if (x === undefined || y === undefined) {
-				return undefined
-			}
-			const dx = depthOf(x)
-			const dy = depthOf(y)
-			if (dx >= dy) {
-				x = dominator.get(x)
-			}
-			if (dy >= dx) {
-				y = dominator.get(y)
-			}
-		}
-		return x
-	}
-	for (const n of order.toReversed()) {
-		const [first, ...rest] = readers.get(n) ?? []
-		const at = first === undefined ? undefined : rest.reduce(meet, first)
-		dominator.set(n, at)
-		depth.set(n, at === undefined ? 0 : depthOf(at) + 1)
-	}
+	const dominator = immediateDominators(
+		order,
+		(n) => readers.get(n) ?? [],
+		(n) => roots.has(n)
+	)
 	/** Whether `at`'s SELECT, holding `region`'s CTEs, sees every value of `read`. */
 	const sees = (at: RelNode, region: NodeOf<"MatchRegion">, read: OuterRefs): boolean => {
 		const around = outer(at)
@@ -876,7 +854,7 @@ const holdingRegion = (
 		}
 		const read = outer(node)
 		let held: NodeOf<"MatchRegion"> | undefined
-		for (let at = dominator.get(node); at !== undefined; at = dominator.get(at)) {
+		for (let at = dominator(node); at !== undefined; at = dominator(at)) {
 			const region = filteredRegion(at)
 			if (region === undefined) {
 				continue

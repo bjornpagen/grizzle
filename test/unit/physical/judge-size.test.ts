@@ -138,7 +138,7 @@ export const aWholeRulesStatementOverReadsOfAUnionReadsEachOfItsRulesOnceHowever
 				why: "A node the rules of a union read is placed in no region, inlined at each read (rule 3, as before), so a chain of unions spells the level below in each rule above it, and four deep reads Node sixteen times; the property fails."
 			},
 			{
-				file: "packages/engine/src/lower/optimize/cte-policy/index.ts",
+				file: "packages/text/src/base/graph.ts",
 				original: "\t\tconst at = first === undefined ? undefined : rest.reduce(meet, first)\n",
 				replacement: "\t\tconst at = rest.length === 0 ? first : undefined\n",
 				why: "A node several readers read is dominated by none of them, as though its readers met only above every root, so the node the rules of a union read is held in no region and inlined at each read, and a chain of unions three deep reads Node eight times; the property fails."
