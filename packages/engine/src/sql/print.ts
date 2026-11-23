@@ -1736,12 +1736,27 @@ const distinctValue = (d: DeclaredDistinct): string => {
 }
 
 /**
- * A table's declared statistics as the DO block that installs them: for each column, PERFORM
- * pg_catalog.pg_clear_attribute_stats, so no statistic an earlier ANALYZE sampled stands beside the declaration, then
- * IF NOT pg_catalog.pg_restore_attribute_stats(...) THEN RAISE: a restore answers false, with a WARNING, for an argument
- * it cannot use rather than failing (attribute_stats.c), so the block fails instead, naming the table and column.
+ * A table's declared statistics as the DO block that installs them (declaredStatisticsSteps), its schema named by its
+ * literal.
  */
-const declaredStatisticsBlock = (d: DeclareStatistics): PlBlock => {
+const declaredStatisticsBlock = (d: DeclareStatistics): PlBlock => ({
+	declare: [],
+	body: declaredStatisticsSteps(d, lit.text(d.table.schema, types.text))
+})
+
+/**
+ * A table's declared statistics as the PL/pgSQL steps that restore them, `schema` the expression of its schema's name:
+ * the table's own literal, or, for a session's temporary table a definer's function makes, the name of the session's
+ * temporary schema (pg_catalog.pg_my_temp_schema()). For each column, PERFORM pg_catalog.pg_clear_attribute_stats, so no
+ * statistic an earlier ANALYZE sampled stands beside the declaration, then IF NOT
+ * pg_catalog.pg_restore_attribute_stats(...) THEN RAISE: a restore answers false, with a WARNING, for an argument it
+ * cannot use rather than failing (attribute_stats.c), so the steps fail instead, naming the table and column. A restore
+ * needs the table's owner or MAINTAIN on it, which a definer holds over the temporary table it makes.
+ */
+export const declaredStatisticsSteps = (
+	d: DeclareStatistics,
+	schema: Expr
+): NonEmptyReadonlyArray<PlStatement> => {
 	const text = (v: string): Expr => lit.text(v, types.text)
 	const [first, ...rest] = d.columns
 	const steps = (c: (typeof d.columns)[number]): NonEmptyReadonlyArray<PlStatement> => [
@@ -1752,7 +1767,7 @@ const declaredStatisticsBlock = (d: DeclareStatistics): PlBlock => {
 					[
 						{
 							expr: qualifiedCall("pg_catalog", "pg_clear_attribute_stats", [
-								text(d.table.schema),
+								schema,
 								text(d.table.name),
 								text(c.column),
 								lit.bool(false)
@@ -1775,7 +1790,7 @@ const declaredStatisticsBlock = (d: DeclareStatistics): PlBlock => {
 					condition: not(
 						qualifiedCall("pg_catalog", "pg_restore_attribute_stats", [
 							text("schemaname"),
-							text(d.table.schema),
+							schema,
 							text("relname"),
 							text(d.table.name),
 							text("attname"),
@@ -1796,7 +1811,7 @@ const declaredStatisticsBlock = (d: DeclareStatistics): PlBlock => {
 							message: "a declared statistic was not restored",
 							using: [
 								{ option: "ERRCODE", value: text("internal_error") },
-								{ option: "SCHEMA", value: text(d.table.schema) },
+								{ option: "SCHEMA", value: schema },
 								{ option: "TABLE", value: text(d.table.name) },
 								{ option: "COLUMN", value: text(c.column) }
 							]
@@ -1807,7 +1822,7 @@ const declaredStatisticsBlock = (d: DeclareStatistics): PlBlock => {
 			else: []
 		}
 	]
-	return { declare: [], body: extendNonEmpty(steps(first), rest.flatMap(steps)) }
+	return extendNonEmpty(steps(first), rest.flatMap(steps))
 }
 
 const carrierStandUp = (carrier: CreateCarrier): PlBlock => ({
