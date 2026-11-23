@@ -5075,8 +5075,8 @@ grizzle decided them:
   `unreported`: a refusal at COMMIT, by a foreign key or a rule over a query of the level above, or a row grizzle
   cannot judge. Only `every` carries `refused.laws`.
 
-**Witness**: `{ kind: "key", relation, values }`, the key of one row that breaks the rule and never another column, or
-`{ kind: "unreported" }`. Every insert, a family's members and a tree's nodes included, checks each key and unique of its
+**Witness**: `{ kind: "key", relation, values }`, the key of one row that breaks the rule and never another column,
+`{ kind: "unreported" }` or `{ kind: "unreproduced" }`. Every insert, a family's members and a tree's nodes included, checks each key and unique of its
 table in the statement that writes the rows: a declared key, a key over a side, a family's (owner, index) and a tree's
 (root, start), against the stored rows and between the rows the statement writes. That is one index lookup per row and
 key beside PostgreSQL's own check, the same cost on every insert. So a key (over a table or a side of one) that a row you
@@ -5085,8 +5085,20 @@ finding, witnessed by that row's values at the key's fields, an index or a start
 generated field at the value PostgreSQL computes. A row check, contract, pattern or generated field is refused by
 PostgreSQL, which states the row only in its message, never read by grizzle: grizzle judges on the host the rows your
 ChangeSet states for the refused statement (an inserted or put row, a query entry's row, a nested member) as the write
-fills them, and the witness is the key of the first that breaks the rule. Either key is in the fields you wrote it in. The
-witness is `unreported` for a foreign key, and where no row you stated breaks the rule: a row only PostgreSQL computes,
+fills them, and the witness is the key of the first that breaks the rule. Either key is in the fields you wrote it in.
+A foreign key grizzle installs deferred, such as a family's predecessor key, which PostgreSQL checks at COMMIT, refuses
+the write once every statement ran, and PostgreSQL states the row only in its message. Only
+then does grizzle send a second flight: the write's statements again, then that key's query for the least row, by its
+primary key, that it leaves matching nothing, in a transaction that ends in ROLLBACK. The witness is that row's
+primary key. The second flight is a write like the first, with the same admission, taking the same locks in the same
+order, and it leaves nothing: no row, no drawn value, nothing a live query sees. A write that commits sends nothing
+more. Where another write committed between the two flights and left no such row, the witness is
+`{ kind: "unreproduced" }`, never a guess. grizzle sends the second flight only for a key on a table the write changes,
+where your role writes that table and the key's target through whole entries. Otherwise the witness is `unreported`.
+That covers a query or scoped entry, as PostgreSQL itself states the key to no role that cannot read it, and a key a
+delete from its target breaks on a table the write leaves alone. A drawn key, such as an instant from the database clock, is the one the
+second flight drew. The witness is `unreported` for a foreign key PostgreSQL checks at the statement, and where no
+row you stated breaks the rule: a row only PostgreSQL computes,
 a query's, a rule reading a value the host does not hold or over what the host does not evaluate, or a row whose key
 PostgreSQL draws. A family member you put is such a row: its running values are PostgreSQL's, folded again in the
 write's own statement from the stored members before it, and its counts and ends stay as stored, so grizzle holds none

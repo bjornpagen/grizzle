@@ -186,7 +186,8 @@ export {
 	type Raisable,
 	raisableOf,
 	roleArtifacts,
-	type SchemaArtifacts
+	type SchemaArtifacts,
+	unmatchedOf
 } from "#compiler/program/schema.ts"
 export {
 	type BuiltSchema,

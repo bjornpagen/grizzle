@@ -1249,19 +1249,20 @@ export const keysCase = (taken: SubstrateCase<Generated>, k: Case, c: PropertyCa
 					)
 				}
 				const witness = outcome.witness
-				if (witness.kind === "unreported") {
+				if (witness.kind !== "key") {
 					assert.ok(
 						met.value.violators.length === 0 ||
 							(met.value.law === laws.entryKey && nestedClash(k, met.value)),
 						`a refusal by ${met.value.law}, whose violators the write names, reports its key`
 					)
 				} else {
+					const named = [...met.value.violators, ...met.value.unmatched]
 					assert.ok(
 						Arr.some(
-							met.value.violators,
+							named,
 							(x) => x.relation === witness.relation && sameValues(witness.values, x.values)
 						),
-						`the witness ${Formatter.format(witness)} names a fact breaking ${met.value.law} by its key, one of ${Formatter.format(met.value.violators)}`
+						`the witness ${Formatter.format(witness)} names a fact breaking ${met.value.law} by its key, one of ${Formatter.format(named)}`
 					)
 				}
 				for (const note of refusalNotes(k, laws, before, [met.value])) {

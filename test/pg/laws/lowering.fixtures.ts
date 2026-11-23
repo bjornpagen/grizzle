@@ -1406,6 +1406,13 @@ export const loweringCase = (pair: Pair) => (lc: LoweringCase, c: Case<Feature>)
 						message: `${shape}: the triggers' installation ${verdictText(verdict, oracleLaws)}, where the facts break the keys ${Formatter.format(Arr.map(broken, (k) => k.law))}: ${Formatter.format(facts)}`
 					})
 				}
+				/** The source rows the write leaves, one of which a refusal by the rule at COMMIT may name. */
+				const sources = [...sqlAfter(state, servedOps(facts)).S.keys()]
+				/** Whether a refusal by the rule names no key, or the key of a source row the write leaves. */
+				const ruleWitnessed = (witness: Witness): boolean =>
+					witness.kind !== "key" ||
+					(witness.relation === "S" &&
+						Arr.some(sources, (sid) => deepEquals<unknown>(witness.values, { sid })))
 				for (const [order, low] of pair.lows) {
 					const outcome = yield* low.write(facts)
 					if (verdict.kind === "committed" && outcome.kind === "accepted") {
@@ -1416,7 +1423,7 @@ export const loweringCase = (pair: Pair) => (lc: LoweringCase, c: Case<Feature>)
 						outcome.kind !== "refused" ||
 						!Arr.isReadonlyArrayNonEmpty(outcome.laws) ||
 						!Arr.every(outcome.laws, breaks) ||
-						(outcome.laws.includes(rule) && outcome.witness.kind !== "unreported")
+						(outcome.laws.includes(rule) && !ruleWitnessed(outcome.witness))
 					) {
 						return yield* new Disagreed({
 							message: `${shape}, installed ${order}: grizzle's served write answered ${Formatter.format(outcome)}, where the triggers' installation ${verdictText(verdict, oracleLaws)}: ${Formatter.format(facts)}`

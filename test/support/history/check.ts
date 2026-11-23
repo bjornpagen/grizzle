@@ -202,7 +202,14 @@ const departure = (r: Recorded, expected: Expected): string | undefined => {
 	 */
 	const named = violation.violators.length > 0 && r.kind !== "direct"
 	if (!named) {
-		return o.keys.length === 0 ? undefined : `a witness that names no key carries ${show(o.keys)}`
+		/** A grizzle writer's refusal at COMMIT by a deferred containment may name a fact it leaves unmatched. */
+		const unmatched = r.kind === "direct" ? [] : violation.unmatched
+		const stray = Arr.filter(
+			o.keys,
+			(key) =>
+				!Arr.some(unmatched, (v) => v.relation === key.relation && sameValues(key.values, v.values))
+		)
+		return stray.length === 0 ? undefined : `a witness that names no key carries ${show(stray)}`
 	}
 	if (o.keys.length === 0) {
 		return "a witness that names its violators carries no key"

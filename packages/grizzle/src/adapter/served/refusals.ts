@@ -10,7 +10,8 @@ import {
 	type ParamDecl,
 	type Raisable,
 	type SchemaArtifacts,
-	type StoredRelationName
+	type StoredRelationName,
+	unmatchedOf
 } from "#compiler/plan/common.ts"
 import type { ServedKeyLaws, ServedRefusals } from "#compiler/plan/serve.ts"
 
@@ -115,7 +116,8 @@ export const refusalsOf = (
 				([target, entry]) => [target, entryKeyOf(entry)] as const
 			)
 		),
-		params: paramDomainsOf(params)
+		params: paramDomainsOf(params),
+		unmatched: raisable.unmatched
 	}
 }
 
@@ -136,6 +138,7 @@ export const installationRefusals = (
 			constraintLaws: artifacts.constraintLaws,
 			theoryLaws: artifacts.theoryLaws,
 			relations: [...artifacts.derived.schema.relations.values()],
+			unmatched: unmatchedOf(artifacts, () => true),
 			rosters: new Set(artifacts.names.codes.rosters.keys()),
 			generatedEntries: artifacts.laws.owned.declared.generated
 		},

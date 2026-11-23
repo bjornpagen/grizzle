@@ -51,7 +51,7 @@ export interface Violations {
  * - key: a violating key of the law, which host normalization and the insert protocol's own rows state;
  * - keyOrUnreported: a violating key, or none, a native violation of a candidate or projected key outside the insert
  *   protocol's own rows;
- * - unreported: none, a foreign key's or a domain's, whose violation PostgreSQL reports only in prose.
+ * - unreported: none, an immediate foreign key's or a domain's, whose violation PostgreSQL reports only in prose.
  */
 export type AcceptableRefusal =
 	| { readonly kind: "key"; readonly violations: Violations }
@@ -348,12 +348,15 @@ const unreportedBy = (
 ): ReadonlyArray<readonly [LawId, AcceptableRefusal]> =>
 	Arr.map(laws, (law) => [law, { kind: "unreported" }])
 
-/** The laws of `containments` a state breaks: a contained tuple naming no target fact. */
-const brokenForeignKeys = (
+/**
+ * The laws of `containments` a state breaks, each with its violations: the facts of its source whose contained tuple
+ * names no target fact, by their primary key.
+ */
+const brokenContainments = (
 	ctx: ExpectContext,
 	containments: ReadonlyArray<WContainment>,
 	state: OracleState
-): ReadonlyArray<LawId> =>
+): ReadonlyArray<readonly [LawId, Violations]> =>
 	Arr.flatMap(containments, (c) => {
 		const source = relationIn(ctx.group, c.from.relation)
 		const target = relationIn(ctx.group, c.to.relation)
@@ -362,13 +365,31 @@ const brokenForeignKeys = (
 				keyOf(target, c.to.fields, f)
 			)
 		)
-		return Arr.some(
+		const violators = Arr.filter(
 			[...entryOf(state.relations, source.name, "the state's relations").values()],
 			(f) => !present.has(keyOf(source, c.from.fields, f))
 		)
-			? [ctx.laws.containment(source.name, c.from.fields)]
+		return Arr.isReadonlyArrayNonEmpty(violators)
+			? [
+					[
+						ctx.laws.containment(source.name, c.from.fields),
+						{
+							relation: source.name,
+							fields: source.primaryKey,
+							keys: new Set(Arr.map(violators, (f) => keyOf(source, source.primaryKey, f))),
+							violators
+						}
+					] as const
+				]
 			: []
 	})
+
+/** The laws of `containments` a state breaks (brokenContainments). */
+const brokenForeignKeys = (
+	ctx: ExpectContext,
+	containments: ReadonlyArray<WContainment>,
+	state: OracleState
+): ReadonlyArray<LawId> => Arr.map(brokenContainments(ctx, containments, state), ([law]) => law)
 
 /** A stratum of a ChangeSet whose writes the keys order in a cycle: its place among the strata, and its order. */
 export interface CyclicStratum {
@@ -424,9 +445,11 @@ export const unorderableStrata = (group: WGroup, c: WChangeSet): ReadonlyArray<C
  *    a stratum orders its statements so that a lawful transition never breaks one between them (write/frontend
  *    schedule.ts): it is judged at the end of each stratum, like a key.
  * 3. When every stratum keeps those, the group's deferred foreign keys are judged against the final state: a contained
- *    tuple with no target fact is refused at COMMIT with that law.
+ *    tuple with no target fact is refused at COMMIT with that law, witnessed by the primary key of a fact whose tuple
+ *    names none, which the shell reads by the key's witness query (write/unmatched.ts) where PostgreSQL states it
+ *    only in its message, the writer reading every relation whole.
  *
- * A foreign key's witness carries no key, because PostgreSQL reports the key only in its message. A refusal may name
+ * An immediate foreign key's witness carries no key, because PostgreSQL reports the key only in its message. A refusal may name
  * any law the realization can meet first, because which statement fails first is a scheduling choice left to the
  * compiler: every key law and immediate foreign key the first refused stratum breaks. Laws are accepted exactly when
  * every violation query evaluated by brute force is empty where it is judged.
@@ -567,9 +590,11 @@ const expectUnder = (ctx: ExpectContext, facts: WFacts, c: WChangeSet): Expected
 		return walked.expected
 	}
 	const applied = walked.outcome
-	const deferred = brokenForeignKeys(ctx, ctx.group.containments, applied.state)
+	const deferred = brokenContainments(ctx, ctx.group.containments, applied.state)
 	if (deferred.length > 0) {
-		return rejected(unreportedBy(deferred))
+		return rejected(
+			Arr.map(deferred, ([law, violations]) => [law, { kind: "key", violations }] as const)
+		)
 	}
 	return { kind: "applied", outcome: applied, initial }
 }

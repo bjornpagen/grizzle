@@ -293,6 +293,13 @@ export interface Violation {
 	readonly immediate: boolean
 	/** The facts a witness may name; empty for a foreign key's violation, whose witness carries no key. */
 	readonly violators: ReadonlyArray<Violator>
+	/**
+	 * A deferred containment's or coverage's source facts its target leaves unmatched, by the source's primary key: the
+	 * rows its refusal at COMMIT may be witnessed by, which the diagnosis flight reads where the role writes the source
+	 * and the target whole and the write changes the source (README "Errors and outcomes", Witness), or none of them;
+	 * empty for every other law.
+	 */
+	readonly unmatched: ReadonlyArray<Violator>
 }
 
 /**
@@ -536,6 +543,23 @@ export const violatorsOf = (
 }
 
 /**
+ * The violating facts `bad` of a deferred containment or coverage, by their source's primary key (Violation
+ * `unmatched`); none of any other law.
+ */
+const unmatchedOf = (
+	law: HostLaw,
+	bad: ReadonlyArray<HostFact>,
+	schema: HostSchema
+): ReadonlyArray<Violator> => {
+	if ((law.kind !== "contained" && law.kind !== "covered") || isImmediate(schema, law)) {
+		return []
+	}
+	const source = law.source.relation
+	const key = relationOf(schema, source).key
+	return Arr.map(bad, (f) => ({ relation: source, values: valuesAt(f, key) }))
+}
+
+/**
  * The facts of `facts` another of them shares its values at `fields` with, in their order: a key law's violators, as
  * colliding pairs name them (collide), each fact's key read once.
  */
@@ -564,7 +588,8 @@ const violationOf = (
 			: Option.some({
 					law: law.law,
 					immediate: isImmediate(schema, law),
-					violators: violatorsOf(law, bad, schema)
+					violators: violatorsOf(law, bad, schema),
+					unmatched: unmatchedOf(law, bad, schema)
 				})
 	switch (law.kind) {
 		case "key": {
@@ -673,7 +698,13 @@ const byLaw = (found: ReadonlyArray<Violation>): ReadonlyArray<Violation> => {
 		const prior = merged.get(v.law)
 		merged.set(
 			v.law,
-			prior === undefined ? v : { ...prior, violators: Arr.appendAll(prior.violators, v.violators) }
+			prior === undefined
+				? v
+				: {
+						...prior,
+						violators: Arr.appendAll(prior.violators, v.violators),
+						unmatched: Arr.appendAll(prior.unmatched, v.unmatched)
+					}
 		)
 	}
 	return [...merged.values()]
@@ -708,8 +739,9 @@ const byLaw = (found: ReadonlyArray<Violation>): ReadonlyArray<Violation> => {
  * key, a span key, a row check, a containment into a target it references whole, isImmediate) is refused with one of
  * the immediate laws violated, raised at its statement before any deferred law; otherwise a
  * violation of any other law is refused with one of the violated laws; otherwise it is accepted, or no-change when S'
- * is S. A key's or a span key's refusal names the violating facts by the law's own fields (witnessOf); every other
- * native violation, whose key PostgreSQL reports only in prose, carries none.
+ * is S. A key's or a span key's refusal names the violating facts by the law's own fields (witnessOf); a deferred
+ * containment's or coverage's, refused at COMMIT, may name a source fact it leaves unmatched by its primary key
+ * (Violation `unmatched`); every other native violation, whose key PostgreSQL reports only in prose, carries none.
  *
  * Every law's violation query over `state`.
  */

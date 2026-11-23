@@ -1,4 +1,4 @@
-import { assert, unorderedEqual } from "@bjornpagen/testing/assert"
+import { assert, deepEquals, unorderedEqual } from "@bjornpagen/testing/assert"
 import { type Real, refused, runProgram, took } from "@bjornpagen/testing/commands"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
@@ -33,6 +33,7 @@ import {
 	pages,
 	type Params,
 	partialOf,
+	partialRows,
 	Place,
 	placementRow,
 	programGen,
@@ -393,6 +394,24 @@ export const deletingAGroupWholeAndReplacingItOnPostgreSQL19EveryChangeSetStores
 																: Arr.some(named, among),
 															`${label}: refused by ${Formatter.format(named)}, none of ${Formatter.format([...allowed])}`
 														)
+														if (verdict.refusal === "a crossing group left partial") {
+															const rows = partialRows(before, w)
+															const candidates = [
+																...(named.includes(crossingLaws.asm) ? rows.asm : []),
+																...(named.includes(crossingLaws.inst) ? rows.inst : [])
+															]
+															const witness = outcome.witness
+															assert.ok(
+																witness.kind === "key" &&
+																	Arr.some(
+																		candidates,
+																		(r) =>
+																			r.relation === witness.relation &&
+																			deepEquals<unknown>(witness.values, r.values)
+																	),
+																`${label}: the witness ${Formatter.format(witness)} is the key of a row its deletes leave in a partial group, of ${Formatter.format(candidates)}`
+															)
+														}
 													}
 													yield* storesExactly(before, `the refused ${label}`)
 													if (verdict.refusal === "a crossing group left partial") {
@@ -558,6 +577,13 @@ export const deletingAGroupWholeAndReplacingItOnPostgreSQL19EveryChangeSetStores
 				original: '\t\t\treturn act.names === "units" ? "units" : "delete"',
 				replacement: '\t\t\treturn "delete"',
 				why: "A unit delete's facts join the deletions of rows, so normalization nets a unit's root the stratum inserts again out of them (D EXCEPT A): the unit statement is bound with no unit, nothing nested under the root is removed, and the replace meets the stored instance at its key, refused where it is accepted (9149ad6a9, which this property's crossing writes found at TEST_SEED=4248619513)."
+			},
+			{
+				file: "packages/grizzle/src/adapter/apply/run.ts",
+				original:
+					"\t\t\t\treturn Effect.succeed(detail === undefined ? unreproduced : unmatchedKey(unmatched, detail))",
+				replacement: "\t\t\t\treturn Effect.succeed(unreproduced)",
+				why: "The diagnosis of a refusal at COMMIT reads no row: a crossing group a test's or an assembly's delete leaves partial, which the family's deferred predecessor or last key refuses at COMMIT, is refused with an unreproduced witness, as though another commit had changed the state, where the write's statements sent again leave the row that key leaves unmatched, whose key is the witness."
 			}
 		]
 	})

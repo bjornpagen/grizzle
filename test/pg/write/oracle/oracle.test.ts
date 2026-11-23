@@ -110,6 +110,19 @@ export const writeOracle = property.explore(perturbedRunGen, {
 			original: "\t\t\tconst found = pending.find((q) => waiting(q.match).length === 0)",
 			replacement: "\t\t\tconst found = pending.find((q) => waiting(q.match).length === (-1))",
 			why: "Operator mutant (bound) at packages/engine/src/check/checker.ts:2568 in <module>: `0` becomes `(-1)`; the property fails (lane CATCH, grizzle 0baff5d6, against the mutation tester's oracle subset scripts/dev/mutate/oracle/writes.test.ts, which this property replaces)."
+		},
+		{
+			file: "packages/grizzle/src/adapter/apply/run.ts",
+			original:
+				"\t\t\t\treturn Effect.succeed(detail === undefined ? unreproduced : unmatchedKey(unmatched, detail))",
+			replacement: "\t\t\t\treturn Effect.succeed(unreproduced)",
+			why: "The diagnosis of a refusal at COMMIT reads no row: a deferred containment the final state breaks is refused at COMMIT with an unreproduced witness, where the expectation is the primary key of a source fact naming no target fact."
+		},
+		{
+			file: "packages/engine/src/write/unmatched.ts",
+			original: "\t\t\t\t\tunmatched\n",
+			replacement: "\t\t\t\t\tlit.bool(true)\n",
+			why: "A deferred foreign key's witness query names the least row of its table whatever it references: a deferred containment's refusal at COMMIT is witnessed by the least source fact, one naming a target fact where the source holds such a fact below every unmatched one, where the expectation is a source fact naming none."
 		}
 	]
 })

@@ -7,8 +7,21 @@ import {
 } from "#adapter/witness/classify.ts"
 import { type KeyLaws, keyLawsOf, type LawsAbove } from "#adapter/witness/keylaw.ts"
 import type { KeyHost, KeyWitness } from "#compiler/plan/change.ts"
-import type { Codebook, EntryName, StoredRelationName } from "#compiler/plan/common.ts"
-import { type EntryKey, entryKey, keyWitness, witnessDecoder } from "#compiler/plan/runtime.ts"
+import type {
+	Codebook,
+	EmittedText,
+	EntryName,
+	OutputText,
+	StoredRelationName
+} from "#compiler/plan/common.ts"
+import {
+	type EntryKey,
+	entryKey,
+	keyWitness,
+	readLawDetail,
+	sqlstates,
+	witnessDecoder
+} from "#compiler/plan/runtime.ts"
 import type { ServedParamDomain, ServedRefusals } from "#compiler/plan/serve.ts"
 
 /**
@@ -44,6 +57,18 @@ export interface InstallationWitness {
 	 * physical/ddl/domains.ts paramDomainsOf), so the runtime reaches no install code for them.
 	 */
 	readonly declaring: (domains: ReadonlyMap<string, ServedParamDomain>) => InstallationWitness
+	/**
+	 * The witness query of the deferred foreign key a COMMIT's refusal reports by its structured fields, its constraint
+	 * on its table in one of the installation's schemas (write/unmatched.ts), with how the one row it answers decodes to
+	 * the key it names; none for any other refusal, or a key the role's writes cannot raise.
+	 */
+	readonly unmatched: (failure: ServerError) => Unmatched | undefined
+}
+
+/** A deferred foreign key's witness query, and the key of the row it answers, its DETAIL text decoded. */
+export interface Unmatched {
+	readonly sql: EmittedText
+	readonly key: (detail: OutputText) => KeyWitness | undefined
 }
 
 /**
@@ -84,6 +109,32 @@ export const servedWitness = (
 		codes
 	})
 	const stored = new Set(refusals.relations.keys())
+	/** Each witness query by its constraint under its table, as a refusal reports the two. */
+	const queries = new Map(
+		Array.from(refusals.unmatched, (q) => [`${q.owner}\u0000${q.constraint}`, q] as const)
+	)
+	const unmatched = (failure: ServerError): Unmatched | undefined => {
+		if (
+			failure.sqlstate !== sqlstates.foreignKeyViolation ||
+			failure.schema === undefined ||
+			!laws.schemas.has(failure.schema) ||
+			failure.table === undefined ||
+			failure.constraint === undefined
+		) {
+			return undefined
+		}
+		const query = queries.get(`${failure.table}\u0000${failure.constraint}`)
+		if (query === undefined) {
+			return undefined
+		}
+		return {
+			sql: query.sql,
+			key: (detail) => {
+				const read = readLawDetail(detail)
+				return read.kind === "law" ? decoder.fromRefusal(read.relation, read.key) : undefined
+			}
+		}
+	}
 	const entries = new Map(
 		Array.from(refusals.entries.values(), (e): readonly [string, EntryName] => [e.entry, e.entry])
 	)
@@ -92,7 +143,8 @@ export const servedWitness = (
 		laws,
 		classify: violationClassifier(laws, decoder, { stored, entries, params }),
 		domain: domainRefusal(laws, params),
-		declaring: (domains) => reading(new Map([...params, ...domains]))
+		declaring: (domains) => reading(new Map([...params, ...domains])),
+		unmatched
 	})
 	return reading(refusals.params)
 }

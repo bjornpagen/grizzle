@@ -17,8 +17,9 @@
  *   a refusal is at the same moment with the same SQLSTATE, its constraint mapped through each installation's own
  *   constraint map to the same law. A write grizzle serves on the lowered installation, a ChangeSet of inserts and
  *   deletes, is accepted exactly when the same facts written by SQL commit on the oracle, and a refusal names the law
- *   the oracle's refusal names, the rule's witnessed `unreported`, as the triggers' COMMIT is. After every case each
- *   table holds the same rows on both.
+ *   the oracle's refusal names, the rule's witnessed `unreported` or by the key of a source row the state it leaves
+ *   holds, which the lowered rule's deferred foreign key's witness query names at COMMIT where the triggers' COMMIT
+ *   names none. After every case each table holds the same rows on both.
  * - **A duplicate names its key, by itself:** a statement the lowered installation refuses with 23505 writes a row
  *   that repeats an earlier row on a declared key, and the refusal names that key's law, never the rule's, whichever
  *   index PostgreSQL refused it on: PostgreSQL inserts a row's index entries in the order of their indexes' OIDs, and a

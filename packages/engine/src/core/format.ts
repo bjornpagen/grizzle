@@ -252,11 +252,15 @@
  * MATERIALIZED CTE the LATERAL filtered.
  * Each capture's branch and each part stands its session tables up in one read of pg_catalog.pg_class
  * (physical/ddl/rules.ts standing, sql/print.ts sessionTablesStanding), where format 8 asked whether each table stood
- * and whether it was the definer's own in two statements of its own, so every capture function's and part's body moves
+ * and whether it was the definer's own in two statements of its own, so every capture function's and part's body moves.
  * An existence test whose right side the statement's values restrict, a filter at a parameter or a literal among them
  * (lower/optimize/cte-policy restrictedByValues), stays in a bare test, derived once
  * (lower/conservative/semi-join/exists.ts readPerLeftRow), where format 8 read it per left row and counted a filter at
  * a value no restriction.
+ * A served role's refusals hold the witness query of each deferred foreign key its writes meet whose table and target it
+ * reads whole (served/forms.ts ServedRefusals `unmatched`, write/unmatched.ts), which the shell runs after a COMMIT that
+ * key refused, so the refusal names the key of a row the write leaves unmatched, or `unreproduced` where none is left
+ * (adapter/apply/run.ts unmatchedWitness), where format 8 left every refusal at COMMIT unreported.
  */
 export const artifactFormat = 8
 

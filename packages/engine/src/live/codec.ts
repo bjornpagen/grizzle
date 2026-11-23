@@ -772,7 +772,7 @@ const encodeWitness = (
 	options: WireOptions
 ): WireJson => {
 	const kind = ownMember(value, "kind")
-	if (kind === "unreported") {
+	if (kind === "unreported" || kind === "unreproduced") {
 		return { kind }
 	}
 	const relation = ownMember(value, "relation")
@@ -795,8 +795,9 @@ const decodeWitness = (
 	options: WireOptions
 ): Witness => {
 	const record = trustedRecord(json)
-	if (trustedMember(record, "kind") === "unreported") {
-		return { kind: "unreported" }
+	const kind = trustedMember(record, "kind")
+	if (kind === "unreported" || kind === "unreproduced") {
+		return { kind }
 	}
 	const relation = trustedString(trustedMember(record, "relation"))
 	const w = witnessOf(witness, relation)

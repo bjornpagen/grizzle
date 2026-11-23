@@ -857,7 +857,7 @@ export const judgeRefused = (
 		Arr.some(stated, ([relation, key]) => relation === b.relation && deepEquals(key, b.key))
 	)
 	const witness = outcome.witness
-	if (witness.kind === "unreported") {
+	if (witness.kind !== "key") {
 		const unread =
 			s.kind === "ordered" && Arr.every(statedBroken, (b) => b.relation === s.owner.name)
 				? Arr.dedupeWith(

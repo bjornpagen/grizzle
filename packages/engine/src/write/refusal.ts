@@ -223,6 +223,10 @@ const detailExpr = (
 	return concat(parts)
 }
 
+/** A law refusal's DETAIL, `k["<relation>",["<field>",...],["<text>",...]]`: the fact of `relation` at `key`. */
+export const lawKeyDetail = (relation: string, key: ReadonlyArray<RefusedValue>): Expr =>
+	detailExpr(keyTag, [relation], key)
+
 /** The delivered type a breach arm raises as its constraint field: no constraint name, a type the attachment delivers. */
 type BreachDelivered = Extract<ArmRefusal, { readonly kind: "breach" }>["delivered"]
 
@@ -254,7 +258,7 @@ export const raised = (
 			return {
 				state: sqlstates.integrityConstraintViolation,
 				constraint: { kind: "constraint", name: refusal.law },
-				detail: detailExpr(keyTag, [refusal.relation], refusal.key)
+				detail: lawKeyDetail(refusal.relation, refusal.key)
 			}
 		case "change":
 			return {

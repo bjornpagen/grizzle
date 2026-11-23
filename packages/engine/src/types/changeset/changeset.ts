@@ -2009,11 +2009,17 @@ export type KeyHost =
  * What a law's refusal names: the violating fact's key, or why it names none.
  *
  * - `key`: one violating fact's relation and its key values, never a payload column. A write statement's refusal names
- *   the key you submitted, in the fields you wrote it in, a collision with a fact outside the written entry included.
+ *   the key you submitted, in the fields you wrote it in, a collision with a fact outside the written entry included. A
+ *   deferred foreign key's refusal at COMMIT names the primary key of the least row it leaves unmatched, which the
+ *   write's statements sent again in a transaction that rolls back leave (README "Errors and outcomes", Witness).
  * - `unreported`: every law is a native constraint, and a violation PostgreSQL raised itself states its key only in
  *   its message, which the runtime neither forwards nor parses: where the host finds no row the ChangeSet states that
  *   breaks it, or cannot tell which of several did, as two family owners the write inserts without reading them, either
- *   of which may be a stored one inserted again.
+ *   of which may be a stored one inserted again; and a deferred foreign key's refusal at COMMIT on a table the write
+ *   does not change, or one the role reads, or whose target it reads, through a query or scoped entry alone.
+ * - `unreproduced`: a deferred foreign key refused the write at COMMIT, and the write's statements sent again in a
+ *   transaction that rolls back left no row that key leaves unmatched: another transaction's commit changed the state
+ *   between the two, so the key the refusal met is gone, and none is guessed.
  */
 export type Witness =
 	| {
@@ -2022,6 +2028,7 @@ export type Witness =
 			readonly values: Readonly<Record<string, KeyHost>>
 	  }
 	| { readonly kind: "unreported" }
+	| { readonly kind: "unreproduced" }
 
 /**
  * Which laws an `invariant-rejected` outcome names, each with its identity and the object that refused it (RefusedLaw),

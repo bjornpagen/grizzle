@@ -62,6 +62,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 export type OutcomeWitness =
 	| { readonly kind: "key"; readonly relation: string; readonly values: Fact }
 	| { readonly kind: "unreported" }
+	| { readonly kind: "unreproduced" }
 
 /**
  * Which laws a refusal names (BrokenLaws, changeset.ts), each read back to its LawId: every law named broken, or the
@@ -369,19 +370,22 @@ const loggedSession = (session: Session, log: Array<Flight>): Session => ({
 		const ends = last?._tag === "control" && last.control.kind === "end" ? last.control.end : "kept"
 		const statements = Arr.filter(pipeline, (q) => q._tag !== "control").length
 		let refused = false
+		let commitRefused = false
 		let committed = false
 		session.send(
 			pipeline,
 			(index, answer) => {
+				const atCommit = index === pipeline.length - 1 && ends === "COMMIT"
 				if (answer._tag !== "result") {
 					refused = true
-				} else if (index === pipeline.length - 1 && ends === "COMMIT") {
+					commitRefused = atCommit
+				} else if (atCommit) {
 					committed = answer.outcome.command === "COMMIT"
 				}
 				onAnswer(index, answer)
 			},
 			() => {
-				log.push({ statements, ends, refused, committed })
+				log.push({ statements, ends, refused, commitRefused, committed })
 				onEnd()
 			},
 			onCut

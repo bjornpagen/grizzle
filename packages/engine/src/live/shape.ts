@@ -623,10 +623,11 @@ const outcomeSchema = <L>(outcome: WireOutcome<L>, leaf: (l: L) => WireSchema): 
 	}
 }
 
-/** The JSON Schema of a refusal's witness: a key of one of the role's relations, or none reported. */
+/** The JSON Schema of a refusal's witness: a key of one of the role's relations, or none reported or reproduced. */
 const witnessSchema = <L>(witness: RoleWitness<L>, leaf: (l: L) => WireSchema): WireSchema =>
 	oneOfSchemas([
 		closedObject([["kind", { const: "unreported" }]]),
+		closedObject([["kind", { const: "unreproduced" }]]),
 		...witness.map((w) =>
 			closedObject([
 				["kind", { const: "key" }],

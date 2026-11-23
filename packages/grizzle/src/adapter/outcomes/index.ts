@@ -57,7 +57,9 @@ import { outcomeKind, sqlstates } from "#compiler/plan/runtime.ts"
  *   key-law map, narrowed by the relations the failing statement writes where a shared domain's columns decide them,
  *   and a 23502 on a generated column the generated field's law; a native violation reports its key only in its
  *   message, so its witness is the host's, the key of a fact the ChangeSet states for the failing statement that breaks
- *   it (runtime/write/witness.ts hostJudgement), or `unreported` where it states none.
+ *   it (runtime/write/witness.ts hostJudgement), or `unreported` where it states none. A deferred foreign key's 23503
+ *   at COMMIT, which no statement judges, takes the witness its diagnosis flight reads instead where the role's served
+ *   refusals hold its witness query (apply/run.ts unmatchedWitness, witness/index.ts `unmatched`).
  *   The installation's map holds the law model's constraints and those installer extensions name, such as span
  *   storage.
  * - A 23514 on one of the installation's roster domains, a code domain or a bits domain, is grizzle's own defect:

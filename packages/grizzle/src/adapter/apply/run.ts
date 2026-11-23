@@ -23,8 +23,10 @@ import {
 	TransportFailure
 } from "#adapter/errors/execution.ts"
 import {
+	type CommitRefused,
 	familyRowBound,
 	type InputTooLarge,
+	type ServerError,
 	literalBound,
 	messageBound,
 	temporaryRefusal,
@@ -48,12 +50,14 @@ import {
 	type BatchOutcome,
 	type FlightBatch,
 	joinFlights,
+	oneShotStatement,
 	preparedStatement,
 	runFramed,
 	runFramedFlights
 } from "#adapter/wire/batch.ts"
 import type { Session } from "#adapter/wire/session.ts"
 import type { WrittenAt } from "#adapter/witness/classify.ts"
+import type { Unmatched } from "#adapter/witness/index.ts"
 import type {
 	BoundWrite,
 	Chunks,
@@ -73,6 +77,7 @@ import type {
 	LiteralBound,
 	MessageBound,
 	OutputRows,
+	OutputText,
 	CallerParamDecl,
 	ParamValue,
 	Row
@@ -305,14 +310,14 @@ const statementOrigin = (sent: ReadonlyArray<SentStatement>, index: number): Fai
 }
 
 /**
- * What a write's failed flight means: a refused statement, or a refusal at COMMIT, is classified at its origin; the
- * fence's refusal is StaleSnapshot; a refused prologue's deadlock or serialization failure, which a fenced write's lock
+ * What a write's failed flight means, but a refusal at COMMIT (`commitRefusal`): a refused statement is classified at
+ * its origin; the fence's refusal is StaleSnapshot; a refused prologue's deadlock or serialization failure, which a fenced write's lock
  * meets where a READ COMMITTED check holds one of its tables and waits for another it locked first, is the
  * TransientFailure a statement's is (errors/execution.ts serializationRefusal); any other refused prologue, which only
  * a login that lost the role's membership or the grant of a fenced table meets, is the server's.
  */
 const flightFailure = <R>(
-	failure: FlightFailure,
+	failure: Exclude<FlightFailure, CommitRefused>,
 	sent: ReadonlyArray<SentStatement>,
 	context: WitnessContext
 ): Effect.Effect<ApplyOutcome<R>, ApplyError> => {
@@ -329,10 +334,6 @@ const flightFailure = <R>(
 					)
 				: Effect.fail(new ExecutionFailure({ reason: temporary }))
 		}
-		case "CommitRefused":
-			return outcomeOf(
-				classifyServerError(failure.failure, { ...context, origin: { kind: "commit" } })
-			)
 		case "CommitLost":
 			return Effect.fail(new CommitUnknown())
 		case "ConnectionLost":
@@ -349,6 +350,84 @@ const flightFailure = <R>(
 			return Effect.fail(failure)
 	}
 }
+
+/**
+ * What a refusal at COMMIT means: classified at COMMIT, a law refused there whose deferred foreign key leaves a row
+ * unmatched has the witness its `diagnosis` reads (`unmatchedWitness`), where the server reports none.
+ */
+const commitRefusal = <R>(
+	failure: ServerError,
+	context: WitnessContext,
+	diagnosis: Effect.Effect<Witness, ApplyError> | undefined
+): Effect.Effect<ApplyOutcome<R>, ApplyError> => {
+	const classified = classifyServerError(failure, { ...context, origin: { kind: "commit" } })
+	return classified.kind === "rejected" && diagnosis !== undefined
+		? Effect.flatMap(diagnosis, (witness) => outcomeOf<R>({ ...classified, witness }))
+		: outcomeOf<R>(classified)
+}
+
+/**
+ * The witness of a COMMIT a deferred foreign key refused, read by the diagnosis flight: the write's statements sent
+ * again, then the key's witness query (write/unmatched.ts), in a transaction of `frame` that ends ROLLBACK, so the
+ * query reads the state the write leaves and nothing of it lasts. It is a write flight like the call's: the same
+ * prologue, its admission and its fence, and the same statements, which take the same borrows in the same order, so
+ * at READ COMMITTED it reads the state those borrows guarantee and waits on no writer in a cycle; its rollback undoes
+ * every row it wrote, every stamp it drew among them, and publishes nothing, since a transaction that rolls back reaches
+ * no live source. The one row the query answers is the key the refusal met. Where it answers none, or a statement or
+ * the fence refuses the flight, the state it met is not the first flight's: another transaction's commit changed it in
+ * between, and the witness is `unreproduced`, never a key guessed. A flight that loses its connection or answers what
+ * grizzle cannot read fails the call as the write's own flight would (`flightFailure`), the refusal unreported to no
+ * one. The success path sends none of it: a write that commits pays nothing for its witness, and the foreign key stays
+ * its law's one check.
+ */
+const unmatchedWitness = (
+	session: Session,
+	frame: Frame,
+	statements: ReadonlyArray<BatchStatement>,
+	unmatched: Unmatched
+): Effect.Effect<Witness, ApplyError> =>
+	Effect.flatMap(
+		Effect.result(
+			runFramed(session, { ...frame, end: "ROLLBACK" }, [
+				...statements,
+				oneShotStatement(unmatched.sql, [])
+			])
+		),
+		(ran): Effect.Effect<Witness, ApplyError> => {
+			if (Result.isSuccess(ran)) {
+				const detail = ran.success.at(-1)?.rows[0]?.[0]
+				return Effect.succeed(detail === undefined ? unreproduced : unmatchedKey(unmatched, detail))
+			}
+			const failure = ran.failure
+			switch (failure._tag) {
+				case "BatchRefused":
+				case "PrologueRefused":
+				case "StaleSnapshot":
+					return Effect.succeed(unreproduced)
+				case "ConnectionLost":
+				case "DriverFailure":
+					return Effect.fail(new TransportFailure({ reason: failure }))
+				case "UnreadableAnswer":
+				case "InputTooLarge":
+					return Effect.fail(new ExecutionFailure({ reason: failure }))
+				case "CommitRefused":
+				case "CommitLost":
+					return Effect.die(defect(`a COMMIT in the diagnosis flight, which ends ROLLBACK`))
+			}
+		}
+	)
+
+/** The key a witness query's one row names (write/unmatched.ts), its DETAIL as the installation's encoding reads it. */
+const unmatchedKey = (unmatched: Unmatched, detail: OutputText): Witness => {
+	const key = unmatched.key(detail)
+	if (key === undefined) {
+		throw defect(`a witness query's DETAIL the installation's encoding reads: ${detail}`)
+	}
+	return key
+}
+
+/** The witness of a refusal at COMMIT its diagnosis met no longer (`unmatchedWitness`). */
+const unreproduced: Witness = Object.freeze({ kind: "unreproduced" })
 
 /** An artifact's read-backs, and the ChangeSet's reads decoder bound to their Row's layout. */
 export interface BoundReads<R> {
@@ -466,7 +545,18 @@ export const runWrite = <R>(
 		/** How many statements precede the read-backs. */
 		const written = sent.length
 		if (Result.isFailure(ran)) {
-			return yield* flightFailure<R>(ran.failure, sent, context)
+			const failure = ran.failure
+			if (failure._tag !== "CommitRefused") {
+				return yield* flightFailure<R>(failure, sent, context)
+			}
+			const unmatched = entry.witness.unmatched(failure.failure)
+			return yield* commitRefusal<R>(
+				failure.failure,
+				context,
+				unmatched === undefined
+					? undefined
+					: unmatchedWitness(session, frame, writes.statements, unmatched)
+			)
 		}
 		const outcomes = ran.success
 		/**

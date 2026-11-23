@@ -935,6 +935,54 @@ export const partialOf = (m: Model, w: Write) => {
 	}
 }
 
+/** A row's key as a refusal's witness names it: its relation and its primary key's values. */
+export interface KeyedRow {
+	readonly relation: string
+	readonly values: Readonly<Record<string, bigint>>
+}
+
+/**
+ * The stored rows a write leaves partial groups of, by the family the group is of (partialOf): of an assembly's
+ * placements, each assembly whose group it leaves partial and each placement of it the write keeps; of an instance's,
+ * each such instance and each placement of it the write keeps. The family's deferred foreign keys leave one of them
+ * unmatched, a kept member whose predecessor went or an owner whose last member went, and its refusal at COMMIT is
+ * witnessed by that row's key (README "Errors and outcomes", Witness).
+ */
+export const partialRows = (m: Model, w: Write) => {
+	const placements = placementsOf(m)
+	const partial = partialOf(m, w)
+	const asms = Arr.dedupe(Arr.map(partial.asm, (p) => p.a))
+	/** An instance by its key. */
+	type InstKey = Readonly<Record<"t" | "start", bigint>>
+	const insts = Arr.dedupeWith(
+		Arr.map(partial.inst, (p): InstKey => ({ t: p.t, start: p.start })),
+		(x: InstKey, y: InstKey) => x.t === y.t && x.start === y.start
+	)
+	const place = (p: Placement): KeyedRow => ({
+		relation: "Place",
+		values: { t: p.t, start: p.start, a: p.a }
+	})
+	return {
+		asm: [
+			...Arr.map(asms, (a): KeyedRow => ({ relation: "Asm", values: { a } })),
+			...Arr.map(
+				Arr.filter(placements, (p) => asms.includes(p.a) && !deletesTest(w, p.t)),
+				place
+			)
+		],
+		inst: [
+			...Arr.map(insts, (i): KeyedRow => ({ relation: "Inst", values: i })),
+			...Arr.map(
+				Arr.filter(
+					placements,
+					(p) => Arr.some(insts, (i) => i.t === p.t && i.start === p.start) && !deletesAsm(w, p.a)
+				),
+				place
+			)
+		]
+	}
+}
+
 const judgeWrite = (m: Model, w: Write): Verdict<Model, Refusal> => {
 	let trees = m.trees
 	for (const t of w.trees) {

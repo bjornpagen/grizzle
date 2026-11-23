@@ -655,7 +655,7 @@ export const judgeRefused = (
 		)
 	}
 	const witness = outcome.witness
-	if (witness.kind === "unreported") {
+	if (witness.kind !== "key") {
 		return assert.fail(
 			`${label}: the refusal of ${Formatter.format(named)} reports no witness, where stated rows break it: ${Formatter.format(Arr.map(v.keyed, (x) => ({ relation: relationName(x.relation), id: uuidOfRow(x.id) })))}`
 		)

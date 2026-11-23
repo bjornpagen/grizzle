@@ -40,6 +40,7 @@ import type {
 import type { EmittedText, ObjectName } from "#compiler/sql/ast.ts"
 import type { AboveLaw, RecordedLaw } from "#compiler/types/changeset/changeset.ts"
 import type { ParamValue } from "#compiler/types/core/phantom.ts"
+import type { UnmatchedQuery } from "#compiler/write/unmatched.ts"
 
 /**
  * A login's served workload: what `grizzle generate` compiles for each login of the config, once, and commits as
@@ -507,11 +508,13 @@ export interface ServedParamDomain {
  * The classifier of a role's refusals as data (adapter witness/index.ts InstallationWitness): its key laws, each stored
  * relation's heading, which a refusal's key text decodes through, the query entries the role writes through, and the
  * pattern domains its members' parameters are cast to, by identifier, which generate names (paramDomainsOf), so a
- * refusal by one names its parameter with no compile at load.
+ * refusal by one names its parameter with no compile at load; and the witness query of each deferred foreign key its
+ * writes can raise at COMMIT (write/unmatched.ts), which names the row a refused COMMIT left unmatched.
  */
 export interface ServedRefusals {
 	readonly laws: ServedKeyLaws
 	readonly relations: ReadonlyMap<StoredRelationName, Heading>
 	readonly entries: ReadonlyMap<StoredRelationName, EntryKey>
 	readonly params: ReadonlyMap<string, ServedParamDomain>
+	readonly unmatched: ReadonlyArray<UnmatchedQuery>
 }

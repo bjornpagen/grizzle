@@ -195,7 +195,9 @@ const checkWitness = (
  * The most a refusal's witness may show (README "Errors and outcomes"): the key values of the violating facts, never a payload
  * column; of those, only the keys the caller submitted, in the fields it wrote them in, and the keys of relations its
  * role holds whole. A row check's names a stated fact that breaks it (checkWitness); a containment or coverage
- * PostgreSQL reports only in prose shows none. The observed witness may show fewer.
+ * PostgreSQL refuses at COMMIT shows a source fact it leaves unmatched by its primary key, read by the diagnosis flight,
+ * where the role holds the source and the target whole, and one it refuses at a statement shows none (Violation
+ * `unmatched`). The observed witness may show fewer.
  */
 export const witnessFor = (
 	host: HostSchema,
@@ -207,6 +209,13 @@ export const witnessFor = (
 	const law = lawNamed(host, violation)
 	if (law?.kind === "check") {
 		return checkWitness(law, keys, submitted)
+	}
+	if (law?.kind === "contained" || law?.kind === "covered") {
+		const unmatched =
+			holdsWhole(role, law.target.relation) && holdsWhole(role, law.source.relation)
+				? Arr.map(violation.unmatched, (v) => v.values)
+				: []
+		return unmatched.length === 0 ? { kind: "withheld" } : { kind: "shown", keys: unmatched }
 	}
 	const witnessed = law === undefined ? undefined : witnessOf(law, host)
 	if (witnessed === undefined || witnessed.kind === "unnamed") {

@@ -53,6 +53,7 @@ import type { DeclaredEntries } from "#compiler/schema/declared-entries.ts"
 import { type Owned, type OwnedRole, own, ownBuilt, ownRole } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import type { RecordedLaw } from "#compiler/types/changeset/changeset.ts"
+import { type UnmatchedQuery, unmatchedQueryOf } from "#compiler/write/unmatched.ts"
 
 /**
  * What a schema contributes to compiling its queries: the owned schema and its fingerprint, the physical names of its
@@ -331,6 +332,11 @@ export interface Raisable {
 	readonly constraintLaws: ReadonlyArray<ConstraintLaw>
 	readonly theoryLaws: SchemaArtifacts["theoryLaws"]
 	readonly relations: ReadonlyArray<RelationInfo>
+	/**
+	 * The witness query of each deferred foreign key it can raise at COMMIT (write/unmatched.ts) whose table and target
+	 * the role reads whole (`readsWhole`), whose relation is among `relations`, so the key it names decodes.
+	 */
+	readonly unmatched: ReadonlyArray<UnmatchedQuery>
 	readonly rosters: ReadonlySet<DeclaredName>
 	/** The catalog entries the schema's authors declare for its generated fields' laws (Owned declared `generated`). */
 	readonly generatedEntries: DeclaredEntries["generated"]
@@ -380,9 +386,54 @@ const castDomains = (names: InstallNames, t: ScalarType): ReadonlyArray<string> 
 	]
 }
 
+/**
+ * Whether the artifacts' writes read every row and column of a relation's table: reality's all of them; a role's each
+ * relation it writes by a whole entry, its table SELECT behind a policy that admits every row (physical/ddl/roles.ts
+ * writePlan). A deferred foreign key's witness query (write/unmatched.ts) runs as the role on such tables alone: the
+ * key it names is of a row the role selects itself, so it reveals nothing the role cannot read, and every target row
+ * is in its sight, so a row it names unmatched is unmatched. A role that reads the table or the target narrowed, a
+ * query or scoped entry's policy or columns, or not at all, is served no witness query, and its refusal at COMMIT is
+ * `unreported`, as PostgreSQL's own DETAIL states no key to a role that cannot read it.
+ */
+const readsWhole = (world: ArtifactsWorld): ((relation: string) => boolean) => {
+	if (world.kind === "reality") {
+		return () => true
+	}
+	const whole = new Set<string>(
+		[...world.role.writes.values()].flatMap((w) => (w.kind === "whole" ? [w.relation.name] : []))
+	)
+	return (relation) => whole.has(relation)
+}
+
+/**
+ * The witness query (write/unmatched.ts) of each deferred foreign key of `artifacts` on a relation `written` holds of,
+ * which COMMIT judges and a write there meets, whose table and target the artifacts read whole (`readsWhole`): the row
+ * it names is of a relation the write changes. A key a write meets only by deleting from its target, which leaves a row
+ * of a relation it does not change unmatched, has none.
+ */
+export const unmatchedOf = (
+	artifacts: Pick<SchemaArtifacts, "laws" | "names" | "world">,
+	written: (relation: string) => boolean
+): ReadonlyArray<UnmatchedQuery> => {
+	const whole = readsWhole(artifacts.world)
+	return artifacts.laws.natives.flatMap((n) =>
+		n.namespace === "constraint" &&
+		(n.object.kind === "ForeignKey" || n.object.kind === "PeriodForeignKey") &&
+		n.object.deferrable &&
+		written(n.object.relation.name) &&
+		whole(n.object.relation.name) &&
+		whole(n.object.target.name)
+			? [unmatchedQueryOf(artifacts.names, identifierOf(n.named), n.object)]
+			: []
+	)
+}
+
 /** What writes judging `judged` can raise of `artifacts` (`Raisable`). */
 export const raisableOf = (
-	artifacts: Pick<SchemaArtifacts, "constraintLaws" | "theoryLaws" | "laws" | "derived" | "names">,
+	artifacts: Pick<
+		SchemaArtifacts,
+		"constraintLaws" | "theoryLaws" | "laws" | "derived" | "names" | "world"
+	>,
 	judged: Judged
 ): Raisable => {
 	const { written } = judged
@@ -402,20 +453,19 @@ export const raisableOf = (
 		const named = into.getOrInsertComputed(n.owner, () => new Set<string>())
 		named.add(identifierOf(n.named))
 	}
+	const unmatched = unmatchedOf(artifacts, (relation) => written.has(relation))
 	const cast = new Set(judged.cast.flatMap((t) => castDomains(artifacts.names, t)))
 	const raised = new Set(
 		artifacts.laws.theory.laws.flatMap((l) => (l.reads.some((r) => written.has(r)) ? [l.id] : []))
 	)
-	const decoded = [...artifacts.derived.schema.relations.values()].filter((r) =>
-		written.has(r.name)
-	)
-	const typed = [...decoded.flatMap((r) => r.fields.map((f) => f.type)), ...judged.cast]
+	const typed = [...relations.flatMap((r) => r.fields.map((f) => f.type)), ...judged.cast]
 	return {
 		constraintLaws: artifacts.constraintLaws.flatMap((c) =>
 			raisableConstraint(c, tables, into, cast, raised)
 		),
 		theoryLaws: artifacts.theoryLaws.filter((l) => raised.has(l.law)),
-		relations: decoded,
+		relations,
+		unmatched,
 		rosters: new Set(typed.flatMap((t) => rosterOf(t)?.closed ?? [])),
 		generatedEntries: artifacts.laws.owned.declared.generated
 	}

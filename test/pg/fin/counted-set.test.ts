@@ -153,7 +153,7 @@ export const aCountedSetKeyedByThreeFieldsAndANameStoresEachOwnersCountAndFoldsO
 									const keyNamed = Arr.filter(verdict.keyed, (x) => named.includes(lawOf[x.broken]))
 									const witness = outcome.witness
 									if (Arr.isReadonlyArrayNonEmpty(keyNamed)) {
-										if (witness.kind === "unreported") {
+										if (witness.kind !== "key") {
 											return assert.fail(
 												`${label}: a key its stated rows break reports no witness: ${Formatter.format(outcome)}, the rows ${Formatter.format(keyNamed)}`
 											)

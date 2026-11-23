@@ -4,12 +4,14 @@ import type { ApplyOutcome } from "#adapter/types/db.ts"
 
 /**
  * One flight an attempt's session sent: how many statements it carried besides BEGIN, COMMIT and ROLLBACK, how it ended
- * the transaction, whether the server refused any of its queries, and whether its COMMIT answered COMMIT.
+ * the transaction, whether the server refused any of its queries, whether it refused its COMMIT, and whether its COMMIT
+ * answered COMMIT.
  */
 export interface Flight {
 	readonly statements: number
 	readonly ends: "COMMIT" | "ROLLBACK" | "kept"
 	readonly refused: boolean
+	readonly commitRefused: boolean
 	readonly committed: boolean
 }
 
@@ -17,16 +19,26 @@ export interface Flight {
  * The single-flight property of a write attempt (run.ts applyWith): the client never decides between COMMIT and
  * ROLLBACK from rows. Every statement of the attempt, its read-backs' attachments included, and its COMMIT are sent
  * without waiting for any result, in one flight; so a refusal, an abort or a law's violation must come from a
- * statement or the COMMIT that PostgreSQL failed, the client sends nothing after it, and an applied outcome is every
- * statement succeeding, then a COMMIT that committed.
+ * statement or the COMMIT that PostgreSQL failed, the client sends nothing after it but the diagnosis of a refusal at
+ * COMMIT, and an applied outcome is every statement succeeding, then a COMMIT that committed. The diagnosis
+ * (packages/grizzle/src/adapter/apply/run.ts unmatchedWitness) is one flight after a flight whose COMMIT PostgreSQL
+ * refused, ending ROLLBACK, the attempt's outcome a law's refusal: sent whole as the first was, it decides nothing from
+ * rows either, it commits nothing, and its rows choose only the refusal's witness.
  *
  * Why an attempt's flights show a decision taken from rows (see the header); none when it holds.
  */
 export const batchProblems = (
-	log: ReadonlyArray<Flight>,
+	flights: ReadonlyArray<Flight>,
 	result: Result.Result<ApplyOutcome<unknown>, ApplyError>
 ): ReadonlyArray<string> => {
 	const problems: Array<string> = []
+	const diagnosed =
+		flights.length === 2 && flights[0]?.commitRefused === true && flights[1]?.ends === "ROLLBACK"
+	if (diagnosed && !(Result.isSuccess(result) && result.success.kind === "invariant-rejected")) {
+		problems.push("a diagnosis flight after a refusal at COMMIT the outcome is no law's refusal of")
+	}
+	/** The attempt's own flights, its diagnosis aside. */
+	const log = diagnosed ? flights.slice(0, 1) : flights
 	if (log.length > 1) {
 		problems.push(`${log.length} flights, where an attempt is one`)
 	}
