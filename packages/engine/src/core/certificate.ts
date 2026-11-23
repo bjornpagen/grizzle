@@ -212,31 +212,45 @@ export type BorrowMode = "shared" | "exclusive"
  */
 export type BorrowAt = "flight" | "judge"
 
-/** One field of a unit key as a call holds it before its first snapshot: a declared parameter, or a field of the
- * session's context. */
+/**
+ * One field of a unit key as a call holds it before its first snapshot, by a binding alone: a declared parameter; a
+ * field of the session's context; or a field of the call's own rows (`input`), a relation parameter's or a member slot's,
+ * by its declared parameter and field, one key per distinct value among its rows.
+ */
 export type KeySource =
 	| { readonly kind: "param"; readonly name: string }
 	| { readonly kind: "context"; readonly field: string }
+	| { readonly kind: "input"; readonly parameter: string; readonly field: string }
 
 /**
- * A place a call holds whole keys of a borrowed unit, by positions its lowering evaluates:
+ * A place a call holds whole keys of a borrowed unit, each lowered from bindings alone, never from a statement of the
+ * member's:
  *
- * - `bound`: one key, each of the unit's key fields in key order from a parameter or the context (KeySource);
- * - `written`: the unit key fields of the rows write `write` of statement `statement` writes, by their places in the
- *   member's flight and the statement's writes (analysis/isolation/facts.ts), one key per distinct group;
- * - `read`: the key a sealed read binds, by its statement, the body it stands in (`cte`, none for the statement's own)
- *   and its place there (facts.ts ReadAt): its group's parameters, context or own rows, or the row of a whole-key read
- *   of an immutable fact read in a flight before the borrow;
+ * - `bound`: each of the unit's key fields in key order from a binding (KeySource), the keys of the rows the call writes
+ *   or reads at bound values;
+ * - `learned`: a point lookup of `relation` at a whole declared key of it bound to the call's bindings (`key`, in that
+ *   key's order), each unit key field the lookup's column at its place in `columns`: the certifier admits one only over
+ *   an immutable fact (an insert-only relation outside every unit) or a relation no role writes, so the lookup and the
+ *   member's own read of it see one row;
+ * - `held`: the same lookup over a relation every writer of which borrows `under` exclusively, the call holding `under`
+ *   at a key the lookup's key covers: the lookup reads a row no other call changes while the call holds it, after the
+ *   call's own borrow of `under` (LockOrder ranks `under` before the lock this site keys);
  * - `delta`: at the judge alone, the unit key fields of the rows the call wrote to `relation`.
  */
 export type KeySite =
 	| { readonly kind: "bound"; readonly fields: NonEmptyReadonlyArray<KeySource> }
-	| { readonly kind: "written"; readonly statement: number; readonly write: number }
 	| {
-			readonly kind: "read"
-			readonly statement: number
-			readonly cte: number | undefined
-			readonly read: number
+			readonly kind: "learned"
+			readonly relation: string
+			readonly key: NonEmptyReadonlyArray<KeySource>
+			readonly columns: NonEmptyReadonlyArray<string>
+	  }
+	| {
+			readonly kind: "held"
+			readonly relation: string
+			readonly key: NonEmptyReadonlyArray<KeySource>
+			readonly columns: NonEmptyReadonlyArray<string>
+			readonly under: BorrowLock
 	  }
 	| { readonly kind: "delta"; readonly relation: string }
 
@@ -254,8 +268,8 @@ export interface Borrow {
 
 /**
  * Every lock kind of an installation in the one order every call takes them in, each kind's rank its place here: a
- * topological order of the edges from each lock a call borrows in flight to each it borrows at the judge, over every
- * change member of every login, ties broken by name. The certifier refuses an installation whose edges cycle, so the
+ * topological order of the edges from each lock a call borrows in flight to each it borrows at the judge, and from each
+ * `held` site's `under` to the lock it keys (KeySite), over every change member of every login, ties broken by name. The certifier refuses an installation whose edges cycle, so the
  * order exists; the lock plan reads a kind's rank and orders by nothing else.
  */
 export type LockOrder = ReadonlyArray<BorrowLock>
