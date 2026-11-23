@@ -225,8 +225,9 @@ export const runCertified = (drawn: Drawn, c: Case<GroupWitnessFeature>) =>
 			case "group":
 				assert.ok(
 					certificate.level === "serializable" &&
+						certificate.why.kind === "own" &&
 						Arr.some(
-							certificate.reasons,
+							certificate.why.reasons,
 							(r) => r.condition === "laws" && r.at.kind === "relation" && r.at.relation === "T"
 						),
 					`${Formatter.format(drawn)}: a writer of rows a whole check reads as a group runs SERIALIZABLE for the law, certified ${Formatter.format(certificate)}`

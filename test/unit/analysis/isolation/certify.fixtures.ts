@@ -10,14 +10,10 @@ import {
 	type Candidate,
 	certify,
 	type Fence,
-	type IsolationCondition,
 	isolationOf,
-	type IsolationReason,
-	type ReasonAt,
 	readModes,
 	type ReadSeal,
-	readSeal,
-	type RoleIsolation
+	readSeal
 } from "#compiler/analysis/isolation/certify.ts"
 import type {
 	BodyFacts,
@@ -35,6 +31,12 @@ import type {
 	StatementFacts,
 	Unformed
 } from "#compiler/analysis/isolation/facts.ts"
+import {
+	type IsolationCondition,
+	type IsolationReason,
+	type ReasonAt,
+	type RoleIsolation
+} from "#compiler/core/certificate.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
 import { expanded, type FlatRowSource } from "#test/support/expanded.ts"
 import { wild } from "#test/support/kernel/naming.ts"
@@ -3178,18 +3180,24 @@ export const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 	}
 }
 
-/** One role's level and conditions as the oracle finds them. */
+/**
+ * One role's level and conditions as the oracle finds them: `own`, the conditions it fails itself; and `givers`, where
+ * it runs SERIALIZABLE failing none of its own, each other role that runs SERIALIZABLE at its round's end and gives it a
+ * condition, by index, with the conditions it gives, none otherwise.
+ */
 interface OracleVerdict {
 	readonly readCommitted: boolean
 	readonly failed: ReadonlySet<IsolationCondition>
 	readonly own: ReadonlySet<IsolationCondition>
+	readonly givers: ReadonlyMap<number, ReadonlySet<IsolationCondition>>
 }
 
 /**
  * One round as the oracle runs it: every role outside `lowered` judged over its READ COMMITTED form, the roles of
  * `lowered` served both forms and SERIALIZABLE, and the judged roles left READ COMMITTED the greatest set that meet
  * their own conditions none of whose members a role outside it gives a reason, found by trying every subset. A judged
- * role's conditions are its own where it fails any, else those the round's other SERIALIZABLE roles give it.
+ * role's conditions are its own where it fails any, else those the round's other SERIALIZABLE roles give it, each such
+ * role with the conditions it gives alone.
  */
 const judgedRound = (
 	sketch: Sketch,
@@ -3210,13 +3218,25 @@ const judgedRound = (
 		}
 	}
 	const outside = new Set(Arr.filter([...all], (i) => !best.has(i)))
+	const giversOf = (i: number): ReadonlyMap<number, ReadonlySet<IsolationCondition>> =>
+		new Map(
+			Arr.flatMap([...outside], (j) => {
+				const given = j === i ? new Set<IsolationCondition>() : at.given(new Set([j]), i)
+				return given.size > 0 ? [[j, given] as const] : []
+			})
+		)
 	return new Map(
 		Arr.map(
 			judged,
 			({ i, own }) =>
 				[
 					i,
-					{ readCommitted: best.has(i), failed: own.size > 0 ? own : at.given(outside, i), own }
+					{
+						readCommitted: best.has(i),
+						failed: own.size > 0 ? own : at.given(outside, i),
+						own,
+						givers: own.size > 0 || best.has(i) ? new Map() : giversOf(i)
+					}
 				] as const
 		)
 	)
@@ -3279,6 +3299,7 @@ export type IsolationFeature =
 	| "a role certified READ COMMITTED"
 	| `a role SERIALIZABLE by ${IsolationCondition}`
 	| "a role SERIALIZABLE only through roles that run SERIALIZABLE"
+	| "a role SERIALIZABLE through two roles that run SERIALIZABLE"
 	| "a counted group read"
 	| "a point read"
 	| "a read of a relation no role writes"

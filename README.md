@@ -5493,19 +5493,32 @@ statement's. The role is certified READ COMMITTED when all of these hold, and st
   reads. A foreign key check of the role's is no such read: a writer that may miss another call's write fences the
   relation it checks (below).
 
-**Reading generate's report.** generate prints one line per role, before the files it writes:
+**Reading generate's report.** generate prints each role's level, and under a SERIALIZABLE role why it is, before the
+files it writes:
 
 ```
 login app, role learner: read committed
-login author_app, role author: serializable (privileges 496, laws 47, absence 1911, snapshot 2993, pivot 3735)
+login app, role reader: serializable (writers 1)
+  fix login author_app, role author first (writers 1)
+login author_app, role author: serializable (privileges 1, absence 1)
+  privileges, relation Item: holds DELETE; state insert, not write, on the relation, and let no role update or delete a relation the role writes: record each change as an inserted fact
+  absence, member publish, statement 0, relation Item: author of author_app reads it negated; read no absence (NOT EXISTS, a negation) and no count of a relation the role writes, in any role's ChangeSet: state the fact as a row and read it by its key
 login author_app fences PublishedVariant: its writes of it lock it in exclusive mode before their snapshot, for the read committed foreign key checks of login app, role learner
 ```
 
-A SERIALIZABLE role lists each condition it failed, with how many places fail it, and each fence follows the roles:
+A SERIALIZABLE role's line counts each condition it fails, and the lines under it say where. A role that fails a
+condition by itself has a line per place that fails one: the condition; where, the role, a relation, a ChangeSet's
+write of a relation, or a statement of a ChangeSet by its place among the statements a call of it sends, with the
+relation it reads or writes; what fails there; and the condition's fix. A role that fails none by itself, but runs
+SERIALIZABLE because a role that runs SERIALIZABLE reads what it writes, writes what it writes, or writes what it reads
+while that role may miss another call's write, has a line per such role in their place, `fix login L, role R first`,
+with the count of each condition that role gives it: it runs READ COMMITTED once none of them does or gives it one, so
+fix those first. Every count of a role's line is the number of its lines of that condition, or the sum of its givers'
+counts of it. Each fence follows the roles. The conditions:
 
 | Condition    | What fails it                                                                                                                            |
 | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `form`       | a ChangeSet with no READ COMMITTED form: it inserts into or puts a relation whose primary key holds a span                              |
+| `form`       | a ChangeSet with no READ COMMITTED form: it inserts into or puts a relation whose primary key holds a span, or stamps an instant or a place |
 | `facts`      | a relation it touches that the installation states no fact of, or a table or function its statements name that no relation is         |
 | `members`    | no ChangeSet in its workload                                                                                                             |
 | `privileges` | it states `write`, or some role updates or deletes a relation it writes                                                                 |

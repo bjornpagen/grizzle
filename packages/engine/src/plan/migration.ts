@@ -99,6 +99,15 @@ export {
 	writeSnapshot
 } from "#compiler/deploy/snapshot/build.ts"
 export { decoderLoginOf } from "#compiler/deploy/snapshot/objects.ts"
+export {
+	type Giver,
+	type IsolationCondition,
+	type IsolationReason,
+	type OwnCondition,
+	type ReasonAt,
+	reasonsOf,
+	type Serializable
+} from "#compiler/core/certificate.ts"
 export { servedWorkloadExtension } from "#compiler/physical/access/extension.ts"
 export { completeInstallOptions } from "#compiler/physical/complete.ts"
 export { literalPackFault, type PackFault } from "#compiler/physical/ddl/literal.ts"

@@ -1,6 +1,7 @@
 import type { MigrateStage } from "#adapter/migrate/errors.ts"
 import type { CliStage } from "#cli/errors.ts"
 import { formatRefusal, servedFileFix } from "#compiler/plan/common.ts"
+import type { OwnCondition } from "#compiler/plan/migration.ts"
 
 interface Refusal {
 	readonly problem: string
@@ -170,6 +171,29 @@ export const migrateStageFix: Readonly<Record<MigrateStage, string>> = {
 		"the check changed nothing: run grizzle drift again, and report it with this output if it is refused the same way",
 	uninstall:
 		"nothing was dropped: revoke or drop what the DETAIL names in the database it names, a grant to a role of the installation made outside it, then run grizzle uninstall again"
+}
+
+/**
+ * The fix of each condition a role fails by itself, as generate prints it under a SERIALIZABLE role, one per own reason
+ * (packages/engine/src/analysis/isolation/certify.ts, its conditions' doc): what the role's schema or workload must
+ * become for the condition to hold. A condition another role that runs SERIALIZABLE fails it by has no fix of its own:
+ * generate prints "fix login L, role R first" for that role (GivenCondition).
+ */
+export const isolationFix: Readonly<Record<OwnCondition, string>> = {
+	form: "move each ChangeSet that inserts into a relation whose primary key holds a span, or stamps an instant or a place, to a role of its own, which runs SERIALIZABLE: such a write has no READ COMMITTED form",
+	facts:
+		"name no table or function in the role's ChangeSets that is no relation of the installation; where grizzle named it (a function of its own, named __), report the line to grizzle",
+	members:
+		"write through a ChangeSet in the login's workload, or state neither write nor insert on the role: a role that writes by direct SQL alone is judged to write all its grants permit",
+	privileges:
+		"state insert, not write, on the relation, and let no role update or delete a relation the role writes: record each change as an inserted fact",
+	laws: "make each law over the relation native, a key or a foreign key PostgreSQL checks, or one the write can break only by the row it inserts, as one row of a match",
+	absence:
+		"read no absence (NOT EXISTS, a negation) and no count of a relation the role writes, in any role's ChangeSet: state the fact as a row and read it by its key",
+	snapshot:
+		"read every row other calls write in one statement, by a whole declared key of an insert-only relation, a family's counted members or a relation no role writes, beside no foreign key check of rows other calls write",
+	pivot:
+		"in a ChangeSet that reads other calls' rows and writes, read them only positively, each by a whole declared key of an insert-only relation, a family's counted members or a relation no role writes, join every row it writes with each of them, and check foreign keys only of rows no role updates"
 }
 
 /**

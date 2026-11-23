@@ -5,7 +5,7 @@ import { element, type Gen, subarray } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Record as Rec } from "effect"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
-import type { ReasonAt, RoleCertificate } from "#compiler/analysis/isolation/certify.ts"
+import { type ReasonAt, reasonsOf, type RoleCertificate } from "#compiler/core/certificate.ts"
 import { silentPhases } from "#compiler/core/phase.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
@@ -194,7 +194,7 @@ const certified = (certificate: RoleCertificate): string =>
 	certificate.level === "readCommitted"
 		? "readCommitted"
 		: `serializable ${Arr.join(
-				Arr.map(certificate.reasons, (r) => `${r.condition}:${placeOf(r.at)}`),
+				Arr.map(reasonsOf(certificate.why), (r) => `${r.condition}:${placeOf(r.at)}`),
 				" "
 			)}`
 

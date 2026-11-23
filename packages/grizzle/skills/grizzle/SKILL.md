@@ -916,12 +916,27 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
 - A role's writes run READ COMMITTED only where `grizzle generate` certifies it from the statements its ChangeSets
   send, against every other writer (README's READ COMMITTED writes); every other role runs SERIALIZABLE, and reads are
   always SERIALIZABLE READ ONLY, DEFERRABLE for a `deferrable(...)` member. generate prints each role's level, a SERIALIZABLE one with the count of each condition
-  it fails: `members` (no ChangeSet), `privileges` (it states `write`, or some role updates or deletes what it writes),
+  it fails: `form` (a ChangeSet with no READ COMMITTED form), `members` (no ChangeSet), `privileges` (it states
+  `write`, or some role updates or deletes what it writes),
   `laws` (a rule over a query over what it writes), `absence` (a read of the absence or a count of what it writes),
   `snapshot` and `pivot` (other calls' rows read across statements, as anything but whole immutable groups keyed by
   values the call states once, or by a foreign key check of a row that can change), `writers` (a SERIALIZABLE role
   writing what it writes, or writing what it reads while reading other calls' rows itself), and `facts` (an object
-  the certifier cannot name). Clear one by changing the schema or the workload, never by a flag: there is none. A role
+  the certifier cannot name). Under the role's line comes why: for each reason it fails by itself, a line
+  `<condition>, <where>: <what fails>; <fix>`, where is `the role`, `relation R`, `member M, relation R` or
+  `member M, statement N, relation R` (N the statement's place among those a call of ChangeSet M sends); or, where it
+  fails none by itself, a line `fix login L, role R first (<counts>)` per role that runs SERIALIZABLE and gives it one
+  (`laws`, a SERIALIZABLE ChangeSet reading what it writes, and `writers`): fix those roles first. The fixes:
+  - `form`: move each ChangeSet that inserts into a relation whose primary key holds a span, or stamps an instant or a place, to a role of its own, which runs SERIALIZABLE: such a write has no READ COMMITTED form
+  - `facts`: name no table or function in the role's ChangeSets that is no relation of the installation; where grizzle named it (a function of its own, named __), report the line to grizzle
+  - `members`: write through a ChangeSet in the login's workload, or state neither write nor insert on the role: a role that writes by direct SQL alone is judged to write all its grants permit
+  - `privileges`: state insert, not write, on the relation, and let no role update or delete a relation the role writes: record each change as an inserted fact
+  - `laws`: make each law over the relation native, a key or a foreign key PostgreSQL checks, or one the write can break only by the row it inserts, as one row of a match
+  - `absence`: read no absence (NOT EXISTS, a negation) and no count of a relation the role writes, in any role's ChangeSet: state the fact as a row and read it by its key
+  - `snapshot`: read every row other calls write in one statement, by a whole declared key of an insert-only relation, a family's counted members or a relation no role writes, beside no foreign key check of rows other calls write
+  - `pivot`: in a ChangeSet that reads other calls' rows and writes, read them only positively, each by a whole declared key of an insert-only relation, a family's counted members or a relation no role writes, join every row it writes with each of them, and check foreign keys only of rows no role updates
+
+  Clear one by changing the schema or the workload, never by a flag: there is none. A role
   that inserts rows referencing content another role maintains publishes the keys it references: every writer of
   that content states `insert` on it, an insert-only published relation holds the keys with a foreign key into the
   content, a `publisher` role that inserts nothing else writes it, and the referencing role's foreign keys point at

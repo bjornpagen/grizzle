@@ -1,5 +1,6 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import type { Fence, RoleIsolation } from "#compiler/analysis/isolation/certify.ts"
+import type { Fence } from "#compiler/analysis/isolation/certify.ts"
+import type { RoleIsolation } from "#compiler/core/certificate.ts"
 import { malformedDescription } from "#compiler/core/errors.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"

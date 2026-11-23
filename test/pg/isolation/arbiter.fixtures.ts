@@ -12,7 +12,7 @@ import {
 	type Steered
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effect"
-import type { RoleCertificate } from "#compiler/analysis/isolation/certify.ts"
+import type { RoleCertificate } from "#compiler/core/certificate.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { accumulated, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
@@ -94,13 +94,16 @@ const certificateAt = (level: Isolation): RoleCertificate =>
 		? { level }
 		: {
 				level,
-				reasons: [
-					{
-						condition: "facts",
-						at: { kind: "role" },
-						detail: "the race runs the importer SERIALIZABLE"
-					}
-				]
+				why: {
+					kind: "own",
+					reasons: [
+						{
+							condition: "facts",
+							at: { kind: "role" },
+							detail: "the race runs the importer SERIALIZABLE"
+						}
+					]
+				}
 			}
 
 /** Every role of the shape at `level`: the certificates an installation holds for a race at that level. */

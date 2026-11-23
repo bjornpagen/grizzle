@@ -32,6 +32,7 @@ import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effe
 import { served as servedLogin } from "#adapter/public/layer.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
+import { reasonsOf } from "#compiler/core/certificate.ts"
 import { silentPhases } from "#compiler/core/phase.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
@@ -144,7 +145,9 @@ export const aRolesIsolationLevelIsDecidedOnceFromTheStatementsItsWritesSendEver
 				)
 				for (const certified of served.certification) {
 					const reasons =
-						certified.certificate.level === "serializable" ? certified.certificate.reasons : []
+						certified.certificate.level === "serializable"
+							? reasonsOf(certified.certificate.why)
+							: []
 					for (const reason of reasons) {
 						if (reason.at.kind !== "role") {
 							assert.ok(

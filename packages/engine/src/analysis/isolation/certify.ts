@@ -26,158 +26,20 @@ import {
 } from "#compiler/analysis/isolation/facts.ts"
 import type { Witness } from "#compiler/analysis/theory/query.ts"
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
+import type {
+	GivenCondition,
+	Giver,
+	IsolationCondition,
+	IsolationReason,
+	OwnCondition,
+	ReasonAt,
+	RoleIsolation,
+	Serializable
+} from "#compiler/core/certificate.ts"
 import { noReadCommittedFormText } from "#compiler/core/errors.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
-
-/**
- * The conditions a role's change members must all meet to run READ COMMITTED, after `form`, that every change member
- * has a READ COMMITTED form (facts.ts Unformed), and `facts`, that the installation states a fact of every relation the
- * role holds a privilege on, reads, checks or writes. An outside read is a read of
- * rows another call can write: of a relation some role writes, neither grizzle's own key arbitration nor of the call's
- * own rows. A foreign key check (Check) is a read too, which no statement shows, made by PostgreSQL at another snapshot
- * than its statement's.
- *
- * - `members`: the role has a change member. A role with none writes, if at all, by direct SQL alone, which no member's
- *   facts prove: its writes are unknown (facts.ts RoleWrites), and every other role is judged beside the one member that
- *   bounds them (writtenFacts), which reads anything its grants let it read, present or absent, and writes all its
- *   privileges permit, so it is a pivot cause of every relation it writes, and conditions 2, 3 and 5c weigh its reads of
- *   every relation it can read. It takes no fence grizzle serves, so no foreign key check of a relation it writes is
- *   sealed (Writers.direct);
- * - `privileges`: the role holds only INSERT and SELECT, and every relation it writes is insert-only for every role of
- *   every login (Writers.insertOnly): no role holds UPDATE or DELETE on it, no member updates or deletes it, and no
- *   update of a relation it references cascades to it. The insert protocol at READ COMMITTED rests on it: a row DO
- *   SELECT finds beyond the snapshot never combines with the snapshot's reads into a write no serial order makes only
- *   while no occupant a probe saw can be deleted and replaced (write/insert/protocol.ts storedAbsent and the probe and
- *   ON CONFLICT DO SELECT arms of buildInsert; write/insert/unique.ts RelationUniques, its arbiter and probes);
- * - `laws`: every law over a relation it writes is native or monotone in its write of it (lawReasons): of each witness
- *   of a rule over a query (facts.ts TriggerLaw) the write breaks, making a row of the relation present where it stands
- *   among the witness's `rows` or `present`, or absent where it stands among its `absent`, exactly one occurrence is one
- *   some role's write can make true (Writers.makes), a row present or absent as it stands, and that one stands among
- *   its `rows`, a match of its breaking arm; and no change member of a role that runs SERIALIZABLE reads a relation it
- *   writes, by a statement or a foreign key check, but a fenced write's check of the rows that reference a row it
- *   deletes (fencedSite);
- * - `absence`: no change member of any role reads the absence or a count of a relation it writes, by a statement or by
- *   the check of a foreign key that references a row the member updates or deletes, a fenced write's again excepted;
- * - `snapshot`: in each of its members, an outside read that is no sealed group (ReadSeal) shares its statement with
- *   every other outside read, and no outside foreign key check, which reads at a later snapshot, stands beside it; an
- *   unsealed check stands beside no other outside read;
- * - `pivot`: a member with an outside read and a write is a pivot, each write of which another call may read. Each of
- *   its outside reads is a sealed group read positively, and each row it writes reaches every one of them: joined
- *   with each group its own statement reads from outside, and, after a statement that read from outside, with a row its own
- *   call wrote; no write comes before a group the member reads only later. A group it misses makes it write nothing;
- *   a group it reads again is the same rows or none, since a sealed group is immutable and never extended. Each of its
- *   foreign key checks is sealed: a sealed check finds its row, immutable or held (ReadSeal), or refuses the call whole;
- * - `writers`: no role that runs SERIALIZABLE and writes a relation the role reads from outside by a read no fence
- *   orders (RoleView.outside), by a statement or a probe of a rule over a query its own write fires (RoleView.probed),
- *   can miss another call's write (pivotCauseOf), so none is the pivot of a cycle through it: no
- *   statement of it reads from outside, none of its foreign key checks is unsealed or reads the rows that reference a
- *   row it changes, and it writes no relation a trigger-held law reads. A sealed check of its own, of an insert-only
- *   relation at a whole declared key or of one no role writes, finds an immutable row or refuses its call, which at
- *   SERIALIZABLE then commits nothing, so it misses no write; a held one finds a row its KEY SHARE lock keeps until it
- *   commits, or a row deleted since its snapshot, which PostgreSQL refuses at SERIALIZABLE with 40001
- *   (ri_triggers.c ri_LockPKTuple), or refuses its call. The role's own sealed checks of what such a writer writes are
- *   fenced instead: a sealed check that misses a key an in-flight writer inserts waits for no lock and refuses its call
- *   (NEGATION's case 3, the refusedCopy shape in test/unit/analysis/isolation/certify.test.ts), so the writer's login
- *   fences the relation (Fence), whose lock keeps every such check out of the writer's transaction and its snapshot
- *   after every check that committed before it. A sealed read is no
- *   exemption: a reader of one writer call's rows can miss an in-flight SERIALIZABLE writer whose read's writer committed
- *   before the reader began, which no serial order in real time explains, and a statement's read takes no lock a fence
- *   excludes. No role that runs SERIALIZABLE writes a relation the role writes, by a
- *   privilege, a member or a cascade: the installation's guard admits a READ COMMITTED write of a relation only where
- *   every role that writes it runs READ COMMITTED, and refuses any other with 25000 (physical/ddl/isolation.ts
- *   readCommittedRelations), so a role certified past it would have every write refused.
- *
- * A retirable unit's retirement (facts.ts WriteFact `retire`) is no update or delete of its relations: a change member
- * that touches a unit's bodies holds every group it touches from before its first statement that does until it commits
- * (physical/ddl/retire.ts, the hold), and a retirement locks every header it retires before it reads a body, so it waits
- * for every call that holds one; each call then reads a group's rows insert-only from its hold to its commit, and no
- * retired group is ever written again (the unit's fence). A retirement reads nothing besides the groups it locks and
- * makes no check, so it misses no write and is no pivot; it counts among its own role's writes, whose guard and laws it
- * meets, and among no other role's judgement of it (RoleView.guarded).
- *
- * A role is served the form its level chooses, so certification runs in rounds (certify): a role is judged over its
- * READ COMMITTED form, the one it is served while it runs READ COMMITTED, until a round leaves it SERIALIZABLE; it is
- * then lowered to its SERIALIZABLE form and never judged again, its certificate that round's. A role's own SERIALIZABLE
- * form is never among the facts it is judged by: it is served only once the role runs SERIALIZABLE, so no call of it
- * runs beside the role's READ COMMITTED calls. Whatever a lowered role's members read or write, conditions 2, 3 and 5c
- * included, is read from both its forms (Served), so every round reads the facts the one before it read and more.
- *
- * The criterion is strict serializability: every history the roles can run is one call at a time, in real time. With
- * these, an RC member's outside reads behave as one snapshot, its writes commit at once, every write-write conflict is
- * a native unique check decided in commit order, and no transaction, RC or SERIALIZABLE, can be the pivot of a
- * dangerous structure (Fekete et al., Making Snapshot Isolation Serializable, 2005).
- *
- * A rule over a query is checked at COMMIT by its triggers' probes (physical/ddl/rules.ts), each of a READ COMMITTED
- * call at a snapshot of its own: the latest commits and the call's own rows. Where every witness a write breaks is
- * monotone, as `laws` states it:
- *
- * 1. The rule holds in every committed state, whatever level wrote it. In commit order, a state that first breaks it
- *    through a witness was made so by the call that made the witness's one settable occurrence true, a row it wrote.
- *    Every other occurrence can only be made false, so it held at every earlier state and at that call's probe, which
- *    read its own row and refused it. A witness with more settable occurrences is broken by SERIALIZABLE writers
- *    alone, whose probes each read the others' occurrences, so SSI orders them; a READ COMMITTED write of its relations
- *    there only makes its occurrences false.
- * 2. A probe that passes at its snapshot passes at every later state: a write it missed is another row of the settable
- *    occurrence, in no witness through its own row, or one that only makes an occurrence false. So a READ COMMITTED
- *    call behaves as run at its COMMIT, in commit order, and a refused one as run at its probe's snapshot, unless a
- *    write its probe missed must come before it in every order: one whose writer missed another call's write that
- *    committed before the call began (NEGATION's case 3), which `writers` excludes over the relations its probes read.
- * 3. A SERIALIZABLE probe reads a relation a READ COMMITTED role writes only where it stands as an occurrence no role
- *    can make true, so a write of it SSI never sees could only have made the probe pass.
- */
-export type IsolationCondition =
-	| "form"
-	| "facts"
-	| "members"
-	| "privileges"
-	| "laws"
-	| "absence"
-	| "snapshot"
-	| "pivot"
-	| "writers"
-
-/**
- * Where a role fails a condition: the role as a whole; a relation it touches; a change member's write of a relation,
- * which has no READ COMMITTED form; or a statement in a member's flight, by its place there, and the relation it reads
- * or writes.
- */
-export type ReasonAt =
-	| { readonly kind: "role" }
-	| { readonly kind: "relation"; readonly relation: string }
-	| { readonly kind: "member"; readonly member: string; readonly relation: string }
-	| {
-			readonly kind: "statement"
-			readonly member: string
-			readonly statement: number
-			readonly relation: string
-	  }
-
-/** One condition a role fails, where (ReasonAt), and why. */
-export interface IsolationReason {
-	readonly condition: IsolationCondition
-	readonly at: ReasonAt
-	readonly detail: string
-}
-
-/**
- * A role's level: READ COMMITTED only with every condition proved, otherwise SERIALIZABLE with the reasons of the round
- * that lowered it (certify).
- */
-export type RoleCertificate =
-	| { readonly level: Extract<Isolation, "readCommitted"> }
-	| {
-			readonly level: Extract<Isolation, "serializable">
-			readonly reasons: NonEmptyReadonlyArray<IsolationReason>
-	  }
-
-/** One role of one login with its certificate. */
-export interface RoleIsolation {
-	readonly login: string
-	readonly role: string
-	readonly certificate: RoleCertificate
-}
 
 /**
  * What a read of a change member is, for the conditions:
@@ -221,7 +83,7 @@ export interface RoleIsolation {
  *   lock, and so before its snapshot, which sees the call's rows, or took its own snapshot after the member committed:
  *   no check waits on a row such a member deletes, and none misses a row it inserts. A held check of a relation some
  *   login deletes is fenced the same way where the role relies on it, for conditions 2 and 3 (fencedSite), and every
- *   sealed check, a point's too, against each writer that may miss another call's write, for 5c (serializableReasons);
+ *   sealed check, a point's too, against each writer that may miss another call's write, for 5c (givenReasons);
  * - `unsealed`: any other outside read, with why; a read of one group per own row of the call among them, which
  *   another call's rows may split, some seen and some missed. An arbitration is no such read: the unique check decides
  *   each row it proposes on its own.
@@ -1854,7 +1716,11 @@ const roleView = (at: Installation, served: Served): RoleView => {
 	}
 }
 
-const reason = (condition: IsolationCondition, at: ReasonAt, detail: string): IsolationReason => ({
+const reason = <C extends IsolationCondition>(
+	condition: C,
+	at: ReasonAt,
+	detail: string
+): IsolationReason<C> => ({
 	condition,
 	at,
 	detail
@@ -1873,7 +1739,7 @@ const atStatement = (member: string, statement: number, relation: string): Reaso
 
 /** Every relation the role touches, by a privilege, a write, a check, a probe of its writes or a read of other than its
  * own call's rows, that the installation states no fact of. */
-const factReasons = (at: Installation, view: RoleView): ReadonlyArray<IsolationReason> =>
+const factReasons = (at: Installation, view: RoleView): ReadonlyArray<IsolationReason<"facts">> =>
 	[
 		...new Set([
 			...view.role.privileges.keys(),
@@ -1891,7 +1757,7 @@ const factReasons = (at: Installation, view: RoleView): ReadonlyArray<IsolationR
 	)
 
 /** The members condition: the role has a change member, whose facts the other conditions read. */
-const memberReasons = (role: RoleFacts): ReadonlyArray<IsolationReason> =>
+const memberReasons = (role: RoleFacts): ReadonlyArray<IsolationReason<"members">> =>
 	role.writes.kind === "unknown"
 		? [
 				reason(
@@ -1908,7 +1774,7 @@ const privilegeReasons = (
 	at: Installation,
 	role: RoleFacts,
 	written: ReadonlySet<string>
-): ReadonlyArray<IsolationReason> => [
+): ReadonlyArray<IsolationReason<"privileges">> => [
 	...[...role.privileges].flatMap(([relation, privileges]) =>
 		[...privileges].flatMap((p) =>
 			insertAndSelect.has(p) ? [] : [reason("privileges", atRelation(relation), `holds ${p}`)]
@@ -1932,8 +1798,8 @@ const privilegeReasons = (
  * write there: each witness its write of the relation breaks is monotone (`monotone`). One reason per relation whose
  * write breaks one that is not, naming every such law.
  */
-const lawReasons = (at: Installation, view: RoleView): ReadonlyArray<IsolationReason> =>
-	[...view.made].flatMap(([relation, made]): ReadonlyArray<IsolationReason> => {
+const lawReasons = (at: Installation, view: RoleView): ReadonlyArray<IsolationReason<"laws">> =>
+	[...view.made].flatMap(([relation, made]): ReadonlyArray<IsolationReason<"laws">> => {
 		const laws = broken(at, relation, made).flatMap((b) =>
 			b.witnesses.every((w) => monotone(at.writers, w)) ? [] : [b.law.law]
 		)
@@ -2009,7 +1875,7 @@ const absenceSites = (
 const absenceReasons = (
 	view: RoleView,
 	absent: ReadonlyMap<string, ReadonlyArray<AbsenceSite>>
-): ReadonlyArray<IsolationReason> =>
+): ReadonlyArray<IsolationReason<"absence">> =>
 	[...view.guarded].flatMap((relation) =>
 		(absent.get(relation) ?? []).map((s) =>
 			reason(
@@ -2025,7 +1891,7 @@ const absenceReasons = (
  * outside foreign key check, which reads at a later snapshot, stands beside it; an unsealed check stands beside no other
  * outside read. One reason per unsealed read or check that has another snapshot beside it.
  */
-const snapshotReasons = (view: RoleView): ReadonlyArray<IsolationReason> =>
+const snapshotReasons = (view: RoleView): ReadonlyArray<IsolationReason<"snapshot">> =>
 	view.members.flatMap((v) => {
 		const checks = v.checks.filter((c) => outside(c.seal))
 		const statements = new Set(v.outsides.map((p) => p.statement))
@@ -2090,7 +1956,7 @@ const distinctReads = (placed: ReadonlyArray<PlacedRead>): ReadonlyArray<PlacedR
  * the others, each read counted once (distinctReads): a read of a query CTE is one read, however many sites read the
  * CTE and however they arrive, and a read taking several modes is one read.
  */
-const pivotReasons = (view: RoleView): ReadonlyArray<IsolationReason> =>
+const pivotReasons = (view: RoleView): ReadonlyArray<IsolationReason<"pivot">> =>
 	view.members.flatMap((v) => {
 		const name = v.member.name
 		const checks = v.checks.flatMap((c) =>
@@ -2175,9 +2041,9 @@ const pivotReasons = (view: RoleView): ReadonlyArray<IsolationReason> =>
  * Reasons each once, in their order: a reason names one site (IsolationReason), so two of one condition, place and detail
  * are one reason, however many reads, modes or instances of a query CTE gave it.
  */
-const distinctReasons = (
-	reasons: ReadonlyArray<IsolationReason>
-): ReadonlyArray<IsolationReason> => {
+const distinctReasons = <C extends IsolationCondition>(
+	reasons: ReadonlyArray<IsolationReason<C>>
+): ReadonlyArray<IsolationReason<C>> => {
 	const seen = new Set<string>()
 	return reasons.filter((r) => {
 		const key = canonicalTextOf(r)
@@ -2194,7 +2060,7 @@ const ownReasons = (
 	at: Installation,
 	view: RoleView,
 	absent: ReadonlyMap<string, ReadonlyArray<AbsenceSite>>
-): ReadonlyArray<IsolationReason> => [
+): ReadonlyArray<IsolationReason<OwnCondition>> => [
 	...factReasons(at, view),
 	...memberReasons(view.role),
 	...privilegeReasons(at, view.role, view.written),
@@ -2205,61 +2071,65 @@ const ownReasons = (
 ]
 
 /**
- * The reasons the roles that run SERIALIZABLE give a role: condition 2's other half, a change member of one reading a
- * relation the role writes, by a statement or a foreign key check, one per site; and condition 5c, one writing a
- * relation the role's members read from outside by a read no fence orders (RoleView.outside), sealed or not, while it
+ * The reasons a role that runs SERIALIZABLE, `other`, gives a role: condition 2's other half, a change member of it
+ * reading a relation the role writes, by a statement or a foreign key check, one per site; and condition 5c, it writing
+ * a relation the role's members read from outside by a read no fence orders (RoleView.outside), sealed or not, while it
  * may miss another call's write itself (RoleView.cause, pivotCauseOf), one per such relation. A sealed foreign key
  * check (lockedSeal) is no such read: it reads a relation no role updates, so every write of it may lock it, and the
  * writer's login fences it (Fence, fencesOf). Each such check committed before the writer's lock, which its snapshot
  * follows, so the writer misses no write that committed before the role's call ended, or took its own snapshot after
  * the writer committed, so it misses no row the writer inserted and finds no row the writer deleted: the edges a cycle
- * in real time through the role and the writer needs (NEGATION's case 3 needs one).
+ * in real time through the role and the writer needs (NEGATION's case 3 needs one). Each detail speaks of `other` as
+ * "it", the giver its reasons are told by (Giver).
  */
-const serializableReasons = (
+const givenReasons = (
 	view: RoleView,
-	judges: ReadonlyArray<RoleView>
-): ReadonlyArray<IsolationReason> =>
-	judges.flatMap((other) => {
-		const readers = [...view.written].flatMap((relation) =>
-			(other.sites.get(relation) ?? []).map((s) =>
-				reason(
-					"laws",
-					atStatement(s.member, s.statement, relation),
-					s.by === "statement"
-						? `${other.role.role} of ${other.role.login} reads it at SERIALIZABLE`
-						: `${other.role.role} of ${other.role.login} reads it by a foreign key check at SERIALIZABLE`
-				)
+	other: RoleView
+): ReadonlyArray<IsolationReason<GivenCondition>> => {
+	const readers = [...view.written].flatMap((relation) =>
+		(other.sites.get(relation) ?? []).map((s) =>
+			reason(
+				"laws",
+				atStatement(s.member, s.statement, relation),
+				s.by === "statement"
+					? "it reads the relation at SERIALIZABLE"
+					: "it reads the relation by a foreign key check at SERIALIZABLE"
 			)
 		)
-		const cowriters = [...other.guarded].flatMap((relation) =>
-			view.written.has(relation)
-				? [
-						reason(
-							"writers",
-							atRelation(relation),
-							`${other.role.role} of ${other.role.login} runs SERIALIZABLE and writes it too, so the guard admits no READ COMMITTED write of it`
-						)
-					]
-				: []
-		)
-		const pivot = other.cause
-		return pivot === undefined
-			? [...readers, ...cowriters]
-			: [
-					...readers,
-					...cowriters,
-					...[...other.guarded].flatMap((relation) =>
-						view.outside.has(relation)
-							? [
-									reason(
-										"writers",
-										atRelation(relation),
-										`${other.role.role} of ${other.role.login} writes it, and ${pivot}`
-									)
-								]
-							: []
+	)
+	const cowriters = [...other.guarded].flatMap((relation) =>
+		view.written.has(relation)
+			? [
+					reason(
+						"writers",
+						atRelation(relation),
+						"it runs SERIALIZABLE and writes the relation too, so the guard admits no READ COMMITTED write of it"
 					)
 				]
+			: []
+	)
+	const pivot = other.cause
+	return pivot === undefined
+		? [...readers, ...cowriters]
+		: [
+				...readers,
+				...cowriters,
+				...[...other.guarded].flatMap((relation) =>
+					view.outside.has(relation)
+						? [reason("writers", atRelation(relation), `it writes the relation, and ${pivot}`)]
+						: []
+				)
+			]
+}
+
+/**
+ * Each of `judges`, the roles that run SERIALIZABLE, that gives a role a reason (givenReasons), with the reasons it
+ * gives, each once, in the judges' order.
+ */
+const giversOf = (view: RoleView, judges: ReadonlyArray<RoleView>): ReadonlyArray<Giver> =>
+	judges.flatMap((other) => {
+		const reasons = distinctReasons(givenReasons(view, other))
+		return isNonEmpty(reasons) ? [{ login: other.role.login, role: other.role.role, reasons }] : []
 	})
 
 /**
@@ -2297,8 +2167,8 @@ type Formed<R, S, E> = Extract<Candidate<R, S, E>, { readonly kind: "formed" }>
 
 /**
  * One role certified, with the form it is served at its level: READ COMMITTED, every condition proved, served its own
- * form; or SERIALIZABLE, served its lowered form, with the reasons of the round that lowered it, the ones that made it
- * SERIALIZABLE.
+ * form; or SERIALIZABLE, served its lowered form, with why (Serializable), the reasons of the round that lowered it, the
+ * ones that made it SERIALIZABLE.
  */
 export type Certified<R, S> =
 	| {
@@ -2310,7 +2180,7 @@ export type Certified<R, S> =
 			readonly level: Extract<Isolation, "serializable">
 			readonly role: RoleFacts
 			readonly form: S
-			readonly reasons: NonEmptyReadonlyArray<IsolationReason>
+			readonly why: Serializable
 	  }
 
 /** A certified role's certificate, by its login and its role. */
@@ -2320,15 +2190,15 @@ export const isolationOf = <R, S>(certified: Certified<R, S>): RoleIsolation => 
 	certificate:
 		certified.level === "readCommitted"
 			? { level: certified.level }
-			: { level: certified.level, reasons: certified.reasons }
+			: { level: certified.level, why: certified.why }
 })
 
-/** A role a round lowered: its lowering, and the reasons of that round, which it keeps. */
+/** A role a round lowered: its lowering, and why that round lowered it, which it keeps. */
 interface Lowered<R, S, E> {
 	readonly kind: "lowered"
 	readonly candidate: Candidate<R, S, E>
 	readonly lowering: Lowering<S>
-	readonly reasons: NonEmptyReadonlyArray<IsolationReason>
+	readonly why: Serializable
 }
 
 /** A role a round reads: judged, over its READ COMMITTED form, or lowered by a round before it or by its form. */
@@ -2337,7 +2207,7 @@ type Standing<R, S, E> =
 	| Lowered<R, S, E>
 
 /**
- * A role after a round: judged READ COMMITTED, judged SERIALIZABLE with the round's reasons, which lowers it, or
+ * A role after a round: judged READ COMMITTED, judged SERIALIZABLE with why, the round's reasons, which lowers it, or
  * lowered by a round before it.
  */
 type Judgement<R, S, E> =
@@ -2345,7 +2215,7 @@ type Judgement<R, S, E> =
 	| {
 			readonly kind: "serializable"
 			readonly candidate: Formed<R, S, E>
-			readonly reasons: NonEmptyReadonlyArray<IsolationReason>
+			readonly why: Serializable
 	  }
 	| Lowered<R, S, E>
 
@@ -2368,7 +2238,7 @@ type Viewed<R, S, E> =
 			readonly kind: "judged"
 			readonly candidate: Formed<R, S, E>
 			readonly view: RoleView
-			readonly own: ReadonlyArray<IsolationReason>
+			readonly own: ReadonlyArray<IsolationReason<OwnCondition>>
 	  }
 	| (Lowered<R, S, E> & { readonly view: RoleView })
 
@@ -2418,7 +2288,7 @@ const round = <R, S, E>(
 		changed = false
 		const judges = [...serializable].map((r) => r.view)
 		for (const r of roles) {
-			if (!serializable.has(r) && serializableReasons(r.view, judges).length > 0) {
+			if (!serializable.has(r) && judges.some((other) => givenReasons(r.view, other).length > 0)) {
 				serializable.add(r)
 				changed = true
 			}
@@ -2426,19 +2296,19 @@ const round = <R, S, E>(
 	}
 	const judgementOf = (r: Viewed<R, S, E>): Judgement<R, S, E> => {
 		if (r.kind === "lowered") {
-			return { kind: "lowered", candidate: r.candidate, lowering: r.lowering, reasons: r.reasons }
+			return { kind: "lowered", candidate: r.candidate, lowering: r.lowering, why: r.why }
 		}
-		const failed =
-			r.own.length > 0 || !serializable.has(r)
-				? r.own
-				: distinctReasons(
-						serializableReasons(
-							r.view,
-							[...serializable].flatMap((other) => (other === r ? [] : [other.view]))
-						)
-					)
-		return isNonEmpty(failed)
-			? { kind: "serializable", candidate: r.candidate, reasons: failed }
+		if (isNonEmpty(r.own)) {
+			return { kind: "serializable", candidate: r.candidate, why: { kind: "own", reasons: r.own } }
+		}
+		const by = serializable.has(r)
+			? giversOf(
+					r.view,
+					roles.flatMap((other) => (other !== r && serializable.has(other) ? [other.view] : []))
+				)
+			: []
+		return isNonEmpty(by)
+			? { kind: "serializable", candidate: r.candidate, why: { kind: "given", by } }
 			: { kind: "readCommitted", candidate: r.candidate }
 	}
 	return { at, roles: roles.map((r) => ({ judgement: judgementOf(r), view: r.view })) }
@@ -2458,7 +2328,7 @@ const certifiedOf = <R, S, E>(
 				level: "serializable",
 				role: judgement.candidate.role,
 				form: judgement.lowering.form,
-				reasons: judgement.reasons
+				why: judgement.why
 			}
 
 /**
@@ -2467,7 +2337,7 @@ const certifiedOf = <R, S, E>(
  * roles delete it, a deletion the check may wait on and then miss the key's insertion in the same transaction (ReadSeal
  * fenced), or that a deleting member's check of the rows referencing it relies on (fencedSite); or a role of it that runs
  * SERIALIZABLE and may miss another call's write (RoleView.cause) writes it, an insertion the check may miss in flight
- * after the writer missed a write that committed before the check's call began (NEGATION's case 3, serializableReasons).
+ * after the writer missed a write that committed before the check's call began (NEGATION's case 3, givenReasons).
  * Every change member of the login that writes it begins its transaction with LOCK TABLE ... IN EXCLUSIVE MODE on it
  * before any statement takes the snapshot, and the installation grants the login MAINTAIN on it, the least privilege
  * that permits the lock (PostgreSQL 19 lockcmds.c LockTableAclCheck): every check takes ROW SHARE on it before its own
@@ -2492,7 +2362,7 @@ export interface Certifications<R, S> {
  * a role certified READ COMMITTED checks by a sealed check (lockedSeal), one fence of each login that fences it (Fence):
  * each login whose roles delete it (Writers.fencers), and each login of a role that runs SERIALIZABLE, may miss another
  * call's write (RoleView.cause) and writes it but by a retirement alone (RoleView.guarded), the writers 5c spared for the
- * fence (serializableReasons); by login then relation in code-unit order.
+ * fence (givenReasons); by login then relation in code-unit order.
  */
 const fencesOf = <R, S, E>(
 	at: Installation,
@@ -2532,7 +2402,7 @@ const fencesOf = <R, S, E>(
 /** The condition `form`: one reason per change member with no READ COMMITTED form, at the relation it has none for. */
 const formReasons = (
 	unformed: NonEmptyReadonlyArray<Unformed>
-): NonEmptyReadonlyArray<IsolationReason> =>
+): NonEmptyReadonlyArray<IsolationReason<"form">> =>
 	mapNonEmpty(unformed, (u) =>
 		reason(
 			"form",
@@ -2549,7 +2419,7 @@ const standingOf = <R, S, E>(candidate: Candidate<R, S, E>): Standing<R, S, E> =
 				kind: "lowered",
 				candidate,
 				lowering: candidate.lowering,
-				reasons: formReasons(candidate.unformed)
+				why: { kind: "own", reasons: formReasons(candidate.unformed) }
 			}
 
 /**
@@ -2589,7 +2459,7 @@ export const certify = <R, S, E>(
 					kind: "lowered",
 					candidate: j.candidate,
 					lowering: lowering.value,
-					reasons: j.reasons
+					why: j.why
 				})
 			} else {
 				next.push(j.kind === "readCommitted" ? { kind: "judged", candidate: j.candidate } : j)

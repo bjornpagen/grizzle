@@ -29,10 +29,17 @@ import { generateMigrations, type SchemaGenerateReport } from "#cli/generate.ts"
 import { drift, migrate, roles, uninstallAll } from "#cli/migrate.ts"
 import { names } from "#cli/names.ts"
 import { type PhaseMeter, phasedEffect, phaseRun } from "#cli/phases.ts"
-import { cliStageFix, migrateStageFix, refusalText } from "#cli/refusals.ts"
+import { cliStageFix, isolationFix, migrateStageFix, refusalText } from "#cli/refusals.ts"
 import { upgradeAll } from "#cli/upgrade.ts"
 import type { Phases } from "#compiler/plan/common.ts"
-import { metaFileName } from "#compiler/plan/migration.ts"
+import {
+	type IsolationCondition,
+	type IsolationReason,
+	metaFileName,
+	type ReasonAt,
+	reasonsOf,
+	type Serializable
+} from "#compiler/plan/migration.ts"
 
 /**
  * The exit statuses a command line's report carries: 0 when the command succeeded, 1 when it was refused or failed, 2
@@ -85,20 +92,63 @@ export const markerLine = (
 const commitStep = (rederived: boolean, served: boolean): string =>
 	`next: commit ${rederived && served ? "snapshot.json, manifest.json and the served files" : rederived ? "snapshot.json and manifest.json" : "the served files"}, then run grizzle check`
 
-/** A role's level as generate prints it: read committed, or serializable with the count of each condition it failed. */
-const levelLine = (role: SchemaGenerateReport["certification"][number]): string => {
-	const head = `login ${role.login}, role ${role.role}`
-	if (role.certificate.level === "readCommitted") {
-		return `${head}: read committed`
-	}
-	const counts = new Map<string, number>()
-	for (const reason of role.certificate.reasons) {
+/** The count of each condition among `reasons`, each in the order it first stands there: "laws 3, absence 1". */
+const countsText = (reasons: ReadonlyArray<IsolationReason>): string => {
+	const counts = new Map<IsolationCondition, number>()
+	for (const reason of reasons) {
 		counts.set(reason.condition, (counts.get(reason.condition) ?? 0) + 1)
 	}
-	return `${head}: serializable (${Arr.join(
+	return Arr.join(
 		Arr.map([...counts], ([condition, count]) => `${condition} ${count}`),
 		", "
-	)})`
+	)
+}
+
+/** Where a reason places its failure, as generate prints it: the role, a relation, a member's write or a statement. */
+const placeText = (at: ReasonAt): string => {
+	switch (at.kind) {
+		case "role":
+			return "the role"
+		case "relation":
+			return `relation ${at.relation}`
+		case "member":
+			return `member ${at.member}, relation ${at.relation}`
+		case "statement":
+			return `member ${at.member}, statement ${at.statement}, relation ${at.relation}`
+	}
+}
+
+/**
+ * The lines under a SERIALIZABLE role, why it runs SERIALIZABLE: each reason of its own, its condition, where, its
+ * detail and the condition's fix (isolationFix); or, for the reasons roles that run SERIALIZABLE give it, one line per
+ * giver, to fix that role first, with the count of each condition it gives. Each count of the role's line is the count
+ * of its condition's lines, or the sum of its givers' counts of it.
+ */
+const whyLines = (why: Serializable): ReadonlyArray<string> =>
+	why.kind === "own"
+		? Arr.map(
+				why.reasons,
+				(r) => `  ${r.condition}, ${placeText(r.at)}: ${r.detail}; ${isolationFix[r.condition]}`
+			)
+		: Arr.map(
+				why.by,
+				(g) => `  fix login ${g.login}, role ${g.role} first (${countsText(g.reasons)})`
+			)
+
+/**
+ * A role's level as generate prints it: read committed; or serializable with the count of each condition it failed,
+ * then a line per reason it fails by itself, or per role that gives it one (whyLines).
+ */
+export const levelLines = (
+	role: SchemaGenerateReport["certification"][number]
+): ReadonlyArray<string> => {
+	const head = `login ${role.login}, role ${role.role}`
+	return role.certificate.level === "readCommitted"
+		? [`${head}: read committed`]
+		: [
+				`${head}: serializable (${countsText(reasonsOf(role.certificate.why))})`,
+				...whyLines(role.certificate.why)
+			]
 }
 
 /**
@@ -112,14 +162,14 @@ const fenceLine = (fence: SchemaGenerateReport["fences"][number]): string =>
 	)}`
 
 /**
- * The level of every role of every schema's logins, one line each (levelLine), each fence its login takes for them
- * (fenceLine), then what generate wrote (renderWrites).
+ * The level of every role of every schema's logins, with why each SERIALIZABLE one is (levelLines), each fence its
+ * login takes for them (fenceLine), then what generate wrote (renderWrites).
  */
 const renderGenerate = (
 	reports: ReadonlyArray<SchemaGenerateReport>,
 	relative: (path: string) => string
 ): ReadonlyArray<string> => [
-	...Arr.flatMap(reports, (r) => Arr.map(r.certification, levelLine)),
+	...Arr.flatMap(reports, (r) => Arr.flatMap(r.certification, levelLines)),
 	...Arr.flatMap(reports, (r) => Arr.map(r.fences, fenceLine)),
 	...renderWrites(reports, relative)
 ]

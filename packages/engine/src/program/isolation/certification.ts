@@ -6,11 +6,11 @@ import {
 	type Candidate,
 	certify,
 	type Fence,
-	isolationOf,
-	type RoleIsolation
+	isolationOf
 } from "#compiler/analysis/isolation/certify.ts"
 import type { MemberFacts } from "#compiler/analysis/isolation/facts.ts"
 import type { CheckedSchema, RoleWorld } from "#compiler/analysis/schema.ts"
+import type { RoleIsolation } from "#compiler/core/certificate.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { compareStrings } from "#compiler/core/order.ts"

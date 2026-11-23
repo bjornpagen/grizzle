@@ -48,7 +48,9 @@
  * READ COMMITTED check by sealed checks, one per login that fences each (each whose roles delete it, and each of a role
  * it lowered that may miss another call's write and writes it), and every SERIALIZABLE role names exactly the
  * conditions of the round
- * that lowered it, each of which it still fails at the fixpoint; a role with no change member is SERIALIZABLE by the
+ * that lowered it, each of which it still fails at the fixpoint: its own where it fails any of its own, else, under
+ * each role that runs SERIALIZABLE at that round's end and gives it one, in the roles' order, exactly the conditions
+ * that role alone gives it (certify.ts Serializable); a role with no change member is SERIALIZABLE by the
  * members condition. Every role's certificate is the same with its own SERIALIZABLE form dropped: that form is served
  * only once the role runs SERIALIZABLE, so it never judges the role. Adding a capability (a privilege, a read, a
  * statement, a member, a member of a SERIALIZABLE form, a role, an insert with no insert, a trigger-held law, a foreign
@@ -128,13 +130,12 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
+import { certify, isolationOf, readSeal } from "#compiler/analysis/isolation/certify.ts"
 import {
-	certify,
 	type IsolationCondition,
-	isolationOf,
 	type IsolationReason,
-	readSeal
-} from "#compiler/analysis/isolation/certify.ts"
+	reasonsOf
+} from "#compiler/core/certificate.ts"
 import { expanded } from "#test/support/expanded.ts"
 import {
 	absenceOfItsOwnLowering,
@@ -192,6 +193,17 @@ import {
 	withRole
 } from "#test/unit/analysis/isolation/certify.fixtures.ts"
 
+/** A role that gives another a reason to run SERIALIZABLE, by name, and the conditions it gives. */
+interface GiverConditions {
+	readonly role: string
+	readonly conditions: ReadonlyArray<IsolationCondition>
+}
+
+/** The conditions among `named`, each once, in the order everyCondition lists them. */
+const conditionsIn = (
+	named: ReadonlyArray<IsolationCondition>
+): ReadonlyArray<IsolationCondition> => Arr.filter(everyCondition, (x) => named.includes(x))
+
 /**
  * The isolation certifier runs a role READ COMMITTED exactly when every condition proves it, names every condition a
  * SERIALIZABLE role fails, and never relaxes a role for an added capability or a missing fact.
@@ -212,6 +224,7 @@ export const theIsolationCertifierRunsARoleREADCOMMITTEDExactlyWhenEveryConditio
 				"a role certified READ COMMITTED",
 				...Arr.map(conditions, (c) => `a role SERIALIZABLE by ${c}` as const),
 				"a role SERIALIZABLE only through roles that run SERIALIZABLE",
+				"a role SERIALIZABLE through two roles that run SERIALIZABLE",
 				"a counted group read",
 				"a point read",
 				"a read of a relation no role writes",
@@ -271,11 +284,32 @@ export const theIsolationCertifierRunsARoleREADCOMMITTEDExactlyWhenEveryConditio
 							`${v.role}'s certificate is the same without its own SERIALIZABLE form`
 						)
 						if (v.certificate.level === "serializable") {
-							const named = new Set(Arr.map(v.certificate.reasons, (r) => r.condition))
+							const why = v.certificate.why
+							const named = new Set(Arr.map(reasonsOf(why), (r) => r.condition))
 							assert.deepEqual(
 								Arr.filter(everyCondition, (x) => named.has(x)),
 								Arr.filter(everyCondition, (x) => o.failed.has(x)),
 								`${v.role} names exactly the conditions of the round that lowered it`
+							)
+							const givers: ReadonlyArray<GiverConditions> =
+								why.kind === "own"
+									? []
+									: Arr.map(why.by, (g) => ({
+											role: g.role,
+											conditions: conditionsIn(Arr.map(g.reasons, (r) => r.condition))
+										}))
+							assert.deepEqual(
+								givers,
+								Arr.map(Arr.sort([...o.givers.keys()], Order.Number), (j) => ({
+									role: `r${j}`,
+									conditions: conditionsIn([...defined(o.givers.get(j), `r${j}'s conditions`)])
+								})),
+								`${v.role} names its own reasons where it fails any of its own, else each role that runs SERIALIZABLE and gives it one, in the roles' order, with the conditions it gives`
+							)
+							assert.equal(
+								why.kind,
+								o.own.size > 0 ? "own" : "given",
+								`${v.role}'s reasons are its own where it fails a condition of its own`
 							)
 							const judges = new Set(Arr.filter([...expected.lowered], (j) => j !== i))
 							const at = oracleRound(c.sketch, judges)
@@ -289,6 +323,9 @@ export const theIsolationCertifierRunsARoleREADCOMMITTEDExactlyWhenEveryConditio
 							}
 							if (o.own.size === 0) {
 								k.note("a role SERIALIZABLE only through roles that run SERIALIZABLE")
+							}
+							if (o.givers.size > 1) {
+								k.note("a role SERIALIZABLE through two roles that run SERIALIZABLE")
 							}
 							if (defined(expected.rounds.get(i), `the round that lowered ${v.role}`) > 0) {
 								k.note("a role lowered in a later round")
@@ -489,17 +526,17 @@ export const theIsolationCertifierRunsARoleREADCOMMITTEDExactlyWhenEveryConditio
 				{
 					file: "packages/engine/src/analysis/isolation/certify.ts",
 					original:
-						'\t\t\treturn { kind: "lowered", candidate: r.candidate, lowering: r.lowering, reasons: r.reasons }',
+						'\t\t\treturn { kind: "lowered", candidate: r.candidate, lowering: r.lowering, why: r.why }',
 					replacement:
-						'\t\t\tconst again = ownReasons(at, r.view, absent)\n\t\t\tconst reasons = isNonEmpty(again) ? again : r.reasons\n\t\t\treturn { kind: "lowered", candidate: r.candidate, lowering: r.lowering, reasons }',
+						'\t\t\tconst again = ownReasons(at, r.view, absent)\n\t\t\tconst why: Serializable = isNonEmpty(again) ? { kind: "own", reasons: again } : r.why\n\t\t\treturn { kind: "lowered", candidate: r.candidate, lowering: r.lowering, why }',
 					why: "A lowered role judged again over both its forms, its own lowering's absence named in place of the reasons that lowered it (the lowered absence); the search fails."
 				},
 				{
 					file: "packages/engine/src/analysis/isolation/certify.ts",
 					original:
-						'\t\t\treturn { kind: "lowered", candidate: r.candidate, lowering: r.lowering, reasons: r.reasons }',
+						'\t\t\treturn { kind: "lowered", candidate: r.candidate, lowering: r.lowering, why: r.why }',
 					replacement:
-						'\t\t\tconst own = roleView(at, { role: r.candidate.role, members: r.candidate.role.members })\n\t\t\tconst again = ownReasons(at, own, absent)\n\t\t\tconst reasons = isNonEmpty(again) ? again : r.reasons\n\t\t\treturn { kind: "lowered", candidate: r.candidate, lowering: r.lowering, reasons }',
+						'\t\t\tconst own = roleView(at, { role: r.candidate.role, members: r.candidate.role.members })\n\t\t\tconst again = ownReasons(at, own, absent)\n\t\t\tconst why: Serializable = isNonEmpty(again) ? { kind: "own", reasons: again } : r.why\n\t\t\treturn { kind: "lowered", candidate: r.candidate, lowering: r.lowering, why }',
 					why: "A lowered role's certificate read from the last round, over its READ COMMITTED form alone, where another role's lowering gives it an absence of its own (the lowered cause); the search fails."
 				},
 				{
@@ -620,9 +657,25 @@ export const theIsolationCertifierRunsARoleREADCOMMITTEDExactlyWhenEveryConditio
 				},
 				{
 					file: "packages/engine/src/analysis/isolation/certify.ts",
-					original: "\t\t\t? [...readers, ...cowriters]\n\t\t\t: [\n\t\t\t\t\t...readers,",
-					replacement: "\t\t\t? [...cowriters]\n\t\t\t: [",
-					why: "Condition `laws` without its second half, a change member of a role that runs SERIALIZABLE reading a relation the role writes (serializableReasons); the search fails."
+					original: "\t\t? [...readers, ...cowriters]\n\t\t: [\n\t\t\t\t...readers,",
+					replacement: "\t\t? [...cowriters]\n\t\t: [",
+					why: "Condition `laws` without its second half, a change member of a role that runs SERIALIZABLE reading a relation the role writes (givenReasons); the search fails."
+				},
+				{
+					file: "packages/engine/src/analysis/isolation/certify.ts",
+					original:
+						"\t\treturn isNonEmpty(reasons) ? [{ login: other.role.login, role: other.role.role, reasons }] : []",
+					replacement:
+						"\t\treturn isNonEmpty(reasons) ? [{ login: view.role.login, role: view.role.role, reasons }] : []",
+					why: "A role's given reasons told as given by the role itself, not by the role that runs SERIALIZABLE and gives them (giversOf), so the line that tells which role to fix first names the wrong one; the search fails."
+				},
+				{
+					file: "packages/engine/src/analysis/isolation/certify.ts",
+					original:
+						"\tjudges.flatMap((other) => {\n\t\tconst reasons = distinctReasons(givenReasons(view, other))",
+					replacement:
+						"\tjudges.slice(0, 1).flatMap((other) => {\n\t\tconst reasons = distinctReasons(givenReasons(view, other))",
+					why: "A role given reasons by several roles that run SERIALIZABLE told only the first of them (giversOf); the search fails."
 				}
 			]
 		}
@@ -666,7 +719,8 @@ export const theIsolationCertifierRunsARoleWithAChangeMemberThatHasNoREADCOMMITT
 									{
 										readCommitted: false,
 										failed: new Set<IsolationCondition>(["form"]),
-										own: new Set<IsolationCondition>(["form"])
+										own: new Set<IsolationCondition>(["form"]),
+										givers: new Map()
 									}
 								] as const
 						)
@@ -684,7 +738,7 @@ export const theIsolationCertifierRunsARoleWithAChangeMemberThatHasNoREADCOMMITT
 					if (Option.isSome(sites)) {
 						assert.deepEqual(
 							v.certificate.level === "serializable"
-								? Arr.map(v.certificate.reasons, reasonSite)
+								? Arr.map(reasonsOf(v.certificate.why), reasonSite)
 								: [],
 							Arr.map(sites.value.sites, (u): ReasonSite => ({
 								condition: "form",
@@ -702,7 +756,7 @@ export const theIsolationCertifierRunsARoleWithAChangeMemberThatHasNoREADCOMMITT
 						k.note("a role certified READ COMMITTED beside a role with no READ COMMITTED form")
 						continue
 					}
-					const named = new Set(Arr.map(v.certificate.reasons, (r) => r.condition))
+					const named = new Set(Arr.map(reasonsOf(v.certificate.why), (r) => r.condition))
 					assert.deepEqual(
 						Arr.filter(everyCondition, (x) => named.has(x)),
 						Arr.filter(everyCondition, (x) => o.failed.has(x)),
@@ -815,7 +869,7 @@ export const theIsolationCertifierReadsAStatementsQueryCTEInstancesAsTheirExpans
 						assert.deepEqual(
 							Arr.sort(
 								Arr.filter(
-									Arr.map(role.level === "serializable" ? role.reasons : [], unmaskedKey),
+									Arr.map(role.level === "serializable" ? reasonsOf(role.why) : [], unmaskedKey),
 									(key) => Str.includes(unjoinedReason)(key)
 								),
 								Order.String
@@ -849,12 +903,12 @@ export const theIsolationCertifierReadsAStatementsQueryCTEInstancesAsTheirExpans
 						assert.equal(role.level, other.level, `r${i}'s level`)
 						if (role.level === "serializable" && other.level === "serializable") {
 							assert.deepEqual(
-								keys(role.reasons),
-								keys(other.reasons),
+								keys(reasonsOf(role.why)),
+								keys(reasonsOf(other.why)),
 								`r${i}'s reasons, each once`
 							)
 							k.note("a role SERIALIZABLE")
-							if (other.reasons.length > keys(other.reasons).length) {
+							if (reasonsOf(other.why).length > keys(reasonsOf(other.why)).length) {
 								k.note("a reason the expansion gives again")
 							}
 						}
