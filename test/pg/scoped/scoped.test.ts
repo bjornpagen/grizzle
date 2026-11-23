@@ -49,7 +49,6 @@ import { namesOf } from "#test/support/kernel/naming.ts"
 import { refusedEntries } from "#test/support/refused.ts"
 import { servedFixture } from "#test/support/served-db.ts"
 import { expectSqlstate } from "#test/support/substrate/expect.ts"
-import { clearRows, installationGroup } from "#test/support/substrate/replace.ts"
 import { ownerSession, Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { tokenOf } from "#test/support/worlds.ts"
@@ -116,7 +115,6 @@ export const aRoleHoldingScopedEntriesReadsAndWritesTheSchemasProgramsOverItsOwn
 									}
 									return t
 								})
-								yield* clearRows(owner, installationGroup(names))
 								const deskServed = yield* servedFixture(m, desk)
 								const appServed = yield* servedFixture(m, app)
 								const seeds = seedFacts(c.state)
