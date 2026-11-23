@@ -138,6 +138,18 @@ export const evidence = agreement(evidenceSpace, {
 			original: "export const negationPairing = sameCarrier",
 			replacement: "export const negationPairing = compatible",
 			why: "The builder binds a negation's variable only to a field of its identity: a Cents variable in r.not of a natural field is refused when the rule is built, where the types admit it; the program of the witness of a negation across refining types fails."
+		},
+		{
+			file: "packages/engine/src/types/query/rule.ts",
+			original: "\t\tb: B & RefinedEquality<A, B>",
+			replacement: "\t\tb: B & Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>",
+			why: "r.eq takes only an operand that meets its first's type: a Cents variable equated with a natural one is refused by the types, where the engine types the equality at their carrier; the program of the witness of an equality across refining types fails."
+		},
+		{
+			file: "packages/engine/src/scalar/compute/typing.ts",
+			original: "\t\tif (!meets(against.nominal, term.nominal) && !refinedPair(against, term)) {",
+			replacement: "\t\tif (!meets(against.nominal, term.nominal)) {",
+			why: "The engine refuses an equality of two refinements of one base carrier, where the types admit it: the program of the witness of an equality across refining types fails."
 		}
 	]
 })

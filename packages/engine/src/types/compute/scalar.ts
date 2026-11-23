@@ -12,8 +12,10 @@ import type {
 	Facts,
 	FactsOf,
 	HasOrigin,
+	LanguageOf,
 	LiteralOrigin,
 	Meets,
+	OneBaseCarrier,
 	OriginOfTerm,
 	Predicate,
 	Refusal,
@@ -37,6 +39,26 @@ import type { InstantDomain, LiteralOf, NotStoredOnly } from "#compiler/types/fi
 export type Operand<T, S extends SqlTag, L = T> =
 	| Meets<T, S>
 	| ([T] extends [InstantDomain] ? never : LiteralOf<L>)
+
+/**
+ * What an equality admits opposite a first operand A beside what every comparison does (Operand): a term of A's base
+ * carrier of another type, a refinement of it either way (OneBaseCarrier), which the engine types at the carrier
+ * (scalar/compute/typing.ts refined); RefinedEquality holds such a term to it.
+ */
+export type RefinedTerm<A> = TermBase & { readonly sql: SqlOfTerm<A> }
+
+/**
+ * Holds an equality's second operand B to its first A: a term of A's base carrier (RefinedTerm) of another type stands
+ * as it is, and any other operand must meet A as every comparison's does (Operand).
+ */
+export type RefinedEquality<A, B> =
+	B extends Operand<TypeOfTerm<A>, SqlOfTerm<A>, LanguageOf<A>>
+		? unknown
+		: B extends TermBase
+			? OneBaseCarrier<TypeOfTerm<A>, SqlOfTerm<A>, TypeOfTerm<B>, SqlOfTerm<B>> extends true
+				? unknown
+				: Operand<TypeOfTerm<A>, SqlOfTerm<A>, LanguageOf<A>>
+			: unknown
 
 /**
  * What a number or bigint literal type proves of its value, as compilation reads the value (typing.ts factsOfValue): it

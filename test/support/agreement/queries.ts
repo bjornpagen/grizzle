@@ -267,10 +267,11 @@ type Planted = "clean" | Fault
  * over Cents opposite one over bigint, the subtle pair whose carriers agree and whose brands do not, by an Allen
  * predicate or a producer (endpointOf), which the faulted space aims a case at while no witness has reached it
  * (faultCases), a pair one spanEndpoints case in about ten draws of itself; or a negation across refining types, a
- * variable of one contract over pg.bigint negated at a field of the other (negationOver), which the clean space aims a
- * case at while no witness has reached it (evidenceSpace).
+ * variable of one contract over pg.bigint negated at a field of the other (negationOver), or an equality across
+ * refining types, two such variables equated, which the clean space aims a case at while no witness has reached each
+ * (evidenceSpace).
  */
-type EndpointAim = "drawn" | "contractAgainstBase" | "refiningNegation"
+type EndpointAim = "drawn" | "contractAgainstBase" | "refiningNegation" | "refiningEquality"
 
 /** What a drawn case reached: its constructs, and the engine's verdict on it. */
 export type AgreementNote =
@@ -280,6 +281,7 @@ export type AgreementNote =
 	| "a key below the heading"
 	| "a variable two filters fix"
 	| "a negation across refining types"
+	| "an equality across refining types"
 	| "a flag whose readings each prove more than both state"
 	| "a contract in the head"
 	| "an unordered page refused"
@@ -1842,10 +1844,15 @@ const filtersOver = (d: Drawing, bound: ReadonlyArray<Var>): ReadonlyArray<Pred>
 		const v = d.from(bound)
 		simple.push({ kind: "cmp", op: "eq", a: varTerm(v), b: inputOf(d, v.field), via: viaOf(d) })
 	}
-	const pairs = Arr.flatMap(bound, (a, i) =>
-		Arr.flatMap(bound.slice(i + 1), (b) => (a.field.kind === b.field.kind ? [[a, b] as const] : []))
+	const equated = Arr.flatMap(bound, (a, i) =>
+		Arr.flatMap(bound.slice(i + 1), (b) =>
+			carrierOf(a.field.kind) === carrierOf(b.field.kind) ? [[a, b] as const] : []
+		)
 	)
-	if (Arr.isReadonlyArrayNonEmpty(pairs) && d.keep("varEquality")) {
+	const refining = Arr.filter(equated, ([a, b]) => a.field.kind !== b.field.kind)
+	const aimedEquality = d.aim === "refiningEquality" && Arr.isReadonlyArrayNonEmpty(refining)
+	const pairs = aimedEquality ? refining : equated
+	if (Arr.isReadonlyArrayNonEmpty(pairs) && (aimedEquality || d.keep("varEquality"))) {
 		const [a, b] = d.from(pairs)
 		simple.push({ kind: "cmp", op: "eq", a: varTerm(a), b: varTerm(b), via: viaOf(d) })
 	}
@@ -1922,6 +1929,18 @@ const negationOver = (d: Drawing, bound: ReadonlyArray<Var>): ReadonlyArray<Pred
 	const [rel, field, v] = d.from(pairs)
 	return [{ kind: "not", rel, field: field.name, t: varTerm(v) }]
 }
+
+/** Whether a rule equates two variables of two kinds of one base carrier (carrierOf), Cents and natural. */
+const refiningEquality = (arm: RuleSpec): boolean =>
+	Arr.some(
+		arm.filters,
+		(p) =>
+			p.kind === "cmp" &&
+			p.op === "eq" &&
+			p.a.kind === "var" &&
+			p.b.kind === "var" &&
+			p.a.v.field.kind !== p.b.v.field.kind
+	)
 
 /** Whether a rule negates a relation at a field of another kind than the variable it binds there (negationOver). */
 const refiningNegation = (arm: RuleSpec): boolean =>
@@ -3920,6 +3939,9 @@ const caseOf = ({ spec, reached }: Drawn): AgreementCase => {
 	if (Arr.some(spec.arms, refiningNegation)) {
 		notes.add("a negation across refining types")
 	}
+	if (Arr.some(spec.arms, refiningEquality)) {
+		notes.add("an equality across refining types")
+	}
 	const keyed = spec.keyed === undefined ? undefined : keyedOf(spec.keyed)
 	for (const note of keyed === undefined ? [] : keyedNotes(keyed)) {
 		notes.add(note)
@@ -4142,12 +4164,17 @@ export const agreementCases: Gen<AgreementCase> = (source) =>
 
 /**
  * The clean space the evidence agreement draws: agreementCases, and while no witness has negated a field at a variable
- * of another refining type, a case aimed at it (EndpointAim `refiningNegation`).
+ * of another refining type, or equated two variables of two such types, a case aimed at each (EndpointAim
+ * `refiningNegation`, `refiningEquality`).
  */
 export const evidenceSpace: Aimed<AgreementCase, AgreementNote> = aimed(agreementCases, [
 	[
 		"a negation across refining types",
 		(source) => caseOf(drawnGen("clean", "refiningNegation")(source))
+	],
+	[
+		"an equality across refining types",
+		(source) => caseOf(drawnGen("clean", "refiningEquality")(source))
 	]
 ])
 
@@ -4192,6 +4219,7 @@ export const evidenceRequired: ReadonlyArray<Reached<AgreementNote>> = [
 	"a key below the heading",
 	"a variable two filters fix",
 	"a negation across refining types",
+	"an equality across refining types",
 	"a contract in the head",
 	"an unordered page refused",
 	"a span parameter opposite r.allen",

@@ -906,6 +906,7 @@ const canonicalizer = (): Canonicalizer => {
 			case "cast":
 			case "guarded":
 			case "base":
+			case "retype":
 			case "cond":
 			case "when":
 			case "between":
@@ -1905,6 +1906,7 @@ class Owner {
 			case "cast":
 			case "guarded":
 			case "base":
+			case "retype":
 			case "cond":
 			case "when":
 			case "allen":

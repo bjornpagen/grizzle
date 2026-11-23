@@ -60,7 +60,8 @@ export const throws = (f: () => unknown): CompileError => {
 /**
  * The typing rules of the builders (compute/builders.ts, compute/typing.ts), stated over operands of one base, bigint,
  * so no widening between integer types enters: two operands meet only when their nominal types are one (a contract its
- * own contract, a bare base its bare base, computeCore.base the explicit way between them); LEAST, GREATEST and a
+ * own contract, a bare base its bare base, computeCore.base the explicit way between them), but for an equality, which
+ * meets any two refinements of one base carrier, typed at it (scalar/compute/typing.ts refinedPair); LEAST, GREATEST and a
  * conditional keep that type, a sum is exact, an exact integer one digit past its base's 19, and a comparison is
  * boolean. A conditional is typed by its first branch, a term, never a JavaScript literal or a parameter; the other
  * branch is a term or parameter of that type, or a JavaScript literal of its base's host kind (integer a number, bigint

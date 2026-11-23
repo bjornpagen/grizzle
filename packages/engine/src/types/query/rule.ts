@@ -18,6 +18,8 @@ import type {
 	OfFamily,
 	Operand,
 	OrderedOperand,
+	RefinedEquality,
+	RefinedTerm,
 	Requires
 } from "#compiler/types/compute/scalar.ts"
 
@@ -774,9 +776,12 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 	 * Every predicate records its shape for the reflexive proof (../evidence/evidence.ts Shaped). A first operand admits
 	 * a JavaScript value beside a term only to refuse it by name (FirstTerm).
 	 */
-	eq<A extends TermBase | FirstValue, const B extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>>(
+	eq<
+		A extends TermBase | FirstValue,
+		const B extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>> | RefinedTerm<A>
+	>(
 		a: A & FirstTerm<A>,
-		b: B
+		b: B & RefinedEquality<A, B>
 	): Compared<"eq", A, B> & Stating<EqualityStates<A, B>>
 	ne<A extends TermBase | FirstValue, const B extends Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>>(
 		a: A & FirstTerm<A>,

@@ -174,6 +174,7 @@ const rosterIn = (e: ExprDesc, scope: Scope): string | undefined => {
 		case "literal":
 			return e.type === undefined ? undefined : descRoster(e.type)
 		case "cast":
+		case "retype":
 			return descRoster(e.to)
 		case "guarded":
 		case "base":
@@ -331,7 +332,8 @@ const restatedExpr = (
 					: each(e.args, (a) => (roster === undefined ? own(a) : sub(a, roster)))
 			return args === undefined ? undefined : { ...e, args }
 		}
-		case "cast": {
+		case "cast":
+		case "retype": {
 			const to = restatedType(e.to, names)
 			const arg = sub(e.arg, rosterIn(e.arg, scope) ?? descRoster(e.to))
 			return to === undefined || arg === undefined ? undefined : { ...e, to, arg }

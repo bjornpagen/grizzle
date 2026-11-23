@@ -409,6 +409,7 @@ const rowExpr = (expr: OpenExpr): ExprDesc | ForeignInput => {
 		case "cast":
 		case "guarded":
 		case "base":
+		case "retype":
 		case "not":
 		case "in": {
 			const arg = rowExpr(expr.arg)
@@ -532,6 +533,7 @@ const rowForeign: { readonly [K in ExprDesc["kind"]]: string | undefined } = {
 	compute: undefined,
 	cast: undefined,
 	base: undefined,
+	retype: undefined,
 	guarded: undefined,
 	cond: undefined,
 	when: undefined,

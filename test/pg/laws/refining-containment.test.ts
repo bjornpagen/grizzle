@@ -1,24 +1,30 @@
 /**
  * A containment pairs fields of one base carrier, either side's type refining the other (scalar/compute/types.ts
  * sameCarrier): a refinement only narrows the values, so the inclusion is one law under the base's equality, the one a
- * foreign key between a domain and its base type compares natively and the judge reads. On PostgreSQL 19, over
- * RefiningContainment (refining-containment.fixtures.ts): four types of the base carrier int8, pg.bigint, natural, Low
- * (a contract over pg.bigint of the values at most 1, natural's sibling) and Unit (a contract over natural of the
- * values at most 1), and for each ordered pair of two of them a containment of a field of the first into a target's of
- * the second held by its foreign key, and one whose source is selected by a literal, held by the judge whole, every
- * relation immutable and keyed by its unit g first.
+ * foreign key between a domain and its base type compares natively, the judge's anti-join correlates, and a probe's
+ * equality types at the carrier, either side standing for the other retyped where navigation substitutes it
+ * (ir/desc.ts RetypeDesc). On PostgreSQL 19, over RefiningContainment (refining-containment.fixtures.ts): four types of
+ * the base carrier int8, pg.bigint, natural, Low (a contract over pg.bigint of the values at most 1, natural's sibling)
+ * and Unit (a contract over natural of the values at most 1), each a target keyed by its unit g first and open in the
+ * unit G, and for each ordered pair of two of them three containments of a field of the first into the second's: one
+ * held by its foreign key, one whose source is selected by a literal, held by the judge whole, and one into the
+ * second's values at every unit, a derived relation no unit holds, held by the judge's probes, both the gained side's
+ * negated correlation and the lost side's positive read of the source at a lost row.
  *
  * Each case writes up to four states, each at a unit of its own in a transaction of its own: each type's target values
- * from -1 to 2 that its type admits, and some sources' rows, each a value its type admits and a kind, lawful ones
- * mostly, or a state aimed at one containment, its target holding or lacking the value its one row holds.
+ * from -1 to 2 that its type admits, some sources' rows, each a value its type admits and a kind, lawful ones mostly,
+ * and now and then a target row of an earlier unit deleted; or states aimed at one containment, its target holding or
+ * lacking the value its one row holds, or at a probe's reach across units, a value another unit holds and then loses.
  *
- * Oracle: specification, the laws' meaning turned into a checker (refining-containment.fixtures.ts brokenBy): each
- * foreign-key pair held by its foreign key and each judged pair by the judge alone, and a state commits exactly when no
- * held row of a source, every row of a foreign key's and a judged source's of kind 1, has a value its target lacks,
- * refused otherwise with 23503 under a containment it breaks, through the installation's constraint map.
+ * Oracle: specification, the laws' meaning turned into a checker over the database a state leaves
+ * (refining-containment.fixtures.ts brokenIn): each pair held by its own discharge alone, and a state commits exactly
+ * when no held row of a source, every row of a foreign key's and a probe's and a judged source's of kind 1, lacks its
+ * value in its target, at its unit, or for a probe's at any unit, refused otherwise with 23503 under a containment it
+ * breaks, through the installation's constraint map.
  *
- * Features: a committed state; a refusal at a foreign key and by the judge; a refinement committed into its base, a base
- * into its refinement and a contract into a sibling; a row its selection leaves out committed outside its target.
+ * Features: a committed state; a refusal at a foreign key, by the judge and by a probe; a refinement committed into its
+ * base, a base into its refinement and a contract into a sibling; a row its selection leaves out committed outside its
+ * target; a probed value found at another unit; a target row dropped, and a lost one refused.
  */
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -46,10 +52,14 @@ export const containmentsAcrossRefiningTypesOfOneBaseCarrierAreInstalledAndCommi
 			"committed",
 			"refused at a foreign key",
 			"refused by the judge",
+			"refused by a probe",
+			"a probed value found at another unit",
 			"a refinement committed into its base",
 			"a base committed into its refinement",
 			"a contract committed into a sibling",
-			"a row its selection leaves out committed outside its target"
+			"a row its selection leaves out committed outside its target",
+			"a target row dropped",
+			"a lost target row refused"
 		] satisfies ReadonlyArray<Reached<RefiningFeature>>,
 		check:
 			({ fresh }, c: Case<RefiningFeature>) =>
@@ -61,7 +71,7 @@ export const containmentsAcrossRefiningTypesOfOneBaseCarrierAreInstalledAndCommi
 				}).pipe(Effect.scoped),
 		oracle: {
 			kind: "specification",
-			name: "the laws' meaning: each pair held by its foreign key or the judge alone, and a state commits exactly when no held source row has a value its target lacks, refused otherwise with 23503 under a containment it breaks"
+			name: "the laws' meaning over the database a state leaves: each pair held by its own discharge alone, and a state commits exactly when no held source row lacks its value in its target, refused otherwise with 23503 under a containment it breaks"
 		},
 		kept: [],
 		kills: [
@@ -70,6 +80,25 @@ export const containmentsAcrossRefiningTypesOfOneBaseCarrierAreInstalledAndCommi
 				original: "\t\t\t\t\t\tk.tracked,\n\t\t\t\t\t\tsameCarrier,\n",
 				replacement: "\t\t\t\t\t\tk.tracked,\n\t\t\t\t\t\tcompatible,\n",
 				why: "A containment pairs fields of one nominal identity, as a family does: every containment of the schema, of two types of one base carrier, is refused as the sides' field types differing, so the template installs nothing and no case runs."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/query.ts",
+				original: '\t\t: { kind: "retype", to: to.desc, arg: term }',
+				replacement: "\t\t: term",
+				why: "A probe's guard binds the written relation's variable at the guarded relation's field of another refining type as it is, without the retype its equality proves: the checker refuses it as operands of one type, so the template installs nothing and no case runs."
+			},
+			{
+				file: "packages/engine/src/scalar/compute/typing.ts",
+				original:
+					"\t\treturn this.restate(arg, to, arg.actual, Object.freeze({ ...arg.facts, ...factsOfType(to) }))",
+				replacement: "\t\treturn this.castTo(arg, to, at)",
+				why: "A retype prints as a runtime cast into its target's domain, which no bound proves where only the equality does: the cast is refused as a partial operation, so the template installs nothing and no case runs."
+			},
+			{
+				file: "packages/engine/src/scalar/compute/typing.ts",
+				original: "\t\tif (!meets(against.nominal, term.nominal) && !refinedPair(against, term)) {",
+				replacement: "\t\tif (!meets(against.nominal, term.nominal)) {",
+				why: "An equality between two refinements of one base carrier is refused as any comparison of two types is: a probe's equality of a lost row's value with the source's field, its navigated import's head with the term it is met at, is refused, so the template installs nothing and no case runs."
 			},
 			{
 				file: "packages/engine/src/check/checker.ts",

@@ -41,8 +41,10 @@ import type {
 	VarDesc
 } from "#compiler/ir/desc.ts"
 import { connectiveExpr, exprChildren, mapExpr, refusalCondition } from "#compiler/ir/desc.ts"
+import type { LawField } from "#compiler/ir/law.ts"
 import type { DeltaSide } from "#compiler/ir/rel.ts"
 import type { Unit } from "#compiler/ir/unit.ts"
+import { compatible, sameCarrier } from "#compiler/scalar/compute/types.ts"
 import { type GuardedTerm, guardedTerm, naturalType } from "#compiler/scalar/natural.ts"
 
 /**
@@ -308,6 +310,7 @@ const foreignReads: { readonly [K in InferredExpr["kind"]]: string | undefined }
 	compute: undefined,
 	cast: undefined,
 	base: undefined,
+	retype: undefined,
 	guarded: undefined,
 	cond: undefined,
 	when: undefined,
@@ -2942,6 +2945,27 @@ export const probe = (
 /** The fields of each stored relation's primary key, in key order, by its name; none for a closed relation. */
 export type KeysOf = (relation: string) => ReadonlyArray<string> | undefined
 
+/** A stored relation's field as the law model holds it (ir/law.ts LawField), its type and its descriptor; none else. */
+export type FieldsOf = (relation: string, field: string) => LawField | undefined
+
+/**
+ * `term`, a value of the field `from`, as it stands at the field `to` its equality with `from` binds it to: itself where
+ * the two types meet (scalar/compute/types.ts compatible); retyped to `to`'s type where they are two refinements of one
+ * base carrier, which the equality proves it lies in (ir/desc.ts RetypeDesc); itself otherwise, which the checker
+ * refuses as operands of two types.
+ */
+const standingAt = (
+	term: InferredExpr,
+	from: LawField | undefined,
+	to: LawField | undefined
+): InferredExpr =>
+	from === undefined ||
+	to === undefined ||
+	compatible(from.type, to.type) ||
+	!sameCarrier(from.type, to.type)
+		? term
+		: { kind: "retype", to: to.desc, arg: term }
+
 /**
  * What a probe's guard reads (`probeGuard`): the stored relation `relation` every row of the probe reads as it stands
  * at the unit, its fields `fields` there, and the fields `delta` of the written relation's delta that hold the same unit,
@@ -3012,6 +3036,7 @@ export const probeGuard = (
 	relation: string,
 	side: ProbeSide,
 	keys: KeysOf,
+	fieldOf: FieldsOf,
 	loc: SourceLoc
 ): InferredQuery | undefined => {
 	const breaking = breakingArms(rule)
@@ -3046,7 +3071,17 @@ export const probeGuard = (
 							{
 								source: { kind: "relation", name: guard.relation },
 								bindings: Object.fromEntries(
-									guard.fields.map((f, k) => [f, varRef(guardId(k))] as const)
+									guard.fields.map(
+										(f, k) =>
+											[
+												f,
+												standingAt(
+													varRef(guardId(k)),
+													fieldOf(relation, guard.delta[k] ?? f),
+													fieldOf(guard.relation, f)
+												)
+											] as const
+									)
 								),
 								loc
 							}

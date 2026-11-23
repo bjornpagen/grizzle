@@ -40,6 +40,8 @@ import type {
 	Operand,
 	Precondition,
 	Proves,
+	RefinedEquality,
+	RefinedTerm,
 	Refutes,
 	Scalar,
 	Takes,
@@ -346,6 +348,15 @@ type Opposite<A> = Operand<T<A>, SqlOfTerm<A>, LanguageOf<A>>
  * meets its type or a value.
  */
 type Compares<A, B, F extends SqlTag> = Every<[TakesFirst<A, F>, Takes<B, Opposite<A>>]>
+/**
+ * What stands opposite an equality's first operand A: what stands opposite any comparison's (Opposite), or a term B of
+ * A's base carrier of another type, which the engine types at the carrier (types/compute/scalar.ts RefinedTerm).
+ */
+type Equated<A, B> =
+	| Opposite<A>
+	| (B extends RefinedTerm<A> ? (unknown extends RefinedEquality<A, B> ? B : never) : never)
+/** Whether an equality takes its operands: a term first, and opposite it what it equates (Equated). */
+type Equates<A, B> = Every<[TakesFirst<A, SqlTag>, Takes<B, Equated<A, B>>]>
 /** Whether IN takes its first operand A, a term, and its list Vs, values of A's language. */
 type Listed<A, Vs> = Every<
 	[TakesFirst<A, SqlTag>, Takes<Vs, ReadonlyArray<LiteralOf<LanguageOf<A>>>>]
@@ -1058,9 +1069,9 @@ export interface LogicApi {
 	 */
 	eq<A extends TermBase | FirstValue, const B>(
 		a: A & First<A, [B]>,
-		b: Fit<B, NoInfer<Opposite<A>>> & ContractAdmits<Compares<A, B, SqlTag>, ColumnFacts<A>, B>
+		b: Fit<B, NoInfer<Equated<A, B>>> & ContractAdmits<Equates<A, B>, ColumnFacts<A>, B>
 	): Admitted<
-		Every<[Compares<A, B, SqlTag>, Not<RefutedAt<A, B>>]>,
+		Every<[Equates<A, B>, Not<RefutedAt<A, B>>]>,
 		Compared<A, B> & Stating<EqualityStates<A, B>>
 	>
 	ne<A extends TermBase | FirstValue, const B>(

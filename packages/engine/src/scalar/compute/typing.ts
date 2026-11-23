@@ -160,6 +160,7 @@ import {
 	isComputedNumeric,
 	meetingType,
 	meets,
+	sameCarrier,
 	mixesExact,
 	sameRegex,
 	valueType,
@@ -405,6 +406,7 @@ const partsUnder = <R extends Refs>(
 		case "compute":
 		case "cast":
 		case "base":
+		case "retype":
 		case "when":
 		case "compare":
 		case "between":
@@ -422,6 +424,17 @@ const partsUnder = <R extends Refs>(
 			return [{ kind: "other", desc, branches }]
 	}
 }
+
+/**
+ * Whether two operands of an equality are refinements of one base carrier that do not meet nominally (types.ts
+ * sameCarrier, meets): natural and pg.bigint, two contracts over one base, a contract over a closed id and the closed id.
+ * Such an equality is typed at the carrier, each operand restated at its base as Type.base restates it (Typing
+ * atCarrier), and compared under the base's equality, as a containment pairs its sides. Where it holds its value is each
+ * operand's, so it lies in both operands' contracts: within its scope either side may stand for the other at the
+ * other's type, retyped (ExprDesc `retype`), proved by the equality and never checked.
+ */
+const refinedPair = (a: Typed, b: Typed): boolean =>
+	!meets(a.nominal, b.nominal) && sameCarrier(a.nominal, b.nominal)
 
 /** No closed relation, for the reason `why`: "a contract predicate reads no closed relation of the schema". */
 export const noClosedRelations = (why: string): ClosedRelations =>
@@ -2253,6 +2266,49 @@ class Typing<R extends Refs> {
 		return term
 	}
 
+	/**
+	 * A retype (ir/desc.ts RetypeDesc): its argument restated at `to`, a type of the argument's own base carrier, with
+	 * `to`'s facts, proved by the equality of its scope that navigation substituted it under (`refined`): the value is
+	 * the argument's, so it lies in `to`'s contract as in the argument's. No node and no check: it prints as its
+	 * argument. A retype across two carriers is no equality's, and is refused.
+	 */
+	retype(desc: Extract<ExprDesc<Located, R>, { readonly kind: "retype" }>, at: SourceLoc): Typed {
+		const arg = this.term(desc.arg, childLoc(at, "retype"))
+		const to = unwrap(this.env.fieldType(desc.to, childLoc(at, "retype", "to")))
+		if (!sameCarrier(arg.nominal, to)) {
+			return stop(
+				"MalformedDescription",
+				at,
+				`a retype within one base carrier: ${typeLabel(arg.nominal)} is of another than ${typeLabel(to)}`
+			)
+		}
+		return this.restate(arg, to, arg.actual, Object.freeze({ ...arg.facts, ...factsOfType(to) }))
+	}
+
+	/**
+	 * An equality's operand opposite `against`: what any comparison's operand is (`operand`), or a term of its base
+	 * carrier of another type (`refinedPair`), which the equality types at the carrier.
+	 */
+	equated(desc: ExprDesc<Located, R>, against: Typed, at: SourceLoc): Typed {
+		if (desc.kind === "literal" && desc.type === undefined) {
+			return this.operand(desc, against, "compare", at)
+		}
+		const term = this.lower(desc, at)
+		if (!meets(against.nominal, term.nominal) && !refinedPair(against, term)) {
+			return stop(
+				"MalformedDescription",
+				at,
+				`operands of one type: ${typeLabel(against.nominal)} never meets ${typeLabel(term.nominal)} without Type.base`
+			)
+		}
+		return term
+	}
+
+	/** A term at its base carrier, as Type.base restates it: its node and its bounds its own. */
+	atCarrier(term: Typed): Typed {
+		return this.restate(term, valueType(term.nominal), term.actual, term.facts)
+	}
+
 	/** Two operands that meet, each at the type it meets the other at (types.ts meetingType). */
 	exactPair(a: Typed, b: Typed, at: SourceLoc): readonly [Typed, Typed] {
 		return [
@@ -2372,6 +2428,8 @@ class Typing<R extends Refs> {
 				const arg = this.term(desc.arg, childLoc(at, "base"))
 				return this.restate(arg, valueType(arg.nominal), arg.actual, arg.facts)
 			}
+			case "retype":
+				return this.retype(desc, at)
 			case "guarded":
 				return this.guarded(desc, at)
 			case "cond":
@@ -2384,8 +2442,15 @@ class Typing<R extends Refs> {
 					return equation
 				}
 				const left = this.term(desc.left, childLoc(at, desc.op, "left"))
-				const right = this.operand(desc.right, left, "compare", childLoc(at, desc.op, "right"))
-				return this.comparison(desc.op, [left, right], at)
+				const right =
+					desc.op === "eq"
+						? this.equated(desc.right, left, childLoc(at, desc.op, "right"))
+						: this.operand(desc.right, left, "compare", childLoc(at, desc.op, "right"))
+				return this.comparison(
+					desc.op,
+					refinedPair(left, right) ? [this.atCarrier(left), this.atCarrier(right)] : [left, right],
+					at
+				)
 			}
 			case "between": {
 				const arg = this.term(desc.arg, childLoc(at, "between"))

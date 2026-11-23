@@ -8,8 +8,9 @@
  * - Wild operands: a literal's type, a cast's target and a literal's value build from a descriptor a builder made and
  *   an int8 bigint, and every wild value is refused as MalformedDescription. Oracle: the boundary's specification.
  *
- * Features: each binary builder typed and refused, a conditional typed and refused, each span function typed and
- * refused; live and every wild kind at each site.
+ * Features: each binary builder typed and refused but an equality, which meets every pair of the box's operands, all of
+ * one base carrier, bigint; a conditional typed and refused, each span function typed and refused; live and every wild
+ * kind at each site.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
@@ -22,7 +23,7 @@ import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { sameScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { type ScalarTerm } from "#compiler/scalar/compute/term.ts"
-import { exactType } from "#compiler/scalar/compute/types.ts"
+import { exactType, sameCarrier } from "#compiler/scalar/compute/types.ts"
 import {
 	binary,
 	type BinaryOp,
@@ -81,7 +82,6 @@ export const computeBuildersTypeAndRefuseOperandsByTheBuildersTypingRules = prop
 			"binary add typed",
 			"binary add refused",
 			"binary eq typed",
-			"binary eq refused",
 			"binary least typed",
 			"binary least refused",
 			"binary greatest typed",
@@ -101,7 +101,11 @@ export const computeBuildersTypeAndRefuseOperandsByTheBuildersTypingRules = prop
 					case "binary": {
 						const [a, b] = [sketch.a, sketch.b]
 						const build = () => binary[sketch.op](operandTerms[a], operandTerms[b])
-						if (!sameScalarType(nominalOf[a].scalar, nominalOf[b].scalar)) {
+						const meets =
+							sketch.op === "eq"
+								? sameCarrier(nominalOf[a].scalar, nominalOf[b].scalar)
+								: sameScalarType(nominalOf[a].scalar, nominalOf[b].scalar)
+						if (!meets) {
 							c.note(`binary ${sketch.op} refused`)
 							assert.equal(
 								throws(build).reason._tag,
@@ -177,6 +181,12 @@ export const computeBuildersTypeAndRefuseOperandsByTheBuildersTypingRules = prop
 				original: "\t\tif (span !== undefined && !compatible(span.endpoint, field.scalar)) {",
 				replacement: "\t\tif (span === undefined) {",
 				why: "A span function takes any endpoint descriptor, its span's own or not; the typing property fails."
+			},
+			{
+				file: "packages/engine/src/scalar/compute/typing.ts",
+				original: "\t\tif (!meets(against.nominal, term.nominal) && !refinedPair(against, term)) {",
+				replacement: "\t\tif (!meets(against.nominal, term.nominal)) {",
+				why: "An equality of two refinements of one base carrier, Cents and EpochDay, or Cents and a bigint, is refused as any comparison of two types is; the typing property fails."
 			},
 			{
 				file: "packages/engine/src/scalar/literal.ts",

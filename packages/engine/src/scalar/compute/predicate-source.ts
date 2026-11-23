@@ -139,6 +139,7 @@ export const predicateSource = (
 		case "base":
 			return call(spelling.base, [go(e.arg)])
 		case "guarded":
+		case "retype":
 			return go(e.arg)
 		case "cond":
 			return call(spelling.cond, [go(e.pred), go(e.onTrue), go(e.onFalse)])

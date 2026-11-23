@@ -155,6 +155,7 @@ const termOf = (e: ExprDesc | undefined): Term | undefined => {
 		case "or":
 		case "not":
 		case "base":
+		case "retype":
 		case "allen":
 		case "pointIn":
 		case "absent":

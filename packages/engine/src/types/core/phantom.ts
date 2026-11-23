@@ -841,6 +841,18 @@ type Undeclared<E> = [DeclaredKeys<E>] extends [never]
  * name does: what a domain's base carrier keeps beside its contracts stripped (BaseOf), as a containment pairs it
  * (scalar/compute/types.ts sameCarrier), so a closed id of one roster never meets another's.
  */
+/**
+ * Whether two terms, of domains D and E and SQL types S and F, are of one base carrier (scalar/compute/types.ts
+ * sameCarrier): one BaseOf, one roster's brands (RosterKeysOf) and one SQL type, either domain's contracts refining it.
+ */
+export type OneBaseCarrier<D, S, E, F> = [readonly [BaseOf<D>, RosterKeysOf<D>, S]] extends [
+	readonly [BaseOf<E>, RosterKeysOf<E>, F]
+]
+	? [readonly [BaseOf<E>, RosterKeysOf<E>, F]] extends [readonly [BaseOf<D>, RosterKeysOf<D>, S]]
+		? true
+		: false
+	: false
+
 export type RosterKeysOf<D> =
 	D extends Brand.Brand<infer K> ? Extract<K, `${string} ${string}`> : never
 

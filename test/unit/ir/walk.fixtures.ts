@@ -39,6 +39,7 @@ const kindRoster: { readonly [K in ExprDesc["kind"]]: K } = {
 	compute: "compute",
 	cast: "cast",
 	base: "base",
+	retype: "retype",
 	guarded: "guarded",
 	cond: "cond",
 	when: "when",
@@ -240,7 +241,8 @@ const node =
 			map(nonEmpty, (args) => ({ kind: "closedAt", relation: "C", field: "f", args })),
 			map(some, (args) => ({ kind: "closedRow", relation: "C", args })),
 			map(nonEmpty, (args) => ({ kind: "closedHas", relation: "C", args })),
-			map(record(inner), (args) => ({ kind: "call", function: "f", args }))
+			map(record(inner), (args) => ({ kind: "call", function: "f", args })),
+			map(inner, (arg) => ({ kind: "retype", to: integer, arg }))
 		])
 	}
 

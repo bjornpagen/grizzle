@@ -6,7 +6,6 @@ import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { Money } from "#compiler/scalar/values/money.ts"
 import type {
-	BaseOf,
 	Carriers,
 	ConstantOrigin,
 	DomainOf,
@@ -22,10 +21,10 @@ import type {
 	Origin,
 	OriginOfTerm,
 	ParamNeeds,
+	OneBaseCarrier,
 	ParamOrigin,
 	Refusal,
 	Retyped,
-	RosterKeysOf,
 	Source,
 	SourceOrigin,
 	SqlOfCarrier,
@@ -213,7 +212,7 @@ type StatedAt<C, K> = K extends keyof C
 export type NegatedCarriers<B, C> = {
 	readonly [K in keyof B]: K extends keyof C
 		? B[K] extends StatedAt<C, K>
-			? OneCarrier<
+			? OneBaseCarrier<
 					TypeOfTerm<B[K]>,
 					SqlOfTerm<B[K]>,
 					DomainOf<C[K]>,
@@ -224,13 +223,6 @@ export type NegatedCarriers<B, C> = {
 			: unknown
 		: unknown
 }
-type OneCarrier<D, S, E, F> = [readonly [BaseOf<D>, RosterKeysOf<D>, S]] extends [
-	readonly [BaseOf<E>, RosterKeysOf<E>, F]
-]
-	? [readonly [BaseOf<E>, RosterKeysOf<E>, F]] extends [readonly [BaseOf<D>, RosterKeysOf<D>, S]]
-		? true
-		: false
-	: false
 /** The heading of carriers a source holds, whose types its bindings meet. */
 export type CarriersOf<R> = R extends Headed<infer C> ? C : never
 

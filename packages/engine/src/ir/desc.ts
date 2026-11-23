@@ -441,6 +441,20 @@ export type ExprLeaf<R extends Refs = Spelled> =
  * types it. A `guarded` node is a proof's alone: it computes, prints and hashes as its `arg` (a stand-in,
  * core/canonical.ts standInTag), so a Description's identity text, digests and SQL are its subject's.
  */
+/**
+ * A term retyped to `to`, a type of its own base carrier (scalar/compute/types.ts sameCarrier), proved by an equality
+ * of its scope and never checked: where `x = t` holds between two refinements of one carrier, its value is each side's,
+ * so it lies in both sides' contracts, and t may stand for x at x's type. The engine writes it where its own query binds
+ * a variable at a field of another refining type that an equality holds it to, a probe's guard at the guarded relation
+ * (analysis/theory/query.ts standingAt); no builder does. It is typed as its argument restated at `to`
+ * (scalar/compute/typing.ts Typing.retype), so it computes, prints and hashes as its argument: no node, no cast.
+ */
+export interface RetypeDesc<L = Located, R extends Refs = Spelled> {
+	readonly kind: "retype"
+	readonly to: FieldDesc
+	readonly arg: ExprDesc<L, R>
+}
+
 export type ExprDesc<L = Located, R extends Refs = Spelled> =
 	| ExprLeaf<R>
 	| {
@@ -457,6 +471,7 @@ export type ExprDesc<L = Located, R extends Refs = Spelled> =
 	  }
 	| { readonly kind: "cast"; readonly to: FieldDesc; readonly arg: ExprDesc<L, R> }
 	| { readonly kind: "base"; readonly arg: ExprDesc<L, R> }
+	| RetypeDesc<L, R>
 	| GuardedDesc<L, R>
 	| {
 			readonly kind: "cond"
@@ -665,6 +680,7 @@ export const exprChildren = <L, R extends Refs>(
 			return listed(e.args)
 		case "cast":
 		case "base":
+		case "retype":
 		case "not":
 		case "in":
 			return [{ term: e.arg, at: named.arg }]
@@ -810,6 +826,7 @@ export const mapExpr = <L, R extends Refs, S extends Refs>(
 			return { ...e, args: mapNonEmpty(e.args, term) }
 		case "cast":
 		case "base":
+		case "retype":
 		case "guarded":
 		case "not":
 		case "in":
@@ -2570,6 +2587,7 @@ class ParamReads<T> {
 			case "closedHas":
 			case "cast":
 			case "base":
+			case "retype":
 			case "guarded":
 			case "not":
 			case "in":

@@ -56,6 +56,7 @@ const foreignKind = (e: ExprDesc): ForeignKind | undefined => {
 		case "cast":
 		case "guarded":
 		case "base":
+		case "retype":
 		case "not":
 		case "in":
 		case "cond":

@@ -667,7 +667,7 @@ const refusals: { readonly [F in SchemaFault | KeptFault]: Refusing } = {
 	),
 	negatedBindingType: structural(
 		{ tag: "MalformedDescription" },
-		"a variable binds a field of its own type, a contract's never its bare base's"
+		"a negation binds a variable at a field of its base carrier, an integer's never a bigint's"
 	),
 	foreignAttach: structural(
 		{ tag: "ForeignLevel" },
@@ -6959,7 +6959,8 @@ const querying = (build: () => unknown): Verdict =>
  * A rule over a schema of its own, Lit with a field f of a drawn type, a bigint n and a contract over it c: inSet
  * of literals, valid where they are literals of f's type and a planted fault where not; an import of a query reading
  * a parameter, bound at an outer variable, and with its binding left out or beside a stray name; a variable bound
- * to a field of another type, a contract's to its base's or its base's to the contract's, in a match or a negation; a
+ * to a field of another type, a contract's to its base's or its base's to the contract's, in a match, or one of another
+ * base carrier, an integer's to a bigint's or a bigint's to an integer's, in a negation, which pairs by base carrier; a
  * negation naming a stray field, and one reading a parameter, which joins the rule's at its field's type as an
  * equality's does; one parameter named in two places, which is one parameter; an attachment of a query over the schema, and of one over another schema. The
  * engine's query builders and compilation are the oracle.
@@ -7009,7 +7010,7 @@ const ruleProbe = (d: Drawing, base: Base): Probe => {
 			const lit = `${own}_Lit`
 			const head = [
 				`export const ${own}_Cents = Fi.contract("Cents", Fi.pg.bigint)`,
-				`export const ${lit} = Sc.relation("Lit", { id: Fi.Id, f: ${fieldSource(type, ids)}, n: Fi.pg.bigint, c: ${own}_Cents }, ["id"])`,
+				`export const ${lit} = Sc.relation("Lit", { id: Fi.Id, f: ${fieldSource(type, ids)}, n: Fi.pg.bigint, c: ${own}_Cents, i: Fi.pg.integer }, ["id"])`,
 				`export const ${own}_P = Sc.schema("P", [${Arr.join(
 					[...Arr.map(base.rosters, (r) => ids(r.name)), lit],
 					", "
@@ -7047,16 +7048,23 @@ const ruleProbe = (d: Drawing, base: Base): Probe => {
 								: []
 					}
 				}
-				case "bindingType":
-				case "negatedBindingType": {
+				case "bindingType": {
 					const [bound, binding] =
 						contractWay === "contract var at base" ? ["c", "{ id, n: c }"] : ["n", "{ id, c: n }"]
 					return {
 						head,
 						line: rule(
-							form === "bindingType"
-								? `const { id, ${bound} } = Q.v(${lit}, "lit"); return r.match(${lit}, ${binding}).find({ id })`
-								: `const { id, c, n } = Q.v(${lit}, "lit"); return r.match(${lit}, { id, c, n }).where(r.not(${lit}, ${binding})).find({ id })`
+							`const { id, ${bound} } = Q.v(${lit}, "lit"); return r.match(${lit}, ${binding}).find({ id })`
+						),
+						tail: []
+					}
+				}
+				case "negatedBindingType": {
+					const binding = contractWay === "contract var at base" ? "{ id, n: i }" : "{ id, i: n }"
+					return {
+						head,
+						line: rule(
+							`const { id, i, n } = Q.v(${lit}, "lit"); return r.match(${lit}, { id, i, n }).where(r.not(${lit}, ${binding})).find({ id })`
 						),
 						tail: []
 					}
@@ -7115,7 +7123,8 @@ const ruleProbe = (d: Drawing, base: Base): Probe => {
 					id: Id,
 					f: fieldValue(type, env.rosters, env.contracts),
 					n: pgDescriptors.bigint,
-					c: cents
+					c: cents,
+					i: pgDescriptors.integer
 				},
 				["id"],
 				[]
@@ -7166,7 +7175,6 @@ const ruleProbe = (d: Drawing, base: Base): Probe => {
 					)
 				}
 				case "bindingType":
-				case "negatedBindingType":
 					return querying(() =>
 						queryOver(p).rule((rule: RuleValue) => {
 							const vars = varsOver(lit, "lit")
@@ -7174,12 +7182,21 @@ const ruleProbe = (d: Drawing, base: Base): Probe => {
 								contractWay === "contract var at base"
 									? { id: vars["id"], n: vars["c"] }
 									: { id: vars["id"], c: vars["n"] }
-							return form === "bindingType"
-								? rule.match(lit, binding).find({ id: vars["id"] })
-								: rule
-										.match(lit, { id: vars["id"], c: vars["c"], n: vars["n"] })
-										.where(rule.not(lit, binding))
-										.find({ id: vars["id"] })
+							return rule.match(lit, binding).find({ id: vars["id"] })
+						})
+					)
+				case "negatedBindingType":
+					return querying(() =>
+						queryOver(p).rule((rule: RuleValue) => {
+							const vars = varsOver(lit, "lit")
+							const binding =
+								contractWay === "contract var at base"
+									? { id: vars["id"], n: vars["i"] }
+									: { id: vars["id"], i: vars["n"] }
+							return rule
+								.match(lit, { id: vars["id"], i: vars["i"], n: vars["n"] })
+								.where(rule.not(lit, binding))
+								.find({ id: vars["id"] })
 						})
 					)
 				case "strayNegation":

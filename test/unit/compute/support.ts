@@ -400,6 +400,7 @@ const withLiterals = (e: ExprDesc, vars: Readonly<Record<string, LeafBinding>>):
 			return { ...e, args: Arr.map(e.args, go) }
 		case "cast":
 		case "base":
+		case "retype":
 		case "guarded":
 		case "not":
 		case "in":

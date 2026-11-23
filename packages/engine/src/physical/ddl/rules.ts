@@ -12,6 +12,7 @@ import type { QueryColumns } from "#compiler/analysis/theory/columns.ts"
 import { navigateQuery, Navigation, type RegionExtent } from "#compiler/analysis/theory/navigate.ts"
 import {
 	everyRowProbe,
+	type FieldsOf,
 	type LawSide,
 	type ProbedRule,
 	type KeysOf,
@@ -159,6 +160,12 @@ const primaryKeysOf =
 	(model: LawModel): KeysOf =>
 	(name) =>
 		model.relations.get(name)?.relation.primaryFields.map((f) => f.name)
+
+/** Each stored relation's field the model holds, by its relation's name and its own (analysis/theory/query.ts FieldsOf). */
+const modelFieldsOf =
+	(model: LawModel): FieldsOf =>
+	(relation, field) =>
+		model.relations.get(relation)?.relation.fields.find((f) => f.name === field)
 
 /**
  * A block's probe (analysis/theory/query.ts probe), the rule's meeting part over every row the transaction's write of
@@ -1212,6 +1219,7 @@ export const addRules = (
 		return delta === undefined ? undefined : deltaRelation(t.relation, delta)
 	}
 	const keysOf = primaryKeysOf(b.model)
+	const fieldsOf = modelFieldsOf(b.model)
 	/**
 	 * The judge's blocks of a probed rule over one table it reads: one per side of the table its touches name, each
 	 * probe of it (analysis/theory/query.ts probe), read over that side's delta, inside its guard where it has one
@@ -1251,7 +1259,7 @@ export const addRules = (
 			const compiled = compileProbe(b, catalog, rule, relation, query, deltas, heads)
 			appendAll(requests, compiled.requests)
 			const judged = whenFound(compiled.statement, [raise])
-			const guard = probeGuard(probed, relation.name, side, keysOf, rule.law.loc)
+			const guard = probeGuard(probed, relation.name, side, keysOf, fieldsOf, rule.law.loc)
 			const guarded =
 				guard === undefined
 					? undefined

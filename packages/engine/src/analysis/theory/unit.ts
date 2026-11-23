@@ -316,6 +316,7 @@ const readsOnly = (e: InferredExpr, bound: ReadonlyMap<string, string>): boolean
 		case "compute":
 		case "cast":
 		case "base":
+		case "retype":
 		case "guarded":
 		case "cond":
 		case "when":
