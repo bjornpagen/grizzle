@@ -129,7 +129,7 @@ const describeOutcome = (o: Outcome | GrizzleSettled): string => {
 	}
 }
 
-export const describeHistory = (h: History): string =>
+const describeHistory = (h: History): string =>
 	Arr.join(
 		[
 			`initial ${show(stateRows(h.host, h.initial))}`,

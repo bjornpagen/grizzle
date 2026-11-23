@@ -1413,18 +1413,6 @@ export const generatedTemplate = (spec: GeneratedSpec): SubstrateTemplate<Genera
 	})
 
 /**
- * generatedTemplate's installation with what every case starts from written once per member, as the build's owner,
- * right after the install: `seed` on the installation it made (facts loaded), where a search did it once before its
- * cases. Every case over a seat of it commits nothing to the seeded tables: the seat's reset empties no table, and the
- * clone must hold the seeded state again after the case, or it is replaced and the case fails.
- */
-export const seededGeneratedTemplate = <E>(
-	spec: GeneratedSpec & {
-		readonly seed: (generated: Generated) => Effect.Effect<void, E, Substrate | Scope.Scope>
-	}
-): SubstrateTemplate<Generated> => generatedSeeded(spec, { seed: spec.seed, reset: () => noTables })
-
-/**
  * generatedTemplate's installation with its catalog altered once per member, as the build's owner, right after the
  * install: `alter` on the installation it made (constraints dropped, a defect planted in the schema), where a search did
  * it once before its cases. Its seat's reset empties every stored relation's table, as generatedTemplate's does: what
@@ -1441,8 +1429,8 @@ export const alteredGeneratedTemplate = <E>(
 	})
 
 /**
- * generatedTemplate's, seededGeneratedTemplate's and alteredGeneratedTemplate's one template, its build seeding and its
- * seat resetting as `seeding` says.
+ * generatedTemplate's and alteredGeneratedTemplate's one template, its build seeding and its seat resetting as `seeding`
+ * says.
  */
 const generatedSeeded = <E>(
 	spec: GeneratedSpec,

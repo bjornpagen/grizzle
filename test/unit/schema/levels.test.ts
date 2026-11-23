@@ -3,9 +3,8 @@
  * level holds none of the code above it, so a level reaches a lower ordinary relation only as one side of a containment
  * whose other side is its own, the lower side's terms fields with no span, every fact or a selection, into a side holding
  * a key the target relation declares (a foreign key PostgreSQL judges, its selected terms generated columns it computes;
- * test/unit/laws/lowered-rules draws the superkeys and constants, test/pg/levels the writes), or as a row check over it,
- * the level's own CHECK on the lower table (test/pg/levels/level-checks), and never by a key, `mutable`, `race` or a
- * family.
+ * test/unit/laws/lowered-rules draws the superkeys and constants), or as a row check over it, the level's own CHECK on
+ * the lower table, and never by a key, `mutable`, `race` or a family.
  *
  * The box is every statement of a drawn space stated at the upper level `Up` over `Lo`: a key, a check, `mutable`,
  * `race` and a counted family over a lower and an upper relation; and every containment from one of four sources (an upper field

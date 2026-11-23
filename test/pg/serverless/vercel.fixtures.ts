@@ -4,46 +4,8 @@ import { array, boolean, type Gen, int } from "@bjornpagen/testing/gen"
 import { attachDatabasePool } from "@vercel/functions/db-connections"
 import type { Array as Arr } from "effect"
 import type { ConnectionPool } from "#adapter/types/layer.ts"
-import { noWorkload, writeRuntimeSnapshot } from "#compiler/deploy/snapshot/build.ts"
 
-import {
-	login,
-	relation,
-	role,
-	schema as schemaOf,
-	wholeEntriesOf
-} from "#compiler/public/schema.ts"
 import { defaultPool, loginTemplate } from "#test/pg/adapter/support.ts"
-import { succeeded } from "#test/support/assert.ts"
-import { Id } from "#test/support/ids.ts"
-import { atDeclaredName, installationOf } from "#test/support/kernel/naming.ts"
-import { fromEmpty, generate, noDeclarations } from "#test/support/migrate/kit.ts"
-import { snapshotJson } from "#test/support/snapshot-json.ts"
-
-/**
- * A shop under the schema `name`, its role `app` and the login `worker` that holds it, and the shop's snapshot.json: a
- * layer of the login logs in as `<name>__worker`, the role the substrate creates for the schema.
- */
-export const shopUnder = (name: string) => {
-	const shop = schemaOf(name, [relation("Item", { id: Id }, ["id"])], [])
-	const app = role(shop, "app", wholeEntriesOf(shop))
-	/** The shop's snapshot.json, as an import of it yields: what its login's served file is compiled under. */
-	const first = succeeded(
-		generate({
-			declared: noDeclarations,
-			installation: installationOf(shop, atDeclaredName),
-			name: "shop",
-			timestamp: "20261024000000",
-			previous: fromEmpty,
-			workload: noWorkload
-		}),
-		"the shop's first migration"
-	)
-	const snapshot = snapshotJson(
-		succeeded(writeRuntimeSnapshot(first.snapshot, first.derived), "the shop's snapshot.json")
-	)
-	return { app, worker: login(shop, "worker", [app]), snapshot }
-}
 
 /**
  * The real attachDatabasePool behind a hook that records every pool it is handed, in order, as an application passes

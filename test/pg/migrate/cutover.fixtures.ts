@@ -1,5 +1,4 @@
 /** What the properties of cutover.test.ts read: its spaces, models and helpers. */
-
 import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
@@ -13,16 +12,7 @@ import {
 	runProgram,
 	took
 } from "@bjornpagen/testing/commands"
-import {
-	array as arrayGen,
-	boolean,
-	element,
-	type Gen,
-	int,
-	parents as parentsGen,
-	subset,
-	type Steered
-} from "@bjornpagen/testing/gen"
+import { boolean, element, type Gen, int, subset, type Steered } from "@bjornpagen/testing/gen"
 import { fullSwarm, type Swarm, swarm } from "@bjornpagen/testing/swarm"
 import {
 	Array as Arr,
@@ -42,7 +32,7 @@ import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
-import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { findMarkers, splitStatements } from "#compiler/plan/migration.ts"
 import { accumulated, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
 import { type AnyRelation, schema, type Statement } from "#compiler/public/schema.ts"
@@ -72,14 +62,7 @@ import {
 import { printObjectName } from "#compiler/sql/print.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
-import {
-	apply,
-	checkedAdmission,
-	noFurther,
-	openMigrator,
-	refusal,
-	sameCatalog
-} from "#test/pg/migrate/support.ts"
+import { apply, checkedAdmission, openMigrator, sameCatalog } from "#test/pg/migrate/support.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { writeOnce } from "#test/support/calls.ts"
@@ -88,30 +71,15 @@ import { Id } from "#test/support/ids.ts"
 import { type Installed, installedOf, loginCredentials } from "#test/support/install-migrate.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
-	anchorsOf,
 	column,
 	int8Literal,
-	keyedFields,
-	keyedRows,
-	keyedTreeOf,
-	docTree,
-	nodeTable,
 	q,
-	type StoredDocument,
-	storedInsert,
-	storedRows,
 	textLiteral,
-	type TreeCase,
-	treeDataStep,
-	treePlaceholder,
-	turnsOf,
 	uuidLiteral,
 	valuesOf,
 	withDataStep
 } from "#test/support/migrate/keyed-tree.ts"
 import {
-	asDrafted,
-	compile,
 	draftedAt,
 	fromEmpty,
 	fromSnapshot,
@@ -119,12 +87,6 @@ import {
 	noDeclarations,
 	type Previous
 } from "#test/support/migrate/kit.ts"
-import {
-	missingKeyChecks,
-	perRowReads,
-	recursions,
-	rewrittenTables
-} from "#test/support/migrate/probes.ts"
 import { type Placeholder, readsBack, review } from "#test/support/migrate/review.ts"
 import { type RewriteObserver, rewriteObserver } from "#test/support/migrate/rewrites.ts"
 import { planRealInstall, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
@@ -1662,330 +1624,5 @@ export const history = (c: Cutover, note: (f: Feature) => void) =>
 				steps: 0
 			}
 			yield* runProgram(machineOf(initialModel(c.world), false), real(h, observer, note), c.steps)
-		})
-	)
-
-const storedDocumentGen: Gen<StoredDocument> = (source) => {
-	const parents = source.draw(parentsGen({ min: 1, max: 6 }))
-	return { parents, kinds: Arr.map(indices(parents.length + 1), () => source.draw(int(0, 3))) }
-}
-
-/** One to three documents, each mapped to its own new root, or, as a named case at a weight of its own, the second
- * mapped onto the first's root. */
-const treeCaseGen: Gen<TreeCase> = (source) => {
-	const documents = source.draw(arrayGen(storedDocumentGen, { min: 1, max: 3 }))
-	const own = Arr.map(documents, (_, d) => d)
-	const merged = documents.length > 1 && source.draw(int(0, 3)) === 0
-	return {
-		documents: nonEmpty(documents, "a stored forest's documents"),
-		roots: nonEmpty(
-			merged ? Arr.map(own, (d) => (d === 1 ? 0 : d)) : own,
-			"the new root of each document"
-		)
-	}
-}
-
-/** The shapes of a tree whose depths and levels the parent's backfill numbers (backfill.ts parentUpdate). */
-type TreeShape =
-	| "a single-node tree"
-	| "a chain four levels deep"
-	| "three siblings or more under one parent"
-	| "one level under two parents"
-
-/** The shapes a tree case aims at. */
-const treeShapes: ReadonlyArray<TreeShape> = [
-	"a single-node tree",
-	"a chain four levels deep",
-	"three siblings or more under one parent",
-	"one level under two parents"
-]
-
-/** Each node's depth in a tree of `parents` (treeOfParents's numbering), the root's 0. */
-const depthsOf = (parents: ReadonlyArray<number>): ReadonlyArray<number> =>
-	Arr.reduce(parents, [0], (depths: ReadonlyArray<number>, p) => [
-		...depths,
-		nth(depths, p, "a parent numbered before its child") + 1
-	])
-
-/** The shapes a tree of `parents` has. */
-const shapesOf = (parents: ReadonlyArray<number>): ReadonlyArray<TreeShape> => {
-	const depths = depthsOf(parents)
-	const has: Readonly<Record<TreeShape, boolean>> = {
-		"a single-node tree": parents.length === 0,
-		"a chain four levels deep": Arr.some(depths, (d) => d >= 3),
-		"three siblings or more under one parent": Arr.some(
-			depths,
-			(_, p) => Arr.filter(parents, (q) => q === p).length >= 3
-		),
-		"one level under two parents": Arr.some(parents, (p, i) =>
-			Arr.some(parents, (q, j) => p !== q && depths[i + 1] === depths[j + 1])
-		)
-	}
-	return Arr.filter(treeShapes, (shape) => has[shape])
-}
-
-/** A document of `shape` by construction, its kinds drawn: one node; a chain of four to six; a root over three to five
- * children; or a root over two children, each over at least one of the further nodes, so one level holds nodes of two
- * parents. */
-const shapedDocumentGen =
-	(shape: TreeShape): Gen<StoredDocument> =>
-	(source) => {
-		const parents = ((): ReadonlyArray<number> => {
-			switch (shape) {
-				case "a single-node tree":
-					return []
-				case "a chain four levels deep":
-					return indices(source.draw(int(3, 5)))
-				case "three siblings or more under one parent":
-					return Arr.map(indices(source.draw(int(3, 5))), () => 0)
-				case "one level under two parents":
-					return [
-						0,
-						0,
-						1,
-						2,
-						...Arr.map(indices(source.draw(int(0, 2))), () => source.draw(int(1, 2)))
-					]
-			}
-		})()
-		return { parents, kinds: Arr.map(indices(parents.length + 1), () => source.draw(int(0, 3))) }
-	}
-
-/** A tree case aimed at what is pending: a document of each pending shape and, where several trees or a merge are
- * pending, a drawn document beside them; the second document mapped onto the first's root only where a merge is pending
- * and no shape is, since a merge is refused before its rows are read. */
-const steeredTreeGen =
-	(pending: ReadonlySet<TreeFeature>): Gen<TreeCase> =>
-	(source) => {
-		const shapes = Arr.filter(treeShapes, (shape) => pending.has(shape))
-		const merge =
-			shapes.length === 0 && pending.has("two stored trees mapped onto one root, refused")
-		const shaped = Arr.map(shapes, (shape) => source.draw(shapedDocumentGen(shape)))
-		const documents =
-			shaped.length === 0 ||
-			merge ||
-			(shaped.length === 1 && pending.has("several stored trees, each its own root"))
-				? [...shaped, source.draw(storedDocumentGen), source.draw(storedDocumentGen)]
-				: shaped
-		const own = Arr.map(documents, (_, d) => d)
-		return {
-			documents: nonEmpty(documents, "a stored forest's documents"),
-			roots: nonEmpty(
-				merge ? Arr.map(own, (d) => (d === 1 ? 0 : d)) : own,
-				"the new root of each document"
-			)
-		}
-	}
-
-/** Whether a case maps two documents onto one new root. */
-const mergesTrees = (c: TreeCase): boolean => new Set(c.roots).size < c.roots.length
-
-/** Whether a case's turns fold selects a member: a node whose parent's kind is not its grandparent's. */
-const turnsSelect = (c: TreeCase): boolean =>
-	Arr.some(c.documents, (doc, d) => {
-		const rows = storedRows(d, doc)
-		return Arr.some(rows, turnsOf(rows).selected)
-	})
-
-/** Whether a case's anchor family carries some node's count from another node's `sites`. */
-const anchorsElsewhere = (c: TreeCase): boolean =>
-	Arr.some(c.documents, (doc, d) => {
-		const rows = storedRows(d, doc)
-		const { anchor } = anchorsOf(rows)
-		return Arr.some(rows, (row) => anchor(row) !== row.start)
-	})
-
-export type TreeFeature =
-	| "a tree re-rooted at a package and a path"
-	| "a tree of three levels or more"
-	| "several stored trees, each its own root"
-	| "two stored trees mapped onto one root, refused"
-	| "a fold over copies along the parent, one hop and two, selecting a member"
-	| "a tree's count carried along another family's owner axis from another node"
-	| "a copy from the sibling before, along the tree's predecessor axis"
-	| TreeShape
-
-/** What the tree property must reach. */
-export const treeFeatures: Arr.NonEmptyReadonlyArray<TreeFeature> = [
-	"a tree re-rooted at a package and a path",
-	"a tree of three levels or more",
-	"several stored trees, each its own root",
-	"two stored trees mapped onto one root, refused",
-	"a fold over copies along the parent, one hop and two, selecting a member",
-	"a tree's count carried along another family's owner axis from another node",
-	"a copy from the sibling before, along the tree's predecessor axis",
-	...treeShapes
-]
-
-/** A tree case under its steering: a plain draw where the case does not steer, else the tree case aimed at the
- * features its steering leaves pending, its documents and roots the sketch it runs. */
-export const treeSteered: Steered<TreeCase, TreeFeature>["under"] = (steering) =>
-	Option.match(steering, {
-		onNone: () => treeCaseGen,
-		onSome: (pending) => steeredTreeGen(new Set(Arr.filter(treeFeatures, (f) => pending.has(f))))
-	})
-
-/** The law a refused merge names: the keyed tree's primary key's, which the backfill checks before it draws. */
-const treeKeyLaw = (installation: Installation): string =>
-	Option.getOrThrowWith(
-		Arr.findFirst(installation.laws.theory.primaryKeys, (pk) => pk.relation.name === "Node"),
-		() => new Error("the keyed tree states its primary key")
-	).law.id
-
-/**
- * A tree case on PostgreSQL: the stored tree, rooted at its document, drafted from nothing and installed, its rows
- * written directly, then the keyed tree drafted from its snapshot, its document declared dropped, reviewed with the
- * data step, checked, and applied under the rewrite observer. A merge of two trees onto one root is refused at migrate
- * by the backfill's check of the keyed tree's primary key, a violation check raising SQLSTATE 23000 under that law's
- * identity, before any derivation runs; any other case migrates to a fresh install's catalog, rewriting each table at
- * most once, every row the model's and nothing left to generate.
- */
-export const treeHistory = (c: TreeCase, note: (f: TreeFeature) => void) =>
-	Effect.scoped(
-		Effect.gen(function* () {
-			const substrate = yield* Substrate
-			const tree = docTree()
-			yield* Effect.addFinalizer(() =>
-				Effect.orDie(
-					substrate.admin.query(`DROP SCHEMA IF EXISTS ${q(tree.snapshot.schema)} CASCADE`, [])
-				)
-			)
-			const observer = yield* rewriteObserver(substrate)
-			const m = yield* openMigrator(substrate, substrate.owner)
-			yield* apply(m, { snapshot: tree.snapshot, folders: [tree.folder] }, noFurther)
-			yield* transaction(substrate.admin, [storedInsert(tree, c)])
-			note("a tree re-rooted at a package and a path")
-			if (Arr.some(c.documents, (doc) => Arr.some(doc.parents, (p) => p > 0))) {
-				note("a tree of three levels or more")
-			}
-			const value = keyedTreeOf()
-			const installation = compile(value, asDrafted)
-			const g = succeeded(
-				generate({
-					previous: fromSnapshot(tree.snapshot),
-					installation,
-					name: "keyed",
-					timestamp: draftedAt(1),
-					workload: noWorkload,
-					declared: {
-						renames: [],
-						drops: [{ kind: "field", relation: parsedName("Node"), field: parsedName("doc") }]
-					}
-				}),
-				"the keyed tree drafts"
-			)
-			assert.deepEqual(
-				perRowReads(g.plan.steps),
-				[],
-				"the keyed tree's backfill reads no row once per row"
-			)
-			assert.deepEqual(recursions(g.plan.steps), [], "the keyed tree's backfill recurs nowhere")
-			assert.deepEqual(
-				missingKeyChecks(installation, tree.snapshot.theory, g.plan.steps),
-				[],
-				"the keyed tree's backfill checks every key its derivations rely on before any of them runs"
-			)
-			assert.deepEqual(
-				rewrittenTables(g.plan.steps),
-				[],
-				"the keyed tree's backfill writes each table's rows by one UPDATE"
-			)
-			const reviewed = review(withDataStep(g, treeDataStep(tree, c)), {
-				losses: "written",
-				value: treePlaceholder
-			})
-			assert.deepEqual(fileFindings(g, reviewed.files), [], "grizzle check's findings")
-			const folders: ReadonlyArray<FolderTexts> = [
-				tree.folder,
-				{ name: g.folder.name, metaText: g.folder.metaText, files: reviewed.files }
-			]
-			const run = observer.during(
-				tree.snapshot.schema,
-				apply(
-					m,
-					{ snapshot: g.snapshot, folders: [...folders] },
-					checkedAdmission(installation, substrate.admin)
-				)
-			)
-			if (mergesTrees(c)) {
-				const key = treeKeyLaw(installation)
-				const { reason } = yield* refusal(run)
-				assert.ok(
-					reason._tag === "StatementFailed" &&
-						reason.failure._tag === "ServerError" &&
-						reason.failure.sqlstate === "23000" &&
-						reason.failure.constraint === key,
-					`two stored trees mapped onto one root are refused otherwise than by the backfill's check of the keyed tree's primary key, ${key}: ${Formatter.format(reason)}`
-				)
-				note("two stored trees mapped onto one root, refused")
-				return
-			}
-			if (c.documents.length > 1) {
-				note("several stored trees, each its own root")
-			}
-			const { rewrites } = yield* run
-			for (const [table, times] of rewrites) {
-				assert.ok(times <= 1, `the keyed tree's migration rewrites ${table} ${times} times`)
-			}
-			const fresh = yield* substrate.schema({ create: false, label: "cutover_tree_fresh" })
-			const freshPlan = succeeded(
-				planRealInstall(value, {
-					installation: identity.schema(parsedSchemaName(fresh)),
-					logins: [],
-					extensions: [],
-					codes: firstCodebook(rostersOf(owning(value))),
-					compile: compileInstallation
-				}),
-				"a fresh install of the keyed tree"
-			)
-			yield* transaction(substrate.admin, filledSql(freshPlan.drafted, substrate.database))
-			yield* sameCatalog(installation, freshPlan.installation, "the keyed tree")
-			const read = yield* substrate.admin.queryValues(
-				`SELECT ${Arr.join(
-					Arr.map(keyedFields, (f) => `${column(f)}::"pg_catalog"."text"`),
-					", "
-				)} FROM ${nodeTable(tree.snapshot)}`,
-				[]
-			)
-			const byRow = Order.mapInput(Order.String, (row: ReadonlyArray<string>) =>
-				Arr.join(row, "\u0000")
-			)
-			const actual: ReadonlyArray<ReadonlyArray<string>> = Arr.sort(
-				Arr.map(read, (row) =>
-					Arr.map(row, (cell) => (typeof cell === "string" ? cell : Formatter.format(cell)))
-				),
-				byRow
-			)
-			assert.deepEqual(
-				actual,
-				Arr.sort(keyedRows(c), byRow),
-				`the keyed tree holds the model's rows (${Arr.join(keyedFields, ", ")})`
-			)
-			if (turnsSelect(c)) {
-				note("a fold over copies along the parent, one hop and two, selecting a member")
-			}
-			if (anchorsElsewhere(c)) {
-				note("a tree's count carried along another family's owner axis from another node")
-			}
-			for (const doc of c.documents) {
-				for (const shape of shapesOf(doc.parents)) {
-					note(shape)
-				}
-			}
-			if (Arr.some(c.documents, (doc, d) => Arr.some(storedRows(d, doc), (row) => row.at > 0))) {
-				note("a copy from the sibling before, along the tree's predecessor axis")
-			}
-			const again = succeeded(
-				generate({
-					previous: fromSnapshot(g.snapshot),
-					installation,
-					name: "keyed_again",
-					timestamp: draftedAt(2),
-					workload: noWorkload,
-					declared: noDeclarations
-				}),
-				"the keyed tree drafts again"
-			)
-			assert.equal(again.change, "none", "the keyed tree drafts a further change")
 		})
 	)

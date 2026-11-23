@@ -991,7 +991,7 @@ export const plantedDeletion = (
 	rest: []
 })
 
-export const plantedGroup = (
+const plantedGroup = (
 	host: HostSchema,
 	domains: Domains,
 	law: HostLaw,
@@ -1426,7 +1426,7 @@ export const redrawStride = 40_503
 const supportBound = 32
 
 /** Every fact of `relation` its domains draw, the last field's values varying fastest. */
-export const domainFacts = function* (
+const domainFacts = function* (
 	host: HostSchema,
 	domains: Domains,
 	relation: string

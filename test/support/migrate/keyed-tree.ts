@@ -86,7 +86,7 @@ const rootWidth = 40
 const rootText = str.bytes(rootWidth, str.regex("^.*$", "su"))
 
 /** A document's stored tree in pre-order (families/tree.ts numbered), under its document's index as its root value. */
-export const storedRows = (d: number, doc: StoredDocument): ReadonlyArray<KeyedRow> =>
+const storedRows = (d: number, doc: StoredDocument): ReadonlyArray<KeyedRow> =>
 	numbered([{ root: [String(d)], tree: treeOfParents(doc.parents, doc.kinds) }])
 
 /** A new root's package and path, each its texts. */
@@ -362,7 +362,7 @@ export const keyedFields = [
  * The anchor family of one document's rows: each row's anchor, the start of the first row in pre-order whose count is
  * its own, so its `sites` (each row's own count) is the row's count, and each row's `uses`, the rows anchored at it.
  */
-export const anchorsOf = (rows: ReadonlyArray<KeyedRow>) => {
+const anchorsOf = (rows: ReadonlyArray<KeyedRow>) => {
 	const anchor = (row: KeyedRow): number =>
 		defined(
 			Option.getOrUndefined(Arr.findFirst(rows, (r) => r.children === row.children)),
@@ -449,7 +449,7 @@ export const withDataStep = (g: GenerateResult, step: ReadonlyArray<string>): Ge
  * parent's kind is not its grandparent's), and its planes, the selected siblings before it and through it in slot
  * order, the root alone at slot 0, its end its selected children.
  */
-export const turnsOf = (rows: ReadonlyArray<KeyedRow>) => {
+const turnsOf = (rows: ReadonlyArray<KeyedRow>) => {
 	const parentOf = (row: KeyedRow): KeyedRow =>
 		defined(
 			Option.getOrUndefined(Arr.findFirst(rows, (r) => r.start === row.parent)),
