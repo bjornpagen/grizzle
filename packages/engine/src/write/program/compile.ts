@@ -326,25 +326,28 @@ const plannedNodes = (planned: PlannedWrite): ReadonlyArray<RelNode> => {
 }
 
 /**
- * The certificate of a share restricted by a partner (CarriedShare restriction, share.restricted): its copies, read where
- * every reader joins them to the partner by its pairs, held as the rows that match a row of the partner, the proof
- * reading the copies and the partner's node; none for a share that holds every row.
+ * The certificate of a share restricted by partners (CarriedShare restriction, share.restricted): its copies, read where
+ * every reader joins them to one of the partners by its columns, held as the rows that match a row of one, the proof
+ * reading the copies and the partners' nodes; none for a share that holds every row.
  */
 const certifyRestriction = (facts: ShapeFacts, share: CarriedShare): void => {
 	const restriction = share.restriction
 	switch (restriction.kind) {
 		case "whole":
 			return
-		case "partner":
+		case "partners": {
+			const partners = restriction.partners.map((p) => p.share.node.id)
+			const copies = share.copies.map((c) => c.id)
 			facts.certify(
 				localCertificate(
 					"share.restricted",
-					[...share.copies.map((c) => c.id), restriction.partner.node.id],
-					share.copies.map((c) => c.id),
-					[restriction.partner.node.id, ...share.copies.map((c) => c.id)],
+					[...copies, ...partners],
+					copies,
+					[...partners, ...copies],
 					share.node.heading.map((c) => c.name)
 				)
 			)
+		}
 	}
 }
 
@@ -394,8 +397,8 @@ const heldEvaluations = (
  * once each (heldEvaluations) and its shared sub-queries (`shares`), lowest first (ShareIndex height). A part reads
  * another only through a node below its own root, a call's read or a copy of a share, which stands strictly lower, so
  * each part follows every part it reads: an evaluation whose arguments hold a shared sub-query reads its CTE, and a
- * shared sub-query that reads a call's field reads its evaluation's. A share restricted by a partner (CarriedShare
- * restriction) reads its partner's part too, so it stands past it (its height) and leads the parts of its height; a part
+ * shared sub-query that reads a call's field reads its evaluation's. A share restricted by partners (CarriedShare
+ * restriction) reads their parts too, so it stands past them (its height) and leads the parts of its height; a part
  * placed before it lowers its copies where they stand.
  */
 const heldParts = (
@@ -421,7 +424,7 @@ const heldParts = (
 					kind: "share",
 					share,
 					height: share.height,
-					first: share.restriction.kind === "partner"
+					first: share.restriction.kind === "partners"
 				}) as const
 		)
 	].toSorted((a, b) => a.height - b.height || Number(b.first) - Number(a.first))

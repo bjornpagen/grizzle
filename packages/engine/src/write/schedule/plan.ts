@@ -1130,7 +1130,9 @@ export const planWrite = (
 		)
 		/** A share restricted by a partner the stratum no longer carries is dropped with it. */
 		const shares = planned.filter(
-			(share) => share.restriction.kind === "whole" || planned.includes(share.restriction.partner)
+			(share) =>
+				share.restriction.kind === "whole" ||
+				share.restriction.partners.every((p) => planned.includes(p.share))
 		)
 		const familyStep = familyStepsOf(s, checks)
 		if (realization.kind === "sequential") {

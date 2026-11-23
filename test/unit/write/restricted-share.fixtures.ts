@@ -212,14 +212,19 @@ const partsOf = (sql: string): ReadonlyArray<{ readonly name: string; readonly t
 
 /**
  * The part of `sql` that holds the labels once restricted: the text of each MATERIALIZED CTE of the statement's WITH, its
- * name, that scans Tag and Item none, and whether it keeps its rows by an EXISTS over another part, where its partner's
- * rows are read.
+ * name, that scans Tag and Item none, and whether it keeps its rows by an EXISTS over the union of its partners' keys,
+ * each read from its part.
  */
 export const labelParts = (
 	sql: string
 ): ReadonlyArray<{ readonly name: string; readonly keptByAPart: boolean }> =>
 	Arr.flatMap(partsOf(sql), (part) =>
 		scans(part.text, "tag") > 0 && scans(part.text, "item") === 0
-			? [{ name: part.name, keptByAPart: Str.includes('EXISTS (SELECT 1 FROM "r')(part.text) }]
+			? [
+					{
+						name: part.name,
+						keptByAPart: Str.includes("EXISTS (SELECT 1 FROM (SELECT ")(part.text)
+					}
+				]
 			: []
 	)

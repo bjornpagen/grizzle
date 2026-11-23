@@ -1,5 +1,9 @@
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
-import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { analyzeDemand, type DemandAnalysis, noPins } from "#compiler/analysis/demand/demand.ts"
 import { outerOf } from "#compiler/analysis/physical/rules.ts"
@@ -42,9 +46,13 @@ import type { Expr, FromSource, OperandSelect, Select } from "#compiler/sql/ast.
 import {
 	col,
 	conjunction,
+	core,
+	derived,
 	exists,
 	keyedSet,
 	lit,
+	operandSelect,
+	operandUnionAll,
 	select,
 	simpleSelect,
 	target,
@@ -238,19 +246,26 @@ export interface CarriedShare {
 }
 
 /**
- * The rows a carrier holds of its copy: every row the copy delivers, or those whose `pairs` columns equal a row of the
- * carried sub-query `partner` (restrictedShares), which every reader of the copies joins them to by those columns.
+ * The rows a carrier holds of its copy: every row the copy delivers, or those whose `columns` equal, column for column,
+ * the `columns` of a row of one of the carried sub-queries `partners` (restrictedShares), each a partner some reader
+ * of the copies joins them to by those columns.
  */
 export type ShareRestriction =
 	| { readonly kind: "whole" }
 	| {
-			readonly kind: "partner"
-			readonly partner: CarriedShare
-			readonly pairs: NonEmptyReadonlyArray<PartnerPair>
+			readonly kind: "partners"
+			readonly columns: NonEmptyReadonlyArray<string>
+			readonly partners: NonEmptyReadonlyArray<Partner>
 	  }
 
+/** A carried sub-query a restricted copy's reader joins it to, and its columns that reader equates to the copy's. */
+export interface Partner {
+	readonly share: CarriedShare
+	readonly columns: NonEmptyReadonlyArray<string>
+}
+
 /** A column of a restricted copy and the column of its partner a reader equates it to. */
-export interface PartnerPair {
+interface PartnerPair {
 	readonly column: string
 	readonly partnerColumn: string
 }
@@ -497,22 +512,19 @@ const partnerAt = (
 	)
 }
 
-/** A site's partner and pairs as one text, equal for two sites one restricted share serves. */
-const siteKey = (site: PartnerSite): string =>
-	`${site.partner.key}(${site.pairs.map((p) => `${p.column}=${p.partnerColumn}`).join(",")})`
-
 /**
  * The joins no value of the statement restricts (ShareIndex.restrictable) that the statements, each reading the nodes of
- * `read`, read joined to a carried sub-query of `whole`, each carried restricted by it: a region reading a copy beside
+ * `read`, read joined to carried sub-queries of `whole`, each carried restricted by them: a region reading a copy beside
  * an occurrence of a carried copy, the two sharing variables, delivers no row of the copy whose shared columns equal no
- * row of the partner, so the carrier holds only the copy's rows that equal one, every row a reader of it can deliver,
- * and every reader reads it in place of its copy (lower/shapes/share/statements.ts StatementSharing restricted, the
- * EXISTS of its fill). Computed once, as rule 5d computes a join the statement's values restrict (cte-policy), where
- * each read restated it whole: edullm's ledger grade read the response declarations of every item, a join of four
- * reads of the attributes, 36 times, each joined to the gradable runs by their item, 708 KB of its 2.24 MB statement
- * and 934 MB of its 1,186 MB of planning. A copy is carried restricted only where every node reads it as a region's
- * occurrence, each such region beside the same partner on the same columns, and its key's copies are read so at least
- * twice; the rest stay inline, restricted where they stand. Each restricted share is filled past its partner.
+ * row of that partner, so the carrier holds only the copy's rows that equal a row of one of its readers' partners,
+ * every row a reader of it can deliver, and every reader reads it in place of its copy (StatementSharing restriction,
+ * the EXISTS of its fill over the union of the partners' columns). Computed once, as rule 5d computes a join the
+ * statement's values restrict (cte-policy), where each read restated it whole: edullm's ledger grade read the response
+ * declarations of every item, a join of four reads of the attributes, at 36 regions, 35 joining them to the gradable
+ * runs by their item and one to the runs to grade, 708 KB of its 2.24 MB statement and 934 MB of its 1,186 MB of
+ * planning. A copy is carried restricted only where every node reads it as a region's occurrence, each beside a
+ * partner, and its key's copies are read so at least twice; its columns are those every reader's partner restricts.
+ * The rest stay inline, restricted where they stand. Each restricted share is filled past its partners.
  */
 const restrictedShares = (
 	index: ShareIndex,
@@ -555,33 +567,30 @@ const restrictedShares = (
 			mark(root, undefined)
 		}
 	}
-	/** The copies one partner restricts on the same columns, by the copy's key and the site's, and their reads. */
+	/** The copies of one key restricted on the same columns by the same partners, by both, and their reads. */
 	const groups = new Map<
 		string,
-		{ readonly site: PartnerSite; readonly copies: Array<RelNode>; reads: number }
+		{
+			readonly restriction: Extract<ShareRestriction, { readonly kind: "partners" }>
+			readonly copies: Array<RelNode>
+			reads: number
+		}
 	>()
 	for (const [copy, at] of sites) {
-		if (at === "no" || copy.heading.length === 0) {
-			continue
-		}
-		const [first, ...rest] = at
-		if (first === undefined || rest.some((x) => siteKey(x) !== siteKey(first))) {
+		const restriction = at === "no" ? undefined : partnersOf(at)
+		if (at === "no" || restriction === undefined) {
 			continue
 		}
 		const group = groups.getOrInsertComputed(
-			`${index.restrictedKey(copy)}|${siteKey(first)}`,
-			() => ({
-				site: first,
-				copies: [],
-				reads: 0
-			})
+			`${index.restrictedKey(copy)}|${restrictionKey(restriction)}`,
+			() => ({ restriction, copies: [], reads: 0 })
 		)
 		group.copies.push(copy)
 		group.reads += at.length
 	}
 	return [...groups]
 		.toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-		.flatMap(([key, { site, copies, reads }]): ReadonlyArray<CarriedShare> => {
+		.flatMap(([key, { restriction, copies, reads }]): ReadonlyArray<CarriedShare> => {
 			const [node] = copies
 			return node === undefined || reads < 2
 				? []
@@ -590,12 +599,59 @@ const restrictedShares = (
 							key,
 							node,
 							copies,
-							restriction: { kind: "partner", partner: site.partner, pairs: site.pairs },
-							height: Math.max(index.height(node), site.partner.height + 1)
+							restriction,
+							height: restriction.partners.reduce(
+								(h, p) => Math.max(h, p.share.height + 1),
+								index.height(node)
+							)
 						}
 					]
 		})
 }
+
+/**
+ * The restriction a copy's sites give it: the copy's columns every site's partner restricts, in the copy's column order,
+ * and each distinct partner with its columns equated to those, in order of their keys; none where no column is common
+ * to every site, or the copy has no column.
+ */
+const partnersOf = (
+	sites: ReadonlyArray<PartnerSite>
+): Extract<ShareRestriction, { readonly kind: "partners" }> | undefined => {
+	const [first, ...rest] = sites
+	if (first === undefined) {
+		return undefined
+	}
+	const common = first.pairs
+		.map((p) => p.column)
+		.filter((c) => rest.every((x) => x.pairs.some((p) => p.column === c)))
+	if (!isNonEmpty(common)) {
+		return undefined
+	}
+	const partners = new Map<string, Partner>()
+	for (const site of sites) {
+		const columns = common.map(
+			(c) =>
+				defined(
+					site.pairs.find((p) => p.column === c),
+					"a common column every site's partner restricts"
+				).partnerColumn
+		)
+		const [head, ...tail] = columns
+		if (head === undefined) {
+			return undefined
+		}
+		const partner: Partner = { share: site.partner, columns: [head, ...tail] }
+		partners.set(`${site.partner.key}(${columns.join(",")})`, partner)
+	}
+	const ordered = [...partners]
+		.toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+		.map(([, p]) => p)
+	return isNonEmpty(ordered) ? { kind: "partners", columns: common, partners: ordered } : undefined
+}
+
+/** A restriction as one text, equal for two copies one restricted share serves. */
+const restrictionKey = (r: Extract<ShareRestriction, { readonly kind: "partners" }>): string =>
+	`${r.columns.join(",")}<${r.partners.map((p) => `${p.share.key}(${p.columns.join(",")})`).join("|")}>`
 
 /**
  * The classes of one share key among `nodes`, each a node that may be shared, in the order the statements first read
@@ -819,32 +875,51 @@ export class StatementSharing {
 		switch (restriction.kind) {
 			case "whole":
 				return undefined
-			case "partner": {
-				const partner = restriction.partner
-				const source = defined(
-					this.#sources.get(partner),
-					"a restricted share's partner, filled before it (planStatementShares heights)"
-				)
-				const alias = cx.relationAlias({ kind: "node", node: partner.node.id })
-				const partnerColumn = (name: string): Expr =>
-					col(
-						alias,
-						defined(
-							source.columns[partner.node.heading.findIndex((c) => c.name === name)],
-							"a partner column its carrier holds, in its copy's heading order"
-						)
+			case "partners": {
+				const origin = { kind: "node", node: share.node.id } as const
+				/** Each partner's columns, read where every reader reads it: one arm of the union of its readers' keys. */
+				const arms = mapNonEmpty(restriction.partners, (p) => {
+					const source = defined(
+						this.#sources.get(p.share),
+						"a restricted share's partner, filled before it (planStatementShares heights)"
 					)
-				const on = restriction.pairs.map((p) =>
+					const alias = cx.relationAlias({ kind: "node", node: p.share.node.id })
+					return core(
+						p.columns.map((name) =>
+							target(
+								col(
+									alias,
+									defined(
+										source.columns[p.share.node.heading.findIndex((c) => c.name === name)],
+										"a partner column its carrier holds, in its copy's heading order"
+									)
+								)
+							)
+						),
+						[sourceItem(source, alias)],
+						undefined
+					)
+				})
+				const keys = cx.relationAlias(origin)
+				const named = cx.freshColumns(restriction.columns, origin)
+				const on = named.map((n) =>
 					cx.equal(
-						columnType(share.node.heading, p.column),
-						partnerColumn(p.partnerColumn),
-						columnIn(columns, p.column)
+						columnType(share.node.heading, n.name),
+						col(keys, n.column),
+						columnIn(columns, n.name)
 					)
 				)
 				return exists(
 					simpleSelect(
 						[target(lit.int(1, types.integer))],
-						[sourceItem(source, alias)],
+						[
+							derived(
+								operandSelect(operandUnionAll(arms)),
+								keys,
+								named.map((n) => n.column),
+								false
+							)
+						],
 						conjunction(on)
 					)
 				)
