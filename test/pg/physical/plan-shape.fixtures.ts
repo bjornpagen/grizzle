@@ -27,6 +27,12 @@ import {
 	type SchemaDesc,
 	unit
 } from "#test/support/fixtures/ir/desc.ts"
+import {
+	type JudgedStatement,
+	judgedStatementsOf,
+	plannedQueryOf,
+	raisedRule
+} from "#test/support/judge.ts"
 import { installRealSchema } from "#test/support/oracle/install/real.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -39,6 +45,7 @@ export type PlanShapeFeature =
 	| "a mutable relation emptied, vacuumed and refilled"
 	| "a relation in no unit"
 	| "a relation refused for crossing keys"
+	| "a containment the rule judge reads"
 
 /** What a field holds: any number of values, or a boolean's two. */
 type Holds = "many" | "few"
@@ -68,13 +75,17 @@ interface LookupSketch {
 
 /**
  * A shape: a unit of one or two fields or none; the rows a unit holds in the load, 2^unitRows; one to three relations;
- * whether the second references the first's primary key; and the equality lookups its workload asks.
+ * whether the second references the first's primary key; the first's fields, none of its keys among them, that the
+ * second's rows are contained in, a containment no foreign key states, which the rule judge reads whole within the unit
+ * where both are immutable members, or none; and the
+ * equality lookups its workload asks.
  */
 export interface ShapeSketch {
 	readonly unitWidth: 0 | 1 | 2
 	readonly unitRows: number
 	readonly relations: Arr.NonEmptyReadonlyArray<RelationSketch>
 	readonly references: boolean
+	readonly judged: ReadonlyArray<number>
 	readonly lookups: ReadonlyArray<LookupSketch>
 }
 
@@ -97,8 +108,10 @@ const fieldsGen =
 		return [first, ...rest]
 	}
 
+/** A relation of a unit `unitWidth` wide; keyed by its first two fields where `partKey`; an immutable member where
+ * `judged`, a side of the containment the rule judge reads. */
 const relationGen =
-	(unitWidth: number, partKey: boolean): Gen<RelationSketch> =>
+	(unitWidth: number, partKey: boolean, judged: boolean): Gen<RelationSketch> =>
 	(source) => {
 		const count = source.draw(int(2, 4))
 		const fields: Arr.NonEmptyReadonlyArray<Holds> = [
@@ -115,16 +128,17 @@ const relationGen =
 			)
 		]
 		const member =
-			unitWidth > 0 &&
-			source.draw(
-				weighted([
-					[3, () => true],
-					[1, () => false]
-				])
-			)
+			judged ||
+			(unitWidth > 0 &&
+				source.draw(
+					weighted([
+						[3, () => true],
+						[1, () => false]
+					])
+				))
 		return {
 			member,
-			mutable: member && source.draw(boolean),
+			mutable: member && !judged && source.draw(boolean),
 			fields,
 			primary: partKey ? [0, 1] : source.draw(fieldsGen(fields, 1, 2)),
 			keys: source.draw(
@@ -145,12 +159,22 @@ const relationGen =
  * to the first where both are members or neither, and up to three equality lookups, each holding a field of many values.
  */
 export const shapeGen: Gen<ShapeSketch> = (source) => {
-	const unitWidth = source.draw(element([0, 1, 2] as const))
+	/** A containment no key states is the judge's only within one unit over immutable relations (laws/model/plan.ts
+	 * containmentDischarge), which it reads whole: a third of the shapes are two such members and maybe a third. */
+	const judgedArm = source.draw(
+		weighted([
+			[1, () => true],
+			[2, () => false]
+		])
+	)
+	const unitWidth = source.draw(judgedArm ? element([1, 2] as const) : element([0, 1, 2] as const))
 	const partKey = source.draw(boolean)
-	const count = source.draw(int(1, 3))
+	const count = source.draw(int(judgedArm ? 2 : 1, 3))
 	const relations: Arr.NonEmptyReadonlyArray<RelationSketch> = [
-		source.draw(relationGen(unitWidth, partKey)),
-		...Array.from({ length: count - 1 }, () => source.draw(relationGen(unitWidth, false)))
+		source.draw(relationGen(unitWidth, partKey, judgedArm)),
+		...Array.from({ length: count - 1 }, (_, at) =>
+			source.draw(relationGen(unitWidth, false, judgedArm && at === 0))
+		)
 	]
 	const [first, second] = relations
 	const lookups = source.draw(
@@ -167,11 +191,20 @@ export const shapeGen: Gen<ShapeSketch> = (source) => {
 			{ min: 0, max: 3 }
 		)
 	)
+	const paired = second !== undefined && second.member === first.member
+	const target = judgedArm
+		? source.draw(subset(positions(first.fields.length), { min: 1, max: 2 }))
+		: []
 	return {
 		unitWidth,
 		unitRows: source.draw(int(4, 6)),
 		relations,
-		references: second !== undefined && second.member === first.member && source.draw(boolean),
+		references: paired && source.draw(boolean),
+		judged: Arr.some([first.primary, ...Arr.map(first.keys, (k) => k.fields)], (k) =>
+			Arr.every(k, (at) => target.includes(at))
+		)
+			? []
+			: target,
 		lookups: partKey ? [{ relation: 0, unitLed: first.member, fields: [1] }, ...lookups] : lookups
 	}
 }
@@ -190,7 +223,12 @@ const fieldName = (at: number): string => `f${at}`
 const referenceFields = (first: RelationSketch): ReadonlyArray<string> =>
 	Arr.map(first.primary, (at) => `p${at}`)
 
-/** A relation's every field: the unit's where it is a member, its own, and its reference's for the second. */
+/** The fields of the second relation contained in the first's judged fields, each after the field it is contained in. */
+const judgedFields = (sketch: ShapeSketch): ReadonlyArray<string> =>
+	Arr.map(sketch.judged, (at) => `q${at}`)
+
+/** A relation's every field: the unit's where it is a member, its own, and its reference's and its contained fields for
+ * the second. */
 const fieldsOf = (
 	sketch: ShapeSketch,
 	at: number
@@ -215,6 +253,17 @@ const fieldsOf = (
 					(k) =>
 						[
 							`p${k}`,
+							first.fields[k] ?? "many",
+							() => valueSql(first.fields[k] ?? "many", k)
+						] as const
+				)
+			: []),
+		...(at === 1
+			? Arr.map(
+					sketch.judged,
+					(k) =>
+						[
+							`q${k}`,
 							first.fields[k] ?? "many",
 							() => valueSql(first.fields[k] ?? "many", k)
 						] as const
@@ -284,6 +333,17 @@ const describe = (
 						on(relationName(0), [
 							...(first.member ? units : []),
 							...Arr.map(first.primary, fieldName)
+						])
+					)
+				]
+			: []),
+		...(sketch.judged.length > 0
+			? [
+					contained(
+						on(relationName(1), [...(first.member ? units : []), ...judgedFields(sketch)]),
+						on(relationName(0), [
+							...(first.member ? units : []),
+							...Arr.map(sketch.judged, fieldName)
 						])
 					)
 				]
@@ -600,6 +660,95 @@ const lawOver = (r: Judgeable, note: (feature: PlanShapeFeature) => void) =>
 		return problems
 	})
 
+/** A table of the shape as the judge's law fills it: its table, and its load's columns, each by its SQL over g. */
+interface Loaded {
+	readonly table: CopiedTable
+	readonly columns: ReadonlyArray<readonly [column: string, sql: string]>
+}
+
+/** Each scan of a shape's table in every statement of the judge, by the statement and the scan's alias, in a state. */
+const judgeReads = (
+	statements: ReadonlyArray<JudgedStatement>,
+	tables: ReadonlyArray<Loaded>,
+	label: string
+) =>
+	Effect.gen(function* () {
+		const { admin } = yield* Substrate
+		const indexes = new Map<string, ReadonlyArray<CopyIndex>>()
+		for (const t of tables) {
+			const of = yield* indexesOf(t.table.quoted)
+			indexes.set(t.table.quoted, of)
+		}
+		const reads = new Map<string, string>()
+		const problems: Array<string> = []
+		for (const [at, statement] of statements.entries()) {
+			const name = `the judge's statement ${at + 1} of ${Option.getOrElse(raisedRule(statement), () => "no rule")}`
+			const explained = yield* admin.queryValues(
+				`EXPLAIN (VERBOSE, FORMAT JSON) ${plannedQueryOf(statement)}`,
+				[]
+			)
+			const plan = verbosePlan(explained, name)
+			for (const scan of scanBindings(plan)) {
+				const of = indexes.get(`${quoteIdent(scan.schema)}.${quoteIdent(scan.relation)}`)
+				if (of === undefined) {
+					continue
+				}
+				const read = `${name}'s scan of ${scan.relation} as ${scan.alias}`
+				reads.set(read, readText(scan))
+				Option.match(judged(of, read, scan), {
+					onNone: () => undefined,
+					onSome: (why) => problems.push(`${label}: ${why}`)
+				})
+			}
+		}
+		return { reads, problems }
+	})
+
+/**
+ * The law over the judge's statements (see plan-shape.test.ts), over the shape's own tables, which they read together:
+ * each filled at the filled state's rows in the shape's order, a referenced relation before the one referencing it, its
+ * own triggers off so no capture or judge runs (a foreign key's, the system's, checks the fill, which holds: a reference
+ * holds the values of the row it references), and vacuumed, every scan of every
+ * statement judged; then after ANALYZE, each read as filled.
+ */
+const judgeLaw = (
+	installation: Installation,
+	tables: ReadonlyArray<Loaded>,
+	note: (feature: PlanShapeFeature) => void
+) =>
+	Effect.gen(function* () {
+		const statements = judgedStatementsOf(installation)
+		if (statements.length === 0) {
+			return []
+		}
+		note("a containment the rule judge reads")
+		const { admin } = yield* Substrate
+		for (const t of tables) {
+			yield* admin.query(`ALTER TABLE ${t.table.quoted} DISABLE TRIGGER USER`, [])
+			yield* admin.query(
+				`INSERT INTO ${t.table.quoted} (${Arr.join(
+					Arr.map(t.columns, ([c]) => c),
+					", "
+				)}) SELECT ${Arr.join(
+					Arr.map(t.columns, ([, sql]) => sql),
+					", "
+				)} FROM pg_catalog.generate_series(0, ${filledRows - 1}) AS g`,
+				[]
+			)
+			yield* admin.query(`VACUUM ${t.table.quoted}`, [])
+		}
+		const filled = yield* judgeReads(statements, tables, "the judge, filled")
+		for (const t of tables) {
+			yield* admin.query(`ANALYZE ${t.table.quoted}`, [])
+		}
+		const analyzed = yield* judgeReads(statements, tables, "the judge, after ANALYZE")
+		return [
+			...filled.problems,
+			...analyzed.problems,
+			...unlike("the judge, after ANALYZE", filled.reads, analyzed.reads)
+		]
+	})
+
 /**
  * A case: the shape installed with its workload's lookups as the engine's requests, each relation's probes (each key's,
  * each lookup's, each foreign key's check from each side, and a member's read by its unit), and the law over each
@@ -703,16 +852,20 @@ export const shapeCase = (sketch: ShapeSketch, note: (feature: PlanShapeFeature)
 			}
 		}
 		const problems: Array<string> = []
+		const loaded = Arr.map(sketch.relations, (_, at): Loaded => ({
+			table: tableOf(at),
+			columns: Arr.map(
+				fieldsOf(sketch, at),
+				([name, , sql]) => [quoteIdent(column(at, name)), sql(sketch.unitRows)] as const
+			)
+		}))
 		for (const [at, r] of sketch.relations.entries()) {
-			const table = tableOf(at)
+			const { table, columns } = defined(loaded[at], "a loaded relation")
 			const found = yield* lawOver(
 				{
 					installation,
 					table,
-					columns: Arr.map(
-						fieldsOf(sketch, at),
-						([name, , sql]) => [quoteIdent(column(at, name)), sql(sketch.unitRows)] as const
-					),
+					columns,
 					probes: probesOf.get(table.quoted) ?? [],
 					mutable: r.mutable
 				},
@@ -720,5 +873,7 @@ export const shapeCase = (sketch: ShapeSketch, note: (feature: PlanShapeFeature)
 			)
 			record(problems, found)
 		}
+		const judges = yield* judgeLaw(installation, loaded, note)
+		record(problems, judges)
 		assert.deepEqual(problems, [], `the plan-shape law holds over ${desc.name}`)
 	})
