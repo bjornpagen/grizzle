@@ -67,8 +67,6 @@ import { fullWorld } from "#test/support/worlds.ts"
 
 /**
  * Deleting a group whole and replacing it, on PostgreSQL 19 every ChangeSet stores the model's rows and answers its outcome, counts and refusals.
- *
- * Its pre-conversion budget: runs 24, coverage cases 96 (test/pg/write/whole/whole.test.ts at d8eed1786).
  */
 export const deletingAGroupWholeAndReplacingItOnPostgreSQL19EveryChangeSetStoresTheModelsRowsAndAnswersItsOutcomeCountsAndRefusals =
 	property.explore(programGen, {
@@ -568,7 +566,13 @@ export const deletingAGroupWholeAndReplacingItOnPostgreSQL19EveryChangeSetStores
 			kind: "specification",
 			name: "a model of the relations as sets of units: the stored units less the deleted plus the inserted, each relation's rows rendered as the README draws them"
 		},
-		budget: { runs: 24, steered: 96 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/runtime/write/normalize.ts",
+				original: '\t\t\treturn act.names === "units" ? "units" : "delete"',
+				replacement: '\t\t\treturn "delete"',
+				why: "A unit delete's facts join the deletions of rows, so normalization nets a unit's root the stratum inserts again out of them (D EXCEPT A): the unit statement is bound with no unit, nothing nested under the root is removed, and the replace meets the stored instance at its key, refused where it is accepted (9149ad6a9, which this property's crossing writes found at TEST_SEED=4248619513)."
+			}
+		]
 	})

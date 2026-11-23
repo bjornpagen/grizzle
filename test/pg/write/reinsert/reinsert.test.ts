@@ -42,8 +42,6 @@ import { fullWorld } from "#test/support/worlds.ts"
 
 /**
  * A stored instance inserted again answers no-change where every stated row is stored as stated, accepted where it adds rows, and invariant-rejected on the key of a stated row that differs, witnessed by that row's key.
- *
- * Its pre-conversion budget: runs 16, coverage cases 72 (test/pg/write/reinsert/reinsert.test.ts at d8eed1786).
  */
 export const aStoredInstanceInsertedAgainAnswersNoChangeWhereEveryStatedRowIsStoredAsStatedAcceptedWhereItAddsRowsAndInvariantRejectedOnTheKeyOfAStatedRowThatDiffersWitnessedByThatRowsKey =
 	property.explore(steered(reinsertCases), {
@@ -246,7 +244,13 @@ export const aStoredInstanceInsertedAgainAnswersNoChangeWhereEveryStatedRowIsSto
 			kind: "specification",
 			name: "the README's set rule over relations as sets of facts (test/support/families/again.ts againVerdict), every drawn value the reference writer's (test/support/families/fill.ts writtenRows)"
 		},
-		budget: { runs: 16, steered: 72 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/write/family/additions.ts",
+				original: "\t\t: source.walked.has(key) || computes(source.stamps, key)",
+				replacement: "\t\t: true",
+				why: "A nested row states every column, the counts and ends of the counted families it owns among them, which a nested write never states and its stored group holds: a stored tree node inserted again beside a new member of the counted family it owns meets its stored row at its count and is refused on its key where it appends (1ad6e4df9, the defect KEYSTRESS's G4, this property, found)."
+			}
+		]
 	})
