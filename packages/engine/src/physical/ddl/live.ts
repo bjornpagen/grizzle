@@ -212,3 +212,23 @@ export const dropLiveSlot = (stem: string): Select => {
 		])
 	)
 }
+
+/**
+ * SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE database = current_database() AND
+ * slot_name = <name>: the drop of the slot `name` a leader of format 7 or before made in the database, named by its
+ * decoder login, which ends in the live source's stem (core/identity.ts identity.liveSource), where a leader of this
+ * grizzle names its slot by the stem, `_` and the database (liveSlotOf), whose name ends in no stem. Nothing else drops
+ * it and it holds its WAL while it stands, so `grizzle upgrade` drafts its drop where the database holds it
+ * (deploy/diff/departed.ts Departure formerLiveSlot). PostgreSQL refuses it while a leader of that grizzle still streams
+ * from it (55006), so the migration fails closed until those leaders stop, as dropLiveSlot does.
+ */
+export const dropFormerLiveSlot = (name: string): Select =>
+	provedSelect(
+		"keyed",
+		[target(call("pg_drop_replication_slot", [col("s", "slot_name")]))],
+		[fromTable("pg_catalog", "pg_replication_slots", "s")],
+		and([
+			eq(col("s", "database"), call("current_database", [])),
+			eq(col("s", "slot_name"), lit.text(name, types.text))
+		])
+	)

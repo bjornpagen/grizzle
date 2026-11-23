@@ -31,14 +31,19 @@ type Fate = "held" | "proven" | "otherwise" | "absent" | "renamed" | "reshaped"
 type Extra = "function" | "index" | "generatedColumn" | "storedColumn" | "table"
 
 /**
- * A box: the target's objects, each with what the database holds of it, what the database holds besides, and whether it
- * holds the default an installation of format 7 or before set (drift.ts DriftFound `formerDefault`).
+ * A box: the target's objects, each with what the database holds of it, what the database holds besides, whether it
+ * holds the default an installation of format 7 or before set (drift.ts DriftFound `formerDefault`), and whether it
+ * holds a slot a leader of format 7 or before made, named by its decoder login (`formerSlots`).
  */
 interface Box {
 	readonly objects: ReadonlyArray<{ readonly shape: Shape; readonly fate: Fate }>
 	readonly extras: ReadonlyArray<Extra>
 	readonly formerDefault: boolean
+	readonly formerSlot: boolean
 }
+
+/** The slot a leader of format 7 or before made in a box's database, named by its decoder login. */
+const formerSlot = "__live_former"
 
 /** Each shape's kind in the target's manifest (ir/products.ts PhysicalKind). */
 const kindOf: { readonly [S in Shape]: PhysicalKind } = {
@@ -195,7 +200,8 @@ const foundOf = (box: Box): DriftFound => {
 		privileges: [],
 		policies: [],
 		others: [],
-		formerDefault: box.formerDefault
+		formerDefault: box.formerDefault,
+		formerSlots: box.formerSlot ? [formerSlot] : []
 	}
 }
 
@@ -212,9 +218,9 @@ type Expected =
 
 /**
  * The model of a box (Expected): each object held, stale or absent by its fate alone, each renamed one's old name, each
- * dropped extra and a former database default departed; or the fault of the one object no rebase may change: a table held otherwise or under
- * another column, or departed, and a stored column, holds rows; an isolation trigger held otherwise is of a kind no
- * draft changes; any other object under another key is reshaped.
+ * dropped extra, a former database default and a former leader's slot departed; or the fault of the one object no
+ * rebase may change: a table held otherwise or under another column, or departed, and a stored column, holds rows; an
+ * isolation trigger held otherwise is of a kind no draft changes; any other object under another key is reshaped.
  */
 const modelOf = (box: Box): Expected => {
 	for (const [index, o] of box.objects.entries()) {
@@ -266,7 +272,8 @@ const modelOf = (box: Box): Expected => {
 						return []
 				}
 			}),
-			...(box.formerDefault ? ["databaseDefault:default_transaction_isolation"] : [])
+			...(box.formerDefault ? ["databaseDefault:default_transaction_isolation"] : []),
+			...(box.formerSlot ? [`liveSlot:${formerSlot}`] : [])
 		]
 	}
 }
@@ -293,7 +300,8 @@ const rebasedBox: Gen<Box> = (source) => ({
 	extras: source.draw(
 		array(element(["function", "index", "generatedColumn"] as const), { min: 0, max: 3 })
 	),
-	formerDefault: source.draw(boolean)
+	formerDefault: source.draw(boolean),
+	formerSlot: source.draw(boolean)
 })
 
 /** A box with one part no rebase may change, at a drawn place among rebased ones. */
@@ -334,7 +342,8 @@ const everyFateBox: Gen<Box> = (source) => ({
 		"generatedColumn",
 		...source.draw(array(element(["function", "index"] as const), { min: 0, max: 2 }))
 	],
-	formerDefault: true
+	formerDefault: true,
+	formerSlot: true
 })
 
 export type LiveFeature =
@@ -346,6 +355,7 @@ export type LiveFeature =
 	| "a departed object"
 	| "a departed generated column"
 	| "a former database default departed"
+	| "a former leader's slot departed"
 	| "a stored table refused"
 	| "an unreplaceable kind refused"
 	| "an object under another key refused"
@@ -357,6 +367,7 @@ export const boxSpace: Aimed<Box, LiveFeature> = aimed(rebasedBox, [
 	["an object under another key refused", refusedBox],
 	["a departed generated column", everyFateBox],
 	["a former database default departed", everyFateBox],
+	["a former leader's slot departed", everyFateBox],
 	["an object renamed", everyFateBox]
 ])
 
@@ -428,5 +439,8 @@ export const judgedCase = (box: Box, c: Case<LiveFeature>) =>
 		}
 		if (box.formerDefault) {
 			c.note("a former database default departed")
+		}
+		if (box.formerSlot) {
+			c.note("a former leader's slot departed")
 		}
 	})

@@ -125,7 +125,8 @@ const departureOf = (ident: GraphIdent, facts: ReadonlyArray<Fact>): Option.Opti
  * The order departed objects are dropped in, by kind, as the diff drops its own (deploy/diff/diff.ts dropOrder): the
  * policies and views before the functions they call, the triggers and foreign keys before the keys and functions they
  * read, the constraints and indexes before the domains, types and functions their definitions read, the generated
- * columns before what their generations read, a role's schema, and the former database default last.
+ * columns before what their generations read, a role's schema, the former database default, and a former leader's
+ * replication slot last.
  */
 const departureRank: { readonly [K in Departure["kind"]]: number } = {
 	policy: 0,
@@ -142,7 +143,8 @@ const departureRank: { readonly [K in Departure["kind"]]: number } = {
 	domain: 10,
 	type: 10,
 	schema: 11,
-	databaseDefault: 12
+	databaseDefault: 12,
+	formerLiveSlot: 13
 }
 
 /**
@@ -234,6 +236,9 @@ export const liveObjects = (
 	}
 	if (found.formerDefault) {
 		departed.push({ object: formerDefault, departure: { kind: "databaseDefault" } })
+	}
+	for (const name of found.formerSlots) {
+		departed.push({ object: `liveSlot:${name}`, departure: { kind: "formerLiveSlot", name } })
 	}
 	return Result.succeed({
 		held,

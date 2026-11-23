@@ -12,7 +12,8 @@ import {
 	type PlatformError,
 	String as Str
 } from "effect"
-import { quoteIdent } from "#compiler/core/text.ts"
+import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { closedId } from "#compiler/public/fields.ts"
 import { closed, login, relation, role, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
@@ -62,21 +63,29 @@ export const kinds = (name: string, version: Version) => {
  * A change of the live installation a format's change of what grizzle installs makes, done by hand: a function the
  * format names otherwise, its trigger then calling it under its old name (`a function renamed`); a constant the format
  * no longer installs (`a stray constant`); a function the format defines otherwise, its volatility (`a function
- * defined otherwise`); and the database default format 7 and every format before it set, SERIALIZABLE as every
- * transaction's default, which grizzle no longer sets (`a former database default`).
+ * defined otherwise`); and what format 7 and every format before it left in the database beside the installation
+ * (`format 7's leftovers`): its default, SERIALIZABLE as every transaction's, which grizzle no longer sets, and a
+ * replication slot its leader made, named by its decoder login, which no leader of this grizzle reads or drops.
  */
 export type Shift =
 	| "a function renamed"
 	| "a stray constant"
 	| "a function defined otherwise"
-	| "a former database default"
+	| "format 7's leftovers"
 
 const shifts: readonly [Shift, ...Array<Shift>] = [
 	"a function renamed",
 	"a stray constant",
 	"a function defined otherwise",
-	"a former database default"
+	"format 7's leftovers"
 ]
+
+/**
+ * The name of the slot a leader of format 7 or before made for the installation of `schemaName`: its live source's
+ * decoder login's, which ends in the source's stem (core/identity.ts identity.liveSource), here the stem alone.
+ */
+export const formerSlotOf = (schemaName: string): string =>
+	identifierOf(identity.liveSource(schemaName))
 
 /** A case: the last version the history reaches, the shifts a format makes, and the rows stored at each version. */
 export interface UpgradeCase {
@@ -126,9 +135,10 @@ export const shiftStatements = (shift: Shift, schemaName: string, database: stri
 				]
 			case "a function defined otherwise":
 				return [`ALTER FUNCTION ${s}."__snapshot_guard"(pg_catalog.text) STABLE`]
-			case "a former database default":
+			case "format 7's leftovers":
 				return [
-					`ALTER DATABASE ${quoteIdent(database)} SET default_transaction_isolation = 'serializable'`
+					`ALTER DATABASE ${quoteIdent(database)} SET default_transaction_isolation = 'serializable'`,
+					`SELECT pg_catalog.pg_create_logical_replication_slot(${quoteString(formerSlotOf(schemaName))}, 'pgoutput')`
 				]
 		}
 	})
@@ -148,6 +158,28 @@ export const databaseIsolation = (database: string) =>
 			String(setting)
 		)
 	})
+
+/** The replication slots of the cluster named `name`: none after any upgrade of the installation it is a leftover of. */
+export const slotsNamed = (name: string) =>
+	Effect.gen(function* () {
+		const admin = (yield* Substrate).admin
+		const rows = yield* admin.queryValues(
+			"SELECT slot_name::text FROM pg_catalog.pg_replication_slots WHERE slot_name::text = $1",
+			[name]
+		)
+		return Arr.map(trusted<ReadonlyArray<ReadonlyArray<string>>>(rows), ([slot]) => String(slot))
+	})
+
+/** Drops the replication slot `name` where the cluster holds it: a case's own leftover, never left to hold WAL. */
+export const slotDropped = (name: string) =>
+	Effect.flatMap(Substrate, (s) =>
+		Effect.ignore(
+			s.admin.query(
+				"SELECT pg_catalog.pg_drop_replication_slot(slot_name) FROM pg_catalog.pg_replication_slots WHERE slot_name::text = $1",
+				[name]
+			)
+		)
+	)
 
 /** A snapshot.json's text recording `format`, its one `format` member replaced: the file of another format. */
 export const otherFormat = (text: string, format: number): string =>

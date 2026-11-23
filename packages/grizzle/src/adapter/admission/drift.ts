@@ -75,6 +75,8 @@ import {
 	decoderLoginOf,
 	filledText,
 	type GraphIdent,
+	identifierOf,
+	identity,
 	type InstallationNames,
 	type InstalledRoleTooLong,
 	lex,
@@ -1151,6 +1153,35 @@ const extensionSchema: CatalogQuery<string> = {
 	row: ([schema]) => schema
 }
 
+const replicationSlots = C.from("pg_replication_slots", "s")
+
+/**
+ * The replication slots of the current database whose names end in the live source's stem $1 (core/identity.ts
+ * identity.liveSource): each one a leader of format 7 or before made, named by its decoder login, where a leader of
+ * this grizzle names its slot by the stem, `_` and the database (liveSlotOf), whose name ends in no stem. No mismatch,
+ * since a slot is no object of the installation's, but `grizzle upgrade` drops each (upgrade.ts liveObjects).
+ */
+const formerSlotsQuery: CatalogQuery<string> = {
+	sql: emitCatalog(
+		C.query(
+			[C.asText(replicationSlots.col("slot_name"))],
+			[replicationSlots.item],
+			C.and([
+				C.eq(replicationSlots.col("database"), C.catalogCall("current_database", [])),
+				C.eq(
+					C.catalogCall("right", [
+						C.asText(replicationSlots.col("slot_name")),
+						C.catalogCall("length", [C.param(1, "text")])
+					]),
+					C.param(1, "text")
+				)
+			])
+		)
+	),
+	what: "a replication slot's name",
+	row: ([name]) => name
+}
+
 const publications = C.from("pg_publication", "p")
 const published = C.from("pg_publication_rel", "r")
 const publishedTables = C.from("pg_class", "c")
@@ -1787,6 +1818,7 @@ interface Beside {
 	readonly policies: ReadonlyArray<RolePolicy>
 	readonly others: ReadonlyArray<DriftMismatch>
 	readonly formerDefault: boolean
+	readonly formerSlots: ReadonlyArray<string>
 }
 
 /**
@@ -1813,6 +1845,12 @@ export interface DriftFound {
 	 * none, but `grizzle upgrade` resets it (upgrade.ts liveObjects).
 	 */
 	readonly formerDefault: boolean
+	/**
+	 * The replication slots of the database a leader of format 7 or before made for the installation's live source, each
+	 * named by its decoder login (formerSlotsQuery): no mismatch, since a slot is no object of the installation's, but
+	 * `grizzle upgrade` drops each, which nothing else drops and which holds its WAL while it stands.
+	 */
+	readonly formerSlots: ReadonlyArray<string>
 }
 
 /**
@@ -1921,6 +1959,9 @@ export const driftCheck = (
 			})
 		)
 		const database = flight.query(databaseSettingsQuery, [])
+		const formerSlots = flight.query(formerSlotsQuery, [
+			textParam(identifierOf(identity.liveSource(schema)))
+		])
 		const defaults = Arr.map(defaultPrivilegesExpectations(statements, schema), (expectation) => ({
 			expectation,
 			slot: flight.query(defaultPrivilegesQuery(), defaultPrivilegesParams(expectation))
@@ -1958,6 +1999,7 @@ export const driftCheck = (
 					}
 				}
 				const formerDefault = formerDefaultHeld(yield* database.rows(first))
+				const formerSlotNames = yield* formerSlots.rows(first)
 				for (const { expectation, slot } of defaults) {
 					const owned = yield* slot.rows(first)
 					for (const d of defaultPrivilegeDifferences(owned, expectation)) {
@@ -2010,7 +2052,8 @@ export const driftCheck = (
 					privileges,
 					policies,
 					others: out,
-					formerDefault
+					formerDefault,
+					formerSlots: formerSlotNames
 				}
 				return found
 			})
@@ -2120,7 +2163,8 @@ export const driftCheck = (
 									privileges: besides.privileges,
 									policies: besides.policies,
 									others: besides.others,
-									formerDefault: besides.formerDefault
+									formerDefault: besides.formerDefault,
+									formerSlots: besides.formerSlots
 								}
 							}
 							return verdict

@@ -106,6 +106,7 @@ export const catalogFunctions = [
 	"pg_wal_lsn_diff",
 	"quote_ident",
 	"reverse",
+	"right",
 	"sha256",
 	"string_agg",
 	"strpos",

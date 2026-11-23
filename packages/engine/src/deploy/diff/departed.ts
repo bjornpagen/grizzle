@@ -1,3 +1,4 @@
+import { dropFormerLiveSlot } from "#compiler/physical/ddl/live.ts"
 import type { ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
 
 /**
@@ -8,8 +9,10 @@ import type { ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
  * before any departure is drafted: a function, a key or CHECK or foreign key, a trigger, a policy, an index, a
  * statistics object, a view, a materialized view (whose rows its definition computes again), a domain, a composite
  * type, a generated column (a law column, which PostgreSQL computes from its row), a table's row security or replica
- * identity, a role's schema, and the database default an installation of format 7 or before set,
- * default_transaction_isolation serializable, which grizzle no longer sets and which its departure resets.
+ * identity, a role's schema, the database default an installation of format 7 or before set,
+ * default_transaction_isolation serializable, which grizzle no longer sets and which its departure resets, and a
+ * replication slot a leader of format 7 or before made in the database, named by its decoder login, which no leader of
+ * this grizzle reads or drops and which holds its WAL while it stands.
  */
 export type Departure =
 	| { readonly kind: "function"; readonly name: ObjectName }
@@ -26,6 +29,7 @@ export type Departure =
 	| { readonly kind: "rowSecurity" | "replicaIdentity"; readonly table: ObjectName }
 	| { readonly kind: "schema"; readonly name: string }
 	| { readonly kind: "databaseDefault" }
+	| { readonly kind: "formerLiveSlot"; readonly name: string }
 
 /** The drop of a departed object, RESTRICT, as a drop of the diff's own removals is: nothing outside it goes with it. */
 export const departureDrop = (d: Departure): SqlStatement => {
@@ -72,5 +76,7 @@ export const departureDrop = (d: Departure): SqlStatement => {
 			return { kind: "drop", object: "SCHEMA", name: d.name, ifExists: false }
 		case "databaseDefault":
 			return { kind: "resetDatabaseDefault", parameter: "default_transaction_isolation" }
+		case "formerLiveSlot":
+			return dropFormerLiveSlot(d.name)
 	}
 }
