@@ -317,8 +317,9 @@ export const aChangeMembersFactsNameEveryReadByItsModeItsOwnItsGroupAndItsBindin
 			},
 			{
 				file: "packages/engine/src/program/isolation/extract.ts",
-				original: "\t\t\t\t\treturn anchor === undefined ? undefined : bindingOf(anchor)\n",
-				replacement: "\t\t\t\t\treturn undefined\n",
+				original:
+					"\t\t\t\t\t\tname === undefined ? undefined : (once(name) ?? carried(name) ?? learned(name))\n",
+				replacement: "\t\t\t\t\t\tundefined\n",
 				why: "A query's target fixed only where it is a parameter or a fixed column itself, never through its conditions' equalities: a target the WHERE equates with a parameter, the relation parameter's own key column, fixes nothing."
 			},
 			{
@@ -327,12 +328,6 @@ export const aChangeMembersFactsNameEveryReadByItsModeItsOwnItsGroupAndItsBindin
 					"\t\tif (held !== undefined) {\n\t\t\treturn [source.alias ?? source.name, held]\n\t\t}\n",
 				replacement: "",
 				why: "A query CTE that holds an INSERT's met rows whole read as any CTE's rows, as extract.ts read it: the row met through it, which the SERIALIZABLE insert protocol reads (write/insert/protocol.ts classifyMet), is read by its place, unsealed, so every SERIALIZABLE inserter is a pivot of what it inserts (METIS-ROLES's roles-mini, admin) and keeps every reader of it SERIALIZABLE by `writers`."
-			},
-			{
-				file: "packages/engine/src/program/isolation/extract.ts",
-				original: '\t\t\treturn [source.alias, callRow(source.query) ? "one" : "many"]',
-				replacement: '\t\t\treturn [source.alias, "many"]',
-				why: "A derived table of the context's fact read as many rows, as extract.ts read every derived table that renames no stored table's columns: a read bound to a claim through the derived tables a write's statements read the context by binds one group per row, unsealed, so every write that reads by a claim (metis's Session to Account proof) fails `pivot` (METIS-ROLES's roles-mini, beat_b)."
 			},
 			{
 				file: "packages/engine/src/program/isolation/extract.ts",

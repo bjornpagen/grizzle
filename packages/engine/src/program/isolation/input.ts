@@ -145,6 +145,34 @@ const insertsOf = (relation: OwnedRelation): InsertsFact =>
 		: { kind: "repeatable" }
 
 /**
+ * The facts of every relation the model's owned schema states, at every level, stored, closed and derived alike, by its
+ * declared name (analysis/isolation/facts.ts RelationFacts): the laws its rule-over-query triggers still discharge
+ * (`triggerLawsOver`), its declared keys, its counted groups, its references, and what an insertion into it meets. The
+ * relation half of isolationInput, which the borrow rules' installation reads too (program/isolation/borrows.ts
+ * borrowInstallationOf).
+ */
+export const relationFacts = (
+	model: LawModel,
+	triggerLawsOver: (model: LawModel, relation: string) => ReadonlyArray<TriggerLaw>
+): ReadonlyMap<string, RelationFacts> => {
+	const keys = nativeKeys(model)
+	const counted = countedGroups(model)
+	const references = nativeReferences(model)
+	return new Map<string, RelationFacts>(
+		Object.entries(model.owned.relations).map(([name, relation]) => [
+			name,
+			{
+				triggerLaws: triggerLawsOver(model, name),
+				keys: keys.get(name) ?? [],
+				countedGroups: counted.get(name) ?? [],
+				references: references.get(name) ?? [],
+				inserts: insertsOf(relation)
+			}
+		])
+	)
+}
+
+/**
  * The isolation facts of an installation (analysis/isolation/facts.ts IsolationInput), total by construction: one
  * RelationFacts for every relation its owned schema states, at every level, stored, closed and derived alike, by its
  * declared name, and one RoleFacts for
@@ -157,21 +185,7 @@ export const isolationInput = <Checked, Names, Compiled>(
 	sources: IsolationSources<Checked, Names, Compiled>
 ): IsolationInput => {
 	const { model } = sources
-	const keys = nativeKeys(model)
-	const counted = countedGroups(model)
-	const references = nativeReferences(model)
-	const relations = new Map<string, RelationFacts>(
-		Object.entries(model.owned.relations).map(([name, relation]) => [
-			name,
-			{
-				triggerLaws: sources.triggerLawsOver(model, name),
-				keys: keys.get(name) ?? [],
-				countedGroups: counted.get(name) ?? [],
-				references: references.get(name) ?? [],
-				inserts: insertsOf(relation)
-			}
-		])
-	)
+	const relations = relationFacts(model, sources.triggerLawsOver)
 	const roles = sources.roles.map((role): RoleFacts => ({
 		login: role.login,
 		role: role.role,

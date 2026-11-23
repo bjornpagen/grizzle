@@ -5,13 +5,9 @@ import { defined } from "@bjornpagen/testing/assert"
 import { array, type Gen, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
 import { artifactsOver, builtLogin, ownLoginOver } from "#adapter/served/login.ts"
-import { silentPhases } from "#compiler/core/phase.ts"
-import { transactionClock } from "#compiler/ir/clock.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
-import { namedLogin } from "#compiler/physical/ddl/names.ts"
 import { installBasis, unserved } from "#compiler/physical/install/plan.ts"
 import type { Variants } from "#compiler/program/workload/change.ts"
-import { planWorkload } from "#compiler/program/workload/compile.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg, span } from "#compiler/public/fields.ts"
@@ -30,6 +26,7 @@ import { str } from "#compiler/public/text.ts"
 import { ownBuilt, rostersOf } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { changeLogin } from "#test/support/change-login.ts"
 import { Id } from "#test/support/ids.ts"
 
 const note = str.regex("^[a-z]{1,8}$")
@@ -104,38 +101,7 @@ export const changeLoginOf = (drawn: NonEmptyReadonlyArray<ReadonlyArray<Program
 			)
 		)
 	})
-	const built = defined(builtLogin(value), "a login built by login(...)")
-	const owned = succeeded(ownBuilt(built.base), "the login's base")
-	const basis = succeeded(
-		installBasis(owned, firstCodebook(rostersOf(owned)), everySlice(owned)),
-		"the base's basis"
-	)
-	const checking = succeeded(artifactsOver(basis, unserved), "the base's artifacts")
-	const ownedLogin = succeeded(ownLoginOver(built, owned), "the login over its base")
-	const planned = succeeded(
-		planWorkload(
-			[{ login: ownedLogin.name, workloads: built.workload }],
-			built.base,
-			{
-				artifacts: checking,
-				roles: ownedLogin.roles
-			},
-			silentPhases
-		),
-		"the login's workload plan"
-	)
-	const artifacts = succeeded(
-		artifactsOver(basis, { kind: "planned", types: planned.plan.params }),
-		"the login's artifacts"
-	)
-	return {
-		roles: built.roles,
-		workload: built.workload,
-		named: succeeded(namedLogin(ownedLogin, artifacts.names.levels), "the login named"),
-		artifacts,
-		clock: transactionClock,
-		planned: planned.frontends
-	}
+	return changeLogin(value)
 }
 
 /** The entries of `variants`, every form of its splits, in order. */

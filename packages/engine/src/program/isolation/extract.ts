@@ -53,7 +53,7 @@ import type {
 	With
 } from "#compiler/sql/ast.ts"
 import { col, derived, eq, simpleSelect, targetAs } from "#compiler/sql/build.ts"
-import { printObjectName } from "#compiler/sql/print.ts"
+import { printExpr, printObjectName } from "#compiler/sql/print.ts"
 
 /**
  * How the extractor reads one role's statements back:
@@ -120,27 +120,77 @@ type Polarity = "positive" | "negated" | "both"
 type Named = Stored | OwnRows | MetRows
 
 /**
- * A stored table's alias as a core sees it, one for each source that names it, which the walk keeps beside that
- * source's read (Walk `places`), so a column of it binds another read to the row this one finds (Binding `stored`).
+ * A stored table's alias as a core sees it, by the statement's node that names it (`at`): its FROM source, a MERGE's or
+ * an INSERT's target. The walk keeps the place of that node's read (Walk `places`), so a column of it binds another
+ * read of the body, however many derived tables carry the column up to it, to the row this one finds (Binding
+ * `stored`); every name of one node, wherever a query is read again for its columns, is the one name.
  */
 interface Stored {
 	readonly kind: "stored"
+	readonly at: StoredAt
+	/** The field each column of it is, through a projection's renaming; none for a column of no field (a law column's)
+	 * or of a table no relation is. */
+	readonly field: (column: string) => string | undefined
 }
 
-/** A stored table's source's name, its own for each source. */
-const stored = (): Stored => ({ kind: "stored" })
+/** The name of the stored table `table` a node names, its columns renamed by `columns` (none for the table itself). */
+const storedAt = (
+	at: StoredAt,
+	table: TableName,
+	columns: ReadonlyMap<string, string> | undefined,
+	names: ExtractNames
+): Stored => {
+	const relation = typeof table === "string" ? undefined : names.relationOf(table)
+	return {
+		kind: "stored",
+		at,
+		field: (column) => {
+			const own = columns === undefined ? column : columns.get(column)
+			return relation === undefined || own === undefined ? undefined : names.fieldOf(relation, own)
+		}
+	}
+}
+
+/** The name of a source nameOf finds a stored table's: a table's, a renaming projection's, a probe's or a met row's. */
+const storedOf = (source: FromSource, names: ExtractNames): Stored => {
+	switch (source.kind) {
+		case "table":
+		case "probe":
+		case "met":
+			return storedAt(source, source.table, undefined, names)
+		case "derived": {
+			const projection = projectionOf(source)
+			if (projection === undefined) {
+				throw defect("a derived table names a stored table only where it renames one")
+			}
+			return storedAt(source, projection.table, projection.columns, names)
+		}
+		case "cte":
+		case "context":
+		case "metRows":
+		case "enclosing":
+		case "transition":
+		case "function":
+		case "arrays":
+		case "values":
+			throw defect("only a table, a renaming projection, a probe or a met row names a stored table")
+	}
+}
+
+/** The statement's node that names a stored table's source (Stored `at`). */
+type StoredAt = FromSource | Merge | Insert
 
 /**
  * A source of the call's own rows as a core sees it: the session's context, one row (`one`), or a carrier, a CTE, a
  * relation input's arrays, a VALUES list, a function's or a derived table's rows, any number of rows (`many`); and each
  * column of it that carries a binding in every row (`bound`, Statement.columnBindings): a context's field, a relation
- * input's, or one value the call holds once, which a read bound to the column is bound to, whatever rows the source
- * holds.
+ * input's, one value the call holds once, or a column of a stored table's source its query reads, which a read bound to
+ * the column is bound to, whatever rows the source holds.
  */
 interface OwnRows {
 	readonly kind: "own"
 	readonly rows: "one" | "many"
-	readonly bound: ReadonlyMap<string, CallBinding>
+	readonly bound: ReadonlyMap<string, BoundTo>
 }
 
 /** A binding the call holds or its own rows carry, wherever it stands: any but a stored row's (Binding `stored`). */
@@ -179,12 +229,13 @@ interface Bound {
 
 /**
  * What a column a read's conditions bind is bound to as the walk finds it: a binding the call holds or its own rows
- * carry (CallBinding), or a column of a stored table's source in scope (`column`), which the body's facts resolve to the
- * field of that source's read (Binding `stored`).
+ * carry (CallBinding); or a column of a stored table's source in scope, or one an own source carries up from such a
+ * source its query reads, that is a field (`column`, by the field), which the body's facts resolve to that source's read
+ * (Binding `stored`). A column of no field carries nothing up: an own source's is the own column itself.
  */
 type BoundTo =
 	| CallBinding
-	| { readonly kind: "column"; readonly of: Stored; readonly column: string }
+	| { readonly kind: "column"; readonly of: Stored; readonly field: string }
 
 /**
  * What a CTE name refers to: a query, read where a source names it, under the scope, the CTEs and the privileges
@@ -785,7 +836,7 @@ const namedIn = (
 	}
 	const [alias, named] = nameOf(source)
 	if (named === "table") {
-		return [alias, stored()]
+		return [alias, storedOf(source, statement.names)]
 	}
 	if (typeof named === "object") {
 		return [alias, named]
@@ -793,12 +844,16 @@ const namedIn = (
 	return [alias, { kind: "own", rows: named, bound: ownColumns(source, ctes, statement) }]
 }
 
-/** The binding each column of an own source carries (OwnRows `bound`), none where it carries none. */
+/**
+ * The binding each column of an own source carries (OwnRows `bound`), none where it carries none: a context's its
+ * claim, a relation input's its field, a derived table's what its query carries, and a query CTE's what its query
+ * carries but a stored table's column, whose read stands in the CTE's own body, which no read of the reader's names.
+ */
 const ownColumns = (
 	source: FromSource,
 	ctes: Ctes,
 	statement: Statement
-): ReadonlyMap<string, CallBinding> => {
+): ReadonlyMap<string, BoundTo> => {
 	if (source.kind === "context") {
 		return new Map(
 			source.columns.map((c) => [
@@ -825,9 +880,17 @@ const ownColumns = (
 			: new Map()
 	}
 	const defined = definedOf(source, ctes)
-	return defined === undefined
-		? new Map()
-		: statement.columnBindings(defined.query, defined.columns, defined.ctes)
+	if (defined === undefined) {
+		return new Map()
+	}
+	const carried = statement.columnBindings(defined.query, defined.columns, defined.ctes)
+	return source.kind === "derived"
+		? carried
+		: new Map(
+				[...carried].flatMap(([column, by]): ReadonlyArray<readonly [string, BoundTo]> =>
+					by.kind === "column" ? [] : [[column, by]]
+				)
+			)
 }
 
 /** The names of a body's columns as its targets give them: its first core's aliases, which name a set operation's. */
@@ -857,45 +920,64 @@ const columnName = (e: Expr): string | undefined => {
 }
 
 /**
- * The binding an expression of a core carries, where it carries one (CallBinding): a placeholder's
- * (placeholderBinding), through casts; or a column of an own source among `named`, the core's sources, the binding its
- * source carries there (OwnRows `bound`), else, of a source of one row, the column itself, as a read bound to it is
- * (bindingsOf). None for any other: a stored table's column, a computed value.
+ * The binding an expression of a core carries, where it carries one (BoundTo): a value the statement spells
+ * (valueBinding), through casts; a column of an own source among `named`, the core's sources, the binding its source
+ * carries there (OwnRows `bound`), else, of a source of one row, the column itself, as a read bound to it is
+ * (bindingsOf); or a column of a stored table's source among them (BoundTo `column`). None for any other: a computed
+ * value, a column of many own rows that carries nothing.
  */
-const callBinding = (
+const carriedBinding = (
 	e: Expr,
 	named: ReadonlyMap<string, Named>,
 	slotOf: (n: number) => SlotFill
-): CallBinding | undefined => {
+): BoundTo | undefined => {
 	const u = uncast(e)
-	const placeholder = placeholderBinding(u, slotOf)
-	if (placeholder !== undefined) {
-		return placeholder
+	const value = valueBinding(u, slotOf)
+	if (value !== undefined) {
+		return value
 	}
 	if (u.kind !== "column" || u.table === undefined) {
 		return undefined
 	}
-	const own = named.get(u.table)
-	if (own?.kind !== "own") {
+	const source = named.get(u.table)
+	if (source?.kind === "stored") {
+		const field = source.field(u.column)
+		return field === undefined ? undefined : { kind: "column", of: source, field }
+	}
+	if (source?.kind !== "own") {
 		return undefined
 	}
 	return (
-		own.bound.get(u.column) ??
-		(own.rows === "one"
+		source.bound.get(u.column) ??
+		(source.rows === "one"
 			? { kind: "own", alias: u.table, column: u.column, rows: "one" }
 			: undefined)
 	)
 }
 
+/** A carried binding the call holds or its own rows carry, none for a stored table's column (BoundTo `column`). */
+const callOf = (by: BoundTo | undefined): CallBinding | undefined =>
+	by === undefined || by.kind === "column" ? undefined : by
+
+/** Whether two carried bindings bind one value: one call binding (sameBinding), or one column of one stored source. */
+const sameBoundTo = (a: BoundTo, b: BoundTo): boolean =>
+	a.kind === "column" || b.kind === "column"
+		? a.kind === "column" && b.kind === "column" && a.of.at === b.of.at && a.field === b.field
+		: sameBinding(a, b)
+
 /**
- * What a placeholder binds, where `e` is one: a declared scalar parameter's, by its name, or the declared parameter a
- * clock reading binds, which is one value for the call as a parameter is, so a column equal to it is bound to one value;
- * none for a stamp's reading or an array's placeholder, which an arrays source reads (ownColumns).
+ * What a value the statement spells binds, where `e` is one: a placeholder's declared scalar parameter, by its name; the
+ * declared parameter a clock reading binds, which is one value for the call as a parameter is, so a column equal to it
+ * is bound to one value; or a literal, the constant itself. None for a stamp's reading or an array's placeholder, which
+ * an arrays source reads (ownColumns).
  */
-const placeholderBinding = (e: Expr, slotOf: (n: number) => SlotFill): CallBinding | undefined => {
+const valueBinding = (e: Expr, slotOf: (n: number) => SlotFill): CallBinding | undefined => {
 	if (e.kind === "param") {
 		const fill = slotOf(e.slot.number)
 		return fill.kind === "param" ? { kind: "param", name: fill.name } : undefined
+	}
+	if (e.kind === "literal") {
+		return { kind: "constant", spelled: printExpr(e) }
 	}
 	return e.kind === "clock" && e.of.kind === "param"
 		? { kind: "param", name: e.of.param }
@@ -922,8 +1004,9 @@ const definedOf = (
 }
 
 /**
- * The binding each column an INSERT writes carries, where it carries one: each item of its one VALUES row that carries
- * one (callBinding, over no source), or each column its source query carries one in (Statement.columnBindings).
+ * The binding each column an INSERT writes carries, where the call holds it or its own rows carry it: each item of its
+ * one VALUES row that carries one (carriedBinding, over no source), or each column its source query carries one in
+ * (Statement.columnBindings), a stored table's column left out.
  */
 const insertValues = (
 	s: Insert,
@@ -931,7 +1014,14 @@ const insertValues = (
 	statement: Statement
 ): ReadonlyMap<string, CallBinding> => {
 	if (s.source.kind === "query") {
-		return statement.columnBindings(s.source.query, s.columns, ctes)
+		return new Map(
+			[...statement.columnBindings(s.source.query, s.columns, ctes)].flatMap(
+				([column, by]): ReadonlyArray<readonly [string, CallBinding]> => {
+					const call = callOf(by)
+					return call === undefined ? [] : [[column, call]]
+				}
+			)
+		)
 	}
 	const [only, ...rest] = s.source.rows
 	const out = new Map<string, CallBinding>()
@@ -940,7 +1030,8 @@ const insertValues = (
 	}
 	for (const [i, column] of s.columns.entries()) {
 		const item = only[i]
-		const value = item === undefined ? undefined : callBinding(item, new Map(), statement.slotOf)
+		const value =
+			item === undefined ? undefined : callOf(carriedBinding(item, new Map(), statement.slotOf))
 		if (value !== undefined) {
 			out.set(column, value)
 		}
@@ -1001,7 +1092,7 @@ const targetConditions = (w: MergeWhen, on: ReadonlyArray<Expr>): ReadonlyArray<
 export class Walk<Top extends Arrival> {
 	readonly found: Array<Found<Top>> = []
 	/** The place of the read of each stored table's source among `found` (Stored), the first where several read it. */
-	readonly places = new Map<Stored, number>()
+	readonly places = new Map<StoredAt, number>()
 	readonly probes: Array<WalkProbe<number | Top>> = []
 	readonly cores: Array<ReadonlyArray<RowSource>> = []
 	readonly uses: Array<CteUse> = []
@@ -1143,7 +1234,12 @@ export class Walk<Top extends Arrival> {
 			...(conflict?.action.kind === "doUpdate" ? this.#writeOf(s.table, "update") : [])
 		]
 		const scope: Scope =
-			s.alias === undefined ? inner.scope : new Map([...inner.scope, [s.alias, stored()]])
+			s.alias === undefined
+				? inner.scope
+				: new Map([
+						...inner.scope,
+						[s.alias, storedAt(s, s.table, undefined, this.#statement.names)]
+					])
 		const after: Context<Top> = { ...inner, scope }
 		this.#feedingWrites(at, () => {
 			if (s.source.kind === "query") {
@@ -1239,7 +1335,7 @@ export class Walk<Top extends Arrival> {
 		const using = sourcesOf([s.using])
 		const scope: Scope = new Map([
 			...inner.scope,
-			[s.alias, stored()],
+			[s.alias, storedAt(s, s.table, undefined, this.#statement.names)],
 			...using.map(({ source }) => namedIn(source, inner.ctes, this.#statement))
 		])
 		const here: Context<Top> = { ...inner, scope }
@@ -1455,6 +1551,7 @@ export class Walk<Top extends Arrival> {
 				})
 			case "probe":
 				return this.#probed(
+					source,
 					source.table,
 					source.inner,
 					source.by.columns,
@@ -1467,6 +1564,7 @@ export class Walk<Top extends Arrival> {
 					this.#opaque(`?met:${printObjectName(source.table)}`, here)
 				} else {
 					this.#probed(
+						source,
 						source.table,
 						source.inner,
 						source.key.map((k) => ({
@@ -1529,6 +1627,7 @@ export class Walk<Top extends Arrival> {
 	 * (`met`, metSealed). The values and the filter are walked as its conditions, seeing the core's names and `inner`.
 	 */
 	#probed(
+		source: FromSource,
 		table: ObjectName,
 		inner: string,
 		columns: ReadonlyArray<ProbeColumn>,
@@ -1536,7 +1635,10 @@ export class Walk<Top extends Arrival> {
 		here: Context<Top>,
 		met: ReadonlyArray<string> | undefined
 	): ReadonlyArray<RowSource> {
-		const scope: Scope = new Map([...here.scope, [inner, stored()]])
+		const scope: Scope = new Map([
+			...here.scope,
+			[inner, storedAt(source, table, undefined, this.#statement.names)]
+		])
 		const conditions = [
 			...columns.map((c) => eq(col(inner, c.column), c.value)),
 			...filter.flatMap(conjunctsOf)
@@ -1573,7 +1675,7 @@ export class Walk<Top extends Arrival> {
 		this.found.push(found)
 		const named = found.context.scope.get(found.alias)
 		if (named?.kind === "stored") {
-			this.places.getOrInsert(named, place)
+			this.places.getOrInsert(named.at, place)
 		}
 		this.#policed(found)
 		return [{ kind: "read", read: place }]
@@ -1581,7 +1683,8 @@ export class Walk<Top extends Arrival> {
 
 	/**
 	 * Where the role reads a table under a row policy of its own (ExtractNames `policyOf`), the policy's predicate walked
-	 * as a condition of where the read stands, over the row the read finds (policyRow), a stored row of its own: PostgreSQL
+	 * as a condition of where the read stands, over the row the read finds (policyRow), named as the read's own source, so a
+	 * column of it binds a read of the predicate to that row (Binding `stored`): PostgreSQL
 	 * adds it to the read's scan, so a row the policy hides is no row of the read, and every read of its predicate reaches
 	 * the statement as a condition there does. A query entry's view, a world function and a predicate read as their
 	 * owner, under no policy (Reader).
@@ -1592,15 +1695,17 @@ export class Walk<Top extends Arrival> {
 			typeof table === "string" || found.context.reader === "owner"
 				? undefined
 				: this.#statement.names.policyOf(table)
-		if (policy !== undefined) {
-			this.expr(
-				policy,
-				ownedAt(
-					{ ...found.context, probe: false, condition: true },
-					new Map([[policyRow, stored()]])
-				)
-			)
+		if (policy === undefined) {
+			return
 		}
+		const row = found.context.scope.get(found.alias)
+		if (row?.kind !== "stored") {
+			throw defect("a policed read is of a stored table's source, which its scope names")
+		}
+		this.expr(
+			policy,
+			ownedAt({ ...found.context, probe: false, condition: true }, new Map([[policyRow, row]]))
+		)
 	}
 
 	/**
@@ -1681,13 +1786,13 @@ export class Walk<Top extends Arrival> {
 	/**
 	 * A call of a world function (ExtractNames `bodyOf`), read as its body at its arguments where the call stands, its
 	 * value the body's: the body sees its arguments alone (argumentsRow), each column carrying what its argument carries
-	 * (callBinding), else one value per row the call stands over, and reads as the function's owner (Reader). The
+	 * (carriedBinding), else one value per row the call stands over, and reads as the function's owner (Reader). The
 	 * arguments themselves are the call's operands, walked where it stands.
 	 */
 	#inlined(body: Expr, args: ReadonlyArray<Expr>, c: Context<Top>): void {
-		const bound = new Map<string, CallBinding>()
+		const bound = new Map<string, BoundTo>()
 		for (const [position, arg] of args.entries()) {
-			const binding = callBinding(arg, c.scope, this.#statement.slotOf)
+			const binding = carriedBinding(arg, c.scope, this.#statement.slotOf)
 			if (binding !== undefined) {
 				bound.set(argumentColumn(position), binding)
 			}
@@ -1777,7 +1882,7 @@ export class Statement {
 	readonly #reading: Array<Array<Nested>> = []
 	readonly #queries = new Map<OperandSelect, number>()
 
-	readonly #carried = new Map<OperandSelect, ReadonlyMap<string, CallBinding>>()
+	readonly #carried = new Map<OperandSelect, ReadonlyMap<string, BoundTo>>()
 
 	constructor(names: ExtractNames, slotOf: (n: number) => SlotFill, level: Isolation) {
 		this.names = names
@@ -1801,10 +1906,10 @@ export class Statement {
 		q: OperandSelect,
 		columns: ReadonlyArray<string>,
 		ctes: Ctes
-	): ReadonlyMap<string, CallBinding> {
+	): ReadonlyMap<string, BoundTo> {
 		return this.#carried.getOrInsertComputed(q, () => {
 			const targets = q.with === undefined ? this.#targetBindings(q.body, ctes) : undefined
-			const out = new Map<string, CallBinding>()
+			const out = new Map<string, BoundTo>()
 			if (targets === undefined) {
 				return out
 			}
@@ -1821,10 +1926,7 @@ export class Statement {
 
 	/** The binding each target of a body carries, by its place, where it carries one (columnBindings); none for a body
 	 * no target of which can be said to. */
-	#targetBindings(
-		body: OperandBody,
-		ctes: Ctes
-	): ReadonlyArray<CallBinding | undefined> | undefined {
+	#targetBindings(body: OperandBody, ctes: Ctes): ReadonlyArray<BoundTo | undefined> | undefined {
 		switch (body.kind) {
 			case "core": {
 				const sources = sourcesOf(body.from)
@@ -1833,20 +1935,25 @@ export class Statement {
 					(e): ReadonlyArray<readonly [Expr, Expr]> =>
 						e.kind === "binary" && e.op === "=" ? [[e.left, e.right]] : []
 				)
-				const bindingOf = (e: Expr): CallBinding | undefined => callBinding(e, named, this.slotOf)
+				const bindingOf = (e: Expr): BoundTo | undefined => carriedBinding(e, named, this.slotOf)
 				const once = equalityClosure(equalities, columnName, (e) => {
-					const b = bindingOf(e)
+					const b = callOf(bindingOf(e))
 					return b !== undefined && bindingRows(b) === "one"
 				})
-				const carried = equalityClosure(equalities, columnName, (e) => bindingOf(e) !== undefined)
+				const carried = equalityClosure(
+					equalities,
+					columnName,
+					(e) => callOf(bindingOf(e)) !== undefined
+				)
+				const learned = equalityClosure(equalities, columnName, (e) => bindingOf(e) !== undefined)
 				return body.targets.map((t) => {
-					const direct = bindingOf(t.expr)
-					if (direct !== undefined) {
-						return direct
-					}
 					const name = columnName(t.expr)
-					const anchor = name === undefined ? undefined : (once(name) ?? carried(name))
-					return anchor === undefined ? undefined : bindingOf(anchor)
+					const anchor =
+						name === undefined ? undefined : (once(name) ?? carried(name) ?? learned(name))
+					const direct = bindingOf(t.expr)
+					const call =
+						callOf(direct) ?? (anchor === undefined ? undefined : callOf(bindingOf(anchor)))
+					return call ?? direct ?? (anchor === undefined ? undefined : bindingOf(anchor))
 				})
 			}
 			case "select":
@@ -1869,7 +1976,7 @@ export class Statement {
 					value !== undefined &&
 					rest.every((arm) => {
 						const other = arm?.[i]
-						return other !== undefined && sameBinding(other, value)
+						return other !== undefined && sameBoundTo(other, value)
 					})
 						? value
 						: undefined
@@ -1978,12 +2085,15 @@ const ownBinding = (scope: Scope, table: string, column: string): BoundTo | unde
 		return undefined
 	}
 	switch (named.kind) {
-		case "stored":
-			return { kind: "column", of: named, column }
+		case "stored": {
+			const field = named.field(column)
+			return field === undefined ? undefined : { kind: "column", of: named, field }
+		}
 		case "metRows":
 			return { kind: "own", alias: table, column, rows: "many" }
-		case "own":
+		case "own": {
 			return named.bound.get(column) ?? { kind: "own", alias: table, column, rows: named.rows }
+		}
 	}
 }
 
@@ -2008,9 +2118,9 @@ const bindingsOf = (
 		if (column === undefined) {
 			return []
 		}
-		const placeholder = placeholderBinding(other, slotOf)
-		if (placeholder !== undefined) {
-			return [{ column, by: placeholder }]
+		const value = valueBinding(other, slotOf)
+		if (value !== undefined) {
+			return [{ column, by: value }]
 		}
 		if (other.kind !== "column" || other.table === undefined || other.table === alias) {
 			return []
@@ -2118,22 +2228,15 @@ const statementFacts = (
 	walk.statement(s)
 	const relation = (t: ObjectName): string => names.relationOf(t) ?? `?${printObjectName(t)}`
 	/**
-	 * What a read's column is bound to as its body's facts state it (Binding): a stored table's column resolved to the
-	 * field of its source's read among `body`'s, a projection's column through its renaming; none where no read of the
-	 * body is that source's or the column is of no field.
+	 * What a read's column is bound to as its body's facts state it (Binding): a stored table's field resolved to its
+	 * source's read among `body`'s; none where no read of the body is that source's, a CTE's query's or another body's.
 	 */
 	const resolved = (body: Body, by: BoundTo): Binding | undefined => {
 		if (by.kind !== "column") {
 			return by
 		}
-		const read = body.places.get(by.of)
-		const f = read === undefined ? undefined : body.found[read]
-		if (read === undefined || f?.kind !== "table" || typeof f.table === "string") {
-			return undefined
-		}
-		const column = f.columns === undefined ? by.column : f.columns.get(by.column)
-		const field = column === undefined ? undefined : names.fieldOf(relation(f.table), column)
-		return field === undefined ? undefined : { kind: "stored", read, field }
+		const read = body.places.get(by.of.at)
+		return read === undefined ? undefined : { kind: "stored", read, field: by.field }
 	}
 	/** The fields of `rel` a read's bound columns are, each with what it is bound to, in `body` (resolved); none for a
 	 * column of no field, a law column, or a binding its body cannot state. */
@@ -2271,7 +2374,7 @@ const nestedAt = (instance: Instance, place: number): number => {
 /** A body's walk as its facts read it back: every read it found, and the place of each stored table's source's read. */
 interface Body {
 	readonly found: ReadonlyArray<Found>
-	readonly places: ReadonlyMap<Stored, number>
+	readonly places: ReadonlyMap<StoredAt, number>
 }
 
 /** A read a walk found as its facts state it, and the writes its rows feed as the walk recorded them (Feeds). */

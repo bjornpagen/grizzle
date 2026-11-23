@@ -148,6 +148,7 @@ export type SiteCore = number | "site" | undefined
  *   placeholder, or a clock reading of one, by the parameter's name, one value for the call; a context's field, by the
  *   context's name and the field's, one value for the call; or a field of a relation input's rows (`input`), a relation
  *   parameter's or a member slot's, through every CTE and derived table that carries its column, one value per row;
+ * - `constant`: a literal its statement spells, by its SQL spelling (sql/print.ts printExpr), one value;
  * - `own`: a column of a source of the call's own rows that carries none of those, a CTE's, a derived table's, a
  *   function's, VALUES or a stratum's nested rows, by the source's alias and the column: one value where the source is
  *   one row the call holds once (`rows`), else one per row, which another call's rows may split, some seen and some
@@ -158,6 +159,7 @@ export type SiteCore = number | "site" | undefined
  */
 export type Binding =
 	| KeySource
+	| { readonly kind: "constant"; readonly spelled: string }
 	| {
 			readonly kind: "own"
 			readonly alias: string
@@ -187,14 +189,15 @@ export const groupFields = (group: ReadGroup): NonEmptyReadonlyArray<string> =>
 	mapNonEmpty(group.bound, (b) => b.field)
 
 /**
- * How many values a binding takes for the call: `one`, a declared parameter's, a context's field's or a column of an own
- * source of one row; `many`, one per row of the call's own rows, an input's, an own source's of many or a proposed
+ * How many values a binding takes for the call: `one`, a declared parameter's, a context's field's, a constant's or a
+ * column of an own source of one row; `many`, one per row of the call's own rows, an input's, an own source's of many or a proposed
  * row's; and none (`stored`) for a field of a row another read finds, which no value of the call names.
  */
 export const bindingRows = (b: Binding): "one" | "many" | "stored" => {
 	switch (b.kind) {
 		case "param":
 		case "context":
+		case "constant":
 			return "one"
 		case "own":
 			return b.rows
@@ -219,6 +222,8 @@ export const bindingText = (b: Binding): string => {
 			return `context ${JSON.stringify([b.context, b.field])}`
 		case "input":
 			return `input ${JSON.stringify([b.parameter, b.field])}`
+		case "constant":
+			return `constant ${b.spelled}`
 		case "own":
 			return `${b.alias}.${b.column}`
 		case "proposed":

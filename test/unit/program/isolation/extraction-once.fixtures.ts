@@ -1,24 +1,15 @@
 /** What extraction-once.test.ts reads: its login, drawn, compiled for READ COMMITTED as generate compiles it. */
 
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
-import { defined, nonEmpty } from "@bjornpagen/testing/assert"
+import { nonEmpty } from "@bjornpagen/testing/assert"
 import { boolean, type Gen, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
-import { artifactsOver, builtLogin, ownLoginOver } from "#adapter/served/login.ts"
-import { silentPhases } from "#compiler/core/phase.ts"
-import { transactionClock } from "#compiler/ir/clock.ts"
-import { firstCodebook } from "#compiler/ir/codes.ts"
-import { namedLogin } from "#compiler/physical/ddl/names.ts"
-import { installBasis, unserved } from "#compiler/physical/install/plan.ts"
-import { planWorkload } from "#compiler/program/workload/compile.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg, span } from "#compiler/public/fields.ts"
 import { query } from "#compiler/public/query.ts"
 import { contained, login, on, relation, role, schema } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
-import { ownBuilt, rostersOf } from "#compiler/schema/own.ts"
-import { everySlice } from "#compiler/schema/reach.ts"
-import { succeeded } from "#test/support/assert.ts"
+import { changeLogin } from "#test/support/change-login.ts"
 
 const Gate = relation("Gate", { v: pg.integer }, ["v"])
 const Pub = relation("Pub", { v: pg.integer, s: pg.integer }, ["v"])
@@ -58,8 +49,8 @@ export const drawnGen: Gen<Drawn> = (source) => ({
 })
 
 /**
- * The login of `drawn` as its change members compile (ChangeLogin, as test/unit/program/prepared-levels.fixtures.ts
- * changeLoginOf builds it): the publisher's drawn members, the learner's insert of what it sees, and the writer's gate
+ * The login of `drawn` as its change members compile (ChangeLogin, test/support/change-login.ts changeLogin): the
+ * publisher's drawn members, the learner's insert of what it sees, and the writer's gate
  * where drawn, compiled with no database over the artifacts its served file compiles over.
  */
 export const fencedLoginOf = (drawn: Drawn) => {
@@ -111,33 +102,5 @@ export const fencedLoginOf = (drawn: Drawn) => {
 			workload(learner, { learn })
 		]
 	})
-	const built = defined(builtLogin(value), "a login built by login(...)")
-	const owned = succeeded(ownBuilt(built.base), "the login's base")
-	const basis = succeeded(
-		installBasis(owned, firstCodebook(rostersOf(owned)), everySlice(owned)),
-		"the base's basis"
-	)
-	const checking = succeeded(artifactsOver(basis, unserved), "the base's artifacts")
-	const ownedLogin = succeeded(ownLoginOver(built, owned), "the login over its base")
-	const planned = succeeded(
-		planWorkload(
-			[{ login: ownedLogin.name, workloads: built.workload }],
-			built.base,
-			{ artifacts: checking, roles: ownedLogin.roles },
-			silentPhases
-		),
-		"the login's workload plan"
-	)
-	const artifacts = succeeded(
-		artifactsOver(basis, { kind: "planned", types: planned.plan.params }),
-		"the login's artifacts"
-	)
-	return {
-		roles: built.roles,
-		workload: built.workload,
-		named: succeeded(namedLogin(ownedLogin, artifacts.names.levels), "the login named"),
-		artifacts,
-		clock: transactionClock,
-		planned: planned.frontends
-	}
+	return changeLogin(value)
 }

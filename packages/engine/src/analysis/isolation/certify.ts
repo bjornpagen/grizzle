@@ -443,7 +443,8 @@ export interface SealView {
 /**
  * The group a read binds by values the call holds or its own rows carry: its bindings but each to the row another read
  * finds (facts.ts Binding `stored`), which no rule here reads, and how many groups that is, `one` where every binding
- * takes one value for the call, else `many`, one per own row; none where it binds no such field.
+ * takes one value for the call, a constant's among them, else `many`, one per own row; none where it binds no such
+ * field.
  */
 export interface CallGroup {
 	readonly bound: NonEmptyReadonlyArray<FieldBinding>
@@ -580,6 +581,18 @@ interface StatedRead {
 export type SealOfRead = (read: ReadFact, body: ReadonlyArray<ReadFact>) => ReadSeal
 
 /**
+ * The text that names the group a read reads under some rules, given the reads of the body it stands in (`body`): two
+ * reads of one group, in one body or two of one statement, by one text.
+ */
+export type GroupOfRead = (read: ReadFact, body: ReadonlyArray<ReadFact>) => string
+
+/** What a rule set places a member's reads by: each read's seal and its group's text. */
+export interface ReadRules {
+	readonly seal: SealOfRead
+	readonly group: GroupOfRead
+}
+
+/**
  * Every read of a statement some site reaches, each once, in the order a walk that read each query CTE again at each of
  * its sites would first find it: its own body's reads, and each instance's at its first use, between the reads of the
  * using body before it and after it. An instance no use reaches reads nothing.
@@ -658,7 +671,7 @@ const pathOf = (
 	body: Body,
 	sources: ReadonlyArray<RowSource>,
 	chain: Chain,
-	fits: (r: ReadFact) => boolean
+	fits: (r: ReadFact, body: Body) => boolean
 ): RowPath | undefined => {
 	for (const source of sources) {
 		const path = sourcePath(s, body, source, chain, fits)
@@ -678,7 +691,7 @@ const sourcePath = (
 	body: Body,
 	source: RowSource,
 	chain: Chain,
-	fits: (r: ReadFact) => boolean
+	fits: (r: ReadFact, body: Body) => boolean
 ): RowPath | undefined => {
 	switch (source.kind) {
 		case "read": {
@@ -686,7 +699,7 @@ const sourcePath = (
 			return r !== undefined &&
 				chain.via === undefined &&
 				sameOrder(r.probes, chain.local) &&
-				fits(r)
+				fits(r, body)
 				? source
 				: undefined
 		}
@@ -729,7 +742,12 @@ interface Judged {
 
 /** The row path from a judged probe's core to positive reads of group `g` on its chain, none where it stands in no core
  * or no such path is. */
-const rowPathOf = (s: StatementFacts, judged: Judged, g: string): RowPath | undefined => {
+const rowPathOf = (
+	s: StatementFacts,
+	judged: Judged,
+	g: string,
+	group: GroupOfRead
+): RowPath | undefined => {
 	const sources = judged.core === undefined ? undefined : judged.body.cores[judged.core]
 	return sources === undefined
 		? undefined
@@ -738,7 +756,7 @@ const rowPathOf = (s: StatementFacts, judged: Judged, g: string): RowPath | unde
 				judged.body,
 				sources,
 				judged.chain,
-				(r) => r.base === "positive" && groupOf(r) === g
+				(r, body) => r.base === "positive" && group(r, body.reads) === g
 			)
 }
 
@@ -762,14 +780,18 @@ interface Neutral {
 interface Grounds {
 	readonly positive: ReadonlyMap<string, ReadAt>
 	readonly joined: ReadonlyArray<ReadonlyMap<string, ReadAt>>
+	/** The text a read's group is named by (GroupOfRead), its rule set's. */
+	readonly group: GroupOfRead
 }
 
-/** The first of `reads` of each group, by place. */
-const firstOfEach = (reads: ReadonlyArray<StatedRead>): ReadonlyMap<string, ReadAt> => {
+/** The first of `reads` of each group, by place, each group named by `group`. */
+const firstOfEach = (
+	reads: ReadonlyArray<StatedRead>,
+	group: GroupOfRead
+): ReadonlyMap<string, ReadAt> => {
 	const first = new Map<string, ReadAt>()
-	for (const { at, read } of reads) {
-		const g = groupOf(read)
-		first.getOrInsert(g, at)
+	for (const { at, read, body } of reads) {
+		first.getOrInsert(group(read, body), at)
 	}
 	return first
 }
@@ -778,7 +800,11 @@ const firstOfEach = (reads: ReadonlyArray<StatedRead>): ReadonlyMap<string, Read
  * A statement's grounds (Grounds), over `reads`, its reads some site reaches (statementReads): the bodies a site
  * beneath no probe reaches are its own and each instance a use beneath no probe of such a body reads.
  */
-const groundsOf = (s: StatementFacts, reads: ReadonlyArray<StatedRead>): Grounds => {
+const groundsOf = (
+	s: StatementFacts,
+	reads: ReadonlyArray<StatedRead>,
+	group: GroupOfRead
+): Grounds => {
 	const bare = new Set<number>()
 	const reach = (body: Body): void => {
 		for (const use of body.uses) {
@@ -801,7 +827,8 @@ const groundsOf = (s: StatementFacts, reads: ReadonlyArray<StatedRead>): Grounds
 					(at.cte === undefined || bare.has(at.cte)) &&
 					read.probes.length === 0 &&
 					read.mode === "positive"
-			)
+			),
+			group
 		),
 		joined: s.writes.map((w) =>
 			firstOfEach(
@@ -811,9 +838,11 @@ const groundsOf = (s: StatementFacts, reads: ReadonlyArray<StatedRead>): Grounds
 					return body !== undefined && read !== undefined && reached.has([at.cte, at.read])
 						? [{ at, read, body: body.reads }]
 						: []
-				})
+				}),
+				group
 			)
-		)
+		),
+		group
 	}
 }
 
@@ -831,7 +860,7 @@ const neutralBy = (
 		const at = grounds.joined[k]?.get(g)
 		return at === undefined ? [] : [at]
 	})
-	const path = rowPathOf(s, judged, g)
+	const path = rowPathOf(s, judged, g, grounds.group)
 	return positive === undefined || joins.length < gates.length || path === undefined
 		? undefined
 		: { positive, joins, path }
@@ -859,12 +888,12 @@ const gather = (into: Gathering, from: Beneath): void => {
 	}
 }
 
-/** `into` with the outside read `read`, sealed by `seal`. */
-const gatherRead = (into: Gathering, read: ReadFact, seal: ReadSeal): void => {
+/** `into` with an outside read, sealed by `seal`, of the group named `group`. */
+const gatherRead = (into: Gathering, group: string, seal: ReadSeal): void => {
 	if (seal.kind === "unsealed") {
 		into.unsealed = true
 	} else {
-		into.groups.add(groupOf(read))
+		into.groups.add(group)
 	}
 }
 
@@ -878,7 +907,7 @@ interface Sealed {
 	readonly beneath: (cte: number | undefined, probe: number) => Beneath | undefined
 }
 
-const sealedOf = (s: StatementFacts, sealOfRead: SealOfRead): Sealed => {
+const sealedOf = (s: StatementFacts, sealOfRead: SealOfRead, group: GroupOfRead): Sealed => {
 	const own = s.reads.map((read) => sealOfRead(read, s.reads))
 	const ctes = s.ctes.map((instance) =>
 		instance.reads.map((read) => sealOfRead(read, instance.reads))
@@ -898,7 +927,7 @@ const sealedOf = (s: StatementFacts, sealOfRead: SealOfRead): Sealed => {
 			for (const [i, read] of instance.reads.entries()) {
 				const seal = seals[i]
 				if (seal !== undefined && outside(seal)) {
-					gatherRead(into, read, seal)
+					gatherRead(into, group(read, instance.reads), seal)
 				}
 			}
 			for (const use of instance.uses) {
@@ -931,7 +960,7 @@ const sealedOf = (s: StatementFacts, sealOfRead: SealOfRead): Sealed => {
 				const seal = seals[i]
 				if (seal !== undefined && outside(seal)) {
 					for (const id of new Set(read.probes)) {
-						gatherRead(at(id), read, seal)
+						gatherRead(at(id), group(read, body.reads), seal)
 					}
 				}
 			}
@@ -1146,7 +1175,7 @@ const fixedFor = (
  * statementReads finds them, each read's modes in the order its reaches take them.
  */
 const placementsOf = (
-	sealOfRead: SealOfRead,
+	rules: ReadRules,
 	relations: ReadonlyMap<string, RelationFacts>,
 	member: MemberFacts,
 	visit: (statement: number, s: StatementFacts, placed: StatementPlacement) => void
@@ -1154,7 +1183,7 @@ const placementsOf = (
 	const stated = member.statements.map((s) => ({ s, reads: statementReads(s) }))
 	const fixed: Array<Fixed> = []
 	for (const [statement, { reads }] of stated.entries()) {
-		const seals = reads.map(({ read, body }) => ({ read, seal: sealOfRead(read, body) }))
+		const seals = reads.map(({ read, body }) => ({ read, seal: rules.seal(read, body) }))
 		if (seals.some(({ seal }) => seal.kind !== "own" && seal.kind !== "arbiter")) {
 			break
 		}
@@ -1176,12 +1205,16 @@ const placementsOf = (
 		}
 	}
 	for (const [statement, { s, reads }] of stated.entries()) {
-		const sealed = sealedOf(s, (read, body): ReadSeal => {
-			const seal = sealOfRead(read, body)
-			const by = seal.kind === "point" ? fixedFor(fixed, read, statement) : undefined
-			return by === undefined ? seal : { kind: "arbitrated", key: by.key }
-		})
-		const reaches = reachesOf(s, groundsOf(s, reads), sealed)
+		const sealed = sealedOf(
+			s,
+			(read, body): ReadSeal => {
+				const seal = rules.seal(read, body)
+				const by = seal.kind === "point" ? fixedFor(fixed, read, statement) : undefined
+				return by === undefined ? seal : { kind: "arbitrated", key: by.key }
+			},
+			rules.group
+		)
+		const reaches = reachesOf(s, groundsOf(s, reads, rules.group), sealed)
 		visit(statement, s, {
 			reads,
 			seal: (at) => sealed.seals(at),
@@ -1239,17 +1272,24 @@ const placedRead = (
 	mode: ReadFact["mode"]
 ): PlacedRead => ({ statement, at, query, read, seal, mode })
 
+/** The rules the rounds certifier places reads by: each read's seal among `installation`'s roles, its group by its
+ * CallGroup (groupOf). */
+const roundRules = (installation: Installation): ReadRules => ({
+	seal: (read) => sealOf(installation, read),
+	group: (read) => groupOf(read)
+})
+
 const readsOf = (installation: Installation, member: MemberFacts): MemberReads =>
-	readsUnder((read) => sealOf(installation, read), installation.relations, member)
+	readsUnder(roundRules(installation), installation.relations, member)
 
 /**
- * A member's reads placed and moded under `sealOfRead`, each read's seal among some installation's roles (readsOf's
+ * A member's reads placed and moded under `rules`, each read's seal and group among some installation's roles (readsOf's
  * under certification's, analysis/isolation/borrows.ts's under the borrow rules), the relations' facts `relations`
  * deciding which arbitrations fix their rows (fixesAt): every read some site reaches, each mode it takes, and what
  * each write's rows are joined with (MemberReads).
  */
 export const readsUnder = (
-	sealOfRead: SealOfRead,
+	rules: ReadRules,
 	relations: ReadonlyMap<string, RelationFacts>,
 	member: MemberFacts
 ): MemberReads => {
@@ -1259,7 +1299,7 @@ export const readsUnder = (
 	const texts = new Map<ReadFact, string>()
 	const readKey = (read: ReadFact): string =>
 		texts.getOrInsertComputed(read, () => canonicalTextOf(read))
-	placementsOf(sealOfRead, relations, member, (statement, s, at) => {
+	placementsOf(rules, relations, member, (statement, s, at) => {
 		const seen = new TupleSet<readonly [number | undefined, number, string, ReadFact["mode"]]>()
 		for (const { at: place, read } of at.reads) {
 			const seal = at.seal(place)
@@ -1286,16 +1326,17 @@ export const readsUnder = (
 				const joined = new Set<string>()
 				let own = false
 				for (const place of w.from) {
-					const read = bodyAt(s, place.cte)?.reads[place.read]
+					const body = bodyAt(s, place.cte)
+					const read = body?.reads[place.read]
 					const seal = at.seal(place)
-					if (read === undefined || seal === undefined) {
+					if (body === undefined || read === undefined || seal === undefined) {
 						continue
 					}
 					const modes = at.modes(place, read)
 					if (modes.size === 0) {
 						continue
 					}
-					joined.add(groupOf(read))
+					joined.add(rules.group(read, body.reads))
 					own ||= seal.kind === "own" && modes.has("positive")
 				}
 				return { joined, own }
@@ -1329,27 +1370,22 @@ export const readModes = (
 		input.relations,
 		input.roles.map((role) => ({ role, members: writtenFacts(role) }))
 	)
-	placementsOf(
-		(read) => sealOf(installation, read),
-		installation.relations,
-		member,
-		(statement, _s, at) => {
-			for (const { at: place, read } of at.reads) {
-				const seal = at.seal(place)
-				if (seal === undefined) {
-					continue
-				}
-				for (const mode of at.modes(place, read)) {
-					out.push({ statement, at: place, mode, outside: outside(seal) })
-				}
+	placementsOf(roundRules(installation), installation.relations, member, (statement, _s, at) => {
+		for (const { at: place, read } of at.reads) {
+			const seal = at.seal(place)
+			if (seal === undefined) {
+				continue
+			}
+			for (const mode of at.modes(place, read)) {
+				out.push({ statement, at: place, mode, outside: outside(seal) })
 			}
 		}
-	)
+	})
 	return out
 }
 
 /** The text that names one group a read reads: its relation, its CallGroup's fields and what they are bound to. */
-export const groupOf = (r: ReadFact): string => {
+const groupOf = (r: ReadFact): string => {
 	const group = callGroup(r)
 	return group === undefined
 		? `${r.relation}()`

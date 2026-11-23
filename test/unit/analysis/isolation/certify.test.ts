@@ -587,7 +587,7 @@ export const theIsolationCertifierRunsARoleREADCOMMITTEDExactlyWhenEveryConditio
 				{
 					file: "packages/engine/src/analysis/isolation/certify.ts",
 					original:
-						"\t\t\t\t\tf.relation === read.relation &&\n\t\t\t\t\tf.statement < statement &&\n\t\t\t\t\tf.bound.every((b) => group.bound.some((r) => r.field === b.field && r.by === b.by))",
+						"\t\t\t\t\tf.relation === read.relation &&\n\t\t\t\t\tf.statement < statement &&\n\t\t\t\t\tf.bound.every((b) =>\n\t\t\t\t\t\tgroup.bound.some((r) => r.field === b.field && sameBinding(r.by, b.by))\n\t\t\t\t\t)",
 					replacement: "\t\t\t\t\tf.relation === read.relation && f.statement < statement",
 					why: "A read of an arbitrated relation at any bindings arbitrated (certify.ts fixedFor); the search fails."
 				},

@@ -207,7 +207,7 @@ export type BorrowAt = "flight" | "judge"
 
 /**
  * One field of a unit key as a call holds it before its first snapshot, by a binding alone: a declared scalar
- * parameter, by its name; a field of a context the session's claims hold, by the context's name and the field's; or a
+ * parameter, by its name; a field of a context the session's claims hold, by the context's name and the field's; a
  * field of the call's own rows (`input`), a relation parameter's or a member slot's, by its ParamId (a relation
  * parameter's its name, a member slot's its reserved slot id, ir/slots.ts reservedSlot, one space, inReservedSpace
  * telling them apart) and a field of its heading by name, one key per distinct value among its rows.

@@ -21,7 +21,8 @@
  *   lookup keys. A
  *   read of the call's own rows, of a relation no role writes, an arbitration and a read of a row an arbitration
  *   fixed are sealed (certify.ts ReadSeal). Outside every unit, a positive whole-key or counted read of an
- *   insert-only relation is an immutable fact, gated (below); a negated or counted read, or an arbitration of no whole
+ *   insert-only relation is an immutable fact, gated (below), its key bound to values the call holds once before its
+ *   first snapshot: parameters, context fields, constants, or the fields of a learned lookup's row (factSeal); a negated or counted read, or an arbitration of no whole
  *   key, of a relation a role inserts reads an absence no lock holds; and any other read of rows another call can
  *   write reads them without a borrow.
  * - The gate, for the immutable facts a member reads outside every unit: every row a write writes is joined with each
@@ -55,7 +56,6 @@ import {
 	bodyAt,
 	breaksAt,
 	cascaded,
-	groupOf,
 	keyIn,
 	madeBy,
 	type Made,
@@ -224,11 +224,13 @@ type KeyBinding =
 
 /**
  * What one field a read binds holds the unit key field at, in the body the read stands in (`reads`): a binding the call
- * holds before its first snapshot (KeySource), a stored row's field bound to one included, as the equality makes it the
- * same value; or the field of the row another read of the body finds (`lookup`, its place); none for any other.
+ * holds before its first snapshot (KeySource) or a constant, a stored row's field bound to one included, as the
+ * equality makes it the same value; or the field of the row another read of the body finds (`lookup`, its place); none
+ * for any other. A constant keys no lock (KeySource holds none), so a unit key it binds is a key no site holds.
  */
 type FieldAt =
 	| { readonly kind: "source"; readonly source: KeySource }
+	| { readonly kind: "constant" }
 	| { readonly kind: "lookup"; readonly read: number; readonly field: string }
 
 const fieldAt = (reads: ReadonlyArray<ReadFact>, by: FieldBinding["by"]): FieldAt | undefined => {
@@ -237,10 +239,12 @@ const fieldAt = (reads: ReadonlyArray<ReadFact>, by: FieldBinding["by"]): FieldA
 		case "context":
 		case "input":
 			return { kind: "source", source: by }
+		case "constant":
+			return { kind: "constant" }
 		case "stored": {
 			const learned = reads[by.read]?.group?.bound.find((b) => b.field === by.field)?.by
-			return learned !== undefined && isKeySource(learned)
-				? { kind: "source", source: learned }
+			return learned !== undefined && (isKeySource(learned) || learned.kind === "constant")
+				? fieldAt(reads, learned)
 				: { kind: "lookup", read: by.read, field: by.field }
 		}
 		case "own":
@@ -252,6 +256,95 @@ const fieldAt = (reads: ReadonlyArray<ReadFact>, by: FieldBinding["by"]): FieldA
 /** Whether a binding is one the call holds before its first snapshot. */
 const isKeySource = (by: FieldBinding["by"]): by is KeySource =>
 	by.kind === "param" || by.kind === "context" || by.kind === "input"
+
+/**
+ * Whether a field a read binds takes one value for the call before its first snapshot (fieldAt): a parameter, a
+ * context's field, a constant, or the field of a row a learned point lookup of its body finds (lookupSite `learned`),
+ * which is the call's before any write; never an input's field, one per row.
+ */
+const onceAt = (
+	at: BorrowInstallation,
+	reads: ReadonlyArray<ReadFact>,
+	by: FieldBinding["by"]
+): boolean => {
+	const field = fieldAt(reads, by)
+	if (field === undefined) {
+		return false
+	}
+	if (field.kind === "constant") {
+		return true
+	}
+	if (field.kind === "source") {
+		return field.source.kind !== "input"
+	}
+	const lookup = reads[field.read]
+	return (
+		lookup !== undefined &&
+		lookupSite(at, { read: lookup, reads }, [field.field])?.kind === "learned"
+	)
+}
+
+/**
+ * A read outside every unit as the borrow rules seal it (certify.ts ReadSeal): its seal over the call's own values
+ * (sealOf); and, where that leaves it unsealed, a point where it binds every field to one value for the call before
+ * its first snapshot (onceAt), a learned lookup's field or a constant among them, and those fields hold a whole declared
+ * key of an insert-only relation: its row there is an immutable fact, as at a key its parameters bind.
+ */
+const factSeal = (
+	at: BorrowInstallation,
+	view: SealView,
+	read: ReadFact,
+	reads: ReadonlyArray<ReadFact>
+): ReadSeal => {
+	const seal = sealOf(view, read)
+	const bound = read.group?.bound ?? []
+	const facts = at.relations.get(read.relation)
+	if (
+		seal.kind !== "unsealed" ||
+		read.mode === "arbiter" ||
+		at.changed.has(read.relation) ||
+		facts === undefined ||
+		!bound.every((b) => onceAt(at, reads, b.by))
+	) {
+		return seal
+	}
+	const key = keyIn(
+		facts,
+		bound.map((b) => b.field)
+	)
+	return key === undefined ? seal : { kind: "point", key }
+}
+
+/**
+ * The text that names the group a read reads under the borrow rules (certify.ts GroupOfRead): its relation and each
+ * field it binds with what binds it (bindingText), a stored row's field by the group of the read of its body that finds
+ * it and the field, so two reads of one learned key, in one body or two, name one group, and reads of two keys two.
+ */
+const factGroup = (read: ReadFact, reads: ReadonlyArray<ReadFact>): string =>
+	groupText(read, reads, new Set())
+
+/** factGroup's text, each read of `seen` named again by its relation alone, which closes a cycle of stored bindings. */
+const groupText = (
+	read: ReadFact,
+	reads: ReadonlyArray<ReadFact>,
+	seen: ReadonlySet<ReadFact>
+): string => {
+	if (seen.has(read)) {
+		return `again ${read.relation}`
+	}
+	const within = new Set([...seen, read])
+	const bound = (read.group?.bound ?? []).map(({ field, by }) => {
+		const lookup = by.kind === "stored" ? reads[by.read] : undefined
+		return `${field}=${
+			by.kind !== "stored"
+				? bindingText(by)
+				: lookup === undefined
+					? bindingText(by)
+					: `${groupText(lookup, reads, within)}.${by.field}`
+		}`
+	})
+	return `${read.relation}(${bound.join(",")})`
+}
 
 /** The fields of a read bound to bindings the call holds before its first snapshot, each with its source. */
 const sourcesOf = (read: ReadFact): ReadonlyArray<KeyField> =>
@@ -316,9 +409,11 @@ const keyOf = (at: BorrowInstallation, site: SiteRead, place: UnitPlace): KeyBin
 }
 
 /**
- * The point lookup of `lookup` as a key site, its row's `columns` the unit key's: `learned` of an immutable fact or a
- * relation no role writes, `held` of a unit's row it binds the unit's whole key of; none where it binds no whole
- * declared key to bindings the call holds, or its row may change while the call holds no borrow of it.
+ * The point lookup of `lookup` as a key site, its row's `columns` the unit key's: `held` of a unit's row it binds the
+ * unit's whole key of, whatever its mode, since no other call changes that row while the call holds the unit; `learned`
+ * of an immutable fact or a relation no role writes, read positively where every probe above it is neutral (its base
+ * mode), as the gate holds such a fact, the lookup's own placement judging whether they are; none where it binds no
+ * whole declared key to bindings the call holds, or its row may change while the call holds no borrow of it.
  */
 const lookupSite = (
 	at: BorrowInstallation,
@@ -335,7 +430,7 @@ const lookupSite = (
 					facts,
 					bound.map((b) => b.field)
 				)
-	if (declared === undefined || lookup.read.mode !== "positive") {
+	if (declared === undefined) {
 		return undefined
 	}
 	const key = declared.flatMap((field) => bound.filter((b) => b.field === field))
@@ -348,7 +443,9 @@ const lookupSite = (
 			? { kind: "held", relation, key, columns, under: { kind: "unit", unit: place.unit } }
 			: undefined
 	}
-	return at.changed.has(relation) ? undefined : { kind: "learned", relation, key, columns }
+	return at.changed.has(relation) || lookup.read.base !== "positive"
+		? undefined
+		: { kind: "learned", relation, key, columns }
 }
 
 /** A borrow being gathered: its lock, its mode, and its key sites, each once by its text. */
@@ -383,9 +480,13 @@ export const memberBorrows = (member: MemberFacts, at: BorrowInstallation): Memb
 		const place = at.units.get(read.relation)
 		return place !== undefined && keyOf(at, { read, reads }, place).kind === "site"
 			? { kind: "own" }
-			: sealOf(view, read)
+			: factSeal(at, view, read, reads)
 	}
-	const { placed, fed } = readsUnder(placementSeal, at.relations, member)
+	const { placed, fed } = readsUnder(
+		{ seal: placementSeal, group: factGroup },
+		at.relations,
+		member
+	)
 	const faults: Array<BorrowFault> = []
 	const gathered = new Map<string, Gathered>()
 	const take = (unit: string, mode: Borrow["mode"], site: KeySite): void => {
@@ -682,9 +783,10 @@ const gateFaults = (
 	if (!isNonEmpty(facts)) {
 		return []
 	}
+	const groupAt = (p: PlacedRead): string => factGroup(p.read, siteOf(member, p).reads)
 	const first = new Map<string, number>()
 	for (const p of facts) {
-		const g = groupOf(p.read)
+		const g = groupAt(p)
 		first.set(g, Math.min(first.get(g) ?? p.statement, p.statement))
 	}
 	const firsts = [...first.values()]
@@ -695,7 +797,7 @@ const gateFaults = (
 			const joined = fed[statement]?.[place]
 			const site = { statement, relation: w.relation }
 			const unjoined = facts.some(
-				(p) => p.statement === statement && !(joined?.joined.has(groupOf(p.read)) ?? false)
+				(p) => p.statement === statement && !(joined?.joined.has(groupAt(p)) ?? false)
 			)
 			return [
 				...(unjoined ? [{ ...site, kind: "gate" as const, why: "unjoined" as const }] : []),
