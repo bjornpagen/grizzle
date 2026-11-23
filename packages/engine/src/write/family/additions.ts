@@ -382,7 +382,7 @@ export const additionsSql = (
 	members: ReadonlyArray<AppendedMember>,
 	putOwners: ReadonlyArray<PutOwner>,
 	ownerCopies: ReadonlyArray<OwnerCopy>,
-	ownerRows: ReadonlyMap<string, ReadonlyArray<OwnerRows>>,
+	ownerRows: ReadonlyMap<string, NonEmptyReadonlyArray<OwnerRows>>,
 	deferring: ReadonlyArray<Deferring>,
 	relations: ReadonlyMap<string, RelationInfo>
 ): FamilyWriteSql => {
@@ -398,7 +398,7 @@ export const additionsSql = (
 		if (known !== undefined) {
 			return known
 		}
-		const rows = nestedRowsCte(w, supply, ctes, relation, source)
+		const rows = nestedRowsCte(w, supply, ctes, relation, sentOf(source))
 		nestedRead.set(relation.name, rows)
 		return rows
 	}
@@ -406,9 +406,10 @@ export const additionsSql = (
 	 * (`stampedSources`). */
 	const { slots, nested } = stampedSources(w, supply, ctes, members, stated, sent)
 	/** The rows of an owner relation the stratum inserts whose copied columns the parameters hold (schedule.ts
-	 * CopySource `held`), each source as this statement reads it: a slot's facts or the stratum's nested rows. */
+	 * CopySource `held`), each source as this statement reads it (schedule.ts HeldSource): a slot's facts or the
+	 * stratum's nested rows, with the stamps it takes of them where it appends the owner (`stampedSources`). */
 	const ownerShapes = (owner: string): ReadonlyArray<Shaped> =>
-		(ownerRows.get(owner) ?? []).map((rows) =>
+		defined(ownerRows.get(owner), `the rows of ${owner} a held copy reads`).map((rows) =>
 			rows.kind === "slot"
 				? slots(owner, rows.slot)
 				: nested(defined(relations.get(owner), `the owner relation ${owner}`), rows)
@@ -815,8 +816,37 @@ const appendedOf = (
 	}
 }
 
-/** A reader of a stratum's nested rows of a relation, each relation's CTE pushed once (`nestedRowsCte`). */
-type NestedReader = (relation: RelationInfo, source: NestedSent) => Shaped
+/** A stratum's nested rows of a relation as a family statement reads them (RowSource `nestedRows`). */
+type NestedRows = Extract<RowSource, { readonly kind: "nestedRows" }>
+
+/** A reader of a stratum's nested rows of a relation, each relation's CTE pushed once (`nestedRowsCte`), as the host
+ * sends them (`sentOf`). */
+type NestedReader = (relation: RelationInfo, source: NestedRows) => Shaped
+
+/**
+ * A stratum's nested rows as the host sends them: every column of their layout but those their stamps fill, which no
+ * nested row sends (runtime/write/nesting.ts sentLayout), so every statement that reads them reads them alike, the one
+ * that stamps them with each stamped field's column beside (`stampedSources`), and any other without it, since a stamp is
+ * taken once in its stratum, by the statement that writes the rows carrying it (ir/instant.ts stampText).
+ */
+const sentOf = (source: NestedRows): NestedSent => {
+	const stampedKeys = new Set(source.stamps.map((st) => columnKeyOf(st.field.name)))
+	const unstamped = (c: RowColumn): boolean => !stampedKeys.has(c.key)
+	const [key, ...keys] = source.layout.key.filter(unstamped)
+	if (key === undefined) {
+		throw defect(
+			`the key of ${source.layout.relation}'s nested rows beyond its stamps, their child`
+		)
+	}
+	return {
+		stratum: source.stratum,
+		layout: {
+			...source.layout,
+			key: [key, ...keys],
+			columns: source.layout.columns.filter(unstamped)
+		}
+	}
+}
 
 /** A source's rows this statement stamps: its rows as sent or stated, and the fields they leave out, each stamped. */
 interface StampingSource {
@@ -853,23 +883,8 @@ const stampedSources = (
 			if (source.kind === "nestedRows") {
 				const [first, ...rest] = source.stamps
 				if (first !== undefined) {
-					const stampedKeys = new Set(source.stamps.map((st) => columnKeyOf(st.field.name)))
-					const unstamped = (c: RowColumn): boolean => !stampedKeys.has(c.key)
-					const [key, ...keys] = source.layout.key.filter(unstamped)
-					if (key === undefined) {
-						throw defect(
-							`the key of ${member.relation.name}'s nested rows beyond its stamps, their child`
-						)
-					}
 					stamping.push({
-						rows: sent(member.relation, {
-							stratum: source.stratum,
-							layout: {
-								...source.layout,
-								key: [key, ...keys],
-								columns: source.layout.columns.filter(unstamped)
-							}
-						}),
+						rows: sent(member.relation, source),
 						stamps: [first, ...rest],
 						view: (view) => {
 							byRelation.set(member.relation.name, view)

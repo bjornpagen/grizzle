@@ -1,6 +1,6 @@
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
-import type { StoredRelationName } from "#compiler/core/ids.ts"
+import type { ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import * as Order from "#compiler/core/order.ts"
 import type { ActionCore } from "#compiler/ir/write.ts"
 import { type UnitDelete, type UnitMember, unitRelations } from "#compiler/write/delete/unit.ts"
@@ -46,10 +46,10 @@ export interface RowChanges {
  * - `stored`: none, so the table holds every owner a member names;
  * - `held`: every row the stratum inserts holds the group's fields and the copied column, or for a generated field the
  *   written fields its generation reads, in the parameters the statement can read, as its row is written, a slot's
- *   stated facts or its nested rows, which it reads before the table;
+ *   stated facts or its nested rows as the statement holds them (`HeldSource`), which it reads before the table;
  * - `drawn`: the database draws the copied column of some, a described member's rows or a column no slot states and no
- *   nested row carries (an identity, a count, end or index a family draws in SQL, a generated field reading one), so it
- *   reads the table once the owner's own statement has run.
+ *   nested row carries (an identity, a count, end or index a family draws in SQL, a generated field reading one, or a
+ *   stamped field another statement stamps), so it reads the table once the owner's own statement has run.
  */
 export type CopySource = "stored" | "held" | "drawn"
 
@@ -60,6 +60,23 @@ export interface OwnerCopy {
 	readonly owner: StoredRelationName
 	readonly column: string
 	readonly source: CopySource
+}
+
+/**
+ * A source of the rows of an owner its stratum inserts that a family statement reads its `held` copies from: one of its
+ * slots' facts, by the slot's name, or the stratum's nested rows of it (write/family/additions.ts OwnerRows). A stamp is
+ * taken once in its stratum, by the statement that writes the rows carrying it (ir/instant.ts stampText), so the
+ * sources of an owner the statement appends are those it appends it from, read with the stamps it takes of them, and an
+ * owner another statement appends is read as the host sends it, without them (frontend/compile.ts ownerReadingOf).
+ */
+export type HeldSource =
+	| { readonly kind: "slot"; readonly slot: ParamId }
+	| { readonly kind: "nestedRows" }
+
+/** An owner a family statement's `held` copies read, and every source of its rows they read (`HeldSource`). */
+export interface HeldOwner {
+	readonly owner: StoredRelationName
+	readonly rows: NonEmptyReadonlyArray<HeldSource>
 }
 
 /**
@@ -80,6 +97,8 @@ export type FamilyAdditions =
 			readonly copies: ReadonlyArray<string>
 			/** Where each owner copy its appended members' families draw reads its owner's column. */
 			readonly ownerCopies: ReadonlyArray<OwnerCopy>
+			/** Each owner one of its `held` copies reads, with the sources of its rows as this statement holds them. */
+			readonly held: ReadonlyArray<HeldOwner>
 			readonly owners: ReadonlyArray<RowChanges>
 			/** The member relations whose rows an edit of a member refills from the rows this statement appends of it, a
 			 * stored one a put moves among them, as its removals refill them from the rows they redraw (FamilyRemovals

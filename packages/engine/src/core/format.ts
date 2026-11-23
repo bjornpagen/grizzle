@@ -78,7 +78,9 @@
  * session of a login's pool and every owner's session plan generically. A join no value of a write's single statement
  * restricts, which its parts read joined to a carried part by its columns, is one part of the statement, its rows kept
  * by an EXISTS over that part (lower/shapes/share/statements.ts restrictedShares), where format 7 restated it at each
- * read.
+ * read. A family statement that reads a held owner copy from a stamped nesting's rows it does not stamp reads them as
+ * the host sends them, without the stamped columns (write/family/additions.ts sentOf), where format 7 declared a
+ * placeholder for each stamped column, which no nested row sends.
  *
  * Format 7 (pin+1): a session table, a rule judge's delta (physical/ddl/rules.ts
  * emptied) or a write program's carrier (sql/print.ts carrierStandUp), is emptied by DELETE, and by TRUNCATE only once

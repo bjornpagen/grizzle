@@ -122,6 +122,8 @@ import {
 	type GeneratedColumn,
 	generating,
 	type CopySource,
+	type HeldOwner,
+	type HeldSource,
 	type ImmediateReference,
 	type Meeting,
 	type OwnerCopy,
@@ -232,7 +234,7 @@ export type EnumeratedInput =
 	  }
 
 /** The member slots whose facts an enumerated input writes as rows: none of a deletion's, every other input's one. */
-export const writingSlots = (input: EnumeratedInput): ReadonlyArray<MemberSlot> =>
+const writingSlots = (input: EnumeratedInput): ReadonlyArray<MemberSlot> =>
 	input.kind === "single" && input.act.op === "delete" ? [] : [input.slot]
 
 /** The enumerated inputs of one relation in one stratum, one per operation, which the host normalizes together
@@ -304,6 +306,23 @@ export interface StratumLayout {
 	readonly nesting: Nesting
 	readonly layout: NestedLayout
 }
+
+/** A source of an owner's rows as a family statement reads an owner copy from it (schedule.ts HeldSource), with the
+ * column keys it holds there. */
+interface OwnerSourceRead {
+	readonly source: HeldSource
+	readonly holds: ReadonlyArray<ColumnKey>
+}
+
+/**
+ * The rows of an owner its stratum inserts as a family statement reads its owner copies from them
+ * (schedule.ts CopySource): none, so the table holds every owner a member names; some a described member inserts or
+ * puts, whose rows the database computes; or every source of them, each with the columns it holds there.
+ */
+type OwnerReading =
+	| { readonly kind: "none" }
+	| { readonly kind: "described" }
+	| { readonly kind: "sources"; readonly sources: NonEmptyReadonlyArray<OwnerSourceRead> }
 
 /**
  * Each relation whose rows the nested writes `nested` fill in `stratum`, by name, laid out by the one nesting of the
@@ -2725,40 +2744,22 @@ const compile = (
 				)
 			)
 		/**
-		 * The column keys each source of the rows of `owner` the stratum inserts holds as its rows are written: each insert
-		 * or put slot's stated fields (insert/input.ts RelationInput), never the counts and ends a slot carries at their starts, which a put of a stored owner leaves as stored;
-		 * and its nested rows' sent layout; and whether a described member inserts or puts some, whose rows the database
-		 * computes. A stamped nesting's rows hold their stamped columns too, which its family statement stamps as it writes
-		 * them (write/family/additions.ts stampedSources).
+		 * The rows of `owner` the stratum inserts as the family statement that appends `statement` reads its owner copies
+		 * from them (`OwnerReading`). A stamp is taken once in its stratum, by the statement that writes the rows carrying it
+		 * (ir/instant.ts stampText, write/family/additions.ts stampedSources), so a statement holds an owner's stamped
+		 * columns only where it appends the owner itself, and then reads the owner's rows as it appends them: each edit slot
+		 * of it the stratum inserts or puts by, its stated fields (insert/input.ts RelationInput) and the stamps the
+		 * statement takes of it, and its nested rows, their sent layout and their nesting's stamps. Any other statement
+		 * reads them as the host sends them, without a stamp: each slot that inserts or puts them, its stated fields, and
+		 * its nested rows, their sent layout. A slot's stated fields are never the counts and ends it carries at their
+		 * starts, which a put of a stored owner leaves as stored.
 		 */
-		const insertedRows = (owner: StoredRelationName) => {
-			const stamped = nestedWrites.flatMap((n) =>
-				n.stratum === stratum
-					? (n.nesting.stamps.get(owner) ?? []).map((st) => columnKeyOf(st.field.name))
-					: []
-			)
-			return {
-				carried: [
-					...slots.flatMap((g) =>
-						g.stratum === stratum && g.relation.name === owner
-							? g.inputs.flatMap((input) =>
-									writingSlots(input).map((slot) => [
-										...slot.input.stated.map((c) => columnKeyOf(c.name)),
-										...stamped
-									])
-								)
-							: []
-					),
-					...nestedWrites.flatMap((n) => {
-						const laid = n.stratum === stratum ? n.nesting.layouts.get(owner) : undefined
-						if (laid === undefined) {
-							return []
-						}
-						const sent = sentLayout(laid)
-						return [[...[...sent.key, ...sent.columns].map((c) => c.key), ...stamped]]
-					})
-				],
-				described: placedByStratum.some(
+		const ownerReadingOf = (
+			owner: StoredRelationName,
+			statement: ReadonlyArray<StoredRelationName>
+		): OwnerReading => {
+			if (
+				placedByStratum.some(
 					(p) =>
 						p.stratum === stratum &&
 						p.built.some(
@@ -2768,23 +2769,82 @@ const compile = (
 								b.action.source.kind !== "enumerated"
 						)
 				)
+			) {
+				return { kind: "described" }
 			}
+			const keysOf = (stamps: ReadonlyArray<Stamped>) =>
+				stamps.map((st) => columnKeyOf(st.field.name))
+			const stated = (slot: MemberSlot) => slot.input.stated.map((c) => columnKeyOf(c.name))
+			const writing = slots.flatMap((g) =>
+				g.stratum === stratum && g.relation.name === owner ? g.inputs.flatMap(writingSlots) : []
+			)
+			const laid = stratumLayouts(nestedWrites, stratum).get(owner)
+			const sent = laid === undefined ? undefined : sentLayout(laid.layout)
+			const nestedRows = (stamps: ReadonlyArray<Stamped>): ReadonlyArray<OwnerSourceRead> =>
+				sent === undefined
+					? []
+					: [
+							{
+								source: { kind: "nestedRows" },
+								holds: [...[...sent.key, ...sent.columns].map((c) => c.key), ...keysOf(stamps)]
+							}
+						]
+			/** The stamps the statement takes of each slot of `owner` it appends the owner from, by the slot's name. */
+			const taken = new Map(
+				own.flatMap((e) =>
+					e.relation === owner && (e.write.op === "insert" || e.write.op === "put")
+						? [[e.write.slot, e.write.stamps] as const]
+						: []
+				)
+			)
+			const sources: ReadonlyArray<OwnerSourceRead> = statement.includes(owner)
+				? [
+						...writing.flatMap((slot): ReadonlyArray<OwnerSourceRead> => {
+							const stamps = taken.get(slot.slot)
+							return stamps === undefined
+								? []
+								: [
+										{
+											source: { kind: "slot", slot: slot.slot },
+											holds: [...stated(slot), ...keysOf(stamps)]
+										}
+									]
+						}),
+						...nestedRows(laid?.nesting.stamps.get(owner) ?? [])
+					]
+				: [
+						...writing.map((slot): OwnerSourceRead => ({
+							source: { kind: "slot", slot: slot.slot },
+							holds: stated(slot)
+						})),
+						...nestedRows([])
+					]
+			return isNonEmpty(sources) ? { kind: "sources", sources } : { kind: "none" }
 		}
-		/** Where an owner copy of `f` reads the owner column `to` (schedule.ts CopySource): held where every row the stratum
-		 * inserts of its owner holds the group's fields and the columns that hold `to` (`heldBy`). */
-		const copySource = (f: Family, to: NativeColumn): CopySource => {
-			const rows = insertedRows(f.owner.name)
-			if (!isNonEmpty(rows.carried) && !rows.described) {
-				return "stored"
+		/** Where an owner copy of `f` reads the owner column `to` (schedule.ts CopySource), its owner's rows `reading` as
+		 * its statement reads them: held where every source of them holds the group's fields and the columns that hold
+		 * `to` (`heldBy`). */
+		const copySource = (f: Family, to: NativeColumn, reading: OwnerReading): CopySource => {
+			switch (reading.kind) {
+				case "none":
+					return "stored"
+				case "described":
+					return "drawn"
+				case "sources": {
+					const need = [...f.group.map((g) => columnKeyOf(g.owner.name)), ...heldBy(f.owner, to)]
+					return reading.sources.every((s) => need.every((k) => s.holds.includes(k)))
+						? "held"
+						: "drawn"
+				}
 			}
-			const need = [...f.group.map((g) => columnKeyOf(g.owner.name)), ...heldBy(f.owner, to)]
-			return !rows.described && rows.carried.every((keys) => need.every((k) => keys.includes(k)))
-				? "held"
-				: "drawn"
 		}
 		/** The owner copies `member`'s additions draw, each with where it reads its owner's column (schedule.ts
-		 * OwnerCopy): every family's of its slots', a counted family's of its nested rows', but its own tree's. */
-		const ownerCopiesOf = (member: StoredRelationName): ReadonlyArray<OwnerCopy> =>
+		 * OwnerCopy), each owner's rows as `readingOf` gives them: every family's of its slots', a counted family's of its
+		 * nested rows', but its own tree's. */
+		const ownerCopiesOf = (
+			member: StoredRelationName,
+			readingOf: (owner: StoredRelationName) => OwnerReading
+		): ReadonlyArray<OwnerCopy> =>
 			memberFamilies(member, families).flatMap((f) =>
 				isTreeOf(f, member) || (!slotted.includes(member) && isSequence(f))
 					? []
@@ -2798,7 +2858,7 @@ const compile = (
 											family: familyKey(f.id),
 											owner: f.owner.name,
 											column: columnKey(c.column),
-											source: copySource(f, c.rule.to)
+											source: copySource(f, c.rule.to, readingOf(f.owner.name))
 										}
 									]
 								: []
@@ -2864,18 +2924,25 @@ const compile = (
 						...putOf(member).filter((o) => !drawn.some((d) => d.relation === o.relation))
 					]
 				})
+				/** Each owner's rows as this statement reads them, read once. */
+				const readings = new Map<StoredRelationName, OwnerReading>()
+				const ownerCopies = members.flatMap((member) =>
+					ownerCopiesOf(member, (owner) =>
+						readings.getOrInsertComputed(owner, () => ownerReadingOf(owner, members))
+					)
+				)
 				return {
 					kind: "additions" as const,
 					appends: "rows" as const,
 					members,
-					copies: [
-						...new Set(
-							members.flatMap((member) =>
-								ownerCopiesOf(member).flatMap((c) => (c.source === "drawn" ? [c.owner] : []))
-							)
-						)
-					],
-					ownerCopies: members.flatMap(ownerCopiesOf),
+					copies: [...new Set(ownerCopies.flatMap((c) => (c.source === "drawn" ? [c.owner] : [])))],
+					ownerCopies,
+					held: [...readings].flatMap(([owner, reading]): ReadonlyArray<HeldOwner> =>
+						reading.kind === "sources" &&
+						ownerCopies.some((c) => c.owner === owner && c.source === "held")
+							? [{ owner, rows: mapNonEmpty(reading.sources, (s) => s.source) }]
+							: []
+					),
 					owners: [...groupBy(owners, (o) => o.relation)].map(([relation, changed]) => ({
 						relation,
 						changes: [...new Set(changed.flatMap((o) => o.changes))]

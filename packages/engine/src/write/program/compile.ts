@@ -132,8 +132,7 @@ import {
 	type SlotGroup,
 	stratumLayouts,
 	type WriteFrontend,
-	type WrittenRelation,
-	writingSlots
+	type WrittenRelation
 } from "#compiler/write/frontend/compile.ts"
 import type { EntryClaims } from "#compiler/write/frontend/entry.ts"
 import type { PlainRefill } from "#compiler/write/frontend/refill.ts"
@@ -721,20 +720,22 @@ const familyProgram = (
 				)
 				const ownerCopies = node.appends === "rows" ? node.ownerCopies : []
 				/** The rows of each owner whose copies the statement reads from its parameters (schedule.ts CopySource
-				 * `held`): its slots' facts at the stratum and its nested rows. */
+				 * `held`), each source its frontend names (schedule.ts HeldOwner): a slot's facts or the stratum's nested
+				 * rows. */
 				const ownerRows = new Map(
-					[...new Set(ownerCopies.flatMap((c) => (c.source === "held" ? [c.owner] : [])))].map(
-						(owner) => {
-							const fromSlots = frontend.slots.flatMap((group) =>
-								group.stratum === s && group.relation.name === owner
-									? group.inputs.flatMap((input) =>
-											writingSlots(input).map((slot): OwnerRows => ({ kind: "slot", slot }))
-										)
-									: []
-							)
-							const rows = nestedRows.get(owner)
-							return [owner, rows === undefined ? fromSlots : [...fromSlots, rows]] as const
-						}
+					(node.appends === "rows" ? node.held : []).map(
+						({ owner, rows }) =>
+							[
+								owner,
+								mapNonEmpty(rows, (r): OwnerRows =>
+									r.kind === "slot"
+										? { kind: "slot", slot: memberSlotOf(frontend, r.slot) }
+										: defined(
+												nestedRows.get(owner),
+												`the nested rows of ${owner} a held copy reads`
+											)
+								)
+							] as const
 					)
 				)
 				const sql = additionsSql(w0, appended, putOwners, ownerCopies, ownerRows, deferring, stored)
