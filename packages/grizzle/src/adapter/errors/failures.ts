@@ -1,6 +1,6 @@
 import * as Arr from "effect/Array"
 import * as Data from "effect/Data"
-import type { StartupVariable } from "#adapter/connection/environment.ts"
+import type { RefusedVariable } from "#adapter/connection/environment.ts"
 import type {
 	ExecutionPart,
 	FamilyRowBound,
@@ -347,8 +347,7 @@ export class DbConfigRefused extends Data.TaggedError("DbConfigRefused")<Setting
 }
 
 /** What a startup variable would do to every session pg starts with it. */
-const variableEffect: { readonly [V in StartupVariable]: string } = {
-	PGOPTIONS: "its settings outrank every default a session starts under",
+const variableEffect: { readonly [V in RefusedVariable]: string } = {
 	PGREPLICATION: "it makes each session a replication connection"
 }
 
@@ -358,7 +357,7 @@ const variableEffect: { readonly [V in StartupVariable]: string } = {
  * for a login's sessions, the command line's for an owner's. Its value is never quoted.
  */
 export class ConnectionEnvironmentRefused extends Data.TaggedError("ConnectionEnvironmentRefused")<{
-	readonly variable: StartupVariable
+	readonly variable: RefusedVariable
 }> {
 	override get message(): string {
 		return `the environment sets ${this.variable}, which node-postgres would send at the startup of every session it opens, where ${variableEffect[this.variable]}: unset it`

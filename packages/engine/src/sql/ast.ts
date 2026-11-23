@@ -1901,11 +1901,14 @@ export interface ResetDatabaseDefault {
  * YYYY-MM-DD, a date's host text; bytea_output, under which byteaout writes `\x` and two hex digits a byte, a bytes
  * value's text; lc_monetary, lc_numeric and lc_time, the locale categories a value's text can depend
  * on, money's two fractional digits among them; and pgvector's strict-order
- * iterative scan, on which an approximate read's order and its cursors rest (check/approximate/policy.ts). An
- * `hnsw.*` name is a placeholder until the vector library is loaded in the session that stores it. Every other
- * setting is the database owner's.
+ * iterative scan, on which an approximate read's order and its cursors rest (check/approximate/policy.ts); and
+ * plan_cache_mode, at force_generic_plan, under which a session plans each statement it prepares once, generically, and
+ * keeps that plan, where PostgreSQL's auto mode plans its first five calls with their values and may go on doing so for
+ * good (physical/ddl/roles.ts genericPlans). An `hnsw.*` name is a placeholder until the vector library is loaded in the
+ * session that stores it. Every other setting is the database owner's.
  */
 const textParameters = [
+	"plan_cache_mode",
 	"extra_float_digits",
 	"DateStyle",
 	"bytea_output",

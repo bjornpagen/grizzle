@@ -19,7 +19,7 @@ import type {
 } from "#compiler/lower/shapes/page/compile.ts"
 import type { PageVariant } from "#compiler/lower/shapes/page/seek.ts"
 import { sentSpec } from "#compiler/lower/template.ts"
-import { loginStartupOptions } from "#compiler/physical/ddl/roles.ts"
+import { loginStartupOptions, ownerStartupOptions } from "#compiler/physical/ddl/roles.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import { pageStatementSlotOf } from "#compiler/runtime/lower/slots.ts"
 import { unitColumn } from "#compiler/runtime/lower/tree.ts"
@@ -204,11 +204,13 @@ const beginWrite = (isolation: Isolation): EmittedText =>
 
 /**
  * The texts every session of a login sends that its file carries, emitted now (served/forms.ts ServedSession): the
- * startup options pinning its role's defaults (physical/ddl/roles.ts loginStartupOptions), a read's BEGIN, immediate
+ * startup options pinning its role's defaults (physical/ddl/roles.ts loginStartupOptions), an owner's session's
+ * (ownerStartupOptions), a read's BEGIN, immediate
  * and deferrable, a write's at each isolation level, and its COMMIT and ROLLBACK.
  */
 export const servedSession: ServedSession = {
 	startup: loginStartupOptions,
+	ownerStartup: ownerStartupOptions,
 	begin: {
 		read: {
 			immediate: emitText({ kind: "beginRead", deferrable: false }, emptyNameMap).text,

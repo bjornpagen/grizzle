@@ -184,8 +184,10 @@ export default defineConfig({
 - Never write a credential into the config file: read it where the config runs, as the password Effect does.
 - `connection` is a function: only `migrate` and `drift` call it, so `generate`, `check` and `names` read no cluster
   setting and no CA file, and `check` runs in CI where no cluster is reachable. `migrate` and `drift` refuse a process environment that
-  sets `PGOPTIONS` or `PGREPLICATION`, which node-postgres would send at their session's startup, at the stage
-  environment.
+  sets `PGREPLICATION`, which node-postgres would send at their session's startup, at the stage environment. Every
+  session grizzle opens, a login's and the migration identity's, plans generically (`plan_cache_mode` at
+  `force_generic_plan`, which a login's role stores and each session sets at its startup), so `PGOPTIONS` reaches
+  none.
 
 ## The loop
 

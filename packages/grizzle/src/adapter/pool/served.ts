@@ -377,7 +377,7 @@ const liveSubscriptions = <L>(
  * that reaches a login's session (connection/environment.ts): one it sets is OpenError{stage: "config"}.
  */
 export const loginEnvironment: Effect.Effect<void, OpenError> = Effect.flatMap(
-	Effect.sync(() => startupVariableSet("login")),
+	Effect.sync(() => startupVariableSet()),
 	Option.match({
 		onNone: () => Effect.void,
 		onSome: (variable) =>

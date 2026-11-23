@@ -721,9 +721,9 @@ const vectorSchemaOf = (catalog: Catalog, type: NamedType): Option.Option<string
 /**
  * Each login's fixed defaults, `name=value` as pg_db_role_setting stores them: dates written in ISO 8601's YYYY-MM-DD,
  * float text in shortest round-trip form (only when extra_float_digits is positive), bytea written as hex, lc_monetary,
- * lc_numeric and lc_time at C.UTF-8, and the search path of
- * pg_catalog and the session's temporary schema alone, a list PostgreSQL stores with its schemas bare. Nothing else:
- * jit and lc_messages are the database owner's.
+ * lc_numeric and lc_time at C.UTF-8, generic plans always (plan_cache_mode at force_generic_plan), and the search
+ * path of pg_catalog and the session's temporary schema alone, a list PostgreSQL stores with its schemas bare. Nothing
+ * else: jit and lc_messages are the database owner's.
  */
 const fixedDefaults: ReadonlyArray<string> = [
 	"DateStyle=ISO, YMD",
@@ -732,6 +732,7 @@ const fixedDefaults: ReadonlyArray<string> = [
 	"lc_monetary=C.UTF-8",
 	"lc_numeric=C.UTF-8",
 	"lc_time=C.UTF-8",
+	"plan_cache_mode=force_generic_plan",
 	"search_path=pg_catalog, pg_temp"
 ]
 

@@ -132,6 +132,23 @@ import {
 import { refusalFunction } from "#compiler/write/refusal.ts"
 
 /**
+ * Generic plans, always: plan_cache_mode at force_generic_plan, under which a session plans each statement it prepares
+ * once, as PostgreSQL plans a statement it has no values for, and keeps that plan for the session, never planning a
+ * call with its values (plancache.c choose_custom_plan). Under the default auto mode a session plans a statement's first
+ * five calls with their values and then keeps planning each call whose generic plan its estimate puts above their
+ * average: a cold backend paid five plans of a statement and a generic build before it reused one (PERF-COMMIT's metis
+ * split at f87b2aaab: the submit's 9.5 MB statement planned in 131 s and 19.9 GB a call, five times, then 72 s for its
+ * generic plan; the 880 KB heartbeat five times 0.5 to 1.1 s, then 0.7 s). Every session grizzle opens starts under it,
+ * whoever it is: a login's, which stores it beside its other defaults (roleDefaultSettings), and an owner's
+ * (ownerStartupOptions). Bjorn approved it in the read-committed cutover (2026-11-23), the one planner setting grizzle
+ * pins.
+ */
+const genericPlans = {
+	parameter: "plan_cache_mode",
+	value: "force_generic_plan"
+} as const satisfies RoleSetting
+
+/**
  * The fixed login defaults, every login's, each one a grizzle guarantee rests on (sql/ast.ts textParameters): one list,
  * which the installation stores as ALTER ROLE ... SET, admission reads back from the manifest that holds those
  * statements (deploy/admission/roles.ts roleExpectation), and every session of a login's pool sets again at its
@@ -144,7 +161,8 @@ export const roleDefaultSettings = [
 	{ parameter: "bytea_output", value: "hex" },
 	{ parameter: "lc_monetary", value: "C.UTF-8" },
 	{ parameter: "lc_numeric", value: "C.UTF-8" },
-	{ parameter: "lc_time", value: "C.UTF-8" }
+	{ parameter: "lc_time", value: "C.UTF-8" },
+	genericPlans
 ] as const satisfies NonEmptyReadonlyArray<RoleSetting>
 
 /**
@@ -153,6 +171,14 @@ export const roleDefaultSettings = [
  * included, and pg sends them in place of the environment's PGOPTIONS, which it reads only when a client names none.
  */
 export const loginStartupOptions: string = printStartupOptions(roleDefaultSettings)
+
+/**
+ * The startup packet's `options` of every owner's session (wire/session.ts): the migration identity's, every command
+ * line's, the drift check's and an upgrade's, the live leader's and a listener's. An owner stores none of a login's
+ * defaults and states none of them; it starts under generic plans alone (genericPlans), the one setting every session
+ * grizzle opens starts under.
+ */
+export const ownerStartupOptions: string = printStartupOptions([genericPlans])
 
 /**
  * The search setting as a login default, for a login one of whose roles can name the vector type: pgvector's

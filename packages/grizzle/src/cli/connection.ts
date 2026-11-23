@@ -32,11 +32,11 @@ export const resolveConnection = (
 /**
  * The process environment the migration identity's sessions would start in, read where pg reads it, never through the
  * ConfigProvider: refused when it sets a startup variable that reaches an owner's session (connection/environment.ts),
- * PGOPTIONS or PGREPLICATION, which pg would send at the startup of each, since an owner's session sets no options of
- * its own and starts under its role's and its database's defaults.
+ * PGREPLICATION, which pg would send at the startup of each; PGOPTIONS reaches none, since an owner's session sets its
+ * own options, generic plans (physical/ddl/roles.ts ownerStartupOptions).
  */
 export const ownerEnvironment: Effect.Effect<void, CliError> = Effect.flatMap(
-	Effect.sync(() => startupVariableSet("owner")),
+	Effect.sync(() => startupVariableSet()),
 	Option.match({
 		onNone: () => Effect.void,
 		onSome: (startupVariable) =>

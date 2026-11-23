@@ -217,8 +217,8 @@ export const dbLayerMakeRefusesAtStageConfigExactlyTheProcessEnvironmentsThatSet
 		kills: [
 			{
 				file: "packages/grizzle/src/adapter/connection/environment.ts",
-				original: '\tlogin: ["PGREPLICATION"],',
-				replacement: '\tlogin: ["PGOPTIONS", "PGREPLICATION"],',
+				original: '\t"PGREPLICATION"\n',
+				replacement: '\t"PGOPTIONS",\n\t"PGREPLICATION"\n',
 				why: "A login's layer is refused under PGOPTIONS too."
 			}
 		]

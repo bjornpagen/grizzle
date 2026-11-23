@@ -342,7 +342,8 @@ export type OwnerEnvironment = { readonly [V in StartupVariable]: VariableValue 
 
 /** What a run of the owner environment property reaches. */
 export type OwnerEnvironmentFeature =
-	| `refused ${StartupVariable}`
-	| "refused PGOPTIONS beside PGREPLICATION set"
+	| "refused PGREPLICATION"
+	| "refused PGREPLICATION beside PGOPTIONS set"
+	| "admitted with PGOPTIONS set"
 	| "admitted with a variable empty"
 	| "admitted with neither set"

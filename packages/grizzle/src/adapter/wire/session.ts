@@ -31,8 +31,9 @@
  *   pg's own refusal, or no cancellation key.
  * - Startup. pg sends user and database, and a login's session its pinned defaults as `options`
  *   (physical/ddl/roles.ts loginStartupOptions), the very defaults its role stores, which Db.open's admission
- *   verifies; an owner's session sends none, starting under its role's and its database's defaults. grizzle never
- *   issues a session-level SET and names no session: an application_name is the environment's (connection/
+ *   verifies; an owner's session sends its default level and generic plans (startupOptionsOf), generic plans the one of
+ *   them every session grizzle opens starts under, and otherwise starts under its role's and its database's defaults;
+ *   a replication connection sends none. grizzle never issues a session-level SET and names no session: an application_name is the environment's (connection/
  *   environment.ts). pg reads every setting it is given as a falsy value from the environment instead: the client config
  *   states each it can (clientConfig), and the startup variables it cannot (connection/environment.ts) are refused
  *   before any session opens, a login's by DbLayer.make, an owner's by the command line.
@@ -153,6 +154,8 @@ import type { ServedSession } from "#compiler/plan/serve.ts"
  * login's file carries them, and an owner's session takes generate's own.
  */
 export interface ControlTexts {
+	/** An owner's session's startup options: generic plans alone (physical/ddl/roles.ts ownerStartupOptions). */
+	readonly ownerStartup: ServedSession["ownerStartup"]
 	readonly begin: ServedSession["begin"]
 	readonly commit: EmittedText
 	readonly rollback: EmittedText
@@ -160,8 +163,8 @@ export interface ControlTexts {
 
 /**
  * Whose session it is: a login's, every session of a pool, which starts under the options pinning its role's defaults;
- * an owner's, one outside any pool, which states none; or a replication connection's, the live leader's walsender of
- * its database, which states none either.
+ * an owner's, one outside any pool, which starts under its default level and generic plans (startupOptionsOf); or a
+ * replication connection's, the live leader's walsender of its database, which states none.
  */
 type Startup =
 	| { readonly kind: "owner" }
@@ -179,15 +182,19 @@ const ownerOptions = "-c default_transaction_isolation=serializable"
 
 /**
  * The startup packet's `options` of a session of `startup`: a login's its pinned defaults (engine physical/ddl/roles.ts
- * loginStartupOptions), an owner's its default level (ownerOptions), a replication connection's none, which runs no
- * transaction.
+ * loginStartupOptions), generic plans among them; an owner's its default level (ownerOptions) and generic plans, as its
+ * session texts carry them (ControlTexts ownerStartup, roles.ts ownerStartupOptions); a replication connection's none,
+ * which runs no transaction.
  */
-const startupOptionsOf = (startup: Startup): { readonly options?: string } => {
+const startupOptionsOf = (
+	startup: Startup,
+	controls: ControlTexts
+): { readonly options?: string } => {
 	switch (startup.kind) {
 		case "login":
 			return { options: startup.options }
 		case "owner":
-			return { options: ownerOptions }
+			return { options: `${ownerOptions} ${controls.ownerStartup}` }
 		case "replication":
 			return {}
 	}
@@ -481,7 +488,7 @@ const clientConfig = (
 	password,
 	client_encoding: "utf8",
 	sslnegotiation: "postgres",
-	...startupOptionsOf(spec.startup),
+	...startupOptionsOf(spec.startup, spec.controls),
 	...wireModeOf(spec.startup),
 	types: rawText,
 	connectionTimeoutMillis: 0,

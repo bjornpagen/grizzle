@@ -30,7 +30,7 @@ import { assert, lacksText } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Option, Record as Rec, Redacted } from "effect"
+import { Array as Arr, Effect, Record as Rec, Redacted } from "effect"
 import { startupVariableNames } from "#adapter/connection/environment.ts"
 import { ConnectionEnvironmentRefused } from "#adapter/errors/failures.ts"
 import { calledConnection, ownerEnvironment, resolveConnection } from "#cli/connection.ts"
@@ -194,12 +194,13 @@ export const theConfigurationsConnectionGeneratedRefusesAConnectionThatThrowsAtS
 
 /**
  * The migration's process environment, generated refuses at stage environment exactly the environments that set
- * PGOPTIONS or PGREPLICATION, naming the first.
+ * PGREPLICATION, naming it, and admits one that sets PGOPTIONS, which reaches no owner's session: each sets its own
+ * options, generic plans (physical/ddl/roles.ts ownerStartupOptions).
  *
  * Budget: its suite's count before the conversion (unit/cli/owner-environment: 100 independent cases and 0 steered,
  * Vitest at grizzle 4ca3036a).
  */
-export const theMigrationsProcessEnvironmentGeneratedRefusesAtStageEnvironmentExactlyTheEnvironmentsThatSetPGOPTIONSOrPGREPLICATIONNamingTheFirst =
+export const theMigrationsProcessEnvironmentGeneratedRefusesAtStageEnvironmentExactlyTheEnvironmentsThatSetPGREPLICATION =
 	property.explore(
 		(source): OwnerEnvironment => ({
 			PGOPTIONS: source.draw(variableGen),
@@ -208,9 +209,9 @@ export const theMigrationsProcessEnvironmentGeneratedRefusesAtStageEnvironmentEx
 		{
 			needs: {},
 			situations: [
-				"refused PGOPTIONS",
 				"refused PGREPLICATION",
-				"refused PGOPTIONS beside PGREPLICATION set",
+				"refused PGREPLICATION beside PGOPTIONS set",
+				"admitted with PGOPTIONS set",
 				"admitted with a variable empty",
 				"admitted with neither set"
 			] satisfies ReadonlyArray<Reached<OwnerEnvironmentFeature>>,
@@ -226,13 +227,14 @@ export const theMigrationsProcessEnvironmentGeneratedRefusesAtStageEnvironmentEx
 							Effect.result(ownerEnvironment)
 						)
 					)
-					const expected = Arr.findFirst(startupVariableNames, (name) => e[name].kind === "text")
-					if (Option.isNone(expected)) {
-						succeeded(result, "an environment that sets neither variable")
+					if (e.PGREPLICATION.kind !== "text") {
+						succeeded(result, "an environment that sets no PGREPLICATION")
 						c.note(
-							Arr.some(startupVariableNames, (name) => e[name].kind === "empty")
-								? "admitted with a variable empty"
-								: "admitted with neither set"
+							e.PGOPTIONS.kind === "text"
+								? "admitted with PGOPTIONS set"
+								: Arr.some(startupVariableNames, (name) => e[name].kind === "empty")
+									? "admitted with a variable empty"
+									: "admitted with neither set"
 						)
 						return
 					}
@@ -241,25 +243,25 @@ export const theMigrationsProcessEnvironmentGeneratedRefusesAtStageEnvironmentEx
 						refused.reason instanceof ConnectionEnvironmentRefused,
 						`the environment's refusal is ${refused.reason._tag}`
 					)
-					assert.equal(refused.reason.variable, expected.value)
+					assert.equal(refused.reason.variable, "PGREPLICATION")
 					lacksText(reported(refused), valueMark, "the refusal holds a value")
-					c.note(`refused ${expected.value}`)
-					if (expected.value === "PGOPTIONS" && e.PGREPLICATION.kind === "text") {
-						c.note("refused PGOPTIONS beside PGREPLICATION set")
+					c.note("refused PGREPLICATION")
+					if (e.PGOPTIONS.kind === "text") {
+						c.note("refused PGREPLICATION beside PGOPTIONS set")
 					}
 				}),
 			oracle: {
 				kind: "specification",
-				name: "the first startup variable an environment sets to a text is refused, none quoted"
+				name: "an environment that sets PGREPLICATION to a text is refused, its value never quoted, and PGOPTIONS admitted"
 			},
 			budget: { runs: 100, steered: 0 },
 			kept: [],
 			kills: [
 				{
 					file: "packages/grizzle/src/adapter/connection/environment.ts",
-					original: '\towner: ["PGOPTIONS", "PGREPLICATION"]',
-					replacement: '\towner: ["PGREPLICATION"]',
-					why: "An owner's environment is refused only for PGREPLICATION."
+					original: '\t"PGREPLICATION"\n',
+					replacement: '\t"PGOPTIONS",\n\t"PGREPLICATION"\n',
+					why: "An owner's environment refused for PGOPTIONS, which reaches none of its sessions now that each sets its own options."
 				}
 			]
 		}

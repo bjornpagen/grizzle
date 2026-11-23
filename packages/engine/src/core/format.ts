@@ -163,7 +163,11 @@
  * the unit its arms bind, at that unit, runs inside a guard of that relation's rows at the written rows' units, carried
  * along the ways that yield a row of the probe's side alone (analysis/theory/query.ts probeGuard, Carry), where format
  * 7 ran every probe of a written side: a guarded block's function holds the guard's PERFORM and IF FOUND around the
- * probe's (physical/ddl/rules.ts probedBlocks)
+ * probe's (physical/ddl/rules.ts probedBlocks). Every login's role stores plan_cache_mode at force_generic_plan beside
+ * its other fixed defaults (physical/ddl/roles.ts genericPlans, roleDefaultSettings), so each installation's roles
+ * gain an ALTER ROLE ... SET and each served file's startup options the setting, and its session texts the generic
+ * plans an owner's session starts under beside its default level (served/forms.ts ServedSession ownerStartup, roles.ts
+ * ownerStartupOptions), so every session of a login's pool and every owner's session plan generically
  */
 export const artifactFormat = 7
 
