@@ -109,7 +109,7 @@ const insertAndSelect: ReadonlySet<TablePrivilege> = new Set(["SELECT", "INSERT"
  * The relations an update of `updated` reaches: them, and each relation whose foreign key into one of them carries an
  * update to its rows (ON UPDATE CASCADE), again and again.
  */
-const cascaded = (
+export const cascaded = (
 	relations: ReadonlyMap<string, RelationFacts>,
 	updated: ReadonlySet<string>
 ): ReadonlySet<string> => {
@@ -165,11 +165,11 @@ const setAt = <V>(by: Map<string, Set<V>>, key: string): Set<V> => {
  * What a write can make of a row of the relation it writes, as a rule over a query reads it: `present`, a row there
  * that was not, and `absent`, a row gone that was there.
  */
-type Made = "present" | "absent"
+export type Made = "present" | "absent"
 
 /** What a write makes: an insert a row present, a delete one absent, and an update both, as a retirement does, which
  * deletes a unit's bodies' rows and sets its header's retirement field (physical/ddl/retire.ts). */
-const madeBy = (op: WriteFact["op"]): ReadonlyArray<Made> => {
+export const madeBy = (op: WriteFact["op"]): ReadonlyArray<Made> => {
 	switch (op) {
 		case "insert":
 			return ["present"]
@@ -182,7 +182,7 @@ const madeBy = (op: WriteFact["op"]): ReadonlyArray<Made> => {
 }
 
 /** The write a privilege permits, none for SELECT. */
-const permitted = (p: TablePrivilege): WriteFact["op"] | undefined => {
+export const permitted = (p: TablePrivilege): WriteFact["op"] | undefined => {
 	switch (p) {
 		case "SELECT":
 			return undefined
@@ -441,7 +441,18 @@ export const readSeal = (input: IsolationInput, read: ReadFact): ReadSeal =>
 		read
 	)
 
-const sealOf = (at: Installation, read: ReadFact): ReadSeal => {
+/** What a read's seal reads of an installation: each relation's facts, and whether a role writes it, and whether any
+ * updates or deletes it. */
+export interface SealView {
+	readonly relations: ReadonlyMap<string, RelationFacts>
+	readonly writers: {
+		readonly unwritten: (relation: string) => boolean
+		readonly insertOnly: (relation: string) => boolean
+	}
+}
+
+/** A read's seal among `at`'s writers (ReadSeal). */
+export const sealOf = (at: SealView, read: ReadFact): ReadSeal => {
 	if (read.own) {
 		return { kind: "own" }
 	}
@@ -532,7 +543,7 @@ const outside = (seal: ReadSeal): boolean =>
  * mode it takes where a site reaches it (readsOf): a read takes one PlacedRead per mode it takes. The reads of the
  * instances of one query at one place are one read of the statement.
  */
-interface PlacedRead {
+export interface PlacedRead {
 	readonly statement: number
 	readonly at: ReadAt
 	readonly query: number | undefined
@@ -1114,14 +1125,15 @@ const fixedFor = (
  * statementReads finds them, each read's modes in the order its reaches take them.
  */
 const placementsOf = (
-	installation: Installation,
+	sealOfRead: (read: ReadFact) => ReadSeal,
+	relations: ReadonlyMap<string, RelationFacts>,
 	member: MemberFacts,
 	visit: (statement: number, s: StatementFacts, placed: StatementPlacement) => void
 ): void => {
 	const stated = member.statements.map((s) => ({ s, reads: statementReads(s) }))
 	const fixed: Array<Fixed> = []
 	for (const [statement, { reads }] of stated.entries()) {
-		const seals = reads.map(({ read }) => ({ read, seal: sealOf(installation, read) }))
+		const seals = reads.map(({ read }) => ({ read, seal: sealOfRead(read) }))
 		if (seals.some(({ seal }) => seal.kind !== "own" && seal.kind !== "arbiter")) {
 			break
 		}
@@ -1131,7 +1143,7 @@ const placementsOf = (
 				read.mode === "arbiter" &&
 				seal.kind === "arbiter" &&
 				group?.rows === "one" &&
-				fixesAt(installation.relations.get(read.relation), seal.key)
+				fixesAt(relations.get(read.relation), seal.key)
 			) {
 				fixed.push({
 					relation: read.relation,
@@ -1144,7 +1156,7 @@ const placementsOf = (
 	}
 	for (const [statement, { s, reads }] of stated.entries()) {
 		const sealed = sealedOf(s, (read): ReadSeal => {
-			const seal = sealOf(installation, read)
+			const seal = sealOfRead(read)
 			const by = seal.kind === "point" ? fixedFor(fixed, read, statement) : undefined
 			return by === undefined ? seal : { kind: "arbitrated", key: by.key }
 		})
@@ -1182,7 +1194,7 @@ interface StatementPlacement {
  * (PlacedRead), its seal its read's at its statement (sealOf, fixedFor), in the order statementReads finds them; and, for each write of each statement, what condition 5b reads of
  * the reads that feed it (Fed), taken at the instances its rows come through.
  */
-interface MemberReads {
+export interface MemberReads {
 	readonly placed: ReadonlyArray<PlacedRead>
 	readonly fed: ReadonlyArray<ReadonlyArray<Fed>>
 }
@@ -1191,7 +1203,7 @@ interface MemberReads {
  * What condition 5b reads of the reads one write's rows are positively joined with (WriteFact `from`), each at the
  * instance it is read at: the groups they read (groupOf), and whether one of them is the call's own row read positively.
  */
-interface Fed {
+export interface Fed {
 	readonly joined: ReadonlySet<string>
 	readonly own: boolean
 }
@@ -1206,14 +1218,27 @@ const placedRead = (
 	mode: ReadFact["mode"]
 ): PlacedRead => ({ statement, at, query, read, seal, mode })
 
-const readsOf = (installation: Installation, member: MemberFacts): MemberReads => {
+const readsOf = (installation: Installation, member: MemberFacts): MemberReads =>
+	readsUnder((read) => sealOf(installation, read), installation.relations, member)
+
+/**
+ * A member's reads placed and moded under `sealOfRead`, each read's seal among some installation's roles (readsOf's
+ * under certification's, analysis/isolation/borrows.ts's under the borrow rules), the relations' facts `relations`
+ * deciding which arbitrations fix their rows (fixesAt): every read some site reaches, each mode it takes, and what
+ * each write's rows are joined with (MemberReads).
+ */
+export const readsUnder = (
+	sealOfRead: (read: ReadFact) => ReadSeal,
+	relations: ReadonlyMap<string, RelationFacts>,
+	member: MemberFacts
+): MemberReads => {
 	const placed: Array<PlacedRead> = []
 	const fed: Array<ReadonlyArray<Fed>> = []
 	/** Each read fact's canonical text, written once for every instance that holds it (readKey). */
 	const texts = new Map<ReadFact, string>()
 	const readKey = (read: ReadFact): string =>
 		texts.getOrInsertComputed(read, () => canonicalTextOf(read))
-	placementsOf(installation, member, (statement, s, at) => {
+	placementsOf(sealOfRead, relations, member, (statement, s, at) => {
 		const seen = new TupleSet<readonly [number | undefined, number, string, ReadFact["mode"]]>()
 		for (const { at: place, read } of at.reads) {
 			const seal = at.seal(place)
@@ -1279,11 +1304,13 @@ export const readModes = (
 		readonly mode: ReadFact["mode"]
 		readonly outside: boolean
 	}> = []
+	const installation = installationOf(
+		input.relations,
+		input.roles.map((role) => ({ role, members: writtenFacts(role) }))
+	)
 	placementsOf(
-		installationOf(
-			input.relations,
-			input.roles.map((role) => ({ role, members: writtenFacts(role) }))
-		),
+		(read) => sealOf(installation, read),
+		installation.relations,
 		member,
 		(statement, _s, at) => {
 			for (const { at: place, read } of at.reads) {
@@ -1301,7 +1328,7 @@ export const readModes = (
 }
 
 /** The text that names one group a read reads: its relation, its fields and what they are bound to. */
-const groupOf = (r: ReadFact): string =>
+export const groupOf = (r: ReadFact): string =>
 	r.group === undefined
 		? `${r.relation}()`
 		: `${r.relation}(${groupFields(r.group).join(",")})=${r.group.bound.map((b) => b.by).join(",")}`
@@ -1623,7 +1650,7 @@ const madeOf = (at: Installation, served: Served): ReadonlyMap<string, ReadonlyS
  * makes a row present where the relation stands among the witness's `rows` or `present`, or absent where it stands
  * among its `absent`.
  */
-const breaksAt = (made: ReadonlySet<Made>, w: Witness, relation: string): boolean =>
+export const breaksAt = (made: ReadonlySet<Made>, w: Witness, relation: string): boolean =>
 	(made.has("present") && (w.rows.includes(relation) || w.present.includes(relation))) ||
 	(made.has("absent") && w.absent.includes(relation))
 
