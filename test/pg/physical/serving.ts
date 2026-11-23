@@ -49,6 +49,7 @@ import { parsedName, wild } from "#test/support/kernel/naming.ts"
 import { backendWaitStep, caseHang } from "#test/support/limits.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import {
+	countedAsVacuumed,
 	insertOf,
 	type VolumeFill,
 	type VolumeFillRefused,
@@ -1426,13 +1427,7 @@ const standCopy = (installed: Judged, table: Table, load: VolumeLoad, state: Law
 						countOf(admin, `SELECT count(*)::text FROM ${quoted}`)
 					)
 		if (state.kind === "filled") {
-			yield* admin.queryValues(
-				"SELECT pg_catalog.pg_restore_relation_stats('schemaname', $1::text, 'relname', $2::text, " +
-					"'relpages', p.pages, 'reltuples', $3::text::real, 'relallvisible', p.pages) " +
-					"FROM (SELECT (pg_catalog.pg_relation_size($4::text::pg_catalog.regclass) / " +
-					"pg_catalog.current_setting('block_size')::bigint)::integer AS pages) AS p",
-				[table.schema, copyName, String(rows), quoted]
-			)
+			yield* admin.queryValues(countedAsVacuumed(quoted), [])
 		}
 		const mapped = yield* Effect.map(
 			admin.queryValues(

@@ -1,4 +1,5 @@
 import { Array as Arr, Data, Effect, Predicate } from "effect"
+import { quoteString } from "#compiler/core/text.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 
 /**
@@ -253,3 +254,18 @@ export const volumeFill = (
 			return filled.chunks
 		})
 	)
+
+/**
+ * The statement that records a filled table's size as a VACUUM of it counts it, where no VACUUM can run, in a
+ * transaction: its pages, read off its blocks, its live rows, counted, and every page all-visible
+ * (pg_restore_relation_stats). A table of declared statistics takes its size from nothing else: its columns' statistics
+ * are the declaration's, which an ANALYZE leaves, and an ANALYZE of none of its columns samples a hundred rows
+ * (analyze.c's least sample), so over pages a rolled-back load left dead it can count no live row at all, and every
+ * estimate of the table is then one row.
+ */
+export const countedAsVacuumed = (quoted: string): string =>
+	"SELECT pg_catalog.pg_restore_relation_stats('schemaname', n.nspname::text, 'relname', c.relname::text, " +
+	`'relpages', p.pages, 'reltuples', (SELECT pg_catalog.count(*) FROM ${quoted})::real, 'relallvisible', p.pages) ` +
+	"FROM pg_catalog.pg_class AS c JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace, " +
+	"LATERAL (SELECT (pg_catalog.pg_relation_size(c.oid) / pg_catalog.current_setting('block_size')::bigint)::integer AS pages) AS p " +
+	`WHERE c.oid = ${quoteString(quoted)}::pg_catalog.regclass`

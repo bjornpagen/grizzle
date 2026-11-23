@@ -6,16 +6,17 @@
  * packages and every item of each under each term, and edullm's `sets`, each term a current package states with how
  * many current packages state it and how many items its item set holds.
  *
- * - **once**: packages stored, then as many again and more, the idea terms growing with them, under each statistics
- *   state an analyzed installation is in (read-once.fixtures.ts StatsState: analyzed after each load, after the first
- *   only, empty and then after each load, or after each load over a case rolled back): the terms read (`sets`) answers
+ * - **once**: packages stored, then as many again and more, the idea terms growing with them, under each state of the
+ *   tables' sizes autovacuum leaves an installation in, its columns' statistics declared (read-once.fixtures.ts
+ *   StatsState: counted after each load, after the first only, empty and then after each load, or after each load over a
+ *   case rolled back): the terms read (`sets`) answers
  *   the host's count of every term's packages and items, the heads read (`versions`'s classifications) every current
  *   package with its three terms, and every scan either plan runs more than once, of a stored relation or of a CTE it
  *   derived once, handles fewer rows a run than there are packages, so its work grows with what it reads, not with its
- *   square. A parallel scan's leader and workers are one run of it. A never-analyzed installation is outside the
- *   envelope (R1, the runbook analyzes after the first package): there every estimate is one row and PostgreSQL may
+ *   square. A parallel scan's leader and workers are one run of it. An installation whose sizes count no row is outside
+ *   the envelope (R1): there every estimate is one row and PostgreSQL may
  *   read the classifications' eight elements by unparameterized inner scans, 2.5 s at 150 packages, 12.7 s at 450,
- *   where any analyzed state reads them in 37 ms. Before rule 5b a derived relation joined to another stood
+ *   where any counted state reads them in 37 ms. Before rule 5b a derived relation joined to another stood
  *   as the inner side of a nested loop PostgreSQL re-derived for each outer row, and the attachment's fold restricted
  *   ItemSet to each term inside its grouping, deriving it once per term: edullm's `sets` took six minutes at 206
  *   packages. A derived set joined as a set would be scanned whole for each row of the region's other occurrences, or
@@ -25,7 +26,7 @@
  *   package once per head (40 s at 183 heads). The one rescan left is the items attachment's, the terms' folds scanned
  *   for each term, which grows with the square of the terms, in memory, never of a stored row. This property kills
  *   neither rule 5b's per-row reads nor the region's chain from a set derived once: without the first these reads'
- *   SQL changes but PostgreSQL plans it within the bound under every analyzed state, and without the second it does not
+ *   SQL changes but PostgreSQL plans it within the bound under every counted state, and without the second it does not
  *   change, no region of theirs being past the collapse limit (each state's plans measured on a cluster of our own).
  */
 import { property } from "@bjornpagen/testing/property"
@@ -85,7 +86,7 @@ export const aWorkloadReadDerivesEachDerivedRelationOncePerStatementSoNoScanRead
 				),
 		oracle: {
 			kind: "universal",
-			name: "the host's count of every term's current packages and items and of every current package's terms, and bound: every scan either read runs more than once, of a stored relation or of a CTE it derived, reads fewer rows a run than the packages stored, at two sizes, under each analyzed statistics state, a parallel scan's processes one run"
+			name: "the host's count of every term's current packages and items and of every current package's terms, and bound: every scan either read runs more than once, of a stored relation or of a CTE it derived, reads fewer rows a run than the packages stored, at two sizes, under each counted state of the tables' sizes, a parallel scan's processes one run"
 		},
 		budget: { runs: 17, steered: 200 },
 		kept: [],

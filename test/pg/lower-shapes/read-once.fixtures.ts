@@ -18,6 +18,7 @@ import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/
 import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
+import { countedAsVacuumed } from "#test/support/substrate/fill.ts"
 
 /**
  * A package's XML, every element of every document one row of one table, as pantry stores QTI content: the package,
@@ -262,25 +263,28 @@ export const readOnceTemplate = migratedTemplate({
 })
 
 /**
- * Where the tables' statistics stand when each read is planned, each a state an analyzed installation is in, as the
- * runbook's ANALYZE after its first package and autovacuum leave it (a never-analyzed one is outside grizzle's
- * envelope, R1): analyzed after each load; analyzed after the first load only, so the second read is planned on the
- * first's statistics, stale; analyzed empty before any load, as autovacuum may leave a new installation, and after each
- * load; and analyzed after each load over a previous case rolled back, its rows dead in the tables' pages and its
- * in-place sizes (pg_class's relpages, reltuples and relallvisible, which no rollback restores) the tables' own until
- * the first ANALYZE, as a clone a case before this one ran in holds them.
+ * Where the tables' sizes stand when each read is planned, each a state autovacuum leaves an installation in, every
+ * column's statistics the installation's declared ones (physical/statistics), which no ANALYZE replaces: counted after
+ * each load, as a VACUUM counts a table (fill.ts countedAsVacuumed); counted after the first load only, so the second
+ * read is planned on the first's sizes, stale; counted empty before any load, as autovacuum may leave a new
+ * installation, and after each load; and counted after each load over a previous case rolled back, its rows dead in the
+ * tables' pages and its in-place sizes (pg_class's relpages, reltuples and relallvisible, which no rollback restores) the
+ * tables' own until the first count, as a clone a case before this one ran in holds them. An ANALYZE counted them here
+ * before: of a table whose every column's statistics are declared it samples a hundred rows (analyze.c's least sample),
+ * which over the pages earlier cases left dead counted none of a table's thousands, or a tenth of them, and a read was
+ * planned on one row.
  */
 export type StatsState =
-	| "analyzed after each load"
-	| "analyzed after the first load only"
-	| "analyzed empty, then after each load"
-	| "analyzed after each load, over a case rolled back"
+	| "counted after each load"
+	| "counted after the first load only"
+	| "counted empty, then after each load"
+	| "counted after each load, over a case rolled back"
 
 export const statsStates = [
-	"analyzed after each load",
-	"analyzed after the first load only",
-	"analyzed empty, then after each load",
-	"analyzed after each load, over a case rolled back"
+	"counted after each load",
+	"counted after the first load only",
+	"counted empty, then after each load",
+	"counted after each load, over a case rolled back"
 ] as const satisfies ReadonlyArray<StatsState>
 
 /**
@@ -328,9 +332,9 @@ const tablesOf = (installed: Installed): ReadonlyArray<string> => {
 	return [names.table(Pkg), names.table(Node), names.table(Doc), names.table(Item)]
 }
 
-/** The statements analyzing the stored tables, as the runbook and autovacuum do. */
-const analyzed = (installed: Installed): ReadonlyArray<string> =>
-	Arr.map(tablesOf(installed), (t) => `ANALYZE ${t}`)
+/** The statements counting the stored tables' sizes, as autovacuum's VACUUM does (fill.ts countedAsVacuumed). */
+const counted = (installed: Installed): ReadonlyArray<string> =>
+	Arr.map(tablesOf(installed), countedAsVacuumed)
 
 /** The statements loading packages `from` to `to`, the tables' triggers off, as a publish writes them whole. */
 const loaded = (
@@ -433,14 +437,19 @@ const placed = (plan: PlanNode): ReadonlyArray<Placed> => {
 }
 
 /**
- * How many times a scan ran. A parallel-aware scan's loops are the processes of each run of the Gather above it, the
- * leader's and each worker's, which share the one scan: it ran as often as the Gather did. Any other node's loops are
- * its runs.
+ * How many times a scan ran. Under a Gather, each run of the Gather runs the scan once in each of its processes, the
+ * leader's and each worker's: a parallel-aware scan the processes share, any other each process's own, as the build of
+ * a hash each process makes for itself: its loops over the processes, times the Gather's runs, are its runs, so a scan
+ * each process ran once ran as often as the Gather did, and one each process ran for each of its rows ran that often
+ * more. Elsewhere a node's loops are its runs.
  */
 const runsOf = (p: Placed): number =>
-	p.node.parallelAware
-		? Option.match(p.gather, { onNone: () => p.node.actualLoops, onSome: (g) => g.actualLoops })
-		: p.node.actualLoops
+	Option.match(p.gather, {
+		onNone: () => p.node.actualLoops,
+		onSome: (g) =>
+			(p.node.actualLoops * g.actualLoops) /
+			(Option.getOrElse(g.workersLaunched, () => 0) + g.actualLoops)
+	})
 
 /**
  * A scan that runs more than once, with the rows it handles a run, its output and what its filters removed (each a
@@ -535,7 +544,7 @@ const answerOf = (rows: ReadonlyArray<ReadonlyArray<unknown>>): ReadonlyArray<st
 
 /**
  * One case in its one transaction, which the case's end rolls back: `packages` packages loaded with the triggers off,
- * the read explained and run; then `more` packages loaded and the read again, the tables' statistics standing as the
+ * the read explained and run; then `more` packages loaded and the read again, the tables' sizes standing as the
  * case's state puts them (StatsState). Each time it answers the host's count of every term's current packages and their
  * items, and every scan its plan runs more than once, of a stored relation or of a CTE it derived once, handles fewer
  * rows a run than there are packages: a scan per term, per package or per item reads that one's rows, a few of each
@@ -559,23 +568,23 @@ export const runReadOnce = (
 			[10, 9 + c.packages],
 			[10 + c.packages, 9 + c.packages + c.more]
 		] as const
-		if (c.stats === "analyzed empty, then after each load") {
-			yield* run(analyzed(installed))
+		if (c.stats === "counted empty, then after each load") {
+			yield* run(counted(installed))
 		}
-		if (c.stats === "analyzed after each load, over a case rolled back") {
+		if (c.stats === "counted after each load, over a case rolled back") {
 			yield* bare.query("SAVEPOINT previous_case", [])
 			yield* run(
 				Arr.flatMap(rounds, ([from, to]) => [
 					...loaded(installed, c, from, to),
-					...analyzed(installed)
+					...counted(installed)
 				])
 			)
 			yield* bare.query("ROLLBACK TO SAVEPOINT previous_case", [])
 		}
 		for (const [round, [from, to]] of rounds.entries()) {
 			yield* run(loaded(installed, c, from, to))
-			if (round === 0 || c.stats !== "analyzed after the first load only") {
-				yield* run(analyzed(installed))
+			if (round === 0 || c.stats !== "counted after the first load only") {
+				yield* run(counted(installed))
 			}
 			const stored = to - 9
 			const bounded = (read: string, plan: PlanNode) => {

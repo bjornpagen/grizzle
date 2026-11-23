@@ -25,6 +25,7 @@ import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
+import { countedAsVacuumed } from "#test/support/substrate/fill.ts"
 
 /**
  * edullm's test-variable resolution in small (pantry's readings.ts, the qualified name `ITEMREF.VAR`): each reference
@@ -110,7 +111,10 @@ export type ConcatProbeFeature =
 
 /**
  * One case in its one transaction, which the case's end rolls back: `packages` packages of `references` references,
- * reference i of each named `scope<i / 10>.var<i>`, loaded with the captures off, and analyzed; then, through the
+ * reference i of each named `scope<i / 10>.var<i>`, loaded with the captures off, and counted as a VACUUM counts it
+ * (fill.ts countedAsVacuumed), as autovacuum leaves a loaded table: an ANALYZE there, which samples a hundred rows of a
+ * table of declared statistics, counted no live row over the pages earlier cases' rolled-back loads left dead, so
+ * PostgreSQL priced every read of Ref at one row and probed it by its primary key's package alone; then, through the
  * captures, `written` variables of package 1, each a reference's scope and name, whose rows the deltas hold until the judge
  * reads them. Each query the judge raises on is explained over them before the judge runs (test/support/judge.ts
  * judgedPlans), and then the judge runs (SET CONSTRAINTS ALL IMMEDIATE) and accepts the lawful state: every scan of Ref
@@ -135,8 +139,8 @@ export const runConcatProbe = (
 			`ALTER TABLE ${ref} DISABLE TRIGGER USER`,
 			`INSERT INTO ${ref} (${r("package")}, ${r("path")}, ${r("start")}, ${r("identifier")}) SELECT ${pkg("p")}, 'document/' || (i % 7), i, 'scope' || (i / 10) || '.var' || i FROM generate_series(1, ${stored.packages}) AS p(p), generate_series(0, ${stored.references - 1}) AS i(i)`,
 			`ALTER TABLE ${ref} ENABLE TRIGGER USER`,
-			`ANALYZE ${ref}`,
-			`ANALYZE ${variable}`
+			countedAsVacuumed(ref),
+			countedAsVacuumed(variable)
 		]
 		/** Written variable k is reference k·(references / written)'s, of package 1, spread over its references. */
 		const written = [
