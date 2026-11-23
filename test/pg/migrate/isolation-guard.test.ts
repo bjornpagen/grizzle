@@ -6,14 +6,16 @@
  * versions whose certificates differ must create or drop the guard exactly as a fresh install of the target holds it,
  * or a READ COMMITTED writer's every write is refused by a guard left behind, or a SERIALIZABLE one runs unguarded.
  *
- * A case draws three versions of one schema of two relations, Post and Tag, keyed by id, and one login over it with
- * two roles. The writer writes a drawn nonempty set of them, under `insert` or `write`, and its workload inserts a
- * drawn subset of those, each row supplied by the call; the other role writes a drawn set of them under `write`, with no
- * change member, so it runs SERIALIZABLE, and a relation it writes stays guarded whoever else writes it. Post may be
- * renamed to Note at the second or the third version, so a guard is dropped or created on a table its migration
- * renames. Each version is drafted by generate's own draft (cli/generate.ts draftSchema), its roles certified in the
- * draft's workload plan, from the snapshot the one before reached, and applied by the real runner, the drift check and
- * the installed-catalog checker admitting every apply; or the last two together, as one apply of two pending folders.
+ * A case draws three versions of one schema of two relations, Post, closed, and Tag, open (mutable inside the unit of
+ * its id), keyed by id, and one login over it with two roles. The writer writes a drawn nonempty set of them under
+ * `insert`, or Tag alone under `write`, where it holds UPDATE and DELETE (a closed relation's writer holds INSERT alone
+ * whichever list names it), and its workload inserts a drawn subset of those, each row supplied by the call; the other
+ * role writes a drawn set of them under `write`, with no change member, so it runs SERIALIZABLE, and a relation it
+ * writes stays guarded whoever else writes it. Post may be renamed to Note at the second or the third version, so a
+ * guard is dropped or created on a table its migration renames. Each version is drafted by generate's own draft
+ * (cli/generate.ts draftSchema), its roles certified in the draft's workload plan, from the snapshot the one before
+ * reached, and applied by the real runner, the drift check and the installed-catalog checker admitting every apply; or
+ * the last two together, as one apply of two pending folders.
  *
  * The oracle is the guard's rule restated over the case: a relation is guarded unless some role writes it and every
  * role that writes it is certified READ COMMITTED (the draft's certificates) and writes it by `insert`. After every

@@ -16,7 +16,15 @@ import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
-import { login, relation, role, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
+import {
+	login,
+	mutable,
+	relation,
+	role,
+	schema,
+	unit,
+	wholeEntriesOf
+} from "#compiler/public/schema.ts"
 import { defineConfig } from "#index.ts"
 import { offlineOwner } from "#test/pg/cli/support.ts"
 import {
@@ -41,7 +49,11 @@ type Table = (typeof tables)[number]
 
 type Mode = "insert" | "write"
 
-/** A version's roles: the writer's mode and the relations it writes and inserts, and the other role's writes. */
+/**
+ * A version's roles: the writer's mode and the relations it writes and inserts, and the other role's writes. A writer
+ * by `write` writes the open Tag alone, where it holds UPDATE and DELETE; a closed relation's writer holds INSERT alone
+ * whichever list names it.
+ */
 interface Version {
 	readonly mode: Mode
 	readonly writes: Arr.NonEmptyReadonlyArray<Table>
@@ -66,9 +78,11 @@ const nonEmptySubset =
 	}
 
 const versionGen: Gen<Version> = (s) => {
-	const writes = s.draw(nonEmptySubset(tables))
+	const mode = s.draw(element<Mode>(["insert", "write"]))
+	const writes: Arr.NonEmptyReadonlyArray<Table> =
+		mode === "write" ? ["tag"] : s.draw(nonEmptySubset(tables))
 	return {
-		mode: s.draw(element<Mode>(["insert", "write"])),
+		mode,
 		writes,
 		inserts: s.draw(subarray(writes)),
 		other: s.draw(
@@ -99,11 +113,14 @@ const Note = relation("Note", { id: pg.integer }, ["id"])
 
 const Tag = relation("Tag", { id: pg.integer }, ["id"])
 
+/** Tag open, mutable inside the unit of its id, in every version; Post and Note closed. */
+const openTag = [mutable(Tag), unit("Row", { id: pg.integer })] as const
+
 const file = `${repoRoot}app/grizzle.config.ts`
 
 /** The configuration of `version` under `name`, Post named Post. */
 const withPost = (name: string, version: Version) => {
-	const S = schema(name, [Post, Tag], [])
+	const S = schema(name, [Post, Tag], openTag)
 	const names = Arr.map(version.writes, (t) => (t === "post" ? "Post" : "Tag"))
 	const writer = role(
 		S,
@@ -134,7 +151,7 @@ const withPost = (name: string, version: Version) => {
 
 /** The configuration of `version` under `name`, Post renamed to Note. */
 const withNote = (name: string, version: Version) => {
-	const S = schema(name, [Note, Tag], [])
+	const S = schema(name, [Note, Tag], openTag)
 	const names = Arr.map(version.writes, (t) => (t === "post" ? "Note" : "Tag"))
 	const writer = role(
 		S,
@@ -369,13 +386,14 @@ const certifiedOn = (table: Table): Version => ({
 	other: []
 })
 
-/** A version whose writer writes `table` by `write`, holding DELETE there, so the table is guarded. */
-const serialOn = (table: Table): Version => ({
-	mode: "write",
-	writes: [table],
-	inserts: [table],
-	other: []
-})
+/**
+ * A version that guards `table`: the open Tag written by the writer's `write`, holding DELETE there; Post inserted by
+ * the writer and written by the other role too, which runs SERIALIZABLE.
+ */
+const serialOn = (table: Table): Version =>
+	table === "tag"
+		? { mode: "write", writes: [table], inserts: [table], other: [] }
+		: { mode: "insert", writes: [table], inserts: [table], other: [table] }
 
 export const aims: ReadonlyArray<Aim<GuardCase, Feature>> = [
 	[
