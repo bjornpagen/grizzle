@@ -18,7 +18,8 @@ import {
 	mutable,
 	on,
 	relation,
-	schema
+	schema,
+	unit
 } from "#compiler/public/schema.ts"
 import type { FromItem, FromSource, OperandSelect } from "#compiler/sql/ast.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
@@ -70,7 +71,7 @@ const schemaOf = (shape: Shape) => {
 	const Base = schema(
 		"judge_sources",
 		[T, S],
-		shape.judge === "probed" ? [mutable(T), mutable(S)] : []
+		shape.judge === "probed" ? [unit("Document", { doc: pg.integer }), mutable(T), mutable(S)] : []
 	)
 	const D = derived(
 		"D",

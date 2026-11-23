@@ -6,7 +6,7 @@ import { theoryViolations } from "#compiler/laws/model/violations.ts"
 import { Fn, Type } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { check, derived, fn, mutable, relation, schema } from "#compiler/public/schema.ts"
+import { check, derived, fn, mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 
 /** The value the rule reads beside its relation's rows: a declared function's call of each volatility, or a conversion
@@ -45,12 +45,17 @@ const doubled = (volatility: "immutable" | "stable") =>
 		body: fn.body`SELECT $1 * 2`
 	})
 
-/** A's schema, A immutable where the case is judged whole and mutable where its probes judge it, with `doubled`. */
+/** A's schema, A immutable where the case is judged whole and mutable, under the unit of its id, where its probes judge
+ * it, with `doubled`. */
 const baseOf = (c: Case) => {
 	const called = doubled(c.value === "a stable function" ? "stable" : "immutable")
 	return {
 		called,
-		Base: schema("Stable", [A, called], c.judged === "probes" ? [mutable(A)] : [])
+		Base: schema(
+			"Stable",
+			[A, called],
+			c.judged === "probes" ? [unit("As", { id: pg.integer }), mutable(A)] : []
+		)
 	}
 }
 

@@ -13,7 +13,8 @@ import {
 	mutable,
 	on,
 	relation,
-	schema
+	schema,
+	unit
 } from "#compiler/public/schema.ts"
 import type { OperandSelect } from "#compiler/sql/ast.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
@@ -63,7 +64,7 @@ const schemaOf = (shape: Shape) => {
 	const Base = schema(
 		"delta_reads",
 		[T, S],
-		shape.judge === "probed" ? [mutable(T), mutable(S)] : []
+		shape.judge === "probed" ? [unit("Document", { doc: pg.integer }), mutable(T), mutable(S)] : []
 	)
 	const first = query(Base).rule((r) => {
 		const { doc, at, b } = v(T, "t")

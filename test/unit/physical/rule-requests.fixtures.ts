@@ -7,7 +7,16 @@ import { keyTermText, type PlannedIndex } from "#compiler/physical/indexes/engin
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { contained, derived, key, mutable, on, relation, schema } from "#compiler/public/schema.ts"
+import {
+	contained,
+	derived,
+	key,
+	mutable,
+	on,
+	relation,
+	schema,
+	unit
+} from "#compiler/public/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { owning } from "#test/support/policy.ts"
 
@@ -68,18 +77,27 @@ const schemaOf = (shape: Shape) => {
 		[T, U, S, Q],
 		[
 			...(shape.keyedByG ? [key(on(U, "g"))] : []),
-			...(shape.unitLocal ? [] : [mutable(T), mutable(U), mutable(S), mutable(Q)])
+			...(shape.unitLocal
+				? []
+				: [
+						unit("Package", { package: pg.integer }),
+						unit("Gs", { g: pg.integer }),
+						mutable(T),
+						mutable(U),
+						mutable(S),
+						mutable(Q)
+					])
 		]
 	)
 	const D = derived(
 		"D",
 		query(Base).rule((r) => {
-			const { package: unit, g, h, x } = v(T, "t")
+			const { package: packageNo, g, h, x } = v(T, "t")
 			const joined = shape.join === "g" ? { g } : shape.join === "h" ? { h } : { g, h }
 			return r
-				.match(T, { package: unit, ...joined, x })
-				.match(U, { package: unit, ...joined, ...(shape.literal ? { w: 1 } : {}) })
-				.find({ package: unit, x })
+				.match(T, { package: packageNo, ...joined, x })
+				.match(U, { package: packageNo, ...joined, ...(shape.literal ? { w: 1 } : {}) })
+				.find({ package: packageNo, x })
 		})
 	)
 	const E = derived(

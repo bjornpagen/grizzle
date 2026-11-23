@@ -31,11 +31,11 @@ import {
 	field,
 	key,
 	literal,
-	mutable,
 	on,
 	relation,
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
+import { openedDescs } from "#test/support/open.ts"
 import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
 import { ownedInput } from "#test/support/policy.ts"
 import { generatedOn, lawColumnsOf } from "#test/unit/laws/model/natives.ts"
@@ -310,13 +310,12 @@ const PROBED_FIELDS = ["y0", "y1", "y2"] as const
 
 /**
  * The schema of a case: T, K, each target's containment from U<i>, each probe's into V<j>, and the keys `restating`,
- * every relation mutable: a containment between immutable relations that joins within one unit, a probe out of T at
- * its id among them, is judged whole and installs no reverse probe (laws/model/plan.ts containmentDischarge), and this
- * box reads the native placement of the probes.
+ * every relation open: a containment between immutable relations that joins within one unit, a probe out of T at its
+ * id among them, is judged whole and installs no reverse probe (laws/model/plan.ts containmentDischarge), and this box
+ * reads the native placement of the probes.
  */
-export const schemaOf = (s: Sketch, restating: ReadonlyArray<SideDesc>): SchemaDesc => ({
-	name: "ProbedTarget",
-	relations: [
+export const schemaOf = (s: Sketch, restating: ReadonlyArray<SideDesc>): SchemaDesc => {
+	const relations = [
 		relation("T", { id: f.integer, a: f.integer, b: f.integer, c: f.integer, kind: f.integer }, [
 			"id"
 		]),
@@ -331,25 +330,27 @@ export const schemaOf = (s: Sketch, restating: ReadonlyArray<SideDesc>): SchemaD
 				fields
 			)
 		})
-	],
-	statements: [
-		key(sideOfT(keySelection(s), s.key)),
-		...Arr.map(restating, key),
-		...Arr.map(s.targets, (t, i) =>
-			contained(on(`U${i}`, Arr.take(SOURCE_FIELDS, t.terms.length)), targetSide(s, t))
-		),
-		...Arr.map(s.probes, (p, j) =>
-			contained(
-				sideOfT(selectionAt(s, p.at), p.terms),
-				on(`V${j}`, Arr.take(PROBED_FIELDS, p.terms.length))
-			)
-		),
-		mutable("T"),
-		...Arr.map(s.targets, (_, i) => mutable(`U${i}`)),
-		...Arr.map(s.probes, (_, j) => mutable(`V${j}`))
-	],
-	bases: []
-})
+	]
+	return {
+		name: "ProbedTarget",
+		relations,
+		statements: [
+			key(sideOfT(keySelection(s), s.key)),
+			...Arr.map(restating, key),
+			...Arr.map(s.targets, (t, i) =>
+				contained(on(`U${i}`, Arr.take(SOURCE_FIELDS, t.terms.length)), targetSide(s, t))
+			),
+			...Arr.map(s.probes, (p, j) =>
+				contained(
+					sideOfT(selectionAt(s, p.at), p.terms),
+					on(`V${j}`, Arr.take(PROBED_FIELDS, p.terms.length))
+				)
+			),
+			...openedDescs(relations)
+		],
+		bases: []
+	}
+}
 
 export const installationOf = (desc: SchemaDesc): Installation => {
 	const owned = succeeded(ownedInput(desc), "the drawn schema is owned")

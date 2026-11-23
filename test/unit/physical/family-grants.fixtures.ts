@@ -21,7 +21,8 @@ import {
 	on,
 	ordered,
 	relation,
-	schema
+	schema,
+	unit
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
@@ -69,13 +70,14 @@ const slots = ordered(on(Slot, "shelf", "at"), fin(Shelf, "slots"))
 const relations = Object.freeze({ Store, Item, Open, Shelf, Slot })
 
 /** The world's schema: the counted family of Items with a sum into Store's stock and Store's region copied into each
- * Item, the ordered family of Slots, and each owner mutable when `mutability` says so. */
+ * Item, the ordered family of Slots, and each owner mutable, inside the unit of its id, when `mutability` says so. */
 export const schemaOf = (mutability: Mutability) =>
 	schema("Shops", Rec.values(relations), [
 		items,
 		fold(items, Monoid.sum, on(Item, "store", "qty"), on(Store, "id", "stock")),
 		contained(on(Item, "store", "region"), on(Store, "id", "region")),
 		slots,
+		unit("Row", { id: Id }),
 		...(mutability.Store ? [mutable(Store)] : []),
 		...(mutability.Shelf ? [mutable(Shelf)] : [])
 	])

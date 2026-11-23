@@ -10,7 +10,8 @@ import {
 	mutable,
 	on,
 	relation,
-	schema
+	schema,
+	unit
 } from "#compiler/public/schema.ts"
 
 const T = relation("T", { k: pg.integer, a: pg.integer, b: pg.integer }, ["k"])
@@ -19,8 +20,20 @@ const S = relation("S", { id: pg.integer, a: pg.integer }, ["id"])
 
 const G = relation("G", { x: pg.integer }, ["x"])
 
-/** Every relation mutable, so no rule over them is unit-local: each is probed, its check its probes over every row. */
-const Base = schema("every_row", [T, S, G], [mutable(T), mutable(S), mutable(G)])
+/** Every relation mutable, each inside the unit of its key, so no rule over them is unit-local: each is probed, its check
+ * its probes over every row. */
+const Base = schema(
+	"every_row",
+	[T, S, G],
+	[
+		unit("Ts", { k: pg.integer }),
+		unit("Ss", { id: pg.integer }),
+		unit("Gs", { x: pg.integer }),
+		mutable(T),
+		mutable(S),
+		mutable(G)
+	]
+)
 
 /**
  * The values a later arm of D is held at: T at b 1 or b 2, a key field bound by a literal, which the drawn rows hold, or

@@ -8,7 +8,7 @@ import { flight } from "#compiler/lower/conservative/types.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Logic } from "#compiler/public/compute.ts"
 import { contract, pg } from "#compiler/public/fields.ts"
-import { mutable, relation, schema } from "#compiler/public/schema.ts"
+import { mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -173,7 +173,7 @@ export const workCaseGen: Gen<WorkCase> = (source) => {
 export const statementsOf = (c: WorkCase): ReadonlyArray<SqlStatement> => {
 	const R = relation("R", { k: pg.bigint, g: pg.bigint, x: c.type.field }, ["k"])
 	const S = relation("S", { k: pg.bigint, x: c.type.field }, ["k"])
-	const Values = schema("Values", [R, S], [mutable(R)])
+	const Values = schema("Values", [R, S], [unit("Ks", { k: pg.bigint }), mutable(R)])
 	const at = `the ${c.shape} over ${c.type.name}`
 	const read = (
 		rules: Arr.NonEmptyReadonlyArray<(r: RuleValue) => unknown>
@@ -306,7 +306,7 @@ const F = relation(
 	},
 	["k"]
 )
-const Floats = schema("Floats", [F], [mutable(F)])
+const Floats = schema("Floats", [F], [unit("Ks", { k: pg.bigint }), mutable(F)])
 
 /** The statements an argument case compiles to: its grouped aggregate's read under both lowerings. */
 export const argumentStatementsOf = (c: ArgumentCase): ReadonlyArray<SqlStatement> => {

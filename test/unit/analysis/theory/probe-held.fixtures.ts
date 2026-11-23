@@ -8,7 +8,7 @@ import { probeRows } from "#compiler/analysis/theory/query.ts"
 import type { InferredExpr, InferredQuery, InferredRule } from "#compiler/ir/desc.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { contained, derived, mutable, on, relation, schema } from "#compiler/public/schema.ts"
+import { contained, derived, mutable, on, relation, schema, unit } from "#compiler/public/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { probedRule } from "#test/support/probed.ts"
@@ -60,8 +60,20 @@ const schemaOf = (shape: Shape) => {
 	)
 	const S = relation("S", { id: pg.integer, a: pg.integer }, ["id"])
 	const G = relation("G", { x: pg.integer }, ["x"])
-	/** Mutable, so the containment over them is no unit-local rule but a probed one, whose probes the test reads. */
-	const Base = schema("probe_held", [T, S, G], [mutable(T), mutable(S), mutable(G)])
+	/** Mutable, each under the unit of its key's first field, so the containment over them is no unit-local rule but a
+	 * probed one, whose probes the test reads. */
+	const Base = schema(
+		"probe_held",
+		[T, S, G],
+		[
+			unit("Ts", { k1: pg.integer }),
+			unit("Ss", { id: pg.integer }),
+			unit("Gs", { x: pg.integer }),
+			mutable(T),
+			mutable(S),
+			mutable(G)
+		]
+	)
 	const D = derived(
 		"D",
 		query(Base).rule((r) => {

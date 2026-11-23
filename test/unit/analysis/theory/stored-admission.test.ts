@@ -8,9 +8,9 @@
  * The box is every definition of stored-admission.fixtures.ts over a document's places and links: a projection, the
  * same under other names, one that drops the place, one that hides its unit, counts by document and across documents,
  * a join across documents, a negation within one and across, a call of an immutable function, of a stable one and of
- * an immutable one whose body calls a stable one, and a closed relation alone; every relation immutable, or Doc mutable
- * (open, written in place inside its unit); no unit declared, a unit of the document, or one of the document and its
- * place, which Doc and Link sit in alike.
+ * an immutable one whose body calls a stable one, and a closed relation alone; every relation immutable under no unit
+ * declared, a unit of the document, or one of the document and its place, which Doc and Link sit in alike; or Doc
+ * mutable (open, written in place inside its unit) under either unit.
  *
  * The oracle is the admission restated as a model (a specification, d11-design.md §2): admitted at the unit its head
  * delivers, in the declared unit its relations sit in, or refused by the condition it lacks, its unit-locality before
@@ -89,7 +89,7 @@ export const aStoredRelationIsAdmittedAtTheUnitItsHeadDeliversOrRefusedByTheCond
 			kind: "specification",
 			name: "analysis/theory/unit.ts storedUnit (d11-design.md §2): a stored relation is admitted at the widest unit its head delivers where its definition is unit-local and calls only immutable functions, else refused by the first condition it lacks"
 		},
-		box: "every shape of thirteen, every relation immutable or Doc mutable, no unit declared, a unit of the document or one of the document and its place",
+		box: "every shape of thirteen, every relation immutable under no unit declared, a unit of the document or one of the document and its place, or Doc mutable inside either unit",
 		kept: [],
 		kills: [
 			{

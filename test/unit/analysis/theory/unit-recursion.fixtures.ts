@@ -12,7 +12,8 @@ import {
 	mutable,
 	on,
 	relation,
-	schema
+	schema,
+	unit
 } from "#compiler/public/schema.ts"
 
 /**
@@ -71,7 +72,7 @@ export type Seed = "roots" | "a fixed document"
  */
 export type Law = "contained" | "parent contained" | "check" | "key"
 
-/** Whether every relation the walk reads is immutable, or Node is mutable. */
+/** Whether every relation the walk reads is immutable, or Node is mutable, inside the unit of its document. */
 export type Mutability = "immutable" | "Node mutable"
 
 export interface WalkCase {
@@ -100,7 +101,11 @@ export const localWalk = (c: WalkCase): boolean =>
 	(c.step === "child" || c.step === "derived child")
 
 const Base = (mutability: Mutability) =>
-	schema("UnitWalk", [Node, Link, Claim], mutability === "Node mutable" ? [mutable(Node)] : [])
+	schema(
+		"UnitWalk",
+		[Node, Link, Claim],
+		mutability === "Node mutable" ? [unit("Document", { doc: pg.integer }), mutable(Node)] : []
+	)
 
 /** The case's schema: the derived relations its step reads, the walk, and the rule over it. */
 export const walkSchemaOf = (c: WalkCase) => {

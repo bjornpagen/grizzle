@@ -36,12 +36,12 @@ import {
 	ge,
 	le,
 	literal,
-	mutable,
 	on,
 	onWhere,
 	relation,
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
+import { openedDescs } from "#test/support/open.ts"
 import { oracleLogin } from "#test/support/oracle/install/real.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { owning } from "#test/support/policy.ts"
@@ -108,7 +108,7 @@ const schemaOf = (
 ): SchemaDesc => ({ name, relations, statements, bases: [] })
 
 /** An alternatives law over a roster of `size` handles, keyed by `keyWidth` fields: handle i armed by arm relation
- * `armOf(i)`, or unarmed where it gives none; every relation mutable when `mutableAll`. */
+ * `armOf(i)`, or unarmed where it gives none; every relation open when `mutableAll`. */
 const roster = (
 	size: number,
 	keyWidth: number,
@@ -140,7 +140,7 @@ const roster = (
 	const relations = [Roster, Node, ...arms.values()]
 	return schemaOf("Scaled", relations, [
 		alternatives(Node, "kind", Roster, byHandle),
-		...(mutableAll ? Arr.map(["Node", ...Arr.map([...arms.values()], (a) => a.name)], mutable) : [])
+		...(mutableAll ? openedDescs([Node, ...arms.values()]) : [])
 	])
 }
 
@@ -231,10 +231,11 @@ export const scaled = (dimension: Dimension, n: number): Scaled => {
 			const sources = upTo(n, (i) =>
 				relation(`Source${i}`, { id: f.integer, target: f.integer, active: f.boolean }, ["id"])
 			)
+			const target = relation("Target", { id: f.integer }, ["id"])
 			return schemaAt(
 				schemaOf(
 					"Scaled",
-					[relation("Target", { id: f.integer }, ["id"]), ...sources],
+					[target, ...sources],
 					[
 						...Arr.map(sources, (s) =>
 							contained(
@@ -242,7 +243,7 @@ export const scaled = (dimension: Dimension, n: number): Scaled => {
 								on("Target", ["id"])
 							)
 						),
-						...Arr.map(["Target", ...Arr.map(sources, (s) => s.name)], mutable)
+						...openedDescs([target, ...sources])
 					]
 				)
 			)
@@ -252,21 +253,20 @@ export const scaled = (dimension: Dimension, n: number): Scaled => {
 				upTo(n, (i) => `s${i}`),
 				"the selectors"
 			)
+			const assignment = relation(
+				"Assignment",
+				{
+					id: f.integer,
+					worker: f.integer,
+					...Rec.fromEntries(Arr.map(selectors, (s) => [s, f.boolean] as const))
+				},
+				["id"]
+			)
+			const worker = relation("Worker", { id: f.integer }, ["id"])
 			return schemaAt(
 				schemaOf(
 					"Scaled",
-					[
-						relation(
-							"Assignment",
-							{
-								id: f.integer,
-								worker: f.integer,
-								...Rec.fromEntries(Arr.map(selectors, (s) => [s, f.boolean] as const))
-							},
-							["id"]
-						),
-						relation("Worker", { id: f.integer }, ["id"])
-					],
+					[assignment, worker],
 					[
 						contained(
 							onWhere("Assignment", ["worker"], {
@@ -275,8 +275,7 @@ export const scaled = (dimension: Dimension, n: number): Scaled => {
 							}),
 							on("Worker", ["id"])
 						),
-						mutable("Assignment"),
-						mutable("Worker")
+						...openedDescs([assignment, worker])
 					]
 				)
 			)

@@ -9,10 +9,10 @@ import {
 	alternatives,
 	closed,
 	f,
-	mutable,
 	relation,
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
+import { openedDescs } from "#test/support/open.ts"
 import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
 import { upTo } from "#test/support/up-to.ts"
 import {
@@ -68,18 +68,18 @@ export const armsOf = (
 		return handles.length === 0 ? [] : [{ arm, handles }]
 	})
 
-/** The assignment's schema, its relations mutable, so its alternatives' containments are the natives this box reads, never
+/** The assignment's schema, its relations open, so its alternatives' containments are the natives this box reads, never
  * judged whole (laws/model/plan.ts ContainmentDischarge). */
 const schemaOf = (a: Assignment): SchemaDesc => {
 	const arms = armsOf(a)
 	const roster = { name: "Tag", handles: handlesOf(a) }
+	const stored = [
+		relation("Parent", { id: f.bigint, tag: f.closedId("Tag") }, ["id"]),
+		...Arr.map(arms, (x) => relation(x.arm, { id: f.bigint }, ["id"]))
+	]
 	return {
 		name: "Alternatives",
-		relations: [
-			closed.ordered("Tag", roster.handles),
-			relation("Parent", { id: f.bigint, tag: f.closedId("Tag") }, ["id"]),
-			...Arr.map(arms, (x) => relation(x.arm, { id: f.bigint }, ["id"]))
-		],
+		relations: [closed.ordered("Tag", roster.handles), ...stored],
 		statements: [
 			alternatives(
 				{ name: "Parent", primaryKey: ["id"] },
@@ -94,8 +94,7 @@ const schemaOf = (a: Assignment): SchemaDesc => {
 					})
 				)
 			),
-			mutable("Parent"),
-			...Arr.map(arms, (x) => mutable(x.arm))
+			...openedDescs(stored)
 		],
 		bases: []
 	}

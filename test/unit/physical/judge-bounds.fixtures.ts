@@ -6,7 +6,7 @@ import { Array as Arr } from "effect"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { check, derived, mutable, relation, schema } from "#compiler/public/schema.ts"
+import { check, derived, mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { owning } from "#test/support/policy.ts"
 
@@ -42,12 +42,11 @@ const TB = relation(
 )
 const learnerRelations = [RS, IS, TS, TV, TU, TE, SG, TB] as const
 
-/** The learner's relations, mutable so every rule over them is probed. */
-const Base = schema(
-	"Bounds",
-	learnerRelations,
-	Arr.map(learnerRelations, (t) => mutable(t))
-)
+/** The learner's relations, mutable inside the unit of their learner so every rule over them is probed. */
+const Base = schema("Bounds", learnerRelations, [
+	unit("Learner", { child: pg.integer }),
+	...Arr.map(learnerRelations, (t) => mutable(t))
+])
 
 /** A learner's snapshots beside their item session's stage, an import of one rule, as the ledger's testSnapshots. */
 const snapshots = query(Base).rule((r) => {

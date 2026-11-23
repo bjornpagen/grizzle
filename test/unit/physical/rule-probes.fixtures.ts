@@ -8,7 +8,7 @@ import type { InferredQuery } from "#compiler/ir/desc.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { contained, derived, mutable, on, relation, schema } from "#compiler/public/schema.ts"
+import { contained, derived, mutable, on, relation, schema, unit } from "#compiler/public/schema.ts"
 import type { PlStatement } from "#compiler/sql/ast.ts"
 import { printExpr } from "#compiler/sql/print.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -37,8 +37,13 @@ const schemaOf = (shape: Shape) => {
 	const T = relation("T", { k: pg.integer, a: pg.integer }, ["k"])
 	const U = relation("U", { k: pg.integer }, ["k"])
 	const S = relation("S", { k: pg.integer }, ["k"])
-	/** Mutable, so the containment over them is no unit-local rule but a probed one, whose probes the test reads. */
-	const Base = schema("rule_probes", [T, U, S], [mutable(T), mutable(U), mutable(S)])
+	/** Mutable, inside the unit of their key, so the containment over them is no unit-local rule but a probed one, whose
+	 * probes the test reads. */
+	const Base = schema(
+		"rule_probes",
+		[T, U, S],
+		[unit("Ks", { k: pg.integer }), mutable(T), mutable(U), mutable(S)]
+	)
 	const first = query(Base).rule((r) => {
 		const { k } = v(T, "t")
 		const held = r.match(T, shape.literal ? { k, a: 1 } : { k })

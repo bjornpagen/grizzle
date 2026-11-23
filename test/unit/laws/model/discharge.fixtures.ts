@@ -10,7 +10,16 @@ import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { Logic, Num } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
-import { contained, key, mutable, on, relation, schema, select } from "#compiler/public/schema.ts"
+import {
+	contained,
+	key,
+	mutable,
+	on,
+	relation,
+	schema,
+	select,
+	unit
+} from "#compiler/public/schema.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 
 /** A unit's header. */
@@ -85,19 +94,23 @@ export const caseGen: Gen<Case> = (s) => ({
 	unkeyed: s.draw(element(unkeyeds))
 })
 
-/** The relations of `mutable`, each of the box's. */
+/** The unit of a group, which H, B and C sit in, and the unit of D's i. */
+const groupUnit = unit("Group", { g: pg.integer })
+const dUnit = unit("Ds", { i: pg.integer })
+
+/** The relations of `mutable`, each of the box's, inside its unit. */
 const mutableOf = (m: Mutability) => {
 	switch (m) {
 		case "none":
 			return []
 		case "B":
-			return [mutable(B)]
+			return [groupUnit, mutable(B)]
 		case "C":
-			return [mutable(C)]
+			return [groupUnit, mutable(C)]
 		case "B and C":
-			return [mutable(B), mutable(C)]
+			return [groupUnit, mutable(B), mutable(C)]
 		case "D":
-			return [mutable(D)]
+			return [dUnit, mutable(D)]
 	}
 }
 
@@ -353,7 +366,7 @@ export const migrationCaseGen: Gen<MigrationCase> = (s) => ({
 })
 
 /** The schema of one version of a migration case: B and C, the selected containment unless absent, native where B is
- * mutable, whole where it is not. */
+ * mutable, inside the unit of its group, whole where it is not. */
 export const versionOf = (discharge: MigrationCase["before"]): AnySchema =>
 	schema(
 		"discharge_migrated",
@@ -371,7 +384,7 @@ export const versionOf = (discharge: MigrationCase["before"]): AnySchema =>
 							on(B, "g", "i")
 						)
 					]),
-			...(discharge === "native" ? [mutable(B)] : [])
+			...(discharge === "native" ? [groupUnit, mutable(B)] : [])
 		]
 	)
 

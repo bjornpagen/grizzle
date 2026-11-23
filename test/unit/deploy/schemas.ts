@@ -5,6 +5,7 @@ import { Bits, closedId, generated, pg } from "#compiler/public/fields.ts"
 import * as api from "#compiler/public/schema.ts"
 import {
 	alternatives,
+	type AuthoredStatementDesc,
 	check,
 	closed,
 	closedRelation,
@@ -18,6 +19,7 @@ import {
 	on,
 	relation,
 	type SchemaDesc,
+	unit,
 	value
 } from "#test/support/fixtures/ir/desc.ts"
 import * as work from "#test/support/fixtures/ir/work.ts"
@@ -49,9 +51,15 @@ export const shopV1: SchemaDesc = {
 	bases: []
 }
 
+/** Task open: mutable inside Entity, the unit of its id, which Account sits in too; a version that changes Task in place
+ * states these. */
+export const openTask: ReadonlyArray<AuthoredStatementDesc> = [
+	unit("Entity", { id: f.uuid }),
+	mutable("Task")
+]
+
 /** Version 2: the alternatives over existing tables (each arm's containment into its parent and each handle's reverse
- * containment), a field added, a candidate key, a row check, the contract tightened, a roster added, and Task declared
- * mutable. */
+ * containment), a field added, a candidate key, a row check, the contract tightened, a roster added, and Task open. */
 export const shopV2: SchemaDesc = {
 	name: "Shop",
 	relations: [
@@ -69,12 +77,12 @@ export const shopV2: SchemaDesc = {
 		alternatives(Task, "kind", Kind, { Automatic: automatic(Cents), Manual: ManualTask }),
 		key(on("Account", ["name"])),
 		check("WeightNonNegative", "Task", ge(field("weight"), literal(0))),
-		mutable("Task")
+		...openTask
 	],
 	bases: []
 }
 
-/** Version 3: the field removed, `mutable` removed, and a handle added. */
+/** Version 3: the field removed, Task closed again (openTask removed), and a handle added. */
 export const shopV3: SchemaDesc = {
 	name: "Shop",
 	relations: [Kind, PriorityV2, Account, Task, automatic(CentsV2), ManualTask],

@@ -17,7 +17,8 @@ import {
 	on,
 	onWhere,
 	relation,
-	type SchemaDesc
+	type SchemaDesc,
+	unit
 } from "#test/support/fixtures/ir/desc.ts"
 import { assertReferencesServed } from "#test/support/laws/referencing.ts"
 import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
@@ -122,7 +123,7 @@ const schemaOf = (s: Shape): SchemaDesc => {
 		],
 		statements: [
 			tree,
-			...(s.mutable ? [mutable("Node")] : []),
+			...(s.mutable ? [unit("Document", { doc: f.uuid }), mutable("Node")] : []),
 			...(s.fold
 				? [
 						fold(

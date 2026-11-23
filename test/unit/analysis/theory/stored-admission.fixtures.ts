@@ -97,25 +97,42 @@ const shapes = [
 ] as const satisfies ReadonlyArray<Shape>
 
 /** Whether every relation is immutable, or Doc is mutable: open, written in place inside its unit. */
-export type Mutability = "immutable" | "Doc mutable"
+type Mutability = "immutable" | "Doc mutable"
 
 /**
- * The unit the base declares: none; `document`, keyed by the document, which Doc and Link both sit in; or `place`,
- * keyed by the document and the place, which they sit in too, a unit wider than a definition that drops the place.
+ * A unit the base declares: `document`, keyed by the document, which Doc and Link both sit in; or `place`, keyed by the
+ * document and the place, which they sit in too, a unit wider than a definition that drops the place.
  */
-export type Declared = "none" | "document" | "place"
+export type DeclaredUnit = "document" | "place"
 
-export interface StoredCase {
-	readonly shape: Shape
-	readonly mutability: Mutability
-	readonly declared: Declared
+/** The unit the base declares: none, or one of the two. */
+export type Declared = "none" | DeclaredUnit
+
+/**
+ * A case: a shape over the base, every relation immutable under any declared unit or none, or Doc mutable, which is
+ * open only inside a declared unit.
+ */
+export type StoredCase =
+	| { readonly shape: Shape; readonly mutability: "immutable"; readonly declared: Declared }
+	| { readonly shape: Shape; readonly mutability: "Doc mutable"; readonly declared: DeclaredUnit }
+
+export const storedCase: Gen<StoredCase> = (s) => {
+	const shape = s.draw(element(shapes))
+	switch (s.draw(element<Mutability>(["immutable", "Doc mutable"]))) {
+		case "immutable":
+			return {
+				shape,
+				mutability: "immutable",
+				declared: s.draw(element<Declared>(["none", "document", "place"]))
+			}
+		case "Doc mutable":
+			return {
+				shape,
+				mutability: "Doc mutable",
+				declared: s.draw(element<DeclaredUnit>(["document", "place"]))
+			}
+	}
 }
-
-export const storedCase: Gen<StoredCase> = (s) => ({
-	shape: s.draw(element(shapes)),
-	mutability: s.draw(element<Mutability>(["immutable", "Doc mutable"])),
-	declared: s.draw(element<Declared>(["none", "document", "place"]))
-})
 
 /**
  * What a stored relation's admission decides: its unit's fields and the declared unit it sits in, with its fields
@@ -309,28 +326,25 @@ const storedOf = (shape: Shape, base: ReturnType<typeof baseOf>) => {
 const documentUnit = unit("Document", { doc: pg.integer })
 const placeUnit = unit("Place", { doc: pg.integer, at: pg.integer })
 
-/** The base: the documents, the links, the closed relation and the functions, Doc mutable and a unit declared where the
- * case says. */
-const baseOf = (mutability: Mutability, declared: Declared) =>
+/** Each declared unit's statement. */
+const unitStatements = { document: documentUnit, place: placeUnit } as const
+
+/** The base: the documents, the links, the closed relation and the functions, a unit declared and Doc mutable inside it
+ * where the case says. */
+const baseOf = (c: StoredCase) =>
 	schema(
 		"StoredAdmission",
 		[Doc, Link, Kind, pure, drifting, wrapped],
-		mutability === "Doc mutable"
-			? declared === "none"
-				? [mutable(Doc)]
-				: declared === "document"
-					? [mutable(Doc), documentUnit]
-					: [mutable(Doc), placeUnit]
-			: declared === "none"
+		c.mutability === "Doc mutable"
+			? [mutable(Doc), unitStatements[c.declared]]
+			: c.declared === "none"
 				? []
-				: declared === "document"
-					? [documentUnit]
-					: [placeUnit]
+				: [unitStatements[c.declared]]
 	)
 
 /** The case's schema: the base, and above it the stored relation of its shape. */
 export const storedSchemaOf = (c: StoredCase) => {
-	const base = baseOf(c.mutability, c.declared)
+	const base = baseOf(c)
 	return schema.extend([base], "StoredAdmissionTop", [storedOf(c.shape, base)], [])
 }
 

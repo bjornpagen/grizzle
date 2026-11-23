@@ -15,7 +15,8 @@ import {
 	mutable,
 	on,
 	relation,
-	schema
+	schema,
+	unit
 } from "#compiler/public/schema.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { asDrafted, draftChain, fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
@@ -28,7 +29,7 @@ type Change = "drop" | "rename"
 
 /**
  * One case: its law; whether D's arm selects T by a literal of `a`; its judge, whole, T and S immutable, or probed, both
- * mutable; and what the second version does to `pay`.
+ * mutable inside the unit of their document; and what the second version does to `pay`.
  */
 interface Shape {
 	readonly law: Law
@@ -69,7 +70,11 @@ const schemaOf = (shape: Shape, unread: "pay" | "paid" | "none") => {
 		["doc", "at"]
 	)
 	const S = relation("S", { doc: pg.integer, at: pg.integer, ref: pg.integer }, ["doc", "at"])
-	const Base = schema("law_reads", [T, S], shape.judge === "probed" ? [mutable(T), mutable(S)] : [])
+	const Base = schema(
+		"law_reads",
+		[T, S],
+		shape.judge === "probed" ? [unit("Document", { doc: pg.integer }), mutable(T), mutable(S)] : []
+	)
 	const D = derived(
 		"D",
 		query(Base).rule((r) => {

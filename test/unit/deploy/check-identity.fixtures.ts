@@ -19,7 +19,8 @@ import {
 	mutable,
 	on,
 	relation,
-	schema
+	schema,
+	unit
 } from "#compiler/public/schema.ts"
 import { own, rostersOf } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
@@ -54,7 +55,7 @@ const changes = [
 
 export type Change = (typeof changes)[number]
 
-/** One case: its change, and its judge, whole, T immutable, or probed, T mutable. */
+/** One case: its change, and its judge, whole, T immutable, or probed, T mutable inside the unit of its document. */
 export interface Shape {
 	readonly change: Change
 	readonly judge: "whole" | "probed"
@@ -143,7 +144,7 @@ const schemaOf = (shape: Shape, version: "first" | "second") => {
 	const Base = schema(
 		"check_identity",
 		[T, U, Tier, TierRank, TierNext, Cap],
-		shape.judge === "probed" ? [mutable(T), mutable(U)] : []
+		shape.judge === "probed" ? [unit("Document", { doc: pg.integer }), mutable(T), mutable(U)] : []
 	)
 	const selected = (a: number) =>
 		query(Base).rule((r) => {

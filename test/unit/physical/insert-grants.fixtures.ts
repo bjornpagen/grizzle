@@ -33,7 +33,8 @@ import {
 	on,
 	ordered,
 	relation,
-	schema
+	schema,
+	unit
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { installationsOf, ownLogin, rostersOf } from "#compiler/schema/own.ts"
@@ -87,13 +88,17 @@ type Written = Owner | Member | "Ticket"
 type Mutability = { readonly [O in Owner]: boolean }
 
 /** The world's schema: Items counted under Stores, summed into their stock and copying their region, Slots ordered
- * under Shelves, each owner mutable when `mutability` says so. */
+ * under Shelves, each owner mutable, inside the unit of its id, when `mutability` says so, and Ticket mutable inside the
+ * unit of its number, the open relation outside every family a program puts and deletes. */
 export const schemaOf = (mutability: Mutability) =>
 	schema("Shops", Rec.values(relations), [
 		items,
 		fold(items, Monoid.sum, on(Item, "store", "qty"), on(Store, "id", "stock")),
 		contained(on(Item, "store", "region"), on(Store, "id", "region")),
 		slots,
+		unit("Row", { id: Id }),
+		unit("Tickets", { no: pg.bigint }),
+		mutable(Ticket),
 		...(mutability.Store ? [mutable(Store)] : []),
 		...(mutability.Shelf ? [mutable(Shelf)] : [])
 	])
@@ -116,9 +121,9 @@ export const isOwner = (t: Written): t is Owner => t === "Store" || t === "Shelf
 
 const isMember = (t: Written): t is Member => t === "Item" || t === "Slot"
 
-/** Whether `t` is mutable in a world of `mutability`: an owner as it says, every other relation never. */
+/** Whether `t` is mutable in a world of `mutability`: an owner as it says, Ticket always, a member never. */
 export const mutableIn = (mutability: Mutability, t: Written): boolean =>
-	isOwner(t) ? mutability[t] : false
+	isOwner(t) ? mutability[t] : t === "Ticket"
 
 /** How a role writes each relation: not at all, whole, or through a query entry holding every row. A Slot's key holds
  * its drawn index, which no fact through a query entry states, so Slot is written whole or not at all. */
