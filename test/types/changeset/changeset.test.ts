@@ -44,7 +44,7 @@ export const changeSet = agreement(changeSetAimed, {
 	kept: [
 		{
 			token: ReplayToken(
-				"test/types/changeset/changeset.test.ts#changeSet:-:0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.2.0.0.0.0.0.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.1.1.0.1.2.4.2.0.0.0.0.0.4.0.0.0"
+				"test/types/changeset/changeset.test.ts#changeSet:-:0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.2.0.0.0.0.0.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.1.1.0.1.2.4.2.0.0.0.0.0.4.0.0.0"
 			),
 			reason:
 				"a put whose query reads a parameter, applied with none, beside a tree's node inserted at one key twice with different rows: bind judged the key before it read the parameters, so the engine answered invariant-rejected where the types refuse the call (TEST_SEED=3)",
@@ -52,7 +52,7 @@ export const changeSet = agreement(changeSetAimed, {
 		},
 		{
 			token: ReplayToken(
-				"test/types/changeset/changeset.test.ts#changeSet:-:c.0.0.0.0.2.0.0.0.2.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.3.1.3.4.1.0.4.0.1.0.0.1.1.0.0"
+				"test/types/changeset/changeset.test.ts#changeSet:-:c.0.0.0.0.2.0.0.0.2.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.3.1.3.4.1.0.4.0.1.0.0.1.1.0.0"
 			),
 			reason:
 				"a Ledger fact whose money field holds a bare bigint, beside two Budget facts at one key with different cents: normalization judged Budget's key before it admitted Ledger's facts, so the engine answered invariant-rejected where the types refuse the fact (TEST_SEED=34)",
@@ -60,7 +60,7 @@ export const changeSet = agreement(changeSetAimed, {
 		},
 		{
 			token: ReplayToken(
-				"test/types/changeset/changeset.test.ts#changeSet:-:0.2.0.3.3.2.2.3.2.1.1.2.2.1.3.2.2.1.0.2.1.2.0.1.1.2.3.3.2.2.0.2.2.2.2.2.1.1.1.0.0.0.0.0.1.0.0.0.0.0.0.0.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.1.x.0.0.1.0.0.0.1"
+				"test/types/changeset/changeset.test.ts#changeSet:-:0.2.0.3.3.2.2.3.2.1.1.2.2.1.3.2.2.1.0.2.1.2.0.1.1.2.3.3.2.2.0.2.2.2.2.2.1.1.1.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.1.x.0.0.1.0.0.0.1"
 			),
 			reason:
 				"a delete of Cart, a family's owner, applied by the clerk, whose write list names Cart and not Entry: the delete removes Cart's entries whole, which the engine refuses as outside the role, as the types do, where the generator read the clerk's write list as one that holds the delete, so a delete of Bin and one of Cart applied by the clerk were expected admitted (TEST_SEED=133331041, found over Order, now closed and so never deleted)",
@@ -68,6 +68,18 @@ export const changeSet = agreement(changeSetAimed, {
 		}
 	],
 	kills: [
+		{
+			file: "packages/engine/src/write/frontend/compile.ts",
+			original: "\t\tif (!writtenOf(name, loc).mutable) {",
+			replacement: '\t\tif (name === "") {',
+			why: "The front end refuses no put or delete of a closed relation (write/frontend/compile.ts refuseClosedChange), which the types refuse: the floor's closed-change faults are admitted by the engine and the agreement's program fails."
+		},
+		{
+			file: "packages/engine/src/types/changeset/changeset.ts",
+			original: "\tIsClosed<S, NameOf<R>> extends true",
+			replacement: "\tfalse extends true",
+			why: "The types admit a put or a delete of a closed relation (EditOf's ClosedChange), which the engine refuses: the floor's closed-change faults typecheck under their directives and the agreement's program fails."
+		},
 		{
 			file: "packages/engine/src/types/changeset/changeset.ts",
 			original: "type BindArgOf<P> = [keyof P] extends [never]\n\t? NoParamsArg\n\t: {",

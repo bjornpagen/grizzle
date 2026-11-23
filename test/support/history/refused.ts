@@ -34,10 +34,10 @@ export type BelowForm = (typeof belowForms)[number]
  * that raises 25000 (invalid_transaction_state) naming the table in the error's SCHEMA and TABLE fields for any
  * transaction below SERIALIZABLE, even one whose statement touches no row.
  * PostgreSQL checks privileges at executor start, before any statement trigger fires, and grizzle grants TRUNCATE to no
- * one and UPDATE only on `mutable` relations, so for a world role the first refusal of
- * each form is a total table (refusalOf): INSERT, DELETE, a DELETE of no row, MERGE of granted actions and UPDATE of a
- * mutable relation meet the guard; TRUNCATE, and UPDATE of an immutable relation, meet privilege (42501) at every
- * level. A read alone is never refused, and a transaction that only reads commits.
+ * one and UPDATE and DELETE only on open relations, mutable inside a unit, so for a world role the first refusal of
+ * each form is a total table (refusalOf): INSERT, and an UPDATE, a DELETE, a DELETE of no row or a MERGE of an open
+ * relation, meet the guard; TRUNCATE, and an UPDATE, a DELETE, a DELETE of no row or a MERGE of a closed relation, meet
+ * privilege (42501) at every level. A read alone is never refused, and a transaction that only reads commits.
  *
  * A planted writer is a named case, never a filtered blob: its level, its statement's form, the relation it writes,
  * whether it reads that relation first, and the fact its statement names. It is refused at its first write statement
@@ -64,10 +64,10 @@ export type Refusal = "the guard" | "privilege"
 const refusals: Readonly<Record<BelowForm, (mutable: boolean) => Refusal>> = {
 	insert: () => "the guard",
 	update: (mutable) => (mutable ? "the guard" : "privilege"),
-	delete: () => "the guard",
-	"zero-row delete": () => "the guard",
+	delete: (mutable) => (mutable ? "the guard" : "privilege"),
+	"zero-row delete": (mutable) => (mutable ? "the guard" : "privilege"),
 	truncate: () => "privilege",
-	merge: () => "the guard"
+	merge: (mutable) => (mutable ? "the guard" : "privilege")
 }
 
 /** The first refusal a planted write meets on its relation, by the relation's mutability. */

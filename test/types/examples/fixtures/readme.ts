@@ -140,7 +140,11 @@ export const Blog = schema(
 	[Status, Post, Comment, PostViews],
 	[
 		contained(on(Comment, "org", "post"), on(Post, "org", "slug")),
-		contained(on(PostViews, "org", "post"), on(Post, "org", "slug"))
+		contained(on(PostViews, "org", "post"), on(Post, "org", "slug")),
+		unit("Org", { org: ClerkOrg }),
+		mutable(Post),
+		mutable(Comment),
+		mutable(PostViews)
 	]
 )
 
@@ -391,6 +395,7 @@ export const Credits = schema(
 		grantDebits,
 		fold(grantDebits, Monoid.sum, on(Debit, "grant", "amount"), on(Grant, "id", "spent")),
 		check("WithinGrant", Grant, (g) => g.le(g.spent, g.amount)),
+		unit("Grant", { id: StripePayment }),
 		mutable(Grant)
 	]
 )
@@ -454,7 +459,11 @@ export const Voiding = relation("Voiding", { invoice: StripeInvoice, reason: Pro
 export const Invoices = schema(
 	"Invoices",
 	[InvoiceState, Invoice, Payment, Voiding],
-	[alternatives(Invoice, "state", InvoiceState, { paid: Payment, void: Voiding })]
+	[
+		alternatives(Invoice, "state", InvoiceState, { paid: Payment, void: Voiding }),
+		unit("Invoice", { id: StripeInvoice }),
+		mutable(Invoice)
+	]
 )
 
 /** An invoice, with its payment when it is paid and its voiding when it is void. */
@@ -836,6 +845,7 @@ export const BoxOffice = schema(
 		key(on(Ticket, "show", "holder")),
 		check("SomeSeats", Show, (s) => s.ge(s.seats, 1n)),
 		check("NoOversell", Show, (s) => s.le(s.tickets, s.seats)),
+		unit("Show", { id: ShowCode }),
 		mutable(Show)
 	]
 )

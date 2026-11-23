@@ -617,6 +617,14 @@ const ownUnits = (
 		)
 	}
 	for (const st of statements) {
+		if (st.kind === "mutable" && !unitOf.has(st.relation)) {
+			failWith({
+				_tag: "Refused",
+				at: st.loc,
+				refusal:
+					"mutable over a relation under a unit, whose every change is a write its unit's borrow holds alone: declare the unit its primary key leads with, unit(name, { …its leading key fields }), or keep it closed and record each change as an inserted fact"
+			})
+		}
 		if (st.kind === "series" && relations[st.relation]?.mutable === true) {
 			fail(
 				"MalformedDescription",

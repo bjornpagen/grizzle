@@ -24,7 +24,16 @@ import {
 } from "#bench/write/support/writes.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { drawn, natural, pg } from "#compiler/public/fields.ts"
-import { counted, fin, mutable, on, ordered, relation, schema } from "#compiler/public/schema.ts"
+import {
+	counted,
+	fin,
+	mutable,
+	on,
+	ordered,
+	relation,
+	schema,
+	unit
+} from "#compiler/public/schema.ts"
 
 /**
  * families (W5.BF): what a family's writes cost, by the family's length (fin.md §4.5, §5.3).
@@ -64,6 +73,8 @@ const build = (name: string) =>
 		[
 			ordered(on(Item, "owner", "at"), fin(Owner, "members")),
 			counted(on(Tag, "grp"), fin(Group, "size")),
+			unit("Id", { id: pg.integer }),
+			unit("Owner", { owner: pg.integer }),
 			mutable(Owner),
 			mutable(Item),
 			mutable(Group),

@@ -394,7 +394,9 @@ const changeSetFaults = [
 	"a parameter left unbound",
 	"an argument naming no parameter",
 	"a parameter map of a wider type",
-	"a bind of a value that is no record"
+	"a bind of a value that is no record",
+	"a put of a closed relation",
+	"a delete of a closed relation"
 ] as const
 type ChangeSetFault = (typeof changeSetFaults)[number]
 
@@ -476,8 +478,10 @@ const refusalNotes = {
 	"a tree is rewritten whole: insert its root with the whole tree nested": "refused: a tree row",
 	"a family's member that owns a sequence is written by inserting its owner with its rows nested":
 		"refused: a member owning a sequence",
-	"an owner's put updates its row in place, which an immutable owner refuses: declare it mutable to put it":
-		"refused: an immutable owner",
+	"a put of a closed relation: its facts are inserted, never changed or deleted; declare it mutable inside a unit, or record the change as an inserted fact":
+		"refused: a put of a closed relation",
+	"a delete of a closed relation: its facts are inserted, never changed or deleted; declare it mutable inside a unit, or record the change as an inserted fact":
+		"refused: a delete of a closed relation",
 	"an immutable owner's family is fixed when its owner is inserted: declare the owner mutable to change it":
 		"refused: a fixed family",
 	"an immutable owner's family takes an append only beside an insert of its owner in the same stratum: insert the owner with it, or declare it mutable":
@@ -511,6 +515,8 @@ export const changeSetRefusals: Arr.NonEmptyReadonlyArray<RefusalNote> = [
 	"refused: an unstated key",
 	"refused: a tree row",
 	"refused: a member owning a sequence",
+	"refused: a put of a closed relation",
+	"refused: a delete of a closed relation",
 	"refused: an append to a stored owner",
 	"refused: edits in two strata",
 	"refused: a put beside a whole delete",
@@ -1036,9 +1042,8 @@ const memberOf = (d: Drawing, fault: ChangeSetFault | undefined, clean: boolean)
 
 /**
  * The faults a family's member fact carries, and the writes of a family's relation the engine cannot plan: a sequence's
- * member written alone or by its row, a tree's row put, a counted member that owns a sequence put or deleted. Each puts or
- * deletes an open relation of Work, as every put and delete does: a closed relation, an immutable family's owner or
- * member, is inserted alone, its owner with it.
+ * member written alone or by its row, a tree's row put, a counted member that owns a sequence put or deleted, and a put
+ * or a delete of a closed relation, an immutable family's owner, whose facts are inserted, never changed or deleted.
  */
 const familyFaults = [
 	"a nested root field",
@@ -1056,7 +1061,9 @@ const familyFaults = [
 	"a member owning a sequence edited",
 	"an append to an owner its stratum does not insert",
 	"a family's members edited in two strata",
-	"a drawn count stated in a delete"
+	"a drawn count stated in a delete",
+	"a put of a closed relation",
+	"a delete of a closed relation"
 ] as const satisfies ReadonlyArray<ChangeSetFault>
 type FamilyFault = (typeof familyFaults)[number]
 
@@ -1223,6 +1230,14 @@ const plantedFamilyMember = (d: Drawing, fault: FamilyFault): MemberSpec => {
 			return familyOf(d, d.choose(["insert", "delete", "put"] as const), "Chip", [
 				countedFact(d.from(uuids), 0)
 			])
+		case "a put of a closed relation":
+		case "a delete of a closed relation":
+			return familyOf(
+				d,
+				fault === "a put of a closed relation" ? "put" : "delete",
+				d.from(["Order", "Pool"] as const),
+				[[["id", familyValue(d.from(uuids))]]]
+			)
 		case "a drawn count stated in a delete": {
 			const owner = d.from(["Cart", "Bin"] as const)
 			return familyOf(d, "delete", owner, [
@@ -2316,18 +2331,16 @@ const unplannedOf = (capability: string): ChangeSetRefusal | undefined =>
 		? "a sequence's member is written under its owner: nest it in order at the owner's count field"
 		: Str.includes("a tree is rewritten whole")(capability)
 			? "a tree is rewritten whole: insert its root with the whole tree nested"
-			: Str.includes("the immutable owner of the family")(capability)
-				? "an owner's put updates its row in place, which an immutable owner refuses: declare it mutable to put it"
-				: Str.includes("both a family's member and a sequence's owner")(capability)
-					? "a family's member that owns a sequence is written by inserting its owner with its rows nested"
-					: Str.startsWith("a delete of")(capability) &&
-						  Str.includes("an immutable owner's family is fixed")(capability)
-						? "an immutable owner's family is fixed when its owner is inserted: declare the owner mutable to change it"
-						: Str.includes("appending to an owner this stratum does not insert")(capability)
-							? "an immutable owner's family takes an append only beside an insert of its owner in the same stratum: insert the owner with it, or declare it mutable"
-							: Str.startsWith("family members written in more than one stratum")(capability)
-								? "a ChangeSet writes a family's members in one stratum: each stratum's family statements are proved against one stratum's edits alone"
-								: undefined
+			: Str.includes("both a family's member and a sequence's owner")(capability)
+				? "a family's member that owns a sequence is written by inserting its owner with its rows nested"
+				: Str.startsWith("a delete of")(capability) &&
+					  Str.includes("an immutable owner's family is fixed")(capability)
+					? "an immutable owner's family is fixed when its owner is inserted: declare the owner mutable to change it"
+					: Str.includes("appending to an owner this stratum does not insert")(capability)
+						? "an immutable owner's family takes an append only beside an insert of its owner in the same stratum: insert the owner with it, or declare it mutable"
+						: Str.startsWith("family members written in more than one stratum")(capability)
+							? "a ChangeSet writes a family's members in one stratum: each stratum's family statements are proved against one stratum's edits alone"
+							: undefined
 
 /** The Refusals the ChangeSet facade, its compilation and its binding name (refusalNotes). */
 const changeSetRefusalMessages: ReadonlySet<string> = new Set(Rec.keys(refusalNotes))

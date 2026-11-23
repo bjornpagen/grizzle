@@ -27,6 +27,7 @@ export const refusals = [
 	"an argument the function declares",
 	"a declared function takes and returns values of a base type, a closed id, a digest, a contract or a refined text over one: no serial, money, exact value, bytes, set, span or vector",
 	"a declared name: ASCII letters, digits and underscores, a letter first",
+	"a delete of a closed relation: its facts are inserted, never changed or deleted; declare it mutable inside a unit, or record the change as an inserted fact",
 	"a derived definition has at least one field",
 	"a derived definition has one heading: a materialized view stores one heading group",
 	"a derived definition is a query over a level of the schema it extends",
@@ -57,6 +58,7 @@ export const refusals = [
 	"a power's base proved nonnegative, and nonzero or its exponent nonnegative: guard it with Logic.when(Num.positive(x), (x) => …, otherwise)",
 	"a program on a Db of a role matches only the contexts the role declares, whose facts its claims hold",
 	"a program over no level of the database's schema",
+	"a put of a closed relation: its facts are inserted, never changed or deleted; declare it mutable inside a unit, or record the change as an inserted fact",
 	"a put or a delete names its rows by their key, and no fact states a key field grizzle writes: key the relation by fields its caller writes",
 	"a put or a delete states every instant of its rows from a stored instant: write it from a query",
 	"a query binds a relation parameter, whose rows are any number; a scalar parameter takes one value",
@@ -125,7 +127,6 @@ export const refusals = [
 	"an operation the host evaluates: a contract predicate, a row check and a generated field compute no quot, rem, round, trunc, ceil, floor, gcd, lcm, power, sqrt, widthBucket, minScale, numeric, cosineDistance, textMatches, textRank or textRankCd, and call no declared function",
 	"an ordered family's index is of its count's type",
 	"an ordered family's side is its owner's key, then its drawn index",
-	"an owner's put updates its row in place, which an immutable owner refuses: declare it mutable to put it",
 	"answered takes a read: a query, an ordered query, a paged one or a relation's key",
 	"approximateNearest over one rule's projection; this source is a bounded subset, whose own order already selects among the rows",
 	"approximateNearest over one rule's projection; this source is a query with attachments",
@@ -147,6 +148,7 @@ export const refusals = [
 	"drawn(type): natural or a contract over an integer, the types a family's index and count are of",
 	"grizzle mints no ids: key a row by its natural identity, its parent's key and its own name or place, a content digest, a published name and version, or an outside system's id under a contract of its own",
 	"insertAll names each relation by a required key: an optional key may insert nothing",
+	"mutable over a relation under a unit, whose every change is a write its unit's borrow holds alone: declare the unit its primary key leads with, unit(name, { …its leading key fields }), or keep it closed and record each change as an inserted fact",
 	"no arm of the source delivers the bound constants",
 	"no contract is over an exact value of any size: declare it over pg.bigint, pg.numeric(p, s) or pg.money",
 	"not a field of the arms the bindings select",
@@ -181,3 +183,14 @@ export const refusals = [
 
 /** A named refusal: one message of the vocabulary. */
 export type Refused = (typeof refusals)[number]
+
+/**
+ * The refusal of a change of a closed relation, by its op: a closed relation's facts are inserted, never changed or
+ * deleted, and only an open one, mutable inside a unit, takes a put or a delete. The engine's front end refuses a member
+ * by it (write/frontend/compile.ts) and the types a ChangeSet's member (types/changeset), one message an op.
+ */
+export const closedChangeRefusals = {
+	put: "a put of a closed relation: its facts are inserted, never changed or deleted; declare it mutable inside a unit, or record the change as an inserted fact",
+	delete:
+		"a delete of a closed relation: its facts are inserted, never changed or deleted; declare it mutable inside a unit, or record the change as an inserted fact"
+} as const satisfies Readonly<Record<"put" | "delete", Refused>>

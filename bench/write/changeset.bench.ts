@@ -12,7 +12,6 @@ import { type RetryPolicy, retried } from "#bench/harness/load.ts"
 import { type Fixture, fill, settle } from "#bench/query/support/kit.ts"
 import {
 	attemptLabel,
-	displacedThenInserted,
 	installWrites,
 	labelText,
 	loadedByOwner,
@@ -36,13 +35,7 @@ import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Logic, Num, Type } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import {
-	type Schema as GrizzleSchema,
-	mutable,
-	relation as defineRelation,
-	type Statement,
-	schema
-} from "#compiler/public/schema.ts"
+import { mutable, relation as defineRelation, schema, unit } from "#compiler/public/schema.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -58,13 +51,12 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * two, whose members all read the stratum's starting state (write/schedule/plan.ts, write/program/single.ts); every
  * other stratum sequentially. This gate measures both:
  *
- * - a described put with a read-back of the row it puts, on an immutable target (a displacing DELETE and the put's
- *   INSERT, a carrier for the member both read, the read-back riding the INSERT), sequential because the pair writes
- *   one relation, and on the same schema with the target `mutable` (one statement that updates in place): the
- *   statements each program holds, by their steps, the catalog rows a transaction writes (read from
- *   pg_stat_sys_tables after the measuring Db's backend exits, which reports its counters), and the operation's time;
- *   and two concurrent appliers whose described members overlap, in both declarations, which must reach the same final
- *   state with the same outcomes and reads;
+ * - a described put with a read-back of the row it puts, on its open target, Account mutable inside its unit (one
+ *   statement that updates in place): the statements its program holds, by their steps, the catalog rows a transaction
+ *   writes (read from pg_stat_sys_tables after the measuring Db's backend exits, which reports its counters), and the
+ *   operation's time; and concurrent appliers whose described members overlap, which must apply every accepted credit
+ *   exactly once. The carrier the requirement measures against is gone with the immutable target it served: a closed
+ *   relation, the default, is never put, its facts inserted, never changed or deleted;
  * - a described post, every pending amount of an account becoming a ledger entry and leaving the pending set, with a
  *   read-back of the posted entries: an insert of Entry and a deletion of Pending in one stratum, one statement, and the
  *   same ChangeSet in the program's conservative realization, every statement in sequence, which the write oracle
@@ -83,17 +75,21 @@ const Entry = defineRelation("Entry", { id: pg.bigint, account: pg.bigint, amoun
 	"id"
 ])
 const relations = { Account, Pending, Entry } as const
-const build = (name: string) => schema(name, Rec.values(relations), [])
-const buildMutable = (name: string) => schema(name, Rec.values(relations), [mutable(Account)])
+/** The ledger: Account, which a credit puts, and Pending, which a post deletes, open in the unit of their id. */
+const build = (name: string) =>
+	schema(name, Rec.values(relations), [
+		unit("Id", { id: pg.bigint }),
+		mutable(Account),
+		mutable(Pending)
+	])
+type LedgerSchema = ReturnType<typeof build>
 
 /**
  * The described put: credit `amount` to account `id`, reading its balance; the read-back reads the row it put. The
  * credited balance is an exact integer, narrowed back into the bigint field under a guard that it fits; a credit past
  * bigint's range leaves the balance as it was.
  */
-const credit = <St extends ReadonlyArray<Statement>>(
-	s: GrizzleSchema<string, typeof relations, St>
-) =>
+const credit = (s: LedgerSchema) =>
 	ChangeSet.empty(s)
 		.put(
 			Account,
@@ -124,9 +120,7 @@ const credit = <St extends ReadonlyArray<Statement>>(
  * The post: every pending amount of account `account` becomes an entry and leaves the pending set, the posted entries
  * read back. Writes of two relations whose members read the stratum's starting state: one statement.
  */
-const post = <St extends ReadonlyArray<Statement>>(
-	s: GrizzleSchema<string, typeof relations, St>
-) => {
+const post = (s: LedgerSchema) => {
 	const pending = () =>
 		query(s).rule((r) => {
 			const { id, account, amount } = v(Pending, "pending")
@@ -223,8 +217,8 @@ export default defineGate({
 	title:
 		"A described ChangeSet in one statement where one snapshot suffices, and in sequence where it does not",
 	scope:
-		"A described put with a post-change read-back: statements, carriers, catalog rows per transaction and time on " +
-		"an immutable and a mutable target, and two concurrent overlapping appliers in each; a described post of two " +
+		"A described put with a post-change read-back: statements, catalog rows per transaction and time on its open " +
+		"target, and concurrent overlapping appliers; a described post of two " +
 		"relations in one statement against its sequential conservative realization: statements, catalog rows, time, " +
 		"outcomes, reads, final state, and concurrent overlapping appliers in each.",
 	phases: ["operationMs"],
@@ -249,16 +243,11 @@ export default defineGate({
 	run: ({ options }) =>
 		Effect.gen(function* () {
 			const s = yield* Substrate
-			const imm = yield* installWrites(build("Ledger"), "benchcsimm", {
+			const ledger = yield* installWrites(build("Ledger"), "benchcs", {
 				programs: {},
 				logins: []
 			})
-			const mut = yield* installWrites(buildMutable("Ledger"), "benchcsmut", {
-				programs: {},
-				logins: []
-			})
-			const Simm = build(imm.installed.declared)
-			const Smut = buildMutable(mut.installed.declared)
+			const Ledger = build(ledger.installed.declared)
 			const seed = <F>(fx: Fixture<F>) =>
 				Effect.gen(function* () {
 					yield* fill(fx, "Account", options.accounts, { id: "g::int8", balance: "0::int8" })
@@ -269,8 +258,7 @@ export default defineGate({
 					})
 					yield* settle(fx)
 				})
-			yield* seed(imm)
-			yield* seed(mut)
+			yield* seed(ledger)
 			/**
 			 * Credits on fresh accounts, through a Db of its own of `login`, whose backends report their counters as they
 			 * exit, which the catalog reading waits for (exited). The reading feeds only the catalog measure, never a check.
@@ -305,10 +293,8 @@ export default defineGate({
 						catalogPerTransaction: (after - before) / (options.samples + 1)
 					}
 				})
-			const immutable = yield* measure(loginRoleOf(imm), openFull(imm, Simm), credit(Simm))
-			const mutableRun = yield* measure(loginRoleOf(mut), openFull(mut, Smut), credit(Smut))
-			const accountWritesImm = writesOf(immutable.statements, Account.name)
-			const accountWritesMut = writesOf(mutableRun.statements, Account.name)
+			const putRun = yield* measure(loginRoleOf(ledger), openFull(ledger, Ledger), credit(Ledger))
+			const accountWrites = writesOf(putRun.statements, Account.name)
 
 			/** Two concurrent appliers whose described members overlap: every applier credits the same account. */
 			const overlap = <F, E>(
@@ -354,22 +340,21 @@ export default defineGate({
 						}
 					})
 				)
-			const overlapImm = yield* overlap(imm, () => openFull(imm, Simm), credit(Simm))
-			const overlapMut = yield* overlap(mut, () => openFull(mut, Smut), credit(Smut))
+			const overlapping = yield* overlap(ledger, () => openFull(ledger, Ledger), credit(Ledger))
 			/**
 			 * A credit whose every attempt the caller's retries allow loses to a concurrent one ends in a TransientFailure and
-			 * applies nothing; with many appliers on one row that is a lawful outcome, not a divergence. So each declaration's
-			 * final balance must equal its accepted credits, every credit applied exactly once and none lost, and every credit
+			 * applies nothing; with many appliers on one row that is a lawful outcome, not a divergence. So the final balance
+			 * must equal the accepted credits, every credit applied exactly once and none lost, and every credit
 			 * must end accepted with its read-back, its one new row, or transient.
 			 */
-			const accepted = (o: typeof overlapImm) =>
+			const accepted = (o: typeof overlapping) =>
 				Arr.filter(o.values, (x) => x.kind === "accepted").length
-			const transient = (o: typeof overlapImm) =>
+			const transient = (o: typeof overlapping) =>
 				Arr.filter(o.values, (x) => x.kind === "transient").length
 			const acceptedWithRow = (x: ObservedValue) =>
 				x.kind === "transient" ||
 				(x.kind === "accepted" && readBackRows(x.reads, "after").length === 1)
-			const kinds = (o: typeof overlapImm) =>
+			const kinds = (o: typeof overlapping) =>
 				Arr.join(
 					Arr.map(o.values, (x) => x.kind),
 					", "
@@ -383,15 +368,15 @@ export default defineGate({
 				realization: "single" | "sequential",
 				first: number
 			) {
-				const login = loginRoleOf(imm)
+				const login = loginRoleOf(ledger)
 				const before = yield* catalogInserts()
 				const others = yield* backendsOf(login)
 				const run = yield* Effect.scoped(
 					Effect.gen(function* () {
-						const db = yield* openFull(imm, Simm)
+						const db = yield* openFull(ledger, Ledger)
 						const change = yield* realization === "single"
-							? observedChange(db, post(Simm), attemptLabel, { kind: "none" })
-							: observedConservative(db, post(Simm), attemptLabel)
+							? observedChange(db, post(Ledger), attemptLabel, { kind: "none" })
+							: observedConservative(db, post(Ledger), attemptLabel)
 						const timed = yield* timedSamples(
 							options.samples,
 							(i) => change.apply({ account: BigInt(first + i + 1) }),
@@ -420,7 +405,7 @@ export default defineGate({
 				accounts: ReadonlyArray<number>
 			) {
 				const rows = yield* s.admin.queryValues(
-					`SELECT pg_catalog.count(*)::text FROM ${imm.table(relation)} WHERE ${imm.column(relation, "account")} = ANY ($1::int8[])`,
+					`SELECT pg_catalog.count(*)::text FROM ${ledger.table(relation)} WHERE ${ledger.column(relation, "account")} = ANY ($1::int8[])`,
 					[`{${Arr.join(Arr.map(accounts, String), ",")}}`]
 				)
 				const [n] = trusted<CountRow>(oneRow(rows))
@@ -463,15 +448,15 @@ export default defineGate({
 			) {
 				const dbs = yield* Effect.forEach(
 					Arr.map(indices(options.appliers), (i) => i),
-					() => openFull(imm, Simm)
+					() => openFull(ledger, Ledger)
 				)
 				const values = yield* Effect.forEach(
 					dbs,
 					(d) =>
 						Effect.gen(function* () {
 							const change = yield* realization === "single"
-								? observedChange(d, post(Simm), attemptLabel, { kind: "none" })
-								: observedConservative(d, post(Simm), attemptLabel)
+								? observedChange(d, post(Ledger), attemptLabel, { kind: "none" })
+								: observedConservative(d, post(Ledger), attemptLabel)
 							const done = yield* retried(
 								() => change.apply({ account: BigInt(account) }),
 								(o) => o.attempted.transient,
@@ -515,52 +500,27 @@ export default defineGate({
 
 			const cases: Array<CaseRecord<"R35">> = [
 				{
-					name: "a described put with a post-change read-back, immutable target",
+					name: "a described put with a post-change read-back, open target",
 					gates: ["R35"],
 					conditions: {
 						workload:
-							"a served member's apply of a described put crediting one account, with a read-back of its new row",
+							"a served member's apply of a described put crediting one account, Account mutable inside its unit, with a read-back of its new row",
 						schemaState: loadedByOwner,
 						dataDistribution: `${options.accounts} accounts`,
 						parameters: { amount: 5 },
 						resultSemantics: "accepted, one fact put, the read-back its new row",
 						cacheState: warmedOnce
 					},
-					phases: { operationMs: immutable.timed.ms },
+					phases: { operationMs: putRun.timed.ms },
 					variants: [],
 					comparisons: [],
 					transactions: {},
 					loads: {},
 					measures: {
-						statements: statementsText(immutable.statements),
-						catalogTuplesPerTransaction: immutable.catalogPerTransaction,
+						statements: statementsText(putRun.statements),
+						catalogTuplesPerTransaction: putRun.catalogPerTransaction,
 						outcomes: Arr.join(
-							Arr.map(immutable.timed.values, (o) => o.value.kind),
-							", "
-						)
-					}
-				},
-				{
-					name: "the same put, mutable target",
-					gates: ["R35"],
-					conditions: {
-						workload: "the same ChangeSet with Account declared mutable",
-						schemaState: loadedByOwner,
-						dataDistribution: `${options.accounts} accounts`,
-						parameters: { amount: 5 },
-						resultSemantics: "accepted, one fact put, the read-back its new row",
-						cacheState: warmedOnce
-					},
-					phases: { operationMs: mutableRun.timed.ms },
-					variants: [],
-					comparisons: [],
-					transactions: {},
-					loads: {},
-					measures: {
-						statements: statementsText(mutableRun.statements),
-						catalogTuplesPerTransaction: mutableRun.catalogPerTransaction,
-						outcomes: Arr.join(
-							Arr.map(mutableRun.timed.values, (o) => o.value.kind),
+							Arr.map(putRun.timed.values, (o) => o.value.kind),
 							", "
 						)
 					}
@@ -582,14 +542,10 @@ export default defineGate({
 					transactions: {},
 					loads: {},
 					measures: {
-						immutableBalance: String(overlapImm.balance),
-						mutableBalance: String(overlapMut.balance),
-						immutableRetries: overlapImm.retries,
-						mutableRetries: overlapMut.retries,
-						immutableTransient: transient(overlapImm),
-						mutableTransient: transient(overlapMut),
-						immutableOutcomes: kinds(overlapImm),
-						mutableOutcomes: kinds(overlapMut)
+						balance: String(overlapping.balance),
+						retries: overlapping.retries,
+						transient: transient(overlapping),
+						outcomes: kinds(overlapping)
 					}
 				},
 				{
@@ -671,37 +627,27 @@ export default defineGate({
 			const r35: VerdictInput = {
 				checks: [
 					mechanism(
-						"the immutable put is sequential: a displacing DELETE of Account before the put's INSERT of it",
-						displacedThenInserted(accountWritesImm),
-						statementsText(immutable.statements)
-					),
-					mechanism(
 						"the mutable put writes Account in one statement that updates in place",
-						writtenInPlace(accountWritesMut),
-						statementsText(mutableRun.statements)
+						writtenInPlace(accountWrites),
+						statementsText(putRun.statements)
 					),
 					equivalence(
-						"both declarations accept every credit",
-						Arr.every(
-							[...immutable.timed.values, ...mutableRun.timed.values],
-							(o) => o.value.kind === "accepted"
-						),
+						"every credit is accepted",
+						Arr.every(putRun.timed.values, (o) => o.value.kind === "accepted"),
 						Arr.join(
-							Arr.map([...immutable.timed.values, ...mutableRun.timed.values], (o) => o.value.kind),
+							Arr.map(putRun.timed.values, (o) => o.value.kind),
 							", "
 						)
 					),
 					equivalence(
-						"concurrent overlapping appliers apply each accepted credit exactly once in both declarations",
-						overlapImm.balance === BigInt(accepted(overlapImm)) &&
-							overlapMut.balance === BigInt(accepted(overlapMut)),
-						`balances ${overlapImm.balance} ${overlapMut.balance}, accepted ${accepted(overlapImm)} ${accepted(overlapMut)} of ${options.appliers * options.credits}`
+						"concurrent overlapping appliers apply each accepted credit exactly once",
+						overlapping.balance === BigInt(accepted(overlapping)),
+						`balance ${overlapping.balance}, accepted ${accepted(overlapping)} of ${options.appliers * options.credits}`
 					),
 					equivalence(
-						"every concurrent credit is accepted with its read-back, or ends in a TransientFailure once the caller's retries ran out, in both declarations",
-						Arr.every(overlapImm.values, acceptedWithRow) &&
-							Arr.every(overlapMut.values, acceptedWithRow),
-						`transient ${transient(overlapImm)} ${transient(overlapMut)}`
+						"every concurrent credit is accepted with its read-back, or ends in a TransientFailure once the caller's retries ran out",
+						Arr.every(overlapping.values, acceptedWithRow),
+						`transient ${transient(overlapping)}`
 					),
 					mechanism(
 						"the post's insert of Entry and deletion of Pending are one statement",

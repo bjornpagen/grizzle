@@ -47,14 +47,12 @@ import {
 	claimOf,
 	Digest,
 	digestOf,
-	immutableQueueSchema,
 	queueSchema,
 	queueBenchWorlds,
 	randomDigest,
 	SeatNo,
 	Slot,
 	settleOf,
-	settleOfImmutable,
 	Wanted,
 	QueueWork
 } from "#bench/queue/support/queue.ts"
@@ -62,7 +60,6 @@ import {
 import { appendAll, indices } from "@bjornpagen/grizzle-text/base/array"
 import {
 	type BeforeCommit,
-	displacedThenInserted,
 	installWrites,
 	labelText,
 	lawObjects,
@@ -79,7 +76,6 @@ import {
 	readBackRows,
 	type RoleSamples,
 	sampleRole,
-	updatesInPlace,
 	writesOf,
 	writtenInPlace
 } from "#bench/write/support/writes.ts"
@@ -103,9 +99,10 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  * than a million pending items, with a claim p95 of 54 to 109 ms at a width of 16 as the latency reference.
  * Record claim throughput and tail latency; the transient failure rate by reason, item collision against seat
  * collision, with fresh random and fixed start keys; the per-claim cost of the alternatives reverse check; settlement
- * latency; reclaim behavior after worker loss; large enqueues running beside claimers; and `mutable` against immutable
- * `Work`, which differ in write cost only. Compare against a hand-written claim using a locking scan with skipped rows
- * on the same schema".
+ * latency; reclaim behavior after worker loss; large enqueues running beside claimers. Compare against a hand-written
+ * claim using a locking scan with skipped rows on the same schema". Work is open, mutable inside its item's unit, since
+ * a claim and a settlement change it: the immutable Work the requirement once compared it with is gone, a closed
+ * relation's facts being inserted, never changed or deleted.
  *
  * Holders. A holder is one claimer: a serverless instance that runs a claim loop. Each is its own client
  * with its own DbLayer and so its own session pool, on direct connections; a holder runs one operation at a time, so
@@ -329,15 +326,6 @@ const showRead = (r: StoredRead): string =>
 	`statement ${r.statement}: ${r.node.nodeType} on ${r.relation}${Option.match(r.node.index, { onNone: () => "", onSome: (index) => ` using ${index}` })}${r.bounded ? "" : " (unbounded)"}`
 
 /**
- * The put of Work a claim program makes where Work is immutable, by its steps: a displacing DELETE then the put's
- * INSERT, and nothing that updates Work in place.
- */
-const putsWorkAsPair = (statements: ReadonlyArray<ObservedStatement>): boolean => {
-	const writes = writesOf(statements, QueueWork.name)
-	return writes.length === 2 && displacedThenInserted(writes) && !Arr.some(writes, updatesInPlace)
-}
-
-/**
  * The put of Work a claim program makes where Work is mutable, by its steps: one UPDATE in place. Work's UNIQUE (key,
  * standing), which the alternatives' arms reference, compares its whole primary key, so no update of one fact meets
  * it, and nothing else would make the put the pair.
@@ -381,7 +369,7 @@ export default defineGate({
 	scope:
 		"Holders on direct connections within the cluster's connection lease, each its own Db, claiming and settling on one lane of more " +
 		"than a million pending items: claims/s, claim and settlement p95, retries by reason and label, with fresh and " +
-		"fixed start keys, immutable Work, an enqueue beside the claimers, reclaim after worker loss, and the SKIP " +
+		"fixed start keys, an enqueue beside the claimers, reclaim after worker loss, and the SKIP " +
 		"LOCKED baseline.",
 	phases: ["operationMs", "claimMs", "settleMs", "enqueueMs", "reclaimMs"],
 	options: {
@@ -464,25 +452,16 @@ export default defineGate({
 			 * claim and settlement request.
 			 */
 			const base = queueSchema("Queue")
-			const baseImm = immutableQueueSchema("Queue")
 			const declared = queueBenchWorlds(base)
-			const declaredImm = queueBenchWorlds(baseImm)
 			const fx = yield* installWrites(base, "benchqueue", {
 				programs: { claim: claimOf(base), settle: settleOf(base) },
 				logins: [declared.workers, declared.enqueuers, declared.operators]
 			})
-			const fxImm = yield* installWrites(baseImm, "benchqueueimm", {
-				programs: { claim: claimOf(baseImm), settle: settleOfImmutable(baseImm) },
-				logins: [declaredImm.workers, declaredImm.enqueuers, declaredImm.operators]
-			})
 			const installedIndexes = (yield* lawObjects(fx)).indexes
 			yield* seed(fx)
-			yield* seed(fxImm)
 			const Q = queueSchema(fx.installed.declared)
-			const Qimm = immutableQueueSchema(fxImm.installed.declared)
 			/** The worlds over the rebuilt schemas, which a Db opens. */
 			const worlds = queueBenchWorlds(Q)
-			const worldsImm = queueBenchWorlds(Qimm)
 			const observer = yield* s.session({ ...ownerSession(), label: "m15c queue observer" })
 			const lockObserver = yield* s.session({
 				...ownerSession(),
@@ -1014,25 +993,6 @@ export default defineGate({
 				lateSettles,
 				reclaimOk
 			} = groupA
-			const groupB = yield* Effect.scoped(
-				Effect.gen(function* () {
-					/** Immutable Work: the same load on the second installation. */
-					const immutable = yield* holdersOf(
-						() => openDb(fxImm, worldsImm.workers.roles.worker),
-						claimOf(Qimm),
-						settleOfImmutable(Qimm)
-					)
-					const run = yield* measureRun(
-						fxImm.installed.as(worldsImm.workers).role,
-						immutable.holders,
-						"fresh",
-						{ kind: "none" },
-						false
-					)
-					return { run, claimStatements: immutable.claimStatements }
-				})
-			)
-			const immutable = groupB.run
 
 			/** The hand-written SKIP LOCKED claim on the same schema, as the owner. */
 			const c = (rel: string, f: string) => fx.column(rel, f)
@@ -1219,11 +1179,6 @@ export default defineGate({
 					phases: { ...besideCase.phases, ...phaseOf("enqueueMs", enqueueMs) },
 					measures: { ...besideCase.measures, enqueueOutcomes: tally(enqueueOutcomes) }
 				},
-				runCase(
-					"fresh random start keys, immutable Work",
-					immutable,
-					"the same load with Work immutable"
-				),
 				{
 					name: "reclaim after worker loss",
 					gates: ["queue"],
@@ -1245,12 +1200,8 @@ export default defineGate({
 						deadLeases: deadLeases.length,
 						reclaimed: reclaimed.length,
 						lateSettlements: Arr.join(lateSettles, ", "),
-						mutableClaimStatements: Arr.join(
+						claimStatements: Arr.join(
 							Arr.map(claimStatements, (x) => labelText(x.label)),
-							", "
-						),
-						immutableClaimStatements: Arr.join(
-							Arr.map(groupB.claimStatements, (x) => labelText(x.label)),
 							", "
 						)
 					}
@@ -1282,12 +1233,8 @@ export default defineGate({
 						predicateLocks: Formatter.format(lockCounts(claimFootprint.locks)),
 						predicateLockSettings: `max_pred_locks_per_transaction / per_relation / per_page: ${claimFootprint.settings}`,
 						claimPlans: Arr.join(claimFootprint.plans, "\n"),
-						mutableClaimSql: Arr.join(
+						claimSql: Arr.join(
 							Arr.map(claimStatements, (x, i) => `-- statement ${i + 1}\n${x.sql}`),
-							"\n"
-						),
-						immutableClaimSql: Arr.join(
-							Arr.map(groupB.claimStatements, (x, i) => `-- statement ${i + 1}\n${x.sql}`),
 							"\n"
 						),
 						settleSql: Arr.join(
@@ -1326,7 +1273,7 @@ export default defineGate({
 					}
 				}
 			]
-			const runs = [fresh, fixed, beside, immutable]
+			const runs = [fresh, fixed, beside]
 			const workRelation = fx.relationName("Work")
 			const wantedRelation = fx.relationName("Wanted")
 			const keyed = Arr.filter(
@@ -1342,19 +1289,15 @@ export default defineGate({
 					Arr.some(wantedDeletions, (w) => w.position + 1 === r.statement)
 			)
 			const locks = claimFootprint.locks
-			/**
-			 * The accepted claims of each installation's runs, by their read-backs: the mutable installation's three runs, and
-			 * the immutable one's.
-			 */
-			const mutableLeases = Arr.flatMap([fresh, fixed, beside], (r) => r.stats.claimed)
-			const immutableLeases = immutable.stats.claimed
+			/** The accepted claims of the runs, by their read-backs. */
+			const leases = Arr.flatMap(runs, (r) => r.stats.claimed)
 
 			const queue: VerdictInput = {
 				checks: [
 					mechanism(
-						"the claim's put of Work is one UPDATE in place where Work is mutable, and the displacing DELETE then the put's INSERT where it is immutable",
-						putsWorkInPlace(claimStatements) && putsWorkAsPair(groupB.claimStatements),
-						`${Arr.join(Arr.map(writesOf(claimStatements, QueueWork.name), labelText), ", ")} | ${Arr.join(Arr.map(writesOf(groupB.claimStatements, QueueWork.name), labelText), ", ")}`
+						"the claim's put of Work is one UPDATE in place",
+						putsWorkInPlace(claimStatements),
+						Arr.join(Arr.map(writesOf(claimStatements, QueueWork.name), labelText), ", ")
 					),
 					mechanism(
 						"every claim ends accepted or no-change: none is refused by a law",
@@ -1406,8 +1349,8 @@ export default defineGate({
 					),
 					equivalence(
 						"no two accepted claims leased the same (key, epoch)",
-						distinctLeases(mutableLeases) && distinctLeases(immutableLeases),
-						`${mutableLeases.length} leases of mutable Work, ${immutableLeases.length} of immutable Work`
+						distinctLeases(leases),
+						`${leases.length} leases`
 					)
 				]
 			}

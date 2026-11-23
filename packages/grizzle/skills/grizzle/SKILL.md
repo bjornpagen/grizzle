@@ -156,6 +156,14 @@ export default defineConfig({
   grizzle draws, `natural` or a contract over an integer (an int4 number keeps its `contract(…, pg.integer, …)`, whose
   CHECK refuses one past its bound): it states the predecessor law itself and every write of R holds its one lock, the
   only lock no key splits (README "Units").
+- A relation is closed or open. Closed, the default: its facts are inserted, never changed or deleted; a role that
+  writes it holds SELECT and INSERT on its table and no UPDATE or DELETE, and a ChangeSet's put or delete of it is
+  refused when it compiles and as a type error, `Refusal<"a put of a closed relation: ...">` (or "a delete of"); record
+  a change as a fact inserted, a new row that supersedes, the current one derived. Open: `mutable(R)` inside a unit
+  whose heading R's primary key leads with, its rows changed in place and deleted under the unit's exclusive borrow
+  (`&mut`); `mutable(R)` over a relation in no unit is refused when the schema is built and as a type error,
+  `Refusal<"mutable over a relation under a unit, ...">`. A delete of an open owner or tree removes its family whole,
+  so every relation nested under it is open too (README "Units").
 - Remove a family of rows (a finished run, a removed package, a superseded load) by a ChangeSet of deletes of its
   relations under their unit, which the call borrows exclusively, and keep what must never come back, a run's
   idempotency key, a package's name, a release's attempt numbers, in a relation no ChangeSet deletes; a foreign key into
@@ -167,8 +175,8 @@ export default defineConfig({
   param("package", Name) }, … })` deletes each named relation's rows whose fields equal the given parameters or
   literals, as the delete of the query that selects them, so a replace of one package is one deleteWhere record and
   one insertAll. The role's write list names every
-  relation the delete reaches. Delete a family's other members through their owner, never one by one when the owner is
-  immutable.
+  relation the delete reaches, every one open. Delete a family's other members through their owner, never one by one
+  when the owner is closed.
 - `connection` is the migration role's: `driver` (the pg module), `transport` (`kind: "sslRequest"`, `host`, `port`,
   `open`, which returns a new socket, `ca` and `servername`; TLS is always verify-full, the server certificate chaining
   to `ca` and naming `servername`), `database`, `role`, `password` (a Redacted, or an Effect yielding one, evaluated for

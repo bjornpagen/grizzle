@@ -249,9 +249,8 @@ export const withTarget = <A, E, R>(
 	)
 
 /**
- * The privileges the writer role holds that an immutable relation forbids: UPDATE of any column of an immutable
- * relation's table, and TRUNCATE on any, which would change facts other than by adding and deleting them. Each is a
- * problem.
+ * The privileges the writer role holds that a closed relation forbids: UPDATE of any column or DELETE of a closed
+ * relation's table, whose facts are inserted, never changed or deleted, and TRUNCATE on any table. Each is a problem.
  */
 export const privilegeProblems = (
 	t: WriteInstallation
@@ -263,12 +262,15 @@ export const privilegeProblems = (
 		for (const r of Arr.flatMap(t.schema.groups, (g) => g.relations)) {
 			const table = pipe(t.laws.table(r.name), Str.replaceAll("'", "''"))
 			const rows = yield* s.admin.queryValues(
-				`SELECT pg_catalog.has_any_column_privilege($1::name, '${table}'::regclass, 'UPDATE')::text, pg_catalog.has_table_privilege($1::name, '${table}'::regclass, 'TRUNCATE')::text`,
+				`SELECT pg_catalog.has_any_column_privilege($1::name, '${table}'::regclass, 'UPDATE')::text, pg_catalog.has_table_privilege($1::name, '${table}'::regclass, 'TRUNCATE')::text, pg_catalog.has_table_privilege($1::name, '${table}'::regclass, 'DELETE')::text`,
 				[role]
 			)
-			const [update, truncate] = rows[0] ?? []
+			const [update, truncate, deletes] = rows[0] ?? []
 			if (!r.mutable && update === "true") {
-				problems.push(`${role} may UPDATE the immutable ${r.name}`)
+				problems.push(`${role} may UPDATE the closed ${r.name}`)
+			}
+			if (!r.mutable && deletes === "true") {
+				problems.push(`${role} may DELETE the closed ${r.name}`)
 			}
 			if (truncate === "true") {
 				problems.push(`${role} may TRUNCATE ${r.name}`)

@@ -337,6 +337,10 @@
  * after it keyed by its variables, so every judge statement that reads one reads its steps in another order.
  * Each delta reader declares the rows a call returns, ROWS 1 (physical/ddl/deltas.ts deltaReaderRows), where format 8
  * declared none and PostgreSQL estimated a thousand.
+ * A relation is closed or open: closed, the default, its facts inserted, never changed or deleted, so a role that writes
+ * it holds SELECT and INSERT on its table and no UPDATE or DELETE (physical/ddl/roles.ts entryPrivileges), where format
+ * 8 granted DELETE on every table a role wrote; open, mutable(R) inside a unit whose heading its primary key leads with,
+ * its writers holding UPDATE and DELETE as before. A world's grants move for every closed table a role writes.
  */
 export const artifactFormat = 8
 

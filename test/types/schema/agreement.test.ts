@@ -42,6 +42,18 @@ export const schemas = agreement(schemaCases, {
 	],
 	kills: [
 		{
+			file: "packages/engine/src/schema/own.ts",
+			original: '\t\tif (st.kind === "mutable" && !unitOf.has(st.relation)) {',
+			replacement: '\t\tif (st.kind === "mutable" && unitOf.size < 0) {',
+			why: "Ownership admits mutable(R) over a relation in no unit (schema/own.ts ownUnits), which the types refuse: the mutableOutsideUnit fault's schema is admitted by the engine and the agreement's program fails."
+		},
+		{
+			file: "packages/engine/src/types/schema/schema.ts",
+			original: "\tMutable<unknown> extends Statements[number]\n\t\t? unknown",
+			replacement: "\tStatements extends Statements\n\t\t? unknown",
+			why: "The types admit mutable(R) over a relation in no unit (MutablesUnder refuses nothing), which the engine refuses: the mutableOutsideUnit fault typechecks under its directive and the agreement's program fails."
+		},
+		{
 			file: "packages/engine/src/scalar/values/convert.ts",
 			original: "\t\t? bigint\n\t\t: Decimal\n",
 			replacement: "\t\t? Decimal\n\t\t: Decimal\n",

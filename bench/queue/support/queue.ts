@@ -11,14 +11,13 @@ import {
 	mutable,
 	on,
 	role,
-	type Statement,
-	schema
+	schema,
+	unit
 } from "#compiler/public/schema.ts"
 import {
 	Digest,
 	Done,
 	Queue,
-	type QueueShaped,
 	Leased,
 	queueQueries,
 	Denied,
@@ -37,14 +36,13 @@ export { Digest, SeatNo, Slot, Wanted, QueueWork }
  * The work queue for the queue gate and the law gates that reuse its alternatives.
  *
  * The schema is test/support/fixtures/api/queue.ts's relations and statements, built under any name so a Db opened on
- * it logs in as the installed roles, in two declarations that differ only in `mutable(Work)`: the fixture's, where a
- * transition is an `UPDATE ... FROM` of Work, and the immutable one, where it is a DELETE and an INSERT. "`mutable`
- * against immutable `Work`, which differ in write cost only".
+ * it logs in as the installed roles: Work, Wanted and Leased open, mutable inside the unit of an item's key, so a
+ * transition is an `UPDATE ... FROM` of Work.
  *
- * The claim and the settlement are the fixture's, built over each declaration (queueQueries): a ChangeSet's member
- * queries must be written over a level of its schema.
+ * The claim and the settlement are the fixture's, built over the schema (queueQueries): a ChangeSet's member queries
+ * must be written over a level of its schema.
  *
- * A work item's standing and its four arms: both queue schemas declare it, and a gate reads its laws from this value.
+ * A work item's standing and its four arms: the queue schema declares it, and a gate reads its laws from this value.
  */
 const workStanding = alternatives(QueueWork, "standing", Standing, {
 	wanted: Wanted,
@@ -53,22 +51,20 @@ const workStanding = alternatives(QueueWork, "standing", Standing, {
 	denied: Denied
 })
 
-/** The queue schema, Work mutable. */
+/** The queue schema, Work, Wanted and Leased open in the unit of an item's key. */
 export const queueSchema = (name: string) =>
 	schema(name, Rec.values(Queue.relations), [
+		unit("Item", { key: Digest }),
 		mutable(QueueWork),
+		mutable(Wanted),
+		mutable(Leased),
 		workStanding,
 		keyOn(on(Leased, "resource", "seat")),
 		contained(on(Leased, "resource", "seat"), on(Seat, "resource", "seat"))
 	])
 
-/** The same schema with Work immutable. */
-export const immutableQueueSchema = (name: string) =>
-	schema(name, Rec.values(Queue.relations), [
-		workStanding,
-		keyOn(on(Leased, "resource", "seat")),
-		contained(on(Leased, "resource", "seat"), on(Seat, "resource", "seat"))
-	])
+/** The queue schema's type, over which the claim and the settlement are built. */
+type MutableQueue = ReturnType<typeof queueSchema>
 
 /**
  * The queue's worlds over a queue schema `s`, each a full role in a login of its own, so a session's user names the
@@ -92,7 +88,7 @@ export const queueBenchWorlds = (s: Parameters<typeof fullWorld>[0]) => {
 }
 
 /** The claim, with the read-back of the lease it created and the Wanted payload it left. */
-export const claimOf = <St extends ReadonlyArray<Statement>>(s: QueueShaped<St>) => {
+export const claimOf = (s: MutableQueue) => {
 	const m = queueQueries(s)
 	return ChangeSet.empty(s)
 		.put(QueueWork, m.claimWorkPut)
@@ -126,31 +122,16 @@ export const claimOf = <St extends ReadonlyArray<Statement>>(s: QueueShaped<St>)
 }
 
 /** The settlement's deletion of the live lease and its put of Work done, parameters { key, epoch }. */
-const settleBase = <St extends ReadonlyArray<Statement>>(s: QueueShaped<St>) => {
+const settleBase = (s: MutableQueue) => {
 	const m = queueQueries(s)
 	return ChangeSet.empty(s).delete(Leased, m.settleLeasedDelete).put(QueueWork, m.settleWorkPut)
 }
 
-type MutableQueue = ReturnType<typeof queueSchema>
-type ImmutableQueue = ReturnType<typeof immutableQueueSchema>
-
 /**
  * The settlement, parameters { key, epoch, outcome }. Its Done insertion's `outcome` parameter takes the closed type it
- * meets, which TypeScript resolves only over a concrete schema, so each declaration has its own.
+ * meets, which TypeScript resolves only over a concrete schema.
  */
 export const settleOf = (s: MutableQueue) =>
-	settleBase(s).insert(
-		Done,
-		query(s).rule((r) => {
-			const { key, resource, seat, epoch, expires } = v(Leased, "leased")
-			return r
-				.match(Leased, { key, resource, seat, epoch, expires })
-				.where(r.eq(key, r.param("key", Digest)), r.eq(epoch, r.param("epoch", pg.bigint)))
-				.find({ key, outcome: r.param("outcome", Done.fields.outcome) })
-		})
-	)
-
-export const settleOfImmutable = (s: ImmutableQueue) =>
 	settleBase(s).insert(
 		Done,
 		query(s).rule((r) => {

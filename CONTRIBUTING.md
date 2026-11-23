@@ -375,8 +375,9 @@ suite's residual risk. A longer search is a fuzz run, `pnpm fuzz <suite>`.
 - **Representation first.** When a new case shows up, change the data so the case stops being special or stops being
   expressible, instead of adding a branch, flag, guard or sentinel. Parse at the boundary, dispatch exhaustively, and
   make invalid states unrepresentable. See `.agents/skills/representation-first/SKILL.md`.
-- **Immutable by default is pinned.** Relations are immutable unless declared `mutable(R)`. Code follows the same
-  default: readonly data, values rather than mutable builders.
+- **Closed by default is pinned.** A relation is closed, its facts inserted and never changed or deleted, unless
+  declared `mutable(R)` inside a unit its primary key leads with. Code follows the same default: readonly data, values
+  rather than mutable builders.
 - **Layering.** Each area of `src` imports only the areas its rule in `.fallowrc.json`'s `boundaries` allows, a DAG;
   fallow requires every `src` module to lie in a zone, and `src` never imports `test`, `scripts` or `bench`. The
   packages an area loads are `oxlint.config.ts`'s `no-restricted-imports`: `packages/engine/` loads only the types of

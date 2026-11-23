@@ -39,7 +39,8 @@ import type {
 	Selection,
 	Side,
 	Statement,
-	Tree
+	Tree,
+	Unit
 } from "#compiler/types/schema/statements.ts"
 
 /**
@@ -666,6 +667,89 @@ export type StatementsWithin<
 		? Refusal<"a member typed any, which every check admits: type each member of the list or record">
 		: UndeclaredRefused<Undeclared<Relations, NamedBy<Statements[number]>>>
 	: UndeclaredRefused<Undeclared<Relations, NamedBy<Statements[number]>>>
+
+/**
+ * The refusal of a mutable statement of Statements over a relation whose primary key leads with no unit's heading of
+ * Units, the unit statements of its level and every level below (the run time's refusal at the schema's build,
+ * schema/own.ts ownUnits): an open relation is mutable inside a unit, whose borrow holds its every change alone, and
+ * any other is closed. None where every mutable relation sits in a unit, where the statements are generic, holding
+ * every Mutable, or where Prior, the statements' check of the relations they name (StatementsWithin), refuses them
+ * already: two refusals of one list would intersect to never, which names neither.
+ */
+export type MutablesUnder<
+	Statements extends ReadonlyArray<Statement>,
+	Units,
+	Prior
+> = unknown extends Prior ? MutablesOutside<Statements, Units> : unknown
+
+/** MutablesUnder's refusal itself, over statements no other check refuses. */
+type MutablesOutside<Statements extends ReadonlyArray<Statement>, Units> =
+	Mutable<unknown> extends Statements[number]
+		? unknown
+		: true extends OutsideUnits<
+					Statements[number],
+					HeadingsOf<Extract<Units, Unit<string, unknown>>>
+			  >
+			? Refusal<"mutable over a relation under a unit, whose every change is a write its unit's borrow holds alone: declare the unit its primary key leads with, unit(name, { …its leading key fields }), or keep it closed and record each change as an inserted fact">
+			: unknown
+
+/**
+ * true for each mutable statement among the statements S whose relation's primary key leads with none of Hs; none for a
+ * relation whose key the types do not know, a list of no fixed length, which the run time judges alone.
+ */
+type OutsideUnits<S, Hs> =
+	S extends Mutable<infer R>
+		? KeyKnown<R> extends true
+			? InSomeUnit<R, Hs> extends true
+				? never
+				: true
+			: never
+		: never
+
+/** Whether R's primary key is a tuple the types know, of a fixed length. */
+type KeyKnown<R> = R extends { readonly primaryKey: infer K extends ReadonlyArray<string> }
+	? number extends K["length"]
+		? false
+		: true
+	: false
+
+/** The headings of the unit statements U, one union member a unit. */
+type HeadingsOf<U> = U extends Unit<string, infer H> ? H : never
+
+/** Whether R's primary key leads with one of the headings Hs. */
+type InSomeUnit<R, Hs> = true extends (Hs extends unknown ? LeadsWith<R, Hs> : never) ? true : false
+
+/**
+ * Whether R's primary key leads with heading H: its first fields, as many as H holds, are H's fields, each of the type
+ * H gives it, as ir/desc.ts leadsWithHeading reads a unit's members. A heading is a record, so its fields are compared as
+ * a set of the key's leading fields.
+ */
+type LeadsWith<R, H> = R extends {
+	readonly primaryKey: infer K extends ReadonlyArray<string>
+	readonly fields: infer F
+}
+	? LeadingFields<K, keyof H & string, H, F, never>
+	: false
+
+/** Whether K's leading fields, past Seen, are exactly Need, each of H's type in F. */
+type LeadingFields<
+	K extends ReadonlyArray<string>,
+	Need extends string,
+	H,
+	F,
+	Seen extends string
+> = [Need] extends [Seen]
+	? true
+	: K extends readonly [infer First extends string, ...infer Rest extends ReadonlyArray<string>]
+		? First extends Need
+			? SameFieldType<H[First & keyof H], F[First & keyof F]> extends true
+				? LeadingFields<Rest, Need, H, F, Seen | First>
+				: false
+			: false
+		: false
+
+/** Whether two field descriptors are of one type. */
+type SameFieldType<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
 
 /**
  * The refusal of the undeclared relations U: none where there are none. U is a parameter of its own: a tuple of

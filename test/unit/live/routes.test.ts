@@ -14,16 +14,37 @@
  * drawing gave them, never the served file the routes are read from.
  *
  * Features: a role that serves nothing, a role that serves programs, two roles, a read member, a paged member, a change
- * member.
+ * member. A witness whose turn aims at a paged member draws a case every read of which is ordered
+ * (oracle/public/generate.ts orderedCaseSketchGen), and its login's first role reads each of them paged
+ * (served-login.ts pagedLoginGen), rather than leave the situation to the tape: its fixed floor witnesses missed it
+ * once the closed/open rules drew no op for a change.
  */
 
 import { type Reached } from "@bjornpagen/testing/features"
+import { aimed, type Gen } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
-import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
-import { lawLevelGen } from "#test/support/oracle/public/laws.ts"
-import { drawnSchema, loginGen } from "#test/support/served-login.ts"
+import {
+	type CaseSketch,
+	caseSketchGen,
+	orderedCaseSketchGen,
+	resolveCase
+} from "#test/support/oracle/public/generate.ts"
+import { type LawLevel, lawLevelGen } from "#test/support/oracle/public/laws.ts"
+import { drawnSchema, loginGen, pagedLoginGen } from "#test/support/served-login.ts"
 import { type Feature, routesOf } from "#test/unit/live/routes.fixtures.ts"
+
+/** How a case draws its schema and login: as drawn, or aimed at a paged member. */
+type Aim = "drawn" | "paged"
+
+/** A case's sketch drawn as `aim` says: aimed at a paged member, every read of its case ordered. */
+const sketchGen =
+	(aim: Aim): Gen<readonly [CaseSketch, LawLevel, Aim]> =>
+	(source) => [
+		source.draw(aim === "paged" ? orderedCaseSketchGen : caseSketchGen),
+		source.draw(lawLevelGen),
+		aim
+	]
 
 /**
  * The HTTP surface's routes are exactly the login's served members, one route each.
@@ -32,7 +53,7 @@ import { type Feature, routesOf } from "#test/unit/live/routes.fixtures.ts"
  * grizzle 4ca3036a).
  */
 export const theHTTPSurfacesRoutesAreExactlyTheLoginsServedMembersOneRouteEach = property.explore(
-	(source) => [source.draw(caseSketchGen), source.draw(lawLevelGen)] as const,
+	aimed(sketchGen("drawn"), [["a paged member", sketchGen("paged")]]),
 	{
 		needs: {},
 		situations: [
@@ -45,10 +66,15 @@ export const theHTTPSurfacesRoutesAreExactlyTheLoginsServedMembersOneRouteEach =
 		] satisfies ReadonlyArray<Reached<Feature>>,
 		check:
 			(_, notes: Case<Feature>) =>
-			([sketch, level]) =>
+			([sketch, level, aim]) =>
 				Effect.suspend(() => {
 					const drawnCase = drawnSchema(notes.draw(resolveCase(sketch)), level)
-					return routesOf(drawnCase, level, notes.draw(loginGen(drawnCase)), notes.note)
+					return routesOf(
+						drawnCase,
+						level,
+						notes.draw((aim === "paged" ? pagedLoginGen : loginGen)(drawnCase)),
+						notes.note
+					)
 				}),
 		oracle: {
 			kind: "specification",

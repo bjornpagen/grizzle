@@ -310,7 +310,12 @@ interface ReadSketch {
  *   unordered beside its insertion of complete facts, and the keys run the insertion, the put, then the deletion; were
  *   the deletion before the insertion, as on a relation whose facts meet, no order would keep them;
  * - "added then removed": a fresh keyed fact inserted in one stratum and deleted in the next, so the change nets to
- *   none: the later stratum's removal cancels the earlier one's addition (core/zset.ts addInto).
+ *   none: the later stratum's removal cancels the earlier one's addition (core/zset.ts addInto);
+ * - "twin replaces": a stratum replacing a stored parent fact, then one replacing a stored keyed fact, each a deletion
+ *   and an insert of arrays of facts at the same key with another payload, in two statements. The parent and keyed
+ *   relations share one heading, and a replace's additions are read twice, by the exact deletion that excepts them and
+ *   by the insert, so each is staged into a carrier of its own beside slots of one heading, each carrier holding its
+ *   own slot's facts (write/program/slot-carriers.ts).
  * The sequential realization of a stratum of several statements is "relation parameters", an insert and a deletion of
  * one relation.
  */
@@ -337,7 +342,8 @@ export const plantedArms = [
 	"take per one parent",
 	"unorderable stratum",
 	"deletion meeting nowhere",
-	"added then removed"
+	"added then removed",
+	"twin replaces"
 ] as const
 export type PlantedArm = (typeof plantedArms)[number]
 
@@ -496,6 +502,11 @@ const plantedFactsOf = (
 		case "unorderable stratum":
 		case "added then removed":
 			return []
+		case "twin replaces":
+			return [
+				[p.parent, [{ a: armKey, b: 0 }]],
+				[p.keyed, [{ a: armKey, b: armKey }]]
+			]
 		case "deletion meeting nowhere":
 			return [
 				[p.pure, [{ a: armKey }]],
@@ -911,6 +922,21 @@ export const plantedChangeSet = (group: WGroup, arm: PlantedArm): WChangeSet => 
 				[
 					[enumerated("insert", p.keyed, [{ a: armKey, b: armKey }])],
 					[enumerated("delete", p.keyed, [{ a: armKey, b: armKey }])]
+				],
+				[],
+				{}
+			)
+		case "twin replaces":
+			return sequenced(
+				[
+					[
+						enumerated("delete", p.parent, [{ a: armKey, b: 0 }]),
+						enumerated("insert", p.parent, [{ a: armKey, b: 1 }])
+					],
+					[
+						enumerated("delete", p.keyed, [{ a: armKey, b: armKey }]),
+						enumerated("insert", p.keyed, [{ a: armKey, b: otherKey }])
+					]
 				],
 				[],
 				{}

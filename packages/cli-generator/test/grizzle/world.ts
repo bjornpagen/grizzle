@@ -24,6 +24,7 @@ import {
 	role,
 	schema,
 	str,
+	unit,
 	uuid,
 	v,
 	workload
@@ -52,11 +53,12 @@ const Item = relation(
 	["id"]
 )
 
-/** The items' schema: an id below 1 is refused by its law. */
+/** The items' schema: an item is open, mutable inside its unit, so its role puts and deletes it; an id below 1 is
+ * refused by its law. */
 export const Items = schema(
 	"Items",
 	[Item],
-	[mutable(Item), check("Counted", Item, (x) => x.ge(x.id, 1))]
+	[unit("Item", { id: pg.integer }), mutable(Item), check("Counted", Item, (x) => x.ge(x.id, 1))]
 )
 
 /** Every item. */

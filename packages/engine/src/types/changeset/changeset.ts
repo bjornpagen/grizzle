@@ -4,6 +4,7 @@ import type { Stream } from "effect"
 import type { RowDecoder } from "#compiler/core/decoder.ts"
 import type { ConstraintName, GeneratedLawId, LawId } from "#compiler/core/ids.ts"
 import type { Built, Delivering, delta, Phantom, phantom } from "#compiler/core/phantom.ts"
+import type { closedChangeRefusals, Refused } from "#compiler/core/refusals.ts"
 import type { CalendarDate } from "#compiler/ir/date.ts"
 import type { MonoidName, SideDesc, SlotsDesc } from "#compiler/ir/desc.ts"
 
@@ -587,14 +588,14 @@ type InsertedParams<Rows> = {
 
 /**
  * A put or a delete of R in S that the engine cannot plan, in the order its front end refuses one (write/frontend/
- * compile.ts): a tree's row, since a tree is rewritten whole; a row whose key a field grizzle writes holds, since no
- * fact states it; then a delete of a member of an immutable owner's family, fixed when its owner was inserted, or a put
- * of an immutable family owner, whose put updates its row in place; then a put or a delete of a family's member that
- * owns a sequence, whose members are nested under its rows (MemberOwningSequence). A relation with no drawn field is no
- * tree and owns
- * no family, and one whose caller writes every field states every key, so each test is read only where it can hold:
- * a schema whose statements are generic refuses nothing, and neither does a relation of no one name or no ordinary
- * relation, which WritableCheck refuses.
+ * compile.ts): a closed relation's, whose facts are inserted, never changed or deleted (ClosedChange); a tree's row,
+ * since a tree is rewritten whole; a row whose key a field grizzle writes holds, since no fact states it; then a delete
+ * of a member of an immutable owner's family, fixed when its owner was inserted; then a put or a delete of a family's
+ * member that owns a sequence, whose members are nested under its rows (MemberOwningSequence); and last a delete whose
+ * rows nest a closed relation's, which it would remove whole (ClosedBelow). A relation with no drawn field is no tree
+ * and owns no family, and one whose caller writes every field states every key, so each test is read only where it can
+ * hold: a schema whose statements are generic refuses nothing, and neither does a relation of no one name or no
+ * ordinary relation, which WritableCheck refuses.
  */
 type EditCheck<S, R, Op extends "put" | "delete"> = [R] extends [AnyRelation]
 	? string extends NameOf<R>
@@ -604,21 +605,45 @@ type EditCheck<S, R, Op extends "put" | "delete"> = [R] extends [AnyRelation]
 
 /** EditCheck of an ordinary relation of one name. */
 type EditOf<S, R, Op extends "put" | "delete"> =
-	IsTreeRow<S, R> extends true
-		? Op extends "delete"
-			? IsFamilyMember<S, R> extends true
-				? Refusal<"a tree whose nodes are another family's members is deleted with that family's owner">
-				: unknown
-			: Refusal<"a tree is rewritten whole: insert its root with the whole tree nested">
-		: UnstatedKey<S, R, Op> extends true
-			? Refusal<"a put or a delete names its rows by their key, and no fact states a key field grizzle writes: key the relation by fields its caller writes">
-			: Op extends "delete"
-				? IsFixedMember<S, R> extends true
-					? Refusal<"an immutable owner's family is fixed when its owner is inserted: declare the owner mutable to change it">
+	IsClosed<S, NameOf<R>> extends true
+		? Refusal<(typeof closedChangeRefusals)[Op]>
+		: IsTreeRow<S, R> extends true
+			? Op extends "delete"
+				? IsFamilyMember<S, R> extends true
+					? Refusal<"a tree whose nodes are another family's members is deleted with that family's owner">
+					: ClosedBelow<S, R>
+				: Refusal<"a tree is rewritten whole: insert its root with the whole tree nested">
+			: UnstatedKey<S, R, Op> extends true
+				? Refusal<"a put or a delete names its rows by their key, and no fact states a key field grizzle writes: key the relation by fields its caller writes">
+				: Op extends "delete"
+					? IsFixedMember<S, R> extends true
+						? Refusal<"an immutable owner's family is fixed when its owner is inserted: declare the owner mutable to change it">
+						: MemberOwningSequence<S, R> extends Refusal<Refused>
+							? MemberOwningSequence<S, R>
+							: ClosedBelow<S, R>
 					: MemberOwningSequence<S, R>
-				: IsImmutableOwner<S, R> extends true
-					? Refusal<"an owner's put updates its row in place, which an immutable owner refuses: declare it mutable to put it">
-					: MemberOwningSequence<S, R>
+
+/**
+ * Whether S's statements leave the relations named N closed: they hold no Mutable of any, so their facts are inserted,
+ * never changed or deleted. A schema whose statements are generic, which hold every Mutable, leaves none closed.
+ */
+type IsClosed<S, N> =
+	Mutable<unknown> extends StatementsOf<S>[number]
+		? false
+		: IsNone<N> extends true
+			? false
+			: IsNone<Exclude<N, MutableName<S>>> extends true
+				? false
+				: true
+
+/**
+ * A delete of R whose rows nest rows of a closed relation through its families (UnitWrites), which removing them whole
+ * would delete: refused, as the engine refuses a unit delete below its roots (write/frontend/compile.ts).
+ */
+type ClosedBelow<S, R> =
+	IsClosed<S, UnitWrites<S, R>> extends true
+		? Refusal<(typeof closedChangeRefusals)["delete"]>
+		: unknown
 
 /**
  * A put or a delete of a member of an ordered or a counted family of S that owns a sequence: its sequence's members are
@@ -744,13 +769,6 @@ type RowFamilyOf<S> = Extract<
 
 /** Whether R is the member of an ordered or a counted family of S whose owner is immutable. */
 type IsFixedMember<S, R> = IsNone<FixedOwnerOf<S, R>> extends true ? false : true
-
-/** Whether R owns an ordered or a counted family of S and is immutable. */
-type IsImmutableOwner<S, R> = [DrawnFieldOf<R>] extends [never]
-	? false
-	: IsNone<Extract<NameOf<R>, Exclude<OwnerNameOf<RowFamilyOf<S>>, MutableName<S>>>> extends true
-		? false
-		: true
 
 /**
  * Params is carried invariantly as well as read through `params`, so a ChangeSet that still needs parameters is never

@@ -9,9 +9,9 @@
  *   both is `RoleRefused` (`writeAndInsert`), an empty insert list a MalformedDescription. A role's Description holds the
  *   key it stated and its list, and the same entries stated under the other key differ in that key alone.
  * - **The grants are the declaration's:** each role's table privileges on each table, a column privilege counting as its
- *   table's, are the rule restated: on a table it writes SELECT and INSERT, and by its write list DELETE and, on a
- *   mutable table, UPDATE; on the owner of a family whose member it writes, and which it does not write whole, SELECT,
- *   and UPDATE on a mutable owner by its write list. grantedPrivileges, what certification reads, is exactly the
+ *   table's, are the rule restated: on a table it writes SELECT and INSERT, and by its write list, on a mutable table,
+ *   UPDATE and DELETE, a closed table's facts never changed or deleted; on the owner of a family whose member it writes,
+ *   and which it does not write whole, SELECT, and UPDATE on a mutable owner by its write list. grantedPrivileges, what certification reads, is exactly the
  *   installed set.
  * - **A role stating `write` comes out byte-identical:** the installation with every insert role stated as a write role
  *   (the control) and the drawn one hold the same objects in the same order with the same DDL, the same edges, revokes,

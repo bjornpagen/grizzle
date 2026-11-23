@@ -8,7 +8,18 @@ import type { CallError, WriteOutcome } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { drawn, natural, pg, place } from "#compiler/public/fields.ts"
 import { param, query, v } from "#compiler/public/query.ts"
-import { fin, key, login, on, ordered, relation, role, schema } from "#compiler/public/schema.ts"
+import {
+	fin,
+	key,
+	login,
+	mutable,
+	on,
+	ordered,
+	relation,
+	role,
+	schema,
+	unit
+} from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import type { WriteAnswer } from "#test/support/calls.ts"
 import { rigTemplate } from "#test/support/schedules/rig.ts"
@@ -300,10 +311,11 @@ export const Note = relation(
 )
 
 /**
- * The schema of the clearing property: Session and its marks, and Note, which owns no family; the role `writer`, which
- * inserts them, and `clearer`, which deletes whole groups of either, an item of a child's sessions with their marks or
- * its notes, by the place's group (write/frontend/instants.ts Removal), a Session's through its owner's units and a
- * Note's by its exact rows, in one login.
+ * The schema of the clearing property: Session and its marks, and Note, which owns no family, each open, mutable inside
+ * the unit of a child's item, whose rows the clearer deletes; the role `writer`, which inserts them, and `clearer`,
+ * which deletes whole groups of either, an item of a child's sessions with their marks or its notes, by the place's
+ * group (write/frontend/instants.ts Removal), a Session's through its owner's units and a Note's by its exact rows, in
+ * one login.
  */
 export const cleared = (name: string) => {
 	const base = schema(
@@ -311,7 +323,11 @@ export const cleared = (name: string) => {
 		[Session, Mark, Note],
 		[
 			key(on(Session, "child", "item", "stage")),
-			ordered(on(Mark, "child", "item", "n", "at"), fin(Session, "marks"))
+			ordered(on(Mark, "child", "item", "n", "at"), fin(Session, "marks")),
+			unit("Item", { child: pg.integer, item: pg.integer }),
+			mutable(Session),
+			mutable(Mark),
+			mutable(Note)
 		]
 	)
 	const writer = role(

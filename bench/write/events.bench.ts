@@ -24,7 +24,7 @@ import {
 	writePhases
 } from "#bench/write/support/writes.ts"
 import { pg } from "#compiler/public/fields.ts"
-import { contained, mutable, on, relation, schema } from "#compiler/public/schema.ts"
+import { contained, mutable, on, relation, schema, unit } from "#compiler/public/schema.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -46,8 +46,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *   keys are unchanged (RI_FKey_fk_upd_check_required), so a batch of such UPDATEs queues nothing beside one insert's
  *   event.
  *
- * The fixture is a cycle of two containments, which grizzle defers (fin.md §5.1): a `mutable` Member in its Grp, and
- * each Grp's lead among the members.
+ * The fixture is a cycle of two containments, which grizzle defers (fin.md §5.1): an open Member, mutable inside the
+ * unit of its id, in its Grp, and each Grp's lead among the members.
  */
 const Grp = relation("Grp", { id: pg.integer, lead: pg.bigint }, ["id"])
 const Member = relation("Member", { id: pg.bigint, grp: pg.integer }, ["id"])
@@ -59,6 +59,7 @@ const build = (name: string) =>
 		[
 			contained(on(Member, "grp"), on(Grp, "id")),
 			contained(on(Grp, "lead"), on(Member, "id")),
+			unit("Member", { id: pg.bigint }),
 			mutable(Member)
 		]
 	)

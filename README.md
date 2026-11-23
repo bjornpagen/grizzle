@@ -88,7 +88,21 @@ post's page runs. Every `ts` block on this page typechecks in grizzle's test sui
 idea at a time.
 
 ```ts
-import { closed, closedId, contained, instant, on, pg, query, relation, schema, str, v } from "@bjornpagen/grizzle"
+import {
+	closed,
+	closedId,
+	contained,
+	instant,
+	mutable,
+	on,
+	pg,
+	query,
+	relation,
+	schema,
+	str,
+	unit,
+	v
+} from "@bjornpagen/grizzle"
 
 const ClerkUser = str.regex("^user_[0-9A-Za-z]{1,64}$")
 const ClerkOrg = str.regex("^org_[0-9A-Za-z]{1,64}$")
@@ -124,7 +138,11 @@ export const Blog = schema(
 	[Status, Post, Comment, PostViews],
 	[
 		contained(on(Comment, "org", "post"), on(Post, "org", "slug")),
-		contained(on(PostViews, "org", "post"), on(Post, "org", "slug"))
+		contained(on(PostViews, "org", "post"), on(Post, "org", "slug")),
+		unit("Org", { org: ClerkOrg }),
+		mutable(Post),
+		mutable(Comment),
+		mutable(PostViews)
 	]
 )
 
@@ -150,7 +168,7 @@ export const postPage = query(Blog)
 	)
 ```
 
-Three relations, a roster of statuses, two rules and one query.
+Three relations, a roster of statuses, two rules, the unit the relations change under, and one query.
 
 ### Relations hold facts
 
@@ -171,10 +189,14 @@ status. Three things follow:
 - **Every field is required.** There are no nullable columns. A post that has never been viewed has no `PostViews` row,
   and one that has been viewed has exactly one: a value that may be missing is a fact that may be missing.
 - **A relation is a set.** A fact inserted twice is one fact, and a write that changes nothing answers `unchanged`.
-- **Facts are inserted and deleted, not edited in place.** A relation is immutable by default, no role holds
-  UPDATE on it, and its table refuses every UPDATE that would change a row, the owner's and psql's included, with
-  42501 naming the table. A `put` states the fact that holds at a key afterwards, which is what an update means. Declaring
-  `mutable(Post)` among the rules changes how a put is carried out, never what it means.
+- **A relation is closed or open.** A closed relation, the default, holds facts: they are inserted, never changed or
+  deleted. No role holds UPDATE or DELETE on its table, its table refuses every UPDATE that would change a row, the
+  owner's and psql's included, with 42501 naming the table, and a ChangeSet's put or delete of it is refused when it
+  compiles, by name. A change is recorded as a fact inserted: a new row that supersedes, the current one derived. An
+  open relation is `mutable(Post)` inside a unit ([Units](#units)) whose heading its primary key leads with: its rows
+  are changed in place and deleted under the unit's exclusive borrow, `&mut`, and a `put` states the fact that holds at
+  a key afterwards, which is what an update means. `mutable(R)` over a relation that sits in no unit is refused when
+  the schema is built, by name.
 
 ### Types are sets of values
 
@@ -280,9 +302,10 @@ which orders nothing.
 
 **Edges.**
 
-- **A rename is a new fact, never a key update.** A key never changes: renaming a lesson deletes the fact at its old
-  slug and inserts the one at its new slug in one ChangeSet, and the rows that name it move with it there. A field
-  that changes in place is outside the key, and `mutable(R)` lets a put update it ([Writes](#writes)).
+- **A rename is a new fact, never a key update.** A key never changes: renaming a lesson, an open relation, deletes
+  the fact at its old slug and inserts the one at its new slug in one ChangeSet, and the rows that name it move with it
+  there; a closed relation records the rename as a fact inserted. A field that changes in place is outside the key, and
+  `mutable(R)` inside a unit lets a put update it ([Writes](#writes)).
 - **Two writes in one microsecond** are told apart by the rest of their key. Where nothing else tells them apart, they
   meet at the key, and under SERIALIZABLE the later one fails as a retryable `transient`, whose retry reads a later
   instant.
@@ -573,7 +596,7 @@ export const Dashboard = login(Keys, "dashboard", [KeyAdmin])
 
 **What you get.** The dashboard's queries and writes are written over `KeyAdmin`, where `ApiKey` already means "this organization's keys", with rows `{ digest: Sha256; name: string }`, the digest its 32 bytes. There is no `where` to forget and no `org` to pass. `orgKeys` fixes `org` to the claim, so inserting `{ digest, name }` stores the caller's organization.
 
-Another organization's keys don't exist for this role: deleting one does nothing, and an insert at a `digest` one already holds is `refused` on the primary key, its witness the `digest` you submitted, never the other row. Opening a `Db` of `key_admin` through the dashboard's served login doesn't compile without a token, and opening runs your `verify` function on it once.
+Another organization's keys don't exist for this role: an insert at a `digest` one already holds is `refused` on the primary key, its witness the `digest` you submitted, never the other row. `ApiKey` is closed, its facts inserted and never changed or deleted, so the role holds SELECT and INSERT on its table and nothing more. Opening a `Db` of `key_admin` through the dashboard's served login doesn't compile without a token, and opening runs your `verify` function on it once.
 
 grizzle installs `KeyAdmin` as a PostgreSQL role that reads through a view in its own schema and writes the table under row-level security. The rule lives in PostgreSQL, so psql meets it too. `roleNameOf(Dashboard, {})` is the login's PostgreSQL role in an installation without a role prefix, here `keys__dashboard`; `roleNameOf(KeyAdmin, {})` and `schemaNameOf(KeyAdmin)` are the role and its schema of views, both `keys__key_admin`:
 
@@ -598,7 +621,6 @@ CREATE POLICY "keys__key_admin" ON "keys"."api_key" AS PERMISSIVE FOR ALL TO :"k
 ALTER TABLE "keys"."api_key" ENABLE ROW LEVEL SECURITY;
 GRANT SELECT ("digest", "org", "name") ON TABLE "keys"."api_key" TO :"keys__key_admin";
 GRANT INSERT ("digest", "org", "name") ON TABLE "keys"."api_key" TO :"keys__key_admin";
-GRANT DELETE ON TABLE "keys"."api_key" TO :"keys__key_admin";
 ```
 
 A role is a cluster's, not a database's, so the SQL names it by a variable, psql's `:"keys__key_admin"`, which `grizzle migrate` fills with the role of the installation it migrates: `keys__key_admin` itself, or `a__keys__key_admin` in an installation whose connection gives `rolePrefix: "a"`. The schema of views is the database's and keeps its name in every installation ([Migrations](#migrations)).
@@ -875,7 +897,7 @@ The declaration introduces families, rules over rows the caller writes:
 - **`drawn(natural)` and `accumulated(type, start)`** are fields grizzle writes, never the caller: a count, and a value accumulated from members, starting at `start`.
 - **`counted(on(Debit, "grant"), fin(Grant, "debits"))`** says each grant's members are the debits that name it, and `debits` counts them. `fin(Grant, "debits")` is the slots of that count.
 - **`fold(family, Monoid.sum, step, end)`** combines each member's step value, a debit's `amount`, into its owner's end, the grant's `spent`, by a monoid: here an exact sum.
-- **`mutable(Grant)`** lets a grant's count and total change after it is inserted. Tables are immutable by default: rows are inserted and deleted, never updated in place.
+- **`unit("Grant", { id: StripePayment })` and `mutable(Grant)`** open the grant: its count and total change after it is inserted, under its unit's borrow. A relation is closed by default: its facts are inserted, never changed or deleted.
 
 `wholeEntriesOf(Credits)` is the entries of a role that sees every table whole, so `Metering` reads everything and writes only debits.
 
@@ -894,6 +916,7 @@ import {
 	Monoid,
 	mutable,
 	natural,
+	unit,
 	wholeEntriesOf,
 	workload
 } from "@bjornpagen/grizzle"
@@ -927,6 +950,7 @@ export const Credits = schema(
 		grantDebits,
 		fold(grantDebits, Monoid.sum, on(Debit, "grant", "amount"), on(Grant, "id", "spent")),
 		check("WithinGrant", Grant, (g) => g.le(g.spent, g.amount)),
+		unit("Grant", { id: StripePayment }),
 		mutable(Grant)
 	]
 )
@@ -1112,7 +1136,11 @@ export const Voiding = relation("Voiding", { invoice: StripeInvoice, reason: Pro
 export const Invoices = schema(
 	"Invoices",
 	[InvoiceState, Invoice, Payment, Voiding],
-	[alternatives(Invoice, "state", InvoiceState, { paid: Payment, void: Voiding })]
+	[
+		alternatives(Invoice, "state", InvoiceState, { paid: Payment, void: Voiding }),
+		unit("Invoice", { id: StripeInvoice }),
+		mutable(Invoice)
+	]
 )
 
 /** An invoice, with its payment when it is paid and its voiding when it is void. */
@@ -1897,16 +1925,18 @@ schema.
   exactly as declared there, and nothing else of its name.
 - **No nullable columns.** A value that may be missing is a row that may be missing, in a table of its own, like
   `PostViews`.
-- **Immutable by default.** Rows are inserted and deleted, never updated, and no role holds UPDATE on them. Each
-  immutable table carries an immutability guard, a `BEFORE UPDATE` row trigger that refuses an UPDATE changing any field
-  but the few grizzle itself rewrites in place (a family member's copy of a mutable owner's column, which the owner
-  axis's ON UPDATE CASCADE carries), whoever runs it, its owner included, with 42501 naming the table.
+- **Closed by default.** A closed relation's rows are inserted, never updated or deleted: a role that writes it holds
+  SELECT and INSERT on its table and no UPDATE or DELETE, and a ChangeSet's put or delete of it is refused when it
+  compiles. Each closed table carries an immutability guard, a `BEFORE UPDATE` row trigger that refuses an UPDATE
+  changing any field but the few grizzle itself rewrites in place (a family member's copy of a mutable owner's column,
+  which the owner axis's ON UPDATE CASCADE carries), whoever runs it, its owner included, with 42501 naming the table.
   A migration's data steps on such a table run with the guard dropped and create it again in the same transaction:
   a draft's and the data step you write at its place, over every table the previous version guards and this one keeps,
   and a custom migration's (`generate --custom`) transactional file, over every guard the database holds as it runs. A
   `-- grizzle: no-transaction` file has no transaction to do that in, so it cannot write a guarded table.
-  `mutable(Post)` among a schema's rules allows in-place updates; it changes how a `put` runs, never what it means. A
-  family's owner whose family changes after it is inserted is mutable too ([Families](#families)).
+  An open relation is `mutable(Post)` inside a unit whose heading its key leads with ([Units](#units)): its writers hold
+  UPDATE and DELETE, and its rows change in place and are deleted under the unit's exclusive borrow. A family's owner
+  whose family changes after it is inserted is open too ([Families](#families)).
 - **First insertion wins, by `race`.** `race(Claim)` among a schema's rules makes a table's primary key first come,
   first held: an insertion at a key another row holds meets that row instead of being refused for differing from it
   ([Races](#races)).
@@ -2229,7 +2259,7 @@ installs it in 35 ms.
 Rules are declared in a schema's list, beside its tables. A box office:
 
 ```ts
-import { check, contract, counted, drawn, fin, key, Logic, mutable, natural, span } from "@bjornpagen/grizzle"
+import { check, contract, counted, drawn, fin, key, Logic, mutable, natural, span, unit } from "@bjornpagen/grizzle"
 
 const Cents = contract("Cents", pg.bigint, (c) => Logic.ge(c, 0n))
 /** A show's production code, and a ticket's barcode, as the box office prints them. */
@@ -2259,6 +2289,7 @@ export const BoxOffice = schema(
 		key(on(Ticket, "show", "holder")),
 		check("SomeSeats", Show, (s) => s.ge(s.seats, 1n)),
 		check("NoOversell", Show, (s) => s.le(s.tickets, s.seats)),
+		unit("Show", { id: ShowCode }),
 		mutable(Show)
 	]
 )
@@ -2266,7 +2297,7 @@ export const BoxOffice = schema(
 
 A price is never negative. Every ticket's show, and every run's stage and show, exists. A person holds at most one
 ticket per show. A show has at least one seat and never more tickets than seats: `tickets` is drawn, each show's count
-of the tickets that name it, which grizzle keeps and `mutable(Show)` lets change. `nights` is a span in `Run`'s primary
+of the tickets that name it, which grizzle keeps and `mutable(Show)`, in the show's unit, lets change. `nights` is a span in `Run`'s primary
 key, so two runs on one stage never share a night.
 
 | Rule           | Written as                                                                | Holds when                                                                    |
@@ -2700,7 +2731,7 @@ copies and fold planes, and the write inserts the members as drawn. Every other 
 owner, which only the database holds, so the family's statement draws it in SQL, by a window over the group in slot
 order, past its stored members. Whether a group holds a stored member is a fact of the database, so the statement
 decides it as it runs: an exact repeat of a stored owner beside an append to its group is drawn in SQL past the stored
-members, as any append to a stored group is, and in an immutable installation refused by the family's count, as before.
+members, as any append to a stored group is, and under a closed owner refused by the family's count, as before.
 A fresh group's members are walked in their key's order, each key field by the host's order of its values, which is
 PostgreSQL's `ORDER BY` of them (test/pg/values/order.test.ts holds the two equal for every type), so a member's hidden
 index is the one the window gives it, and a migration that draws a family over stored rows draws the same values again.
@@ -2717,7 +2748,8 @@ index is the one the window gives it, and a migration that draws a family over s
   `delete(Node, [{ package, path }])`, and a delete of a relation that owns a family and is no family's member names its
   rows as any delete does; each removes its rows and every row nested under them, through every family, to any depth:
   the members of each family the removed rows own, the rows those own, and a tree's every node. So no count, index,
-  fold end or tree interval ever describes a partial group, and an immutable owner's family goes with its owner. Its
+  fold end or tree interval ever describes a partial group, and the delete is of open relations alone, its own and every
+  one it removes rows of, a closed one refused when the ChangeSet compiles, by name. Its
   rows may come from a query, as `delete(Node, query(…).find({ package, path }))`. Its write list names every
   relation it removes rows of. A delete of a tree whose nodes are another family's members is a type error, and so is a
   put or a delete of a family's member that owns a sequence, and a put in its stratum of the relation it deletes or of
@@ -2777,7 +2809,7 @@ index is the one the window gives it, and a migration that draws a family over s
 - **A refill is planned in the first stratum**, beside every edit of a family's members; a ChangeSet that needs one
   elsewhere is `UnsupportedOperation` when it compiles. A refill is refused when the ChangeSet compiles
   (`StaleDerivedRead`) only where grizzle cannot draw it: a put whose rows a query states; refills that reach a family
-  they refill again; a refill of an immutable relation's rows or an immutable owner's family; a refill of a tree's
+  they refill again; a refill of a closed relation's rows or a closed owner's family; a refill of a tree's
   values; a refill of a value that reads what another refill changes; a refill of a value a family member's own write
   reaches beyond the two it refills; and a refill no statement of its stratum draws: a put's cascade that passes a
   member the same stratum puts or deletes (cause `passed`), a member's write whose refilled member the same stratum
@@ -2785,9 +2817,10 @@ index is the one the window gives it, and a migration that draws a family over s
   drawn by the write's own statements, in process exactly as in a served file. A role refills only relations it holds
   whole: the members it rewrites in its `write` list, and every relation the refill's cascade passes among its entries
   (`OutsideRole`).
-- **An immutable owner's family is fixed when the owner is inserted**, and deleted with its owner. Declare
-  `mutable(Owner)` for a family that changes later, or an owner you put. A delete of a member of an immutable owner's
-  family and a put of an immutable owner are type errors, and from JavaScript refused when the ChangeSet compiles. An insert of such a member in a
+- **A closed owner's family is fixed when the owner is inserted.** Declare the owner open, `mutable(Owner)` inside its
+  unit, for a family that changes later, or an owner you put. A delete of a member of a closed owner's family and a put
+  or a delete of a closed owner are type errors, and from JavaScript refused when the ChangeSet compiles; a delete of an
+  open owner removes its family whole, every member open too. An insert of such a member in a
   stratum that inserts no such owner is a type error where a workload declares the ChangeSet, since a later insert or
   a union may still add the owner.
 - **A ChangeSet writes family members in one stratum**: writing them in a second is a type error at the call that
@@ -2832,6 +2865,11 @@ export const Assignments = schema(
   every relation keyed `(number, …)` by an `AssignmentNo`, in this schema or any level above it, which states nothing
   more. No relation is listed, so none that leads with the key can be left out, and a unit's rows lie in one index
   range of each member. A relation keyed by its fields in another order, or by other fields, is no member.
+- **An open relation sits in a unit.** A relation is closed by default, its facts inserted, never changed or deleted;
+  `mutable(R)` opens it, and is admitted only where R's primary key leads with a unit's heading, so its every update and
+  delete is a write of its unit's rows, held under the unit's exclusive borrow. `mutable(R)` over a relation that sits
+  in no unit is refused when the schema is built, in the types and by the engine, by name: declare the unit its key
+  leads with, or keep R closed and record each change as a fact inserted.
 - **Give its key a named domain.** A field of the same name and type that means something else, a user's `number`
   beside an assignment's, joins the unit all the same. That is never wrong, since every writer and reader of the row
   takes the same lock, only coarser than it need be; a contract of the key's own, `AssignmentNo` above, keeps it out.
@@ -4922,7 +4960,7 @@ deploy.
   row that holds a removed code. Change or delete those rows in a data step first: preferably a custom migration
   (`generate --custom`) drafted before the removal, so the removal applies after it in the same `migrate`. After a
   refused attempt the removal's folder is partially applied and resumes where it stopped, so no folder can go before
-  it: change the rows outside any migration, an immutable relation's by deleting each row and inserting it again,
+  it: change the rows outside any migration, a closed relation's by deleting each row and inserting it again,
   never by UPDATE, which its guard refuses. A set over a grown roster converts in place to its wider
   domain, the new handles absent. An ordered roster declared out of its codes' order is refused before anything is
   drafted: append new handles, or declare the roster `closed.unordered` where its order means nothing. An unordered
@@ -5502,7 +5540,7 @@ creates one, and `grizzle drift` reports a grant revoked since.
 | `FoldOverProjection`                            | the match's `source` and the `key` it must bind for an aggregate to read each row once                   |
 | `QueriedOwnerAppend`                            | an insert or put (`op`), at `at`, of the `owner` from a query beside an append of `member` to its `family` (`{ owner, count }`) |
 | `CascadedCopyAppend`                            | a write (`op`) of `member` of its `family` whose `copy` reads its `owner`'s `through`, which the owner copies from `changed`, a relation the same stratum puts from a query, whose rows grizzle never sees |
-| `StaleDerivedRead`                              | a write (`op`) of `member` changing a stored row's column (`changed`: `relation`, `column`, and `by`: `put`, `owner` or `member`), which the cascade carries into `copies`, read by `reader` (`{ kind, family, relation, column }`: a fold, a predecessor, a last or a tree's copy), which grizzle cannot refill for `cause`: `{ kind: "query" }`, a put from a query; `{ kind: "cycle", refills }`, refills reaching a family they refill again; `{ kind: "immutable", relation }`, a refill of an immutable owner's family or an immutable relation's rows; `{ kind: "tree", tree }`, a refill of the values of the tree `tree` (`{ owner, count }`), which grizzle draws only when a node is written; `{ kind: "chained", refill }`, a refill of a value that reads what the refill of the family `refill` (`{ owner, count }`) itself changes; or `{ kind: "edit", family }`, a refill of a value of `family` (`{ owner, count }`) that a family member's own put, delete or append reaches beyond the two values such a write refills |
+| `StaleDerivedRead`                              | a write (`op`) of `member` changing a stored row's column (`changed`: `relation`, `column`, and `by`: `put`, `owner` or `member`), which the cascade carries into `copies`, read by `reader` (`{ kind, family, relation, column }`: a fold, a predecessor, a last or a tree's copy), which grizzle cannot refill for `cause`: `{ kind: "query" }`, a put from a query; `{ kind: "cycle", refills }`, refills reaching a family they refill again; `{ kind: "immutable", relation }`, a refill of a closed owner's family or a closed relation's rows; `{ kind: "tree", tree }`, a refill of the values of the tree `tree` (`{ owner, count }`), which grizzle draws only when a node is written; `{ kind: "chained", refill }`, a refill of a value that reads what the refill of the family `refill` (`{ owner, count }`) itself changes; or `{ kind: "edit", family }`, a refill of a value of `family` (`{ owner, count }`) that a family member's own put, delete or append reaches beyond the two values such a write refills |
 | `UnfillableField`                               | the `relation`'s `field`, the `law` filling it, the `source` column it reads along `axis` of its `family`, and why that column is filled `later` |
 | `UnwritableRelation`                            | the `relation` no write fills, and its `cause`                                                           |
 | `NoReadCommittedForm`                           | the `relation`, whose primary key holds a span, that a ChangeSet compiled for READ COMMITTED inserts into: only a compile at a level no certificate gives meets it, since generate runs such a role SERIALIZABLE |
@@ -5639,7 +5677,7 @@ statement's. The role is certified READ COMMITTED when all of these hold, and st
   through a whole immutable group the same statement reads positively, through one in each arm of a `UNION`, and every
   write they guard is joined with that group.
 - **It reads other calls' rows in one statement, as whole groups that never change.** Each such read finds one row by a
-  whole declared key of a relation every role only inserts into, all the members of a family whose immutable owner
+  whole declared key of a relation every role only inserts into, all the members of a family whose closed owner
   holds their count, or a relation no role writes, keyed by values the call states once: a read keyed by each row of
   an array the call was given reads one group per row, which another call's rows can split. All of a ChangeSet's reads
   of other calls' rows are in one
@@ -6034,7 +6072,7 @@ it is, read offline from the committed snapshot. PostgreSQL answers:
 
 | SQLSTATE            | When                                                                                                                                                         |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 42501               | a table outside the role; a row its filter refuses; an UPDATE of an immutable table, or through a query entry of a column outside it, in a key or fixed by a claim |
+| 42501               | a table outside the role; a row its filter refuses; an UPDATE of a closed table, or a DELETE of one through a role, or an UPDATE through a query entry of a column outside it, in a key or fixed by a claim |
 | 42501               | an UPDATE or a DELETE through a role that states `insert`                                                                                                     |
 | 42501               | `SET ROLE` to another login's role or the owner; `SET SESSION AUTHORIZATION` to anyone but the login; a call of another role's filter or probe function |
 | 22023               | `SET ROLE` or `SET SESSION AUTHORIZATION` to a role that does not exist                                                                                      |
@@ -6156,7 +6194,7 @@ grizzle fits applications that own their data end to end, with rules worth decla
 - **No interactive transactions and no retries.** A transaction is one call; you run a `transient` call again yourself.
 - **No PgBouncer, no LISTEN/NOTIFY and no browser connections.** A browser cannot reach PostgreSQL directly; a server runs `verify`.
 - **The login is the trust boundary.** Anyone with its password can act as any of its roles, with any claims.
-- **Tables are immutable by default.** `mutable(T)` opts one in to in-place updates.
+- **Relations are closed by default**: their facts are inserted, never changed or deleted. `mutable(T)` inside a unit opens one to puts and deletes.
 - **Derived tables are refreshed explicitly**, by a workload's `refresh(...)` member.
 - **Migrations are downtime.** No `Db` call runs while a migration is being applied.
 

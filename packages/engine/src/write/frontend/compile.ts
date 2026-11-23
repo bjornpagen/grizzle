@@ -22,6 +22,7 @@ import { CompileError, type ProseTag, prose, ruleRefused } from "#compiler/core/
 import { type EntryName, type LawId, ParamId, type StoredRelationName } from "#compiler/core/ids.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import * as Order from "#compiler/core/order.ts"
+import { closedChangeRefusals } from "#compiler/core/refusals.ts"
 import type { ClockBinding, ClockSource } from "#compiler/ir/clock.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { rooted } from "#compiler/ir/dag.ts"
@@ -1231,6 +1232,13 @@ const compile = (
 	 */
 	const unitRoot = (name: string): boolean =>
 		families.some((f) => f.owner.name === name) && otherFamilyOf(name) === undefined
+	/** A put or a delete of `name`, refused where it is closed: a closed relation's facts are inserted, never changed or
+	 * deleted, and only a relation mutable inside a unit changes (schema/own.ts ownUnits). */
+	const refuseClosedChange = (op: "put" | "delete", name: string, loc: SourceLoc): void => {
+		if (!writtenOf(name, loc).mutable) {
+			throw new Refusal(ruleRefused(loc, closedChangeRefusals[op]))
+		}
+	}
 	/**
 	 * The relations below a stratum's unit roots `roots` (`unitRoot`), each after the owners of every family that reaches
 	 * it: every member of a family owned in the units, transitively, a tree's relation its own family's member, judged over
@@ -1288,6 +1296,7 @@ const compile = (
 			remaining = remaining.filter((name) => name !== next)
 		}
 		return ordered.map((name): UnitMember => {
+			refuseClosedChange("delete", name, loc)
 			const target = targetOf(name, loc)
 			if (target.entry.kind !== "whole") {
 				refuse(
@@ -1567,6 +1576,8 @@ const compile = (
 			const { relation, entry } = target
 			if (member.op === "insert") {
 				refuseNestedOutsideRole(relation.name, loc)
+			} else {
+				refuseClosedChange(member.op, relation.name, loc)
 			}
 			const sequence = sequenceOf(relation.name)
 			if (sequence !== undefined && member.op === "insert") {
@@ -1657,14 +1668,6 @@ const compile = (
 						nestedFixed,
 						"appending to an owner this stratum does not insert"
 					)
-				)
-			}
-			const owned = families.find((f) => f.owner.name === relation.name)
-			if (owned !== undefined && member.op === "put" && !writtenOf(relation.name, loc).mutable) {
-				refuse(
-					"UnsupportedOperation",
-					loc,
-					`a put of ${relation.name}, the immutable owner of the family ${owned.id.owner}.${owned.id.count}: an owner's put updates the fields its facts carry in place and leaves its families as they are, which an immutable relation refuses; declare mutable(${relation.name}) to put it`
 				)
 			}
 			const edited = managed(relation.name) && tree === undefined

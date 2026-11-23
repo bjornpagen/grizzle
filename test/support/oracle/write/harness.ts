@@ -11,6 +11,8 @@ import { ParamRejected } from "#adapter/errors/failures.ts"
 import type { CompiledProgram } from "#adapter/served/forms.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
+import { sameScalarType } from "#compiler/ir/scalar.ts"
+import type { MemberParamSlot } from "#compiler/lower/conservative/types.ts"
 import type { WriteStepResult } from "#compiler/runtime/write/steps.ts"
 import { factIdentity } from "#compiler/scalar/values/identity.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
@@ -223,6 +225,7 @@ export type WriteOracleFeature =
 	| "delete equal by a literal"
 	| "a member slot staged"
 	| "a staged slot an exact deletion excepts"
+	| "a staged slot beside another slot of its heading"
 	| "a staged slot a put's halves read"
 	| "two members of one relation in one stratum"
 	| "a member reads a relation its stratum writes"
@@ -921,10 +924,27 @@ const stagedBeside = (
 }
 
 /**
+ * Whether a staged member slot of `artifact` (write/program/slot-carriers.ts) has a sibling: another slot the program
+ * reads whose heading has its field names and types, so its carrier must be filled from its own slot's arrays and no
+ * other's.
+ */
+const stagedBesideItsHeading = (artifact: WriteArtifact): boolean => {
+	const read = Arr.flatMap(artifact.statements, (st) => [...slotsRead(artifact, st).values()])
+	const alike = (a: MemberParamSlot, b: MemberParamSlot): boolean =>
+		a.columns.length === b.columns.length &&
+		Arr.every(b.columns, (c) =>
+			Arr.some(a.columns, (k) => k.name === c.name && sameScalarType(k.type, c.type))
+		)
+	return Arr.some([...slotCarriers(artifact).values()], (staged) =>
+		Arr.some(read, (other) => other.slot !== staged.slot && alike(staged, other))
+	)
+}
+
+/**
  * The realizations a program's optimized artifact chose (schedule/plan.ts): a stratum as one statement, a stratum of
  * several write statements in sequence, a deletion anchored on its own relation (write/delete/anchor.ts), and a member
  * slot two statements read staged into a carrier (write/program/slot-carriers.ts), one an exact deletion excepts beside
- * its insert or a put's both halves read among them.
+ * its insert or a put's both halves read among them, and one beside another slot of its heading.
  */
 const realizationsOf = (program: CompiledWrite): ReadonlyArray<WriteOracleFeature> => {
 	const artifact = program.artifact
@@ -953,7 +973,10 @@ const realizationsOf = (program: CompiledWrite): ReadonlyArray<WriteOracleFeatur
 		...(stagedBeside(artifact, "exact")
 			? ["a staged slot an exact deletion excepts" as const]
 			: []),
-		...(stagedBeside(artifact, "displacing") ? ["a staged slot a put's halves read" as const] : [])
+		...(stagedBeside(artifact, "displacing") ? ["a staged slot a put's halves read" as const] : []),
+		...(stagedBesideItsHeading(artifact)
+			? ["a staged slot beside another slot of its heading" as const]
+			: [])
 	]
 }
 

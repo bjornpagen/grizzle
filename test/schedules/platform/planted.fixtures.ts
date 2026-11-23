@@ -60,12 +60,12 @@ const refusalOf = (writer: Writer, statement: StatementKind, mutability: Mutabil
 	}
 	switch (statement) {
 		case "insert":
-		case "delete":
-		case "zero-row delete":
-		case "merge deleting":
 			return "25000"
 		case "update":
 		case "merge updating":
+		case "delete":
+		case "zero-row delete":
+		case "merge deleting":
 			return mutability === "mutable" ? "25000" : "42501"
 		case "truncate":
 			return "42501"

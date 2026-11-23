@@ -785,7 +785,7 @@ const updatableFields = (written: RelationInfo, writable: CheckedEntry): Readonl
 		: []
 
 /** What a role's write of one entry holds on the table it writes, in the order a GRANT names them: SELECT and INSERT,
- * then UPDATE and DELETE, which only a write list holds. */
+ * then UPDATE and DELETE, which only a write list of an open relation holds. */
 type EntryPrivileges = readonly [
 	"SELECT",
 	"INSERT",
@@ -794,19 +794,18 @@ type EntryPrivileges = readonly [
 
 /**
  * The privileges a role's write of one entry holds on the table it writes, the one source its grants are built from
- * (`writePlan`) and certification reads (`grantedPrivileges`). By its insert list, SELECT and INSERT alone. By its write
- * list, DELETE as well, and UPDATE where it may update a field: a whole entry over a mutable relation, or a query entry
- * with an updatable field (`updatableFields`).
+ * (`writePlan`) and certification reads (`grantedPrivileges`). By its insert list, or of a closed relation, whose facts
+ * are inserted, never changed or deleted, SELECT and INSERT alone. By its write list of an open relation, mutable inside
+ * a unit, DELETE as well, and UPDATE where it may update a field: a whole entry, or a query entry with an updatable field
+ * (`updatableFields`).
  */
 const entryPrivileges = (writing: RoleWritingKey, w: WrittenEntry): EntryPrivileges => {
-	if (writing === "insert") {
+	if (writing === "insert" || !w.relation.mutable) {
 		return ["SELECT", "INSERT"]
 	}
 	const write = w.write
 	const updates =
-		write.kind === "rows"
-			? isNonEmpty(updatableFields(w.relation, write.writable))
-			: w.relation.mutable
+		write.kind === "rows" ? isNonEmpty(updatableFields(w.relation, write.writable)) : true
 	return updates ? ["SELECT", "INSERT", "UPDATE", "DELETE"] : ["SELECT", "INSERT", "DELETE"]
 }
 

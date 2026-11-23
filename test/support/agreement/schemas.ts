@@ -387,7 +387,8 @@ const schemaFaults = [
 	"finOverDerived",
 	"emptyHead",
 	"headingGroups",
-	"derivedOverBase"
+	"derivedOverBase",
+	"mutableOutsideUnit"
 ] as const
 type SchemaFault = (typeof schemaFaults)[number]
 
@@ -544,6 +545,9 @@ const refusals: { readonly [F in SchemaFault | KeptFault]: Refusing } = {
 	mutableDerived: structural(
 		{ tag: "MalformedDescription" },
 		"mutable takes ordinary relations only"
+	),
+	mutableOutsideUnit: named(
+		"mutable over a relation under a unit, whose every change is a write its unit's borrow holds alone: declare the unit its primary key leads with, unit(name, { …its leading key fields }), or keep it closed and record each change as an inserted fact"
 	),
 	derivedParent: structural(
 		{ refused: storedAlternatives },
@@ -3438,6 +3442,8 @@ const schemaProbe = (d: Drawing, base: Base): Probe => {
 		readonly above: boolean
 		readonly rebound: string | undefined
 		readonly mutable: string
+		/** Whether the statements state the unit the mutable relation's key leads with, which opens it. */
+		readonly unit: boolean
 		readonly fin: string | undefined
 	}
 	const own = Arr.map(declared, (r) => r.name)
@@ -3451,10 +3457,17 @@ const schemaProbe = (d: Drawing, base: Base): Probe => {
 		above: false,
 		rebound: undefined,
 		mutable: first,
+		unit: true,
 		fin: undefined
 	}
+	/** The unit the mutable relation's key leads with: the heading over its first key field (unitsOver). */
+	const heading = Option.getOrThrowWith(
+		Arr.head(headingsOver([declared[0]])),
+		() => new Error(`the heading ${declared[0].name}'s key leads with`)
+	)
 	const forms: Arr.NonEmptyReadonlyArray<Planted> = [
 		valid,
+		{ ...valid, fault: "mutableOutsideUnit", unit: false },
 		{ ...valid, copy: first },
 		{ ...valid, fault: "clashingRelation", clash: first },
 		{ ...valid, fault: "clashingLevel", clash: first, above: true },
@@ -3487,7 +3500,8 @@ const schemaProbe = (d: Drawing, base: Base): Probe => {
 				planted.rebound === undefined
 					? ids(planted.mutable)
 					: `Sc.relation(${jsonText(planted.rebound)}, { ...${ids(planted.rebound)}.fields, clash: Fi.Id }, ${ids(planted.rebound)}.primaryKey)`
-			const root = `Sc.schema("P", [${listed}], [Sc.mutable(${mutable})])`
+			const unit = planted.unit ? `${statementSource({ kind: "unit", heading }, ids)}, ` : ""
+			const root = `Sc.schema("P", [${listed}], [${unit}Sc.mutable(${mutable})])`
 			return oneLine(
 				planted.clash !== undefined && planted.above
 					? `Sc.schema.extend([${root}], "Up", [${clashText(planted.clash)}], [])`
@@ -3511,6 +3525,7 @@ const schemaProbe = (d: Drawing, base: Base): Probe => {
 				...(planted.clash === undefined || planted.above ? [] : [clashOf(planted.clash)])
 			]
 			const statements = [
+				...(planted.unit ? [statementValue({ kind: "unit", heading }, env)] : []),
 				mutableBuilder(
 					planted.rebound === undefined
 						? got(env.relations, planted.mutable)

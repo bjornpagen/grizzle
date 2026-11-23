@@ -179,6 +179,14 @@ export const claimFixedFields = (w: Written): ReadonlyArray<string> =>
 		: []
 
 /**
+ * Whether a writer may DELETE a written relation's rows: only an open relation's, mutable inside its unit, since a
+ * closed relation's facts are inserted, never changed or deleted, and grizzle grants DELETE on it to no role
+ * (physical/ddl/roles.ts entryPrivileges).
+ */
+export const deletable = (base: BaseSpec, w: Written): boolean =>
+	relationSpecOf(base, w.target)?.mutability === "mutable"
+
+/**
  * The target fields a writer may UPDATE in place: none of an immutable relation; every field through a whole entry of a
  * mutable one; through a query entry, its free head fields, never a fixed one, one in a key, or one a claim fixes.
  */

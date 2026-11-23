@@ -3,15 +3,15 @@
  *
  * grizzle runs every transaction at SERIALIZABLE, and every table's statement trigger refuses a write below it with
  * 25000, naming the table in SCHEMA and TABLE. PostgreSQL checks a statement's
- * privileges before any trigger fires, and grizzle grants a world role INSERT and DELETE on what it writes,
- * UPDATE only on a mutable relation, and TRUNCATE to no one, so which refusal comes first is a total table of who
- * writes, what statement, and whether the relation is mutable:
+ * privileges before any trigger fires, and grizzle grants a world role INSERT on what it writes, UPDATE and DELETE
+ * only on an open relation, mutable inside a unit, and TRUNCATE to no one, so which refusal comes first is a total
+ * table of who writes, what statement, and whether the relation is open:
  *
  * - the schema's owner holds every privilege on its tables: every statement is refused by the guard, 25000;
  * - a world role (the races' `direct`, taken on through its login) is refused by privilege, 42501, for a TRUNCATE, and
- *   for an UPDATE or a MERGE that updates when the relation is immutable; every other statement it is granted (an
- *   INSERT, a DELETE, a DELETE that matches no row, a MERGE that deletes, an UPDATE or updating MERGE of a mutable
- *   relation) is refused by the guard, 25000.
+ *   for an UPDATE, a DELETE, a DELETE that matches no row and a MERGE that updates or deletes when the relation is
+ *   closed; every other statement it is granted (an INSERT, and an UPDATE, a DELETE or a MERGE of an open relation) is
+ *   refused by the guard, 25000.
  *
  * Every statement would write rows if it ran (an INSERT of a copy of every row, which the key would refuse, a DELETE of
  * every row), so a guard that let it through is seen as another outcome, or as a row-level failure, never as 25000. A

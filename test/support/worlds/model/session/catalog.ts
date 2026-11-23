@@ -11,6 +11,7 @@ import {
 } from "#test/support/worlds/model/session/state.ts"
 
 import {
+	deletable,
 	filterReadsStored,
 	keysOf,
 	probeOf,
@@ -81,9 +82,10 @@ const narrowsAt = (install: InstallSpec, role: RoleSpec, relation: string): bool
 }
 
 /**
- * The table-level privileges a role holds on a base relation: through a whole entry SELECT, INSERT and DELETE, and
- * UPDATE when the relation is mutable; through a query entry DELETE, its SELECT, INSERT and UPDATE being column grants;
- * nothing on a relation it does not write. TRUNCATE is granted to no one, and a login holds nothing on any table.
+ * The table-level privileges a role holds on a base relation: through a whole entry SELECT and INSERT, and UPDATE and
+ * DELETE when the relation is open, mutable inside its unit; through a query entry DELETE of an open relation, its
+ * SELECT, INSERT and UPDATE being column grants; nothing on a relation it does not write. TRUNCATE is granted to no one,
+ * and a login holds nothing on any table.
  */
 const holdsTable = (
 	install: InstallSpec,
@@ -101,7 +103,7 @@ const holdsTable = (
 		case "INSERT":
 			return w.kind === "whole"
 		case "DELETE":
-			return true
+			return deletable(install.base, w)
 		case "UPDATE":
 			return w.kind === "whole" && updatableFields(install.base, w).length > 0
 		case "TRUNCATE":

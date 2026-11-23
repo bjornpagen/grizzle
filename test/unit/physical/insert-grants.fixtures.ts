@@ -489,11 +489,9 @@ export const rulePrivileges = (
 	if (t !== "Open" && d.writes[t] !== "none") {
 		out.add("SELECT")
 		out.add("INSERT")
-		if (byWrite) {
+		if (byWrite && mutableIn(mutability, t)) {
+			out.add("UPDATE")
 			out.add("DELETE")
-			if (mutableIn(mutability, t)) {
-				out.add("UPDATE")
-			}
 		}
 	}
 	if (t !== "Open" && isOwner(t) && d.writes[memberOf[t]] !== "none" && d.writes[t] !== "whole") {

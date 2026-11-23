@@ -156,6 +156,7 @@ export const writeSituations = [
 	"anchored deletion",
 	"a member slot staged",
 	"a staged slot an exact deletion excepts",
+	"a staged slot beside another slot of its heading",
 	"a staged slot a put's halves read",
 	"single-statement stratum",
 	"a single statement refused by a law",

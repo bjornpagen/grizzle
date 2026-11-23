@@ -429,21 +429,8 @@ export const writesOf = (
 	})
 
 /** Whether a write updates its relation in place: an UPDATE, an upsert or a MERGE. */
-export const updatesInPlace = (write: WriteLabel): boolean =>
+const updatesInPlace = (write: WriteLabel): boolean =>
 	write.result.kind === "update" || write.result.kind === "upsert" || write.result.kind === "merge"
-
-/** A put realized as the pair: a displacing DELETE of the relation before the put's INSERT of it, by position. */
-export const displacedThenInserted = (writes: ReadonlyArray<WriteLabel>): boolean =>
-	Arr.some(
-		writes,
-		(d) =>
-			d.result.kind === "delete" &&
-			d.result.mode === "displacing" &&
-			Arr.some(
-				writes,
-				(i) => i.result.kind === "insert" && i.result.of === "put" && d.position < i.position
-			)
-	)
 
 /** A put realized in place: the relation's one write, which updates in place. */
 export const writtenInPlace = (writes: ReadonlyArray<WriteLabel>): boolean => {

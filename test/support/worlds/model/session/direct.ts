@@ -49,6 +49,7 @@ import {
 	installedWrite,
 	keysOf,
 	probeOf,
+	deletable,
 	updatableFields,
 	type Written,
 	writtenNamed
@@ -1216,7 +1217,7 @@ export const directBranches = (
 				return [parsed]
 			}
 			const at = write(statement.relation)
-			if (at === undefined) {
+			if (at === undefined || !deletable(base, at.written)) {
 				return [refused("42501")]
 			}
 			if (belowSerializable) {
@@ -1410,7 +1411,7 @@ export const directBranches = (
 				return [parsed]
 			}
 			const at = write(statement.relation)
-			if (at === undefined) {
+			if (at === undefined || !deletable(base, at.written)) {
 				return [refused("42501")]
 			}
 			if (belowSerializable) {

@@ -54,7 +54,7 @@ import type { ProgramCase, Root } from "#test/support/oracle/public/program.ts"
  *   typed as a field of the entry's relation, which selects the relation's facts the entry holds, and `held`, typed as a
  *   field of any relation of the schema, its very descriptor, so its domain is that field's domain: a pattern's, or a
  *   checked contract's of the level;
- * - its workload's ChangeSets, each an insert or a delete into one relation it writes or into `Mine`, the facts the
+ * - its workload's ChangeSets, each an insert into one relation it writes or into `Mine`, every relation closed, the facts the
  *   call's;
  * - its workload's reads, some of the case's queries, an ordered one read whole or paged;
  * - perhaps a clocked read (clockedRead): the schema's first relation's facts at or after `now`, a parameter typed
@@ -95,10 +95,12 @@ type ChangeTarget =
 	| { readonly kind: "whole"; readonly relation: string }
 	| { readonly kind: "entry" }
 
-/** One ChangeSet of a role's workload: an insert or a delete into its target, the facts the call's. */
+/**
+ * One ChangeSet of a role's workload: an insert into its target, the facts the call's. The drawn schema's relations are
+ * closed, none declared mutable inside a unit, so their facts are inserted, never changed or deleted.
+ */
 interface ChangeShape {
 	readonly target: ChangeTarget
-	readonly op: "insert" | "delete"
 }
 
 /** A field of a relation of the schema, both by declared name. */
@@ -235,9 +237,7 @@ export const contractClaimRoleGen =
 		return Option.some({
 			writes: [],
 			entry: Option.some({ target: key.relation, key: key.field, held }),
-			changes: [
-				{ target: { kind: "entry" }, op: source.draw(element(["insert", "delete"] as const)) }
-			],
+			changes: [{ target: { kind: "entry" } }],
 			reads: [],
 			worldReads: [],
 			clocked: false,
@@ -287,10 +287,7 @@ const roleGen =
 			...Arr.map(writes, (relation): ChangeTarget => ({ kind: "whole", relation })),
 			...(Option.isSome(entry) ? [{ kind: "entry" } as const] : [])
 		]
-		const changes = Arr.map(source.draw(subarray(targets)), (target): ChangeShape => ({
-			target,
-			op: source.draw(element(["insert", "delete"] as const))
-		}))
+		const changes = Arr.map(source.draw(subarray(targets)), (target): ChangeShape => ({ target }))
 		const queries = Arr.flatMap(drawn.case.reads, (read, place) =>
 			read.kind === "query" ? [{ place, query: read.query }] : []
 		)
@@ -452,11 +449,7 @@ const roleOf = (drawn: DrawnSchema, shape: RoleShape, place: number) => {
 			change.target.kind === "whole"
 				? relationValue(drawn, change.target.relation)
 				: defined(made.relations[entryName], `role ${roleName(place)}'s entry ${entryName}`)
-		const empty = changeSetOver.empty(made)
-		return [
-			`${roleName(place)}change${i}`,
-			change.op === "insert" ? empty.insert(target, []) : empty.delete(target, [])
-		] as const
+		return [`${roleName(place)}change${i}`, changeSetOver.empty(made).insert(target, [])] as const
 	})
 	const reads = Arr.map(shape.reads, (read) => {
 		const query = buildRoot(drawn.built, drawn.built.schema, read.query)

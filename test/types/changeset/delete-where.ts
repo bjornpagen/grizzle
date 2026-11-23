@@ -33,11 +33,13 @@ const subjectRefusal = (s: Subject): Refused | undefined => {
 	switch (s) {
 		case "Kind":
 			return "a ChangeSet writes only the ordinary relations of its schema and the world relations its role writes"
+		case "Order":
+		case "Pool":
 		case "Line":
+		case "Item":
+			return "a delete of a closed relation: its facts are inserted, never changed or deleted; declare it mutable inside a unit, or record the change as an inserted fact"
 		case "Entry":
 			return "a put or a delete names its rows by their key, and no fact states a key field grizzle writes: key the relation by fields its caller writes"
-		case "Item":
-			return "an immutable owner's family is fixed when its owner is inserted: declare the owner mutable to change it"
 		case "Chip":
 			return "deleteWhere deletes no family's member: grizzle edits a family from the rows a ChangeSet states, so delete a member from an array or a Stream"
 		case "Book":

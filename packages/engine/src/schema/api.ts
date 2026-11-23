@@ -94,8 +94,10 @@ import type {
 	LeastRecord,
 	LeastStated,
 	LevelsOf,
+	MutablesUnder,
 	Schema,
 	StatementsByName,
+	StatementsOf,
 	StatementsReadBack,
 	StatementsWithin
 } from "#compiler/types/schema/schema.ts"
@@ -393,7 +395,12 @@ const rootSchema = <
 	relations: Relations & DeclaredOnce<Relations>,
 	statements: Statements &
 		StatementsWithin<Statements, Declared<Relations>> &
-		StatementsReadBack<Statements, Declared<Relations>>,
+		StatementsReadBack<Statements, Declared<Relations>> &
+		MutablesUnder<
+			Statements,
+			Statements[number],
+			StatementsWithin<Statements, Declared<Relations>>
+		>,
 	...extra: ReadonlyArray<never>
 ): Schema<
 	Name,
@@ -440,7 +447,12 @@ const extend = <
 	relations: Relations & DeclaredOnce<Relations, LeastOf<Base, Least>["relations"]>,
 	statements: Statements &
 		StatementsWithin<Statements, LeastRecord<Base, Least, Relations>> &
-		StatementsReadBack<Statements, LeastRecord<Base, Least, Relations>>,
+		StatementsReadBack<Statements, LeastRecord<Base, Least, Relations>> &
+		MutablesUnder<
+			Statements,
+			Statements[number] | StatementsOf<LeastOf<Base, Least>>[number],
+			StatementsWithin<Statements, LeastRecord<Base, Least, Relations>>
+		>,
 	...extra: ReadonlyArray<never>
 ): Extended<Base, Least, Name, Relations, Statements> =>
 	schemaBuilder.extend<Base, Name, Relations, Statements, LeastRecord<Base, Least, Relations>>(
@@ -542,7 +554,12 @@ export const fragment = <
 	relations: Relations & DeclaredOnce<Relations>,
 	statements: Statements &
 		StatementsWithin<Statements, Declared<Relations>> &
-		StatementsReadBack<Statements, Declared<Relations>>,
+		StatementsReadBack<Statements, Declared<Relations>> &
+		MutablesUnder<
+			Statements,
+			Statements[number],
+			StatementsWithin<Statements, Declared<Relations>>
+		>,
 	...extra: ReadonlyArray<never>
 ): Fragment<Declared<Relations>, StatementsByName<Statements, Declared<Relations>>> =>
 	fragmentBuilder<Relations, Statements>(relations, statements, extra)
