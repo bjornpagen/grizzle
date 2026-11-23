@@ -67,17 +67,23 @@ const Note = relation("Note", { child: pg.integer, package: pg.integer, doc: pg.
 ])
 
 /**
- * Three whole rules, each a containment of a selected side within one unit, which the judge reads whole over its unit's
- * deltas (README, Rules over queries): a package's parts and its sheets lie in its documents, reading Part's and
- * Sheet's sides of news and Doc's of olds, so the three deltas are one part of the judge, and a write of parts runs the
- * parts' rule alone and stands up Doc's olds, never Sheet's news; a learner's answers lie in their visits, reading
- * Answer's news and Visit's olds.
+ * Three whole rules, each a containment of a selected side within one unit, its relations mutable in that unit, which
+ * the judge reads whole over its unit's deltas (laws/model/plan.ts containmentDischarge, which probes one over
+ * immutable relations key by key; README, Rules over queries): a package's parts and its sheets lie in its documents,
+ * reading Part's and Sheet's sides of news and Doc's of olds, so the three deltas are one part of the judge, and a
+ * write of parts runs the parts' rule alone and stands up Doc's olds, never Sheet's news; a learner's answers lie in
+ * their visits, reading Answer's news and Visit's olds.
  */
 const Base = schema(
 	"Dispatch",
 	[Doc, Part, Sheet, Visit, Answer, Note],
 	[
 		mutable(Note),
+		mutable(Doc),
+		mutable(Part),
+		mutable(Sheet),
+		mutable(Visit),
+		mutable(Answer),
 		contained(
 			on(
 				select(Part, (p) => p.ge(p.part, 0)),
@@ -102,7 +108,8 @@ const Base = schema(
 			),
 			on(Visit, "child", "at")
 		),
-		unit("Learner", { child: pg.integer })
+		unit("Learner", { child: pg.integer }),
+		unit("Package", { package: pg.integer })
 	]
 )
 

@@ -190,10 +190,10 @@ export type FolderFeature = "worlds change" | "no worlds change" | "a new law"
 
 /**
  * The laws the docs base does not hold that the law model discharges natively once added, read off the compiled schema:
- * a containment it judges whole (laws/model/plan.ts containmentDischarge: immutable relations joined within one unit,
- * into a target with a field the key does not reference), Share's document into Org's id, is a rule, which the worlds
- * model, every law of it native, does not model. The base's installs keep its relations' mutability, so the laws native
- * over the base are native over each.
+ * a containment the rule judge holds (laws/model/plan.ts containmentDischarge: immutable relations joined within one
+ * unit, into a target with a field the key does not reference), Share's document into Org's id, is a rule, which the
+ * worlds model, every law of it native, does not model. The base's installs keep its relations' mutability, so the laws
+ * native over the base are native over each.
  */
 const addedNative: ReadonlyArray<LawSpec> = Arr.filter(
 	nativeLaws(docsBase),

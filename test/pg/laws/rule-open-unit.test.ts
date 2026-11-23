@@ -68,6 +68,12 @@ export const aRuleOverOneUnitsMutableRelationsIsJudgedWholeAndRefusesExactlyTheW
 				original: '\tif (r.polarity !== "positive" || n?.kind !== "relation" || n.mutable) {',
 				replacement: '\tif (r.polarity !== "positive" || n?.kind !== "relation") {',
 				why: "A mutable seat updated in place is proved by Seated's witness as a seat replaced would be, so Capped's region reads a seat a transaction gained only where it lost one at its key, and the side of olds holds no update of a cap, which no negated read reads: a cap lowered under a presence's score commits."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/unit.ts",
+				original: "\t\t\tconditions.push(mapLeaves(c, leaves))",
+				replacement: '\t\t\tconditions.push({ kind: "not", arg: mapLeaves(c, leaves) })',
+				why: "The region keeps the written rows an occurrence's conditions refuse in place of those it reads, so Present's units are read at the presences of no score a transaction wrote and the seats it closed, never at a scored presence written or a seat it opened, and a presence that scores at a closed seat commits."
 			}
 		]
 	})

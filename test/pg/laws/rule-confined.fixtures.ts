@@ -32,16 +32,16 @@ import type { PgConnection } from "#test/support/pg.ts"
  * Nodes of documents of packages, keyed by (pkg, doc, at), a document's name long, so its key's index is the larger;
  * each node's kind is its place, `at`, so (pkg, kind, at) holds every document of a package at one place. Typed holds a
  * kind and a governor per node, and its rows of governor 0, every one here, are contained in Node at its key, kind and
- * governor: a selected side over immutable relations, so the rule is judged whole (laws/model/plan.ts
- * containmentDischarge), a unit a node, where the plain containment would be Node's foreign key; its lookup of a node
- * binds its key from the unit and two fields from Typed's row, as edullm's element_type_in_node bound (package, path,
- * start) and kind and governor while it was judged whole. Placed, every node's
- * (pkg, kind, at), is contained in Gap, mutable in a unit of its own, its package's pack, so the rule reads the rows of
- * two units, two borrows, and is probed, and its probe of Gap's deletes reads Node by
- * (pkg, kind, at), every document of the package at that place: the index the engine creates for it is the one a whole
- * rule's lookup competes with. That index holds kind, one of the lookup's two fields from Typed's row, so governor
- * stays a filter of its scan and PostgreSQL costs the anti join's inner scan once (costsize.c has_indexed_join_quals),
- * the smaller index's against the key's: it takes the smaller.
+ * governor: a selected side over relations mutable in one declared unit, their package's, so the rule is judged whole
+ * (laws/model/plan.ts containmentDischarge, which probes one over immutable relations key by key), a unit a node, where
+ * the plain containment would be Node's foreign key; its lookup of a node binds its key from the unit and two fields
+ * from Typed's row, as edullm's element_type_in_node bound (package, path, start) and kind and governor while it was
+ * judged whole. Placed, every node's (pkg, kind, at), is contained in Gap, mutable in a unit of its own, its package's
+ * pack, so the rule reads the rows of two units, two borrows, and is probed, and its probe of Gap's deletes reads Node
+ * by (pkg, kind, at), every document of the package at that place: the index the engine creates for it is the one a
+ * whole rule's lookup competes with. That index holds kind, one of the lookup's two fields from Typed's row, so
+ * governor stays a filter of its scan and PostgreSQL costs the anti join's inner scan once (costsize.c
+ * has_indexed_join_quals), the smaller index's against the key's: it takes the smaller.
  */
 /** A document's name: up to 256 bytes. */
 const Name = str.bytes(256, str.regex("^.*$", "su"))
@@ -67,6 +67,8 @@ const Base = schema(
 	[Node, Typed, Gap],
 	[
 		mutable(Gap),
+		mutable(Node),
+		mutable(Typed),
 		contained(
 			on(
 				select(Typed, (t) => t.eq(t.gov, 0)),

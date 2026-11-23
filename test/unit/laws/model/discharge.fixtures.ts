@@ -227,12 +227,12 @@ export const schemaOf = (c: Case): AnySchema =>
 		]
 	)
 
-/** How a law is discharged in an installation: whole by the rule judge, or by a foreign key that carries it. */
-export type Discharged = "whole" | "native"
+/** How a law is discharged in an installation: by the rule judge, or by a foreign key that carries it. */
+export type Discharged = "judged" | "native"
 
 /**
  * The discharge the box's statement of each containment states (the specification, laws/model/plan.ts
- * ContainmentDischarge): whole exactly where it selects, each side selects by comparisons of its fields, every term a
+ * ContainmentDischarge): judged exactly where it selects, each side selects by comparisons of its fields, every term a
  * field, every relation it reads is immutable or all of them sit in one declared unit, and its two sides join within
  * one unit, which the box's every statement but `across` does, the group's unit holding B, C, E, F, G and H wherever B
  * or C is mutable; native everywhere else, every plain containment among them, each into a target a key holds apart,
@@ -250,7 +250,7 @@ export const expected = (of: Containment): Discharged => {
 		case "selected":
 		case "listed":
 		case "selected into whole":
-			return "whole"
+			return "judged"
 	}
 }
 
@@ -260,17 +260,17 @@ export const readsMutable = (c: Case, of: Containment): boolean =>
 
 /**
  * What the box's statement of a case's unkeyed containment states (the specification, laws/model/plan.ts
- * containmentDischarge): no native constraint states it, so it is whole where its sides select by comparisons of their
+ * containmentDischarge): no native constraint states it, so it is judged where its sides select by comparisons of their
  * fields, every relation it reads is immutable or all of them sit in one declared unit, and its two sides join within
  * one unit, as unkeyed does over C and B, mutable or not; and the schema is refused anywhere else, across units or
  * selected by a computed value.
  */
-export const unkeyedExpected = (c: Case): "absent" | "whole" | "refused" => {
+export const unkeyedExpected = (c: Case): "absent" | "judged" | "refused" => {
 	switch (c.unkeyed) {
 		case "none":
 			return "absent"
 		case "unkeyed":
-			return "whole"
+			return "judged"
 		case "unkeyed across":
 		case "unkeyed computed":
 			return "refused"
@@ -340,28 +340,25 @@ export const evidenced: ReadonlyArray<Containment> = [
 	"across"
 ]
 
-/** How `installation` discharges the law `law`: whole where its judge holds it as a whole rule, native where a foreign
+/** How `installation` discharges the law `law`: judged where the rule judge holds it, native where a foreign
  * key carries it, and neither or both a defect of the law model. */
 export const dischargedIn = (
 	installation: Installation,
 	law: LawId
 ): Discharged | "neither" | "both" => {
-	const whole = Arr.some(
-		installation.laws.rules,
-		(r) => r.law.id === law && r.rule.kind === "whole"
-	)
+	const judged = Arr.some(installation.laws.rules, (r) => r.law.id === law)
 	const native = Arr.some(
 		installation.laws.natives,
 		(n) =>
 			(n.object.kind === "ForeignKey" || n.object.kind === "PeriodForeignKey") &&
 			Arr.some(n.object.lawIds, (id) => id === law)
 	)
-	return whole && native ? "both" : whole ? "whole" : native ? "native" : "neither"
+	return judged && native ? "both" : judged ? "judged" : native ? "native" : "neither"
 }
 
-/** A migration's discharge of the selected containment before and after: absent, native or whole. */
-const befores = ["absent", "native", "whole"] as const
-const afters = ["native", "whole"] as const
+/** A migration's discharge of the selected containment before and after: absent, native or judged. */
+const befores = ["absent", "native", "judged"] as const
+const afters = ["native", "judged"] as const
 
 export interface MigrationCase {
 	readonly before: (typeof befores)[number]
@@ -377,7 +374,7 @@ export const migrationCaseGen: Gen<MigrationCase> = (s) => ({
 const Bh = relation("B", { h: pg.integer, i: pg.integer, kind: pg.integer }, ["h", "i"])
 
 /** The schema of one version of a migration case: B and C, the selected containment unless absent, native where B and C
- * are mutable, each in a unit of its own, so the containment reads the rows of two units, whole where neither is. */
+ * are mutable, each in a unit of its own, so the containment reads the rows of two units, judged where neither is. */
 export const versionOf = (discharge: MigrationCase["before"]): AnySchema =>
 	schema(
 		"discharge_migrated",

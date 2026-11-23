@@ -142,11 +142,11 @@ const checkOf = (
 }
 
 /**
- * The check of a law the rule judge holds (laws/model/model.ts RuleTrigger), with what a previous installation that held
- * the law by native objects proves of its rows (`meaning`): `stated`, for a containment the law model discharges whole
- * (laws/model/plan.ts ContainmentDischarge), whose statement, two sides of stored relations, is the law whole, so the
- * natives that held it at every write held this very law; `defined`, for a rule over a query, whose identity names its
- * sides and not the definitions they read, so the natives that held it held the definitions of then.
+ * The check of a law the rule judge holds (laws/model/model.ts RuleTrigger), with what a previous installation that
+ * held the law by native objects proves of its rows (`meaning`): `stated`, for a containment the law model discharges
+ * to the rule judge (laws/model/plan.ts ContainmentDischarge), whose statement, two sides of stored relations, is the
+ * law whole, so the natives that held it at every write held this very law; `defined`, for a rule over a query, whose
+ * identity names its sides and not the definitions they read, so the natives that held it held the definitions of then.
  */
 export interface RuleCheck {
 	readonly law: LawId

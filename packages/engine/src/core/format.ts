@@ -368,6 +368,12 @@
  * step `bound`, a carrier step of no stratum), which each reader's InputSet reads (ir/rel.ts InputSetInput `bound`),
  * where format 8 evaluated the query again in each statement over the state that statement reads; a bound parameter
  * read only by the first stratum's members is a part of their queries as before.
+ * A containment the law model discharges by the rule judge over immutable relations is judged by its probes
+ * (laws/model/plan.ts containmentDischarge): each row a transaction gained of its source, and each source row at the
+ * fields of a row it lost of its target, probes the target at those fields, where format 8 read every source row of
+ * each unit written and judged the target beside it at the unit's key; its judge's blocks are a probe's of each side
+ * its triggers touch, where format 8 had one of the units, and the refusal of a containment into a side holding no key
+ * names the judge's admission, unit-local, where it named a whole judgement.
  */
 export const artifactFormat = 8
 

@@ -25,8 +25,9 @@ import {
 	liveReading,
 	type QueryRule,
 	type RuleLaw,
-	violationQuery,
-	type WholeRule
+	type RuleSide,
+	storedSideArm,
+	violationQuery
 } from "#compiler/analysis/theory/query.ts"
 import { type RefillDeferral, refillDeferral } from "#compiler/analysis/theory/refill.ts"
 import { type RegionFacts, wholeRule } from "#compiler/analysis/theory/unit.ts"
@@ -749,7 +750,7 @@ export const primaryKeyPlan = (r: RelationInfo, key: KeyName): PrimaryKeyPlan =>
  * reads closed relations alone, once by PostgreSQL in the migration that installs them, as its violation query over
  * their rows, so it installs nothing; or at every COMMIT by the rule judge (physical/ddl/rules.ts addRules) as `rule`
  * states it, and once by its violation query in the migration that adds it: a rule over a query, or a containment the
- * law model discharges whole (`ContainmentDischarge`), either installing nothing.
+ * law model discharges to the rule judge (`ContainmentDischarge`), either installing nothing.
  */
 export type LawPlan = {
 	readonly law: TheoryLaw
@@ -786,9 +787,22 @@ type ContainmentDetail = Extract<TheoryLaw["detail"], { readonly kind: "containm
  */
 type ContainmentDischarge =
 	| { readonly kind: "native" }
-	| { readonly kind: "whole"; readonly rule: WholeRule }
+	| { readonly kind: "judged"; readonly rule: QueryRule }
 
 const nativeDischarge: ContainmentDischarge = { kind: "native" }
+
+/**
+ * A side of a containment law as the rule judge's probes read it (query.ts RuleSide): its stored relation's one arm,
+ * its variables under `prefix`, apart from the other side's.
+ */
+const probedSideOf = (side: LawSide, prefix: string, loc: SourceLoc): RuleSide => ({
+	...side,
+	arms: [storedSideArm(side.relation, side.terms, side.selection, prefix, loc)]
+})
+
+/** Whether a containment law's side reads a mutable relation, whose rows change in place (`containmentDischarge`). */
+const mutableSide = (side: ResolvedSide): boolean =>
+	side.rel.kind === "relation" && side.rel.mutable
 
 /** A containment law's sides read no definition: each is a stored relation's. */
 const storedSides: LiveEnv["definition"] = () => undefined
@@ -877,11 +891,24 @@ const sideReadsAlike = (side: ResolvedSide): boolean =>
  *   its law columns compute the term or the selection in a generated column, where a judged query would negate the
  *   target at a computed value, which the checker refuses, or evaluate the selection at a query's site, which may
  *   refuse it;
- * - any other containment of field terms, one with a selected side or into a target no key holds apart, is whole where
- *   its violation query is unit-local, both sides joined within one unit, and every relation it reads immutable or all
- *   of them in one declared unit (unit.ts wholeRule), its law columns, their UNIQUE and their index gone with its key,
- *   and native where it is not, which `#reference` refuses into a target no key holds: no UNIQUE the law model may add
- *   holds it apart.
+ * - any other containment of field terms, one with a selected side or into a target no key holds apart, is the rule
+ *   judge's where its violation query is unit-local, both sides joined within one unit, and every relation it reads
+ *   immutable or all of them in one declared unit (unit.ts wholeRule, whose admission it is), its law columns, their
+ *   UNIQUE and their index gone with its key, and native where it is not, which `#reference` refuses into a target no
+ *   key holds: no UNIQUE the law model may add holds it apart. Over immutable relations the judge reads it by its
+ *   probes (`probedSideOf`), key by key: each row a transaction gained of its source, and each source row at the fields
+ *   of a row it lost of its target, probes the target at that row's fields, each side a stored relation's, so every
+ *   written row binds the other side's fields itself. Read whole, every source row of each unit written was read and
+ *   the target joined beside it at the unit's key alone, the rest of its fields a filter of the pairs: LC-WRITERS'
+ *   outline within its standard's children, 280,000 rows of one unit, compared with every one of 280,000 at each COMMIT
+ *   (23 minutes). Over a mutable relation it is read whole (unit.ts wholeRule), under its unit's exclusive borrow: a
+ *   row of a mutable member changes in place, and the side of olds captures an UPDATE only where the row's image at the
+ *   columns a rule reads there changed (physical/ddl/deltas.ts captured), so a probe of the lost side, which reads that
+ *   side alone, sees no loss for an update in place that keeps the image but moves the row out of a fact another
+ *   occurrence reads through it, where the whole judgement reads every row of each unit written again
+ *   (test/pg/laws/rule-open-unit's kept case: a seat's cap lowered in place under a presence's score). Probing a
+ *   mutable member takes every update of a column any occurrence reads captured as a loss and a gain on both sides, and
+ *   the probes' proofs reading no witness through a mutable relation (unit.ts witnessesOf).
  */
 const containmentDischarge = (
 	law: TheoryLaw,
@@ -908,7 +935,20 @@ const containmentDischarge = (
 		facts,
 		law.loc
 	)
-	return whole === undefined ? nativeDischarge : { kind: "whole", rule: whole }
+	if (whole === undefined) {
+		return nativeDischarge
+	}
+	return {
+		kind: "judged",
+		rule:
+			mutableSide(d.from) || mutableSide(d.to)
+				? whole
+				: {
+						kind: "contained",
+						from: probedSideOf(stated.from, "from.", law.loc),
+						to: probedSideOf(stated.to, "to.", law.loc)
+					}
+	}
 }
 
 /** The handles of each declared key's fields, the primary key's first. */
@@ -1142,7 +1182,7 @@ const scalarParts = (
 			switch (containmentDischarge(law, d, projected, relationMap, facts).kind) {
 				case "native":
 					return [d]
-				case "whole":
+				case "judged":
 					return []
 			}
 		case "rule": {
@@ -2351,7 +2391,7 @@ export class Recognizer {
 						return done(
 							this.#scalarContainment(d.from, d.to, "rule", loc, { law: law.id, part: 0 })
 						)
-					case "whole":
+					case "judged":
 						return judgedPlan(law, discharge.rule)
 				}
 			}
@@ -2518,7 +2558,7 @@ export class Recognizer {
 			return refuse(
 				"UnsupportedLawFamily",
 				loc,
-				`a containment into a side that contains a key of ${toRel.name}, or one the judge holds whole: unit-local, over immutable relations, its sides of field terms selected by comparisons; ${to.relation}(${to.terms.map(termText).join(", ")}) contains no key among its terms and the fields its selection fixes, over a selection within its own, and the containment is not judged whole`
+				`a containment into a side that contains a key of ${toRel.name}, or one the rule judge holds: unit-local, over immutable relations, its sides of field terms selected by comparisons; ${to.relation}(${to.terms.map(termText).join(", ")}) contains no key among its terms and the fields its selection fixes, over a selection within its own, and the containment is not unit-local`
 			)
 		}
 		const fixed = fixedTargetOf(this.#projectedKeys, to, source, fromRel, toRel)

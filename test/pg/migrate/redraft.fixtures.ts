@@ -228,7 +228,7 @@ export type Feature =
  * The case the generator draws for a turn aiming at a feature (aimed): a folder, a regeneration and a point the drafts
  * reach it at, as the drafts stand (Shop v1's and v2's first files are drafted alike under a key, a check or a mutable
  * declaration more or less, and every file of v2 alike with AutomaticTask's budget a contract of another name, where
- * without Task's mutable declaration the alternatives' containments are judged whole and its files differ, and with
+ * without Task's mutable declaration the alternatives' containments are the rule judge's and its files differ, and with
  * Account declared mutable too its immutability guard is dropped; v2 drafted toward from v1 declared mutable holds v2's
  * files; v2's seven files are Setup, Structure, Indexes in a transaction, the tables' declared statistics, Indexes
  * outside one, Validate, Publish and Validate again, so its fourth runs outside a transaction). The features noted are still the outcome's, so a note never claims what the case

@@ -66,7 +66,7 @@ export const aPlainContainmentIntoATargetAKeyHoldsIsItsForeignKeyWhichRefusesExa
 				file: "packages/engine/src/laws/model/plan.ts",
 				original: "\t\t(isPlain(d) && keyHolds(projected, d.to)) ||",
 				replacement: "\t\tfalse ||",
-				why: "A plain containment into a key of a unit-local target is judged whole, as 59de77629 judged one into a target with a field it does not reference: the containments into B, G and F are the judge's, not foreign keys; the property fails."
+				why: "A plain containment into a key of a unit-local target is the rule judge's, as 59de77629 judged one into a target with a field it does not reference: the containments into B, G and F are the judge's, not foreign keys; the property fails."
 			},
 			{
 				file: "packages/engine/src/laws/model/plan.ts",

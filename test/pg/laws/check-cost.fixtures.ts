@@ -23,10 +23,12 @@ import {
 	contained,
 	derived,
 	key,
+	mutable,
 	on,
 	relation,
 	schema,
-	select
+	select,
+	unit
 } from "#compiler/public/schema.ts"
 import {
 	type FromSource,
@@ -100,12 +102,17 @@ const Bind = relation(
  * __node_kind_in_declaration, whose check a migration runs over every row once. And every element of tag, group and
  * band 5 is one's, a selection over three columns that every element holds alike, which PostgreSQL estimates as the
  * product of the three, as QTI's __attribute_lexical_document_type_kind_name_in, whose name, kind and document type
- * it estimated at one row of 15,035.
+ * it estimated at one row of 15,035. Node and Decl are mutable in their document's unit, so both containments are
+ * judged whole (laws/model/plan.ts containmentDischarge), their check the violation query over every row the box
+ * bounds, where over immutable relations the judge would probe them key by key.
  */
 const Base = schema(
 	"CheckCost",
 	[Node, Decl, Dcl, Card, Typed, Bind],
 	[
+		unit("Doc", { pkg: pg.integer, path: pg.integer }),
+		mutable(Node),
+		mutable(Decl),
 		contained(
 			on(
 				select(Node, (n) => n.or(n.eq(n.kind, 1), n.eq(n.kind, 2))),

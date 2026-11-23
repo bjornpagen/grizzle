@@ -2554,31 +2554,31 @@ definition too.
   of a large unit, one row into a package of thousands, still reads the whole unit for each rule that reads that row's
   relation: a relation written row by row into large units is better declared in a unit of a longer key than the one
   its rules join within, where no borrow of one of its units covers a rule's unit, so its rules are probed.
-- **A unit-local containment with a selected side is judged whole.** A containment between two tables is a foreign
-  key; one whose side is a selection, `on(select(T, φ), …)`, is a foreign key over STORED generated columns
-  (`CASE WHEN φ THEN key END`), the UNIQUE it references and an index, kept on every row of the table. Where its
-  tables are immutable, or all in one declared unit, its two sides
-  join within one unit and each selection compares fields with literals (`eq`, `in`, ranges, `and`, `or`, `not` and a
-  closed relation's constants), grizzle judges it whole instead, as a unit-local rule: no column, no UNIQUE, no index
-  and no foreign key, its violation read at COMMIT over the units of the rows the transaction wrote that its sides
-  read, refused with 23503 naming the containment. It is the same law, with the same identity and the same evidence;
-  it holds at COMMIT rather than at each statement. A query's rewrite reads a containment's evidence from the law
-  itself, whatever discharges it, in the context its discharge holds it in: at every statement for an immediate
-  foreign key, in a committed snapshot for a deferred one or the judge. A containment of
-  two unselected sides into a target a key holds apart, at a declared key's fields or a superkey's: its foreign key is
-  the same law, its source's fields NOT NULL, so MATCH SIMPLE checks every source row, into that key's UNIQUE or one
-  over the superkey, which the key implies, so the rows a source row's values find are exactly the target facts the
-  law asks for. It adds no column, a written row costs one probe of an index, and its writers keep the isolation a
-  foreign key admits ([READ COMMITTED writes](#read-committed-writes)), where a rule the judge holds keeps most of
-  them SERIALIZABLE; it holds at every
-  statement where it references every field of its target off a cycle, and at COMMIT where its target holds a field
-  it does not reference. So does one whose selection computes (a pattern's match, an arithmetic), whose generated
-  column a query cannot always restate, and any containment over a mutable table outside its sides' one declared unit.
-  A containment into a target no key
-  holds apart, such as `on(T, "unit", "kind")` with T keyed by `(unit, id)`, has no UNIQUE grizzle may add, one over its
-  columns refusing rows the schema admits: it is judged whole where it is unit-local as above, and refused
-  (`UnsupportedLawFamily`) anywhere else. A migration that moves a containment from its foreign key to the judge checks
-  no row: the foreign key held this very law on every write.
+- **A unit-local containment with a selected side is the judge's.** A containment between two tables is a foreign key;
+  one whose side is a selection, `on(select(T, φ), …)`, is a foreign key over STORED generated columns
+  (`CASE WHEN φ THEN key END`), the UNIQUE it references and an index, kept on every row of the table. Where its tables
+  are immutable, or all in one declared unit, its two sides join within one unit and each selection compares fields with
+  literals (`eq`, `in`, ranges, `and`, `or`, `not` and a closed relation's constants), the judge holds it instead: no
+  column, no UNIQUE, no index and no foreign key. Over immutable tables, at COMMIT each row the transaction added to its
+  source, and each source row at the fields of a row it took from its target, probes the target at those fields, a
+  lookup of its index whatever the unit's size; over a declared unit's mutable tables, whose rows change in place, it
+  reads every row of each unit the transaction wrote, as a whole rule does; either way a broken one is refused with
+  23503 naming the containment. It is the same law, with the same identity and the same evidence; it holds at COMMIT
+  rather than at each statement. A query's rewrite reads a containment's evidence from the law itself, whatever
+  discharges it, in the context its discharge holds it in: at every statement for an immediate foreign key, in a
+  committed snapshot for a deferred one or the judge. A containment of two unselected sides into a target a key holds
+  apart, at a declared key's fields or a superkey's: its foreign key is the same law, its source's fields NOT NULL, so
+  MATCH SIMPLE checks every source row, into that key's UNIQUE or one over the superkey, which the key implies, so the
+  rows a source row's values find are exactly the target facts the law asks for. It adds no column, a written row costs
+  one probe of an index, and its writers keep the isolation a foreign key admits ([READ COMMITTED
+  writes](#read-committed-writes)), where a rule the judge holds keeps most of them SERIALIZABLE; it holds at every
+  statement where it references every field of its target off a cycle, and at COMMIT where its target holds a field it
+  does not reference. So does one whose selection computes (a pattern's match, an arithmetic), whose generated column a
+  query cannot always restate, and any containment over a mutable table outside its sides' one declared unit. A
+  containment into a target no key holds apart, such as `on(T, "unit", "kind")` with T keyed by `(unit, id)`, has no
+  UNIQUE grizzle may add, one over its columns refusing rows the schema admits: the judge holds it where it is
+  unit-local as above, and it is refused (`UnsupportedLawFamily`) anywhere else. A migration that moves a containment
+  from its foreign key to the judge checks no row: the foreign key held this very law on every write.
 - **Judged live.** A rule reads its query as the tables stand at commit, `derived.materialized(...)` included: never
   its view's rows, and never as of a refresh.
 - **What PostgreSQL gets.** A rule that reads only tables is a constraint, as above. A rule that reads a query is

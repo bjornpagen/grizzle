@@ -106,13 +106,7 @@ export const aUnitLocalRuleIsJudgedWholeOverTheUnitsATransactionWroteAsItsWholeC
 				file: "packages/engine/src/laws/model/plan.ts",
 				original: "\t\t\t\t\t\treturn judgedPlan(law, discharge.rule)",
 				replacement: "\t\t\t\t\t\treturn done([])",
-				why: "A containment discharged whole installs nothing and the judge holds nothing of it, so a transaction that breaks Expressed or Parented commits, which its native twin refuses."
-			},
-			{
-				file: "packages/engine/src/analysis/theory/unit.ts",
-				original: "\t\t\tconditions.push(mapLeaves(c, leaves))",
-				replacement: '\t\t\tconditions.push({ kind: "not", arg: mapLeaves(c, leaves) })',
-				why: "The region keeps the written rows an occurrence's conditions refuse in place of those it reads, so the units of the nodes of kind 1 or 2 a transaction wrote, and of the expressions of type 0, are never judged, and a transaction that breaks Expressed or Parented commits."
+				why: "A containment the rule judge holds installs nothing and the judge holds nothing of it, so a transaction that breaks Expressed or Parented commits, which its native twin refuses."
 			},
 			{
 				file: "packages/engine/src/analysis/theory/unit.ts",

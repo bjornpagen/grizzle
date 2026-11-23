@@ -1023,7 +1023,7 @@ const realOf = (
 								constraint
 							) ?? [])
 				/** How the snapshot holds each law the refusal names, held at COMMIT: by a deferred native, or by the judge, a
-				 * containment judged whole among them (laws/model/plan.ts containmentDischarge). */
+				 * containment the rule judge holds among them (laws/model/plan.ts containmentDischarge). */
 				const held = Arr.map(named, (law) => snapshot.theory.laws[law]?.kind)
 				assert.ok(
 					Arr.isReadonlyArrayNonEmpty(held) &&

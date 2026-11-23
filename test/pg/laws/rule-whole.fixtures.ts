@@ -184,8 +184,9 @@ const expressedKinds = [1, 2] as const satisfies ReadonlyArray<Kind>
  * within one document. The probed judge's Node, Expr and Tag are mutable, Node in the unit of its document and Expr and
  * Tag, keyed by their start first (`startedKey`), in the unit of their start, so no rule is unit-local and each is
  * probed, and each containment is native, its foreign key deferred since the two close a cycle (laws/model/model.ts
- * FkCycles); the whole judge's immutable, so each rule and each containment is judged whole over the documents a
- * transaction wrote, the unit, and the aggregate's rule beside them, which no probe reads.
+ * FkCycles); the whole judge's immutable, so each rule over a query is judged whole over the documents a transaction
+ * wrote, the unit, and the aggregate's rule beside them, which no probe reads, and each containment, unit-local, by
+ * its probes, key by key (laws/model/plan.ts containmentDischarge), its region facts proving the whole rules' reads.
  *
  * - Expressed: a node of kind 1 or 2 is an expression: a containment from a side selected by a list of kinds, which
  *   a node's insert breaks and an expression's delete does.
@@ -208,7 +209,7 @@ const expressedKinds = [1, 2] as const satisfies ReadonlyArray<Kind>
  * - Leafed: a node of kind 2 has a child that is a leaf, a node no other is a child of: a check over a negation of a
  *   query that negates in turn, which a child's insert under the leaf and the leaf's delete both break.
  * - Tagged: every tag stands at a node of a kind the cases write: a containment of every row of a relation into a
- *   selection of a keyed one, which grizzle judges whole, where one into the keyed relation's every row would be its
+ *   selection of a keyed one, which the rule judge holds, where one into the keyed relation's every row would be its
  *   foreign key (laws/model/plan.ts containmentDischarge), and which proves Marks's node as one into every row does,
  *   a row in a selection of Node being a row of Node (analysis/theory/unit.ts regionFactsOf), which a tag's
  *   insert breaks and its node's delete does.
@@ -952,7 +953,7 @@ type RuleName =
 /** The rules the whole schema alone states, which no probe reads: an aggregate's, a recursion's and a nested negation's. */
 const wholeOnly: ReadonlyArray<RuleName> = ["Fanout", "Reached", "Leafed"]
 
-/** The containments between the stored relations, each whole in the whole judge and its twin's native foreign key. */
+/** The containments between the stored relations, each probed in the whole judge and its twin's native foreign key. */
 const containments: ReadonlyArray<RuleName> = ["Expressed", "Parented", "Tagged"]
 
 /** The situation a refusal by each rule reaches. */
@@ -1114,9 +1115,10 @@ export const runEquivalence = (
 ) =>
 	Effect.gen(function* () {
 		assert.ok(
-			Arr.every(whole.installed.installation.laws.rules, (r) => r.rule.kind === "whole") &&
-				Arr.every(probed.installed.installation.laws.rules, (r) => r.rule.kind !== "whole"),
-			"the whole judge judges every rule whole, and the probed judge none"
+			Arr.every(whole.installed.installation.laws.rules, (r) =>
+				r.law.detail.kind === "containment" ? r.rule.kind === "contained" : r.rule.kind === "whole"
+			) && Arr.every(probed.installed.installation.laws.rules, (r) => r.rule.kind !== "whole"),
+			"the whole judge judges every rule over a query whole and every containment by its probes, and the probed judge none whole"
 		)
 		const sides = Arr.map([whole, probed], (side) => ({
 			...side,

@@ -1637,7 +1637,7 @@ class Differ {
 	 * writes is written and before the rules' triggers are created: each law's violation query over every row, raising
 	 * with the law's identity when it returns a row. A law is checked exactly when the previous installation did not hold
 	 * it on every row (`heldBefore`), so a rule that is new, or whose definition changed, is checked once, a regenerate
-	 * checks nothing, and neither does a containment its natives held, now discharged whole. */
+	 * checks nothing, and neither does a containment its natives held, now the rule judge's. */
 	ruleChecks(checks: ReadonlyArray<RuleCheck>): void {
 		for (const c of checks) {
 			if (!heldBefore(this.input.previous.theory.laws[c.law], c, this.rewritten)) {

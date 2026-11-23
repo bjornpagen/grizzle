@@ -399,7 +399,7 @@ export const constraintLawMap = (entries: ReadonlyArray<ConstraintLaw>): Constra
 
 /**
  * A law the rule judge holds at every COMMIT (physical/ddl/rules.ts addRules) and the captures that feed it: a rule
- * over a query (analysis/theory/query.ts), or a containment the law model discharges whole (plan.ts
+ * over a query (analysis/theory/query.ts), or a containment the law model discharges to it (plan.ts
  * ContainmentDischarge), with the rule it is judged as; its triggers' one name, minted from its law, which PostgreSQL
  * scopes to each table; and each ordinary relation it reads, what that relation's writes can break of it and the
  * function its trigger there runs. A closed relation it reads changes with no write, so it carries none.
