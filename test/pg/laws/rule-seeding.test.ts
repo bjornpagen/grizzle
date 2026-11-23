@@ -134,7 +134,7 @@ const equivalenceKills: { readonly [S in JudgedShape]: ReadonlyArray<Kill> } = {
 
 /**
  * Commit exactly the transactions whose state the rule's whole check finds lawful, refusing the rest by the rule, one
- * property for each judged shape, each case on the worker's seat of its shape's schema.
+ * property for each judged shape, each case on its own clone of its shape's schema.
  *
  * Its pre-conversion budget: runs 80, coverage cases 200 each (test/pg/laws/rule-seeding.test.ts at eccd3c305).
  */
@@ -143,13 +143,13 @@ export const commitExactlyTheTransactionsWhoseStateTheRulesWholeCheckFindsLawful
 		Arr.map(judgedShapes, (shape) => [
 			shape,
 			property.explore(aimed(caseGen(shape), aimsOf(shape)), {
-				needs: { seated: Substrate.seat(seedTemplates[shape]) },
+				needs: { fresh: Substrate.freshOf(seedTemplates[shape]) },
 				situations: requiredOf(shape) satisfies ReadonlyArray<Reached<EquivalenceFeature>>,
 				check:
-					({ seated }, k: Case<EquivalenceFeature>) =>
+					({ fresh }, k: Case<EquivalenceFeature>) =>
 					(c) =>
 						Effect.scoped(
-							Effect.flatMap(seated, (taken) =>
+							Effect.flatMap(fresh, (taken) =>
 								Effect.provideService(
 									Effect.flatMap(installedIn(taken, shape), (installed) =>
 										judgeHistory(installed, c, k.note)
@@ -206,7 +206,7 @@ const negating: ReadonlySet<string> = new Set(["titles", "viewed", "deep", "stan
 
 /**
  * Read the same rows and take the same SIRead locks beside hundreds more keys, none on a whole relation, one property
- * for each shape, each case on the worker's seat of its shape's schema.
+ * for each shape, each case on its own clone of its shape's schema.
  *
  * Its pre-conversion budget: runs 6, coverage cases 0 each (test/pg/laws/rule-seeding.test.ts at eccd3c305).
  */
@@ -215,13 +215,13 @@ export const readTheSameRowsAndTakeTheSameSireadLocksBesideHundredsMoreKeys = fa
 		Arr.map(shapes, (shape) => [
 			shape,
 			property.explore(localityGen(shape), {
-				needs: { seated: Substrate.seat(seedTemplates[shape]) },
+				needs: { fresh: Substrate.freshOf(seedTemplates[shape]) },
 				situations: [`${shape} measured`] satisfies ReadonlyArray<Reached<LocalityFeature>>,
 				check:
-					({ seated }, search: Case<LocalityFeature>) =>
+					({ fresh }, search: Case<LocalityFeature>) =>
 					(l) =>
 						Effect.scoped(
-							Effect.flatMap(seated, (taken) =>
+							Effect.flatMap(fresh, (taken) =>
 								Effect.provideService(
 									Effect.gen(function* () {
 										const { seat } = yield* installedIn(taken, shape)

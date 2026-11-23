@@ -23,7 +23,6 @@ import { writeAnswerOf } from "#test/support/calls.ts"
 import { type Generated } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { refusedLaws } from "#test/support/refused.ts"
-import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { type SubstrateCase } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
@@ -281,10 +280,6 @@ export const everyCase = (
 	Effect.gen(function* () {
 		const forward = yield* openedIn(forwardCells, {}, forwardInstall, takenForward)
 		const backward = yield* openedIn(backwardCells, {}, backwardInstall, takenBackward)
-		const substrates = {
-			forward: takenForward.substrate,
-			backward: takenBackward.substrate
-		} as const
 		const installations = { forward, backward } as const
 		/** An installation's rules in the order PostgreSQL tries their CHECKs: their installed names' order. */
 		const triedOf = (naming: Naming): ReadonlyArray<Rule> => {
@@ -349,7 +344,6 @@ export const everyCase = (
 		}
 		for (const naming of namingNames) {
 			const o = installations[naming]
-			yield* replaceRows(substrates[naming].admin, installationGroup(namesOf(o.installed)), [])
 			const outcome = yield* Effect.gen(function* () {
 				const db = yield* Db.open(o.served.login.roles.app, {})
 				if (Arr.isReadonlyArrayNonEmpty(k.stored)) {

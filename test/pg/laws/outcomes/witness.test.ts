@@ -30,14 +30,14 @@ import {
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * A refused write names one law its accounts break and the key of an account that breaks it, each case on the worker's
- * seat of Accounts, installed once per member.
+ * A refused write names one law its accounts break and the key of an account that breaks it, each case on its own
+ * clone of Accounts, installed once per member.
  *
  * Its pre-conversion budget: runs 60, coverage cases 60 (test/pg/laws/outcomes/suites/host.ts at 2b496802c).
  */
 export const aRefusedWriteNamesOneLawItsAccountsBreakAndTheKeyOfAnAccountThatBreaksIt =
 	property.explore(accountCases, {
-		needs: { accounts: Substrate.seat(accountsTemplate) },
+		needs: { accounts: Substrate.freshOf(accountsTemplate) },
 		situations: [
 			"refused by rate",
 			"refused by units",
@@ -54,11 +54,7 @@ export const aRefusedWriteNamesOneLawItsAccountsBreakAndTheKeyOfAnAccountThatBre
 		check:
 			({ accounts }, c: Case<HostFeature>) =>
 			(k) =>
-				Effect.scoped(
-					Effect.flatMap(accounts, (taken) =>
-						Effect.provideService(hostCase(taken, k, c), Substrate, taken.substrate)
-					)
-				),
+				Effect.scoped(Effect.flatMap(accounts, (taken) => hostCase(taken, k, c))),
 		oracle: {
 			kind: "specification",
 			name: "each account's rules restated over its drawn fields, and a witness naming an account that breaks the law"
@@ -112,13 +108,13 @@ export const aRefusedWriteNamesOneLawItsAccountsBreakAndTheKeyOfAnAccountThatBre
 
 /**
  * Statement-time native violations are raised under their law's constraint, and a served write reports the law, each
- * case on the worker's seat of Clubs, installed once per member, its facts loaded.
+ * case on its own clone of Clubs, installed once per member, its facts loaded.
  *
  * Its pre-conversion budget: runs 60, coverage cases 60 (test/pg/laws/outcomes/suites/witness.ts at 2b496802c).
  */
 export const statementTimeNativeViolationsAreRaisedUnderTheirLawsConstraintAndAServedWriteReportsTheLaw =
 	property.explore(recorded(nativeCaseGen, recordedNatives), {
-		needs: { clubs: Substrate.seat(clubsTemplate) },
+		needs: { clubs: Substrate.freshOf(clubsTemplate) },
 		situations: [
 			"refused by a candidate key",
 			"refused by a selected side's UNIQUE",
@@ -172,13 +168,16 @@ export const statementTimeNativeViolationsAreRaisedUnderTheirLawsConstraintAndAS
 
 /**
  * A cell breaking one to three rules is refused naming every rule it breaks, under any naming of its CHECKs, each case
- * on the worker's seats of both namings' installations, each installed once per member.
+ * on its own clones of both namings' installations, each installed once per member.
  *
  * Its pre-conversion budget: runs 100, coverage cases 100 (test/pg/laws/outcomes/suites/every.ts at 2b496802c).
  */
 export const aCellBreakingOneToThreeRulesIsRefusedNamingEveryRuleItBreaksUnderAnyNamingOfItsChecks =
 	property.explore(everyCases, {
-		needs: { forward: Substrate.seat(forwardTemplate), backward: Substrate.seat(backwardTemplate) },
+		needs: {
+			forward: Substrate.freshOf(forwardTemplate),
+			backward: Substrate.freshOf(backwardTemplate)
+		},
 		situations: [
 			"accepted",
 			"1 rules broken",

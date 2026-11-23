@@ -58,7 +58,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 /** The host evaluates a row as PostgreSQL does: its domains' refusal, its generated value, each check's verdict and its selection. */
 export const theHostEvaluatesARowAsPostgreSQLDoesItsDomainsRefusalItsGeneratedValueEachChecksVerdictAndItsSelection =
 	property.explore(caseGen, {
-		needs: { caseSubstrate: Substrate.installing },
+		needs: { caseSubstrate: Substrate.fresh },
 		situations: required satisfies ReadonlyArray<Reached<Feature>>,
 		check:
 			({ caseSubstrate }, k: Case<Feature>) =>

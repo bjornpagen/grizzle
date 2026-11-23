@@ -58,7 +58,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aRuleOverAnAggregatingDerivedRelationCommitsExactlyTheWritesWhoseStateKeepsEveryLawRecomputedOverTheWholeState =
 	property.explore(aimed(recorded(caseGen, keptCases), aims), {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: [
 			"accepted",
 			"refused by a key",
@@ -133,7 +133,7 @@ export const aRuleOverAnAggregatingDerivedRelationCommitsExactlyTheWritesWhoseSt
  */
 export const aProbeOfTheGroupsAWriteTouchedReadsThoseGroupsAloneHoweverManyGroupsStandBesideThem =
 	property.explore(recorded(localityGen, keptLocality), {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: ["measured"] satisfies ReadonlyArray<Reached<"measured">>,
 		check:
 			({ substrate }, c: Case<"measured">) =>

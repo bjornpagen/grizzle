@@ -37,19 +37,19 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Commit exactly the transactions whose visits lie within their sittings' start and end, an open sitting's after its
- * start alone, the host judging each joined row as the restatement does, each case on the worker's seat of the schema.
+ * start alone, the host judging each joined row as the restatement does, each case on its own clone of the schema.
  *
  * Its budget is the runner's: a new property, with no suite before it to carry a count from.
  */
 export const commitExactlyTheTransactionsWhoseVisitsLieWithinTheirSittingsStartAndEnd =
 	property.explore(aimed(caseGen, aims), {
-		needs: { seated: Substrate.seat(orderingTemplate) },
+		needs: { fresh: Substrate.freshOf(orderingTemplate) },
 		situations: required satisfies ReadonlyArray<Reached<Feature>>,
 		check:
-			({ seated }, k: Case<Feature>) =>
+			({ fresh }, k: Case<Feature>) =>
 			(c) =>
 				Effect.scoped(
-					Effect.flatMap(seated, (taken) =>
+					Effect.flatMap(fresh, (taken) =>
 						Effect.provideService(judgeHistory(taken, c, k.note), Substrate, taken.substrate)
 					)
 				),

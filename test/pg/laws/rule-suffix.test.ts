@@ -43,13 +43,13 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aForbiddenSuffixIsJudgedByASeekOfItsReferencesBesideAnyNumberOfOthersAndLocksNoWholeRelation =
 	property.explore(localityGen, {
-		needs: { seated: Substrate.seat(suffixTemplate) },
+		needs: { fresh: Substrate.freshOf(suffixTemplate) },
 		situations: ["measured"] satisfies ReadonlyArray<Reached<"measured">>,
 		check:
-			({ seated }, c: Case<"measured">) =>
+			({ fresh }, c: Case<"measured">) =>
 			(l) =>
 				Effect.scoped(
-					Effect.flatMap(seated, (taken) =>
+					Effect.flatMap(fresh, (taken) =>
 						Effect.provideService(
 							Effect.gen(function* () {
 								const seat = yield* seatIn(taken, RELATIONS, "rule_suffix")
@@ -104,7 +104,7 @@ export const aForbiddenSuffixIsJudgedByASeekOfItsReferencesBesideAnyNumberOfOthe
  */
 export const aSuffixKeysRangeFindsExactlyTheReferencesTheSuffixTestFindsThroughTheBTreeOnTheKey =
 	property.explore(seekGen, {
-		needs: { seated: Substrate.seat(suffixTemplate) },
+		needs: { fresh: Substrate.freshOf(suffixTemplate) },
 		situations: [
 			"a suffix some target ends with",
 			"a suffix no target ends with",
@@ -113,10 +113,10 @@ export const aSuffixKeysRangeFindsExactlyTheReferencesTheSuffixTestFindsThroughT
 			"an astral suffix"
 		] satisfies ReadonlyArray<Reached<SeekFeature>>,
 		check:
-			({ seated }, c: Case<SeekFeature>) =>
+			({ fresh }, c: Case<SeekFeature>) =>
 			(seek) =>
 				Effect.scoped(
-					Effect.flatMap(seated, (taken) =>
+					Effect.flatMap(fresh, (taken) =>
 						Effect.provideService(
 							Effect.gen(function* () {
 								const seat = yield* seatIn(taken, RELATIONS, "rule_suffix")

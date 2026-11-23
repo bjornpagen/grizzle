@@ -20,7 +20,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 export const aMigrationsDataStepThatBreaksARuleOverAQueryIsRefusedAtItsStatement = property.exhaust(
 	finite(dataStepGen),
 	{
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: [
 			"a data step that keeps the rule applied",
 			"a data step that breaks the rule refused at it"

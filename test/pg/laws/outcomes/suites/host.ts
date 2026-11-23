@@ -28,8 +28,7 @@ import { Id, type IdValue } from "#test/support/ids.ts"
 import { type Generated } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { refusedLaws } from "#test/support/refused.ts"
-import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
-import { Substrate, type SubstrateCase } from "#test/support/substrate/substrate.ts"
+import type { SubstrateCase } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
@@ -351,15 +350,11 @@ export const hostCase = (
 	c: PropertyCase<AccountFeature>
 ) =>
 	Effect.gen(function* () {
-		const s = yield* Substrate
 		const o = yield* openedIn(Accounts, {}, accountsInstall, taken)
 		const names = namesOf(o.installed)
-		const group = installationGroup(names)
 
 		return yield* Effect.gen(function* () {
 			const db = yield* Db.open(o.served.login.roles.app, {})
-
-			yield* replaceRows(s.admin, group, [])
 			const facts = Arr.map(k.accounts, (a, i) => ({
 				id: idOf(i),
 				tier: a.tier,

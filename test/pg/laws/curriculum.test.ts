@@ -46,7 +46,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 export const curriculumHistories = property.batched(aimed(curriculumCaseGen, curriculumAims), {
 	window: 16,
 	batches: 1,
-	needs: { seat: Substrate.seat(curriculumTemplate) },
+	needs: { fresh: Substrate.freshOf(curriculumTemplate) },
 	situations: [
 		"a publish's second stratum writes a membership",
 		"a state breaking the key over the derived union refused",

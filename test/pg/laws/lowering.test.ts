@@ -95,7 +95,7 @@ const keptOf: Readonly<Record<Shape, ReadonlyArray<Kept>>> = {
 /**
  * A lowered shape commits and refuses every history exactly as the containment's triggers do, naming the same law, and
  * refuses a duplicate by its key before any superkey of it in every install order: one property for each shape, each
- * case on the worker's seats of its shape's installations, fresh, through each history, and the oracle's, each
+ * case on its own clones of its shape's installations, fresh, through each history, and the oracle's, each
  * installed once per member.
  *
  * Its pre-conversion budget: runs 32, coverage cases 240 each, the steered cases measured on 4fdaafc3: the slowest
@@ -111,11 +111,11 @@ export const aLoweredShapeCommitsAndRefusesEveryHistoryExactlyAsTheContainmentsT
 				planned.shape,
 				property.explore(loweringSpaceOf(planned.shape), {
 					needs: {
-						fresh: Substrate.seat(t.fresh),
-						aboveLater: Substrate.seat(t.histories.aboveLater),
-						keysLater: Substrate.seat(t.histories.keysLater),
-						keyChanged: Substrate.seat(t.histories.keyChanged),
-						oracle: Substrate.seat(t.oracle)
+						fresh: Substrate.freshOf(t.fresh),
+						aboveLater: Substrate.freshOf(t.histories.aboveLater),
+						keysLater: Substrate.freshOf(t.histories.keysLater),
+						keyChanged: Substrate.freshOf(t.histories.keyChanged),
+						oracle: Substrate.freshOf(t.oracle)
 					},
 					situations: planned.situations satisfies ReadonlyArray<Reached<Feature>>,
 					check:
@@ -123,14 +123,14 @@ export const aLoweredShapeCommitsAndRefusesEveryHistoryExactlyAsTheContainmentsT
 						(lc) =>
 							Effect.scoped(
 								Effect.gen(function* () {
-									const freshSeat = yield* fresh
+									const takenFresh = yield* fresh
 									const reached = [
 										["aboveLater", yield* aboveLater],
 										["keysLater", yield* keysLater],
 										["keyChanged", yield* keyChanged]
 									] as const
-									const oracleSeat = yield* oracle
-									const pair = yield* pairIn(planned, freshSeat, reached, oracleSeat)
+									const takenOracle = yield* oracle
+									const pair = yield* pairIn(planned, takenFresh, reached, takenOracle)
 									yield* loweringCase(pair)(lc, c)
 								})
 							),

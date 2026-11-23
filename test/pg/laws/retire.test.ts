@@ -189,7 +189,7 @@ const modelRows = (state: FlowState) => ({
 /** A retirable unit served whole: each call answers as the unit's model does and leaves its rows, its roles certified READ COMMITTED. */
 export const aRetirableUnitServedWholeAnswersEachCallAsItsModelDoesAndLeavesItsRowsItsRolesCertifiedREADCOMMITTED =
 	property.explore(callsGen, {
-		needs: { flows: Served.of(flowsApp(Flows), Substrate.seat(flowsTemplate)) },
+		needs: { flows: Served.of(flowsApp(Flows), Substrate.freshOf(flowsTemplate)) },
 		situations: [
 			"a run admitted",
 			"a step claimed",

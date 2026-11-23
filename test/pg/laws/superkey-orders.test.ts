@@ -53,7 +53,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const referencesIntoOneRelationsSuperkeysInDifferentOrdersOneUniqueIndexPerColumnSetEveryReferencesForeignKeyLandingOnItAndHolding =
 	property.explore(aimed(drawnGen, aims), {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: [
 			"two references over one set in two orders",
 			"a fixed target and a superkey reference over one set",

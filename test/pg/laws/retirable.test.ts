@@ -52,7 +52,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aRetirableUnitInstalledOnPostgreSQL19AdmitsRowsOnlyIntoOpenGroupsHoldsOnlyOpenGroupsAndRetiresAGroupWholeKeepingItsHeaderForGood =
 	property.explore(lifeGen, {
-		needs: { seated: Substrate.seat(unitsTemplate) },
+		needs: { fresh: Substrate.freshOf(unitsTemplate) },
 		situations: [
 			"a header keyed by one field",
 			"a header keyed by two fields",
@@ -73,10 +73,10 @@ export const aRetirableUnitInstalledOnPostgreSQL19AdmitsRowsOnlyIntoOpenGroupsHo
 			["a header keyed by two fields", "a retirement of an open group"]
 		] satisfies ReadonlyArray<Reached<LifeFeature>>,
 		check:
-			({ seated }, c: Case<LifeFeature>) =>
+			({ fresh }, c: Case<LifeFeature>) =>
 			({ width, run }) =>
 				Effect.gen(function* () {
-					const taken = yield* seated
+					const taken = yield* fresh
 					const seat = yield* seatIn(taken, RELATIONS, "retire_life")
 					const unit = UNITS[width]
 					const headerKey = Arr.map(unit.key, (k) => k.header)

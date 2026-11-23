@@ -1174,7 +1174,7 @@ const featuresOf = (
 	]
 }
 
-/** Why a curriculum case fails: a disagreement with the host, a call's or a statement's error, or its seat's. */
+/** Why a curriculum case fails: a disagreement with the host, a call's or a statement's error, or its database's. */
 type CurriculumError =
 	| Disagreed
 	| CallError
@@ -1187,16 +1187,16 @@ type CurriculumError =
 const membershipText = (m: Membership): string => `${m.package}:${m.home}:${m.slug}`
 
 /**
- * A batch of curriculum cases on one take of the worker's seat (curriculumHistories): the installation's login served
+ * A batch of curriculum cases on one clone of its own (curriculumHistories): the installation's login served
  * over the clone and one Db opened on it for the batch; each case empties the installation's tables as the owner,
  * registers its homes, then makes its calls in order, each judged by the host (agrees) and noted (featuresOf), and ends
  * with the stored memberships and homes compared with the host's.
  */
 export const runCurriculum =
-	(resources: Resources<{ readonly seat: TemplateNeed<SubstrateCase<Generated>> }>) =>
+	(resources: Resources<{ readonly fresh: TemplateNeed<SubstrateCase<Generated>> }>) =>
 	(batch: Arr.NonEmptyReadonlyArray<readonly [CurriculumCase, Case<CurriculumFeature>]>) =>
 		Effect.gen(function* () {
-			const { substrate, value: generated } = yield* resources.seat
+			const { substrate, value: generated } = yield* resources.fresh
 			const world = curriculumWorld(generated.installed.declared, true).world
 			const served = servedGenerated(generated, world.server)
 			const context = yield* Layer.build(served.layer)
