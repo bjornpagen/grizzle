@@ -9,7 +9,6 @@ import {
 	contained,
 	context,
 	key,
-	mutable,
 	on,
 	type RowScalars,
 	schema,
@@ -30,6 +29,7 @@ import type { EntryValue } from "#compiler/types/schema/world.ts"
 import { contractDescriptor as contractField } from "#test/support/fixtures/descriptors.ts"
 import { Id } from "#test/support/ids.ts"
 import { argumentsOf, nonEmptyArgumentsOf } from "#test/support/list.ts"
+import { opened } from "#test/support/open.ts"
 import { definitionOf, type RuleSources } from "#test/support/worlds/execute/describe.ts"
 import { carrierOf, isWide } from "#test/support/worlds/execute/host.ts"
 import { attempt, type RealizeRefused } from "#test/support/worlds/execute/refused.ts"
@@ -468,13 +468,11 @@ export const buildBase = (
 			relations[r.name] = yield* relationOf(r, kit)
 		}
 		const space: Space = { base: spec, relations, closed: rosters }
-		const mutables = yield* Effect.forEach(
+		const open = yield* Effect.forEach(
 			Arr.filter(spec.relations, (r) => r.mutability === "mutable"),
-			(r) =>
-				Effect.flatMap(found(relations, r.name, "relation"), (value) =>
-					attempt(`mutable ${r.name}`, () => mutable(value))
-				)
+			(r) => found(relations, r.name, "relation")
 		)
+		const mutables = yield* attempt("the open relations", () => opened(open))
 		const laws = yield* Effect.forEach(spec.laws, (law) => lawOf(space, law))
 		const contexts: Record<string, AnyContext> = {}
 		for (const c of spec.contexts) {

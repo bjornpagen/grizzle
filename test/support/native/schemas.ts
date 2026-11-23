@@ -18,7 +18,6 @@ import {
 	f,
 	key,
 	mirrors,
-	mutable,
 	on,
 	onWhere,
 	pred,
@@ -39,6 +38,7 @@ import {
 	type Span
 } from "#test/support/laws/model.ts"
 import type { NativeRow, NativeState } from "#test/support/native/model.ts"
+import { openedDescs } from "#test/support/open.ts"
 import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
 
 /**
@@ -606,22 +606,20 @@ const spanOf = (
 export const compiled = (relations: Relations, laws: ReadonlyArray<Law>): Compiled => {
 	const reading = new Reading(relations)
 	const names = Rec.keys(relations)
+	const stated = Arr.map(names, (name) => {
+		const spec = specOf(relations, name)
+		return {
+			name,
+			fields: Rec.fromEntries(
+				Arr.map(spec.fields, ([fieldName, type]) => [fieldName, descriptorOf(type)])
+			),
+			primaryKey: spec.key
+		}
+	})
 	const desc: SchemaDesc = {
 		name: "Natives",
-		relations: Arr.map(names, (name) => {
-			const spec = specOf(relations, name)
-			return relation(
-				name,
-				Rec.fromEntries(
-					Arr.map(spec.fields, ([fieldName, type]) => [fieldName, descriptorOf(type)])
-				),
-				spec.key
-			)
-		}),
-		statements: [
-			...Arr.flatMap(laws, (law) => reading.statements(law)),
-			...Arr.map(names, (name) => mutable(name))
-		],
+		relations: Arr.map(stated, (r) => relation(r.name, r.fields, r.primaryKey)),
+		statements: [...Arr.flatMap(laws, (law) => reading.statements(law)), ...openedDescs(stated)],
 		bases: []
 	}
 	const lawNames = lawNamesOf(desc)

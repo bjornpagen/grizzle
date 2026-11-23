@@ -13,6 +13,7 @@ import {
 	type Schema,
 	schema,
 	type StatementsByName,
+	unit,
 	wholeEntriesOf
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -47,6 +48,7 @@ export const Work = schema(
 		contained(on(Task, "account"), on(Account, "id")),
 		contained(on(TaskNote, "task"), on(Task, "id")),
 		alternatives(Task, "kind", Kind, { Automatic: AutomaticTask, Manual: ManualTask }),
+		unit("Task", { task: Id }),
 		mutable(TaskNote)
 	]
 )

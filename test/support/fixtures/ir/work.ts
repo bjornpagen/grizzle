@@ -25,6 +25,7 @@ import {
 	mutable,
 	on,
 	relation,
+	unit,
 	value
 } from "#test/support/fixtures/ir/desc.ts"
 
@@ -51,6 +52,7 @@ export const WorkDesc: SchemaDesc = decodedSchema({
 		contained(on("Task", ["account"]), on("Account", ["id"])),
 		contained(on("TaskNote", ["task"]), on("Task", ["id"])),
 		taskKinds,
+		unit("Task", { task: f.uuid }),
 		mutable("TaskNote")
 	],
 	bases: []
