@@ -746,13 +746,6 @@ export default defineConfig(
 				})
 			},
 			{
-				files: ["test/pg/laws/families/alternatives.test.ts"],
-				rules: active({
-					/** Its armed-handles search exhausts the handles of the alternatives family's box (test/support/laws/boxes.ts runsBox), the hand-chosen schemas every family suite of the file exhausts; the box is a list of cases until the family suites draw their schemas from a generator, which is their conversion's, not this search's. */
-					"devtools/no-case-list": "off"
-				})
-			},
-			{
 				files: ["test/pg/oracle/mutants/invalid.test.ts"],
 				rules: active({
 					/** Its space is the oracle's seven invalid mutants (test/support/oracle/mutants/mutants.ts), each a hand-made flaw the harness must kill: the list is a kill set, which the conversion states as kills on the oracle's property. */
