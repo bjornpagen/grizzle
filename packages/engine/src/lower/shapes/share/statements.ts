@@ -5,7 +5,7 @@ import { analyzeDemand, type DemandAnalysis, noPins } from "#compiler/analysis/d
 import { outerOf } from "#compiler/analysis/physical/rules.ts"
 import { catchRefusal, maxStringLength, unwrap } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import type { NodeId } from "#compiler/core/ids.ts"
+import type { NodeId, VarId } from "#compiler/core/ids.ts"
 import { type DagTemplates, ShareKeys } from "#compiler/ir/dag-digest.ts"
 import { freeVars, type NodeScope, nodeScopes, nodesByLabel, topoOrder } from "#compiler/ir/dag.ts"
 import { Fold } from "#compiler/ir/fold.ts"
@@ -473,8 +473,8 @@ const partnerAt = (
 	carriedBy: ReadonlyMap<RelNode, CarriedShare>
 ): PartnerSite | undefined => {
 	/** Each variable's class under the region's equalities, by the least variable id of it. */
-	const parent = new Map<number, number>()
-	const find = (v: number): number => {
+	const parent = new Map<VarId, VarId>()
+	const find = (v: VarId): VarId => {
 		let at = v
 		for (let up = parent.get(at); up !== undefined && up !== at; up = parent.get(at)) {
 			at = up
@@ -484,7 +484,7 @@ const partnerAt = (
 	for (const e of region.equalities) {
 		const [a, b] = [find(e.a.id), find(e.b.id)]
 		if (a !== b) {
-			parent.set(Math.max(a, b), Math.min(a, b))
+			parent.set(a < b ? b : a, a < b ? a : b)
 		}
 	}
 	const sites = region.occurrences.flatMap((q): ReadonlyArray<PartnerSite> => {
