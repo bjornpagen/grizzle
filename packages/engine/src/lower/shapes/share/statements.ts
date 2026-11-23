@@ -21,7 +21,7 @@ import {
 	type NodeDispatch,
 	withLeading
 } from "#compiler/lower/conservative/context.ts"
-import { costClass } from "#compiler/lower/optimize/cte-policy/index.ts"
+import { costClass, restrictedByValues } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { feedbackReadsOf, nodeGraph } from "#compiler/lower/optimize/demand/editor.ts"
 import type { OperandSelect, Select } from "#compiler/sql/ast.ts"
 import { col, keyedSet, select, target } from "#compiler/sql/build.ts"
@@ -54,11 +54,13 @@ import type { CarrierName } from "#compiler/sql/naming.ts"
  *   the statement under the CTE policy (lower/optimize/cte-policy): a node that folds, sorts, bounds, applies a set
  *   operation or recurses.
  *
- * Both placements share only what the CTE policy would share: an expensive node (cte-policy costClass), uncorrelated,
- * off every recursion's feedback, read laterally by no expression, so that its rows are a set the statement can read
- * under any alias. A node that only scans, filters and projects one source, or joins sources, is left inline at each
- * use (cte-policy rules 4 and 6). The rows a carrier or a CTE holds are exactly the rows the copy's lowering delivers,
- * repeats included where the placement realized it plain, so every reader sees what its inline copy would deliver.
+ * Both placements share only what the CTE policy computes once (sharedOnce): an expensive node (cte-policy costClass),
+ * or a join the statement's own values restrict (cte-policy restrictedByValues), uncorrelated, off every recursion's
+ * feedback, read laterally by no expression, so that its rows are a set the statement can read under any alias. A node
+ * that only scans, filters and projects one source, or a join no value of the statement restricts, is left inline at
+ * each use (cte-policy rules 4 and 6), each read's restriction pushed into it, never derived whole. The rows a carrier
+ * or a CTE holds are exactly the rows the copy's lowering delivers, repeats included where the placement realized it
+ * plain, so every reader sees what its inline copy would deliver.
  */
 export class ShareIndex {
 	readonly dag: ValidDag
@@ -113,7 +115,7 @@ export class ShareIndex {
 	}
 
 	/**
-	 * The node's share key when it may be shared: expensive under the CTE policy's cost classes, uncorrelated, without
+	 * The node's share key when it may be shared: computed once under the CTE policy (sharedOnce), uncorrelated, without
 	 * free variables, read laterally by no expression and off every recursion's feedback (cte-policy rules 3 to 6).
 	 */
 	key(node: RelNode): string | undefined {
@@ -139,7 +141,7 @@ export class ShareIndex {
 			!this.#demand.lateral(node) &&
 			!this.#feedback.has(node) &&
 			outerOf(node).length === 0 &&
-			costClass(node) === "expensive"
+			sharedOnce(node)
 		this.#eligible.set(node.id, eligible)
 		return eligible
 	}
@@ -147,6 +149,24 @@ export class ShareIndex {
 	/** The share key of an eligible node (ir/dag-digest.ts ShareKeys); a DAG it cannot key is refused. */
 	#shareKey(node: RelNode): string {
 		return unwrap(this.#shareKeys.key(node))
+	}
+}
+
+/**
+ * Whether a node a statement reads more than once is computed once, a carrier or a MATERIALIZED CTE, where it is
+ * shared at all: an expensive one, which no read restricts below its fold, bound, set operation or recursion (cte-policy
+ * rule 5), and a join the statement's own values restrict (cte-policy restrictedByValues, rule 5d), whose rows once are
+ * what every read of it restricts it to: answerTestItem's read of the answered member's item session and controls, a
+ * join of seven relations at its parameters, which each of the admission's argument arms restated, 96 copies planned.
+ */
+const sharedOnce = (node: RelNode): boolean => {
+	switch (costClass(node)) {
+		case "expensive":
+			return true
+		case "join":
+			return restrictedByValues(node)
+		case "scan":
+			return false
 	}
 }
 

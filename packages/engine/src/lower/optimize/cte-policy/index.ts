@@ -11,6 +11,7 @@ import {
 	makeCertificate
 } from "#compiler/ir/certificate.ts"
 import { freeVars, nodeScopes, nodesByLabel, type OuterRefs } from "#compiler/ir/dag.ts"
+import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { Pass } from "#compiler/ir/pass.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import {
@@ -39,6 +40,7 @@ type CteReason =
 	| "feedback"
 	| "cheapScan"
 	| "sharedExpensive"
+	| "sharedRestricted"
 	| "sharedJoin"
 	| "readPerRow"
 
@@ -215,6 +217,123 @@ export const restrictedByKeys = (node: RelNode, columns: ReadonlyArray<string>):
 	}
 	const kept = node.kind === "Take" ? undefined : keptRowsOf(node)
 	return kept !== undefined && restrictedByKeys(kept.input, columns)
+}
+
+/** Each node's restriction by the statement's own values (restrictedByValues), for as long as the node lives. */
+const restrictions = new WeakMap<RelNode, boolean>()
+
+/** Whether an expression is a value of the statement's own: it reads a parameter and no relation. */
+const statementValue = (e: ScalarExpr): boolean =>
+	e.deps.params.length > 0 && e.deps.nodes.length === 0
+
+/**
+ * Whether a region's rows are restricted by the statement's own values (restrictedByValues): every occurrence is reached
+ * from one whose rows those values restrict, an occurrence of a stored relation a parameter fixes a column of, or a
+ * source restricted itself, through the variables the reached ones bind, each occurrence it reaches restricted by
+ * them, a stored relation's range at the bound columns or a source fixing them restricts at every relation
+ * (restrictedByKeys). A literal fixes no such range: the kind codes a content read compares are no restriction of its
+ * rows to the statement's.
+ */
+const regionRestrictedByValues = (region: NodeOf<"MatchRegion">): boolean => {
+	const reached = new Set<VarDecl>(
+		region.correlated.flatMap((c) => (statementValue(c.expr) ? [c.var] : []))
+	)
+	const pending = new Set(region.occurrences)
+	const reach = (o: Occurrence): void => {
+		pending.delete(o)
+		for (const b of o.bindings) {
+			reached.add(b.var)
+		}
+	}
+	for (const o of region.occurrences) {
+		const fixed =
+			o.constants.some((c) => statementValue(c.expr)) || o.bindings.some((b) => reached.has(b.var))
+		if (
+			(o.source.kind === "Base" && fixed) ||
+			(o.source.kind !== "Base" && restrictedByValues(o.source))
+		) {
+			reach(o)
+		}
+	}
+	for (let grew = true; grew;) {
+		grew = false
+		for (const e of region.equalities) {
+			if (reached.has(e.a) === reached.has(e.b)) {
+				continue
+			}
+			reached.add(e.a)
+			reached.add(e.b)
+			grew = true
+		}
+		for (const o of pending) {
+			const joined = o.bindings.flatMap((b) => (reached.has(b.var) ? [b.column] : []))
+			if (isNonEmpty(joined) && (o.source.kind === "Base" || restrictedByKeys(o.source, joined))) {
+				reach(o)
+				grew = true
+			}
+		}
+	}
+	return pending.size === 0
+}
+
+/**
+ * Whether the rows of `node` are restricted by the statement's own values, so the statement derives only what they
+ * pick wherever it derives them: a set a call or a write passes in (an input set, a delta, the session's context); a
+ * region every occurrence of which those values reach (regionRestrictedByValues); and a node over such rows, its
+ * input's, a union's every arm's, a call's every rows argument's. A stored relation or a constant one read whole, and
+ * a recursion, restrict nothing. A join so restricted is computed once where the statement shares it (rule 5d, and
+ * lower/shapes/share/statements.ts sharedOnce): what inlining a join bought, each read's restriction pushed into it so
+ * no read derives it whole, its own values already give it, so the one CTE holds the rows its reads restrict and no
+ * more, where a join no value restricts stays inline at each read (rules 4 and 6), never derived whole.
+ */
+export const restrictedByValues = (node: RelNode): boolean => {
+	const known = restrictions.get(node)
+	if (known !== undefined) {
+		return known
+	}
+	const restricted = ((): boolean => {
+		switch (node.kind) {
+			case "InputSet":
+			case "Delta":
+			case "Context":
+				return true
+			case "Base":
+			case "Closed":
+			case "Recursive":
+			case "SelfRef":
+				return false
+			case "MatchRegion":
+				return regionRestrictedByValues(node)
+			case "Union":
+				return unionArms(node.groups).every(restrictedByValues)
+			case "Intersect":
+				return restrictedByValues(node.left) || restrictedByValues(node.right)
+			case "Call":
+				return node.args.every((a) => a.kind === "value" || restrictedByValues(a.rows))
+			case "Attach":
+				return restrictedByValues(node.parent)
+			case "Forbid":
+				return restrictedByValues(node.violation)
+			case "SemiJoin":
+			case "AntiJoin":
+			case "Difference":
+				return restrictedByValues(node.left)
+			case "Filter":
+			case "ProjectSet":
+			case "Take":
+			case "Group":
+			case "Produce":
+			case "OrderedResult":
+			case "Window":
+			case "OrderedSetAggregate":
+			case "Step":
+				return restrictedByValues(node.input)
+			case "ApproximateNearest":
+				return restrictedByValues(node.source)
+		}
+	})()
+	restrictions.set(node, restricted)
+	return restricted
 }
 
 /**
@@ -461,6 +580,8 @@ const ctePlan = (dag: ValidDag, reads: CteSubject): ReadonlyArray<Decided> => {
 			decision = decide("materialized", "readPerRow", statementScope)
 		} else if (cost === "expensive") {
 			decision = decide("materialized", "sharedExpensive", statementScope)
+		} else if (restrictedByValues(node)) {
+			decision = decide("materialized", "sharedRestricted", statementScope)
 		} else {
 			decision = decide("notMaterialized", "sharedJoin", statementScope)
 		}
@@ -642,8 +763,15 @@ const holdingRegion = (
  *    input (learning-commons' crosswalk, two counts of one standard's supports, each a read of one shared fold).
  * 5. A node that folds, sorts, bounds, deduplicates a set operation or recurses is expensive. Shared, it is
  *    MATERIALIZED: one evaluation feeds every use.
- * 6. Any other shared node, a join of several sources, is NOT MATERIALIZED: PostgreSQL may optimize each use jointly
- *    with its consumer, and the boundary stays a program boundary rather than a forced fence.
+ * 5d. A shared join the statement's own values restrict (restrictedByValues: every occurrence reached from a
+ *    parameter or a set the call passes in) is MATERIALIZED: what rule 6 keeps a join inline for, each use's
+ *    restriction pushed into it so none derives it whole, its own values already give it, so one evaluation derives
+ *    only the rows every use restricts it to, and PostgreSQL plans its sources once, where each inlined use planned
+ *    them again inside its consumer's join (edullm's answerTestItem: the answered member's item session and controls,
+ *    seven relations at the call's parameters, restated by each arm of its admission's arguments).
+ * 6. Any other shared node, a join of several sources no value of the statement restricts, is NOT MATERIALIZED:
+ *    PostgreSQL may optimize each use jointly with its consumer, each use's restriction pushed into it, and the
+ *    boundary stays a program boundary rather than a forced fence; derived once, it would be derived whole.
  *
  * NOT MATERIALIZED never erases a DISTINCT, aggregate or other semantic boundary, and MATERIALIZED blocks parent
  * restrictions from entering the stage: the restrictions every use shares were already moved below it by

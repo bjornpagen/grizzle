@@ -8,11 +8,18 @@
  * one more: edullm's ledger grade (qti-pie grade.ts gradeAttemptOf), 29 of whose 32 arguments each restated the graded
  * attempts, 348 of the statement's 542 anti-joins copies, its plan 32 s and 12 GB at f87b2aaab.
  *
- * The box, exhausted: a call of four rows arguments, one, two or all four reading a copy of one core (a fold over an
- * anti-join, each argument's import of it bound to its own relation parameter, so each reads a copy of its own), read by
+ * And a join the statement's own values restrict is computed once as a fold is (lower/shapes/share/statements.ts
+ * sharedOnce, lower/optimize/cte-policy restrictedByValues, rule 5d), where a join no value of the statement restricts
+ * stays inline at each read (rules 4 and 6): computed once it would be derived whole, every session's items, where each
+ * inline read is restricted where it stands.
+ *
+ * The box, exhausted: a call of four rows arguments, one, two or all four reading a core, a fold over an anti-join or
+ * the anti-join alone at the call's sessions (each argument's import of it bound to its own relation parameter, so each
+ * reads a copy of its own), or the anti-join over every session, which no value of the call restricts; the call read by
  * one member, or by one of two members of one statement, or by both.
  *
- * Oracle: specification, the core computed once: the statement scans Done, the core's anti-join's right side, once.
+ * Oracle: specification, a core at the call's sessions computed once, the statement scanning Done, the core's
+ * anti-join's right side, once; the core over every session scanned at each argument that reads it.
  *
  * Features: one member; two members, one reading the call; two members, both reading it.
  */
@@ -28,7 +35,10 @@ import {
 	statementsOf
 } from "#test/unit/write/evaluation-core.fixtures.ts"
 
-/** A sub-query the arguments of a call's evaluation read is computed once in its statement, however many read it. */
+/**
+ * A sub-query the arguments of a call's evaluation read is computed once in its statement, however many read it, where
+ * the statement's values restrict it, and read where it stands where none does.
+ */
 export const aSubQueryTheArgumentsOfACallsEvaluationReadIsComputedOnceInItsStatementHoweverManyReadIt =
 	property.exhaust(finite(boxGen), {
 		needs: {},
@@ -37,17 +47,18 @@ export const aSubQueryTheArgumentsOfACallsEvaluationReadIsComputedOnceInItsState
 			Effect.sync(() => {
 				k.note(box.members)
 				const statements = statementsOf(box)
+				const expected = box.core === "a join of every session" ? box.reading : 1
 				assert.equal(
 					Arr.reduce(statements, 0, (n, sql) => n + doneScans(sql)),
-					1,
-					`${box.reading} of four arguments reading the core, ${box.members}: Done scanned once\n${Arr.join(statements, "\n")}`
+					expected,
+					`${box.reading} of four arguments reading ${box.core}, ${box.members}: Done scanned ${expected} times\n${Arr.join(statements, "\n")}`
 				)
 			}),
 		oracle: {
 			kind: "specification",
-			name: "the core the arguments read computed once: its anti-join's right side scanned once"
+			name: "a core at the call's sessions computed once, its anti-join's right side scanned once; one over every session at each read"
 		},
-		box: "one, two or four of a call's four arguments reading a copy of one core, the call read by one member, by one of two or by both",
+		box: "one, two or four of a call's four arguments reading a fold or a join at the call's sessions, or a join of every session, the call read by one member, by one of two or by both",
 		kept: [],
 		kills: [
 			{
@@ -63,6 +74,19 @@ export const aSubQueryTheArgumentsOfACallsEvaluationReadIsComputedOnceInItsState
 				replacement:
 					'\t].toSorted((a, b) => (a.kind === "evaluation" ? 0 : 1) - (b.kind === "evaluation" ? 0 : 1))\n',
 				why: "The evaluations are built before every carried sub-query, as before: where both members read the call, the core is a carried part the evaluation never reads, so it computes the core again."
+			},
+			{
+				file: "packages/engine/src/lower/shapes/share/statements.ts",
+				original: "\t\t\treturn restrictedByValues(node)\n",
+				replacement: "\t\t\treturn false\n",
+				why: "A join is never computed once, as before rule 5d: the join at the call's sessions is restated in each argument that reads it, and Done is scanned once per argument."
+			},
+			{
+				file: "packages/engine/src/lower/optimize/cte-policy/index.ts",
+				original:
+					"\t\tconst fixed =\n\t\t\to.constants.some((c) => statementValue(c.expr)) || o.bindings.some((b) => reached.has(b.var))\n",
+				replacement: "\t\tconst fixed = true\n",
+				why: "Every stored relation a region reads counts as restricted by the statement's values: the join over every session is computed once, derived whole, where each argument read it restricted."
 			}
 		]
 	})

@@ -133,7 +133,10 @@
  * role that reads by a claim, or beside a SERIALIZABLE inserter of what it reads, may certify READ COMMITTED where
  * format 7 left it SERIALIZABLE: its served level, its relations' guards and its login's fences move. A rule judge's
  * delta reader returns its delta's rows as they stand, deduplicating nothing (physical/ddl/deltas.ts addReaders), where
- * format 7 returned them DISTINCT, so every reader's body moves
+ * format 7 returned them DISTINCT, so every reader's body moves. A shared join the statement's own values restrict is
+ * computed once, a carried part, a MATERIALIZED CTE of a write's statement or of a read's (lower/optimize/cte-policy
+ * restrictedByValues, rule 5d; lower/shapes/share/statements.ts sharedOnce), where format 7 restated it at each read of a
+ * write and left it NOT MATERIALIZED in a read
  */
 export const artifactFormat = 7
 

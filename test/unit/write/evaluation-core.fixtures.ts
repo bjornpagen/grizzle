@@ -41,12 +41,19 @@ const sessions = { session: pg.integer } as const
 /** A query's binding of `sittings` to the sessions of the rule `r` reads it in: each import of it a copy of its own. */
 const bySession = (r: Rule<typeof Core>) => ({ sittings: r.relation("sittings", sessions) })
 
+/** What the arguments read: a fold or a join at the call's sessions, each argument's import a copy of its own, or a
+ * join of every session, one node every argument reads. */
+export type CoreKind =
+	| "a fold at the call's sessions"
+	| "a join at the call's sessions"
+	| "a join of every session"
+
 /**
- * The core every argument reads: each session's items no Done fact matches, the greatest v of each, a fold over an
- * anti-join. Imported by each argument through its own binding (`bySession`), so each argument reads a copy of it, as
- * every argument of the ledger's grade reads its own copy of the graded attempts (qti-pie grade.ts gradableOf).
+ * The core at the call's sessions, folded: each session's items no Done fact matches, the greatest v of each, a fold
+ * over an anti-join. Imported by each argument through its own binding (`bySession`), so each argument reads a copy of
+ * it, as every argument of the ledger's grade reads its own copy of the graded attempts (qti-pie grade.ts gradableOf).
  */
-const pending = query(Core).rule((r) => {
+const folded = query(Core).rule((r) => {
 	const { session } = v(r.relation("sittings", sessions), "s")
 	const { k, v: x } = v(Item, "item")
 	return r
@@ -56,13 +63,54 @@ const pending = query(Core).rule((r) => {
 		.find({ session, k, v: r.max(x) })
 })
 
-/** The `j`-th argument: the core's rows whose v is at least j. */
-const argumentOf = (j: number) =>
+/** The core at the call's sessions, a join: each session's items no Done fact matches, a copy in each argument. */
+const joined = query(Core).rule((r) => {
+	const { session } = v(r.relation("sittings", sessions), "s")
+	const { k, v: x } = v(Item, "item")
+	return r
+		.match(r.relation("sittings", sessions), { session })
+		.match(Item, { session, k, v: x })
+		.where(r.not(Done, { session, k }))
+		.find({ session, k, v: x })
+})
+
+/** The core of every session: every item no Done fact matches, which no value of the call restricts. */
+const everySession = query(Core).rule((r) => {
+	const { session, k, v: x } = v(Item, "item")
+	return r
+		.match(Item, { session, k, v: x })
+		.where(r.not(Done, { session, k }))
+		.find({ session, k, v: x })
+})
+
+/** The `j`-th argument over the folded core: its rows whose v is at least j. */
+const argumentOfFolded = (j: number) =>
 	query(Core).rule((r) => {
-		const p = pending.bind(bySession(r))
+		const p = folded.bind(bySession(r))
 		const { session, k, v: x } = v(p, "p")
 		return r
 			.match(p, { session, k, v: x })
+			.where(r.ge(x, BigInt(j)))
+			.find({ k, v: x })
+	})
+
+/** The `j`-th argument over the joined core: its rows whose v is at least j. */
+const argumentOfJoined = (j: number) =>
+	query(Core).rule((r) => {
+		const p = joined.bind(bySession(r))
+		const { session, k, v: x } = v(p, "p")
+		return r
+			.match(p, { session, k, v: x })
+			.where(r.ge(x, BigInt(j)))
+			.find({ k, v: x })
+	})
+
+/** The `j`-th argument over the core of every session: its rows whose v is at least j. */
+const argumentOfEvery = (j: number) =>
+	query(Core).rule((r) => {
+		const { session, k, v: x } = v(everySession, "p")
+		return r
+			.match(everySession, { session, k, v: x })
 			.where(r.ge(x, BigInt(j)))
 			.find({ k, v: x })
 	})
@@ -74,34 +122,55 @@ export type Reading = 1 | 2 | 4
 export type Members = "one reads the call" | "two, one reads the call" | "two, both read the call"
 
 export interface Box {
+	readonly core: CoreKind
 	readonly reading: Reading
 	readonly members: Members
 }
 
 export const boxGen: Gen<Box> = element<Box>(
-	Arr.flatMap([1, 2, 4] as const, (reading) =>
-		Arr.map(
-			["one reads the call", "two, one reads the call", "two, both read the call"] as const,
-			(members) => ({ reading, members })
-		)
+	Arr.flatMap(
+		[
+			"a fold at the call's sessions",
+			"a join at the call's sessions",
+			"a join of every session"
+		] as const,
+		(core) =>
+			Arr.flatMap([1, 2, 4] as const, (reading) =>
+				Arr.map(
+					["one reads the call", "two, one reads the call", "two, both read the call"] as const,
+					(members) => ({ core, reading, members })
+				)
+			)
 	)
 )
 
 /** No rows of (k, v): an argument that reads nothing. */
 const none = query(Core).rule((r) => r.where(r.or()).find({ k: 0n, v: 0n }))
 
-/** The call of a rule `r`, its first `reading` arguments each a copy of the core bound to `r`'s sessions. */
-const callIn = (r: Rule<typeof Core>, reading: Reading) => {
-	/** The `j`-th argument: a copy of the core bound to `r`'s sessions where it reads one, else none. */
-	const argument = (j: number) => (j < reading ? argumentOf(j).bind(bySession(r)) : none)
+/** The call of a rule `r`, its first `reading` arguments each reading the core, at `r`'s sessions. */
+const callIn = (r: Rule<typeof Core>, core: CoreKind, reading: Reading) => {
+	/** The `j`-th argument: the core's, at `r`'s sessions where the core reads them, where it reads one, else none. */
+	const argument = (j: number) => {
+		if (j >= reading) {
+			return none
+		}
+		switch (core) {
+			case "a fold at the call's sessions":
+				return argumentOfFolded(j).bind(bySession(r))
+			case "a join at the call's sessions":
+				return argumentOfJoined(j).bind(bySession(r))
+			case "a join of every session":
+				return argumentOfEvery(j)
+		}
+	}
 	return Fn.row(machine, { in0: argument(0), in1: argument(1), in2: argument(2), in3: argument(3) })
 }
 
 /** A member writing `field` of the call's row into `target`, for the sessions it reads. */
-const callMember = (reading: Reading, field: "a0" | "a1") =>
+const callMember = (core: CoreKind, reading: Reading, field: "a0" | "a1") =>
 	query(Core).rule((r) => {
 		const { session } = v(r.relation("sittings", sessions), "s")
-		const read = callIn(r, reading)[field]
+		const read = callIn(r, core, reading)[field]
 		const { k, v: x } = v(read, "out")
 		return r
 			.match(r.relation("sittings", sessions), { session })
@@ -124,14 +193,14 @@ const named = query(Core).rule((r) => r.find({ session: r.param("session", pg.in
 
 /** The case's write, its sessions bound to the call's `session`. */
 const changesOf = (box: Box) => {
-	const first = ChangeSet.empty(Core).insert(Out0, callMember(box.reading, "a0"))
+	const first = ChangeSet.empty(Core).insert(Out0, callMember(box.core, box.reading, "a0"))
 	switch (box.members) {
 		case "one reads the call":
 			return first.bind({ sittings: named })
 		case "two, one reads the call":
 			return first.insert(Out1, itemMember).bind({ sittings: named })
 		case "two, both read the call":
-			return first.insert(Out1, callMember(box.reading, "a1")).bind({ sittings: named })
+			return first.insert(Out1, callMember(box.core, box.reading, "a1")).bind({ sittings: named })
 	}
 }
 
