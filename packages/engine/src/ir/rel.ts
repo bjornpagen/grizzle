@@ -954,6 +954,28 @@ export type RelNode = NodeOver<LiveRefs> & Identified
 export type NodeOf<K extends RelKind> = Extract<RelNode, { readonly kind: K }>
 
 /**
+ * The classes of a match region's variables under its equalities: each variable's class, named by the least variable id
+ * in it, so two variables are of one class exactly when a chain of the region's equalities equates them.
+ */
+export const regionVarClasses = (region: NodeOf<"MatchRegion">): ((v: VarDecl) => VarId) => {
+	const parent = new Map<VarId, VarId>()
+	const find = (v: VarId): VarId => {
+		let at = v
+		for (let up = parent.get(at); up !== undefined && up !== at; up = parent.get(at)) {
+			at = up
+		}
+		return at
+	}
+	for (const e of region.equalities) {
+		const [a, b] = [find(e.a.id), find(e.b.id)]
+		if (a !== b) {
+			parent.set(a < b ? b : a, a < b ? a : b)
+		}
+	}
+	return (v) => find(v.id)
+}
+
+/**
  * A node as a builder states it (DagBuilder.node, relNode): its body over built inputs and the metadata it
  * claims (conservativeMeta claims nothing); its identifier is minted and its structural fields computed.
  */

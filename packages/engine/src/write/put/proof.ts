@@ -1,6 +1,6 @@
 import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
-import type { NodeId, ParamId } from "#compiler/core/ids.ts"
+import type { NodeId, ParamId, VarId } from "#compiler/core/ids.ts"
 import { fieldReads, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { Fold } from "#compiler/ir/fold.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
@@ -9,7 +9,7 @@ import {
 	keptRowsOf,
 	type NodeOf,
 	type RelNode,
-	type VarDecl
+	regionVarClasses
 } from "#compiler/ir/rel.ts"
 import { baseOf, sameScalarType } from "#compiler/ir/scalar.ts"
 import { only } from "#compiler/write/defined.ts"
@@ -43,26 +43,6 @@ const projected = (node: NodeOf<"ProjectSet">, name: string): KeyValue | undefin
 	}
 	const key = constantKey(expr)
 	return key === undefined ? undefined : { kind: "constant", key }
-}
-
-/** The equivalence classes of a match region's variables under its equalities, each class its least-labelled variable. */
-const varClasses = (node: NodeOf<"MatchRegion">): ((v: VarDecl) => VarDecl) => {
-	const parent = new Map<VarDecl, VarDecl>()
-	const find = (v: VarDecl): VarDecl => {
-		let x = v
-		for (let up = parent.get(x); up !== undefined && up !== x; up = parent.get(x)) {
-			x = up
-		}
-		return x
-	}
-	for (const e of node.equalities) {
-		const a = find(e.a)
-		const b = find(e.b)
-		if (a !== b) {
-			parent.set(a.id < b.id ? b : a, a.id < b.id ? a : b)
-		}
-	}
-	return find
 }
 
 /** Key values through a projection: a column's as the input column it copies, a constant as it is; undefined when a
@@ -154,12 +134,12 @@ const provesKeys = (
 				return true
 			}
 			case "MatchRegion": {
-				const classOf = varClasses(node)
+				const classOf = regionVarClasses(node)
 				const correlated = new Set(node.correlated.map((c) => classOf(c.var)))
 				/** Each key field's variable class, or the constant it equals. */
 				const wanted = new Map<
 					string,
-					| { readonly kind: "class"; readonly cls: VarDecl }
+					| { readonly kind: "class"; readonly cls: VarId }
 					| { readonly kind: "constant"; readonly key: string }
 				>()
 				for (const [field, v] of q.values) {

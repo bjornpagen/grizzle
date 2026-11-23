@@ -23,14 +23,15 @@ import type {
 	ProgramAccess,
 	StatisticsShape
 } from "#compiler/ir/products.ts"
-import type {
-	CompletedOrder,
-	Heading,
-	KeySet,
-	NodeOf,
-	OrderKey,
-	RelNode,
-	VarDecl
+import {
+	type CompletedOrder,
+	type Heading,
+	type KeySet,
+	type NodeOf,
+	type OrderKey,
+	type RelNode,
+	regionVarClasses,
+	type VarDecl
 } from "#compiler/ir/rel.ts"
 import { baseOf, type Carrier, fewValued, isSpanCarrier } from "#compiler/ir/scalar.ts"
 import { conjuncts } from "#compiler/logical/props.ts"
@@ -335,39 +336,12 @@ const isFewValued = (heading: Heading, column: string): boolean => {
 	return carrier !== undefined && fewValued[carrier]
 }
 
-class UnionFind {
-	readonly #parent = new Map<string, string>()
-	find(x: string): string {
-		let at = x
-		for (;;) {
-			const p = this.#parent.get(at)
-			if (p === undefined || p === at) {
-				return at
-			}
-			at = p
-		}
-	}
-	union(a: string, b: string): void {
-		const ra = this.find(a)
-		const rb = this.find(b)
-		if (ra !== rb) {
-			this.#parent.set(ra < rb ? rb : ra, ra < rb ? ra : rb)
-		}
-	}
-}
-
 /** The facts of every occurrence of a region under the pushed facts on its heading. */
 const regionFacts = (n: NodeOf<"MatchRegion">, pushed: Pushed): RegionFacts => {
-	const uf = new UnionFind()
-	for (const v of n.vars) {
-		uf.find(v.id)
-	}
-	for (const e of n.equalities) {
-		uf.union(e.a.id, e.b.id)
-	}
+	const rootOf = regionVarClasses(n)
 	const classIds = new Map<string, number>()
 	const classOfVar = (v: VarDecl): number => {
-		const root = uf.find(v.id)
+		const root = rootOf(v)
 		const known = classIds.get(root)
 		if (known !== undefined) {
 			return known
