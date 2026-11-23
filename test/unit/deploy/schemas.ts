@@ -53,7 +53,7 @@ export const shopV1: SchemaDesc = {
 
 /** Task open: mutable inside Entity, the unit of its id, which Account sits in too; a version that changes Task in place
  * states these. */
-export const openTask: ReadonlyArray<AuthoredStatementDesc> = [
+const openTask: ReadonlyArray<AuthoredStatementDesc> = [
 	unit("Entity", { id: f.uuid }),
 	mutable("Task")
 ]
