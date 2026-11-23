@@ -1,7 +1,7 @@
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { LowerContext } from "#compiler/lower/conservative/context.ts"
+import { evaluatedAsItStands, LowerContext } from "#compiler/lower/conservative/context.ts"
 import { ConservativeDelivery } from "#compiler/lower/conservative/deliver.ts"
 import { dispatchNode } from "#compiler/lower/conservative/dispatch.ts"
 import type {
@@ -42,6 +42,6 @@ export const lowerConservative = (
 	options: ConservativeOptions
 ): Result.Result<ConservativeProgram, CompileError> =>
 	catchRefusal(() => {
-		const cx = new LowerContext(input.dag, options, dispatchNode)
+		const cx = new LowerContext(input.dag, options, dispatchNode, evaluatedAsItStands)
 		return new ConservativeDelivery(cx).program(input.root)
 	})

@@ -248,8 +248,9 @@ const boundPart = (session: CheckSession, value: BindValue): ImportKey => {
 
 /**
  * The key two imports share exactly when they read the same rows (Checker `#imported`): the imported query, by its
- * identity, which one resolution of the compile's Descriptions gives every import of it in every query it checks
- * (check/session.ts CheckSession), and each bound value (`boundPart`), a parameter by its name, the one parameter of
+ * identity (check/session.ts queryIdentity), which one resolution of the compile's Descriptions gives every import of
+ * it, of one Description object or of several of one identity, in every query it checks (check/session.ts
+ * CheckSession), and each bound value (`boundPart`), a parameter by its name, the one parameter of
  * that name its query, or its ChangeSet, whose members' and read-backs' parameters are one namespace, declares, a
  * constant by its canonical text, the rows of a query by that query's import's key, so one guard bound into the
  * imports of several members is one node, and an outer value by the node and the column it is read through: every

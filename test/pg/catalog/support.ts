@@ -8,7 +8,7 @@ import { floatLiteral } from "#compiler/ir/carriers.ts"
 import type { Certificate, CertificateRule } from "#compiler/ir/certificate.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
-import { LowerContext } from "#compiler/lower/conservative/context.ts"
+import { evaluatedAsItStands, LowerContext } from "#compiler/lower/conservative/context.ts"
 import { ConservativeDelivery } from "#compiler/lower/conservative/deliver.ts"
 import type { CatalogOptions } from "#compiler/lower/shapes/catalog/context.ts"
 import { type CatalogResult, rewriteCatalog } from "#compiler/lower/shapes/catalog/rewrite.ts"
@@ -249,7 +249,8 @@ export const catalogLowering = (
 										params: genParamDecls(c.query),
 										subject: { kind: "query" }
 									},
-									catalogDispatch
+									catalogDispatch,
+									evaluatedAsItStands
 								)
 							).program(rewritten.dag.roots[0])
 						),

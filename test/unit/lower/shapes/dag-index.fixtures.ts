@@ -95,7 +95,8 @@ export const lowered = (
 	const cx = new LowerContext(
 		query.dag,
 		{ ...testOptions("Ledger"), params: query.params },
-		optimizedDispatch(facts, state)
+		optimizedDispatch(facts, state),
+		state.evaluationHolding
 	)
 	new OptimizedDelivery<never>(cx, facts, state).optimizedProgram(query.dag.roots[0])
 	return {

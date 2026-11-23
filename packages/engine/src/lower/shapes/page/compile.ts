@@ -35,6 +35,7 @@ import {
 	distinctSelect,
 	type Env,
 	emptyEnv,
+	evaluatedAsItStands,
 	headingTargets,
 	LowerContext,
 	nodeLabel,
@@ -302,7 +303,7 @@ const conservativeKit = <F extends PageFill>(
 		params: input.checked.params,
 		subject: { kind: "query" }
 	}
-	const cx = new LowerContext(input.checked.dag, options, dispatchNode)
+	const cx = new LowerContext(input.checked.dag, options, dispatchNode, evaluatedAsItStands)
 	const delivery = new ConservativeDelivery<PageParamSlot<F>>(cx)
 	return {
 		cx,
@@ -341,7 +342,12 @@ const optimizedKit = <F extends PageFill>(
 		params: query.params,
 		subject: { kind: "query" }
 	}
-	const cx = new LowerContext(query.dag, options, optimizedDispatch(facts, state))
+	const cx = new LowerContext(
+		query.dag,
+		options,
+		optimizedDispatch(facts, state),
+		state.evaluationHolding
+	)
 	const delivery = new OptimizedDelivery<PageInput, PageParamSlot<F>>(cx, facts, state)
 	return {
 		cx,

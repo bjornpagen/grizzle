@@ -13,7 +13,7 @@ import type { ConservativeOptions } from "#compiler/lower/conservative/types.ts"
 import {
 	costClass,
 	restrictedByKeys,
-	restrictedByValues
+	restrictedWithin
 } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
 import type { Expr, FromSource, Select } from "#compiler/sql/ast.ts"
@@ -113,13 +113,14 @@ export const existenceTest = (
  * Whether an existence test reads its right side per left row, a step correlated inside it (existenceTest): a right side
  * that is no scan of one source (cte-policy costClass), whose join columns each restrict every relation it reads
  * (cte-policy restrictedByKeys), that the statement does not derive once (`derivedOnce`), in a statement that does not
- * meet every row of its left side (`readsWhole`), the right side one no value of the statement restricts (cte-policy
- * restrictedByValues). Each witness then reads the right side's relations at the left row's values alone, never the
- * whole of it: a right side the write's restriction reaches only through its left side, which deriving it once would
- * read all of (cte-policy rule 5b). A scan of one source stays in EXISTS, which PostgreSQL probes per left row through
- * its index; so does a CTE's read, whose rows the statement derives once whatever reads them; so does every test of a
- * law's full violation query, whose tests a hash join of both sides reads once; and so does a right side the
- * statement's values restrict, small derived once, which a probe of each left row would derive again for each:
+ * meet every row of its left side (`readsWhole`), the right side one no value fixed where the test is evaluated
+ * restricts (cte-policy restrictedWithin), the statement's or an outer row's, its own left row's aside. Each witness
+ * then reads the right side's relations at the left row's values alone, never the whole of it: a right side the
+ * write's restriction reaches only through its left side, which deriving it once would read all of (cte-policy rule
+ * 5b). A scan of one source stays in EXISTS, which PostgreSQL probes per left row through its index; so does a CTE's
+ * read, whose rows the statement derives once whatever reads them; so does every test of a law's full violation query,
+ * whose tests a hash join of both sides reads once; and so does a right side restricted where the test is evaluated,
+ * small derived once there, which a probe of each left row would derive again for each:
  * edullm's PERF-COMMIT submit at 100x read every processed attempt against the call's previous attempts, a fold of its
  * own 20 rows folded again for each of 1,650,480 rows (11.3 s), where the 20 rows each probe the processed attempts'
  * key once.
@@ -130,7 +131,7 @@ const readPerLeftRow = (
 	right: InputSource
 ): boolean =>
 	!readsWhole(cx.options.subject) &&
-	!restrictedByValues(node.right) &&
+	!restrictedWithin(node.right, node) &&
 	costClass(node.right) !== "scan" &&
 	restrictedByKeys(
 		node.right,

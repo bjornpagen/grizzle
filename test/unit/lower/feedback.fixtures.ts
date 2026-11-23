@@ -7,7 +7,11 @@ import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { conservativeMeta, type Heading, type NodeOf, type RelNode } from "#compiler/ir/rel.ts"
-import { emptyEnv, LowerContext } from "#compiler/lower/conservative/context.ts"
+import {
+	emptyEnv,
+	evaluatedAsItStands,
+	LowerContext
+} from "#compiler/lower/conservative/context.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput } from "#compiler/lower/conservative/types.ts"
 import { emptyCtePlan } from "#compiler/lower/optimize/cte-policy/index.ts"
@@ -306,7 +310,8 @@ export const optimized = (b: Built): Result.Result<unknown, CompileError> => {
 			params: [],
 			subject: { kind: "query" }
 		},
-		optimizedDispatch(facts, new ShapeState<RelationInput>("small", emptyCtePlan))
+		optimizedDispatch(facts, new ShapeState<RelationInput>("small", emptyCtePlan)),
+		evaluatedAsItStands
 	)
 	return catchRefusal(() => recursionLowerer(facts)(b.rec, cx, emptyEnv))
 }

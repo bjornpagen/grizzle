@@ -404,6 +404,16 @@ interface Feedback {
 export type NodeDispatch = (node: RelNode, cx: LowerContext, env: Env) => OperandSelect
 
 /**
+ * How a lowering builds a call's evaluation's query (call/index.ts evaluationQuery, or the query of the read that
+ * evaluates the call itself): with the CTEs its arguments' shared nodes stand in leading its WITH (cte-policy holderOf,
+ * lower/shapes ShapeState withHeldCtes), or as it is (`evaluatedAsItStands`) in a lowering whose plan holds none there.
+ */
+export type EvaluationHolding = <Q extends OperandSelect>(call: NodeOf<"Call">, build: () => Q) => Q
+
+/** The holding of a lowering that holds no CTE in an evaluation's query: each query as it is built. */
+export const evaluatedAsItStands: EvaluationHolding = (_, build) => build()
+
+/**
  * One kind's plug-in: its node to the query of its heading, a set (Select) or, realized plain where its consumer makes
  * its rows a set, an operand (OperandSelect).
  */
@@ -562,6 +572,8 @@ interface Scope {
 	readonly sharing: ShareFrame | undefined
 	/** The innermost host of the evaluations its field reads read, undefined where none hosts one. */
 	readonly evaluations: EvaluationHost | undefined
+	/** How a call's evaluation's query is built (EvaluationHolding). */
+	readonly holding: EvaluationHolding
 }
 
 /** Each write DAG's fact spine (factSpine), made once: a DAG is immutable. */
@@ -680,7 +692,12 @@ export class LowerContext {
 	#shared: Shared
 	#scope: Scope
 
-	constructor(dag: ValidDag, options: ConservativeOptions, dispatch: NodeDispatch) {
+	constructor(
+		dag: ValidDag,
+		options: ConservativeOptions,
+		dispatch: NodeDispatch,
+		holding: EvaluationHolding
+	) {
 		this.dag = dag
 		this.options = options
 		this.names = options.names
@@ -700,7 +717,8 @@ export class LowerContext {
 			feedback: new Map(),
 			dispatch,
 			sharing: undefined,
-			evaluations: undefined
+			evaluations: undefined,
+			holding
 		}
 	}
 
@@ -709,7 +727,7 @@ export class LowerContext {
 	 * names and placeholders.
 	 */
 	#within(scope: Scope): LowerContext {
-		const cx = new LowerContext(this.dag, this.options, scope.dispatch)
+		const cx = new LowerContext(this.dag, this.options, scope.dispatch, scope.holding)
 		cx.#shared = this.#shared
 		cx.#scope = scope
 		return cx
@@ -780,6 +798,11 @@ export class LowerContext {
 			...this.#scope,
 			evaluations: { outer: this.#scope.evaluations, evaluation: lookup }
 		})
+	}
+
+	/** `build`'s query of `call`'s evaluation, holding what the lowering's plan holds there (EvaluationHolding). */
+	evaluationOf<Q extends OperandSelect>(call: NodeOf<"Call">, build: () => Q): Q {
+		return this.#scope.holding(call, build)
 	}
 
 	/** The templates the lowering's keys and digests read (`templatesOf`). */

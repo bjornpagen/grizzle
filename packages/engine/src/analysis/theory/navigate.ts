@@ -223,9 +223,9 @@ type Binds = ReadonlyMap<string, InferredExpr>
 /**
  * A navigation of a compile's queries (`navigateQuery`): each query they read navigated once for its identity (ir/desc.ts
  * descIdentity), and what they read of each rule (`reads`), computed once for the rule. Every read of a query of one
- * identity is the one navigation of it, one object, so the checker, which keys an import by its query's place
- * (check/session.ts CheckSession), builds one node for all of them, where each read navigated apart was an object of its
- * own, a node of its own; and a chain of unions, each rule of a level reading the level below, navigates each level once
+ * identity is the one navigation of it, which the checker, keying an import by its query's identity (check/session.ts
+ * queryIdentity), builds as one node for all of them; and a chain of unions, each rule of a level reading the level
+ * below, navigates each level once
  * for each set of values its rules read it at, where navigated at each read apart, every level was navigated once for
  * every path down the chain to it, the product of the unions' widths at every depth above it. Its work is linear in the
  * queries and rules its compile reads, never in the paths through them. Its owner is the compile whose queries share

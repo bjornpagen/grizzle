@@ -13,6 +13,7 @@ import { baseOf, regexOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import {
 	type ColumnMap,
 	type Env,
+	evaluatedAsItStands,
 	LowerContext,
 	WriteParams
 } from "#compiler/lower/conservative/context.ts"
@@ -259,7 +260,8 @@ export const writeContext = (dag: ValidDag, options: WriteContextOptions): Write
 			params: options.params,
 			subject: { kind: "write", templates: options.templates, bound: options.bound }
 		},
-		options.dispatch
+		options.dispatch,
+		evaluatedAsItStands
 	)
 	return {
 		cx,

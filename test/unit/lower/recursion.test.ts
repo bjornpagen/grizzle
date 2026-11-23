@@ -12,7 +12,11 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { catchRefusal } from "#compiler/core/canonical.ts"
-import { emptyEnv, LowerContext } from "#compiler/lower/conservative/context.ts"
+import {
+	emptyEnv,
+	evaluatedAsItStands,
+	LowerContext
+} from "#compiler/lower/conservative/context.ts"
 import { emptyCtePlan } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { optimizedDispatch, ShapeState } from "#compiler/lower/shapes/index.ts"
 import { recursionLowerer } from "#compiler/lower/shapes/recursion/index.ts"
@@ -63,7 +67,8 @@ export const theFormARecursionLowersToPackagesEngineSrcLowerShapesRecursionIndex
 						params: q.params,
 						subject: { kind: "query" }
 					},
-					optimizedDispatch(facts, new ShapeState<RelationInput>("small", emptyCtePlan))
+					optimizedDispatch(facts, new ShapeState<RelationInput>("small", emptyCtePlan)),
+					evaluatedAsItStands
 				)
 				refused(
 					catchRefusal(() => recursionLowerer(facts)(rec, cx, emptyEnv)),

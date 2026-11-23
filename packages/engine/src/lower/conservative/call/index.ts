@@ -178,12 +178,14 @@ const lowerDeclared = (
 	cx: LowerContext,
 	env: Env
 ): OperandSelect => {
-	const { item, columns } = calledItem(node, called.name, node.heading.length, cx, env)
-	if (!isNonEmpty(columns)) {
-		throw defect("a call's heading, its result's fields, of at least one field")
-	}
-	const noNull = refusingNull(cx, called.name, columns, "a row holding NULL")
-	return calledRows(node, columns, [item], [noNull], cx)
+	return cx.evaluationOf(node, () => {
+		const { item, columns } = calledItem(node, called.name, node.heading.length, cx, env)
+		if (!isNonEmpty(columns)) {
+			throw defect("a call's heading, its result's fields, of at least one field")
+		}
+		const noNull = refusingNull(cx, called.name, columns, "a row holding NULL")
+		return calledRows(node, columns, [item], [noNull], cx)
+	})
 }
 
 /** The place of the field a read reads among the fields of the call's row (CallFunction `field`). */
@@ -251,15 +253,17 @@ export const evaluationQuery = (node: NodeOf<"Call">, cx: LowerContext, env: Env
 	if (called.kind !== "field") {
 		throw defect("an evaluation of a call whose row's fields a query reads")
 	}
-	const { item, attributes, check } = evaluationOf(node, called, cx, env)
-	return select(
-		keyedSet(
-			mapNonEmpty(attributes, (a) => target(a)),
-			[item],
-			check,
-			"a call's one row"
+	return cx.evaluationOf(node, () => {
+		const { item, attributes, check } = evaluationOf(node, called, cx, env)
+		return select(
+			keyedSet(
+				mapNonEmpty(attributes, (a) => target(a)),
+				[item],
+				check,
+				"a call's one row"
+			)
 		)
-	)
+	})
 }
 
 /** The columns of a call's evaluation (evaluationQuery): its row's attributes, one per field of the row. */
@@ -487,8 +491,25 @@ const lowerField = (
 	env: Env
 ): OperandSelect => {
 	const hosted = cx.hostedEvaluation(node, cx.evaluationKey(node), env)
-	const evaluated =
-		hosted === undefined ? ownEvaluation(node, called, cx, env) : { ...hosted, where: [] }
+	return hosted === undefined
+		? cx.evaluationOf(node, () => fieldRows(node, called, cx, ownEvaluation(node, called, cx, env)))
+		: fieldRows(node, called, cx, { ...hosted, where: [] })
+}
+
+/**
+ * A field read's rows from its call's evaluation, `evaluated`: the evaluation's FROM items, where the read places the
+ * evaluation itself, or a host's read of it, beside the field's array unnested (lowerField).
+ */
+const fieldRows = (
+	node: NodeOf<"Call">,
+	called: Extract<CallFunction, { readonly kind: "field" }>,
+	cx: LowerContext,
+	evaluated: {
+		readonly from: ReadonlyArray<FromSource>
+		readonly attributes: NonEmptyReadonlyArray<Expr>
+		readonly where: ReadonlyArray<Expr>
+	}
+): OperandSelect => {
 	const array = defined(
 		evaluated.attributes[fieldAt(called)],
 		"the attribute of the field a read reads"

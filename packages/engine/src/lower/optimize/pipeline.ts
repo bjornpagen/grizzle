@@ -147,7 +147,12 @@ const deliver = (
 			/** A derived relation's definition lowers as a query. */
 			subject: options.subject.kind === "derivedDefinition" ? { kind: "query" } : options.subject
 		}
-		const cx = new LowerContext(query.dag, lowering, optimizedDispatch(facts, state))
+		const cx = new LowerContext(
+			query.dag,
+			lowering,
+			optimizedDispatch(facts, state),
+			state.evaluationHolding
+		)
 		return new OptimizedDelivery<never>(cx, facts, state).optimizedProgram(query.dag.roots[0])
 	})
 

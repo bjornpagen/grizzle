@@ -11,7 +11,11 @@ import type { NodeId } from "#compiler/core/ids.ts"
 import { unbounded } from "#compiler/ir/cardinality.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
 import type { RelDag, RelNode, ValidDag } from "#compiler/ir/rel.ts"
-import { LowerContext, type NodeDispatch } from "#compiler/lower/conservative/context.ts"
+import {
+	evaluatedAsItStands,
+	LowerContext,
+	type NodeDispatch
+} from "#compiler/lower/conservative/context.ts"
 import { ConservativeDelivery } from "#compiler/lower/conservative/deliver.ts"
 import { dispatchNode } from "#compiler/lower/conservative/dispatch.ts"
 import type {
@@ -220,7 +224,7 @@ export const context = (
 	dag: ValidDag,
 	facts: ShapeFacts,
 	options: ConservativeOptions
-): LowerContext => new LowerContext(dag, options, shapeDispatch(facts))
+): LowerContext => new LowerContext(dag, options, shapeDispatch(facts), evaluatedAsItStands)
 
 /** A whole program delivered by the conservative scheduler over the shape dispatch. */
 export const shapedProgram = (
@@ -228,6 +232,6 @@ export const shapedProgram = (
 	facts: ShapeFacts,
 	options: ConservativeOptions
 ): ConservativeProgram => {
-	const cx = new LowerContext(query.dag, options, shapeDispatch(facts))
+	const cx = new LowerContext(query.dag, options, shapeDispatch(facts), evaluatedAsItStands)
 	return new ConservativeDelivery(cx).program(query.root)
 }

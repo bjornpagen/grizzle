@@ -19,6 +19,7 @@ import {
 	type CteTable,
 	cteAtFirstUse,
 	type Env,
+	type EvaluationHolding,
 	type EvaluationLookup,
 	emptyEnv,
 	freshCtes,
@@ -428,12 +429,13 @@ export interface ShapeLog<I extends ChoiceInput> {
 	/** The policy's decision for a node it shares: its strategy and where its CTE stands (cte-policy CteDecision). */
 	decision(node: RelNode): CteDecision | undefined
 	/**
-	 * The CTEs `region`'s SELECT holds while it is lowered (cte-policy `sharedCorrelated`), its table made where the
-	 * region's lowering begins and read off where it ends; none for a region no shared node's CTE stands in.
+	 * The CTEs `holder`'s query holds while it is lowered (cte-policy `sharedCorrelated`): a region's SELECT or a call's
+	 * evaluation's query, its table made where the holder's lowering begins and read off where it ends; none for a holder
+	 * no shared node's CTE stands in.
 	 */
-	regionCtes(region: NodeId): CteLog | undefined
-	/** `lower`'s SELECT of `region` with the CTEs it holds leading its WITH (ShapeState). */
-	withRegionCtes(region: NodeId, lower: () => OperandSelect): OperandSelect
+	heldCtes(holder: NodeId): CteLog | undefined
+	/** `lower`'s query of `holder` with the CTEs it holds leading its WITH (ShapeState). */
+	withHeldCtes<Q extends OperandSelect>(holder: NodeId, lower: () => Q): Q
 	readonly record: (choice: ShapeChoice<I>) => void
 }
 
@@ -479,19 +481,17 @@ export class ShapeState<I extends ChoiceInput> implements ShapeLog<I> {
 	#mode: InputChoiceMode
 	#log: CteLog = freshCtes()
 	#choices: Array<ShapeChoice<I>> = []
-	/** The regions whose SELECT holds a CTE (cte-policy `sharedCorrelated`). */
+	/** The holders whose query holds a CTE (cte-policy `sharedCorrelated`): regions and calls' evaluations. */
 	readonly #holding: ReadonlySet<NodeId>
-	/** The CTEs of each region being lowered, by the region (`withRegionCtes`). */
-	readonly #regions = new Map<NodeId, CteLog>()
+	/** The CTEs of each holder being lowered, by the holder (`withHeldCtes`). */
+	readonly #held = new Map<NodeId, CteLog>()
 
 	/** A state whose first statement is lowered in `mode`. */
 	constructor(mode: InputChoiceMode, cte: CtePlan) {
 		this.#mode = mode
 		this.cte = cte
 		this.#holding = new Set(
-			Object.values(cte.decisions).flatMap((d) =>
-				d.scope.kind === "region" ? [d.scope.region] : []
-			)
+			Object.values(cte.decisions).flatMap((d) => (d.scope.kind === "held" ? [d.scope.holder] : []))
 		)
 	}
 
@@ -530,23 +530,32 @@ export class ShapeState<I extends ChoiceInput> implements ShapeLog<I> {
 		return this.cte.decisions[node.id]
 	}
 
-	regionCtes(region: NodeId): CteLog | undefined {
-		return this.#regions.get(region)
+	heldCtes(holder: NodeId): CteLog | undefined {
+		return this.#held.get(holder)
 	}
 
 	/**
-	 * `lower`'s SELECT of `region` with the CTEs it holds (cte-policy `sharedCorrelated`) leading its WITH, each defined
-	 * at its first read inside it: a fresh table for the region while it is lowered, so a region lowered again, in
-	 * another statement or another mode, defines its CTEs again.
+	 * A call's evaluation's query with the CTEs its evaluation holds leading its WITH (cte-policy CtePlan `evaluations`),
+	 * or as it is where it holds none.
 	 */
-	withRegionCtes(region: NodeId, lower: () => OperandSelect): OperandSelect {
-		if (!this.#holding.has(region) || this.#regions.has(region)) {
+	readonly evaluationHolding: EvaluationHolding = (call, build) => {
+		const holder = this.cte.evaluations[call.id]
+		return holder === undefined ? build() : this.withHeldCtes(holder, build)
+	}
+
+	/**
+	 * `lower`'s query of `holder`, a region's SELECT or a call's evaluation's query, with the CTEs it holds (cte-policy
+	 * `sharedCorrelated`) leading its WITH, each defined at its first read inside it: a fresh table for the holder while
+	 * it is lowered, so a holder lowered again, in another statement or another mode, defines its CTEs again.
+	 */
+	withHeldCtes<Q extends OperandSelect>(holder: NodeId, lower: () => Q): Q {
+		if (!this.#holding.has(holder) || this.#held.has(holder)) {
 			return lower()
 		}
 		const table: CteLog = freshCtes()
-		this.#regions.set(region, table)
+		this.#held.set(holder, table)
 		const query = lower()
-		this.#regions.delete(region)
+		this.#held.delete(holder)
 		return withLeading(query, table.ctes)
 	}
 }
@@ -801,7 +810,7 @@ const dispatchIn = <I extends ChoiceInput>(
 			const region = filteredRegion(node)
 			return region === undefined
 				? plugIn(node, cx, env)
-				: state.withRegionCtes(region.id, () => plugIn(node, cx, env))
+				: state.withHeldCtes(region.id, () => plugIn(node, cx, env))
 		}
 		const scope = decision.scope
 		switch (scope.kind) {
@@ -809,8 +818,8 @@ const dispatchIn = <I extends ChoiceInput>(
 				return cteAtFirstUse(cx, node, state.log, node, materialized, () =>
 					plugIn(node, cx, emptyEnv)
 				)
-			case "region": {
-				const ctes = state.regionCtes(scope.region)
+			case "held": {
+				const ctes = state.heldCtes(scope.holder)
 				return ctes === undefined
 					? plugIn(node, cx, env)
 					: cteAtFirstUse(cx, node, ctes, node, materialized, () => plugIn(node, cx, env))

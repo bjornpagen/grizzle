@@ -78,13 +78,13 @@ export const aRegionJoiningAUnionByColumnsARestrictedOccurrenceBindsReadsEachArm
 			{
 				file: "packages/engine/src/lower/optimize/cte-policy/index.ts",
 				original:
-					'\t\t\t\t(restrictedByValues(q.source) || (probed.kind === "Group" && q.source.kind === "Base"))\n',
-				replacement: '\t\t\t\t(restrictedByValues(q.source) || q.source.kind === "Base")\n',
+					'\t\t\t\t(restrictedWithin(q.source, region) ||\n\t\t\t\t\t(probed.kind === "Group" && q.source.kind === "Base"))\n',
+				replacement: '\t\t\t\t(restrictedWithin(q.source, region) || q.source.kind === "Base")\n',
 				why: "A union beside a stored relation alone is read per row of it too: the read of every attempt's outcomes reads both arms again for each attempt, LATERAL, where it derived the union once and joined it."
 			},
 			{
 				file: "packages/engine/src/lower/optimize/cte-policy/index.ts",
-				original: '\t\t\to.source.kind === "Base" || restrictedByValues(o.source)\n',
+				original: '\t\t\to.source.kind === "Base" || restrictedWithin(o.source, region)\n',
 				replacement: '\t\t\to.source.kind === "Base"\n',
 				why: "A read the statement's values restrict is a probe too, as at 85910d893: the call's latest attempts' outcomes in force and the fold of the latest attempts each wait for the other's keys, and the write is refused for no order of the region's occurrences in which every correlated source follows what it reads."
 			}

@@ -62,15 +62,9 @@ export const aWholeRulesStatementOverAChainOfDefinitionsReadsTheLeafsRelationOnc
 				why: "Navigation keeps no import whole, as before: each read of a definition inlines it, so a chain two deep of two reads per level reads Node four times and three deep eight; the property fails."
 			},
 			{
-				file: "packages/engine/src/analysis/theory/navigate.ts",
-				original: "\t\tconst known = this.#navigations.get(identity)",
-				replacement: "\t\tconst known = undefined",
-				why: "Every read of an import a navigation keeps whole is an object of its own, so the checker, which keys an import by its query's place (check/session.ts), builds a node at every read, and a chain two deep of two reads per level reads Node four times; the property fails."
-			},
-			{
 				file: "packages/engine/src/lower/optimize/cte-policy/index.ts",
-				original: '\t\t\tconst region = cost === "scan" ? undefined : regionOf(node, references)',
-				replacement: "\t\t\tconst region = undefined",
+				original: '\t\t\tconst held = cost === "scan" ? undefined : holder(node, references)',
+				replacement: "\t\t\tconst held = undefined",
 				why: "A shared node correlated to its region is inlined at each read (rule 3, as before), so the import navigation keeps whole is spelled at every read of it, each level's definition again inside the one above, and a chain three deep reads Node four times or more; the property fails."
 			}
 		]
@@ -109,12 +103,6 @@ export const aWholeRulesStatementOverReadsOfAUnionReadsEachOfItsRulesOnceHowever
 				original: "\t\t\t\t\tunions.add(key)",
 				replacement: "\t\t\t\t\tunions.size",
 				why: "Navigation keeps no union whole and distributes none into the rule's conjunctions, so it reads each union's rules inline, which it refuses (\"a navigation: an imported query of one rule\"): every rule over reads of a union fails to compile; the property fails."
-			},
-			{
-				file: "packages/engine/src/analysis/theory/navigate.ts",
-				original: "\t\tconst known = this.#navigations.get(identity)",
-				replacement: "\t\tconst known = undefined",
-				why: "Every read of a union a navigation keeps whole is an object of its own, so the checker, which keys an import by its query's place (check/session.ts), builds a node at every read, and the rule over two reads of a union of two rules reads Node four times; the property fails."
 			},
 			{
 				file: "packages/engine/src/check/checker.ts",

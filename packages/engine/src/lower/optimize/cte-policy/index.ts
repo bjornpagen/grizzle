@@ -55,22 +55,27 @@ export interface CteDecision {
 	/** The node's demanded columns: what a CTE for it must carry. */
 	readonly columns: ReadonlyArray<string>
 	/**
-	 * Where the CTE stands: the statement's own WITH, or, for a shared correlated node (`sharedCorrelated`), the SELECT
-	 * of the region that holds it (holdingRegion), which encloses every read of it and inside which every value it reads
-	 * of an outer row is in scope.
+	 * Where the CTE stands: the statement's own WITH, or, for a shared correlated node (`sharedCorrelated`), the query
+	 * of the holder that holds it (holderOf), a region's SELECT or a call's evaluation's query, named by its label, which
+	 * encloses every read of it and inside which every value it reads of an outer row is in scope.
 	 */
 	readonly scope:
 		| { readonly kind: "statement" }
-		| { readonly kind: "region"; readonly region: NodeId }
+		| { readonly kind: "held"; readonly holder: NodeId }
 }
 
 export interface CtePlan {
 	/** One decision per shared node; every other node is inlined. */
 	readonly decisions: Readonly<Record<NodeId, CteDecision>>
+	/**
+	 * The evaluation of each call whose evaluation's query holds a CTE (holderOf), by the call's label: the holder a
+	 * decision names, which the lowering opens where it builds that query.
+	 */
+	readonly evaluations: Readonly<Record<NodeId, NodeId>>
 }
 
 /** The plan of a statement whose stages no policy shared: every node is inlined. */
-export const emptyCtePlan: CtePlan = { decisions: {} }
+export const emptyCtePlan: CtePlan = { decisions: {}, evaluations: {} }
 
 /**
  * What a compilation is, as the policy reads it: a workload's read (`query`), or another subject (a rule's probe over
@@ -233,21 +238,47 @@ export const restrictedByKeys = (node: RelNode, columns: ReadonlyArray<string>):
 /** Each node's restriction by the statement's own values (restrictedByValues), for as long as the node lives. */
 const restrictions = new WeakMap<RelNode, boolean>()
 
-/** Whether an expression is a value of the statement's own: it reads a parameter and no relation. */
-const statementValue = (e: ScalarExpr): boolean =>
-	e.deps.params.length > 0 && e.deps.nodes.length === 0
+/** The nodes a node reads from outside itself (analysis/physical/rules.ts outerOf), by label. */
+const outsideOf = (node: RelNode): ReadonlySet<NodeId> => new Set(outerOf(node).map((c) => c.node))
 
 /**
- * Whether a region's rows are restricted by the statement's own values (restrictedByValues): every occurrence is reached
- * from one whose rows those values restrict, an occurrence of a stored relation a parameter fixes a column of, or a
- * source restricted itself, through the variables the reached ones bind, each occurrence it reaches restricted by
- * them, a stored relation's range at the bound columns or a source fixing them restricts at every relation
- * (restrictedByKeys). A literal fixes no such range: the kind codes a content read compares are no restriction of its
- * rows to the statement's.
+ * Whether an expression is a value fixed where its region is evaluated: it reads a parameter or a column of an outer
+ * row the region reads from outside itself (`outside`), and no other node, one value for each evaluation as a parameter
+ * is one for the statement. A literal alone is none.
+ */
+const fixedValue = (e: ScalarExpr, outside: ReadonlySet<NodeId>): boolean =>
+	(e.deps.params.length > 0 || e.deps.nodes.length > 0) && e.deps.nodes.every((n) => outside.has(n))
+
+/**
+ * Whether `node`'s rows are restricted where `reader` evaluates it (restrictedByValues): by the statement's values, or
+ * by the values of an outer row `reader` reads from outside itself too, fixed for each evaluation of it. A source a row
+ * inside `reader` correlates, a region's sibling read laterally or an existence test's own left row, is restricted only
+ * once that row is, which no evaluation of `reader` fixes beforehand.
+ */
+export const restrictedWithin = (node: RelNode, reader: RelNode): boolean => {
+	if (!restrictedByValues(node)) {
+		return false
+	}
+	const outside = outsideOf(reader)
+	return outerOf(node).every((c) => outside.has(c.node))
+}
+
+/**
+ * Whether a region's rows are restricted by the values fixed where it is evaluated (restrictedByValues): every
+ * occurrence is reached from one whose rows those values restrict, an occurrence of a stored relation a parameter or an
+ * outer row's column fixes a column of (`fixedValue`), or a source restricted where the region evaluates it
+ * (restrictedWithin), through the variables the reached ones bind, each occurrence it reaches restricted by them, a
+ * stored relation's range at the bound columns or a source fixing them restricts at every relation (restrictedByKeys).
+ * A correlated region is evaluated once per outer row, which fixes the values its correlation reads as a parameter
+ * fixes them for the statement: edullm's decideStage read-back evaluated attempt_marks_of per sitting, and the latest
+ * attempt of each session of the sitting's stage, restricted by the sitting, was read per key by each of 162 rows
+ * arguments where it is one fold per sitting. A literal fixes no such range: the kind codes a content read compares are
+ * no restriction of its rows to the statement's.
  */
 const regionRestrictedByValues = (region: NodeOf<"MatchRegion">): boolean => {
+	const outside = outsideOf(region)
 	const reached = new Set<VarDecl>(
-		region.correlated.flatMap((c) => (statementValue(c.expr) ? [c.var] : []))
+		region.correlated.flatMap((c) => (fixedValue(c.expr, outside) ? [c.var] : []))
 	)
 	const pending = new Set(region.occurrences)
 	const reach = (o: Occurrence): void => {
@@ -258,10 +289,11 @@ const regionRestrictedByValues = (region: NodeOf<"MatchRegion">): boolean => {
 	}
 	for (const o of region.occurrences) {
 		const fixed =
-			o.constants.some((c) => statementValue(c.expr)) || o.bindings.some((b) => reached.has(b.var))
+			o.constants.some((c) => fixedValue(c.expr, outside)) ||
+			o.bindings.some((b) => reached.has(b.var))
 		if (
 			(o.source.kind === "Base" && fixed) ||
-			(o.source.kind !== "Base" && restrictedByValues(o.source))
+			(o.source.kind !== "Base" && restrictedWithin(o.source, region))
 		) {
 			reach(o)
 		}
@@ -444,9 +476,10 @@ const renamedSource = (
  * attempts). Each binding meets the rows at its keys, as the join of the whole node does, so the region's bindings
  * are the same set.
  *
- * An occurrence the statement's values restrict already is no probe: its rows are those values' alone, derived once
- * where the statement shares them (rule 5d), so it is read as it stands, and binds the keys of another rather than
- * waiting for another's. A probe's binders, stored relations and reads the statement's values restrict, are so never
+ * An occurrence restricted already where the region evaluates it (restrictedWithin: by the statement's values, or by
+ * the outer row the region is evaluated for) is no probe: its rows are those values' alone, derived once where the
+ * statement or the outer row's holder shares them (rules 5d and 3b), so it is read as it stands, and binds the keys of
+ * another rather than waiting for another's. A probe's binders, stored relations and reads so restricted, are so never
  * probes themselves, and the region places every probe after its binders in one order (conservative/match-region
  * regionParts), where two reads each restricted by the values, each a fold or a union whose keys the other binds,
  * each waited for the other: edullm's grade admission, the values in force of the call's latest item session (a union
@@ -459,7 +492,7 @@ export const probesByKey = (
 	const out = new Map<Occurrence, ProbedByKey>()
 	for (const o of region.occurrences) {
 		const beneath =
-			o.source.kind === "Base" || restrictedByValues(o.source)
+			o.source.kind === "Base" || restrictedWithin(o.source, region)
 				? undefined
 				: probedBeneath(
 						o.source,
@@ -477,7 +510,8 @@ export const probesByKey = (
 		const binders = new Set(
 			region.occurrences.flatMap((q) =>
 				q !== o &&
-				(restrictedByValues(q.source) || (probed.kind === "Group" && q.source.kind === "Base"))
+				(restrictedWithin(q.source, region) ||
+					(probed.kind === "Group" && q.source.kind === "Base"))
 					? q.bindings.map((b) => b.var)
 					: []
 			)
@@ -713,16 +747,24 @@ const atKeys = (
 
 /**
  * The policy's decision for every node of a DAG it computes as a CTE, in topological order: a node read more than
- * once, and, in a workload's read (`reads`), a node read once per row of another (readPerRow).
+ * once, and, in a workload's read (`reads`), a node read once per row of another (readPerRow); and the evaluation of
+ * each call whose evaluation's query holds one of them (CtePlan `evaluations`).
  */
-const ctePlan = (dag: ValidDag, reads: CteSubject): ReadonlyArray<Decided> => {
+const ctePlan = (
+	dag: ValidDag,
+	reads: CteSubject
+): {
+	readonly decided: ReadonlyArray<Decided>
+	readonly evaluations: Readonly<Record<NodeId, NodeId>>
+} => {
 	const d = analyzeDemand(dag, noPins)
 	const scopes = nodeScopes()
 	const labels = nodesByLabel(dag)
 	const feedback = feedbackReadsOf(nodeGraph, d.order)
 	const perRow = reads === "query" ? readPerRow(d.order) : new Set<RelNode>()
 	const perKey = reads === "query" ? perKeyReads(d.order) : new Map<RelNode, number>()
-	const regionOf = holdingRegion(d.order, new Set(dag.roots), (node) => scopes.of(node).outer)
+	const evaluations = evaluationsOf(d.order)
+	const holder = holderOf(d.order, evaluations, new Set(dag.roots), (node) => scopes.of(node).outer)
 	const decided: Array<Decided> = []
 	for (const node of d.order) {
 		const references = d.references(node)
@@ -757,11 +799,11 @@ const ctePlan = (dag: ValidDag, reads: CteSubject): ReadonlyArray<Decided> => {
 			freeVars(labels, scopes.of(node)).length > 0 ||
 			d.lateral(node)
 		) {
-			const region = cost === "scan" ? undefined : regionOf(node, references)
+			const held = cost === "scan" ? undefined : holder(node, references)
 			decision =
-				region === undefined
+				held === undefined
 					? decide("inline", "correlated", statementScope)
-					: decide("materialized", "sharedCorrelated", { kind: "region", region: region.id })
+					: decide("materialized", "sharedCorrelated", { kind: "held", holder: held.id })
 		} else if (cost === "scan") {
 			decision = decide("inline", "cheapScan", statementScope)
 		} else if (perRow.has(node)) {
@@ -775,7 +817,18 @@ const ctePlan = (dag: ValidDag, reads: CteSubject): ReadonlyArray<Decided> => {
 		}
 		decided.push({ node, decision })
 	}
-	return decided
+	const holders = new Set(
+		decided.flatMap(({ decision }) =>
+			decision.scope.kind === "held" ? [decision.scope.holder] : []
+		)
+	)
+	const held: Record<NodeId, NodeId> = {}
+	for (const [call, evaluation] of evaluations) {
+		if (holders.has(evaluation.id)) {
+			held[call.id] = evaluation.id
+		}
+	}
+	return { decided, evaluations: held }
 }
 
 const cteRule = (strategy: Exclude<CteStrategy, "inline">): CertificateRule => `cte.${strategy}`
@@ -800,42 +853,142 @@ export const filteredRegion = (node: RelNode): NodeOf<"MatchRegion"> | undefined
 			: undefined
 
 /**
- * The region whose SELECT holds a shared correlated node's CTE (rule 3b), where `references`, the node's reads, are all
- * occurrences of regions and no expression reads it: the outermost node on the node's chain of dominators, the nodes
- * every path from a root to it passes through, that holds a region's CTEs (`filteredRegion`) and whose SELECT sees every
- * value the node reads of an outer row (`outer`, the node's outer references by label): each one the region's
- * correlation brings in from outside, or a column of a node outside that SELECT, which reads it from outside itself.
- * Dominating every read, that SELECT encloses each read's spelling, so the node is spelled and planned once there and
- * computed once per row the SELECT is read for, each occurrence a join of its rows; every node between it and the node
- * sees what the node reads, and none outside it sees a value its own rows bind. A node that reads no outer value,
- * correlated only by a reader's expression that reads its columns laterally, stands in the first such node, its
- * readers' own region, since no value it reads bounds how far out it would stand. A rule statement's import its rule's
- * unfolding reads more than once (analysis/theory/navigate.ts sharedImports) is one, each read a match of the rule
- * itself; and so is the import each rule of a union reads at the values its importer bound (check/checker.ts
- * #bindValue), the raw column of the unit or of a region outside them, every rule of the union a region of its own,
- * held by the region every read lies inside below the one whose rows bind those values, where no SELECT the rules
- * share sees them; inlined at each read, a chain of such definitions multiplied the statement at every level, and a
- * chain of unions by their rules at every level. None for any other node, which stays inlined (rule 3).
- *
- * The dominators are worked out once (grizzle-text base/graph.ts immediateDominators), over the DAG's roots `roots`, each
- * reached directly whatever reads it too.
+ * A call's evaluation, the other holder of rule 3b beside a region: the calls of one function at one argument tuple,
+ * the very argument nodes and expressions, a declared function's rows or the reads of fields of its one row, which the
+ * lowering evaluates once in a query of its own (lower/conservative/call evaluationQuery, or the read that evaluates it
+ * itself), wherever a host places that query: the statement's WITH, its parent's rows' CTE, a region's LATERAL item.
+ * That query's WITH holds what its arguments share; `id` names it, its first call's label.
  */
-const holdingRegion = (
-	order: ReadonlyArray<RelNode>,
-	roots: ReadonlySet<RelNode>,
-	outer: (node: RelNode) => OuterRefs
-): ((node: RelNode, references: number) => NodeOf<"MatchRegion"> | undefined) => {
-	const readers = new Map<RelNode, Array<RelNode>>()
-	for (const n of order) {
-		for (const input of inputsOf(n)) {
-			readers.getOrInsertComputed(input, () => []).push(n)
+interface Evaluation {
+	readonly kind: "evaluation"
+	readonly id: NodeId
+	readonly calls: NonEmptyReadonlyArray<NodeOf<"Call">>
+}
+
+/** Where a shared correlated node's CTE stands (rule 3b): a region's SELECT, or a call's evaluation's query. */
+type Holder = NodeOf<"MatchRegion"> | Evaluation
+
+/** A vertex of the readers' graph holders are found in: a node, or an evaluation its calls read their arguments in. */
+type Vertex = RelNode | Evaluation
+
+/**
+ * The evaluation of each call of a declared function or a field of one in `order` (Evaluation): the calls of one
+ * function, by name, at the same argument nodes and expressions, each told apart by the object, are one evaluation; a
+ * split or a series, grizzle's own, is evaluated where it is read.
+ */
+const evaluationsOf = (order: ReadonlyArray<RelNode>): ReadonlyMap<RelNode, Evaluation> => {
+	const numbers = new Map<object, number>()
+	const numberOf = (o: object): number => numbers.getOrInsertComputed(o, () => numbers.size)
+	const groups = new Map<string, Array<NodeOf<"Call">>>()
+	for (const node of order) {
+		if (node.kind !== "Call") {
+			continue
+		}
+		const fn = node.function
+		if (fn.kind === "split" || fn.kind === "series") {
+			continue
+		}
+		const args = node.args.map((a) => numberOf(a.kind === "rows" ? a.rows : a.expr))
+		groups.getOrInsertComputed(`${fn.name} ${args.join(" ")}`, () => []).push(node)
+	}
+	const out = new Map<RelNode, Evaluation>()
+	for (const calls of groups.values()) {
+		const [first, ...rest] = calls
+		if (first !== undefined) {
+			const evaluation: Evaluation = { kind: "evaluation", id: first.id, calls: [first, ...rest] }
+			for (const call of calls) {
+				out.set(call, evaluation)
+			}
 		}
 	}
+	return out
+}
+
+/**
+ * The holder whose query holds a shared correlated node's CTE (rule 3b), where `references`, the node's reads, are all
+ * occurrences of regions and no expression reads it: the outermost holder on the node's chain of dominators, the
+ * vertices every path from a root to it passes through (grizzle-text base/graph.ts immediateDominators, the DAG's roots
+ * `roots` each reached directly whatever reads it too), whose query sees every value the node reads of an outer row
+ * (`outer`, the node's outer references by label), and that every call's evaluation enclosing a read of the node
+ * encloses too, or is. A holder is a region (`filteredRegion`), whose SELECT sees each value its correlation brings in
+ * from outside and every column of a node outside it, or a call's evaluation (Evaluation), whose query sees what its
+ * calls read from outside them; and an evaluation is a boundary, its query placed wherever its host stands, so nothing
+ * its arguments read stands outside it but in the statement's WITH: edullm's decideStage read-back evaluated
+ * attempt_marks_of for each sitting key, LATERAL in its parent's rows' CTE, and the latest attempt of each session of
+ * the sitting's stage, a fold its 16 rows arguments read 162 times, was spelled at each read, 466 MB of planning where
+ * one CTE in the evaluation's query computes it once per sitting.
+ *
+ * Dominating every read, the holder's query encloses each read's spelling, so the node is spelled and planned once
+ * there and computed once per row the query is read for, each occurrence a join of its rows; every vertex between it
+ * and the node sees what the node reads, and none outside it sees a value its own rows bind. A node that reads no outer
+ * value, correlated only by a reader's expression that reads its columns laterally, stands in the first holder, since
+ * no value it reads bounds how far out it would stand. A rule statement's import its rule's unfolding reads more than
+ * once (analysis/theory/navigate.ts sharedImports) is one, each read a match of the rule itself; and so is the import
+ * each rule of a union reads at the values its importer bound (check/checker.ts #bindValue), the raw column of the unit
+ * or of a region outside them, every rule of the union a region of its own, held by the region every read lies inside
+ * below the one whose rows bind those values, where no SELECT the rules share sees them; inlined at each read, a chain
+ * of such definitions multiplied the statement at every level, and a chain of unions by their rules at every level.
+ * None for any other node, which stays inlined (rule 3).
+ *
+ * The readers' graph has an evaluation read by its calls and reading their arguments; each vertex's enclosing
+ * evaluations, those its readers lie in or are, are worked out once, readers first.
+ */
+const holderOf = (
+	order: ReadonlyArray<RelNode>,
+	evaluations: ReadonlyMap<RelNode, Evaluation>,
+	roots: ReadonlySet<RelNode>,
+	outer: (node: RelNode) => OuterRefs
+): ((node: RelNode, references: number) => Holder | undefined) => {
+	const readers = new Map<Vertex, Array<Vertex>>()
+	/** The vertices, readers first: each evaluation after its last call, before their arguments. */
+	const vertices: Array<Vertex> = []
+	const callsLeft = new Map<Evaluation, number>()
+	for (const n of order) {
+		const evaluation = evaluations.get(n)
+		for (const input of inputsOf(n)) {
+			readers.getOrInsertComputed(input, () => []).push(evaluation ?? n)
+		}
+		if (evaluation !== undefined) {
+			readers.getOrInsertComputed(evaluation, () => []).push(n)
+			callsLeft.set(evaluation, (callsLeft.get(evaluation) ?? 0) + 1)
+		}
+	}
+	for (const n of order.toReversed()) {
+		vertices.push(n)
+		const evaluation = evaluations.get(n)
+		const left = evaluation === undefined ? undefined : (callsLeft.get(evaluation) ?? 0) - 1
+		if (evaluation !== undefined && left !== undefined) {
+			callsLeft.set(evaluation, left)
+			if (left === 0) {
+				vertices.push(evaluation)
+			}
+		}
+	}
+	const readersOf = (v: Vertex): ReadonlyArray<Vertex> => readers.get(v) ?? []
 	const dominator = immediateDominators(
-		order,
-		(n) => readers.get(n) ?? [],
-		(n) => roots.has(n)
+		vertices.toReversed(),
+		readersOf,
+		(v) => v.kind !== "evaluation" && roots.has(v)
 	)
+	const noEvaluation: ReadonlySet<Evaluation> = new Set()
+	const enclosing = new Map<Vertex, ReadonlySet<Evaluation>>()
+	/** The evaluations a read by `reader` lies in: the reader's own, and the reader itself where it is one. */
+	const within = (reader: Vertex): ReadonlySet<Evaluation> => {
+		const around = defined(enclosing.get(reader), "a reader's evaluations, worked out first")
+		return reader.kind === "evaluation" ? new Set([...around, reader]) : around
+	}
+	for (const v of vertices) {
+		const lying = readersOf(v).map(within)
+		const [one, ...others] = lying
+		enclosing.set(
+			v,
+			one === undefined
+				? noEvaluation
+				: others.every((o) => o === one)
+					? one
+					: new Set(lying.flatMap((o) => [...o]))
+		)
+	}
 	/** Whether `at`'s SELECT, holding `region`'s CTEs, sees every value of `read`. */
 	const sees = (at: RelNode, region: NodeOf<"MatchRegion">, read: OuterRefs): boolean => {
 		const around = outer(at)
@@ -850,6 +1003,29 @@ const holdingRegion = (
 		}
 		return true
 	}
+	/** Whether an evaluation's query sees every value of `read`: each one its calls read from outside them. */
+	const evaluationSees = (evaluation: Evaluation, read: OuterRefs): boolean => {
+		const around = outer(evaluation.calls[0])
+		return [...read.keys()].every((id) => around.has(id))
+	}
+	/**
+	 * The evaluation that holds a node some of whose reads lie inside a call's evaluation (`lies`, each evaluation a read
+	 * lies in): the innermost of them, which every other encloses, its query holding the node's CTE where it sees every
+	 * value the node reads, each read inside it one join of that CTE's rows; a read outside it finds no table of it open
+	 * and reads the node where it stands (lower/shapes ShapeState withHeldCtes). An evaluation is a boundary, its query
+	 * placed wherever its host stands, so a node read inside it is held by it or by none, never by a holder outside it.
+	 * None where the reads lie in evaluations no one of which the others enclose, or the innermost's query sees not every
+	 * value the node reads. edullm's decideStage read-back reads the latest attempt of each session of the sitting's
+	 * stage in each of attempt_marks_of's rows arguments, 160 reads inside the call's one evaluation, and in each mark
+	 * read's own rule beside the call, 5 reads outside it, where no holder dominates every read.
+	 */
+	const evaluationOf = (lies: ReadonlySet<Evaluation>, read: OuterRefs): Evaluation | undefined => {
+		const innermost = [...lies].find((e) => {
+			const around = defined(enclosing.get(e), "an evaluation's evaluations, worked out")
+			return [...lies].every((other) => other === e || around.has(other))
+		})
+		return innermost !== undefined && evaluationSees(innermost, read) ? innermost : undefined
+	}
 	return (node, references) => {
 		let occurrences = 0
 		for (const r of readers.get(node) ?? []) {
@@ -862,8 +1038,15 @@ const holdingRegion = (
 			return undefined
 		}
 		const read = outer(node)
+		const lies = defined(enclosing.get(node), "the node's evaluations, worked out")
+		if (lies.size > 0) {
+			return evaluationOf(lies, read)
+		}
 		let held: NodeOf<"MatchRegion"> | undefined
 		for (let at = dominator(node); at !== undefined; at = dominator(at)) {
+			if (at.kind === "evaluation") {
+				continue
+			}
 			const region = filteredRegion(at)
 			if (region === undefined) {
 				continue
@@ -901,13 +1084,16 @@ const holdingRegion = (
  * 3. A correlated node, a node some expression reads laterally, and a node on a recursive step are inlined: a CTE of
  *    the statement's WITH cannot read an outer row, and a recursive term admits one self-reference.
  * 3b. But a shared correlated node of several sources whose every read is an occurrence of a region is MATERIALIZED in
- *    the SELECT of the outermost region that lies on every path to it and sees every outer value it reads, its
- *    correlated values or the columns of nodes outside it (holdingRegion): spelled and planned once, computed once per
- *    row that SELECT is read for, each occurrence a join of its rows. A rule statement's import its rule's unfolding
- *    reads more than once is one (analysis/theory/navigate.ts sharedImports), and so is the import each rule of a union
- *    reads at the unit's channels (check/checker.ts #sharedImport), held by the region below the unit's every read lies
- *    in; inlined at each read, a chain of such definitions multiplied the statement at every level, and a chain of
- *    unions by their rules at every level.
+ *    the query of the outermost holder that lies on every path to it and sees every outer value it reads (holderOf): a
+ *    region's SELECT, which sees its correlated values and the columns of nodes outside it, or a call's evaluation's
+ *    query, which sees what the call reads from outside it, and never a holder outside an evaluation that encloses a
+ *    read of it, whose host places it anywhere; spelled and planned once, computed once per row that query is read
+ *    for, each occurrence a join of its rows. A rule statement's import its rule's unfolding reads more than once is
+ *    one (analysis/theory/navigate.ts sharedImports), and so is the import each rule of a union reads at the unit's
+ *    channels (check/checker.ts #sharedImport), held by the region below the unit's every read lies in; inlined at
+ *    each read, a chain of such definitions multiplied the statement at every level, and a chain of unions by their
+ *    rules at every level; and so is a fold a call's rows arguments each read at the call's parent row, held by the
+ *    call's evaluation, computed once per parent row (edullm's decideStage read-back, 162 reads).
  * 4. A node whose stages are all scans, filters and projections of one source is inlined at each use: each use can then
  *    probe the source's indexes with its own restrictions, which a shared result would hide ("sharing an unfiltered
  *    computation is not automatically preferable to two selective indexed probes").
@@ -950,7 +1136,7 @@ export const ctePolicyPass = (reads: CteSubject): Pass<LogicalQuery, CtePlannedQ
 	name: "ctePolicy",
 	run: (query, ctx) =>
 		catchRefusal(() => {
-			const decided = ctePlan(query.dag, reads)
+			const { decided, evaluations } = ctePlan(query.dag, reads)
 			const decisions: Record<NodeId, CteDecision> = {}
 			for (const { node, decision } of decided) {
 				decisions[node.id] = decision
@@ -972,6 +1158,6 @@ export const ctePolicyPass = (reads: CteSubject): Pass<LogicalQuery, CtePlannedQ
 				)
 				ctx.certificates.record(cert)
 			}
-			return { ...query, cte: { decisions } }
+			return { ...query, cte: { decisions, evaluations } }
 		})
 })

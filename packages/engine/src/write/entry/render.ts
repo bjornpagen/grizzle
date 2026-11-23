@@ -12,7 +12,11 @@ import type { LawField } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { ValidDag } from "#compiler/ir/rel.ts"
 import { queryEvidence } from "#compiler/logical/annotate.ts"
-import { columnIn, LowerContext } from "#compiler/lower/conservative/context.ts"
+import {
+	columnIn,
+	evaluatedAsItStands,
+	LowerContext
+} from "#compiler/lower/conservative/context.ts"
 import { dispatchNode } from "#compiler/lower/conservative/dispatch.ts"
 import { lowerOptimized, optimizedInput } from "#compiler/lower/optimize/pipeline.ts"
 import type { Expr, ObjectName, OperandBody, OperandSelect, SetOperand } from "#compiler/sql/ast.ts"
@@ -210,7 +214,8 @@ export const renderProbes = (
 	const guardCx = new LowerContext(
 		options.dag,
 		{ names: options.names, params: [], subject: { kind: "query" } },
-		dispatchNode
+		dispatchNode,
+		evaluatedAsItStands
 	)
 	/** A probed object's guards over one side's values (write/probe.ts withinRow): a declared key's none, since it holds
 	 * every fact apart. */

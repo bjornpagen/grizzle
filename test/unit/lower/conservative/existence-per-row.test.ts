@@ -236,7 +236,7 @@ export const anExistenceTestReadsARightSideOfSeveralSourcesOrAFoldByItsKeysPerLe
 				},
 				{
 					file: "packages/engine/src/lower/conservative/semi-join/exists.ts",
-					original: "\t!restrictedByValues(node.right) &&\n",
+					original: "\t!restrictedWithin(node.right, node) &&\n",
 					replacement: "",
 					why: "A right side the statement's value restricts is read per left row too, as 2bdab1f6f's did: the fold at the asked k1, a few rows, folded again for each row of A, where it is derived once and each of its rows probes A."
 				},

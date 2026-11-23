@@ -168,18 +168,20 @@ const isDigesting = (file: string): boolean => Str.endsWith("core/fingerprint.ts
  * The calls of the identity digests' functions navigating case `c`'s read at `depth`: the digesting of every identity
  * and import key navigation asks of what it reads, counted, never timed. The declared queries the chain is made of are
  * digested before the count begins, as a compile's are before its navigation reads them (ir/desc.ts descIdentities, one
- * for the process, which keeps each frozen part's identity whatever read it first), so the count is navigation's own
- * digesting whatever case ran before it.
+ * for the process, which keeps each frozen part's identity whatever read it first), and the navigation reads columns of
+ * its own, whose checks ask the identity of each query they import once for their session (check/session.ts
+ * ResolvedImports), so the count is navigation's own digesting whatever case ran before it.
  */
 const digestWork = (c: Chain, depth: number): Effect.Effect<number> =>
 	Effect.gen(function* () {
 		yield* Effect.sync(() => succeeded(descIdentity(readAt(c, depth))))
+		const own = queryColumns(checking(Base), loc)
 		const [, counts] = yield* everyCallCount(
 			Effect.sync(() =>
 				navigateQuery(
 					readAt(c, depth),
 					loc,
-					columns,
+					own,
 					{ kind: "perStatement", extent: c.read === "whole" ? "every" : "units" },
 					new Navigation(facts)
 				)
