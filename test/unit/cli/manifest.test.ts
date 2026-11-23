@@ -12,15 +12,20 @@ import { artifactFormat } from "#compiler/core/format.ts"
  * grizzle's, its fix the installation drafted afresh, and generate and names refuse it at the stage format, writing
  * nothing (cli/committed.ts SnapshotFormat, the one refusal every command reads); a manifest.json sealed under a domain
  * that names no format, and one edited by hand under its seal, read as no snapshot, check's unreadableSnapshot
- * finding alone, which generate refuses at the stage snapshot; and a sealed record that is not the one the schemas
+ * finding alone, which generate refuses at the stage snapshot; a sealed record that is not the one the schemas
  * compile to is check's manifestRecord finding, which generate writes back as the record, drafting no folder and
- * leaving snapshot.json as it was.
+ * leaving snapshot.json as it was; a record holding the database default a grizzle before e1eb4f524 installed reads,
+ * the default set apart as its departure (deploy/snapshot/build.ts recordedSnapshot), and is check's ungenerated
+ * finding, whose draft generate writes, one folder resetting the default and manifest.json the draft's again, which
+ * check then passes; and a record holding an object of a kind no grizzle this one reads installed reads as no snapshot,
+ * as a hand edit does.
  *
  * A case takes the committed directory of one schema's first draft (derived.fixtures.ts baseNeed) and commits one file
  * beside the other: snapshot.json of no format, of the format before this grizzle's or after it; both files as a draft of
  * format 3 left them, its constants recorded with no language, sealed under format 3's domain, which the format check
  * refuses before anything reads its record; manifest.json sealed under the earlier domain `manifest`; the record with an
- * edge left out, an edit no draft reads, sealed again; or that edit under the draft's seal.
+ * edge left out, an edit no draft reads, sealed again; that edit under the draft's seal; or the record with a former
+ * database default or an advanceFunction object its first, sealed again.
  *
  * Oracle: the first draft's own snapshot.json and manifest.json, and the format each commit records.
  *
@@ -39,13 +44,14 @@ import {
 	editedManifest,
 	formatCommits,
 	formatThree,
-	formatted
+	formatted,
+	recordHolding
 } from "#test/unit/cli/manifest.fixtures.ts"
 
 /** A snapshot.json of another format is check's format finding, carrying the formats, which generate and names refuse at the stage format writing nothing; a seal naming no format and a hand edit read as no snapshot; and a record not the compile's is check's finding, which generate writes back drafting no folder. */
 export const aSnapshotOfAnotherFormatIsItsOwnFindingASealNamingNoFormatOrAHandEditReadsAsNoSnapshotAndARecordNotTheCompilesIsWrittenBack =
 	property.exhaust(commitSpace, {
-		box: "snapshot.json of no format, of the format before this grizzle's and of the one after it, a draft of format 3, manifest.json under the earlier seal's domain, a record sealed again over an edit, and that edit under the draft's seal",
+		box: "snapshot.json of no format, of the format before this grizzle's and of the one after it, a draft of format 3, manifest.json under the earlier seal's domain, a record sealed again over an edit, that edit under the draft's seal, and a record holding a former database default or an object of a removed kind, each sealed again",
 		needs: { baseNeed },
 		situations: [
 			"format none",
@@ -54,7 +60,9 @@ export const aSnapshotOfAnotherFormatIsItsOwnFindingASealNamingNoFormatOrAHandEd
 			"a format 3 draft",
 			"a seal naming no format",
 			"a record not the compile's",
-			"a hand edit"
+			"a hand edit",
+			"a former database default",
+			"a removed kind"
 		] satisfies ReadonlyArray<Reached<Commit>>,
 		check:
 			({ baseNeed }, c: Case<Commit>) =>
@@ -82,6 +90,10 @@ export const aSnapshotOfAnotherFormatIsItsOwnFindingASealNamingNoFormatOrAHandEd
 								return { snapshot, manifest: editedManifest(snapshot, manifest, true) }
 							case "a hand edit":
 								return { snapshot, manifest: editedManifest(snapshot, manifest, false) }
+							case "a former database default":
+								return { snapshot, manifest: recordHolding(snapshot, manifest, "former") }
+							case "a removed kind":
+								return { snapshot, manifest: recordHolding(snapshot, manifest, "removed") }
 						}
 					})()
 					yield* fs.writeFileString(snapshotFile, pair.snapshot)
@@ -124,6 +136,54 @@ export const aSnapshotOfAnotherFormatIsItsOwnFindingASealNamingNoFormatOrAHandEd
 						assert.equal(manifestLeft, pair.manifest, "nothing writes manifest.json")
 						return
 					}
+					if (commit === "a former database default") {
+						const read = succeeded(converted, "the record holding a former default reads")
+						assert.deepEqual(
+							read.snapshot.manifest.departed,
+							[{ kind: "databaseDefault" }],
+							"the former default reads as its departure"
+						)
+						assert.ok(
+							Arr.every(
+								read.snapshot.manifest.objects,
+								(o) => o.ident !== "databaseDefault:default_transaction_isolation"
+							),
+							"no object of the snapshot is the former default"
+						)
+						assert.deepEqual(
+							kinds,
+							["ungenerated"],
+							"check finds the draft that resets it ungenerated"
+						)
+						const drafted = yield* cliOver(ws, config, ["generate", configName], at(2))
+						assert.equal(drafted.code, 0, drafted.stderr)
+						const listed = yield* fs.readDirectory(`${ws}/${schemaDir}`)
+						const after = Arr.sort(listed, Order.String)
+						const folders = Arr.filter(after, (name) => !entries.includes(name))
+						assert.equal(
+							folders.length,
+							1,
+							`generate drafts one folder: ${Formatter.format(after)}`
+						)
+						const folder = `${ws}/${schemaDir}/${defined(folders[0], "the drafted folder")}`
+						const names = yield* fs.readDirectory(folder)
+						const texts = yield* Effect.forEach(names, (name) =>
+							fs.readFileString(`${folder}/${name}`)
+						)
+						assert.ok(
+							Arr.some(texts, Str.includes("RESET default_transaction_isolation")),
+							"the folder resets the former default"
+						)
+						const rewritten = yield* fs.readFileString(manifestFile)
+						assert.equal(
+							rewritten,
+							manifest,
+							"manifest.json is the draft's again, holding no former default"
+						)
+						const passed = yield* cliOver(ws, config, ["check", configName], at(3))
+						assert.equal(passed.code, 0, passed.stderr)
+						return
+					}
 					if (commit !== "a record not the compile's") {
 						assert.ok(converted._tag === "Failure", `${commit} reads as no snapshot`)
 						assert.deepEqual(kinds, ["unreadableSnapshot"], Formatter.format(commit))
@@ -158,6 +218,18 @@ export const aSnapshotOfAnotherFormatIsItsOwnFindingASealNamingNoFormatOrAHandEd
 		},
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/deploy/snapshot/build.ts",
+				original: "\tconst departure = departedKinds.get(o.kind)",
+				replacement: "\tconst departure = undefined",
+				why: "A record holding the database default a grizzle before e1eb4f524 installed is refused as no snapshot, so check and generate stop at every schema whose history predates the cut, as qti-pie's pantry does."
+			},
+			{
+				file: "packages/engine/src/deploy/render/generate.ts",
+				original: "\t\tdepartures: input.previous.manifest.departed",
+				replacement: "\t\tdepartures: []",
+				why: "A committed record's former database default is set apart and forgotten: generate drafts a folder that resets nothing, and the database keeps SERIALIZABLE as its default."
+			},
 			{
 				file: "packages/engine/src/core/format.ts",
 				original: "export const artifactFormat = 8",

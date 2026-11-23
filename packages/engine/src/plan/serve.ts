@@ -20,8 +20,10 @@ export {
 	isEmptySnapshot,
 	joinedSnapshot,
 	noWorkload,
+	recordedSnapshot,
 	recordHolds,
 	rosterFates,
+	type SealedRecord,
 	snapshotSeal,
 	spellingsOf
 } from "#compiler/deploy/snapshot/build.ts"
