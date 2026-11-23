@@ -52,18 +52,26 @@ import type {
 	WindowSpec,
 	With
 } from "#compiler/sql/ast.ts"
-import { col, eq } from "#compiler/sql/build.ts"
+import { col, derived, eq, simpleSelect, targetAs } from "#compiler/sql/build.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 
 /**
  * How the extractor reads one role's statements back:
  *
- * - `relationOf`: the relation, by its declared name, a stored table or the role's view is; none for a table the
- *   installation states no relation of, and none for one the role reaches under a row policy that reads another
- *   relation's table, whose reads no statement shows;
+ * - `relationOf`: the relation, by its declared name, a stored table or the role's view of a whole entry is; none for a
+ *   table the installation states no relation of;
  * - `fieldOf`: the field a column of a relation's table is, none for a column of no field (a law column);
  * - `readsNoTable`: whether a schema function a statement calls reads no relation's table, as a refusal, a constant, a
- *   vector reads none; a world's filter function reads the relations of its membership;
+ *   vector reads none;
+ * - `bodyOf`: the body of a world function the role installs, a writable entry's filter function or one of its key and
+ *   unique probes, over its arguments (argumentsRow), which a call of it reads as the function's owner, which no row
+ *   policy holds; none for any other function;
+ * - `policyOf`: the predicate of the role's row policy on a table its own entry narrows, a writable entry's target or a
+ *   family's owner its member writes reach, over the table's row (policyRow): its USING, which holds every read of the
+ *   table a statement of the role makes directly to the rows it admits; none for any other table, and none where the
+ *   role's policy admits every row. Its WITH CHECK only refuses, which no fact of a read states;
+ * - `definitionOf`: the definition of the role's view of a query entry, whose reads are its owner's (physical/ddl/roles.ts
+ *   worldView), with the view's columns, one per column of its definition; none for any other table;
  * - `arbitersOf`: the columns of each object an ON CONFLICT DO NOTHING with no target arbitrates on a relation's table,
  *   its primary key, each UNIQUE and each span key, each by the columns of its fields, a law column's left out.
  */
@@ -71,8 +79,32 @@ export interface ExtractNames {
 	readonly relationOf: (table: ObjectName) => string | undefined
 	readonly fieldOf: (relation: string, column: string) => string | undefined
 	readonly readsNoTable: (fn: QualifiedFunctionRef) => boolean
+	readonly bodyOf: (fn: QualifiedFunctionRef) => Expr | undefined
+	readonly policyOf: (table: ObjectName) => Expr | undefined
+	readonly definitionOf: (view: ObjectName) => Definition | undefined
 	readonly arbitersOf: (relation: string) => ReadonlyArray<ReadonlyArray<string>>
 }
+
+/** A view's definition (ExtractNames `definitionOf`): its query, and the view's column each of its targets is, in order. */
+export interface Definition {
+	readonly query: OperandSelect
+	readonly columns: ReadonlyArray<string>
+}
+
+/**
+ * The alias a row policy's predicate reads its table's row by (ExtractNames `policyOf`), which a walk names a stored row
+ * of no binding: the row a read finds, whatever the policy reads of it. No statement names a source with a `?`.
+ */
+export const policyRow = "?row"
+
+/**
+ * The alias a world function's body reads its arguments by (ExtractNames `bodyOf`), its n-th argument at the column
+ * `argumentColumn(n)`, from 0: a walk binds each column to what the call's argument is bound to (Walk #inlined).
+ */
+export const argumentsRow = "?arguments"
+
+/** The column of argumentsRow a world function's body reads its argument at `position` by, from 0. */
+export const argumentColumn = (position: number): string => `${position}`
 
 /**
  * How the rows a read finds reach what its statement does: by their presence, by their absence, or either way, where
@@ -155,8 +187,8 @@ type BoundTo =
 	| { readonly kind: "column"; readonly of: Stored; readonly column: string }
 
 /**
- * What a CTE name refers to: a query, read where a source names it, under the scope and the CTEs it was defined in; a
- * data-modifying CTE, whose RETURNING rows are the call's: the rows it makes, and an INSERT's ON CONFLICT DO SELECT's
+ * What a CTE name refers to: a query, read where a source names it, under the scope, the CTEs and the privileges
+ * (Context `reader`) it was defined in; a data-modifying CTE, whose RETURNING rows are the call's: the rows it makes, and an INSERT's ON CONFLICT DO SELECT's
  * rows its arbitration met, the arbitration's own read (`arbitrations`), whose values bind no read as one value, a
  * column of them binding one group per row; or a recursive CTE's own working rows.
  */
@@ -167,6 +199,7 @@ type CteRef =
 			readonly columns: ReadonlyArray<string>
 			readonly scope: Scope
 			readonly ctes: Ctes
+			readonly reader: Reader
 	  }
 	| { readonly kind: "write"; readonly body: Exclude<CteBody, { readonly kind: "select" }> }
 	| { readonly kind: "own" }
@@ -200,11 +233,19 @@ interface WalkProbe<Core extends SiteCore> {
 }
 
 /**
+ * Whose privileges a read runs under: the role's, which its row policies hold to the rows they admit (ExtractNames
+ * `policyOf`), in its statements; or the owner's, which no policy holds, in a query entry's view's definition, a world
+ * function's body and a policy's predicate, each the installation's owner's (physical/ddl/roles.ts: a view, a SECURITY
+ * DEFINER function), which owns every table and bypasses its row security.
+ */
+type Reader = "role" | "owner"
+
+/**
  * Where an expression or a source stands: the polarity its reads reach the statement with, whether a count or an
  * aggregate stands over them, whether it is a source of the core an EXISTS probes, whether an expression is a
- * condition of its core (WHERE, ON or HAVING, through AND, OR, NOT and IS TRUE), the names and CTEs it sees, the probes
- * of its body it stands beneath, and the innermost core of its body it stands in, its body's arrival (`Top`) outside
- * every core.
+ * condition of its core (WHERE, ON or HAVING, through AND, OR, NOT and IS TRUE), the names and CTEs it sees, whose
+ * privileges its reads run under (Reader), the probes of its body it stands beneath, and the innermost core of its body
+ * it stands in, its body's arrival (`Top`) outside every core.
  */
 interface Context<Top extends Arrival = Arrival> {
 	readonly polarity: Polarity
@@ -213,6 +254,7 @@ interface Context<Top extends Arrival = Arrival> {
 	readonly condition: boolean
 	readonly scope: Scope
 	readonly ctes: Ctes
+	readonly reader: Reader
 	readonly probes: ReadonlyArray<number>
 	readonly core: number | Top
 }
@@ -224,9 +266,21 @@ const top: Context<undefined> = {
 	condition: false,
 	scope: new Map(),
 	ctes: new Map(),
+	reader: "role",
 	probes: [],
 	core: undefined
 }
+
+/**
+ * `c` where an object the installation's owner runs stands (Reader `owner`), which sees `scope` alone: no name or CTE of
+ * the statement that reaches it, since its text names none.
+ */
+const ownedAt = <C extends Context>(c: C, scope: Scope): C => ({
+	...c,
+	reader: "owner",
+	scope,
+	ctes: new Map()
+})
 
 const flipped = (p: Polarity): Polarity => {
 	switch (p) {
@@ -255,12 +309,12 @@ const predicate = (c: Context, not: boolean): Polarity => {
  * feed; or a read no statement shows, a schema function's or a statement's no names clear, by its placeholder name,
  * which may reach the statement either way.
  */
-type Found =
+type Found<Top extends Arrival = Arrival> =
 	| {
 			readonly kind: "table"
 			readonly table: TableName
 			readonly alias: string
-			readonly context: Context
+			readonly context: Context<Top>
 			readonly conditions: ReadonlyArray<Scoped>
 			readonly feeds: Feeds
 			readonly columns: ReadonlyMap<string, string> | undefined
@@ -275,6 +329,18 @@ type Found =
 			readonly relation: string
 			readonly probes: ReadonlyArray<number>
 	  }
+
+/** A table read a walk finds (Found `table`). */
+type TableFound<Top extends Arrival> = Extract<Found<Top>, { readonly kind: "table" }>
+
+/** A derived table, (SELECT ...) AS alias(columns) (sql/ast.ts FromSource `derived`). */
+type DerivedSource = Extract<FromSource, { readonly kind: "derived" }>
+
+/**
+ * The alias a read of a query entry's view reads its definition's rows by (Walk #defined), in a core of its own over the
+ * definition alone, under no other name.
+ */
+const viewRow = "?view"
 
 /** An INSERT's ON CONFLICT arbitration of the table it writes: its conflict columns, none for a constraint's, and the
  * binding each column it writes carries (insertValues). */
@@ -511,7 +577,7 @@ const rowPreserving = (q: OperandSelect): boolean => {
  * derived table keeps no row as its own (rowPreserving), so a group binds through it only where it filters its rows.
  */
 const pushedInto = (
-	source: Extract<FromSource, { readonly kind: "derived" }>,
+	source: DerivedSource,
 	conditions: ReadonlyArray<Scoped>
 ): ReadonlyArray<Scoped> => {
 	const body = source.query.body
@@ -933,7 +999,7 @@ const targetConditions = (w: MergeWhen, on: ReadonlyArray<Expr>): ReadonlyArray<
  * It lives as long as its statement's extraction: no fact holds it (test/unit/program/isolation/facts-retention.test.ts).
  */
 export class Walk<Top extends Arrival> {
-	readonly found: Array<Found> = []
+	readonly found: Array<Found<Top>> = []
 	/** The place of the read of each stored table's source among `found` (Stored), the first where several read it. */
 	readonly places = new Map<Stored, number>()
 	readonly probes: Array<WalkProbe<number | Top>> = []
@@ -1037,7 +1103,14 @@ export class Walk<Top extends Arrival> {
 			ctes.set(
 				cte.name,
 				cte.query.kind === "select"
-					? { kind: "query", query: cte.query, columns: cte.columns, scope: c.scope, ctes }
+					? {
+							kind: "query",
+							query: cte.query,
+							columns: cte.columns,
+							scope: c.scope,
+							ctes,
+							reader: c.reader
+						}
 					: { kind: "write", body: cte.query }
 			)
 		}
@@ -1182,7 +1255,7 @@ export class Walk<Top extends Arrival> {
 				)
 			}
 			for (const w of s.whens) {
-				this.found.push({
+				const target: TableFound<Top> = {
 					kind: "table",
 					table: s.table,
 					alias: s.alias,
@@ -1194,7 +1267,9 @@ export class Walk<Top extends Arrival> {
 					feeds: this.#feeds(),
 					columns: undefined,
 					met: undefined
-				})
+				}
+				this.found.push(target)
+				this.#policed(target)
 			}
 			for (const e of on) {
 				this.expr(e, { ...here, condition: true })
@@ -1368,29 +1443,25 @@ export class Walk<Top extends Arrival> {
 		const beneath: Context<Top> = { ...here, probe: false }
 		switch (source.kind) {
 			case "table":
-				return [
-					this.#table({
-						kind: "table",
-						table: source.table,
-						alias: source.alias,
-						context: here,
-						conditions,
-						feeds: this.#feeds(),
-						columns: undefined,
-						met: undefined
-					})
-				]
+				return this.#table({
+					kind: "table",
+					table: source.table,
+					alias: source.alias,
+					context: here,
+					conditions,
+					feeds: this.#feeds(),
+					columns: undefined,
+					met: undefined
+				})
 			case "probe":
-				return [
-					this.#probed(
-						source.table,
-						source.inner,
-						source.by.columns,
-						source.filter,
-						here,
-						undefined
-					)
-				]
+				return this.#probed(
+					source.table,
+					source.inner,
+					source.by.columns,
+					source.filter,
+					here,
+					undefined
+				)
 			case "met":
 				if (this.#statement.level === "readCommitted") {
 					this.#opaque(`?met:${printObjectName(source.table)}`, here)
@@ -1425,18 +1496,16 @@ export class Walk<Top extends Arrival> {
 								source.lateral ? beneath : { ...beneath, scope: enclosing },
 								pushedInto(source, conditions)
 							)
-						: [
-								this.#table({
-									kind: "table",
-									table: projection.table,
-									alias: source.alias,
-									context: here,
-									conditions,
-									feeds: this.#feeds(),
-									columns: projection.columns,
-									met: undefined
-								})
-							]
+						: this.#table({
+								kind: "table",
+								table: projection.table,
+								alias: source.alias,
+								context: here,
+								conditions,
+								feeds: this.#feeds(),
+								columns: projection.columns,
+								met: undefined
+							})
 				return source.lateral ? [] : rows
 			}
 			case "function":
@@ -1466,7 +1535,7 @@ export class Walk<Top extends Arrival> {
 		filter: ReadonlyArray<Expr>,
 		here: Context<Top>,
 		met: ReadonlyArray<string> | undefined
-	): RowSource {
+	): ReadonlyArray<RowSource> {
 		const scope: Scope = new Map([...here.scope, [inner, stored()]])
 		const conditions = [
 			...columns.map((c) => eq(col(inner, c.column), c.value)),
@@ -1488,15 +1557,77 @@ export class Walk<Top extends Arrival> {
 		return read
 	}
 
-	/** A table read found, as the row source it is: its place among the reads, which its source's name (Stored) keeps. */
-	#table(found: Extract<Found, { readonly kind: "table" }>): RowSource {
+	/**
+	 * A table read found, as the row sources it is: a read of the role's view of a query entry is its definition's reads
+	 * (#defined); any other its place among the reads, which its source's name (Stored) keeps, read under the role's row
+	 * policy on its table where it has one (#policed).
+	 */
+	#table(found: TableFound<Top>): ReadonlyArray<RowSource> {
+		const table = found.table
+		const definition =
+			typeof table === "string" ? undefined : this.#statement.names.definitionOf(table)
+		if (definition !== undefined) {
+			return this.#defined(found, definition)
+		}
 		const place = this.found.length
 		this.found.push(found)
 		const named = found.context.scope.get(found.alias)
 		if (named?.kind === "stored") {
 			this.places.getOrInsert(named, place)
 		}
-		return { kind: "read", read: place }
+		this.#policed(found)
+		return [{ kind: "read", read: place }]
+	}
+
+	/**
+	 * Where the role reads a table under a row policy of its own (ExtractNames `policyOf`), the policy's predicate walked
+	 * as a condition of where the read stands, over the row the read finds (policyRow), a stored row of its own: PostgreSQL
+	 * adds it to the read's scan, so a row the policy hides is no row of the read, and every read of its predicate reaches
+	 * the statement as a condition there does. A query entry's view, a world function and a predicate read as their
+	 * owner, under no policy (Reader).
+	 */
+	#policed(found: TableFound<Top>): void {
+		const table = found.table
+		const policy =
+			typeof table === "string" || found.context.reader === "owner"
+				? undefined
+				: this.#statement.names.policyOf(table)
+		if (policy !== undefined) {
+			this.expr(
+				policy,
+				ownedAt(
+					{ ...found.context, probe: false, condition: true },
+					new Map([[policyRow, stored()]])
+				)
+			)
+		}
+	}
+
+	/**
+	 * A read of the role's view of a query entry (ExtractNames `definitionOf`): its definition read where the read stands,
+	 * as a derived table of the view's columns under the read's conditions (pushedInto), each through the view's column
+	 * the read's column renames (Found `columns`, a projection of the view), its every read the view's owner's (Reader).
+	 */
+	#defined(found: TableFound<Top>, definition: Definition): ReadonlyArray<RowSource> {
+		const renamed = found.columns
+		const columns = renamed === undefined ? definition.columns : [...renamed.keys()]
+		const query = simpleSelect(
+			columns.map((c) => targetAs(col(viewRow, renamed?.get(c) ?? c), c)),
+			[derived(definition.query, viewRow, definition.columns, false)],
+			undefined
+		)
+		const source: DerivedSource = {
+			kind: "derived",
+			query,
+			alias: found.alias,
+			columns,
+			lateral: false
+		}
+		return this.#query(
+			query,
+			ownedAt({ ...found.context, probe: false }, new Map()),
+			pushedInto(source, found.conditions)
+		)
 	}
 
 	/**
@@ -1533,17 +1664,35 @@ export class Walk<Top extends Arrival> {
 		if (e.kind === "subquery" || e.kind === "array") {
 			this.query(e.query, this.#entering(c, { ...c, probe: false, counted: true }))
 		}
-		if (
-			e.kind === "call" &&
-			e.fn.kind === "qualified" &&
-			!this.#statement.names.readsNoTable(e.fn)
-		) {
-			this.#opaque(`?function:${printObjectName(e.fn)}`, c)
+		if (e.kind === "call" && e.fn.kind === "qualified") {
+			const body = this.#statement.names.bodyOf(e.fn)
+			if (body !== undefined) {
+				this.#inlined(body, e.args, c)
+			} else if (!this.#statement.names.readsNoTable(e.fn)) {
+				this.#opaque(`?function:${printObjectName(e.fn)}`, c)
+			}
 		}
 		const next = this.#operandContext(e, c)
 		for (const operand of operandsOf(e)) {
 			this.expr(operand, next)
 		}
+	}
+
+	/**
+	 * A call of a world function (ExtractNames `bodyOf`), read as its body at its arguments where the call stands, its
+	 * value the body's: the body sees its arguments alone (argumentsRow), each column carrying what its argument carries
+	 * (callBinding), else one value per row the call stands over, and reads as the function's owner (Reader). The
+	 * arguments themselves are the call's operands, walked where it stands.
+	 */
+	#inlined(body: Expr, args: ReadonlyArray<Expr>, c: Context<Top>): void {
+		const bound = new Map<string, CallBinding>()
+		for (const [position, arg] of args.entries()) {
+			const binding = callBinding(arg, c.scope, this.#statement.slotOf)
+			if (binding !== undefined) {
+				bound.set(argumentColumn(position), binding)
+			}
+		}
+		this.expr(body, ownedAt(c, new Map([[argumentsRow, { kind: "own", rows: "many", bound }]])))
 	}
 
 	#operandContext(e: Expr, c: Context<Top>): Context<Top> {
@@ -1786,6 +1935,7 @@ export class Statement {
 				condition: false,
 				scope: cte.scope,
 				ctes: new Map([...cte.ctes, [name, ownRows]]),
+				reader: cte.reader,
 				probes: [],
 				core: "site"
 			})
@@ -2027,7 +2177,8 @@ const statementFacts = (
 			}
 		}
 		const rel = relation(f.table)
-		const arbiter = f.met !== undefined || (f.context.probe && written.has(rel))
+		const arbiter =
+			f.met !== undefined || (f.context.probe && f.context.reader === "role" && written.has(rel))
 		return {
 			read: {
 				relation: rel,
@@ -2139,9 +2290,9 @@ const probeAt = <Core extends SiteCore>(
  * The facts of one change member's flight (analysis/isolation/facts.ts MemberFacts), read from its statements in the
  * order they run: what each writes, with the reads each written row is positively joined with, and what each reads.
  *
- * - A read's mode: `arbiter` for a table an EXISTS probes that its statement writes, an ON CONFLICT, a MERGE's NOT
- *   MATCHED, and the row an arbitration met (a `met` source) wherever it stands, where its structure proves its
- *   statement's INSERT met it (metSealed); else `negated` where its rows reach the statement by their absence (NOT
+ * - A read's mode: `arbiter` for a table an EXISTS of the statement's own text probes that its statement writes, an ON
+ *   CONFLICT, a MERGE's NOT MATCHED, and the row an arbitration met (a `met` source) wherever it stands, where its
+ *   structure proves its statement's INSERT met it (metSealed); else `negated` where its rows reach the statement by their absence (NOT
  *   EXISTS, NOT IN, EXCEPT's later arms, NOT) or either way (a predicate in a value or a branch, a NOT MATCHED BY
  *   SOURCE's source, a schema function no names clear); else `counted` beneath a scalar or ARRAY subquery or a core that
  *   counts; else `positive`.
@@ -2189,6 +2340,12 @@ const probeAt = <Core extends SiteCore>(
  *   other row path can be stated.
  * - A write's rows are fed by the positive reads beneath it: an INSERT's source, an UPDATE's or a DELETE's target and
  *   FROM, a MERGE's source and target, and the query CTEs any of them read.
+ * - What the role's installation runs where a statement reaches it is read where it stands, as its owner (Reader), whose
+ *   reads no row policy holds: a read of the role's view of a query entry as the view's definition under the read's
+ *   conditions (ExtractNames `definitionOf`), a call of a world function as its body at its arguments (`bodyOf`), and a
+ *   read of a table the role's own row policy narrows under the policy's predicate as a condition of the read, its USING
+ *   (`policyOf`). A policy's WITH CHECK, and its USING over the row an INSERT's ON CONFLICT or RETURNING meets, refuse a
+ *   row and keep none from the statement, so no fact states them.
  */
 export const memberFacts = (
 	name: string,

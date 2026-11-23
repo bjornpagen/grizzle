@@ -103,7 +103,7 @@ const FIELDS: ReadonlyMap<string, string> = new Map([
 ])
 
 /** A function the names know reads no table, as a refusal function reads none; any other schema function may read
- * relations in its body, as a world's filter function does. */
+ * relations in its body, as one the names state no body of (ExtractNames `bodyOf`) does. */
 const NO_TABLE = "refuse"
 
 const READS_TABLES = "filter_rows"
@@ -123,6 +123,9 @@ export const NAMES: ExtractNames = {
 	fieldOf: (relation, column) =>
 		relation === "W" || relation === "R" || relation === "S" ? FIELDS.get(column) : undefined,
 	readsNoTable: (fn) => fn.schema === "app" && fn.name === NO_TABLE,
+	bodyOf: () => undefined,
+	policyOf: () => undefined,
+	definitionOf: () => undefined,
 	arbitersOf: (relation) =>
 		relation === "W" || relation === "R" || relation === "S" ? ARBITERS : []
 }

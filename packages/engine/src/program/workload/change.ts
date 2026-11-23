@@ -735,8 +735,11 @@ const readCommittedRole = <S extends ParamSource>(
 			}
 		}
 		const names = extractNames(base)
+		if (!names.ok) {
+			return Result.err({ role: name, program: undefined, error: names.error })
+		}
 		const certifiable = (program: string, entry: ChangeEntry<S>) =>
-			certifiableEntry(program, entry, names)
+			certifiableEntry(program, entry, names.value)
 		return isNonEmpty(unformed)
 			? Result.map(
 					membersAt(name, base, "serializable", phases, certifiable),
@@ -820,10 +823,13 @@ export const serializableChanges = <S extends ParamSource>(
 	role: CertifiableRole<"readCommitted", S>
 ): Result.Result<CertifiableRole<"serializable", S>, CompileError> => {
 	const names = extractNames(role)
+	if (!names.ok) {
+		return names
+	}
 	const members = new Map<string, Variants<CertifiableEntry<S>>>()
 	for (const [name, variants] of role.members) {
 		const lowered = variantsTraverse(variants, (entry) =>
-			certifiableAt(name, entry, role.artifacts, names, "serializable")
+			certifiableAt(name, entry, role.artifacts, names.value, "serializable")
 		)
 		if (!lowered.ok) {
 			return lowered

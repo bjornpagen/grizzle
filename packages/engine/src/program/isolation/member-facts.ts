@@ -4,13 +4,18 @@
  * what certification compares of it (program/isolation/certification.ts), extracted once, as its member compiles
  * (program/workload/change.ts certifiableEntry), so nothing holds its statements' ASTs past its compile.
  */
-import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { isNonEmpty, mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
-import { TupleMap, TupleSet } from "@bjornpagen/grizzle-text/base/tuple-map"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { type ReadonlyTupleMap, TupleMap, TupleSet } from "@bjornpagen/grizzle-text/base/tuple-map"
 import type { MemberFacts } from "#compiler/analysis/isolation/facts.ts"
+import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
+import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
 import { headsOf } from "#compiler/ir/instant.ts"
 import type { NativeColumn, NativeObject } from "#compiler/ir/law.ts"
+import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import type {
 	ArrayPart,
 	RelationColumn,
@@ -19,13 +24,31 @@ import type {
 import { libraryRef, tablelessLibrary } from "#compiler/physical/ddl/library.ts"
 import type { NamedRole } from "#compiler/physical/ddl/names.ts"
 import {
+	entryMembership,
+	entryProbes,
+	holdMembership,
+	type Membership,
+	type MembershipContext,
+	ownerHolds,
+	roleWrites
+} from "#compiler/physical/ddl/roles.ts"
+import { lowerDefinition } from "#compiler/physical/derived/definition.ts"
+import {
+	argumentColumn,
+	argumentsRow,
+	type Definition,
 	type ExtractNames,
 	memberFacts,
+	policyRow,
 	type SlotFill
 } from "#compiler/program/isolation/extract.ts"
-import type { SchemaArtifacts } from "#compiler/program/schema.ts"
+import type { ArtifactsWorld, SchemaArtifacts } from "#compiler/program/schema.ts"
 import { reachOf } from "#compiler/runtime/write/steps.ts"
-import type { SqlStatement } from "#compiler/sql/ast.ts"
+import type { Expr, SqlStatement } from "#compiler/sql/ast.ts"
+import { col } from "#compiler/sql/build.ts"
+import { fieldColumns } from "#compiler/write/defined.ts"
+import { filterReadsOther, renderMembership, renderProbes } from "#compiler/write/entry/render.ts"
+import { probeParams } from "#compiler/write/insert/unique.ts"
 import type { ArtifactStatement } from "#compiler/write/program/artifact.ts"
 import type { CompiledWrite } from "#compiler/write/program/compile.ts"
 import { refusalFunction } from "#compiler/write/refusal.ts"
@@ -105,44 +128,35 @@ const inputFill = (
  * How the extractor reads a role's statements back (program/isolation/extract.ts ExtractNames), from the names its
  * artifacts give the installation's objects:
  *
- * - a stored relation's table and a materialized derived relation's view are that relation, but a table the role writes
- *   under a row policy that reads another relation's table (a write entry whose filter reads others), whose reads no
- *   statement shows, is none;
- * - the role's view of a whole entry is its relation; a view of a query entry is none, its definition's reads being
- *   the view's own;
+ * - a stored relation's table and a materialized derived relation's view are that relation, a table the role reads
+ *   under a row policy of its own among them;
+ * - the role's view of a whole entry is its relation; a view of a query entry is its definition (roleWorld);
  * - a column of a stored relation's table is its field, and none of a law column;
  * - the refusal function, each closed relation's constant functions, each library function whose definition reads no
  *   table (physical/ddl/library.ts tablelessLibrary, a text's digest among them), each declared function and each head's
  *   stamp function read no table: a declared function runs as the installation's function owner, which holds no
  *   privilege on any table or view, so a read of one fails its call with 42501 (physical/ddl/functions.ts); a stamp
  *   function writes and reads only its head's table, which no relation names, and returns each child's stamp, a value
- *   its call takes as it takes the clock's (physical/ddl/stamps.ts); any other function may read any;
+ *   its call takes as it takes the clock's (physical/ddl/stamps.ts); a world function is its body (roleWorld); any
+ *   other function may read any;
+ * - the role's row policies are its own (roleWorld);
  * - the objects an ON CONFLICT with no target arbitrates on a relation's table are its primary key's, each UNIQUE's and
  *   each span key's natives, each by the columns of its fields.
  *
- * Every name the extractor meets that these do not name is a reason the certifier refuses, never a pass.
+ * Every name the extractor meets that these do not name is a reason the certifier refuses, never a pass. A role's world
+ * is rendered as the installation renders it, which refuses it where its rendering does.
  */
 export const extractNames = (role: {
 	readonly named: NamedRole
 	readonly artifacts: SchemaArtifacts
-}): ExtractNames => {
+}): Result.Result<ExtractNames, CompileError> => {
 	const { artifacts } = role
 	const owned = role.named.owned
 	const names = artifacts.names
 	const stored = Object.entries(artifacts.owned.relations)
-	const policed = new Set(
-		[...owned.writes.values()].flatMap((w) =>
-			w.kind !== "whole" && w.writable.filter.kind === "query" && w.writable.filter.readsOther
-				? [w.writable.target]
-				: []
-		)
-	)
 	const tabled = new Set(
 		stored.flatMap(([name, r]) =>
-			(r.kind === "relation" && !policed.has(name)) ||
-			(r.kind === "derived" && r.view.kind !== "live")
-				? [name]
-				: []
+			r.kind === "relation" || (r.kind === "derived" && r.view.kind !== "live") ? [name] : []
 		)
 	)
 	const relations = new TupleMap<readonly [string, string], string>()
@@ -151,6 +165,14 @@ export const extractNames = (role: {
 		relations.set([table.schema, table.name], name)
 	}
 	const world = artifacts.world
+	const read =
+		world.kind === "role"
+			? catchRefusal(() => roleWorld(role.named, artifacts, world))
+			: Result.ok(noWorld)
+	if (!read.ok) {
+		return read
+	}
+	const { functions, policies, definitions } = read.value
 	if (world.kind === "role") {
 		for (const entry of Object.values(owned.relations)) {
 			if (entry.kind === "whole" && tabled.has(entry.relation.name)) {
@@ -194,12 +216,148 @@ export const extractNames = (role: {
 		const held = arbiters.getOrInsertComputed(arbiter.relation, () => [])
 		held.push(arbiter.fields.map((field) => names.column(arbiter.relation, field)))
 	}
-	return {
+	return Result.ok({
 		relationOf: (table) => relations.get([table.schema, table.name]),
 		fieldOf: (relation, column) => columns.get([relation, column]),
 		readsNoTable: (fn) => noTable.has([fn.schema, fn.name]),
+		bodyOf: (fn) => functions.get([fn.schema, fn.name]),
+		policyOf: (table) => policies.get([table.schema, table.name]),
+		definitionOf: (view) => definitions.get([view.schema, view.name]),
 		arbitersOf: (relation) => arbiters.get(relation) ?? []
+	})
+}
+
+/** An installed object by its schema and its name. */
+type Qualified = readonly [string, string]
+
+/**
+ * What a role's statements read beyond their text (ExtractNames `bodyOf`, `policyOf`, `definitionOf`), each object by
+ * its schema and its name: each world function's body, each row policy's predicate and each query entry's view's
+ * definition.
+ */
+interface RoleWorldReads {
+	readonly functions: ReadonlyTupleMap<Qualified, Expr>
+	readonly policies: ReadonlyTupleMap<Qualified, Expr>
+	readonly definitions: ReadonlyTupleMap<Qualified, Definition>
+}
+
+/** Reality's: no role, so no world function, row policy or role view. */
+const noWorld: RoleWorldReads = {
+	functions: new TupleMap(),
+	policies: new TupleMap(),
+	definitions: new TupleMap()
+}
+
+/**
+ * What the role `named` installs that its statements read beyond their text, rendered as the installation renders each
+ * (physical/ddl/roles.ts addRole), over its base checked, its installed names and its catalog (laws/model/catalog.ts
+ * evidenceCatalog), the installation's own:
+ *
+ * - each writable entry's world functions, its filter function where its filter reads another relation, its body the
+ *   entry's membership (write/entry/render.ts renderMembership), and each key and unique probe (physical/ddl/roles.ts
+ *   entryProbes), its body renderProbes's, each over its arguments (extract.ts argumentsRow), in its parameters' order;
+ * - each table the role's row policy narrows, its own writable entry's target (physical/ddl/roles.ts entryMembership)
+ *   and the owner of each family whose member it writes through no entry of the owner (holdMembership), with the
+ *   policy's predicate over its row (extract.ts policyRow);
+ * - each query entry's view, by its name in the role's schema, with its definition (physical/derived/definition.ts
+ *   lowerDefinition) and its columns, each a heading column's: the view's every row is its definition's, the decoded
+ *   name of a closed id beside its code read from a constant, which reads no table.
+ */
+const roleWorld = (
+	named: NamedRole,
+	artifacts: SchemaArtifacts,
+	world: Extract<ArtifactsWorld, { readonly kind: "role" }>
+): RoleWorldReads => {
+	const names = artifacts.names
+	const model = artifacts.laws
+	const role = world.role
+	const cx: MembershipContext = {
+		checked: world.checked.world.base,
+		catalog: evidenceCatalog(artifacts)
 	}
+	const argument = (position: number): Expr => col(argumentsRow, argumentColumn(position))
+	const functions = new TupleMap<Qualified, Expr>()
+	const policies = new TupleMap<Qualified, Expr>()
+	const policed = (relation: string, membership: Membership): void => {
+		if (membership.kind === "narrowed") {
+			const table = names.relation(relation)
+			policies.set(
+				[table.schema, table.name],
+				membership.over((f) => col(policyRow, names.column(relation, f.name)))
+			)
+		}
+	}
+	const written = roleWrites(world.checked.world)
+	const writers = new Map<string, { readonly entry: string; readonly membership: Membership }>()
+	for (const w of written) {
+		const relation = w.relation.name
+		const membership = entryMembership(names, cx, named.theory, w)
+		writers.set(relation, { entry: `${role.name}.${w.write.name}`, membership })
+		policed(relation, membership)
+		const e = w.write
+		if (e.kind === "whole") {
+			continue
+		}
+		const writable = e.writable
+		if (filterReadsOther(writable)) {
+			const fn = world.names.filterFunction(e.name, [])
+			functions.set(
+				[fn.schema, fn.name],
+				unwrap(
+					renderMembership(writable, {
+						schema: cx.checked,
+						names,
+						catalog: cx.catalog,
+						row: (_, position) => argument(position)
+					})
+				)
+			)
+		}
+		const probed = unwrap(
+			renderProbes(writable, {
+				schema: cx.checked,
+				names,
+				catalog: cx.catalog,
+				dag: model.theory.dag,
+				table: names.relation(relation),
+				column: (f) => names.column(relation, f.name)
+			})
+		)
+		for (const probe of entryProbes(model, role, { write: e, relation: w.relation })) {
+			const fn = world.names.probe(e.name, probe, [])
+			functions.set(
+				[fn.schema, fn.name],
+				probed(probe, fieldColumns(probeParams(probe), (_, position) => argument(position)).of)
+			)
+		}
+	}
+	for (const hold of ownerHolds(model, role, written)) {
+		if (!writers.has(hold.owner.name)) {
+			policed(
+				hold.owner.name,
+				holdMembership(names, role, hold, (member) =>
+					defined(writers.get(member), `the writer of ${member}, a member ${role.name} writes`)
+				)
+			)
+		}
+	}
+	const definitions = new TupleMap<Qualified, Definition>()
+	for (const e of world.checked.entries) {
+		if (e.kind !== "world") {
+			continue
+		}
+		const view = world.names.view(e.entry.name)
+		definitions.set([view.schema, view.name], {
+			query: unwrap(
+				lowerDefinition(`${role.name}.${e.entry.name}`, e.analysis.query, {
+					names,
+					catalog: cx.catalog
+				})
+			).query,
+			columns: e.analysis.heading.map((c) => identifierOf(identity.column(c.name)))
+		})
+	}
+	return { functions, policies, definitions }
 }
 
 /** The fields of a native's columns, its law columns left out. */

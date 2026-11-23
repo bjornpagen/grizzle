@@ -67,7 +67,12 @@ import {
 } from "#compiler/physical/ddl/domains.ts"
 import type { InstalledFunction } from "#compiler/physical/ddl/functions.ts"
 import { snapshotGuardFunction } from "#compiler/physical/ddl/ledger.ts"
-import { levelIn, type NamedRole, roleView } from "#compiler/physical/ddl/names.ts"
+import {
+	type InstallNames,
+	levelIn,
+	type NamedRole,
+	roleView
+} from "#compiler/physical/ddl/names.ts"
 import type { StampFunction } from "#compiler/physical/ddl/stamps.ts"
 
 /** A function a role executes beside its statements' own: a head's stamp function, or a declared function its served
@@ -125,7 +130,12 @@ import { nameOf } from "#compiler/sql/constants.ts"
 import { printExpr, printStartupOptions } from "#compiler/sql/print.ts"
 import { borrowFunction } from "#compiler/write/borrow/function.ts"
 import { fieldColumns } from "#compiler/write/defined.ts"
-import { filterFields, renderMembership, renderProbes } from "#compiler/write/entry/render.ts"
+import {
+	filterFields,
+	filterReadsOther,
+	renderMembership,
+	renderProbes
+} from "#compiler/write/entry/render.ts"
 import { endColumns } from "#compiler/write/family/statements.ts"
 import {
 	type OutsideProbe,
@@ -371,7 +381,7 @@ type RoleRelation =
 
 /** A writable entry of a role as the installation reads it: the entry over the installed schema's handles, and the
  * relation it writes. */
-interface WrittenEntry {
+export interface WrittenEntry {
 	readonly write: RoleWrite
 	readonly relation: RelationInfo
 }
@@ -395,7 +405,7 @@ const roleRelation = (e: RoleEntry): RoleRelation => {
 
 /** Each writable entry of a role, in name order, with the relation it writes: the role's write list over the installed
  * schema's handles (analysis/schema.ts RoleWrite), which names only relations the installed schema declares. */
-const roleWrites = (world: RoleWorld): ReadonlyArray<WrittenEntry> =>
+export const roleWrites = (world: RoleWorld): ReadonlyArray<WrittenEntry> =>
 	[...world.writes.values()].map((write) => ({
 		write,
 		relation: write.kind === "rows" ? write.writable.target : write.relation
@@ -583,7 +593,7 @@ interface WorldFunction {
  * over another row, each field of T it `reads` given by `row`: a family's owner rows, by the columns its group and copies
  * pair with those fields (`translated`).
  */
-type Membership =
+export type Membership =
 	| { readonly kind: "every" }
 	| {
 			readonly kind: "narrowed"
@@ -593,6 +603,88 @@ type Membership =
 	  }
 
 const everyRow: Membership = { kind: "every" }
+
+/** What a writable entry's membership is lowered against: the base it is over, checked, and the schema's catalog, the
+ * definitions' (WorldsContext). */
+export interface MembershipContext {
+	readonly checked: CheckedSchema
+	readonly catalog: EvidenceCatalog
+}
+
+/**
+ * The rows of T a role's writable entry `w` holds (Membership): every row for a whole entry and for a query entry whose
+ * filter is none; else the narrowed set, whose predicate over a row of T is the entry's membership there
+ * (write/entry/render.ts renderMembership) where its filter reads T's row alone, and the role's filter function's call at
+ * the fields of T it reads where it reads another relation, which runs as the owner. One construction serves the
+ * installation, whose policy on T holds the role to it (`writePlan`, `addPolicy`), and certification, which reads every
+ * read of T the role makes under it (program/isolation/member-facts.ts extractNames).
+ */
+export const entryMembership = (
+	names: InstallNames,
+	cx: MembershipContext,
+	theory: Identity<"role">,
+	w: WrittenEntry
+): Membership => {
+	const e = w.write
+	if (e.kind === "whole" || e.writable.filter.kind === "none") {
+		return everyRow
+	}
+	const writable = e.writable
+	const relation = w.relation.name
+	const tableName = names.relation(relation)
+	const column = (field: LawField): string => names.column(relation, field.name)
+	const reads = filterFields(writable)
+	const fn = identity.filter(theory, e.name).identifier
+	const over = (row: (field: LawField) => Expr): Expr =>
+		filterReadsOther(writable)
+			? qualifiedCall(
+					names.schema,
+					fn,
+					reads.map((f) => row(f))
+				)
+			: unwrap(
+					renderMembership(writable, {
+						schema: cx.checked,
+						names,
+						catalog: cx.catalog,
+						row: (f) => row(f)
+					})
+				)
+	return {
+		kind: "narrowed",
+		filter: over((f) => col(tableName.name, column(f))),
+		reads,
+		over
+	}
+}
+
+/**
+ * The key and unique probes a role's query entry `w` installs over T (see `addWorlds`), exactly those of T's unique
+ * objects (write/insert/unique.ts RelationUniques.probes) its precheck calls (write/entry/precheck.ts): a scoped entry's
+ * but those whose compared fields decide its owner (write/insert/unique.ts scopedProbes). The installation creates each
+ * (`writePlan`); certification reads a call of each as its body (program/isolation/member-facts.ts extractNames).
+ */
+export const entryProbes = (
+	model: LawModel,
+	role: OwnedRole,
+	w: WrittenEntry & { readonly write: Exclude<RoleWrite, { readonly kind: "whole" }> }
+): ReadonlyArray<OutsideProbe> => {
+	const relation = w.relation.name
+	const uniques = relationUniques(
+		model.relations.get(relation) ??
+			refuse(
+				"MalformedDescription",
+				role.loc,
+				`a writable entry over an ordinary relation, not ${relation}`
+			)
+	)
+	const e = w.write
+	if (e.kind !== "scoped") {
+		return uniques.probes
+	}
+	const scope = e.scope
+	return scopedProbes(uniques, (fields) => determines(scope, fields))
+}
 
 /** What one role's writable entry installs on its table: its membership, its filter function when its membership
  * reads another relation, its key and unique probes, and its privileges on the table. */
@@ -780,54 +872,19 @@ const writePlan = (
 			}
 		}
 	}
-	const uniques = relationUniques(
-		b.model.relations.get(relation) ??
-			refuse(
-				"MalformedDescription",
-				role.loc,
-				`a writable entry over an ordinary relation, not ${relation}`
-			)
-	)
-	const scope = e.kind === "scoped" ? e.scope : undefined
-	const probes = (
-		scope === undefined
-			? uniques.probes
-			: scopedProbes(uniques, (fields) => determines(scope, fields))
-	).map(probe)
+	const probes = entryProbes(b.model, role, { write: e, relation: written }).map(probe)
 	const probeGrants: ReadonlyArray<SqlStatement> = isNonEmpty(probes)
 		? [grant(["EXECUTE"], { kind: "FUNCTION", names: mapNonEmpty(probes, (p) => p.name) })]
 		: []
-	const filter = writable.filter
-	if (filter.kind === "none") {
-		return { membership: everyRow, functions: probes, grants: [...grants, ...probeGrants] }
-	}
-	const reads = filterFields(writable)
-	if (!filter.readsOther) {
-		const over = (row: (field: LawField) => Expr): Expr =>
-			unwrap(
-				renderMembership(writable, {
-					schema: cx.checked,
-					names: b.names,
-					catalog: cx.catalog,
-					row: (f) => row(f)
-				})
-			)
-		return {
-			membership: {
-				kind: "narrowed",
-				filter: over((f) => col(tableName.name, column(f))),
-				reads,
-				over
-			},
-			functions: probes,
-			grants: [...grants, ...probeGrants]
-		}
+	const membership = entryMembership(b.names, cx, theory, w)
+	if (!filterReadsOther(writable)) {
+		return { membership, functions: probes, grants: [...grants, ...probeGrants] }
 	}
 	const filterNamed = identity.filter(theory, e.name)
 	const fnIdent = b.name(filterNamed)
 	/** The fields of T the membership reads, each with its column and its base type, the type the membership reads it
 	 * at and the filter function's parameter's. */
-	const fields = reads.map((field) => ({
+	const fields = filterFields(writable).map((field) => ({
 		column: column(field),
 		type: baseTypeRef(b.names, field.type)
 	}))
@@ -865,19 +922,8 @@ const writePlan = (
 		reasons: [enforcement(`the writable entry ${role.name}.${e.name}`)],
 		phase: "publish"
 	}
-	const over = (row: (field: LawField) => Expr): Expr =>
-		qualifiedCall(
-			b.schema,
-			fnIdent,
-			reads.map((f) => row(f))
-		)
 	return {
-		membership: {
-			kind: "narrowed",
-			filter: over((f) => col(tableName.name, column(f))),
-			reads,
-			over
-		},
+		membership,
 		functions: [{ name, spec }, ...probes],
 		grants: [...grants, grant(["EXECUTE"], { kind: "FUNCTION", names: [name] }), ...probeGrants]
 	}
@@ -945,7 +991,7 @@ const ownerReadColumns = (family: Family): ReadonlyArray<LawField> => {
  * none. `families` are the families of O whose member it writes, in
  * the law model's order; each column list is in O's field order.
  */
-interface OwnerHold {
+export interface OwnerHold {
 	readonly owner: RelationInfo
 	readonly families: NonEmptyReadonlyArray<Family>
 	readonly select: ReadonlyArray<LawField>
@@ -998,7 +1044,7 @@ const holdOn = (
 
 /** The owners whose members a role writes (`written`), each with what the role holds on it (`OwnerHold`), in the law
  * model's order of their first family, each owner an ordinary relation of the model. */
-const ownerHolds = (
+export const ownerHolds = (
 	model: LawModel,
 	role: OwnedRole,
 	written: ReadonlyArray<WrittenEntry>
@@ -1140,7 +1186,7 @@ const ownerPaired = (f: Family, field: LawField): LawField | undefined =>
  * predicate over O's row alone decides it, and one over O's members misses an owner whose first member is appended.
  */
 const translated = (
-	b: InstallBuilder,
+	names: InstallNames,
 	role: OwnedRole,
 	entry: string,
 	f: Family,
@@ -1157,11 +1203,11 @@ const translated = (
 			`the role ${role.name} writes ${f.member.name} through ${entry}, a member of the family ${f.id.owner}.${f.id.count}, whose filter reads ${f.member.name}.${field.name}: a family's reads and count updates of ${f.owner.name} hold to the owners its writer's filter admits, and ${field.name} is neither a group field nor a field ${f.owner.name} copies into its members, so no predicate over ${f.owner.name}'s own row decides it; filter ${f.member.name} by ${f.group.map((g) => g.member.name).join(", ")} or a copy of ${f.owner.name}'s fields`
 		)
 	const reads = m.reads.map(paired)
-	const ownerTable = b.names.relation(f.owner.name)
+	const ownerTable = names.relation(f.owner.name)
 	const over = (row: (field: LawField) => Expr): Expr => m.over((field) => row(paired(field)))
 	return {
 		kind: "narrowed",
-		filter: over((field) => col(ownerTable.name, b.names.column(f.owner.name, field.name))),
+		filter: over((field) => col(ownerTable.name, names.column(f.owner.name, field.name))),
 		reads,
 		over
 	}
@@ -1186,6 +1232,26 @@ const familyMembership = (ms: NonEmptyReadonlyArray<Membership>): Membership => 
 		over
 	}
 }
+
+/**
+ * The rows of `hold`'s owner O its role's member writes may touch (`familyMembership`), each family's member written
+ * through the entry `writerOf` gives it, its membership translated onto O's row (`translated`): what the role's policy on
+ * O holds it to where it writes O through no entry of its own, and what its own entry's membership on O must cover
+ * (`covers`). One construction serves the installation (`addRole`) and certification, which reads every read of O the
+ * role makes under it (program/isolation/member-facts.ts extractNames).
+ */
+export const holdMembership = (
+	names: InstallNames,
+	role: OwnedRole,
+	hold: OwnerHold,
+	writerOf: (member: string) => { readonly entry: string; readonly membership: Membership }
+): Membership =>
+	familyMembership(
+		mapNonEmpty(hold.families, (f) => {
+			const member = writerOf(f.member.name)
+			return translated(names, role, member.entry, f, member.membership)
+		})
+	)
 
 /**
  * Whether a role's own policy on an owner, its entry's membership `own`, already holds the rows its family writes
@@ -1421,14 +1487,11 @@ const addRole = (
 		}
 		columnDomains(b, hold.update, use)
 		after.push(b.table(owner))
-		const membership = familyMembership(
-			mapNonEmpty(hold.families, (f) => {
-				const member = defined(
-					writers.find((w) => w.relation === f.member.name),
-					`the writer of ${f.member.name}, a member ${role.name} writes`
-				)
-				return translated(b, role, member.entry, f, member.membership)
-			})
+		const membership = holdMembership(b.names, role, hold, (member) =>
+			defined(
+				writers.find((w) => w.relation === member),
+				`the writer of ${member}, a member ${role.name} writes`
+			)
 		)
 		const own = writers.find((w) => w.relation === owner)
 		if (own === undefined) {
