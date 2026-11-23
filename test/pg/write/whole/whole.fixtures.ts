@@ -936,7 +936,7 @@ export const partialOf = (m: Model, w: Write) => {
 }
 
 /** A row's key as a refusal's witness names it: its relation and its primary key's values. */
-export interface KeyedRow {
+interface KeyedRow {
 	readonly relation: string
 	readonly values: Readonly<Record<string, bigint>>
 }

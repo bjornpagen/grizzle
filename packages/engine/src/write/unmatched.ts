@@ -31,7 +31,7 @@ import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { appendNonEmpty, mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { ConstraintName, RelationIdent, StoredRelationName } from "#compiler/core/ids.ts"
 import type { LawField, NativeColumn, TableRelation } from "#compiler/ir/law.ts"
-import type { InstallNames } from "#compiler/physical/ddl/names.ts"
+import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { EmittedText, Expr, Select } from "#compiler/sql/ast.ts"
 import {
 	and,
@@ -89,7 +89,7 @@ const row = "c"
 const matched = "p"
 
 /** A native column's installed name in `relation`'s table: a field's, or a law column's own. */
-const columnOf = (names: InstallNames, relation: string, c: NativeColumn): string =>
+const columnOf = (names: PhysicalNames, relation: string, c: NativeColumn): string =>
 	c.kind === "field" ? names.column(relation, c.field.name) : c.column
 
 /** The primary key's fields of `relation`, in key order, which every relation grizzle stores holds. */
@@ -103,7 +103,7 @@ const primaryFields = (relation: TableRelation): readonly [LawField, ...Array<La
 
 /** The witness query of the deferred foreign key `key`, named `constraint` on its table (see the module's header). */
 export const unmatchedQueryOf = (
-	names: InstallNames,
+	names: PhysicalNames,
 	constraint: ConstraintName,
 	key: UnmatchedKey
 ): UnmatchedQuery => {
