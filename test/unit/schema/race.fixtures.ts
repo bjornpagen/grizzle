@@ -10,7 +10,8 @@ import {
 	on,
 	race,
 	relation,
-	schema
+	schema,
+	unit
 } from "#compiler/public/schema.ts"
 import { raceBuilder } from "#compiler/schema/statements.ts"
 import { Id } from "#test/support/ids.ts"
@@ -84,12 +85,17 @@ const plainR = (key: KeyShape) => {
 	}
 }
 
-/** The schema a case states: R and the race over it, mutable where the case is, and the family that holds it. */
+/** The schema a case states: R and the race over it, mutable inside the unit its key leads with where the case is, and
+ * the family that holds it. */
 export const schemaOf = (c: RaceCase): unknown => {
 	switch (c.kind) {
 		case "plain": {
 			const R = plainR(c.key)
-			return schema("Races", [R], c.mutable ? [race(R), mutable(R)] : [race(R)])
+			return schema(
+				"Races",
+				[R],
+				c.mutable ? [race(R), unit("Ks", { k: Id }), mutable(R)] : [race(R)]
+			)
 		}
 		case "family": {
 			if (c.part === "member") {
@@ -99,13 +105,17 @@ export const schemaOf = (c: RaceCase): unknown => {
 				return schema(
 					"Races",
 					[R, O],
-					c.mutable ? [family, race(R), mutable(R)] : [family, race(R)]
+					c.mutable ? [family, race(R), unit("Os", { o: Id }), mutable(R)] : [family, race(R)]
 				)
 			}
 			const R = relation("R", { id: Id, holder: Id, n: drawn(natural) }, ["id"])
 			const M = relation("M", { o: Id, n: pg.integer }, ["o", "n"])
 			const family = counted(on(M, "o"), fin(R, "n"))
-			return schema("Races", [R, M], c.mutable ? [family, race(R), mutable(R)] : [family, race(R)])
+			return schema(
+				"Races",
+				[R, M],
+				c.mutable ? [family, race(R), unit("Ids", { id: Id }), mutable(R)] : [family, race(R)]
+			)
 		}
 		case "roster": {
 			const R = closed.ordered("R", ["a", "b"])

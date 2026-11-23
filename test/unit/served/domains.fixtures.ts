@@ -14,7 +14,7 @@ import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Fn, Type } from "#compiler/public/compute.ts"
 import { contract, pg } from "#compiler/public/fields.ts"
 import { param, query, v } from "#compiler/public/query.ts"
-import { derived, fn, relation, row, rows, schema } from "#compiler/public/schema.ts"
+import { derived, fn, mutable, relation, row, rows, schema, unit } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { ownBuilt, rostersOf } from "#compiler/schema/own.ts"
 import { printStatement } from "#compiler/sql/print.ts"
@@ -98,7 +98,7 @@ const Rank = contract("Rank", pg.integer)
 
 /**
  * The case's login: Item(item), the items a function is called at; Doc(doc, list), lists of tokens; Out(item, value),
- * what a carrying ChangeSet writes; Coded(item, code, count), a stored field of the refinement and one of the contract
+ * what a carrying ChangeSet writes, mutable inside the unit of its item, which its deletes need; Coded(item, code, count), a stored field of the refinement and one of the contract
  * where the case places them; and four functions whose results are of the refinement or the contract, `judge` returning
  * rows of (code, count), whose count no read finds but every read's cast checks, `judgeRow` one row of a field of such
  * rows, `judgeOne` a value of the refinement and `countOne` one of the contract, each body returning a member.
@@ -166,7 +166,7 @@ const loginOf = (c: TextDomainCase) => {
 			judgeOne,
 			countOne
 		],
-		[]
+		[unit("Items", { item: pg.integer }), mutable(Out)]
 	)
 	/** The items whose codes `judge` gives, a materialized definition of its rows that finds none of their fields. */
 	const Judging = derived.materialized(

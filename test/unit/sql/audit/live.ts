@@ -569,16 +569,21 @@ type WritingOp = "insert" | "put" | "delete"
 type CrewMutability = "immutable" | "mutable"
 
 /**
- * The actions that write a relation's fact: every one, but a Hand's delete only under a mutable Crew, since
- * an immutable Crew's family is fixed from its insert and the compiler refuses the delete. For the same reason a Hand's
- * insert under an immutable Crew comes with its Crew's insert (changeSetOf): a member inserted under a stored immutable
- * owner is refused, which audit.test.ts states once.
+ * The actions that write a relation's fact: every one, but only an insert of Item, a closed relation, whose facts are
+ * inserted and never changed or deleted, and a Hand's delete only under a mutable Crew, since an immutable Crew's family
+ * is fixed from its insert and the compiler refuses the delete. For the same reason a Hand's insert under an immutable
+ * Crew comes with its Crew's insert (changeSetOf): a member inserted under a stored immutable owner is refused, which
+ * audit.test.ts states once.
  */
 const writingOpsOf = (
 	relation: unknown,
 	crew: CrewMutability
 ): Arr.NonEmptyReadonlyArray<WritingOp> =>
-	relation === Hand && crew === "immutable" ? ["insert", "put"] : ["insert", "put", "delete"]
+	relation === Item
+		? ["insert"]
+		: relation === Hand && crew === "immutable"
+			? ["insert", "put"]
+			: ["insert", "put", "delete"]
 
 /**
  * The shop relations a written draw acts on, each with its fact: an immutable and a mutable relation, a candidate key,

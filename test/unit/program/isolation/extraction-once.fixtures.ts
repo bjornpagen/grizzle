@@ -13,7 +13,7 @@ import { installBasis, unserved } from "#compiler/physical/install/plan.ts"
 import { planWorkload } from "#compiler/program/workload/compile.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg, span } from "#compiler/public/fields.ts"
-import { query, v } from "#compiler/public/query.ts"
+import { query } from "#compiler/public/query.ts"
 import { contained, login, on, relation, role, schema } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { ownBuilt, rostersOf } from "#compiler/schema/own.ts"
@@ -34,9 +34,9 @@ const Fenced = schema("ExtractionOnce", Rec.values(stored), [
 	contained(on(Seen, "v"), on(Pub, "v"))
 ])
 
-/** The publisher's members: a replace, deleting and inserting what the learner references, which generate fences; a
- * removal; and a publish gated on Gate's absence, which runs SERIALIZABLE. */
-const publishedNames = ["replace", "remove", "publish"] as const
+/** The publisher's members, each an insert of what the learner references, Pub closed: a post of the proposed facts,
+ * and a publish gated on Gate's absence, which runs SERIALIZABLE. */
+const publishedNames = ["post", "publish"] as const
 
 type Published = (typeof publishedNames)[number]
 
@@ -67,19 +67,11 @@ export const fencedLoginOf = (drawn: Drawn) => {
 	const publisher = role(Fenced, "publisher", stored, { write: ["Pub"] })
 	const learner = role(Fenced, "learner", stored, { insert: ["Seen"] })
 	const p = publisher.relations
-	const storedPub = query(publisher).rule((r) => {
-		const row = v(p.Pub, "p")
-		return r
-			.match(p.Pub, row)
-			.where(r.eq(row.v, r.param("v", pg.integer)))
-			.find(row)
-	})
 	const proposed = query(publisher).rule((r) =>
 		r.find({ v: r.param("v", pg.integer), s: r.param("s", pg.integer) })
 	)
 	const published = {
-		replace: () => ChangeSet.empty(publisher).delete(p.Pub, storedPub).insert(p.Pub, proposed),
-		remove: () => ChangeSet.empty(publisher).delete(p.Pub, storedPub),
+		post: () => ChangeSet.empty(publisher).insert(p.Pub, proposed),
 		publish: () =>
 			ChangeSet.empty(publisher).insert(
 				p.Pub,

@@ -16,7 +16,7 @@ import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { login, mutable, relation, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
+import { login, mutable, relation, schema, unit, wholeEntriesOf } from "#compiler/public/schema.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
 import { servedFile } from "#compiler/served/json.ts"
 import { defineConfig } from "#index.ts"
@@ -67,7 +67,7 @@ export type Feature =
 
 const R = relation("R", { k: pg.integer, v: pg.integer }, ["k"])
 
-const Base = schema("served_carriers", [R], [mutable(R)])
+const Base = schema("served_carriers", [R], [unit("Rs", { k: pg.integer }), mutable(R)])
 
 /** A role of the box: R whole, written. */
 const writer = (name: string) => role(Base, name, wholeEntriesOf(Base), { write: ["R"] })

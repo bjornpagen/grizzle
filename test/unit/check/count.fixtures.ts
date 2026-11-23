@@ -29,9 +29,9 @@ export type Side = "natural" | "bigint"
  * Where a case reads its count, `n: r.count()` over Item's rows by their kind:
  * - `head`: a query's head;
  * - `derived`: a materialized derived relation's field;
- * - `written`: a put of a relation whose field n is of the type `into`;
+ * - `written`: an insert into a relation whose field n is of the type `into`;
  * - `union`: the head of a query of two rules, the count's and one that delivers n as `beside`, the literal 0n or a
- *   field of either type, read as the query's head or, `written`, put into a natural field (decideStage's place, a
+ *   field of either type, read as the query's head or, `written`, inserted into a natural field (decideStage's place, a
  *   count of the earlier sessions beside 0 where there are none);
  * - `compared`: the derived relation's count read by a filter against a parameter of either type or the literal 1n.
  */
@@ -187,7 +187,7 @@ export const observedOf = (c: CountCase): Observed =>
 			compiled(
 				compileWrite(
 					checking(Counts),
-					descOf(ChangeSet.empty(Counts).put(Into, of)),
+					descOf(ChangeSet.empty(Counts).insert(Into, of)),
 					realityWrite(succeeded(testArtifacts(Counts, testCompile), "the schema's artifacts"))
 				)
 			)

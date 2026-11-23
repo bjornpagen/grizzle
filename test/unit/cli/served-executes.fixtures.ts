@@ -17,6 +17,7 @@ import {
 	mutable,
 	relation,
 	schema,
+	unit,
 	wholeEntriesOf
 } from "#compiler/public/schema.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
@@ -73,7 +74,7 @@ const Kind = closed.ordered("Kind", ["Low", "High"])
 const R = relation("R", { k: pg.integer, v: pg.integer, kind: closedId(Kind) }, ["k"])
 const Tag = relation("Tag", { r: pg.integer, label: pg.integer }, ["r"])
 
-const Base = schema("served_executes", [Kind, R, Tag], [mutable(R)])
+const Base = schema("served_executes", [Kind, R, Tag], [unit("Rs", { k: pg.integer }), mutable(R)])
 
 /** A role of the box: every relation whole, R and Tag written where it writes. */
 const roleOf = (name: string, writes: boolean) =>

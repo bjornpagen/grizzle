@@ -9,11 +9,11 @@
  * (test/support/kernel/calls.ts): the calls of compiledFacts over the login's compile and its certification, each one
  * extraction of one compiled write.
  *
- * The box, drawn: G3's fenced shape over one published relation, one
- * login of a writer, whose gate insert runs or not, a publisher of one to all three of a replace (deleting and inserting
- * what the learner references, which generate fences), a removal and a publish gated on Gate's absence (SERIALIZABLE),
- * and a learner inserting what it sees, compiled for READ COMMITTED as generate compiles it (readCommittedChanges),
- * then certified.
+ * The box, drawn: G3's fenced shape over one published relation, closed, its facts inserted and never changed or
+ * deleted, one login of a writer, whose gate insert runs or not, a publisher of one or both of a post (inserting what
+ * the learner references) and a publish gated on Gate's absence (SERIALIZABLE, whose lowering fences what the
+ * learner's checks rely on), and a learner inserting what it sees, compiled for READ COMMITTED as generate compiles it
+ * (readCommittedChanges), then certified.
  *
  * Oracle: a model of what certification reads: each READ COMMITTED write of a formed role, which the first round judges,
  * and each write of a role's SERIALIZABLE form, of a role it lowers or of one with no READ COMMITTED form, which it

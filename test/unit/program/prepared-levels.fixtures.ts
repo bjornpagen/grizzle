@@ -22,6 +22,7 @@ import {
 	relation,
 	role,
 	schema,
+	unit,
 	wholeEntriesOf,
 	writableNamesOf
 } from "#compiler/public/schema.ts"
@@ -42,7 +43,12 @@ const Hold = relation("Hold", { room: Id, during: span(pg.bigint), note }, ["roo
 /** A scalar primary key: its insert and its put have a READ COMMITTED form. */
 const Plain = relation("Plain", { id: Id, note }, ["id"])
 
-const Levels = schema("PreparedLevels", [Room, Hold, Plain], [mutable(Hold), mutable(Plain)])
+/** Hold under the unit of its room, Plain under the unit of its id, each mutable inside its unit. */
+const Levels = schema(
+	"PreparedLevels",
+	[Room, Hold, Plain],
+	[unit("Rooms", { room: Id }), unit("Plains", { id: Id }), mutable(Hold), mutable(Plain)]
+)
 
 /** The programs a role's workload may hold, by whether each has a READ COMMITTED form, with the relation it writes. */
 export const programs = {

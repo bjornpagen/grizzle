@@ -111,21 +111,22 @@ const unitsOf = (pair: (typeof pairs)[number]) => {
 	}
 }
 
+/** The type of S's number under each series key. */
+const numberTypes = {
+	natural,
+	integerContract: TestNumber,
+	wide: natural,
+	bigint: pg.bigint,
+	uuidContract: OtherId
+} as const
+
 /** S keyed as a series case says. */
-const seriesS = (key: (typeof seriesKeys)[number]) => {
-	switch (key) {
-		case "natural":
-			return relation("S", { number: natural, held: pg.boolean }, ["number"])
-		case "integerContract":
-			return relation("S", { number: TestNumber, held: pg.boolean }, ["number"])
-		case "wide":
-			return relation("S", { number: natural, held: pg.boolean }, ["number", "held"])
-		case "bigint":
-			return relation("S", { number: pg.bigint, held: pg.boolean }, ["number"])
-		case "uuidContract":
-			return relation("S", { number: OtherId, held: pg.boolean }, ["number"])
-	}
-}
+const seriesS = (key: (typeof seriesKeys)[number]) =>
+	relation(
+		"S",
+		{ number: numberTypes[key], held: pg.boolean },
+		key === "wide" ? ["number", "held"] : ["number"]
+	)
 
 /** The schema a case states, and the series statement of a series case, whose laws its check reads. */
 export const schemaOf = (
@@ -158,7 +159,13 @@ export const schemaOf = (
 			const S = seriesS(c.key)
 			const stated = series(S)
 			return {
-				schema: schema("Units", [S], c.mutable ? [stated, mutable(S)] : [stated]),
+				schema: schema(
+					"Units",
+					[S],
+					c.mutable
+						? [stated, unit("Numbers", { number: numberTypes[c.key] }), mutable(S)]
+						: [stated]
+				),
 				series: stated
 			}
 		}
