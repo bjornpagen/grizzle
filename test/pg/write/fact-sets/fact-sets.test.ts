@@ -1,6 +1,5 @@
 import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
-import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Layer, Option, String as Str } from "effect"
 import { Db } from "#adapter/public/db.ts"
@@ -28,10 +27,10 @@ import {
 	readFeatures,
 	readGivenOf,
 	reads,
-	readSketchGen,
+	readSketchSpace,
 	storeRec,
 	type Sketch,
-	sketchGen,
+	sketchSpace,
 	storedBits
 } from "#test/pg/write/fact-sets/fact-sets.fixtures.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -55,9 +54,16 @@ import { outputRows } from "#test/support/wire.ts"
  * header, a union of two rules over it, a put's carrier and a deletion beside an insert, and two facts at one key that
  * differ only in a zero's sign are refused as two facts; a put over a stored fact that differs from it in a zero's sign
  * alone reads back as a change.
+ *
+ * Its budget is one case for each situation, the least that reaches them all: the floor's one case, and a steered case
+ * for each situation it leaves pending, each of its situation's artifact and write, its values drawn among the pairs
+ * that reach it (fact-sets.fixtures.ts sketchSpace). At it every one of its nine kills is killed, 53 cases where the
+ * exhaustion of its box ran 784 (`toolchain-test run` of the file, TEST_SEED=2219874524, 2026-11-23); at one floor case
+ * and 42 steered, before two facts at one key differing in a zero's sign alone was a situation of its own, the
+ * carrier's kill and the conservative region's survived.
  */
 export const aParameterRelationsFactsAreStoredWithTheBitsTheyWereWrittenWithByBothArtifactsWhereverAWriteReadsItAndTwoFactsAtOneKeyAreRefused =
-	property.exhaust(finite(sketchGen), {
+	property.explore(sketchSpace, {
 		needs: { fixture: Substrate.seat(factsTemplate) },
 		situations: features satisfies ReadonlyArray<Reached<Feature>>,
 		check:
@@ -189,7 +195,7 @@ export const aParameterRelationsFactsAreStoredWithTheBitsTheyWereWrittenWithByBo
 			kind: "specification",
 			name: "the fact identity: a parameter relation is a set of facts by their bits but NaN's, and a write stores each fact it states"
 		},
-		box: "each write of a parameter relation (read once, by a region without its field, twice beside a header, three times by a union and a header, carried by a put, beside a deletion, by a put over a stored fact read back as its changes), its facts one, one stated twice or two at one key, each of both zeros, NaN, both least subnormals, the least normal and 1.5, by the optimized artifact and by the conservative realization",
+		budget: { runs: 1, steered: features.length - 1 },
 		kept: [],
 		kills: [
 			{
@@ -258,9 +264,14 @@ export const aParameterRelationsFactsAreStoredWithTheBitsTheyWereWrittenWithByBo
  * A read of a parameter relation delivers each of its facts, on PostgreSQL 19 by both lowerings: -0 and +0 at otherwise
  * equal fields are two rows, read whole, filtered or joined to a stored fact, each with the bits it was written with;
  * a projection that drops a field is a merge, which delivers +0 for either zero.
+ *
+ * Its budget is one case for each situation, the least that reaches them all: the floor's one case, and a steered case
+ * for each situation it leaves pending, each of its situation's lowering and read, its values drawn among the pairs
+ * that reach it (fact-sets.fixtures.ts readSketchSpace). At it every one of its three kills is killed, 33 cases where
+ * the exhaustion of its box ran 448 (`toolchain-test run` of the file, TEST_SEED=2219874524, 2026-11-23).
  */
 export const aReadOfAParameterRelationDeliversEachOfItsFactsByBothLoweringsAndAProjectionThatDropsAFieldTheCanonicalZero =
-	property.exhaust(finite(readSketchGen), {
+	property.explore(readSketchSpace, {
 		needs: { fixture: Substrate.seat(factsTemplate) },
 		situations: readFeatures satisfies ReadonlyArray<Reached<ReadFeature>>,
 		check:
@@ -323,7 +334,7 @@ export const aReadOfAParameterRelationDeliversEachOfItsFactsByBothLoweringsAndAP
 			kind: "specification",
 			name: "the fact identity: a read delivers each fact of a parameter relation by its bits but NaN's, and a projection's merge the canonical zero"
 		},
-		box: "each read of a parameter relation (whole, filtered, joined to a stored fact, projected without its field) by each lowering, its facts one, one stated twice, or two at one variable and field, each of both zeros, NaN, both least subnormals, the least normal and 1.5",
+		budget: { runs: 1, steered: readFeatures.length - 1 },
 		kept: [],
 		kills: [
 			{

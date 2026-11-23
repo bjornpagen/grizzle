@@ -1,6 +1,7 @@
 /** What the property of fact-sets.test.ts reads: its fixture, its space and its model. */
 
-import { element, type Gen, option } from "@bjornpagen/testing/gen"
+import { nonEmpty } from "@bjornpagen/testing/assert"
+import { aimed, element, type Gen, option } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -230,7 +231,7 @@ export interface Sketch {
 	readonly second: Option.Option<number>
 }
 
-export const sketchGen: Gen<Sketch> = (source) => ({
+const sketchGen: Gen<Sketch> = (source) => ({
 	artifact: source.draw(element(artifacts)),
 	write: source.draw(element(writes)),
 	first: source.draw(element(values)),
@@ -355,7 +356,8 @@ type OverStored = Extract<Write, "swap" | "replaced">
 export type Feature = `${Artifact}: ${
 	| `${Projecting} of one fact`
 	| `${Projecting} of one fact twice`
-	| `${Projecting} of two facts at one key`
+	| `${Projecting} of -0 and +0 at one key`
+	| `${Projecting} of two other facts at one key`
 	| `${OverStored} of the stored fact`
 	| `${OverStored} of its other zero`
 	| `${OverStored} of another fact`}`
@@ -370,7 +372,8 @@ export const features: Arr.NonEmptyReadonlyArray<Feature> = Arr.flatMap(
 					[
 						`${a}: ${w} of one fact`,
 						`${a}: ${w} of one fact twice`,
-						`${a}: ${w} of two facts at one key`
+						`${a}: ${w} of -0 and +0 at one key`,
+						`${a}: ${w} of two other facts at one key`
 					] as const
 			),
 			...Arr.flatMap(
@@ -401,9 +404,40 @@ export const featureOf = (s: Sketch): Feature => {
 		onSome: (second): Feature =>
 			sameFact(s.first, second)
 				? `${artifact}: ${write} of one fact twice`
-				: `${artifact}: ${write} of two facts at one key`
+				: s.first === second
+					? `${artifact}: ${write} of -0 and +0 at one key`
+					: `${artifact}: ${write} of two other facts at one key`
 	})
 }
+
+/** The second values a case may hold: none, or each value. */
+const seconds: ReadonlyArray<Option.Option<number>> = [
+	Option.none(),
+	...Arr.map(values, Option.some)
+]
+
+/**
+ * A write's cases, each aimed at its situation: a case of the situation's artifact and write, its values drawn among
+ * the pairs that reach it, so every situation is a witness's first draw and its values are any of the ones it holds.
+ */
+export const sketchSpace = aimed(
+	sketchGen,
+	Arr.map(features, (feature) => {
+		const reaching = Arr.flatMap(artifacts, (artifact) =>
+			Arr.flatMap(writes, (write) =>
+				Arr.flatMap(values, (first) =>
+					Arr.filter(
+						Arr.map(seconds, (second): Sketch => ({ artifact, write, first, second })),
+						(s) => featureOf(s) === feature
+					)
+				)
+			)
+		)
+		const cases = element(nonEmpty(reaching, `a case of ${feature}`))
+		const aim: Gen<Sketch> = (source) => source.draw(cases)
+		return [feature, aim] as const
+	})
+)
 
 /** How the module's fixture is installed: its label and the programs its login's workload holds. */
 export const factsInstall = Object.freeze({ label: "fact_sets", programs })
@@ -489,7 +523,7 @@ export interface ReadSketch {
 	readonly second: Option.Option<number>
 }
 
-export const readSketchGen: Gen<ReadSketch> = (source) => ({
+const readSketchGen: Gen<ReadSketch> = (source) => ({
 	lowering: source.draw(element(lowerings)),
 	read: source.draw(element(readNames)),
 	first: source.draw(element(values)),
@@ -557,6 +591,29 @@ export const readFeatureOf = (s: ReadSketch): ReadFeature =>
 					? `${s.lowering}: ${s.read} of -0 and +0`
 					: `${s.lowering}: ${s.read} of two other facts`
 	})
+
+/**
+ * A read's cases, each aimed at its situation: a case of the situation's lowering and read, its values drawn among the
+ * pairs that reach it, so every situation is a witness's first draw and its values are any of the ones it holds.
+ */
+export const readSketchSpace = aimed(
+	readSketchGen,
+	Arr.map(readFeatures, (feature) => {
+		const reaching = Arr.flatMap(lowerings, (lowering) =>
+			Arr.flatMap(readNames, (read) =>
+				Arr.flatMap(values, (first) =>
+					Arr.filter(
+						Arr.map(seconds, (second): ReadSketch => ({ lowering, read, first, second })),
+						(s) => readFeatureOf(s) === feature
+					)
+				)
+			)
+		)
+		const cases = element(nonEmpty(reaching, `a case of ${feature}`))
+		const aim: Gen<ReadSketch> = (source) => source.draw(cases)
+		return [feature, aim] as const
+	})
+)
 
 /** Rec's stored fact the joined read meets, at the case's snapshot, variable and field 1. */
 export const storeRec = (installed: Installed): Effect.Effect<void, SqlError, Substrate> =>
