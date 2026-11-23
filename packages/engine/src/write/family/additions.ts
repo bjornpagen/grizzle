@@ -287,11 +287,18 @@ export type OwnerRows =
  * every group holding a stored member, each group by one engine of one rule (ir/fill.ts FillColumn).
  * - `none`: a sequence, whose members the nested walk draws and its own statement sends;
  * - `drawn`: a counted family, its fresh groups' members in their fresh layout (write/program/decide.ts freshLayoutOf),
- *   the stratum's (ir/products.ts FilledRows `fresh`).
+ *   the stratum's (ir/products.ts FilledRows `fresh`), and the stamps of the key and group fields that layout leaves
+ *   out, the call's one value of each, which the statement fills the host's members with as it fills its own rows
+ *   (write/frontend/compile.ts FreshFill `stamps`, `stampedSources`).
  */
 export type FreshGroups =
 	| { readonly kind: "none" }
-	| { readonly kind: "drawn"; readonly stratum: StratumAt; readonly layout: LaidLayout }
+	| {
+			readonly kind: "drawn"
+			readonly stratum: StratumAt
+			readonly layout: LaidLayout
+			readonly stamps: ReadonlyArray<Stamped>
+	  }
 
 /** A member relation a stratum appends to, with where its rows come from and what draws them. */
 export interface AppendedMember {
@@ -404,7 +411,7 @@ export const additionsSql = (
 	}
 	/** Every source's rows as the statement reads them, each source this statement stamps with its stamps beside them
 	 * (`stampedSources`). */
-	const { slots, nested } = stampedSources(w, supply, ctes, members, stated, sent)
+	const { slots, nested, stamped } = stampedSources(w, supply, ctes, members, stated, sent)
 	/** The rows of an owner relation the stratum inserts whose copied columns the parameters hold (schedule.ts
 	 * CopySource `held`), each source as this statement reads it (schedule.ts HeldSource): a slot's facts or the
 	 * stratum's nested rows, with the stamps it takes of them where it appends the owner (`stampedSources`). */
@@ -458,6 +465,7 @@ export const additionsSql = (
 						`where ${member.relation.name}'s owner copy ${column} reads its owner`
 					).source,
 				() => ownerShapes(family.owner.name),
+				stamped,
 				arbiter,
 				start,
 				fresh
@@ -848,12 +856,25 @@ const sentOf = (source: NestedRows): NestedSent => {
 	}
 }
 
-/** A source's rows this statement stamps: its rows as sent or stated, and the fields they leave out, each stamped. */
-interface StampingSource {
+/** Rows this statement stamps: its rows as sent, stated or drawn on the host, and the fields they leave out, each
+ * stamped. */
+interface Stamping {
 	readonly rows: Shaped
 	readonly stamps: NonEmptyReadonlyArray<Stamped>
+}
+
+/** A source's rows this statement stamps (`Stamping`), and where its view is kept. */
+interface StampingSource extends Stamping {
 	/** Its rows with every stamped field's column beside the rest, set once its stamps are read. */
 	readonly view: (stamped: Shaped) => void
+}
+
+/** The readers of an additions statement's rows as it holds them (`stampedSources`): its slots' facts, the stratum's
+ * nested rows, and any rows it stamps besides, a counted family's fresh members the host drew (`hostDrawnOf`). */
+interface StampedReaders {
+	readonly slots: SlotReader
+	readonly nested: NestedReader
+	readonly stamped: (x: Stamping) => Shaped
 }
 
 /**
@@ -874,7 +895,7 @@ const stampedSources = (
 	members: ReadonlyArray<AppendedMember>,
 	stated: SlotReader,
 	sent: NestedReader
-): { readonly slots: SlotReader; readonly nested: NestedReader } => {
+): StampedReaders => {
 	const bySlot = new Map<MemberSlot["slot"], Shaped>()
 	const byRelation = new Map<string, Shaped>()
 	const stamping: Array<StampingSource> = []
@@ -922,7 +943,7 @@ const stampedSources = (
 	}
 	/** The call's value of a field of `x`'s rows, read from its record's one row, none where the call computes no value of
 	 * it. */
-	const calledIn = (x: StampingSource, field: string): Expr | undefined => {
+	const calledIn = (x: Stamping, field: string): Expr | undefined => {
 		for (const { field: f, stamp } of x.stamps) {
 			if (stamp.kind === "call" && f.name === field) {
 				const values = defined(calls.get(stamp.computed), "a computed record's values")
@@ -932,10 +953,10 @@ const stampedSources = (
 		return undefined
 	}
 	/** A field of a row of `x`, read as `r`, before its heads stamp it: its row's, or the call's value. */
-	const valueIn = (x: StampingSource, r: string, field: string): Expr =>
+	const valueIn = (x: Stamping, r: string, field: string): Expr =>
 		calledIn(x, field) ?? col(r, columnAt(x.rows, columnKeyOf(field)))
 	/** The rows of `x`, read as `r`, beside the values of every record they take one of, its one row each. */
-	const withCalls = (x: StampingSource, r: string): FromItem => {
+	const withCalls = (x: Stamping, r: string): FromItem => {
 		const called = [
 			...new Set(x.stamps.flatMap((st) => (st.stamp.kind === "call" ? [st.stamp.computed] : [])))
 		]
@@ -996,7 +1017,9 @@ const stampedSources = (
 		)
 		ctes.push(headStampsCte(w, supply, head, names, children))
 	}
-	for (const x of stamping) {
+	/** The rows of `x` with each of its stamps' fields beside their own columns, one CTE: a call's value read from its
+	 * record's one row, a head's stamp joined at the row's child. */
+	const viewOf = (x: Stamping): Shaped => {
 		const view = shapedCte(supply, "stamped rows", [
 			...x.rows.columns.keys(),
 			...x.stamps.map((st) => columnKeyOf(st.field.name))
@@ -1061,11 +1084,15 @@ const stampedSources = (
 				)
 			)
 		)
-		x.view(view)
+		return view
+	}
+	for (const x of stamping) {
+		x.view(viewOf(x))
 	}
 	return {
 		slots: (relation, slot) => bySlot.get(slot.slot) ?? stated(relation, slot),
-		nested: (relation, source) => byRelation.get(relation.name) ?? sent(relation, source)
+		nested: (relation, source) => byRelation.get(relation.name) ?? sent(relation, source),
+		stamped: viewOf
 	}
 }
 
@@ -1244,6 +1271,7 @@ const appendScan = (
 	appended: Shaped,
 	copySource: (column: ColumnKey) => CopySource,
 	ownerShapes: () => ReadonlyArray<Shaped>,
+	stamped: StampedReaders["stamped"],
 	arbiter: Arbiter,
 	start: AppendStart,
 	fresh: FreshGroups
@@ -1355,7 +1383,7 @@ const appendScan = (
 		fresh.kind === "drawn"
 			? {
 					kind: "ranked",
-					host: hostDrawnOf(w, supply, ctes, member, family, fresh, appended),
+					host: hostDrawnOf(w, supply, ctes, member, family, fresh, appended, stamped),
 					drawn: {
 						fallen: supply.column(internal("fallback drawn")),
 						side: supply.column(internal("group owner side drawn")),
@@ -2149,9 +2177,10 @@ const hostDrawnOf = (
 	member: AppendedMember,
 	family: Family,
 	fresh: Extract<FreshGroups, { readonly kind: "drawn" }>,
-	appended: Shaped
+	appended: Shaped,
+	stamped: StampedReaders["stamped"]
 ): HostDrawn => {
-	const members = filledRowsCte(
+	const drawn = filledRowsCte(
 		w,
 		supply,
 		ctes,
@@ -2160,6 +2189,10 @@ const hostDrawnOf = (
 		{ kind: "fresh", family: familyKey(family.id) },
 		[...fresh.layout.key, ...fresh.layout.columns]
 	)
+	/** The host's members with the key and group fields their fresh layout leaves out, the call's one value of each,
+	 * stamped as the statement stamps its own rows (FreshGroups `drawn`). */
+	const [first, ...rest] = fresh.stamps
+	const members = first === undefined ? drawn : stamped({ rows: drawn, stamps: [first, ...rest] })
 	const sides = {
 		name: supply.relation(internal("drawn group sides")),
 		group: mapNonEmpty(family.group, () => supply.column(internal("drawn group side key"))),

@@ -98,6 +98,11 @@
  * collidingAtKey, write/put/choose.ts differingOf), a pure set's put included, where format 7 deleted only an occupant
  * at an equal span, a pure set's none, and refused every other on the key, so each served span-keyed put's deletion
  * moves and a span-keyed pure set's put gains one.
+ * A served binding's fresh stratum names the columns its fresh fills leave to the statements writing their rows, their
+ * stamps' and the generated fields over them (runtime/write/binding.ts FreshStratum `left`), and a counted family's
+ * fresh layout leaves out its members' key and group fields a stamp fills, the call's one value of each, which its
+ * additions statement stamps the host's members with (write/family/additions.ts hostDrawnOf), where format 7 drew every
+ * fresh group on the host from fields no row the host held held.
  *
  * Format 7 (pin+1): a session table, a rule judge's delta (physical/ddl/rules.ts
  * emptied) or a write program's carrier (sql/print.ts carrierStandUp), is emptied by DELETE, and by TRUNCATE only once

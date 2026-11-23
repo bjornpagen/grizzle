@@ -693,7 +693,11 @@ const familyProgram = (
 									: ({
 											kind: "drawn",
 											stratum: s,
-											layout: freshLayoutOf(frontend, f.family)
+											layout: freshLayoutOf(frontend, f.family, s),
+											stamps:
+												defined(frontend.fresh.get(s), `the fresh fill of stratum ${s}`).stamps.get(
+													relation.name
+												) ?? []
 										} as const)
 							})),
 							owns: all.filter((f) => f.owner.name === name && !isSequence(f)),

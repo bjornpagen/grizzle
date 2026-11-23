@@ -2,7 +2,6 @@
  * A group's key texts on the host, as a write's statements carry them: each key field's value admitted in its type's
  * carrier under the installation's codes.
  */
-import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { carrierSpecOf, paramOfText } from "#compiler/codec/scalar.ts"
 import { type TextsId, textsId } from "#compiler/core/text.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
@@ -29,9 +28,9 @@ export interface FillContext {
 }
 
 /** A family by its group alone: each member field with the owner key field it pairs with, in key order, by name and
- * type. A Family is one. */
+ * type, those the host reads (runtime/write/bind.ts freshOwners). A Family is one. */
 export interface Grouped {
-	readonly group: NonEmptyReadonlyArray<{
+	readonly group: ReadonlyArray<{
 		readonly member: HeadingColumn
 		readonly owner: HeadingColumn
 	}>

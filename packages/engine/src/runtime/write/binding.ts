@@ -26,7 +26,8 @@ import {
 	filler,
 	type HostEvaluator,
 	hostEvaluator,
-	type HostFill
+	type HostFill,
+	type StatementFills
 } from "#compiler/runtime/write/fill.ts"
 import type { LaidLayout, NestedLayoutData } from "#compiler/runtime/write/nesting.ts"
 import { type BindGroup, bindGroup, type GroupData } from "#compiler/runtime/write/normalize.ts"
@@ -114,6 +115,10 @@ export interface FreshStratum {
 	 * members, the stratum's fresh fills draw, as its additions statement reads them. */
 	readonly fresh: ReadonlyMap<string, LaidLayout>
 	readonly owners: ReadonlyMap<StoredRelationName, FreshOwner>
+	/** The columns of each relation's rows its fresh fills leave to the statement that writes them, their stamps' and
+	 * every generated field over one (write/frontend/compile.ts FreshFill `left`): no row the host holds holds one, and a
+	 * group field among them is the call's one value on both sides of its family, which no host match reads. */
+	readonly left: StatementFills
 }
 
 /**

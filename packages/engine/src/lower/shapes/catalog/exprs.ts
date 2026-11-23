@@ -144,9 +144,9 @@ export const columnsRead = (root: ScalarExpr): ReadonlyArray<ColumnRef> => {
 /**
  * Whether two expressions compute the same value by the same operations: equal structure, equal operators, equal
  * leaves. Two spellings of one term are two expressions, so the comparison is structural. It reads the vocabulary of
- * the arithmetic a recognizer compares, columns, literals, native operators and casts, as the percentile
- * interpolation's (n − 1)p is (percentile.ts minusOneProduct); any other kind is no match, which only leaves a
- * composition unrecognized.
+ * the arithmetic a recognizer compares, columns, literals, parameters, native operators and casts, as the percentile
+ * interpolation's (n − 1)p is (percentile.ts minusOneProduct) and two computed fields of one call are
+ * (write/frontend/compile.ts freshFillOf); any other kind is no match, which only leaves a composition unrecognized.
  */
 export const sameExpr = (x: ScalarExpr, y: ScalarExpr): boolean => {
 	if (x === y) {
@@ -176,6 +176,7 @@ export const sameExpr = (x: ScalarExpr, y: ScalarExpr): boolean => {
 		case "cast":
 			return y.kind === "cast" && x.cast === y.cast && sameArgs()
 		case "param":
+			return y.kind === "param" && x.param === y.param && x.role === y.role
 		case "value":
 		case "domainCast":
 		case "cond":

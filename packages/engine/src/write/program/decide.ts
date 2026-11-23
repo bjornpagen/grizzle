@@ -169,13 +169,17 @@ const freshStrata = (frontend: WriteFrontend): ReadonlyArray<FreshStratum> => {
 				nested: nestedOwner(frontend, stratum, owner.name)
 			})
 		}
+		const left = defined(frontend.fresh.get(stratum), `the fresh fill of stratum ${stratum}`).left
 		return [
 			{
 				stratum,
 				appended,
 				counted: reached.map(countedFamily),
-				fresh: new Map(reached.map((f) => [familyKey(f.id), freshLayoutOf(frontend, f)] as const)),
-				owners
+				fresh: new Map(
+					reached.map((f) => [familyKey(f.id), freshLayoutOf(frontend, f, stratum)] as const)
+				),
+				owners,
+				left: new Map([...left].map(([relation, pending]) => [relation, { pending }] as const))
 			}
 		]
 	})
@@ -256,26 +260,45 @@ const countedFamily = (family: Family): CountedFamily => ({
 })
 
 /**
- * The fresh layout of a counted family's members (ir/products.ts FilledRows `fresh`): each member's primary key, then its
- * group's fields its key leaves out, the owner's key it names, then every column the family draws on it (`familyDrawn`),
- * as the host draws a fresh group whole (runtime/write/bind.ts freshOwners) and the family's additions statement reads the
- * members it drew (write/family/additions.ts HostDrawn), the one layout both build their arrays by. A member's key and
- * its group are its caller's, never a column the family draws.
+ * The fresh layout of a counted family's members in `stratum` (ir/products.ts FilledRows `fresh`): each member's primary
+ * key, then its group's fields its key leaves out, the owner's key it names, then every column the family draws on it
+ * (`familyDrawn`), as the host draws a fresh group whole (runtime/write/bind.ts freshOwners) and the family's additions
+ * statement reads the members it drew (write/family/additions.ts HostDrawn), the one layout both build their arrays by;
+ * but the fields of its key and group a stamp fills, the call's one value of each, which no row the host holds holds
+ * and the statement fills (write/frontend/compile.ts FreshFill `stamps`). A member's key and its group are its caller's,
+ * never a column the family draws.
  */
-export const freshLayoutOf = (frontend: WriteFrontend, family: Family): LaidLayout => {
+export const freshLayoutOf = (
+	frontend: WriteFrontend,
+	family: Family,
+	stratum: StratumAt
+): LaidLayout => {
 	const member = family.member
+	const stamped = new Set(
+		(
+			defined(frontend.fresh.get(stratum), `the fresh fill of stratum ${stratum}`).stamps.get(
+				member.name
+			) ?? []
+		).map((st) => st.field.name)
+	)
 	const keyNames = new Set(member.primaryFields.map((f) => f.name))
 	const fieldColumn = (name: string, type: LaidColumn["type"]): LaidColumn => ({
 		key: columnKeyOf(name),
 		type,
 		column: { kind: "field", field: { name } }
 	})
+	const [first, ...rest] = member.primaryFields.filter((f) => !stamped.has(f.name))
+	if (first === undefined) {
+		throw defect(`the key of ${member.name} beyond its stamps, which its fresh members are sent by`)
+	}
 	return Object.freeze({
 		relation: member.name,
-		key: mapNonEmpty(member.primaryFields, (f) => fieldColumn(f.name, f.type)),
+		key: mapNonEmpty([first, ...rest], (f) => fieldColumn(f.name, f.type)),
 		columns: [
 			...family.group.flatMap((g) =>
-				keyNames.has(g.member.name) ? [] : [fieldColumn(g.member.name, g.member.type)]
+				keyNames.has(g.member.name) || stamped.has(g.member.name)
+					? []
+					: [fieldColumn(g.member.name, g.member.type)]
 			),
 			...familyDrawn(frontend.laws.theory.fill, member.name, family).map((c): LaidColumn =>
 				c.column.kind === "field"

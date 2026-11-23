@@ -365,13 +365,14 @@ const fillingLaw = (
 }
 
 /**
- * The columns of each relation a nesting's walk meets, `walked`, that its family statement fills: those its stamps fill,
- * `stamped`, and every generated field reading one of them or another such, which PostgreSQL alone computes as it stores
- * the row; or, refused as UnfillableField (FilledLater `stamped`), the first column the walk fills that reads one, which
- * no row the host fills holds. A member's field its group carries from a stamped field is stamped itself
- * (`carriedStamps`), so the walk reads no stamp through its owner.
+ * The columns of each relation a host fill meets, `walked`, a nesting's walk or a fresh fill (frontend/compile.ts
+ * freshFillOf), that the statement writing its rows fills: those its stamps fill, `stamped`, and every generated field
+ * reading one of them or another such, which PostgreSQL alone computes as it stores the row; or, refused as
+ * UnfillableField (FilledLater `stamped`), the first column the fill draws that reads one, which no row the host fills
+ * holds. A member's field its group carries from a stamped field is stamped itself (`carriedStamps`), so the walk reads
+ * no stamp through its owner.
  */
-const statementFilled = (
+export const statementFilled = (
 	fill: FillOrder,
 	walked: ReadonlyArray<{ readonly relation: RelationInfo; readonly position: FillPosition }>,
 	stamped: (relation: StoredRelationName) => ReadonlySet<ColumnKey>,
@@ -531,7 +532,18 @@ export const nestingOf = (
 			relation,
 			root,
 			families,
-			reached: Object.freeze(reached.toSorted((a, b) => a.depth - b.depth)),
+			/** Each level's heading leaves out the fields its stamps fill, as its own rows' does: a tree's nodes are all the
+			 * insert's own rows, every one leaving out what the insert computes. */
+			reached: Object.freeze(
+				reached
+					.map((r) => ({
+						...r,
+						heading: r.heading.filter(
+							(f) => !stampedOf(r.family.member.name).has(columnKeyOf(f.name))
+						)
+					}))
+					.toSorted((a, b) => a.depth - b.depth)
+			),
 			start,
 			own: ownHeading(
 				relation,

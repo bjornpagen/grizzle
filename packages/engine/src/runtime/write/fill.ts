@@ -242,15 +242,15 @@ const selects = <E>(
 /**
  * The columns of each relation's rows a fill leaves to the statement that writes them, by relation: a nesting's, those
  * its family statement fills after the walk, its stamps' and its counted families' (write/family/nesting.ts
- * NestedLayout pending), which no column the walk fills reads; none of a relation it fills whole, as a fresh fill fills
- * each one (`fillsWhole`).
+ * NestedLayout pending), which no column the walk fills reads; a fresh fill's, its stamps' and every generated field
+ * over one (runtime/write/binding.ts FreshStratum `left`); none of a relation it fills whole.
  */
 export type StatementFills = ReadonlyMap<
 	StoredRelationName,
 	{ readonly pending: ReadonlySet<ColumnKey> }
 >
 
-/** A fill that leaves no column of any relation to its statement: a fresh owner's (write/bind.ts freshOwners). */
+/** A fill that leaves no column of any relation to its statement: one over rows that hold every column it reads. */
 export const fillsWhole: StatementFills = new Map()
 
 /** A nesting's fills, built once for the families of a schema and the installation's codes: a row and what it owns,

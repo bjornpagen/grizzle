@@ -37,7 +37,7 @@ import {
 import { fieldReads } from "#compiler/ir/expr.ts"
 import { type Family, isSequence, isTreeOf, type TreeShape } from "#compiler/ir/family.ts"
 import { familyDrawn, layoutKey } from "#compiler/ir/fill.ts"
-import { type Computed, type Stamped, stampText } from "#compiler/ir/instant.ts"
+import { type Computed, type Stamp, type Stamped, stampText } from "#compiler/ir/instant.ts"
 import {
 	type ColumnKey,
 	columnKey,
@@ -72,6 +72,7 @@ import {
 	keptNodes,
 	type LogicalAnalysis
 } from "#compiler/logical/annotate.ts"
+import { sameExpr } from "#compiler/lower/shapes/catalog/exprs.ts"
 import { everyParentTakes } from "#compiler/lower/shapes/take/decorrelate.ts"
 import {
 	closedIndexOf,
@@ -98,7 +99,12 @@ import { equalQuery } from "#compiler/write/frontend/equal.ts"
 import type { HostChecks, StartData } from "#compiler/runtime/write/normalize.ts"
 import type { WitnessEntry } from "#compiler/runtime/write/witness.ts"
 import type { UnitDelete, UnitMatch, UnitMember, UnitSource } from "#compiler/write/delete/unit.ts"
-import { type NestedLayout, type Nesting, nestingOf } from "#compiler/write/family/nesting.ts"
+import {
+	type NestedLayout,
+	type Nesting,
+	nestingOf,
+	statementFilled
+} from "#compiler/write/family/nesting.ts"
 import { endColumns, memberFamilies } from "#compiler/write/family/statements.ts"
 import {
 	type Removal,
@@ -308,6 +314,34 @@ export interface NestedWrite {
 export interface StratumLayout {
 	readonly nesting: Nesting
 	readonly layout: NestedLayout
+}
+
+/** A source of a relation's rows its stratum inserts or puts as the host sends it (schedule.ts HeldSource): the column
+ * keys it holds, and the fields its rows leave out that a stamp fills (ir/instant.ts Stamped), which the statement that
+ * writes them takes. */
+interface SentSource {
+	readonly source: HeldSource
+	readonly holds: ReadonlyArray<ColumnKey>
+	readonly stamps: ReadonlyArray<Stamped>
+}
+
+/** The sources of a relation's rows a stratum inserts or puts (frontend/compile.ts rowsOf): every one the host sends,
+ * and those a family statement appends them from, its edits' slots and its nested rows. */
+interface RowsOf {
+	readonly sent: ReadonlyArray<SentSource>
+	readonly appended: ReadonlyArray<SentSource>
+}
+
+/**
+ * A stratum's fresh fill as the host leaves it to its statements (frontend/compile.ts freshFillOf, runtime/write/bind.ts
+ * freshOwners): the columns of each relation's rows it leaves to the statement that writes them, by relation, their
+ * stamps' and the generated fields over them, and each counted family member's key and group fields a stamp fills, the
+ * call's one value of each, which its additions statement fills the host's members with (write/family/additions.ts
+ * FreshGroups `drawn`).
+ */
+export interface FreshFill {
+	readonly left: ReadonlyMap<StoredRelationName, ReadonlySet<ColumnKey>>
+	readonly stamps: ReadonlyMap<StoredRelationName, ReadonlyArray<Stamped>>
 }
 
 /** A source of an owner's rows as a family statement reads an owner copy from it (schedule.ts HeldSource), with the
@@ -655,6 +689,8 @@ export interface WriteFrontend extends WriteQueries {
 	/** Each stratum's edits of a family's member relation: its slots of inserted, put and deleted rows, which no action
 	 * of its own writes, its family statements writing them (write/family/additions.ts, removals.ts). */
 	readonly edits: ReadonlyArray<StratumEdit>
+	/** Each stratum's fresh fill as the host leaves it to its statements (`FreshFill`), by stratum. */
+	readonly fresh: ReadonlyMap<StratumAt, FreshFill>
 	/** Each stratum's refills (write/frontend/refill.ts), by its position among the occupied strata, as `edits` holds it. */
 	readonly refills: ReadonlyArray<{ readonly stratum: StratumAt; readonly refill: StratumRefill }>
 	/** The relations whose deltas the read-backs name, in code point order. */
@@ -2609,6 +2645,192 @@ const compile = (
 	}
 
 	/**
+	 * The sources of the rows of `relation` that `stratum` inserts or puts (`RowsOf`), each as the host sends it: a slot
+	 * that writes them, holding its stated fields (insert/input.ts RelationInput), never the counts and ends it carries at
+	 * their starts, which a put of a stored owner leaves as stored; and the stratum's nested rows of them, holding their
+	 * sent layout (runtime/write/nesting.ts sentLayout). Each with the fields its rows leave out that a stamp fills, which
+	 * the statement that writes them takes: a family edit's slot its edit's, an action's slot its action's (ActionInfo
+	 * `stamps`), a nested insert's own slot and the nested rows their nesting's. The one reading of what each source of a
+	 * stratum's rows holds: an owner copy's (`ownerReadingOf`) and a fresh fill's (`freshFillOf`).
+	 */
+	const rowsOf = (stratum: StratumAt, relation: StoredRelationName): RowsOf => {
+		const edited = new Map(
+			edits.flatMap((e) =>
+				e.stratum === stratum &&
+				e.relation === relation &&
+				(e.write.op === "insert" || e.write.op === "put")
+					? [[e.write.slot, e.write.stamps] as const]
+					: []
+			)
+		)
+		const acted = new Map(
+			placedByStratum.flatMap((p) =>
+				p.stratum === stratum
+					? p.built.flatMap((b) =>
+							b.action.relation === relation && b.action.source.kind === "enumerated"
+								? [[b.action.source.slot, b.info.stamps] as const]
+								: []
+						)
+					: []
+			)
+		)
+		const slotted = slots.flatMap((g) =>
+			g.stratum === stratum && g.relation.name === relation
+				? g.inputs.flatMap((input) =>
+						writingSlots(input).map((slot): SentSource => ({
+							source: { kind: "slot", slot: slot.slot },
+							holds: slot.input.stated.map((c) => columnKeyOf(c.name)),
+							stamps:
+								edited.get(slot.slot) ??
+								acted.get(slot.slot) ??
+								(input.kind === "nested" ? (input.nesting.stamps.get(relation) ?? []) : [])
+						}))
+					)
+				: []
+		)
+		const laid = stratumLayouts(nestedWrites, stratum).get(relation)
+		const nested: ReadonlyArray<SentSource> =
+			laid === undefined
+				? []
+				: [
+						{
+							source: { kind: "nestedRows" },
+							holds: ((sent) => [...sent.key, ...sent.columns].map((c) => c.key))(
+								sentLayout(laid.layout)
+							),
+							stamps: laid.nesting.stamps.get(relation) ?? []
+						}
+					]
+		return {
+			sent: [...slotted, ...nested],
+			appended: [
+				...slotted.filter((r) => r.source.kind === "slot" && edited.has(r.source.slot)),
+				...nested
+			]
+		}
+	}
+
+	/**
+	 * A stratum's fresh fill as the host leaves it to its statements (`FreshFill`): the host draws each fresh group of a
+	 * counted family the stratum appends members to (runtime/write/bind.ts freshOwners) from the rows it sends of its
+	 * owners and its members (`rowsOf`), which hold no stamped field. A member's key or group field is held by every
+	 * source of its rows, or stamped by every one with one value of the call, the same term of its parameters (ir/instant.ts
+	 * Stamp `call`, lower/shapes/catalog/exprs.ts sameExpr), which every row of the call holds, so the host's rows of a call
+	 * are keyed by the rest (write/family/nesting.ts keyedOf), and the statement fills it, the host's members with the
+	 * member's own stamps (FreshFill `stamps`). A group field is held on both sides, which the host matches a member to its
+	 * owner by, or stamped on both by one value, a unit the call's rows share, which it matches by no longer; and every
+	 * column the host draws reads no stamped one, the columns it leaves to the statement being the stamps' and the
+	 * generated fields over them (nesting.ts statementFilled). Refused where the host could not draw a group
+	 * (UnsupportedOperation, UnfillableField).
+	 */
+	const freshFillOf = (stratum: StratumAt): FreshFill => {
+		const reached = families.filter(
+			(f) => !isSequence(f) && isNonEmpty(rowsOf(stratum, f.member.name).appended)
+		)
+		/** The expression of the call's value a call stamp fills its field with. */
+		const valueOf = (stamp: Extract<Stamp, { readonly kind: "call" }>) =>
+			defined(
+				stamp.computed.fields.find((f) => f.field.name === stamp.from),
+				`the computed field ${stamp.from}`
+			).expr
+		/** Whether two stamps fill their fields with one value of the call: one record's field, or one term. */
+		const oneValue = (a: Stamped, b: Stamped): boolean =>
+			a.stamp.kind === "call" &&
+			b.stamp.kind === "call" &&
+			((a.stamp.computed === b.stamp.computed && a.stamp.from === b.stamp.from) ||
+				sameExpr(valueOf(a.stamp), valueOf(b.stamp)))
+		/** The stamp every one of `sources` fills `field` with, one value of the call, none where every one holds it;
+		 * refused where some hold it and others stamp it, or they stamp it apart. */
+		const agreed = (
+			sources: ReadonlyArray<SentSource>,
+			relation: StoredRelationName,
+			field: string
+		): Stamped | undefined => {
+			const [first, ...rest] = sources.map((r) => r.stamps.find((st) => st.field.name === field))
+			if (first === undefined && rest.every((st) => st === undefined)) {
+				return undefined
+			}
+			if (
+				first !== undefined &&
+				first.stamp.kind === "call" &&
+				rest.every((st) => st !== undefined && oneValue(first, st))
+			) {
+				return first
+			}
+			return refuse(
+				"UnsupportedOperation",
+				at,
+				`the rows of ${relation} that stratum ${stratum} inserts beside a counted family's members, some of which state ${field} while others leave it to a stamp or stamp it apart: the host draws each fresh group from rows that hold or share it, so state ${field} in every insert of ${relation}, or compute it in each by one term of the call's parameters`
+			)
+		}
+		const stamps = new Map<StoredRelationName, Array<Stamped>>()
+		for (const f of reached) {
+			const members = rowsOf(stratum, f.member.name).appended
+			const owners = rowsOf(stratum, f.owner.name).sent
+			const memberStamps = stamps.getOrInsertComputed(f.member.name, () => [])
+			const fields = [
+				...new Set([...f.member.primaryFields, ...f.group.map((g) => g.member)].map((x) => x.name))
+			]
+			for (const field of fields) {
+				const st = agreed(members, f.member.name, field)
+				if (st !== undefined && !memberStamps.some((m) => m.field.name === field)) {
+					memberStamps.push(st)
+				}
+			}
+			if (!isNonEmpty(owners)) {
+				continue
+			}
+			for (const g of f.group) {
+				const member = agreed(members, f.member.name, g.member.name)
+				const owner = agreed(owners, f.owner.name, g.owner.name)
+				if (
+					(member === undefined) !== (owner === undefined) ||
+					(member !== undefined && owner !== undefined && !oneValue(member, owner))
+				) {
+					refuse(
+						"UnsupportedOperation",
+						at,
+						`a fresh group of ${f.owner.name}.${f.count.name} in stratum ${stratum}, whose member field ${f.member.name}.${g.member.name} and owner field ${f.owner.name}.${g.owner.name} are not one value of the call: the host draws a group whose owner the stratum inserts by matching its members to it, so state both fields, or compute both by one term of the call's parameters`
+					)
+				}
+			}
+		}
+		const owners = [...new Set(reached.map((f) => f.owner))]
+		const walked = [
+			...owners.flatMap((owner) => {
+				const laid = stratumLayouts(nestedWrites, stratum).get(owner.name)
+				const rows = rowsOf(stratum, owner.name).sent
+				/** Its slots' rows stand at the top, but a sequence member's, which stands only where its owner nests it. */
+				const top =
+					rows.some((r) => r.source.kind === "slot") &&
+					!families.some((g) => isSequence(g) && g.member.name === owner.name)
+				return [
+					...(top ? [{ relation: owner, position: { kind: "top" } as const }] : []),
+					...(laid === undefined ? [] : [{ relation: owner, position: laid.layout.position }])
+				]
+			}),
+			...reached.map((f) => ({
+				relation: f.member,
+				position: { kind: "member", family: f } as const
+			}))
+		]
+		const filled = unwrap(
+			statementFilled(
+				laws.theory.fill,
+				walked,
+				(relation) =>
+					new Set(
+						rowsOf(stratum, relation).sent.flatMap((r) =>
+							r.stamps.map((st) => columnKeyOf(st.field.name))
+						)
+					),
+				at
+			)
+		)
+		return { left: new Map([...filled].filter(([, keys]) => keys.size > 0)), stamps }
+	}
+
+	/**
 	 * A stratum's family work as one removals statement and one additions statement of each member relation
 	 * (write/family/removals.ts, write/family/additions.ts), drawing its refills (frontend/refill.ts StratumRefill): a
 	 * member's removals where an edit puts or deletes it or a refill draws a family of it again, its additions where one
@@ -2774,12 +2996,9 @@ const compile = (
 		 * The rows of `owner` the stratum inserts as the family statement that appends `statement` reads its owner copies
 		 * from them (`OwnerReading`). A stamp is taken once in its stratum, by the statement that writes the rows carrying it
 		 * (ir/instant.ts stampText, write/family/additions.ts stampedSources), so a statement holds an owner's stamped
-		 * columns only where it appends the owner itself, and then reads the owner's rows as it appends them: each edit slot
-		 * of it the stratum inserts or puts by, its stated fields (insert/input.ts RelationInput) and the stamps the
-		 * statement takes of it, and its nested rows, their sent layout and their nesting's stamps. Any other statement
-		 * reads them as the host sends them, without a stamp: each slot that inserts or puts them, its stated fields, and
-		 * its nested rows, their sent layout. A slot's stated fields are never the counts and ends it carries at their
-		 * starts, which a put of a stored owner leaves as stored.
+		 * columns only where it appends the owner itself, and then reads the owner's rows as it appends them, each source it
+		 * appends them from with the stamps it takes of it (`RowsOf` appended); any other statement reads them as the host
+		 * sends them, without a stamp (`RowsOf` sent).
 		 */
 		const ownerReadingOf = (
 			owner: StoredRelationName,
@@ -2799,53 +3018,13 @@ const compile = (
 			) {
 				return { kind: "described" }
 			}
-			const keysOf = (stamps: ReadonlyArray<Stamped>) =>
-				stamps.map((st) => columnKeyOf(st.field.name))
-			const stated = (slot: MemberSlot) => slot.input.stated.map((c) => columnKeyOf(c.name))
-			const writing = slots.flatMap((g) =>
-				g.stratum === stratum && g.relation.name === owner ? g.inputs.flatMap(writingSlots) : []
-			)
-			const laid = stratumLayouts(nestedWrites, stratum).get(owner)
-			const sent = laid === undefined ? undefined : sentLayout(laid.layout)
-			const nestedRows = (stamps: ReadonlyArray<Stamped>): ReadonlyArray<OwnerSourceRead> =>
-				sent === undefined
-					? []
-					: [
-							{
-								source: { kind: "nestedRows" },
-								holds: [...[...sent.key, ...sent.columns].map((c) => c.key), ...keysOf(stamps)]
-							}
-						]
-			/** The stamps the statement takes of each slot of `owner` it appends the owner from, by the slot's name. */
-			const taken = new Map(
-				own.flatMap((e) =>
-					e.relation === owner && (e.write.op === "insert" || e.write.op === "put")
-						? [[e.write.slot, e.write.stamps] as const]
-						: []
-				)
-			)
+			const rows = rowsOf(stratum, owner)
 			const sources: ReadonlyArray<OwnerSourceRead> = statement.includes(owner)
-				? [
-						...writing.flatMap((slot): ReadonlyArray<OwnerSourceRead> => {
-							const stamps = taken.get(slot.slot)
-							return stamps === undefined
-								? []
-								: [
-										{
-											source: { kind: "slot", slot: slot.slot },
-											holds: [...stated(slot), ...keysOf(stamps)]
-										}
-									]
-						}),
-						...nestedRows(laid?.nesting.stamps.get(owner) ?? [])
-					]
-				: [
-						...writing.map((slot): OwnerSourceRead => ({
-							source: { kind: "slot", slot: slot.slot },
-							holds: stated(slot)
-						})),
-						...nestedRows([])
-					]
+				? rows.appended.map((r) => ({
+						source: r.source,
+						holds: [...r.holds, ...r.stamps.map((st) => columnKeyOf(st.field.name))]
+					}))
+				: rows.sent.map((r) => ({ source: r.source, holds: r.holds }))
 			return isNonEmpty(sources) ? { kind: "sources", sources } : { kind: "none" }
 		}
 		/** Where an owner copy of `f` reads the owner column `to` (schedule.ts CopySource), its owner's rows `reading` as
@@ -3430,6 +3609,7 @@ const compile = (
 		),
 		nested: Object.freeze(nestedWrites),
 		edits: stratumEdits,
+		fresh: new Map(placedByStratum.map(({ stratum }) => [stratum, freshFillOf(stratum)] as const)),
 		refills: Object.freeze(stratumRefills),
 		deltas: Object.freeze(namedDeltas),
 		references: Object.freeze(references),

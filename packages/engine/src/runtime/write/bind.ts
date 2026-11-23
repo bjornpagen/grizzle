@@ -56,7 +56,6 @@ import {
 	type FilledNode,
 	type Filler,
 	fillRefusal,
-	fillsWhole,
 	type GeneratedNull,
 	type HostNode
 } from "#compiler/runtime/write/fill.ts"
@@ -67,7 +66,12 @@ import {
 	sentForm,
 	type ServedWriteChoice
 } from "#compiler/runtime/write/flight.ts"
-import { type Fact, type FillContext, groupReader } from "#compiler/runtime/write/keys.ts"
+import {
+	type Fact,
+	type FillContext,
+	type Grouped,
+	groupReader
+} from "#compiler/runtime/write/keys.ts"
 import {
 	type LaidColumn,
 	type LaidLayout,
@@ -1278,7 +1282,16 @@ const freshOwners = (
 	const slotsOut = new Map<ParamId, NormalizedSlot>()
 	const nestedOut = new Map<StratumAt, Map<StoredRelationName, ReadonlyArray<NestedRow>>>()
 	const membersOut = new Map<StratumAt, ReadonlyMap<string, ReadonlyArray<CellRow>>>()
-	for (const { stratum: s, appended, counted: reached, fresh: layouts, owners } of fresh) {
+	for (const { stratum: s, appended, counted: reached, fresh: layouts, owners, left } of fresh) {
+		/** The columns of `relation`'s rows the stratum's fills leave to their statements (FreshStratum `left`). */
+		const leftOf = (relation: StoredRelationName): ReadonlySet<ColumnKey> =>
+			left.get(relation)?.pending ?? new Set()
+		/** A counted family's group as the host matches a member to its owner by: every pair but those the call's one
+		 * value fills on both sides, which every row of the call holds alike and none the host holds (FreshStratum
+		 * `left`). */
+		const hostGroup = (f: CountedFamily): Grouped => ({
+			group: f.group.filter((g) => !leftOf(f.member).has(columnKeyOf(g.member.name)))
+		})
 		/** A counted family's fresh layout, which the binding decided for every family the stratum reaches. */
 		const layoutOf = (f: CountedFamily): LaidLayout =>
 			defined(layouts.get(familyKey(f.id)), `the fresh layout of ${f.owner}.${f.count}`)
@@ -1348,7 +1361,7 @@ const freshOwners = (
 		/** Each counted family's appended members' cells, by the group they name. */
 		const byGroup = new Map(
 			counted.map((f) => {
-				const groupOf = groupReader(ctx, f, "member", ctx.columns(f.member))
+				const groupOf = groupReader(ctx, hostGroup(f), "member", ctx.columns(f.member))
 				const groups = new TextsMap<Array<CellRow>>()
 				for (const member of membersOf(f.member)) {
 					const group = groupOf(member.values, member.texts)
@@ -1376,7 +1389,7 @@ const freshOwners = (
 			const grouped = families.map((f) => ({
 				family: f,
 				key: familyKey(f.id),
-				groupOf: groupReader(ctx, f, "owner", ownerColumns),
+				groupOf: groupReader(ctx, hostGroup(f), "owner", ownerColumns),
 				groups: byGroup.get(familyKey(f.id))
 			}))
 			/** The members each family appends to the owner `row`, by the owner's group in it. */
@@ -1410,7 +1423,7 @@ const freshOwners = (
 						}))
 					},
 					position,
-					fillsWhole
+					left
 				)
 				if (filled.ok) {
 					keepMembers(filled.value, inputs)
