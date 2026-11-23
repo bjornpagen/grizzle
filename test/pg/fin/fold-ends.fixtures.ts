@@ -2,14 +2,20 @@
 
 import { assert, deepEquals, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { constant, type Gen, int, weighted } from "@bjornpagen/testing/gen"
+import type { Need } from "@bjornpagen/testing/property"
 import { type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/swarm"
-import { Array as Arr, Formatter, Option, Record as Rec } from "effect"
-import type { WrittenOutcome } from "#adapter/db/handles.ts"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec, type Scope } from "effect"
+import { memberCalls, type OnceCalls, type WrittenOutcome } from "#adapter/db/handles.ts"
+import type { OpenError } from "#adapter/errors/execution.ts"
+import type { ServedRefusal } from "#adapter/public/compile.ts"
+import type { LoadedMember } from "#adapter/served/load.ts"
 import type { MonoidName } from "#compiler/ir/desc.ts"
 import type { Law } from "#compiler/public/changeset.ts"
+import type { AnyLogin, AnyLoginRole } from "#compiler/public/schema.ts"
 import type { AnyRelation } from "#compiler/types/schema/relation.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
+import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import type { WriteAnswer } from "#test/support/calls.ts"
 import {
 	type Breaking,
@@ -40,6 +46,13 @@ import {
 } from "#test/support/families/ends.ts"
 import { type Installed, installedTemplate } from "#test/support/install-migrate.ts"
 import { refusedLaws } from "#test/support/refused.ts"
+import {
+	member,
+	openServedDbOf,
+	type ServedDb,
+	type ServedFixture,
+	servedFixture
+} from "#test/support/served-db.ts"
 import type { SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 
@@ -595,10 +608,10 @@ type CallFacts = Readonly<Record<string, Readonly<Record<string, ReadonlyArray<u
  * at its first slot, whose facts are every such slot's in order, as its stratum's union holds them; and the call's
  * facts under each op and relation.
  */
-export const servedOf = (
+const servedOf = (
 	value: unknown,
 	slots: ReadonlyArray<ServedSlot>
-): { readonly changes: ChangeSetValue; readonly facts: CallFacts } => {
+): { readonly changes: ChangeSetValue; readonly shape: string; readonly facts: CallFacts } => {
 	const held = Arr.dedupeWith(slots, (a, b) => a.op === b.op && a.relation.name === b.relation.name)
 	const changes = Arr.reduce(held, ChangeSet.empty(value), (cs, slot) => {
 		switch (slot.op) {
@@ -630,8 +643,73 @@ export const servedOf = (
 			]
 		)
 	)
-	return { changes, facts }
+	return {
+		changes,
+		shape: Arr.join(
+			Arr.map(held, (h) => `${h.op} ${h.relation.name}`),
+			", "
+		),
+		facts
+	}
 }
+
+/** What a case compiles through: its served Db over its kind's seat (db), and each write's member and facts (write). */
+export interface EndsCompiles {
+	readonly db: (
+		done: Installed,
+		role: AnyLoginRole
+	) => Effect.Effect<ServedDb, ServedRefusal | OpenError, Scope.Scope>
+	readonly write: (
+		db: ServedDb,
+		done: Installed,
+		value: unknown,
+		slots: ReadonlyArray<ServedSlot>
+	) => Effect.Effect<
+		{ readonly calls: OnceCalls; readonly facts: CallFacts },
+		ServedRefusal | OpenError
+	>
+}
+
+/**
+ * Each kind's served fixture of its full world's login, by its seat's database and schema, and each write's served
+ * member, by its schema and its shape, compiled once per worker: a write's ChangeSet is a function of its shape alone,
+ * the ops and relations it states in order (servedOf), and a served file a function of the installation's snapshot, the
+ * login and its programs (test/support/served-db.ts servedFixture, ServedDb.load), so every later case or write of one
+ * runs what the first compiled. A case's Db is its own (openServedDbOf), and so is each member's call on it
+ * (memberCalls). Each case compiled its own before: 230 ms a case for the fixture and 433 ms a write for its member,
+ * 375 writes of 58 shapes in 150 cases (f7d32b7c1, the lane's family).
+ */
+export const endsCompiles = {
+	key: "test/pg/fin/fold-ends.fixtures.ts endsCompiles",
+	budget: fixtureNeedBudget,
+	runNeeds: [],
+	open: Effect.sync(() => {
+		const fixtures = new Map<string, ServedFixture<AnyLogin>>()
+		const writes = new Map<string, LoadedMember>()
+		const compiles: EndsCompiles = {
+			db: (done, role) =>
+				Effect.gen(function* () {
+					const key = `${done.database} ${done.schema}`
+					const fixture = fixtures.get(key) ?? (yield* servedFixture(done, role.login))
+					fixtures.set(key, fixture)
+					return yield* openServedDbOf(fixture, done, role, {})
+				}),
+			write: (db, done, value, slots) =>
+				Effect.gen(function* () {
+					const served = servedOf(value, slots)
+					const key = `${done.database} ${done.schema} ${served.shape}`
+					const loaded =
+						writes.get(key) ??
+						(yield* Effect.map(db.load({ write: served.changes }), (members) =>
+							member(members, "write")
+						))
+					writes.set(key, loaded)
+					return { calls: memberCalls(db.ctx, loaded), facts: served.facts }
+				})
+		}
+		return Effect.succeed(compiles)
+	})
+} as const satisfies Need<EndsCompiles>
 
 /** The forms a write takes in each monoid's family it touches. */
 export const formsTouched = (

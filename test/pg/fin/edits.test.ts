@@ -33,7 +33,9 @@ import { withLayer } from "#test/support/with-layer.ts"
 /**
  * Counted put and delete through grizzle's apply on PostgreSQL 19 put a span-keyed owner in place, leaving every owner's label, count and fold end and every member as the families model states them.
  *
- * Its pre-conversion budget: runs 24, coverage cases 40 (test/pg/fin/edits.test.ts at fd71eef13).
+ * The runner's budget: its kept case is a real catch, a span-keyed owner's put in place refused SpanKeyChange before
+ * 1bf388c9e, which no kill plants again: today's put reads a stored row that differs at its family's fields as a change,
+ * not a refusal, so the comparison that fix narrowed, widened again, refuses nothing (it survived every budget tried).
  */
 export const countedPutAndDeleteThroughGrizzlesApplyOnPostgreSQL19PutASpanKeyedOwnerInPlaceLeavingEveryOwnersLabelCountAndFoldEndAndEveryMemberAsTheFamiliesModelStatesThem =
 	property.explore(spanSketchGen, {
@@ -132,7 +134,6 @@ export const countedPutAndDeleteThroughGrizzlesApplyOnPostgreSQL19PutASpanKeyedO
 			kind: "second-implementation",
 			name: "the families model of span-keyed owners (test/support/families/generate.ts spanOwnersGen) and each family's sum of its step values"
 		},
-		budget: { runs: 24, steered: 40 },
 		kept: [
 			{
 				token: ReplayToken(

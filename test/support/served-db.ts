@@ -336,8 +336,21 @@ export const openServedDb = (
 	role: AnyLoginRole,
 	payload: Json
 ): Effect.Effect<ServedDb, ServedRefusal | OpenError, Scope.Scope> =>
+	Effect.flatMap(servedFixture(installed, role.login), (fixture) =>
+		openServedDbOf(fixture, installed, role, payload)
+	)
+
+/**
+ * openServedDb over `fixture`, its login's served fixture over `installed` (servedFixture), compiled already: a case
+ * that opens the same login over the same installation again reads the fixture it compiled once.
+ */
+export const openServedDbOf = (
+	fixture: ServedFixture<AnyLogin>,
+	installed: Installed,
+	role: AnyLoginRole,
+	payload: Json
+): Effect.Effect<ServedDb, OpenError, Scope.Scope> =>
 	Effect.gen(function* () {
-		const fixture = yield* servedFixture(installed, role.login)
 		const context = yield* Layer.build(fixture.layer)
 		const { ctx } = yield* Effect.provideContext(
 			openServed(servedRoleOf(fixture.login, role), { token: tokenOf(payload) }),

@@ -12,7 +12,7 @@ import {
 	refusedBy,
 	rowsAfter,
 	schemas,
-	servedOf,
+	endsCompiles,
 	type Situation,
 	situations,
 	slotsOf,
@@ -29,7 +29,6 @@ import {
 	storedRows,
 	treeRows
 } from "#test/support/families/ends.ts"
-import { member, openServedDb } from "#test/support/served-db.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
@@ -37,11 +36,14 @@ import { fullWorld } from "#test/support/worlds.ts"
 /**
  * Every fold's end through grizzle's apply on PostgreSQL 19 stores exactly the README's fold of every member's step, every end and running value, after every write of every family kind.
  *
- * Its pre-conversion budget: runs 16, coverage cases 320 (test/pg/fin/fold-ends.test.ts at d8eed1786).
+ * The runner's budget: its kept cases are real catches, the downstream's or-end written as its identity (fixed in
+ * 1bf3dbb0a, in write/family/edit.ts's host planner, deleted since in 48c2c38e3) and its concat over generated pieces
+ * (dca3d40b0, a feature, no fix), and PostgreSQL's summarized SSI conflict-out (5500c92e8) another, none of which a kill
+ * plants again in today's code.
  */
 export const everyFoldsEndThroughGrizzlesApplyOnPostgreSQL19StoresExactlyTheREADMEsFoldOfEveryMembersStepEveryEndAndRunningValueAfterEveryWriteOfEveryFamilyKind =
 	property.explore(caseGen, {
-		needs: Substrate.oneOf(endsTemplates, Substrate.seat),
+		needs: { ...Substrate.oneOf(endsTemplates, Substrate.seat), compiles: endsCompiles },
 		situations: situations satisfies ReadonlyArray<Reached<Situation>>,
 		check: (seats, c: Case<Situation>) => (sketch) =>
 			Effect.scoped(
@@ -51,15 +53,14 @@ export const everyFoldsEndThroughGrizzlesApplyOnPostgreSQL19StoresExactlyTheREAD
 							const s = schemas[sketch.kind]
 							const done = taken.value
 							const value = s.value(done.schema)
-							const world = fullWorld(value, {})
-							const db = yield* openServedDb(done, world.server.roles.app, {})
+							const compiles = yield* seats.compiles
+							const db = yield* compiles.db(done, fullWorld(value, {}).server.roles.app)
 							const o = { kind: sketch.kind, s, done, value, db } as const
 							let state = emptyState
 							for (const w of sketch.writes) {
-								const served = servedOf(o.value, slotsOf(o.s, w))
-								const members = yield* o.db.serve({ write: served.changes })
+								const served = yield* compiles.write(o.db, o.done, o.value, slotsOf(o.s, w))
 								const outcome = yield* writeAnswerOf(
-									writeOnce(member(members, "write"))({ params: {}, facts: served.facts })
+									writeOnce(served.calls)({ params: {}, facts: served.facts })
 								)
 								const broken = brokenOf(o.s, rowsAfter(o.s, state, w))
 								if (Arr.isReadonlyArrayNonEmpty(broken)) {
@@ -129,7 +130,6 @@ export const everyFoldsEndThroughGrizzlesApplyOnPostgreSQL19StoresExactlyTheREAD
 			kind: "specification",
 			name: "the README's fold of each family's members (test/support/families/ends.ts)"
 		},
-		budget: { runs: 16, steered: 320 },
 		kept: [
 			{
 				token: ReplayToken(
