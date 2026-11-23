@@ -28,14 +28,9 @@ import {
 	seededTemplate
 } from "#test/support/install-migrate.ts"
 import type { SqlError } from "#test/support/pg.ts"
-import {
-	type Attempted,
-	attempt,
-	attemptChecked,
-	type Checked,
-	refusalText
-} from "#test/support/substrate.ts"
+import { type Attempted, attempt, attemptChecked, type Checked } from "#test/support/substrate.ts"
 import type { PgErrorFields, TransactionRolledBack } from "#test/support/substrate/errors.ts"
+import { clearRows, tablesGroup } from "#test/support/substrate/replace.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import {
 	ownerSession,
@@ -381,50 +376,28 @@ export const constraintText = (c: Catalogued): string =>
 		onSome: (t) => ` → ${t.relation}(${Arr.join(t.columns, ", ")})`
 	})}${c.deferrable ? " deferrable" : ""}${c.cascades ? " on update cascade" : ""}`
 
-/** The TRUNCATE of every row of the relations, in one statement. */
-const truncateSql = (seat: Seat, relations: Arr.NonEmptyReadonlyArray<string>): string =>
-	`TRUNCATE ${Arr.join(Arr.map(relations, seat.table), ", ")}`
-
-/** Removes every row of the relations in one SERIALIZABLE transaction, as the guard requires, so a case starts empty. */
+/**
+ * Removes every row of the relations, so a case starts empty: the one reset (substrate/replace.ts clearRows), a READ
+ * COMMITTED deletion under the replica role, which fires no guard and holds no SIREAD lock.
+ */
 export const cleared = (
 	seat: Seat,
 	relations: Arr.NonEmptyReadonlyArray<string>
-): Effect.Effect<void, SqlError | TransactionRolledBack> =>
-	Effect.gen(function* () {
-		yield* seat.session.begin
-		yield* Effect.onError(seat.session.query(truncateSql(seat, relations), []), () =>
-			Effect.ignore(seat.session.rollback)
-		)
-		yield* seat.session.commit
-	})
+): Effect.Effect<void, SqlError> =>
+	clearRows(seat.session, tablesGroup(Arr.map(relations, seat.table)))
 
 /**
- * Replaces every row of the relations with what `statements` write, in one SERIALIZABLE transaction whose first
- * statement truncates them (substrate/replace.ts replaceRows: it reads no version another transaction wrote, so it is
- * never an SSI pivot), so the case it starts meets only its own state and leaves its rows for the next replacement:
- * its verdict, a refusal's moment counted over `statements`. The TRUNCATE's own refusal is the suite's defect.
+ * Replaces every row of the relations with what `statements` write: the relations emptied (cleared), then one
+ * SERIALIZABLE transaction of the statements, which reads no version a serializable transaction wrote (substrate/
+ * replace.ts replaceRows), so it is never an SSI pivot and the case it starts meets only its own state and leaves its
+ * rows for the next replacement: its verdict, a refusal's moment counted over `statements`.
  */
 export const replaced = (
 	seat: Seat,
 	relations: Arr.NonEmptyReadonlyArray<string>,
 	statements: ReadonlyArray<string>
 ): Effect.Effect<Attempted, SqlError | TransactionRolledBack> =>
-	Effect.flatMap(
-		attempt(seat.session, [truncateSql(seat, relations), ...statements]),
-		(real): Effect.Effect<Attempted> => {
-			if (real.kind === "committed" || real.moment.kind === "commit") {
-				return Effect.succeed(real)
-			}
-			const index = real.moment.index - 1
-			return index < 0
-				? Effect.die(
-						new Error(
-							`${seat.label}: the replacing TRUNCATE was refused: ${refusalText(real.fields)}`
-						)
-					)
-				: Effect.succeed({ ...real, moment: { kind: "statement", index } })
-		}
-	)
+	Effect.andThen(cleared(seat, relations), attempt(seat.session, statements))
 
 /**
  * How a case's transaction ends: `checked`, its commit's checks run by SET CONSTRAINTS ALL IMMEDIATE, what it left
@@ -470,7 +443,7 @@ export const refusedAtCommitBy = (end: End): EndFeature =>
 /**
  * Where a case's transaction starts on its seat: `empty`, the seat holding no row, as every case of its suite leaves it
  * (ended); or `replaced`, its rows first replaced by the state `before` (replaced), whose rows, and whatever the case
- * commits over them, the next case's replacement truncates.
+ * commits over them, the next case's replacement empties.
  */
 export type Start<S> =
 	| { readonly kind: "empty" }
