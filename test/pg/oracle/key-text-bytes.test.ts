@@ -63,7 +63,7 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  * key beside its companions is inserted, and one byte more is refused by its domain.
  */
 export const exactlyKeyTextBytes = property.explore(caseSpace, {
-	needs: { substrate: Substrate.installing },
+	needs: { substrate: Substrate.fresh },
 	/**
 	 * Its search budget: the fewest runs at which each kill it declares still fails a witness, the cull rule's measure
 	 * (grizzle main, 2026-11-23).

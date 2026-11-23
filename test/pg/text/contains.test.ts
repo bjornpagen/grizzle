@@ -148,7 +148,7 @@ export const textContainsSqlInAQueryAndInACheckIsTheHostsVerdictAndTheReferences
  */
 export const aStaffSearchWhoseTermIsAQueryParameterFindsExactlyTheMembersWhoseNameHoldsItAsciisCaseFoldedOnBothSidesOrAsItStands =
 	property.explore(searchCase, {
-		needs: { seat: Substrate.seat(staffTemplate) },
+		needs: { staff: Substrate.freshOf(staffTemplate) },
 		situations: searchFeatures,
 		check: (resources, c: Case<SearchFeature>) => (k: SearchCase) => searchCaseRun(resources)(k, c),
 		oracle: {

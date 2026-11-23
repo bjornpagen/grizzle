@@ -330,17 +330,17 @@ const tagOf = (row: FoldRow, other: string): Option.Option<string> =>
 	})
 
 /**
- * One repro case on the worker's seat: its attributes written alone, which no rule reads without a tag, and read back
+ * One repro case on its own clone: its attributes written alone, which no rule reads without a tag, and read back
  * folded by the query, every one the host's fold; then its tags written, accepted exactly where each tag is its
  * attribute's text folded by the host, and otherwise refused naming the rule; Folded, read by a query once accepted, is
  * every tagged `at`.
  */
 export const reproCase =
-	(resources: Resources<{ readonly seat: TemplateNeed<SubstrateCase<Generated>> }>) =>
+	(resources: Resources<{ readonly fold: TemplateNeed<SubstrateCase<Generated>> }>) =>
 	(k: FoldCase, c: Case<ReproFeature>) =>
 		Effect.scoped(
 			Effect.gen(function* () {
-				const { value: generated } = yield* resources.seat
+				const { value: generated } = yield* resources.fold
 				const { rule, world } = foldWorld(generated.installed.declared)
 				const served = servedGenerated(generated, world.server)
 				const context = yield* Layer.build(served.layer)

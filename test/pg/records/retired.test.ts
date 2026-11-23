@@ -58,7 +58,7 @@ const reached = (
 /** Retiring a run removes every row of it from every relation of its records, and nothing of another run. */
 export const aRunRetiredRemovesItsRowsFromEveryRelationOfItsRecordsAndNothingOfAnother =
 	property.explore(retiredCaseGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: [
 			"rows below the root retired",
 			"a carried run renamed",

@@ -46,7 +46,7 @@ import { isNativePool } from "#test/support/worlds/execute/pool.ts"
  */
 export const handsVercelAReleasesIdleWaitExactlyWhenBothVercelUrlAndVercelRegionAreSet =
 	property.exhaust(finite(envGen), {
-		needs: { login: Substrate.seat(vercelLogin) },
+		needs: { login: Substrate.freshOf(vercelLogin) },
 		situations: ["url and region", "url only", "region only", "neither"] satisfies ReadonlyArray<
 			Reached<VercelEnvFeature>
 		>,
@@ -54,7 +54,7 @@ export const handsVercelAReleasesIdleWaitExactlyWhenBothVercelUrlAndVercelRegion
 			({ login }, c: Case<VercelEnvFeature>) =>
 			([url, region]) =>
 				Effect.scoped(
-					Effect.flatMap(login, ({ substrate: seat, value: reader }) =>
+					Effect.flatMap(login, ({ substrate, value: reader }) =>
 						Effect.provideService(
 							Effect.gen(function* () {
 								const { onVercelPool } = recordedAttach()
@@ -84,7 +84,7 @@ export const handsVercelAReleasesIdleWaitExactlyWhenBothVercelUrlAndVercelRegion
 								assert.equal(released, 1, "the lease's one release")
 							}),
 							Substrate,
-							seat
+							substrate
 						)
 					)
 				),
@@ -115,7 +115,7 @@ export const handsVercelAReleasesIdleWaitExactlyWhenBothVercelUrlAndVercelRegion
  */
 export const attachesPgsOwnPoolOnceAndKeepsTheInstanceAlivePastTheIdleTimeoutAfterEachRelease =
 	property.explore(poolCaseGen, {
-		needs: { login: Substrate.seat(vercelLogin) },
+		needs: { login: Substrate.freshOf(vercelLogin) },
 		situations: [
 			"a burst the pool holds at once",
 			"several bursts",
@@ -127,7 +127,7 @@ export const attachesPgsOwnPoolOnceAndKeepsTheInstanceAlivePastTheIdleTimeoutAft
 			({ login }, k: Case<VercelPoolFeature>) =>
 			(c) =>
 				Effect.scoped(
-					Effect.flatMap(login, ({ substrate: seat, value: reader }) =>
+					Effect.flatMap(login, ({ substrate, value: reader }) =>
 						Effect.provideService(
 							Effect.gen(function* () {
 								/**
@@ -209,7 +209,7 @@ export const attachesPgsOwnPoolOnceAndKeepsTheInstanceAlivePastTheIdleTimeoutAft
 								}
 							}),
 							Substrate,
-							seat
+							substrate
 						)
 					)
 				),

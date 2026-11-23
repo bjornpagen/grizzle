@@ -433,17 +433,17 @@ export const certifiedShapeTemplate = (
 		reset: (shape) => installationGroup(shape.names)
 	})
 
-/** A shape a case races, and the substrate of the seat it is installed in, where its race runs (raceOn). */
-export interface SeatedShape {
+/** A shape a case races, and the substrate of the case's own clone it is installed in, where its race runs (raceOn). */
+export interface RacedShape {
 	readonly shape: InstalledShape
-	readonly seat: SubstrateShape
+	readonly substrate: SubstrateShape
 }
 
-/** A case's seat of a generated shape's template (generatedShapeTemplate) as the shape it races. */
-export const seatedGenerated =
+/** A case's own clone of a generated shape's template (generatedShapeTemplate) as the shape it races. */
+export const racedGenerated =
 	(build: (name: string) => Shape) =>
-	(taken: SubstrateCase<Generated>): Effect.Effect<SeatedShape, CompileError | OpenError> =>
-		Effect.map(generatedShapeIn(taken, build), (shape) => ({ shape, seat: taken.substrate }))
+	(taken: SubstrateCase<Generated>): Effect.Effect<RacedShape, CompileError | OpenError> =>
+		Effect.map(generatedShapeIn(taken, build), (shape) => ({ shape, substrate: taken.substrate }))
 
 /** A SQL text literal of `text`: in quotes, its quotes doubled. */
 const quoted = (text: string): string => `'${Str.replaceAll("'", "''")(text)}'`

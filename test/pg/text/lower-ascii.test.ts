@@ -265,7 +265,7 @@ export const lowerAsciisOneSqlInAQueryAndInACheckFoldsATextPastEveryOperandTrans
  */
 export const theReproCompilesAndHoldsAQueryFoldsEachAttributesUnboundedTextAsTheHostDoesAndTheRuleOverFoldedAcceptsExactlyTheTagsTheHostFoldsFromTheirAttributes =
 	property.explore(foldCase, {
-		needs: { seat: Substrate.seat(foldTemplate) },
+		needs: { fold: Substrate.freshOf(foldTemplate) },
 		situations: reproFeatures,
 		check: (resources, c: Case<ReproFeature>) => (k: FoldCase) => reproCase(resources)(k, c),
 		oracle: {

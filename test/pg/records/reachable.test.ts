@@ -39,7 +39,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aRetirementKeepsTheRecordsOfEveryKeyAHolderStillNamesAndReleasesEveryOtherKeyItTookTheLastHolderOfFromEveryRelationOfTheRecords =
 	property.explore(reachableCaseGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		budget: { runs: 40, steered: 120 },
 		situations: [
 			"kept by a holder of its retired holder's own relation",

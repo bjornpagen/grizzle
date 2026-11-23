@@ -80,7 +80,7 @@ const reached = (c: AttachedCase): ReadonlyArray<RecordsFeature> => {
 export const aQuerysRecordsReadBackExactlyTheRowsTheQueryDelivered = property.explore(
 	attachedCaseGen,
 	{
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: [
 			"an option stored",
 			"one child stored",

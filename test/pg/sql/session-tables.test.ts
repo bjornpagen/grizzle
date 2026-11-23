@@ -46,7 +46,7 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aSessionTablesEmptyingKeepsItsFileWhileItHoldsItsOnePageAndGivesTheFileBackOnceItHoldsMore =
 	property.explore(usesGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: [
 			"kept its file",
 			"gave its file back",

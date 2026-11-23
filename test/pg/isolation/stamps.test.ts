@@ -42,8 +42,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 export const callsThatAppendAtOneChildTakeTurnsAndStampAsTheirSerialRunInCommitOrderDoesWhileCallsAtDifferentChildrenNeverWaitOnEachOther =
 	property.explore(steered(aimedStampRaces), {
 		needs: {
-			readCommitted: Substrate.seat(readCommittedShape),
-			serializable: Substrate.seat(serializableShape)
+			readCommitted: Substrate.freshOf(readCommittedShape),
+			serializable: Substrate.freshOf(serializableShape)
 		},
 		situations: [
 			"a waiter whose holder committed",
@@ -58,18 +58,18 @@ export const callsThatAppendAtOneChildTakeTurnsAndStampAsTheirSerialRunInCommitO
 			({ readCommitted, serializable }, c: Case<StampFeature>) =>
 			(race) =>
 				Effect.gen(function* () {
-					const rcSeat = yield* readCommitted
-					const serSeat = yield* serializable
-					const certified = rcSeat.value.generated.get("writer")
+					const rcTaken = yield* readCommitted
+					const serTaken = yield* serializable
+					const certified = rcTaken.value.generated.get("writer")
 					const rc = yield* Effect.provideService(
-						runRace(rcSeat.value, race, "readCommitted"),
+						runRace(rcTaken.value, race, "readCommitted"),
 						Substrate,
-						rcSeat.substrate
+						rcTaken.substrate
 					)
 					const ser = yield* Effect.provideService(
-						runRace(serSeat.value, race, "serializable"),
+						runRace(serTaken.value, race, "serializable"),
 						Substrate,
-						serSeat.substrate
+						serTaken.substrate
 					)
 					for (const f of [
 						...featuresOf(race, rc, "readCommitted"),

@@ -84,7 +84,7 @@ export const nULLInEveryPositionIsJudgedByPostgreSQLsThreeValuedLogicInEveryRule
 	property.explore(
 		steered<NullCase, Feature>((steering) => recorded(steeredCases(steering), recordedNullCases)),
 		{
-			needs: { substrate: Substrate.installing },
+			needs: { substrate: Substrate.fresh },
 			situations: situations satisfies ReadonlyArray<Reached<Feature>>,
 			check:
 				({ substrate }, c: Case<Feature>) =>

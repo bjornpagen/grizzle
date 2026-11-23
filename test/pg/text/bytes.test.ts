@@ -54,7 +54,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const strBytesGeneratedStoresExactlyTheTextsOfItsPatternOfAtMostNBytesAsTheAnalysisBoundsAndJudgesThem =
 	property.explore(array(caseGen, { min: cases, max: cases }), {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: requiredFeatures satisfies ReadonlyArray<Reached<BytesFeature>>,
 		budget: { runs: 1, steered: 1 },
 		check:

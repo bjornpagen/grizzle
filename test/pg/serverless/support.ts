@@ -89,7 +89,7 @@ export const vercelRuntime = (
 /**
  * The number of backends logged in as `role` in the substrate's database. A role is the cluster's, and a template's
  * login is every clone's on the member (substrate.ts installTemplate), so a case counts the backends of its own
- * database, where its pools connect, never another worker's clone's.
+ * database, where its pools connect, never another case's clone's.
  */
 export const roleBackends = (role: string) =>
 	Effect.gen(function* () {

@@ -22,7 +22,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Agrees with the reference on generated programs, read through every public form, each case installing its program's
- * schema through its migration on the worker's clone, as each case of the search installed its own.
+ * schema through its migration on a database of its own, as each case of the search installed its own.
  *
  * It searches with the runner's budget (runner/limits.ts searchRuns, steeredCases): it declares no kill, and its
  * catch, issue #3's, which its two kept cases hold, was cured by a representation, the value-only Decimal
@@ -33,7 +33,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 export const agreesWithTheReferenceOnGeneratedProgramsReadThroughEveryPublicForm = property.explore(
 	publicCases,
 	{
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: publicSituations satisfies ReadonlyArray<Reached<PublicFeature>>,
 		check:
 			({ substrate }, c: Case<PublicFeature>) =>

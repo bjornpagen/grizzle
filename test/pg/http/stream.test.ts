@@ -39,7 +39,7 @@ import { testVerify } from "#test/support/worlds.ts"
  */
 export const anAnsweredLoginIsServedOverHTTPWithNoLiveSourceEachReadAnsweredOnceThenEnded =
 	property.explore(aimed(caseGen, aims), {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: [
 			"a set read",
 			"an ordered read from its start",

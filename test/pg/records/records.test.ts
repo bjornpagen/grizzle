@@ -37,7 +37,7 @@ import { Item } from "#test/unit/program/records.fixtures.ts"
 export const aRowAQueryFoundReadsBackFromItsRecordsExactlyAsTheQueryFoundIt = property.explore(
 	recordsCaseGen,
 	{
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: recordsSituations satisfies ReadonlyArray<Reached<RecordsFeature>>,
 		check:
 			({ substrate }, c: Case<RecordsFeature>) =>

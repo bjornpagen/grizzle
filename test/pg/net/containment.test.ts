@@ -33,7 +33,7 @@ import {
 } from "#test/pg/net/containment.fixtures.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { netHolds } from "#test/support/oracle/reference/net.ts"
-import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** A drawn text as grizzle holds the value it spells: the one text inet_out or cidr_out prints of it. */
 const heldText = (type: NetType, text: string): string =>
@@ -42,7 +42,7 @@ const heldText = (type: NetType, text: string): string =>
 /** Network containment on PostgreSQL 19, PostgreSQL's, the host's and a second implementation's values of within, strictly within and overlap are one value for every pair, false across the address families. */
 export const netContainmentOnPostgreSQL19PostgreSQLsTheHostsAndASecondImplementationsValuesOfWithinStrictlyWithinAndOverlapAreOneValueForEveryPairFalseAcrossTheAddressFamilies =
 	property.explore(cases, {
-		needs: { substrate: Substrate.installing },
+		needs: { tx: Substrate.transaction },
 		situations: [
 			"inet and inet",
 			"inet and cidr",
@@ -57,55 +57,50 @@ export const netContainmentOnPostgreSQL19PostgreSQLsTheHostsAndASecondImplementa
 			"no mask"
 		] satisfies ReadonlyArray<Reached<Feature>>,
 		check:
-			({ substrate }, k: CaseOf<Feature>) =>
+			({ tx }, k: CaseOf<Feature>) =>
 			(c) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const s = yield* Substrate
-						const db = yield* s.session(ownerSession())
-						k.note(`${c.a} and ${c.b}`)
-						const texts = Arr.map(c.pairs, (p) => ({ a: textOf(p.a), b: textOf(p.b) }))
-						const rows = yield* db.values(containmentSql(c.a, c.b), [
-							jsonText(Arr.map(texts, ({ a, b }, ord) => ({ ord, a, b })))
-						])
-						const terms = termsOf(c.a, c.b)
-						for (const [at, fn] of netFns.entries()) {
-							yield* agree<ReadonlyArray<boolean>>(
+				Effect.gen(function* () {
+					const { session: db } = yield* tx
+					k.note(`${c.a} and ${c.b}`)
+					const texts = Arr.map(c.pairs, (p) => ({ a: textOf(p.a), b: textOf(p.b) }))
+					const rows = yield* db.values(containmentSql(c.a, c.b), [
+						jsonText(Arr.map(texts, ({ a, b }, ord) => ({ ord, a, b })))
+					])
+					const terms = termsOf(c.a, c.b)
+					for (const [at, fn] of netFns.entries()) {
+						yield* agree<ReadonlyArray<boolean>>(
+							[
 								[
-									[
-										"PostgreSQL",
-										Arr.map(rows, (row) => {
-											const cell = textCell(row, at)
-											assert.ok(cell === "true" || cell === "false", `${fn} is a boolean`)
-											return cell === "true"
-										})
-									],
-									[
-										"the host",
-										Arr.map(texts, ({ a, b }) =>
-											hostHolds(terms[fn], heldText(c.a, a), heldText(c.b, b))
-										)
-									],
-									["Node's BlockList", Arr.map(texts, ({ a, b }) => netHolds(fn, a, b))]
+									"PostgreSQL",
+									Arr.map(rows, (row) => {
+										const cell = textCell(row, at)
+										assert.ok(cell === "true" || cell === "false", `${fn} is a boolean`)
+										return cell === "true"
+									})
 								],
-								ordered(exact)
-							)
+								[
+									"the host",
+									Arr.map(texts, ({ a, b }) =>
+										hostHolds(terms[fn], heldText(c.a, a), heldText(c.b, b))
+									)
+								],
+								["Node's BlockList", Arr.map(texts, ({ a, b }) => netHolds(fn, a, b))]
+							],
+							ordered(exact)
+						)
+					}
+					for (const [at, pair] of c.pairs.entries()) {
+						const row = rows[at] ?? []
+						for (const feature of featuresOf(
+							pair,
+							textCell(row, 0) === "true",
+							textCell(row, 1) === "true",
+							textCell(row, 2) === "true"
+						)) {
+							k.note(feature)
 						}
-						for (const [at, pair] of c.pairs.entries()) {
-							const row = rows[at] ?? []
-							for (const feature of featuresOf(
-								pair,
-								textCell(row, 0) === "true",
-								textCell(row, 1) === "true",
-								textCell(row, 2) === "true"
-							)) {
-								k.note(feature)
-							}
-						}
-					}),
-					Substrate,
-					substrate
-				),
+					}
+				}),
 		oracle: {
 			kind: "second-implementation",
 			name: "Node's BlockList's subnet of an address, beside PostgreSQL's own operators"

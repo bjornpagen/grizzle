@@ -31,7 +31,7 @@ import {
 	changeTxnOf,
 	generatedShapeTemplate,
 	type InstalledShape,
-	type SeatedShape,
+	type RacedShape,
 	type Shape
 } from "#test/pg/isolation/support/race.ts"
 import { factsGen, shelfId, shelvesFacts } from "#test/pg/records/attached.fixtures.ts"
@@ -271,18 +271,18 @@ const strategyOf = <F extends string>(c: Case<F>, txns: ReadonlyArray<Txn>): Str
 }
 
 /**
- * A race (see reachable-race.test.ts) on a seated clone of the race's schema: generate certifies the writer and the
+ * A race (see reachable-race.test.ts) on the case's own clone of the race's schema: generate certifies the writer and the
  * retirer SERIALIZABLE; then each run of the race's calls, from the race's initial state, in an order the strategy
  * chooses, retries each call PostgreSQL aborted with a transient failure alone after the run, as an application calls
  * again, and must end as every serial order of the three calls ends (the model): roots 1 and 2 retired and root 3 open,
  * root 3's reference to the kept key the one reference left, the kept key's records whole in every relation, and the
  * other key's gone from every one.
  */
-export const raceCase = (seated: SeatedShape, race: Race, c: Case<RaceFeature>) =>
+export const raceCase = (raced: RacedShape, race: Race, c: Case<RaceFeature>) =>
 	Effect.provideService(
 		Effect.scoped(
 			Effect.gen(function* () {
-				const s: InstalledShape = seated.shape
+				const s: InstalledShape = raced.shape
 				for (const name of ["writer", "retirer"]) {
 					const level = s.levels.get(name)
 					if (level !== "serializable") {
@@ -559,5 +559,5 @@ export const raceCase = (seated: SeatedShape, race: Race, c: Case<RaceFeature>) 
 			})
 		),
 		Substrate,
-		seated.seat
+		raced.substrate
 	)

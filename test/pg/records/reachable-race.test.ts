@@ -19,7 +19,7 @@
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
-import { seatedGenerated } from "#test/pg/isolation/support/race.ts"
+import { racedGenerated } from "#test/pg/isolation/support/race.ts"
 import {
 	raceCase,
 	type RaceFeature,
@@ -38,7 +38,10 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const retirementsOfAKeysLastReferencesRacingAKeepOfTheSameKeyEndAsEverySerialOrderOfThemEnds =
 	property.explore(raceGen, {
-		needs: { flat: Substrate.seat(raceTemplates.flat), deep: Substrate.seat(raceTemplates.deep) },
+		needs: {
+			flat: Substrate.freshOf(raceTemplates.flat),
+			deep: Substrate.freshOf(raceTemplates.deep)
+		},
 		budget: { runs: 24, steered: 96 },
 		situations: [
 			"a retirement aborted and retried",
@@ -49,8 +52,8 @@ export const retirementsOfAKeysLastReferencesRacingAKeepOfTheSameKeyEndAsEverySe
 		] satisfies ReadonlyArray<Reached<RaceFeature>>,
 		check: (needs, c: Case<RaceFeature>) => (race) =>
 			Effect.flatMap(
-				Effect.flatMap(needs[race.depth], seatedGenerated(raceShapeOf(race.depth))),
-				(seated) => raceCase(seated, race, c)
+				Effect.flatMap(needs[race.depth], racedGenerated(raceShapeOf(race.depth))),
+				(raced) => raceCase(raced, race, c)
 			),
 		oracle: {
 			kind: "specification",

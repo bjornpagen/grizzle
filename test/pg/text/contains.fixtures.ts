@@ -265,16 +265,16 @@ const foundBy = (
 	Arr.flatMap(names, (name, at) => (codeInfix(fold(term), fold(name)) ? [BigInt(at)] : []))
 
 /**
- * One search case on the worker's seat: its names written, then each term searched by both queries, the term bound as
+ * One search case on its own clone: its names written, then each term searched by both queries, the term bound as
  * the query parameter, each answer the members the reference's search finds, by code points, with ASCII's case folded
  * on both sides for `search` and none for `exact`.
  */
 export const searchCaseRun =
-	(resources: Resources<{ readonly seat: TemplateNeed<SubstrateCase<Generated>> }>) =>
+	(resources: Resources<{ readonly staff: TemplateNeed<SubstrateCase<Generated>> }>) =>
 	(k: SearchCase, c: Case<SearchFeature>) =>
 		Effect.scoped(
 			Effect.gen(function* () {
-				const { value: generated } = yield* resources.seat
+				const { value: generated } = yield* resources.staff
 				const { world } = staffWorld(generated.installed.declared)
 				const served = servedGenerated(generated, world.server)
 				const context = yield* Layer.build(served.layer)
