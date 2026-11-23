@@ -402,9 +402,9 @@ export const aRoleHoldingScopedEntriesReadsAndWritesTheSchemasProgramsOverItsOwn
 				why: "A policy admits every row a write leaves: a direct writer's assignment of another student, and its update moving its own assignment to another, commit where the policy refuses them with 42501."
 			},
 			{
-				file: "packages/engine/src/physical/ddl/roles.ts",
-				original: "\t\t\t\t\t\t\t\t\t\t],\n\t\t\t\t\t\t\t\t\t\toutside\n",
-				replacement: "\t\t\t\t\t\t\t\t\t\t],\n\t\t\t\t\t\t\t\t\t\tnot(outside)\n",
+				file: "packages/engine/src/write/entry/render.ts",
+				original: "\t\t\t\t\t\t],\n\t\t\t\t\t\toutside\n",
+				replacement: "\t\t\t\t\t\t],\n\t\t\t\t\t\tnot(outside)\n",
 				why: "A key probe judges a key through the owner's rows, not over every row: an assignment at a number another owner's row holds is not refused on Assignment's key, which the statement then meets at the key it cannot see."
 			},
 			{
