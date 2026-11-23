@@ -131,9 +131,9 @@ export const startupWorkReadsASchemasContentOnceCompilesItOncePerCommandNothingF
 			},
 			{
 				file: "packages/grizzle/src/cli/generate.ts",
-				original: "\t\t\t\t? Effect.succeed(servedArtifacts)",
+				original: "\t\t\treturn Effect.succeed(servedArtifacts)",
 				replacement:
-					'\t\t\t\t? Effect.mapError(fromEngine(artifactsOver(basis, params)), refusedAt("workload"))',
+					'\t\t\treturn Effect.mapError(fromEngine(artifactsOver(basis, params)), refusedAt("workload"))',
 				why: "generate plans each login's served artifacts again over the basis at the configured level, where it reuses the installation's (cli/generate.ts plannedLogins); the count of plans fails."
 			}
 		]

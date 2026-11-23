@@ -366,21 +366,42 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
 		fromEngine(artifactsOver(basis, params)),
 		refusedAt("workload")
 	)
-	const served = yield* Effect.forEach(logins, (l) =>
-		Effect.flatMap(
-			sameLevel(l.login.base.content, configured.built.content)
-				? Effect.succeed(servedArtifacts)
-				: Effect.mapBoth(
-						fromEngine(
-							artifactsUnder(l.owned.base, codes, derived, everySlice(l.owned.base), params)
-						),
-						{ onFailure: refusedAt("workload"), onSuccess: (layer) => layer.artifacts }
+	/**
+	 * The artifacts of each distinct level below the configured schema's a login stands on, built once from the first
+	 * such login's owned base and read by every login over the same level (sameLevel, the levels' content, never their
+	 * objects), where each login built its own, its law model and law-violation DAG among them, though logins share
+	 * levels (metis's measure-full at changes start: 21 logins' artifacts, 40 to 63 MB each, 807 MB, none shared).
+	 */
+	const below: Array<{
+		readonly content: typeof configured.built.content
+		readonly artifacts: InstalledArtifacts
+	}> = []
+	const artifactsOf = (l: (typeof logins)[number]): Effect.Effect<InstalledArtifacts, CliError> => {
+		if (sameLevel(l.login.base.content, configured.built.content)) {
+			return Effect.succeed(servedArtifacts)
+		}
+		const known = Arr.findFirst(below, (b) => sameLevel(b.content, l.login.base.content))
+		return Option.isSome(known)
+			? Effect.succeed(known.value.artifacts)
+			: Effect.mapBoth(
+					fromEngine(
+						artifactsUnder(l.owned.base, codes, derived, everySlice(l.owned.base), params)
 					),
-			(artifacts) =>
-				Effect.mapBoth(fromEngine(namedLogin(l.owned, artifacts.names.levels)), {
-					onFailure: refusedAt("workload"),
-					onSuccess: (named) => ({ login: l, named, artifacts })
-				})
+					{
+						onFailure: refusedAt("workload"),
+						onSuccess: (layer) => {
+							below.push({ content: l.login.base.content, artifacts: layer.artifacts })
+							return layer.artifacts
+						}
+					}
+				)
+	}
+	const served = yield* Effect.forEach(logins, (l) =>
+		Effect.flatMap(artifactsOf(l), (artifacts) =>
+			Effect.mapBoth(fromEngine(namedLogin(l.owned, artifacts.names.levels)), {
+				onFailure: refusedAt("workload"),
+				onSuccess: (named) => ({ login: l, named, artifacts })
+			})
 		)
 	)
 	const plan = yield* Effect.mapError(
