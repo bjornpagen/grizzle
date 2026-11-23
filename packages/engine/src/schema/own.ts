@@ -408,10 +408,14 @@ const installedIdentity = (r: OwnedRelation): ReadonlyArray<Identity<IdentityKin
 	}
 }
 
-/** Where the derived relation `name`'s rows are, by its storage: a materialized one's view named at the naming door. */
+/**
+ * Where the derived relation `name`'s rows are, by its storage: a materialized one's view named at the naming door; a
+ * stored one's are its definition's, read live, until its table and upkeep land (ir/desc.ts DerivedStorage).
+ */
 const ownedView = (name: DeclaredName, storage: DerivedStorage): OwnedView => {
 	switch (storage) {
 		case "live":
+		case "stored":
 			return { kind: "live" }
 		case "materialized": {
 			const named = identity.view(name)

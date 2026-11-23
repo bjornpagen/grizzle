@@ -37,6 +37,7 @@
 import { sameOrder } from "@bjornpagen/grizzle-text/base/array"
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
+	headNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
@@ -58,6 +59,7 @@ import {
 	type WholeRule
 } from "#compiler/analysis/theory/query.ts"
 import { canonicalEquals } from "#compiler/core/canonical.ts"
+import type { UnitLocality } from "#compiler/core/causes.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import {
 	combineAll,
@@ -68,6 +70,7 @@ import {
 	mapInput
 } from "#compiler/core/order.ts"
 import {
+	callsOf,
 	type ExprDesc,
 	exprChildren,
 	type FieldDesc,
@@ -92,7 +95,7 @@ import {
 import type { RelationInfo, TheoryRelation } from "#compiler/ir/law.ts"
 import type { DeltaSide } from "#compiler/ir/rel.ts"
 import { rosterOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
-import type { Unit } from "#compiler/ir/unit.ts"
+import type { StoredUnit, Unit } from "#compiler/ir/unit.ts"
 import type { OwnedStatement } from "#compiler/schema/own.ts"
 
 /** The name the region delivers position `j` of the unit key under. */
@@ -133,6 +136,47 @@ interface Walk {
 	readonly self: ReadonlyArray<string> | undefined
 	/** The query each copy the walk makes of a query was walked from (`walked`, WholeRule `definitionOf`). */
 	readonly definitions: WeakMap<InferredQuery, InferredQuery>
+	/** How it reads a declared function's call (`CallAdmission`). */
+	readonly calls: CallAdmission
+}
+
+/**
+ * How a walk reads a declared function's call: `rule`, as a rule's discharge always has, a call term through its
+ * arguments and a call source as a source no unit holds; `stored`, a stored relation's admission (`storedUnit`), whose
+ * every call is of a function immutable throughout, which it checks before the walk, a call admitted where it passes no
+ * rows and no relation's existence, a call source then read as a function of the binding it stands at, which the rule's
+ * other sources give its unit, as a text's tokens are.
+ */
+type CallAdmission = "rule" | "stored"
+
+/** Whether `e` reads a relation's existence or absence at any depth: no value of the binding it stands at alone. */
+const readsRelation = (e: InferredExpr): boolean =>
+	e.kind === "absent" || e.kind === "exists" || exprChildren(e).some((c) => readsRelation(c.term))
+
+/**
+ * Why a call of `fn` with `args` is no unit-local read under `w` (`CallAdmission`), none where it is one. A rule's walk
+ * admits a call term (`source` false) and reads no call source; a stored relation's admits either where every argument
+ * is a value of the binding.
+ */
+const callUnfit = (
+	fn: string,
+	args: ReadonlyArray<InferredExpr | { readonly kind: "rows" }>,
+	source: boolean,
+	w: Walk
+): NotLocal | undefined => {
+	switch (w.calls) {
+		case "rule":
+			return source
+				? lacking("shape", `it reads a call of ${fn} as a source, which no unit holds`)
+				: undefined
+		case "stored":
+			return args.some((a) => a.kind === "rows" || readsRelation(a))
+				? lacking(
+						"call",
+						`its call of ${fn} passes rows or a relation's existence, which no binding holds`
+					)
+				: undefined
+	}
 }
 
 /** Where a walk stands in its query: the polarity of what it reads there. */
@@ -147,9 +191,21 @@ const top: At = { polarity: "positive" }
 const flipped = (p: RelationRead["polarity"]): RelationRead["polarity"] =>
 	p === "positive" ? "negative" : p === "negative" ? "positive" : "both"
 
-/** That a query is not unit-local, at which the walk stops. */
-const notLocal = Symbol("not unit-local")
-type NotLocal = typeof notLocal
+/**
+ * That a query is not unit-local, at which the walk stops: the first condition of unit-locality it met that the query
+ * lacks (core/causes.ts UnitLocality), which a stored relation's admission refuses by (`storedUnit`) and a rule's
+ * discharge reads only as "not whole" (`wholeRule`).
+ */
+class NotLocal {
+	readonly lacks: UnitLocality
+	constructor(lacks: UnitLocality) {
+		this.lacks = lacks
+	}
+}
+
+/** The query lacks `condition`, as `detail` names where. */
+const lacking = (condition: UnitLocality["condition"], detail: string): NotLocal =>
+	new NotLocal({ condition, detail })
 
 /**
  * How a query delivers the units of its facts to a rule that matches or negates it: `none`, it reads no stored relation,
@@ -179,16 +235,20 @@ interface Walked {
 	readonly delivered: Delivered
 }
 
-/** The variables `bindings` binds `fields` to, in order, where each is a variable. */
+/** The variables `bindings` binds `fields` to, in order, where each is a variable; `read` names the match. */
 const varsAt = (
 	bindings: Readonly<Record<string, InferredExpr>>,
-	fields: ReadonlyArray<string>
+	fields: ReadonlyArray<string>,
+	read: string
 ): ReadonlyArray<string> | NotLocal => {
 	const out: Array<string> = []
 	for (const f of fields) {
 		const e = bindings[f]
 		if (e?.kind !== "var") {
-			return notLocal
+			return lacking(
+				"split",
+				`${read} binds its unit field ${f} to ${e === undefined ? "nothing" : "no variable"}, so it reads beyond one unit`
+			)
 		}
 		out.push(e.var)
 	}
@@ -354,16 +414,16 @@ const sourceUnit = (
 				bound: boundVars(bindings),
 				beside: []
 			})
-			const vars = varsAt(bindings, fields)
-			return vars === notLocal ? notLocal : { unit: { kind: "vars", vars }, source }
+			const vars = varsAt(bindings, fields, `a match of ${source.name}`)
+			return vars instanceof NotLocal ? vars : { unit: { kind: "vars", vars }, source }
 		}
 		case "query": {
 			if (Object.keys(source.bind).length > 0) {
-				return notLocal
+				return lacking("shape", "it reads a query under a bind map")
 			}
 			const inner = walked(source.query, at, w)
-			if (inner === notLocal) {
-				return notLocal
+			if (inner instanceof NotLocal) {
+				return inner
 			}
 			const bind = passedChannels(inner.query)
 			const read =
@@ -377,30 +437,33 @@ const sourceUnit = (
 				case "hidden":
 					return { unit: { kind: "hidden" }, source: read }
 				case "at": {
-					const vars = varsAt(bindings, delivered.fields)
-					return vars === notLocal ? notLocal : { unit: { kind: "vars", vars }, source: read }
+					const vars = varsAt(bindings, delivered.fields, "a match of a query it imports")
+					return vars instanceof NotLocal ? vars : { unit: { kind: "vars", vars }, source: read }
 				}
 			}
 		}
 		case "self": {
 			if (w.self === undefined) {
-				return notLocal
+				return lacking("recursion", "it reads self outside a recursion's step")
 			}
-			const vars = varsAt(bindings, w.self)
-			return vars === notLocal ? notLocal : { unit: { kind: "vars", vars }, source }
+			const vars = varsAt(bindings, w.self, "a step's read of self")
+			return vars instanceof NotLocal ? vars : { unit: { kind: "vars", vars }, source }
 		}
 		case "split":
 			return { unit: { kind: "none" }, source }
+		case "call":
+		case "callField": {
+			const unfit = callUnfit(source.function, Object.values(source.args), true, w)
+			return unfit ?? { unit: { kind: "none" }, source }
+		}
 		case "step":
 		case "param":
 		case "paramOf":
-		case "call":
-		case "callField":
 		case "interior":
 		case "delta":
 		case "context":
 		case "row":
-			return notLocal
+			return lacking("shape", `it reads a ${source.kind} source, which no unit holds`)
 	}
 }
 
@@ -416,8 +479,8 @@ const walkedExprs = (
 	const out: Array<InferredExpr> = []
 	for (const x of xs) {
 		const r = walkedExpr(x, unit, at, w)
-		if (r === notLocal) {
-			return notLocal
+		if (r instanceof NotLocal) {
+			return r
 		}
 		out.push(r)
 	}
@@ -438,25 +501,40 @@ const walkedExpr = (
 	if (e.kind === "absent" || e.kind === "exists") {
 		const polarity = e.kind === "absent" ? flipped(at.polarity) : at.polarity
 		const read = sourceUnit(e.source, e.bindings, [], { polarity }, w)
-		if (read === notLocal) {
-			return notLocal
+		if (read instanceof NotLocal) {
+			return read
 		}
 		const correlated =
 			read.unit.kind === "none" ||
 			(read.unit.kind === "vars" && unit !== undefined && sameOrder(read.unit.vars, unit))
-		return correlated ? (read.source === e.source ? e : { ...e, source: read.source }) : notLocal
+		if (!correlated) {
+			const what = e.source.kind === "relation" ? `of ${e.source.name}` : "of a query"
+			return e.kind === "absent"
+				? lacking("negation", `a negation ${what} is not correlated at the unit`)
+				: lacking("negation", `an existence ${what} is not correlated at the unit`)
+		}
+		return read.source === e.source ? e : { ...e, source: read.source }
 	}
-	const children = { local: true, changed: false }
+	if (e.kind === "call") {
+		const unfit = callUnfit(e.function, Object.values(e.args), false, w)
+		if (unfit !== undefined) {
+			return unfit
+		}
+	}
+	const children: { lacks: NotLocal | undefined; changed: boolean } = {
+		lacks: undefined,
+		changed: false
+	}
 	const each = mapExprChildren(e, (x) => {
 		const r = walkedExpr(x, unit, at, w)
-		if (r === notLocal) {
-			children.local = false
+		if (r instanceof NotLocal) {
+			children.lacks ??= r
 			return x
 		}
 		children.changed ||= r !== x
 		return r
 	})
-	return children.local ? (children.changed ? each : e) : notLocal
+	return children.lacks ?? (children.changed ? each : e)
 }
 
 /** A rule as a walk leaves it: its text, and how it delivers its facts' units. */
@@ -489,8 +567,8 @@ const ruleBody = (r: InferredRule, at: At, aggregates: boolean, w: Walk): RuleBo
 	for (const match of r.matches) {
 		const before = w.regions.length
 		const read = sourceUnit(match.source, match.bindings, r.where, at, w)
-		if (read === notLocal) {
-			return notLocal
+		if (read instanceof NotLocal) {
+			return read
 		}
 		if (match.source.kind === "relation" && w.regions.length === before + 1) {
 			own.push(before)
@@ -505,15 +583,20 @@ const ruleBody = (r: InferredRule, at: At, aggregates: boolean, w: Walk): RuleBo
 	const bearing = units.filter((u) => u.kind !== "none")
 	const hidden = bearing.some((u) => u.kind === "hidden")
 	if (hidden && (bearing.length > 1 || aggregates)) {
-		return notLocal
+		return lacking(
+			"hidden",
+			aggregates
+				? "an aggregate reads a query whose head hides its unit"
+				: "a rule reads a query whose head hides its unit beside another read of a unit"
+		)
 	}
 	const vars = bearing.flatMap((u) => (u.kind === "vars" ? [u.vars] : []))
 	const [unit] = vars
 	if (unit !== undefined && !vars.every((v) => sameOrder(v, unit))) {
-		return notLocal
+		return lacking("split", "a rule's matches bind their unit fields to different variables")
 	}
 	const where = walkedExprs(r.where, unit, at, w)
-	return where === notLocal ? notLocal : { matches, where, unit, hidden }
+	return where instanceof NotLocal ? where : { matches, where, unit, hidden }
 }
 
 /**
@@ -528,7 +611,7 @@ const ruleBody = (r: InferredRule, at: At, aggregates: boolean, w: Walk): RuleBo
  */
 const walkedRule = (r: InferredRule, outer: At, w: Walk): WalkedRule | NotLocal => {
 	if (r.interiors.length > 0 || r.attach.length > 0) {
-		return notLocal
+		return lacking("shape", "a rule nests or attaches a query")
 	}
 	const aggregates = Object.values(r.head).some((h) => h.kind === "aggregate")
 	const at: At = aggregates ? { polarity: "both" } : outer
@@ -540,15 +623,15 @@ const walkedRule = (r: InferredRule, outer: At, w: Walk): WalkedRule | NotLocal 
 					restrict: { kind: "bound", region: restriction.region }
 				})
 			: ruleBody(r, at, aggregates, w)
-	if (bound === notLocal) {
-		return notLocal
+	if (bound instanceof NotLocal) {
+		return bound
 	}
 	const body =
 		restriction.kind === "region" && bound.unit === undefined
 			? ruleBody(r, at, aggregates, w)
 			: bound
-	if (body === notLocal) {
-		return notLocal
+	if (body instanceof NotLocal) {
+		return body
 	}
 	const { matches, where, unit } = body
 	const walkedText: InferredRule =
@@ -566,7 +649,7 @@ const walkedRule = (r: InferredRule, outer: At, w: Walk): WalkedRule | NotLocal 
 	})
 	const delivered: Delivered = fields.length === unit.length ? { kind: "at", fields } : hiddenUnit
 	if (aggregates && delivered.kind !== "at") {
-		return notLocal
+		return lacking("aggregate", "an aggregate's groups do not hold the unit")
 	}
 	return {
 		rule:
@@ -691,7 +774,9 @@ const joinedDelivery = (a: Delivered, b: Delivered): Delivered | NotLocal => {
 	if (sameDelivery(a, b)) {
 		return a
 	}
-	return a.kind === "none" || b.kind === "none" ? notLocal : hiddenUnit
+	return a.kind === "none" || b.kind === "none"
+		? lacking("split", "a union's rule reads no stored relation beside one that reads a unit")
+		: hiddenUnit
 }
 
 /** Rules of one stage walked, and how the union of their facts delivers its units (`joinedDelivery`). */
@@ -703,21 +788,21 @@ const walkedRules = (
 	const out: Array<WalkedRule> = []
 	for (const r of rules) {
 		const read = walkedRule(r, at, w)
-		if (read === notLocal) {
-			return notLocal
+		if (read instanceof NotLocal) {
+			return read
 		}
 		out.push(read)
 	}
 	const [first, ...rest] = out
 	if (first === undefined) {
-		return notLocal
+		throw defect("a stage of at least one rule")
 	}
 	let delivered: Delivered | NotLocal = first.delivered
 	for (const r of rest) {
-		delivered = delivered === notLocal ? notLocal : joinedDelivery(delivered, r.delivered)
+		delivered = delivered instanceof NotLocal ? delivered : joinedDelivery(delivered, r.delivered)
 	}
-	return delivered === notLocal
-		? notLocal
+	return delivered instanceof NotLocal
+		? delivered
 		: { rules: mapNonEmpty([first, ...rest], (r) => r.rule), delivered }
 }
 
@@ -755,19 +840,22 @@ const unitLocalRecursion = (
 	let delivered: Delivered | NotLocal | undefined
 	for (const r of [...st.recursive.base, ...st.recursive.rec.filter((x) => !readsSelf(x))]) {
 		const seed = walkedRule(typedSeed(r, row), at, plain)
-		if (seed === notLocal) {
-			return notLocal
+		if (seed instanceof NotLocal) {
+			return seed
 		}
 		delivered =
 			delivered === undefined
 				? seed.delivered
-				: delivered === notLocal
-					? notLocal
+				: delivered instanceof NotLocal
+					? delivered
 					: joinedDelivery(delivered, seed.delivered)
 		read.set(r, seed)
 	}
-	if (delivered === undefined || delivered === notLocal || delivered.kind !== "at") {
-		return notLocal
+	if (delivered instanceof NotLocal) {
+		return delivered
+	}
+	if (delivered?.kind !== "at") {
+		return lacking("recursion", "a recursion's seeds deliver no unit at its row's fields")
 	}
 	const fields = delivered.fields
 	const stepWalk: Walk = { ...plain, self: fields }
@@ -776,8 +864,14 @@ const unitLocalRecursion = (
 			continue
 		}
 		const step = walkedRule(r, at, stepWalk)
-		if (step === notLocal || !carries(step, fields)) {
-			return notLocal
+		if (step instanceof NotLocal) {
+			return step
+		}
+		if (!carries(step, fields)) {
+			return lacking(
+				"recursion",
+				"a recursion's step does not carry the unit from self into its head"
+			)
 		}
 		read.set(r, step)
 	}
@@ -863,8 +957,8 @@ const walked = (query: InferredQuery, at: At, w: Walk): Walked | NotLocal => {
 		switch (st.kind) {
 			case "rules": {
 				const read = walkedRules(st.arms, at, w)
-				return read === notLocal
-					? notLocal
+				return read instanceof NotLocal
+					? read
 					: {
 							stage: sameOrder(read.rules, st.arms) ? st : { ...st, arms: read.rules },
 							delivered: read.delivered
@@ -873,12 +967,15 @@ const walked = (query: InferredQuery, at: At, w: Walk): Walked | NotLocal => {
 			case "union": {
 				const input = stage(st.input)
 				const read = walkedRules(st.arms, at, w)
-				if (input === notLocal || read === notLocal) {
-					return notLocal
+				if (input instanceof NotLocal) {
+					return input
+				}
+				if (read instanceof NotLocal) {
+					return read
 				}
 				const delivered = joinedDelivery(input.delivered, read.delivered)
-				return delivered === notLocal
-					? notLocal
+				return delivered instanceof NotLocal
+					? delivered
 					: {
 							stage:
 								input.stage === st.input && sameOrder(read.rules, st.arms)
@@ -889,8 +986,8 @@ const walked = (query: InferredQuery, at: At, w: Walk): Walked | NotLocal => {
 			}
 			case "named": {
 				const input = stage(st.input)
-				return input === notLocal
-					? notLocal
+				return input instanceof NotLocal
+					? input
 					: {
 							stage: input.stage === st.input ? st : { ...st, input: input.stage },
 							delivered: input.delivered
@@ -902,12 +999,12 @@ const walked = (query: InferredQuery, at: At, w: Walk): Walked | NotLocal => {
 			case "order":
 			case "take":
 			case "approx":
-				return notLocal
+				return lacking("shape", `it reads a query of an ${st.kind} stage`)
 		}
 	}
 	const read = stage(query.stage)
-	if (read === notLocal) {
-		return notLocal
+	if (read instanceof NotLocal) {
+		return read
 	}
 	return {
 		query: read.stage === query.stage ? query : copied(query, read.stage, w),
@@ -1621,9 +1718,10 @@ const restrictToUnits = (
 		reads: [],
 		regions: [],
 		self: undefined,
-		definitions
+		definitions,
+		calls: "rule"
 	})
-	if (read === notLocal) {
+	if (read instanceof NotLocal) {
 		throw defect("a whole rule's violation query is unit-local at its unit")
 	}
 	const definitionOf = (query: InferredQuery): InferredQuery => {
@@ -1633,25 +1731,30 @@ const restrictToUnits = (
 	return { judged: read.query, replaced: region.replaced, definitionOf }
 }
 
+/** What a query unit-local at a width reads (`unitAt`): its unit, every occurrence of a stored relation it reads, every
+ * occurrence of a holder with the conditions on its row, and how its head delivers the unit. */
+interface UnitFound {
+	readonly unit: Unit
+	readonly reads: NonEmptyReadonlyArray<RelationRead>
+	readonly regions: ReadonlyArray<RegionRead>
+	readonly delivered: Delivered
+}
+
 /**
- * The unit of a query at width `k` over the stored relations it reads, `stored`, where it is unit-local there: its
- * key's types and holders, and every occurrence of a stored relation it reads; none where it is not.
+ * The unit of a query at width `k` over the stored relations it reads, `stored`, where it is unit-local there, its
+ * calls read as `calls` admits them: its key's types and holders, every occurrence of a stored relation it reads and
+ * how its head delivers the unit; the first condition it lacks where it is not.
  */
 const unitAt = (
-	violation: InferredQuery,
+	query: InferredQuery,
 	stored: NonEmptyReadonlyArray<RelationInfo>,
-	k: number
-):
-	| {
-			readonly unit: Unit
-			readonly reads: NonEmptyReadonlyArray<RelationRead>
-			readonly regions: ReadonlyArray<RegionRead>
-	  }
-	| undefined => {
+	k: number,
+	calls: CallAdmission
+): UnitFound | NotLocal => {
 	const [first] = stored
 	const key = first.primaryFields.slice(0, k).map((f) => f.type)
 	if (!isNonEmpty(key) || key.length !== k) {
-		return undefined
+		return lacking("unitKey", `${first.name}'s primary key holds fewer than ${k} fields`)
 	}
 	const holders: Array<Unit["holders"][number]> = []
 	for (const r of stored) {
@@ -1665,28 +1768,52 @@ const unitAt = (
 				return t !== undefined && sameScalarType(f.type, t)
 			})
 		) {
-			return undefined
+			return lacking(
+				"unitKey",
+				`${r.name}'s primary key does not lead with ${k} field${k === 1 ? "" : "s"} of the types ${first.name}'s does`
+			)
 		}
 		holders.push({ relation: r.name, fields: names })
 	}
 	const [h0, ...hs] = holders
 	if (h0 === undefined) {
-		return undefined
+		throw defect("a unit's holders, one per stored relation read")
 	}
 	const held: Unit["holders"] = [h0, ...hs]
 	const unit: Unit = Object.freeze({ key, holders: held })
 	const reads: Array<RelationRead> = []
 	const regions: Array<RegionRead> = []
-	const read = walked(violation, top, {
+	const read = walked(query, top, {
 		holders: holdersOf(unit),
 		restrict: deciding,
 		reads,
 		regions,
 		self: undefined,
-		definitions: new WeakMap()
+		definitions: new WeakMap(),
+		calls
 	})
+	if (read instanceof NotLocal) {
+		return read
+	}
 	const [r0, ...rs] = reads
-	return read === notLocal || r0 === undefined ? undefined : { unit, reads: [r0, ...rs], regions }
+	return r0 === undefined
+		? lacking("noUnit", "it reads no stored relation")
+		: { unit, reads: [r0, ...rs], regions, delivered: read.delivered }
+}
+
+/** The first read of `found` at a field its relation's rows change in place (law.ts RelationInfo `inPlace`), if any. */
+const inPlaceRead = (
+	found: UnitFound,
+	stored: ReadonlyArray<RelationInfo>
+): { readonly relation: string; readonly column: string } | undefined => {
+	for (const r of found.reads) {
+		const relation = stored.find((s) => s.name === r.relation)
+		const column = r.columns.find((c) => relation?.inPlace.includes(c) === true)
+		if (column !== undefined) {
+			return { relation: r.relation, column }
+		}
+	}
+	return undefined
 }
 
 /**
@@ -1710,17 +1837,10 @@ export const wholeRule = (
 		return undefined
 	}
 	const all: NonEmptyReadonlyArray<RelationInfo> = [first, ...rest]
-	const widest = all.reduce(
-		(k, r) => Math.min(k, r.primaryFields.length),
-		first.primaryFields.length
-	)
-	/** Whether a read of `relation` at `column` reads a field the relation's rows change in place. */
-	const changing = (relation: string, column: string): boolean =>
-		all.some((r) => r.name === relation && r.inPlace.includes(column))
-	for (let k = widest; k >= 1; k--) {
-		const found = unitAt(violation, all, k)
-		if (found !== undefined) {
-			if (found.reads.some((r) => r.columns.some((c) => changing(r.relation, c)))) {
+	for (let k = widestOf(all); k >= 1; k--) {
+		const found = unitAt(violation, all, k, "rule")
+		if (!(found instanceof NotLocal)) {
+			if (inPlaceRead(found, all) !== undefined) {
 				return undefined
 			}
 			return Object.freeze({
@@ -1734,6 +1854,75 @@ export const wholeRule = (
 		}
 	}
 	return undefined
+}
+
+/** The widest unit a query over `stored` may have: the shortest primary key among them. */
+const widestOf = (stored: NonEmptyReadonlyArray<RelationInfo>): number =>
+	stored.reduce(
+		(k, r) => Math.min(k, r.primaryFields.length),
+		headNonEmpty(stored).primaryFields.length
+	)
+
+/**
+ * The unit of a stored derived relation's definition, read live (ir/unit.ts StoredUnit), decided once when the schema
+ * compiles, by the one walk a whole rule's discharge reads: unit-local, every stored relation it reads immutable and no
+ * field it reads one its rows change in place, every declared function it calls anywhere, its head's among them,
+ * immutable throughout (`unfit` names why one is not, none where it is), at the widest unit whose key its head delivers,
+ * so its rows at one unit are replaced by that unit's key; or the condition it lacks (core/causes.ts UnitLocality): its
+ * unit, its relations' mutability and its calls first, then, of the narrowest unit, one field wide, the first the walk
+ * meets in the definition's order, its fields changed in place after. An immutable function's value at one argument
+ * tuple is the same at every state, and a call's Description carries the digest of the whole function, body included
+ * (ir/expr.ts CalledFunction), so its rows change only with its unit's rows, and with a migration that changes the
+ * function.
+ */
+export const storedUnit = (
+	definition: InferredQuery,
+	relations: ReadonlyMap<string, TheoryRelation>,
+	unfit: (fn: string) => string | undefined
+): StoredUnit | UnitLocality => {
+	const stored = storedReads(definition, relations)
+	const [first, ...rest] = stored
+	if (first === undefined) {
+		return {
+			condition: "noUnit",
+			detail: "it reads no stored relation: a plain derived relation serves it"
+		}
+	}
+	const mutable = stored.find((r) => r.mutable)
+	if (mutable !== undefined) {
+		return { condition: "mutable", detail: `it reads ${mutable.name}, which is mutable` }
+	}
+	for (const fn of [...callsOf(definition)].toSorted(compareStrings)) {
+		const why = unfit(fn)
+		if (why !== undefined) {
+			return { condition: "call", detail: `it calls ${fn}, ${why}` }
+		}
+	}
+	const all: NonEmptyReadonlyArray<RelationInfo> = [first, ...rest]
+	for (let k = widestOf(all); k >= 1; k--) {
+		const found = unitAt(definition, all, k, "stored")
+		if (found instanceof NotLocal) {
+			if (k === 1) {
+				return found.lacks
+			}
+			continue
+		}
+		const changing = inPlaceRead(found, all)
+		if (changing !== undefined) {
+			return {
+				condition: "inPlace",
+				detail: `it reads ${changing.relation}.${changing.column}, which grizzle rewrites in place`
+			}
+		}
+		const delivered = found.delivered
+		if (delivered.kind === "at" && isNonEmpty(delivered.fields)) {
+			return Object.freeze({ unit: found.unit, fields: delivered.fields })
+		}
+		if (k === 1) {
+			return { condition: "hidden", detail: "its head delivers no field that holds its unit" }
+		}
+	}
+	throw defect("a stored relation's definition decided at some width from its widest to one")
 }
 
 /** The ordinary relations a query matches or filters by, at any depth, sorted by name, each once. */

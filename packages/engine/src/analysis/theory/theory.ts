@@ -40,6 +40,7 @@ import { CheckSession } from "#compiler/check/session.ts"
 import { catchRefusal, Refusal, unwrap } from "#compiler/core/canonical.ts"
 import {
 	type CompileError,
+	derivedRefused,
 	malformedDescription,
 	ruleRefused,
 	unsupported
@@ -55,7 +56,7 @@ import {
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { type RegionFacts, regionFactsOf } from "#compiler/analysis/theory/unit.ts"
+import { type RegionFacts, regionFactsOf, storedUnit } from "#compiler/analysis/theory/unit.ts"
 import { type ConstraintName, FieldId, type LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
@@ -90,6 +91,7 @@ import {
 	type ValidDag
 } from "#compiler/ir/rel.ts"
 import { baseOf, type ContractInfo, Roster, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
+import type { StoredUnit } from "#compiler/ir/unit.ts"
 import type { ContainmentFact } from "#compiler/logical/attach.ts"
 import { derivedStatement, mergedEntry, type StatedEntry } from "#compiler/runtime/law-entry.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
@@ -259,6 +261,11 @@ export interface Theory extends CheckedTheory {
 	/** Every instant field a clock or a reference (ir/instant.ts), as the classifier read them off the laws
 	 * (analysis/theory/instants.ts), which a write stamps by. */
 	readonly instants: Instants
+	/**
+	 * Each stored derived relation's unit, by its name (ir/unit.ts StoredUnit), as its admission decided it (`stored`):
+	 * the one record the stored relation's upkeep and the isolation checker read which unit its rows stand in from.
+	 */
+	readonly stored: Readonly<Record<string, StoredUnit>>
 }
 
 /** A theory with the evidence its laws give queries (theoryEvidence), each containment's validity context the one law
@@ -591,6 +598,7 @@ class Builder {
 		const fill = unwrap(fillOrder(families, laws))
 		const relations = Object.freeze(Object.fromEntries(this.sides.relations))
 		const instants = unwrap(instantRoles(relations, laws))
+		const stored = this.#stored()
 		return Object.freeze({
 			schema: this.owned.fingerprint,
 			name: this.owned.name,
@@ -604,8 +612,60 @@ class Builder {
 			families,
 			fill,
 			regionFacts: this.regionFacts,
-			instants
+			instants,
+			stored
 		})
+	}
+
+	/**
+	 * Each stored derived relation admitted, with its unit (ir/unit.ts StoredUnit), in name order: its definition, read
+	 * live, unit-local at the widest unit its head delivers, every declared function it calls immutable throughout
+	 * (analysis/theory/unit.ts storedUnit); refused, DerivedRefused `notUnitLocal`, by the first condition of
+	 * unit-locality it lacks. A function is unfit where it, or a function its body calls at any depth, is not immutable:
+	 * grizzle never reads a body, so a function's declared volatility and its declared calls are the author's promise,
+	 * as PostgreSQL's IMMUTABLE is.
+	 */
+	#stored(): Readonly<Record<string, StoredUnit>> {
+		const functions = this.owned.functions
+		const unfit = (fn: string): string | undefined => {
+			const seen = new Set<string>()
+			const pending = [fn]
+			for (let at = pending.pop(); at !== undefined; at = pending.pop()) {
+				if (seen.has(at)) {
+					continue
+				}
+				seen.add(at)
+				const desc = functions[at]?.desc
+				if (desc === undefined) {
+					return `which this schema declares nowhere`
+				}
+				if (desc.volatility !== "immutable") {
+					return at === fn
+						? `which is ${desc.volatility}`
+						: `whose body calls ${at}, which is ${desc.volatility}`
+				}
+				for (const called of desc.calls) {
+					pending.push(called)
+				}
+			}
+			return undefined
+		}
+		const admitted: Array<readonly [string, StoredUnit]> = []
+		for (const r of Object.values(this.owned.relations).toSorted((a, b) =>
+			compareStrings(a.name, b.name)
+		)) {
+			if (r.desc.kind !== "derived" || r.desc.storage !== "stored") {
+				continue
+			}
+			const decided = storedUnit(this.#live.query(r.desc.query), this.sides.relations, unfit)
+			if ("condition" in decided) {
+				throw new Refusal(
+					derivedRefused(r.desc.loc, { kind: "notUnitLocal", relation: r.name, lacks: decided })
+				)
+			}
+			admitted.push([r.name, decided])
+		}
+		return Object.freeze(Object.fromEntries(admitted))
 	}
 
 	/**

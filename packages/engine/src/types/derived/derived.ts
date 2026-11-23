@@ -88,9 +88,13 @@ export interface AnyMaterialized extends AnyDerived {
 	readonly storage: "materialized"
 }
 
-/** A derived relation PostgreSQL stores nothing of: a query matching it and a rule over it read its definition. */
+/**
+ * A derived relation PostgreSQL stores nothing of: a query matching it and a rule over it read its definition. A stored
+ * one is among them until its table and upkeep land (ir/desc.ts DerivedStorage): until then it is read as its
+ * definition, and a role reads it through the relations its definition reads.
+ */
 export interface AnyLive extends AnyDerived {
-	readonly storage: "live"
+	readonly storage: "live" | "stored"
 }
 
 /**
@@ -217,7 +221,10 @@ export type CheckedDefinition<Q> = Q & DefinitionCheck<Q>
  * A derived relation is a named query: fields from the query's head, keys from its evidence. It is declared in an
  * extension of the schema its definition reads. `derived(name, q)` stores nothing: a query matching it and a rule over
  * it read its definition. `derived.materialized(name, q)` is the same relation stored as a materialized view, which a
- * query reads as of its last refresh; a rule over it still reads its definition.
+ * query reads as of its last refresh; a rule over it still reads its definition. `derived.stored(name, q)` is the
+ * relation grizzle keeps equal to its definition at every COMMIT, admitted where its definition is unit-local, which
+ * only the schema's compile decides (analysis/theory/unit.ts storedUnit); what of it has landed, ir/desc.ts
+ * DerivedStorage says.
  */
 export type DerivedConstructor = (<const Name extends string, Q extends DefinitionQuery>(
 	name: RelationName<Name>,
@@ -234,5 +241,13 @@ export type DerivedConstructor = (<const Name extends string, Q extends Definiti
 		Name,
 		DefinitionView<Q["heading"], DefinitionKeys<Q>, RuleReadOf<Q>, DefinitionLevel<Q>>,
 		"materialized"
+	>
+	readonly stored: <const Name extends string, Q extends DefinitionQuery>(
+		name: RelationName<Name>,
+		definition: CheckedDefinition<Q>
+	) => Derived<
+		Name,
+		DefinitionView<Q["heading"], DefinitionKeys<Q>, RuleReadOf<Q>, DefinitionLevel<Q>>,
+		"stored"
 	>
 }

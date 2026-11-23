@@ -17,6 +17,7 @@ import {
 } from "#compiler/core/decoder.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { derivedHeld } from "#compiler/ir/desc.ts"
 import { recordsReader } from "#compiler/runtime/read/record.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -331,7 +332,7 @@ export const wholeEntries = <const Rs extends AnySchema["relations"]>(
 	assembled<WholeEntries<Rs>>(
 		Object.entries(relations).flatMap(([key, relation]) =>
 			relation.kind === "closedRelation" ||
-			(relation.kind === "derived" && relation.storage === "live")
+			(relation.kind === "derived" && !derivedHeld(relation.storage))
 				? []
 				: [[key, relation] as const]
 		)
@@ -348,7 +349,7 @@ export const scopedEntries = <const Rs extends AnySchema["relations"]>(
 	assembled<ScopedEntries<Rs>>(
 		Object.entries(relations).flatMap(([key, relation]) =>
 			relation.kind === "closedRelation" ||
-			(relation.kind === "derived" && relation.storage === "live")
+			(relation.kind === "derived" && !derivedHeld(relation.storage))
 				? []
 				: [[key, make(key, relation)] as const]
 		)

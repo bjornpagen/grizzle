@@ -1132,15 +1132,23 @@ export const bitsOf = <C extends AnyRoster>(
 	return mintBits<C>()(new RosterSet(roster.name, members))
 }
 
-/** The admission core of derived(...) and derived.materialized(...): the definition checked and recorded, as
- * relation's is, with how the relation is held. */
+/** Each storage's constructor, as a refusal of its admission names it. */
+const derivedSpelling = {
+	live: "derived",
+	materialized: "derived.materialized",
+	stored: "derived.stored"
+} as const satisfies Record<DerivedStorage, string>
+
+/** The admission core of derived(...), derived.materialized(...) and derived.stored(...): the definition checked and
+ * recorded, as relation's is, with how the relation is held. A stored one's unit-locality is decided where its theory
+ * is built (analysis/theory/theory.ts), over the relations its definition reads. */
 export const admitDerived = (
 	name: unknown,
 	definition: unknown,
 	storage: DerivedStorage,
 	extra: ReadonlyArray<unknown>
 ): DerivedDraft => {
-	const label = `${storage === "live" ? "derived" : "derived.materialized"} ${typeof name === "string" ? name : "?"}`
+	const label = `${derivedSpelling[storage]} ${typeof name === "string" ? name : "?"}`
 	const derivedName = requireDeclaredName(name, label, "derived relation")
 	if (extra.length > 0) {
 		throw malformed(label, "derived(name, definition): two arguments")
@@ -1209,10 +1217,12 @@ const derivedOf =
  * derived(name, definition): the value of the definition under its name, a live derived relation PostgreSQL stores
  * nothing for, owned with the draft its admission core records; its heading is the definition's, which v mints
  * variables over, and its `fact` the decoder of that heading. derived.materialized(name, definition) is the same
- * relation stored as a materialized view.
+ * relation stored as a materialized view, and derived.stored(name, definition) the relation grizzle keeps equal to its
+ * definition at every COMMIT (ir/desc.ts DerivedStorage, which says what of it has landed).
  */
 export const derivedBuilder = derivedOf("live")
 export const materializedDerived = derivedOf("materialized")
+export const storedDerived = derivedOf("stored")
 
 /**
  * The Description of a relation, roster or closed relation value: an owned value's own, or a JavaScript look-alike's,

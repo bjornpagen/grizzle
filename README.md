@@ -4141,6 +4141,20 @@ every query that matches it, and every rule over it ([Rules over queries](#rules
 and a role reads it through the tables its definition reads, never as a whole entry. The query takes no parameter,
 matches no context, has at least one field, and its rules share one set of columns.
 
+`derived.stored(name, query)` is the relation grizzle keeps equal to its definition at every COMMIT, for every writer.
+Its definition must be unit-local, as a rule judged whole is ([Rules over queries](#rules-over-queries)):
+- every relation it reads is immutable and leads its primary key with the unit's fields;
+- every match binds them to the rule's variables;
+- every negation is correlated at them, and every aggregate groups by them;
+- its head delivers them;
+- every declared function it calls, and every function that function's body calls, is `immutable`.
+
+A definition that lacks a condition is refused when the schema compiles, `DerivedRefused` naming the condition and
+where it fails: `notUnitLocal`, with `mutable`, `inPlace`, `unitKey`, `split`, `negation`, `aggregate`, `recursion`,
+`shape`, `hidden`, `noUnit` or `call`. The declaration and its admission have landed; its table, its fill and its
+upkeep at COMMIT have not. Until they land, a stored relation is read as its definition, as `derived` is, so every row
+it reads is right and none is stored.
+
 `derived.materialized(name, query)` also stores the query's rows as a materialized view, which a role may hold whole
 and refresh, and which a query matching it reads as of its last refresh. The keys a query provably has are a choice of
 one key in each of its independent parts, such as one of the two keys of each table it joins: the view gets a unique

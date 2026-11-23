@@ -197,6 +197,41 @@ export type KeyFault =
 	  }
 
 /**
+ * The conditions of unit-locality (analysis/theory/unit.ts), each a way a query's facts can leave one unit, which a
+ * stored derived relation's definition must meet (`notUnitLocal`):
+ * - `mutable`: it reads a relation declared mutable;
+ * - `inPlace`: it reads a field grizzle rewrites in place on a row it keeps (ir/law.ts RelationInfo `inPlace`);
+ * - `unitKey`: a relation it reads leads its primary key with no fields of the unit's types;
+ * - `split`: a match binds a relation's unit fields to other variables than its rule's unit, or to none;
+ * - `negation`: a negation, or an existence, is not correlated at the unit;
+ * - `aggregate`: an aggregate's groups do not hold the unit;
+ * - `recursion`: a recursion's seeds deliver no unit, or a step does not carry it from self into its head;
+ * - `shape`: it orders, takes, attaches, approximates or nests a query, or reads a source no unit holds;
+ * - `hidden`: its head does not deliver its unit, so its rows cannot be replaced by unit;
+ * - `noUnit`: it reads no stored relation;
+ * - `call`: it calls a declared function that is not immutable, or one whose body calls one that is not, or passes a
+ *   call rows.
+ */
+export type UnitLocalityCondition =
+	| "mutable"
+	| "inPlace"
+	| "unitKey"
+	| "split"
+	| "negation"
+	| "aggregate"
+	| "recursion"
+	| "shape"
+	| "hidden"
+	| "noUnit"
+	| "call"
+
+/** A condition of unit-locality a query lacks, and where: the first the walk met (analysis/theory/unit.ts). */
+export interface UnitLocality {
+	readonly condition: UnitLocalityCondition
+	readonly detail: string
+}
+
+/**
  * Why derived analysis refused a derived relation (analysis/derived), the cause of a DerivedRefused CompileError
  * (core/errors.ts):
  * - `attachment`: the definition attaches a nested relation to its facts: a materialized view stores flat facts.
@@ -206,9 +241,12 @@ export type KeyFault =
  *   unrepresentable.
  * - `oneFact`: a definition of at most one fact none of whose fields is a representable one-column key; `fault` is
  *   the first field's.
+ * - `notUnitLocal`: a stored derived relation whose definition lacks a condition of unit-locality (`UnitLocality`),
+ *   the first its walk met at the narrowest unit, one field wide.
  */
 export type DerivedRefusal =
 	| { readonly kind: "attachment"; readonly relation: string }
+	| { readonly kind: "notUnitLocal"; readonly relation: string; readonly lacks: UnitLocality }
 	| {
 			readonly kind: "undeclaredContract"
 			readonly relation: string
@@ -470,6 +508,8 @@ export const derivedRefusalText = (cause: DerivedRefusal): string => {
 	switch (cause.kind) {
 		case "attachment":
 			return `derived relation ${cause.relation} over a definition that attaches a nested relation to its facts: a materialized view stores flat facts`
+		case "notUnitLocal":
+			return `stored derived relation ${cause.relation} over a unit-local definition, every fact of it within one unit of the relations it reads; it lacks ${cause.lacks.condition}: ${cause.lacks.detail}`
 		case "undeclaredContract":
 			return `a contract the schema declares; ${cause.contract} is none`
 		case "inheritedKey":

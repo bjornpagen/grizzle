@@ -1777,11 +1777,23 @@ export type RelationDesc<L = Located> = L &
 
 /**
  * How a derived relation is held: `live`, its definition alone, which every query matching it and every rule over it
- * reads; or `materialized`, a materialized view of its rows besides, which a query reads as of its last refresh. A rule
- * over either reads its definition.
+ * reads; `materialized`, a materialized view of its rows besides, which a query reads as of its last refresh; or
+ * `stored`, the rows grizzle keeps equal to its definition at every COMMIT, admitted only where its definition is
+ * unit-local (analysis/theory/unit.ts storedUnit). A rule over any of them reads its definition.
+ *
+ * NOT DONE: `stored` is its declaration and admission alone. Its table, its fill and the judge's upkeep at COMMIT land
+ * together in one later change (~/.cache/grizzle-release/plans/d11-design.md §7, step 2b), and `materialized` with its
+ * refresh is deleted in that same change. Until then a stored relation is read as its definition, exactly as a live
+ * one is (`derivedHeld`), so every row it reads is right and none is stored.
  */
-const derivedStorages = ["live", "materialized"] as const
+const derivedStorages = ["live", "materialized", "stored"] as const
 export type DerivedStorage = (typeof derivedStorages)[number]
+
+/**
+ * Whether PostgreSQL holds a derived relation's rows: a materialized view's. A stored relation is read as its
+ * definition until its table and upkeep land (DerivedStorage), so neither it nor a live one is held.
+ */
+export const derivedHeld = (storage: DerivedStorage): boolean => storage === "materialized"
 
 /** A closed relation's row: a value of each of its fields. */
 export type ClosedRow = Readonly<Record<string, LiteralDesc>>
@@ -1821,7 +1833,7 @@ export const heldRelation = (relation: RelationDesc): boolean => {
 		case "closedRelation":
 			return false
 		case "derived":
-			return relation.storage === "materialized"
+			return derivedHeld(relation.storage)
 	}
 }
 

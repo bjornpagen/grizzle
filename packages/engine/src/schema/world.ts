@@ -20,6 +20,7 @@ import {
 	contextOver,
 	type ContextFactSourceKind,
 	decodeRoleOver,
+	derivedHeld,
 	type FieldDesc,
 	heldRelation,
 	type LoginDesc,
@@ -480,7 +481,7 @@ export const admitRole = (
 		}
 		const draft = derivedDraftOf(value)
 		const kind = ownedKind(value)
-		if (draft?.storage === "live") {
+		if (draft !== undefined && !derivedHeld(draft.storage)) {
 			throw ruleRefused(
 				builderLoc(at, []),
 				"a whole entry is a relation PostgreSQL stores: a role reads a live derived relation through the relations its definition reads"

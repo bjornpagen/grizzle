@@ -16,3 +16,15 @@ export interface Unit {
 		readonly fields: NonEmptyReadonlyArray<string>
 	}>
 }
+
+/**
+ * The unit of a stored derived relation (ir/desc.ts DerivedStorage `stored`), as its admission decided it
+ * (analysis/theory/unit.ts storedUnit): the unit its definition is unit-local at, the widest at which its head delivers
+ * it, and the fields of the stored relation that hold the unit key, one per position of `unit.key`. Its rows at one
+ * unit are its definition's rows there, which the relations `unit.holders` hold, so grizzle replaces them by unit, and
+ * the isolation checker reads which unit a read or a write of it stands in from here, never deriving it again.
+ */
+export interface StoredUnit {
+	readonly unit: Unit
+	readonly fields: NonEmptyReadonlyArray<string>
+}
