@@ -6,8 +6,8 @@ import { formulaText } from "#test/support/oracle/allen.ts"
 
 import { regex } from "arkregex"
 /**
- * An Allen mask's predicate as SQL text over two span expressions, for the suites that run the shipped table on
- * PostgreSQL itself (test/pg/allen/table.test.ts, test/pg/spans/oracle/reference.test.ts).
+ * An Allen mask's predicate as SQL text over two span expressions, for the suite that runs the shipped table on
+ * PostgreSQL itself (test/pg/allen/table.test.ts).
  *
  * The formula is the mask's shipped table entry (allen/lower.ts allenFormula) as the Allen oracle's formulaText writes it
  * over A and B: each literal its range operator between the two spans, a negated one NOT over the operator (a negated

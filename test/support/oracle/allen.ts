@@ -344,10 +344,9 @@ export const limitSpansWithin = ({ min, max }: SpanLimits): ReadonlyArray<HalfOp
 }
 
 /** The limit spans of a range type (limitSpansWithin). */
-export const limitSpans = (type: RangeType): ReadonlyArray<HalfOpen> =>
-	limitSpansWithin(rangeLimits[type])
+const limitSpans = (type: RangeType): ReadonlyArray<HalfOpen> => limitSpansWithin(rangeLimits[type])
 
-export const compareSpans = (a: HalfOpen, b: HalfOpen): -1 | 0 | 1 =>
+const compareSpans = (a: HalfOpen, b: HalfOpen): -1 | 0 | 1 =>
 	a.lo !== b.lo ? (a.lo < b.lo ? -1 : 1) : a.hi === b.hi ? 0 : a.hi < b.hi ? -1 : 1
 
 /**

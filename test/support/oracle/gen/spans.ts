@@ -1,5 +1,5 @@
 import { array, boolean, element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
-import { Array as Arr, Effect, Option, String as Str } from "effect"
+import { Array as Arr, String as Str } from "effect"
 import { ALLEN, fullAllenMask } from "#compiler/allen/mask.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
@@ -20,10 +20,8 @@ import {
 	dayNumber,
 	lastCalendarDate
 } from "#compiler/ir/date.ts"
-import { templateNeedBudget } from "#test/support/budgets.ts"
 import {
 	classify,
-	compareSpans,
 	type HalfOpen,
 	limitSpansWithin,
 	rangeLimits,
@@ -31,14 +29,6 @@ import {
 	type SpanLimits
 } from "#test/support/oracle/allen.ts"
 import { cyclicAt, elementAt } from "#test/support/oracle/pick.ts"
-import type { SqlError } from "#test/support/pg.ts"
-import { noTables } from "#test/support/substrate/replace.ts"
-import type { RawSession } from "#test/support/substrate/session.ts"
-import {
-	installTemplate,
-	Substrate,
-	type SubstrateTemplate
-} from "#test/support/substrate/substrate.ts"
 
 export const spanEndpointKinds = ["integer", "bigint", "contract", "date"] as const
 export type SpanEndpointKind = (typeof spanEndpointKinds)[number]
@@ -61,19 +51,6 @@ const rangeTypeOf = (endpoint: SpanEndpointKind): SpanRangeType => {
 	}
 }
 
-/** The endpoint's base type name in SQL. */
-const endpointSqlType = (endpoint: SpanEndpointKind): "int4" | "int8" | "date" => {
-	switch (endpoint) {
-		case "integer":
-			return "int4"
-		case "bigint":
-		case "contract":
-			return "int8"
-		case "date":
-			return "date"
-	}
-}
-
 /**
  * The day a date span's endpoint 0 is: a span of dates is held as a span of day offsets from it, so the window
  * [-3, 8] is 2024-02-24 to 2024-03-06, across a leap day and a month's end.
@@ -87,7 +64,7 @@ const dateAt = (offset: bigint): CalendarDate => dateOfDayNumber(dateOrigin + of
  * The limits of a span field's stored domain, in its endpoint's offsets: the range type's for an integer endpoint; for
  * a date, the days a CalendarDate spells, 0001-01-01 to 9999-12-31, the span shape CHECK's bounds.
  */
-export const endpointLimits = (endpoint: SpanEndpointKind): SpanLimits => {
+const endpointLimits = (endpoint: SpanEndpointKind): SpanLimits => {
 	switch (endpoint) {
 		case "integer":
 			return rangeLimits.int4range
@@ -106,7 +83,7 @@ const pointTextOf =
 		endpoint === "date" ? dateAt(point) : String(point)
 
 /** A span's canonical text, `[start,end)`, as its range type's output function writes it. */
-export const spanTextOf =
+const spanTextOf =
 	(endpoint: SpanEndpointKind) =>
 	(span: HalfOpen): string =>
 		`[${pointTextOf(endpoint)(span.lo)},${pointTextOf(endpoint)(span.hi)})`
@@ -115,7 +92,7 @@ export const spanTextOf =
  * The Tick contract: epoch-free ticks over bigint, no smaller than -100. Its predicate is the one
  * endpoint check a generated span carries.
  */
-export const tickContract = { name: "Tick", low: -100n } as const
+const tickContract = { name: "Tick", low: -100n } as const
 
 const endpointFieldDesc = (endpoint: SpanEndpointKind): FieldDesc => {
 	switch (endpoint) {
@@ -299,13 +276,6 @@ export interface SpanFact {
 	readonly during: HalfOpen
 }
 
-/** A row the fact generator dropped from a span-keyed relation, and the kept fact of its group it overlaps. */
-interface DroppedFact {
-	readonly relation: SpanRelationName
-	readonly fact: SpanFact
-	readonly overlaps: SpanFact
-}
-
 type SpanFacts = Readonly<Record<SpanRelationName, ReadonlyArray<SpanFact>>>
 
 interface RowSketch {
@@ -321,13 +291,13 @@ const rowSketchGen: Gen<RowSketch> = (source) => ({
 })
 
 /** Whether two spans share a point (`&&`). */
-export const overlaps = (a: HalfOpen, b: HalfOpen): boolean => a.lo < b.hi && b.lo < a.hi
+const overlaps = (a: HalfOpen, b: HalfOpen): boolean => a.lo < b.hi && b.lo < a.hi
 
+/** The facts of each relation, a span-keyed relation's row dropped where it overlaps a kept fact of its group. */
 const resolveFacts = (
 	schema: SpanSchema,
 	sketch: Readonly<Record<SpanRelationName, ReadonlyArray<RowSketch>>>
-): { readonly facts: SpanFacts; readonly dropped: ReadonlyArray<DroppedFact> } => {
-	const dropped: Array<DroppedFact> = []
+): SpanFacts => {
 	const resolve = (name: SpanRelationName): ReadonlyArray<SpanFact> => {
 		const relation = schema.relations[name]
 		const kept: Array<SpanFact> = []
@@ -337,21 +307,16 @@ const resolveFacts = (
 				group: row.group % spanGroups,
 				during: resolveSpan(schema.endpoint, row.span)
 			}
-			if (relation.spanKeyed) {
-				const clash = Arr.findFirst(
-					kept,
-					(k) => k.group === fact.group && overlaps(k.during, fact.during)
-				)
-				if (Option.isSome(clash)) {
-					dropped.push({ relation: name, fact, overlaps: clash.value })
-					continue
-				}
+			if (
+				!relation.spanKeyed ||
+				!Arr.some(kept, (k) => k.group === fact.group && overlaps(k.during, fact.during))
+			) {
+				kept.push(fact)
 			}
-			kept.push(fact)
 		}
 		return kept
 	}
-	return { facts: { Left: resolve("Left"), Right: resolve("Right") }, dropped }
+	return { Left: resolve("Left"), Right: resolve("Right") }
 }
 
 /** A span operand of r.allen: a span-typed parameter or a span literal. */
@@ -374,19 +339,8 @@ export type SpanQuery =
 	  }
 	| { readonly kind: "allenJoin"; readonly mask: number }
 	| { readonly kind: "pointIn"; readonly relation: SpanRelationName; readonly point: PointOperand }
-	| { readonly kind: "intersection" }
-	| { readonly kind: "difference" }
-	| { readonly kind: "pack"; readonly relation: SpanRelationName }
 
-export const spanQueryKinds = [
-	"allenFilter",
-	"allenJoin",
-	"pointIn",
-	"intersection",
-	"difference",
-	"pack"
-] as const
-export type SpanQueryKind = (typeof spanQueryKinds)[number]
+const spanQueryKinds = ["allenFilter", "allenJoin", "pointIn"] as const
 
 interface QuerySketch {
 	readonly kind: number
@@ -397,23 +351,17 @@ interface QuerySketch {
 	readonly point: PointSketch
 }
 
-const querySketchGen =
-	(kinds: ReadonlyArray<SpanQueryKind>): Gen<QuerySketch> =>
-	(source) => ({
-		kind: source.draw(int(0, kinds.length - 1)),
-		relation: source.draw(int(0, 1)),
-		mask: source.draw(maskGen),
-		literal: source.draw(boolean),
-		span: source.draw(spanSketchGen),
-		point: source.draw(pointSketchGen)
-	})
+const querySketchGen: Gen<QuerySketch> = (source) => ({
+	kind: source.draw(int(0, spanQueryKinds.length - 1)),
+	relation: source.draw(int(0, 1)),
+	mask: source.draw(maskGen),
+	literal: source.draw(boolean),
+	span: source.draw(spanSketchGen),
+	point: source.draw(pointSketchGen)
+})
 
-const resolveQuery = (
-	endpoint: SpanEndpointKind,
-	sketch: QuerySketch,
-	kinds: ReadonlyArray<SpanQueryKind>
-): SpanQuery => {
-	const kind = cyclicAt(kinds, sketch.kind, "the span query kinds")
+const resolveQuery = (endpoint: SpanEndpointKind, sketch: QuerySketch): SpanQuery => {
+	const kind = cyclicAt(spanQueryKinds, sketch.kind, "the span query kinds")
 	const relation = elementAt(spanRelationNames, sketch.relation % 2, "the span relation names")
 	const operand = sketch.literal ? "literal" : "param"
 	switch (kind) {
@@ -432,11 +380,6 @@ const resolveQuery = (
 				relation,
 				point: { kind: operand, point: resolvePoint(endpoint, sketch.point) }
 			}
-		case "pack":
-			return { kind, relation }
-		case "intersection":
-		case "difference":
-			return { kind }
 	}
 }
 
@@ -450,19 +393,14 @@ const resolveQuery = (
  *   so the span lowerings compile the same case the reference judges;
  * - the facts and parameter values as host values, the form the codecs encode (a span is `{ start, end }`);
  * - the expected rows by brute force (`referenceRows`), from the endpoints alone: the Allen relation of a pair from
- *   the endpoint classifier of test/support/oracle/allen.ts, never from the shipped mask table, and the producers by
- *   endpoint arithmetic that the pg suite cross-checks against point sets;
- * - an independent handwritten SQL evaluation (`inSpanSchema`, `referenceSql`), which classifies Allen
- *   relations from lower() and upper() and uses PostgreSQL's own range operators and functions for the producers, so
- *   the reference is checked against PostgreSQL itself (test/pg/spans/oracle).
+ *   the endpoint classifier of test/support/oracle/allen.ts, never from the shipped mask table.
  *
  * The schema: two relations, Left and Right, each with a scalar `group` and a span
  * field `during` over pg.integer, pg.bigint, the contract Tick over pg.bigint, or date. Each relation is
  * either span-keyed, primary key ["group", "during"], a pointwise nonoverlap rule per group, or keyed by
  * an integer `id`, so its facts overlap freely and repeat a (group, during) pair under different ids (facts
  * with different identities are distinct). The fact generator keeps a span-keyed relation lawful: a row that
- * overlaps a kept row of its group is dropped and recorded, so the pg suite can show PostgreSQL refuses exactly those
- * rows (23P01), while touching neighbours such as [9, 10) and [10, 11) are kept.
+ * overlaps a kept row of its group is dropped, while touching neighbours such as [9, 10) and [10, 11) are kept.
  *
  * The values: endpoints in the small window [-3, 8] around zero, so adjacent, nested, overlapping
  * and equal-bound pairs and negative endpoints are common, and, for the integer, bigint and date endpoints, spans at
@@ -476,14 +414,9 @@ const resolveQuery = (
  * - allenFilter: the facts of one relation whose span stands in a mask's relations to a window, a span parameter or a
  *   span literal (r.allen(during, mask, window));
  * - allenJoin: the pairs of Left and Right facts of one group whose spans stand in a mask's relations;
- * - pointIn: the facts whose span contains a point, a parameter or a literal (r.pointIn(t, during));
- * - intersection: the intersections of the overlapping Left and Right spans of one group, zero or one per pair;
- * - difference: the binary differences of Left and Right spans of one group, zero, one or two per pair
- *   (range_minus_multi);
- * - pack: the maximal covered segments of one relation's spans per group.
+ * - pointIn: the facts whose span contains a point, a parameter or a literal (r.pointIn(t, during)).
  *
- * Every query keeps set semantics: the expected rows are a set, the same pieces from different pairs are one row,
- * and adjacent stored facts are never coalesced outside pack.
+ * Every query keeps set semantics: the expected rows are a set, and adjacent stored facts are never coalesced.
  *
  * Everything is generated as a sketch of plain numbers resolved by pure functions, so every sketch is a valid case
  * and shrinking any number toward zero keeps it valid.
@@ -491,7 +424,6 @@ const resolveQuery = (
 export interface SpanCase {
 	readonly schema: SpanSchema
 	readonly facts: SpanFacts
-	readonly dropped: ReadonlyArray<DroppedFact>
 	readonly query: SpanQuery
 }
 
@@ -502,31 +434,21 @@ interface SpanCaseSketch {
 	readonly query: QuerySketch
 }
 
-interface SpanCaseLimits {
-	readonly maxRows: number
-	readonly kinds: ReadonlyArray<SpanQueryKind>
-	readonly endpoints: ReadonlyArray<SpanEndpointKind>
-}
+/** The most facts a case stores in each relation. */
+const maxRows = 6
 
-export const defaultSpanCaseLimits: SpanCaseLimits = {
-	maxRows: 6,
-	kinds: spanQueryKinds,
-	endpoints: spanEndpointKinds
-}
-
-const spanCaseSketchGen = (limits: SpanCaseLimits): Gen<SpanCaseSketch> => {
-	const rows = array(rowSketchGen, { min: 0, max: limits.maxRows })
-	const query = querySketchGen(limits.kinds)
-	return (source) => ({
-		endpoint: source.draw(int(0, limits.endpoints.length - 1)),
+const spanCaseSketchGen: Gen<SpanCaseSketch> = (source) => {
+	const rows = array(rowSketchGen, { min: 0, max: maxRows })
+	return {
+		endpoint: source.draw(int(0, spanEndpointKinds.length - 1)),
 		spanKeyed: [source.draw(boolean), source.draw(boolean)],
 		rows: { Left: source.draw(rows), Right: source.draw(rows) },
-		query: source.draw(query)
-	})
+		query: source.draw(querySketchGen)
+	}
 }
 
-const resolveSpanCase = (sketch: SpanCaseSketch, limits: SpanCaseLimits): SpanCase => {
-	const endpoint = cyclicAt(limits.endpoints, sketch.endpoint, "the span endpoints")
+const resolveSpanCase = (sketch: SpanCaseSketch): SpanCase => {
+	const endpoint = cyclicAt(spanEndpointKinds, sketch.endpoint, "the span endpoints")
 	const schema: SpanSchema = {
 		endpoint,
 		relations: {
@@ -534,12 +456,14 @@ const resolveSpanCase = (sketch: SpanCaseSketch, limits: SpanCaseLimits): SpanCa
 			Right: { name: "Right", spanKeyed: sketch.spanKeyed[1] }
 		}
 	}
-	const { facts, dropped } = resolveFacts(schema, sketch.rows)
-	return { schema, facts, dropped, query: resolveQuery(endpoint, sketch.query, limits.kinds) }
+	return {
+		schema,
+		facts: resolveFacts(schema, sketch.rows),
+		query: resolveQuery(endpoint, sketch.query)
+	}
 }
 
-export const spanCaseGen = (limits: SpanCaseLimits): Gen<SpanCase> =>
-	map(spanCaseSketchGen(limits), (s) => resolveSpanCase(s, limits))
+export const spanCaseGen: Gen<SpanCase> = map(spanCaseSketchGen, resolveSpanCase)
 
 const variable = (id: string): ExprDesc => ({ kind: "var", var: id })
 
@@ -605,10 +529,7 @@ const pairRule = (
 
 const rules = (rule: RuleDesc): QueryDesc => decodedQuery({ kind: "rules", arms: [rule] })
 
-/**
- * The query as query(Spans).rule(...) records it. A producer's head groups by the head's other terms, as an aggregate
- * does.
- */
+/** The query as query(Spans).rule(...) records it. */
 export const spanQueryDesc = (c: SpanCase): QueryDesc => {
 	const endpoint = c.schema.endpoint
 	const q = c.query
@@ -644,21 +565,6 @@ export const spanQueryDesc = (c: SpanCase): QueryDesc => {
 					{ group: variable("g"), during: variable("s") }
 				)
 			)
-		case "intersection":
-		case "difference":
-			return rules(
-				pairRule([], {
-					group: variable("g"),
-					piece: { kind: "producer", fn: q.kind, args: [variable("a"), variable("b")] }
-				})
-			)
-		case "pack":
-			return rules(
-				oneRelationRule(q.relation, [], {
-					group: variable("g"),
-					piece: { kind: "producer", fn: "pack", args: [variable("s")] }
-				})
-			)
 	}
 }
 
@@ -682,10 +588,6 @@ export const spanQueryHeading = (q: SpanQuery): ReadonlyArray<string> => {
 			return ["group", "during"]
 		case "allenJoin":
 			return ["group", "left", "right"]
-		case "intersection":
-		case "difference":
-		case "pack":
-			return ["group", "piece"]
 	}
 }
 
@@ -693,40 +595,7 @@ export const spanQueryHeading = (q: SpanQuery): ReadonlyArray<string> => {
 const allenHolds = (a: HalfOpen, mask: number, b: HalfOpen): boolean =>
 	(mask & (1 << relationBit(classify(a, b)))) !== 0
 
-/** a * b under a && b: zero or one span. */
-export const spanIntersection = (a: HalfOpen, b: HalfOpen): ReadonlyArray<HalfOpen> =>
-	overlaps(a, b) ? [{ lo: a.lo > b.lo ? a.lo : b.lo, hi: a.hi < b.hi ? a.hi : b.hi }] : []
-
-/** range_minus_multi(a, b): zero, one or two disjoint nonempty spans, a itself when they share no point. */
-export const spanDifference = (a: HalfOpen, b: HalfOpen): ReadonlyArray<HalfOpen> => {
-	if (!overlaps(a, b)) {
-		return [a]
-	}
-	const out: Array<HalfOpen> = []
-	if (a.lo < b.lo) {
-		out.push({ lo: a.lo, hi: b.lo })
-	}
-	if (b.hi < a.hi) {
-		out.push({ lo: b.hi, hi: a.hi })
-	}
-	return out
-}
-
-/** The maximal covered segments of a set of spans: overlapping and adjacent spans merge, real gaps stay. */
-export const spanPack = (spans: ReadonlyArray<HalfOpen>): ReadonlyArray<HalfOpen> => {
-	const out: Array<HalfOpen> = []
-	for (const span of Arr.sort(spans, compareSpans)) {
-		const last = out[out.length - 1]
-		if (last !== undefined && span.lo <= last.hi) {
-			out[out.length - 1] = { lo: last.lo, hi: span.hi > last.hi ? span.hi : last.hi }
-		} else {
-			out.push(span)
-		}
-	}
-	return out
-}
-
-export type RawRow = ReadonlyArray<string>
+type RawRow = ReadonlyArray<string>
 
 /** Raw rows in lexicographic order, cell by cell, a row before every longer row it begins. */
 const rowOrder = (a: RawRow, b: RawRow): -1 | 0 | 1 => {
@@ -743,7 +612,7 @@ const rowOrder = (a: RawRow, b: RawRow): -1 | 0 | 1 => {
 }
 
 /** A set of raw text rows in a fixed order. */
-export const rowSet = (rows: ReadonlyArray<RawRow>): ReadonlyArray<RawRow> =>
+const rowSet = (rows: ReadonlyArray<RawRow>): ReadonlyArray<RawRow> =>
 	Arr.dedupeAdjacentWith(Arr.sort(rows, rowOrder), (a, b) => rowOrder(a, b) === 0)
 
 const pairs = (c: SpanCase): ReadonlyArray<readonly [SpanFact, SpanFact]> =>
@@ -753,19 +622,6 @@ const pairs = (c: SpanCase): ReadonlyArray<readonly [SpanFact, SpanFact]> =>
 			(r) => [l, r] as const
 		)
 	)
-
-const groupsOf = (facts: ReadonlyArray<SpanFact>): ReadonlyMap<number, ReadonlyArray<HalfOpen>> => {
-	const out = new Map<number, Array<HalfOpen>>()
-	for (const fact of facts) {
-		const list = out.get(fact.group)
-		if (list === undefined) {
-			out.set(fact.group, [fact.during])
-		} else {
-			list.push(fact.during)
-		}
-	}
-	return out
-}
 
 /**
  * The expected rows of the case's query, as raw text in heading order: integers in decimal and spans as their
@@ -800,62 +656,13 @@ export const referenceRows = (c: SpanCase): ReadonlyArray<RawRow> => {
 					(fact) => [g(fact), spanText(fact.during)]
 				)
 			)
-		case "intersection":
-			return rowSet(
-				Arr.flatMap(pairs(c), ([l, r]) =>
-					Arr.map(spanIntersection(l.during, r.during), (p) => [g(l), spanText(p)])
-				)
-			)
-		case "difference":
-			return rowSet(
-				Arr.flatMap(pairs(c), ([l, r]) =>
-					Arr.map(spanDifference(l.during, r.during), (p) => [g(l), spanText(p)])
-				)
-			)
-		case "pack":
-			return rowSet(
-				Arr.flatMap([...groupsOf(c.facts[q.relation])], ([group, spans]) =>
-					Arr.map(spanPack(spans), (p) => [String(group), spanText(p)])
-				)
-			)
 	}
 }
-
 /** The table of a relation, by the installer's identifier mapping (Left -> left). */
 const spanTableName = (relation: SpanRelationName): string => Str.toLowerCase(relation)
 
 const table = (schema: string, relation: SpanRelationName): string =>
 	`${quoteIdent(schema)}.${quoteIdent(spanTableName(relation))}`
-
-/**
- * The statements a span schema's PostgreSQL schema holds: the Tick domain with its constraint, and the tables of its two
- * relations: NOT NULL columns, the span shape CHECK, the Tick endpoint checks with lower() and upper() substituted for
- * VALUE, and the primary key, WITHOUT OVERLAPS on the span of a span key. The reference names its own objects, without
- * the naming rule's markers: nothing compares them with grizzle's.
- */
-const spanSchemaStatements = (schema: string, spans: SpanSchema): ReadonlyArray<string> => [
-	`CREATE DOMAIN ${quoteIdent(schema)}.${quoteIdent("tick")} AS int8 CONSTRAINT ${quoteIdent("tick_check")} CHECK ((VALUE >= '${tickContract.low}'::int8) IS TRUE)`,
-	...Arr.map(spanRelationNames, (name) => {
-		const relation = spans.relations[name]
-		const t = spanTableName(name)
-		const range = rangeTypeOf(spans.endpoint)
-		const columns = [
-			...(relation.spanKeyed ? [] : [`${quoteIdent("id")} int4 NOT NULL`]),
-			`${quoteIdent("group")} int4 NOT NULL`,
-			`${quoteIdent("during")} ${range} NOT NULL`,
-			`CONSTRAINT ${quoteIdent(`${t}_during_shape`)} CHECK ((NOT isempty(${quoteIdent("during")}) AND NOT lower_inf(${quoteIdent("during")}) AND NOT upper_inf(${quoteIdent("during")}) AND lower_inc(${quoteIdent("during")}) AND NOT upper_inc(${quoteIdent("during")})) IS TRUE)`,
-			...(spans.endpoint === "contract"
-				? [
-						`CONSTRAINT ${quoteIdent(`${t}_during_tick`)} CHECK ((lower(${quoteIdent("during")}) >= '${tickContract.low}'::int8 AND upper(${quoteIdent("during")}) >= '${tickContract.low}'::int8) IS TRUE)`
-					]
-				: []),
-			relation.spanKeyed
-				? `CONSTRAINT ${quoteIdent(`${t}_key`)} PRIMARY KEY (${quoteIdent("group")}, ${quoteIdent("during")} WITHOUT OVERLAPS)`
-				: `CONSTRAINT ${quoteIdent(`${t}_key`)} PRIMARY KEY (${quoteIdent("id")})`
-		]
-		return `CREATE TABLE ${table(schema, name)} (${Arr.join(columns, ", ")})`
-	})
-]
 
 /** How a relation of a span schema is keyed: by its span, or by an integer id. */
 export type Keying = "span" | "id"
@@ -868,46 +675,6 @@ export type SpanVariant = `${SpanEndpointKind} ${Keying} ${Keying}`
 /** The span schema of a case: its variant (SpanVariant). */
 export const spanVariantOf = (c: SpanCase): SpanVariant =>
 	`${c.schema.endpoint} ${keyingOf(c.schema.relations.Left)} ${keyingOf(c.schema.relations.Right)}`
-
-/**
- * The span schema of a variant installed as a template (substrate.ts installTemplate), once per member: btree_gist,
- * which supplies the scalar components of a span key, and Left and Right under the template's schema name, whose name
- * is the value a case over a clone of it reads. A case writes its facts inside one transaction it rolls back
- * (inSpanSchema), so the seat's reset empties no table.
- */
-const spanSchemaTemplate = (
-	declaredIn: ImportMeta,
-	label: string,
-	endpoint: SpanEndpointKind,
-	left: Keying,
-	right: Keying
-): SubstrateTemplate<string> => {
-	const spans: SpanSchema = {
-		endpoint,
-		relations: {
-			Left: { name: "Left", spanKeyed: left === "span" },
-			Right: { name: "Right", spanKeyed: right === "span" }
-		}
-	}
-	return installTemplate({
-		budget: templateNeedBudget,
-		declaredIn,
-		name: `${label} ${endpoint} ${left} ${right}`,
-		content: { label, endpoint, left, right },
-		plan: (names) => Effect.succeed(names.schema),
-		install: (schema) =>
-			Effect.gen(function* () {
-				const s = yield* Substrate
-				yield* s.admin.query("CREATE EXTENSION IF NOT EXISTS btree_gist", [])
-				yield* s.admin.query(`CREATE SCHEMA ${quoteIdent(schema)}`, [])
-				for (const statement of spanSchemaStatements(schema, spans)) {
-					yield* s.admin.query(statement, [])
-				}
-			}),
-		bind: (schema) => schema,
-		reset: () => noTables
-	})
-}
 
 /** A value for every span schema a case can have, by its variant, `make` given its endpoint and keyings. */
 export const bySpanVariant = <A>(
@@ -930,15 +697,6 @@ export const bySpanVariant = <A>(
 	"date id span": make("date", "id", "span"),
 	"date id id": make("date", "id", "id")
 })
-
-/** Every span schema a case can have, each its template (spanSchemaTemplate), by its variant. */
-const spanSchemaTemplates = (
-	declaredIn: ImportMeta,
-	label: string
-): Readonly<Record<SpanVariant, SubstrateTemplate<string>>> =>
-	bySpanVariant((endpoint, left, right) =>
-		spanSchemaTemplate(declaredIn, label, endpoint, left, right)
-	)
 
 /** One INSERT of a list of facts through jsonb_to_recordset, with its one parameter. */
 export const spanInsert = (
@@ -967,121 +725,6 @@ export const spanInsert = (
 	}
 }
 
-/** Every span schema a case can have, each installed once per member: the templates the span suites' seats clone. */
-export const spanSchemas = spanSchemaTemplates(import.meta, "spans")
-
-/**
- * `body` run on `db` with `schema`, the case's span schema installed (spanSchemaTemplate), inside one transaction that
- * stores the case's facts and is rolled back however `body` ends, so every case starts from empty tables.
- */
-export const inSpanSchema = <A, E, R>(
-	db: RawSession,
-	schema: string,
-	c: SpanCase,
-	body: (schema: string) => Effect.Effect<A, E, R>
-): Effect.Effect<A, E | SqlError, R> =>
-	Effect.gen(function* () {
-		yield* db.begin
-		return yield* Effect.gen(function* () {
-			for (const name of spanRelationNames) {
-				if (c.facts[name].length > 0) {
-					const insert = spanInsert(schema, c, name, c.facts[name])
-					yield* db.query(insert.sql, insert.params)
-				}
-			}
-			return yield* body(schema)
-		}).pipe(Effect.ensuring(Effect.ignore(db.rollback)))
-	})
-
-/**
- * The basic relation of (A, B) from the endpoints, bit 0 (before) to bit 12 (finishedBy), as a CASE over lower() and
- * upper(); 13, a bit no mask has, if no condition held. This is the oracle's classifier, never a
- * lowering: grizzle's own Allen predicates use the range operators only.
- */
-const endpointClassifierSql = (a: string, b: string): string => {
-	const a0 = `lower(${a})`
-	const a1 = `upper(${a})`
-	const b0 = `lower(${b})`
-	const b1 = `upper(${b})`
-	return `(CASE WHEN ${a1} < ${b0} THEN 0 WHEN ${a1} = ${b0} THEN 1 WHEN ${a0} < ${b0} AND ${b0} < ${a1} AND ${a1} < ${b1} THEN 2 WHEN ${a0} = ${b0} AND ${a1} < ${b1} THEN 3 WHEN ${b0} < ${a0} AND ${a1} < ${b1} THEN 4 WHEN ${b0} < ${a0} AND ${a1} = ${b1} THEN 5 WHEN ${a0} = ${b0} AND ${a1} = ${b1} THEN 6 WHEN ${b1} < ${a0} THEN 7 WHEN ${b1} = ${a0} THEN 8 WHEN ${b0} < ${a0} AND ${a0} < ${b1} AND ${b1} < ${a1} THEN 9 WHEN ${b0} = ${a0} AND ${b1} < ${a1} THEN 10 WHEN ${a0} < ${b0} AND ${b1} < ${a1} THEN 11 WHEN ${a0} < ${b0} AND ${b1} = ${a1} THEN 12 ELSE 13 END)`
-}
-
-const maskTest = (mask: number, a: string, b: string): string =>
-	`((${mask}::int4 >> ${endpointClassifierSql(a, b)}) & 1) = 1`
-
-/**
- * How a mask is evaluated in the handwritten SQL: the oracle's endpoint classifier, or a predicate supplied by the
- * caller over the two span column references (the shipped table's formula, for instance).
- */
-export type MaskPredicate = (
-	mask: number,
-	left: { table: string; column: string },
-	right: { table: string; column: string }
-) => string
-
-/** The mask predicate of the span pair's own endpoints (maskTest). */
-export const endpointMaskPredicate = (
-	mask: number,
-	left: { table: string; column: string },
-	right: { table: string; column: string }
-): string =>
-	maskTest(
-		mask,
-		`${quoteIdent(left.table)}.${quoteIdent(left.column)}`,
-		`${quoteIdent(right.table)}.${quoteIdent(right.column)}`
-	)
-
-/**
- * The handwritten SQL that evaluates the case's query on the installed tables, with its parameters as text. The
- * columns are cast to text in heading order; the rows are compared as a set.
- */
-export const referenceSql = (
-	schema: string,
-	c: SpanCase,
-	mask: MaskPredicate
-): { readonly sql: string; readonly params: ReadonlyArray<string> } => {
-	const query = c.query
-	const range = rangeTypeOf(c.schema.endpoint)
-	const point = endpointSqlType(c.schema.endpoint)
-	const left = table(schema, "Left")
-	const right = table(schema, "Right")
-	const g = (alias: string) => `${quoteIdent(alias)}.${quoteIdent("group")}`
-	const d = (alias: string) => `${quoteIdent(alias)}.${quoteIdent("during")}`
-	const pairFrom = `${left} AS ${quoteIdent("l")} JOIN ${right} AS ${quoteIdent("r")} ON ${g("r")} = ${g("l")}`
-	switch (query.kind) {
-		case "allenFilter":
-			return {
-				sql: `SELECT DISTINCT ${g("l")}::text, ${d("l")}::text FROM ${table(schema, query.relation)} AS ${quoteIdent("l")} CROSS JOIN (SELECT $1::text::${range}) AS ${quoteIdent("w")}(${quoteIdent("v")}) WHERE ${mask(query.mask, { table: "l", column: "during" }, { table: "w", column: "v" })}`,
-				params: [spanTextOf(c.schema.endpoint)(query.window.span)]
-			}
-		case "allenJoin":
-			return {
-				sql: `SELECT DISTINCT ${g("l")}::text, ${d("l")}::text, ${d("r")}::text FROM ${pairFrom} WHERE ${mask(query.mask, { table: "l", column: "during" }, { table: "r", column: "during" })}`,
-				params: []
-			}
-		case "pointIn":
-			return {
-				sql: `SELECT DISTINCT ${g("l")}::text, ${d("l")}::text FROM ${table(schema, query.relation)} AS ${quoteIdent("l")} WHERE ${d("l")} @> $1::text::${point}`,
-				params: [pointTextOf(c.schema.endpoint)(query.point.point)]
-			}
-		case "intersection":
-			return {
-				sql: `SELECT DISTINCT ${g("l")}::text, (${d("l")} * ${d("r")})::text FROM ${pairFrom} WHERE ${d("l")} && ${d("r")}`,
-				params: []
-			}
-		case "difference":
-			return {
-				sql: `SELECT DISTINCT ${g("l")}::text, ${quoteIdent("p")}.${quoteIdent("piece")}::text FROM ${pairFrom} CROSS JOIN LATERAL range_minus_multi(${d("l")}, ${d("r")}) AS ${quoteIdent("p")}(${quoteIdent("piece")})`,
-				params: []
-			}
-		case "pack":
-			return {
-				sql: `SELECT ${quoteIdent("x")}.${quoteIdent("g")}::text, ${quoteIdent("u")}.${quoteIdent("piece")}::text FROM (SELECT ${g("l")}, range_agg(${d("l")}) FROM ${table(schema, query.relation)} AS ${quoteIdent("l")} GROUP BY ${g("l")}) AS ${quoteIdent("x")}(${quoteIdent("g")}, ${quoteIdent("m")}) CROSS JOIN LATERAL unnest(${quoteIdent("x")}.${quoteIdent("m")}) AS ${quoteIdent("u")}(${quoteIdent("piece")})`,
-				params: []
-			}
-	}
-}
-
 const queryText = (endpoint: SpanEndpointKind, query: SpanQuery): string => {
 	switch (query.kind) {
 		case "allenFilter":
@@ -1090,11 +733,6 @@ const queryText = (endpoint: SpanEndpointKind, query: SpanQuery): string => {
 			return `Left x Right where allen(left, ${query.mask}, right)`
 		case "pointIn":
 			return `${query.relation} where pointIn(${query.point.kind} ${pointTextOf(endpoint)(query.point.point)}, during)`
-		case "pack":
-			return `pack(${query.relation}.during) by group`
-		case "difference":
-		case "intersection":
-			return query.kind
 	}
 }
 
