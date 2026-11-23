@@ -1,17 +1,17 @@
 /**
  * The analytics and import logins are trust domains of their own. Programs over the education installation draw every
  * action kind but migrations and catalog changes, with live, stale and wild inputs. The district analyst's world
- * shows the de-identified rollup and its district's section ids, never a student, enrollment, account or name, and a
- * refresh leaves no fact in the rollup that a grade of reality does not support, so a deleted student's grade is gone
- * after it: each analyst program first has the import add a grade, the analyst refresh, the import delete it and the
- * analyst refresh again (support.ts gradeDeletedThenRefreshed). The import's world shows only ids of enrollments and
+ * shows the de-identified rollup and its district's section ids, never a student, enrollment, account or name, and
+ * every row it reads of the rollup is a grade of reality, so a deleted student's grade is gone after its delete: each
+ * analyst program first has the import add a grade, the analyst read the rollup, the import delete it and the analyst
+ * read the rollup again (support.ts gradeDeletedThenGone). The import's world shows only ids of enrollments and
  * what it recorded, never a name, and no direct writer reaches a role or view of another login, whatever claims it
  * sets: each import program first writes as a direct writer under hand-set claims and under malformed ones
  * (importerUnderClaims), after a write through its Db that changes its world (roleChangesItsWorld).
  */
 import {
 	educationTests,
-	gradeDeletedThenRefreshed,
+	gradeDeletedThenGone,
 	importerUnderClaims,
 	roleChangesItsWorld,
 	roleSeesItsWorld,
@@ -21,14 +21,14 @@ import { leadsOf } from "#test/support/worlds/drive/suite.ts"
 
 /**
  * Education: the analytics and import logins, a property for each suite:
- * - analyst: the analyst never reads a student identifier, and a refresh drops a deleted student's grade.
+ * - analyst: the analyst never reads a student identifier, and a deleted student's grade is gone from its rollup.
  * - importer: the import login never reads a name and never reaches the web login's relations, whatever claims it sets.
  */
 export const servicesSuites = educationTests([
 	{
 		key: "analyst",
 		roles: { kind: "only", roles: ["district_analyst"] },
-		lead: leadsOf(roleSeesItsWorld("district_analyst"), gradeDeletedThenRefreshed),
+		lead: leadsOf(roleSeesItsWorld("district_analyst"), gradeDeletedThenGone),
 		focus: worldsFocus,
 		steps: 20,
 		cases: 40,
@@ -37,9 +37,7 @@ export const servicesSuites = educationTests([
 			"district_analyst open-db opened",
 			"district_analyst read rows",
 			"district_analyst saw rows of its world",
-			"district_analyst refresh ok",
-			"a refresh dropped a grade",
-			"a refresh dropped a deleted grade"
+			"the rollup lacked a deleted grade"
 		],
 		properties: [
 			{ kind: "world", role: "district_analyst" },

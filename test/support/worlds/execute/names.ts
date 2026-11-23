@@ -130,10 +130,10 @@ export const namesOfBuiltAt = (
 				? Effect.die(new Error(`no statement was built for law ${i}`))
 				: lawIdsOf(names, law, statement)
 		})
-		const stored = [
-			...Arr.map(spec.base.relations, (r) => [r.name, Arr.map(r.fields, (f) => f.name)] as const),
-			...Arr.map(spec.base.derived, (d) => [d.name, Rec.keys(d.rules[0].head)] as const)
-		]
+		const stored = Arr.map(
+			spec.base.relations,
+			(r) => [r.name, Arr.map(r.fields, (f) => f.name)] as const
+		)
 		const roleOf = (name: string): string => installedRoleName(installation, name)
 		/** Whether the installation types a stored field's column by a text domain: a pattern every text matches has none. */
 		const textTyped = (r: RelationSpec, f: RelationSpec["fields"][number]): boolean => {

@@ -3,11 +3,10 @@ import type { Situations } from "@bjornpagen/testing/features"
 import { type Aimed, constant, type Gen, weighted } from "@bjornpagen/testing/gen"
 import type { Nature, PctSchedule } from "@bjornpagen/testing/interleave"
 import { type Case, type Kept, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect } from "effect"
+import { Effect } from "effect"
 import { every, type Strategy } from "#test/support/schedules/interleave.ts"
 import {
 	type RaceOp,
-	type RaceSession,
 	runWorldRace,
 	type WorldRace,
 	type WorldRaceFeature
@@ -25,7 +24,6 @@ import type {
 export const orgA = "00000000-0000-4000-8000-00000000000a"
 export const orgB = "00000000-0000-4000-8000-00000000000b"
 export const doc1 = "00000000-0000-4000-8000-000000000d01"
-export const doc2 = "00000000-0000-4000-8000-000000000d02"
 export const doc7 = "00000000-0000-4000-8000-000000000d07"
 
 /**
@@ -106,18 +104,6 @@ export const endGen: Gen<"commit" | "rollback"> = weighted<"commit" | "rollback"
 
 /** The depth of every race's PCT schedule: up to two change points. */
 export const pctDepth = 3
-
-/**
- * How many moves a race's sessions make when every move runs, as the race's transactions run them: a Db session's
- * operations, and a direct session's BEGIN, statements and end. A PCT schedule's change points are drawn among them.
- */
-export const raceMoves = (sessions: ReadonlyArray<RaceSession>): number =>
-	Arr.reduce(
-		sessions,
-		0,
-		(sum, session) =>
-			sum + (session.kind === "db" ? session.ops.length : session.statements.length + 2)
-	)
 
 /** The strategy of a small race: every order, with reduction. */
 export const exhaustive = (): Strategy => every

@@ -78,8 +78,8 @@ const built = (use: Use) => {
 			: []
 	const s = schema("Library", [Links], statements)
 	return login(s, "desk", [
-		role(s, "writer", { Links }, { write: ["Links"], refresh: [] }),
-		role(s, "reader", { Links }, { write: [], refresh: [] })
+		role(s, "writer", { Links }, { write: ["Links"] }),
+		role(s, "reader", { Links }, { write: [] })
 	])
 }
 

@@ -25,7 +25,7 @@
  *   upgrade folder.
  *
  * And the worlds of format 7 (test/pg/cli/upgrade.fixtures.ts worldsBox): a base with a roster and two tables, a level
- * over it with a table and a materialized derived relation, two roles over the level, one holding every relation whole
+ * over it with a table and a stored derived relation, two roles over the level, one holding every relation whole
  * and one holding two whole and writing one, a query entry of its own or none, and a role over the base holding two
  * whole, or none. Each case is generated and migrated through the command line, rows stored, and then made what format
  * 7 left: the database holds a copy of each whole view in the schema of each role holding it, granted to that role
@@ -251,7 +251,7 @@ export const aFormat7InstallationsPerRoleWholeViewsUpgradeToOneWholeViewOfEachRe
 			"a role holding a query entry",
 			"a role holding whole entries alone",
 			"a role over the base",
-			"a materialized derived relation held whole"
+			"a stored derived relation held whole"
 		] satisfies ReadonlyArray<Reached<WorldsFeature>>,
 		check:
 			({ caseSubstrate }, c: Case<WorldsFeature>) =>

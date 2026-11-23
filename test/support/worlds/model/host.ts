@@ -59,8 +59,7 @@ import type {
  * roster's member order; spans have no order.
  *
  * A closed roster's facts are one per member, the member under `id`, the handle field grizzle gives every closed fact.
- * A derived relation's facts are those of its last refresh, which the caller holds. A context holds the session's one
- * fact, or none.
+ * A context holds the session's one fact, or none.
  */
 
 /** A value the model requires, or the defect of whoever named what is absent. */
@@ -202,7 +201,7 @@ export const uniqueFacts = (facts: ReadonlyArray<HostFact>): ReadonlyArray<HostF
 const rosterFacts = (closed: ClosedSpec): ReadonlyArray<HostFact> =>
 	Arr.map(closed.members, (id): HostFact => ({ id }))
 
-/** The item named `name`: a relation, roster, derived relation or context of a base, a field, or a role. */
+/** The item named `name`: a relation, roster or context of a base, a field, or a role. */
 const named = <A extends { readonly name: string }>(
 	items: ReadonlyArray<A>,
 	name: string
@@ -222,26 +221,18 @@ const domainIn = (
 const ordinaryOf = (base: BaseSpec, source: Source): RelationSpec | undefined =>
 	source.kind === "ordinary" ? named(base.relations, source.name) : undefined
 
-/** What a rule is read over: the base, reality, each derived relation's facts as of its last refresh, the session's. */
+/** What a rule is read over: the base, reality, the session's. */
 interface Reading {
 	readonly base: BaseSpec
 	readonly reality: HostState
-	readonly derived: Readonly<Record<string, ReadonlyArray<HostFact>>>
 	readonly facts: ContextFacts
 }
 
 /** The source of the base a whole entry names by its relation's name. */
-const sourceNamed = (base: BaseSpec, name: string): Source => {
-	if (holdsNamed(base.closed, name)) {
-		return { kind: "closed", name }
-	}
-	return holdsNamed(base.derived, name) ? { kind: "derived", name } : { kind: "ordinary", name }
-}
+const sourceNamed = (base: BaseSpec, name: string): Source =>
+	holdsNamed(base.closed, name) ? { kind: "closed", name } : { kind: "ordinary", name }
 
-/**
- * The facts a source holds: an ordinary relation's in reality, a roster's members, a derived relation's as of its last
- * refresh, a context's one fact or none.
- */
+/** The facts a source holds: an ordinary relation's in reality, a roster's members, a context's one fact or none. */
 const sourceFacts = (reading: Reading, source: Source): ReadonlyArray<HostFact> => {
 	switch (source.kind) {
 		case "ordinary":
@@ -250,8 +241,6 @@ const sourceFacts = (reading: Reading, source: Source): ReadonlyArray<HostFact> 
 			const closed = named(reading.base.closed, source.name)
 			return closed === undefined ? [] : rosterFacts(closed)
 		}
-		case "derived":
-			return own(reading.derived, source.name) ?? []
 		case "context": {
 			const fact = own(reading.facts, source.name)
 			return fact === undefined ? [] : [fact]
@@ -261,16 +250,6 @@ const sourceFacts = (reading: Reading, source: Source): ReadonlyArray<HostFact> 
 
 /** The domain of each variable a rule's positive matches bind: the domain of the first field binding it. */
 type Typing = ReadonlyMap<string, FieldDomain>
-
-/** A derived relation's field's domain: its head field's over its rules (headFieldDomain). */
-const derivedFieldDomain = (
-	base: BaseSpec,
-	name: string,
-	field: string
-): FieldDomain | undefined => {
-	const derived = named(base.derived, name)
-	return derived === undefined ? undefined : headFieldDomain(base, derived.rules, field)
-}
 
 /** Text of any value: the type grizzle gives a string head literal no term types. */
 const anyText: FieldDomain = textDomain("^.*$", "su")
@@ -349,8 +328,6 @@ export const fieldDomain = (
 				? undefined
 				: { kind: "handle", closed: closed.name, members: closed.members }
 		}
-		case "derived":
-			return derivedFieldDomain(base, source.name, field)
 		case "context":
 			return domainIn(named(base.contexts, source.name), field)
 	}
@@ -518,17 +495,15 @@ const ruleRows = (reading: Reading, rule: Rule, factsAt: FactsAt): ReadonlyArray
 }
 
 /**
- * The meaning of a rule set over reality, the derived relations' facts and the session's: the union of its rules'
- * rows, each row once. Pure and total; a rule ruleFaults refuses has the meaning the clauses above give it.
+ * The meaning of a rule set over reality and the session's facts: the union of its rules' rows, each row once. Pure and total; a rule ruleFaults refuses has the meaning the clauses above give it.
  */
 export const evaluateRules = (
 	base: BaseSpec,
 	rules: Arr.NonEmptyReadonlyArray<Rule>,
 	reality: HostState,
-	derived: Readonly<Record<string, ReadonlyArray<HostFact>>>,
 	facts: ContextFacts
 ): ReadonlyArray<HostFact> => {
-	const reading: Reading = { base, reality, derived, facts }
+	const reading: Reading = { base, reality, facts }
 	return uniqueFacts(Arr.flatMap(rules, (rule) => ruleRows(reading, rule, readsSources(reading))))
 }
 
@@ -605,8 +580,6 @@ const sourceKnown = (base: BaseSpec, source: Source): boolean => {
 			return holdsNamed(base.relations, source.name)
 		case "closed":
 			return holdsNamed(base.closed, source.name)
-		case "derived":
-			return holdsNamed(base.derived, source.name)
 		case "context":
 			return holdsNamed(base.contexts, source.name)
 	}
@@ -1032,8 +1005,8 @@ export const writableSupplier = (
 
 /**
  * Whether and how a role relation is writable. A whole entry over an ordinary relation is writable over it, every
- * field its own, keyed or free as its keys say (no context binds one); a whole entry over a closed or derived relation
- * has no ordinary relation to supply it (no-supplier). A query entry is judged by README's writable-entry rule
+ * field its own, keyed or free as its keys say (no context binds one); a whole entry over a closed relation has no
+ * ordinary relation to supply it (no-supplier). A query entry is judged by README's writable-entry rule
  * (writability).
  */
 export const classifyEntry = (base: BaseSpec, entry: EntrySpec): EntryClass => {
@@ -1068,13 +1041,12 @@ const entryOf = (install: InstallSpec, role: string, relation: string): EntrySpe
 const readingOf = (state: ModelState, facts: ContextFacts): Reading => ({
 	base: state.install.base,
 	reality: state.reality,
-	derived: state.derived,
 	facts
 })
 
 /**
  * A role relation's rows under a session's facts: a whole entry's relation (an ordinary relation's facts in reality, a
- * roster's members, a derived relation's as of its last refresh), a query entry's rules evaluated over them.
+ * roster's members), a query entry's rules evaluated over them.
  */
 export const entryRows = (
 	state: ModelState,
@@ -1088,7 +1060,7 @@ export const entryRows = (
 		case "whole":
 			return sourceFacts(reading, sourceNamed(reading.base, entry.relation))
 		case "query":
-			return evaluateRules(reading.base, entry.rules, reading.reality, reading.derived, facts)
+			return evaluateRules(reading.base, entry.rules, reading.reality, facts)
 	}
 }
 

@@ -23,24 +23,21 @@ import { drawnLogin, type DrawnSchema, type RoleShape } from "#test/support/serv
 export type Feature =
 	| "a footprint table routed by a field"
 	| "a footprint table read table-wide"
-	| "a materialized view a read reads"
 	| "a relation two reads read"
 
 const file = `${repoRoot}app/grizzle.config.ts`
 
-/**
- * What an installed identifier of a drafted snapshot names: a stored relation's table, with each column's field, or a
- * materialized derived relation's view.
- */
-type Installed =
-	| {
-			readonly kind: "table"
-			readonly relation: string
-			readonly fields: ReadonlyMap<string, string>
-	  }
-	| { readonly kind: "view"; readonly relation: string }
+/** What an installed identifier of a drafted snapshot names: a stored relation's table, with each column's field. */
+interface Installed {
+	readonly relation: string
+	readonly fields: ReadonlyMap<string, string>
+}
 
-/** Each installed table and view of a drafted snapshot, by its identifier, as its theory names it. */
+/**
+ * Each installed table of a drafted snapshot, by its identifier, as its theory names it: an authored relation's. The
+ * drawn schemas hold no stored derived relation (the law level's is live, oracle/public/laws.ts), so no derived record
+ * names a table a footprint reads.
+ */
 const installedOf = (snapshot: DeploySnapshot): ReadonlyMap<string, Installed> =>
 	new Map(
 		Arr.flatMap(
@@ -52,14 +49,12 @@ const installedOf = (snapshot: DeploySnapshot): ReadonlyMap<string, Installed> =
 							[
 								r.ident,
 								{
-									kind: "table",
 									relation,
 									fields: new Map(Arr.map(r.fields, (f) => [f.column, f.name] as const))
 								}
 							]
 						]
 					case "derived":
-						return [[r.ident, { kind: "view", relation }]]
 					case "closed":
 						return []
 				}
@@ -80,17 +75,11 @@ const unionOf = (
 		return { kind: "none" }
 	}
 	const tables = new Map<string, Set<string>>()
-	const views = new Set<string>()
 	const reads = new Map<string, number>()
 	for (const footprint of footprints) {
 		for (const [ident, routes] of Rec.toEntries(footprint)) {
 			const named = defined(installed.get(ident), `the installed relation ${ident}`)
 			reads.set(named.relation, (reads.get(named.relation) ?? 0) + 1)
-			if (named.kind === "view") {
-				views.add(named.relation)
-				note("a materialized view a read reads")
-				continue
-			}
 			const fields = tables.get(named.relation) ?? new Set<string>()
 			for (const column of Rec.keys(routes)) {
 				fields.add(defined(named.fields.get(column), `the column ${column} of ${named.relation}`))
@@ -111,8 +100,7 @@ const unionOf = (
 		tables: Arr.map(Arr.sort([...tables.keys()], Order.String), (relation) => ({
 			relation,
 			routes: Arr.sort([...(tables.get(relation) ?? [])], Order.String)
-		})),
-		views: Arr.sort([...views], Order.String)
+		}))
 	}
 }
 
@@ -171,7 +159,6 @@ export const liveIsTheUnion = (
 						case "key":
 							return member.read.live.kind === "routed" ? [member.read.live.footprint] : []
 						case "change":
-						case "refresh":
 							return []
 					}
 				})

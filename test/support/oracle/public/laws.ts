@@ -17,8 +17,8 @@ import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { type Owned, rostersOf } from "#compiler/schema/own.ts"
 import {
-	materializedDerived,
 	closedBuilder,
+	derivedBuilder,
 	generatedRelation,
 	relationBuilder
 } from "#compiler/schema/relation.ts"
@@ -46,8 +46,8 @@ import { upTo } from "#test/support/up-to.ts"
  * - a counter relation of a second checked contract's field and an integer, perhaps with a generated column over the
  *   contract's base value, and perhaps a table CHECK on the integer;
  * - the two contracts of one definition, whose one domain then types both relations' columns, or of two;
- * - a materialized derived relation over the case's first relation, each of its facts as it is, which a read of the level
- *   reads as a materialized view and a refresh alone changes.
+ * - a derived relation over the case's first relation, each of its facts as it is, which a read of the level reads
+ *   through its definition.
  *
  * Every count is a search budget.
  */
@@ -117,7 +117,7 @@ export interface LevelRelation {
 }
 
 /**
- * The case's schema extended by its law level: the extension, the level's stored relations, its materialized view, and
+ * The case's schema extended by its law level: the extension, the level's stored relations, its derived relation, and
  * the codes it is installed under.
  */
 export interface Laws {
@@ -179,7 +179,7 @@ export const lawsOf = (s: ProgramSchema, built: BuiltSchema, level: LawLevel): L
 	const viewName = fresh("LawView", taken)
 	const [first] = s.relations
 	const read = built.relation(first)
-	const View = materializedDerived(
+	const View = derivedBuilder(
 		viewName,
 		queryOver(built.schema).rule((r: RuleValue) => {
 			const fact = varsOver(read, "fact")

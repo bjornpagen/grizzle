@@ -6,7 +6,7 @@ import type { WorldFeature } from "#test/support/worlds/model/types.ts"
 /**
  * Tenant and login isolation over the documents base, judged by the worlds model, as a role reads: every read a role
  * makes, through a Db (executed, by key, page by page under a drawn order, from the first page or the last, whose ties
- * grizzle breaks by a key it proves of a table's entry or of a derived relation, or by the whole heading, so every row
+ * grizzle breaks by a key it proves of a table's entry, or by the whole heading, so every row
  * arrives exactly once; prepared; with another of its relations attached to each row; as the pairs a recursive query
  * chains, over a reality holding a chain at every relation one chains (docsChainedRealities), so a chain past one step
  * is there to read whatever installation is drawn; both artifacts must agree, a paged read's window by window, on the
@@ -26,8 +26,7 @@ export const reads: Focus = [
 	"close",
 	"direct-begin",
 	"direct",
-	"direct-end",
-	"refresh"
+	"direct-end"
 ]
 
 /** What the reads suite must reach. */
@@ -47,8 +46,6 @@ export const readsRequired: Situations<WorldFeature> = [
 	"via:reach",
 	"page:proven-key:first",
 	"page:proven-key:last",
-	"page:derived-key:first",
-	"page:derived-key:last",
 	"page:heading-key:first",
 	"page:heading-key:last",
 	"attach:nested",

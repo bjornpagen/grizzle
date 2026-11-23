@@ -22,7 +22,7 @@
 
 import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
-import { element } from "@bjornpagen/testing/gen"
+import { aimed, constant, element } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { draftedPhases } from "#test/support/worlds/execute/catalog.ts"
@@ -43,6 +43,7 @@ import {
 	phaseOf,
 	type StepFeature,
 	stepFeatures,
+	viewCreatedAgain,
 	walkGen
 } from "#test/unit/world-model/step.fixtures.ts"
 
@@ -108,120 +109,117 @@ export const theWorldsModelsStepKeepsEveryInvariantOnEveryBranchAndAgreesWithIts
  * The worlds model's migration folders drafts a folder's files in the order and number grizzle's generate drafts them.
  *
  * Budget: its suite's count before the conversion (unit/world-model/folder files: 30 independent cases and 0 steered,
- * Vitest at grizzle 4ca3036a).
+ * Vitest at grizzle 4ca3036a). A witness aimed at a world object created again with no Publish file is the migration
+ * that creates a role's query view again alone (step.fixtures.ts viewCreatedAgain), which two independent drawn
+ * installations almost never are.
  */
 export const theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumberGrizzlesGenerateDraftsThem =
-	property.explore(migrationGen, {
-		needs: {},
-		situations: ["worlds change", "no worlds change", "a new law"] satisfies ReadonlyArray<
-			Reached<FolderFeature>
-		>,
-		check:
-			(_, c: Case<FolderFeature>) =>
-			({ from, to }) =>
-				Effect.gen(function* () {
-					const drafted = yield* Effect.orDie(draftedPhases(from, to, "worlds_files"))
-					assert.deepEqual(
-						drafted,
-						Arr.map(folderFiles(from, to), phaseOf),
-						"the folder's files, by phase"
-					)
-					c.note(changesWorlds(from, to) ? "worlds change" : "no worlds change")
-					if (to.base.laws.length > from.base.laws.length) {
-						c.note("a new law")
-					}
-				}),
-		oracle: {
-			kind: "second-implementation",
-			name: "the phases of the folder grizzle's generate drafts"
-		},
-		budget: { runs: 30, steered: 0 },
-		kept: [
-			{
-				token: ReplayToken(
-					"test/unit/world-model/step.test.ts#theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumberGrizzlesGenerateDraftsThem:-:0.1.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.1.0.1.0.0.0.0.2.0.0.0.0.1.9"
-				),
-				reason:
-					"a check added on Doc under beta, which reads Doc whole: Structure adds the check NOT VALID and keeps beta's view over Doc's unchanged columns, Validate validates the check, and no Publish file follows",
-				since: "2026-11-19"
+	property.explore(
+		aimed(migrationGen, [
+			["a world object created again and no Publish file", constant(viewCreatedAgain)]
+		]),
+		{
+			needs: {},
+			situations: [
+				"worlds change",
+				"no worlds change",
+				"a new law",
+				"a world object created again and no Publish file"
+			] satisfies ReadonlyArray<Reached<FolderFeature>>,
+			check:
+				(_, c: Case<FolderFeature>) =>
+				({ from, to }) =>
+					Effect.gen(function* () {
+						const drafted = yield* Effect.orDie(draftedPhases(from, to, "worlds_files"))
+						assert.deepEqual(
+							drafted,
+							Arr.map(folderFiles(from, to), phaseOf),
+							"the folder's files, by phase"
+						)
+						c.note(changesWorlds(from, to) ? "worlds change" : "no worlds change")
+						if (to.base.laws.length > from.base.laws.length) {
+							c.note("a new law")
+						}
+						if (changesWorlds(from, to) && !drafted.includes("publish")) {
+							c.note("a world object created again and no Publish file")
+						}
+					}),
+			oracle: {
+				kind: "second-implementation",
+				name: "the phases of the folder grizzle's generate drafts"
 			},
-			{
-				token: ReplayToken(
-					"test/unit/world-model/step.test.ts#theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumberGrizzlesGenerateDraftsThem:-:4.0.1.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.1.0.0.0.0.0.1.1"
-				),
-				reason:
-					"a key added on Doc beneath alpha's view of the derived OrgDocs: the derived relation's keys, its materialized view's unique indexes, change no world object, so the folder drafts no Structure: Indexes declares the statistics the new key changes, the index is built concurrently, and Publish writes its comment",
-				since: "2026-11-19"
-			},
-			{
-				token: ReplayToken(
-					"test/unit/world-model/step.test.ts#theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumberGrizzlesGenerateDraftsThem:-:0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0"
-				),
-				reason:
-					"a key added on Org under alpha's whole view of Org (VALIDCOST at 770e3588e, seed 0x73ac3c43, case 15): Org's columns stand, so the view is kept (5bdae3758's sameRead) and the folder builds the index and attaches the key, no Structure",
-				since: "2026-11-19"
-			},
-			{
-				token: ReplayToken(
-					"test/unit/world-model/step.test.ts#theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumberGrizzlesGenerateDraftsThem:-:o.2.1.1.1.0.1.2.2.0.1.1.0.1.0.0.0.0.0.1.1.0.1.1.1.1.0.1.1.1.0.1.0.0.0.0.0.1.0.3.0.0.1.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.6"
-				),
-				reason:
-					"a key added on Note(doc) under beta's query view over a Note of one literal doc: the compile now proves the arm's rows unique by it, a proof that prints nothing, so the view prints the same statement and is kept",
-				since: "2026-11-19"
-			},
-			{
-				token: ReplayToken(
-					"test/unit/world-model/step.test.ts#theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumberGrizzlesGenerateDraftsThem:-:6.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.1.0.1.0.0.0.1.0.1.8.0.0.0.0.1.0.0.0.0.1.6"
-				),
-				reason:
-					"a key added on Note(doc) under alpha's query view: the compile drops the view's DISTINCT by it, so the view's statement changes and Structure creates it again, which the model reads off the compiled statement",
-				since: "2026-11-19"
-			},
-			{
-				token: ReplayToken(
-					"test/unit/world-model/step.test.ts#theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumberGrizzlesGenerateDraftsThem:-:k.1.0.1.0.0.1.0.0.0.0.0.0.0.0.1.0.1.0.0.0.0.0.0.2.0.0.0.1.0.0.0.1.0.0.0.0.1.0.0.0.0.0.4.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0"
-				),
-				reason:
-					"alpha's query view of OrgDocs reads a literal doc where it read any: Structure drops the view, creates it again and grants it right there, and no Publish file follows, alpha's other grants standing",
-				since: "2026-11-19"
-			},
-			{
-				token: ReplayToken(
-					"test/unit/world-model/step.test.ts#theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumberGrizzlesGenerateDraftsThem:-:1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
-				),
-				reason:
-					"alpha reads Org whole where it read a query view of it: Structure drops the query's view and creates Org's, and Publish revokes the new view from PUBLIC, which no previous revoke took",
-				since: "2026-11-19"
-			}
-		],
-		kills: [
-			{
-				file: "packages/engine/src/deploy/diff/diff.ts",
-				original: "\t\t\t\t\tthis.regrantWorld(v)\n",
-				replacement: "",
-				why: "A world object Structure creates again is granted in Publish rather than right after it, so its role reads nothing of it between the two files and the kept case recreating alpha's view of OrgDocs drafts a Publish file; this property fails."
-			},
-			{
-				file: "packages/engine/src/deploy/diff/diff.ts",
-				original: "\t\t\t\tif (this.worldWithin(v)) {",
-				replacement: "\t\t\t\tif (false) {",
-				why: "A held role's world object is created again in Publish, where Structure dropped it, so the kept case recreating alpha's view of OrgDocs drafts a Publish file the model says it does not; this property fails."
-			},
-			{
-				file: "packages/engine/src/deploy/diff/diff.ts",
-				original:
-					"\tif (samePrinted(was, now)) {\n\t\treturn true\n\t}\n\tconst [before] = was.ddl",
-				replacement:
-					"\tif (sameRecord(was, now)) {\n\t\treturn true\n\t}\n\tconst [before] = was.ddl",
-				why: "A world object whose compile states a proof of its rows that prints nothing reads as changed (diff.ts sameRead by the record): the kept case's view, printing the same statement, is dropped and created again in Structure; this property fails."
-			},
-			{
-				file: "packages/text/src/text.ts",
-				original:
-					"export const isAsciiDigit = (unit: number): boolean => unit >= 0x30 && unit <= 0x39",
-				replacement:
-					"export const isAsciiDigit = (unit: number): boolean => unit >= 0x30 && unit <= 58",
-				why: "Operator mutant (bound) at packages/engine/src/sql/lexer.ts:103 in isDigit: `0x39` becomes `58`; the property fails (lane CATCH, grizzle 0baff5d6)."
-			}
-		]
-	})
+			budget: { runs: 30, steered: 0 },
+			kept: [
+				{
+					token: ReplayToken(
+						"test/unit/world-model/step.test.ts#theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumberGrizzlesGenerateDraftsThem:-:0.1.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.1.0.0.0.2.0.0.0.1.9"
+					),
+					reason:
+						"a check added on Doc under beta, which reads Doc whole: Structure adds the check NOT VALID and keeps beta's view over Doc's unchanged columns, Validate validates the check, and no Publish file follows",
+					since: "2026-11-19"
+				},
+				{
+					token: ReplayToken(
+						"test/unit/world-model/step.test.ts#theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumberGrizzlesGenerateDraftsThem:-:0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0"
+					),
+					reason:
+						"a key added on Org under alpha's whole view of Org (VALIDCOST at 770e3588e, seed 0x73ac3c43, case 15): Org's columns stand, so the view is kept (5bdae3758's sameRead) and the folder builds the index and attaches the key, no Structure",
+					since: "2026-11-19"
+				},
+				{
+					token: ReplayToken(
+						"test/unit/world-model/step.test.ts#theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumberGrizzlesGenerateDraftsThem:-:m.2.1.1.1.0.2.2.0.1.1.0.1.0.0.0.0.0.1.1.0.1.1.1.0.1.1.0.1.0.0.0.0.1.3.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.1.6"
+					),
+					reason:
+						"a key added on Note(doc) under beta's query view over a Note of one literal doc: the compile now proves the arm's rows unique by it, a proof that prints nothing, so the view prints the same statement and is kept",
+					since: "2026-11-19"
+				},
+				{
+					token: ReplayToken(
+						"test/unit/world-model/step.test.ts#theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumberGrizzlesGenerateDraftsThem:-:5.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.1.0.0.0.0.1.0.1.8.0.0.0.0.1.0.0.0.1.6"
+					),
+					reason:
+						"a key added on Note(doc) under alpha's query view: the compile drops the view's DISTINCT by it, so the view's statement changes and Structure creates it again, which the model reads off the compiled statement",
+					since: "2026-11-19"
+				},
+				{
+					token: ReplayToken(
+						"test/unit/world-model/step.test.ts#theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumberGrizzlesGenerateDraftsThem:-:1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
+					),
+					reason:
+						"alpha reads Org whole where it read a query view of it: Structure drops the query's view and creates Org's, and Publish revokes the new view from PUBLIC, which no previous revoke took",
+					since: "2026-11-19"
+				}
+			],
+			kills: [
+				{
+					file: "packages/engine/src/deploy/diff/diff.ts",
+					original: "\t\t\t\t\tthis.regrantWorld(v)\n",
+					replacement: "",
+					why: "A world object Structure creates again is granted in Publish rather than right after it, so its role reads nothing of it between the two files and a migration recreating a role's query view drafts a Publish file; this property fails."
+				},
+				{
+					file: "packages/engine/src/deploy/diff/diff.ts",
+					original: "\t\t\t\tif (this.worldWithin(v)) {",
+					replacement: "\t\t\t\tif (false) {",
+					why: "A held role's world object is created again in Publish, where Structure dropped it, so a migration recreating a role's query view drafts a Publish file the model says it does not; this property fails."
+				},
+				{
+					file: "packages/engine/src/deploy/diff/diff.ts",
+					original:
+						"\tif (samePrinted(was, now)) {\n\t\treturn true\n\t}\n\tconst [before] = was.ddl",
+					replacement:
+						"\tif (sameRecord(was, now)) {\n\t\treturn true\n\t}\n\tconst [before] = was.ddl",
+					why: "A world object whose compile states a proof of its rows that prints nothing reads as changed (diff.ts sameRead by the record): the kept case's view, printing the same statement, is dropped and created again in Structure; this property fails."
+				},
+				{
+					file: "packages/text/src/text.ts",
+					original:
+						"export const isAsciiDigit = (unit: number): boolean => unit >= 0x30 && unit <= 0x39",
+					replacement:
+						"export const isAsciiDigit = (unit: number): boolean => unit >= 0x30 && unit <= 58",
+					why: "Operator mutant (bound) at packages/engine/src/sql/lexer.ts:103 in isDigit: `0x39` becomes `58`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				}
+			]
+		}
+	)

@@ -11,7 +11,7 @@ import { sameScalarType, type ScalarType } from "#compiler/ir/scalar.ts"
 import { queryInput } from "#compiler/program/input.ts"
 import { natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { derived, relation, schema } from "#compiler/public/schema.ts"
+import { derived, relation, schema, unit } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { plainType } from "#compiler/scalar/native.ts"
@@ -28,7 +28,7 @@ export type Side = "natural" | "bigint"
 /**
  * Where a case reads its count, `n: r.count()` over Item's rows by their kind:
  * - `head`: a query's head;
- * - `derived`: a materialized derived relation's field;
+ * - `derived`: a stored derived relation's field, Item keyed by its kind first in the unit of its kind;
  * - `written`: an insert into a relation whose field n is of the type `into`;
  * - `union`: the head of a query of two rules, the count's and one that delivers n as `beside`, the literal 0n or a
  *   field of either type, read as the query's head or, `written`, inserted into a natural field (decideStage's place, a
@@ -141,7 +141,7 @@ const fieldOf = (side: Side) => (side === "natural" ? natural : pg.bigint)
 export const observedOf = (c: CountCase): Observed =>
 	observing(() => {
 		const r = c.reading
-		const Item = relation("Item", { id: pg.integer, kind: pg.integer }, ["id"])
+		const Item = relation("Item", { id: pg.integer, kind: pg.integer }, ["kind", "id"])
 		const Tally = relation("Tally", { kind: pg.integer, t: natural }, ["kind"])
 		const Into = relation(
 			"Into",
@@ -162,7 +162,7 @@ export const observedOf = (c: CountCase): Observed =>
 			...(r.kind === "written" || (r.kind === "union" && r.written) ? [Into] : []),
 			...(r.kind === "union" && r.beside !== "zero" ? [Beside] : [])
 		]
-		const Counts = schema("Counts", own, [])
+		const Counts = schema("Counts", own, [unit("Kinds", { kind: pg.integer })])
 		const counted = query(Counts).rule((q) => {
 			const { id, kind } = v(Item, "item")
 			return q.match(Item, { id, kind }).find({ kind, n: q.count() })
@@ -222,7 +222,7 @@ export const observedOf = (c: CountCase): Observed =>
 			}
 			case "derived":
 			case "compared": {
-				const Tallied = derived.materialized(
+				const Tallied = derived.stored(
 					"Tallied",
 					query(Counts).rule((q) => {
 						const { id, kind } = v(Item, "item")

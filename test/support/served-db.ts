@@ -275,7 +275,7 @@ export const Served = {
 /**
  * One Db of a role over an installation: its context, which every member it serves runs over; `load`, which compiles
  * `programs`, each a program workload(...) admits (a query, an ordered query, paged(...) of one, a ChangeSet, a
- * relation's key or refresh(relations)), into members of the role's workload under their names, and gives each one loaded, by
+ * relation's key), into members of the role's workload under their names, and gives each one loaded, by
  * name, for a test that runs it over a context of its own (adapter/db/handles.ts memberCalls) or reads its loaded
  * program; and `serve`, which gives each one's once over the context, by name, by its answer's shape (OnceCalls). Each
  * read among `programs` is served answered (answeredPrograms).
@@ -381,8 +381,8 @@ export const withServedDb = <A, E, R>(
 /**
  * A program as a Db over an installation that installed no live source for it serves it: a live read answered
  * (workload answered), so no change wakes it, its served file holds no live source for it and the snapshot's live
- * source decodes none of its footprint; every other program, a ChangeSet, a clocked one, which is answered already, a
- * refresh, or a value no workload admits, as it stands.
+ * source decodes none of its footprint; every other program, a ChangeSet, a clocked one, which is answered already, or
+ * a value no workload admits, as it stands.
  */
 const answeredRead = (program: unknown): unknown =>
 	isAnswerableRead(program) ? answeredMember(program) : program

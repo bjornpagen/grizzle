@@ -19,7 +19,7 @@ import { compileInstallation, installOptions } from "#compiler/physical/install/
 import { parseSchemaInput } from "#compiler/program/input.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
-import { type CaseSketch, caseSketchGen, type GenSchema } from "#test/pg/derived/oracle/gen.ts"
+import { type CaseSketch, type GenSchema, unitLocalSketchGen } from "#test/pg/derived/oracle/gen.ts"
 import {
 	alternatives,
 	check as checkDesc,
@@ -286,8 +286,21 @@ const mutationGen: Gen<Mutation> = weighted<Mutation>([
 	]
 ])
 
+/** A unit-local case with every definition stored, which a unit-local definition may be (unitLocalSketchGen). */
+const storedSketch = (sketch: CaseSketch): CaseSketch => ({
+	...sketch,
+	levels: Arr.map(sketch.levels, (level) => ({
+		...level,
+		definitions: Arr.map(level.definitions, (d) => ({ ...d, stored: true }))
+	}))
+})
+
+/**
+ * A generated schema of stored derived relations and a mutation of it: stored, so the twin a mutation adds reads its
+ * target by name, as only a stored relation is read, and the refusal is the mutation's own.
+ */
 export const unwritableGen: Gen<UnwritableSketch> = (source) => ({
-	schema: source.draw(caseSketchGen),
+	schema: storedSketch(source.draw(unitLocalSketchGen)),
 	mutation: source.draw(mutationGen)
 })
 
@@ -376,7 +389,7 @@ export const mutated = (
 				kind: "derived" as const,
 				name: `${target.name}x`,
 				level: derivedLevel,
-				storage: "materialized" as const,
+				storage: "stored" as const,
 				query: {
 					stage: {
 						kind: "rules" as const,

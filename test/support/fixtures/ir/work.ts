@@ -5,7 +5,7 @@
  * Each query is the IR the checker produces for the example's rule, written out: one MatchRegion per rule with the
  * rule's shared variables as its heading, a ProjectSet for a plain find, a Group over the complete bound tuple for an
  * aggregate head, a Union of rule arms grouped by heading, Take over a completed order, Attach with its correlation
- * and delivered cardinality, and a Base over the materialized view of a derived relation.
+ * and delivered cardinality.
  */
 
 import type { SchemaDesc } from "#compiler/ir/desc.ts"
@@ -63,7 +63,7 @@ export const WorkDesc: SchemaDesc = decodedSchema({
 })
 
 /**
- * AccountBudget is the stored automaticBudget query, in a schema.extend level. Its definition is
+ * AccountBudget is the automaticBudget query, a live derived relation in a schema.extend level. Its definition is
  * recorded as the IR below (automaticBudget); the Description's QueryDesc form belongs to the query frontend, so
  * the level carries the derived relation with the definition's head as the minimal rules stage.
  */
@@ -75,7 +75,7 @@ export const ReportsDesc: SchemaDesc = decodedSchema({
 			kind: "derived",
 			name: "AccountBudget",
 			level: 1,
-			storage: "materialized",
+			storage: "live",
 			query: decodedQuery({
 				kind: "rules",
 				arms: [

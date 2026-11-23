@@ -14,7 +14,7 @@
  *   GroupedMatch), so the entry that compiles the laws installs each. Oracle: that rule, restated per law shape. Features: each law shape, a law naming both derived
  *   relations, a containment out of and into a derived relation.
  * - Unwritable definitions: levels, parameters and contexts an unchecked description can still write down are refused
- *   as MalformedDescription, a materialized view reading no parameter and holding no session. Each case draws a schema
+ *   as MalformedDescription, a derived definition reading no parameter and holding no session. Each case draws a schema
  *   of the derived oracle (drawn levels and definitions over drawn base relations), which ownership admits, and one
  *   mutation of a drawn derived relation of it: moved into the root schema, joined by a twin of its level that reads
  *   it, given a drawn parameter in its first arm's condition, or given a drawn context's match there; where the
@@ -160,7 +160,7 @@ export const derivedRelationRefusalsRefuseALevelParameterOrContextAnUncheckedDes
 								.find({ [column]: vars[column] })
 						})
 						assert.throws(
-							() => admitDerived(`P${mutation.parameter}`, parameterized, "materialized", []),
+							() => admitDerived(`P${mutation.parameter}`, parameterized, "stored", []),
 							(e) => isCompileError(e) && e.reason._tag === "MalformedDescription"
 						)
 					}

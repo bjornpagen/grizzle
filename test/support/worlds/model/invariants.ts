@@ -34,7 +34,7 @@ const heldRole = (
  *   past the transaction that set them, so no request's world reaches the next one on that connection;
  * - login-isolation: no session holds a role of another login, the login being the trust boundary;
  * - deleted-means-gone: a whole entry over an ordinary relation shows exactly reality's facts, so a deleted fact is gone
- *   from every world at once; only a derived relation keeps one, until its refresh.
+ *   from every world at once.
  * A Db whose snapshot a migration moved past is judged by neither: it holds no role of this version (staleDb).
  *
  * No hidden value and least privilege are judged on what the real system shows, not on the model's state.

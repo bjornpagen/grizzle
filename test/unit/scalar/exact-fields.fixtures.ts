@@ -7,9 +7,9 @@ import type { ExactValueCarrier } from "#compiler/ir/scalar.ts"
 import { Num } from "#compiler/public/compute.ts"
 import { exactInteger, exactMoney, Money, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { key, on, relation, schema } from "#compiler/public/schema.ts"
+import { key, on, relation, schema, unit } from "#compiler/public/schema.ts"
 import { numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
-import { materializedDerived } from "#compiler/schema/relation.ts"
+import { storedDerived } from "#compiler/schema/relation.ts"
 import { schemaBuilder } from "#compiler/schema/schema.ts"
 
 /** Each exact field by its carrier. */
@@ -182,11 +182,11 @@ const Plain = relation(
 	["id"]
 )
 
-/** The plain schema, the level a derived relation over Plain extends. */
-const PlainSchema = schema("Exact", [Plain], [])
+/** The plain schema, the level a derived relation over Plain extends: Plain in a unit of its id. */
+const PlainSchema = schema("Exact", [Plain], [unit("Plains", { id: pg.integer })])
 
 /**
- * A level extending PlainSchema with a derived relation `Summed`, keyed by `id`, whose head `x` is `carrier`'s exact
+ * A level extending PlainSchema with a stored derived relation `Summed`, keyed by `id`, whose head `x` is `carrier`'s exact
  * value: the sum a + b of two bigints, an exact integer of 20 digits, or the sum m + n of two amounts, exact money.
  */
 export const derivedLevel = (carrier: ExactValueCarrier) =>
@@ -194,7 +194,7 @@ export const derivedLevel = (carrier: ExactValueCarrier) =>
 		[PlainSchema],
 		"Derived",
 		[
-			materializedDerived(
+			storedDerived(
 				"Summed",
 				query(PlainSchema).rule((r) => {
 					const { id, a, b, m, n } = v(Plain, "p")

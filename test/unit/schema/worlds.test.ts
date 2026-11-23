@@ -9,8 +9,8 @@
  * - a role relation is a whole relation of the base under its own name, or a query built over the base or one of its
  *   levels that reads only the base's relations, reads no parameter, attaches nothing, searches nothing approximately
  *   and is a Query, not an Ordered; a role writes whole ordinary relations and query entries the writable-entry rule
- *   admits, at most one per base relation, and refreshes derived whole entries. Each case draws a healthy role (drawn
- *   whole entries, writable query entries over drawn relations, drawn writes and refreshes) and at most one defect,
+ *   admits, at most one per base relation. Each case draws a healthy role (drawn whole entries, a stored derived one
+ *   among them, writable query entries over drawn relations, drawn writes) and at most one defect,
  *   each with its drawn target: the builder refuses it by the rule it breaks, with that rule's fields, and ownership of
  *   its description, where a description can state it, by the same rule; the healthy role is admitted by both;
  * - a query entry's definition may hold whatever a program's may: over the derived oracle's generated definitions
@@ -194,9 +194,7 @@ export const roleAdmissionRefusesEveryPlantedBreachOfARolesRulesByThatRuleAtTheB
 			"writeOutside",
 			"writeKind",
 			"writeUnwritable",
-			"writeTwice",
-			"refreshOutside",
-			"refreshKind"
+			"writeTwice"
 		] satisfies ReadonlyArray<Reached<RoleFeature>>,
 		check: (_, k: Case<RoleFeature>) => (c) =>
 			Effect.sync(() => {
@@ -225,7 +223,7 @@ export const roleAdmissionRefusesEveryPlantedBreachOfARolesRulesByThatRuleAtTheB
 			}),
 		oracle: {
 			kind: "specification",
-			name: "the role rules: whole entries of the base under their names, parameterless flat Query entries over it matching only the contexts the role declares, writes of ordinary relations and writable entries once per relation, refreshes of derived ones"
+			name: "the role rules: whole entries of the base under their names, parameterless flat Query entries over it matching only the contexts the role declares, writes of ordinary relations and writable entries once per relation"
 		},
 		kept: [],
 		kills: [

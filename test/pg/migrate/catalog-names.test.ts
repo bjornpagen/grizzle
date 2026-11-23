@@ -11,9 +11,9 @@
  * name converts to, each taken by each of the four objects once, the four of a case each named after a different type,
  * under the owner's ordinary path and under the installation's schemas first (test/support/ambient.ts), the second
  * migrate as the installation's own owner login, under the same path. A case's schema holds the named objects and the
- * types they shadow: a holder relation of text, uuid, money, numeric, real, double precision, a span and a handle of the closed relation, mutable, with a contract field; a relation contained in it; and, a level up in a
- * schema of its own, the derived relation counting the holder's entries, each entry matched by its key, so the count
- * folds over keyed rows. Its login's writer and reader hold every relation whole. Properties, for every case:
+ * types they shadow: a holder relation of text, uuid, money, numeric, real, double precision, a span and a handle of the closed relation, mutable, with a contract field; a relation contained in it, keyed by its holder first, in a unit of the holder; and, a level up in a
+ * schema of its own, the stored derived relation counting each holder's entries, each entry matched by its key, so the
+ * count folds over keyed rows. Its login's writer and reader hold every relation whole. Properties, for every case:
  *
  * - its first migration applies, and migrate's drift check after it matches the catalog against the snapshot;
  * - the migrated catalog holds the installed-catalog checker's posture, its columns' types pg_catalog's own;

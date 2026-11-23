@@ -17,13 +17,15 @@ import {
 	space
 } from "#test/unit/program/derived-evidence.fixtures.ts"
 
-/** A query over a derived relation rests its optimized proof, and a read-back's of it, on the view's unique index. */
-export const aQueryOverADerivedRelationRestsItsOptimizedProofAndAReadBacksOfItOnTheViewsUniqueIndex =
+/** A query over a stored derived relation rests its optimized proof, and a read-back's of it, on its table's key. */
+export const aQueryOverAStoredDerivedRelationRestsItsOptimizedProofAndAReadBacksOfItOnItsTablesKey =
 	property.exhaust(finite(space), {
 		needs: {},
-		situations: ["AccountBudget", "RunTotal", "read-back over a view"] satisfies ReadonlyArray<
-			Reached<EvidenceFeature>
-		>,
+		situations: [
+			"DocWords",
+			"LongLines",
+			"read-back over a stored relation"
+		] satisfies ReadonlyArray<Reached<EvidenceFeature>>,
 		check:
 			(_, c: Case<EvidenceFeature>) =>
 			({ view, columns }) =>
@@ -41,7 +43,7 @@ export const aQueryOverADerivedRelationRestsItsOptimizedProofAndAReadBacksOfItOn
 						)
 					)
 					if (!premises.includes(index)) {
-						throw new Error(`${what} rests on ${shown(premises)}, not on the view's index ${index}`)
+						throw new Error(`${what} rests on ${shown(premises)}, not on its table's key ${index}`)
 					}
 					/** A ChangeSet whose one read-back is the projection. */
 					const readBack = ChangeSet.empty(view.schema).read("projection", () =>
@@ -73,16 +75,16 @@ export const aQueryOverADerivedRelationRestsItsOptimizedProofAndAReadBacksOfItOn
 					)
 					if (!cited.includes(index)) {
 						throw new Error(
-							`a read-back of ${what} rests on ${shown(cited)}, not on the view's index ${index}`
+							`a read-back of ${what} rests on ${shown(cited)}, not on its table's key ${index}`
 						)
 					}
-					c.note("read-back over a view")
+					c.note("read-back over a stored relation")
 				}),
 		oracle: {
 			kind: "specification",
-			name: "a projection keeping a view's inherited key rests on the view's unique index, in a template and in a read-back"
+			name: "a projection keeping a stored relation's inherited key rests on its table's key, in a template and in a read-back"
 		},
-		box: "every projection of Reports' AccountBudget and Reporting's RunTotal that keeps the view's inherited key and drops another column",
+		box: "every projection of the box's stored DocWords and LongLines that keeps its inherited key and drops another column",
 		kept: [],
 		kills: [
 			{

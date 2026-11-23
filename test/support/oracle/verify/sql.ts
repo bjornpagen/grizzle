@@ -2386,8 +2386,26 @@ class StatementAuditor {
 			case "rollback":
 			case "setConstraintsImmediate":
 				return
-			case "refresh":
-				this.objectName(statement.view, "materialized view", "view")
+			case "fillStored":
+				this.objectName(statement.table, "table", "table")
+				for (const [i, column] of statement.columns.entries()) {
+					this.ident(column, "column", "columns", i)
+				}
+				if (statement.columns.length !== selectWidth(statement.query)) {
+					this.report(
+						"columnList",
+						`a fill of ${statement.columns.length} columns from ${selectWidth(statement.query)}`
+					)
+				}
+				this.at("query", () => {
+					this.select(statement.query, {
+						scope: undefined,
+						ctes: undefined,
+						plVars: undefined,
+						outermost: true,
+						topLevel: false
+					})
+				})
 				return
 			case "createCarrier":
 				this.withoutParams(() => {
@@ -2459,7 +2477,6 @@ class StatementAuditor {
 				return
 			case "TABLE":
 			case "VIEW":
-			case "MATERIALIZED VIEW":
 			case "DOMAIN":
 			case "TYPE":
 			case "INDEX":
@@ -2685,14 +2702,14 @@ class StatementAuditor {
 				this.objectName(statement.name, "index", "name")
 				return
 			case "createStoredTable": {
-				this.objectName(statement.name, "materialized view", "name")
+				this.objectName(statement.name, "table", "name")
 				this.at("columns", () => {
-					this.baseColumns(statement.columns, "view column")
+					this.baseColumns(statement.columns, "stored column")
 				})
 				if (statement.columns.length !== selectWidth(statement.query)) {
 					this.report(
 						"columnList",
-						`a view of ${statement.columns.length} columns over ${selectWidth(statement.query)}`
+						`a stored table of ${statement.columns.length} columns over ${selectWidth(statement.query)}`
 					)
 				}
 				this.at("query", () => {

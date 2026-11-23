@@ -31,9 +31,7 @@ const planContract: FieldDomain = { kind: "contract", name: "Plan", bits: 32, mi
  *
  * Two contexts read the verified token: Session { sub } from the payload's top level, and Tenant { org, seats } from
  * its `t` claim object, seats an int8 a token carries as a JSON number or a string of digits, so a token's wild forms
- * reach an unsafe integer and an int8 that is no digits. The closed roster Tier is read by no field, so an entry may match a relation no write targets; the
- * derived relation OrgDocs, each organization's documents, is a stored query an entry may filter by, as of its last
- * refresh.
+ * reach an unsafe integer and an int8 that is no digits. The closed roster Tier is read by no field, so an entry may match a relation no write targets.
  */
 export const docsBase: BaseSpec = {
 	name: "Docs",
@@ -110,24 +108,6 @@ export const docsBase: BaseSpec = {
 			fields: [
 				{ name: "org", domain: uuid },
 				{ name: "seats", domain: { kind: "integer", bits: 64 } }
-			]
-		}
-	],
-	derived: [
-		{
-			name: "OrgDocs",
-			rules: [
-				{
-					matches: [
-						{
-							source: { kind: "ordinary", name: "Doc" },
-							fields: { id: { kind: "var", name: "doc" }, org: { kind: "var", name: "org" } }
-						}
-					],
-					negations: [],
-					comparisons: [],
-					head: { org: { kind: "var", name: "org" }, doc: { kind: "var", name: "doc" } }
-				}
 			]
 		}
 	]
@@ -243,11 +223,10 @@ const subjectClaim = claim("Session", "sub")
  * claim; the shares of the tenant's documents; its own shares, written with `user` filled from the claim; its notes on
  * the tenant's documents, with `author` in its head bound to `Session.sub` (README "Writing through a role": a claim-fixed head
  * field, which no role may UPDATE, beside `doc`, bound to the claim only through Doc's join, which it may); the
- * tenant's documents it holds no share of (a negation reading a claim); the tenant's organization; Tier whole; and
- * OrgDocs whole, which it refreshes. Both are in the login `web`. The nightly `job`, in the login `ops`, writes Org
- * whole, reads documents only as their ids, and refreshes OrgDocs: the web login never writes Org, whatever claims it
- * sets. The `admin`, a full role in `ops`, holds every relation of the base whole, so every program over the base runs
- * on it; it writes Org, Doc, Share, Note and Visit, and refreshes OrgDocs.
+ * tenant's documents it holds no share of (a negation reading a claim); the tenant's organization; and Tier whole. Both
+ * are in the login `web`. The nightly `job`, in the login `ops`, writes Org whole and reads documents only as their
+ * ids: the web login never writes Org, whatever claims it sets. The `admin`, a full role in `ops`, holds every relation
+ * of the base whole, so every program over the base runs on it; it writes Org, Doc, Share, Note and Visit.
  */
 export const docsInstall: InstallSpec = {
 	base: docsBase,
@@ -267,8 +246,7 @@ export const docsInstall: InstallSpec = {
 				),
 				Tier: whole("Tier")
 			},
-			write: [],
-			refresh: []
+			write: []
 		},
 		{
 			name: "member",
@@ -311,21 +289,17 @@ export const docsInstall: InstallSpec = {
 						none
 					)
 				),
-				Tier: whole("Tier"),
-				OrgDocs: whole("OrgDocs")
+				Tier: whole("Tier")
 			},
-			write: ["Doc", "MyShare", "MyNote"],
-			refresh: ["OrgDocs"]
+			write: ["Doc", "MyShare", "MyNote"]
 		},
 		{
 			name: "job",
 			entries: {
 				Org: whole("Org"),
-				Doc: query(rule([of("Doc", { id })], { id }, none)),
-				OrgDocs: whole("OrgDocs")
+				Doc: query(rule([of("Doc", { id })], { id }, none))
 			},
-			write: ["Org"],
-			refresh: ["OrgDocs"]
+			write: ["Org"]
 		},
 		{
 			name: "admin",
@@ -335,11 +309,9 @@ export const docsInstall: InstallSpec = {
 				Share: whole("Share"),
 				Note: whole("Note"),
 				Visit: whole("Visit"),
-				Tier: whole("Tier"),
-				OrgDocs: whole("OrgDocs")
+				Tier: whole("Tier")
 			},
-			write: ["Org", "Doc", "Share", "Note", "Visit"],
-			refresh: ["OrgDocs"]
+			write: ["Org", "Doc", "Share", "Note", "Visit"]
 		}
 	],
 	logins: [
@@ -534,8 +506,7 @@ export const docsEditorInstall: InstallSpec = {
 					)
 				)
 			},
-			write: ["TenantDoc", "PlanOrg", "EdNote"],
-			refresh: []
+			write: ["TenantDoc", "PlanOrg", "EdNote"]
 		}
 	],
 	logins: [
@@ -594,14 +565,12 @@ export const docsHeldRosterInstall: InstallSpec = {
 					)
 				)
 			},
-			write: ["LateVisit"],
-			refresh: []
+			write: ["LateVisit"]
 		},
 		{
 			name: "keeper",
 			entries: { Visit: whole("Visit"), Tier: whole("Tier") },
-			write: [],
-			refresh: []
+			write: []
 		}
 	],
 	logins: [{ name: "ops", roles: ["counter", "keeper"] }]

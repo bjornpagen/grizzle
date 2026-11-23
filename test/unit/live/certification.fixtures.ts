@@ -158,8 +158,7 @@ const logins = (
 			(_, name) => !reads.includes(name) || kept.has(name)
 		)
 		const again = role(fixture.Billing, "billing", wholeEntriesOf(fixture.Billing), {
-			write: writableNamesOf(fixture.Billing),
-			refresh: ["DailySpend"]
+			write: writableNamesOf(fixture.Billing)
 		})
 		return {
 			schema: fixture.Billing,

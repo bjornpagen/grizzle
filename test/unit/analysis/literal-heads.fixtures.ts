@@ -198,7 +198,7 @@ const installedOverQuery = (use: PlainUse): Result.Result<unknown, CompileError>
 	)
 	return installedAs(
 		login(top, "desk", [
-			role(top, "writer", { Item, Doc, Node }, { write: ["Item", "Doc", "Node"], refresh: [] })
+			role(top, "writer", { Item, Doc, Node }, { write: ["Item", "Doc", "Node"] })
 		])
 	)
 }
@@ -219,7 +219,7 @@ const installedOverUnion = (use: UnionUse): Result.Result<unknown, CompileError>
 	)
 	return installedAs(
 		login(top, "desk", [
-			role(top, "writer", { Item, Doc, Node }, { write: ["Item", "Doc", "Node"], refresh: [] })
+			role(top, "writer", { Item, Doc, Node }, { write: ["Item", "Doc", "Node"] })
 		])
 	)
 }
@@ -277,7 +277,7 @@ export const installedReaders = (
 		)
 		return installedAs(
 			login(top, "desk", [
-				role(top, "writer", { Item, Doc, Node }, { write: ["Item", "Doc", "Node"], refresh: [] })
+				role(top, "writer", { Item, Doc, Node }, { write: ["Item", "Doc", "Node"] })
 			])
 		)
 	}
@@ -293,7 +293,7 @@ export const installedReaders = (
 	)
 	return installedAs(
 		login(top, "desk", [
-			role(top, "writer", { Item, Doc, Node }, { write: ["Item", "Doc", "Node"], refresh: [] })
+			role(top, "writer", { Item, Doc, Node }, { write: ["Item", "Doc", "Node"] })
 		])
 	)
 }
@@ -380,7 +380,7 @@ const Roots = derived(
  * compiled, or the refusal it meets.
  */
 const installedOverWalk = (use: WalkUse): Result.Result<unknown, CompileError> => {
-	const writer = { write: ["Part", "Level"], refresh: [] }
+	const writer = { write: ["Part", "Level"] }
 	if (use === "a union's literal beside a channel-bound recursive import") {
 		const top = schema.extend(
 			[Parts],

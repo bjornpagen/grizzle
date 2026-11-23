@@ -7,7 +7,6 @@ import { inFieldDomain } from "#test/support/worlds/model/session/domains.ts"
 import { relationSpecOf, roleEntryOf } from "#test/support/worlds/model/session/state.ts"
 import type {
 	BaseSpec,
-	DerivedSpec,
 	EntrySpec,
 	FieldDomain,
 	HostFact,
@@ -30,9 +29,7 @@ const entryFieldDomain = (
 		case "whole": {
 			const source: Source = Arr.some(base.closed, (c) => c.name === entry.relation)
 				? { kind: "closed", name: entry.relation }
-				: Arr.some(base.derived, (d) => d.name === entry.relation)
-					? { kind: "derived", name: entry.relation }
-					: { kind: "ordinary", name: entry.relation }
+				: { kind: "ordinary", name: entry.relation }
 			return fieldDomain(base, source, field)
 		}
 		case "query":
@@ -66,8 +63,7 @@ export const getCompiles = (
 }
 
 /**
- * The fields of a role relation's heading: a whole entry's relation's, a roster's handle, a derived relation's head,
- * or a query entry's head; none of a relation the role does not hold.
+ * The fields of a role relation's heading: a whole entry's relation's, a roster's handle, or a query entry's head; none of a relation the role does not hold.
  */
 export const headingNames = (
 	base: BaseSpec,
@@ -85,12 +81,7 @@ export const headingNames = (
 	if (ordinary !== undefined) {
 		return Arr.map(ordinary.fields, (f) => f.name)
 	}
-	return Arr.some(base.closed, (c) => c.name === entry.relation)
-		? ["id"]
-		: Arr.flatMap(
-				Arr.filter(base.derived, (d) => d.name === entry.relation),
-				(d: DerivedSpec) => Rec.keys(d.rules[0].head)
-			)
+	return Arr.some(base.closed, (c) => c.name === entry.relation) ? ["id"] : []
 }
 
 /** The field an attachment nests its children under: `attached`, or past every field of the parent's heading. */

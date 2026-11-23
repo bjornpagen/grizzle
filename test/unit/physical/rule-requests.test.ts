@@ -52,17 +52,17 @@ export const aRuleOverAQueryAsksAnIndexOfEachReadItsJudgeMakesAWholeRulesLedByIt
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
 				original:
-					"\t\t\t\t? { blocks: isNonEmpty(rest) ? [bound, rest] : [bound], reads }\n\t\t\t\t: undefined",
+					"\t\t? { blocks: isNonEmpty(rest) ? [bound, rest] : [bound], reads }\n\t\t: undefined",
 				replacement:
-					'\t\t\t\t? { blocks: isNonEmpty(rest) ? [bound, rest] : [bound], reads }\n\t\t\t\t: (() => { throw new Error("a read binds no field of its unit") })()',
+					'\t\t? { blocks: isNonEmpty(rest) ? [bound, rest] : [bound], reads }\n\t\t: (() => { throw new Error("a read binds no field of its unit") })()',
 				why: "A whole rule's read whose path binds no field of its unit, U's lookup by its key over g, is refused as a defect rather than left to the key's own index: the installation of a whole rule beside U's key over g dies."
 			},
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
 				original:
-					"\t\t\t\t? { blocks: isNonEmpty(rest) ? [bound, rest] : [bound], reads }\n\t\t\t\t: undefined",
+					"\t\t? { blocks: isNonEmpty(rest) ? [bound, rest] : [bound], reads }\n\t\t: undefined",
 				replacement:
-					"\t\t\t\t? { blocks: isNonEmpty(rest) ? [bound, rest] : [bound], reads }\n\t\t\t\t: { blocks: [keys], reads }",
+					"\t\t? { blocks: isNonEmpty(rest) ? [bound, rest] : [bound], reads }\n\t\t: { blocks: [keys], reads }",
 				why: "A whole rule's check over every row asks an index of the scan it starts from, led by the literal it reads U at, w, not by the unit: an index every write of U pays for a read one migration makes."
 			},
 			{
@@ -73,8 +73,8 @@ export const aRuleOverAQueryAsksAnIndexOfEachReadItsJudgeMakesAWholeRulesLedByIt
 			},
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
-				original: "\t\t\t\t? { blocks: isNonEmpty(rest) ? [bound, rest] : [bound], reads }",
-				replacement: "\t\t\t\t? { blocks: [keys], reads }",
+				original: "\t\t? { blocks: isNonEmpty(rest) ? [bound, rest] : [bound], reads }",
+				replacement: "\t\t? { blocks: [keys], reads }",
 				why: "A whole rule's request is one block, so the engine merges it into the index Q's probes ask of U by g, led by g: the whole rule's read is served by an index whose scan by g reads every unit's rows of that value, which PostgreSQL may AND into another read, as qti.node's path-led indexes were for the manifest rules; the property fails."
 			}
 		]

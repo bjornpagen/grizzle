@@ -6,11 +6,10 @@ import { fromEngine } from "#adapter/engine.ts"
 import type { ReadError } from "#adapter/errors/execution.ts"
 import { compileServed, type ServedRefusal } from "#adapter/public/compile.ts"
 import type { DecodedRow } from "#adapter/reader/stream.ts"
-import { runRefresh } from "#adapter/refresh/run.ts"
 import type { LoadedMember } from "#adapter/served/load.ts"
 import { type CompileError, isCompileError } from "#compiler/core/errors.ts"
 import { type Anchor, type KeyFields, keyOf } from "#compiler/live/index.ts"
-import { pagedMember, refreshMember, workload } from "#compiler/program/workload/value.ts"
+import { pagedMember, workload } from "#compiler/program/workload/value.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
@@ -50,7 +49,6 @@ import { relationSpecOf } from "#test/support/worlds/model/session/state.ts"
 import { textDomain } from "#test/support/worlds/model/text.ts"
 import type {
 	BaseSpec,
-	DerivedSpec,
 	EntryOp,
 	FieldDomain,
 	HostFact,
@@ -164,25 +162,11 @@ export const entryFields = (
 				{ field: "id", domain: { kind: "handle", closed: roster.name, members: roster.members } }
 			]
 		)
-		const ofDerived = Option.map(
-			Arr.findFirst(base.derived, (d) => d.name === entry.relation),
-			(d) => derivedFields(base, d)
-		)
-		return Option.orElse(ofRelation, () => Option.orElse(ofRoster, () => ofDerived))
+		return Option.orElse(ofRelation, () => ofRoster)
 	})
 
 /** The domain a head literal reads as: PostgreSQL types an untyped literal as text. */
 const literalDomain: FieldDomain = textDomain("^.*$", "su")
-
-/** A derived relation's columns, each with its domain: its rules' head fields as the model types them. */
-export const derivedFields = (
-	base: BaseSpec,
-	derived: DerivedSpec
-): ReadonlyArray<{ readonly field: string; readonly domain: FieldDomain }> =>
-	Arr.map(Rec.toEntries(headDomains(base, derived.rules)), ([field, domain]) => ({
-		field,
-		domain: Option.getOrElse(domain, () => literalDomain)
-	}))
 
 /** A call's input of no parameters and no facts: every read a session's action draws takes none. */
 const noInput = { params: {}, facts: {} } as const
@@ -821,9 +805,8 @@ export const applySession = (
 
 /**
  * How a read-back's delta is had: read through the change's delta of the relation; or `unchanged`, a whole entry over a
- * closed relation, whose facts are its declaration's, or over a derived relation, which keeps its facts until a refresh.
- * No ChangeSet changes either, so its delta is empty, and a delta of it is refused as malformed when the ChangeSet is
- * built: a delta is of an ordinary relation.
+ * closed relation, whose facts are its declaration's. No ChangeSet changes it, so its delta is empty, and a delta of it
+ * is refused as malformed when the ChangeSet is built: a delta is of an ordinary relation.
  */
 type ReadBackDelta = "read" | "unchanged"
 
@@ -917,37 +900,6 @@ export const executeValue = (session: DbSession, program: unknown): Effect.Effec
 			return refusedWith(failed, rows.failure)
 		}
 		return seen({ kind: "rows", rows: [] })
-	})
-
-/** The name of a refresh's one member in the role's workload. */
-const refreshName = "refresh"
-
-/**
- * A refresh of a derived relation the role holds whole, by the value a JavaScript caller names in refresh([relation]),
- * served as a member of the role's workload and run: the builder's or the served compile's refusal is the action's.
- */
-export const refreshValue = (session: DbSession, relation: unknown): Effect.Effect<Seen> =>
-	Effect.gen(function* () {
-		const member = yield* Effect.result(attempt("the refresh", () => refreshMember([relation])))
-		if (Result.isFailure(member)) {
-			return servedRefused(member.failure.refusal)
-		}
-		const served = yield* Effect.result(
-			servedOn(session, { [refreshName]: member.success }, refreshName)
-		)
-		if (Result.isFailure(served)) {
-			return servedRefused(served.failure)
-		}
-		const refreshed = served.success
-		if (refreshed.kind !== "refresh") {
-			return yield* Effect.die(new Error("a refresh member loaded as another kind"))
-		}
-		const done = yield* Effect.result(runRefresh(session.ctx, refreshed.refresh))
-		if (Result.isFailure(done)) {
-			const failed = yield* applyFailed(done.failure)
-			return refusedWith(failed, done.failure)
-		}
-		return seen({ kind: "ok" })
 	})
 
 /** The value of a role relation by its name, or undefined, as a JavaScript caller naming one would pass it. */

@@ -12,8 +12,9 @@ import {
 
 /**
  * The worlds model: isolation, writes: every write through an entry meets its world, and no tenant's facts or other
- * login's objects are reachable. Its budget is its own: its MyBooking kill survives the runner's, and its witnesses at a
- * floor of 7 cases (runs 25) kill it.
+ * login's objects are reachable. Its budget is its own, runs 25; its key-conflict kill (MyBooking's, where it was
+ * found) is caught by its kept TenantDoc case, which its witnesses no longer draw once the worlds model's derived
+ * relations went.
  */
 export const isolationWrites = programProperty({
 	installs: docsInstalls,
@@ -27,7 +28,7 @@ export const isolationWrites = programProperty({
 	kept: [
 		{
 			token: ReplayToken(
-				"test/pg/world-model/isolation-writes.test.ts#isolationWrites:70085c15c6690073d0.33:1.0.0.0.0.1.1.0.1.1.0.0.0.1.0.0.0.0.1.0.0.1.1.0.1.1.1.1.1.0.0.0.0.0.1.1.0.1.1.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.1.0.1.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.1.0.0.0.0.0.0.0"
+				"test/pg/world-model/isolation-writes.test.ts#isolationWrites:70085c15c6690073d0.33:1.0.0.0.0.1.1.0.1.0.0.0.1.0.0.0.0.1.0.0.1.1.0.1.1.1.1.0.0.0.0.1.1.1.1.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.1.0.1.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.1.0.0.0.0.0.0.0"
 			),
 			reason:
 				"an insert of {plan_via: 0} through View0, a query entry whose head names Org's plan plan_via, its Doc and Org matched at literal keys: the served member admitted its facts by the relation's key heads, read by Org's field names, which name none of the entry's, so the host refused every fact of it as factShape (main's red at 3e47c8f8a, from GENPK's 55fce798e; its token run on to the program's end past the refused apply)",
@@ -35,10 +36,10 @@ export const isolationWrites = programProperty({
 		},
 		{
 			token: ReplayToken(
-				"test/pg/world-model/isolation-writes.test.ts#isolationWrites:70085c15c6690073d0.33:1.0.0.0.0.1.1.1.1.1.1.0.1.1.0.0.0.0.1.0.0.1.1.0.1.1.1.1.1.0.0.0.0.2.1.1.2.0.0.0.0.0.0.0.0.0.0.mu8.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.1.0.0.0.1.2.2.0.0.0.0.0.0.0.0.1.0.0.2.1u.1.0.1.0.0.0.0.0.0.0.0.0.0.1.1.0.1.1.1.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.2.0.0.0.0.0.0.0.0.0.0.1.1.0.0.0.1.0.0.0.0.0.0.0.1.0.0.1.1.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.1.1.1.0.0.0.0.0.0.0.4.1.1.0.0.3.0.1.9.0.0.0"
+				"test/pg/world-model/isolation-writes.test.ts#isolationWrites:100000018000000000.27:0.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.2.0.0.0.0.2.0.0.1.0.0.0.1.0.1.1.0.0.0.0.0.0.0.0.1.1.0.0.0.1.0.0.0.0.0.0"
 			),
 			reason:
-				"a PREPARE as beta, who holds the derived OrgDocs whole and HTTPRoute through a query entry alone, of alpha's whole view of HTTPRoute: OrgDocs's whole view stands in its own level's schema of whole views, so beta holds no USAGE on the base's, which PostgreSQL refuses as it resolves the name (42501), where the model read a whole entry of any level as USAGE on the base's schema and allowed it",
+				"an insert through TenantDoc, the editor's query entry over Doc at its Tenant's org, of a fact whose id a Doc already holds: the write is refused as a key conflict, its key's constraint on Doc's table, which the served refusal tables name by Doc, where the entry's own name names no table of them (found by the MyBooking kill's mutant at 200 runs, once the worlds model's derived relations went and the floor's witnesses no longer drew it; its token run on past the refused apply to the program's end)",
 			since: "2026-11-23"
 		}
 	],
@@ -55,13 +56,6 @@ export const isolationWrites = programProperty({
 			original: "\trelation: facts.relation,\n",
 			replacement: "\trelation: facts.stated,\n",
 			why: 'Two facts of one key written through a query entry are refused as a key conflict named by the entry, where the key\'s constraint is on its stored relation\'s table, so the served refusal tables hold no table of it and the apply dies "grizzle internal invariant: the installation stores relation MyBooking, which a write statement wrote": the defect the isolation suite this property was split from met at the 26e3c15f pin (its "second cause", TODO at 153af6b60), which d5bd99bdd fixed.'
-		},
-		{
-			file: "packages/engine/src/physical/ddl/roles.ts",
-			original: "\t\t\t\tviewSchemas.set(view.schema.name, view.schema.node)\n",
-			replacement:
-				"\t\t\t\tfor (const w of whole.values()) {\n\t\t\t\t\tviewSchemas.set(w.schema.name, w.schema.node)\n\t\t\t\t}\n",
-			why: "A role holding any relation whole is granted USAGE on every level's schema of whole views (physical/ddl/roles.ts), where it holds USAGE only on the schemas of the whole views it reads, so beta, who holds only the derived OrgDocs whole, resolves a name in the base's schema of whole views: the kept case's PREPARE as beta of alpha's whole view of HTTPRoute is admitted, where the model refuses it 42501."
 		}
 	]
 })

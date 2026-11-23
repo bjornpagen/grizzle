@@ -14,40 +14,62 @@ import type { WorkloadPlan } from "#compiler/program/workload/compile.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { derived, schema } from "#compiler/public/schema.ts"
+import { derived, relation, schema, unit } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import type { IndexKey, SqlStatement } from "#compiler/sql/ast.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { compileTestWorkload, type FixtureSchema, testCompile } from "#test/support/compile.ts"
-import * as W from "#test/support/fixtures/api/work.ts"
+import { Cents } from "#test/support/fixtures/api/contracts.ts"
 import { Id } from "#test/support/ids.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { asDrafted, type CompileOver } from "#test/support/migrate/kit.ts"
 
-/** Reports with AccountBudget redefined: the automatic tasks with a budget above 10 only. */
-const automaticBudgetOfBusy = query(W.Work).rule((r) => {
-	const { id, account } = v(W.Task, "task")
-	const { budget } = v(W.AutomaticTask, "automaticTask")
-	return r
-		.match(W.Task, { id, account, kind: "Automatic" })
-		.match(W.AutomaticTask, { task: id, budget })
-		.where(r.gt(budget, 10n))
-		.find({ account, tasks: r.count(), budget: r.sum(budget) })
-})
+/**
+ * The books: each account's budget entries, keyed by the account first, so the account is the unit a stored relation
+ * over them stands in (unit Book).
+ */
+const Entry = relation("Entry", { account: Id, at: natural, budget: Cents }, ["account", "at"])
+const Book = unit("Book", { account: Id })
+const Books = schema("Books", [Entry], [Book])
 
-const BusyBudget = derived.materialized("AccountBudget", automaticBudgetOfBusy)
+/** Each account's entries, counted, and their budgets summed. */
+const AccountBudget = derived.stored(
+	"AccountBudget",
+	query(Books).rule((r) => {
+		const { account, at, budget } = v(Entry, "entry")
+		return r
+			.match(Entry, { account, at, budget })
+			.find({ account, tasks: r.count(), budget: r.sum(budget) })
+	})
+)
 
-export const Redefined = schema.extend([W.Work], "Reports", [BusyBudget], [])
+/** The books' Reports level, holding AccountBudget. */
+export const Reports = schema.extend([Books], "Reports", [AccountBudget], [])
 
-/** The view's columns: its key, its count, a natural, and its computed numeric, each with a parameter type it compares to. */
+/** AccountBudget redefined: the entries with a budget above 10 only. */
+const BusyBudget = derived.stored(
+	"AccountBudget",
+	query(Books).rule((r) => {
+		const { account, at, budget } = v(Entry, "entry")
+		return r
+			.match(Entry, { account, at, budget })
+			.where(r.gt(budget, 10n))
+			.find({ account, tasks: r.count(), budget: r.sum(budget) })
+	})
+)
+
+/** Reports with AccountBudget redefined. */
+export const Redefined = schema.extend([Books], "Reports", [BusyBudget], [])
+
+/** The stored table's columns: its key, its count, a natural, and its computed numeric, each with a parameter type it compares to. */
 const viewColumns = { account: Id, tasks: natural, budget: pg.numeric(38, 0) } as const
 
 type ViewColumn = keyof typeof viewColumns
 
 const columnNames: Arr.NonEmptyReadonlyArray<ViewColumn> = nonEmpty(
 	Rec.keys(viewColumns),
-	"the view's columns"
+	"the stored table's columns"
 )
 
 /** The comparisons a B-tree serves: every one but `ne`. */
@@ -69,8 +91,8 @@ export const programGen: Gen<Program> = (source) => ({
 
 /** The program over a definition of AccountBudget: the original, or the redefinition. */
 const programOf = (p: Program, redefined: boolean) => {
-	const over = redefined ? Redefined : W.Reports
-	const view = redefined ? BusyBudget : W.AccountBudget
+	const over = redefined ? Redefined : Reports
+	const view = redefined ? BusyBudget : AccountBudget
 	const op = Arr.getUnsafe(servedOps, p.op)
 	return queryOver(over).rule((r: RuleValue) => {
 		const vars = varsOver(view, "accountBudget")
@@ -132,7 +154,7 @@ export const planned = (
 				: []
 	)
 
-/** AccountBudget's materialized view, as the naming door names it. */
+/** AccountBudget's table, as the naming door names it. */
 const budgetView: string = identifierOf(identity.view(parsedName("AccountBudget")))
 
 export const onView = (statement: SqlStatement): boolean =>

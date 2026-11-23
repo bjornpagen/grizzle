@@ -13,7 +13,7 @@ import type { SqlError } from "#test/support/pg.ts"
  * Node-level EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, FORMAT JSON) investigates a plan with low instrumentation, but its
  * Execution Time is not the complete request cost. Every capture here runs exactly those options, plus:
  * - SETTINGS, so a plan records the planner settings that differ from the defaults it ran under;
- * - WAL when the capture asks for it, so inserts, generated indexes, law-trigger work and refreshes report their
+ * - WAL when the capture asks for it, so inserts, generated indexes and law-trigger work report their
  *   records, full-page images and bytes, with PG19's separate full-page-image bytes; a capture without it has no WAL
  *   counter on any node, never a zero;
  * - SERIALIZE when the capture asks for it, which exercises output conversion and TOAST fetches without sending the

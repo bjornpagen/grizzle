@@ -37,7 +37,6 @@ const installFeatures = [
 	"query",
 	"ordinary-source",
 	"closed-source",
-	"derived-source",
 	"second-rule",
 	"head",
 	"head-claimed",
@@ -54,12 +53,10 @@ const installFeatures = [
 	"absent",
 	"absent-second",
 	"closed-filter",
-	"derived-filter",
 	"context-filter",
 	"negated-contexts",
 	"foreign-head",
 	"head-alias",
-	"refresh",
 	"two-logins",
 	"read-beside-write"
 ] as const
@@ -135,13 +132,9 @@ const linksOf = (
 	)
 
 const variable = (name: string): Term => ({ kind: "var", name })
-/** The kind of a relation-valued source of the base, by its name: an ordinary relation, a closed roster, a derived one. */
-const sourceKind = (base: BaseSpec, name: string): "ordinary" | "closed" | "derived" =>
-	Arr.some(base.closed, (c) => c.name === name)
-		? "closed"
-		: Arr.some(base.derived, (d) => d.name === name)
-			? "derived"
-			: "ordinary"
+/** The kind of a relation-valued source of the base, by its name: an ordinary relation or a closed roster. */
+const sourceKind = (base: BaseSpec, name: string): "ordinary" | "closed" =>
+	Arr.some(base.closed, (c) => c.name === name) ? "closed" : "ordinary"
 
 const relationOccurrence = (
 	base: BaseSpec,
@@ -364,19 +357,6 @@ const resolveRule =
 				})
 			)
 		}
-		const derivedLinks = plan.ordinary
-			? linksOf(
-					base,
-					plan.source,
-					plan.fields,
-					Arr.map(base.derived, (d) => d.name)
-				)
-			: []
-		const [derivedLink, ...moreDerived] = derivedLinks
-		if (derivedLink !== undefined && source.draw(keep(drawn, "derived-filter"))) {
-			const l = source.draw(element([derivedLink, ...moreDerived]))
-			matches.push(relationOccurrence(base, l.relation, { [l.to]: termOf(l.from) }))
-		}
 		const [context, ...moreContexts] = base.contexts
 		if (context !== undefined && source.draw(keep(drawn, "context-filter"))) {
 			const c = source.draw(element([context, ...moreContexts]))
@@ -394,23 +374,20 @@ const resolveRule =
 		}
 	}
 
-/** A query entry over a source the swarm allows: an ordinary relation, a closed roster or a derived relation. */
+/** A query entry over a source the swarm allows: an ordinary relation or a closed roster. */
 const resolveEntry =
 	(base: BaseSpec, drawn: Swarm<InstallFeature>): Gen<EntrySpec> =>
 	(source) => {
 		const kind = source.draw(
-			swarmChoice<InstallFeature, "ordinary-source" | "closed-source" | "derived-source">(drawn, [
+			swarmChoice<InstallFeature, "ordinary-source" | "closed-source">(drawn, [
 				"ordinary-source",
-				...(base.closed.length > 0 ? (["closed-source"] as const) : []),
-				...(base.derived.length > 0 ? (["derived-source"] as const) : [])
+				...(base.closed.length > 0 ? (["closed-source"] as const) : [])
 			])
 		)
 		const names =
 			kind === "closed-source"
 				? Arr.map(base.closed, (c) => c.name)
-				: kind === "derived-source"
-					? Arr.map(base.derived, (d) => d.name)
-					: Arr.map(base.relations, (r) => r.name)
+				: Arr.map(base.relations, (r) => r.name)
 		const sourceName = source.draw(element(knownNonEmpty(names, "the sources of a kind")))
 		const fields = fieldsOfSource(base, sourceName)
 		const ordinary = kind === "ordinary-source"
@@ -456,10 +433,9 @@ const resolveEntry =
 		return { kind: "query", rules }
 	}
 
-/** Every relation a role may hold whole: the base's ordinary, derived and closed relations. */
+/** Every relation a role may hold whole: the base's ordinary and closed relations. */
 const wholeCandidates = (base: BaseSpec): ReadonlyArray<string> => [
 	...Arr.map(base.relations, (r) => r.name),
-	...Arr.map(base.derived, (d) => d.name),
 	...Arr.map(base.closed, (c) => c.name)
 ]
 
@@ -473,7 +449,7 @@ const queryName = (base: BaseSpec, i: number): string => {
 	return name
 }
 
-/** A role: its entries, its write list of writable entries at most one per relation, its refresh list. */
+/** A role: its entries, and its write list of writable entries at most one per relation. */
 const resolveRole =
 	(base: BaseSpec, name: string, drawn: Swarm<InstallFeature>): Gen<RoleSpec> =>
 	(source) => {
@@ -511,12 +487,6 @@ const resolveRole =
 				write.push(w.entry)
 			}
 		}
-		const derivedHeld = Arr.flatMap(entries, ([entry, spec]) =>
-			spec.kind === "whole" && Arr.some(base.derived, (d) => d.name === spec.relation)
-				? [entry]
-				: []
-		)
-		const refresh = on(drawn, "refresh") ? byBits(derivedHeld, source.draw(int(0, 0xff))) : []
 		/**
 		 * Beside each query entry it writes, the role reads the entry's target whole, so a fact of the target outside the
 		 * entry is one the role sees through another entry: a write meeting it at a key is refused on a fact the role holds.
@@ -530,7 +500,7 @@ const resolveRole =
 						: []
 				)
 			: []
-		return { name, entries: Rec.fromEntries([...entries, ...beside]), write, refresh }
+		return { name, entries: Rec.fromEntries([...entries, ...beside]), write }
 	}
 
 /** The logins of the roles: one holding them all, or two splitting them by drawn bits, neither empty. */
@@ -561,9 +531,9 @@ const resolveLogins =
 /**
  * The installations of a base, each one grizzle builds: roles of whole entries and query entries (one or two rules
  * over one source; each field in the head, claimed, fixed to a literal, free, omitted, aliased, or in the head as a
- * literal; filters of comparisons, matches and negations of linked relations, closed rosters, derived relations and
- * contexts; contexts matched or negated), write lists of writable entries at most one per relation, a written query
- * entry's target held whole beside it, refresh lists of the derived relations a role holds whole, and one or two logins,
+ * literal; filters of comparisons, matches and negations of linked relations, closed rosters and contexts; contexts
+ * matched or negated), write lists of writable entries at most one per relation, a written query entry's target held
+ * whole beside it, and one or two logins,
  * every role in exactly one. A case draws its swarm first, then one to three roles under it, each in its own span.
  */
 export const installGen =

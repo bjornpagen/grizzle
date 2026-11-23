@@ -363,7 +363,7 @@ type CteSpec =
 type StatementSpec =
 	| { readonly kind: "dml"; readonly dml: Dml; readonly ctes: ReadonlyArray<CteSpec> }
 	| { readonly kind: "select"; readonly query: QuerySpec; readonly ctes: ReadonlyArray<CteSpec> }
-	| { readonly kind: "refresh" | "schema" }
+	| { readonly kind: "schema" }
 
 /** A member's statements and the level they were compiled for, which a `met` source and an untargeted ON CONFLICT need. */
 interface MemberCase {
@@ -823,7 +823,7 @@ const statementGen: Gen<StatementSpec> = weighted<StatementSpec>([
 			ctes: s.draw(array(cteGen, { min: 0, max: 2 }))
 		})
 	],
-	[1, (s) => ({ kind: s.draw(element(["refresh", "schema"] as const)) })]
+	[1, (): StatementSpec => ({ kind: "schema" })]
 ])
 
 export const caseGen: Gen<MemberCase> = (s) => ({
@@ -1911,8 +1911,6 @@ const envOf = (ctes: ReadonlyArray<CteSpec>): Env => {
 
 export const buildStatement = (s: StatementSpec): SqlStatement => {
 	switch (s.kind) {
-		case "refresh":
-			return { kind: "refresh", view: objectName("app", "v"), concurrently: false }
 		case "schema":
 			return { kind: "createSchema", name: "app" }
 		case "select":
@@ -2283,9 +2281,8 @@ class Expect {
 
 	read(fact: Expected, feeds: ReadonlyArray<number>, place: Place): Rows {
 		this.reads.push({ ...fact, feeds })
-		const base: Mode = Arr.some(
-			["?function:", "?refresh:", "?statement:", "?met:", "?every:"],
-			(prefix) => Str.startsWith(prefix)(fact.relation)
+		const base: Mode = Arr.some(["?function:", "?statement:", "?met:", "?every:"], (prefix) =>
+			Str.startsWith(prefix)(fact.relation)
 		)
 			? "negated"
 			: fact.mode === "arbiter"
@@ -3122,10 +3119,6 @@ const insertsIn = (s: StatementSpec): ReadonlyMap<string, WritingInsert> => {
 export const expected = (s: StatementSpec, level: Isolation): Expect => {
 	const x = new Expect(writtenIn(s), insertsIn(s), level)
 	switch (s.kind) {
-		case "refresh":
-			x.shapes.add("a statement no member sends")
-			x.opaque('?refresh:"app"."v"', topPlace)
-			return x
 		case "schema":
 			x.shapes.add("a statement no member sends")
 			x.opaque("?statement:createSchema", topPlace)

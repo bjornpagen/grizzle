@@ -35,8 +35,7 @@ import {
 	deletedBy,
 	featuresOf,
 	reachOf,
-	requiredWorldFeatures,
-	staleDerived
+	requiredWorldFeatures
 } from "#test/support/worlds/features.ts"
 import { actionGen, offeredOf, withOpener } from "#test/support/worlds/generate/action.ts"
 import { knownNonEmpty, pool } from "#test/support/worlds/generate/domain.ts"
@@ -451,59 +450,13 @@ export const tamperThenMigrate =
 		])
 	}
 
-/** A Db opened as a role that refreshes a derived relation computed from one it writes: a lead's own move. */
-const dbRefreshingWritten = "lead:a Db refreshing what it writes" as const
-
-/**
- * Whether a role refreshes a derived relation it holds whole, computed from a relation it writes, so its own delete can
- * leave that relation stale and its own refresh catch it up.
- */
-const refreshesWritten = (base: BaseSpec, role: RoleSpec): boolean => {
-	const written = Arr.map(writtenOf(base, role), (w) => w.target)
-	return Arr.some(role.refresh, (name) => {
-		const entry = role.entries[name]
-		return Arr.some(
-			base.derived,
-			(d) =>
-				entry?.kind === "whole" &&
-				entry.relation === d.name &&
-				Arr.some(d.rules, (rule) =>
-					Arr.some(
-						rule.matches,
-						(o) => o.source.kind === "ordinary" && Arr.contains(written, o.source.name)
-					)
-				)
-		)
-	})
-}
-
-/** An open that opened a Db of a role refreshing what it writes (refreshesWritten), read of the outcome. */
-const refreshesWrittenRead =
-	(state: ModelState, action: Action) =>
-	(outcome: Allowed): ReadonlyArray<typeof dbRefreshingWritten> => {
-		if (
-			action.kind !== "open-db" ||
-			outcome.observation.kind !== "opened" ||
-			action.role.kind !== "own"
-		) {
-			return []
-		}
-		const opened = action.role.role
-		return Option.exists(
-			Arr.findFirst(state.install.roles, (r) => r.name === opened),
-			(role) => refreshesWritten(state.install.base, role)
-		)
-			? [dbRefreshingWritten]
-			: []
-	}
-
 /**
  * A live call of a kind through an open Db the state holds, aimed on every draw at `targets`, read of its outcome
  * through `read`; a state holding no Db to call through opens one instead (withOpener).
  */
 const dbCall = (
 	weights: Weights,
-	kind: "read" | "apply" | "refresh",
+	kind: "read" | "apply",
 	targets: Arr.NonEmptyReadonlyArray<string>,
 	read: Aiming["read"]
 ): Weights => ({
@@ -512,15 +465,6 @@ const dbCall = (
 	actions: { ...zeroWeights.actions, [kind]: 1 },
 	validity: liveOnly,
 	aims: everyDraw(targets, read, (a, s) => a.kind === kind && s.sessions[a.session]?.kind === "db")
-})
-
-/** A live open of a Db of a role that refreshes a derived relation computed from one it writes, aimed on every draw. */
-const refreshingWrittenOpen = (weights: Weights): Weights => ({
-	...weights,
-	kinds: ["open-db"],
-	actions: { ...zeroWeights.actions, "open-db": 1 },
-	validity: liveOnly,
-	aims: everyDraw([dbRefreshingWritten], refreshesWrittenRead, (a) => a.kind === "open-db")
 })
 
 /**
@@ -933,8 +877,8 @@ export interface Staged {
 
 /**
  * Brings a realized world to a drawn reality: the reality is drawn from the case's tape, among the suite's realities
- * over the host schema the installation's names give, the world reset to it (every session closed, the facts replaced,
- * the derived relations refreshed), and the model's initial state over those names checked against the real system.
+ * over the host schema the installation's names give, the world reset to it (every session closed, the facts
+ * replaced), and the model's initial state over those names checked against the real system.
  * The caller's scope is the case's: every direct writer the case begins ends with it (RealWorld.reset).
  */
 export const stage = (
@@ -1221,25 +1165,6 @@ const deletedRead =
 			: []
 	}
 
-/** An apply that left a derived relation stale, holding a fact computed from one since deleted: a lead's own move. */
-const derivedStale = "lead:a derived relation left stale" as const
-
-/**
- * Whether an apply left some derived relation stale, read of its outcome alone: a read of it before a refresh shows the
- * fact (deletion:derived-kept), and its refresh drops it (deletion:derived-refreshed).
- */
-const staleRead =
-	(_state: ModelState, action: Action) =>
-	(outcome: Allowed): ReadonlyArray<typeof derivedStale> => {
-		if (action.kind !== "apply") {
-			return []
-		}
-		const { next } = settled(outcome)
-		return Arr.some(next.install.base.derived, (d) => staleDerived(next, d.name).length > 0)
-			? [derivedStale]
-			: []
-	}
-
 /**
  * A lead's first move past the planned state: one the box offers of a kind, drawn evenly among them; or one drawn
  * under the weights the lead aims it with, from the required features still pending.
@@ -1279,24 +1204,11 @@ const afterStatement = (
 }
 
 /**
- * What an apply reaches, read of its outcome alone: the features it notes, and whether it left a derived relation stale
- * (staleRead).
- */
-const applyRead = (
-	state: ModelState,
-	action: Action
-): ((outcome: Allowed) => ReadonlyArray<string>) => {
-	const read = noted(state, action)
-	const stale = staleRead(state, action)
-	return (outcome) => [...read(outcome), ...stale(outcome)]
-}
-
-/**
- * A live apply through a Db the state holds, aimed on every draw at `targets` and at leaving a derived relation stale
- * (applyRead); a state holding no Db opens one instead (dbCall).
+ * A live apply through a Db the state holds, aimed on every draw at `targets`, read of the features its outcome notes;
+ * a state holding no Db opens one instead (dbCall).
  */
 const aimedApply = (weights: Weights, targets: Arr.NonEmptyReadonlyArray<string>): Weights =>
-	dbCall(weights, "apply", Arr.append(targets, derivedStale), applyRead)
+	dbCall(weights, "apply", targets, noted)
 
 /**
  * The inductive suite's leads, each a state one action before what it reaches. Every aimed move reads its own outcome
@@ -1307,13 +1219,10 @@ const aimedApply = (weights: Weights, targets: Arr.NonEmptyReadonlyArray<string>
  * - a transaction so begun, one statement in, the statement aimed so that its COMMIT reaches a feature (commitAfter),
  *   a law checked at COMMIT that the statement broke, or so that it deleted a fact of its view (deletedRead), which a
  *   read of the transaction then shows gone: the case's one action aims at either;
- * - a Db the planned state holds, one apply in, the apply aimed at what it reaches itself or at leaving a derived
- *   relation stale (applyRead): a read of it then shows a fact computed from a deleted one, and its refresh drops it;
+ * - a Db the planned state holds, one apply in, the apply aimed at what it reaches itself;
  * - a Db opened, one read or apply from what it reaches: the role it opens as and the claims its token carries decide
  *   which facts lie inside, outside and hidden from each entry it reads or writes, and an apply waits on a direct
- *   transaction the planned state holds (drive/index.ts serial), so a planned Db rarely offers the call a feature needs;
- * - a Db of a role that refreshes a derived relation computed from one it writes (refreshingWrittenOpen), one apply in
- *   that left a derived relation stale (staleRead), so the Db reads and refreshes what the apply left stale.
+ *   transaction the planned state holds (drive/index.ts serial), so a planned Db rarely offers the call a feature needs.
  */
 const inductiveLeads: Arr.NonEmptyReadonlyArray<InductiveLead> = [
 	{ first: { kind: "aimed", weights: begunAimed }, after: () => [] },
@@ -1324,11 +1233,7 @@ const inductiveLeads: Arr.NonEmptyReadonlyArray<InductiveLead> = [
 		]
 	},
 	{ first: { kind: "aimed", weights: aimedApply }, after: () => [] },
-	{ first: { kind: "offered", of: "open-db" }, after: () => [] },
-	{
-		first: { kind: "aimed", weights: refreshingWrittenOpen },
-		after: (weights) => [dbCall(weights, "apply", [derivedStale], staleRead)]
-	}
+	{ first: { kind: "offered", of: "open-db" }, after: () => [] }
 ]
 
 /** A move of a lead past a planned state: the action its first move took there, or a draw under its weights. */
@@ -1523,7 +1428,7 @@ export const generatedDocsInstalls: Gen<InstallSpec> = dictionaryNamed((source) 
 /**
  * The documents base's installations a suite draws: half the time its README-shaped worlds, whose roles hold every
  * shape the README names (writable query entries filled from a claim, a claim-fixed head field, a negation reading a
- * claim, refresh lists, two logins), over the base (docsInstall), its one-share variant (docsOneShareInstall), where
+ * claim, two logins), over the base (docsInstall), its one-share variant (docsOneShareInstall), where
  * the member's own shares meet a hidden share at that key, or its Level variant (docsLevelInstall), where the member
  * reads a context field of a contract, and the first two with an editor beside (docsEditorInstall,
  * docsOneShareEditorInstall), whose every fact outside an entry it writes is one it sees through a relation it holds

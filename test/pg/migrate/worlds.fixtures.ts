@@ -63,7 +63,8 @@ export const versionOf = (name: string, k: Knobs) => {
 		[Tier, Org, Doc, Share, Note],
 		[mutable(Doc), unit("Record", { id: Id })]
 	)
-	const Busy = derived.materialized(
+	/** Each document's word count, stored: Doc, open, sits in the unit Record, so Busy sits in it too. */
+	const Busy = derived.stored(
 		"Busy",
 		query(base).rule((r) => {
 			const { id, words } = v(Doc, "doc")
@@ -116,10 +117,18 @@ export const versionOf = (name: string, k: Knobs) => {
 		ext,
 		"editor",
 		{ Doc, Busy: ext.relations.Busy, Mine: mine(), Capped: capped },
-		{ write: ["Mine"], refresh: ["Busy"], contexts: [Session, Quota] }
+		{ write: ["Mine"], contexts: [Session, Quota] }
 	)
 	const viewer = role(ext, "viewer", { Tier, Org, Busy: ext.relations.Busy })
-	return { schema: ext, editor, viewer, login: login(ext, k.login, [editor, viewer]) }
+	/** Busy alone: the one relation of its level it holds, so it holds USAGE on that level's schema of whole views alone. */
+	const tally = role(ext, "tally", { Busy: ext.relations.Busy })
+	return {
+		schema: ext,
+		editor,
+		viewer,
+		tally,
+		login: login(ext, k.login, [editor, viewer, tally])
+	}
 }
 
 export type Built = ReturnType<typeof versionOf>

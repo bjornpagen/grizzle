@@ -39,7 +39,6 @@ export type Feature =
 	| "a footprint table read table-wide"
 	| "a footprint table routed by a field"
 	| "a read whose footprint holds two tables"
-	| "a materialized view a read reads"
 	| "two logins"
 
 const file = `${repoRoot}app/grizzle.config.ts`
@@ -134,9 +133,8 @@ const loginWithReads = (
 		return login(built.made.base, spec.name, members, { workload: workloads })
 	})
 
-/** What a served file's reads reach: each footprint's tables and views, their routes, and how many tables one holds. */
+/** What a served file's reads reach: each footprint's tables, their routes, and how many tables one holds. */
 const notedReads = (served: ServedFile, note: (feature: Feature) => void): void => {
-	const views = served.live.kind === "source" ? served.live.views : []
 	for (const role of served.roles) {
 		for (const member of role.members) {
 			switch (member.kind) {
@@ -147,23 +145,19 @@ const notedReads = (served: ServedFile, note: (feature: Feature) => void): void 
 					if (live.kind === "constant" || live.kind === "answered") {
 						break
 					}
-					const tables = Arr.filter(Rec.keys(live.footprint), (t) => !views.includes(t))
-					if (tables.length > 1) {
+					if (Rec.keys(live.footprint).length > 1) {
 						note("a read whose footprint holds two tables")
 					}
-					for (const [table, routes] of Rec.toEntries(live.footprint)) {
+					for (const routes of Rec.values(live.footprint)) {
 						note(
-							views.includes(table)
-								? "a materialized view a read reads"
-								: Rec.isEmptyRecord(routes)
-									? "a footprint table read table-wide"
-									: "a footprint table routed by a field"
+							Rec.isEmptyRecord(routes)
+								? "a footprint table read table-wide"
+								: "a footprint table routed by a field"
 						)
 					}
 					break
 				}
 				case "change":
-				case "refresh":
 					break
 			}
 		}

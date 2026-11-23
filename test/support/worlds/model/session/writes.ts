@@ -32,16 +32,13 @@ export type Written =
 
 /**
  * Whether a written query entry's membership reads a stored relation besides its target's row, so a SECURITY DEFINER
- * filter function serves its policy: a match or a negation of an ordinary or derived relation beside the supplying
- * occurrence (a roster is inlined as literals, a context is the session's).
+ * filter function serves its policy: a match or a negation of an ordinary relation beside the supplying occurrence (a roster is inlined as literals, a context is the session's).
  */
 export const filterReadsStored = (rules: Arr.NonEmptyReadonlyArray<Rule>): boolean => {
 	const [rule] = rules
 	return (
-		Arr.filter(
-			[...rule.matches, ...rule.negations.flat()],
-			(o) => o.source.kind === "ordinary" || o.source.kind === "derived"
-		).length > 1
+		Arr.filter([...rule.matches, ...rule.negations.flat()], (o) => o.source.kind === "ordinary")
+			.length > 1
 	)
 }
 

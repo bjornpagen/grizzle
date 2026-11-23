@@ -122,7 +122,7 @@ const ruleLiterals = (rule: Rule): ReadonlyArray<HostValue> => [
 	...Arr.flatMap(Rec.values(rule.head), termLiterals)
 ]
 
-/** The literals an installation states: in its rules, its derived relations, its laws' selectors and row checks. */
+/** The literals an installation states: in its rules, its laws' selectors and row checks. */
 const installLiterals = (install: InstallSpec): ReadonlyArray<HostValue> => {
 	const base = install.base
 	const lawValues = Arr.flatMap(base.laws, (law): ReadonlyArray<HostValue> => {
@@ -143,12 +143,9 @@ const installLiterals = (install: InstallSpec): ReadonlyArray<HostValue> => {
 				return []
 		}
 	})
-	const rules = [
-		...Arr.flatMap(base.derived, (d) => d.rules),
-		...Arr.flatMap(install.roles, (r) =>
-			Arr.flatMap(Rec.values(r.entries), (e) => (e.kind === "query" ? e.rules : []))
-		)
-	]
+	const rules = Arr.flatMap(install.roles, (r) =>
+		Arr.flatMap(Rec.values(r.entries), (e) => (e.kind === "query" ? e.rules : []))
+	)
 	const literals: ReadonlyArray<HostValue> = Arr.flatMap(rules, (r: Rule) => ruleLiterals(r))
 	const ruleValues = Arr.flatMap(literals, (v: HostValue): ReadonlyArray<HostValue> =>
 		typeof v === "number" ? [v, v + 1] : [v]
@@ -157,13 +154,11 @@ const installLiterals = (install: InstallSpec): ReadonlyArray<HostValue> => {
 }
 
 /**
- * Every value the state holds: in the reality, the derived relations, the sessions' facts, claims and views, and the
- * installation's literals. The box's symmetry renames only values outside it: a value one of these holds (a claim a
+ * Every value the state holds: in the reality, the sessions' facts, claims and views, and the installation's literals. The box's symmetry renames only values outside it: a value one of these holds (a claim a
  * direct writer set, say) behaves apart from any other.
  */
 export const stateValues = (state: ModelState): ReadonlyArray<HostValue> => [
 	...Arr.flatMap([...state.reality.values()].flat(), (f) => Rec.values(f)),
-	...Arr.flatMap(Rec.values(state.derived).flat(), (f) => Rec.values(f)),
 	...Arr.flatMap(state.sessions, (s): ReadonlyArray<HostValue> => {
 		switch (s.kind) {
 			case "db":
@@ -1365,7 +1360,7 @@ const directStatements = (
 		...Arr.map(worldFunctionsOf(state), (fn): DirectStatement => ({
 			kind: "call",
 			fn,
-			args: Arr.map(parametersOf(state, fn) ?? [], (domain) => valuesFor(domain, scoped)[0])
+			args: Arr.map(parametersOf(state.install, fn) ?? [], (domain) => valuesFor(domain, scoped)[0])
 		}))
 	]
 	/**
@@ -1423,17 +1418,6 @@ type SessionBox = (state: ModelState, session: number, scoped: Scoped) => Readon
 const sessionBoxes: { readonly [K in SessionKind]: SessionBox } = {
 	read: (state, session, scoped) => readActions(state, session, scoped),
 	apply: (state, session, scoped) => applyActions(state, session, scoped),
-	refresh: (state, session) => {
-		const relations = Option.match(roleAt(state, session), {
-			onNone: () => [firstEntryName(state)],
-			onSome: ({ role }) => [
-				...role.refresh,
-				...Arr.filter(Rec.keys(role.entries), (e) => !role.refresh.includes(e)).slice(0, 1),
-				...otherEntry(state, role)
-			]
-		})
-		return Arr.map(relations, (relation): Action => ({ kind: "refresh", session, relation }))
-	},
 	close: (_state, session) => [{ kind: "close", session }],
 	direct: (state, session, scoped) =>
 		Arr.map(directStatements(state, session, scoped), (statement): Action => ({
@@ -1461,7 +1445,6 @@ const boxKinds: { readonly [K in ActionKind]: KindBox } = {
 	"open-db": openActions,
 	read: everySession("read"),
 	apply: everySession("apply"),
-	refresh: everySession("refresh"),
 	close: everySession("close"),
 	"direct-begin": (state, scoped) =>
 		Arr.flatMap(state.install.logins, (l) => [
@@ -1499,7 +1482,7 @@ const boxKinds: { readonly [K in ActionKind]: KindBox } = {
 			wild: "null"
 		})),
 		...Arr.flatMap(sessionsOf(state), (session) =>
-			Arr.map(["read", "apply", "refresh"] as const, (call): Action => ({
+			Arr.map(["read", "apply"] as const, (call): Action => ({
 				kind: "wild",
 				at: { kind: "session", session, call },
 				wild: "proxy"
@@ -1545,7 +1528,7 @@ export const enumerateThrough = (
  * uuid or text domain does not yet hold stand for each other, so one of them is tried; ordered values at the box pool
  * and the installation's literals), and each invalid input alone, one representative per kind, beside live values
  * everywhere else. Every session the state holds is named, whatever its kind, so stale and mismatched handles are in
- * the box; an op holds one fact (two for a duplicate, past the limit for the limit). The serial rule (no write, refresh,
+ * the box; an op holds one fact (two for a duplicate, past the limit for the limit). The serial rule (no write,
  * migration or catalog change while a direct transaction is open) is kept, a harness invariant.
  */
 export const enumerateActions = (state: ModelState, scope: SmallScope): ReadonlyArray<Action> =>
@@ -1622,25 +1605,22 @@ const boxFacts = (fields: ReadonlyArray<FieldSpec>, scope: SmallScope): Readonly
 		)
 	)
 
-/** The literals a base states in its laws' selectors and its derived relations' rules: values no renaming may move. */
+/** The literals a base states in its laws' selectors: values no renaming may move. */
 const baseLiterals = (base: BaseSpec): ReadonlySet<string> =>
 	new Set(
 		Arr.map(
-			[
-				...Arr.flatMap(base.laws, (law): ReadonlyArray<HostValue> => {
-					switch (law.kind) {
-						case "contained":
-						case "covered":
-							return [...Rec.values(law.source.where), ...Rec.values(law.target.where)]
-						case "key":
-						case "spanKey":
-						case "check":
-						case "alternatives":
-							return []
-					}
-				}),
-				...Arr.flatMap(base.derived, (d) => Arr.flatMap(d.rules, ruleLiterals))
-			],
+			Arr.flatMap(base.laws, (law): ReadonlyArray<HostValue> => {
+				switch (law.kind) {
+					case "contained":
+					case "covered":
+						return [...Rec.values(law.source.where), ...Rec.values(law.target.where)]
+					case "key":
+					case "spanKey":
+					case "check":
+					case "alternatives":
+						return []
+				}
+			}),
 			valueText
 		)
 	)
@@ -1961,7 +1941,7 @@ const roleWith = (
 		targets.add(c.target)
 		return [entry]
 	})
-	return { name, entries: Rec.fromEntries(entries), write, refresh: [] }
+	return { name, entries: Rec.fromEntries(entries), write }
 }
 
 /**

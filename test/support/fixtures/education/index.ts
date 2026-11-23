@@ -4,7 +4,6 @@ import type {
 	BaseSpec,
 	ClosedSpec,
 	ContextSpec,
-	DerivedSpec,
 	EntrySpec,
 	FieldDomain,
 	FieldSpec,
@@ -300,28 +299,24 @@ const query = (one: Rule): EntrySpec => ({ kind: "query", rules: [one] })
  * semantics two equal grades of one section are one fact, so a grade drops out only when no other grade of its section
  * holds its points.
  */
-const sectionPoints: DerivedSpec = {
-	name: "SectionPoints",
-	rules: [
-		rule(
-			[
-				at("Grade", { enrollment: v("e"), points: v("p") }),
-				at("Enrollment", { id: v("e"), section: v("c") })
-			],
-			[],
-			{ section: v("c"), points: v("p") }
-		)
-	]
-}
+const sectionPoints: EntrySpec = query(
+	rule(
+		[
+			at("Grade", { enrollment: v("e"), points: v("p") }),
+			at("Enrollment", { id: v("e"), section: v("c") })
+		],
+		[],
+		{ section: v("c"), points: v("p") }
+	)
+)
 
-/** The school system's base: its relations and laws, the three claims a token carries, and the analysts' rollup. */
+/** The school system's base: its relations and laws, and the three claims a token carries. */
 export const educationBase: BaseSpec = {
 	name: "Education",
 	closed: [attendanceStatus],
 	relations,
 	laws,
-	contexts: [sessionContext, schoolContext, districtContext],
-	derived: [sectionPoints]
+	contexts: [sessionContext, schoolContext, districtContext]
 }
 
 /** The student whose account signed in. */
@@ -371,8 +366,7 @@ const studentRole: RoleSpec = {
 			})
 		)
 	},
-	write: ["MyProfile"],
-	refresh: []
+	write: ["MyProfile"]
 }
 
 /** The guardian whose account signed in holds a guardianship of student `s` that no restriction withdraws. */
@@ -445,8 +439,7 @@ const guardianRole: RoleSpec = {
 			)
 		)
 	},
-	write: [],
-	refresh: []
+	write: []
 }
 
 /** The teacher whose account signed in teaches section `c`. */
@@ -573,8 +566,7 @@ const teacherRole: RoleSpec = {
 			)
 		)
 	},
-	write: ["GradeBook", "AttendanceBook", "ExcuseBook"],
-	refresh: []
+	write: ["GradeBook", "AttendanceBook", "ExcuseBook"]
 }
 
 /** The signed-in account administers the school the token's `school` claim names. */
@@ -638,18 +630,18 @@ const schoolAdminRole: RoleSpec = {
 			)
 		)
 	},
-	write: ["SchoolEnrollment"],
-	refresh: []
+	write: ["SchoolEnrollment"]
 }
 
 /**
- * A district analyst reads the de-identified rollup whole and refreshes it, and reads the ids of the sections of the
+ * A district analyst reads the de-identified rollup, a query entry over the grades and their enrollments' sections that
+ * finds neither the enrollment nor the student, and reads the ids of the sections of the
  * district their token's `district` claim names: no student, enrollment, account or name.
  */
 const districtAnalystRole: RoleSpec = {
 	name: "district_analyst",
 	entries: {
-		SectionPoints: { kind: "whole", relation: sectionPoints.name },
+		SectionPoints: sectionPoints,
 		DistrictSection: query(
 			rule(
 				[
@@ -661,8 +653,7 @@ const districtAnalystRole: RoleSpec = {
 			)
 		)
 	},
-	write: [],
-	refresh: [sectionPoints.name]
+	write: []
 }
 
 /**
@@ -710,8 +701,7 @@ const importerRole: RoleSpec = {
 			)
 		)
 	},
-	write: ["ImportGrade", "ImportAttendance", "ImportExcuse"],
-	refresh: []
+	write: ["ImportGrade", "ImportAttendance", "ImportExcuse"]
 }
 
 /** The web application's login holds every person's role; the analytics and import logins are trust domains of their own. */

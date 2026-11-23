@@ -1,7 +1,7 @@
 /**
  * The access agreement (test/support/agreement/access.ts): over drawn logins, Db.open needs a token, DbLayer.make a
- * verify, a workload over a role its declared contexts, a role's query entries its declared contexts, and a refresh
- * member its refresh list, exactly where the engine's reading of the role needs them. Each login is a block of one program a batch checks disarmed. Oracle: the engine's
+ * verify, a workload over a role its declared contexts, and a role's query entries its declared contexts, exactly
+ * where the engine's reading of the role needs them. Each login is a block of one program a batch checks disarmed. Oracle: the engine's
  * reading of each drawn role. The witnesses reach every place a role reads a context and every probe under both
  * verdicts.
  */
@@ -9,8 +9,8 @@ import { accessCases, accessProgram, accessRequired } from "#test/support/agreem
 import { agreement } from "#test/types/batch/agreement.ts"
 
 /**
- * Over drawn logins, Db.open needs a token, DbLayer.make a verify, a workload over a role its contexts and its refresh
- * member its refresh list exactly as the engine reads the role. Its budget, 60 runs and the runner's 200 steered cases,
+ * Over drawn logins, Db.open needs a token, DbLayer.make a verify, and a workload over a role its contexts exactly as
+ * the engine reads the role. Its budget, 60 runs and the runner's 200 steered cases,
  * is the pre-conversion suite's rotating count (60), restored because it costs no more: at TEST_SEED=777, run beside
  * the runner's default of 150, the whole run's process tree took 74.9 CPU-s against 131.4, every situation reached and
  * every kill killed alike (budgets/access.*.txt) (~/.cache/grizzle-release/TESTSYS/GZ-TYPES/measure/budgets,

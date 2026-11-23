@@ -25,7 +25,7 @@ import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import {
 	closedBuilder as closed,
-	materializedDerived,
+	derivedBuilder,
 	relationBuilder as relation,
 	relationDescOf
 } from "#compiler/schema/relation.ts"
@@ -1005,11 +1005,7 @@ export const schemaDefects: Arr.NonEmptyReadonlyArray<SchemaDefect> = [
 ]
 
 /** A derived relation, which no schema's own relations may hold. */
-export const D = materializedDerived(
-	"TaskIds",
-	idsOf(schema("Edu", [Kind, Task], [], []), [Task]),
-	[]
-)
+export const D = derivedBuilder("TaskIds", idsOf(schema("Edu", [Kind, Task], [], []), [Task]), [])
 
 /**
  * A derived relation as drawn: the relations of the levels below it its definition reads (picks into them, at least

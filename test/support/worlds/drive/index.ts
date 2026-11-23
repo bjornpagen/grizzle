@@ -151,7 +151,7 @@ const quietSession = (state: ModelState, holder: number, session: number): boole
  * does, the only actions that never wait behind it are its own, catalog reads (opening a Db, a drift with nothing
  * pending: one that resumes pending folders is a migration), a Db's read
  * (SERIALIZABLE snapshots never wait on row locks), a close, and any action on a session that sends no statement. A
- * write, a refresh, a migration, a catalog change or a second direct transaction could wait on the holder's locks,
+ * write, a migration, a catalog change or a second direct transaction could wait on the holder's locks,
  * which only a concurrent driver resolves.
  */
 export const serial = (state: ModelState, action: Action): boolean =>
@@ -170,7 +170,6 @@ export const serial = (state: ModelState, action: Action): boolean =>
 					case "drift":
 						return state.migrations.kind === "applied"
 					case "apply":
-					case "refresh":
 					case "interrupt":
 						return quietSession(state, holder, action.session)
 					case "wild":
@@ -289,7 +288,6 @@ export const submittedTexts = (action: Action): ReadonlyArray<string> => {
 		case "direct":
 			return statementTexts(action.statement)
 		case "read":
-		case "refresh":
 		case "close":
 		case "direct-begin":
 		case "direct-end":
@@ -309,7 +307,6 @@ const actingOf = (state: ModelState, action: Action): Acting => {
 	switch (action.kind) {
 		case "read":
 		case "apply":
-		case "refresh":
 		case "close":
 		case "direct":
 		case "direct-end":
@@ -420,7 +417,7 @@ const storedDivergences = (
 
 /**
  * Checks that the real system is in the state the model claims (Turso's step 5), and returns the model's state: the
- * model's state keeps every invariant; every base relation and every derived relation, read as the owner, holds exactly the model's facts; and
+ * model's state keeps every invariant; every base relation, read as the owner, holds exactly the model's facts; and
  * every session the model holds open probes exactly as the model expects of it.
  */
 const checkState = (
@@ -434,18 +431,11 @@ const checkState = (
 			return yield* new ModelMismatch({ where, divergence: { _tag: "invariant", violations } })
 		}
 		const stored = yield* Effect.orDie(world.stored)
-		const differing = [
-			...storedDivergences(
-				Arr.map(state.install.base.relations, (r) => r.name),
-				(relation) => state.reality.get(relation) ?? [],
-				(relation) => stored.reality.get(relation) ?? []
-			),
-			...storedDivergences(
-				Arr.map(state.install.base.derived, (d) => d.name),
-				(relation) => state.derived[relation] ?? [],
-				(relation) => stored.derived[relation] ?? []
-			)
-		]
+		const differing = storedDivergences(
+			Arr.map(state.install.base.relations, (r) => r.name),
+			(relation) => state.reality.get(relation) ?? [],
+			(relation) => stored.get(relation) ?? []
+		)
 		if (Arr.isReadonlyArrayNonEmpty(differing)) {
 			return yield* new ModelMismatch({
 				where,

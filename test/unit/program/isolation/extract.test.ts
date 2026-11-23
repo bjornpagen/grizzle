@@ -9,8 +9,7 @@
  * ON CONSTRAINT, or DO NOTHING with no target, which a key of id and a UNIQUE over a and the law column arbitrate, its
  * source a query, a VALUES row, or one of the statement's query CTEs alone, an UPDATE, a DELETE (an INSERT's and a
  * DELETE's target may be a carrier), or a MERGE of up to three WHEN clauses; with
- * statement CTEs that read or write, the reading ones read where a source names them; a REFRESH, or a
- * statement no member sends. Each query is a core or a UNION, EXCEPT or INTERSECT of cores. A core reads tables,
+ * statement CTEs that read or write, the reading ones read where a source names them; or a statement no member sends. Each query is a core or a UNION, EXCEPT or INTERSECT of cores. A core reads tables,
  * carriers, CTEs, a writing CTE's RETURNING, relation inputs' arrays, VALUES, a function's rows, the session's context,
  * derived tables, among them ones of the context's fact alone or beside VALUES, a probe of a table at a key, a group or a
  * group's last row, an INSERT's met rows (a writing CTE's INSERT and a query CTE), itself or through a MATERIALIZED query
@@ -37,8 +36,7 @@
  *   CTE where they stand. Compiled for READ COMMITTED, the row met is `?met:"schema"."name"` and an ON CONFLICT with no
  *   target `?every:"schema"."name"`, each negated, in place of their reads.
  * - A carrier read is the call's own, of no group; a table no relation names is `?"schema"."name"`, a schema function
- *   the names do not clear `?function:"schema"."name"`, negated, a REFRESH `?refresh:"schema"."name"` and a statement
- *   no member sends `?statement:<kind>`, each object named as SQL quotes it, which no two names share.
+ *   the names do not clear `?function:"schema"."name"`, negated, and a statement no member sends `?statement:<kind>`, each object named as SQL quotes it, which no two names share.
  * - A table's group is the fields of its columns its core's conditions (its WHERE and every ON of its FROM; a MERGE's
  *   ON and its clause's condition as the clause reads it) equate with a placeholder or a column of an own source in
  *   scope, its core's or an enclosing core's (a non-LATERAL derived table and a CTE see none of their reader's), else,

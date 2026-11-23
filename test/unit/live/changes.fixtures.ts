@@ -1,7 +1,7 @@
 /** What the properties of changes.test.ts read: its spaces, models and helpers. */
 
-import { array, constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
-import { Array as Arr, Order, String as Str } from "effect"
+import { constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
+import { Array as Arr, Order } from "effect"
 import type { Cell, Message, OldImage, Tuple } from "#adapter/live/pgoutput.ts"
 import {
 	admittedIdentifier,
@@ -9,8 +9,6 @@ import {
 	notificationText,
 	type RouteKey
 } from "#compiler/plan/runtime.ts"
-
-export const prefix = "__live_app_0"
 
 /** The relations of the stream: a routed table, by `g`; a table read whole; and a table no program reads. */
 export const routedId = 1
@@ -42,8 +40,6 @@ export const tables: ReadonlyMap<string, ReadonlyArray<string>> = new Map([
 	["whole", []]
 ])
 
-export const views: ReadonlySet<string> = new Set(["view"])
-
 /** A drawn routed column's value: a text, NULL, or a TOASTed value left unchanged. */
 type Value =
 	| { readonly kind: "text"; readonly text: string }
@@ -59,8 +55,8 @@ const valueGen: Gen<Value> = (source) => {
 			: { kind: "text", text: source.draw(element(["0", "1", "a=b:c", ""])) }
 }
 
-/** A drawn change: its relation, its kind, and its sides' routed values. */
-type Change =
+/** A drawn change, a step of the transaction: its relation, its kind, and its sides' routed values. */
+export type Change =
 	| { readonly kind: "insert"; readonly relation: number; readonly next: Value }
 	| {
 			readonly kind: "update"
@@ -108,37 +104,6 @@ export const changeGen: Gen<Change> = (source) => {
 	}
 }
 
-/** A drawn announcement: its prefix and its text. */
-interface Announcement {
-	readonly prefix: string
-	readonly text: string
-}
-
-const announcedGen: Gen<string> = element([
-	"view:",
-	"unknown_view:",
-	"routed:",
-	"routed:g=1",
-	":invalidated=5",
-	":migrated",
-	"not a key"
-])
-
-export const announcementGen: Gen<Announcement> = (source) => ({
-	prefix: source.draw(
-		weighted([
-			[2, constant(prefix)],
-			[1, constant("other")]
-		])
-	),
-	text: Arr.join(source.draw(array(announcedGen, { min: 1, max: 3 })), "\u0000")
-})
-
-/** A step of the transaction: a change, or an announcement. */
-export type Step =
-	| { readonly kind: "change"; readonly change: Change }
-	| { readonly kind: "announce"; readonly announcement: Announcement }
-
 const cellOf = (value: Value): Cell =>
 	value.kind === "text" ? { kind: "text", text: value.text } : { kind: value.kind }
 
@@ -149,12 +114,8 @@ const imageOf = (image: "whole" | "key", value: Value): OldImage =>
 		? { whole: true, tuple: tupleOf(value) }
 		: { whole: false, tuple: [{ kind: "text", text: "7" }, { kind: "null" }] }
 
-/** The pgoutput message of a drawn step. */
-export const messageOf = (step: Step): Message => {
-	if (step.kind === "announce") {
-		return { kind: "message", prefix: step.announcement.prefix, content: step.announcement.text }
-	}
-	const change = step.change
+/** The pgoutput message of a drawn change. */
+export const messageOf = (change: Change): Message => {
 	switch (change.kind) {
 		case "insert":
 			return { kind: "insert", relation: change.relation, next: tupleOf(change.next) }
@@ -182,31 +143,8 @@ const routedColumn = admittedIdentifier<"column">("g")
 /** A side's routed value as the rule reads it: its text, or none where the side does not say it. */
 const said = (value: Value): string | undefined => (value.kind === "text" ? value.text : undefined)
 
-/** The keys the rule gives a drawn step (see the header). */
-export const expectedOf = (step: Step): ReadonlyArray<Notification> => {
-	if (step.kind === "announce") {
-		if (step.announcement.prefix !== prefix) {
-			return []
-		}
-		const texts = Str.split(step.announcement.text, "\u0000")
-		return Arr.some(
-			texts,
-			(text) =>
-				![
-					"view:",
-					"unknown_view:",
-					"routed:",
-					"routed:g=1",
-					":invalidated=5",
-					":migrated"
-				].includes(text)
-		)
-			? []
-			: Arr.flatMap(texts, (text): ReadonlyArray<Notification> =>
-					text === "view:" ? [{ kind: "table", table: admittedIdentifier<"table">("view") }] : []
-				)
-	}
-	const change = step.change
+/** The keys the rule gives a drawn change (see the header). */
+export const expectedOf = (change: Change): ReadonlyArray<Notification> => {
 	if (change.relation === unreadId) {
 		return []
 	}
@@ -251,9 +189,3 @@ export type Feature =
 	| "a change of a whole-read table"
 	| "a change of an unread table"
 	| "a change of the ledger"
-	| "an announced view"
-	| "an announced stored table's key"
-	| "invalidated announced"
-	| "migrated announced"
-	| "malformed announcement text"
-	| "another prefix"

@@ -3,8 +3,8 @@
  * every schema holds (schema/own.ts #collectFields), so it meets a natural field, parameter or literal and no bigint,
  * and a rule's place, the count of the rows before it beside 0 where there are none, is one term of one type.
  *
- * The box, exhausted: a count of Item's rows by their kind, read in a query's head; as a materialized derived
- * relation's field; written by an insert into a natural field or a bigint one; in the head of two rules, the count's and
+ * The box, exhausted: a count of Item's rows by their kind, read in a query's head; as a stored derived relation's
+ * field; written by an insert into a natural field or a bigint one; in the head of two rules, the count's and
  * one delivering 0n, a natural field or a bigint field, read as the query's head or inserted into a natural field; and read
  * from the derived relation by a filter against a natural parameter, a bigint parameter or the literal 1n; each in a
  * schema that declares a natural field of its own, Tally's, or one that declares none where the reading declares none

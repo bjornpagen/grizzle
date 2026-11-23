@@ -1104,7 +1104,6 @@ const grizzleAnswer = (
 					}
 		}
 		case "outsideWorld":
-		case "refreshed":
 			return { kind: "failed", what: value.kind }
 		case "accepted":
 		case "unchanged":

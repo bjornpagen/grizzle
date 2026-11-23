@@ -754,7 +754,7 @@ const onHost = (refusal: ActionOutcome): Called => ({ kind: "host", refusals: [r
  *   role" leaves which refusal a ChangeSet meets first: an op's own refusal stops its statement before it writes;
  * - each stratum's S' = (S \ D) ∪ A meets the laws PostgreSQL checks at a statement, and the final state the laws it
  *   checks at COMMIT, each refusal's witness the most README "Errors and outcomes" allows; else `accepted`, or `no-change` when the
- *   final state is the first. Nothing is written on any refusal, and a derived relation keeps its facts until a refresh.
+ *   final state is the first. Nothing is written on any refusal.
  */
 export const applyCall = (
 	state: ModelState,

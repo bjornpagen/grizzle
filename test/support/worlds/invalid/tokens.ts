@@ -231,7 +231,7 @@ const userOf = (claimed: ReadonlyArray<ClaimedField>, fact: HostFact): ContextFa
 	)
 
 /**
- * Real users' claims as the worlds meet them: per occurrence of a stored or derived relation in a role's rule that
+ * Real users' claims as the worlds meet them: per occurrence of a stored relation in a role's rule that
  * equates fields of it to claim fields (`Administrator(account: Session.sub, school: School.id)`, `Assignment(teacher:
  * Session.sub)`), each fact of that relation's values there, by context and claim field: what one user's token carries
  * together, a school administrator's account beside the school they administer.
@@ -245,11 +245,7 @@ const usersOf = (state: ModelState): ReadonlyArray<ContextFacts> =>
 						Arr.flatMap(rule.matches, (o) => {
 							const claimed = claimedFields(rule, o)
 							const facts =
-								o.source.kind === "ordinary"
-									? (state.reality.get(o.source.name) ?? [])
-									: o.source.kind === "derived"
-										? (state.derived[o.source.name] ?? [])
-										: []
+								o.source.kind === "ordinary" ? (state.reality.get(o.source.name) ?? []) : []
 							return claimed.length === 0 ? [] : Arr.map(facts, (fact) => userOf(claimed, fact))
 						})
 					)

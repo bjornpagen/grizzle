@@ -37,7 +37,7 @@ export const loginHolding = (install: InstallSpec, role: string): LoginSpec | un
 export const rolesOfLogin = (install: InstallSpec, login: string): ReadonlyArray<RoleSpec> =>
 	Arr.filter(install.roles, (r) => loginOf(install, login)?.roles.includes(r.name) === true)
 
-/** The ordinary relation of that name, or undefined for a closed or derived relation or none. */
+/** The ordinary relation of that name, or undefined for a closed relation or none. */
 export const relationSpecOf = (base: BaseSpec, name: string): RelationSpec | undefined =>
 	Option.getOrUndefined(Arr.findFirst(base.relations, (r) => r.name === name))
 
@@ -58,46 +58,21 @@ export const isClosedRoster = (base: BaseSpec, relation: string): boolean =>
 	Arr.some(base.closed, (c) => c.name === relation)
 
 /**
- * The level whose schema of whole views holds a relation's whole view (physical/ddl/roles.ts addWholeViews: each
- * relation's in its own level's `__<schema>`): the base's for an ordinary relation, and a derived relation's own, each
- * derived relation a level of its own (worlds/execute/build.ts, `schema.extend` once for each).
+ * Whether a role holds USAGE on the base's schema of whole views, where every whole view of a worlds installation stands
+ * (physical/ddl/roles.ts addWholeViews: each relation's in its own level's `__<schema>`, and a worlds base is one level,
+ * declaring no derived relation): it holds some relation whole, a closed roster aside, which has no view (addWholeViews
+ * grants USAGE to each holder of one of its views).
  */
-export const wholeLevelOf = (base: BaseSpec, relation: string): string =>
-	Arr.some(base.derived, (d) => d.name === relation) ? `derived ${relation}` : "base"
-
-/**
- * Whether a role holds USAGE on `level`'s schema of whole views: it holds some relation of that level whole, a closed
- * roster aside, which has no view (physical/ddl/roles.ts addWholeViews grants USAGE to each holder of one of its views).
- */
-export const readsWholesAt = (
-	install: InstallSpec,
-	role: RoleSpec | undefined,
-	level: string
-): boolean =>
+export const readsWholes = (install: InstallSpec, role: RoleSpec | undefined): boolean =>
 	role !== undefined &&
 	Arr.some(
 		Record.values(role.entries),
-		(e) =>
-			e.kind === "whole" &&
-			!isClosedRoster(install.base, e.relation) &&
-			wholeLevelOf(install.base, e.relation) === level
+		(e) => e.kind === "whole" && !isClosedRoster(install.base, e.relation)
 	)
 
-/** Whether `level`'s schema of whole views stands: some installed role holds a relation of that level whole. */
-export const wholesStandAt = (install: InstallSpec, level: string): boolean =>
-	Arr.some(install.roles, (r) => readsWholesAt(install, r, level))
-
-/** The levels whose schemas of whole views stand, each once. */
-export const standingWholeLevels = (install: InstallSpec): ReadonlyArray<string> =>
-	Arr.dedupe(
-		Arr.flatMap(install.roles, (r) =>
-			Arr.flatMap(Record.values(r.entries), (e) =>
-				e.kind === "whole" && !isClosedRoster(install.base, e.relation)
-					? [wholeLevelOf(install.base, e.relation)]
-					: []
-			)
-		)
-	)
+/** Whether the base's schema of whole views stands: some installed role holds a relation whole. */
+export const wholesStand = (install: InstallSpec): boolean =>
+	Arr.some(install.roles, (r) => readsWholes(install, r))
 
 /** The contexts a term reads. */
 const termContexts = (t: Term): ReadonlyArray<string> => (t.kind === "context" ? [t.context] : [])

@@ -42,7 +42,6 @@ import {
 	expectedKeys,
 	type Feature,
 	liveTables,
-	liveViews,
 	loginRefused,
 	opens,
 	Undecoded,
@@ -147,15 +146,10 @@ export const theLiveSourceDecodesEachCommitsTransactionToExactlyItsRowsRouteKeys
 							}
 						}
 						const rows = yield* decoder.values(
-							"SELECT pg_catalog.encode(data, 'hex') FROM pg_catalog.pg_logical_slot_get_binary_changes($1::name, NULL, NULL, 'proto_version', '1', 'publication_names', $2::text, 'messages', 'true')",
+							"SELECT pg_catalog.encode(data, 'hex') FROM pg_catalog.pg_logical_slot_get_binary_changes($1::name, NULL, NULL, 'proto_version', '1', 'publication_names', $2::text)",
 							[slot, `"${publication}"`]
 						)
-						const reader = transactionReader(
-							liveTables(live),
-							liveViews(live),
-							publication,
-							identifierOf(identity.ledger())
-						)
+						const reader = transactionReader(liveTables(live), identifierOf(identity.ledger()))
 						const decoded: Array<ReadonlySet<string>> = []
 						for (const [hex] of rows) {
 							const message = decodeMessage(bytesOfHex(String(hex)))

@@ -21,6 +21,7 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
+import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order } from "effect"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
@@ -48,6 +49,7 @@ import { KeyKernel } from "#test/support/keys/kernel.ts"
 import {
 	classedGen,
 	type ClassFeature,
+	factCaseGen,
 	type ForgeFeature,
 	ghost,
 	int4,
@@ -56,6 +58,8 @@ import {
 	type KeysFeature,
 	mappingsGen,
 	partition,
+	type ReadingId,
+	readingProjection,
 	tableGen,
 	unionCaseGen,
 	type UnionFeature
@@ -702,6 +706,64 @@ export const aNodeKeepingARelationParametersFactsUnmergedClaimsNoKeyWhereTwoMayB
 				original: "\tconst read = kept === undefined ? edgesOf<Props>(reading) : [kept]",
 				replacement: "\tconst read: ReadonlyArray<Props> = []",
 				why: "A node keeping a relation parameter's facts claims its rows natively distinct (logical/props.ts distinctOf); a filter or a semi-join over them claims a key."
+			}
+		]
+	})
+
+type FactFeature = `id ${ReadingId}`
+
+/**
+ * A float a region reads of a natively distinct source is a field of the one fact its key fixes, keyed by the
+ * variables bound to that key (logical/props.ts factFieldsOf): a projection of Reading's x is natively distinct and keyed
+ * by id where it delivers the id x was read with, natively distinct where a literal fixes the id, though the region
+ * beside it reads every other reading too, and told apart as members alone where it drops the id, since two of its rows
+ * may then differ in x's zero's sign alone. The box, exhausted: the id delivered, dropped or fixed, and n delivered or
+ * not.
+ */
+export const aFloatARegionReadsOfOneFactIsKeyedByThatFactsKeyAndHoldsItsZerosSignAsOneValue =
+	property.exhaust(finite(factCaseGen), {
+		box: "a projection of a region over Reading(id, x double precision, n): its id delivered, dropped or fixed by a literal, and n or not",
+		needs: {},
+		situations: ["id delivered", "id dropped", "id fixed"] satisfies ReadonlyArray<
+			Reached<FactFeature>
+		>,
+		check: (_, c: Case<FactFeature>) => (fact) =>
+			Effect.sync(() => {
+				c.note(`id ${fact.id}`)
+				const dag = readingProjection(fact)
+				const root = defined(dag.roots[0], "the projection")
+				const analysis = succeeded(analyzeLogical(dag, checkerEvidence, keptNodes([root])))
+				const props = defined(analysis.props.get(root), "the projection's properties, kept")
+				const keys = Arr.map(props.keys, (k) => k.key)
+				switch (fact.id) {
+					case "delivered":
+						assert.equal(props.distinct, "native", "x is a field of the one fact id keys")
+						assert.deepEqual(keys, [["id"]], "keyed by the id x was read with")
+						return
+					case "fixed":
+						assert.equal(
+							props.distinct,
+							"native",
+							"x is a field of the one fact the literal fixes, one value on every row"
+						)
+						return
+					case "dropped":
+						assert.equal(props.distinct, "members", "two rows may differ in x's zero's sign alone")
+						assert.deepEqual(keys, [], "no key of rows told apart as members")
+						return
+				}
+			}),
+		oracle: {
+			kind: "specification",
+			name: "a field of one fact is one value wherever its fact's key is delivered or fixed"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/logical/props.ts",
+				original: "\t\t\t\t\t\taddFactKey(out, v, key)",
+				replacement: "\t\t\t\t\t\t{}",
+				why: "A region's variable bound by an occurrence whose natively distinct source has a key the occurrence binds or fixes is no fact field of it (logical/props.ts factFieldsOf), so a projection of a float beside the id it was read with, or of one whose id a literal fixes, is told apart as members and claims no key."
 			}
 		]
 	})

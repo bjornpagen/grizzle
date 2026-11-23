@@ -2,7 +2,6 @@ import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Option, Record, Scope, String as Str } from "effect"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { sameIdentity, valueIdentityOrder } from "#test/support/kernel/identity.ts"
 import {
 	type HostSchema,
 	rowsDifference,
@@ -34,7 +33,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { submittedTexts } from "#test/support/worlds/drive/index.ts"
 import { realizeRace, type RacingWorld } from "#test/support/worlds/execute/index.ts"
 import { installedNames } from "#test/support/worlds/execute/names.ts"
-import { factKey, hostSchemaOf } from "#test/support/worlds/model/host.ts"
+import { hostSchemaOf } from "#test/support/worlds/model/host.ts"
 import { loginHolding } from "#test/support/worlds/model/session/state.ts"
 import {
 	expectedProbe,
@@ -50,7 +49,6 @@ import type {
 	Branch,
 	DirectStatement,
 	EntrySpec,
-	HostFact,
 	HostState,
 	InstallSpec,
 	Isolation,
@@ -185,22 +183,10 @@ const entryOf = (install: InstallSpec, role: string, relation: string): EntrySpe
 		() => new Error(`the race names ${role}.${relation}, which the installation does not hold`)
 	)
 
-/** A derived relation's rules' reads, with the derived relation itself, which its refresh writes. */
-const refreshReads = (install: InstallSpec, derived: string): ReadonlyArray<string> => [
-	derived,
-	...Arr.flatMap(
-		Option.match(
-			Arr.findFirst(install.base.derived, (d) => d.name === derived),
-			{ onNone: () => [], onSome: (d) => d.rules }
-		),
-		(rule) => entryReads({ kind: "query", rules: [rule] })
-	)
-]
-
 /**
  * What a Db action reads or writes, through its role's relations: a write the relations its entries read (an entry's
- * filter included) closed under the laws, a read the relations its entry reads, a refresh its derived relation and the
- * relations that relation reads. Opening, closing and interrupting touch no relation.
+ * filter included) closed under the laws, and a read the relations its entry reads. Opening, closing and interrupting
+ * touch no relation.
  */
 const actionFootprint = (
 	install: InstallSpec,
@@ -220,8 +206,6 @@ const actionFootprint = (
 			return relationsFootprint(
 				entryReads(entryOf(install, roleOf(action.session), action.relation))
 			)
-		case "refresh":
-			return writeFootprint(install, refreshReads(install, action.relation))
 		case "open-db":
 		case "close":
 		case "interrupt":
@@ -615,57 +599,19 @@ const foldDirect = (
 	return { next, why: Arr.join(whys, "; ") }
 }
 
-/** What a run committed, read back as the owner: every base relation's facts, and every derived relation's. */
-interface Stored {
-	readonly reality: HostState
-	readonly derived: Readonly<Record<string, ReadonlyArray<HostFact>>>
-}
-
-/** Whether two derived relations' facts are one set of facts, each by its identity. */
-const sameFacts = (a: ReadonlyArray<HostFact>, b: ReadonlyArray<HostFact>): boolean => {
-	const keys = (facts: ReadonlyArray<HostFact>) =>
-		Arr.sort(Arr.map(facts, factKey), valueIdentityOrder)
-	const [x, y] = [keys(a), keys(b)]
-	return (
-		x.length === y.length && Arr.every(x, (k, i) => sameIdentity(k, defined(y[i], "a fact's key")))
-	)
-}
-
-/** A derived relation's facts: the model and the read-back both hold every derived relation of the base. */
-const derivedFacts = (
-	derived: Readonly<Record<string, ReadonlyArray<HostFact>>>,
-	name: string
-): ReadonlyArray<HostFact> =>
-	Option.getOrThrowWith(
-		Record.get(derived, name),
-		() => new Error(`no facts of the derived relation ${name}`)
-	)
-
-/** Why a model state's reality and derived relations are not what the run committed, if they are not. */
+/** Why a model state's reality is not what the run committed, read back as the owner, if it is not. */
 const storedDifference = (
 	host: HostSchema,
 	state: ModelState,
-	stored: Stored
-): Option.Option<string> =>
-	Option.orElse(
-		rowsDifference(stateRows(host, state.reality), stateRows(host, stored.reality)),
-		() =>
-			Option.map(
-				Arr.findFirst(
-					state.install.base.derived,
-					(d) =>
-						!sameFacts(derivedFacts(state.derived, d.name), derivedFacts(stored.derived, d.name))
-				),
-				(d) => `${d.name} holds other facts`
-			)
-	)
+	stored: HostState
+): Option.Option<string> => rowsDifference(stateRows(host, state.reality), stateRows(host, stored))
 
 /** A serial order that explains the placed transactions and ends at the committed state, or why none does. */
 const serialOrder = (
 	host: HostSchema,
 	initial: ModelState,
 	placed: ReadonlyArray<Ran>,
-	committed: Stored
+	committed: HostState
 ): { readonly ok: true } | { readonly ok: false; readonly problem: string } => {
 	const before = Arr.map(placed, (r) =>
 		Arr.flatMap(placed, (q, j) => (q.span.end < r.span.start ? [j] : []))
@@ -752,9 +698,9 @@ const judgeWorldRun = (
 	host: HostSchema,
 	initial: ModelState,
 	ran: ReadonlyArray<Ran>,
-	committed: Stored
+	committed: HostState
 ): Judgment => {
-	const broken = violations(host, committed.reality)
+	const broken = violations(host, committed)
 	if (broken.length > 0) {
 		return refusedJudgment(`the committed state breaks ${describeViolations(broken)}`)
 	}

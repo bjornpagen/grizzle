@@ -57,7 +57,7 @@ export const readerOf = (
 	send: (statement: BatchStatement) => Effect.Effect<unknown, ReadError>
 ): MemberReader => {
 	const parse = readCallOf(member)
-	if (Option.isNone(parse) || member.kind === "change" || member.kind === "refresh") {
+	if (Option.isNone(parse) || member.kind === "change") {
 		throw new Error(`the read member ${member.name} loads as no read`)
 	}
 	return {
@@ -161,7 +161,6 @@ export const sidedMembers = (
 						}
 					})
 				case "change":
-				case "refresh":
 					return Result.succeed(member)
 			}
 		}

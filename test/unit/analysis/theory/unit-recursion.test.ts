@@ -8,7 +8,7 @@
  *
  * The box is every walk over a document's nodes (unit-recursion.fixtures.ts): seeded at every root of a document or at
  * a document its base states as a literal; stepping to a child, along a link to another document's node, to another
- * document's node at the same place, to a child whose document the step states, or through a materialized derived
+ * document's node at the same place, to a child whose document the step states, or through a live derived
  * relation of the children within a document or of the links across documents; under a containment of a claim into
  * the walk, a containment into it of each claimed node's parent, a check over it and a key over it; every relation
  * immutable, or Node mutable in the unit of its document or in the unit of a node's place, (doc, start), wider than the
@@ -98,6 +98,12 @@ export const aRuleOverARecursionCompilesExactlyWhereEveryStepCarriesItsUnitFromS
 		kept: [],
 		kills: [
 			{
+				file: "packages/engine/src/analysis/theory/query.ts",
+				original: "\t\t\t\t\t\trec: mapNonEmpty(st.recursive.rec, rule)",
+				replacement: "\t\t\t\t\t\trec: st.recursive.rec",
+				why: "A recursion's steps read as written, the stored Within in them by its name, which the walk reads as no relation of any unit; a step through the derived children in their document's unit no longer compiles as the whole rule it is."
+			},
+			{
 				file: "packages/engine/src/analysis/theory/unit.ts",
 				original: "\t\t\t\t(all.some((r) => r.mutable) &&",
 				replacement: "\t\t\t\t(false &&",
@@ -120,12 +126,6 @@ export const aRuleOverARecursionCompilesExactlyWhereEveryStepCarriesItsUnitFromS
 				original: "\t\t\tif (w.self === undefined) {",
 				replacement: "\t\t\tif (w.self !== undefined) {",
 				why: "Self read as no unit, so a step's unit is its other matches' alone; a step to another document's node compiles."
-			},
-			{
-				file: "packages/engine/src/analysis/theory/query.ts",
-				original: "\t\t\t\t\t\trec: mapNonEmpty(st.recursive.rec, rule)",
-				replacement: "\t\t\t\t\t\trec: st.recursive.rec",
-				why: "A recursion's steps read as written, a materialized derived relation in them by its name, which the walk reads as no relation of any unit; a step through the derived children no longer compiles as the whole rule it is."
 			}
 		]
 	})

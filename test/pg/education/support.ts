@@ -104,8 +104,7 @@ type EducationFeature =
 	| "a guardian read with a restricted child"
 	| "the importer wrote under hand-set claims"
 	| "the importer wrote under malformed claims"
-	| "a refresh dropped a grade"
-	| "a refresh dropped a deleted grade"
+	| "the rollup lacked a deleted grade"
 	| "a witness was shown"
 
 type Feature = WorldFeature | EducationFeature
@@ -782,25 +781,33 @@ const noNameCheck: StepCheck = ({ seen, earlier }) => {
 	}
 }
 
-/** Each derived fact of SectionPoints is a grade of reality in its section: no deleted grade outlives a refresh. */
-const rollupCheck: StepCheck = ({ seen }) => {
-	if (seen.action.kind !== "refresh" || seen.observation.kind !== "ok") {
-		return
-	}
-	const reality = seen.after.reality
-	for (const fact of seen.after.derived["SectionPoints"] ?? []) {
-		const supported = Arr.some(
-			factsIn(reality, "Grade"),
-			(grade) =>
-				sameValue(grade["points"], fact["points"]) &&
-				among(enrollmentSections(reality, grade["enrollment"]), [fact["section"]])
-		)
-		assert.ok(
-			supported,
-			`action ${seen.index}: the refreshed rollup holds ${shown(fact)}, which no grade supports`
-		)
+/**
+ * Each row the analyst reads of the rollup is a grade of the reality its read saw, in its section: no deleted grade
+ * outlives its delete.
+ */
+const rollupCheck: StepCheck = ({ seen, earlier }) => {
+	for (const read of rollupReads(seen, earlier)) {
+		for (const row of read.shown) {
+			const supported = Arr.some(
+				factsIn(read.view, "Grade"),
+				(grade) =>
+					sameValue(grade["points"], row["points"]) &&
+					among(enrollmentSections(read.view, grade["enrollment"]), [row["section"]])
+			)
+			assert.ok(
+				supported,
+				`action ${seen.index}: the rollup read shows ${shown(row)}, which no grade supports`
+			)
+		}
 	}
 }
+
+/** The analyst's reads of the rollup an action made, through any shape of read. */
+const rollupReads = (seen: SeenAction, earlier: ReadonlyArray<SeenAction>): ReadonlyArray<Read> =>
+	Arr.filter(
+		readsOf(seen, earlier),
+		(read) => read.role === "district_analyst" && read.relation === "SectionPoints"
+	)
 
 /** The grades of every state of the program before this action, as their section and points. */
 const gradesSeen = (earlier: ReadonlyArray<SeenAction>): ReadonlyArray<HostFact> =>
@@ -859,20 +866,13 @@ const noteSeen = (c: Case<Feature>, seen: SeenAction, earlier: ReadonlyArray<See
 			c.note("the importer wrote under malformed claims")
 		}
 	}
-	if (action.kind === "refresh" && observation.kind === "ok") {
-		const now = seen.after.derived["SectionPoints"] ?? []
-		const dropped = Arr.filter(
-			seen.before.derived["SectionPoints"] ?? [],
-			(fact) => !Arr.some(now, (f) => sameFact(f, fact))
+	for (const read of rollupReads(seen, earlier)) {
+		const deleted = Arr.some(
+			gradesSeen(earlier),
+			(grade) => !Arr.some(read.shown, (row) => sameFact(row, grade))
 		)
-		if (dropped.length > 0) {
-			c.note("a refresh dropped a grade")
-		}
-		const deleted = Arr.filter(gradesSeen(earlier), (grade) =>
-			Arr.some(dropped, (f) => sameFact(f, grade))
-		)
-		if (deleted.length > 0) {
-			c.note("a refresh dropped a deleted grade")
+		if (deleted) {
+			c.note("the rollup lacked a deleted grade")
 		}
 	}
 }
@@ -880,13 +880,13 @@ const noteSeen = (c: Case<Feature>, seen: SeenAction, earlier: ReadonlyArray<See
 /**
  * The moves an education lead constructs, each read of one outcome in the state its action ran in (leadRead): a role's
  * Db opening onto rows of its world, reading some, and changing its world through an accepted apply; the import adding a
- * grade at points its section's rollup lacks, the analyst refreshing the rollup, and the import deleting a grade no
- * other grade of its section holds the points of; and the importer, as a direct writer, beginning under hand-set claims,
+ * grade at points its section's rollup lacks, the analyst reading the rollup, and the import deleting a grade no other
+ * grade of its section holds the points of; and the importer, as a direct writer, beginning under hand-set claims,
  * beginning at all, setting malformed claims, and writing under either.
  */
 type LeadFeature =
 	| "the import added a grade its section's rollup lacks"
-	| "the analyst refreshed the rollup"
+	| "the analyst read the rollup"
 	| "the import deleted the only grade at its section's points"
 	| "the importer began under hand-set claims"
 	| "the importer began"
@@ -933,10 +933,10 @@ const openedFacts = (
 	}
 }
 
-/** Whether a state's rollup holds a section at some points. */
+/** Whether a state's rollup, the analyst's entry as the model reads it (it reads no claim), holds a section at some points. */
 const rolledUp = (state: ModelState, section: HostValue, points: HostValue): boolean =>
 	Arr.some(
-		state.derived["SectionPoints"] ?? [],
+		entryRows(state, "district_analyst", "SectionPoints", noFacts),
 		(f) => sameValue(f["section"], section) && sameValue(f["points"], points)
 	)
 
@@ -951,7 +951,7 @@ const gradeAt = (
 
 /**
  * Whether a grade is the import's in a state and the only grade of its section at its points, which the rollup holds:
- * deleting it and refreshing drops a fact of the rollup.
+ * deleting it drops a fact of the rollup.
  */
 const onlyAtItsPoints = (state: ModelState, grade: HostFact): boolean => {
 	const reality = state.reality
@@ -1021,9 +1021,15 @@ const leadRead =
 		}
 		if (action.kind === "read") {
 			const actor = actorIn(state, action)
-			return actor.kind === "db" && observation.kind === "rows" && observation.rows.length > 0
-				? [`${actor.role} read rows of its world`]
-				: []
+			if (actor.kind !== "db" || observation.kind !== "rows") {
+				return []
+			}
+			return [
+				...(observation.rows.length > 0 ? [`${actor.role} read rows of its world` as const] : []),
+				...(actor.role === "district_analyst" && action.relation === "SectionPoints"
+					? ["the analyst read the rollup" as const]
+					: [])
+			]
 		}
 		if (action.kind === "apply") {
 			const actor = actorIn(state, action)
@@ -1047,15 +1053,6 @@ const leadRead =
 				...(added ? ["the import added a grade its section's rollup lacks" as const] : []),
 				...(deleted ? ["the import deleted the only grade at its section's points" as const] : [])
 			]
-		}
-		if (action.kind === "refresh") {
-			const actor = actorIn(state, action)
-			return actor.kind === "db" &&
-				actor.role === "district_analyst" &&
-				action.relation === "SectionPoints" &&
-				observation.kind === "ok"
-				? ["the analyst refreshed the rollup"]
-				: []
 		}
 		if (action.kind === "direct-begin") {
 			const { current, claims } = action.start
@@ -1094,8 +1091,7 @@ const leadRead =
 
 /**
  * Whether an action could make a lead move at all, read of the action alone, so an aimed draw steps the model only on
- * those: an open of an education role, a read through a Db, the import's apply of a grade, a refresh of the rollup, an
- * importer's BEGIN, and an importer's SET of claims or write.
+ * those: an open of an education role, a read through a Db, the import's apply of a grade, an importer's BEGIN, and an importer's SET of claims or write.
  */
 const leadWorth = (action: Action, state: ModelState): boolean => {
 	switch (action.kind) {
@@ -1111,8 +1107,6 @@ const leadWorth = (action: Action, state: ModelState): boolean => {
 				Arr.some(Arr.flatten(action.strata), (op) => op.relation === "ImportGrade")
 			)
 		}
-		case "refresh":
-			return action.relation === "SectionPoints"
 		case "direct-begin":
 			return action.start.current.kind === "role" && action.start.current.role === "importer"
 		case "direct": {
@@ -1206,21 +1200,21 @@ export const everyWriterApplies = (requiredSituations: ReadonlyArray<string>): L
 	)
 
 /**
- * The analyst's lead: the import adds a grade at points its section's rollup lacks and commits, the analyst refreshes
- * the rollup, which takes it in, the import deletes it and commits, and the analyst refreshes again, which drops it: a
- * refresh drops a grade, and a deleted one. Each move is the model's (aims every draw), so a reality holding an
- * enrollment without a grade reaches both by construction.
+ * The analyst's lead: the import adds a grade at points its section's rollup lacks and commits, the analyst reads the
+ * rollup, which shows it, the import deletes it and commits, and the analyst reads the rollup again, which lacks it: a
+ * deleted grade is gone from the rollup. Each move is the model's (aims every draw), so a reality holding an enrollment
+ * without a grade reaches it by construction.
  */
-export const gradeDeletedThenRefreshed: (
+export const gradeDeletedThenGone: (
 	weights: Weights,
 	install: InstallSpec
 ) => ReadonlyArray<Weights> = (weights: Weights): ReadonlyArray<Weights> => [
 	liveOpen(weights, "importer"),
 	move(weights, "apply", "the import added a grade its section's rollup lacks"),
 	liveOpen(weights, "district_analyst"),
-	move(weights, "refresh", "the analyst refreshed the rollup"),
+	move(weights, "read", "the analyst read the rollup"),
 	move(weights, "apply", "the import deleted the only grade at its section's points"),
-	move(weights, "refresh", "the analyst refreshed the rollup")
+	move(weights, "read", "the analyst read the rollup")
 ]
 
 /**
@@ -1281,7 +1275,6 @@ export const worldsFocus: Arr.NonEmptyReadonlyArray<CatalogKeeping> = [
 	"open-db",
 	"read",
 	"apply",
-	"refresh",
 	"close",
 	"direct-begin",
 	"direct",
@@ -1302,7 +1295,8 @@ type Realization =
 
 /**
  * A property an education suite holds each action to, beside the driver's agreement with the model: a role's world
- * (what it reads and writes), the import's blindness to names, the rollup after a refresh, and the two rules every
+ * (what it reads and writes), the import's blindness to names, the rollup's rows, each a grade of reality, and the two
+ * rules every
  * worlds suite may hold (drive/acting.ts): a direct writer reaches nothing past its login, and a witness a law shows
  * names only what its writer submitted or holds whole.
  */
@@ -1353,10 +1347,7 @@ type EducationSuite = Realization & {
 /**
  * The education fixture's world as a template (execute/template.ts worldTemplate), under the cluster's own ambient: what
  * a suite realized once realized per test, made once per member, each case realizing it over a fresh clone of its own
- * (Substrate.fresh), as each case reset the one world the suite's cases shared: a case's reset refreshes the
- * fixture's derived relation sectionPoints (execute/index.ts RealWorld reset), a materialized view whose rows no seat's
- * reset empties, so a seat would hold the clone unlike its template after the first case that stages a section's
- * points, and refuse the next case's take.
+ * (Substrate.fresh), as each case reset the one world the suite's cases shared.
  */
 const educationWorld = worldTemplate({
 	budget: templateNeedBudget,

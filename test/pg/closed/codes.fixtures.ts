@@ -153,8 +153,8 @@ export const setsOf = (name: string, state: RosterState) => {
 	const Sets = relation("Sets", { id: pg.integer, members: bits(roster) }, ["id"])
 	const declared: Record<string, AnyRelation | AnyClosed> = { [state.closed]: roster, Sets }
 	const base = schema(name, Rec.values(declared), [])
-	const writer = role(base, "writer", { Sets }, { write: ["Sets"], refresh: [] })
-	const reader = role(base, "reader", { Sets }, { write: [], refresh: [] })
+	const writer = role(base, "writer", { Sets }, { write: ["Sets"] })
+	const reader = role(base, "reader", { Sets }, { write: [] })
 	const version: Version = { schema: base, logins: [login(base, "desk", [writer, reader])] }
 	return { version, writer, reader }
 }

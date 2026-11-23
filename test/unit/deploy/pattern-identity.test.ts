@@ -110,13 +110,13 @@ export const twoSpellingsOfAPatternInstallOneIdentityExactlyWhenTheySpellOneLang
 	})
 
 /** Whether a statement does work over stored rows or an index: a table, column or constraint added, dropped,
- * re-expressed or validated, an index built or dropped, a view materialized again. */
+ * re-expressed or validated, an index built or dropped, a stored derived relation's table created or filled. */
 const worksOverRows = (st: SqlStatement): boolean =>
 	st.kind === "createTable" ||
 	st.kind === "createIndex" ||
 	st.kind === "dropIndex" ||
 	st.kind === "createStoredTable" ||
-	st.kind === "refresh" ||
+	st.kind === "fillStored" ||
 	(st.kind === "alterTable" &&
 		Arr.some(
 			st.actions,

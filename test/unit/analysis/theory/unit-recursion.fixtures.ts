@@ -38,11 +38,11 @@ const Claim = relation("Claim", { doc: pg.integer, start: pg.integer }, ["doc", 
  * - `link`: the node a link of it names, in the document the link names, which leaves it;
  * - `other document`: a node of another document at the same place, which leaves it;
  * - `a fixed document`: a child whose document the step states as a literal, which leaves it;
- * - `derived child`: the child through a materialized derived relation of the node's parent links within its document,
- *   which carries it;
- * - `derived link`: the node through a materialized derived relation of the links, which leaves it. A rule reads either
- *   through its definition, live, never its view, inside the recursion as anywhere (analysis/theory/query.ts
- *   liveQuery), so its definition's matches are judged for the unit like the step's own.
+ * - `derived child`: the child through a derived relation of the node's parent links within its document, which
+ *   carries it: stored where the document is a unit, which it is local to, and live otherwise;
+ * - `derived link`: the node through a live derived relation of the links, which leaves it. A rule reads either
+ *   through its definition inside the recursion as anywhere, a stored one too (analysis/theory/query.ts liveQuery,
+ *   which maps a recursion's steps), so its definition's matches are judged for the unit like the step's own.
  */
 export type Step =
 	| "child"
@@ -121,16 +121,17 @@ const Base = (mutability: Mutability) =>
 /** The case's schema: the derived relations its step reads, the walk, and the rule over it. */
 export const walkSchemaOf = (c: WalkCase) => {
 	const B = Base(c.mutability)
-	const Within = derived.materialized(
-		"Within",
-		query(B).rule((r) => {
-			const n = v(Node, "n")
-			return r
-				.match(Node, { doc: n.doc, start: n.start, parent: n.parent })
-				.find({ doc: n.doc, from: n.parent, to: n.start })
-		})
-	)
-	const Across = derived.materialized(
+	const parentLinks = query(B).rule((r) => {
+		const n = v(Node, "n")
+		return r
+			.match(Node, { doc: n.doc, start: n.start, parent: n.parent })
+			.find({ doc: n.doc, from: n.parent, to: n.start })
+	})
+	const Within =
+		c.mutability === "Node mutable in its document"
+			? derived.stored("Within", parentLinks)
+			: derived("Within", parentLinks)
+	const Across = derived(
 		"Across",
 		query(B).rule((r) => {
 			const l = v(Link, "l")
@@ -162,7 +163,7 @@ export const walkSchemaOf = (c: WalkCase) => {
 				return fed
 					.match(Node, { doc: n.doc, start: s.node, parent: n.parent })
 					.where(r.ne(n.doc, s.doc))
-					.find({ doc: n.doc, node: n.start })
+					.find({ doc: n.doc, node: s.node })
 			case "a fixed document":
 				return fed
 					.match(Node, { doc: s.doc, parent: s.node, start: n.start })

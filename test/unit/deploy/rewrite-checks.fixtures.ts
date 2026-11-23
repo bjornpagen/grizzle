@@ -17,7 +17,8 @@ import {
 	Monoid,
 	on,
 	relation,
-	schema
+	schema,
+	unit
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { asDrafted, draftChain, fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
@@ -30,8 +31,11 @@ import { asDrafted, draftChain, fromEmpty, noDeclarations } from "#test/support/
 export const laws = ["Capped", "Plain", "Unsigned", "Bounded"] as const
 export type Law = (typeof laws)[number]
 
-/** A materialized view of the schema: XsView over T1, TotalsView over O. */
-export const views = ["XsView", "TotalsView"] as const
+/**
+ * A stored derived relation of the schema: XsView over T1. None stands over O, whose `total` its fold rewrites in place,
+ * which no stored relation reads.
+ */
+export const views = ["XsView"] as const
 export type View = (typeof views)[number]
 
 /**
@@ -61,16 +65,15 @@ export const checkedBy = (change: Change): ReadonlyArray<Law> => {
 	}
 }
 
-/** The materialized views a change's migration creates again: each above a table a column of which it writes again. */
+/** The stored relations a change's migration creates again: each above a table a column of which it writes again. */
 export const recreatedBy = (change: Change): ReadonlyArray<View> => {
 	switch (change) {
 		case "none":
 		case "generation":
+		case "fold":
 			return []
 		case "cap":
 			return ["XsView"]
-		case "fold":
-			return ["TotalsView"]
 	}
 }
 
@@ -82,9 +85,10 @@ const Signed = str.bytes(4, str.regex("^[-+]?[0-9]$", "u"))
 /**
  * The schema at `version`: T1, each document's tier and amount `x`, and `g`, generated, the cap Cap holds for its tier;
  * T2, each document's signed text `s` and `h`, generated, whether `s` starts with a minus; O, each owner's counted
- * members M and `total`, the sum of their `x`; and over them, at level 1, Gs, Xs, Hs and Totals, each the column of its
- * rule, Capped, Plain, Unsigned and Bounded, and XsView and TotalsView, materialized. The second version holds the
- * case's change: Cap's high cap 30 where it was 20, `h` testing for a plus, or the fold summing `y`.
+ * members M and `total`, the sum of their `x`; T1 and T2 in the unit Document, keyed by the document; and over them,
+ * at level 1, Gs, Xs, Hs and Totals, each the column of its rule, Capped, Plain, Unsigned and Bounded, and XsView,
+ * stored. The second version holds the case's change: Cap's high cap 30 where it was 20, `h` testing for a plus, or the
+ * fold summing `y`.
  */
 const schemaOf = (change: Change, version: "first" | "second") => {
 	const changed = (c: Change): boolean => version === "second" && change === c
@@ -119,6 +123,7 @@ const schemaOf = (change: Change, version: "first" | "second") => {
 		"rewrite_checks",
 		[T1, T2, O, M, Tier, Cap],
 		[
+			unit("Document", { doc: pg.integer }),
 			members,
 			fold(members, Monoid.sum, on(M, "o", changed("fold") ? "y" : "x"), on(O, "id", "total"))
 		]
@@ -142,22 +147,17 @@ const schemaOf = (change: Change, version: "first" | "second") => {
 			return r.match(T2, { doc, h }).find({ doc, h })
 		})
 	)
-	const totals = query(Base).rule((r) => {
-		const { id, total } = v(O, "o")
-		return r.match(O, { id, total }).find({ id, total })
-	})
-	const Totals = derived("Totals", totals)
+	const Totals = derived(
+		"Totals",
+		query(Base).rule((r) => {
+			const { id, total } = v(O, "o")
+			return r.match(O, { id, total }).find({ id, total })
+		})
+	)
 	return schema.extend(
 		[Base],
 		"rewrite_checks_1",
-		[
-			Gs,
-			Xs,
-			Hs,
-			Totals,
-			derived.materialized("XsView", xs),
-			derived.materialized("TotalsView", totals)
-		],
+		[Gs, Xs, Hs, Totals, derived.stored("XsView", xs)],
 		[
 			check("Capped", Gs, (d) => d.le(d.g, 25)),
 			check("Plain", Xs, (d) => d.ge(d.x, 0)),
@@ -174,14 +174,14 @@ const lawOf = (id: string): Law =>
 		() => new Error(`a law of the schema, not ${id}`)
 	)
 
-/** The view a CREATE MATERIALIZED VIEW names, by its identifier: its own name's. */
+/** The stored relation a created stored table is, by its identifier: its own name's. */
 const viewOf = (name: string): View =>
 	Option.getOrThrowWith(
 		Arr.findFirst(views, (view) => Str.includes(Str.snakeCase(view))(name)),
 		() => new Error(`a view of the schema, not ${name}`)
 	)
 
-/** What one draft checks and creates: each rule it checks over the stored rows, and each view it creates. */
+/** What one draft checks and creates: each rule it checks over the stored rows, and each stored table it creates. */
 export interface Drafted {
 	readonly checked: ReadonlyArray<Law>
 	readonly created: ReadonlyArray<View>

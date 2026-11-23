@@ -6,7 +6,6 @@ import type { BatchOutcome, BatchStatement } from "#adapter/wire/batch.ts"
 import {
 	type Answer,
 	type CancelEnd,
-	controlText,
 	type WireQuery,
 	type Session,
 	type SessionEvent,
@@ -585,12 +584,6 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 		deliveries: () => deliveries
 	}
 }
-
-/** The SQL of each query of a flight, BEGIN, COMMIT and ROLLBACK among them. */
-export const texts = (flight: SentFlight | undefined): ReadonlyArray<string> =>
-	Arr.map(flight?.pipeline ?? [], (q) =>
-		q._tag === "control" ? controlText(servedSession, q.control) : sentSql(q)
-	)
 
 /** The rows of every outcome, as their first cells. */
 export const firstCells = (outcomes: ReadonlyArray<BatchOutcome>): ReadonlyArray<unknown> =>

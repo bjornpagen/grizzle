@@ -89,8 +89,8 @@ const librarySchemaOf = (use: LibraryUse) => {
 	return {
 		schema: s,
 		login: login(s, "desk", [
-			role(s, "writer", { R }, { write: ["R"], refresh: [] }),
-			role(s, "reader", { R }, { write: [], refresh: [] })
+			role(s, "writer", { R }, { write: ["R"] }),
+			role(s, "reader", { R }, { write: [] })
 		])
 	}
 }

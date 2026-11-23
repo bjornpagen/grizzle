@@ -1,23 +1,23 @@
 /**
- * Workload indexes on a derived relation: a derived relation's materialized view takes indexes from the query
- * workload exactly as a table does. A workload request on the view lands on an inherited key's unique index that
- * serves it, merging the access into its reasons, or becomes a workload index of its own, justified by the access.
- * The migration generator drafts such an index through the same rules as any index: built concurrently on a view
- * that may hold rows, and created again with a view a changed definition recreates. An installation without the
- * derived relation extension leaves the view, and so its indexes, deferred.
+ * Workload indexes on a stored derived relation: its table takes indexes from the query workload exactly as any table
+ * does. A workload request on it lands on an inherited key's unique index that serves it, merging the access into its
+ * reasons, or becomes a workload index of its own, justified by the access. The migration generator drafts such an
+ * index through the same rules as any index: built concurrently on a table that may hold rows, and created again with
+ * the table a changed definition recreates. An installation without the derived relation extension leaves the table,
+ * and so its indexes, deferred.
  *
- * Each case draws a workload of programs over AccountBudget (the worked example's, or a redefinition over the busy
- * automatic tasks), each comparing a drawn column of the view, its key `account`, its count `tasks` or its computed
- * numeric `budget`, by a drawn comparison a B-tree serves to a parameter. Read off the typed plan a draft states,
- * never its SQL text.
+ * Each case draws a workload of programs over AccountBudget (each account's entries of the books counted and their
+ * budgets summed, or a redefinition over the entries above a budget of 10), each comparing a drawn column of the table,
+ * its key `account`, its count `tasks` or its computed numeric `budget`, by a drawn comparison a B-tree serves to a
+ * parameter. Read off the typed plan a draft states, never its SQL text.
  *
- * - View indexes: a program over the key lands on the key's unique index, every other column takes one created index
- *   keyed by it alone, standing on access, compared as a set; a view not installed is deferred and takes none.
+ * - Table indexes: a program over the key lands on the key's unique index, every other column takes one created index
+ *   keyed by it alone, standing on access, compared as a set; a table not installed is deferred and takes none.
  *   Oracle: that rule, restated over the drawn programs. Features: an index of a column, the key's own index, two
  *   columns indexed, deferred, the empty workload.
  * - Drafts: over two drafts, the second's workload indexes are exactly those its workload asks for that the first's
- *   did not, each built concurrently, or all of them, each after the view, where a changed definition drops and
- *   recreates the view, compared as a set of the columns each index keys. Oracle: that rule, restated over both
+ *   did not, each built concurrently, or all of them, each after the table, where a changed definition drops and
+ *   recreates the table, compared as a set of the columns each index keys. Oracle: that rule, restated over both
  *   drafts' programs. Features: an index built concurrently, an index after its recreated view, a standing index the
  *   later draft keeps.
  */
@@ -32,7 +32,6 @@ import { withWorkload } from "#compiler/physical/access/extension.ts"
 import { withDerivedRelations } from "#compiler/physical/derived/objects.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { succeeded } from "#test/support/assert.ts"
-import * as W from "#test/support/fixtures/api/work.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { draftChain, fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
 import { owning } from "#test/support/policy.ts"
@@ -52,6 +51,7 @@ import {
 	programGen,
 	programsOf,
 	Redefined,
+	Reports,
 	viewIndexes
 } from "#test/unit/derived/workload-indexes.fixtures.ts"
 
@@ -80,8 +80,8 @@ export const workloadIndexesOnADerivedRelationIndexAViewColumnItsKeyOnItsKeyInde
 			] satisfies ReadonlyArray<Reached<IndexFeature>>,
 			check: (_, k: Case<IndexFeature>) => (c) =>
 				Effect.sync(() => {
-					const plan = planOf(W.Reports, programsOf(c.programs, false))
-					const owned = owning(W.Reports)
+					const plan = planOf(Reports, programsOf(c.programs, false))
+					const owned = owning(Reports)
 					const options = withWorkload(installOptions(owned), plan)
 					const installation = succeeded(
 						compileInstallation(owned, c.installed ? withDerivedRelations(options) : options)
@@ -174,7 +174,7 @@ export const workloadIndexesOnADerivedRelationBuildALaterProgramsViewIndexConcur
 			check: (_, k: Case<DraftFeature>) => (c) =>
 				Effect.sync(() => {
 					const draftOf = (d: DraftCase["first"]) => {
-						const over = d.redefined ? Redefined : W.Reports
+						const over = d.redefined ? Redefined : Reports
 						return {
 							desc: over,
 							options: draftedWith(planOf(over, programsOf(d.programs, d.redefined))),
@@ -203,10 +203,7 @@ export const workloadIndexesOnADerivedRelationBuildALaterProgramsViewIndexConcur
 						Arr.map(expected, (col) => [identifierOf(identity.column(parsedName(col)))]),
 						"one workload index of each column the draft adds"
 					)
-					const view = Arr.findFirstIndex(
-						steps,
-						(p) => p.statement.kind === "createStoredTable"
-					)
+					const view = Arr.findFirstIndex(steps, (p) => p.statement.kind === "createStoredTable")
 					assert.equal(
 						Option.isSome(view),
 						recreated,

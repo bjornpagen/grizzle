@@ -3,13 +3,12 @@
  * entries, held to grizzle's own analysis (packages/engine/src/schema/entry.ts writableEntry) over every entry of a
  * small space.
  *
- * The base holds two ordinary relations P(id, v) and Q(id, w), each keyed by id, the roster K, the derived relation
- * D(id, v) over P, and the context C { x }. An entry's rule matches its would-be target T (P, Q, or D, which no write
- * targets), T's two fields each written by a head variable, by the same head variable as the field before, fixed by a
+ * The base holds two ordinary relations P(id, v) and Q(id, w), each keyed by id, the roster K, and the context C { x }.
+ * An entry's rule matches its would-be target T (P or Q), T's two fields each written by a head variable, by the same head variable as the field before, fixed by a
  * literal, a context term or a variable a context match binds, unnamed, or bound to a variable nothing else reads; its
  * head adds nothing, a literal, a context term or a second field naming a head variable; one further member joins
  * another relation, rivals T as a supplier, negates another relation or the context, compares a head variable, matches
- * the context, filters by the roster or by the derived relation; and the entry is that rule or the same rule twice.
+ * the context or filters by the roster; and the entry is that rule or the same rule twice.
  *
  * Every entry is a query grizzle's builder admits, built as the executor builds an installation's entries (execute/describe.ts
  * definitionOf). The rule and the analysis find it writable or not alike; a writable one

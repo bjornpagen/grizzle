@@ -101,7 +101,6 @@ const constructors: {
 	CommitLost: Failures.CommitLost,
 	CommitUnknown: Execution.CommitUnknown,
 	CompileError,
-	ConcurrentRefresh: Failures.ConcurrentRefresh,
 	ConnectionClosed: Failures.ConnectionClosed,
 	ConnectionEnvironmentRefused: Runtime.ConnectionEnvironmentRefused,
 	ConnectionLost: Failures.ConnectionLost,
@@ -369,8 +368,7 @@ const transientGen: Gen<DrawnReason> = (source) => {
 			{ _tag: "Deadlock" },
 			{ _tag: "PutTargetConflict", relation },
 			{ _tag: "SpanKeyChange", relation },
-			{ _tag: "UnseenOccupant", relation, constraint },
-			{ _tag: "ConcurrentRefresh", relation }
+			{ _tag: "UnseenOccupant", relation, constraint }
 		])
 	)
 }
@@ -544,8 +542,6 @@ export const publicReason = (reason: DrawnReason): Failures.TransientReason => {
 			assert.equal(built.relation, reason.relation)
 			return built
 		}
-		case "ConcurrentRefresh":
-			return new Failures.ConcurrentRefresh({ relation: reason.relation })
 	}
 }
 
@@ -562,7 +558,6 @@ export const engineReason = (reason: DrawnReason): EngineReason => {
 		case "Deadlock":
 		case "PutTargetConflict":
 		case "SpanKeyChange":
-		case "ConcurrentRefresh":
 			return reason
 	}
 }
@@ -627,7 +622,6 @@ export const allFeatures: Arr.NonEmptyReadonlyArray<Feature> = [
 	"transient PutTargetConflict",
 	"transient SpanKeyChange",
 	"transient UnseenOccupant",
-	"transient ConcurrentRefresh",
 	"bound MessageBound",
 	"bound LiteralBound",
 	"outcome accepted",

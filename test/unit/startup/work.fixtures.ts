@@ -168,9 +168,7 @@ const schemaOf = (size: Size) => {
 /** The login of a size over its built schema: its full roles, and a workload over the first of keyed lookups. */
 const loginOf = (size: Size, base: AnySchema, made: ReturnType<typeof schemaOf>) => {
 	const [first, ...rest] = nonEmptyList(
-		upTo(size.roles, (i) =>
-			role(base, `guard${i}`, made.entries, { write: made.written, refresh: [] })
-		),
+		upTo(size.roles, (i) => role(base, `guard${i}`, made.entries, { write: made.written })),
 		"the login's roles"
 	)
 	const programs = workload(

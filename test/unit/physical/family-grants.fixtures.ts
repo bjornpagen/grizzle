@@ -286,7 +286,7 @@ export const roleOf = (s: ReturnType<typeof schemaOf>, name: RoleName, w: Writes
 		entries[entry] = value
 		names.push(entry)
 	}
-	return role(s, name, entries, { write: names, refresh: [] })
+	return role(s, name, entries, { write: names })
 }
 
 /** A role with every member write dropped: the control its own entries' grants are read from. */

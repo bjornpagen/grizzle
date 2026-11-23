@@ -10,9 +10,6 @@ import {
 	classifyEntry,
 	entryRows,
 	equalValues,
-	evaluateRules,
-	factKey,
-	factKeySet,
 	isMember,
 	sameFact
 } from "#test/support/worlds/model/host.ts"
@@ -223,7 +220,6 @@ const actorOf = (state: ModelState, action: Action): Actor => {
 			return { kind: "caller", writer: "db" }
 		case "read":
 		case "apply":
-		case "refresh":
 		case "close":
 			return sessionActor(state, action.session, "db")
 		case "direct":
@@ -265,14 +261,9 @@ interface Touch {
 
 const untouched: Touch = { entry: Option.none(), stored: [], submitted: [] }
 
-/** A relation's facts in a state: an ordinary relation's in reality, a derived relation's as of its last refresh. */
+/** A relation's facts in a state: an ordinary relation's in reality, none of any other. */
 const storedFacts = (state: ModelState, relation: string): ReadonlyArray<Stored> =>
-	Arr.map(
-		Arr.some(state.install.base.relations, (r) => r.name === relation)
-			? factsIn(state.reality, relation)
-			: Option.getOrElse(Record.get(state.derived, relation), () => []),
-		(fact) => ({ relation, fact })
-	)
+	Arr.map(factsIn(state.reality, relation), (fact) => ({ relation, fact }))
 
 /** Every relation a rule names, in a match or a negation. */
 const ruleRelations = (rule: Rule): ReadonlyArray<string> =>
@@ -481,7 +472,6 @@ const touchOf = (actor: RoleActor, action: Action): Touch => {
 		case "direct":
 			return statementTouch(actor, action.statement)
 		case "open-db":
-		case "refresh":
 		case "close":
 		case "direct-begin":
 		case "direct-end":
@@ -712,7 +702,7 @@ interface Filtered {
 /**
  * The policy behind a write through a role's entry: none for a whole entry, whose policy is TRUE; for a writable
  * query entry, its filter, served by a filter function when its rule reads a stored relation besides the target's row
- * (a match or a negation of an ordinary or derived relation other than the supplying occurrence).
+ * (a match or a negation of an ordinary relation other than the supplying occurrence).
  */
 const filteredOf = (base: BaseSpec, role: RoleSpec, name: string): Option.Option<Filtered> =>
 	Option.flatMap(entryIn(role, name), (entry) =>
@@ -1141,7 +1131,6 @@ const objectsOf = (
 		case "direct":
 			return statementObjects(state, actor, touch, action.statement, observation)
 		case "direct-end":
-		case "refresh":
 		case "close":
 		case "direct-begin":
 		case "interrupt":
@@ -1198,7 +1187,6 @@ const invariantsOf = (
 		case "open-db":
 			return ["login-isolation", "least-privilege"]
 		case "read":
-		case "refresh":
 			return [...hidden, ...transaction]
 		case "apply":
 			return [
@@ -1226,24 +1214,6 @@ const invariantsOf = (
 			return []
 	}
 }
-
-/** A derived relation's facts as of its last refresh that a refresh now drops: those computed from facts since deleted. */
-export const staleDerived = (state: ModelState, relation: string): ReadonlyArray<HostFact> =>
-	Option.match(
-		Arr.findFirst(state.install.base.derived, (d) => d.name === relation),
-		{
-			onNone: () => [],
-			onSome: (d) => {
-				const fresh = factKeySet(
-					evaluateRules(state.install.base, d.rules, state.reality, state.derived, {})
-				)
-				return Arr.filter(
-					Option.getOrElse(Record.get(state.derived, relation), () => []),
-					(f) => !fresh.has(factKey(f))
-				)
-			}
-		}
-	)
 
 /** The stored facts of reality a direct writer's transaction deleted: no fact of its view sits at their primary key. */
 export const deletedBy = (state: ModelState, session: DirectSessionState): ReadonlyArray<Stored> =>
@@ -1299,8 +1269,7 @@ const readOf = (state: ModelState, action: Action, actor: RoleActor): ReadonlyAr
 /**
  * What a deletion shows: a delete the driver's stored check then finds gone from its base table (an accepted apply
  * that deleted a fact of its world, a direct writer's COMMIT of a transaction that deleted one); a read inside a
- * direct writer's transaction that no longer shows a fact the transaction deleted; a read of a derived relation not
- * yet refreshed that still shows a fact computed from a deleted one; and a refresh that drops such facts.
+ * direct writer's transaction that no longer shows a fact the transaction deleted.
  */
 const deletionsOf = (
 	state: ModelState,
@@ -1336,10 +1305,6 @@ const deletionsOf = (
 			)
 			return gone ? ["deletion:base-gone"] : []
 		}
-		case "refresh":
-			return observation.kind === "ok" && staleDerived(state, action.relation).length > 0
-				? ["deletion:derived-refreshed"]
-				: []
 		case "read":
 		case "direct": {
 			if (actor.kind !== "role" || observation.kind !== "rows") {
@@ -1355,14 +1320,7 @@ const deletionsOf = (
 						!Arr.some(observation.rows, (row) => Arr.some(deleted, (s) => sameFact(s.fact, row)))
 					)
 				})
-			const kept = Arr.some(relations, (relation) => {
-				const staleKeys = factKeySet(staleDerived(state, relation))
-				return Arr.some(observation.rows, (row) => staleKeys.has(factKey(row)))
-			})
-			return [
-				...(worldGone ? ["deletion:world-gone" as const] : []),
-				...(kept ? ["deletion:derived-kept" as const] : [])
-			]
+			return worldGone ? ["deletion:world-gone"] : []
 		}
 		case "open-db":
 		case "close":
@@ -1410,15 +1368,11 @@ const contextFieldsRead = (
 }
 
 /**
- * The key grizzle completes a page's order with (PageKey): a derived relation's, read whole; a key it proves of the
- * entry short of its heading (generate/reads.ts entryKey); or the heading itself.
+ * The key grizzle completes a page's order with (PageKey): a key it proves of the entry short of its heading
+ * (generate/reads.ts entryKey); or the heading itself.
  */
 const pageKeyOf = (base: BaseSpec, entry: EntrySpec): PageKey =>
-	entry.kind === "whole" && Arr.some(base.derived, (d) => d.name === entry.relation)
-		? "derived-key"
-		: entryKey(base, entry).length < headingOf(base, entry).length
-			? "proven-key"
-			: "heading-key"
+	entryKey(base, entry).length < headingOf(base, entry).length ? "proven-key" : "heading-key"
 
 /**
  * What a read that delivered rows shows of how it went: the key a page's order is completed by (pageKeyOf) and where
@@ -1778,7 +1732,6 @@ const pathsOf = (
 			return [strata, ...readBacksOf(state, action, observation), ...additionsOf(state, action)]
 		}
 		case "open-db":
-		case "refresh":
 		case "close":
 		case "direct-begin":
 		case "direct":
@@ -1912,12 +1865,7 @@ const connectionsOf = (
 	action: Action,
 	observation: Observation
 ): ReadonlyArray<WorldFeature> => {
-	if (
-		action.kind !== "read" &&
-		action.kind !== "apply" &&
-		action.kind !== "refresh" &&
-		action.kind !== "interrupt"
-	) {
+	if (action.kind !== "read" && action.kind !== "apply" && action.kind !== "interrupt") {
 		return []
 	}
 	return Option.match(dbSession(state, action.session), {
@@ -2274,7 +2222,7 @@ const staleHandle = (kind: ActionKind, writers: Arr.NonEmptyReadonlyArray<Writer
 /**
  * The op features of the worlds feature map: each combination below is one the README allows and a run over the
  * documents or the education base meets. What is left out, and why:
- * - an action that meets no stored fact (open-db, refresh, close, direct-begin, direct-end, interrupt, migrate,
+ * - an action that meets no stored fact (open-db, close, direct-begin, direct-end, interrupt, migrate,
  *   tamper, drift, wild) is inside by definition, and the owner's actions and a BEGIN run under no claims;
  * - a read submits nothing, so its claims never disagree with a fact, and a Db's claims are never malformed (verify
  *   decodes them or Db.open refuses the token);
@@ -2307,8 +2255,6 @@ const requiredOps: ReadonlyArray<OpBlock> = [
 	block("apply", ["db"], ["inside"], ["absent"], ["outside-world"]),
 	block("apply", ["db"], ["inside"], ["absent", "matching"], ["encoding-refused"]),
 	staleHandle("apply", ["db", "direct-role", "direct-login"]),
-	block("refresh", ["db"], ["inside"], ["absent", "matching"], ["ok"]),
-	staleHandle("refresh", ["db"]),
 	block("close", ["db"], ["inside"], ["absent", "matching"], ["ok"]),
 	block("direct-begin", ["direct-login"], ["inside"], ["absent"], ["opened"]),
 	block(
@@ -2401,8 +2347,6 @@ const situations: ReadonlyArray<WorldFeature> = [
 	"via:reach",
 	"page:proven-key:first",
 	"page:proven-key:last",
-	"page:derived-key:first",
-	"page:derived-key:last",
 	"page:heading-key:first",
 	"page:heading-key:last",
 	"attach:nested",
@@ -2418,8 +2362,6 @@ const situations: ReadonlyArray<WorldFeature> = [
 	"addition:entry",
 	"deletion:base-gone",
 	"deletion:world-gone",
-	"deletion:derived-kept",
-	"deletion:derived-refreshed",
 	"connection:shared-by-roles",
 	"connection:after-commit",
 	"connection:after-no-change",

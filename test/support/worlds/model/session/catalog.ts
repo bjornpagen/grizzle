@@ -9,9 +9,7 @@ import {
 	roleOf,
 	isClosedRoster,
 	samePlain,
-	standingWholeLevels,
-	wholeLevelOf,
-	wholesStandAt
+	wholesStand
 } from "#test/support/worlds/model/session/state.ts"
 
 import {
@@ -220,21 +218,15 @@ interface WorldObject {
 /**
  * What a world object waits for of a relation its statement reads, so a change to it drops and creates the object
  * again (packages/engine/src/deploy/diff/diff.ts worldChangesOf): an ordinary relation's columns, its fields, each by
- * its name and the type and collation its domain gives it (diff.ts sameRead); a derived relation's definition, whose
- * materialized view a change takes away beneath it; a roster's members, whose constant a change replaces. No
- * constraint of a table is in it, its primary key and the laws its CREATE TABLE declares inline, which PostgreSQL keeps
- * every view, function and policy over (CLOSEDID2's 5bdae3758); no foreign key; and no key of a derived relation, its
- * materialized view's unique indexes (DRIFTPROOF's 9b9fc2263). What the object's compile relies on of them is in its
- * own statement (compiled.ts heldStatement).
+ * its name and the type and collation its domain gives it (diff.ts sameRead); a roster's members, whose constant a
+ * change replaces. No constraint of a table is in it, its primary key and the laws its CREATE TABLE declares inline,
+ * which PostgreSQL keeps every view, function and policy over (CLOSEDID2's 5bdae3758); and no foreign key. What the
+ * object's compile relies on of them is in its own statement (compiled.ts heldStatement).
  */
 const readOf = (base: BaseSpec, name: string): unknown => {
 	const relation = relationSpecOf(base, name)
 	if (relation !== undefined) {
 		return { fields: relation.fields }
-	}
-	const derived = Option.getOrUndefined(Arr.findFirst(base.derived, (d) => d.name === name))
-	if (derived !== undefined) {
-		return { rules: derived.rules }
 	}
 	return Option.getOrUndefined(Arr.findFirst(base.closed, (c) => c.name === name))?.members
 }
@@ -391,9 +383,7 @@ const standsWithin = (from: InstallSpec, o: WorldObject): boolean => {
 		case "view":
 			return holdsQuery(from, o.role)
 		case "whole":
-			return (
-				o.locus.kind === "view" && wholesStandAt(from, wholeLevelOf(from.base, o.locus.relation))
-			)
+			return o.locus.kind === "view" && wholesStand(from)
 		case "policy":
 			return roleOf(from, o.role) !== undefined
 		case "function":
@@ -593,14 +583,14 @@ const revokedWith = (
 
 /**
  * What an installation revokes from PUBLIC (packages/engine/src/physical/ddl/roles.ts publicRevokes), as far as it
- * varies, each object by its kind and name: its schemas of views (each level's of whole views, where one stands, and
- * one per role holding a query entry), tables and views, enums and domains.
+ * varies, each object by its kind and name: its schemas of views (the base's of whole views, where it stands, and one
+ * per role holding a query entry), tables and views, enums and domains.
  */
 const publicRevoked = (install: InstallSpec): ReadonlyArray<string> => {
 	const base = install.base
 	return Arr.sort(
 		[
-			...Arr.map(standingWholeLevels(install), (level) => `schema of whole views ${level}`),
+			...(wholesStand(install) ? ["schema of whole views"] : []),
 			...Arr.flatMap(install.roles, (r) =>
 				holdsQuery(install, r.name) ? [`schema ${r.name}`] : []
 			),

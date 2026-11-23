@@ -1,19 +1,19 @@
 /**
  * indexesOf (packages/grizzle/src/adapter/public/compile.ts, deploy/snapshot/served.ts snapshotIndexes): over the JSON
  * value of a snapshot.json generate writes, it names each index the installation holds under the relation whose table
- * or materialized view holds it and the index's name, with exactly the reasons the snapshot's manifest records for it
+ * holds it and the index's name, with exactly the reasons the snapshot's manifest records for it
  * and its key columns in the order its statement lists them, each mapped through the relation's fields.
  *
  * The box, exhausted: a relation R declared at the root or at a level over it, with or without a candidate key over two
  * of its fields, with no containment out of it, a containment of a field in another relation's key, or one out of R's
- * rows a selection picks, which the law model carries in a law column, and with or without a materialized derived
- * relation over R in a level above, whose view is uniquely indexed on the key it proves. The oracle is the manifest
+ * rows a selection picks, which the law model carries in a law column, and with or without a stored derived relation
+ * over R in a level above, R in a unit of its id, whose table is uniquely indexed on the key it proves. The oracle is the manifest
  * itself, read apart from the derived facts: each index object, a created or a derived relation's unique index by its
  * CREATE INDEX's key list, a primary key's and a unique key's by its constraint as its table's CREATE TABLE declares it
  * or its own ALTER TABLE adds it (its identity read by physical/obligations/graph.ts parseIdent, the manifest's one
  * reader of an identity), with the reasons it records, under the relation the snapshot's theory records for that table
- * (a stored one at its level's schema, a derived one by its view's identifier); each key column a field where the theory records one at that column, the fixture's derived
- * relation's view columns being its fields' own names, and otherwise a law column with the laws its manifest object
+ * (an ordinary one at its level's schema, a stored derived one by its table's identifier); each key column a field where the theory records one at that column, the fixture's derived
+ * relation's table columns being its fields' own names, and otherwise a law column with the laws its manifest object
  * records; each with a B-tree's direction, or none for a span key's GiST.
  */
 
@@ -154,7 +154,7 @@ export const indexesOfNamesEachIndexsReasonsAndKeyColumnsInOrderAndMappedThrough
 			kind: "second-implementation",
 			name: "the manifest's index objects, their reasons and their statements' key columns, each under the relation the theory records for its table and mapped through its fields"
 		},
-		box: "R at the root or a level, with or without a two-column candidate key, no containment, a whole one or a selected one out of it, and with or without a materialized derived relation over it",
+		box: "R at the root or a level, with or without a two-column candidate key, no containment, a whole one or a selected one out of it, and with or without a stored derived relation over it",
 		kept: [],
 		kills: [
 			{

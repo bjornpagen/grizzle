@@ -41,10 +41,9 @@ import {
 	relationSpecOf,
 	roleOf,
 	isClosedRoster,
-	readsWholesAt,
+	readsWholes,
 	seenThrough,
-	wholeLevelOf,
-	wholesStandAt,
+	wholesStand,
 	withSession
 } from "#test/support/worlds/model/session/state.ts"
 
@@ -582,13 +581,7 @@ const viewFields = (install: InstallSpec, entry: EntrySpec): ReadonlyArray<strin
 	}
 	const base = install.base
 	const relation = relationSpecOf(base, entry.relation)
-	const derived = Option.getOrUndefined(
-		Arr.findFirst(base.derived, (d) => d.name === entry.relation)
-	)
-	if (relation !== undefined) {
-		return Arr.map(relation.fields, (f) => f.name)
-	}
-	return derived === undefined ? ["id"] : Record.keys(derived.rules[0].head)
+	return relation === undefined ? ["id"] : Arr.map(relation.fields, (f) => f.name)
 }
 
 /** Whether a fact matches a key's values at every field the key names. */
@@ -897,12 +890,8 @@ export const directBranches = (
 			? [viewIs(after)]
 			: [lawRefused(after)(first), ...Arr.map(rest, lawRefused(after))]
 	}
-	/** Whether the transaction's view holds a fact of an occurrence's stored relation, as of a derived one's refresh. */
-	const holdsFact = (source: Source): boolean =>
-		(source.kind === "derived"
-			? (seen.derived[source.name] ?? [])
-			: factsIn(session.view, source.name)
-		).length > 0
+	/** Whether the transaction's view holds a fact of an occurrence's stored relation. */
+	const holdsFact = (source: Source): boolean => factsIn(session.view, source.name).length > 0
 	/** The contexts an arm of a query entry reads. */
 	const armContexts = (rule: Rule): ReadonlySet<string> =>
 		entryContexts({ kind: "query", rules: [rule] })
@@ -924,7 +913,7 @@ export const directBranches = (
 		const first = Arr.some(faultyArms, (rule) => {
 			const stored = Arr.filter(
 				Arr.map(rule.matches, (o, i) => ({ o, i })),
-				({ o }) => o.source.kind === "ordinary" || o.source.kind === "derived"
+				({ o }) => o.source.kind === "ordinary"
 			)
 			const [only, ...more] = stored
 			return (
@@ -973,9 +962,7 @@ export const directBranches = (
 	): { readonly rows: ReadonlyArray<HostFact>; readonly claimed: boolean } => {
 		const evaluated = (arms: ReadonlyArray<Rule>): ReadonlyArray<HostFact> => {
 			const [arm, ...rest] = arms
-			return arm === undefined
-				? []
-				: evaluateRules(base, [arm, ...rest], seen.reality, seen.derived, facts)
+			return arm === undefined ? [] : evaluateRules(base, [arm, ...rest], seen.reality, facts)
 		}
 		const read = Arr.flatMap(rules, (rule) => {
 			if (faultsOf(armContexts(rule)).length === 0) {
@@ -1009,10 +996,9 @@ export const directBranches = (
 	 * A role's view as PostgreSQL resolves its name when a statement is analyzed, for a select and a PREPARE alike, and
 	 * whether the current role may read it, which PostgreSQL judges as it executes one. A query entry's view stands in
 	 * its role's schema, which only the role itself holds USAGE on (42501), and only it reads. A whole entry's is its
-	 * relation's whole view, in its relation's level's schema of whole views (wholeLevelOf: the base's, or a derived
-	 * relation's own level's): the schema must stand (3F000 where no role holds a relation of that level whole), the
-	 * current role must hold USAGE on it, which every role holding some relation of that level whole does (42501), and
-	 * grizzle must install the view (42P01 for a closed roster held whole, which has none); then every role holding the
+	 * relation's whole view, in the base's schema of whole views: the schema must stand (3F000 where no role holds a
+	 * relation whole), the current role must hold USAGE on it, which every role holding some relation whole does
+	 * (42501), and grizzle must install the view (42P01 for a closed roster held whole, which has none); then every role holding the
 	 * relation whole reads it, and any other is refused as it executes (42501). A role the installation does not hold
 	 * names no view (3F000).
 	 */
@@ -1032,11 +1018,10 @@ export const directBranches = (
 				? { kind: "view", entry, readable: true }
 				: { kind: "refused", branch: refused("42501") }
 		}
-		const level = wholeLevelOf(state.install.base, entry.relation)
-		if (!wholesStandAt(state.install, level)) {
+		if (!wholesStand(state.install)) {
 			return { kind: "refused", branch: refused("other") }
 		}
-		if (!readsWholesAt(state.install, role, level)) {
+		if (!readsWholes(state.install, role)) {
 			return { kind: "refused", branch: refused("42501") }
 		}
 		return closedWhole(state.install, entry)
@@ -1622,7 +1607,7 @@ const callAnswer = (
 	called: () => Arr.NonEmptyReadonlyArray<Branch>,
 	refused: (sqlstate: SqlState) => Branch
 ): Arr.NonEmptyReadonlyArray<Branch> => {
-	const params = parametersOf(state, fn)
+	const params = parametersOf(state.install, fn)
 	if (params === undefined || params.length !== args.length) {
 		return [refused("other")]
 	}
@@ -1642,11 +1627,11 @@ const callAnswer = (
  * key's fields. Undefined for one the installation does not define.
  */
 export const parametersOf = (
-	state: ModelState,
+	install: InstallSpec,
 	fn: WorldFunction
 ): ReadonlyArray<FieldDomain> | undefined => {
-	const base = state.install.base
-	const owner = roleOf(state.install, fn.role)
+	const base = install.base
+	const owner = roleOf(install, fn.role)
 	const w = owner === undefined ? undefined : writtenNamed(base, owner, fn.entry)
 	const target = w === undefined ? undefined : relationSpecOf(base, w.target)
 	if (owner === undefined || w?.kind !== "query" || target === undefined) {

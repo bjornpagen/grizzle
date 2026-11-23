@@ -20,7 +20,7 @@ import type {
 /**
  * A rule of the worlds model as an application writes it, with grizzle's typed builder, query(S).rule(...): its
  * occurrences matched in order, its comparisons and negations as filters, its head found. Built so, a query entry's
- * and a derived relation's heading carries each field's column, and the role relation reads and writes as an
+ * heading carries each field's column, and the role relation reads and writes as an
  * application's does; a query rebuilt from its Description alone carries none, and delivers no rows.
  *
  * A variable of a rule is one term, minted (varsOver) from the first occurrence that binds it. A context term is a
@@ -37,7 +37,7 @@ const literalOf = (value: HostValue, domain: Option.Option<FieldDomain>): unknow
 	Option.isSome(domain) ? carrierOf(domain.value, value) : value
 
 /**
- * Where the domains of a rule's fields come from: the base's relations, closed rosters, derived relations and contexts,
+ * Where the domains of a rule's fields come from: the base's relations, closed rosters and contexts,
  * as the worlds model types them (model/host.ts fieldDomain), the one reading of a field's domain.
  */
 interface Domains {
@@ -66,7 +66,7 @@ export const headDomains = (
 		)
 	)
 
-/** The values a rule's occurrences match: the base's relations, closed rosters and derived relations, and its contexts. */
+/** The values a rule's occurrences match: the base's relations and closed rosters, and its contexts. */
 export interface RuleSources {
 	readonly relations: Readonly<Record<string, unknown>>
 	readonly contexts: Readonly<Record<string, unknown>>
@@ -265,37 +265,15 @@ const negationOf = (
 const propertyOf = (value: unknown, key: string): unknown =>
 	Predicate.hasProperty(value, key) ? value[key] : undefined
 
-/** A derived relation's head field's descriptor, read through its first rule; none for a relation the base lacks. */
-const derivedDescriptor = (
-	base: BaseSpec,
-	sources: RuleSources,
-	name: string,
-	field: string,
-	seen: ReadonlySet<string>
-): unknown => {
-	const derived = Option.getOrUndefined(Arr.findFirst(base.derived, (d) => d.name === name))
-	if (derived === undefined) {
-		return undefined
-	}
-	const [rule] = derived.rules
-	const term = rule.head[field]
-	return term === undefined
-		? undefined
-		: termDescriptor(base, sources, rule, term, new Set([...seen, name]))
-}
-
 /**
  * The field descriptor of a source's field, the one the base declared: a relation's heading's, a closed roster's id
- * (admittedClosedId over the roster) or payload field's, a context's field's, or, for a derived relation, the descriptor its
- * first rule's head term for the field has; undefined
- * for a field no declaration types (a literal, or a derived relation read back through itself).
+ * (admittedClosedId over the roster) or payload field's, or a context's field's; undefined for a field no declaration
+ * types (a literal).
  */
 const sourceDescriptor = (
-	base: BaseSpec,
 	sources: RuleSources,
 	source: Occurrence["source"],
-	field: string,
-	seen: ReadonlySet<string>
+	field: string
 ): unknown => {
 	switch (source.kind) {
 		case "context":
@@ -308,39 +286,23 @@ const sourceDescriptor = (
 				? admittedClosedId(roster)
 				: propertyOf(propertyOf(roster, "payload"), field)
 		}
-		case "derived":
-			return seen.has(source.name)
-				? undefined
-				: derivedDescriptor(base, sources, source.name, field, seen)
 	}
 }
 
 /** The field descriptor of a head term of a rule: its variable's first occurrence's field's, or its context field's. */
-const termDescriptor = (
-	base: BaseSpec,
-	sources: RuleSources,
-	rule: Rule,
-	term: Term,
-	seen: ReadonlySet<string>
-): unknown => {
+const termDescriptor = (sources: RuleSources, rule: Rule, term: Term): unknown => {
 	switch (term.kind) {
 		case "literal":
 			return undefined
 		case "handle":
-			return sourceDescriptor(base, sources, { kind: "closed", name: term.closed }, "id", seen)
+			return sourceDescriptor(sources, { kind: "closed", name: term.closed }, "id")
 		case "context":
-			return sourceDescriptor(
-				base,
-				sources,
-				{ kind: "context", name: term.context },
-				term.field,
-				seen
-			)
+			return sourceDescriptor(sources, { kind: "context", name: term.context }, term.field)
 		case "var": {
 			for (const o of rule.matches) {
 				for (const [field, t] of Rec.toEntries(o.fields)) {
 					if (t.kind === "var" && t.name === term.name) {
-						return sourceDescriptor(base, sources, o.source, field, seen)
+						return sourceDescriptor(sources, o.source, field)
 					}
 				}
 			}
@@ -356,7 +318,6 @@ const termDescriptor = (
  * has a roster's, where a literal is its JavaScript value, which the checker types by the arms' enum.
  */
 const headingDescriptors = (
-	base: BaseSpec,
 	sources: RuleSources,
 	rules: Arr.NonEmptyReadonlyArray<Rule>
 ): Readonly<Record<string, unknown>> => {
@@ -364,7 +325,7 @@ const headingDescriptors = (
 	for (const rule of rules) {
 		for (const [field, term] of Rec.toEntries(rule.head)) {
 			if (out[field] === undefined) {
-				out[field] = termDescriptor(base, sources, rule, term, new Set())
+				out[field] = termDescriptor(sources, rule, term)
 			}
 		}
 	}
@@ -440,7 +401,7 @@ const armOf =
 		).find(head)
 	}
 
-/** The query value of an entry's or a derived relation's rules over `over`, each rule an arm, or the builders' refusal. */
+/** The query value of an entry's rules over `over`, each rule an arm, or the builders' refusal. */
 export const definitionOf = (
 	base: BaseSpec,
 	sources: RuleSources,
@@ -452,7 +413,7 @@ export const definitionOf = (
 		const scope: Scope = { sources, domains: domainsOf(base), over }
 		const heading: HeadingTypes = {
 			domains: headDomains(base, rules),
-			descriptors: headingDescriptors(base, sources, rules)
+			descriptors: headingDescriptors(sources, rules)
 		}
 		const [first, ...rest] = rules
 		return Arr.reduce(rest, queryOver(over).rule(armOf(scope, heading, first)), (query, rule) =>

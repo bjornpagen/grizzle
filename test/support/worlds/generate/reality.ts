@@ -242,8 +242,7 @@ const draftGen =
  * The lawful realities of a base: each ordinary relation the host schema holds draws up to a few facts from the domain
  * pools (few subjects, few organizations, small integers, uuids as distinct tokens), seven times in eight taking each referenced field set from a fact of the relation it references (a
  * containment's or a coverage's target, an alternatives arm's parent standing at its handle, drawn first where no cycle
- * forbids it, with a fact at least), one fact per primary key, and the whole repaired to lawful by the host law model. A
- * relation of the host schema the base does not hold as an ordinary relation (a derived one) has no stored facts.
+ * forbids it, with a fact at least), one fact per primary key, and the whole repaired to lawful by the host law model.
  */
 export const realityGen = (base: BaseSpec, host: HostSchema): Gen<HostState> => {
 	const references = referencesOf(base)

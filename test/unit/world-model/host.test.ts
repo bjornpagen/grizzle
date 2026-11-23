@@ -1,14 +1,13 @@
 /**
  * evaluateRules, the worlds model's meaning of a rule set, over rules drawn over the documents base: the reference
  * evaluator, run on the checked DAG of the same rules built as an application builds them (execute/describe.ts
- * definitionOf, the executor's own translation), gives the same rows over the same reality, derived facts and session. The host is the oracle
+ * definitionOf, the executor's own translation), gives the same rows over the same reality and session. The host is the oracle
  * of the worlds suites; the reference is a second opinion that reads grizzle's own checked form, so a disagreement is
  * a defect of one of the two, never resolved by the other's word.
  *
  * The rules join on shared variables, negate conjunctions of one or two occurrences (correlated, with variables of
  * their own, reading a context), compare variables with literals, other variables and context fields by every
- * operator, read ordinary relations, the closed roster Tier, the derived relation OrgDocs and the contexts Session and
- * Tenant, and union two rules; the session holds each context's fact or none. Values come from small pools, so facts
+ * operator, read ordinary relations, the closed roster Tier and the contexts Session and Tenant, and union two rules; the session holds each context's fact or none. Values come from small pools, so facts
  * meet each other and the claims.
  *
  * A writable entry's rows are exactly the head projections of its target's facts that isMember holds in it: over the
@@ -86,15 +85,15 @@ export const theWorldsModelsHostSemanticsEvaluatesEveryDrawnRuleSetAsTheReferenc
 					return assert.fail(`the builder refuses the rules, ${built.failure.message}: ${what}`)
 				}
 				const query = built.success
-				const { reality, derived, session } = drawnCase
-				const rows = evaluateRules(docsBase, rules, reality, derived, session)
+				const { reality, session } = drawnCase
+				const rows = evaluateRules(docsBase, rules, reality, session)
 				const columns = Arr.sort(Rec.keys(rules[0].head), Order.String)
 				assert.deepEqual(
 					answerOf(columns, hostRows(rows)),
-					answerOf(columns, referenceRows(checkedDag(query, schema), reality, derived, session)),
+					answerOf(columns, referenceRows(checkedDag(query, schema), reality, session)),
 					`the host and the reference agree: ${what}`
 				)
-				c.noteAll(featuresOf(rules, reality, derived, session, rows.length))
+				c.noteAll(featuresOf(rules, reality, session, rows.length))
 			}),
 		oracle: {
 			kind: "second-implementation",
@@ -127,9 +126,9 @@ export const theWorldsModelsHostSemanticsHoldsInAWritableEntryExactlyTheTargetFa
 		>,
 		check:
 			(_, c: Case<"a member" | "a non-member">) =>
-			({ reality, derived, session }) =>
+			({ reality, session }) =>
 				Effect.sync(() => {
-					const state = stateOf(reality, derived)
+					const state = stateOf(reality)
 					for (const entry of writableEntries) {
 						const facts = reality.get(entry.target) ?? []
 						const members = Arr.filter(facts, (f) =>

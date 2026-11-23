@@ -25,7 +25,8 @@ import type {
 	HostState,
 	InstallSpec,
 	LawSpec,
-	RelationSpec
+	RelationSpec,
+	Term
 } from "#test/support/worlds/model/types.ts"
 
 export type StepFeature =
@@ -186,7 +187,55 @@ export const phaseOf = (file: FolderFile): string => {
 	}
 }
 
-export type FolderFeature = "worlds change" | "no worlds change" | "a new law"
+export type FolderFeature =
+	| "worlds change"
+	| "no worlds change"
+	| "a new law"
+	| "a world object created again and no Publish file"
+
+/** alpha's query view of Doc's org, its document matched by `id`, under a session or not. */
+const alphaOver = (id: Term, session: boolean): InstallSpec => ({
+	...docsInstall,
+	roles: [
+		{
+			name: "alpha",
+			entries: {
+				View0: {
+					kind: "query",
+					rules: [
+						{
+							matches: [
+								{
+									source: { kind: "ordinary", name: "Doc" },
+									fields: { org: { kind: "var", name: "v_org" }, id }
+								},
+								...(session
+									? [{ source: { kind: "context", name: "Session" }, fields: {} } as const]
+									: [])
+							],
+							negations: [],
+							comparisons: [],
+							head: { org: { kind: "var", name: "v_org" } }
+						}
+					]
+				}
+			},
+			write: []
+		}
+	],
+	logins: [{ name: "web", roles: ["alpha"] }]
+})
+
+/**
+ * A migration that creates a role's query view again and changes nothing else it grants: alpha's view of Doc reads one
+ * literal document where it read any under a session, its columns and its grants the same, so Structure drops the view,
+ * creates it again and grants it right there, and no Publish file follows (the kept case over the derived OrgDocs it
+ * replaces, which the worlds model no longer has).
+ */
+export const viewCreatedAgain: { readonly from: InstallSpec; readonly to: InstallSpec } = {
+	from: alphaOver({ kind: "var", name: "v_doc" }, true),
+	to: alphaOver({ kind: "literal", value: "5eeda101-7c3e-4a1b-9d2f-0e5c7a9b3d1f" }, false)
+}
 
 /**
  * The laws the docs base does not hold that the law model discharges natively once added, read off the compiled schema:

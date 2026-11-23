@@ -2,8 +2,8 @@
  * What a law's check over every row reads, as deploy/snapshot/violation.ts lawChecks gives it: a rule's, the judge of
  * the transaction that writes every row into an installation that holds none (physical/ddl/rules.ts addRules), one
  * chain of steps from its region (analysis/theory/navigate.ts), each a lookup of one stored table by what the steps
- * before it bound, read LATERAL; never a view, since a rule judges a derived relation on its definition, live, which
- * the migration that checks it may not have filled; and a law over closed relations alone no table at all, so the
+ * before it bound, read LATERAL, a live derived relation read on its definition; and a law over closed relations alone
+ * no table at all, so the
  * setup-phase checks of a migration (diff.ts migrationChecks), which only such laws hold, print the same whatever a
  * table read prints.
  *
@@ -15,12 +15,10 @@
  * estimates.
  *
  * The box, exhausted: stored relations A(id, k, a), B(id, k, b) and T(a, b); a rule over a query whose source is A's
- * facts of a nonzero a, the join J = A ⋈ B on k, the facts of a materialized derived relation V = A ⋈ B, or JJ = J ⋈ T
- * or VV = V ⋈ T, a definition reading a definition, and whose target is M, B's (k, b) whose b is a T row's a, with or
+ * facts of a nonzero a, the join J = A ⋈ B on k, or JJ = J ⋈ T, a definition reading a definition, and whose target is M, B's (k, b) whose b is a T row's a, with or
  * without a second arm, B's (k, b) whose b is no T row's a, a negation; beside closed relations TierRank and TierNext
  * and a containment between them alone. The oracle is the installation's own names of the stored tables
- * (PhysicalNames.relation) and the shape of a chain: every table a rule's check reads is a stored one, never V's view,
- * and no core of it joins a source to the ones before it uncorrelated (looseJoins); and a migration check reads no
+ * (PhysicalNames.relation) and the shape of a chain: every table a rule's check reads is a stored one, and no core of it joins a source to the ones before it uncorrelated (looseJoins); and a migration check reads no
  * table.
  *
  * Features: a stored table read; a negated arm; a definition reading a definition; a join; a migration check.
@@ -97,7 +95,7 @@ const installed = (schema: AnySchema) => {
 	)
 }
 
-/** A rule's check over every row reads each stored table, never a view, in one chain of lookups, and a law over closed relations no table. */
+/** A rule's check over every row reads each stored table in one chain of lookups, and a law over closed relations no table. */
 export const aRulesCheckOverEveryRowReadsEachStoredTableNeverAViewInOneChainOfLookupsAndALawOverClosedRelationsNoTable =
 	property.exhaust(finite(caseGen), {
 		needs: {},
@@ -119,7 +117,7 @@ export const aRulesCheckOverEveryRowReadsEachStoredTableNeverAViewInOneChainOfLo
 				for (const rule of checks.rules) {
 					const reads = tableReads(rule.query)
 					for (const table of reads) {
-						assert.ok(stored.has(table), `${table}, a stored table, and no view`)
+						assert.ok(stored.has(table), `${table}, a stored table`)
 						k.note("a stored table read")
 					}
 					const names = new Set(reads)
@@ -137,7 +135,7 @@ export const aRulesCheckOverEveryRowReadsEachStoredTableNeverAViewInOneChainOfLo
 						0,
 						"no core of the check joins a source to the ones before it uncorrelated"
 					)
-					if (c.source === "nested" || c.source === "nested view") {
+					if (c.source === "nested") {
 						k.note("a definition reading a definition")
 					}
 				}
@@ -155,7 +153,7 @@ export const aRulesCheckOverEveryRowReadsEachStoredTableNeverAViewInOneChainOfLo
 			kind: "second-implementation",
 			name: "the installation's own names of the stored tables, and the shape of a chain of steps: no source joined uncorrelated"
 		},
-		box: "a rule over a query from A's selected facts, J = A ⋈ B, the materialized V = A ⋈ B, JJ = J ⋈ T or VV = V ⋈ T, into M of one arm or of two, one negated, beside a law over closed relations alone",
+		box: "a rule over a query from A's selected facts, J = A ⋈ B or JJ = J ⋈ T, into M of one arm or of two, one negated, beside a law over closed relations alone",
 		kept: [],
 		kills: [
 			{

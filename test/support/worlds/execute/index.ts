@@ -97,12 +97,9 @@ import {
 	applySession,
 	applyValue,
 	type DbSession,
-	derivedFields,
 	entryFields,
 	executeValue,
 	readSession,
-	refreshValue,
-	relationValue,
 	refusedWith,
 	type Seen,
 	seen
@@ -116,7 +113,7 @@ import {
 	runDirect
 } from "#test/support/worlds/execute/writer.ts"
 import { fieldDomain, judgedLawOf } from "#test/support/worlds/model/host.ts"
-import { startStatements } from "#test/support/worlds/model/session/direct.ts"
+import { parametersOf, startStatements } from "#test/support/worlds/model/session/direct.ts"
 import { loginVerifies, roleOf } from "#test/support/worlds/model/session/state.ts"
 import { probeOf } from "#test/support/worlds/model/session/writes.ts"
 import type {
@@ -149,20 +146,17 @@ export interface RealWorld {
 	readonly names: InstalledNames
 	/**
 	 * Begins a case in the caller's scope: closes every session left (rolling back open direct transactions), replaces
-	 * every base fact with `reality` as the owner, refreshes every derived relation, and restarts session ids at 0. Every direct writer the case begins after
+	 * every base fact with `reality` as the owner, and restarts session ids at 0. Every direct writer the case begins after
 	 * it lives in that scope, so its transaction ends when the case does, however the case ends: never left open for a
 	 * later case's reset, which a shared world may not reach for minutes while each SERIALIZABLE snapshot it holds keeps
 	 * the cluster's SSI cleanup from advancing.
 	 */
 	readonly reset: (reality: HostState) => Effect.Effect<void, SqlError, Scope.Scope>
 	/**
-	 * Every base table's and derived relation's stored facts, in one snapshot, read past row security (substrate.ts
-	 * superuserRead): a catalog change that forces a table's row security on its owner hides none of them.
+	 * Every base table's stored facts, in one snapshot, read past row security (substrate.ts superuserRead): a catalog
+	 * change that forces a table's row security on its owner hides none of them.
 	 */
-	readonly stored: Effect.Effect<{
-		readonly reality: HostState
-		readonly derived: Readonly<Record<string, ReadonlyArray<HostFact>>>
-	}>
+	readonly stored: Effect.Effect<HostState>
 	readonly perform: (action: Action, hidden: ReadonlySet<string>) => Effect.Effect<Observation>
 	/** An action performed as `perform` does, with the texts of the error behind its observation, for a report. */
 	readonly performed: (action: Action, hidden: ReadonlySet<string>) => Effect.Effect<Performed>
@@ -1044,7 +1038,11 @@ const worldOver = (
 							return Effect.succeed(substrate.owner.role)
 					}
 				},
-				function: (fn) => functionOf(v, fn),
+				function: (fn) =>
+					Effect.map(functionOf(v, fn), (name) => ({
+						name,
+						parameters: Option.fromUndefinedOr(parametersOf(v.spec, fn))
+					})),
 				codes: v.installation.names.codes,
 				contexts: v.spec.base.contexts,
 				standUps: standUpCallsOf(v.installation, v.installation.names.schema)
@@ -1240,8 +1238,6 @@ const worldOver = (
 									return executeValue(session, value)
 								case "apply":
 									return applyValue(session, value)
-								case "refresh":
-									return refreshValue(session, value)
 							}
 						})
 				}
@@ -1308,8 +1304,6 @@ const worldOver = (
 					return call(action.session, (s) => readSession(s, action.relation, action.via))
 				case "apply":
 					return call(action.session, (s) => applySession(s, action.strata, action.reads))
-				case "refresh":
-					return call(action.session, (s) => refreshValue(s, relationValue(s, action.relation)))
 				case "close":
 					return Effect.gen(function* () {
 						const s = yield* sessionAt(action.session)
@@ -1556,17 +1550,6 @@ const worldOver = (
 				return yield* probePool(session.ctx.pool)
 			})
 
-		const storedRelations = (v: Version) => [
-			...Arr.map(v.spec.base.relations, (r) => ({
-				name: r.name,
-				fields: Arr.map(r.fields, (f) => ({ field: f.name, domain: f.domain }))
-			})),
-			...Arr.map(v.spec.base.derived, (d) => ({
-				name: d.name,
-				fields: derivedFields(v.spec.base, d)
-			}))
-		]
-
 		const readAll = substrate.superuserRead((rows) =>
 			Effect.gen(function* () {
 				const v = state.current
@@ -1610,11 +1593,7 @@ const worldOver = (
 					)
 					reality.set(r.name, observed)
 				}
-				const derived: Record<string, ReadonlyArray<HostFact>> = {}
-				for (const d of storedRelations(v).slice(v.spec.base.relations.length)) {
-					derived[d.name] = yield* read(d.name, d.fields)
-				}
-				return { reality, derived }
+				return reality
 			})
 		)
 
@@ -1661,13 +1640,6 @@ const worldOver = (
 					"TransactionRolledBack",
 					(e) => Effect.die(e)
 				)
-				for (const d of v.spec.base.derived) {
-					const view = yield* get(v.names.tables, d.name, "derived view")
-					yield* substrate.admin.query(
-						`REFRESH MATERIALIZED VIEW ${quoteIdent(view.schema)}.${quoteIdent(view.name)}`,
-						[]
-					)
-				}
 			})
 
 		const world: RacingWorld = {

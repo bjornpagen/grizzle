@@ -191,7 +191,7 @@ export const thePublicFailureAndOutcomeConstructorsBuildEveryFailureAndOutcomeEx
 		kept: [
 			{
 				token: ReplayToken(
-					"test/unit/adapter/constructors.test.ts#thePublicFailureAndOutcomeConstructorsBuildEveryFailureAndOutcomeExactlyAsTheAdapterDoesCarryingEachDrawnFactAndTheAdaptersClassificationsBuildTheSameValues:116000.e:0.0.1.0.0.0.0.0.0.0.0.1.0"
+					"test/unit/adapter/constructors.test.ts#thePublicFailureAndOutcomeConstructorsBuildEveryFailureAndOutcomeExactlyAsTheAdapterDoesCarryingEachDrawnFactAndTheAdaptersClassificationsBuildTheSameValues:8a000.f:0.0.1.0.0.0.0.0.0.0.0.1.0"
 				),
 				reason:
 					"a deadlock (40P01) a report must read as Deadlock, never as a serialization failure, which its suite's old 1,000 cases reached and its fixed witnesses do not",

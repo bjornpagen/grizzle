@@ -108,10 +108,7 @@ export const aMemberBoundToTheDatabasesClockReadsTheInstantItsCallsTransactionBe
 							)
 
 							const stamped = yield* writeOnce(calls("stamp"))(call)
-							const reads =
-								stamped.kind === "accepted" || stamped.kind === "unchanged"
-									? stamped.reads
-									: undefined
+							const reads = stamped.reads
 							const nowRows = isRecord(reads) ? reads["now"] : undefined
 							const reading = onlyReading(Arr.isArray(nowRows) ? nowRows : [], "now")
 							const stampRows = yield* readOnce(calls("stamps"))(call)

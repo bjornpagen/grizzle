@@ -12,7 +12,7 @@ import { login, role, wholeEntriesOf, writableNamesOf } from "#compiler/public/s
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { type Owned, ownBuilt } from "#compiler/schema/own.ts"
-import { closedBuilder, derivedBuilder, materializedDerived } from "#compiler/schema/relation.ts"
+import { closedBuilder, derivedBuilder } from "#compiler/schema/relation.ts"
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { compiledSnapshot } from "#test/support/compiled-served.ts"
@@ -45,10 +45,10 @@ export interface LevelLogin {
 
 /**
  * An installation of four levels: a generated public schema (test/support/oracle/public), its law level extending it
- * (laws.ts: a roster with holes, keys, a set, contracts, a materialized view), a level of derived relations alone
+ * (laws.ts: a roster with holes, keys, a set, contracts, a derived relation), a level of derived relations alone
  * extending that, a live view of the levels below it, which installs no table (alphatest-novus's reconciliation level),
  * and a top extending that, as an application's stored level above its views does, which declares two rosters of its
- * own and a materialized view of the levels below it: so each level below the top is installed under codes that hold
+ * own and a derived relation of the levels below it: so each level below the top is installed under codes that hold
  * rosters no relation of that level is typed by.
  */
 export interface Installation {
@@ -71,13 +71,13 @@ export const installationOf = (c: ProgramCase, level: LawLevel, own: Top): Insta
 	)
 	const Lamp = closedBuilder("TopLamp", ["off", "on"], "ordered", [])
 	const [first] = drawn.relations
-	/** Every fact of the first relation, which the views level reads live and the top holds materialized. */
+	/** Every fact of the first relation, which the views level and the top each read live. */
 	const facts = queryOver(drawn.laws.schema).rule((r: RuleValue) => {
 		const fact = varsOver(first.value, "fact")
 		return r.match(first.value, fact).find(fact)
 	})
 	const Read = derivedBuilder("ViewsRead", facts, [])
-	const Seen = materializedDerived("TopSeen", facts, [])
+	const Seen = derivedBuilder("TopSeen", facts, [])
 	const base = drawn.built.schema
 	const laws = drawn.laws.schema
 	const views = schema.extend([laws], "ViewsLevel", [Read], [], [])

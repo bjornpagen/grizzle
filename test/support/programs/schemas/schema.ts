@@ -32,7 +32,6 @@ export type {
 	KeysOf,
 	KeyValues,
 	LevelsOf,
-	RefreshListOf,
 	Relation,
 	StatementsOf,
 	WriteListOf

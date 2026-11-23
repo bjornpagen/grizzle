@@ -13,7 +13,7 @@ export class Thrown extends Data.TaggedError("Thrown")<{ readonly cause: unknown
 /**
  * Runs one builder call: a CompileError it throws is the installation's refusal, anything else a defect. The values
  * of an installation are known only at run time, so they are built on the builders' runtime path, the admission the
- * typed public builders run (`role`, `login` and `derived` of the schema modules, `alternatives` of the statements,
+ * typed public builders run (`role` and `login` of the schema modules, `alternatives` of the statements,
  * `regexField` of the text field), which a JavaScript caller's arguments meet.
  */
 export const attempt = <A>(what: string, build: () => A): Effect.Effect<A, RealizeRefused> =>

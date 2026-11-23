@@ -270,8 +270,8 @@ const body = (statement: string): string =>
  * guard trigger, grants and declared statistics (its ALTER TABLE, and the DO block restoring them, which names the table
  * by its name as a literal), the LOCK opening a residual law's Validate file, the DO block running the law's full
  * violation query there, which reads and raises only, the DO block reading a zone roster's handles as time zones in
- * Setup, which reads and raises only too, and the REFRESH that populates a materialized view the migration
- * creates (7e449b6ef), which writes its rows and makes no object. The snapshot guard's function names the
+ * Setup, which reads and raises only too, and the INSERT that fills a stored derived relation's table the migration
+ * creates (FillStored), which writes its rows and makes no object. The snapshot guard's function names the
  * ledger in its body and the live source's publication publishes it, but each is the installation's own object, in the
  * script too, so a CREATE ... FUNCTION or a CREATE PUBLICATION is never one. A DO block is its command whatever its
  * body's spelling: dollar-quoted, or the escape string a drafted file spells a body holding a control character as
@@ -286,7 +286,7 @@ const leavesNoObject = (statement: string, schema: string): boolean => {
 			!Str.startsWith("CREATE OR REPLACE FUNCTION ")(text) &&
 			!Str.startsWith("CREATE PUBLICATION ")(text)) ||
 		Str.startsWith("LOCK TABLE ")(text) ||
-		Str.startsWith("REFRESH MATERIALIZED VIEW ")(text) ||
+		Str.startsWith("INSERT INTO ")(text) ||
 		(Str.startsWith("DO ")(text) &&
 			(Str.includes("-- The full violation query of law ")(statement) ||
 				Str.includes("-- The time zones of roster ")(statement) ||
@@ -1060,7 +1060,7 @@ const installedSpec = (spec: {
 
 /**
  * installedTemplate's installation with what every case starts from written once per member, as the build's owner,
- * right after the install: `seed` (facts loaded, a materialized view refreshed) on the installation it made, where a
+ * right after the install: `seed` (facts loaded) on the installation it made, where a
  * search did it once before its cases.
  */
 export const seededTemplate = <E>(spec: {

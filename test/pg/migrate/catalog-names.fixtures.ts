@@ -111,12 +111,13 @@ export const schemaOf = (names: Names): SchemaDesc => {
 				},
 				["id"]
 			),
-			relation(entry, { id: f.uuid, holder: f.uuid }, ["id"])
+			relation(entry, { holder: f.uuid, id: f.uuid }, ["holder", "id"])
 		],
 		statements: [
 			contained(on(entry, ["holder"]), on(holder, ["id"])),
 			mutable(holder),
-			unit("Held", { id: f.uuid })
+			unit("Held", { id: f.uuid }),
+			unit("Holding", { holder: f.uuid })
 		],
 		bases: []
 	})
@@ -128,7 +129,7 @@ export const schemaOf = (names: Names): SchemaDesc => {
 				kind: "derived",
 				name: names["derived relation"].declared,
 				level: 1,
-				storage: "materialized",
+				storage: "stored",
 				query: decodedQuery({
 					kind: "rules",
 					arms: [
@@ -165,7 +166,7 @@ export const schemaOf = (names: Names): SchemaDesc => {
 /**
  * The login of a case's schema: a writer holding and writing its stored relations, and a reader holding every one, each
  * the full role's description over it (schema/own.ts fullRoleDesc, which states every list a role describes) narrowed
- * to what it holds, writes and refreshes.
+ * to what it holds and writes.
  */
 export const loginOf = (desc: SchemaDesc, names: Names): LoginDesc => {
 	const loc = SourceLoc("the catalog-names box", [])
@@ -179,8 +180,8 @@ export const loginOf = (desc: SchemaDesc, names: Names): LoginDesc => {
 			name: "server",
 			base: desc,
 			roles: [
-				{ ...full, name: "writer", relations: whole(stored), write: stored, refresh: [] },
-				{ ...full, name: "reader", relations: whole(read), write: [], refresh: [] }
+				{ ...full, name: "writer", relations: whole(stored), write: stored },
+				{ ...full, name: "reader", relations: whole(read), write: [] }
 			],
 			loc
 		}),

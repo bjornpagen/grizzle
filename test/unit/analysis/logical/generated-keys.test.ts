@@ -16,7 +16,7 @@
  * non-stored generation is not expressible, and a non-deterministic one is refused. A generation reading a float is
  * expressible, and states nothing: a float's -0 and +0 are one key value and two values a generation may tell apart.
  *
- * A materialized view reading the relation whole is keyed by the same keys, each indexed but one over the unbounded
+ * A stored derived relation reading the relation whole is keyed by the same keys, each indexed but one over the unbounded
  * texts, which another key's index holds as its alternative (analysis/derived/analyze.ts): no view of a digest-keyed
  * relation is refused for the texts its digests key.
  *

@@ -217,9 +217,6 @@ export const aStatementThatReadsSeveralFieldsOfOneCallCallsItOnce = property.exp
 										const read = member(loaded.members, statement)
 										const input = { params: paramsOf(c), facts: {} }
 										const explains = memberExplains(db, loaded.tables, read)
-										if (explains.kind === "refresh") {
-											return assert.fail("a statement of reads explains")
-										}
 										const plans = yield* explains.explain(input)
 										assert.equal(
 											machineScans(plans, statement, functionScans),

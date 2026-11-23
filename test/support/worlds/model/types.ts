@@ -136,19 +136,12 @@ export interface ClosedSpec {
 	readonly members: Arr.NonEmptyReadonlyArray<string>
 }
 
-/** A stored query of the base, installed as a materialized view and brought up to date only by a refresh. */
-export interface DerivedSpec {
-	readonly name: string
-	readonly rules: Arr.NonEmptyReadonlyArray<Rule>
-}
-
 export interface BaseSpec {
 	readonly name: string
 	readonly closed: ReadonlyArray<ClosedSpec>
 	readonly relations: Arr.NonEmptyReadonlyArray<RelationSpec>
 	readonly laws: ReadonlyArray<LawSpec>
 	readonly contexts: ReadonlyArray<ContextSpec>
-	readonly derived: ReadonlyArray<DerivedSpec>
 }
 
 /**
@@ -161,9 +154,9 @@ export type Term =
 	| { readonly kind: "handle"; readonly closed: string; readonly member: string }
 	| { readonly kind: "context"; readonly context: string; readonly field: string }
 
-/** What an occurrence matches: an ordinary, closed or derived relation of the base, or a context, each by its kind. */
+/** What an occurrence matches: an ordinary or closed relation of the base, or a context, each by its kind. */
 export type Source = {
-	readonly kind: "ordinary" | "closed" | "derived" | "context"
+	readonly kind: "ordinary" | "closed" | "context"
 	readonly name: string
 }
 
@@ -199,7 +192,6 @@ export interface RoleSpec {
 	readonly name: string
 	readonly entries: Readonly<Record<string, EntrySpec>>
 	readonly write: ReadonlyArray<string>
-	readonly refresh: ReadonlyArray<string>
 }
 
 export interface LoginSpec {
@@ -243,7 +235,7 @@ export interface InstalledNames {
 	 * naming door mints each role's identity, its schema, filter functions and key probes under.
 	 */
 	readonly levels: Arr.NonEmptyReadonlyArray<Identity<"schema">>
-	/** Each relation's table or materialized view, in the schema of the level declaring it. */
+	/** Each relation's table, in the schema of the level declaring it. */
 	readonly tables: Readonly<Record<string, ObjectName>>
 	readonly columns: Readonly<Record<string, Readonly<Record<string, string>>>>
 	/** Each relation's primary-key law. A span primary key is a span-key law. */
@@ -644,7 +636,7 @@ export type WildSite =
 	| {
 			readonly kind: "session"
 			readonly session: number
-			readonly call: "read" | "apply" | "refresh"
+			readonly call: "read" | "apply"
 	  }
 
 /**
@@ -673,7 +665,6 @@ export type Action =
 			readonly strata: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<EntryOp>>
 			readonly reads: ReadonlyArray<string>
 	  }
-	| { readonly kind: "refresh"; readonly session: number; readonly relation: string }
 	| { readonly kind: "close"; readonly session: number }
 	| {
 			readonly kind: "direct-begin"
@@ -739,7 +730,6 @@ type TransientReason =
 	| "PutTargetConflict"
 	| "SpanKeyChange"
 	| "UnseenOccupant"
-	| "ConcurrentRefresh"
 
 /** A read-back: a role relation over the post-change state, and the change's own delta on it. */
 export interface ReadBack {
@@ -1003,8 +993,6 @@ export interface ModelState {
 	/** Each role of `install`, by its name, as the base classes it: what every call reads its entries and writes by. */
 	readonly roles: Readonly<Record<string, InstalledRole>>
 	readonly reality: HostState
-	/** Each derived relation's facts as of its last refresh. */
-	readonly derived: Readonly<Record<string, ReadonlyArray<HostFact>>>
 	readonly sessions: ReadonlyArray<ModelSession>
 	readonly connections: ReadonlyArray<ConnectionState>
 	readonly tampered: ReadonlyArray<CatalogPerturbation>
@@ -1131,7 +1119,7 @@ export type WorldFeature =
 	| `object:${ObjectKind}:${"hidden-row-absent" | "raise-suppressed" | "conflict-raise-suppressed" | "accepted-inside" | "refused-outside" | "attempt-refused" | "witness-shown" | "witness-withheld"}`
 	| `invalid:${InvalidKind}`
 	| `invariant:${InvariantName}`
-	| `deletion:${"base-gone" | "world-gone" | "derived-kept" | "derived-refreshed"}`
+	| `deletion:${"base-gone" | "world-gone"}`
 	| `via:${ReadVia["kind"]}`
 	| "get:no-key"
 	| "get:outside-domain"
@@ -1155,10 +1143,10 @@ export type WorldFeature =
 
 /**
  * The key grizzle completes a page's order with, by the relation paged: a key it proves of a role's entry short of its
- * whole heading (a table's primary key, through a whole entry or a query entry that keeps it); a key of a derived
- * relation, which its stored query proves; or the whole heading, a set's own key.
+ * whole heading (a table's primary key, through a whole entry or a query entry that keeps it); or the whole heading, a
+ * set's own key.
  */
-export type PageKey = "proven-key" | "derived-key" | "heading-key"
+export type PageKey = "proven-key" | "heading-key"
 
 /**
  * How a read-back's delta stands to the change, by README "Writes"' rule (session/apply.ts deltaOf): `untouched`, the

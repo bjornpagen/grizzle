@@ -48,7 +48,6 @@ import type { TransactionPlan, TransactionStatement } from "#bench/harness/trans
 import { type Fixture, GateSetupError, installFixture } from "#bench/query/support/kit.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
-import { quoteIdent } from "#compiler/core/text.ts"
 import { trusted, trustedJson } from "#compiler/core/trusted.ts"
 import { isolationGuardName } from "#compiler/physical/ddl/isolation.ts"
 import { snapshotGuardName } from "#compiler/physical/ddl/ledger.ts"
@@ -75,7 +74,7 @@ import { snapshotValue } from "#test/support/snapshot-json.ts"
 import { testSql } from "#test/support/sql.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
-import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate } from "#test/support/substrate/substrate.ts"
 
 import { ConnectionLost, type ServerError, type TransientReason } from "#adapter/errors/failures.ts"
 import { paramText } from "#test/support/wire.ts"
@@ -84,11 +83,11 @@ import { fullWorld } from "#test/support/worlds.ts"
 const round = (x: number): number => Math.round(x * 1000) / 1000
 
 /**
- * The shared kit of the write, law, queue, refresh and families gates (R12, R33-R35, R40, the queue and families gates).
+ * The shared kit of the write, law, queue and families gates (R12, R33-R35, the queue and families gates).
  *
  * "Use the same dataset, laws, result equality, and isolation in generated and handwritten baselines".
  * Every gate under bench/write and bench/queue installs a schema built by the public builders, its laws native
- * constraints (fin.md §7), and, where it has derived relations, their materialized views, through the query kit's
+ * constraints (fin.md §7), and, where it has stored derived relations, their tables, through the query kit's
  * installFixture (bench/query/support/kit.ts), under a fresh schema name of the gate's own database. The schema value
  * is then rebuilt under that name, and its worlds over the rebuilt value, so a Db opened on one of its roles logs in as
  * the installed login and takes on the installed role. Two kinds of writer measure the same laws:
@@ -278,18 +277,6 @@ export const ownerTransaction = Effect.fn("ownerTransaction")(function* (
 ): Effect.fn.Return<void, SqlError | TransactionRolledBack, Substrate> {
 	const s = yield* Substrate
 	yield* transaction(s.admin, sql)
-})
-
-/**
- * A fresh schema of the gate's database for a hand-written baseline, created by the owner; it is dropped with the
- * gate's database.
- */
-export const baselineSchema = Effect.fn("baselineSchema")(function* (
-	label: string
-): Effect.fn.Return<string, SqlError, Substrate | Scope.Scope> {
-	const s = yield* Substrate
-	const schema = yield* s.schema({ ...freshSchema, label })
-	return quoteIdent(schema)
 })
 
 /**

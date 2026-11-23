@@ -1,10 +1,5 @@
-import { Array as Arr, Effect, Option, Predicate, Result } from "effect"
-import { runRefresh } from "#adapter/refresh/run.ts"
-import { refreshPlan } from "#adapter/refresh/statements.ts"
-import { refreshTargets } from "#adapter/refresh/targets.ts"
-import { makePool } from "#adapter/wire/session.ts"
-import { summarize } from "#bench/cold/stats.ts"
-import { explain, findNodes, type PlanNode, planNodes } from "#bench/harness/explain.ts"
+import { Array as Arr, Effect, Option, Predicate } from "effect"
+import { findNodes, type PlanNode } from "#bench/harness/explain.ts"
 import {
 	type CaseRecord,
 	defineGate,
@@ -19,7 +14,6 @@ import {
 	autocommit,
 	type Compiled,
 	compile,
-	deliver,
 	deliveredAgree,
 	fill,
 	GateSetupError,
@@ -43,17 +37,12 @@ import {
 
 import { indices, maxOf } from "@bjornpagen/grizzle-text/base/array"
 import {
-	BestThree,
 	bestForStudents,
 	bestPerStudent,
-	bestThreeRows,
 	Lab,
-	LabReports,
 	labData,
 	labPrices,
 	labPrograms,
-	labRefresher,
-	labRefreshers,
 	labSittings,
 	loadLab,
 	studentSheetOne,
@@ -72,19 +61,10 @@ import {
 	rowsReadFrom,
 	scansOf
 } from "#bench/query/support/plans.ts"
-import { ledgerStatements } from "#compiler/deploy/ledger/ledger.ts"
 import { lateralParentMax, type DeliveredPart } from "#compiler/lower/shapes/index.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
-import { parseSchemaInput } from "#compiler/program/input.ts"
-import { servedSession } from "#compiler/program/served.ts"
-import { roleDescOf } from "#compiler/schema/world.ts"
-import { printStatement } from "#compiler/sql/print.ts"
-import { installedArtifacts } from "#test/support/compile.ts"
-import { ledgerPrologue } from "#test/support/flight/model.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
 import { labeledStatements } from "#test/support/oracle/compare.ts"
-import { clusterConnection, clusterPool, parsedConnection } from "#test/support/pg.ts"
-import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * R20, R27 and R42: bounded subsets, successors and as-of selections by the parent set.
@@ -99,11 +79,8 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  *   one row, the take is the LATERAL form, and over a parent part with no bound it reads every group. A form is
  *   chosen per execution only by a relation parameter's distinct count or a page's size. The take also runs through
  *   `bind` over every student, k = 3 and k = 1, which the policy lowers to row_number and DISTINCT ON; through `bind`
- *   to a relation parameter delivered with a few students and with every student, whose count chooses per execution;
- *   and as a derived relation's definition (support/lab.ts BestThree), which "always wants every group, so it never
- *   takes the correlated form" (:243): refreshed by the runtime's refresh transaction, its refresh time, rows written
- *   and the definition's workers launched recorded. The threshold between the two forms, lateralParentMax
- *  , is an operating point between two genuinely different shapes that deliver the same rows, so the
+ *   to a relation parameter delivered with a few students and with every student, whose count chooses per execution.
+ *   The threshold between the two forms, lateralParentMax, is an operating point between two genuinely different shapes that deliver the same rows, so the
  *   gate also runs both over the same input across the sizes it decides by, for its evidence to be read off the
  *   crossover: take(k) by (score desc, id) per parent, k = 1 and k = 3, for a relation parameter's parents sent as the
  *   runtime sends a relation input, one text array per column read by unnest, as the LATERAL probe, LIMIT k per
@@ -472,148 +449,6 @@ export default defineGate({
 				}
 			)
 			/**
-			 * R20 as a derived relation's definition: the every-student take installed as BestThree's materialized view,
-			 * refreshed by the runtime's refresh transaction (packages/grizzle/src/adapter/refresh) as the refreshing identity. The definition is
-			 * the compiled one the installation created the view from, read from its manifest, and its plan, as the refresh
-			 * evaluates it, is captured by EXPLAIN on the same data.
-			 */
-			const reports = yield* installFixture(LabReports, {}, {}, "benchtakerefresh", [labRefreshers])
-			const reportsLedgerResult = ledgerStatements(reports.installed.schema)
-			if (!reportsLedgerResult.ok) {
-				return yield* Effect.die(
-					new GateSetupError({ what: `the ledger statements of ${reports.installed.schema}` })
-				)
-			}
-			const reportsLedger = reportsLedgerResult.value
-			yield* loadLab(reports, size)
-			const substrate = yield* Substrate
-			const refresherLogin = reports.installed.as(labRefreshers)
-			const pool = yield* makePool({
-				connection: parsedConnection(
-					clusterConnection(substrate.cluster, substrate.database, refresherLogin.password),
-					refresherLogin.role
-				),
-				session: servedSession,
-				bounds: clusterPool,
-				attachPool: () => undefined
-			})
-			const reportsInput = parseSchemaInput(LabReports)
-			if (!reportsInput.ok) {
-				throw new GateSetupError({
-					what: `LabReports' schema input: ${reportsInput.error.message}`
-				})
-			}
-			const reportArtifacts = installedArtifacts(reportsInput.value, reports.installed.installation)
-			if (!reportArtifacts.ok) {
-				throw new GateSetupError({
-					what: `LabReports' artifacts: ${reportArtifacts.error.message}`
-				})
-			}
-			const refresherDesc = roleDescOf(labRefresher)
-			if (refresherDesc === undefined) {
-				throw new GateSetupError({ what: "the refresher is a role value" })
-			}
-			const targets = refreshTargets(refresherDesc, reportArtifacts.value, [BestThree])
-			if (Result.isFailure(targets)) {
-				throw new GateSetupError({ what: `the refresh targets: ${targets.failure.message}` })
-			}
-			const [target] = targets.success
-			const created = Arr.flatMap(reports.installed.installation.manifest.objects, (o) =>
-				o.kind === "storedTable"
-					? Arr.flatMap(o.ddl, (s) => (s.kind === "createStoredTable" ? [s] : []))
-					: []
-			)
-			const view = Option.getOrThrowWith(
-				Arr.findFirst(
-					created,
-					(c) => c.name.schema === target.view.schema && c.name.name === target.view.name
-				),
-				() => new GateSetupError({ what: `the manifest installs no view ${target.view.name}` })
-			)
-			const definition = view.query
-			const definitionShape = shapeOf(definition)
-			const refreshOnce = Effect.gen(function* () {
-				const start = performance.now()
-				const report = yield* runRefresh(
-					{
-						pool,
-						prologue: ledgerPrologue(
-							reportsLedger,
-							reports.installed.role(labRefresher),
-							"",
-							reports.installed.snapshot.fingerprint
-						)
-					},
-					refreshPlan(targets.success)
-				)
-				return { report, ms: Math.round((performance.now() - start) * 1000) / 1000 }
-			})
-			const firstRefresh = yield* refreshOnce
-			const laterRefreshes: Array<number> = []
-			for (let i = 0; i < Math.max(2, options.samples); i++) {
-				laterRefreshes.push((yield* refreshOnce).ms)
-			}
-			/**
-			 * The refresh evaluates the definition as the view's owner, the migration identity: the refresher holds MAINTAIN on
-			 * the view and no privilege on the tables its definition reads.
-			 */
-			const owner = yield* substrate.session({ ...ownerSession(), label: "m15b take definition" })
-			const definitionPlan = (yield* explain(owner, printStatement(definition), [], plainExplain))
-				.plan
-			const definitionSitting = reports.relationName("Sitting")
-			const definitionWorkers = planNodes(definitionPlan)
-				.flatMap((node) => Option.toArray(node.workersLaunched))
-				.reduce((n, launched) => n + launched, 0)
-			const reportsRuntime = yield* runtimeSession(reports, labRefresher)
-			const refreshed = yield* deliver(
-				reportsRuntime,
-				compile(reports, bestThreeRows, {
-					role: labRefresher,
-					context: "snapshot",
-					warm: 3,
-					read: "rows"
-				}),
-				"optimized",
-				{}
-			)
-			const definitionWhole =
-				scansOf(definitionPlan, definitionSitting).length > 0 &&
-				Arr.every(scansOf(definitionPlan, definitionSitting), (n) => n.actualLoops === 1) &&
-				rowsReadFrom(definitionPlan, definitionSitting) <=
-					sittings * scansOf(definitionPlan, definitionSitting).length
-			cases.push({
-				name: "every student's three best sittings as a derived relation, refreshed",
-				gates: ["R20"],
-				conditions: {
-					workload:
-						"BestThree = derived(take(3) by (score desc, id) bound to every Student), refreshed by db.refresh's " +
-						"transaction as the refreshing identity",
-					schemaState:
-						"fresh install of LabReports (Lab extended with BestThree) with the derived relation's view, the Lab facts " +
-						"loaded, then VACUUM (ANALYZE) of every base table",
-					dataDistribution: data,
-					parameters: {},
-					resultSemantics: "the view holds each student with its three best sittings",
-					cacheState:
-						"the first refresh populates the view; the later ones run CONCURRENTLY over an unchanged base"
-				},
-				phases: {},
-				variants: [],
-				comparisons: [],
-				transactions: {},
-				loads: {},
-				measures: {
-					firstRefreshMs: firstRefresh.ms,
-					refreshMsP50: summarize(laterRefreshes).p50,
-					refreshMsP95: summarize(laterRefreshes).p95,
-					rowsWritten: refreshed.rows.length,
-					definitionWorkersLaunched: definitionWorkers,
-					definitionSittingRowsRead: rowsReadFrom(definitionPlan, definitionSitting),
-					sittings
-				}
-			})
-
-			/**
 			 * R20's threshold, both forms over one input: a second Lab install whose students come in bands of one group size
 			 * each (bandsOf), every count of a band's students read as the LATERAL probe and as the whole-relation pass.
 			 */
@@ -775,19 +610,6 @@ export default defineGate({
 						outline(onePlan, 0)
 					),
 					mechanism(
-						"a derived-relation definition never takes the correlated form: row_number or DISTINCT ON, no LIMIT",
-						(has(definitionShape, "window row_number") || has(definitionShape, "distinct on")) &&
-							!has(definitionShape, "limit literal") &&
-							!has(definitionShape, "limit param") &&
-							!has(definitionShape, "limit expression"),
-						Arr.join([...definitionShape.counts.keys()], ", ")
-					),
-					mechanism(
-						"the refresh-evaluated definition reads the input once",
-						definitionWhole,
-						outline(definitionPlan, 0)
-					),
-					mechanism(
 						"a take bound to a relation parameter chooses its form per execution by the parameter's count",
 						choosesByStudents &&
 							chosenForms(forParam.compiled.template) > 0 &&
@@ -847,12 +669,6 @@ export default defineGate({
 						`${oneM.generated.result.rows} generated rows, ${oneDistinctOn.result.rows} handwritten`
 					),
 					agrees("the relation parameter's take agrees with the composition", forParamM),
-					judged(
-						"the refreshed derived relation holds the bound take's answer",
-						deliveredAgree("ordered"),
-						refreshed.rows,
-						everyM.delivered.generated.rows
-					),
 					agrees(
 						"the relation parameter's take over every student agrees with the composition",
 						forManyM

@@ -74,7 +74,6 @@ const levelRelations = list(2, "Bag", "Item")
 const levelStatements = list(3, "bagging")
 const roleEntries = record(2, "Parent", "Labels")
 const roleWrites = list(3, '"Parent"')
-const roleRefreshes = list(3, '"Labels"')
 const loginRoles = list(2, "member")
 const loginWorkloads = list(3, "names")
 const workloadPrograms = record(1, "ids")
@@ -98,12 +97,12 @@ const shapes: { readonly [B in BuilderName]: Shape } = {
 	},
 	role: {
 		callee: "role",
-		captured: [roleEntries, roleWrites, roleRefreshes],
+		captured: [roleEntries, roleWrites],
 		params: (name, spell) => [
 			"Up",
 			jsonText(name),
 			spell(roleEntries),
-			`{ write: ${spell(roleWrites)}, refresh: ${spell(roleRefreshes)} }`
+			`{ write: ${spell(roleWrites)} }`
 		]
 	},
 	login: {
@@ -232,7 +231,7 @@ export const Root = schema("Root", [Parent, Kid], [nesting])
 export const Bag = relation("Bag", { id: Id, items: drawn(natural) }, ["id"])
 export const Item = relation("Item", { bag: Id, at: drawn(natural), label: pg.integer }, ["bag", "at"])
 export const bagging = ordered(on(Item, "bag", "at"), fin(Bag, "items"))
-export const Labels = derived.materialized(
+export const Labels = derived.stored(
 	"Labels",
 	query(Root).rule((r) => {
 		const { parent, label } = v(Kid, "kid")

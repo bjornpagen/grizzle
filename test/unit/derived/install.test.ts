@@ -1,5 +1,5 @@
 /**
- * A derived relation's head names are its view's declared column names: two whose conversions agree
+ * A stored derived relation's head names are its table's declared column names: two whose conversions agree
  * (core/identity.ts conversionOf, a name's segments lowercased and joined by single underscores) are one column
  * identifier, refused as IdentifierCollision naming that identifier, and two whose conversions differ install as two
  * columns.
@@ -7,7 +7,7 @@
  * Property: over drawn pairs of head names, each a spelling (snake_case, camelCase or PascalCase) of a drawn
  * sequence of words, a derived relation whose head binds one field under both names is refused with
  * IdentifierCollision, naming its words joined by underscores, exactly when the two names spell one sequence of
- * words; otherwise it installs two view columns whose identifiers differ.
+ * words; otherwise it installs two columns whose identifiers differ.
  *
  * Oracle: the conversion's specification restated over the words a name is spelled from: a name's segments are its
  * words, so two names convert alike exactly when they spell one sequence. A word is two or three of the letters a
@@ -21,8 +21,8 @@
  * Features: a collision of one word's spellings, a collision of several words' spellings, names apart by a changed
  * word, names apart by an appended word, names apart in one spelling.
  *
- * What a derived relation installs, each view column's type, typmod and collation, and every refreshed view against
- * its definition, is PostgreSQL's to judge, in the database suites.
+ * What a stored derived relation installs, each column's type, typmod and collation, and its rows against its
+ * definition, is PostgreSQL's to judge, in the database suites.
  */
 
 import * as Result from "@bjornpagen/grizzle-text/base/result"

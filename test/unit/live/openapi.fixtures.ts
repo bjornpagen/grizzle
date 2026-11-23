@@ -2,7 +2,7 @@
 
 import { documentWire } from "@bjornpagen/grizzle-openapi/document"
 import { assert, deepEquals, defined } from "@bjornpagen/testing/assert"
-import { array, boolean, type Gen } from "@bjornpagen/testing/gen"
+import { array, type Gen } from "@bjornpagen/testing/gen"
 import { type Case } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
 import {
@@ -55,7 +55,6 @@ export type Feature =
 	| "a paged read"
 	| "an answered read"
 	| "a write"
-	| "a refresh"
 	| "a role reading a context"
 	| "a role reading none"
 	| "a login no role of which reads a context"
@@ -264,22 +263,19 @@ const dependsOnly = (
 	)
 }
 
-/** How many programs of a role do each thing, by their served forms: read, write or refresh. */
+/** How many programs of a role do each thing, by their served forms: read or write. */
 const deedsOf = (members: ReadonlyArray<ServedMember>) => ({
-	reads: Arr.filter(members, (m) => m.kind !== "change" && m.kind !== "refresh").length,
-	writes: Arr.filter(members, (m) => m.kind === "change").length,
-	refreshes: Arr.filter(members, (m) => m.kind === "refresh").length
+	reads: Arr.filter(members, (m) => m.kind !== "change").length,
+	writes: Arr.filter(members, (m) => m.kind === "change").length
 })
 
-/** The relations a member's wire says it writes or refreshes: a ChangeSet's outcome's, a refresh's targets'. */
+/** The relations a member's wire says it writes: a ChangeSet's outcome's. */
 const relationsOf = (member: ServedMember): ReadonlyArray<string> => {
 	switch (member.kind) {
 		case "change": {
 			const wire = member.wire.member
-			return wire.shape === "write" && wire.outcome.kind === "change" ? wire.outcome.relations : []
+			return wire.shape === "write" ? wire.outcome.relations : []
 		}
-		case "refresh":
-			return Arr.map(member.refresh.targets, (target) => target.relation)
 		case "read":
 		case "key":
 		case "paged":
@@ -295,7 +291,6 @@ const answeredOf = (member: ServedMember): boolean => {
 		case "paged":
 			return member.read.live.kind === "answered"
 		case "change":
-		case "refresh":
 			return false
 	}
 }
@@ -303,7 +298,7 @@ const answeredOf = (member: ServedMember): boolean => {
 /**
  * The sources a member's call over HTTP meets its failures at (live/events.ts failures), by its served form: the HTTP
  * door's and its Db's opening before it runs, then a live read's run and subscription, an answered read's run alone,
- * a ChangeSet's run and refusing outcome, a refresh's run alone.
+ * and a ChangeSet's run and refusing outcome.
  */
 const sourcesOf = (member: ServedMember): ReadonlyArray<FailureSource> => {
 	switch (member.kind) {
@@ -313,8 +308,6 @@ const sourcesOf = (member: ServedMember): ReadonlyArray<FailureSource> => {
 			return answeredOf(member) ? ["door", "open", "read"] : ["door", "open", "read", "watch"]
 		case "change":
 			return ["door", "open", "apply", "outcome"]
-		case "refresh":
-			return ["door", "open", "apply"]
 	}
 }
 
@@ -333,7 +326,7 @@ const kindsAt = (sources: ReadonlyArray<FailureSource>): Array<string> =>
 /**
  * What a member's summary says it is, as a word each, by its served form (served/forms.ts ServedMemberForm): `live`
  * exactly for a read a call watches, `answered` for one answered at its call's instant alone, `ordered` for a read of a
- * list, `paged` for a paged one, `write` for a ChangeSet's and `refresh` for a refresh's.
+ * list, `paged` for a paged one, and `write` for a ChangeSet's.
  */
 const kindWords = (member: ServedMember): ReadonlyArray<readonly [string, boolean]> => {
 	const shape = member.wire.member.shape
@@ -346,8 +339,7 @@ const kindWords = (member: ServedMember): ReadonlyArray<readonly [string, boolea
 		["answered", answeredOf(member)],
 		["ordered", shape === "list" || shape === "answeredList"],
 		["paged", member.kind === "paged"],
-		["write", member.kind === "change"],
-		["refresh", member.kind === "refresh"]
+		["write", member.kind === "change"]
 	]
 }
 
@@ -536,7 +528,7 @@ const holds = (
 					...(member.kind === "key" ? member.fields : []),
 					...Arr.map(input.params, (p) => p.name)
 				]),
-				`${path}: its description names the relations it writes or refreshes, its key's fields and its parameters: ${Formatter.format(at(operation, "description"))}\n${printed()}`
+				`${path}: its description names the relations it writes, its key's fields and its parameters: ${Formatter.format(at(operation, "description"))}\n${printed()}`
 			)
 			dependsOnly(
 				seen.bodies,
@@ -578,9 +570,6 @@ const holds = (
 			}
 			if (answeredOf(member)) {
 				note("an answered read")
-			}
-			if (member.kind === "refresh") {
-				note("a refresh")
 			}
 			const errors = at(
 				document,
@@ -710,18 +699,14 @@ export const documentHolds = (
 		)
 	}).pipe(Effect.scoped, Effect.orDie)
 
-/** A login drawn over `schema`, its first role refreshing or not, which `logins` then holds with its case as `sketch`'s. */
+/** A login drawn over `schema`, which `logins` then holds with its case as `sketch`'s. */
 const sketchLogin = (
 	notes: Case<Feature>,
 	schema: DrawnSchema,
 	sketch: CaseSketch,
 	logins: Logins
 ): Arr.NonEmptyReadonlyArray<RoleShape> => {
-	const [first, ...rest] = notes.draw(loginGen(schema))
-	const shapes: Arr.NonEmptyReadonlyArray<RoleShape> = [
-		{ ...first, refreshes: notes.draw(boolean) },
-		...rest
-	]
+	const shapes = notes.draw(loginGen(schema))
 	logins.set(sketch, { case: schema.case, shapes })
 	return shapes
 }

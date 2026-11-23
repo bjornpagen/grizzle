@@ -22,7 +22,6 @@ export const sessionOf = (action: Action): Option.Option<number> => {
 	switch (action.kind) {
 		case "read":
 		case "apply":
-		case "refresh":
 		case "close":
 		case "direct":
 		case "direct-end":
@@ -59,11 +58,11 @@ const sessionRole = (state: ModelState, session: number): Option.Option<RoleSpec
 
 const factTexts = (fact: HostFact): ReadonlyArray<string> => Arr.map(Rec.values(fact), valueText)
 
-/** The facts of a relation in a state: a base relation's stored facts, or a derived relation's as of its last refresh. */
+/** The facts of a relation in a state: a base relation's stored facts, none of a closed one. */
 const factsOf = (state: ModelState, relation: string): ReadonlyArray<HostFact> =>
-	state.reality.get(relation) ?? state.derived[relation] ?? []
+	state.reality.get(relation) ?? []
 
-/** Every value, as text, of the facts a role holds whole in a state: its whole entries over base and derived relations. */
+/** Every value, as text, of the facts a role holds whole in a state: its whole entries over base relations. */
 const wholeHeldTexts = (state: ModelState, role: RoleSpec): ReadonlySet<string> =>
 	new Set(
 		Arr.flatMap(Rec.values(role.entries), (entry) =>

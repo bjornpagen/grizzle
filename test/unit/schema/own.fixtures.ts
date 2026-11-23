@@ -25,7 +25,7 @@ import type { RuleValue } from "#compiler/query/build/rule.ts"
 import {
 	closedBuilder as closed,
 	drawnField,
-	materializedDerived,
+	storedDerived,
 	relationBuilder as relation
 } from "#compiler/schema/relation.ts"
 import { schemaBuilder as schema, schemaDescOf } from "#compiler/schema/schema.ts"
@@ -92,7 +92,7 @@ export const Work = schema(
 	[]
 )
 
-export const TaskIds = materializedDerived(
+export const TaskIds = storedDerived(
 	"TaskIds",
 	queryOver(Work).rule((r: RuleValue) => {
 		const { id, account } = varsOver(Task, "task")

@@ -62,7 +62,7 @@ export type PlannerSetting = (typeof plannerSettings)[number] | "parallel_setup_
  * A correct lowering returns the same values under every plan and every scale, which grizzle delivers in one form, so
  * every form of a case must still agree exactly with the reference and the conservative lowering. The perturbation reaches the runners through the Effect reference
  * CurrentPerturbation, which oracleCheck and the write oracle provide for each explored case and which is unperturbed
- * everywhere else. A runner that goes through an opened Db (the write oracle, the derived refresh oracle) sets the
+ * everywhere else. A runner that goes through an opened Db (the write oracle) sets the
  * planner settings in each of its transactions through perturbedContext.
  *
  * A copy of a relation's facts relabels the values of its key columns that are neither part of a containment's source
@@ -303,8 +303,8 @@ const plannerSelect = (p: Perturbation): EmittedText => {
 
 /**
  * A session whose every transaction sets `statement`'s planner settings first: the statement rides right behind the
- * BEGIN of every flight that opens a transaction, unnamed, and its answer is the caller's to ignore. Every write and
- * refresh opens its transaction so (packages/grizzle/src/adapter/wire/batch.ts writeFrame).
+ * BEGIN of every flight that opens a transaction, unnamed, and its answer is the caller's to ignore. Every write opens
+ * its transaction so (packages/grizzle/src/adapter/wire/batch.ts writeFrame).
  */
 const plannedSession = (session: Session, statement: EmittedText): Session => ({
 	...session,
@@ -330,7 +330,7 @@ const plannedSession = (session: Session, statement: EmittedText): Session => ({
 /**
  * An opened Db's context, served or compiled in process, whose every transaction sets a perturbation's planner
  * settings: its pool's sessions send plannerSelect as the first statement of every transaction, after BEGIN. The Db's
- * operations on this context (a member's reads, apply, runApplication, refresh) run under the settings; the opened Db's
+ * operations on this context (a member's reads, apply, runApplication) run under the settings; the opened Db's
  * own context is untouched, so every other caller sees the role exactly as installed.
  */
 export const perturbedContext = <C extends Pick<ServedDbContext, "pool">>(

@@ -8,7 +8,16 @@ import type { PhysicalReason } from "#compiler/ir/products.ts"
 import { parseIdent } from "#compiler/physical/obligations/graph.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { contained, derived, key, on, relation, schema, select } from "#compiler/public/schema.ts"
+import {
+	contained,
+	derived,
+	key,
+	on,
+	relation,
+	schema,
+	select,
+	unit
+} from "#compiler/public/schema.ts"
 import { type SqlStatement, type TableConstraint, tableConstraints } from "#compiler/sql/ast.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import { Id } from "#test/support/ids.ts"
@@ -52,16 +61,19 @@ const lawsOf = (c: Case) => [
 		: [])
 ]
 
-/** The case's schema: R at the root beside B or at a level over a root of B, and a derived level above it. */
+/** The unit of an id, declared at the root, which B and R sit in, so a stored relation over R sits in it too. */
+const Item = unit("Item", { id: Id })
+
+/** The case's schema: R at the root beside B or at a level over a root of B, and a stored derived level above it. */
 export const schemaOf = (c: Case): AnySchema => {
 	if (c.placement === "root") {
-		const root = schema("Root", [B, R], lawsOf(c))
+		const root = schema("Root", [B, R], [...lawsOf(c), Item])
 		return c.derived
 			? schema.extend(
 					[root],
 					"Upper",
 					[
-						derived.materialized(
+						derived.stored(
 							"Pairs",
 							query(root).rule((r) => {
 								const { id, other } = v(R, "r")
@@ -73,13 +85,13 @@ export const schemaOf = (c: Case): AnySchema => {
 				)
 			: root
 	}
-	const mid = schema.extend([schema("Root", [B], [])], "Mid", [R], lawsOf(c))
+	const mid = schema.extend([schema("Root", [B], [Item])], "Mid", [R], lawsOf(c))
 	return c.derived
 		? schema.extend(
 				[mid],
 				"Upper",
 				[
-					derived.materialized(
+					derived.stored(
 						"Pairs",
 						query(mid).rule((r) => {
 							const { id, other } = v(R, "r")

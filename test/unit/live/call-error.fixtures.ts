@@ -666,11 +666,11 @@ export const statedOf = (error: CallError): Expected | string =>
 				? { kind: error.kind }
 				: error.kind
 
-/** A refresh's wire: an error's encode reads nothing of a member's beside its role's witness. */
+/** A write's wire, of a ChangeSet writing nothing: an error's encode reads nothing of a member's beside its role's witness. */
 const errorWire: MemberWire = {
 	shape: "write",
 	input: { kind: "call", params: [], facts: [] },
-	outcome: { kind: "refresh" }
+	outcome: { kind: "change", relations: [], reads: [[]] }
 }
 
 /** A role's witness that names no relation: no error here is a refusal, which alone carries a witness. */

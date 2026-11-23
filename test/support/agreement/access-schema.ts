@@ -9,15 +9,17 @@ import {
 	on,
 	relation,
 	role,
-	schema
+	schema,
+	unit
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { Id } from "#test/support/ids.ts"
 
 /**
  * The values the access agreement (test/support/agreement/access.ts) draws its worlds from, which its generated
- * program imports by name: Work, an account's tasks and its tier, whose seats a closed relation states; Reports, an extension of it holding two derived relations a role
- * may refresh and a live one no role holds; two contexts, Org, a claimed organisation's id, and Session, a token's subject; Task as a query entry
+ * program imports by name: Work, an account's tasks and its tier, whose seats a closed relation states, each in the
+ * unit Entity of its id; Reports, an extension of it holding a stored derived relation a role holds whole and a live one
+ * no role holds; two contexts, Org, a claimed organisation's id, and Session, a token's subject; Task as a query entry
  * reading a context at every place a definition can, or none; a program over Work matching each context; and two
  * logins the DbConfig agreement (test/support/agreement/dbconfig.ts) configures, one whose role declares no context and
  * one whose role declares Session, which its Task entry reads.
@@ -41,7 +43,7 @@ export const Task = relation("Task", { id: Id, account: Id }, ["id"])
 export const Work = schema(
 	"Work",
 	[Tier, TierInfo, Account, Task],
-	[contained(on(Task, "account"), on(Account, "id"))]
+	[contained(on(Task, "account"), on(Account, "id")), unit("Entity", { id: Id })]
 )
 
 /** A program over the base reading its ordinary relations alone. */
@@ -57,14 +59,8 @@ export const accountSeats = query(Work).rule((r) => {
 	return r.match(Account, { id, tier }).match(TierInfo, { tier, seats }).find({ id, seats })
 })
 
-export const TaskTally = derived.materialized(
-	"TaskTally",
-	query(Work).rule((r) => {
-		const { id, account } = v(Task, "task")
-		return r.match(Task, { id, account }).find({ account, tasks: r.count() })
-	})
-)
-export const AccountNames = derived.materialized(
+/** Each account's name, stored: a role holds it whole. */
+export const AccountNames = derived.stored(
 	"AccountNames",
 	query(Work).rule((r) => {
 		const { id, name } = v(Account, "account")
@@ -79,7 +75,7 @@ const AccountTasks = derived(
 		return r.match(Task, { id, account }).find({ id, account })
 	})
 )
-export const Reports = schema.extend([Work], "Reports", [TaskTally, AccountNames, AccountTasks], [])
+export const Reports = schema.extend([Work], "Reports", [AccountNames, AccountTasks], [])
 
 /** A program over the extension matching its live derived relation, which a full role of the extension runs. */
 export const accountTasks = query(Reports).rule((r) => {

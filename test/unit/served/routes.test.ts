@@ -3,8 +3,8 @@
  * what generate records so that no runtime, HTTP layer, client or OpenAPI document derives either again.
  *
  * Over generated public schemas (test/support/oracle/public), each extended by a drawn law level (laws.ts) holding a
- * materialized view, and live logins drawn over them (test/support/served-login.ts liveLoginGen), whose first role
- * reads that view and, wherever a field may carry a claim, reads through its query entry at a key a parameter binds (a
+ * derived relation, and live logins drawn over them (test/support/served-login.ts liveLoginGen), whose first role
+ * reads that relation and, wherever a field may carry a claim, reads through its query entry at a key a parameter binds (a
  * world relation its plan inlines), each login compiled as generate compiles it (adapter/served/compile.ts
  * snapshotCompiled, then servedEntryOf) and its file read back from the JSON value its text parses to:
  *
@@ -41,7 +41,6 @@ export const aLoginsServedReadsCarryTheFootprintTheirProgramReadsRoutedByTheFiel
 		situations: [
 			"a table a read routes by a parameter",
 			"a table a read reads table-wide",
-			"a materialized view a read reads",
 			"a read through a query entry",
 			"a set read keyed narrower than its heading",
 			"an ordered read",

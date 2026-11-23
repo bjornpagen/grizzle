@@ -57,7 +57,7 @@ import {
 	admitRelation,
 	admitRoster,
 	closedBuilder as closed,
-	materializedDerived,
+	storedDerived,
 	relationBuilder as relation,
 	relationDescOf
 } from "#compiler/schema/relation.ts"
@@ -1282,7 +1282,7 @@ export const schemaAndSchemaExtendExtendsUnderItsOwnNameAndComputesDerivedLevels
 									 * The prefix varies where a view sorts by name among the relations a later definition reads.
 									 */
 									const name = `${view.prefix}View${k + 1}x${j}`
-									const value = materializedDerived(
+									const value = storedDerived(
 										name,
 										idsOf(current, [
 											defined(reads[0]).value,
@@ -1327,7 +1327,7 @@ export const schemaAndSchemaExtendExtendsUnderItsOwnNameAndComputesDerivedLevels
 									const first = defined(declared[0])
 									switch (s.defect) {
 										case "a read of its own level":
-											record["OwnLevel"] = materializedDerived(
+											record["OwnLevel"] = storedDerived(
 												"OwnLevel",
 												idsOf(schema.extend([current], "Probe", [first.value], [], []), [
 													first.value
@@ -1336,7 +1336,7 @@ export const schemaAndSchemaExtendExtendsUnderItsOwnNameAndComputesDerivedLevels
 											)
 											break
 										case "a parameter":
-											record["ByAccount"] = materializedDerived(
+											record["ByAccount"] = storedDerived(
 												"ByAccount",
 												queryOver(current).rule((r: RuleValue) => {
 													const { id } = varsOver(Task, "task")
@@ -1346,7 +1346,7 @@ export const schemaAndSchemaExtendExtendsUnderItsOwnNameAndComputesDerivedLevels
 											)
 											break
 										case "a definition that is no query":
-											admitDerived("Bad", {}, "materialized", [])
+											admitDerived("Bad", {}, "stored", [])
 											break
 										case "two bases":
 										case "none":

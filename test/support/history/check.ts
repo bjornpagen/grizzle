@@ -25,10 +25,7 @@ export interface WitnessKey {
 	readonly values: Readonly<Record<string, unknown>>
 }
 
-/**
- * The TransientFailure reasons a law family's writes can meet, each from a concurrent transaction: no family
- * refreshes, so ConcurrentRefresh never applies.
- */
+/** The TransientFailure reasons a law family's writes can meet, each from a concurrent transaction. */
 const concurrentReasons = [
 	"SerializationFailure",
 	"Deadlock",

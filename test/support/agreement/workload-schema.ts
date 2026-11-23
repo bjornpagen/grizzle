@@ -33,7 +33,7 @@ export const Work = schema(
 	[contained(on(Task, "account"), on(Account, "id")), byName]
 )
 
-export const Tally = derived.materialized(
+export const Tally = derived(
 	"Tally",
 	query(Work).rule((r) => {
 		const { id, account } = v(Task, "task")

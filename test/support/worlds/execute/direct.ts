@@ -73,8 +73,14 @@ export interface DirectNames {
 	}>
 	/** The PostgreSQL role a reference names. */
 	readonly role: (ref: RoleRef) => Effect.Effect<string>
-	/** An installed function, schema-qualified and quoted. */
-	readonly function: (fn: WorldFunction) => Effect.Effect<string>
+	/**
+	 * An installed function, schema-qualified and quoted, and its parameters' domains where the installation defines it
+	 * (model/session/direct.ts parametersOf), none where it defines no such function.
+	 */
+	readonly function: (fn: WorldFunction) => Effect.Effect<{
+		readonly name: string
+		readonly parameters: Option.Option<ReadonlyArray<FieldDomain>>
+	}>
 	/** The installation's codebook: the code each closed id's column holds for its handle (ir/codes.ts). */
 	readonly codes: Codebook
 	/** The base's contexts, whose fields' types a facts setting's claims are spelled by. */
@@ -527,11 +533,20 @@ export const directSql = (
 			}
 			case "call": {
 				const fn = yield* names.function(statement.fn)
+				/** An argument as its parameter's column text (columnText), or its own where no parameter types it. */
+				const argText = (a: HostValue, i: number): string =>
+					Option.match(
+						Option.flatMap(fn.parameters, (parameters) => Arr.get(parameters, i)),
+						{
+							onNone: () => valueText(a),
+							onSome: (domain) => columnText(names.codes, domain, a)
+						}
+					)
 				const args = Arr.join(
-					Arr.map(statement.args, (a) => quoteString(valueText(a))),
+					Arr.map(statement.args, (a, i) => quoteString(argText(a, i))),
 					", "
 				)
-				return { sql: `SELECT ${fn}(${args})`, reads: none }
+				return { sql: `SELECT ${fn.name}(${args})`, reads: none }
 			}
 		}
 	})

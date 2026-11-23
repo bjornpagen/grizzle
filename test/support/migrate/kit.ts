@@ -226,8 +226,7 @@ export const migrationFolders = (entries: ReadonlyArray<string>): Array<string> 
  * How a login's committed files beside the snapshot (cli/files.ts loginFiles) stand to the ones generate writes now:
  * `missing`, none committed; `stale`, committed before a change the OpenAPI document states too. The document is read
  * off the served file (packages/openapi/src/openapi.ts) and states the snapshot's fingerprint, as its `version`, and
- * what every program does with the relations it names, a refresh's targets among them, so such a change leaves both
- * files stale.
+ * what every program does with the relations it names, so such a change leaves both files stale.
  */
 export type LoginFilesState = "missing" | "stale"
 

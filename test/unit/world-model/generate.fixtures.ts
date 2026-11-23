@@ -34,8 +34,7 @@ const baseNames = (base: BaseSpec): InstalledNames => {
 			{
 				name: "alpha",
 				entries: { [first.name]: { kind: "whole", relation: first.name } },
-				write: [],
-				refresh: []
+				write: []
 			}
 		],
 		logins: [{ name: "web", roles: ["alpha"] }]

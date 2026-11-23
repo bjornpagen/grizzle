@@ -515,7 +515,7 @@ const relations: ReadonlyArray<RelationDesc> = [
 		name: "Totals",
 		query: unbounded,
 		level: 1,
-		storage: "materialized"
+		storage: "stored"
 	}
 ]
 

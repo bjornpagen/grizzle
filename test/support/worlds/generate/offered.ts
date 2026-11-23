@@ -23,7 +23,7 @@ const holderOf = (state: ModelState): Option.Option<number> =>
 
 /**
  * Whether an action of a kind may name a session under the serial rule, a harness invariant: while a direct session
- * holds its transaction and locks, an action that would write, refresh or interrupt at a Db could wait on them, so it
+ * holds its transaction and locks, an action that would write or interrupt at a Db could wait on them, so it
  * names only the holder or a session that is no Db (closed, or a direct writer's), where no statement is sent.
  */
 const quiet = (state: ModelState, holder: Option.Option<number>, session: number): boolean =>
@@ -36,21 +36,13 @@ const quiet = (state: ModelState, holder: Option.Option<number>, session: number
 const blockedByHolder: ReadonlySet<ActionKind> = new Set(["direct-begin", "migrate", "tamper"])
 
 /** The action kinds that name a session. */
-export type SessionKind =
-	| "read"
-	| "apply"
-	| "refresh"
-	| "close"
-	| "direct"
-	| "direct-end"
-	| "interrupt"
+export type SessionKind = "read" | "apply" | "close" | "direct" | "direct-end" | "interrupt"
 
 /** The use each session-naming kind makes of its session. */
 export const useOf = (kind: SessionKind): SessionUse => {
 	switch (kind) {
 		case "read":
 		case "apply":
-		case "refresh":
 			return "call"
 		case "close":
 			return "db"
@@ -90,7 +82,6 @@ export const allowedFor =
 			case "read":
 				return !refusedClaims(state, session)
 			case "apply":
-			case "refresh":
 			case "interrupt":
 				return !refusedClaims(state, session) && quiet(state, holderOf(state), session)
 		}
@@ -102,11 +93,11 @@ export const allowedFor =
  */
 export const wildCalls =
 	(state: ModelState) =>
-	(session: number): ReadonlyArray<"read" | "apply" | "refresh"> =>
+	(session: number): ReadonlyArray<"read" | "apply"> =>
 		refusedClaims(state, session)
 			? []
 			: quiet(state, holderOf(state), session)
-				? ["read", "apply", "refresh"]
+				? ["read", "apply"]
 				: ["read"]
 
 /**
@@ -117,7 +108,6 @@ export const namesOffered = (state: ModelState, action: Action): boolean => {
 	switch (action.kind) {
 		case "read":
 		case "apply":
-		case "refresh":
 		case "close":
 		case "direct":
 		case "direct-end":
@@ -193,7 +183,6 @@ export const applicable = (state: ModelState, kind: ActionKind): boolean => {
 			return true
 		case "read":
 		case "apply":
-		case "refresh":
 		case "close":
 		case "direct":
 		case "direct-end":

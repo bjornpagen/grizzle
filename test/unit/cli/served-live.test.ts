@@ -1,13 +1,12 @@
 /**
  * An installation's live plan is exactly what its served reads route by: the snapshot generate drafts records as `live`
- * every stored relation some served read's footprint holds, with every field some read routes it by, and every
- * materialized derived relation one reads, and nothing else, and none where no served member reads, so the change
+ * every stored relation some served read's footprint holds, with every field some read routes it by, and nothing else, and none where no served member reads, so the change
  * source an installation installs from it signals every change a served read routes and none no read routes.
  *
- * Over generated public schemas (test/support/oracle/public), each extended by a drawn law level holding a
- * materialized view, and live logins drawn over them (test/support/served-login.ts liveLoginGen), whose first role reads
- * that view and through its query entry, each configured and drafted as `grizzle generate` drafts it (cli/generate.ts
- * draftSchema, then servedFiles): the union of the served files' read footprints, each installed table, view and column
+ * Over generated public schemas (test/support/oracle/public), each extended by a drawn law level holding a derived
+ * relation, and live logins drawn over them (test/support/served-login.ts liveLoginGen), whose first role reads that
+ * relation and through its query entry, each configured and drafted as `grizzle generate` drafts it (cli/generate.ts
+ * draftSchema, then servedFiles): the union of the served files' read footprints, each installed table and column
  * named back as the drafted snapshot's theory names it (its relation's ident, its field's column), is the drafted
  * snapshot's live plan, and snapshot.json writes that plan.
  *
@@ -36,7 +35,6 @@ export const anInstallationsLivePlanIsExactlyTheUnionOfWhatItsServedReadsRouteBy
 		situations: [
 			"a footprint table routed by a field",
 			"a footprint table read table-wide",
-			"a materialized view a read reads",
 			"a relation two reads read"
 		] satisfies ReadonlyArray<Reached<Feature>>,
 		check:
@@ -56,16 +54,10 @@ export const anInstallationsLivePlanIsExactlyTheUnionOfWhatItsServedReadsRouteBy
 			{
 				file: "packages/engine/src/program/workload/compile.ts",
 				original:
-					"\t\t\t.map(([relation, fields]) => ({ relation, routes: [...fields].toSorted(compareStrings) })),",
+					"\t\t\t.map(([relation, fields]) => ({ relation, routes: [...fields].toSorted(compareStrings) }))\n",
 				replacement:
-					"\t\t\t.map(([relation, fields]) => ({ relation, routes: [...fields].toSorted(compareStrings).slice(1) })),",
+					"\t\t\t.map(([relation, fields]) => ({ relation, routes: [...fields].toSorted(compareStrings).slice(1) }))\n",
 				why: "Each table's first routed field is left out of the live plan."
-			},
-			{
-				file: "packages/engine/src/program/workload/compile.ts",
-				original: "\t\tviews: [...views].toSorted(compareStrings)",
-				replacement: "\t\tviews: []",
-				why: "Every materialized derived relation is left out of the live plan."
 			}
 		]
 	}

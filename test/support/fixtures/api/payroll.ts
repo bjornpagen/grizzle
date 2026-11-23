@@ -408,24 +408,27 @@ const runTotalsOver = <const N extends string>(installed: PayrollNamed<N>) =>
 	})
 
 export const runTotals = runTotalsOver(Payroll)
-const RunTotal = derived.materialized("RunTotal", runTotals)
+const RunTotal = derived("RunTotal", runTotals)
 export const Reporting = schema.extend([Payroll], "Reporting", [RunTotal], [])
 
 /**
  * Reporting and its worlds over the Payroll they are given (the declared one, or the one an installation rebuilds under
- * its unique name): five full roles in one login. hr keeps the people and their time, the clerk runs payroll and the
- * ledger, the approver approves, the auditor reads, and the refresher refreshes RunTotal. The login's workload holds
+ * its unique name): four full roles in one login. hr keeps the people and their time, the clerk runs payroll and the
+ * ledger, the approver approves, and the auditor reads. The login's workload holds
  * hr's writes a schedule races: the empty ChangeSet its first call applies, and a leave of the facts each call gives.
  */
 export const reportingWorlds = (installed: PayrollNamed<string>) => {
 	const reporting = schema.extend(
 		[installed],
 		`${installed.name}_1`,
-		[derived.materialized("RunTotal", runTotalsOver(installed))],
+		[derived("RunTotal", runTotalsOver(installed))],
 		[]
 	)
-	/** Every relation a role holds: all but LevyRate, a closed relation, which installs as constants and no table. */
-	const entries = Struct.omit(reporting.relations, ["LevyRate"])
+	/**
+	 * Every relation a role holds: all but LevyRate, a closed relation, which installs as constants and no table, and
+	 * RunTotal, a live derived relation, which a role reads through the relations its definition reads.
+	 */
+	const entries = Struct.omit(reporting.relations, ["LevyRate", "RunTotal"])
 	const hr = role(reporting, "hr", entries, {
 		write: [
 			"Employer",
@@ -458,15 +461,13 @@ export const reportingWorlds = (installed: PayrollNamed<string>) => {
 		write: ["PayRun", "Approval", "Request"]
 	})
 	const auditor = role(reporting, "auditor", entries)
-	const refresher = role(reporting, "refresher", entries, { refresh: ["RunTotal"] })
 	return {
 		Reporting: reporting,
 		hr,
 		clerk,
 		approver,
 		auditor,
-		refresher,
-		server: login(reporting, "server", [hr, clerk, approver, auditor, refresher], {
+		server: login(reporting, "server", [hr, clerk, approver, auditor], {
 			workload: [
 				workload(hr, {
 					noop: ChangeSet.empty(installed),

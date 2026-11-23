@@ -14,9 +14,8 @@ import {
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 
 /**
- * The worlds a fixture description opens in, as values: the full role `writer`, holding every relation whole, writing
- * every stored one and refreshing every derived one, and `reader`, holding every relation whole and writing and
- * refreshing nothing, in the login `server`.
+ * The worlds a fixture description opens in, as values: the full role `writer`, holding every relation whole and
+ * writing every stored one, and `reader`, holding every relation whole and writing nothing, in the login `server`.
  */
 interface FixtureWorlds {
 	readonly login: OwnedLogin
@@ -36,7 +35,7 @@ const fixtureWorlds = (desc: SchemaDesc): FixtureWorlds => {
 	const loc = SourceLoc(`the fixture login of ${desc.name}`, [])
 	const base = accepted(admitSchemaDesc(desc))
 	const writer = accepted(fullRoleDesc(base, "writer", loc))
-	const reader = { ...writer, name: "reader", write: [], refresh: [] }
+	const reader = { ...writer, name: "reader", write: [] }
 	return {
 		login: accepted(
 			Result.flatMap(

@@ -48,7 +48,7 @@ export const heldRelations = <B extends Reality>(base: B): HeldOf<B> =>
 
 /**
  * The relations of B a role can hold, by their own names and values: B's relation map but its closed relations and live
- * derived relations, so a map of any relations holds any relation, roster or materialized derived relation.
+ * derived relations, so a map of any relations holds any relation, roster or stored derived relation.
  */
 export type HeldOf<B extends Reality> = {
 	readonly [K in keyof B["relations"] as B["relations"][K] extends Unheld ? never : K]: Exclude<
@@ -67,8 +67,7 @@ export type HeldOf<B extends Reality> = {
  * schema runs on it. A closed relation has no extent in the database, only its constants, so no role holds it; a roster
  * does, as its code column; a live derived relation's rows are its definition's over the relations the role holds. It is typed by no
  * particular schema (its relations are any relations), so a program over the schema is a program over one of its levels
- * whatever the schema's name; it refreshes nothing, which a type over any relations cannot name. A fixture that needs
- * more than one role, or a refresh, states its own.
+ * whatever the schema's name. A fixture that needs more than one role states its own.
  *
  * A test token is the JSON text of the payload it stands for, in base64url (tokenText, a token68 as every door reads
  * one), and testVerify, every test layer's verify, decodes it: any other token is a TokenRefused, as a verifier's refusal
@@ -92,7 +91,7 @@ export const fullWorld = <B extends Reality, const P extends Readonly<Record<str
 		heldRelations(reality)
 	)
 	const names = Rec.keys(relations)
-	const app = trusted<Role<B, "app", RoleRelations<HeldOf<B>>, string, never, never>>(
+	const app = trusted<Role<B, "app", RoleRelations<HeldOf<B>>, string, never>>(
 		role(reality, "app", relations, {
 			write: Arr.filter(names, (name) => relations[name]?.kind === "relation")
 		})

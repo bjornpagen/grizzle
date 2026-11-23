@@ -23,10 +23,7 @@ import { natural, pg } from "#compiler/public/fields.ts"
 import { key, on, type Relation, relation, schema } from "#compiler/public/schema.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
-import {
-	materializedDerived as runtimeDerived,
-	relationBuilder
-} from "#compiler/schema/relation.ts"
+import { storedDerived as runtimeDerived, relationBuilder } from "#compiler/schema/relation.ts"
 import { schemaBuilder as runtimeSchema } from "#compiler/schema/schema.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { Id } from "#test/support/ids.ts"
@@ -1301,8 +1298,7 @@ export const storableModel = (c: StorableCase): Expected => {
 			return {
 				kind: "named",
 				feature: "headingGroups",
-				refusal:
-					"a derived definition has one heading: a materialized view stores one heading group"
+				refusal: "a derived definition has one heading: a stored table holds one heading group"
 			}
 		case "plain": {
 			if (!Arr.isReadonlyArrayNonEmpty(shape.head)) {

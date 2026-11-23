@@ -341,8 +341,8 @@ export const builtOf = (name: string, m: Model, declaration: Declaration): Built
 	}
 	const declared: Record<string, AnyRelation | AnyClosed> = { Tier, Node, Allowed, Edge, ...stored }
 	const base = schema(name, Rec.values(declared), [law])
-	const writer = role(base, "writer", stored, { write: Rec.keys(stored), refresh: [] })
-	const reader = role(base, "reader", stored, { write: [], refresh: [] })
+	const writer = role(base, "writer", stored, { write: Rec.keys(stored) })
+	const reader = role(base, "reader", stored, { write: [] })
 	return {
 		version: { schema: base, logins: [login(base, "desk", [writer, reader])] },
 		writer,

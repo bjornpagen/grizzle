@@ -524,7 +524,7 @@ export const builtOf = (name: string, m: Model, declaration: Declaration): Built
 	const stored: Record<string, AnyRelation> = { R }
 	const declared: Record<string, AnyRelation | AnyClosed> = { Tier, Weight, Pair, ...stored }
 	const base = schema(name, Rec.values(declared), [])
-	const writer = role(base, "writer", stored, { write: ["R"], refresh: [] })
+	const writer = role(base, "writer", stored, { write: ["R"] })
 	return { version: { schema: base, logins: [login(base, "desk", [writer])] }, writer }
 }
 

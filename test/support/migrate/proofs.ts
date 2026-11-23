@@ -41,7 +41,6 @@ export const printedNames = (
 				case "domain":
 				case "type":
 				case "table":
-				case "storedTable":
 				case "view":
 				case "index":
 				case "function":

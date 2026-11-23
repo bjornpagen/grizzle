@@ -853,8 +853,7 @@ export default defineConfig(
 					"bench/write/changeset.bench.ts",
 					"bench/write/containment.bench.ts",
 					"bench/write/insert.bench.ts",
-					"bench/write/normalize.bench.ts",
-					"bench/write/refresh.bench.ts"
+					"bench/write/normalize.bench.ts"
 				],
 				rules: active({})
 			},

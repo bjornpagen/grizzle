@@ -93,7 +93,7 @@ const definitionsOf = (name: string) => {
 	const s = schema(name, [K, Pairs, Picks, T], [contained(on(T, "k", "n"), on(Pairs, "k", "n"))])
 	return {
 		schema: s,
-		server: login(s, "desk", [role(s, "writer", { T }, { write: ["T"], refresh: [] })])
+		server: login(s, "desk", [role(s, "writer", { T }, { write: ["T"] })])
 	}
 }
 
@@ -147,7 +147,6 @@ export const targetName = (on: CommentTarget): string => {
 			return on.name
 		case "TABLE":
 		case "VIEW":
-		case "MATERIALIZED VIEW":
 		case "DOMAIN":
 		case "TYPE":
 		case "INDEX":

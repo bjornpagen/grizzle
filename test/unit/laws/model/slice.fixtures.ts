@@ -106,7 +106,7 @@ import { upTo } from "#test/support/up-to.ts"
  *
  * The box: two to four relations at the root level, with ordered and counted families (chains included), keys over a
  * selection, containments between them (cycles included), row checks, and containments into a roster or a selection
- * of it; derived relations of them at the level above, and over those at a third, each live or materialized; up to two
+ * of it; derived relations of them at the level above, and over those at a third; up to two
  * relations at the level
  * above, containing into a relation below or into a derived relation of one (a rule over a query, lowered to a foreign
  * key where the derived relation reads its rows by a constant, its triggers kept where by another condition); one or
@@ -181,9 +181,6 @@ interface SliceCase {
 	/** The root relations with a derived relation of their live rows at the level above, and those with one over it. */
 	readonly derived: ReadonlyArray<number>
 	readonly chained: ReadonlyArray<number>
-	/** The derived relations stored as materialized views, which a role holds as entries and a query matches by name;
-	 * the others are live, read through their definitions. */
-	readonly materialized: ReadonlyArray<string>
 	readonly crossings: ReadonlyArray<UpDraw>
 	readonly rules: ReadonlyArray<UpDraw>
 	readonly roles: Arr.NonEmptyReadonlyArray<RoleDraw>
@@ -226,10 +223,6 @@ const caseGen: Gen<SliceCase> = (s) => {
 				)
 			)
 		: []
-	const materialized = Arr.filter(
-		[...Arr.map(derived, derivedName), ...Arr.map(chained, chainedName)],
-		() => s.draw(boolean)
-	)
 	const ordinary = int(0, roots + tops - 1)
 	const roleGen: Gen<RoleDraw> = (t) => ({
 		writes: t.draw(uniqueKeys(ordinary, { min: 0, max: 3 })),
@@ -278,7 +271,6 @@ const caseGen: Gen<SliceCase> = (s) => {
 		),
 		derived,
 		chained,
-		materialized,
 		crossings,
 		rules,
 		roles,
@@ -305,7 +297,6 @@ const sharedRuleGen: Gen<SliceCase> = (s) => {
 		rosters: [],
 		derived: [to],
 		chained: [],
-		materialized: [],
 		crossings: [],
 		rules: [
 			{ from: 0, to },
@@ -459,29 +450,19 @@ const notFalseIdsOf = (relation: string): QueryDesc =>
 const derivedDefinition = (i: number): QueryDesc =>
 	i % 2 === 0 ? idsOf(named(rootName(i)), true) : notFalseIdsOf(rootName(i))
 
-/** How a query reads a derived relation: a materialized one by its name, a live one through `definition`. */
-const derivedSource = (c: SliceCase, name: string, definition: QueryDesc): Source =>
-	c.materialized.includes(name) ? named(name) : { kind: "query", query: definition }
+/** How a query reads a derived relation: through its definition, a live derived relation storing nothing to match. */
+const derivedSource = (definition: QueryDesc): Source => ({ kind: "query", query: definition })
 
 /** The definition of E_i: the ids of D_i, read as a query reads it. */
-const chainedDefinition = (c: SliceCase, i: number): QueryDesc =>
-	idsOf(derivedSource(c, derivedName(i), derivedDefinition(i)), false)
+const chainedDefinition = (i: number): QueryDesc =>
+	idsOf(derivedSource(derivedDefinition(i)), false)
 
-/** The derived level of E_i: one above D_i's where it reads D_i's view, D_i's own where it reads its definition. */
-const chainedLevel = (c: SliceCase, i: number): number =>
-	c.materialized.includes(derivedName(i)) ? 2 : 1
-
-/** A derived relation of derived level `level` over the ids `query` reads, materialized or live as the case draws. */
-const derivedOf = (
-	c: SliceCase,
-	name: string,
-	level: number,
-	query: QueryDesc
-): AuthoredRelationDesc => ({
+/** A live derived relation of derived level 1 over the ids `query` reads. */
+const derivedOf = (name: string, query: QueryDesc): AuthoredRelationDesc => ({
 	kind: "derived",
 	name,
-	level,
-	storage: c.materialized.includes(name) ? "materialized" : "live",
+	level: 1,
+	storage: "live",
 	query
 })
 
@@ -526,7 +507,7 @@ const schemaOf = (c: SliceCase): SchemaDesc => {
 			...upTo(c.tops, (i) =>
 				relation(topName(i), { id: f.integer, a: f.integer, r: f.integer, s: refined }, ["id"])
 			),
-			...Arr.map(c.derived, (i) => derivedOf(c, derivedName(i), 1, derivedDefinition(i)))
+			...Arr.map(c.derived, (i) => derivedOf(derivedName(i), derivedDefinition(i)))
 		],
 		statements: [
 			...Arr.map(c.crossings, (u) =>
@@ -541,9 +522,7 @@ const schemaOf = (c: SliceCase): SchemaDesc => {
 	return Arr.isReadonlyArrayNonEmpty(c.chained)
 		? {
 				name: "SliceChain",
-				relations: Arr.map(c.chained, (i) =>
-					derivedOf(c, chainedName(i), chainedLevel(c, i), chainedDefinition(c, i))
-				),
+				relations: Arr.map(c.chained, (i) => derivedOf(chainedName(i), chainedDefinition(i))),
 				statements: [],
 				bases: [top]
 			}
@@ -580,19 +559,19 @@ export const loginOf = (c: SliceCase): OwnedLogin => {
 }
 
 /**
- * The source a read matches, as its role's query writes it: an entry by its name, a materialized derived relation by
- * its name, a live one through its definition.
+ * The source a read matches, as its role's query writes it: an entry by its name, a derived relation through its
+ * definition.
  */
-const sourceOf = (c: SliceCase, read: Read): Source => {
+const sourceOf = (read: Read): Source => {
 	switch (read.kind) {
 		case "root":
 			return named(rootName(read.at))
 		case "top":
 			return named(topName(read.at))
 		case "derived":
-			return derivedSource(c, derivedName(read.at), derivedDefinition(read.at))
+			return derivedSource(derivedDefinition(read.at))
 		case "chained":
-			return derivedSource(c, chainedName(read.at), chainedDefinition(c, read.at))
+			return derivedSource(chainedDefinition(read.at))
 		case "world":
 			return named(worldName(read.at))
 		case "roster":
@@ -604,14 +583,10 @@ const sourceOf = (c: SliceCase, read: Read): Source => {
  * A query over the sources `reads` names, each matched apart, its head the first's ids; and, when `casts` and the first
  * is a root relation, the first's text cast into `refined`, which only its pattern's domain admits.
  */
-const queryOver = (
-	c: SliceCase,
-	reads: Arr.NonEmptyReadonlyArray<Read>,
-	casts: boolean
-): QueryDesc => {
+const queryOver = (reads: Arr.NonEmptyReadonlyArray<Read>, casts: boolean): QueryDesc => {
 	const [first] = reads
-	const matches = Arr.map(reads, (r, k) => matchOf(sourceOf(c, r), `x${k}`, false))
-	const vars = Arr.map(reads, (r, k) => varOf(sourceOf(c, r), `x${k}`))
+	const matches = Arr.map(reads, (r, k) => matchOf(sourceOf(r), `x${k}`, false))
+	const vars = Arr.map(reads, (r, k) => varOf(sourceOf(r), `x${k}`))
 	if (!casts || first.kind !== "root") {
 		return decodedQuery({
 			kind: "rules",
@@ -666,7 +641,7 @@ export const programOf = (
 		const [first, ...more] = u.reads
 		return {
 			kind: "query",
-			query: queryOver(c, [defined(first, "a query's read"), ...more], u.casts)
+			query: queryOver([defined(first, "a query's read"), ...more], u.casts)
 		}
 	}
 	const [first, ...more] = u.reads
@@ -682,9 +657,7 @@ export const programOf = (
 				}
 			],
 			reads:
-				first === undefined
-					? []
-					: [{ name: "back", query: queryOver(c, [first, ...more], u.casts) }],
+				first === undefined ? [] : [{ name: "back", query: queryOver([first, ...more], u.casts) }],
 			bindings: [],
 			boundRows: {}
 		}),
@@ -696,8 +669,8 @@ export const programOf = (
 /**
  * The slice of the case's programs, computed from the draw alone. Writes: each ChangeSet's targets, closed under the
  * families, a member and its owner writing each other. Names: the writes and every relation a program reads, a whole
- * entry its relation, a world entry the root relation its query reads, a materialized derived relation itself and its
- * definition's reads down every level, and a live one, which a query reads through its definition, what that reads.
+ * entry its relation, a world entry the root relation its query reads, and a derived relation, which a query reads
+ * through its definition, what that reads down every level.
  */
 export const expectedSlice = (
 	c: SliceCase
@@ -714,10 +687,6 @@ export const expectedSlice = (
 		}
 		grown = next.length > 0
 	}
-	/** What reading derived relation `name` names: the relation and what its definition reads where it is materialized,
-	 * a query matching it by name; only what its definition reads where it is live, a query matching its definition. */
-	const viewOr = (name: string, definition: ReadonlyArray<string>): ReadonlyArray<string> =>
-		c.materialized.includes(name) ? [name, ...definition] : definition
 	const readsOf = (read: Read): ReadonlyArray<string> => {
 		switch (read.kind) {
 			case "root":
@@ -725,9 +694,8 @@ export const expectedSlice = (
 			case "top":
 				return [topName(read.at)]
 			case "derived":
-				return viewOr(derivedName(read.at), [rootName(read.at)])
 			case "chained":
-				return viewOr(chainedName(read.at), viewOr(derivedName(read.at), [rootName(read.at)]))
+				return [rootName(read.at)]
 			case "world":
 				return [rootName(read.at)]
 			case "roster":
@@ -1009,7 +977,6 @@ export type SliceFeature =
 	| "a ChangeSet compiled over the slice"
 	| "a query compiled over the slice"
 	| "a query of a derived relation compiled over the slice"
-	| "a materialized derived relation over a live one"
 	| "a query casting into a refinement no named relation declares"
 
 export const features: Arr.NonEmptyReadonlyArray<SliceFeature> = [
@@ -1028,7 +995,6 @@ export const features: Arr.NonEmptyReadonlyArray<SliceFeature> = [
 	"a ChangeSet compiled over the slice",
 	"a query compiled over the slice",
 	"a query of a derived relation compiled over the slice",
-	"a materialized derived relation over a live one",
 	"a query casting into a refinement no named relation declares"
 ]
 
@@ -1111,8 +1077,7 @@ export const byNameGen: Gen<ByName> = (s) => {
 	const c: SliceCase = {
 		...drawn,
 		derived: distinct([...drawn.derived, at]),
-		chained: distinct([...drawn.chained, at]),
-		materialized: Arr.filter(drawn.materialized, (m) => m !== derivedName(at))
+		chained: distinct([...drawn.chained, at])
 	}
 	return { c, at, nested: s.draw(boolean) }
 }

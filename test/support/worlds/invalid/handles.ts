@@ -14,7 +14,7 @@ import type {
 } from "#test/support/worlds/model/types.ts"
 
 /**
- * Which kind of session an action needs: a Db's for a call that sends SQL (a read, a write, a refresh) or for a close,
+ * Which kind of session an action needs: a Db's for a call that sends SQL (a read, a write) or for a close,
  * a direct writer's, or either (an interrupt).
  */
 export type SessionUse = "call" | "db" | "direct" | "either"
@@ -185,12 +185,12 @@ export const isolationArms: BoundaryArms<Isolation> = {
 
 /**
  * The sites a JavaScript caller hands grizzle a value its types refuse: Db.open's role or its token (for any installed
- * role, a role that reads no context included), and a Db's read, apply or refresh, at the sessions `allowed` admits,
+ * role, a role that reads no context included), and a Db's read or apply, at the sessions `allowed` admits,
  * where `calls` says which calls each admits (the serial rule leaves only reads at a Db while a direct transaction is open).
  */
 export const wildSiteGen = (
 	state: ModelState,
-	allowed: (id: number) => ReadonlyArray<"read" | "apply" | "refresh">
+	allowed: (id: number) => ReadonlyArray<"read" | "apply">
 ): Gen<WildSite> => {
 	const [role, ...roles] = knownNonEmpty(
 		Arr.map(state.install.roles, (r) => r.name),

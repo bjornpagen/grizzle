@@ -34,7 +34,7 @@ import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { fieldDescOf } from "#compiler/schema/field-desc.ts"
 import {
-	materializedDerived as runtimeDerived,
+	storedDerived as runtimeDerived,
 	closedBuilder,
 	relationBuilder
 } from "#compiler/schema/relation.ts"

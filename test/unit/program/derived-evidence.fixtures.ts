@@ -5,36 +5,38 @@ import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record } from "effect"
 import type { ConstraintName } from "#compiler/core/ids.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
+import { pg } from "#compiler/public/fields.ts"
+import { query, v } from "#compiler/public/query.ts"
+import { derived, relation, schema, unit } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
-import { Reporting } from "#test/support/fixtures/api/payroll.ts"
-import { AccountBudget, Reports } from "#test/support/fixtures/api/work.ts"
+import { Id } from "#test/support/ids.ts"
 import { installationNamesOf, installationOf } from "#test/support/kernel/naming.ts"
 
 /**
- * A query over a derived relation rests on the view's unique index.
+ * A query over a stored derived relation rests on the key its table's installation enforces.
  *
- * A derived relation inherits a key from its definition (analysis/derived), which its installation enforces with a
- * unique index on the view. The optimized artifact of a query over it is annotated under the schema's derived keys
- * (logical/annotate.ts queryEvidence), so a projection of the view that keeps the inherited key is keyed by it, and the
- * proof that the projection delivers no duplicate rests on the view's index, which a certificate of the template names
- * as a premise. Annotated under the
- * checker's evidence alone, the view's Base is keyed by its whole heading, the projection keeps a DISTINCT, and no
- * premise names the index. A ChangeSet's read-back of the same projection is lowered under the same evidence
- * (write/readback/lower.ts), so the compiled write rests it on the same index.
+ * A stored derived relation inherits a key from its definition (analysis/derived), which its installation enforces on
+ * its table. The optimized artifact of a query over it is annotated under the schema's derived keys (logical/annotate.ts
+ * queryEvidence), so a projection of the stored relation that keeps the inherited key is keyed by it, and the proof that
+ * the projection delivers no duplicate rests on the table's key, which a certificate of the template names as a
+ * premise. Annotated under the checker's evidence alone, the stored relation's Base is keyed by its whole heading, the
+ * projection keeps a DISTINCT, and no premise names the key. A ChangeSet's read-back of the same projection is lowered
+ * under the same evidence (write/readback/lower.ts), so the compiled write rests it on the same key.
  *
- * The oracle generators draw no derived relation, so the space is exhaustive over the public fixtures' views: Reports'
- * AccountBudget, keyed by account, and Reporting's RunTotal, keyed by run, each projected to its key and every proper
- * subset of its other columns, so every projection drops a column. The oracle is that specification: the view's index,
- * named by the installation's own names (viewKeyIndex), is a premise of the template's and of the write's certificates.
+ * The space is exhaustive over a box of its own: Docs' lines of a document, each document a unit, and two stored
+ * relations local to it, DocWords, each document's line count and word sum, keyed by doc, and LongLines, the lines
+ * themselves, keyed by at and doc in heading order, each projected to its key and every proper subset of its other columns, so every
+ * projection drops a column. The oracle is that specification: the table's key, named by the installation's own names
+ * (viewKeyIndex), is a premise of the template's and of the write's certificates.
  *
- * Features: each view, a read-back over a view.
+ * Features: each stored relation, a read-back over one.
  */
 
 /**
- * A view of a fixture schema: the schema, the derived relation and the key it inherits from its definition
+ * A stored derived relation of the box: the schema, the derived relation and the key it inherits from its definition
  * (test/unit/derived/keys.test.ts derives both).
  */
 interface View {
@@ -43,13 +45,38 @@ interface View {
 	readonly key: ReadonlyArray<string>
 }
 
-type ViewName = "AccountBudget" | "RunTotal"
+type ViewName = "DocWords" | "LongLines"
 
-export type EvidenceFeature = ViewName | "read-back over a view"
+export type EvidenceFeature = ViewName | "read-back over a stored relation"
+
+/** A line of a document: its place and its word count. */
+const Line = relation("Line", { doc: Id, at: pg.integer, words: pg.integer }, ["doc", "at"])
+
+const Docs = schema("Docs", [Line], [unit("Document", { doc: Id })])
+
+/** Each document's line count and word sum, keyed by the document, in its unit. */
+const DocWords = derived.stored(
+	"DocWords",
+	query(Docs).rule((r) => {
+		const { doc, at, words } = v(Line, "line")
+		return r.match(Line, { doc, at, words }).find({ doc, lines: r.count(), total: r.sum(words) })
+	})
+)
+
+/** The lines themselves, keyed by their document and place, in the document's unit. */
+const LongLines = derived.stored(
+	"LongLines",
+	query(Docs).rule((r) => {
+		const { doc, at, words } = v(Line, "line")
+		return r.match(Line, { doc, at, words }).find({ doc, at, words })
+	})
+)
+
+const Stored = schema.extend([Docs], "Stored", [DocWords, LongLines], [])
 
 const views: Arr.NonEmptyReadonlyArray<View> = [
-	{ schema: Reports, relation: AccountBudget, key: ["account"] },
-	{ schema: Reporting, relation: Reporting.relations.RunTotal, key: ["run"] }
+	{ schema: Stored, relation: DocWords, key: ["doc"] },
+	{ schema: Stored, relation: LongLines, key: ["at", "doc"] }
 ]
 
 /**

@@ -150,8 +150,8 @@ const sorted = (texts: Iterable<string>): ReadonlyArray<string> => Arr.sort(text
  * node on it fixes a column carrying the field's value (or one equal to it there, by the node's classes) to that
  * parameter, or an edge on it is an occurrence's constant of it; it is tied for the program when it is on every path to
  * a root, and a root's own answer reads every row, so a path that reaches a root untied ties nothing. A stored
- * relation's field routes by the least-named declared scalar parameter every Base over it ties it to, its carrier
- * routable; a materialized view is read whole.
+ * relation's field, an authored one's or a stored derived one's, routes by the least-named declared scalar parameter
+ * every Base over it ties it to, its carrier routable.
  */
 export const climbedFootprint = ({ dag, facts, params }: AnalyzedQuery): Footprint => {
 	const order = topoOrder(dag)
@@ -188,14 +188,9 @@ export const climbedFootprint = ({ dag, facts, params }: AnalyzedQuery): Footpri
 		Arr.flatMap(params, (p) => (p.kind === "scalar" ? [[p.id, p.name] as const] : []))
 	)
 	const scans = new Map<string, Array<NodeOf<"Base">>>()
-	const views = new Set<string>()
 	for (const node of order) {
 		if (node.kind === "Base") {
-			if (node.relationKind === "derived") {
-				views.add(node.relation)
-			} else {
-				scans.set(node.relation, [...(scans.get(node.relation) ?? []), node])
-			}
+			scans.set(node.relation, [...(scans.get(node.relation) ?? []), node])
 		}
 	}
 	const tables = new Map<string, ReadonlyMap<string, string>>()
@@ -216,11 +211,11 @@ export const climbedFootprint = ({ dag, facts, params }: AnalyzedQuery): Footpri
 		}
 		tables.set(relation, new Map(routes))
 	}
-	return { tables, views: new Set(sorted(views)) }
+	return { tables }
 }
 
 /**
- * A footprint as a served read names it, under the installation's names `names`: each table and view by its installed
+ * A footprint as a served read names it, under the installation's names `names`: each table by its installed
  * identifier, each routed field by its installed column; read off the naming door, never through program/served.ts.
  */
 export const installedFootprint = (footprint: Footprint, names: PhysicalNames): ServedFootprint => {
@@ -231,9 +226,6 @@ export const installedFootprint = (footprint: Footprint, names: PhysicalNames): 
 			columns[names.column(relation, field)] = param
 		}
 		out[names.relation(relation).name] = columns
-	}
-	for (const view of footprint.views) {
-		out[names.relation(view).name] = {}
 	}
 	return out
 }

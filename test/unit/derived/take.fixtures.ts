@@ -13,7 +13,7 @@ import { queryOver as query, type QueryValue, varsOver as v } from "#compiler/qu
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
 import { ownLogin, rostersOf } from "#compiler/schema/own.ts"
-import { materializedDerived, relationBuilder as relation } from "#compiler/schema/relation.ts"
+import { relationBuilder as relation } from "#compiler/schema/relation.ts"
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import { loginDescOf, roleBuilder as role } from "#compiler/schema/world.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
@@ -35,9 +35,6 @@ const forms = { rule: "one rule", union: "a union", count: "a count" } as const
 
 type Form = keyof typeof forms
 
-/** Who owns a definition, by the name a case notes it under. */
-type Owner = "a derived relation" | "a world entry"
-
 /**
  * A definition that ends in `.orderBy(...).take(k)` over the base relation R, whose every rule matches R binding each
  * field to a variable of its own: its form; the fields its head finds, those whose flag is set, R's first where none
@@ -51,13 +48,12 @@ interface DefinitionSketch {
 }
 
 /**
- * A case: R's field types, how many of its first fields its primary key holds, and two definitions over R, a derived
- * relation's and a role's query entry's.
+ * A case: R's field types, how many of its first fields its primary key holds, and a role's query entry's definition
+ * over R.
  */
 interface Sketch {
 	readonly fields: Arr.NonEmptyReadonlyArray<FieldType>
 	readonly key: number
-	readonly derived: DefinitionSketch
 	readonly world: DefinitionSketch
 }
 
@@ -73,21 +69,17 @@ const definitionGen: Gen<DefinitionSketch> = (source) => ({
 export const sketchGen: Gen<Sketch> = (source) => ({
 	fields: [source.draw(fieldTypeGen), ...source.draw(array(fieldTypeGen, { min: 0, max: 2 }))],
 	key: source.draw(int(1, 3)),
-	derived: source.draw(definitionGen),
 	world: source.draw(definitionGen)
 })
 
-/** What a case reached: which owner's definition takes from which form, how many rows a take keeps, a descending key. */
+/** What a case reached: which form the entry's definition takes from, how many rows a take keeps, a descending key. */
 export type TakeFeature =
-	| `${Owner} taking from ${(typeof forms)[Form]}`
+	| `a world entry taking from ${(typeof forms)[Form]}`
 	| "a take of one row"
 	| "a take of two rows or more"
 	| "a descending key"
 
 export const situations: Arr.NonEmptyReadonlyArray<TakeFeature> = [
-	"a derived relation taking from one rule",
-	"a derived relation taking from a union",
-	"a derived relation taking from a count",
 	"a world entry taking from one rule",
 	"a world entry taking from a union",
 	"a world entry taking from a count",
@@ -96,8 +88,8 @@ export const situations: Arr.NonEmptyReadonlyArray<TakeFeature> = [
 	"a descending key"
 ]
 
-export const featuresOf = (owner: Owner, d: DefinitionSketch): ReadonlyArray<TakeFeature> => [
-	`${owner} taking from ${forms[d.form]}`,
+export const featuresOf = (d: DefinitionSketch): ReadonlyArray<TakeFeature> => [
+	`a world entry taking from ${forms[d.form]}`,
 	d.k === 1 ? "a take of one row" : "a take of two rows or more",
 	...(Arr.some(d.order, (o) => o.desc) ? (["a descending key"] as const) : [])
 ]
@@ -134,10 +126,7 @@ const definitionOf = (
 	return arms.orderBy(...argumentsOf(order)).take(d.k)
 }
 
-/**
- * A case's installation: R, the derived relation D over it, and the role `reader` of the whole entry R and the query
- * entry W over R, in the login `app`.
- */
+/** A case's installation: R, and the role `reader` of the whole entry R and the query entry W over R, in the login `app`. */
 const installed = (s: Sketch): ReadonlyArray<SqlStatement> => {
 	const fields = Arr.map(s.fields, (_, i) => `f${i}` as const)
 	const R = relation(
@@ -146,15 +135,8 @@ const installed = (s: Sketch): ReadonlyArray<SqlStatement> => {
 		Arr.take(fields, s.key),
 		[]
 	)
-	const Base = schema("Base", [R], [], [])
-	const D = materializedDerived("D", definitionOf(Base, R, fields, s.derived), [])
-	const S = schema.extend([Base], "S", [D], [], [])
-	const reader = role(
-		S,
-		"reader",
-		{ R, W: definitionOf(S, R, fields, s.world) },
-		{ write: [], refresh: [] }
-	)
+	const S = schema("Base", [R], [], [])
+	const reader = role(S, "reader", { R, W: definitionOf(S, R, fields, s.world) }, { write: [] })
 	const app = defined(loginDescOf(login(S, "app", [reader])), "a login built by login(...)")
 	const owned = owning(S)
 	return succeeded(
@@ -191,17 +173,14 @@ const orderings = (
 	return { limited, unlimited }
 }
 
-/** The installed views of a case hold no order beside a take, and the derived relation's and the entry's hold theirs. */
+/** The installed views of a case hold no order beside a take, and the entry's holds its own. */
 export const installsNoOrder = (s: Sketch): void => {
-	const views = Arr.filter(
-		installed(s),
-		(st) => st.kind === "createStoredTable" || st.kind === "createView"
-	)
+	const views = Arr.filter(installed(s), (st) => st.kind === "createView")
 	for (const view of views) {
 		assert.equal(orderings(view).unlimited, 0, "a view SELECT that orders rows it does not limit")
 	}
-	const taking = (kind: "createStoredTable" | "createView"): boolean =>
-		Arr.some(views, (st) => st.kind === kind && orderings(st).limited > 0)
-	assert.ok(taking("createStoredTable"), "the derived relation's view holds its take")
-	assert.ok(taking("createView"), "the query entry's view holds its take")
+	assert.ok(
+		Arr.some(views, (st) => orderings(st).limited > 0),
+		"the query entry's view holds its take"
+	)
 }

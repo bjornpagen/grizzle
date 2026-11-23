@@ -143,8 +143,7 @@ export const roomsBase: BaseSpec = {
 	],
 	contexts: [
 		{ name: "Session", claim: { kind: "top-level" }, fields: [{ name: "sub", domain: subject }] }
-	],
-	derived: []
+	]
 }
 
 const variable = (name: string): Term => ({ kind: "var", name })
@@ -192,8 +191,7 @@ export const roomsInstall: InstallSpec = {
 				Adjoins: whole("Adjoins"),
 				Kind: whole("Kind")
 			},
-			write: ["MyBooking", "MyEvent", "MyTalk"],
-			refresh: []
+			write: ["MyBooking", "MyEvent", "MyTalk"]
 		},
 		{
 			name: "keeper",
@@ -212,8 +210,7 @@ export const roomsInstall: InstallSpec = {
 				TalkRooms: query(rule([of("Label", { room, kind: talk })], { room }, [])),
 				Booking: whole("Booking")
 			},
-			write: ["Rooms", "BigOpening", "TalkRooms"],
-			refresh: []
+			write: ["Rooms", "BigOpening", "TalkRooms"]
 		},
 		{
 			name: "admin",
@@ -227,8 +224,7 @@ export const roomsInstall: InstallSpec = {
 				Adjoins: whole("Adjoins"),
 				Kind: whole("Kind")
 			},
-			write: ["Room", "Opening", "Booking", "Event", "Talk", "Label", "Adjoins"],
-			refresh: []
+			write: ["Room", "Opening", "Booking", "Event", "Talk", "Label", "Adjoins"]
 		}
 	],
 	logins: [

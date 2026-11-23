@@ -2,11 +2,23 @@
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { defined } from "@bjornpagen/testing/assert"
-import { array, boolean, constant, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
+import {
+	array,
+	boolean,
+	constant,
+	element,
+	type Gen,
+	int,
+	map,
+	oneOf
+} from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
+import type { SchemaDesc } from "#compiler/ir/desc.ts"
 import { conservativeMeta, type RelNode, type ValidDag } from "#compiler/ir/rel.ts"
 import { plainType } from "#compiler/scalar/native.ts"
-import { Ir } from "#test/support/fixtures/ir/build.ts"
+import { ownedFixture } from "#test/support/evidence.ts"
+import { Ir, SchemaModel } from "#test/support/fixtures/ir/build.ts"
+import { decodedSchema, f, relation } from "#test/support/fixtures/ir/desc.ts"
 import { workModel } from "#test/support/fixtures/ir/work.ts"
 
 /**
@@ -245,4 +257,64 @@ export const keptParameterFacts = (keeping: Keeping): ValidDag => {
 			: q.semi(rows, q.input("probes", [["n", int4]]), [["n", "n"]])
 	)
 	return q.build(kept).dag
+}
+
+/** Reading: a double precision x of each id, beside an int4 n, keyed by its id. */
+const ReadingDesc: SchemaDesc = decodedSchema({
+	name: "Readings",
+	relations: [
+		relation("Reading", { id: f.uuid, x: f.pg("double precision"), n: f.integer }, ["id"])
+	],
+	statements: [],
+	bases: []
+})
+
+const readingModel = (): SchemaModel => new SchemaModel(ownedFixture(ReadingDesc), {})
+
+/** How a region reads Reading's id: bound to a variable the projection delivers, bound to one it drops, or a literal. */
+const readingIds = ["delivered", "dropped", "fixed"] as const
+export type ReadingId = (typeof readingIds)[number]
+
+/** A projection of a region over Reading: its id as `id` says, x always, and n or not. */
+export interface FactCase {
+	readonly id: ReadingId
+	readonly n: boolean
+}
+
+export const factCaseGen: Gen<FactCase> = (source) => ({
+	id: source.draw(element(readingIds)),
+	n: source.draw(boolean)
+})
+
+/**
+ * The projection a case reads: a region over Reading binding x, and its id to a variable or fixing it by a literal,
+ * beside, where a literal fixes it, every other reading's id, so the region holds many rows of the one fact's x; projected
+ * to x (a copy of a float, which no merge reads through its canonical zero), its id where it delivers it, and n where
+ * the case draws it.
+ */
+export const readingProjection = (c: FactCase): ValidDag => {
+	const q = new Ir(readingModel())
+	const reading = q.base("Reading")
+	const region = q.region(
+		[
+			{
+				source: reading,
+				bind: { x: "x", n: "n", ...(c.id === "fixed" ? {} : { id: "id" }) },
+				constants:
+					c.id === "fixed"
+						? { id: q.litFor(reading, "id", "5eeda101-7c3e-4a1b-9d2f-0e5c7a9b3d1f") }
+						: {}
+			},
+			...(c.id === "fixed"
+				? [{ source: q.base("Reading"), bind: { id: "other" }, constants: {} }]
+				: [])
+		],
+		conservativeMeta
+	)
+	const out: ReadonlyArray<readonly [string, string]> = [
+		["x", "x"],
+		...(c.id === "delivered" ? [["id", "id"] as const] : []),
+		...(c.n ? [["n", "n"] as const] : [])
+	]
+	return q.build(q.project(region, out, conservativeMeta)).dag
 }

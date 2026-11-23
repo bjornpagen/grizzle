@@ -11,7 +11,7 @@
  *
  * - **Property:** a case draws a refined text type (an alternation, a character class, a byte-bounded pattern), where
  *   it and the contract Count are named (by the functions' results alone, or by stored fields too, the control), and
- *   how a served program reads them (a materialized derived relation whose definition reads a function's rows and finds
+ *   how a served program reads them (a stored derived relation whose definition reads a function's rows and finds
  *   none of their fields, a function's rows, whose Count field no read finds but its cast checks, a field of rows of
  *   its one row, its value of the refinement, its value of the contract, a contract only the query's cast declares, its
  *   rows carried by a ChangeSet's shared sub-query, r.tokens' token found or carried). The login compiles as generate

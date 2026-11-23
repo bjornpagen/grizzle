@@ -36,7 +36,7 @@ import {
 	wholeEntriesOf,
 	writableNamesOf
 } from "#compiler/public/schema.ts"
-import { paged, refresh, workload } from "#compiler/public/workload.ts"
+import { paged, workload } from "#compiler/public/workload.ts"
 import { Id, type IdValue } from "#test/support/ids.ts"
 
 export const Instant = contract("Instant", pg.bigint)
@@ -622,7 +622,7 @@ export const dailySpendDefinition = query(Platform).rule((r) => {
 		.where(r.pointIn(Range.lower(during, Instant), span))
 		.find({ workspace, day, amount: r.sum(amount) })
 })
-const DailySpend = derived.materialized("DailySpend", dailySpendDefinition)
+const DailySpend = derived("DailySpend", dailySpendDefinition)
 
 /**
  * The declared name of Billing over a platform declared as `root`: the allocation and its depth
@@ -635,15 +635,14 @@ export const Billing = schema.extend([Platform], billingOf("Platform"), [DailySp
 /**
  * The platform and its Billing extension rebuilt under another name, as a test installs them, Billing under the
  * allocation's name for it (test/support/compile.ts levelNameAt), with Billing's world: a full role writing every
- * stored relation and refreshing DailySpend, in its login, whose workload is the billing role's served programs
+ * stored relation, in its login, whose workload is the billing role's served programs
  * (billingPrograms).
  */
 export const platformAt = (name: string) => {
 	const base = platformOf(name)
 	const extended = schema.extend([base], billingOf(name), [DailySpend], [])
 	const billing = role(extended, "billing", wholeEntriesOf(extended), {
-		write: writableNamesOf(extended),
-		refresh: ["DailySpend"]
+		write: writableNamesOf(extended)
 	})
 	return {
 		Platform: base,
@@ -1656,14 +1655,13 @@ const load = ChangeSet.empty(Platform)
 	.insert(Refund, [])
 
 /**
- * The billing role's served workload (platformAt): every read, invoices paged; the load of a platform's facts;
- * DailySpend's refresh; and the platform's writes.
+ * The billing role's served workload (platformAt): every read, invoices paged; the load of a platform's facts; and
+ * the platform's writes.
  */
 const billingPrograms = {
 	...platformPrograms,
 	invoices: paged(invoices),
 	load,
-	refreshDailySpend: refresh([DailySpend]),
 	...platformWrites
 } as const
 

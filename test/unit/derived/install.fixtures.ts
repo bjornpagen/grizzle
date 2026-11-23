@@ -3,13 +3,19 @@
 import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int, shuffled, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
-import { decodedQuery, f, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
+import { decodedQuery, f, relation, type SchemaDesc, unit } from "#test/support/fixtures/ir/desc.ts"
 
 const Org = relation("Org", { id: f.uuid }, ["id"])
 
-const Base: SchemaDesc = { name: "Base", relations: [Org], statements: [], bases: [] }
+/** Org, in a unit of its id, so a stored relation over it sits in that unit too. */
+const Base: SchemaDesc = {
+	name: "Base",
+	relations: [Org],
+	statements: [unit("Organization", { id: f.uuid })],
+	bases: []
+}
 
-/** A level over Base holding a derived relation over Org whose head binds Org's id under two names. */
+/** A level over Base holding a stored derived relation over Org whose head binds Org's id under two names. */
 export const pairs = (a: string, b: string): SchemaDesc => ({
 	name: "Upper",
 	bases: [Base],
@@ -18,7 +24,7 @@ export const pairs = (a: string, b: string): SchemaDesc => ({
 			kind: "derived",
 			name: "Pairs",
 			level: 1,
-			storage: "materialized",
+			storage: "stored",
 			query: decodedQuery({
 				kind: "rules",
 				arms: [

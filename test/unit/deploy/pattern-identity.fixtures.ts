@@ -195,7 +195,7 @@ const matching = (pattern: PatternValue) =>
 /**
  * The case's schema over one pattern: T, its text bounded, and S at its base; a row check of the pattern, a row check of
  * its guard, a key over the rows of T it keeps and a containment from them into S, each reading T's field `keyed`; and
- * above the base D, the rows of T the pattern keeps, a materialized derived relation, with a key over it.
+ * above the base D, the rows of T the pattern keeps, a live derived relation, with a key over it.
  */
 const schemaOver = (pattern: PatternValue, keyed: string): SchemaDesc => ({
 	name: "Judged",

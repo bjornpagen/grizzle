@@ -1,6 +1,6 @@
 /**
  * Two versions of a schema's role worlds, one knob apart, drafted with no database: a relation dropped or added, a
- * column a materialized view and roles read converted to a wider or a narrower type, a role that reads more or less, a role whose writes change, and a
+ * column a stored derived relation and roles read converted to a wider or a narrower type, a role that reads more or less, a role whose writes change, and a
  * second login added or dropped, every such pair of versions exhausted.
  *
  * The oracle is a model of the privileges PostgreSQL holds (aclchk.c's units: one privilege of one grantee on one
@@ -19,7 +19,7 @@ import { featureOf, judge, type TurnFeature, turns } from "#test/unit/deploy/gra
 /** A migration of role worlds grants and revokes exactly the privileges the two versions hold apart, each once, so an object it keeps keeps its grants and an object it drops revokes nothing. */
 export const aMigrationOfRoleWorldsGrantsAndRevokesExactlyThePrivilegesTheTwoVersionsHoldApartEachOnce =
 	property.exhaust(turns, {
-		box: "every pair of versions one knob apart: C held or not, A's note an integer or a bigint (read by the materialized Listing), the reader reading A, A and B or every relation, the writer writing nothing, A or every relation and refreshing the materialized Listing, and the counter login or not",
+		box: "every pair of versions one knob apart: C held or not, A's note an integer or a bigint (read by the stored Listing), the reader reading A, A and B or every relation, the writer writing nothing, A or every relation and holding the stored Listing whole, and the counter login or not",
 		needs: {},
 		situations: [
 			"a relation dropped",
@@ -45,14 +45,6 @@ export const aMigrationOfRoleWorldsGrantsAndRevokesExactlyThePrivilegesTheTwoVer
 		kills: [
 			{
 				file: "packages/engine/src/deploy/diff/diff.ts",
-				original:
-					"\t\t\t(!wasHeld.has(h.key) || reset.has(objectKey(h.object)) || columnRevoked.has(h.key))",
-				replacement:
-					"\t\t\t(wasHeld.size >= 0 || reset.has(objectKey(h.object)) || columnRevoked.has(h.key))",
-				why: "Every privilege the target states granted again (the old per-role replacement, diff.ts grants): a login added grants the desk login's roles what they hold; the property fails."
-			},
-			{
-				file: "packages/engine/src/deploy/diff/diff.ts",
 				original: "\t\t\t!(dropped.has(objectKey(h.object)) && kept(h.grantee))",
 				replacement:
 					"\t\t\t!(dropped.has(objectKey(h.object)) && kept(h.grantee) && dropped.size < 0)",
@@ -62,8 +54,9 @@ export const aMigrationOfRoleWorldsGrantsAndRevokesExactlyThePrivilegesTheTwoVer
 				file: "packages/engine/src/deploy/diff/diff.ts",
 				original:
 					"\t\t\t(!wasHeld.has(h.key) || reset.has(objectKey(h.object)) || columnRevoked.has(h.key))",
-				replacement: "\t\t\t(!wasHeld.has(h.key) || columnRevoked.has(h.key))",
-				why: "An object created again not granted again (diff.ts grants granted): the materialized Listing recreated over a converted column loses the writer's MAINTAIN; the property fails."
+				replacement:
+					"\t\t\t(wasHeld.size >= 0 || reset.has(objectKey(h.object)) || columnRevoked.has(h.key))",
+				why: "Every privilege the target states granted again (the old per-role replacement, diff.ts grants): a login added grants the desk login's roles what they hold; the property fails."
 			},
 			{
 				file: "packages/engine/src/deploy/diff/diff.ts",

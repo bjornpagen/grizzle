@@ -739,16 +739,14 @@ const installOf = (m: Model): InstallSpec => ({
 				claim: { kind: "top-level" },
 				fields: Arr.map(m.context.claims, (c) => ({ name: c.name, domain: wide }))
 			}
-		],
-		derived: []
+		]
 	},
 	roles: Arr.map(m.roles, (r): RoleSpec => ({
 		name: r.name,
 		entries: Rec.fromEntries(
 			Arr.map(r.entries, (e) => [entryName(m, e), entrySpec(m, e)] as const)
 		),
-		write: [],
-		refresh: []
+		write: []
 	})),
 	logins: Arr.map(m.logins, (l): LoginSpec => ({ name: loginName(l), roles: l.roles }))
 })

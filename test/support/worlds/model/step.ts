@@ -1,11 +1,6 @@
-import { Array as Arr, Option, Record as Rec } from "effect"
+import { Array as Arr, Record as Rec } from "effect"
 import { sameValue, valueText } from "#test/support/laws/model.ts"
-import {
-	entryRows,
-	evaluateRules,
-	hostSchemaOf,
-	isMember
-} from "#test/support/worlds/model/host.ts"
+import { entryRows, hostSchemaOf, isMember } from "#test/support/worlds/model/host.ts"
 import { everyMeets, factMeets, sameFacts } from "#test/support/worlds/model/match.ts"
 import {
 	attachedField,
@@ -66,23 +61,8 @@ import type {
 } from "#test/support/worlds/model/types.ts"
 
 /**
- * Each derived relation's facts over `reality`, in declaration order, so one reads the derived relations declared before
- * it as they now stand.
- */
-const derivedOver = (
-	install: InstallSpec,
-	reality: HostState
-): Readonly<Record<string, ReadonlyArray<HostFact>>> => {
-	const derived: Record<string, ReadonlyArray<HostFact>> = {}
-	for (const d of install.base.derived) {
-		derived[d.name] = evaluateRules(install.base, d.rules, reality, derived, {})
-	}
-	return derived
-}
-
-/**
  * The state of a fresh installation over a loaded reality: no session, no pooled connection, nothing tampered, every
- * migration applied, and each derived relation populated from reality, as the load's refresh leaves it.
+ * migration applied.
  */
 export const initialState = (
 	install: InstallSpec,
@@ -94,7 +74,6 @@ export const initialState = (
 	host: hostSchemaOf(install.base, names),
 	roles: installedRoles(install),
 	reality,
-	derived: derivedOver(install, reality),
 	sessions: [],
 	connections: [],
 	tampered: [],
@@ -300,38 +279,6 @@ const readCall = (
 }
 
 /**
- * A refresh of a derived relation (README "Derived tables"): only one the role's refresh list names, which then holds its
- * definition's result over reality and the derived relations as they stand.
- */
-const refreshCall = (state: ModelState, session: DbSessionState, relation: string): Called => {
-	const role = roleOf(state.install, session.role)
-	const derived = Option.getOrUndefined(
-		Arr.findFirst(state.install.base.derived, (d) => d.name === relation)
-	)
-	if (role === undefined || derived === undefined || !role.refresh.includes(relation)) {
-		return { kind: "host", refusals: [{ kind: "compile-refused" }] }
-	}
-	return {
-		kind: "sends",
-		sql: () => {
-			const facts = evaluateRules(
-				state.install.base,
-				derived.rules,
-				state.reality,
-				state.derived,
-				{}
-			)
-			return [
-				{
-					observation: { kind: "ok" },
-					next: { ...state, derived: { ...state.derived, [relation]: facts } }
-				}
-			]
-		}
-	}
-}
-
-/**
  * Every outcome the README allows for one action from one state, each with the state it leads to. Concurrency is not
  * here: one action runs at a time, and a race is a fold of `step` over serial orders. SSI's serialization failure,
  * which PostgreSQL may raise in any SERIALIZABLE transaction, is: a Db call's TransientFailure (dbCall), a direct
@@ -351,8 +298,6 @@ export const step = (state: ModelState, action: Action): Arr.NonEmptyReadonlyArr
 			return dbCall(state, action.session, (view, s) =>
 				applyCall(view, s, action.strata, action.reads)
 			)
-		case "refresh":
-			return dbCall(state, action.session, (view, s) => refreshCall(view, s, action.relation))
 		case "close": {
 			const s = sessionAt(state, action.session)
 			if (s === undefined || s.kind === "closed") {

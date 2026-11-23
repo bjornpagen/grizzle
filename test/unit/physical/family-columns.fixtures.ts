@@ -132,7 +132,7 @@ const clerkOf = (
 				] as const
 			})
 		),
-		{ write: Arr.map(written, entryName), refresh: [] }
+		{ write: Arr.map(written, entryName) }
 	)
 
 /** The installation of a case's schema with its login. */
@@ -144,7 +144,7 @@ const installationOf = (r: Resolved): Installation => {
 			Families,
 			"writer",
 			Rec.fromEntries(Arr.map(r.whole, (name) => [name, byName(name)] as const)),
-			{ write: r.whole, refresh: [] }
+			{ write: r.whole }
 		)
 	const clerk = () => clerkOf(Families, r, r.entries)
 	const viewer = () =>
@@ -157,7 +157,7 @@ const installationOf = (r: Resolved): Installation => {
 					return rule.match(Item, vars).find(vars)
 				})
 			},
-			{ write: [], refresh: [] }
+			{ write: [] }
 		)
 	const roles = nonEmpty(
 		[

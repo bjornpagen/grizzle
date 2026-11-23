@@ -155,8 +155,6 @@ const memberRosters = (member: ServedMember): ReadonlyArray<string> => {
 				...decoderRosters(change.decoder),
 				...Arr.flatMap(change.program.params, paramRosters)
 			])
-		case "refresh":
-			return []
 	}
 }
 
@@ -213,7 +211,7 @@ export interface Raised {
 	readonly entries: ReadonlyMap<StoredRelationName, EntryName>
 }
 
-/** The parameters a served member's calls supply: its read's, or each of its ChangeSet's variants'; a refresh's none. */
+/** The parameters a served member's calls supply: its read's, or each of its ChangeSet's variants'. */
 const memberParams = (member: ServedMember): ReadonlyArray<CallerParamDecl> => {
 	switch (member.kind) {
 		case "read":
@@ -222,8 +220,6 @@ const memberParams = (member: ServedMember): ReadonlyArray<CallerParamDecl> => {
 			return member.read.params
 		case "change":
 			return Arr.flatMap(changesOf(member.variants), (change) => change.program.params)
-		case "refresh":
-			return []
 	}
 }
 
@@ -246,8 +242,6 @@ const memberClocked = (member: WorkloadForm): ReadonlyArray<ClockParamDecl> => {
 			return member.form.bound.compiled.compiled.template.clocked
 		case "change":
 			return Arr.flatMap(compiledWrites(member.variants), (write) => write.clocked)
-		case "refresh":
-			return []
 	}
 }
 

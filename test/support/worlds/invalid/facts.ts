@@ -700,15 +700,11 @@ export const opStrata = (
 const dedupe = (facts: ReadonlyArray<HostFact>): ReadonlyArray<HostFact> => uniqueFacts(facts)
 
 /**
- * A fact of a relation of the base (a derived one included, which a direct writer may try to write) from the pools, the
- * stored facts, a stored fact with one field changed, or with a contract field just outside its bounds.
+ * A fact of a relation of the base from the pools, the stored facts, a stored fact with one field changed, or with a contract field just outside its bounds.
  */
 export const baseFactGen = (state: ModelState, relation: string): Gen<HostFact> => {
 	const heading = fieldsOfSource(state.install.base, relation)
-	const existing =
-		state.reality.get(relation) ??
-		(Rec.has(state.derived, relation) ? state.derived[relation] : undefined) ??
-		[]
+	const existing = state.reality.get(relation) ?? []
 	const refused = refusedField(heading)
 	const modes = ["fresh", "stored", "changed", "refused"] as const
 	return (source) => {

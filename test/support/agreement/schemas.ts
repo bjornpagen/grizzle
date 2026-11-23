@@ -65,7 +65,7 @@ import {
 	admitRoster,
 	bitsOf,
 	closedBuilder as closed,
-	materializedDerived,
+	derivedBuilder,
 	drawnField,
 	closedRelation,
 	generatedField,
@@ -304,8 +304,6 @@ const schemaFaults = [
 	"entryOutsideBase",
 	"writeClosed",
 	"writeStranger",
-	"writeDerived",
-	"refreshBase",
 	"parameterizedDefinition",
 	"derivedAtOwnLevel",
 	"derivedInRoot",
@@ -522,20 +520,12 @@ const refusals: { readonly [F in SchemaFault | KeptFault]: Refusing } = {
 		{ tag: "RoleRefused", rule: "writeOutside" },
 		"a write list names relations of the role"
 	),
-	writeDerived: structural(
-		{ tag: "RoleRefused", rule: "writeKind" },
-		"a write list never names a derived relation"
-	),
-	refreshBase: structural(
-		{ tag: "RoleRefused", rule: "refreshKind" },
-		"a refresh list names derived relations only"
-	),
 	parameterizedDefinition: structural(
 		{ tag: "MalformedDescription" },
 		"a derived definition is parameterless"
 	),
 	derivedAtOwnLevel: structural(
-		{ tag: "MalformedDescription" },
+		{ refused: "a derived definition is a query over a level of the schema it extends" },
 		"a derived relation is declared above the level its definition reads"
 	),
 	derivedInRoot: structural(
@@ -739,7 +729,7 @@ const refusals: { readonly [F in SchemaFault | KeptFault]: Refusing } = {
 	derivedOverBase: named("the relation is not in this query's schema"),
 	emptyHead: named("a derived definition has at least one field"),
 	headingGroups: named(
-		"a derived definition has one heading: a materialized view stores one heading group"
+		"a derived definition has one heading: a stored table holds one heading group"
 	),
 	atShort: structural({ tag: "MalformedDescription" }, "C.at takes one key value per key field"),
 	atMissing: structural(
@@ -1148,11 +1138,10 @@ const sideForm: { readonly [K in DerivedSide]: SchemaForm } = {
 const extraFields = (spec: DerivedSpec): ReadonlyArray<string> =>
 	Arr.flatMap(spec.extras, (x) => (x.kind === "literal" ? [] : [x.field]))
 
-/** A role over the extension when there is one, else the base: its write list and refresh list. */
+/** A role over the extension when there is one, else the base: its write list. */
 interface RoleSpec {
 	readonly name: string
 	readonly write: ReadonlyArray<string>
-	readonly refresh: ReadonlyArray<string>
 }
 
 /** A case's base: valid by construction, the engine builds and compiles it. */
@@ -1982,21 +1971,14 @@ const alternativesPack = (
 	}
 }
 
-/** The roles of a case: a reader of every relation, and a writer of drawn ordinary relations, refreshing derived ones. */
+/** The roles of a case: a reader of every relation, and a writer of drawn ordinary relations. */
 const rolesOf = (
 	d: Drawing,
-	relations: Arr.NonEmptyReadonlyArray<RelationSpec>,
-	derivedSpec: DerivedSpec | undefined
+	relations: Arr.NonEmptyReadonlyArray<RelationSpec>
 ): Arr.NonEmptyReadonlyArray<RoleSpec> => [
-	{ name: "reader", write: [], refresh: [] },
+	{ name: "reader", write: [] },
 	...(d.keep("writer")
-		? [
-				{
-					name: "writer",
-					write: Arr.map(d.some(relations), (r) => r.name),
-					refresh: derivedSpec === undefined ? [] : [derivedSpec.name]
-				}
-			]
+		? [{ name: "writer", write: Arr.map(d.some(relations), (r) => r.name) }]
 		: [])
 ]
 
@@ -2091,7 +2073,7 @@ const baseOf = (d: Drawing): Base => {
 					payload: d.from(["smallint", "bigint", "text"] as const),
 					generated: d.keep("generated")
 				}
-	const roles = rolesOf(d, ordinary, derivedSpec)
+	const roles = rolesOf(d, ordinary)
 	if (closedArity !== undefined) {
 		d.note("closedRelation")
 		d.note(closedArityForm[closedArity])
@@ -2251,12 +2233,11 @@ interface Env {
 	readonly schema: AnySchema
 	/** The extension that declares the derived relation, or the schema. */
 	readonly level: AnySchema
-	/** The level's relations, each a whole entry a role may hold. */
-	readonly entries: Readonly<Record<string, AnyRelation | AnyRoster | AnyDerived>>
+	/** The level's rosters and ordinary relations, each a whole entry a role may hold: a live derived relation is none. */
+	readonly entries: Readonly<Record<string, AnyRelation | AnyRoster>>
 	readonly derived: AnyDerived | undefined
-	/** Each role's write list and refresh list, as the engine described the role. */
+	/** Each role's write list, as the engine described the role. */
 	readonly writes: ReadonlyMap<string, ReadonlyArray<string>>
-	readonly refreshes: ReadonlyMap<string, ReadonlyArray<string>>
 }
 
 const got = <A>(map: ReadonlyMap<string, A>, name: string): A =>
@@ -2510,18 +2491,17 @@ const envOf = (base: Base): Env => {
 	const counts =
 		base.derived === undefined
 			? undefined
-			: materializedDerived(
+			: derivedBuilder(
 					base.derived.name,
 					definitionOf(base.derived, base, schemaValue, relations),
 					[]
 				)
 	const level =
 		counts === undefined ? schemaValue : schema.extend([schemaValue], "Level", [counts], [], [])
-	const wholes = { ...Rec.fromEntries([...rosters]), ...Rec.fromEntries([...relations]) }
-	const entries = counts === undefined ? wholes : { ...wholes, [counts.name]: counts }
+	const entries = { ...Rec.fromEntries([...rosters]), ...Rec.fromEntries([...relations]) }
 	const described = new Map(
 		Arr.map(base.roles, (r) => {
-			const value = role(level, r.name, entries, { write: r.write, refresh: r.refresh })
+			const value = role(level, r.name, entries, { write: r.write })
 			return [r.name, roleDescOf(value)] as const
 		})
 	)
@@ -2544,18 +2524,13 @@ const envOf = (base: Base): Env => {
 		level,
 		entries,
 		derived: counts,
-		writes: listed(writtenNames),
-		refreshes: listed((desc) => desc.refresh)
+		writes: listed(writtenNames)
 	}
 }
 /** A case's TypeScript identifier for a value it declares under `name`. */
 type Ids = (name: string) => string
 
-/** A union of literal texts, each a TypeScript string literal type. */
-/** A union of types, never where there are none. */
-const typeUnion = (types: ReadonlyArray<string>): string =>
-	Arr.isReadonlyArrayNonEmpty(types) ? Arr.join(types, " | ") : "never"
-
+/** A union of literal texts, each a TypeScript string literal type, never where there are none. */
 const literalUnion = (values: ReadonlyArray<string>): string =>
 	Arr.isReadonlyArrayNonEmpty(values) ? Arr.join(Arr.map(values, jsonText), " | ") : "never"
 
@@ -3399,7 +3374,7 @@ const alternativesProbe = (d: Drawing, base: Base): Probe | undefined => {
 				const counts =
 					spec === undefined
 						? undefined
-						: materializedDerived(spec.name, definitionOf(spec, base, p, env.relations), [])
+						: derivedBuilder(spec.name, definitionOf(spec, base, p, env.relations), [])
 				const valueOf = (name: string): AnyRelation | AnyDerived =>
 					counts?.name === name ? counts : got(env.relations, name)
 				const statement = alternativesBuilder(
@@ -3548,9 +3523,8 @@ const schemaProbe = (d: Drawing, base: Base): Probe => {
 }
 
 /**
- * A role over the base's top level: a write list of ordinary relations and a refresh list of the derived one, or one
- * planted fault: a whole entry outside the base, a write list naming a roster, a stranger or the derived relation, a
- * refresh list naming a base relation.
+ * A role over the base's top level: a write list of ordinary relations, or one planted fault: a whole entry outside the
+ * base, a write list naming a roster or a stranger.
  */
 const roleProbe = (d: Drawing, base: Base): Probe => {
 	const ordinary = ordinaryOf(base)
@@ -3558,29 +3532,21 @@ const roleProbe = (d: Drawing, base: Base): Probe => {
 		readonly fault: SchemaFault | undefined
 		readonly outside: boolean
 		readonly write: ReadonlyArray<string>
-		readonly refresh: ReadonlyArray<string>
 	}
 	const valid: Planted = {
 		fault: undefined,
 		outside: false,
-		write: Arr.map(d.some(ordinary), (r) => r.name),
-		refresh: base.derived === undefined ? [] : [base.derived.name]
+		write: Arr.map(d.some(ordinary), (r) => r.name)
 	}
 	const forms: Arr.NonEmptyReadonlyArray<Planted> = [
 		valid,
-		{ ...valid, fault: "entryOutsideBase", outside: true, write: [], refresh: [] },
+		{ ...valid, fault: "entryOutsideBase", outside: true, write: [] },
 		{ ...valid, fault: "writeClosed", write: [d.from(base.rosters).name] },
-		{ ...valid, fault: "writeStranger", write: ["Nobody"] },
-		...(base.derived === undefined
-			? []
-			: [
-					{ ...valid, fault: "writeDerived", write: [base.derived.name] } as const,
-					{ ...valid, fault: "refreshBase", refresh: [d.from(ordinary).name] } as const
-				])
+		{ ...valid, fault: "writeStranger", write: ["Nobody"] }
 	]
 	const planted = d.from(forms)
 	const level = base.derived === undefined ? "S" : "Level"
-	const lists = `{ write: [${quoted(planted.write)}], refresh: [${quoted(planted.refresh)}] }`
+	const lists = `{ write: [${quoted(planted.write)}] }`
 	return {
 		construct: "roleProbe",
 		refused: planted.fault,
@@ -3600,10 +3566,7 @@ const roleProbe = (d: Drawing, base: Base): Probe => {
 							[ordinary[0].name]: got(env.relations, ordinary[0].name),
 							Outside: relation("Outside", { id: Id }, ["id"], [])
 						})
-					: role(env.level, "probe", env.entries, {
-							write: planted.write,
-							refresh: planted.refresh
-						})
+					: role(env.level, "probe", env.entries, { write: planted.write })
 			)
 	}
 }
@@ -3745,7 +3708,7 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 	] as const
 	const bound = Arr.dedupe([...r.key, spec.by])
 	const over = (ids: Ids) =>
-		`Sc.derived.materialized("Over", Q.query(${ids("Level")}).rule((r) => { const { ${spec.by}, total } = Q.v(${ids(spec.name)}, "counted"); return r.match(${ids(spec.name)}, { ${spec.by}, total }).find({ ${spec.by}, total }) }))`
+		`Sc.derived("Over", Q.query(${ids("Level")}).rule((r) => { const { ${spec.by}, total } = Q.v(${ids(spec.name)}, "counted"); return r.match(${ids(spec.name)}, { ${spec.by}, total }).find({ ${spec.by}, total }) }))`
 	const matched = (ids: Ids) =>
 		`const { ${Arr.join(bound, ", ")} } = Q.v(${ids(r.name)}, "fact"); return r.match(${ids(r.name)}, { ${Arr.join(bound, ", ")} })`
 	const keys = r.key
@@ -3770,7 +3733,7 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 					head: [
 						`export const ${own}_imported = Q.query(${ids("S")}).rule((r) => { ${matched(ids)}.where(r.eq(${spec.by}, r.param("p", ${ids(r.name)}.fields.${spec.by}))).find({ ${Arr.join(keys, ", ")} }) })`
 					],
-					line: `export const ${own} = Sc.derived.materialized("Probe", Q.query(${ids("S")}).rule((r) => { const { ${spec.by}: outer } = Q.v(${ids(r.name)}, "outer"); const source = ${own}_imported.bind({ p: outer }); const { ${renamed} } = Q.v(source, "inner"); return r.match(${ids(r.name)}, { ${spec.by}: outer }).match(source, { ${renamed} }).find({ ${spec.by}: outer, ${Arr.join(
+					line: `export const ${own} = Sc.derived("Probe", Q.query(${ids("S")}).rule((r) => { const { ${spec.by}: outer } = Q.v(${ids(r.name)}, "outer"); const source = ${own}_imported.bind({ p: outer }); const { ${renamed} } = Q.v(source, "inner"); return r.match(${ids(r.name)}, { ${spec.by}: outer }).match(source, { ${renamed} }).find({ ${spec.by}: outer, ${Arr.join(
 						Arr.map(keys, (k) => `${k}_in`),
 						", "
 					)} }) }))`,
@@ -3782,7 +3745,7 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 					`.rule((r) => { ${matched(ids)}.find({ ${spec.by}, arm: ${ids(roster.name)}.handle(${jsonText(handle)}) }) })`
 				return {
 					head: [],
-					line: `export const ${own} = Sc.derived.materialized("Probe", Q.query(${ids("S")})${armText(discriminants[0])}${armText(discriminants[1])})`,
+					line: `export const ${own} = Sc.derived("Probe", Q.query(${ids("S")})${armText(discriminants[0])}${armText(discriminants[1])})`,
 					tail: [fact(discriminatedValue(env))]
 				}
 			}
@@ -3790,7 +3753,7 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 				const level = `${own}_level`
 				return {
 					head: [],
-					line: `export const ${own} = Sc.derived.materialized("Probe", Q.query(${ids("S")}).rule((r) => { ${matched(ids)}.find({ ${Arr.join(bound, ", ")} }) }))`,
+					line: `export const ${own} = Sc.derived("Probe", Q.query(${ids("S")}).rule((r) => { ${matched(ids)}.find({ ${Arr.join(bound, ", ")} }) }))`,
 					tail: [
 						fact(projectionValue(env)),
 						`export const ${level} = Sc.schema.extend([${ids("S")}], "ProbeLevel", [${own}], [])`,
@@ -3803,7 +3766,7 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 				const by = jsonText(spec.by)
 				return {
 					head: [
-						`export const ${rel} = Sc.derived.materialized("Probe", Q.query(${ids("S")}).rule((r) => { ${matched(ids)}.find({ ${Arr.join(bound, ", ")} }) }))`
+						`export const ${rel} = Sc.derived("Probe", Q.query(${ids("S")}).rule((r) => { ${matched(ids)}.find({ ${Arr.join(bound, ", ")} }) }))`
 					],
 					line: `export const ${own} = Sc.schema.extend([${ids("S")}], "Ruled", [${rel}], [Sc.key(Sc.on(${rel}, ${by})), Sc.check("Probe", ${rel}, (w) => w.and()), Sc.contained(Sc.on(Sc.select(${rel}, (w) => w.and()), ${by}), Sc.on(${ids(r.name)}, ${by})), Sc.mirrors(Sc.on(${ids(r.name)}, ${by}), Sc.on(${rel}, ${by}))])`,
 					tail: []
@@ -3817,7 +3780,7 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 				return {
 					head: [
 						`export const ${negated} = Q.query(${ids("S")}).rule((r) => { ${grouped}; return r.match(${ids(r.name)}, { ${spec.by} }).match(${ids(r.name)}, { ${spec.by} }).find({ ${spec.by} }) }).rule((r) => { ${grouped}; return r.match(${ids(r.name)}, { ${spec.by} }).find({ ${spec.by} }) })`,
-						`export const ${rel} = Sc.derived.materialized("Probe", Q.query(${ids("S")}).rule((r) => { ${matched(ids)}.where(r.and(r.not(${negated}, { ${spec.by} }))).find({ ${Arr.join(bound, ", ")} }) }))`
+						`export const ${rel} = Sc.derived("Probe", Q.query(${ids("S")}).rule((r) => { ${matched(ids)}.where(r.and(r.not(${negated}, { ${spec.by} }))).find({ ${Arr.join(bound, ", ")} }) }))`
 					],
 					line: `export const ${own} = Sc.schema.extend([${ids("S")}], "Ruled", [${rel}], [Sc.key(Sc.on(${rel}, ${by})), Sc.check("Probe", ${rel}, (w) => w.and()), Sc.contained(Sc.on(Sc.select(${rel}, (w) => w.and()), ${by}), Sc.on(${ids(r.name)}, ${by})), Sc.mirrors(Sc.on(${ids(r.name)}, ${by}), Sc.on(${rel}, ${by}))])`,
 					tail: []
@@ -3826,7 +3789,7 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 			case "skipsLevel":
 				return {
 					head: [],
-					line: `export const ${own} = Sc.derived.materialized("Skip", Q.query(${ids("S")}).rule((r) => { ${matched(ids)}.find({ ${Arr.join(bound, ", ")} }) }))`,
+					line: `export const ${own} = Sc.derived("Skip", Q.query(${ids("S")}).rule((r) => { ${matched(ids)}.find({ ${Arr.join(bound, ", ")} }) }))`,
 					tail: [
 						`export const ${own}_level = Sc.schema.extend([${ids("Level")}], "Skipping", [${own}], [])`,
 						`export type ${own}_levels = Expect<Equals<Sc.LevelsOf<typeof ${own}_level>, typeof ${own}_level | typeof ${ids("Level")} | typeof ${ids("S")}>>`
@@ -3839,9 +3802,7 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 			case undefined:
 				return admittedText(ids, own, env)
 			case "parameterizedDefinition":
-				return oneLine(
-					`Sc.derived.materialized("Probe", ${definitionSource(spec, base, ids, ids("S"), true)})`
-				)
+				return oneLine(`Sc.derived("Probe", ${definitionSource(spec, base, ids, ids("S"), true)})`)
 			case "derivedAtOwnLevel":
 				return oneLine(`Sc.schema.extend([${ids("S")}], "Over", [${over(ids)}], [])`)
 			case "derivedInRoot":
@@ -3858,11 +3819,11 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 				return oneLine(`Sc.fin(${ids(spec.name)}, "total")`)
 			case "emptyHead":
 				return oneLine(
-					`Sc.derived.materialized("Probe", Q.query(${ids("S")}).rule((r) => { ${matched(ids)}.find({}) }))`
+					`Sc.derived("Probe", Q.query(${ids("S")}).rule((r) => { ${matched(ids)}.find({}) }))`
 				)
 			case "headingGroups":
 				return oneLine(
-					`Sc.derived.materialized("Probe", Q.query(${ids("S")}).rule((r) => { ${matched(ids)}.find({ ${spec.by}, arm: "one" }) }).rule((r) => { ${matched(ids)}.find({ ${spec.by}, arm: "two", flag: true }) }))`
+					`Sc.derived("Probe", Q.query(${ids("S")}).rule((r) => { ${matched(ids)}.find({ ${spec.by}, arm: "one" }) }).rule((r) => { ${matched(ids)}.find({ ${spec.by}, arm: "two", flag: true }) }))`
 				)
 			case "derivedOverBase":
 				return {
@@ -3876,7 +3837,7 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 		}
 	}
 	const overValue = (env: Env, level: AnySchema) =>
-		materializedDerived(
+		derivedBuilder(
 			"Over",
 			queryOver(level).rule((rule: RuleValue) => {
 				const vars = varsOver(derivedOf(env), "counted")
@@ -3938,14 +3899,18 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 		queryOver(env.schema).rule(
 			arm(env, (vars) => Rec.fromEntries(Arr.map(bound, (f) => [f, vars[f]] as const)))
 		)
-	/** The keys the engine infers the projection inherits, as KeysOf states them, from its compiled extension. */
+	/**
+	 * The keys the projection inherits, as KeysOf states them: each minimal key of R the engine compiles the schema to
+	 * (keysOf) that the projection delivers whole, so a fact of R is one row of it. A live derived relation stores
+	 * nothing, so no derived analysis keys it; its type reads the keys its definition proves.
+	 */
 	const projectionKeys = (env: Env): string => {
 		const compiled = Result.flatMap(
 			catchCompileError(() =>
 				schema.extend(
 					[env.schema],
 					"ProbeLevel",
-					[materializedDerived("Probe", projectionValue(env), [])],
+					[derivedBuilder("Probe", projectionValue(env), [])],
 					[],
 					[]
 				)
@@ -3957,11 +3922,18 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 				`the engine refuses a drawn projection, a defect of the generator: ${messageOf(compiled.error)}`
 			)
 		}
-		const analysis = compiled.value.derived.relations["Probe"]
-		const keys =
-			analysis === undefined
-				? []
-				: Arr.map(analysis.keys, (k) => `ReadonlyArray<${literalUnion(k.fields)}>`)
+		const delivered = Arr.filter(keysOf(compiled.value, r.name), (k) =>
+			Arr.every(k, (f) => Arr.contains(bound, f))
+		)
+		const minimal = Arr.filter(
+			delivered,
+			(k) =>
+				!Arr.some(
+					delivered,
+					(other) => other.length < k.length && Arr.every(other, (f) => Arr.contains(k, f))
+				)
+		)
+		const keys = Arr.map(minimal, (k) => `ReadonlyArray<${literalUnion(k)}>`)
 		return Arr.isReadonlyArrayNonEmpty(keys) ? Arr.join(keys, " | ") : "never"
 	}
 	/**
@@ -4013,7 +3985,7 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 				schema.extend(
 					[env.schema],
 					"ProbeLevel",
-					[materializedDerived("Probe", definition(), [])],
+					[derivedBuilder("Probe", definition(), [])],
 					[],
 					[]
 				)
@@ -4036,14 +4008,14 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 							schema.extend(
 								[env.level],
 								"Skipping",
-								[materializedDerived("Skip", projectionValue(env), [])],
+								[derivedBuilder("Skip", projectionValue(env), [])],
 								[],
 								[]
 							)
 						)
 					case "ruled":
 					case "negated": {
-						const rel = materializedDerived(
+						const rel = derivedBuilder(
 							"Probe",
 							valid === "ruled" ? projectionValue(env) : negatedValue(env),
 							[]
@@ -4070,9 +4042,7 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 					}
 				}
 			case "parameterizedDefinition":
-				return building(() =>
-					materializedDerived("Probe", parameterizedDefinition(spec, base, env), [])
-				)
+				return building(() => derivedBuilder("Probe", parameterizedDefinition(spec, base, env), []))
 			case "derivedAtOwnLevel":
 				return building(() =>
 					schema.extend([env.schema], "Over", [overValue(env, env.level)], [], [])
@@ -5400,7 +5370,7 @@ const baseDeclarations = (base: Base, ids: Ids): ReadonlyArray<readonly [string,
 			: [
 					[
 						base.derived.name,
-						`Sc.derived.materialized(${jsonText(base.derived.name)}, ${definitionSource(base.derived, base, ids, ids("S"), false)})`
+						`Sc.derived(${jsonText(base.derived.name)}, ${definitionSource(base.derived, base, ids, ids("S"), false)})`
 					] as const,
 					[
 						"Level",
@@ -5414,8 +5384,8 @@ const baseDeclarations = (base: Base, ids: Ids): ReadonlyArray<readonly [string,
 			)} }`
 			return [
 				`role_${r.name}`,
-				Arr.isReadonlyArrayNonEmpty(r.write) || Arr.isReadonlyArrayNonEmpty(r.refresh)
-					? `Sc.role(${ids(level)}, ${jsonText(r.name)}, ${entries}, { write: [${quoted(r.write)}], refresh: [${quoted(r.refresh)}] })`
+				Arr.isReadonlyArrayNonEmpty(r.write)
+					? `Sc.role(${ids(level)}, ${jsonText(r.name)}, ${entries}, { write: [${quoted(r.write)}] })`
 					: `Sc.role(${ids(level)}, ${jsonText(r.name)}, ${entries})`
 			] as const
 		})
@@ -5423,14 +5393,13 @@ const baseDeclarations = (base: Base, ids: Ids): ReadonlyArray<readonly [string,
 }
 
 /**
- * The whole entries a role holds: every roster, ordinary relation and derived relation of the level, each under its
- * own name; a closed relation is no role's entry.
+ * The whole entries a role holds: every roster and ordinary relation of the level, each under its own name; a closed
+ * relation is no role's entry, and a live derived relation none, which a role reads through what its definition reads.
  */
 const wholeEntries = (base: Base): ReadonlyArray<string> => [
 	...Arr.map(base.rosters, (r) => r.name),
 	...Arr.map(base.relations, (r) => r.name),
-	...(base.closedRelation?.generated === true ? ["Gen"] : []),
-	...(base.derived === undefined ? [] : [base.derived.name])
+	...(base.closedRelation?.generated === true ? ["Gen"] : [])
 ]
 /** A term of a law side as a side's tuple type writes it: a field's name, or pred of a natural field. */
 const termType = (t: TermDesc): string =>
@@ -5747,11 +5716,6 @@ const baseAssertions = (
 			`writes_${r.name}`,
 			`Sc.WriteListOf<typeof ${ids(`role_${r.name}`)}>`,
 			literalUnion(got(env.writes, r.name))
-		),
-		expect(
-			`refreshes_${r.name}`,
-			`Sc.RefreshListOf<typeof ${ids(`role_${r.name}`)}>`,
-			typeUnion(Arr.map(got(env.refreshes, r.name), (name) => `typeof ${ids(name)}`))
 		)
 	])
 	const projected = projectionAssertion(base, env, ids)
@@ -5771,7 +5735,7 @@ const baseAssertions = (
 						`Sc.LevelsOf<typeof ${ids("Level")}>`,
 						`typeof ${ids("Level")} | typeof ${ids("S")}`
 					),
-					...derivedAssertions(base.derived, base, env, artifacts, ids)
+					...derivedAssertions(base.derived, base, env, ids)
 				]
 	const root =
 		base.derived === undefined
@@ -5848,23 +5812,19 @@ const closedAssertions = (
 
 /**
  * A derived relation's fields' SQL types, each its head term's as the engine compiles the definition (a sum of a real
- * a real, a count a bigint), and its keys, those the engine infers it inherits, each an unordered set of its fields.
+ * a real, a count a bigint), and its keys, the one its definition proves: it groups its relation's facts by `by`, so
+ * `by` is its one key. A live derived relation stores nothing, so no derived analysis keys it; its type reads the key
+ * its definition proves.
  */
 const derivedAssertions = (
 	spec: DerivedSpec,
 	base: Base,
 	env: Env,
-	artifacts: SchemaArtifacts,
 	ids: Ids
 ): ReadonlyArray<string> => {
 	const expect = (name: string, actual: string, expected: string): string =>
 		`export type ${ids(`t_${name}`)} = Expect<Equals<${actual}, ${expected}>>`
 	const columns = compiledColumns(definitionOf(spec, base, env.schema, env.relations))
-	const analysis = artifacts.derived.relations[spec.name]
-	const keys =
-		analysis === undefined
-			? []
-			: Arr.map(analysis.keys, (k) => `ReadonlyArray<${literalUnion(k.fields)}>`)
 	return [
 		...Arr.map(columns, (c) =>
 			expect(
@@ -5876,7 +5836,7 @@ const derivedAssertions = (
 		expect(
 			"derived_keys",
 			`Sc.KeysOf<typeof ${ids("Level")}, typeof ${ids(spec.name)}>`,
-			Arr.isReadonlyArrayNonEmpty(keys) ? Arr.join(keys, " | ") : "never"
+			`ReadonlyArray<${literalUnion([spec.by])}>`
 		)
 	]
 }

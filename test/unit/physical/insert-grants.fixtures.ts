@@ -314,17 +314,16 @@ export const entriesOf = (
 interface StatedOptions {
 	readonly write?: ReadonlyArray<string>
 	readonly insert?: ReadonlyArray<string>
-	readonly refresh?: ReadonlyArray<string>
 }
 
 const optionsOf = (stated: Stated, list: ReadonlyArray<string>): StatedOptions => {
 	switch (stated) {
 		case "write":
-			return { write: list, refresh: [] }
+			return { write: list }
 		case "insert":
-			return { insert: list, refresh: [] }
+			return { insert: list }
 		case "both":
-			return { write: list, insert: list, refresh: [] }
+			return { write: list, insert: list }
 	}
 }
 
@@ -567,7 +566,6 @@ export const unkeyed = (desc: RoleDesc) => ({
 	name: desc.name,
 	base: desc.base,
 	relations: desc.relations,
-	refresh: desc.refresh,
 	loc: desc.loc
 })
 

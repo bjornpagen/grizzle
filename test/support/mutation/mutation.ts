@@ -137,7 +137,7 @@ export const equivalent: ReadonlyArray<Equivalent> = [
 	{
 		file: "packages/engine/src/deploy/diff/diff.ts",
 		mutant: "fdd1aba3ad",
-		why: "The owned clause of a set-aside relation's marker (deploy/diff/diff.ts ownedAside) when it owns nothing: every table grizzle installs has a primary key, which its own index carries, and every materialized view a unique index, its inherited key, which its concurrent refresh needs, so a table or a materialized view set aside always owns a key or an index (diff/aside.ts ownedBy) and the clause is always due."
+		why: "The owned clause of a set-aside relation's marker (deploy/diff/diff.ts ownedAside) when it owns nothing: every table grizzle installs has a primary key, which its own index carries, and every stored derived relation's table a unique index, its inherited key, so a table or a stored table set aside always owns a key or an index (diff/aside.ts ownedBy) and the clause is always due."
 	},
 	{
 		file: "packages/engine/src/scalar/aggregate.ts",

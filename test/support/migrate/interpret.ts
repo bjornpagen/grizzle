@@ -43,7 +43,7 @@ import { upTo } from "#test/support/up-to.ts"
  * and its preconditions, which PostgreSQL's dependency facts state, and fails where PostgreSQL would, with the SQLSTATE
  * it would raise:
  *
- * - Namespaces. Tables, materialized views and indexes share one relation namespace (pg_class); domains and the row
+ * - Namespaces. Tables, stored tables and indexes share one relation namespace (pg_class); domains and the row
  *   type of every table and view share the type namespace (pg_type), an index taking none (heap.c
  *   heap_create_with_catalog); a table's constraints share one per table, and its triggers another. A name taken in
  *   its namespace is refused (42P07 for a relation, 42710 otherwise); a key's or an exclusion's index takes its
@@ -54,8 +54,9 @@ import { upTo } from "#test/support/up-to.ts"
  *   order whose keys are exactly its referenced columns, as a set, a key's own index among them, and with none it is
  *   refused (42830); that index then cannot be dropped, nor its constraint, nor a column under it (2BP01). A key's or
  *   an exclusion's index goes only with its constraint (2BP01). A table another table's foreign key references cannot
- *   be dropped (2BP01). A materialized view pins the tables and views it reads and the columns it names (2BP01 on a
- *   drop, 0A000 on a type change); a trigger's UPDATE OF and WHEN pin their columns the same way, and a trigger its function
+ *   be dropped (2BP01). A stored derived relation's table, created AS its definition, pins in the model the tables and
+ *   views its definition reads and the columns it names (2BP01 on a drop, 0A000 on a type change), as grizzle's plan
+ *   treats it, dropping and creating it again above what changes (deploy/diff/diff.ts viewDropsOf); a trigger's UPDATE OF and WHEN pin their columns the same way, and a trigger its function
  *   (2BP01). A world's view, in its own schema, pins what it reads of this schema the same way, and so does a row
  *   security policy the columns its predicate names; a world's schema holding a view cannot be dropped (2BP01). A
  *   domain cannot be dropped while a column or a domain is of it (2BP01). A
@@ -176,7 +177,7 @@ export type IndexOwner =
 	| { readonly kind: "free" }
 	| { readonly kind: "constraint"; readonly name: string }
 
-/** An index of a table or a materialized view: the columns its keys are (an expression key is none), every column it
+/** An index of a table or a stored table: the columns its keys are (an expression key is none), every column it
  * reads (its keys, INCLUDE columns and the columns its expressions and predicate name), whether a foreign key may bind
  * it (unique, without a predicate, every key a column), what owns it, and its place in creation order. */
 export interface Index {
@@ -210,7 +211,7 @@ export interface Trigger {
 	readonly types: ReadonlyArray<TypeRef>
 }
 
-/** A materialized view: its columns, the columns it names of each relation it reads, and the schema's functions it
+/** A stored derived relation's table: its columns, the columns it names of each relation it reads, and the schema's functions it
  * calls, which it pins. */
 export interface View {
 	readonly columns: ReadonlyArray<string>
@@ -1635,7 +1636,7 @@ class Model {
 	 * trigger whose UPDATE OF names it. */
 	#pinning(relation: string, column: string): ReadonlyArray<string> {
 		const views = Arr.flatMap([...this.#views], ([name, v]) =>
-			v.reads.get(relation)?.has(column) === true ? [`the materialized view ${name}`] : []
+			v.reads.get(relation)?.has(column) === true ? [`the stored table ${name}`] : []
 		)
 		const dependents = Arr.flatMap([...this.#dependents], ([key, v]) =>
 			v.reads.get(relation)?.has(column) === true ? [`the ${key}`] : []
@@ -2945,7 +2946,7 @@ class Model {
 			)
 		)
 		const views = Arr.flatMap([...this.#views], ([view, v]) =>
-			v.calls.includes(name) ? [`the materialized view ${view}`] : []
+			v.calls.includes(name) ? [`the stored table ${view}`] : []
 		)
 		const dependents = Arr.flatMap([...this.#dependents], ([key, v]) =>
 			v.calls.includes(name) ? [`the ${key}`] : []
@@ -3211,6 +3212,14 @@ class Model {
 	#rename(s: Extract<SqlStatement, { readonly kind: "rename"; readonly name: ObjectName }>): void {
 		switch (s.object) {
 			case "TABLE": {
+				const stored = this.#views.get(s.name.name)
+				if (stored !== undefined) {
+					this.#claimRelation(s.to, `the stored table ${printObjectName(s.name)}`)
+					this.#views.delete(s.name.name)
+					this.#views.set(s.to, stored)
+					this.#renameRelationIn(s.name.name, s.to)
+					return
+				}
 				const t = this.#table(s.name)
 				this.#claimRelation(s.to, `the table ${printObjectName(s.name)}`)
 				this.#tables.delete(s.name.name)
@@ -3232,17 +3241,6 @@ class Model {
 						tables.set(s.to, published)
 					}
 				}
-				this.#renameRelationIn(s.name.name, s.to)
-				return
-			}
-			case "MATERIALIZED VIEW": {
-				const v = this.#views.get(s.name.name)
-				if (v === undefined) {
-					refuse("42P01", `the view ${printObjectName(s.name)} does not exist`)
-				}
-				this.#claimRelation(s.to, `the view ${printObjectName(s.name)}`)
-				this.#views.delete(s.name.name)
-				this.#views.set(s.to, v)
 				this.#renameRelationIn(s.name.name, s.to)
 				return
 			}
@@ -3358,6 +3356,12 @@ class Model {
 		const name = s.name.name
 		switch (s.object) {
 			case "TABLE": {
+				if (this.#views.has(name)) {
+					this.#readBy(name, `the stored table ${name}`)
+					this.#views.delete(name)
+					this.#dropOwned(name)
+					return
+				}
 				if (!this.#tables.has(name)) {
 					if (!s.ifExists) {
 						refuse("42P01", `the dropped table ${printObjectName(s.name)} does not exist`)
@@ -3389,17 +3393,6 @@ class Model {
 				this.#dropOwned(name)
 				return
 			}
-			case "MATERIALIZED VIEW":
-				if (!this.#views.has(name)) {
-					if (!s.ifExists) {
-						refuse("42P01", `the dropped view ${printObjectName(s.name)} does not exist`)
-					}
-					return
-				}
-				this.#readBy(name, `the view ${name}`)
-				this.#views.delete(name)
-				this.#dropOwned(name)
-				return
 			case "DOMAIN":
 				this.#dropType(s.name, s.ifExists)
 				return
@@ -3441,7 +3434,7 @@ class Model {
 	#readBy(relation: string, what: string): void {
 		for (const [view, v] of this.#views) {
 			if (view !== relation && v.reads.has(relation)) {
-				refuse("2BP01", `${what} is dropped while the materialized view ${view} reads it`)
+				refuse("2BP01", `${what} is dropped while the stored table ${view} reads it`)
 			}
 		}
 		for (const [key, v] of this.#dependents) {
@@ -3740,8 +3733,11 @@ class Model {
 				if (!this.#ours(s.name)) {
 					return
 				}
-				this.#claimRelation(s.name.name, `the view ${printObjectName(s.name)}`)
-				this.#callable(queryCalls(s.query, this.#schema), `the view ${printObjectName(s.name)}`)
+				this.#claimRelation(s.name.name, `the stored table ${printObjectName(s.name)}`)
+				this.#callable(
+					queryCalls(s.query, this.#schema),
+					`the stored table ${printObjectName(s.name)}`
+				)
 				this.#views.set(s.name.name, {
 					columns: s.columns,
 					reads: readsOf(s.query, this.#schema, (r) => this.#columnsOfRelation(r)),
@@ -3907,8 +3903,9 @@ class Model {
 				}
 				return
 			}
-			case "refresh":
-				this.#relation(s.view)
+			case "fillStored":
+				this.#relation(s.table)
+				this.#callable(queryCalls(s.query, this.#schema), `the fill of ${printObjectName(s.table)}`)
 				return
 			case "createView": {
 				const key = `view ${s.name.schema}.${s.name.name}`

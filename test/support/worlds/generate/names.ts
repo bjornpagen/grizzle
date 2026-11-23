@@ -25,16 +25,15 @@ import type {
 } from "#test/support/worlds/model/types.ts"
 
 /**
- * Installations named from the kernel dictionary (kernel/dict.ts): each of a base's relations, closed rosters,
- * contracts and derived relations, and each role's query entries, keeps its name, takes a name of the whole dictionary,
+ * Installations named from the kernel dictionary (kernel/dict.ts): each of a base's relations, closed rosters and
+ * contracts, and each role's query entries, keeps its name, takes a name of the whole dictionary,
  * its feature drawn by worldNameWeights, or takes the name of one of PostgreSQL's own types. Role views, context
  * policies, world bodies and claims SQL so meet aliases, digit boundaries, names at the identifier limit, reserved
- * words, plain words and the names pg_catalog's types and functions hold; a relation's or a derived relation's row
- * type, a roster's enum or a contract's domain named after a type shadows it where a path lists the installation's
+ * words, plain words and the names pg_catalog's types and functions hold; a relation's row type, a roster's enum or a contract's domain named after a type shadows it where a path lists the installation's
  * schema first. A name never takes a conversion another name of its scope has: an object's scope is the base's objects,
  * contexts and check laws, and a query entry's is those and its role's other entries. The rename is a substitution over
- * the whole installation, the base's objects, its laws, its contexts' fields, its derived relations' rules and every
- * role's entries, writes and refreshes, so the model, the executor and the realities read the renamed names alike.
+ * the whole installation, the base's objects, its laws, its contexts' fields and every role's entries and writes, so
+ * the model, the executor and the realities read the renamed names alike.
  */
 
 /** A renaming of names: the name each one takes, itself where it keeps its own. */
@@ -132,8 +131,7 @@ const baseOf = (n: Renaming, base: BaseSpec): BaseSpec => ({
 		fields: fieldsOf(n, r.fields)
 	})),
 	laws: Arr.map(base.laws, (l) => lawOf(n, l)),
-	contexts: Arr.map(base.contexts, (c) => ({ ...c, fields: fieldsOf(n, c.fields) })),
-	derived: Arr.map(base.derived, (d) => ({ ...d, name: n(d.name), rules: rulesOf(n, d.rules) }))
+	contexts: Arr.map(base.contexts, (c) => ({ ...c, fields: fieldsOf(n, c.fields) }))
 })
 
 const entryOf = (n: Renaming, entry: EntrySpec): EntrySpec => {
@@ -147,26 +145,24 @@ const entryOf = (n: Renaming, entry: EntrySpec): EntrySpec => {
 
 /**
  * A role under the base's renaming `n` and its entries' renaming `e`: a whole entry keeps its relation's name, a query
- * entry takes the name `e` gives it, and the write and refresh lists follow their entries.
+ * entry takes the name `e` gives it, and the write list follows its entries.
  */
 const roleOf = (n: Renaming, e: Renaming, role: RoleSpec): RoleSpec => ({
 	...role,
 	entries: Rec.fromEntries(
 		Arr.map(Rec.toEntries(role.entries), ([name, entry]) => [e(name), entryOf(n, entry)] as const)
 	),
-	write: Arr.map(role.write, e),
-	refresh: Arr.map(role.refresh, e)
+	write: Arr.map(role.write, e)
 })
 
-/** The base's objects a name names: its relations, rosters, contracts and derived relations, each once. */
+/** The base's objects a name names: its relations, rosters and contracts, each once. */
 const objectNames = (base: BaseSpec): ReadonlyArray<string> =>
 	Arr.dedupe([
 		...Arr.map(base.relations, (r) => r.name),
 		...Arr.map(base.closed, (c) => c.name),
 		...Arr.flatMap([...base.relations, ...base.contexts], (owner) =>
 			Arr.flatMap(owner.fields, (f) => (f.domain.kind === "contract" ? [f.domain.name] : []))
-		),
-		...Arr.map(base.derived, (d) => d.name)
+		)
 	])
 
 /** Every name an installation declares: its base's objects' and its roles' entries'. */

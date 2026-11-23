@@ -52,7 +52,7 @@ const TierNext = closed.relation(
 	[{ tier: "low", next: "high" }]
 )
 
-const sources = ["selected", "joined", "view", "nested", "nested view"] as const
+const sources = ["selected", "joined", "nested"] as const
 
 interface Case {
 	readonly source: (typeof sources)[number]
@@ -66,7 +66,7 @@ export const caseGen: Gen<Case> = (s) => ({
 
 /**
  * The case's schema: A, B and T, and the closed relations TierRank and TierNext with a containment between them alone,
- * at the root; J and V over it at a middle level; and M, JJ and VV, which read J and V, with the case's rule above.
+ * at the root; J over it at a middle level; and M and JJ, which reads J, with the case's rule above.
  */
 export const schemaOf = (c: Case): AnySchema => {
 	const Base = schema(
@@ -80,20 +80,12 @@ export const schemaOf = (c: Case): AnySchema => {
 		return r.match(A, { k, a }).match(B, { k, b }).find({ k, a, b })
 	})
 	const J = derived("J", definition)
-	const V = derived.materialized("V", definition)
-	const Mid = schema.extend([Base], "Mid", [J, V], [])
+	const Mid = schema.extend([Base], "Mid", [J], [])
 	const JJ = derived(
 		"JJ",
 		query(Mid).rule((r) => {
 			const { k, a, b } = v(J, "j")
 			return r.match(J, { k, a, b }).match(T, { a, b }).find({ k, a, b })
-		})
-	)
-	const VV = derived(
-		"VV",
-		query(Mid).rule((r) => {
-			const { k, a, b } = v(V, "v")
-			return r.match(V, { k, a, b }).match(T, { a, b }).find({ k, a, b })
 		})
 	)
 	const paired = query(Base).rule((r) => {
@@ -131,16 +123,12 @@ export const schemaOf = (c: Case): AnySchema => {
 			)
 		case "joined":
 			return schema.extend([Mid], "Upper", [M], [contained(on(J, "k", "b"), on(M, "k", "b"))])
-		case "view":
-			return schema.extend([Mid], "Upper", [M], [contained(on(V, "k", "b"), on(M, "k", "b"))])
 		case "nested":
 			return schema.extend([Mid], "Upper", [JJ, M], [contained(on(JJ, "k", "b"), on(M, "k", "b"))])
-		case "nested view":
-			return schema.extend([Mid], "Upper", [VV, M], [contained(on(VV, "k", "b"), on(M, "k", "b"))])
 	}
 }
 
-/** A table's name as one text: a stored table's or a view's schema and name, or a carrier's name. */
+/** A table's name as one text: a stored table's schema and name, or a carrier's name. */
 export const tableKey = (t: TableName): string =>
 	typeof t === "string" ? t : `${t.schema}.${t.name}`
 

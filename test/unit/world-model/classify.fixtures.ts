@@ -50,22 +50,7 @@ export const pairBase: BaseSpec = {
 		}
 	],
 	laws: [],
-	contexts: [{ name: "C", claim: { kind: "top-level" }, fields: [{ name: "x", domain: integer }] }],
-	derived: [
-		{
-			name: "D",
-			rules: [
-				{
-					matches: [
-						{ source: { kind: "ordinary", name: "P" }, fields: { id: id("a"), v: id("b") } }
-					],
-					negations: [],
-					comparisons: [],
-					head: { id: id("a"), v: id("b") }
-				}
-			]
-		}
-	]
+	contexts: [{ name: "C", claim: { kind: "top-level" }, fields: [{ name: "x", domain: integer }] }]
 }
 
 /** The pair base built as an application builds it, the values its rules match, and its decoded Description. */
@@ -77,7 +62,7 @@ export const pairDesc = decodedSchema(
 	defined(schemaDescOf(pairBuilt.base), "the pair base's Description")
 )
 
-type Target = "P" | "Q" | "D"
+type Target = "P" | "Q"
 
 type FieldUse = "head" | "head-again" | "literal" | "claim-term" | "claim-var" | "unnamed" | "free"
 
@@ -92,7 +77,6 @@ type Member =
 	| "comparison"
 	| "claim-match"
 	| "closed-filter"
-	| "derived-filter"
 
 interface Shape {
 	readonly target: Target
@@ -114,8 +98,7 @@ const targets: Readonly<
 	>
 > = {
 	P: { fields: ["id", "v"], source: { kind: "ordinary", name: "P" }, other: "Q" },
-	Q: { fields: ["id", "w"], source: { kind: "ordinary", name: "Q" }, other: "P" },
-	D: { fields: ["id", "v"], source: { kind: "derived", name: "D" }, other: "Q" }
+	Q: { fields: ["id", "w"], source: { kind: "ordinary", name: "Q" }, other: "P" }
 }
 
 /** The primary key of either ordinary relation, whichever one supplies an entry. */
@@ -216,11 +199,6 @@ const ruleOfShape = (s: Shape): Rule => {
 			],
 			negations: [],
 			comparisons: []
-		},
-		"derived-filter": {
-			matches: [{ source: { kind: "derived", name: "D" }, fields: { id: anchor } }],
-			negations: [],
-			comparisons: []
 		}
 	}
 	const member = parts[s.member]
@@ -268,11 +246,10 @@ const members: Arr.NonEmptyReadonlyArray<Member> = [
 	"negated-claim",
 	"comparison",
 	"claim-match",
-	"closed-filter",
-	"derived-filter"
+	"closed-filter"
 ]
 
-const targetNames = element<Target>(["P", "Q", "D"])
+const targetNames = element<Target>(["P", "Q"])
 
 /** Whether a shape's field uses put a head variable in its head: a head field of T's first or second field. */
 const headed = ([u0, u1]: Shape["uses"]): boolean =>

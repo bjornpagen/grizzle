@@ -190,7 +190,10 @@ export const judged = (shape: Shape, note: (r: Reached) => void): void => {
 		for (const index of installation.indexes) {
 			const asked = Arr.some(
 				index.requests,
-				(r) => r.role === "lawMaintenance" && whole.has(String(r.justification.law))
+				(r) =>
+					r.role === "lawMaintenance" &&
+					r.justification.kind === "law" &&
+					whole.has(String(r.justification.law))
 			)
 			if (index.index.kind === "created" && asked) {
 				assert.equal(

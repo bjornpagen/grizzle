@@ -49,8 +49,7 @@ import type {
  * - the checked relation's ROW EXCLUSIVE lock as the admin role, as a direct writer's insert holds it, so the file holds
  *   the ledger's exclusive lock and awaits the relation's, which its new check's ALTER TABLE takes.
  * Once the observer sees the migration's backend wait on that transaction, a call of each kind the state offers is drawn
- * and judged by the worlds model in the state a running migration leaves (`running`): a read, a write and a refresh
- * through a Db the model holds stale, as a running migration holds every Db, the one opened before it among them
+ * and judged by the worlds model in the state a running migration leaves (`running`): a read and a write through a Db the model holds stale, as a running migration holds every Db, the one opened before it among them
  * (`duringOf`), and an open. Each must answer while the holder still holds its lock, and each call through a Db races
  * the barrier that sees that Db's backend blocked by the migration's, so a call that waits fails the case at once with
  * its lock wait (DbWaitedOnMigration), never by the case's hang guard. A feature is the kind of the call that
@@ -67,9 +66,9 @@ const holders: Arr.NonEmptyReadonlyArray<Holder> = [
 ]
 
 /** A call made while the migration runs: through the Db opened before it, or an open. */
-type Call = Extract<ActionKind, "read" | "apply" | "refresh" | "open-db">
+type Call = Extract<ActionKind, "read" | "apply" | "open-db">
 
-const calls: Arr.NonEmptyReadonlyArray<Call> = ["read", "apply", "refresh", "open-db"]
+const calls: Arr.NonEmptyReadonlyArray<Call> = ["read", "apply", "open-db"]
 
 /** What a case reached: a call answered while the holder held its lock, and the migration's outcome once it let go. */
 export type FenceFeature =
@@ -79,12 +78,10 @@ export type FenceFeature =
 export const situations: Arr.NonEmptyReadonlyArray<FenceFeature> = [
 	"awaiting the ledger's lock: read answered",
 	"awaiting the ledger's lock: apply answered",
-	"awaiting the ledger's lock: refresh answered",
 	"awaiting the ledger's lock: open-db answered",
 	"awaiting the ledger's lock: the migration ok",
 	"holding the checked relation's lock: read answered",
 	"holding the checked relation's lock: apply answered",
-	"holding the checked relation's lock: refresh answered",
 	"holding the checked relation's lock: open-db answered",
 	"holding the checked relation's lock: the migration ok"
 ]
@@ -146,7 +143,7 @@ const liveOf = (weights: Weights, kind: ActionKind): Weights => ({
 })
 
 /**
- * A draw of one call while the migration runs: an open, live, as a program opens a Db; a read, an apply or a refresh
+ * A draw of one call while the migration runs: an open, live, as a program opens a Db; a read or an apply
  * through a Db the model holds stale (invalid/handles.ts namingKind, handle:stale-db), as a running migration holds every
  * Db, the one opened before it among them. A live draw of one finds no Db to call through and opens one instead, which
  * contacts nothing and so never meets the fence.
@@ -169,7 +166,7 @@ class DbWaitedOnMigration extends Data.TaggedError("DbWaitedOnMigration")<{
 
 /** The login of the Db a call goes through, or none for an action that calls through no Db, an open among them. */
 const callLogin = (state: ModelState, action: Action): Option.Option<string> =>
-	action.kind === "read" || action.kind === "apply" || action.kind === "refresh"
+	action.kind === "read" || action.kind === "apply"
 		? Option.flatMap(Option.fromUndefinedOr(state.sessions[action.session]), (session) =>
 				session.kind === "db" ? Option.some(session.login) : Option.none()
 			)

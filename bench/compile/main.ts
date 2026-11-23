@@ -343,10 +343,7 @@ const build = Effect.fn("build")(function* (scale: Scale) {
 		for (const r of [...ordinary, ...Arr.map(rosters, ({ roster }) => roster)]) {
 			entries[r.name] = r
 		}
-		return role(base, "app", entries, {
-			write: Arr.map(ordinary, (r) => r.name),
-			refresh: []
-		})
+		return role(base, "app", entries, { write: Arr.map(ordinary, (r) => r.name) })
 	})
 	const [programs, workloadSpent] = yield* timed("workload", () => workload(app, lookups(ordinary)))
 	const [web, loginSpent] = yield* timed("login", () =>

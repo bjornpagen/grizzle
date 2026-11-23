@@ -67,10 +67,7 @@ export interface Fixture {
 	readonly changeSets?: ReadonlyArray<readonly [string, unknown]>
 }
 
-/**
- * The account budgets with at least `least` automatic tasks: a range on the derived relation's `tasks` column, which
- * justifies a workload index on its materialized view.
- */
+/** The account budgets with at least `least` automatic tasks: a range on the derived relation's `tasks` column. */
 const busyAccounts = query(workApi.Reports).rule((r) => {
 	const { account, tasks, budget } = v(workApi.AccountBudget, "accountBudget")
 	return r

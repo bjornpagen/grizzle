@@ -125,7 +125,6 @@ export const installationOf = (owned: Owned, codes: Codebook): Installation => {
 			name: "reader",
 			relations: [{ kind: "whole", name: "Item", loc }],
 			write: [],
-			refresh: [],
 			contexts: [],
 			loc
 		})
@@ -136,7 +135,6 @@ export const installationOf = (owned: Owned, codes: Codebook): Installation => {
 			name: "tagger",
 			relations: [{ kind: "whole", name: "Tags", loc }],
 			write: ["Tags"],
-			refresh: [],
 			contexts: [],
 			loc
 		})

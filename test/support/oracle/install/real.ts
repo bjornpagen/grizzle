@@ -116,8 +116,7 @@ export interface RealInstallPlan extends InstallPlan {
 }
 
 /**
- * The one world a generated schema runs as: a full role `app`, writing every stored relation and refreshing every
- * derived one, in the login `server`.
+ * The one world a generated schema runs as: a full role `app`, writing every stored relation, in the login `server`.
  */
 export const oracleLogin = (desc: SchemaDesc): LoginDesc => {
 	const loc = SourceLoc(`the oracle login of ${desc.name}`, [])

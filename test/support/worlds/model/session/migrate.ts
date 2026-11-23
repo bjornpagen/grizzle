@@ -1,7 +1,7 @@
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 import { violations } from "#test/support/laws/model.ts"
-import { evaluateRules, hostSchemaOf, judgedSchemaOf } from "#test/support/worlds/model/host.ts"
+import { hostSchemaOf, judgedSchemaOf } from "#test/support/worlds/model/host.ts"
 import {
 	changesWorlds,
 	createsWorldFunction,
@@ -161,22 +161,16 @@ const brokenOnto = (
 /**
  * The state an installation's folders leave once every one applied: the installation, at the next version when it is
  * another (one that lands the installation it replaces reaches the same snapshot), its dropped relations gone, new ones
- * empty, a new derived relation populated from reality and a kept one keeping its facts until a refresh; every folder
- * applied; every perturbation of the catalog the folder rewrites healed (catalog.ts healedBy). A Db session keeps the
+ * empty; every folder applied; every perturbation of the catalog the folder rewrites healed (catalog.ts healedBy). A Db session keeps the
  * snapshot it was opened with, so its calls refuse as `migrated` once the version moved past it.
  */
 const landedOn = (state: Unnamed, to: InstallSpec): Unnamed => {
 	const reality = migratedReality(state.reality, to.base)
-	const derived: Record<string, ReadonlyArray<HostFact>> = {}
-	for (const d of to.base.derived) {
-		derived[d.name] = state.derived[d.name] ?? evaluateRules(to.base, d.rules, reality, derived, {})
-	}
 	const version = samePlain(state.install, to) ? state.version : state.version + 1
 	return {
 		install: to,
 		roles: installedRoles(to),
 		reality,
-		derived,
 		sessions: state.sessions,
 		connections: state.connections,
 		tampered: Arr.filter(state.tampered, (p) => !healedBy(state.install, to, p)),
@@ -285,14 +279,13 @@ export const folderFiles = (from: InstallSpec, to: InstallSpec): ReadonlyArray<F
 		rosterChanged ||
 		Arr.some(now.closed, (c) => !Arr.some(was.closed, (x) => x.name === c.name)) ||
 		Arr.some(lawDomainsOf(now), (d) => !fromDomains.has(domainLawKey(d)))
-	const gains =
-		Arr.some(now.relations, (r) => {
-			const before = Option.getOrUndefined(Arr.findFirst(was.relations, (x) => x.name === r.name))
-			return (
-				before === undefined ||
-				Arr.some(r.fields, (f) => !Arr.some(before.fields, (g) => g.name === f.name))
-			)
-		}) || Arr.some(now.derived, (d) => !Arr.some(was.derived, (x) => x.name === d.name))
+	const gains = Arr.some(now.relations, (r) => {
+		const before = Option.getOrUndefined(Arr.findFirst(was.relations, (x) => x.name === r.name))
+		return (
+			before === undefined ||
+			Arr.some(r.fields, (f) => !Arr.some(before.fields, (g) => g.name === f.name))
+		)
+	})
 	const worlds = changesWorlds(from, to)
 	/** The laws Structure adds NOT VALID: every one built on a relation that may hold rows, but a containment into a key
 	 * this folder attaches, which Publish adds once the key is (intoAttached). */
@@ -322,8 +315,7 @@ export const folderFiles = (from: InstallSpec, to: InstallSpec): ReadonlyArray<F
 	const removes =
 		servedAnew ||
 		Arr.some(was.relations, (r) => !Arr.some(now.relations, (x) => x.name === r.name)) ||
-		Arr.some(was.laws, (law) => !Arr.some(now.laws, (x) => samePlain(x, law))) ||
-		Arr.some(was.derived, (d) => !Arr.some(now.derived, (x) => x.name === d.name))
+		Arr.some(was.laws, (law) => !Arr.some(now.laws, (x) => samePlain(x, law)))
 	/**
 	 * Whether the folder creates an object under a hashed name (core/identity.ts), whose COMMENT the diff's final step
 	 * writes in Publish: every added law but a declared check, which keeps its readable name (a key's unique constraint,

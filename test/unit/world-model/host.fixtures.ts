@@ -88,7 +88,6 @@ const kinds: Readonly<Record<string, Readonly<Record<string, Kind>>>> = {
 	Note: { no: "no", doc: "doc", author: "sub" },
 	Visit: { no: "no", seq: "no" },
 	Tier: { id: "tier" },
-	OrgDocs: { org: "org", doc: "doc" },
 	Session: { sub: "sub" },
 	Tenant: { org: "org" }
 }
@@ -99,7 +98,6 @@ const sources: Arr.NonEmptyReadonlyArray<Source> = [
 	{ kind: "ordinary", name: "Share" },
 	{ kind: "ordinary", name: "Note" },
 	{ kind: "closed", name: "Tier" },
-	{ kind: "derived", name: "OrgDocs" },
 	{ kind: "context", name: "Session" },
 	{ kind: "context", name: "Tenant" }
 ]
@@ -273,11 +271,6 @@ const factsGen = (relation: string): Gen<ReadonlyArray<HostFact>> =>
 const realityGen: Gen<HostState> = (source) =>
 	new Map(Arr.map(docsBase.relations, (r) => [r.name, source.draw(factsGen(r.name))] as const))
 
-const derivedGen: Gen<Readonly<Record<string, ReadonlyArray<HostFact>>>> = map(
-	factsGen("OrgDocs"),
-	(facts) => ({ OrgDocs: facts })
-)
-
 /** A session: each context's fact from its pool (a tenant's seats its pick), or none. */
 const sessionGen: Gen<ContextFacts> = (source) => {
 	const session = source.draw(int(0, 3))
@@ -371,14 +364,12 @@ export const checkedDag = (query: unknown, over: FixtureSchema | undefined): Roo
 	succeeded(compileTemplate(query, over, testCompile), "the query compiles").programs.checked.dag
 
 /**
- * The reference's rows of a checked DAG over reality, the derived facts and the session: each stored and derived
- * relation a Base reads, under its Base heading, its facts as typed literals; each context a Context node reads, the
- * session's fact or none.
+ * The reference's rows of a checked DAG over reality and the session: each stored relation a Base reads, under its Base
+ * heading, its facts as typed literals; each context a Context node reads, the session's fact or none.
  */
 export const referenceRows = (
 	dag: RootedDag,
 	reality: HostState,
-	derived: Readonly<Record<string, ReadonlyArray<HostFact>>>,
 	session: ContextFacts
 ): ReadonlyArray<Readonly<Record<string, string>>> => {
 	const nodes = topoOrder(dag)
@@ -390,8 +381,7 @@ export const referenceRows = (
 	const contexts = new Map(
 		Arr.flatMap(nodes, (n) => (n.kind === "Context" ? [[n.context, n.heading] as const] : []))
 	)
-	const factsOf = (name: string): ReadonlyArray<HostFact> =>
-		reality.get(name) ?? derived[name] ?? []
+	const factsOf = (name: string): ReadonlyArray<HostFact> => reality.get(name) ?? []
 	/** A fact of a relation as the reference's row under a heading: each column's value a typed literal. */
 	const referenceRow = (name: string, heading: Heading, fact: HostFact) =>
 		Arr.map(heading, (c) => referenceLiteral(fact[c.name], c.type, `${name}.${c.name}`))
@@ -472,7 +462,6 @@ export const hostRows = (
 export type HostFeature =
 	| "an ordinary source"
 	| "the closed source"
-	| "the derived source"
 	| "a context source"
 	| "a join"
 	| "a negation that filters"
@@ -489,7 +478,6 @@ export type HostFeature =
 export const situations: Arr.NonEmptyReadonlyArray<HostFeature> = [
 	"an ordinary source",
 	"the closed source",
-	"the derived source",
 	"a context source",
 	"a join",
 	"a negation that filters",
@@ -528,12 +516,11 @@ const readsContext = (occurrences: ReadonlyArray<Occurrence>): boolean =>
 export const featuresOf = (
 	rules: Arr.NonEmptyReadonlyArray<Rule>,
 	reality: HostState,
-	derived: Readonly<Record<string, ReadonlyArray<HostFact>>>,
 	session: ContextFacts,
 	rows: number
 ): ReadonlyArray<HostFeature> => {
 	const count = (rs: Arr.NonEmptyReadonlyArray<Rule>): number =>
-		evaluateRules(docsBase, rs, reality, derived, session).length
+		evaluateRules(docsBase, rs, reality, session).length
 	const without = (part: (r: Rule) => Rule): number => {
 		const [first, ...rest] = rules
 		return count([part(first), ...Arr.map(rest, part)])
@@ -567,9 +554,6 @@ export const featuresOf = (
 			: []),
 		...(Arr.some(positive, (o) => sourceNameOf(o) === "Tier")
 			? ["the closed source" as const]
-			: []),
-		...(Arr.some(positive, (o) => sourceNameOf(o) === "OrgDocs")
-			? ["the derived source" as const]
 			: []),
 		...(Arr.some(positive, (o) => o.source.kind === "context")
 			? ["a context source" as const]
@@ -667,11 +651,10 @@ const withShape = (reality: HostState, shape: Shape): HostState => {
 	return new Map([...reality, [shape.relation, [...held, ...added]] as const])
 }
 
-/** A host case: the rules' shape, a reality holding what the shape selects, a derived relation's facts and a session. */
+/** A host case: the rules' shape, a reality holding what the shape selects, and a session. */
 interface HostCase {
 	readonly shape: Shape
 	readonly reality: HostState
-	readonly derived: Readonly<Record<string, ReadonlyArray<HostFact>>>
 	readonly session: ContextFacts
 }
 
@@ -682,15 +665,13 @@ export const caseGen: Gen<HostCase> = (source) => {
 	return {
 		shape,
 		reality: withShape(source.draw(realityGen), shape),
-		derived: source.draw(derivedGen),
 		session: source.draw(sessionGen)
 	}
 }
 
-/** What the membership property draws: a reality, a derived relation's facts and a session. */
+/** What the membership property draws: a reality and a session. */
 export const worldGen: Gen<Omit<HostCase, "shape">> = (source) => ({
 	reality: source.draw(realityGen),
-	derived: source.draw(derivedGen),
 	session: source.draw(sessionGen)
 })
 
@@ -703,11 +684,8 @@ export const schema = docsBuilt.base
 
 export const described = (x: unknown): string => Formatter.format(x)
 
-/** A model state over the documents worlds holding `reality` and `derived`; nothing else of it is read here. */
-export const stateOf = (
-	reality: HostState,
-	derived: Readonly<Record<string, ReadonlyArray<HostFact>>>
-): ModelState => ({
+/** A model state over the documents worlds holding `reality`; nothing else of it is read here. */
+export const stateOf = (reality: HostState): ModelState => ({
 	install: docsInstall,
 	names: {
 		installation: identity.schema(parsedSchemaName("docs")),
@@ -727,7 +705,6 @@ export const stateOf = (
 	host: { relations: [], laws: [] },
 	roles: installedRoles(docsInstall),
 	reality,
-	derived,
 	sessions: [],
 	connections: [],
 	tampered: [],
@@ -816,8 +793,7 @@ const unionAcrossArmsGen: Gen<InstallSpec> = (source) => ({
 			entries: {
 				View0: { kind: "query", rules: [source.draw(armGen(0)), source.draw(armGen(1))] }
 			},
-			write: [],
-			refresh: []
+			write: []
 		}
 	],
 	logins: [{ name: "web", roles: ["alpha"] }]

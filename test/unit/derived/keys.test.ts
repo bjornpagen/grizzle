@@ -3,11 +3,11 @@
  * keys its definition proves, each in heading order, narrowest first and then by heading position, none implied by a
  * narrower one; the whole heading when nothing narrower is proven; and for a definition of at most one fact its first
  * representable column. Each becomes a unique index, so each must fit PostgreSQL's B-tree entry and column limits, and
- * a definition a materialized view cannot store is refused.
+ * a definition a stored table cannot hold is refused.
  *
- * - Key rules: over the derived oracle's generated schemas (drawn levels, aggregates, take forms), every relation's
- *   keys keep those rules, a level is one above the derived relations it reads, and queries over a relation see its
- *   keys. Oracle: the rules as a checker (keyRules). Features: the whole heading, at most one fact, a level over a
+ * - Key rules: over the derived oracle's unit-local generated schemas (drawn levels, aggregates, a level over the one
+ *   below), whose stored relations the derived analysis keys, every stored relation's keys keep those rules, a level is
+ *   one above the derived relations it reads, and queries over a relation see its keys. Oracle: the rules as a checker (keyRules). Features: the whole heading, at most one fact, a level over a
  *   derived relation, and a negation over a level whose conditional count is numeric (sum(cond(flag, 1, 0)), an exact
  *   numeric the generator must type as one, or it binds that count to a bigint field: test/pg/derived/oracle/gen.ts
  *   aggregated).
@@ -36,8 +36,8 @@
  *   definition makes equal to its field (classMembers), not as alternatives of a factor. Features: one, two and three
  *   names.
  *
- * That the keys are sound, a refreshed view never holding two facts under one, is the refresh oracle's, whose views
- * are refreshed concurrently over their unique indexes.
+ * That the keys are sound, a stored relation never holding two facts under one, is the stored relations' equality
+ * oracle's (test/pg/derived), whose tables hold their unique indexes.
  */
 
 import { indices, maxOf } from "@bjornpagen/grizzle-text/base/array"
@@ -45,15 +45,19 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { assert, deepEquals, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed, boolean, finite, int } from "@bjornpagen/testing/gen"
-import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
+import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order, Record as Rec } from "effect"
 import { derivedKeyLayout } from "#compiler/analysis/derived/keys.ts"
 import { derivedAnalysis } from "#compiler/analysis/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
-import { materializedDerived as runtimeDerived } from "#compiler/schema/relation.ts"
+import { storedDerived as runtimeDerived } from "#compiler/schema/relation.ts"
 import { schemaBuilder as runtimeSchema } from "#compiler/schema/schema.ts"
-import { buildSchema, caseSketchGen, condNegationSketchGen } from "#test/pg/derived/oracle/gen.ts"
+import {
+	buildSchema,
+	unitLocalCondNegationSketchGen,
+	unitLocalSketchGen
+} from "#test/pg/derived/oracle/gen.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { checkedIn } from "#test/support/policy.ts"
 import {
@@ -95,8 +99,8 @@ import {
  */
 export const derivedRelationKeysAreProvenKeysInHeadingOrderNarrowestFirstNoneImpliedByAnotherTheWholeHeadingOnlyAlone =
 	property.explore(
-		aimed(caseSketchGen, [
-			["a negation over a level whose conditional count is numeric", condNegationSketchGen]
+		aimed(unitLocalSketchGen, [
+			["a negation over a level whose conditional count is numeric", unitLocalCondNegationSketchGen]
 		]),
 		{
 			needs: {},
@@ -152,39 +156,8 @@ export const derivedRelationKeysAreProvenKeysInHeadingOrderNarrowestFirstNoneImp
 				kind: "specification",
 				name: "proven keys in heading order, narrowest first, none implied by another, the whole heading only alone, one fact by its first representable column, a level one above what it reads"
 			},
-			kept: [
-				{
-					token: ReplayToken(
-						"test/unit/derived/keys.test.ts#derivedRelationKeysAreProvenKeysInHeadingOrderNarrowestFirstNoneImpliedByAnotherTheWholeHeadingOnlyAlone:f.0:0.1.3.0.0.8.0.1.1.2.0.0.0.2.2.0.0.0.0.0.0.0.1.3.0.0.0.0.3.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0"
-					),
-					reason:
-						"a derived relation of the first fact by a double precision column a match reads of the one fact its constant key fixes, a take of one over a projection of that column alone: a field of one fact every row reads, so the projection's rows are natively distinct and keyed (trunk red at 055ecb6fd, where every float a projection delivered told its rows apart as members)",
-					since: "2026-11-22"
-				},
-				{
-					token: ReplayToken(
-						"test/unit/derived/keys.test.ts#derivedRelationKeysAreProvenKeysInHeadingOrderNarrowestFirstNoneImpliedByAnotherTheWholeHeadingOnlyAlone:f.0:0.1.3.0.0.8.0.1.1.2.0.0.0.2.2.0.0.0.0.0.0.0.1.3.0.0.0.0.3.1.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0"
-					),
-					reason:
-						"the same derived relation of the first two facts: a take of two, over the same projection",
-					since: "2026-11-22"
-				},
-				{
-					token: ReplayToken(
-						"test/unit/derived/keys.test.ts#derivedRelationKeysAreProvenKeysInHeadingOrderNarrowestFirstNoneImpliedByAnotherTheWholeHeadingOnlyAlone:f.0:0.1.3.0.1.8.1.1.1.2.0.0.0.2.2.0.0.1.0.0.0.0.2.1.3.0.0.0.0.3.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0"
-					),
-					reason:
-						"a derived relation of the first fact by an integer and a double precision column, a take of one over their projection: the float a match reads of the one fact the integer's variable keys",
-					since: "2026-11-22"
-				}
-			],
+			kept: [],
 			kills: [
-				{
-					file: "packages/engine/src/logical/props.ts",
-					original: "\t\t\t\t\t\taddFactKey(out, v, key)",
-					replacement: "\t\t\t\t\t\t{}",
-					why: "A region's variable bound by an occurrence of one fact is no fact field (logical/props.ts factFieldsOf), so a projection of a float a match reads of the one fact its constant key fixes tells its rows apart as members and claims no key; the kept take of two fails."
-				},
 				{
 					file: "packages/engine/src/analysis/logical/derived.ts",
 					original: "\t\tconst single = heading.find((c) => representable(c))",

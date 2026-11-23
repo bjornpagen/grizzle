@@ -14,7 +14,8 @@ import {
 	on,
 	type QueryDesc,
 	relation,
-	type SchemaDesc
+	type SchemaDesc,
+	unit
 } from "#test/support/fixtures/ir/desc.ts"
 import { match, queryDesc, ref, relationSource, rule, varsAt } from "#test/unit/check/dsl.ts"
 
@@ -272,7 +273,7 @@ const columnsOf = (c: GeneratedCase): ReadonlyArray<string> => [
 	...Arr.map(indices(c.generations.length), generatedName)
 ]
 
-/** The derived relation of every case, on the level above R, reading R whole: R's rows as a materialized view. */
+/** The derived relation of every case, on the level above R, reading R whole: R's rows, stored. */
 export const viewName = "D"
 
 /** The query reading every column of a case's relation from `source`, R or its view, its one match binding each. */
@@ -292,19 +293,24 @@ export const scanOf = (c: GeneratedCase, source: string): QueryDesc => {
 }
 
 /**
- * The schema of a case with its view: the case's schema, and on the level above it D, materialized, reading R whole, so
- * D inherits every key R's rows have: each indexed, but one over the unbounded texts, which another key's index holds
- * as its alternative (analysis/derived/analyze.ts).
+ * The schema of a case with its view: the case's schema, R in a unit of its id, and on the level above it D, stored,
+ * reading R whole, so D inherits every key R's rows have: each indexed, but one over the unbounded texts, which another
+ * key's index holds as its alternative (analysis/derived/analyze.ts).
  */
 export const viewSchemaOf = (c: GeneratedCase): SchemaDesc => ({
 	name: "generated_keys_view",
-	bases: [decodedSchema(schemaOf(c))],
+	bases: [
+		decodedSchema({
+			...schemaOf(c),
+			statements: [...schemaOf(c).statements, unit("Row", { id: f.integer })]
+		})
+	],
 	relations: [
 		{
 			kind: "derived",
 			name: viewName,
 			level: 1,
-			storage: "materialized",
+			storage: "stored",
 			query: scanOf(c, relationName)
 		}
 	],

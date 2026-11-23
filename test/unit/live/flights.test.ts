@@ -5,8 +5,8 @@
  * reports what committed, so every result the protocol documents is drawn without injecting it into a real server.
  *
  * The fixture (built here, compiled offline as generate compiles it, test/support/compiled-served.ts): a relation
- * Sitting, a materialized rollup of it, a closed relation Weights, and one role serving a set read of a student's
- * sittings, the same read ordered, the rollup's refresh, and a key read of Weights, a read of a closed relation alone,
+ * Sitting, a closed relation Weights, and one role serving a set read of a student's sittings, the same read ordered,
+ * and a key read of Weights, a read of a closed relation alone,
  * whose rows only a migration changes (served/forms.ts ServedReadLive `constant`). Each case draws a member, the rows its statement answers, and one fault: none; its
  * statement refused with 40001, 40P01 or another SQLSTATE; the server ending the session (FATAL) or the connection lost
  * at its statement; COMMIT refused with 40001 or its answer lost; the fence refused by a migration running; or no
@@ -18,16 +18,14 @@
  *
  * - a read's watch answers reset, its rows' upserts, then `ready` exactly when no fault came, and else its one error
  *   event in place of `ready`, then end; never a `ready` its COMMIT did not answer;
- * - a write's answer is its outcome exactly when no fault came, and else its one error, then end;
  * - once's error is the answer's error;
  * - the error's class and retry are the fault's meaning: SERIALIZABLE's refusal (40001, 40P01) at a statement or at
- *   COMMIT is transient, safe; a read's lost connection, or a session the server ended at a write's statement, before
- *   its COMMIT ran, is transport, safe; no session to be had is unavailable, safe; a migration at the fence is stale,
- *   never; a write's connection lost at its statement or at COMMIT is commitUnknown, never, since its one flight sent
- *   COMMIT with its statement and the write may have committed; any other refusal is failed, never;
+ *   COMMIT is transient, safe; a read's lost connection, or a session the server ended at its statement, is transport,
+ *   safe; no session to be had is unavailable, safe; a migration at the fence is stale, never; any other refusal is
+ *   failed, never;
  * - and the classification's own retry for that class is that retry (live/events.ts callErrors);
  * - a read's watch registers on the layer's registry once, a closed-only read's under no routing key, since no change
- *   of a row changes it and only a migration's version notice ends it, and a write's never.
+ *   of a row changes it and only a migration's version notice ends it.
  *
  * The oracle is the specification of each fault's meaning, read off the drawn fault alone.
  *
@@ -75,7 +73,6 @@ export const aLiveAnswerOverTheProtocolsResultsSendsReadyOnlyAfterItsCOMMITAnswe
 				weighted<Member>([
 					[1, () => "sittings"],
 					[1, () => "ordered"],
-					[1, () => "rebuild"],
 					[1, () => "weight"]
 				])
 			),
@@ -100,7 +97,6 @@ export const aLiveAnswerOverTheProtocolsResultsSendsReadyOnlyAfterItsCOMMITAnswe
 			situations: [
 				"sittings",
 				"ordered",
-				"rebuild",
 				"weight",
 				"none",
 				"statement refused",
@@ -154,32 +150,20 @@ export const aLiveAnswerOverTheProtocolsResultsSendsReadyOnlyAfterItsCOMMITAnswe
 						)
 						const calls = memberCalls(context, member)
 						const input =
-							c.member === "rebuild"
-								? { params: {}, facts: {} }
-								: c.member === "weight"
-									? { params: { kind: "light" }, facts: {} }
-									: { params: { student: 1 }, facts: {} }
+							c.member === "weight"
+								? { params: { kind: "light" }, facts: {} }
+								: { params: { student: 1 }, facts: {} }
 						const events = yield* answerOf(calls, input)
 						const kinds = Arr.map(events, (e) => e.kind)
 						const fault = c.fault
 						if (fault.kind === "none") {
 							const routed = c.member === "sittings" || c.member === "ordered"
-							assert.equal(
-								registrations.length,
-								calls.shape === "write" ? 0 : 1,
-								"a read's watch registers once, a write's never"
-							)
+							assert.equal(registrations.length, 1, "a read's watch registers once")
 							assert.ok(
 								Arr.every(registrations, (keys) => (keys === 0) === (c.member === "weight")),
 								"a closed-only read registers under no routing key, a routed one under its keys"
 							)
-							if (calls.shape === "write") {
-								assert.deepEqual(
-									kinds,
-									["outcome", "end"],
-									"a write's answer is its outcome, then end"
-								)
-							} else if (routed) {
+							if (routed) {
 								notes.note(c.rows > 0 ? "a read of rows" : "a read of none")
 								assert.deepEqual(
 									kinds,
@@ -196,14 +180,10 @@ export const aLiveAnswerOverTheProtocolsResultsSendsReadyOnlyAfterItsCOMMITAnswe
 							}
 							return
 						}
-						const expected = meaningOf(c.member, fault)
+						const expected = meaningOf(fault)
 						assert.ok(
 							!kinds.includes("ready"),
 							`no ready before its COMMIT answered: ${Formatter.format(kinds)}`
-						)
-						assert.ok(
-							!kinds.includes("outcome"),
-							`no outcome of a write that failed: ${Formatter.format(kinds)}`
 						)
 						assert.deepEqual(
 							Arr.filter(kinds, (k) => k === "error" || k === "end"),
@@ -251,12 +231,6 @@ export const aLiveAnswerOverTheProtocolsResultsSendsReadyOnlyAfterItsCOMMITAnswe
 					replacement:
 						"\t\t\t\tlet decoded = false\n\t\t\t\tconst last = yield* runRead(ctx, call, (row) => {\n\t\t\t\t\topening()\n\t\t\t\t\tdecoded = true\n\t\t\t\t\toffer(upsert(call.decode(row)))\n\t\t\t\t}).pipe(\n\t\t\t\t\tEffect.map(() => {\n\t\t\t\t\t\topening()\n\t\t\t\t\t\treturn events.ready\n\t\t\t\t\t}),\n\t\t\t\t\tEffect.catch((failure) => {\n\t\t\t\t\t\tif (decoded) offer(events.ready)\n\t\t\t\t\t\treturn Effect.succeed(events.error(readCallError(failure)))\n\t\t\t\t\t})",
 					why: "A read sends ready once its rows decode, before COMMIT's answer: a COMMIT refused or lost finds a ready before the error."
-				},
-				{
-					file: "packages/engine/src/live/events.ts",
-					original: '\tcommitUnknown: { retry: "never", payload: { message: "text" } },',
-					replacement: '\tcommitUnknown: { retry: "safe", payload: { message: "text" } },',
-					why: "commitUnknown is classified safe: the refresh whose COMMIT went unanswered finds safe."
 				}
 			]
 		}

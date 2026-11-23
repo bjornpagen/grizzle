@@ -702,7 +702,6 @@ const worldsOf = (
 			name: "writer",
 			relations: whole(stored),
 			write: stored,
-			refresh: [],
 			contexts: [],
 			loc
 		}),
@@ -713,7 +712,6 @@ const worldsOf = (
 							name: "reader",
 							relations: whole(read),
 							write: [],
-							refresh: [],
 							contexts: [],
 							loc
 						}),

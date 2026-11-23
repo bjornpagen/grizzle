@@ -139,8 +139,7 @@ export const installOf = (
 		closed: [],
 		relations: [relation],
 		laws: [],
-		contexts: [],
-		derived: []
+		contexts: []
 	}
 	const [entry, spec]: readonly [string, EntrySpec] =
 		point.entry.kind === "whole"
@@ -149,7 +148,7 @@ export const installOf = (
 	return {
 		install: {
 			base,
-			roles: [{ name: "alpha", entries: { [entry]: spec }, write: [entry], refresh: [] }],
+			roles: [{ name: "alpha", entries: { [entry]: spec }, write: [entry] }],
 			logins: [{ name: "web", roles: ["alpha"] }]
 		},
 		entry

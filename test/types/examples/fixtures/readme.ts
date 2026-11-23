@@ -53,7 +53,6 @@ import {
 	records,
 	recordsFacts,
 	recordsQuery,
-	refresh,
 	relation,
 	role,
 	row,
@@ -526,8 +525,8 @@ export const callLog = query(Usage)
 	})
 	.orderBy(["at", "desc"])
 
-/** Calls and spend per workspace and model, stored, and refreshed when the job says so. */
-export const ModelSpend = derived.materialized(
+/** Calls and spend per workspace and model: a derived relation, which every read of it reads through its definition. */
+export const ModelSpend = derived(
 	"ModelSpend",
 	query(Usage).rule((r) => {
 		const { id, workspace, model, cost } = v(Call, "call")
@@ -538,11 +537,12 @@ export const ModelSpend = derived.materialized(
 )
 export const Reporting = schema.extend([Usage], "Reporting", [ModelSpend], [])
 
-export const Analyst = role(Reporting, "analyst", wholeEntriesOf(Reporting), {
-	refresh: ["ModelSpend"]
-})
+export const Analyst = role(Reporting, "analyst", wholeEntriesOf(Reporting))
 
-/** One workspace's spend on one model: at most one row, since the rollup's key is (workspace, model). */
+/**
+ * One workspace's spend on one model: at most one row, since the rollup's key is (workspace, model). As a member of
+ * the workload it is the index on Call's (workspace, model) that generate derives.
+ */
 export const modelSpend = query(Reporting).rule((r) => {
 	const { calls, spend } = v(ModelSpend, "modelSpend")
 	return r
@@ -557,8 +557,7 @@ export const modelSpend = query(Reporting).rule((r) => {
 
 export const usage = workload(Analyst, {
 	callLog: paged(callLog),
-	modelSpend,
-	nightly: refresh([ModelSpend])
+	modelSpend
 })
 export const UsageApi = login(Reporting, "usage_api", [Analyst], { workload: [usage] })
 
@@ -579,7 +578,6 @@ export const moreCalls = (db: AnalystDb, workspace: string, anchor: CallAnchor) 
 
 export const spendOn = (db: AnalystDb, workspace: string, model: string) =>
 	db.workload.modelSpend.once({ params: { workspace, model }, facts: {} })
-export const nightly = (db: AnalystDb) => db.workload.nightly.once({ params: {}, facts: {} })
 
 /** README: "Example", "Who is asking". */
 /** Clerk's session token: the user in `sub`, the active organization's id in the nested object `o`. */

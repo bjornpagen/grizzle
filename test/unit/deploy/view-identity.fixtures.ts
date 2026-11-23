@@ -1,4 +1,4 @@
-/** What the property of view-identity.test.ts reads: its space, the schema's versions and the views they draft. */
+/** What the property of view-identity.test.ts reads: its space, the schema's versions and the stored tables they draft. */
 
 import { defined } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
@@ -9,7 +9,7 @@ import { writeSnapshot } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { derived, key, on, relation, schema } from "#compiler/public/schema.ts"
+import { derived, key, on, relation, schema, unit } from "#compiler/public/schema.ts"
 import type { CreateStoredTable, Expr } from "#compiler/sql/ast.ts"
 import { lit, types } from "#compiler/sql/build.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -21,7 +21,7 @@ import {
 	noDeclarations
 } from "#test/support/migrate/kit.ts"
 
-/** A materialized view of the schema, in install order: Ones and Twos over T, at level 1, and Fives over Ones, at
+/** A stored derived relation of the schema, in install order: Ones and Twos over T, at level 1, and Fives over Ones, at
  * level 2. */
 export const views = ["Ones", "Twos", "Fives"] as const
 export type View = (typeof views)[number]
@@ -30,23 +30,25 @@ export type View = (typeof views)[number]
  * What the second version changes: nothing; how Ones is lowered alone, its installed definition another lowering's of
  * the same definition (`lowering`), or one that calls a function of its schema the target no longer holds, as an
  * earlier lowering's helper the new one does without (`gone`); a key of T's `b`, which Ones and Twos then hold too
- * (`key`); Ones' definition; Twos'; or Fives', the view above Ones.
+ * (`key`); Ones' definition; Twos'; or Fives', the stored relation above Ones.
  */
 const changes = ["none", "lowering", "gone", "key", "Ones", "Twos", "Fives"] as const
 export type Change = (typeof changes)[number]
 
 export const changeGen: Gen<Change> = (s) => s.draw(element(changes))
 
-/** The views a change creates again, by the schema's own reads, in install order: a view whose definition it changes,
- * or whose installed definition reads what the target no longer holds, and every view above one, which reads it. A
- * lowering alone changes no meaning, and a key none either: it yields no other row, and a view's keys are indexes of
- * their own. */
+/** The stored tables a change creates again, by the schema's own reads, in install order: each whose meaning or primary
+ * key it changes, or whose installed definition reads what the target no longer holds, and every one above one, whose
+ * definition names it. A lowering alone changes neither; T's key of `b` yields no other row, but it is a key of Ones and
+ * Twos too, narrower than their (doc, at), and a stored table's primary key is its narrowest proven key with its unit's
+ * fields first, so it changes theirs. */
 export const recreatedBy = (change: Change): ReadonlyArray<View> => {
 	switch (change) {
 		case "none":
 		case "lowering":
-		case "key":
 			return []
+		case "key":
+			return ["Ones", "Twos", "Fives"]
 		case "gone":
 		case "Ones":
 			return ["Ones", "Fives"]
@@ -58,26 +60,32 @@ export const recreatedBy = (change: Change): ReadonlyArray<View> => {
 }
 
 /**
- * The schema at `version`: T's facts by document and place; Ones, those of T whose `a` is one, and Twos, whose `a` is
- * two, each materialized at level 1; Fives, those of Ones whose `b` is five, materialized at level 2. The second version
- * holds the change of a definition, Ones' `a` three, Twos' four or Fives' `b` six, or T's key of `b`.
+ * The schema at `version`: T's facts by document and place, in the unit Document, keyed by the document; Ones, those
+ * of T whose `a` is one, and Twos, whose `a` is two, each stored at level 1; Fives, those of Ones whose `b` is five,
+ * stored at level 2. The second version holds the change of a definition, Ones' `a` three, Twos' four or Fives' `b`
+ * six, or T's key of `b`.
  */
-export const schemaOf = (change: Change, version: "first" | "second") => {
+const schemaOf = (change: Change, version: "first" | "second") => {
 	const changed = (c: Change): boolean => version === "second" && change === c
 	const T = relation("T", { doc: pg.integer, at: pg.integer, a: pg.integer, b: pg.integer }, [
 		"doc",
 		"at"
 	])
-	const Base = schema("view_identity", [T], changed("key") ? [key(on(T, "b"))] : [])
+	const Document = unit("Document", { doc: pg.integer })
+	const Base = schema(
+		"view_identity",
+		[T],
+		changed("key") ? [Document, key(on(T, "b"))] : [Document]
+	)
 	const selected = (a: number) =>
 		query(Base).rule((r) => {
 			const { doc, at, b } = v(T, "t")
 			return r.match(T, { doc, at, a, b }).find({ doc, at, b })
 		})
-	const Ones = derived.materialized("Ones", selected(changed("Ones") ? 3 : 1))
-	const Twos = derived.materialized("Twos", selected(changed("Twos") ? 4 : 2))
+	const Ones = derived.stored("Ones", selected(changed("Ones") ? 3 : 1))
+	const Twos = derived.stored("Twos", selected(changed("Twos") ? 4 : 2))
 	const Level1 = schema.extend([Base], "view_identity_1", [Ones, Twos], [])
-	const Fives = derived.materialized(
+	const Fives = derived.stored(
 		"Fives",
 		query(Level1).rule((r) => {
 			const { doc, at } = v(Ones, "ones")
@@ -87,7 +95,7 @@ export const schemaOf = (change: Change, version: "first" | "second") => {
 	return schema.extend([Level1], "view_identity_2", [Fives], [])
 }
 
-/** The view a materialized view's name names, by the identifier its derived relation's record gives it. */
+/** The stored relation a stored table's name names, by the identifier its derived relation's record gives it. */
 const viewNamed = (snapshot: DeploySnapshot, name: string): View =>
 	defined(
 		Option.getOrUndefined(
@@ -96,10 +104,8 @@ const viewNamed = (snapshot: DeploySnapshot, name: string): View =>
 		`a view of the schema, not ${name}`
 	)
 
-/** Each view's CREATE MATERIALIZED VIEW as `snapshot` records it. */
-export const recordedViews = (
-	snapshot: DeploySnapshot
-): ReadonlyMap<View, CreateStoredTable> =>
+/** Each stored relation's CREATE TABLE as `snapshot` records it. */
+export const recordedViews = (snapshot: DeploySnapshot): ReadonlyMap<View, CreateStoredTable> =>
 	new Map(
 		Arr.flatMap(snapshot.manifest.objects, (o) => {
 			const [create] = o.ddl
@@ -158,16 +164,16 @@ const relowered = (snapshot: DeploySnapshot, relowering: Relowering): DeploySnap
 	}
 }
 
-/** A view a draft's step creates or refreshes, with the step's slot. */
+/** A stored table a draft's step creates or fills, with the step's slot. */
 export interface ViewStep {
 	readonly view: View
 	readonly slot: Slot
 }
 
-/** What one draft does to the materialized views, in step order, the snapshot it continues and the one it leaves. */
+/** What one draft does to the stored tables, in step order, the snapshot it continues and the one it leaves. */
 export interface ViewDraft {
 	readonly created: ReadonlyArray<ViewStep>
-	readonly refreshed: ReadonlyArray<ViewStep>
+	readonly filled: ReadonlyArray<ViewStep>
 	readonly steps: number
 	readonly previous: DeploySnapshot
 	readonly snapshot: DeploySnapshot
@@ -187,8 +193,10 @@ const viewDraft = (
 				? [{ view: viewNamed(snapshot, statement.name.name), slot }]
 				: []
 		),
-		refreshed: Arr.flatMap(statements, ({ slot, statement }) =>
-			statement.kind === "refresh" ? [{ view: viewNamed(snapshot, statement.view.name), slot }] : []
+		filled: Arr.flatMap(statements, ({ slot, statement }) =>
+			statement.kind === "fillStored"
+				? [{ view: viewNamed(snapshot, statement.table.name), slot }]
+				: []
 		),
 		steps: steps.length,
 		previous,

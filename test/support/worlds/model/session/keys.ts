@@ -5,7 +5,6 @@ import { keysOf } from "#test/support/worlds/model/session/writes.ts"
 import type {
 	BaseSpec,
 	ClosedSpec,
-	DerivedSpec,
 	EntrySpec,
 	Occurrence,
 	Rule,
@@ -20,8 +19,8 @@ import type {
  * row.
  *
  * - An ordinary relation: its primary key and each declared key. A closed roster: its handle (its values distinct), or
- *   nothing at all when it has at most one member. A derived relation: its definition's keys, as a world relation's.
- * - A world relation (a query entry), or a derived one: its definition's minimal keys, each a set of head fields, or its
+ *   nothing at all when it has at most one member.
+ * - A world relation (a query entry): its definition's minimal keys, each a set of head fields, or its
  *   first head field in canonical order when the definition has at most one fact (inheritedKeys keys such a view by
  *   that one column), or the whole heading when nothing narrower is proven.
  * - One rule (a match region under a projection, logical/props.ts projectProps): the rule states dependencies over its
@@ -104,10 +103,6 @@ const inherited = (heading: ReadonlyArray<string>, root: Keys): Keys => {
 /** A closed roster's keys (props.ts Closed): nothing at all for at most one member, its handle otherwise. */
 const closedKeys = (closed: ClosedSpec): Keys => (closed.members.length <= 1 ? [[]] : [["id"]])
 
-/** A derived relation's keys: its materialized view's unique indexes, its definition's keys as a view's. */
-const derivedKeys = (base: BaseSpec, derived: DerivedSpec): Keys =>
-	inherited(canonical(Rec.keys(derived.rules[0].head)), rulesKeys(base, derived.rules))
-
 /** The keys of the relation a source names, as the scan over it sees them. */
 const sourceKeys = (base: BaseSpec, source: Source): Keys => {
 	switch (source.kind) {
@@ -120,12 +115,6 @@ const sourceKeys = (base: BaseSpec, source: Source): Keys => {
 				Arr.findFirst(base.closed, (c) => c.name === source.name)
 			)
 			return closed === undefined ? [] : closedKeys(closed)
-		}
-		case "derived": {
-			const derived = Option.getOrUndefined(
-				Arr.findFirst(base.derived, (d) => d.name === source.name)
-			)
-			return derived === undefined ? [] : derivedKeys(base, derived)
 		}
 	}
 }
@@ -513,10 +502,7 @@ const entryKeys = (base: BaseSpec, entry: EntrySpec): Keys =>
 		? inherited(canonical(Rec.keys(entry.rules[0].head)), rulesKeys(base, entry.rules))
 		: relationSpecOf(base, entry.relation) !== undefined
 			? keysOf(base, entry.relation)
-			: sourceKeys(base, {
-					kind: Arr.some(base.closed, (c) => c.name === entry.relation) ? "closed" : "derived",
-					name: entry.relation
-				})
+			: sourceKeys(base, { kind: "closed", name: entry.relation })
 
 /** A role relation's heading: a whole entry's relation's fields, a query entry's head fields. */
 const headingOf = (base: BaseSpec, entry: EntrySpec): ReadonlyArray<string> => {
@@ -524,13 +510,7 @@ const headingOf = (base: BaseSpec, entry: EntrySpec): ReadonlyArray<string> => {
 		return Rec.keys(entry.rules[0].head)
 	}
 	const relation = relationSpecOf(base, entry.relation)
-	if (relation !== undefined) {
-		return Arr.map(relation.fields, (f) => f.name)
-	}
-	const derived = Option.getOrUndefined(
-		Arr.findFirst(base.derived, (d) => d.name === entry.relation)
-	)
-	return derived === undefined ? ["id"] : Rec.keys(derived.rules[0].head)
+	return relation === undefined ? ["id"] : Arr.map(relation.fields, (f) => f.name)
 }
 
 /**

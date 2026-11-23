@@ -34,6 +34,7 @@ import {
 	relation,
 	role,
 	schema,
+	unit,
 	wholeEntriesOf
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -342,7 +343,7 @@ export type WorldsFeature =
 	| "a role holding a query entry"
 	| "a role holding whole entries alone"
 	| "a role over the base"
-	| "a materialized derived relation held whole"
+	| "a stored derived relation held whole"
 
 /** Every case of the worlds box, each knob by its own draw, so a finite enumeration draws each case once. */
 export const worldsCaseGen: Gen<WorldsCase> = (source) => ({
@@ -351,8 +352,8 @@ export const worldsCaseGen: Gen<WorldsCase> = (source) => ({
 })
 
 /**
- * The worlds box under `name`: a base of a roster, Kind, an Item holding a code of it and a Note, and a level over it
- * holding a Tag of an item and Busy, the notes materialized. `reader` holds every relation whole, so its whole views read
+ * The worlds box under `name`: a base of a roster, Kind, an Item holding a code of it and a Note, each keyed by its id
+ * in the unit Record, and a level over it holding a Tag of an item and Busy, the notes stored, each in its note's unit. `reader` holds every relation whole, so its whole views read
  * both levels', Kind's none; `writer` holds Item and Tag whole and writes Tag, and, where the case says, reads Labelled,
  * the tagged items, a query entry of its own; one login serves both. Where the case says, `auditor`, over the base, holds
  * Item and Note whole, served by a login of its own. So a whole view is held by several roles, a role holds whole
@@ -362,9 +363,9 @@ export const worldsBox = (name: string, c: WorldsCase) => {
 	const Kind = closed.ordered("Kind", ["a", "b"])
 	const Item = relation("Item", { id: Id, kind: closedId(Kind) }, ["id"])
 	const Note = relation("Note", { id: Id, words: pg.integer }, ["id"])
-	const base = schema(name, [Kind, Item, Note], [])
+	const base = schema(name, [Kind, Item, Note], [unit("Record", { id: Id })])
 	const Tag = relation("Tag", { item: Id, label: str.regex("^[a-z]{1,8}$") }, ["item", "label"])
-	const Busy = derived.materialized(
+	const Busy = derived.stored(
 		"Busy",
 		query(base).rule((r) => {
 			const { id, words } = v(Note, "note")
@@ -395,19 +396,23 @@ export const worldsBox = (name: string, c: WorldsCase) => {
 
 /** The features a worlds case reaches by its box alone. */
 export const worldsFeatures = (c: WorldsCase): ReadonlyArray<WorldsFeature> => [
-	"a materialized derived relation held whole",
+	"a stored derived relation held whole",
 	c.query ? "a role holding a query entry" : "a role holding whole entries alone",
 	...(c.query ? (["a role holding whole entries alone"] as const) : []),
 	...(c.auditor ? (["a role over the base"] as const) : [])
 ]
 
-/** The statements that store the worlds box's rows, in one SERIALIZABLE transaction, as grizzle's guard requires. */
+/**
+ * The statements that store the worlds box's rows, in one SERIALIZABLE transaction, as grizzle's guard requires: Busy
+ * keeps its notes itself, its upkeep at the COMMIT, so a write of Note, Busy's holder, is the rule judge's, whose tables
+ * the session stands up first, outside the transaction, as a served write's session does (identity.ruleStandUp).
+ */
 export const storeWorlds = (base: string, upper: string): ReadonlyArray<string> => [
+	`SELECT ${quoteIdent(base)}.${quoteIdent(identifierOf(identity.ruleStandUp("Note")))}()`,
 	"BEGIN ISOLATION LEVEL SERIALIZABLE",
 	`INSERT INTO ${quoteIdent(base)}."item" (id, kind) VALUES ('00000000-0000-0000-0000-000000000001', 0), ('00000000-0000-0000-0000-000000000002', 1)`,
 	`INSERT INTO ${quoteIdent(base)}."note" (id, words) VALUES ('00000000-0000-0000-0000-000000000003', 7)`,
 	`INSERT INTO ${quoteIdent(upper)}."tag" (item, label) VALUES ('00000000-0000-0000-0000-000000000001', 'red')`,
-	`REFRESH MATERIALIZED VIEW ${quoteIdent(upper)}."busy"`,
 	"COMMIT"
 ]
 

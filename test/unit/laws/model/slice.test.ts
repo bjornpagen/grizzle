@@ -440,15 +440,6 @@ export const aCompilesLawModelIsTheWholeSchemasRestrictedToItsSlicesWritesAndNam
 					}
 				}
 
-				if (
-					Arr.some(
-						c.chained,
-						(i) =>
-							c.materialized.includes(chainedName(i)) && !c.materialized.includes(derivedName(i))
-					)
-				) {
-					k.note("a materialized derived relation over a live one")
-				}
 				const all = Rec.keys(owned.relations)
 				if (Arr.some(all, (r) => !names.has(r))) {
 					k.note("a relation outside the names")
@@ -546,7 +537,7 @@ export const aCompilesLawModelIsTheWholeSchemasRestrictedToItsSlicesWritesAndNam
 		kept: [
 			{
 				token: ReplayToken(
-					"test/unit/laws/model/slice.test.ts#aCompilesLawModelIsTheWholeSchemasRestrictedToItsSlicesWritesAndNames:-:0.1.1.1.0.1.1.0.0.0.1.1.2.0.1.1.1.0.0.1.1.0.1.0.0"
+					"test/unit/laws/model/slice.test.ts#aCompilesLawModelIsTheWholeSchemasRestrictedToItsSlicesWritesAndNames:-:0.1.1.1.0.1.1.0.0.1.1.2.0.1.1.1.0.0.1.1.0.1.0.0"
 				),
 				reason:
 					"the level above written alone, its rule over a derived relation of a family member below",
@@ -568,7 +559,7 @@ export const aCompilesLawModelIsTheWholeSchemasRestrictedToItsSlicesWritesAndNam
 			},
 			{
 				token: ReplayToken(
-					"test/unit/laws/model/slice.test.ts#aCompilesLawModelIsTheWholeSchemasRestrictedToItsSlicesWritesAndNames:-:2.0.0.2.0.0.1.0.0.0.0.2.0.0.0.0.2.0.1.0.0.0.1.7.0.0.0.0.2.0.0.1.0"
+					"test/unit/laws/model/slice.test.ts#aCompilesLawModelIsTheWholeSchemasRestrictedToItsSlicesWritesAndNames:-:2.0.0.2.0.0.1.0.2.0.0.0.0.2.0.1.0.0.0.1.7.0.0.0.0.2.0.0.1.0"
 				),
 				reason: "a roster's domain discharging a named relation's containment and an unnamed one's",
 				since: "2026-11-09"
@@ -629,7 +620,7 @@ export const aSchemasOwnershipRefusesADerivedDefinitionMatchingALiveDerivedRelat
 		kills: [
 			{
 				file: "packages/engine/src/schema/own.ts",
-				original: `\t\t\t\tif (lower.desc.kind === "derived" && lower.desc.storage === "live") {\n\t\t\t\t\tfail(\n\t\t\t\t\t\t"MalformedDescription",\n\t\t\t\t\t\tentry.desc.loc,\n\t\t\t\t\t\t\`a definition of \${r.name} that reads the live derived relation \${read} through its definition; it matches \${read} by name, and a live derived relation stores nothing to match, so a query over it matches the query it is defined by\`\n\t\t\t\t\t)\n\t\t\t\t}`,
+				original: `\t\t\t\tif (lower.desc.kind === "derived" && !derivedHeld(lower.desc.storage)) {\n\t\t\t\t\tfail(\n\t\t\t\t\t\t"MalformedDescription",\n\t\t\t\t\t\tentry.desc.loc,\n\t\t\t\t\t\t\`a definition of \${r.name} that reads the live derived relation \${read} through its definition; it matches \${read} by name, and a live derived relation stores nothing to match, so a query over it matches the query it is defined by\`\n\t\t\t\t\t)\n\t\t\t\t}`,
 				replacement: "",
 				why: "A definition matching a live derived relation by name admitted (schema/own.ts checkDerived); the second property fails."
 			}

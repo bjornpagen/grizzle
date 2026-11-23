@@ -441,8 +441,7 @@ const projectionOf = (fact: HostFact, fields: ReadonlyArray<string>): HostFact =
  * The statements of a direct writer's open transaction, stratified. Live: every statement with live arguments, and as
  * the login, half the time SET ROLE to one
  * of its roles; a stratum per role reference kind of SET ROLE and SET SESSION AUTHORIZATION, and per claims kind of
- * setting `grizzle.claims`. Every write and table read names a base relation: a derived one changes only through its
- * declaration or a refresh (README "Derived tables"), and its role relations read it.
+ * setting `grizzle.claims`. Every write and table read names a base relation.
  */
 const statementStrata = (state: ModelState, session: number): Strata<DirectStatement> => {
 	const s = state.sessions[session]
@@ -578,7 +577,7 @@ const statementStrata = (state: ModelState, session: number): Strata<DirectState
 								max: 2
 							}
 						)
-						const params = parametersOf(state, fn)
+						const params = parametersOf(state.install, fn)
 						return {
 							kind: "call",
 							fn,
@@ -887,10 +886,6 @@ const bySession = (
 		...Arr.map(Arr.flatMap(liveFor(state, kind), aimed), offLive)
 	])
 
-const refreshOf =
-	(session: number) =>
-	(relation: string): Action => ({ kind: "refresh", session, relation })
-
 const directOf =
 	(session: number) =>
 	(statement: DirectStatement): Action => ({ kind: "direct", session, statement })
@@ -951,22 +946,6 @@ const strataOfKind = (state: ModelState, kind: ActionKind, focus: RoleFocus): St
 		}
 		case "apply":
 			return applyStrata(state)
-		case "refresh": {
-			const relations = (session: number) =>
-				armsStrata(
-					relationArms(
-						state,
-						readerOf(state, session),
-						preferredBy(readerOf(state, session), (r) => r.refresh)
-					)
-				)
-			return bySession(
-				state,
-				"refresh",
-				(session) => map(liveOf(relations(session), "a refresh's relations"), refreshOf(session)),
-				(session) => [mapStrata(relations(session), refreshOf(session))]
-			)
-		}
 		case "close":
 			return mapStrata(sessionsFor(state, "close"), (session): Action => ({
 				kind: "close",
@@ -1224,7 +1203,6 @@ const validShare = (
 const openerOf: { readonly [K in SessionKind]: "open-db" | "direct-begin" } = {
 	read: "open-db",
 	apply: "open-db",
-	refresh: "open-db",
 	close: "open-db",
 	interrupt: "open-db",
 	direct: "direct-begin",
@@ -1250,9 +1228,9 @@ const liveShare = (validity: Weights["validity"]): number => {
 	return total === 0 ? 1 : validity.live / total
 }
 
-/** Whether a role does what a Db's call of a kind asks of it: writes something for an apply, refreshes something for a refresh. */
+/** Whether a role does what a Db's call of a kind asks of it: writes something for an apply. */
 const capableOf = (kind: SessionKind, role: RoleSpec): boolean =>
-	kind === "apply" ? role.write.length > 0 : kind === "refresh" ? role.refresh.length > 0 : true
+	kind === "apply" ? role.write.length > 0 : true
 
 /**
  * Whether a state holds a live session an action of a kind can act through: for a Db's call, one whose role does what

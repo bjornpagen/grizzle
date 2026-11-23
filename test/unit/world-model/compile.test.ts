@@ -133,7 +133,7 @@ export const theWorldsModelsCompileRulesCompileAWriteExactlyWhereTheModelAdmitsI
 		kept: [
 			{
 				token: ReplayToken(
-					"test/unit/world-model/compile.test.ts#theWorldsModelsCompileRulesCompileAWriteExactlyWhereTheModelAdmitsItPastItsCompile:-:0.1.0.1.0.0.0.0.1.1.0.0.0.1.0.0.0.0.0.0.0.0.0.1.3.0.0.0.0.0.0.1.0.1.2.3q.0.0.0.0.0.0.1.0.0.1.1.0.0.1.1.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.1.0.0.0.0.1.1.0.0.0.1"
+					"test/unit/world-model/compile.test.ts#theWorldsModelsCompileRulesCompileAWriteExactlyWhereTheModelAdmitsItPastItsCompile:-:0.1.0.1.0.0.0.1.1.0.0.0.1.0.0.0.0.0.0.0.0.0.3.0.0.0.0.0.1.0.1.2.3q.0.0.0.0.0.1.0.0.1.1.0.0.1.1.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.1.0.0.0.0.1.1.0.0.0.1"
 				),
 				reason:
 					"an insert through View0 then its delete in a stratum of its own, both sides of View0's delta read back, by a session whose claims hold no Tenant, the context View0 fills its doc from: the served member is planned under every context's claims, where both strata write Share, so grizzle refuses its read-backs as crossing statements for every caller, as the model does (NEGZERO2's replay at 46905a719 compiled it under the session's claims alone)",

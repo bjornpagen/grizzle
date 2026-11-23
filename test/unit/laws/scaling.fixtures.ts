@@ -169,7 +169,7 @@ const item: RelationSpec = {
 const baseOf = (
 	relations: Arr.NonEmptyReadonlyArray<RelationSpec>,
 	contexts: ReadonlyArray<ContextSpec>
-): BaseSpec => ({ name: "Scaled", closed: [], relations, laws: [], contexts, derived: [] })
+): BaseSpec => ({ name: "Scaled", closed: [], relations, laws: [], contexts })
 
 /** The worlds of `roles` over a base, every role in the one login `web`. */
 const worldsOf = (base: BaseSpec, roles: Arr.NonEmptyReadonlyArray<RoleSpec>): InstallSpec => ({
@@ -182,8 +182,7 @@ const worldsOf = (base: BaseSpec, roles: Arr.NonEmptyReadonlyArray<RoleSpec>): I
 const fullOn = (name: string, relations: ReadonlyArray<RelationSpec>): RoleSpec => ({
 	name,
 	entries: Rec.fromEntries(Arr.map(relations, (r) => [r.name, whole(r.name)] as const)),
-	write: Arr.map(relations, (r) => r.name),
-	refresh: []
+	write: Arr.map(relations, (r) => r.name)
 })
 
 /** A world view of the items whose owner is `owner`, matching `also` beside them. */
@@ -348,8 +347,7 @@ export const scaled = (dimension: Dimension, n: number): Scaled => {
 					entries: Rec.fromEntries(
 						upTo(n, (i) => [`View${i}`, ownedItems(literalTerm(i), [])] as const)
 					),
-					write: [],
-					refresh: []
+					write: []
 				}
 			])
 		case "context fields": {
@@ -373,8 +371,7 @@ export const scaled = (dimension: Dimension, n: number): Scaled => {
 							}
 						])
 					},
-					write: [],
-					refresh: []
+					write: []
 				}
 			])
 		}

@@ -16,12 +16,11 @@ import {
 	type Statement
 } from "#compiler/public/schema.ts"
 import { compute } from "#compiler/scalar/compute/builders.ts"
-import { materializedDerived, closedBuilder, relationBuilder } from "#compiler/schema/relation.ts"
+import { closedBuilder, relationBuilder } from "#compiler/schema/relation.ts"
 import { alternativesBuilder } from "#compiler/schema/statements.ts"
 import { contextDescOf, roleBuilder as role } from "#compiler/schema/world.ts"
 import { regexField } from "#compiler/text/field.ts"
 import type { Predicate } from "#compiler/types/core/phantom.ts"
-import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { Relation, Roster } from "#compiler/types/schema/relation.ts"
 import type { AnyContext } from "#compiler/types/schema/world.ts"
@@ -57,13 +56,7 @@ export type BuiltRelation = Relation<
 export type BuiltClosed = Roster<string, readonly [string, ...Array<string>], "ordered">
 /** A role built from a spec: its entries and lists are known only at run time, and its type reads no context. */
 export type BuiltRole = ReturnType<
-	typeof role<
-		AnySchema,
-		string,
-		Readonly<Record<string, EntryValue>>,
-		ReadonlyArray<string>,
-		ReadonlyArray<string>
-	>
+	typeof role<AnySchema, string, Readonly<Record<string, EntryValue>>, ReadonlyArray<string>>
 >
 
 export type BuiltLogin = ReturnType<
@@ -448,8 +441,7 @@ const predicateOf = (
 }
 
 /**
- * The base schema of a spec, its derived relations added by `schema.extend`, under `name`, with the values its rules
- * match: what an installation's roles are built over, and what a test builds a rule set over (describe.ts definitionOf).
+ * The base schema of a spec under `name`, with the values its rules match: what an installation's roles are built over, and what a test builds a rule set over (describe.ts definitionOf).
  */
 export const buildBase = (
 	spec: BaseSpec,
@@ -479,50 +471,30 @@ export const buildBase = (
 			contexts[c.name] = yield* contextOf(c, kit)
 		}
 		const declared: Record<string, AnyRelation | AnyClosed> = { ...rosters, ...relations }
-		const root = yield* attempt(`schema ${name}`, () =>
+		const base: AnySchema = yield* attempt(`schema ${name}`, () =>
 			schema(name, Rec.values(declared), [...mutables, ...laws])
 		)
-		const derivedValues: Record<string, AnyDerived> = {}
-		let base: AnySchema = root
-		for (const [depth, d] of spec.derived.entries()) {
-			const level = base
-			const definition = yield* definitionOf(
-				spec,
-				{ relations: { ...rosters, ...relations, ...derivedValues }, contexts },
-				d.rules,
-				level,
-				`derived ${d.name}`
-			)
-			const value = yield* attempt(`derived ${d.name}`, () =>
-				materializedDerived(d.name, definition, [])
-			)
-			derivedValues[d.name] = value
-			base = yield* attempt(`derived ${d.name}`, () =>
-				schema.extend([level], `${name}_${depth + 1}`, [value], [])
-			)
-		}
-		return { base, relations, closed: rosters, derived: derivedValues, contexts, laws }
+		return { base, relations, closed: rosters, contexts, laws }
 	})
 
 export interface BuiltBase {
 	readonly base: AnySchema
 	readonly relations: Readonly<Record<string, BuiltRelation>>
 	readonly closed: Readonly<Record<string, BuiltClosed>>
-	readonly derived: Readonly<Record<string, AnyDerived>>
 	readonly contexts: Readonly<Record<string, AnyContext>>
 }
 
-/** A whole entry's value: the base's relation, closed roster or derived relation of that name. */
+/** A whole entry's value: the base's relation or closed roster of that name. */
 const wholeOf = (made: BuiltBase, name: string): Effect.Effect<EntryValue> => {
-	const value = made.relations[name] ?? made.closed[name] ?? made.derived[name]
+	const value = made.relations[name] ?? made.closed[name]
 	return value === undefined
 		? Effect.die(new Error(`a whole entry of ${name}, which the base does not declare`))
 		: Effect.succeed(value)
 }
 
-/** The values a rule over a built base matches: its rosters, relations and derived relations, and its contexts. */
+/** The values a rule over a built base matches: its rosters and relations, and its contexts. */
 export const sourcesOf = (made: BuiltBase): RuleSources => ({
-	relations: { ...made.closed, ...made.relations, ...made.derived },
+	relations: { ...made.closed, ...made.relations },
 	contexts: made.contexts
 })
 
@@ -551,7 +523,7 @@ const roleOf = (spec: InstallSpec, made: BuiltBase, r: RoleSpec) =>
 			contexts.push(built)
 		}
 		const value: BuiltRole = yield* attempt(`role ${r.name}`, () =>
-			role(made.base, r.name, entries, { write: r.write, refresh: r.refresh, contexts })
+			role(made.base, r.name, entries, { write: r.write, contexts })
 		)
 		return value
 	})

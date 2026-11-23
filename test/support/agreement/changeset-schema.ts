@@ -219,7 +219,7 @@ export const Work = schema(
 )
 
 /** An extension of Work, a level above it, and two schemas of which neither is a level of Work, one of its name. */
-export const TaskCount = derived.materialized(
+export const TaskCount = derived(
 	"TaskCount",
 	query(Work).rule((r) => {
 		const { id, account } = v(Task, "task")

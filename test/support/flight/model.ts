@@ -76,8 +76,8 @@ const digestHexOf = (text: string): string => sha256Hex(new TextEncoder().encode
 const flightSnapshot = SchemaFingerprint(digestHexOf("flight-snapshot"))
 
 /**
- * The frames a call is sent in: a read; every write and refresh at SERIALIZABLE; a change of a role generate certified
- * READ COMMITTED; and an EXPLAIN, which rolls back; each as the call's role.
+ * The frames a call is sent in: a read; every write at SERIALIZABLE; a change of a role generate certified READ
+ * COMMITTED; and an EXPLAIN, which rolls back; each as the call's role.
  */
 const frameNames = ["read", "write", "readCommittedWrite", "rollback"] as const
 export type FrameName = (typeof frameNames)[number]

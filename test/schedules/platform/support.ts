@@ -1295,8 +1295,8 @@ const directObserved = (i: RaceInstall, result: TxnResult): Observed | string =>
 
 /**
  * The SQLSTATE class each transient reason is raised under (adapter/errors/execution.ts transientReason): a
- * transaction rollback, class 40 (40001, 40P01, and grizzle's concurrent-change code a write statement or a refresh
- * raises), or an integrity violation, class 23 (a unique violation a concurrent writer's occupant raised). Every tag is
+ * transaction rollback, class 40 (40001, 40P01, and grizzle's concurrent-change code a write statement raises), or an
+ * integrity violation, class 23 (a unique violation a concurrent writer's occupant raised). Every tag is
  * named, so a new one is a type error here until its class is stated.
  */
 const rollbackClass: { readonly [T in TransientTag]: boolean } = {
@@ -1304,7 +1304,6 @@ const rollbackClass: { readonly [T in TransientTag]: boolean } = {
 	Deadlock: true,
 	PutTargetConflict: true,
 	SpanKeyChange: true,
-	ConcurrentRefresh: true,
 	UnseenOccupant: false
 }
 

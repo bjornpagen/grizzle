@@ -2,7 +2,7 @@
  * The school system's laws hold for every writer, whatever it is handed. Programs over the education installation first
  * write once through every role that writes (support.ts everyWriterApplies), then draw every action kind with live,
  * stale and wild inputs: Dbs of every role opened with live, stale and wild tokens,
- * applies of lawful and law-breaking facts, refreshes, direct SQL writers that take on roles, hand-set claims and write
+ * applies of lawful and law-breaking facts, direct SQL writers that take on roles, hand-set claims and write
  * at every isolation level, interruptions, migrations, catalog changes and wild JavaScript values. After every action
  * the stored facts are the model's, whose reality keeps every law of the base (the driver's laws-hold invariant), and
  * a witness a law shows a world names only values its caller submitted or holds whole.

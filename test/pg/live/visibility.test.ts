@@ -72,7 +72,7 @@ export const theLiveLeadersVisibilityJudgmentHoldsACommitSeenExactlyWhereASnapsh
 							const schema = yield* substrate.schema(freshSchema)
 							const table = qualified(schema, "written")
 							yield* substrate.admin.query(`CREATE TABLE ${table} (writer int4 NOT NULL)`, [])
-							const served = servedLiveOf(schema, { kind: "source", tables: {}, views: [] })
+							const served = servedLiveOf(schema, { kind: "source", tables: {} })
 							if (served.kind === "none") {
 								return yield* Effect.die("a live source serves its texts")
 							}

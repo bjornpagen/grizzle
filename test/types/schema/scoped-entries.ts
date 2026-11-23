@@ -7,7 +7,7 @@ import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/bat
  * The scoped entries program: every way a caller states scopedEntriesOf's options and holds its entries in a role, each
  * a statement over Sitting (Assignment rooted by its student, SittingEvent reached through Assignment's number, Content
  * whole), under the directive the type-test batch disarms exactly where the rule refuses it. The rule, the oracle: the
- * entries are wholeEntriesOf's, each ordinary or materialized derived relation whole or scoped, so a role holding them
+ * entries are wholeEntriesOf's, each ordinary or stored derived relation whole or scoped, so a role holding them
  * holds every relation of its base under its own name, its role relation the base relation itself, and runs the base's
  * programs; its write list names the ordinary ones; a root names a relation of the base by one of its fields; and a role
  * holding a relation through a query entry of its own, scoped or not by its shape, holds no level of the base. Each

@@ -10,7 +10,6 @@ import {
 	int,
 	shuffled,
 	string,
-	subarray,
 	uniqueKeys,
 	weighted
 } from "@bjornpagen/testing/gen"
@@ -21,7 +20,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { closed, context, derived, relation, schema } from "#compiler/public/schema.ts"
+import { closed, context, derived, relation, schema, unit } from "#compiler/public/schema.ts"
 import {
 	type OrderedValue,
 	queryOver,
@@ -52,17 +51,19 @@ export const Note = relation("Note", { id: Id, post: Id }, ["id"])
 
 const Doc = relation("Doc", { id: Id, a: pg.vector(3), b: pg.vector(3) }, ["id"])
 
-const Blog = schema("Blog", [Kind, Post, Note, Doc], [])
+/** The blog: every relation keyed by its id sits in the unit Entry, so a stored relation over Post sits in it too. */
+const Blog = schema("Blog", [Kind, Post, Note, Doc], [unit("Entry", { id: Id })])
 
-const Counts = derived.materialized(
-	"Counts",
+/** Each post's author, a stored derived relation a role holds whole and writes nothing of. */
+const Bylines = derived.stored(
+	"Bylines",
 	query(Blog).rule((r) => {
 		const { id, author } = v(Post, "post")
-		return r.match(Post, { id, author }).find({ author, posts: r.count() })
+		return r.match(Post, { id, author }).find({ id, author })
 	})
 )
 
-export const Reports = schema.extend([Blog], "Reports", [Counts], [])
+export const Reports = schema.extend([Blog], "Reports", [Bylines], [])
 
 const Stray = relation("Stray", { id: Id }, ["id"])
 
@@ -99,10 +100,6 @@ const ordinaryNames: Arr.NonEmptyReadonlyArray<Ordinary> = nonEmpty(
 	"the base's ordinary relations"
 )
 
-const isOrdinary = (name: string): name is Ordinary => Arr.some(ordinaryNames, (n) => n === name)
-
-const kindOfBase = (name: BaseName): "closed" | "relation" | "derived" => baseRelations[name].kind
-
 /**
  * A role entry as a case states it: a whole relation of the base, or of another schema, under a name; a query over an
  * ordinary relation finding its fields but `omit`; one matching Viewer at the relation's id (`claimed`); a query over
@@ -129,7 +126,6 @@ type EntrySpec =
 interface RoleSpec {
 	readonly entries: ReadonlyArray<readonly [string, EntrySpec]>
 	readonly write: ReadonlyArray<string>
-	readonly refresh: ReadonlyArray<string>
 	/** The contexts the role declares. */
 	readonly contexts: ReadonlyArray<ContextName>
 }
@@ -250,8 +246,8 @@ const entryDesc = (name: string, spec: EntrySpec): Option.Option<unknown> => {
 }
 
 /**
- * The healthy role: drawn whole entries, writable views of drawn ordinary relations, and what it writes and refreshes;
- * and, where it declares Viewer, drawn entries matching it.
+ * The healthy role: drawn whole entries, writable views of drawn ordinary relations, and what it writes; and, where it
+ * declares Viewer, drawn entries matching it.
  */
 const healthyGen: Gen<RoleSpec> = (source) => {
 	const contexts: ReadonlyArray<ContextName> = source.draw(boolean) ? ["Viewer"] : []
@@ -282,8 +278,7 @@ const healthyGen: Gen<RoleSpec> = (source) => {
 		const at = source.draw(int(0, writers.length))
 		return at === writers.length ? [] : [defined(writers[at])]
 	})
-	const refresh = source.draw(subarray(Arr.filter(wholes, (w) => kindOfBase(w) === "derived")))
-	return { entries, write, refresh, contexts }
+	return { entries, write, contexts }
 }
 
 /** A defect a case plants, each with its drawn target. */
@@ -307,8 +302,6 @@ type Defect =
 	| { readonly kind: "writeKind"; readonly derived: boolean }
 	| { readonly kind: "writeUnwritable"; readonly relation: Ordinary; readonly omit: number }
 	| { readonly kind: "writeTwice"; readonly relation: Ordinary; readonly wholeFirst: boolean }
-	| { readonly kind: "refreshOutside"; readonly name: number }
-	| { readonly kind: "refreshKind"; readonly target: number }
 
 const ordinaryGen: Gen<Ordinary> = (source) =>
 	Arr.getUnsafe(ordinaryNames, source.draw(int(0, ordinaryNames.length - 1)))
@@ -344,9 +337,7 @@ const defectGen: Gen<Defect> = weighted<Defect>([
 	[1, (s) => ({ kind: "writeOutside", name: s.draw(int(0, 9)) })],
 	[1, (s) => ({ kind: "writeKind", derived: s.draw(boolean) })],
 	[1, (s) => ({ kind: "writeUnwritable", relation: s.draw(ordinaryGen), omit: s.draw(int(1, 7)) })],
-	[1, (s) => ({ kind: "writeTwice", relation: s.draw(ordinaryGen), wholeFirst: s.draw(boolean) })],
-	[1, (s) => ({ kind: "refreshOutside", name: s.draw(int(0, 9)) })],
-	[1, (s) => ({ kind: "refreshKind", target: s.draw(pickGen) })]
+	[1, (s) => ({ kind: "writeTwice", relation: s.draw(ordinaryGen), wholeFirst: s.draw(boolean) })]
 ])
 
 /** A rule as a case states it: an unwritable entry's reason is the writable-entry suite's, so only its entry. */
@@ -484,7 +475,7 @@ const plant = (healthy: RoleSpec, defect: Defect): RoleCase => {
 			return of({ ...healthy, write: [...healthy.write, name] }, { kind: "writeOutside", name })
 		}
 		case "writeKind": {
-			const relation: BaseName = defect.derived ? "Counts" : "Kind"
+			const relation: BaseName = defect.derived ? "Bylines" : "Kind"
 			const withEntry = entered(healthy, relation, { kind: "whole", relation })
 			return of(
 				{ ...withEntry, write: [...withEntry.write, relation] },
@@ -527,38 +518,6 @@ const plant = (healthy: RoleSpec, defect: Defect): RoleCase => {
 				{ kind: "writeTwice", relation, entries: [first, second] }
 			)
 		}
-		case "refreshOutside": {
-			const name = `Ghost${defect.name}`
-			return of(
-				{ ...healthy, refresh: [...healthy.refresh, name] },
-				{ kind: "refreshOutside", name }
-			)
-		}
-		case "refreshKind": {
-			const candidates = nonEmpty(
-				[
-					...Arr.filter(baseNames, (n) => kindOfBase(n) !== "derived"),
-					...Arr.map(ordinaryNames, (n) => `${n}View`)
-				],
-				"a non-derived entry"
-			)
-			const name = pickFrom(candidates, defect.target)
-			const viewed = Option.getOrUndefined(Arr.findFirst(ordinaryNames, (n) => `${n}View` === name))
-			const entry: EntrySpec = isOrdinary(name)
-				? { kind: "whole", relation: name }
-				: viewed !== undefined
-					? { kind: "view", relation: viewed, omit: [] }
-					: { kind: "whole", relation: "Kind" }
-			const withEntry = entered(healthy, name, entry)
-			return of(
-				{ ...withEntry, refresh: [...withEntry.refresh, name] },
-				{
-					kind: "refreshKind",
-					name,
-					entryKind: entry.kind === "view" ? "query" : name === "Kind" ? "closed" : "relation"
-				}
-			)
-		}
 	}
 }
 
@@ -589,7 +548,6 @@ export const admitted = (name: string, spec: RoleSpec) =>
 		Rec.fromEntries(Arr.map(spec.entries, ([n, entry]) => [n, entryValue(entry)] as const)),
 		{
 			write: spec.write,
-			refresh: spec.refresh,
 			contexts: Arr.map(spec.contexts, (c) => contextValues[c])
 		},
 		[]
@@ -620,7 +578,6 @@ export const describedOf = (c: RoleCase): Option.Option<unknown> => {
 			...Arr.flatMap(descs, Option.toArray)
 		],
 		write: c.planted.write,
-		refresh: c.planted.refresh,
 		contexts: Arr.map(c.planted.contexts, contextDesc)
 	})
 }

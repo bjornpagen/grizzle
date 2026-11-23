@@ -9,7 +9,6 @@ export {
 	ChangeSet,
 	login,
 	query,
-	refresh,
 	role,
 	schema,
 	v,
@@ -20,7 +19,7 @@ export {
 export { lawsOf } from "@bjornpagen/grizzle/compile"
 export { Db, DbLayer, served } from "@bjornpagen/grizzle/runtime"
 export type { WriteListOf } from "#index.ts"
-export type { CallError, OpenError, Refreshed } from "@bjornpagen/grizzle/runtime"
+export type { OpenError } from "@bjornpagen/grizzle/runtime"
 export {
 	Account,
 	AccountNames,
@@ -33,7 +32,6 @@ export {
 	Reports,
 	Session,
 	Task,
-	TaskTally,
 	taskImported,
 	taskNegated,
 	taskOrg,

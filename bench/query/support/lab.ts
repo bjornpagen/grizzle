@@ -3,16 +3,7 @@ import { type Fixture, fill, settle } from "#bench/query/support/kit.ts"
 import { Logic, Num, Type } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import {
-	contained,
-	derived,
-	login,
-	on,
-	relation,
-	role,
-	schema,
-	wholeEntriesOf
-} from "#compiler/public/schema.ts"
+import { contained, on, relation, schema } from "#compiler/public/schema.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -45,8 +36,6 @@ const Price = relation(
  * fractions, so every double-precision sum is exact and the composed and native forms deliver one spelling; its rooms
  * hold 100 sittings each, the last fewer, for the percentile counterexample. Price(id, student, day, amount) is the
  * as-of source. Student(id, cohort) is the parent relation every per-student take correlates to.
- * LabReports extends Lab with BestThree, the every-student take as a derived relation (R20's refresh-evaluated
- * definition).
  */
 export const Lab = schema(
 	"Lab",
@@ -504,23 +493,6 @@ export const distinctPointsPerCohort = query(Lab).rule((r) => {
 	})
 	const { cohort, student, points } = v(values, "value")
 	return r.match(values, { cohort, student, points }).find({ cohort, points: r.sum(points) })
-})
-
-/**
- * R20's refresh-evaluated definition: the every-student take(3) as a derived relation. "A derived-relation definition
- * always wants every group, so it never takes the correlated form".
- */
-export const BestThree = derived.materialized("BestThree", bestPerStudent)
-export const LabReports = schema.extend([Lab], "LabReports", [BestThree], [])
-/** The refresher: a full role over LabReports refreshing BestThree, in a login of its own. */
-export const labRefresher = role(LabReports, "refresher", wholeEntriesOf(LabReports), {
-	refresh: ["BestThree"]
-})
-export const labRefreshers = login(LabReports, "refreshers", [labRefresher])
-/** The refreshed relation read back. */
-export const bestThreeRows = query(LabReports).rule((r) => {
-	const { student, id, score } = v(BestThree, "bestThree")
-	return r.match(BestThree, { student, id, score }).find({ student, id, score })
 })
 
 export const labPrograms = {

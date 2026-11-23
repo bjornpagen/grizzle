@@ -9,10 +9,10 @@
  *
  * - **titles**, edullm's LomObjectTitle: the keys whose L2 a mark names, through an imported path L1 ⋈ L2, are
  *   contained in the keys of a path an L3 of value 1 extends or no N blocks, a target of two arms, one negated;
- * - **viewed**: titles over a materialized derived relation Path = L1 ⋈ L2 at a level of its own, which both sides'
- *   definitions read: the whole check reads each side as its definition, live, each definition a query of its own
+ * - **viewed**: titles over a derived relation Path = L1 ⋈ L2 at a level of its own, which both sides' definitions
+ *   read: the whole check reads each side as its definition, live, each definition a query of its own
  *   (analysis/theory/query.ts violationQuery), and the triggers as its arms, every definition inlined, so the
- *   equivalence holds the one against the other; and neither reads Path's view, which no write refreshes;
+ *   equivalence holds the one against the other;
  * - **deep**: a source of two arms, a mark on L1 or on an L2 of value 1, contained in a target of three, the first
  *   declared from its deepest link up, the second an L1 of value 1 no N blocks, the third a chain of three whose L3 no N
  *   blocks;

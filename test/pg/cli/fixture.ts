@@ -133,8 +133,7 @@ export const shopV2 = (name: string, programs: ShopWorkload) => {
  * `shopV1` or `shopV2` with the same arguments for an equal schema value and its worlds, whose login's layer is given
  * the committed snapshot. The same arguments build equal values, so the configuration's schema and logins and the
  * test's agree. Every schema's worlds are full roles in the login `server`, which owns the workload: `reader`,
- * which writes nothing, and `writer`, which writes every stored relation, so a program over the schema runs on either;
- * the ledger adds `refresher`, which refreshes its derived relation.
+ * which writes nothing, and `writer`, which writes every stored relation, so a program over the schema runs on either.
  *
  * A small shop. Customer has a bounded name, so an equality lookup on it is a representable
  * access path; Order references Customer. Version 2 adds Customer.tier, a field that needs a reviewer's value for the
@@ -149,9 +148,8 @@ export const shopV2 = (name: string, programs: ShopWorkload) => {
  * And a ledger (`ledger`), whose generate output needs what a plain shop's does not. Payment's plan selects one of two
  * arm relations through `alternatives`, whose forward and reverse containments are native foreign keys, the reverse
  * deferred on the cycle with a generated law column per armed handle (fin.md §7); a derived relation CustomerSpend sums each
- * customer's payments into a materialized view; and the workload reads CustomerSpend by a range on its payment
- * count, an access path on a derived relation that drafts `customer_spend__ix__payments` on the view, beside a lookup
- * of customers by name.
+ * customer's payments; and the workload reads CustomerSpend by a range on its payment count, which reads Payment by
+ * customer through its definition, beside a lookup of customers by name.
  */
 export type ShopV1 = ReturnType<typeof shopV1>
 export type ShopV2 = ReturnType<typeof shopV2>
@@ -184,20 +182,19 @@ export const ledger = (name: string) => {
 			alternatives(Payment, "plan", Plan, { Card: CardPayment, Invoice: InvoicePayment })
 		]
 	)
-	/** Each customer's payment count and total: a stored query, keyed by customer. */
+	/** Each customer's payment count and total, keyed by customer. */
 	const spend = query(base).rule((r) => {
 		const { id, customer, cents } = v(Payment, "payment")
 		return r
 			.match(Payment, { id, customer, cents })
 			.find({ customer, payments: r.count(), cents: r.sum(cents) })
 	})
-	const CustomerSpend = derived.materialized("CustomerSpend", spend)
+	const CustomerSpend = derived("CustomerSpend", spend)
 	const s = schema.extend([base], `${name}_1`, [CustomerSpend], [])
 	const reader = role(s, "reader", wholeEntriesOf(s))
 	const writer = role(s, "writer", wholeEntriesOf(s), {
 		write: writableNamesOf(s)
 	})
-	const refresher = role(s, "refresher", wholeEntriesOf(s), { refresh: ["CustomerSpend"] })
 	const customersByName = query(s).rule((r) => {
 		const c = v(Customer, "customer")
 		return r
@@ -205,10 +202,7 @@ export const ledger = (name: string) => {
 			.where(r.eq(c.name, r.param("name", Customer.fields.name)))
 			.find({ id: c.id, name: c.name })
 	})
-	/**
-	 * The customers with at least `least` payments: a range on the derived relation's payment count, which an index on
-	 * its materialized view serves.
-	 */
+	/** The customers with at least `least` payments: a range on the derived relation's payment count. */
 	const frequentSpenders = query(s).rule((r) => {
 		const { customer, payments, cents } = v(CustomerSpend, "customerSpend")
 		return r
@@ -220,8 +214,7 @@ export const ledger = (name: string) => {
 		schema: s,
 		reader,
 		writer,
-		refresher,
-		server: login(s, "server", [reader, writer, refresher], {
+		server: login(s, "server", [reader, writer], {
 			workload: [
 				workload(s, { customer: Customer }),
 				workload(writer, { addCustomer: ChangeSet.empty(writer).insert(Customer, []) }),

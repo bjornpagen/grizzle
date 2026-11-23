@@ -180,11 +180,6 @@ export const invalidKindsOf = (state: ModelState, action: Action): ReadonlyArray
 					})
 				]
 			}
-			case "refresh":
-				return [
-					...handleKinds(state, action.session, "call"),
-					...relationKinds(state, action.session, action.relation)
-				]
 			case "apply": {
 				const ops = Arr.flatten(action.strata)
 				return [

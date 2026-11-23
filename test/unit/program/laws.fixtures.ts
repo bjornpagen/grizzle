@@ -781,7 +781,7 @@ export const reportable = (installation: Installation): ReadonlyArray<Identified
 			case "stubConstant":
 			case "packConstant":
 			case "dropFunction":
-			case "refresh":
+			case "fillStored":
 			case "dropPolicy":
 			case "resetDatabaseDefault":
 			case "revokeRole":

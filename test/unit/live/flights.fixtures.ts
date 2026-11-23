@@ -10,16 +10,7 @@ import { type CallError, type CallErrorKind } from "#compiler/live/index.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import {
-	closed,
-	derived,
-	login,
-	relation,
-	role,
-	schema,
-	wholeEntriesOf
-} from "#compiler/public/schema.ts"
-import { refresh } from "#compiler/public/workload.ts"
+import { closed, login, relation, role, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
 import { servedFile } from "#compiler/served/json.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { compiledServedFile } from "#test/support/compiled-served.ts"
@@ -53,29 +44,18 @@ const Weights = closed.relation(
 
 const Edu = schema("Edu", [Sitting, Kind, Weights], [])
 
-const Weekly = derived.materialized(
-	"Weekly",
-	query(Edu).rule((r) => {
-		const { id, student, week } = v(Sitting, "sitting")
-		return r.match(Sitting, { id, student, week }).find({ student, week, sittings: r.count() })
-	})
-)
+const app = role(Edu, "app", wholeEntriesOf(Edu))
 
-const Reports = schema.extend([Edu], "Edu_1", [Weekly], [])
-
-const app = role(Reports, "app", wholeEntriesOf(Reports), { refresh: ["Weekly"] })
-
-const sittingsOf = query(Reports).rule((r) => {
+const sittingsOf = query(Edu).rule((r) => {
 	const { id, week } = v(Sitting, "sitting")
 	return r.match(Sitting, { id, student: r.param("student", pg.integer), week }).find({ id, week })
 })
 
-const server = login(Reports, "server", [app], {
+const server = login(Edu, "server", [app], {
 	workload: [
 		workload(app, {
 			sittings: sittingsOf,
 			ordered: sittingsOf.orderBy(["week", "asc"], ["id", "asc"]),
-			rebuild: refresh([Weekly]),
 			weight: Weights
 		})
 	]
@@ -88,7 +68,7 @@ export const loaded = succeeded(
 
 export const loadedApp = defined(loaded.roles[0], "the role app")
 
-export type Member = "sittings" | "ordered" | "rebuild" | "weight"
+export type Member = "sittings" | "ordered" | "weight"
 
 /** A case's one fault (see the header). */
 export type Fault =
@@ -108,14 +88,10 @@ interface Case {
 }
 
 /**
- * The class a fault's meaning gives a failed call (see the header): a read commits nothing, so its lost connection is
- * transport wherever it came; a write's one flight sends COMMIT with its statement, so a connection lost at either may
- * have committed it, while a FATAL at its statement ended the session before COMMIT ran.
+ * The class a fault's meaning gives a failed read (see the header): a read commits nothing, so its lost connection is
+ * transport wherever it came.
  */
-export const meaningOf = (
-	member: Member,
-	fault: Exclude<Fault, { readonly kind: "none" }>
-): CallErrorKind => {
+export const meaningOf = (fault: Exclude<Fault, { readonly kind: "none" }>): CallErrorKind => {
 	switch (fault.kind) {
 		case "statement refused":
 			return fault.sqlstate === "23505" ? "failed" : "transient"
@@ -125,7 +101,7 @@ export const meaningOf = (
 			return "transient"
 		case "statement lost":
 		case "COMMIT lost":
-			return member === "rebuild" ? "commitUnknown" : "transport"
+			return "transport"
 		case "fence refused by a migration":
 			return "stale"
 		case "no session":
@@ -190,7 +166,7 @@ export const sessionOf = (c: Case, ctx: Pick<ServedDbContext, "prologue">) => {
 			case "COMMIT lost":
 			case "fence refused by a migration":
 			case "no session":
-				return c.member === "rebuild" || c.member === "weight"
+				return c.member === "weight"
 					? rows([])
 					: rows(upTo(c.rows, (k) => [`${k + 1}`, `${k + 1}`]))
 		}

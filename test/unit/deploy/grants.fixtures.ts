@@ -14,7 +14,7 @@ import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v as v_ } from "#compiler/public/query.ts"
-import { derived, login, relation, role, schema } from "#compiler/public/schema.ts"
+import { derived, login, relation, role, schema, unit } from "#compiler/public/schema.ts"
 import { installationsOf, type OwnedLogin, ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import type { Grant, GrantObjects, Grantee, SqlStatement } from "#compiler/sql/ast.ts"
@@ -113,8 +113,8 @@ export const featureOf = (t: Turn): TurnFeature => {
 	return b.second ? "a login added" : "a login dropped"
 }
 
-/** A version's schema and logins, as the public API builds them: A, B and C over a level that materializes Listing,
- * A's ids and notes, which the writer refreshes and so holds MAINTAIN on. */
+/** A version's schema and logins, as the public API builds them: A, B and C, each in a unit of its own id, under a
+ * level that stores Listing, A's ids and notes, which the writer holds whole and so reads by SELECT. */
 const built = (
 	v: Version
 ): { readonly base: DeploySubject; readonly logins: ReadonlyArray<OwnedLogin> } => {
@@ -124,8 +124,8 @@ const built = (
 	const owned = (l: Parameters<typeof loginDescOf>[0]): OwnedLogin =>
 		succeeded(ownLogin(defined(loginDescOf(l), "a login built by login(...)")))
 	if (v.third === "C") {
-		const root = schema("Worlds", [A, B, C], [])
-		const Listing = derived.materialized(
+		const root = schema("Worlds", [A, B, C], [unit("Entity", { id: Id })])
+		const Listing = derived.stored(
 			"Listing",
 			query(root).rule((r) => {
 				const { id, note } = v_(A, "a")
@@ -142,15 +142,10 @@ const built = (
 					: role(base, "reader", { A, B, C })
 		const writer =
 			v.writes === "A"
-				? role(base, "writer", { A, Listing: listing }, { write: ["A"], refresh: ["Listing"] })
+				? role(base, "writer", { A, Listing: listing }, { write: ["A"] })
 				: v.writes === "all"
-					? role(
-							base,
-							"writer",
-							{ A, B, C, Listing: listing },
-							{ write: ["A", "B", "C"], refresh: ["Listing"] }
-						)
-					: role(base, "writer", { A, B, Listing: listing }, { refresh: ["Listing"] })
+					? role(base, "writer", { A, B, C, Listing: listing }, { write: ["A", "B", "C"] })
+					: role(base, "writer", { A, B, Listing: listing })
 		const desk = owned(login(base, "desk", [reader, writer]))
 		return {
 			base,
@@ -159,8 +154,8 @@ const built = (
 				: [desk]
 		}
 	}
-	const root = schema("Worlds", [A, B], [])
-	const Listing = derived.materialized(
+	const root = schema("Worlds", [A, B], [unit("Entity", { id: Id })])
+	const Listing = derived.stored(
 		"Listing",
 		query(root).rule((r) => {
 			const { id, note } = v_(A, "a")
@@ -172,15 +167,10 @@ const built = (
 	const reader = v.reads === "A" ? role(base, "reader", { A }) : role(base, "reader", { A, B })
 	const writer =
 		v.writes === "A"
-			? role(base, "writer", { A, Listing: listing }, { write: ["A"], refresh: ["Listing"] })
+			? role(base, "writer", { A, Listing: listing }, { write: ["A"] })
 			: v.writes === "all"
-				? role(
-						base,
-						"writer",
-						{ A, B, Listing: listing },
-						{ write: ["A", "B"], refresh: ["Listing"] }
-					)
-				: role(base, "writer", { A, B, Listing: listing }, { refresh: ["Listing"] })
+				? role(base, "writer", { A, B, Listing: listing }, { write: ["A", "B"] })
+				: role(base, "writer", { A, B, Listing: listing })
 	const desk = owned(login(base, "desk", [reader, writer]))
 	return {
 		base,
@@ -364,9 +354,7 @@ const run = (start: ReadonlySet<string>, statements: ReadonlyArray<SqlStatement>
 			assert.deepEqual(still, [], `PostgreSQL drops the role ${s.name} only once it holds nothing`)
 			droppedRoles.add(s.name)
 		} else if (s.kind === "drop" && s.object !== "SCHEMA") {
-			drop(
-				`${s.object === "MATERIALIZED VIEW" || s.object === "VIEW" ? "TABLE" : s.object} ${s.name.schema}.${s.name.name}`
-			)
+			drop(`${s.object === "VIEW" ? "TABLE" : s.object} ${s.name.schema}.${s.name.name}`)
 		} else if (s.kind === "drop") {
 			drop(`SCHEMA ${s.name}`)
 		} else if (s.kind === "createTable") {
@@ -375,6 +363,8 @@ const run = (start: ReadonlySet<string>, statements: ReadonlyArray<SqlStatement>
 			created.add(`TABLE ${s.name.schema}.${s.name.name}`)
 		} else if (s.kind === "createDomain") {
 			created.add(`DOMAIN ${s.name.schema}.${s.name.name}`)
+		} else if (s.kind === "createRowType") {
+			created.add(`TYPE ${s.name.schema}.${s.name.name}`)
 		} else if (s.kind === "createSchema") {
 			created.add(`SCHEMA ${s.name}`)
 		} else if (s.kind === "createFunction") {

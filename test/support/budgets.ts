@@ -28,7 +28,7 @@
  * @environment cassowary, Ubuntu 26.04 (Linux 7.0.0) on an AWS Graviton3 (arm64) instance with 64 logical CPUs and
  *   247 GiB, Node 26.13.1; every grizzle lane's runs of those days, at load 100 to 1,100
  * @workload every unit and types property those runs ran (1,278), and the pg properties of the fixture needs
- *   (test/pg/compute/digest, transactions/apply, derived/refresh)
+ *   (test/pg/compute/digest, transactions/apply, derived/stored)
  * @result unit and types properties' readyingCpu: median 0.49 s, 90th percentile 3.35 s, 99th 15.0 s, largest 54.5 s
  *   (test/unit/sql/audit.test.ts); of the modules whose needs start children (test/unit/cli's served, tamper, derived and
  *   check fixtures, test/unit/deps), readyingCpu with childrenCpu at most 60.9 s (tamper, its cases' children among it);

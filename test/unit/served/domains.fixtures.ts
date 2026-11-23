@@ -47,7 +47,7 @@ const placements = ["a function's result alone", "a stored field too"] as const
 export type Placement = (typeof placements)[number]
 
 /**
- * How a served program reads the refinement: a derived relation's fields, its materialized definition reading a declared
+ * How a served program reads the refinement: a derived relation's fields, its stored definition reading a declared
  * function's rows and finding none of their fields, so only the definition's call casts to the refinement's domain; a
  * declared function's rows a query finds (Fn.rows); a field of rows of a
  * function's one row (Fn.row); a function's value (Fn.call); a function's rows a ChangeSet's shared sub-query reads in a
@@ -168,8 +168,11 @@ const loginOf = (c: TextDomainCase) => {
 		],
 		[unit("Items", { item: pg.integer }), mutable(Out)]
 	)
-	/** The items whose codes `judge` gives, a materialized definition of its rows that finds none of their fields. */
-	const Judging = derived.materialized(
+	/**
+	 * The items whose codes `judge` gives, a stored definition of its rows that finds none of their fields, in the unit
+	 * Items every relation keyed by the item sits in.
+	 */
+	const Judging = derived.stored(
 		"Judging",
 		query(base).rule((r) => {
 			const { item: at } = v(Item, "item")

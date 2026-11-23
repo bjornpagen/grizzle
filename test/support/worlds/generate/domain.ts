@@ -186,7 +186,7 @@ export const pooled = (domain: FieldDomain, n: number): HostValue => {
 /** The one field a closed roster holds as a relation: its handle. */
 export const closedField = "id"
 
-/** The fields of a relation-valued source of a base: an ordinary relation's, a closed roster's handle, a derived head. */
+/** The fields of a relation-valued source of a base: an ordinary relation's, or a closed roster's handle. */
 export const fieldsOfSource = (base: BaseSpec, name: string): ReadonlyArray<FieldSpec> =>
 	pipe(
 		Arr.findFirst(base.relations, (r) => r.name === name),
@@ -200,12 +200,6 @@ export const fieldsOfSource = (base: BaseSpec, name: string): ReadonlyArray<Fiel
 						domain: { kind: "handle", closed: roster.name, members: roster.members }
 					}
 				]
-			)
-		),
-		Option.orElse(() =>
-			Option.map(
-				Arr.findFirst(base.derived, (d) => d.name === name),
-				(derived) => derivedHeading(base, derived.rules)
 			)
 		),
 		Option.getOrThrowWith(() => new Error(`the base ${base.name} has no relation ${name}`))

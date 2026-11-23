@@ -1,7 +1,7 @@
 /**
  * A rule over a query is checked again by the migration that writes again the values of a column it reads
- * (deploy/diff/diff.ts heldBefore, rewrittenColumns), and a materialized view above that column's table is created
- * again (Differ.viewDropsOf): one reading of "this migration rewrites that column" decides both. A rule's check
+ * (deploy/diff/diff.ts heldBefore, rewrittenColumns), and a stored derived relation above that column's table is
+ * created again and refilled (Differ.viewDropsOf): one reading of "this migration rewrites that column" decides both. A rule's check
  * identity is the law's meaning over the columns it reads (snapshot/violation.ts checkOf), never their values, and its
  * judge's triggers never see a migration's ALTER TABLE, so a migration that re-expressed a stored generated column, gave
  * it other values through a closed row its generation reads, or drew a family's values again under an unchanged rule
@@ -11,12 +11,12 @@
  * The schema: T1's documents, each of a tier, with an amount `x` and `g`, generated, its tier's cap in the closed Cap;
  * T2's signed texts with `h`, generated, whether the text starts with a minus; O's counted members M, their amounts
  * summed into O's `total`. At level 1: Capped over `g`, Plain over `x`, Unsigned over `h` and Bounded over `total`,
- * each a rule over a query of its own derived relation, and XsView over T1 and TotalsView over O, materialized.
+ * each a rule over a query of its own derived relation, and XsView over T1, stored, T1 and T2 in a unit of the document.
  *
- * Property: the first version's draft, from no installation, checks every rule and creates every view; the second's,
+ * Property: the first version's draft, from no installation, checks every rule and creates every stored table; the second's,
  * which changes nothing, a cap of Cap, `h`'s generation or the field O's fold sums, checks again exactly the rules over
  * a column whose values it writes again, Plain never, though `x` is T1's beside the rewritten `g`, and creates again
- * exactly the views above the tables it rewrites.
+ * exactly the stored tables above the tables it rewrites.
  *
  * Oracle: a specification read off the schema's own reads. The box, exhausted: every change.
  */
@@ -56,7 +56,7 @@ const featureOf = (change: Change): Feature => {
 	}
 }
 
-/** A migration that writes a column's values again checks again exactly the rules over it and creates again exactly the views above its table. */
+/** A migration that writes a column's values again checks again exactly the rules over it and creates again exactly the stored tables above its table. */
 export const aMigrationThatRewritesAColumnChecksAgainExactlyTheRulesOverIt = property.exhaust(
 	finite(changeGen),
 	{
@@ -78,7 +78,7 @@ export const aMigrationThatRewritesAColumnChecksAgainExactlyTheRulesOverIt = pro
 				assert.deepEqual(
 					Arr.sort(first.created, Order.String),
 					Arr.sort(views, Order.String),
-					"the first draft creates every view"
+					"the first draft creates every stored table"
 				)
 				assert.deepEqual(
 					Arr.sort(second.checked, Order.String),
@@ -88,7 +88,7 @@ export const aMigrationThatRewritesAColumnChecksAgainExactlyTheRulesOverIt = pro
 				assert.deepEqual(
 					Arr.sort(second.created, Order.String),
 					Arr.sort(recreatedBy(change), Order.String),
-					`${change}: the second draft creates again exactly the views above a table it rewrites`
+					`${change}: the second draft creates again exactly the stored tables above a table it rewrites`
 				)
 				c.note(featureOf(change))
 			}),
@@ -96,7 +96,7 @@ export const aMigrationThatRewritesAColumnChecksAgainExactlyTheRulesOverIt = pro
 			kind: "specification",
 			name: "the schema's own reads: each rule reads its own column, so a migration checks again exactly the rules over the columns it rewrites"
 		},
-		box: "T1's g generated from the closed Cap and x, T2's h generated from its text, O's total folded over M, each read by a rule over a query of its own, XsView over T1 and TotalsView over O; the second version changing nothing, a cap, h's generation or the fold's field",
+		box: "T1's g generated from the closed Cap and x, T2's h generated from its text, O's total folded over M, each read by a rule over a query of its own, XsView over T1 stored; the second version changing nothing, a cap, h's generation or the fold's field",
 		kept: [],
 		kills: [
 			{
@@ -117,7 +117,7 @@ export const aMigrationThatRewritesAColumnChecksAgainExactlyTheRulesOverIt = pro
 				original: '\t\tcase "redefined":\n\t\tcase "revalued":\n\t\t\treturn true',
 				replacement:
 					'\t\tcase "redefined":\n\t\t\treturn true\n\t\tcase "revalued":\n\t\t\treturn false',
-				why: "A column the backfill draws again reads as kept, so O's totals drawn again over another field leave Bounded unchecked and TotalsView's rows stale."
+				why: "A column the backfill draws again reads as kept, so O's totals drawn again over another field leave Bounded unchecked."
 			},
 			{
 				file: "packages/engine/src/deploy/snapshot/violation.ts",

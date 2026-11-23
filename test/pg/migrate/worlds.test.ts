@@ -6,11 +6,11 @@
  * the drift check, Db.open's admission and the installed-catalog checker.
  *
  * The schema: documents of organizations on a tier (a roster, whose closed ids are smallint codes), each with a word
- * count and a cap (a contract), their shares and their notes (each its document's and its number there), and a derived relation over the
- * documents' word counts. Two contexts are read: the session's subject, and a quota whose cap is the contract. `editor`
- * holds the documents and the derived relation whole, refreshes it, reads Capped (the documents at the quota's cap) and
- * writes Mine, its notes under row security; `viewer` holds the organizations, the tier and the derived relation whole.
- * Both are of one login.
+ * count and a cap (a contract), their shares and their notes (each its document's and its number there), and a stored
+ * derived relation over the documents' word counts, the documents open in a unit of their own. Two contexts are read:
+ * the session's subject, and a quota whose cap is the contract. `editor` holds the documents and the derived relation
+ * whole, reads Capped (the documents at the quota's cap) and writes Mine, its notes under row security; `viewer` holds the organizations, the tier and the derived relation whole;
+ * `tally` holds the derived relation alone, of its level only. All three are of one login.
  *
  * The knobs, each a change a world rests on when it turns:
  * - a read query entry's head;
@@ -20,8 +20,8 @@
  * - the login's name, declared renamed (`--rename @desk=@counter`, and back);
  * - the tier's roster grown by a handle, a new names constant and roster domain under the viewer's view of the
  *   organizations, which decodes each organization's tier through the names constant;
- * - the word count retyped from integer to bigint, a column under the derived relation, whose materialized view goes and
- *   comes back, and under the editor's view of the documents.
+ * - the word count retyped from integer to bigint, a column under the derived relation, whose table goes and comes back
+ *   refilled, and under the editor's view of the documents.
  * A roster only grows and the word count only widens: a shrunk roster or a narrowed column is a declared drop or a data
  * step, which is another suite's.
  *
@@ -30,14 +30,14 @@
  *   dropped before the change and created after it, in the same transaction;
  * - Db.open admits every role at the last snapshot;
  * - the installed-catalog checker finds nothing: among it, one whole view of each relation some role holds whole, the
- *   derived relation's one view granted SELECT to both the editor and the viewer, each whole view granted to exactly the
- *   roles holding its relation whole with USAGE on its schema of whole views, and a role's own schema standing only
- *   where it holds a query entry, the editor's and not the viewer's;
+ *   derived relation's one view granted SELECT to the editor, the viewer and the tally, each whole view granted to
+ *   exactly the roles holding its relation whole with USAGE on its schema of whole views, the tally's on the derived
+ *   relation's level's alone, and a role's own schema standing only where it holds a query entry, the editor's alone;
  * - no migration recreates a login or a role: each keeps its OID across the versions, so a password and what other
  *   roles were granted survive, a renamed login included;
  * - each role reads, by the certifier's bound of its direct transactions (physical/ddl/roles.ts readableRelations),
- *   exactly the stored relations PostgreSQL lets a statement of it read: each table or materialized view it holds a
- *   table or column privilege on, and each its views read, through views to any depth, by the catalog's dependencies.
+ *   exactly the stored relations PostgreSQL lets a statement of it read: each table it holds a table or column
+ *   privilege on, and each its views read, through views to any depth, by the catalog's dependencies.
  *
  * Features: each knob's turn, the login renamed back, several knobs at once and a history of two migrations, each a
  * steered case constructs while it is pending: a start where the knob turns, and the turn.
@@ -73,13 +73,13 @@ import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * The tables and materialized views a PostgreSQL role can read, by schema and name: each it holds a table or column
- * privilege on, and each a view it can read depends on, through views to any depth (a view's rewrite rule depends on
- * every relation its definition reads), never through a materialized view, which a read reads as it stands.
+ * The tables a PostgreSQL role can read, by schema and name: each it holds a table or column privilege on, and each a
+ * view it can read depends on, through views to any depth (a view's rewrite rule depends on every relation its
+ * definition reads).
  */
 const reachQuery = `WITH RECURSIVE reach(oid) AS (
 	SELECT c.oid FROM pg_catalog.pg_class AS c
-	WHERE c.relkind IN ('r', 'p', 'v', 'm')
+	WHERE c.relkind IN ('r', 'p', 'v')
 		AND (pg_catalog.has_table_privilege($1::text, c.oid, 'SELECT,INSERT,UPDATE,DELETE')
 			OR pg_catalog.has_any_column_privilege($1::text, c.oid, 'SELECT,INSERT,UPDATE'))
 	UNION
@@ -92,7 +92,7 @@ const reachQuery = `WITH RECURSIVE reach(oid) AS (
 SELECT n.nspname::text, c.relname::text FROM reach AS r
 JOIN pg_catalog.pg_class AS c ON c.oid = r.oid
 JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
-WHERE c.relkind IN ('r', 'p', 'm')`
+WHERE c.relkind IN ('r', 'p')`
 
 /** Worlds across migrations every history of the changes a world rests on migrates with its roles kept and its catalog admitted. */
 export const worlds = property.explore(aimed(historyGen, aims), {
@@ -159,7 +159,7 @@ export const worlds = property.explore(aimed(historyGen, aims), {
 							Effect.gen(function* () {
 								const b = defined(built[i], `version ${i}`)
 								const found: Array<string> = []
-								for (const world of [b.login, b.editor, b.viewer]) {
+								for (const world of [b.login, b.editor, b.viewer, b.tally]) {
 									const rows = yield* owner.values(oidQuery, [roleNameOf(world, {})])
 									for (const row of rows) {
 										found.push(String(row[0]))
@@ -171,7 +171,7 @@ export const worlds = property.explore(aimed(historyGen, aims), {
 					})
 					/** Each version's login and roles are the same PostgreSQL roles. */
 					const first = defined(oids[0], "the first version's roles")
-					assert.equal(first.length, 3, "the first version's login and roles exist")
+					assert.equal(first.length, 4, "the first version's login and roles exist")
 					for (const later of oids.slice(1)) {
 						assert.deepEqual(later, first, "a login and its roles keep their OIDs")
 					}
@@ -188,7 +188,7 @@ export const worlds = property.explore(aimed(historyGen, aims), {
 						checkInstalled(read.catalog, installedScope(m.installation, m.snapshot)),
 						[]
 					)
-					/** Each relation PostgreSQL stores a table or a materialized view of, by its table's qualified name. */
+					/** Each relation PostgreSQL stores a table of, by its table's qualified name. */
 					const tabled = new Map<string, string>(
 						Arr.flatMap(Rec.toEntries(m.installation.laws.owned.relations), ([name, r]) => {
 							if (r.kind === "relation" || (r.kind === "derived" && r.view.kind !== "live")) {
@@ -230,6 +230,13 @@ export const worlds = property.explore(aimed(historyGen, aims), {
 	},
 	kept: [],
 	kills: [
+		{
+			file: "packages/engine/src/physical/ddl/roles.ts",
+			original: "\t\t\t\tviewSchemas.set(view.schema.name, view.schema.node)\n",
+			replacement:
+				"\t\t\t\tfor (const w of whole.values()) {\n\t\t\t\t\tviewSchemas.set(w.schema.name, w.schema.node)\n\t\t\t\t}\n",
+			why: "A role holding any relation whole is granted USAGE on every level's schema of whole views (physical/ddl/roles.ts), where it holds USAGE only on the schemas of the whole views it reads, so the tally, who holds only the stored Busy whole, holds USAGE on the base's schema of whole views: the installed-catalog checker finds it."
+		},
 		{
 			file: "packages/engine/src/deploy/diff/declared.ts",
 			original: "\tif (logins.size === 0) {",

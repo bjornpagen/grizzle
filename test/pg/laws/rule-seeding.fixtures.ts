@@ -96,12 +96,12 @@ const titles = (name: string) => {
 }
 
 /**
- * viewed: titles over a materialized path, a derived relation its definitions read, which the rule's whole check reads
- * on its definition, live, as its triggers do, never through its view, which no write refreshes.
+ * viewed: titles over a path at a level of its own, a derived relation its definitions read, which the rule's whole
+ * check reads on its definition, live, as its triggers do.
  */
 const viewed = (name: string) => {
 	const { Base } = base(name)
-	const Path = derived.materialized(
+	const Path = derived(
 		"Path",
 		query(Base).rule((r) => {
 			const { id: x1, up: k } = v(L1, "first")

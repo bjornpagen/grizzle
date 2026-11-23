@@ -33,13 +33,12 @@ import { climbedFootprint, installedFootprint } from "#test/support/served-route
 export type Feature =
 	| "a table a read routes by a parameter"
 	| "a table a read reads table-wide"
-	| "a materialized view a read reads"
 	| "a read through a query entry"
 	| "a set read keyed narrower than its heading"
 	| "an ordered read"
 	| "a paged read"
 
-/** A served member that reads live, with its read; none for a ChangeSet, a refresh or an answered read. */
+/** A served member that reads live, with its read; none for a ChangeSet or an answered read. */
 const readOf = (member: ServedMember): ServedRead | undefined => {
 	switch (member.kind) {
 		case "read":
@@ -47,7 +46,6 @@ const readOf = (member: ServedMember): ServedRead | undefined => {
 		case "key":
 			return member.read.live.kind === "answered" ? undefined : member.read
 		case "change":
-		case "refresh":
 			return undefined
 	}
 }
@@ -60,7 +58,6 @@ const formOf = (member: WorkloadForm) => {
 		case "key":
 			return member.called === "live" ? member.form : undefined
 		case "change":
-		case "refresh":
 			return undefined
 	}
 }
@@ -187,9 +184,6 @@ export const routesAndKeys = (
 						: { kind: "routed", footprint: installed },
 					`${member.name}: its footprint is the tables it reads, each routed by the fields its parameters fix, a read of none constant\n${printed()}`
 				)
-				if (climbed.views.size > 0) {
-					note("a materialized view a read reads")
-				}
 				if (member.name === worldReadName(0, "entry")) {
 					note("a read through a query entry")
 				}

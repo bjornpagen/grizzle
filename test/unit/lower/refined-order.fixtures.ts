@@ -5,7 +5,7 @@ import { type Direction } from "#compiler/core/order.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 
 import { query, v } from "#compiler/public/query.ts"
-import { derived, relation, schema } from "#compiler/public/schema.ts"
+import { derived, relation, schema, unit } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import type { OrderItem, SqlStatement, Target } from "#compiler/sql/ast.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
@@ -22,9 +22,10 @@ const Prose = str.regex("^.*$", "su")
 
 const Article = relation("Article", { id: Id, slug: Slug, title: Prose }, ["id"])
 
-const Stored = schema("RefinedOrder", [Article], [])
+/** The articles, each in a unit of its own, keyed by its id. */
+const Stored = schema("RefinedOrder", [Article], [unit("Story", { id: Id })])
 
-const Listed = derived.materialized(
+const Listed = derived.stored(
 	"Listed",
 	query(Stored).rule((r) => {
 		const { id, slug, title } = v(Article, "article")

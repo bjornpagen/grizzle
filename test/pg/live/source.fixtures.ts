@@ -147,12 +147,10 @@ const imagesOf = (write: LiveWrite): ReadonlyArray<LiveFact> => {
 	}
 }
 
-/** The footprint tables and the views of the installation's live plan, none for a plan of no read. */
-const planOf = (
-	live: LiveInstallation
-): { readonly tables: ReadonlyArray<LiveTable>; readonly views: ReadonlyArray<string> } => {
+/** The footprint tables of the installation's live plan, none for a plan of no read. */
+const planOf = (live: LiveInstallation): { readonly tables: ReadonlyArray<LiveTable> } => {
 	const plan = live.installed.installation.live
-	return plan.kind === "none" ? { tables: [], views: [] } : plan
+	return plan.kind === "none" ? { tables: [] } : plan
 }
 
 /**
@@ -180,12 +178,6 @@ export const expectedKeys = (live: LiveInstallation, commit: LiveCommit): Readon
 			)
 		})
 	)
-}
-
-/** The installed views of the plan, the only table keys the leader takes from an announcement. */
-export const liveViews = (live: LiveInstallation): ReadonlySet<string> => {
-	const { names } = live.installed
-	return new Set(Arr.map(planOf(live).views, (view) => names.relation(view).name))
 }
 
 /** The installed tables of the plan with their routed columns, as the leader keys a decoded row by them. */

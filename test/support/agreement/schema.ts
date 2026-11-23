@@ -54,8 +54,9 @@ import { Id } from "#test/support/ids.ts"
  * through as it reads a primary key.
  *
  * Rollup extends Agree with two derived relations, each keyed by what its definition proves: ItemTones, a projection of
- * Item keyed by its id, and OwnerCounts, the count of each owner's items, keyed by the owner. A query over Rollup reads
- * them and Agree's relations alike; a Db over a role of Agree reads no query over Rollup.
+ * Item keyed by its id, stored, each item's row in the unit Entry every relation keyed by its id sits in, and
+ * OwnerCounts, the count of each owner's items, keyed by the owner, live, which a role reads through Item. A query over
+ * Rollup reads them and Agree's relations alike; a Db over a role of Agree reads no query over Rollup.
  */
 export const Tone = closed.ordered("Tone", ["low", "mid", "high"])
 export const Shade = closed.ordered("Shade", ["low", "dark"])
@@ -138,7 +139,7 @@ export const byOwner = key(on(Item, "owner", "n"))
 export const Agree = schema(
 	"Agree",
 	[Tone, Shade, Item, Tag, Note, Batch, Cell, Slot, ToneWeight, ToneWeightTyped],
-	[byOwner, unit("Item", { item: Id }), mutable(Note)]
+	[byOwner, unit("Item", { item: Id }), mutable(Note), unit("Entry", { id: Id })]
 )
 
 /** Agree's entries a full role holds whole: every relation and roster but the closed relation. */
@@ -157,7 +158,7 @@ const agreeEntries = Object.freeze({
 /** The full role over Agree every drawn read goes through, but where a case reads through Reporter. */
 export const Reader = role(Agree, "reader", agreeEntries)
 
-export const ItemTones = derived.materialized(
+export const ItemTones = derived.stored(
 	"ItemTones",
 	query(Agree).rule((r) => {
 		const { id, tone, owner } = v(Item, "item")
@@ -165,7 +166,7 @@ export const ItemTones = derived.materialized(
 	})
 )
 
-export const OwnerCounts = derived.materialized(
+export const OwnerCounts = derived(
 	"OwnerCounts",
 	query(Agree).rule((r) => {
 		const { id, owner } = v(Item, "item")
@@ -175,8 +176,8 @@ export const OwnerCounts = derived.materialized(
 
 export const Rollup = schema.extend([Agree], "Rollup", [ItemTones, OwnerCounts], [])
 
-/** Rollup's entries a full role holds whole: Agree's and the derived relations. */
-const rollupEntries = Object.freeze({ ...agreeEntries, ItemTones, OwnerCounts })
+/** Rollup's entries a full role holds whole: Agree's and the stored derived relation. */
+const rollupEntries = Object.freeze({ ...agreeEntries, ItemTones })
 
 /** The full role over Rollup, which reads queries over Rollup and over Agree, a level of it. */
 export const Reporter = role(Rollup, "reporter", rollupEntries)

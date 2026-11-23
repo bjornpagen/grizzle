@@ -269,7 +269,7 @@ export const latest = query(S).rule((r) => { const { child, at } = v(Decision, "
 export declare const decoder: FactsDecoder<typeof S>
 export declare const decided: InsertAllRowsOf<typeof S>["Decision"]
 export declare const readAt: Instant
-export const Writer = role(S, "writer", { Decision, Session, Seen }, { write: ["Decision"], refresh: [] })
+export const Writer = role(S, "writer", { Decision, Session, Seen }, { write: ["Decision"] })
 export const adding = workload(Writer, { add: ChangeSet.empty(S).insert(Decision, []) })
 `
 

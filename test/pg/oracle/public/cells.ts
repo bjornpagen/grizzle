@@ -563,8 +563,7 @@ export interface StrictReader {
 }
 
 /**
- * The loaded read a member reads through: a read's, live or answered, a key's, a paged member's; none for a change or
- * a refresh.
+ * The loaded read a member reads through: a read's, live or answered, a key's, a paged member's; none for a change.
  */
 const readOf = (member: LoadedMember) => {
 	switch (member.kind) {
@@ -573,7 +572,6 @@ const readOf = (member: LoadedMember) => {
 		case "paged":
 			return member.read
 		case "change":
-		case "refresh":
 			throw new Error(`the member ${member.name} reads nothing`)
 	}
 }

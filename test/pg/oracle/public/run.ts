@@ -959,9 +959,6 @@ const readBackAnswer = (
 			return Result.fail(ended(exit.cause))
 		}
 		const outcome = exit.value
-		if (outcome.kind !== "accepted" && outcome.kind !== "unchanged") {
-			return Result.fail(`the read-back's apply was ${outcome.kind}`)
-		}
 		const rows = isRecord(outcome.reads) ? outcome.reads[readBackName] : undefined
 		return isList(rows)
 			? publicRows(readBackShape(shape), rows)
