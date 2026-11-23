@@ -76,10 +76,10 @@ const digestHexOf = (text: string): string => sha256Hex(new TextEncoder().encode
 const flightSnapshot = SchemaFingerprint(digestHexOf("flight-snapshot"))
 
 /**
- * The frames a call is sent in: a read, and a deferrable member's read; every write and refresh at SERIALIZABLE; a
- * change of a role generate certified READ COMMITTED; and an EXPLAIN, which rolls back; each as the call's role.
+ * The frames a call is sent in: a read; every write and refresh at SERIALIZABLE; a change of a role generate certified
+ * READ COMMITTED; and an EXPLAIN, which rolls back; each as the call's role.
  */
-const frameNames = ["read", "deferrableRead", "write", "readCommittedWrite", "rollback"] as const
+const frameNames = ["read", "write", "readCommittedWrite", "rollback"] as const
 export type FrameName = (typeof frameNames)[number]
 
 /** The frames statements alone run in front of: those that commit nothing (wire/batch.ts Uncommitting). */
@@ -87,17 +87,14 @@ export type AlongsideFrame = Exclude<FrameName, "write" | "readCommittedWrite">
 
 /** The transaction of each frame statements alone run in front of. */
 const alongsideTransactions: { readonly [F in AlongsideFrame]: Uncommitting } = {
-	read: { access: "readOnly", deferrable: false, end: "COMMIT" },
-	deferrableRead: { access: "readOnly", deferrable: true, end: "COMMIT" },
+	read: { access: "readOnly", end: "COMMIT" },
 	rollback: { access: "readWrite", isolation: "serializable", end: "ROLLBACK" }
 }
 
 const frameOf = (name: FrameName, prologue: Prologue): Frame => {
 	switch (name) {
 		case "read":
-			return readFrame(prologue, false)
-		case "deferrableRead":
-			return readFrame(prologue, true)
+			return readFrame(prologue)
 		case "write":
 			return writeFrame(prologue, "serializable", excludesNothing)
 		case "readCommittedWrite":
@@ -196,13 +193,12 @@ export const flightPrologue: Prologue = prologueIn(flightSchema)
 /** The frames of the scripted framed calls, behind flightPrologue. */
 const frames: { readonly [F in FrameName]: Frame } = {
 	read: frameOf("read", flightPrologue),
-	deferrableRead: frameOf("deferrableRead", flightPrologue),
 	write: frameOf("write", flightPrologue),
 	readCommittedWrite: frameOf("readCommittedWrite", flightPrologue),
 	rollback: frameOf("rollback", flightPrologue)
 }
 
-/** Whether a frame's transaction can write: its access as the frame begins it, a read's, deferrable or not, read only. */
+/** Whether a frame's transaction can write: its access as the frame begins it, a read's read only. */
 export const frameWrites = (name: FrameName): boolean => frames[name].access === "readWrite"
 
 /**
@@ -283,14 +279,11 @@ export const layoutOf = (call: Call): Arr.NonEmptyReadonlyArray<Slot> => {
 }
 
 /**
- * BEGIN as PostgreSQL reads it for `frame`: a read SERIALIZABLE READ ONLY, DEFERRABLE for a deferrable member's, a
- * write at its level.
+ * BEGIN as PostgreSQL reads it for `frame`: a read SERIALIZABLE READ ONLY, a write at its level.
  */
 const beginText = (frame: Transaction): string => {
 	if (frame.access === "readOnly") {
-		return frame.deferrable
-			? "BEGIN ISOLATION LEVEL SERIALIZABLE READ ONLY DEFERRABLE"
-			: "BEGIN ISOLATION LEVEL SERIALIZABLE READ ONLY"
+		return "BEGIN ISOLATION LEVEL SERIALIZABLE READ ONLY"
 	}
 	switch (frame.isolation) {
 		case "serializable":

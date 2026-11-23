@@ -18,13 +18,7 @@ import { projectWrite } from "#compiler/plan/change.ts"
 import { defect } from "#compiler/plan/runtime.ts"
 import type { ServedTables } from "#compiler/plan/serve.ts"
 import { programsOn } from "#compiler/program/workload/roles.ts"
-import {
-	answeredMember,
-	deferrableMember,
-	deferredReadOf,
-	isAnswerableRead,
-	workload
-} from "#compiler/program/workload/value.ts"
+import { answeredMember, isAnswerableRead, workload } from "#compiler/program/workload/value.ts"
 import type { AnyLogin, AnyLoginRole, AnyRole } from "#compiler/public/schema.ts"
 import type { ServedMember, ServedRoleForm, ServedVariants } from "#compiler/served/forms.ts"
 import { servedFile, servedText } from "#compiler/served/json.ts"
@@ -386,17 +380,12 @@ export const withServedDb = <A, E, R>(
 
 /**
  * A program as a Db over an installation that installed no live source for it serves it: a live read answered
- * (workload answered), a deferrable one's read within its deferrable(...), so no change wakes it, its served file
- * holds no live source for it and the snapshot's live source decodes none of its footprint; every other program, a
- * ChangeSet, a clocked one, which is answered already, a refresh, or a value no workload admits, as it stands.
+ * (workload answered), so no change wakes it, its served file holds no live source for it and the snapshot's live
+ * source decodes none of its footprint; every other program, a ChangeSet, a clocked one, which is answered already, a
+ * refresh, or a value no workload admits, as it stands.
  */
-const answeredRead = (program: unknown): unknown => {
-	if (isAnswerableRead(program)) {
-		return answeredMember(program)
-	}
-	const deferred = deferredReadOf(program)
-	return deferred === undefined ? program : deferrableMember(answeredRead(deferred.read))
-}
+const answeredRead = (program: unknown): unknown =>
+	isAnswerableRead(program) ? answeredMember(program) : program
 
 /** `programs` with each read answered (answeredRead), under their names. */
 export const answeredPrograms = (

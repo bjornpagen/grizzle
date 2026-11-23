@@ -176,7 +176,6 @@ const programCall = (read: LoadedRead, params: unknown): Effect.Effect<ParsedRea
 	Effect.map(readInputs(read, params), (inputs) => ({
 		inputs,
 		call: {
-			deferrable: read.deferrable,
 			fields: read.key.fields,
 			decode: read.read,
 			open: (emit) => {
@@ -245,7 +244,6 @@ const parseWindow =
 			return {
 				inputs,
 				call: {
-					deferrable: read.deferrable,
 					fields: read.key.fields,
 					decode: page.reads[window.variant],
 					open: (emit) => {

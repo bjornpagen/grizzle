@@ -616,7 +616,7 @@ export const deliver = Effect.fn("deliver")(
 		runtime.recorded.length = 0
 		runtime.flights = 0
 		const rows = yield* Effect.flatMap(
-			runFramed(runtime.session, readFrame(runtime.prologue, false), flight.statements),
+			runFramed(runtime.session, readFrame(runtime.prologue), flight.statements),
 			flight.read
 		)
 		return {

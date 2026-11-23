@@ -67,10 +67,6 @@ import type {
  * tables a change of which its subscriptions route by.
  */
 export interface LoadedRead {
-	/**
-	 * Whether its member is deferrable(...), so its calls begin DEFERRABLE (served/forms.ts ServedRead deferrable).
-	 */
-	readonly deferrable: boolean
 	readonly params: ReadonlyArray<CallerParamDecl>
 	readonly codecs: ParamCodecs
 	readonly program: ReadProgram
@@ -220,7 +216,6 @@ const loadRead = (
 ): Result.Result<LoadedRead, CompileError> => {
 	const program = readProgram(read.source, read.spine, codes)
 	return Result.map(boundReader(read, program.layouts, bind), (reader) => ({
-		deferrable: read.deferrable,
 		params: read.params,
 		codecs: paramCodecs(read.params, codes),
 		program,

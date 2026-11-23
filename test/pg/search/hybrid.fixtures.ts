@@ -9,7 +9,6 @@ import { closedId, pg, searchDocument } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { deferrable } from "#compiler/public/workload.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import {
@@ -195,8 +194,8 @@ const hybrid = query(Catalog)
  */
 const step = query(Catalog).reads({ nearest: nearestArm, text: textArm, hybrid })
 
-/** The programs the fixture's login serves: the record, and the hybrid alone, deferrable, as a step's reads are. */
-const programs = { step: deferrable(step), hybrid: deferrable(hybrid) } as const
+/** The programs the fixture's login serves: the record, and the hybrid alone. */
+const programs = { step, hybrid } as const
 
 export const hybridInstall = { label: "hybrid", programs } as const
 

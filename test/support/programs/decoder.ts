@@ -8,12 +8,10 @@ export type { DecoderLogin, LiveOf, NoDecoder, ServedLogin } from "@bjornpagen/g
 export {
 	Answered,
 	AnsweredBeside,
-	AnsweredDefers,
 	AnsweredKeys,
 	AnsweredPages,
 	Bare,
 	Clocked,
-	Defers,
 	Keys,
 	Mixed,
 	Pages,

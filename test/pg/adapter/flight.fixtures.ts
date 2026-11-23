@@ -19,7 +19,7 @@ import { testSql } from "#test/support/sql.ts"
 /** The kinds the server answers on demand. */
 export const space: CaseSpace = { failures: ["refused", "doomed", "hold"], serverFaults: false }
 
-/** A transaction that cannot write, a read's, deferrable or not, answers its doomed statements' rows instead. */
+/** A transaction that cannot write, a read's, answers its doomed statements' rows instead. */
 export const expressible = (c: FlightCase): FlightCase => {
 	const call = c.call
 	if (frameWrites(call.frame)) {
@@ -82,7 +82,7 @@ export type ScriptedFeature =
 
 export const situations: Arr.NonEmptyReadonlyArray<ScriptedFeature> = [
 	"call framed readCommittedWrite",
-	"call framed deferrableRead",
+	"call alongside rollback",
 	"interrupted in flight",
 	"interrupted awaiting COMMIT",
 	"interrupted draining",
@@ -129,6 +129,20 @@ const flightCases: ReadonlyArray<{
 		why: "a write's flight interrupted while it awaits a COMMIT that commits",
 		value: writeFlight([{ kind: "rows", label: "s0" }]),
 		reaches: ["interrupted awaiting COMMIT", "committed after an interruption"]
+	},
+	{
+		why: "an alongside call whose end waits in its second flight for a first flight the gate holds: interrupted in its first, the client has sent fewer queries than the call's layout",
+		value: {
+			call: {
+				kind: "alongside",
+				frame: "rollback",
+				alone: [{ kind: "rows", label: "a0" }],
+				statements: [{ kind: "rows", label: "s0" }]
+			},
+			begin: "answered",
+			commit: "answered"
+		},
+		reaches: ["call alongside rollback", "interrupted in flight"]
 	}
 ]
 

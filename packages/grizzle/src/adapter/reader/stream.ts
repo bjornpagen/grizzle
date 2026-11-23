@@ -9,10 +9,9 @@ import {
 } from "#adapter/errors/failures.ts"
 import { readCallError } from "#adapter/live/call-error.ts"
 import {
+	asReadFailure,
 	type FlightFailure,
-	type Frame,
 	type PreparedStatement,
-	readFailureIn,
 	runFramed
 } from "#adapter/wire/batch.ts"
 import {
@@ -43,19 +42,17 @@ import type { Row } from "#compiler/plan/common.ts"
  *
  * Its session is leased for the flight alone and released as the flight ends, before `ready` is sent; interrupting the
  * stream while the flight runs interrupts the flight, which ends once the server has stopped its statement (wire/batch.ts
- * abandon), a deferrable read's wait for its safe snapshot included.
+ * abandon).
  *
  * A decoded row: the record a read's decoder assembles, its head fields by name.
  */
 export type DecodedRow = Readonly<Record<string, unknown>>
 
 /**
- * One call of a read, its input read at the boundary: whether its member is deferrable(...), so its transaction begins
- * DEFERRABLE (served/forms.ts ServedRead deferrable), the key fields its rows are keyed by (the served read's key), how
+ * One call of a read, its input read at the boundary: the key fields its rows are keyed by (the served read's key), how
  * its statement is made with its rows' intake, and the decoder of its delivered Rows.
  */
 export interface ReadCall {
-	readonly deferrable: boolean
 	readonly fields: KeyFields
 	/**
 	 * The call's statement, its rows taken by an intake that hands each delivered Row to `emit` the moment it is whole,
@@ -114,14 +111,14 @@ export const listEvents: ShapeEvents<AnsweredListEvent<DecodedRow>> = {
 }
 
 /**
- * How a read in `frame` surfaces its flight's failure (wire/batch.ts readFailureIn), the server's refusal by a domain
+ * How a read surfaces its flight's failure (wire/batch.ts asReadFailure), the server's refusal by a domain
  * the statement cast a value to read as what it refused (db/context.ts domain): a parameter's value outside its pattern
  * as ParamRejected, a value a contract's or a pattern's domain refuses as LawRejected with the laws it discharges.
  */
 const readFailureOf =
-	(ctx: Pick<ServedDbContext, "domain">, frame: Frame) =>
+	(ctx: Pick<ServedDbContext, "domain">) =>
 	(failure: FlightFailure): ReadError => {
-		const error = readFailureIn(frame)(failure)
+		const error = asReadFailure(failure)
 		if (error._tag !== "ReadFailure" || error.reason._tag !== "ServerError") {
 			return error
 		}
@@ -156,10 +153,9 @@ const runRead = (
 				call.open(emit),
 				(reason) => new ReadFailure({ reason })
 			)
-			const frame = dbReadFrame(ctx, call.deferrable)
 			yield* Effect.mapError(
-				runFramed(session, frame, [opened.statement]),
-				readFailureOf(ctx, frame)
+				runFramed(session, dbReadFrame(ctx), [opened.statement]),
+				readFailureOf(ctx)
 			)
 			return yield* Effect.mapError(
 				Effect.fromResult(opened.end()),

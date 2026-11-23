@@ -109,6 +109,9 @@
  * ChangeSet.insertAllComputed(rows, computed) is the one computed insert: insertAll's record, every relation it names
  * computing each field of one record of terms over the call, a relation lacking one refused at its key, where format 7
  * had insertComputed(R, rows, computed) of one relation alone.
+ * A served read records no `deferrable`, and a served session's read BEGIN is one text, SERIALIZABLE READ ONLY
+ * (served/forms.ts ServedRead, ServedSession), where format 7 recorded whether a read's member was declared
+ * deferrable(...) and keyed the read BEGINs `immediate` and `deferrable`, without and with DEFERRABLE.
  *
  * Format 7 (pin+1): a session table, a rule judge's delta (physical/ddl/rules.ts
  * emptied) or a write program's carrier (sql/print.ts carrierStandUp), is emptied by DELETE, and by TRUNCATE only once

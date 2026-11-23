@@ -9,7 +9,6 @@ import { Distance } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
-import { deferrable } from "#compiler/public/workload.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
@@ -119,7 +118,7 @@ const seen = query(Nearest)
 const reads = query(Nearest).reads({ nearest: fromItem, seen, item: itemRow })
 
 /**
- * The programs the fixture's login serves: each read on its own, and the record, deferrable, as a step's reads are.
+ * The programs the fixture's login serves: each read on its own, and the record, as a step's reads are.
  * Their searches justify the HNSW index on Lesson's embedding.
  */
 const programs = {
@@ -128,7 +127,7 @@ const programs = {
 	itemRow,
 	byVector,
 	seen,
-	reads: deferrable(reads)
+	reads
 } as const
 
 export const nearestInstall = { label: "nearest", programs } as const

@@ -18,7 +18,7 @@ import { boxAgreement } from "#test/types/batch/agreement.ts"
  * roleNameOf takes with no narrowing, and every arm for AnyLogin.
  */
 export const decoder = boxAgreement(finite(word(decoderBox)), {
-	box: "a login for each kind of member a login's live reads decide by (none, a ChangeSet alone, two workloads of ChangeSets, a clocked read alone, an answered query, paged query, key or deferrable read beside a ChangeSet, a query, a paged query, a key, a deferrable read, a ChangeSet beside a query, an answered query beside a live one), and AnyLogin",
+	box: "a login for each kind of member a login's live reads decide by (none, a ChangeSet alone, two workloads of ChangeSets, a clocked read alone, an answered query, paged query or key beside a ChangeSet, a query, a paged query, a key, a ChangeSet beside a query, an answered query beside a live one), and AnyLogin",
 	situations: [],
 	notes: () => [],
 	checking: "armed",
@@ -51,8 +51,9 @@ export const decoder = boxAgreement(finite(word(decoderBox)), {
 		},
 		{
 			file: "packages/engine/src/live/program.ts",
-			original: "\t\t\t? AnsweredShapeOf<ShapeOfProgram<R>>",
-			replacement: "\t\t\t? ShapeOfProgram<R>",
+			original:
+				"\tX extends Answered<infer R> ? AnsweredShapeOf<ShapeOfProgram<R>> : ShapeOfProgram<X>",
+			replacement: "\tX extends Answered<infer R> ? ShapeOfProgram<R> : ShapeOfProgram<X>",
 			why: "An answered read is shaped as a live one (live/program.ts ShapeOf), so a login of answered reads is typed as serving a live read, DecoderLogin and a required live source: answered treated as live; the program fails."
 		}
 	]

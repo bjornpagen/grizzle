@@ -4,7 +4,7 @@ import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/bat
 
 /**
  * The member-handle program: the box of every kind of served program a handle runs (a query, a paged ordered query, a
- * relation's key, a deferrable(...) read, an answered(...) query, paged query and key, a ChangeSet of query members and
+ * relation's key, an answered(...) query, paged query and key, a ChangeSet of query members and
  * one of array members), each kind twice, two programs of distinct types over one level, both served to a role of that
  * level and to a role of a level that extends it, by every pairing of a function over MemberHandle<typeof p> with a
  * handle, exhausted and printed as one program the type batch checks.
@@ -23,7 +23,6 @@ const kinds = [
 	"query",
 	"paged",
 	"key",
-	"deferrable",
 	"answered",
 	"answeredPaged",
 	"answeredKey",
@@ -36,7 +35,6 @@ const readErrors: Arr.NonEmptyReadonlyArray<readonly [Kind, string]> = [
 	["query", "CallError"],
 	["paged", "CallError"],
 	["key", "CallError"],
-	["deferrable", "CallError"],
 	["answered", "CallError"],
 	["answeredPaged", "CallError"],
 	["answeredKey", "CallError"]
@@ -47,7 +45,6 @@ const watches: { readonly [K in Kind]: boolean } = {
 	query: true,
 	paged: true,
 	key: true,
-	deferrable: true,
 	answered: false,
 	answeredPaged: false,
 	answeredKey: false,
@@ -125,20 +122,6 @@ const programsOf: { readonly [K in Kind]: readonly [string, string] } = {
 )`
 	],
 	answeredKey: ["answered(Item)", "answered(Note)"],
-	deferrable: [
-		`deferrable(
-	query(Root).rule((r) => {
-		const { id, label } = v(Item, "item")
-		return r.match(Item, { id, label }).find({ id, label })
-	})
-)`,
-		`deferrable(
-	query(Root).rule((r) => {
-		const { id, count } = v(Note, "note")
-		return r.match(Note, { id, count }).find({ id, count })
-	})
-)`
-	],
 	change: [
 		`ChangeSet.empty(Root).insert(
 	Item,

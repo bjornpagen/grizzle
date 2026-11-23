@@ -4,12 +4,10 @@ import type { AnyLogin } from "#compiler/public/schema.ts"
 import {
 	Answered,
 	AnsweredBeside,
-	AnsweredDefers,
 	AnsweredKeys,
 	AnsweredPages,
 	Bare,
 	Clocked,
-	Defers,
 	Keys,
 	Mixed,
 	Pages,
@@ -40,12 +38,10 @@ const box = [
 	["Reads", Reads],
 	["Pages", Pages],
 	["Keys", Keys],
-	["Defers", Defers],
 	["Mixed", Mixed],
 	["Answered", Answered],
 	["AnsweredPages", AnsweredPages],
 	["AnsweredKeys", AnsweredKeys],
-	["AnsweredDefers", AnsweredDefers],
 	["AnsweredBeside", AnsweredBeside]
 ] as const satisfies ReadonlyArray<readonly [string, AnyLogin]>
 

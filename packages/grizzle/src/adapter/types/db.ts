@@ -159,8 +159,8 @@ interface WatchCall<In, A, Ps, Key extends boolean, Ev> {
 }
 
 /**
- * A served member's explains by its program's kind: a deferrable read's, whose transaction meets no serialization
- * failure, a read's, a change's, a clocked member's by its program's, each taking the member's own input, and a
+ * A served member's explains by its program's kind: a read's, a change's, a clocked member's by its program's, each
+ * taking the member's own input, and a
  * refresh's none. The kind is told by the program's keys (live/program.ts ServedShape), never by a test of the program,
  * which holds its schema: a value typed `any` or `never`, whose keys are every symbol, is read structurally.
  */
@@ -182,7 +182,7 @@ type ExplainOfProgram<X> =
 /**
  * A served read member's plans for a call's input, as its once takes it: the one statement its once sends, a paged
  * member's for its window's template and anchor, planned by PostgreSQL for those values in one transaction of the Db's
- * role that is rolled back, the read's own: SERIALIZABLE READ ONLY, DEFERRABLE for a deferrable member. `explain` asks
+ * role that is rolled back, the read's own, at its level (served/forms.ts ServedRead isolation). `explain` asks
  * for PostgreSQL's estimates alone and runs nothing; `explainAnalyze` runs the statement under EXPLAIN ANALYZE and
  * reports what each node did beside its estimates. Each fails as the member's once fails, with the CallError its read
  * would end in.

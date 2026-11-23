@@ -23,7 +23,7 @@ import {
 } from "#adapter/reader/execution.ts"
 import {
 	type BatchOutcome,
-	type Flight,
+	type StatementFlight,
 	keptRows,
 	type PreparedStatement,
 	type RowIntake,
@@ -576,7 +576,7 @@ export const programFlight = <A>(
 	program: ReadProgram,
 	inputs: ExecutionInputs,
 	read: (row: Row) => A
-): Effect.Effect<Flight<ReadonlyArray<A>, UnreadableAnswer>, InputTooLarge> =>
+): Effect.Effect<StatementFlight<ReadonlyArray<A>, UnreadableAnswer>, InputTooLarge> =>
 	Effect.map(programStatement(program, inputs, keptRows), (statement) => ({
 		statements: [statement],
 		read: (outcomes) =>

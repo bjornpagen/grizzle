@@ -18,7 +18,7 @@ import { boxAgreement } from "#test/types/batch/agreement.ts"
  * answered read's handle holds no watch, and every other's holds one.
  */
 export const handle = boxAgreement(finite(word(handleBox)), {
-	box: "every kind of served program (a query, a paged query, a key, a deferrable read, an answered query, paged query and key, a ChangeSet of query members, one of array members) by a Db of the level and of its extension by the function's own program's handle and the other's, each read kind's explain, and each kind's watch",
+	box: "every kind of served program (a query, a paged query, a key, an answered query, paged query and key, a ChangeSet of query members, one of array members) by a Db of the level and of its extension by the function's own program's handle and the other's, each read kind's explain, and each kind's watch",
 	situations: [],
 	notes: () => [],
 	checking: "armed",
@@ -31,8 +31,8 @@ export const handle = boxAgreement(finite(word(handleBox)), {
 	kills: [
 		{
 			file: "packages/engine/src/live/program.ts",
-			original: '\t\t\t\t? AnsweredShapeOf<ShapeOfRead<X["answered" & keyof X]>>',
-			replacement: '\t\t\t\t? ShapeOfRead<X["answered" & keyof X]>',
+			original: '\t\t\t? AnsweredShapeOf<ShapeOfRead<X["answered" & keyof X]>>',
+			replacement: '\t\t\t? ShapeOfRead<X["answered" & keyof X]>',
 			why: "An answered read's handle is typed as a live one's (live/program.ts ServedShape), so it holds a watch: answered treated as live; the program fails."
 		}
 	]

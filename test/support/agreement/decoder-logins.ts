@@ -3,7 +3,7 @@ import { Logic, Type } from "#compiler/public/compute.ts"
 import { contract, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { login, relation, role, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
-import { answered, clocked, deferrable, paged, workload } from "#compiler/public/workload.ts"
+import { answered, clocked, paged, workload } from "#compiler/public/workload.ts"
 import { Id } from "#test/support/ids.ts"
 
 /**
@@ -13,8 +13,8 @@ import { Id } from "#test/support/ids.ts"
  * - none: no workload (Bare), a ChangeSet alone (Writes), two workloads of ChangeSets alone (WritesTwice), a clocked
  *   read alone (Clocked), answered at its call's instant and never watched, and answered(...) reads beside a ChangeSet,
  *   as an operations login serving a serverless route declares them: a query (Answered), a paged ordered query
- *   (AnsweredPages), a relation's key (AnsweredKeys) and a deferrable(...) one (AnsweredDefers);
- * - one: a query (Reads), a paged ordered query (Pages), a relation's key (Keys), a deferrable(...) read (Defers), a
+ *   (AnsweredPages) and a relation's key (AnsweredKeys);
+ * - one: a query (Reads), a paged ordered query (Pages), a relation's key (Keys), a
  *   workload of a ChangeSet beside one of a query (Mixed), and an answered query beside a live one (AnsweredBeside).
  */
 
@@ -83,11 +83,6 @@ export const Keys = login(Shelf, "keys", [KeysClerk], {
 	workload: [workload(Shelf, { item: Item })]
 })
 
-const DefersClerk = clerk("defers")
-export const Defers = login(Shelf, "defers", [DefersClerk], {
-	workload: [workload(Shelf, { later: deferrable(items) })]
-})
-
 const MixedClerk = clerk("mixed")
 export const Mixed = login(Shelf, "mixed", [MixedClerk], {
 	workload: [workload(Shelf, { addItem }), workload(Shelf, { items })]
@@ -106,11 +101,6 @@ export const AnsweredPages = login(Shelf, "answeredPages", [AnsweredPagesClerk],
 const AnsweredKeysClerk = clerk("answeredKeys")
 export const AnsweredKeys = login(Shelf, "answeredKeys", [AnsweredKeysClerk], {
 	workload: [workload(Shelf, { addItem, item: answered(Item) })]
-})
-
-const AnsweredDefersClerk = clerk("answeredDefers")
-export const AnsweredDefers = login(Shelf, "answeredDefers", [AnsweredDefersClerk], {
-	workload: [workload(Shelf, { addItem, later: deferrable(answered(items)) })]
 })
 
 const AnsweredBesideClerk = clerk("answeredBeside")

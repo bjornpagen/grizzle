@@ -115,25 +115,17 @@ const tablesOf = (installed: SnapshotTables, footprint: ReadonlySet<string>): Se
 }
 
 /**
- * A rows form's read, served: whether its member is deferrable(...), its template, its Description's spine, its
- * decoder's form, the key its rows are delivered under, its template's own (templateKey) unless a page's is given, and
- * how it is called, `live` (served/forms.ts ServedReadLive).
+ * A rows form's read, served: its template, its Description's spine, its decoder's form, the key its rows are delivered
+ * under, its template's own (templateKey) unless a page's is given, and how it is called, `live` (served/forms.ts
+ * ServedReadLive).
  */
 const readOf = (
-	deferrable: boolean,
 	form: RowsForm<unknown>,
 	live: ServedReadLive,
 	key: (template: QueryTemplate) => ServedKey
 ): ServedRead => {
 	const { compiled } = form.bound.compiled
-	return servedRead(
-		deferrable,
-		compiled.template,
-		compiled.desc,
-		form.decoder(),
-		key(compiled.template),
-		live
-	)
+	return servedRead(compiled.template, compiled.desc, form.decoder(), key(compiled.template), live)
 }
 
 /**
@@ -202,21 +194,21 @@ const memberOf = (
 			return Result.succeed({
 				name,
 				kind: "read",
-				read: readOf(member.deferrable, member.form, liveOf(member.called), templateKey)
+				read: readOf(member.form, liveOf(member.called), templateKey)
 			})
 		case "key":
 			return Result.succeed({
 				name,
 				kind: "key",
 				fields: member.fields,
-				read: readOf(member.deferrable, member.form, liveOf(member.called), templateKey)
+				read: readOf(member.form, liveOf(member.called), templateKey)
 			})
 		case "paged": {
 			const page = member.form.page.runtime.page
 			return Result.succeed({
 				name,
 				kind: "paged",
-				read: readOf(member.deferrable, member.form, liveOf(member.called), () => pageKey(page)),
+				read: readOf(member.form, liveOf(member.called), () => pageKey(page)),
 				page
 			})
 		}

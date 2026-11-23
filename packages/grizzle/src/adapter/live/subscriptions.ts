@@ -189,9 +189,8 @@ export interface LiveRequest<S extends ReadShape, Row extends object, E> {
  * run's snapshot exactly at each `ready`, then the error that ends it and `end`; or `end` alone after an initial error.
  * `changes` is taken once, by one consumer, whose waits are the subscription's one waiter: a second run of it dies, so
  * no second consumer can take the first's wait and leave it waiting for good; a run its consumer interrupts marks the
- * subscription again. `turn` is one turn now, never waiting for a change, though a
- * deferrable read's run waits for its safe snapshot: none where the subscription is clean or its run read the same
- * value, else that run's events. `state` reads where its subscription stands now:
+ * subscription again. `turn` is one turn now, never waiting for a change: none where the subscription is clean or its
+ * run read the same value, else that run's events. `state` reads where its subscription stands now:
  * `clean`, `marked` or `ended`.
  */
 export interface Live<E> {
@@ -241,7 +240,7 @@ type Turn<S extends ReadShape, Row extends object, E> =
 
 /**
  * What one run of a live read came to: a turn (Turn), or the same value read again, `unchanged`, with what it read, or a
- * run another transaction's work refused, `refused`: a serialization failure or a deadlock, a deferrable read's a
+ * run another transaction's work refused, `refused`: a serialization failure or a deadlock, a snapshot read's a
  * deadlock alone.
  */
 type Ran<S extends ReadShape, Row extends object, E> =

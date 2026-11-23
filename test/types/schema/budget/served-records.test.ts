@@ -35,7 +35,7 @@ export const cost = costGate(servedRecords, {
 			original:
 				"\t: [Need] extends [never]\n\t\t? never\n\t\t: HeldFields<Need, EntriesIn<HeadEntries<H>, Need>>",
 			replacement: "\t: HeldFields<Need, EntriesIn<HeadEntries<H>, Need>>",
-			why: "A key whose fields are inputs or fixed, which needs nothing, reads the head's entries anyway: each query's rule over P at a parameter reads its head's terms for a key it holds by the parameter, so a unit of flat records costs 12,279 instantiations against its bound of 12,178."
+			why: "A key whose fields are inputs or fixed, which needs nothing, reads the head's entries anyway: each query's rule over P at a parameter reads its head's terms for a key it holds by the parameter, so a unit of flat records costs 10,584 instantiations against its bound of 10,483."
 		}
 	]
 })

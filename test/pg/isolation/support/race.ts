@@ -75,7 +75,7 @@ export type Certifier =
 /**
  * A shape installed: the installation, its names, the level generate certifies each role at, each role's ChangeSets and
  * reads as its served file loads them, the level each role's served writes begin at, the installation's, and the BEGIN
- * of a write at each level and of a read, immediate and deferrable, as the served file states them.
+ * of a write at each level, as the served file states them.
  */
 export interface InstalledShape {
 	readonly installed: Installed
@@ -85,7 +85,6 @@ export interface InstalledShape {
 	readonly changes: ReadonlyMap<string, ReadonlyMap<string, LoadedChange>>
 	readonly reads: ReadonlyMap<string, ReadonlyMap<string, LoadedRead>>
 	readonly levels: ReadonlyMap<string, Isolation>
-	readonly readBegins: LoadedLogin["session"]["begin"]["read"]
 	readonly writeBegins: LoadedLogin["session"]["begin"]["write"]
 }
 
@@ -100,9 +99,9 @@ export type CallInput =
 /**
  * A call a race makes in a session of its own: a ChangeSet member of a role with its input, which the oracle binds and
  * sends statement by statement as the served write's one flight states them; a read member of a role with its
- * parameters, whose one statement the oracle sends in the read's own transaction, DEFERRABLE where its member is
- * deferrable(...); or a transaction of the installation's owner, its statements as written, at the database's default
- * level, as an operator runs what no role holds.
+ * parameters, whose one statement the oracle sends in the read's own transaction, SERIALIZABLE READ ONLY; or a
+ * transaction of the installation's owner, its statements as written, at the harness session's default level,
+ * SERIALIZABLE (test/support/pg.ts harnessSessionOptions), as an operator runs what no role holds.
  */
 type RaceCall =
 	| {
@@ -195,7 +194,6 @@ const servedOf = (loaded: LoadedLogin) => ({
 			)
 		])
 	),
-	readBegins: loaded.session.begin.read,
 	writeBegins: loaded.session.begin.write,
 	changes: new Map(
 		Arr.map(loaded.roles, (r) => [

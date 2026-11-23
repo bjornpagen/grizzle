@@ -427,7 +427,7 @@ const servedOfSpec = (spec: StatementSpec): PreparedStatement =>
 const write: Transaction = { access: "readWrite", isolation: "serializable", end: "COMMIT" }
 
 /** The transaction statements apart run in front of, read-only, as admission's fence is (admission/admit.ts). */
-const readOnly: Uncommitting = { access: "readOnly", deferrable: false, end: "COMMIT" }
+const readOnly: Uncommitting = { access: "readOnly", end: "COMMIT" }
 
 /** The case's call on `session`. */
 export const boundCallOf = (

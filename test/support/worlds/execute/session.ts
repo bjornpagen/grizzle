@@ -599,7 +599,7 @@ export const readSession = (
 			)
 		}
 		const optimized = defined(sided.success.optimized.get(readMember), "the read's served member")
-		const served = readerOf(optimized, (statements) => flown(session.ctx, statements))
+		const served = readerOf(optimized, (statement) => flown(session.ctx, statement))
 		const facts = yield* Effect.result(read.success.facts(served))
 		if (Result.isFailure(facts)) {
 			const error = facts.failure
@@ -910,7 +910,7 @@ export const executeValue = (session: DbSession, program: unknown): Effect.Effec
 			return servedRefused(served.failure)
 		}
 		const rows = yield* Effect.result(
-			executed(readerOf(served.success, (statements) => flown(session.ctx, statements)))
+			executed(readerOf(served.success, (statement) => flown(session.ctx, statement)))
 		)
 		if (Result.isFailure(rows)) {
 			const failed = yield* readFailed(rows.failure)

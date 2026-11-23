@@ -270,7 +270,6 @@ const programForm = (
 			return Result.map(compiled, (form): WorkloadForm => ({
 				name: program.name,
 				kind: "read",
-				deferrable: program.deferrable,
 				called: readCalled(desc),
 				form
 			}))
@@ -282,7 +281,6 @@ const programForm = (
 				(form): WorkloadForm => ({
 					name: program.name,
 					kind: "paged",
-					deferrable: program.deferrable,
 					called: readCalled(program.desc),
 					form
 				})
@@ -302,7 +300,6 @@ const programForm = (
 				(form): WorkloadForm => ({
 					name: program.name,
 					kind: "key",
-					deferrable: program.deferrable,
 					called: readCalled(program.desc),
 					fields: target.fields,
 					form

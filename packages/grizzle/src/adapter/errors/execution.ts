@@ -236,7 +236,7 @@ export class ReadFailure extends Data.TaggedError("ReadFailure")<{ readonly reas
  * call with the same inputs may succeed if it runs again. grizzle makes one attempt per call and never retries; a caller
  * that wants another attempt runs the call again (Effect.retry
  * with its own Schedule, while the error is a TransientFailure). `reason` says what grizzle read the refusal as, R
- * the reasons the call can meet (a deferrable read's only a Deadlock, every other call's any), and `error` is the
+ * the reasons the call can meet, and `error` is the
  * server's report of it.
  */
 export class TransientFailure<R extends TransientReason = TransientReason> extends Data.TaggedError(
@@ -290,16 +290,6 @@ export const serializationRefusal = (error: ServerError): TransientFailure | und
 }
 
 /**
- * The refusal a deferrable read's transaction can meet from another's work, its TransientFailure: 40P01, a deadlock
- * among the heavyweight locks its statement waits on; undefined for any other report. Once its snapshot is safe it
- * takes no part in SSI, so PostgreSQL never refuses it with 40001, which is then the server's report like any other.
- */
-export const deadlockRefusal = (error: ServerError): TransientFailure<Deadlock> | undefined =>
-	error.sqlstate === sqlstates.deadlockDetected
-		? new TransientFailure({ reason: new Deadlock(), error })
-		: undefined
-
-/**
  * The database does not hold the snapshot this Db was admitted at, so the call ran nothing: the fence every transaction
  * of a Db takes first refused it, for `reason`. `snapshot` is the fingerprint the Db was opened with, its snapshot.json's
  * `fingerprint`, which the constructor admits, and `error` the server's report: the lock's 55P03, or the guard's 55Z02
@@ -333,12 +323,6 @@ export class StaleSnapshot extends Data.TaggedError("StaleSnapshot")<{
  * read-only serializable transaction can meet too), or refused by the fence (StaleSnapshot).
  */
 export type ReadError = ReadFailure | TransientFailure | StaleSnapshot
-
-/**
- * A failed read of a deferrable member (deferrable(...)): as any read's (ReadError), but refused by another's work only
- * through a deadlock (deadlockRefusal), since its transaction, once its snapshot is safe, meets no serialization failure.
- */
-export type DeferrableReadError = ReadFailure | TransientFailure<Deadlock> | StaleSnapshot
 
 /**
  * Why a write or refresh changed nothing because its session could not be had or broke before COMMIT was sent: the

@@ -97,18 +97,17 @@ export const isolationFunctionIdent = (schema: string): string =>
  * makes it so, and no session grizzle does not open relies on one: the installation sets no database default, so a
  * foreign session, psql or a monitoring tool, starts at the server's default, READ COMMITTED unless its operator chose
  * otherwise, and counts among no SERIALIZABLE transaction of the cluster unless it says SERIALIZABLE itself (such a
- * transaction makes every SERIALIZABLE READ ONLY read on the cluster take predicate locks, and every DEFERRABLE one
- * wait for it to end: predicate.c counts SERIALIZABLE read-write transactions cluster-wide). What makes it so:
+ * transaction makes every SERIALIZABLE READ ONLY read on the cluster take predicate locks: predicate.c counts
+ * SERIALIZABLE read-write transactions cluster-wide). What makes it so:
  *
- * - Every BEGIN grizzle sends names its level: a served read's SERIALIZABLE READ ONLY, DEFERRABLE for a deferrable(...)
- *   member's, a served write's at its role's, a refresh's and a migration file's transaction SERIALIZABLE
- *   (the shell's adapter/migrate/session.ts fileTransaction), the ledger's records in a migration's transaction, the
- *   drift check's SERIALIZABLE and rolled back, and the live leader's fanout READ COMMITTED; `grizzle check` and
- *   `grizzle upgrade` open those same sessions. A statement grizzle sends outside a BEGIN runs on an owner's session,
- *   the migration identity's (a survey or catalog read, a catalog's DDL, a `-- grizzle: no-transaction` file's
- *   statements), whose startup options state SERIALIZABLE as its default (the shell's adapter/wire/session.ts, owner
- *   startup), so each still runs SERIALIZABLE by grizzle's own statement; a login's session sends no write outside a
- *   BEGIN.
+ * - Every BEGIN grizzle sends names its level: a served read's SERIALIZABLE READ ONLY, a served write's at its role's,
+ *   a refresh's and a migration file's transaction SERIALIZABLE (the shell's adapter/migrate/session.ts
+ *   fileTransaction), the ledger's records in a migration's transaction, the drift check's SERIALIZABLE and rolled
+ *   back, and the live leader's fanout READ COMMITTED; `grizzle check` and `grizzle upgrade` open those same sessions.
+ *   A statement grizzle sends outside a BEGIN runs on an owner's session, the migration identity's (a survey or catalog
+ *   read, a catalog's DDL, a `-- grizzle: no-transaction` file's statements), whose startup options state SERIALIZABLE
+ *   as its default (the shell's adapter/wire/session.ts, owner startup), so each still runs SERIALIZABLE by grizzle's
+ *   own statement; a login's session sends no write outside a BEGIN.
  * - The guard function, one per installation:
  *
  *     CREATE OR REPLACE FUNCTION <schema>.<guard>() RETURNS trigger ... AS $$

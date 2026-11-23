@@ -42,21 +42,19 @@ import { emitText } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 
 /**
- * A query compiled for a role's rows, served as one call reads it (served/forms.ts ServedRead): whether its member is
- * declared deferrable, the declared parameters a call supplies (QueryTemplate params), its artifact and delivered spine
+ * A query compiled for a role's rows, served as one call reads it (served/forms.ts ServedRead): the declared parameters
+ * a call supplies (QueryTemplate params), its artifact and delivered spine
  * (served/read.ts), its records' decoder, the key its rows are delivered under (`key`: its own, templateKey, or its
  * page's, pageKey), and how it is called (`live`): answered, or what wakes its watch, from its footprint, the workload
  * plan's (program/workload/compile.ts WorkloadFootprints), its tables named as installed (servedReadLive).
  */
 export const servedRead = (
-	deferrable: boolean,
 	template: QueryTemplate,
 	desc: QueryDesc,
 	decoder: RowDecoder<unknown>,
 	key: ServedKey,
 	live: ServedReadLive
 ): ServedRead => ({
-	deferrable,
 	params: template.params,
 	source: servedSource(template.run),
 	spine: servedSpine(desc),
@@ -205,17 +203,13 @@ const beginWrite = (isolation: Isolation): EmittedText =>
 /**
  * The texts every session of a login sends that its file carries, emitted now (served/forms.ts ServedSession): the
  * startup options pinning its role's defaults (physical/ddl/roles.ts loginStartupOptions), an owner's session's
- * (ownerStartupOptions), a read's BEGIN, immediate
- * and deferrable, a write's at each isolation level, and its COMMIT and ROLLBACK.
+ * (ownerStartupOptions), a read's BEGIN, a write's at each isolation level, and its COMMIT and ROLLBACK.
  */
 export const servedSession: ServedSession = {
 	startup: loginStartupOptions,
 	ownerStartup: ownerStartupOptions,
 	begin: {
-		read: {
-			immediate: emitText({ kind: "beginRead", deferrable: false }, emptyNameMap).text,
-			deferrable: emitText({ kind: "beginRead", deferrable: true }, emptyNameMap).text
-		},
+		read: emitText({ kind: "beginRead" }, emptyNameMap).text,
 		write: { serializable: beginWrite("serializable"), readCommitted: beginWrite("readCommitted") }
 	},
 	commit: emitText({ kind: "commit" }, emptyNameMap).text,

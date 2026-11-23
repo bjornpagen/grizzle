@@ -139,7 +139,6 @@ export const refusals = [
 	"a digest is never a contract's base: its one predicate is its length, which its domain holds",
 	"clocked binds at least one parameter of the program to the database's clock",
 	"clocked binds only parameters of the program whose values are bigints: bigint or a contract over it",
-	"deferrable takes a read: a query, an ordered query, a paged one, a relation's key, an answered one or a clocked one",
 	"deleteWhere deletes no family's member: grizzle edits a family from the rows a ChangeSet states, so delete a member from an array or a Stream",
 	"deleteWhere names each relation by a required key: an optional key may delete nothing",
 	"deleteWhere selects by the fields its delete's rows state: a tree's root fields, any other relation's written fields",

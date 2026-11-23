@@ -25,11 +25,9 @@ import {
 } from "#compiler/plan/runtime.ts"
 
 import {
-	deadlockRefusal,
-	type DeferrableReadError,
+	serializationRefusal,
 	type ReadError,
 	ReadFailure,
-	serializationRefusal,
 	StaleSnapshot
 } from "#adapter/errors/execution.ts"
 
@@ -149,14 +147,12 @@ export interface BatchOutcome {
 
 /**
  * The transaction a flight runs its statements in: whether it writes, how it begins, and how it ends. A read-only
- * transaction is SERIALIZABLE READ ONLY, one snapshot for all its statements: `deferrable`, it waits for a safe snapshot
- * and then runs untracked by SSI, never refused by a serialization failure; otherwise it reads at once, tracked. A
- * read-write one begins at its role's level.
+ * transaction is SERIALIZABLE READ ONLY and runs one statement (FramedStatements): it reads at once, tracked by SSI
+ * while a SERIALIZABLE writer runs on the cluster. A read-write one begins at its role's level.
  */
 export type Transaction =
 	| {
 			readonly access: "readOnly"
-			readonly deferrable: boolean
 			readonly end: "COMMIT" | "ROLLBACK"
 	  }
 	| {
@@ -171,11 +167,7 @@ export type Transaction =
  * them: admission's fence reads, and the drift check rolls back.
  */
 export type Uncommitting =
-	| {
-			readonly access: "readOnly"
-			readonly deferrable: boolean
-			readonly end: Transaction["end"]
-	  }
+	| { readonly access: "readOnly"; readonly end: Transaction["end"] }
 	| { readonly access: "readWrite"; readonly isolation: "serializable"; readonly end: "ROLLBACK" }
 
 /**
@@ -235,6 +227,17 @@ export const excludesNothing: Exclusion = { kind: "none" }
 /** A Db's transaction: framed as a transaction is, and begun by the Db's prologue (see the header). */
 export type Frame = Transaction & { readonly prologue: Prologue; readonly exclusion: Exclusion }
 
+/** A Db's read frame (readFrame): READ ONLY, its flight one statement (FramedStatements). */
+export type ReadFrame = Extract<Frame, { readonly access: "readOnly" }>
+
+/**
+ * The statements a flight in a frame of kind `F` sends: exactly one in a read frame (engine served/read.ts
+ * ServedProgram: a read sends one statement), and any number in a write's.
+ */
+export type FramedStatements<F extends Frame> = F extends ReadFrame
+	? readonly [BatchStatement]
+	: ReadonlyArray<BatchStatement>
+
 /** The prologue was refused at the pipeline positions right after BEGIN, for no reason of the fence's: nothing ran. */
 class PrologueRefused extends Data.TaggedError("PrologueRefused")<{
 	readonly failure: ServerError
@@ -293,42 +296,11 @@ export const asReadFailure = (failure: FlightFailure): ReadError => {
 	}
 }
 
-/**
- * How a deferrable read surfaces a flight's failure: as any read's (asReadFailure), but another's work refuses it only
- * by a deadlock (deadlockRefusal): once its snapshot is safe its transaction takes no part in SSI, so every other
- * refusal is the server's.
- */
-const asDeferrableReadFailure = (failure: FlightFailure): DeferrableReadError => {
-	switch (failure._tag) {
-		case "StaleSnapshot":
-			return failure
-		case "BatchRefused":
-		case "CommitRefused":
-		case "PrologueRefused":
-			return deadlockRefusal(failure.failure) ?? new ReadFailure({ reason: failure.failure })
-		case "CommitLost":
-		case "ConnectionLost":
-		case "DriverFailure":
-		case "UnreadableAnswer":
-		case "InputTooLarge":
-			return new ReadFailure({ reason: failure })
-	}
-}
-
-/** The BEGIN control of `transaction`: a read's, deferrable or not, or a write's at its level. */
+/** The BEGIN control of `transaction`: a read's, or a write's at its level. */
 const beginOf = (transaction: Transaction): TxControl =>
 	transaction.access === "readOnly"
-		? { kind: "begin", access: "readOnly", deferrable: transaction.deferrable }
+		? { kind: "begin", access: "readOnly" }
 		: { kind: "begin", access: "readWrite", isolation: transaction.isolation }
-
-/**
- * How a flight in `transaction` surfaces its failure as a read's: a deferrable read's (asDeferrableReadFailure), every
- * other's (asReadFailure).
- */
-export const readFailureIn = (transaction: Transaction): ((failure: FlightFailure) => ReadError) =>
-	transaction.access === "readOnly" && transaction.deferrable
-		? asDeferrableReadFailure
-		: asReadFailure
 
 /** A statement of a flight as planned: its query in the pipeline, the statement itself. */
 interface Planned {
@@ -1414,12 +1386,10 @@ export const runAlongside = <A, E>(
 	)
 
 /**
- * A read of a Db: SERIALIZABLE READ ONLY, one snapshot for all its statements, behind the Db's prologue; DEFERRABLE where
- * its member is deferrable(...), so the prologue's snapshot waits until it is safe.
+ * A read of a Db: SERIALIZABLE READ ONLY, behind the Db's prologue, its one statement (FramedStatements).
  */
-export const readFrame = (prologue: Prologue, deferrable: boolean): Frame => ({
+export const readFrame = (prologue: Prologue): ReadFrame => ({
 	access: "readOnly",
-	deferrable,
 	end: "COMMIT",
 	prologue,
 	exclusion: excludesNothing
@@ -1630,15 +1600,15 @@ export const bindOverrun = (
  * Sends a Db call's statements in `frame`, as one flight, and returns each statement's outcome, in order. Every call
  * sends its frame, a call of no statement included (an apply whose every member is empty): BEGIN, the prologue's
  * fence and snapshot check, and the frame's end, so a Db the database no longer holds the snapshot of fails with
- * StaleSnapshot whatever the call carries, and its outcome is released only once the end answered. A read of one
- * statement still runs framed: the prologue and its statement share one transaction, outside which the prologue's
- * settings would not hold. A statement whose Bind message PostgreSQL would not read fails the call with InputTooLarge
+ * StaleSnapshot whatever the call carries, and its outcome is released only once the end answered. A read sends one
+ * statement (FramedStatements) and still runs framed: the prologue and its statement share one transaction, outside
+ * which the prologue's settings would not hold. A statement whose Bind message PostgreSQL would not read fails the call with InputTooLarge
  * before anything is sent (bindOverrun).
  */
-export const runFramed = (
+export const runFramed = <F extends Frame>(
 	session: Session,
-	frame: Frame,
-	statements: ReadonlyArray<BatchStatement>
+	frame: F,
+	statements: FramedStatements<F>
 ): Effect.Effect<ReadonlyArray<BatchOutcome>, FlightFailure> =>
 	Effect.suspend((): Effect.Effect<ReadonlyArray<BatchOutcome>, FlightFailure> => {
 		const overrun = bindOverrun(statements, session.messageMaxBytes)
@@ -1803,6 +1773,11 @@ export const sentAnswer = <A>(answers: ReadonlyArray<A>, index: number): A => {
 export interface Flight<A, E> {
 	readonly statements: ReadonlyArray<BatchStatement>
 	readonly read: (outcomes: ReadonlyArray<BatchOutcome>) => Effect.Effect<A, E>
+}
+
+/** A flight of one statement, a program's (reader/run.ts programFlight): what a read frame sends (FramedStatements). */
+export interface StatementFlight<A, E> extends Flight<A, E> {
+	readonly statements: readonly [BatchStatement]
 }
 
 /**

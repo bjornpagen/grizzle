@@ -2463,14 +2463,12 @@ export interface AdoptRole {
 }
 
 /**
- * Transaction control: a read's BEGIN, SERIALIZABLE READ ONLY, DEFERRABLE (it waits for a safe snapshot, then runs
- * untracked by SSI) or not (it runs at once, tracked); a write's BEGIN at its isolation level; COMMIT, ROLLBACK, and
- * SET CONSTRAINTS ALL IMMEDIATE, under which every deferrable constraint's check runs at the end of each statement, so
- * no trigger event waits for the commit.
+ * Transaction control: a read's BEGIN, SERIALIZABLE READ ONLY (core/isolation.ts); a write's BEGIN at its isolation
+ * level; COMMIT, ROLLBACK, and SET CONSTRAINTS ALL IMMEDIATE, under which every
+ * deferrable constraint's check runs at the end of each statement, so no trigger event waits for the commit.
  */
 export type TransactionControl =
-	| { readonly kind: "beginRead"; readonly deferrable: true }
-	| { readonly kind: "beginRead"; readonly deferrable: false }
+	| { readonly kind: "beginRead" }
 	| { readonly kind: "beginWrite"; readonly isolation: Isolation }
 	| { readonly kind: "commit" }
 	| { readonly kind: "rollback" }

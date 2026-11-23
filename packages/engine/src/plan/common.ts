@@ -242,7 +242,6 @@ export type {
 export type {
 	AnyWorkload,
 	Clocked,
-	Deferrable,
 	Paged,
 	ReadOf,
 	Refresh,

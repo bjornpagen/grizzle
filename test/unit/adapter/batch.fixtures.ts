@@ -97,14 +97,13 @@ export const smallRequired: Arr.NonEmptyReadonlyArray<Reached<FlightFeature>> = 
 
 /**
  * The drawn population's: the exhaustive one's, a stuck statement on a server no CancelRequest reaches, so abandon
- * severs its connection at the round whose request was unreached, a change of a role certified READ COMMITTED, whose
- * flight begins at that level, and a deferrable member's read, whose flight begins DEFERRABLE.
+ * severs its connection at the round whose request was unreached, and a change of a role certified READ COMMITTED,
+ * whose flight begins at that level.
  */
 export const drawnRequired: Arr.NonEmptyReadonlyArray<Reached<FlightFeature>> = [
 	...smallRequired,
 	"drained by its destruction",
-	"call framed readCommittedWrite",
-	"call framed deferrableRead"
+	"call framed readCommittedWrite"
 ]
 
 const endingFeature = (observation: Observation): FlightFeature => {

@@ -132,12 +132,8 @@ export default defineConfig({
   reading one is refused (`UnfillableField`, `stamped`), and two owners of one call in one group meet at the owner's
   key. A migration adding `place` to stored rows gives each place 0
   where the new key holds the old one, and is refused elsewhere; `place.by(field)`, beside a key within the group and
-  the field, numbers the stored rows by the field (README "Places"). The member `deferrable(read)`, of a query, an ordered query, a `paged(...)` one, a key, an
-  answered or a clocked read, reads in a SERIALIZABLE READ ONLY DEFERRABLE transaction: it waits until every SERIALIZABLE
-  read-write transaction running on the cluster when it began has ended, then never fails with a serialization
-  failure, never makes another transaction fail and holds no predicate lock. A plain read answers at once and may
-  fail retryably: use `deferrable` for a scan or status read that must not fail and can wait, a plain read where an
-  interactive caller must not wait. The member `refresh(tables)`, of a nonempty list,
+  the field, numbers the stored rows by the field (README "Places"). A read runs SERIALIZABLE READ ONLY, one statement:
+  it answers at once and may fail retryably. The member `refresh(tables)`, of a nonempty list,
   refreshes materialized derived tables the role's `refresh` list names, all of them in one transaction, lower levels
   first. Two programs of one name across a login's workloads are refused when the login is built. A ChangeSet member
   whose `insert`, `insertAll`, `delete` or `put` was given its facts as an array takes them as its input's `facts`:
@@ -659,9 +655,9 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   holds it. A file edited past its record, or a custom migration's, states no demand.
 - Set `max_pred_locks_per_transaction = 2048` on the server (a server-start setting): under load PostgreSQL may
   report 53200, out of shared memory, with a HINT to raise it, and that failure is not retryable. Keep transactions
-  short everywhere on the cluster: a committed write's and a plain read's locks are held until every older transaction
-  ends, in any database and at any isolation level (a DROP DATABASE waiting on its checkpoint included), a long one
-  also brings more 40001s, and every deferrable read begun while a SERIALIZABLE write runs waits for it.
+  short everywhere on the cluster: a committed write's and a read's locks are held until every older transaction
+  ends, in any database and at any isolation level (a DROP DATABASE waiting on its checkpoint included), and a long one
+  also brings more 40001s.
 - Connect straight to PostgreSQL: PgBouncer is not supported.
 - Every server setting grizzle does not pin is the database owner's, set on the database or the server: a login's
   role holds exactly its pinned defaults, and the drift check refuses one that holds any other. A login's role pins only
@@ -928,7 +924,7 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   compiles. Stating both is `RoleRefused` (`writeAndInsert`).
 - A role's writes run READ COMMITTED only where `grizzle generate` certifies it from the statements its ChangeSets
   send, against every other writer (README's READ COMMITTED writes); every other role runs SERIALIZABLE, and reads are
-  always SERIALIZABLE READ ONLY, DEFERRABLE for a `deferrable(...)` member. generate prints each role's level, a SERIALIZABLE one with the count of each condition
+  always SERIALIZABLE READ ONLY. generate prints each role's level, a SERIALIZABLE one with the count of each condition
   it fails: `form` (a ChangeSet with no READ COMMITTED form), `members` (no ChangeSet), `privileges` (it states
   `write`, or some role updates or deletes what it writes),
   `laws` (a rule over a query over what it writes), `absence` (a read of the absence or a count of what it writes),

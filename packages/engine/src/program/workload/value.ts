@@ -30,14 +30,7 @@ import {
 import { builderLoc, builderRefusal, malformed } from "#compiler/schema/protocol.ts"
 import { derivedDraftOf } from "#compiler/schema/relation.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
-import type {
-	Answered,
-	Clocked,
-	Deferrable,
-	Paged,
-	Refresh,
-	Workload
-} from "#compiler/types/db/workload.ts"
+import type { Answered, Clocked, Paged, Refresh, Workload } from "#compiler/types/db/workload.ts"
 import {
 	type ChangeSetValue,
 	changeSetState,
@@ -103,17 +96,15 @@ type ProgramValue =
 /**
  * One program of a workload, by kind, as `grizzle generate` compiles it: a query or ordered query value, or a key,
  * which reads through its lookup query (query/build/key.ts keyQuery) at the key position the workload admitted, each
- * a read, deferrable where its member is deferrable(...) (deferrableMember) and answered where it is answered(...)
- * (answeredMember) or clocked, and a ChangeSet value, each with the Description the migration generator plans (a key's
+ * a read, answered where it is answered(...) (answeredMember) or clocked, its isolation the compile's to infer
+ * (core/isolation.ts ReadIsolation), and a ChangeSet value, each with the Description the migration generator plans (a key's
  * is its lookup's, built over the workload's schema); or a refresh of materialized derived relations, which plans
  * nothing and reads no relation's law, so it has none: the compile resolves its relations against the role that runs
  * it.
  */
 export type WorkloadProgram = { readonly name: string } & (
-	| ({ readonly deferrable: boolean } & (
-			| ReadValue
-			| { readonly kind: "key"; readonly target: KeyPosition; readonly desc: UnclockedReadDesc }
-	  ))
+	| ReadValue
+	| { readonly kind: "key"; readonly target: KeyPosition; readonly desc: UnclockedReadDesc }
 	| Extract<ProgramValue, { readonly kind: "changeSet" }>
 	| { readonly kind: "refresh"; readonly relations: NonEmptyReadonlyArray<unknown> }
 )
@@ -269,8 +260,7 @@ export const isAnswerableRead = (read: unknown): boolean =>
  * over HTTP its answer is its reset, its upserts, its ready, then its end, since no change wakes it. Its workload plans
  * no footprint for it, so a login whose reads are all answered serves no live read and its layer needs no live source.
  * A clocked read is answered already, with its clock (clockedMember). A value that is no such read, a ChangeSet, a
- * clocked one, a refresh, a deferrable and an answered member among them, throws CompileError MalformedDescription
- * synchronously.
+ * clocked one, a refresh and an answered member among them, throws CompileError MalformedDescription synchronously.
  */
 export const answeredMember = <X>(read: X, ...extra: ReadonlyArray<unknown>): Answered<X> => {
 	if (extra.length > 0) {
@@ -285,50 +275,6 @@ export const answeredMember = <X>(read: X, ...extra: ReadonlyArray<unknown>): An
 	const value: Answered<X> = Object.freeze({ answered: read })
 	answeredValues.set(value, read)
 	return value
-}
-
-/** The read each value deferrable(...) made reads (deferrableMember). */
-const deferrableValues = new WeakMap<object, unknown>()
-
-/**
- * deferrable(read): the workload member that runs `read`, a query, an ordered query, a paged(...) ordered query, a
- * relation's key, an answered(...) one or a clocked(...) query or ordered query, in a SERIALIZABLE READ ONLY DEFERRABLE
- * transaction: each
- * call waits for a safe snapshot, until every SERIALIZABLE read-write transaction running on the cluster when it began
- * has ended, then reads untracked by SSI, so it never fails with a serialization failure, never dooms another
- * transaction and holds no SIRead lock. Any other read member reads at once, may fail retryably, and holds its SIRead
- * locks until the serializable transactions it overlapped have ended. A value that is no read, a ChangeSet, a clocked
- * one, a refresh and a deferrable member among them, throws CompileError MalformedDescription synchronously.
- */
-export const deferrableMember = <X>(read: X, ...extra: ReadonlyArray<unknown>): Deferrable<X> => {
-	if (extra.length > 0) {
-		throw malformed("deferrable", "deferrable(read): one argument")
-	}
-	const clocked = hasProperties(read) ? clockedValues.get(read) : undefined
-	const isRead =
-		isAnswerableRead(read) ||
-		(hasProperties(read) && answeredValues.has(read)) ||
-		(clocked !== undefined && !isChangeSetValue(clocked.program))
-	if (!isRead) {
-		throw malformed(
-			"deferrable",
-			"deferrable takes a read: a query, an ordered query, a paged one, a relation's key, an answered one or a clocked one"
-		)
-	}
-	const value: Deferrable<X> = Object.freeze({ deferrable: read })
-	deferrableValues.set(value, read)
-	return value
-}
-
-/**
- * The read a deferrable(...) member defers, known by what made it (its registration), or none for any other value: no
- * property of the value is read.
- */
-export const deferredReadOf = (value: unknown): { readonly read: unknown } | undefined => {
-	if (!hasProperties(value) || !deferrableValues.has(value)) {
-		return undefined
-	}
-	return { read: deferrableValues.get(value) }
 }
 
 /** The relations each value refresh(relations) made refreshes, as its list held them at the call (refreshMember). */
@@ -463,8 +409,7 @@ const workloadDescOf = (
 /**
  * One named program of a workload over `schema`, or the refusal of a value that is none: a query, ordered query or
  * ChangeSet over a level of the schema, or a key of a relation of it, whose lookup query is built over the schema; a
- * read deferrable where deferrable(...) made the member (deferrableMember), which admits a read alone, and answered
- * where answered(...) made it, within deferrable(...)'s (answeredMember).
+ * read answered where answered(...) made it (answeredMember).
  */
 const workloadProgram = (
 	name: string,
@@ -476,11 +421,8 @@ const workloadProgram = (
 	if (refreshed !== undefined) {
 		return { name, kind: "refresh", relations: refreshed }
 	}
-	const deferred = hasProperties(program) ? deferrableValues.get(program) : undefined
-	const deferrable = deferred !== undefined
-	const member = deferrable ? deferred : program
-	const answered = hasProperties(member) ? answeredValues.get(member) : undefined
-	const read = answered === undefined ? member : answered
+	const answered = hasProperties(program) ? answeredValues.get(program) : undefined
+	const read = answered === undefined ? program : answered
 	const served = (query: QueryDesc): UnclockedReadDesc =>
 		answered === undefined ? { kind: "query", query } : { kind: "answered", query }
 	const found = programDescOf(read, served)
@@ -492,21 +434,18 @@ const workloadProgram = (
 				`program ${JSON.stringify(name)}: a program over ${built.desc.name}, a schema it extends or a fragment one of them lists, not over ${over.desc.name}`
 			)
 		}
-		return found.program.kind === "changeSet"
-			? { name, ...found.program }
-			: { name, deferrable, ...found.program }
+		return { name, ...found.program }
 	}
 	const lookup = keyLookup(schema, read)
 	if (lookup === undefined) {
 		throw malformed(
 			label,
-			`program ${JSON.stringify(name)}: a query, an ordered query, a paged ordered query, a ChangeSet, a clocked one of them, a relation's key, an answered or deferrable read or a refresh the builders made`
+			`program ${JSON.stringify(name)}: a query, an ordered query, a paged ordered query, a ChangeSet, a clocked one of them, a relation's key, an answered read or a refresh the builders made`
 		)
 	}
 	return {
 		name,
 		kind: "key",
-		deferrable,
 		target: lookup.target,
 		desc: served(orThrow(queryInput(lookup.query)).desc)
 	}

@@ -2640,9 +2640,7 @@ const writeCommand = (out: Lines, statement: SqlStatement): void => {
 				`LOCK TABLE ${statement.tables.map(printObjectName).join(", ")} IN ${statement.mode} MODE${statement.wait === "nowait" ? " NOWAIT" : ""}`
 			)
 		case "beginRead":
-			return out.line(
-				`BEGIN ISOLATION LEVEL SERIALIZABLE READ ONLY${statement.deferrable ? " DEFERRABLE" : ""}`
-			)
+			return out.line("BEGIN ISOLATION LEVEL SERIALIZABLE READ ONLY")
 		case "beginWrite":
 			return out.line(`BEGIN ISOLATION LEVEL ${isolationLevels[statement.isolation]}`)
 		case "commit":

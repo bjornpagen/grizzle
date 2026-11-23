@@ -2,21 +2,13 @@ import * as runtime from "#compiler/program/workload/value.ts"
 import type {
 	AnsweredConstructor,
 	ClockedConstructor,
-	DeferrableConstructor,
 	PagedConstructor,
 	RefreshConstructor,
 	WorkloadConstructor
 } from "#compiler/types/db/workload.ts"
 
 export type { ClockUnit } from "#compiler/core/clock.ts"
-export type {
-	Answered,
-	Clocked,
-	Deferrable,
-	Paged,
-	Refresh,
-	Workload
-} from "#compiler/types/db/workload.ts"
+export type { Answered, Clocked, Paged, Refresh, Workload } from "#compiler/types/db/workload.ts"
 
 /**
  * Public barrel: workload, the query workload. packages/grizzle/src/index.ts re-exports it.
@@ -29,12 +21,6 @@ export const workload: WorkloadConstructor = runtime.workload
 
 /** paged(ordered): the workload member that pages an ordered query (program/workload/value.ts pagedMember). */
 export const paged: PagedConstructor = runtime.pagedMember
-
-/**
- * deferrable(read): the workload member that runs a read in a SERIALIZABLE READ ONLY DEFERRABLE transaction, which waits
- * for a safe snapshot and then never fails with a serialization failure (program/workload/value.ts deferrableMember).
- */
-export const deferrable: DeferrableConstructor = runtime.deferrableMember
 
 /**
  * answered(read): the workload member that answers a read at its call's instant alone, never live, so its handle holds

@@ -129,15 +129,14 @@ export interface ServedPrologue {
  * What every session of a login sends that no program states, emitted at generate: the startup options pinning its
  * role's defaults (physical/ddl/roles.ts loginStartupOptions), the startup options of every owner's session beside it,
  * the live leader's and a listener's, generic plans alone (ownerStartupOptions), each transaction's BEGIN, and its
- * COMMIT and ROLLBACK.
- * A read begins SERIALIZABLE READ ONLY, `deferrable` where its member declares it (ServedRead deferrable), else
- * `immediate`; a write begins read write at its role's level (ServedRoleForm isolation), or a refresh at SERIALIZABLE.
+ * COMMIT and ROLLBACK. A read begins SERIALIZABLE READ ONLY; a write begins read write at its role's level
+ * (ServedRoleForm isolation), or a refresh at SERIALIZABLE.
  */
 export interface ServedSession {
 	readonly startup: string
 	readonly ownerStartup: string
 	readonly begin: {
-		readonly read: { readonly immediate: EmittedText; readonly deferrable: EmittedText }
+		readonly read: EmittedText
 		readonly write: { readonly [I in Isolation]: EmittedText }
 	}
 	readonly commit: EmittedText
@@ -370,20 +369,12 @@ export type ServedReadLive =
 	| { readonly kind: "routed"; readonly footprint: ServedFootprint }
 
 /**
- * A query or ordered query compiled for a role's rows, as one call reads it: whether its member is declared
- * deferrable(...), the declared parameters a call supplies, its artifact, which prints a parameter its member binds to
+ * A query or ordered query compiled for a role's rows, as one call reads it: the declared parameters a call supplies,
+ * its artifact, which prints a parameter its member binds to
  * the database's clock as the reading itself, its delivered spine, the decoder of its records, the key each of its
  * delivered rows is told apart by, and how it is called, answered or live (ServedReadLive).
  */
 export interface ServedRead {
-	/**
-	 * Whether its member is declared deferrable(...): its transaction begins SERIALIZABLE READ ONLY DEFERRABLE, so it
-	 * waits for a safe snapshot, until every SERIALIZABLE read-write transaction running on the cluster when it began
-	 * has ended, then reads untracked by SSI: it never fails with a serialization failure, never dooms another
-	 * transaction and holds no SIRead lock. Otherwise SERIALIZABLE READ ONLY: it reads at once, may fail retryably, and
-	 * its SIRead locks are kept until the serializable transactions it overlapped have ended.
-	 */
-	readonly deferrable: boolean
 	readonly params: ReadonlyArray<CallerParamDecl>
 	readonly source: ServedSource
 	readonly spine: ServedSpine

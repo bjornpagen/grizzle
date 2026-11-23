@@ -10,22 +10,21 @@ import {
 } from "#adapter/wire/batch.ts"
 
 /**
- * A read member's call run through flights of a suite's own (adapter/db/handles.ts readCallOf): what a suite reads
- * when it sends a read's statement beside another's in one snapshot, or counts what it sends. The call's statement takes
- * its rows as they arrive (wire/batch.ts RowIntake), whichever flight carries it, so a flight that carries several
- * reads' statements hands each its own rows.
+ * A read member's call run through a flight of a suite's own (adapter/db/handles.ts readCallOf): what a suite reads when
+ * it sends a read's statement itself, or counts what it sends. The call's statement takes its rows as they arrive
+ * (wire/batch.ts RowIntake).
  *
- * Sends one flight's statements on a session leased from the Db's pool, in one transaction of its read frame.
+ * Sends the statement on a session leased from the Db's pool, in one transaction of its read frame, SERIALIZABLE
+ * READ ONLY, as the Db's read runs.
  */
 export const flown = (
 	ctx: Pick<ServedDbContext, "pool" | "prologue">,
-	statements: ReadonlyArray<BatchStatement>
+	statement: BatchStatement
 ): Effect.Effect<ReadonlyArray<BatchOutcome>, ReadError> =>
 	Effect.scoped(
 		Effect.flatMap(
 			Effect.mapError(ctx.pool.lease, (reason) => new ReadFailure({ reason })),
-			(session) =>
-				Effect.mapError(runFramed(session, dbReadFrame(ctx, false), statements), asReadFailure)
+			(session) => Effect.mapError(runFramed(session, dbReadFrame(ctx), [statement]), asReadFailure)
 		)
 	)
 
@@ -36,7 +35,7 @@ export const flown = (
  */
 export const readThrough = (
 	call: ReadCall,
-	send: (statements: ReadonlyArray<BatchStatement>) => Effect.Effect<unknown, ReadError>
+	send: (statement: BatchStatement) => Effect.Effect<unknown, ReadError>
 ): Effect.Effect<ReadonlyArray<DecodedRow>, ReadError> =>
 	Effect.gen(function* () {
 		const rows: Array<DecodedRow> = []
@@ -46,7 +45,7 @@ export const readThrough = (
 			}),
 			(reason) => new ReadFailure({ reason })
 		)
-		yield* send([opened.statement])
+		yield* send(opened.statement)
 		yield* Effect.mapError(Effect.fromResult(opened.end()), (reason) => new ReadFailure({ reason }))
 		return rows
 	})

@@ -150,7 +150,7 @@ import type { ServedSession } from "#compiler/plan/serve.ts"
 
 /**
  * What a session sends that no program states, each emitted where it was compiled (served/forms.ts ServedSession): a
- * read's BEGIN, immediate or deferrable, a write's at each isolation level, and its end, COMMIT or ROLLBACK. A served
+ * read's BEGIN, a write's at each isolation level, and its end, COMMIT or ROLLBACK. A served
  * login's file carries them, and an owner's session takes generate's own.
  */
 export interface ControlTexts {
@@ -222,12 +222,12 @@ interface SessionSpec extends Omit<ParsedConnection, "roles"> {
 }
 
 /**
- * A transaction control of a pipeline: BEGIN, a read's (deferrable or not) or a write's at its level, or the
+ * A transaction control of a pipeline: BEGIN, a read's or a write's at its level, or the
  * transaction's end, COMMIT or ROLLBACK. Whoever reads a pipeline reads which control it is from here, never from its
  * text.
  */
 export type TxControl =
-	| { readonly kind: "begin"; readonly access: "readOnly"; readonly deferrable: boolean }
+	| { readonly kind: "begin"; readonly access: "readOnly" }
 	| { readonly kind: "begin"; readonly access: "readWrite"; readonly isolation: Isolation }
 	| { readonly kind: "end"; readonly end: Transaction["end"] }
 
@@ -236,7 +236,7 @@ export const controlText = (controls: ControlTexts, control: TxControl): Emitted
 	switch (control.kind) {
 		case "begin":
 			return control.access === "readOnly"
-				? controls.begin.read[control.deferrable ? "deferrable" : "immediate"]
+				? controls.begin.read
 				: controls.begin.write[control.isolation]
 		case "end":
 			return control.end === "COMMIT" ? controls.commit : controls.rollback

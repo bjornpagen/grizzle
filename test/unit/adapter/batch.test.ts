@@ -97,7 +97,7 @@ export const aFlightKeepsItsContractAtEveryInterruptionPointOfDrawnFlights = pro
 		kept: [
 			{
 				token: ReplayToken(
-					"test/unit/adapter/batch.test.ts#aFlightKeepsItsContractAtEveryInterruptionPointOfDrawnFlights:-:0.1.0.0.0.0.0.0.0.1.6.1.0.2.1.0.0.1.1.0.0"
+					"test/unit/adapter/batch.test.ts#aFlightKeepsItsContractAtEveryInterruptionPointOfDrawnFlights:-:0.1.0.0.0.0.0.0.0.1.5.1.0.2.1.0.0.1.1.0.0"
 				),
 				reason:
 					"an alongside call in a rollback frame whose first flight meets a refused statement and then a lost connection: the refusal decides, and no second flight goes out over the ended session (071f77302 sent the end over it and failed the call as ConnectionLost)",
