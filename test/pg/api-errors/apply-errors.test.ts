@@ -29,7 +29,7 @@ import { assert, assertVariant } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { passed } from "@bjornpagen/testing/lsw"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Result, String as Str } from "effect"
 import { memberCalls, variantOf } from "#adapter/db/handles.ts"
 import {
@@ -148,7 +148,16 @@ export const applyErrorThroughThePublicAPIAValueItsCodecRefusesIsRefusedAsInputN
 			name: "the codecs' fault vocabulary: each invalid class's one fault, a parameter's at its slot"
 		},
 		budget: { runs: 200, steered: 200 },
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/pg/api-errors/apply-errors.test.ts#applyErrorThroughThePublicAPIAValueItsCodecRefusesIsRefusedAsInputNamingItsFaultAndSlotBeforeAnySQLOneItAdmitsIsAnswered:-:1.0.b"
+				),
+				reason:
+					"f1bf91a2f's gate (TEST_SEED=2219874524, floor case 25): a call's fact whose id is a refusing proxy, which the shares' valueBytes read by instanceof before the codec, so its getPrototypeOf trap escaped as a WildTouched defect where the codec refuses it with its fault and slot (9e905ec1a)",
+				since: "2026-11-22"
+			}
+		],
 		kills: [
 			{
 				file: "packages/grizzle/src/adapter/apply/shares.ts",

@@ -47,7 +47,7 @@ import {
 import { rowsOf, writeAnswerOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { refusedEntries } from "#test/support/refused.ts"
-import { servedFixture } from "#test/support/served-db.ts"
+import { servedGenerated } from "#test/support/served-db.ts"
 import { expectSqlstate } from "#test/support/substrate/expect.ts"
 import { ownerSession, Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
@@ -76,7 +76,7 @@ export const aRoleHoldingScopedEntriesReadsAndWritesTheSchemasProgramsOverItsOwn
 					Effect.flatMap(scoped, (taken) =>
 						Effect.provideService(
 							Effect.gen(function* () {
-								const m = taken.value
+								const m = taken.value.installed
 								const { app, desk, student } = scopedAt(m.declared)
 								const s = yield* Substrate
 								const owner = yield* s.session({ ...ownerSession(), label: "scoped owner" })
@@ -115,8 +115,8 @@ export const aRoleHoldingScopedEntriesReadsAndWritesTheSchemasProgramsOverItsOwn
 									}
 									return t
 								})
-								const deskServed = yield* servedFixture(m, desk)
-								const appServed = yield* servedFixture(m, app)
+								const deskServed = servedGenerated(taken.value, desk)
+								const appServed = servedGenerated(taken.value, app)
 								const seeds = seedFacts(c.state)
 								yield* Effect.gen(function* () {
 									const db = yield* Db.open(deskServed.login.roles.staff, {})

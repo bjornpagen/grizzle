@@ -24,8 +24,8 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { workload } from "#compiler/public/workload.ts"
-import { migratedOnceTemplate } from "#test/support/installed.ts"
-import { noDeclarations } from "#test/support/migrate/kit.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
+import { generatedTemplate } from "#test/support/install-migrate.ts"
 
 /**
  * Scoped entries over PostgreSQL (schema/scope.ts, physical/ddl/roles.ts, program/slice.ts): a sitting's schema, as
@@ -192,20 +192,23 @@ export const scopedAt = (name: string) => {
 	return { base, student, staff, app, desk }
 }
 
-/** The schema installed once per member through its generated migration, each case seating it (scopedAt). */
-export const scopedTemplate = migratedOnceTemplate({
+/**
+ * The schema drafted and served as `grizzle generate` does, installed once per member, each case seating it
+ * (scopedAt): every worker plans its draft and both logins' served files once, which each case serves over its seat
+ * (served-db.ts servedGenerated).
+ */
+export const scopedTemplate = generatedTemplate({
 	declaredIn: import.meta,
 	name: "scoped entries",
-	options: {
-		label: "scoped",
-		first: (name) => {
-			const s = scopedAt(name)
-			return { schema: s.base, logins: [s.app, s.desk] }
-		},
-		later: [],
-		apply: { kind: "noPlaceholders" },
-		declared: () => noDeclarations
-	}
+	content: {
+		schema: "scoped",
+		logins: ["app: the student's scoped entries", "desk: staff, every relation whole"]
+	},
+	build: (name) => {
+		const s = scopedAt(name)
+		return { schema: s.base, logins: [s.app, s.desk] }
+	},
+	ambient: ordinarySession
 })
 
 const people = ["ann", "bob"] as const
