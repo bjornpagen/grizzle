@@ -33,6 +33,7 @@
  * refuses only a refill of an immutable relation's rows; the instance a follow-up leaves (`followUpRows`) is the
  * reference writer's to fill, every refilled value among it.
  */
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { keep, type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/swarm"
@@ -54,7 +55,6 @@ import {
 	finBuilder,
 	foldBuilder,
 	monoids,
-	mutableBuilder,
 	onBuilder,
 	orderedBuilder,
 	predBuilder,
@@ -64,6 +64,7 @@ import {
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyRelation, Relation } from "#compiler/types/schema/relation.ts"
 import { Id } from "#test/support/ids.ts"
+import { opened } from "#test/support/open.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /** A family's kind: a tree on one relation, or an ordered or a counted family of an owner and a member. */
@@ -1064,7 +1065,7 @@ export const generationRelation = (
 }
 
 /** The relation value of relation `r` (`generationRelation`). */
-const relationValue = (spec: FillSpec, r: number): AnyRelation =>
+const relationValue = (spec: FillSpec, r: number): BuiltRelation =>
 	generationRelation(spec, r, relationName(r), fieldsOf(spec, r))
 
 /**
@@ -1171,11 +1172,7 @@ export const buildFill = (spec: FillSpec): BuiltFill => {
 				break
 		}
 	}
-	for (const [r, flags] of spec.relations.entries()) {
-		if (flags.mutable) {
-			statements.push(mutableBuilder(valueAt(r)))
-		}
-	}
+	appendAll(statements, opened(Arr.filter(values, (_, r) => relationAt(spec, r).mutable)))
 	const relations = Rec.fromEntries(Arr.map(values, (v) => [v.name, v] as const))
 	return {
 		relations,

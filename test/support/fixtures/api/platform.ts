@@ -32,6 +32,7 @@ import {
 	role,
 	schema,
 	select,
+	unit,
 	wholeEntriesOf,
 	writableNamesOf
 } from "#compiler/public/schema.ts"
@@ -544,6 +545,8 @@ const platformOf = (name: string) =>
 			keyRevocation,
 			invoiceSettlement,
 			lineDetail,
+			unit("Workspace", { workspace: Id }),
+			unit("Entity", { id: Id }),
 			mutable(WorkspaceLimit),
 			mutable(CreditGrant),
 			mutable(Invoice)

@@ -24,6 +24,7 @@ import {
 	role,
 	schema,
 	tree,
+	unit,
 	wholeEntriesOf,
 	writableNamesOf
 } from "#compiler/public/schema.ts"
@@ -192,6 +193,7 @@ export const Work = schema(
 		books,
 		pages,
 		tree(on(Node, "parent", "at"), fin(Node, "children"), { root: ["doc"] }),
+		unit("Entity", { id: Id }),
 		mutable(Cart),
 		mutable(Bin),
 		mutable(Shelf),

@@ -56,7 +56,8 @@ import {
 	mutableBuilder,
 	onBuilder,
 	orderedBuilder,
-	treeBuilder
+	treeBuilder,
+	unitBuilder
 } from "#compiler/schema/statements.ts"
 import type { FieldBase, GeneratedField } from "#compiler/types/fields/field.ts"
 import type { AnyRelation, AnyRoster } from "#compiler/types/schema/relation.ts"
@@ -674,8 +675,11 @@ export const foldSchema = (kind: FamilyKind): FoldSchema => {
 		),
 		...Arr.map(stored, (r): readonly [string, AnyRoster | AnyRelation] => [r.name, r])
 	])
+	/** A counted or an ordered family's owner and members are open, each keyed by its own id: one unit holds them. */
 	const all: ReadonlyArray<Statement> =
-		kind === "tree" ? statements : [...statements, mutableBuilder(owner)]
+		kind === "tree"
+			? statements
+			: [...statements, unitBuilder("Id", { id: pg.integer }, []), mutableBuilder(owner)]
 	return {
 		kind,
 		groups: nonEmpty(groups),

@@ -12,7 +12,8 @@ import {
 	on,
 	relation,
 	role,
-	schema
+	schema,
+	unit
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -132,6 +133,7 @@ export const shopOf = (name: string) => {
 			items,
 			fold(items, Monoid.sum, on(Item, "store", "qty"), on(Store, "id", "stock")),
 			contained(on(Item, "store", "region"), on(Store, "id", "region")),
+			unit("Entity", { id: Id }),
 			mutable(Store),
 			mutable(Item)
 		]

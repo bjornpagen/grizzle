@@ -14,6 +14,7 @@ import { mutableBuilder, unitBuilder } from "#compiler/schema/statements.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import {
 	type AuthoredStatementDesc,
+	type FixtureField,
 	mutable as mutableDesc,
 	unit as unitDesc
 } from "#test/support/fixtures/ir/desc.ts"
@@ -79,10 +80,19 @@ export const opened = (relations: ReadonlyArray<Openable<FieldBase>>): ReadonlyA
 	...Arr.map(relations, (r) => mutableBuilder(r))
 ]
 
-/** `relations` open, as descriptions state them: the units they lead with, then each one's `mutable`. */
+/** A fixture field's type: a declaration's, or a bare type as it is. */
+const fixtureType = (field: FixtureField): FieldDesc => ("writing" in field ? field.type : field)
+
+/**
+ * `relations` open, as descriptions state them, each a relation description as the schema lists it: the units they
+ * lead with, then each one's `mutable`.
+ */
 export const openedDescs = (
-	relations: ReadonlyArray<Openable<FieldDesc>>
+	relations: ReadonlyArray<Openable<FixtureField>>
 ): ReadonlyArray<AuthoredStatementDesc> => [
-	...Arr.map(leadingHeadings(relations, typeText), (h) => unitDesc(h.name, { [h.field]: h.type })),
+	...Arr.map(
+		leadingHeadings(relations, (field, at) => typeText(fixtureType(field), at)),
+		(h) => unitDesc(h.name, { [h.field]: fixtureType(h.type) })
+	),
 	...Arr.map(relations, (r) => mutableDesc(r.name))
 ]
