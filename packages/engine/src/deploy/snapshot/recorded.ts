@@ -335,7 +335,7 @@ const transformedHeader = (h: FunctionHeader, t: Transform): FunctionHeader => {
 	}
 	const params = h.params.map((p) => t.functionParam(p))
 	if (typeof h.returns !== "string") {
-		return { ...h, name, params, returns: { setOf: t.type(h.returns.setOf) } }
+		return { ...h, name, params, returns: { ...h.returns, setOf: t.type(h.returns.setOf) } }
 	}
 	if (h.returns === "boolean") {
 		return { ...h, name, params, returns: h.returns }

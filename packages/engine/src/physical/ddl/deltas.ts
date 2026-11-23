@@ -503,6 +503,38 @@ const instanceOf = (head: Cte, cte: string, inner: string): Cte => {
 }
 
 /**
+ * The rows a judge's delta reader declares it returns (ROWS on its CREATE FUNCTION): the planner's estimate of one
+ * side of a transaction's delta, which every judge statement reads first and probes each table's key from.
+ *
+ * @limitKind measured
+ * @owner grizzle's judge emission (physical/ddl/deltas.ts addReaders), under PostgreSQL 19's planner
+ * @unit rows of one side's delta
+ * @scope each delta reader's estimate, in every generic plan of a judge statement that reads it
+ * @evidence ~/.cache/grizzle/DECLSTATS-work/unitscale/run3.sh over setup.sql, its output unitscale3.log beside it (and
+ *   run2.sh, unitscale2.log, for the per-unit form): two tables of one unit, keys holding the unit, statistics declared
+ *   as grizzle declares them (the unit's anchor relative, its tail single-valued, targets 0), generic plans
+ * @observed 2026-11-23, between 15:00 and 15:30 UTC
+ * @environment cassowary (AWS arm64, 64 CPUs, 247 GiB), shared and loaded; PostgreSQL 19.0 in memory
+ *   (postgres-ram@declstats) under default cost settings; grizzle at d76a6106
+ * @workload EXPLAIN of a PREPAREd key-per-row judge (the delta's rows, NOT EXISTS the other table's row by its whole
+ *   key) under force_generic_plan; the table filled with 0, 2^10, 2^14 and 2^20 rows and VACUUMed; the unit's anchor
+ *   declared at 2^2 and 2^8 rows; the reader declaring ROWS 1, 10, 100 and 1000
+ * @result 32 plans. ROWS 1 and ROWS 10: a Nested Loop Anti Join probing the key, an Index Cond on every key column, at
+ *   every fill from 2^10 to 2^20. ROWS 100: a Hash Anti Join over a Seq Scan of the table at 2^10, probes from 2^14 on.
+ *   ROWS 1000, PostgreSQL's default for a set-returning function: a Hash Anti Join over a Seq Scan at 2^10 and 2^14,
+ *   probes only at 2^20. The unit's declared size changed no plan. A VACUUMed empty table is read by a Seq Scan at every
+ *   ROWS. Not measured: run times, and estimates between 10 and 100.
+ * @decision 1. A probe per delta row costs O(delta · log N) at any delta size, never worse than a hash of the table by
+ *   more than a log factor, while a hash over a scan costs O(N) whatever the delta. Any larger declared delta only moves
+ *   the crossover between the two to a table size the schema does not state (2^14 at 100, near 2^20 at 1000). One row
+ *   is the estimate at which the choice is the probe at every size measured.
+ * @revalidate a PostgreSQL upgrade or changed cost settings (random_page_cost, cpu_operator_cost,
+ *   effective_cache_size); a judge statement that reads the delta other than key by key; a probe whose key the
+ *   declared statistics estimate above one row
+ */
+const deltaReaderRows = 1
+
+/**
  * Each delta's reader (SessionDelta `reader`), by the delta's name, `deltas` each with the relation it is a side of: the
  * row type of the delta's rows (SessionDelta `row`, named apart from the reader), its relation's heading's columns, and
  * the function the judge's statements read the delta through, its rows' one SELECT, no count of a side of news among
@@ -516,6 +548,10 @@ const instanceOf = (head: Cte, cte: string, inner: string): Cte => {
  * (lower/conservative/delta/index.ts lowerDelta), which takes those alike. A DISTINCT here sorted or hashed the delta's
  * every column, toasted text among them, once for each statement that read the delta: 378 times, 9.75 million rows,
  * 118.6 s of a 540-item package's COMMIT at f87b2aaab.
+ *
+ * It declares the rows a call returns (`deltaReaderRows`), so a statement that reads the delta looks each row's key up
+ * in the tables it probes, where at PostgreSQL's own estimate for a set-returning function, a thousand rows, it hashed
+ * a scan of the table below a million rows.
  *
  * A plan of a statement that reads the delta through it depends on the function, never on the table, so a TRUNCATE
  * the judge empties the table with once it has outgrown its page (`emptied`), a new file of the table and an
@@ -557,7 +593,8 @@ export const addReaders = (
 					name: named,
 					params: [],
 					returns: {
-						setOf: namedType(installationTypes(b.names.installation), rowNamed.name, [])
+						setOf: namedType(installationTypes(b.names.installation), rowNamed.name, []),
+						rows: { kind: "declared", rows: deltaReaderRows }
 					},
 					volatility: "VOLATILE",
 					parallel: "UNSAFE",

@@ -1208,7 +1208,7 @@ export class Transform {
 						body === s.body &&
 						setOf === s.returns.setOf
 						? s
-						: { ...s, name, params, body, returns: { setOf } }
+						: { ...s, name, params, body, returns: { ...s.returns, setOf } }
 				}
 				return name === s.name && params === s.params && body === s.body
 					? s
@@ -1239,7 +1239,7 @@ export class Transform {
 	declaredReturns(r: CreateDeclaredFunction["returns"]): CreateDeclaredFunction["returns"] {
 		if ("setOf" in r) {
 			const setOf = this.type(r.setOf)
-			return setOf === r.setOf ? r : { setOf }
+			return setOf === r.setOf ? r : { ...r, setOf }
 		}
 		return this.type(r)
 	}

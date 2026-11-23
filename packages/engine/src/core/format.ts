@@ -325,6 +325,8 @@
  * they bind of its columns, an equality of a variable it binds first with one a step bound the rule's own
  * (analysis/theory/navigate.ts Navigator #chain `matchWhole`), where format 8 placed it before every step, the steps
  * after it keyed by its variables, so every judge statement that reads one reads its steps in another order.
+ * Each delta reader declares the rows a call returns, ROWS 1 (physical/ddl/deltas.ts deltaReaderRows), where format 8
+ * declared none and PostgreSQL estimated a thousand.
  */
 export const artifactFormat = 8
 

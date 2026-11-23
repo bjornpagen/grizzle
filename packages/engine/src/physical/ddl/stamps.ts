@@ -278,7 +278,8 @@ const stampFunction = (
 		name,
 		params,
 		returns: {
-			setOf: namedType(installationTypes(b.names.levelOf(head.relation)), tableName.name, [])
+			setOf: namedType(installationTypes(b.names.levelOf(head.relation)), tableName.name, []),
+			rows: { kind: "planner" }
 		},
 		volatility: "VOLATILE",
 		parallel: "UNSAFE",

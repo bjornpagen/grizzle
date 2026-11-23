@@ -230,7 +230,9 @@ export const addFunctions = (b: InstallBuilder): ReadonlyMap<string, InstalledFu
 		}))
 		const returned = fn.desc.returns
 		const returns: CreateDeclaredFunction["returns"] =
-			returned.kind === "rows" ? { setOf: rowType(returned.heading) } : argType(returned)
+			returned.kind === "rows"
+				? { setOf: rowType(returned.heading), rows: { kind: "planner" } }
+				: argType(returned)
 		const body = fn.desc.body.named.reduce(
 			(text, next) => `${text}${typeOnSearchPath(rowType(next.rowType))}${next.text}`,
 			fn.desc.body.text

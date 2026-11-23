@@ -2304,9 +2304,15 @@ export type CreateFunction =
 			readonly body: Expr
 	  }
 
-/** RETURNS SETOF <type>: a set-returning function's rows, each one value of `type`, which its RETURN QUERY appends. */
+/**
+ * RETURNS SETOF <type>: a set-returning function's rows, each one value of `type`, which its RETURN QUERY appends, and
+ * the rows a call is estimated to return (`rows`): PostgreSQL's own estimate for a set-returning function where the
+ * function states none (`planner`, no clause), or the ROWS its CREATE FUNCTION declares (`declared`), a property of the
+ * function the planner reads, as its volatility is, never a planner setting.
+ */
 export interface SetOf {
 	readonly setOf: TypeRef
+	readonly rows: { readonly kind: "planner" } | { readonly kind: "declared"; readonly rows: number }
 }
 
 /** A PL/pgSQL function, and an SQL one. */

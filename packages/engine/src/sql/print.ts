@@ -2299,6 +2299,21 @@ const writeStubConstant = (out: Lines, statement: StubConstant): void => {
 const printReturns = (returns: CreateFunction["returns"]): string =>
 	typeof returns === "string" ? printCatalogType(returns) : `SETOF ${printType(returns.setOf)}`
 
+/** A function's estimate of its rows as its clause, after its volatility: ROWS where it declares one, else none. */
+const rowsClause = (
+	returns: CreateFunction["returns"] | CreateDeclaredFunction["returns"]
+): string => {
+	if (typeof returns === "string" || !("setOf" in returns)) {
+		return ""
+	}
+	switch (returns.rows.kind) {
+		case "planner":
+			return ""
+		case "declared":
+			return ` ROWS ${returns.rows.rows}`
+	}
+}
+
 /** A function's parallel safety as its clause, after its volatility: none for UNSAFE, PostgreSQL's own default. */
 const parallelClause = (parallel: CreateFunction["parallel"]): string =>
 	parallel === "SAFE" ? " PARALLEL SAFE" : ""
@@ -2308,7 +2323,7 @@ const createFunctionBlock = (out: Lines, fn: CreateFunction): void => {
 		`CREATE OR REPLACE FUNCTION ${printObjectName(fn.name)}(${fn.params.map((p) => `${quoteIdent(p.name)} ${printType(p.type)}`).join(", ")}) RETURNS ${printReturns(fn.returns)}`
 	)
 	out.line(
-		`LANGUAGE ${fn.language} ${fn.volatility}${parallelClause(fn.parallel)} SECURITY ${fn.security} SET search_path = ${printedSearchPath}`
+		`LANGUAGE ${fn.language} ${fn.volatility}${parallelClause(fn.parallel)}${rowsClause(fn.returns)} SECURITY ${fn.security} SET search_path = ${printedSearchPath}`
 	)
 	switch (fn.language) {
 		case "plpgsql":
@@ -2353,7 +2368,7 @@ const createDeclaredFunction = (out: Lines, fn: CreateDeclaredFunction): void =>
 		`CREATE OR REPLACE FUNCTION ${printObjectName(fn.name)}(${fn.params.map((p) => `${quoteIdent(p.name)} ${printType(p.type)}`).join(", ")}) RETURNS ${"setOf" in fn.returns ? `SETOF ${printType(fn.returns.setOf)}` : printType(fn.returns)}`
 	)
 	out.line(
-		`LANGUAGE ${fn.language} ${fn.volatility}${fn.nullInput === undefined ? "" : ` ${fn.nullInput}`} SECURITY DEFINER SET search_path = ${declaredSearchPath(fn.name.schema)}`
+		`LANGUAGE ${fn.language} ${fn.volatility}${fn.nullInput === undefined ? "" : ` ${fn.nullInput}`}${rowsClause(fn.returns)} SECURITY DEFINER SET search_path = ${declaredSearchPath(fn.name.schema)}`
 	)
 	const tag = declaredBodyTag(fn.body)
 	out.line(`AS ${tag}${fn.body}${tag}`)
