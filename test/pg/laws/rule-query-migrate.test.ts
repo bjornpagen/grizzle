@@ -70,7 +70,11 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 /**
  * Rules over queries through migrations on PostgreSQL 19 fail a migration adding or changing a rule over a query exactly where the stored rows break it, leave a fresh install's catalog where it applies, and hold the rule it installs at every COMMIT after.
  *
- * Its pre-conversion budget: runs 24, coverage cases 60 (test/pg/laws/rule-query-migrate.test.ts at d8eed1786).
+ * Its budget is the runner's: its catches re-plant as no kill. The first, a rule's function named by its table and law
+ * alone, so a declared rename of a table its query reads kept a body naming the old table (a67de4787, "which found
+ * it"), survives as that revert against today's set judge, which no rename of this space tells from the original; the
+ * second, a dropped table's rule trigger dropped after its function (10c78f4e3, red in its steered phase), is a fix
+ * across diff.ts's removal, no single span.
  */
 export const rulesOverQueriesThroughMigrationsOnPostgreSQL19FailAMigrationAddingOrChangingARuleOverAQueryExactlyWhereTheStoredRowsBreakItLeaveAFreshInstallsCatalogWhereItAppliesAndHoldTheRuleItInstallsAtEveryCOMMITAfter =
 	property.explore(aimed(caseGen, constructed), {
@@ -272,7 +276,6 @@ export const rulesOverQueriesThroughMigrationsOnPostgreSQL19FailAMigrationAdding
 			kind: "specification",
 			name: "the rule restated over the rows: a migration installing it applies exactly when the stored rows keep it, and a write after it commits exactly when the rows then keep it; and PostgreSQL's catalog of a fresh install of the second version"
 		},
-		budget: { runs: 24, steered: 60 },
 		kept: [],
 		kills: []
 	})

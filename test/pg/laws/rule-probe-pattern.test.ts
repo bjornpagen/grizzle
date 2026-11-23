@@ -12,19 +12,18 @@
  * Closed's inserted rows, whose probe reads the new tag.
  *
  * - The specification turned into a checker: a state keeps the rule exactly when every Item's tag is an Allowed tag no
- *   Closed row holds. The box's first transaction stores a state that keeps it and must commit; its second, one write
+ *   Closed row holds. A case's first transaction stores a state that keeps it and must commit; its second, one write
  *   that one of the probes reads, commits exactly when the state it leaves keeps the rule, and is refused otherwise
  *   by 23503, naming no constraint but the rule's; but an update of Item 1 to another tag, where Item is immutable, is
  *   refused by Item's immutability guard (42501) before any rule judges the state, whatever it leaves: the guard holds
  *   every field outside the ones the schema changes in place (fixtures.ts `guarded`, ir/law.ts RelationInfo `inPlace`).
  *
- * The box: Item immutable, the schema's default, or declared mutable; the stored state, each subset of the tags a and b
- * Allowed and each Closed, and Item 1 absent or at a tag the rule admits there; then one write: Item 2 inserted at a or
- * b, Item 1 updated to a or b, an Allowed tag deleted, or a Closed tag inserted.
+ * The space, drawn: Item immutable, the schema's default, or declared mutable; the stored state, each subset of the tags
+ * a and b Allowed and each Closed, and Item 1 absent or at a tag the rule admits there; then one write: Item 2 inserted
+ * at a or b, Item 1 updated to a or b, an Allowed tag deleted, or a Closed tag inserted.
  */
 
 import type { Reached } from "@bjornpagen/testing/features"
-import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { seatIn } from "#test/pg/fin/installed.ts"
@@ -46,9 +45,34 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * A rule over a query whose probes read a pattern-typed field, on PostgreSQL 19 commits exactly the writes that leave every Item's tag Open's, refusing the rest by 23503, its probes casting each tag to its column's own type.
+ *
+ * Its budget, a generative search where an exhaustion ran 384 cases: one rotating case, the smallest at which its
+ * witnesses still kill its kill, and the runner's steered cap, past which a green run spends nothing (its steered phase
+ * ends at its last situation reached).
+ *
+ * @limitKind measured
+ * @owner grizzle's network tier (test/pg/laws/rule-probe-pattern.test.ts)
+ * @unit cases: rotating ones (runs), and steered ones while a required situation is unreached (steered)
+ * @scope each run of this property, its floor stream (a quarter of runs, rounded up) and steered phase fixed by its
+ *   identity, the same on every run seed
+ * @evidence ~/.cache/grizzle-release/CULL-LAWS/measure/run-rpp-default.log and run-rpp-r1.log, uncommitted, each written
+ *   by `runprop.sh <workspace> <tag> test/pg/laws/rule-probe-pattern.test.ts` (in the same folder): toolchain-test run
+ *   under TEST_SEED=2219874524 with a fresh XDG_CACHE_HOME, so no cached verdict answers the kill
+ * @observed 2026-11-23 04:15 to 04:30 UTC
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB, load average 400 to 430; the machine's
+ *   PostgreSQL 19.0 as an in-memory lane family (grizzle-m-cull-laws-b); grizzle main f87b2aaab with lane CULL-LAWS's
+ *   cull, vendor/toolchain 2cc481724, Node 26.13.1
+ * @workload this property alone on one worker, then its kill (the immutability guard dropped) against its witnesses
+ * @result at the runner's budget (150 runs, 200 steered): green, 150 rotating cases and 64 steered, the kill killed; at
+ *   1 run and 200 steered: green, every one of its 9 situations reached by 1 floor case, 1 rotating and 80 steered, the
+ *   kill killed. Not measured: steered caps below 200, which cost a green run nothing above the 80 it spends
+ * @decision 1 run, the least a search takes, kills the kill; 200 steered, the runner's steeredCases, since a green run
+ *   spends 80 of them and a cap below that leaves a situation unreached. No headroom added
+ * @revalidate a change of sketchGen or of the property's identity (its name or file), which moves its witnesses; a new
+ *   kill; a toolchain repin that changes how witnesses are drawn
  */
 export const aRuleOverAQueryWhoseProbesReadAPatternTypedFieldOnPostgreSQL19CommitsExactlyTheWritesThatLeaveEveryItemsTagOpensRefusingTheRestBy23503ItsProbesCastingEachTagToItsColumnsOwnType =
-	property.exhaust(finite(sketchGen), {
+	property.explore(sketchGen, {
 		needs: {
 			immutable: Substrate.seat(ruleProbePatternTemplates.immutable),
 			mutable: Substrate.seat(ruleProbePatternTemplates.mutable)
@@ -127,7 +151,7 @@ export const aRuleOverAQueryWhoseProbesReadAPatternTypedFieldOnPostgreSQL19Commi
 			kind: "specification",
 			name: "the containment as a checker: every Item's tag an Allowed tag no Closed row holds"
 		},
-		box: "Item immutable or mutable, every state of the tags a and b Allowed and Closed with Item 1 absent or at an Open tag, then one write of each kind at each tag",
+		budget: { runs: 1, steered: 200 },
 		kept: [],
 		kills: [
 			{

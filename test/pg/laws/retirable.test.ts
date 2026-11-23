@@ -39,7 +39,9 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 /**
  * A retirable unit installed on PostgreSQL 19 admits rows only into open groups, holds only open groups, and retires a group whole, keeping its header for good.
  *
- * Its pre-conversion budget: runs 150, coverage cases 300 (test/pg/laws/retirable.test.ts at d8eed1786).
+ * Its budget is the runner's: its catch, the installation of a unit of two bodies that threw and the unit's functions'
+ * SQL the installation audit refused on its first run (0f0d87454), re-plants as no single-span kill against today's
+ * retire.ts, whose SQL is built as an AST.
  */
 export const aRetirableUnitInstalledOnPostgreSQL19AdmitsRowsOnlyIntoOpenGroupsHoldsOnlyOpenGroupsAndRetiresAGroupWholeKeepingItsHeaderForGood =
 	property.explore(runGen, {
@@ -134,7 +136,6 @@ export const aRetirableUnitInstalledOnPostgreSQL19AdmitsRowsOnlyIntoOpenGroupsHo
 			kind: "second-implementation",
 			name: "the unit's lifecycle as a model: each group absent, open or retired, and each body's rows in it"
 		},
-		budget: { runs: 150, steered: 300 },
 		kept: [],
 		kills: []
 	})

@@ -1,6 +1,6 @@
 /** What the properties of selector-literal-type.test.ts read: its spaces, models and helpers. */
 
-import { element, type Gen } from "@bjornpagen/testing/gen"
+import { constant, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Data, Formatter } from "effect"
 import { Type } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -316,6 +316,23 @@ const featuresOf = (s: Source): Arr.NonEmptyReadonlyArray<Feature> => {
 }
 
 export const FEATURES: Arr.NonEmptyReadonlyArray<Feature> = Arr.flatMap(SOURCES, featuresOf)
+
+/**
+ * Each situation with the case constructed to reach it, which a witness whose turn aims at it draws: a source refused
+ * alone, its B row absent, and a source held alone, its B row at the value its literal equals. A drawn case reaches a
+ * source refused alone only where the subset it draws holds that source and no other its row leaves unlawful, one case
+ * in hundreds for a family of seven sources.
+ */
+export const aims: ReadonlyArray<readonly [Feature, Gen<Sketch>]> = Arr.flatMap(SOURCES, (s) => [
+	[
+		`refused ${s.relation}`,
+		constant({ family: s.family, stored: undefined, sources: [s] })
+	] as const,
+	...Arr.map(
+		Arr.filter([...STORED[s.family]], s.holds),
+		(x) => [`held ${s.relation}`, constant({ family: s.family, stored: x, sources: [s] })] as const
+	)
+])
 
 export const literalOf = (s: Sketch): string =>
 	Formatter.format({
