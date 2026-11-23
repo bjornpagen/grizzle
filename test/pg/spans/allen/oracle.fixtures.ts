@@ -1,6 +1,7 @@
 /** What the properties of oracle.test.ts read: its spaces, models and helpers. */
 
 import { exact, ordered, set, structuralHash } from "@bjornpagen/testing/oracle"
+import type { Budget } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
@@ -31,7 +32,42 @@ import { type ScriptInstall, scriptTemplate } from "#test/support/script-templat
 import type { RawSession } from "#test/support/substrate/session.ts"
 import type { SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 
-export const cases = 300
+/**
+ * The property's search budget: one case of its rotating stream (so one of its floor, a quarter of the runs rounded
+ * up) and at most 160 steered cases, the phase that runs only while a required situation is unreached. Its witnesses,
+ * the floor and the steered cases, are fixed by the property's identity, so every run seed reaches its situations and
+ * judges its kill alike.
+ *
+ * @limitKind measured
+ * @owner test/pg/spans/allen/oracle.test.ts's property, its search
+ * @unit cases: the rotating stream's runs, and the steered phase's most
+ * @scope one run of the property, on any run seed: its kept case, its floor, its steered phase and its rotating stream
+ * @evidence ~/.cache/grizzle/CULL-SPANS-work/budget: measure.sh 1 4 16 64 (run-<r>.log at steered 300), kills.sh 300
+ *   1 4 16 64 (kills-<r>-300.fresh.log, each kill judged under a verdict cache of its own, XDG_CACHE_HOME fresh, since
+ *   the shared cache answered a budget's edit with the verdict of another), pair.sh 1:160 1:144 (run-1-<s>.log,
+ *   kills-1-<s>.fresh.log), env.txt; each run `TEST_SEED=2219874524 toolchain-test run` of this file and each kill
+ *   judgement `toolchain-test kills` of it, with the budget rewritten by sed for the run
+ * @observed 2026-11-23 03:34 to 04:00 UTC
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB, shared with other lanes' runs (1-minute
+ *   load 224 to 378); PostgreSQL 19.0, the in-memory family grizzle-m-cull-spans, two members settled by toolchain-pg
+ *   settle; grizzle 3bd77e9be with this property's kill; vendor/toolchain 2cc4817; Node 26.13.1
+ * @workload this one property, at budgets { runs, steered } of { 1, 300 }, { 4, 300 }, { 16, 300 }, { 64, 300 },
+ *   { 1, 160 } and { 1, 144 }, and at its pre-conversion { 300, 300 }
+ * @result Green, every one of its 20 situations reached by a witness, and its kill killed, at { 1, 300 } (162 cases,
+ *   160 of them steered), { 4, 300 } (165, 160), { 16, 300 } (212, 192), { 64, 300 } (240, 160), { 300, 300 } (391,
+ *   16) and { 1, 160 } (162, 160). At { 1, 144 } it is red with no mutant: no witness reached pointIn:bigint:literal
+ *   (1 floor and 144 steered cases), and its kill is unjudged. With the kill applied at { 1, 160 } it fails on steered
+ *   case 44, 42883, shrunk to its kept case. Wall times are a loaded machine's and not compared
+ * @decision runs 1, the fewest a rotating stream runs: the kill is killed at every runs value measured, by the
+ *   steered phase, which must reach pointIn:contract:param, the case the kill fails, to pass at all; and fewer runs
+ *   is fewer cases at every value. steered 160, the fewest the steered phase ran to reach every situation from a floor
+ *   of one case; 144 leaves one unreached. The phase stops once every situation is reached, so the cap costs no case
+ *   beyond those. No headroom: a run that reaches fewer situations says which
+ * @revalidate a red naming an unreached situation; an edit to the property's identity (its file or name), to the span
+ *   generator (test/support/oracle/gen/spans.ts), to its situations (allenOracleFeatures) or to the runner's floor and
+ *   steering (the toolchain's runner/search.ts, random.ts and limits.ts)
+ */
+export const oracleBudget: Budget = { runs: 1, steered: 160 }
 
 /** How a query writes the window or the point it compares stored spans with: a parameter or a literal. */
 const operandForms = ["param", "literal"] as const

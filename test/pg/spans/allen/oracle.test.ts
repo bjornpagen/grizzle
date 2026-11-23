@@ -7,6 +7,7 @@
  * literal.
  */
 
+import { ReplayToken } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import {
@@ -25,10 +26,10 @@ import { PropertyFailed, seatedOracleProperty } from "#test/support/oracle/runne
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 import {
-	cases,
 	compileSpanDesc,
 	allenOracleFeatures,
 	featureOf,
+	oracleBudget,
 	rowsAs,
 	runArtifact,
 	sameRowSet,
@@ -37,9 +38,8 @@ import {
 
 /**
  * Generated span queries against the reference agree with the reference in both artifacts on Allen and pointIn cases,
- * each case on the worker's seat of its schema's template (oracleSpans).
- *
- * Its pre-conversion budget: runs 300, coverage cases 300 (test/pg/spans/allen/oracle.test.ts at 1d00bf8c2).
+ * each case on the worker's seat of its schema's template (oracleSpans). It caught 1e1c91673's bug, kept as its kill
+ * and its kept case; its budget is the least that kills it, measured (oracleBudget).
  */
 export const generatedSpanQueriesAgainstTheReferenceAgreeWithTheReferenceInBothArtifactsOnAllenAndPointInCases =
 	seatedOracleProperty(oracleSpans, spanVariantOf, spanCaseGen, {
@@ -49,9 +49,25 @@ export const generatedSpanQueriesAgainstTheReferenceAgreeWithTheReferenceInBothA
 			kind: "second-implementation",
 			name: "the span reference evaluator, in both artifacts"
 		},
-		budget: { runs: cases, steered: cases },
-		kept: [],
-		kills: [],
+		budget: oracleBudget,
+		kept: [
+			{
+				token: ReplayToken(
+					"test/pg/spans/allen/oracle.test.ts#generatedSpanQueriesAgainstTheReferenceAgreeWithTheReferenceInBothArtifactsOnAllenAndPointInCases:fffe0.e:2.0.0.0.0.2.0.0.0.0.0.0.0.0.0.0.0"
+				),
+				reason:
+					"1e1c91673's red: pointIn over Left at a parameter point, -4, over the Tick contract's endpoint, no facts stored; its point was sent as the contract's domain, `int8range @> <domain>`, which PostgreSQL has no operator for (42883)",
+				since: "2026-11-13"
+			}
+		],
+		kills: [
+			{
+				file: "packages/engine/src/lower/conservative/span/index.ts",
+				original: '\treturn binary("@>", left, cast(right, endpointType[endpoint]))',
+				replacement: '\treturn binary("@>", left, right)',
+				why: "1e1c91673's red, its fix reverted: pointIn's point is sent as lowered, never cast to its endpoint's base, so a parameter point over a contract endpoint, cast to the contract's domain as it is bound, meets `int8range @> <domain>`, which PostgreSQL has no operator for (42883)."
+			}
+		],
 		show: Formatter.format,
 		check: (c, target) => (sc) =>
 			Effect.gen(function* () {
