@@ -194,6 +194,9 @@ export interface RealWorld {
 	readonly migrator: string
 }
 
+/** A snapshot.json as a login's layer is given it (DbConfig): what an open reads of it, its fingerprint. */
+type Fingerprinted = { readonly fingerprint: string }
+
 /**
  * What an action did: its observation (a value hidden from the acting session that grizzle showed replacing it, as a
  * leak), and every text of the error behind it (its messages, details and hints), none for an outcome no error carried.
@@ -228,7 +231,7 @@ interface VersionPlan {
 	readonly plan: RealInstallPlan
 	readonly installation: Installation
 	readonly snapshot: DeploySnapshot
-	readonly snapshotJson: { readonly fingerprint: string }
+	readonly snapshotJson: Fingerprinted
 	readonly served: Readonly<Record<string, ServedLogin<BuiltLogin>>>
 	readonly files: ReadonlyMap<string, unknown>
 }
@@ -395,14 +398,25 @@ const versionPlanOf = (
 
 /**
  * The snapshot.json of a release of `base` alone, without its worlds and logins, drafted for the installation
- * `installation` as `name` at `timestamp`: what no ledger target of a realization is.
+ * `installation` as `name` at `timestamp`: what no ledger target of a realization is. Drafted once, by the first open
+ * that is handed it (Effect.cached), so a world none of whose opens names that release drafts none: the draft is a
+ * whole generate of the base.
  */
 const releaseSnapshot = (
 	base: Built["base"],
 	installation: Identity<"schema">,
 	name: string,
 	timestamp: string
-): Effect.Effect<{ readonly fingerprint: string }> => {
+): Effect.Effect<Effect.Effect<Fingerprinted>> =>
+	Effect.cached(Effect.suspend(() => releaseDraft(base, installation, name, timestamp)))
+
+/** releaseSnapshot's draft, run when it is first read. */
+const releaseDraft = (
+	base: Built["base"],
+	installation: Identity<"schema">,
+	name: string,
+	timestamp: string
+): Effect.Effect<Fingerprinted> => {
 	const draft = generate({
 		installation: installationOf(base, { kind: "installed", installation }),
 		name,
@@ -426,14 +440,14 @@ const releaseSnapshot = (
 /**
  * A world's installation as planned, before it holds a session: its first version (VersionPlan), the snapshot.json of
  * the release before the first (the base alone, drafted for the installed schema, which the ledger has moved past) and
- * another schema's (foreign), and the served file of a login no installed role is in (the stranger's), which serves no
- * role. Pure: a case that installs its own world plans it after its install, and a template's world (worldTemplate) is
- * planned once per worker under the template's names.
+ * another schema's (foreign), each drafted when an open is first handed it (releaseSnapshot), and the served file of a
+ * login no installed role is in (the stranger's), which serves no role. A case that installs its own world plans it
+ * after its install, and a template's world (worldTemplate) is planned once per worker under the template's names.
  */
 export interface WorldPlan {
 	readonly first: VersionPlan
-	readonly earlier: { readonly fingerprint: string }
-	readonly foreign: { readonly fingerprint: string }
+	readonly earlier: Effect.Effect<Fingerprinted>
+	readonly foreign: Effect.Effect<Fingerprinted>
 	readonly stranger: ServedLogin<BuiltLogin>
 }
 
@@ -618,7 +632,7 @@ const worldOver = (
 		 */
 		const state: {
 			current: Version
-			stale: { readonly fingerprint: string }
+			stale: Effect.Effect<Fingerprinted>
 			directory: Directory
 		} = {
 			current: first,
@@ -649,14 +663,14 @@ const worldOver = (
 		 * schema's (foreign); and the directory's snapshot.json while folders are pending (drafted), the target no
 		 * complete migration reached, which the new application version deployed early imports.
 		 */
-		const snapshotOf = (ref: SnapshotRef): Effect.Effect<{ readonly fingerprint: string }> => {
+		const snapshotOf = (ref: SnapshotRef): Effect.Effect<Fingerprinted> => {
 			switch (ref) {
 				case "current":
 					return Effect.succeed(state.current.snapshotJson)
 				case "stale":
-					return Effect.succeed(state.stale)
+					return state.stale
 				case "foreign":
-					return Effect.succeed(plan.foreign)
+					return plan.foreign
 			}
 		}
 
@@ -1375,7 +1389,7 @@ const worldOver = (
 				)
 				const version = yield* versionOver(nextPlan, credentials)
 				if (version.snapshot.fingerprint !== state.current.snapshot.fingerprint) {
-					state.stale = state.current.snapshotJson
+					state.stale = Effect.succeed(state.current.snapshotJson)
 				}
 				state.current = version
 			})
