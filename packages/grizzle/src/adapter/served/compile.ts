@@ -42,7 +42,6 @@ import {
 } from "#compiler/plan/migration.ts"
 import {
 	everySlice,
-	type ServedFile,
 	type ServedSnapshot,
 	servedSnapshot,
 	type UncoveredRead
@@ -184,15 +183,16 @@ const compileServed = Effect.fn("compileServed")(function* (
 })
 
 /**
- * A login's served file, as generate writes it to `served/<login>.json`: its login's declared name, the served file its
- * compile is (compileServed, then adapter/served/project.ts servedFileOf), and that value's canonical text
- * (served/json.ts servedText); and the login's OpenAPI document, read off that file alone
- * (packages/openapi/src/openapi.ts openApiText), which generate writes to `openapi/<login>.json`. check compares both
- * byte for byte.
+ * A login's served file, as generate writes it to `served/<login>.json`: its login's declared name and the canonical
+ * text (served/json.ts servedText) of the served file its compile is (compileServed, then adapter/served/project.ts
+ * servedFileOf); and the login's OpenAPI document, read off that file alone (packages/openapi/src/openapi.ts
+ * openApiText), which generate writes to `openapi/<login>.json`. check compares both byte for byte. The served file's
+ * value is no part of it: what reads a login's file reads its text, and the value dies once its texts are made, where an
+ * entry held it beside them until every login's was written (metis's suite installation: the served round grew by about
+ * 730 MiB over its 28 logins, its largest file's text 83 MB).
  */
 export interface ServedEntry {
 	readonly login: string
-	readonly file: ServedFile
 	/** The served file's text and the OpenAPI document's, each as its chunks (grizzle-text TextChunks), never joined. */
 	readonly text: TextChunks
 	readonly openapi: TextChunks
@@ -218,7 +218,7 @@ export const servedEntryOf = Effect.fn("servedEntryOf")(function* (compiled: Com
 	const file = yield* Effect.mapError(Effect.fromResult(servedFileOf(compiled)), projectionRefusal)
 	const text = yield* Effect.mapError(fromEngine(servedText(file)), atLogin)
 	const openapi = yield* Effect.mapError(fromEngine(openApiText(file)), atLogin)
-	return { login: compiled.login.name, file, text, openapi }
+	return { login: compiled.login.name, text, openapi }
 })
 
 /**

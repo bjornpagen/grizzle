@@ -701,8 +701,13 @@ export const documentHolds = (
 		if (Answered.isFailure(compiled)) {
 			return
 		}
-		const entry = compiled.success.entry
-		yield* holds(entry.file, joined(entry.openapi), seen, notes.note, printed)
+		yield* holds(
+			compiled.success.back,
+			joined(compiled.success.entry.openapi),
+			seen,
+			notes.note,
+			printed
+		)
 	}).pipe(Effect.scoped, Effect.orDie)
 
 /** A login drawn over `schema`, its first role refreshing or not, which `logins` then holds with its case as `sketch`'s. */

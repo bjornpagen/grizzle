@@ -428,7 +428,7 @@ export const loginTrip = (
 		if (Answered.isFailure(compiled)) {
 			return
 		}
-		const file = compiled.success.entry.file
+		const file = compiled.success.back
 		for (const member of Arr.flatMap(file.roles, (r) => r.members)) {
 			note(
 				member.kind === "paged" ? "a paged read" : member.kind === "change" ? "a change" : "a read"
@@ -500,7 +500,7 @@ export const changeTrip = (
 		if (Answered.isFailure(compiled)) {
 			return
 		}
-		const file = compiled.success.entry.file
+		const file = compiled.success.back
 		const change = Arr.flatMap(file.roles, (r) =>
 			Arr.flatMap(r.members, (m) =>
 				m.kind === "change" && m.variants.kind === "change" ? [m.variants.change] : []
@@ -596,7 +596,7 @@ export const boundTrip = (
 		if (Answered.isFailure(compiled)) {
 			return assert.fail(`the bound vector's read-back serves\n${printed()}`)
 		}
-		const reached = yield* readsBackWhole(dir, compiled.success.entry.file, pick, printed)
+		const reached = yield* readsBackWhole(dir, compiled.success.back, pick, printed)
 		assert.deepEqual<unknown>(
 			boundOf(reached.back, "vector"),
 			bound,

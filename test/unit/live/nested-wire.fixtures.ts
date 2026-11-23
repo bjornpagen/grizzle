@@ -13,8 +13,10 @@ import type { WireScalar } from "#compiler/live/wire.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { login, role, wholeEntriesOf, writableNamesOf } from "#compiler/public/schema.ts"
 import { ownBuilt, rostersOf } from "#compiler/schema/own.ts"
+import { servedFile } from "#compiler/served/json.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { jsonOf } from "#test/support/chunked.ts"
 import { compiledSnapshot } from "#test/support/compiled-served.ts"
 import {
 	admittedFillSpecGen,
@@ -139,7 +141,10 @@ export const nestingHolds = (c: NestCase, note: (feature: Feature) => void): Eff
 		const input = defined(
 			Option.getOrUndefined(
 				Arr.findFirst(
-					Arr.flatMap(entry.success.file.roles, (r) => r.members),
+					Arr.flatMap(
+						succeeded(servedFile(jsonOf(entry.success.text)), "the served file").roles,
+						(r) => r.members
+					),
 					(m) => m.name === member
 				)
 			),
