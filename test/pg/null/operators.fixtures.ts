@@ -22,7 +22,8 @@ import {
 	mutable,
 	on,
 	ordered,
-	schema
+	schema,
+	unit
 } from "#compiler/public/schema.ts"
 import { closedIndexOf, closedLeaf } from "#compiler/runtime/write/fill.ts"
 import { computeCore as C } from "#compiler/scalar/compute/builders.ts"
@@ -589,7 +590,8 @@ const roundingSchemas = (
 					on(selectBuilder(Member, pred), "owner", "n", "before", "after"),
 					on(Owner, "id", "total")
 				),
-				mutable(Owner)
+				mutable(Owner),
+				unit("Holder", { id: pg.integer })
 			] as const)
 		],
 		[
@@ -602,7 +604,8 @@ const roundingSchemas = (
 					on(Stepped, "owner", "g", "before", "after"),
 					on(Owner, "id", "total")
 				),
-				mutable(Owner)
+				mutable(Owner),
+				unit("Holder", { id: pg.integer })
 			] as const)
 		]
 	]

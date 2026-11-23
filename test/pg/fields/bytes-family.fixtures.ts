@@ -6,7 +6,7 @@ import { bytesChunkLength } from "#compiler/codec/delivery.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { bytes, drawn as drawnField, natural } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { fin, mutable, on, ordered, relation, schema } from "#compiler/public/schema.ts"
+import { fin, mutable, on, ordered, relation, schema, unit } from "#compiler/public/schema.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import { Id } from "#test/support/ids.ts"
 
@@ -115,7 +115,12 @@ const Member = relation("Member", { id: Id, owner: Id, at: drawnField(natural), 
 export const Files = schema(
 	"BytesFamily",
 	[Owner, Member],
-	[ordered(on(Member, "owner", "at"), fin(Owner, "members")), mutable(Owner)]
+	[
+		ordered(on(Member, "owner", "at"), fin(Owner, "members")),
+		mutable(Owner),
+		mutable(Member),
+		unit("File", { id: Id })
+	]
 )
 
 /**

@@ -5,7 +5,7 @@ import { element, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { isRecord } from "#compiler/core/record.ts"
 import { pg } from "#compiler/public/fields.ts"
-import { mutable, relation, schema } from "#compiler/public/schema.ts"
+import { mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
 
@@ -32,7 +32,11 @@ export const Item = relation("Item", { id: pg.integer, score: pg.integer }, ["id
 
 export const Label = relation("Label", { item: pg.integer, tag: Tag }, ["item", "tag"])
 
-export const Labels = schema("Labels", [Item, Label], [mutable(Item)])
+export const Labels = schema(
+	"Labels",
+	[Item, Label],
+	[mutable(Item), unit("Scored", { id: pg.integer })]
+)
 
 /** What every case installs: Labels, its login's workload holding no member of its own. */
 export const labelsInstall = { label: "labels", programs: {} } as const

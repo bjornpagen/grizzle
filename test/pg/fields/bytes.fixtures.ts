@@ -6,7 +6,7 @@ import { bytesChunkLength } from "#compiler/codec/delivery.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { bytes, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { relation, schema } from "#compiler/public/schema.ts"
+import { mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
 
 /** The bytes of a value: `length` bytes of a xorshift stream from `seed`, so a case draws two numbers, not MiB. */
@@ -150,7 +150,12 @@ const Shelf = relation("Shelf", { id: pg.integer }, ["id"])
 
 export const Blob = relation("Blob", { id: pg.integer, shelf: pg.integer, body: bytes }, ["id"])
 
-export const Blobs = schema("Bytes", [Shelf, Blob], [])
+/** Each id's rows one unit: a shelf's values are deleted, so Blob is mutable. */
+export const Blobs = schema(
+	"Bytes",
+	[Shelf, Blob],
+	[mutable(Blob), unit("Item", { id: pg.integer })]
+)
 
 /** Every bytes value with its shelf. */
 const blobs = query(Blobs).rule((r) => {

@@ -19,6 +19,7 @@ import {
 	role,
 	schema,
 	scopedEntriesOf,
+	unit,
 	wholeEntriesOf,
 	writableNamesOf
 } from "#compiler/public/schema.ts"
@@ -113,7 +114,8 @@ export const scopedAt = (name: string) => {
 			contained(on(EventAt, "number", "step"), on(SittingEvent, "number", "step")),
 			mutable(TestSession),
 			ordered(on(Visit, "child", "stage", "at"), fin(TestSession, "visits")),
-			counted(on(ItemSession, "child", "stage"), fin(TestSession, "items"))
+			counted(on(ItemSession, "child", "stage"), fin(TestSession, "items")),
+			unit("Learner", { child: Name })
 		]
 	)
 	const persons = query(base).rule((r) => {

@@ -13,7 +13,7 @@ import { trustedJson } from "#compiler/core/trusted.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { mutable, relation, schema } from "#compiler/public/schema.ts"
+import { mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { answered, paged } from "#compiler/public/workload.ts"
 import { listFrame, setFrame, type SlotEncoders, writeFrame } from "#http/events.ts"
 import type { SseEvent } from "#http/sse.ts"
@@ -21,7 +21,7 @@ import type { StreamEvent } from "#test/support/event-stream.ts"
 
 const Item = relation("Item", { id: pg.integer, score: pg.integer }, ["id"])
 
-export const Items = schema("Items", [Item], [mutable(Item)])
+export const Items = schema("Items", [Item], [mutable(Item), unit("Ranked", { id: pg.integer })])
 
 /** An item as stored and as a call states it. */
 type ItemFact = Readonly<{ id: number; score: number }>

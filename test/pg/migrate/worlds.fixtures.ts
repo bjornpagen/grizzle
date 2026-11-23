@@ -14,7 +14,8 @@ import {
 	mutable,
 	relation,
 	role,
-	schema
+	schema,
+	unit
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import type { Aim } from "#test/pg/migrate/support.ts"
@@ -57,7 +58,11 @@ export const versionOf = (name: string, k: Knobs) => {
 	)
 	const Share = relation("Share", { doc: Id, user: Sub }, ["doc", "user"])
 	const Note = relation("Note", { doc: Id, no: pg.integer, author: Sub }, ["doc", "no"])
-	const base = schema(name, [Tier, Org, Doc, Share, Note], [mutable(Doc)])
+	const base = schema(
+		name,
+		[Tier, Org, Doc, Share, Note],
+		[mutable(Doc), unit("Record", { id: Id })]
+	)
 	const Busy = derived.materialized(
 		"Busy",
 		query(base).rule((r) => {

@@ -17,7 +17,7 @@ import { quoteIdent } from "#compiler/core/text.ts"
 import type { Anchor, KeyedList } from "#compiler/live/index.ts"
 import { roleDefaultSettings } from "#compiler/physical/ddl/roles.ts"
 import { Money, pg } from "#compiler/public/fields.ts"
-import { contained, mutable, on, relation, schema } from "#compiler/public/schema.ts"
+import { contained, mutable, on, relation, schema, unit } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { printRoleSetting } from "#compiler/sql/print.ts"
 import {
@@ -53,7 +53,11 @@ export const MoneyRelation = relation(
 export const Shadowed = schema(
 	"Shadowed",
 	[TextRelation, UuidRelation, MoneyRelation],
-	[contained(on(UuidRelation, "text"), on(TextRelation, "id")), mutable(MoneyRelation)]
+	[
+		contained(on(UuidRelation, "text"), on(TextRelation, "id")),
+		mutable(MoneyRelation),
+		unit("Record", { id: Id })
+	]
 )
 
 /** The ids a case's facts take. */

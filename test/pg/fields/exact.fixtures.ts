@@ -8,7 +8,7 @@ import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Num } from "#compiler/public/compute.ts"
 import { exactInteger, exactMoney, generated, Money, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { check, relation, schema } from "#compiler/public/schema.ts"
+import { check, mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
 
 /**
@@ -33,7 +33,12 @@ const Doubled = relation("Doubled", { id: pg.integer, count: exactInteger, total
  */
 const notOne = check("NotOne", Doubled, (d) => d.ne(Num.add(d.count, d.count), 2n))
 
-export const Exact = schema("Exact", [Ledger, Doubled], [notOne])
+/** Each id's rows one unit: ledger rows are put again at new values, so Ledger is mutable. */
+export const Exact = schema(
+	"Exact",
+	[Ledger, Doubled],
+	[notOne, mutable(Ledger), unit("Entry", { id: pg.integer })]
+)
 
 /** Every ledger row, its generated twice among its fields. */
 const ledger = query(Exact).rule((r) => {

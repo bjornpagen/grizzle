@@ -4,7 +4,7 @@ import { Array as Arr, Option, Order } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { bytes, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { mutable, relation, schema } from "#compiler/public/schema.ts"
+import { mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
 
 /** `length` bytes of a xorshift stream from `seed`. */
@@ -219,7 +219,12 @@ export const notes = (d: Drawn): ReadonlyArray<Feature> => {
 const Blob = relation("Blob", { id: pg.integer, body: bytes }, ["id"])
 const Held = relation("Held", { id: pg.integer, body: bytes }, ["id"])
 const Stage = relation("Stage", { id: pg.integer, body: bytes }, ["id"])
-export const Edits = schema("BytesEdits", [Blob, Held, Stage], [mutable(Blob), mutable(Held)])
+/** Each id's rows, Blob's, Held's and Stage's, one unit: Blob and Held are put and deleted in place. */
+export const Edits = schema(
+	"BytesEdits",
+	[Blob, Held, Stage],
+	[mutable(Blob), mutable(Held), unit("Slot", { id: pg.integer })]
+)
 
 /** Every row of `target`, with its value. */
 const everyRowOf = (target: typeof Blob | typeof Held) =>

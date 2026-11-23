@@ -19,6 +19,7 @@ import {
 	relation,
 	role,
 	schema,
+	unit,
 	wholeEntriesOf
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -49,7 +50,7 @@ const untagged = ["", "abcdefghi", "Abc", "a-b", "é", "a b"] as const
 export const notebook = (name: string) => {
 	const Session = context("Session", { sub: pg.integer })
 	const Note = relation("Note", { id: pg.integer, author: pg.integer, body: pg.integer }, ["id"])
-	const base = schema(name, [Note], [mutable(Note)])
+	const base = schema(name, [Note], [mutable(Note), unit("Noted", { id: pg.integer })])
 	const mine = query(base).rule((r) => {
 		const { id, author, body } = v(Note, "note")
 		return r

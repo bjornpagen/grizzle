@@ -5,7 +5,7 @@ import { Array as Arr, String as Str } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { instant, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { relation, schema } from "#compiler/public/schema.ts"
+import { mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import {
 	printed,
@@ -55,7 +55,12 @@ const Copied = relation(
 	["id"]
 )
 
-export const Stored = schema("StoredKinds", [Source, Kept, Copied], [])
+/** Each id's rows one unit: Kept's rows are put again with another row's document, so Kept is mutable. */
+export const Stored = schema(
+	"StoredKinds",
+	[Source, Kept, Copied],
+	[mutable(Kept), unit("Read", { id: pg.integer })]
+)
 
 /** Every row of Source. */
 const sources = query(Stored).rule((r) => {

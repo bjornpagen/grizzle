@@ -13,6 +13,7 @@ import {
 	relation,
 	role,
 	schema,
+	unit,
 	wholeEntriesOf,
 	writableNamesOf
 } from "#compiler/public/schema.ts"
@@ -251,7 +252,11 @@ export const worlds = (name: string) => {
 	const Doc = relation("Doc", { id: Id, owner: subject, words: pg.integer }, ["id"])
 	const Note = relation("Note", { id: Id, doc: Id, author: subject }, ["id"])
 	const Session = context("Session", { sub: subject })
-	const base = schema(name, [Doc, Note], [mutable(Doc), contained(on(Note, "doc"), on(Doc, "id"))])
+	const base = schema(
+		name,
+		[Doc, Note],
+		[mutable(Doc), contained(on(Note, "doc"), on(Doc, "id")), unit("Document", { id: Id })]
+	)
 	const mine = query(base).rule((r) => {
 		const { id, doc, author } = v(Note, "note")
 		const { owner } = v(Doc, "doc")

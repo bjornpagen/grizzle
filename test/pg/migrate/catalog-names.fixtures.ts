@@ -26,6 +26,7 @@ import {
 	mutable,
 	on,
 	relation,
+	unit,
 	value
 } from "#test/support/fixtures/ir/desc.ts"
 import { catalogDeclared } from "#test/support/kernel/dict.ts"
@@ -112,7 +113,11 @@ export const schemaOf = (names: Names): SchemaDesc => {
 			),
 			relation(entry, { id: f.uuid, holder: f.uuid }, ["id"])
 		],
-		statements: [contained(on(entry, ["holder"]), on(holder, ["id"])), mutable(holder)],
+		statements: [
+			contained(on(entry, ["holder"]), on(holder, ["id"])),
+			mutable(holder),
+			unit("Held", { id: f.uuid })
+		],
 		bases: []
 	})
 	return decodedSchema({

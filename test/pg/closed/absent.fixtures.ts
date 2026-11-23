@@ -45,7 +45,8 @@ import {
 	relation,
 	type RelationName,
 	schema,
-	select
+	select,
+	unit
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import type { Predicate } from "#compiler/types/core/phantom.ts"
@@ -997,7 +998,9 @@ const schemaOf = (c: AbsentCase) => {
 			),
 			on(Owner, "id", "total")
 		),
-		mutable(Owner)
+		mutable(Owner),
+		mutable(Member),
+		unit("Holder", { id: pg.integer })
 	] as const
 	const relations = {
 		Kind,

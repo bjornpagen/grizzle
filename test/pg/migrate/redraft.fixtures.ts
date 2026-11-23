@@ -42,7 +42,6 @@ import {
 	ge,
 	key,
 	literal,
-	mutable,
 	on,
 	relation,
 	value
@@ -59,7 +58,14 @@ import {
 	type Previous
 } from "#test/support/migrate/kit.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { shopV1, shopV2, shopV3, shopV3Declared, shopV4 } from "#test/unit/deploy/schemas.ts"
+import {
+	openTask,
+	shopV1,
+	shopV2,
+	shopV3,
+	shopV3Declared,
+	shopV4
+} from "#test/unit/deploy/schemas.ts"
 
 /**
  * The schema the chain's first draft abandons, as the ledger suite's chain does (test/pg/migrate/ledger.test.ts): every
@@ -83,7 +89,7 @@ const v1Bounded: SchemaDesc = {
 }
 
 /** Shop v1 with Task declared mutable. */
-const v1Mutable: SchemaDesc = { ...shopV1, statements: [...shopV1.statements, mutable("Task")] }
+const v1Mutable: SchemaDesc = { ...shopV1, statements: [...shopV1.statements, ...openTask] }
 
 /** Shop v2 with one of its statements, by index, left out. */
 const v2Without = (statement: number): SchemaDesc => ({
@@ -118,7 +124,7 @@ const v2BudgetRenamed: SchemaDesc = {
 }
 
 /** Shop v3 with Task declared mutable. */
-const v3Mutable: SchemaDesc = { ...shopV3, statements: [...shopV3.statements, mutable("Task")] }
+const v3Mutable: SchemaDesc = { ...shopV3, statements: [...shopV3.statements, ...openTask] }
 
 /** What a regeneration drafts from: the folder's own source, or the snapshot of Shop v1 declared mutable. */
 type From = "its source" | "v1 declared mutable"
