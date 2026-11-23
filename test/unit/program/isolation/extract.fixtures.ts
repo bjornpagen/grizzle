@@ -1,5 +1,6 @@
 /** What the properties of extract.test.ts read: its spaces, models and helpers. */
 
+import { equalityClosure } from "@bjornpagen/grizzle-text/base/equality"
 import { nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	array,
@@ -1115,6 +1116,149 @@ const firstColumn = (sources: Arr.NonEmptyReadonlyArray<PlacedSource>): Expr => 
 	return col(first.alias, first.kind === "table" ? "c_a" : OWN_COLUMN)
 }
 
+/**
+ * The value a stacked form's column holds for the call in every row: its WHERE's first equality of the middle
+ * projection's column it reads (each output column c is the middle's ROTATED[c]) with a placeholder, none where none.
+ */
+const stackedFixed = (
+	inner: ReadonlyArray<{ readonly column: Column; readonly slot: number }>,
+	column: Column
+): string | undefined =>
+	Arr.findFirst(inner, (e) => e.column === ROTATED[column]).pipe(
+		Option.map((at) => paramText(at.slot)),
+		Option.getOrUndefined
+	)
+
+/** One side of a drawn equality as the closure reads it: a column by its source's alias and name, a placeholder's
+ * value, or a literal, which is neither. */
+type Side =
+	| { readonly kind: "column"; readonly alias: string; readonly column: string }
+	| { readonly kind: "value"; readonly text: string }
+	| { readonly kind: "literal" }
+
+/**
+ * The value a drawn query's OWN_COLUMN holds for the call in every row it yields, by its text (the extractor's
+ * Statement.fixedColumns restated over the shape): a core's target that is a column, which only a GROUP BY core
+ * projects (aggregateParts), holding one itself, a fixed or one-row own source's, or equated with one through any chain
+ * of its WHERE's and its inner joins' equalities, the WHERE's first in their order, each placeholder anchoring before a
+ * column does; a set operation of several cores only where it is a UNION and every core fixes the same.
+ */
+const fixedOfQuery = (
+	q: QuerySpec,
+	path: string,
+	scope: ReadonlyArray<string>,
+	env: Env
+): string | undefined => {
+	const texts = Arr.map(q.cores, (c, k) => fixedOfCore(c, `${path}c${k}`, scope, env))
+	const [first, ...rest] = texts
+	if (rest.length === 0) {
+		return first
+	}
+	return q.op === "UNION" && first !== undefined && Arr.every(rest, (t) => t === first)
+		? first
+		: undefined
+}
+
+const fixedOfCore = (
+	c: CoreSpec,
+	path: string,
+	scope: ReadonlyArray<string>,
+	env: Env
+): string | undefined => {
+	if (c.aggregate.kind !== "groupBy") {
+		return undefined
+	}
+	const sources = placed(c, path, env)
+	const owns = ownAliases(sources)
+	const tables = Arr.flatMap(sources, (t) => (t.kind === "table" ? [t.alias] : []))
+	/** What a column of one of the core's sources holds for the call in every row, where it holds one. */
+	const heldAt = (alias: string, column: string): string | undefined => {
+		const source = Arr.findFirst(sources, (t) => t.alias === alias).pipe(Option.getOrUndefined)
+		if (source === undefined) {
+			return undefined
+		}
+		switch (source.kind) {
+			case "table":
+				return source.form === "stacked" && Arr.contains(COLUMNS, column)
+					? stackedFixed(
+							source.inner,
+							Arr.findFirst(COLUMNS, (cn) => cn === column).pipe(Option.getOrThrow)
+						)
+					: undefined
+			case "derived":
+				return column === OWN_COLUMN
+					? (fixedOfQuery(source.query, `${alias}q`, scope, env) ??
+							(oneRow(source.query) ? `${alias}.${OWN_COLUMN}` : undefined))
+					: undefined
+			case "cte":
+				return column === OWN_COLUMN ? fixedOfQuery(source.query, source.path, [], []) : undefined
+			case "plain":
+				return source.own === "context" && column === OWN_COLUMN
+					? `${alias}.${OWN_COLUMN}`
+					: undefined
+			case "carrier":
+			case "held":
+			case "met":
+			case "metRows":
+			case "probe":
+			case "returning":
+				return undefined
+		}
+	}
+	const sideOf = (o: ResolvedOther): Side => {
+		switch (o.kind) {
+			case "param":
+			case "cast":
+				return { kind: "value", text: paramText(o.slot) }
+			case "own":
+				return { kind: "column", alias: o.alias, column: OWN_COLUMN }
+			case "table":
+			case "limited":
+				return { kind: "column", alias: o.alias, column: "c_b" }
+			case "literal":
+				return { kind: "literal" }
+		}
+	}
+	const where: Array<readonly [Side, Side]> = []
+	const ons: Array<Array<readonly [Side, Side]>> = Arr.map(sources, () => [])
+	const placedTables = Arr.flatMap(sources, (t) => (t.kind === "table" ? [t] : []))
+	Arr.forEach(placedTables, (t, k) => {
+		for (const e of t.equalities) {
+			const mine: Side = { kind: "column", alias: t.alias, column: e.column }
+			const other = sideOf(resolveOther(e.other, owns, tables, scope))
+			const pair = e.flipped ? ([other, mine] as const) : ([mine, other] as const)
+			if (sources.length > 1 && e.inJoin) {
+				Arr.getUnsafe(ons, 1 + (k % (sources.length - 1))).push(pair)
+			} else {
+				where.push(pair)
+			}
+		}
+	})
+	const textOf = (side: Side): string | undefined =>
+		side.kind === "value"
+			? side.text
+			: side.kind === "column"
+				? heldAt(side.alias, side.column)
+				: undefined
+	const anchorOf = equalityClosure(
+		[...where, ...Arr.flatten(ons)],
+		(side) => (side.kind === "column" ? `${side.alias}|${side.column}` : undefined),
+		(side) => textOf(side) !== undefined
+	)
+	const [first] = sources
+	const target: Side = {
+		kind: "column",
+		alias: first.alias,
+		column: first.kind === "table" ? "c_a" : OWN_COLUMN
+	}
+	const direct = textOf(target)
+	if (direct !== undefined) {
+		return direct
+	}
+	const anchor = anchorOf(`${target.alias}|${target.column}`)
+	return anchor === undefined ? undefined : textOf(anchor)
+}
+
 /** A derived table's query over a table: every column of it, in the rotation's order, and a LIMIT where limited. */
 const projectionOf = (
 	rel: Rel,
@@ -1851,6 +1995,8 @@ export type Shape =
 	| "an INSERT proposing a query CTE alone"
 	| "a probe at a group's last row"
 	| "a group bound by the context's fact"
+	| "a group bound by a column its own source's query fixes"
+	| "an ON CONFLICT bound by the value its source query fixes"
 	| "a CTE that holds an INSERT's met rows whole"
 	| "the row an arbitration met, through a CTE that holds its met rows whole"
 	| "a group bound by a derived table of the context's fact, one value"
@@ -1894,6 +2040,34 @@ class Expect {
 	readonly held = new Set<string>()
 	/** Every own source placed so far that is one row of values the call holds once (oneRow), by its alias. */
 	readonly oneRows = new Set<string>()
+	/** Every own source placed so far whose query fixes its column (fixedOfQuery), with that value's text, by its alias. */
+	readonly fixedOwn = new Map<string, string>()
+	/** Every stacked table placed so far whose WHERE fixes the column an equality reads it by, c_b (stackedFixed), with
+	 * that value's text, by its alias. */
+	readonly fixedStacked = new Map<string, string>()
+
+	/** What a resolved other side binds a column equal to it to: its text and how many values that is for the call,
+	 * none for one that binds nothing (bindingText), a fixed own column's or stacked column's value once (fixedOwn,
+	 * fixedStacked). */
+	bound(o: ResolvedOther): { readonly text: string; readonly rows: "one" | "many" } | undefined {
+		const fixed =
+			o.kind === "own"
+				? this.fixedOwn.get(o.alias)
+				: o.kind === "limited"
+					? this.fixedStacked.get(o.alias)
+					: undefined
+		if (fixed !== undefined) {
+			return { text: fixed, rows: "one" }
+		}
+		const text = bindingText(o)
+		if (text === undefined) {
+			return undefined
+		}
+		return {
+			text,
+			rows: o.kind === "param" || (o.kind === "own" && this.oneRows.has(o.alias)) ? "one" : "many"
+		}
+	}
 	/** Each read's key with its base mode and the count of probes above it, and each probe's gated writes. */
 	readonly based: Array<string> = []
 	readonly probes: Array<{
@@ -1979,20 +2153,26 @@ class Expect {
 			this.shapes.add("a read no relation names")
 		}
 		const bound = Arr.dedupeWith(
-			Arr.filter(all, (b) => bindingText(b.other) !== undefined),
+			Arr.filter(all, (b) => this.bound(b.other) !== undefined),
 			(a: Bound, b: Bound) => a.column === b.column
 		)
 		const fields = Arr.flatMap(bound, (b) => {
-			const text = bindingText(b.other)
+			const at = this.bound(b.other)
 			const field = FIELDS.get(b.column)
-			if (text !== undefined && field === undefined) {
+			if (at !== undefined && field === undefined) {
 				this.shapes.add("a law column dropped from a group")
 			}
-			const rows: "one" | "many" =
-				b.other.kind === "param" || (b.other.kind === "own" && this.oneRows.has(b.other.alias))
-					? "one"
-					: "many"
-			return text === undefined || field === undefined || rel === "X" ? [] : [{ field, text, rows }]
+			if (at !== undefined && field !== undefined && rel !== "X" && at.rows === "one") {
+				if (
+					(b.other.kind === "own" && this.fixedOwn.has(b.other.alias)) ||
+					(b.other.kind === "limited" && this.fixedStacked.has(b.other.alias))
+				) {
+					this.shapes.add("a group bound by a column its own source's query fixes")
+				}
+			}
+			return at === undefined || field === undefined || rel === "X"
+				? []
+				: [{ field, text: at.text, rows: at.rows }]
 		})
 		const sorted = Arr.sort(
 			fields,
@@ -2116,6 +2296,20 @@ class Expect {
 			) {
 				this.oneRows.add(s.alias)
 			}
+			const fixed =
+				s.kind === "derived"
+					? fixedOfQuery(s.query, `${s.alias}q`, place.scope, env)
+					: s.kind === "cte"
+						? fixedOfQuery(s.query, s.path, [], [])
+						: undefined
+			if (fixed !== undefined) {
+				this.fixedOwn.set(s.alias, fixed)
+			}
+			const stacked =
+				s.kind === "table" && s.form === "stacked" ? stackedFixed(s.inner, "c_b") : undefined
+			if (stacked !== undefined) {
+				this.fixedStacked.set(s.alias, stacked)
+			}
 		}
 		const owns = ownAliases(sources)
 		const tables = Arr.flatMap(sources, (s) => (s.kind === "table" ? [s.alias] : []))
@@ -2142,7 +2336,7 @@ class Expect {
 						if (
 							Arr.some(
 								outer,
-								(b) => FIELDS.has(b.column) && s.rel !== "X" && bindingText(b.other) !== undefined
+								(b) => FIELDS.has(b.column) && s.rel !== "X" && this.bound(b.other) !== undefined
 							)
 						) {
 							this.shapes.add("a group keyed through two derived tables")
@@ -2508,6 +2702,13 @@ class Expect {
 				} else if (conflict.kind !== "none" && target !== undefined && d.target.kind === "table") {
 					const rel = d.target.rel
 					const stated = proposal === undefined && d.source === undefined && d.params
+					/** The value the source query fixes its one column, c_id, to, where it fixes one (fixedOfQuery). */
+					const sourced =
+						proposal !== undefined
+							? fixedOfQuery(proposal.query, `${path}i`, [], [proposal.cte])
+							: d.source !== undefined
+								? fixedOfQuery(d.source, `${path}i`, [], env)
+								: undefined
 					if (conflict.kind === "every") {
 						this.shapes.add("an ON CONFLICT with no target, arbitrating every key and UNIQUE")
 					}
@@ -2524,11 +2725,24 @@ class Expect {
 								: Arr.flatMap(columns, (column) => {
 										const field = FIELDS.get(column)
 										const slot = Arr.findFirstIndex(COLUMNS, (c) => c === column)
-										const text =
+										const carried =
 											stated && Option.isSome(slot) && slot.value < 3
 												? paramText(slot.value + 1)
-												: `excluded.${column}`
-										return field === undefined ? [] : [{ field, text }]
+												: column === "c_id"
+													? sourced
+													: undefined
+										if (sourced !== undefined && column === "c_id") {
+											this.shapes.add("an ON CONFLICT bound by the value its source query fixes")
+										}
+										return field === undefined
+											? []
+											: [
+													{
+														field,
+														text: carried ?? `excluded.${column}`,
+														rows: carried === undefined ? ("many" as const) : ("one" as const)
+													}
+												]
 									})
 						if (stated && Arr.isReadonlyArrayNonEmpty(fields)) {
 							this.shapes.add("an ON CONFLICT bound by the parameters its row carries")
@@ -2553,7 +2767,11 @@ class Expect {
 										","
 									)
 								: undefined,
-							rows: Arr.isReadonlyArrayNonEmpty(sorted) ? (stated ? "one" : "many") : undefined
+							rows: Arr.isReadonlyArrayNonEmpty(sorted)
+								? Arr.every(sorted, (b) => b.rows === "one")
+									? "one"
+									: "many"
+								: undefined
 						})
 					}
 				}
@@ -2625,6 +2843,10 @@ class Expect {
 				const source = `${path}m`
 				if (oneRow(d.using)) {
 					this.oneRows.add(source)
+				}
+				const fixed = fixedOfQuery(d.using, source, [], env)
+				if (fixed !== undefined) {
+					this.fixedOwn.set(source, fixed)
 				}
 				const on: Bound = { column: "c_id", other: { kind: "own", alias: source } }
 				const conditioned: Bound = { column: "c_a", other: { kind: "param", slot: 7 } }

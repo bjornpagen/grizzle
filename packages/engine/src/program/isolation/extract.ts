@@ -1,3 +1,4 @@
+import { equalityClosure } from "@bjornpagen/grizzle-text/base/equality"
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	isNonEmpty,
@@ -85,12 +86,25 @@ export interface ExtractNames {
 type Polarity = "positive" | "negated" | "both"
 
 /**
- * What a name a core sees is: a stored table's alias, whose values the statement reads, or an own source's, whose
- * values are the call's own: the session's context, one row (`one`), or a carrier, a CTE, a relation input's arrays, a
- * VALUES list, a function's or a derived table's rows, any number of rows (`many`), or an INSERT's met rows, any number
- * of them, named by their source, which a `met` source reads through.
+ * What a name a core sees is: a stored table's alias, whose values the statement reads (`table`), an own source's, whose
+ * values are the call's own (OwnRows), or an INSERT's met rows, any number of them, named by their source, which a `met`
+ * source reads through.
  */
-type Scope = ReadonlyMap<string, "table" | ReadGroup["rows"] | MetRows>
+type Named = "table" | OwnRows | MetRows
+
+/**
+ * A source of the call's own rows as a core sees it: the session's context, one row (`one`), or a carrier, a CTE, a
+ * relation input's arrays, a VALUES list, a function's or a derived table's rows, any number of rows (`many`); and each
+ * column of it that holds one value for the call in every row, with that value's text (`fixed`, fixedColumns), which a
+ * read bound to the column is bound to, once for the call, whatever rows the source holds.
+ */
+interface OwnRows {
+	readonly kind: "own"
+	readonly rows: ReadGroup["rows"]
+	readonly fixed: ReadonlyMap<string, string>
+}
+
+type Scope = ReadonlyMap<string, Named>
 
 /** A source of the rows an INSERT proposed and did not insert (sql/ast.ts FromSource `metRows`). */
 type MetRows = Extract<FromSource, { readonly kind: "metRows" }>
@@ -657,18 +671,88 @@ const metRowsHeld = (query: OperandSelect, columns: ReadonlyArray<string>): MetR
 /**
  * What a source's alias names where `ctes` are in scope (nameOf): a query CTE that holds an INSERT's met rows whole
  * (metRowsHeld) names them, as their own source does, so a `met` source driven by its rows is read as the met row it is
- * (metSealed).
+ * (metSealed); an own source names its rows with the columns it fixes (OwnRows, Statement.fixedColumns).
  */
 const namedIn = (
 	source: FromSource,
-	ctes: Ctes
-): readonly [string, "table" | ReadGroup["rows"] | MetRows] => {
-	if (source.kind !== "cte") {
-		return nameOf(source)
+	ctes: Ctes,
+	statement: Statement
+): readonly [string, Named] => {
+	if (source.kind === "cte") {
+		const ref = ctes.get(source.name)
+		const held = ref?.kind === "query" ? metRowsHeld(ref.query, ref.columns) : undefined
+		if (held !== undefined) {
+			return [source.alias ?? source.name, held]
+		}
 	}
-	const ref = ctes.get(source.name)
-	const held = ref?.kind === "query" ? metRowsHeld(ref.query, ref.columns) : undefined
-	return held === undefined ? nameOf(source) : [source.alias ?? source.name, held]
+	const [alias, named] = nameOf(source)
+	if (named === "table" || typeof named === "object") {
+		return [alias, named]
+	}
+	const defined = definedOf(source, ctes)
+	return [
+		alias,
+		{
+			kind: "own",
+			rows: named,
+			fixed:
+				defined === undefined
+					? new Map()
+					: statement.fixedColumns(defined.query, defined.columns, defined.ctes)
+		}
+	]
+}
+
+/** The names of a body's columns as its targets give them: its first core's aliases, which name a set operation's. */
+const targetNames = (body: OperandBody): ReadonlyArray<string | undefined> => {
+	switch (body.kind) {
+		case "core":
+			return body.targets.map((t) => t.alias)
+		case "select":
+			return targetNames(body.body)
+		case "setOp": {
+			const [first] = body.arms
+			return first.kind === "core" ? targetNames(first) : targetNames(first.body)
+		}
+	}
+}
+
+/** An expression through its casts and collations, which keep the value it is equal to. */
+const uncast = (e: Expr): Expr => (e.kind === "cast" || e.kind === "collate" ? uncast(e.expr) : e)
+
+/** The name a closure joins a column of a source by (equalityClosure): its alias and its name, none for any other
+ * expression, through its casts. */
+const columnName = (e: Expr): string | undefined => {
+	const u = uncast(e)
+	return u.kind === "column" && u.table !== undefined
+		? JSON.stringify([u.table, u.column])
+		: undefined
+}
+
+/**
+ * The value an expression of a core holds for the call, by its canonical text, where it holds one: a placeholder's
+ * (placeholderName), through casts; or a column of an own source among `named`, the core's sources, that holds one in
+ * every row of it, a fixed column's text (OwnRows `fixed`), or any column of a source of one row by its alias and column,
+ * as a read bound to it is (bindingsOf). None for any other: a stored table's column, a computed value.
+ */
+const callText = (
+	e: Expr,
+	named: ReadonlyMap<string, Named>,
+	paramOf: (n: number) => string | undefined
+): string | undefined => {
+	const u = uncast(e)
+	const placeholder = placeholderName(u, paramOf)
+	if (placeholder !== undefined) {
+		return placeholder
+	}
+	if (u.kind !== "column" || u.table === undefined) {
+		return undefined
+	}
+	const own = named.get(u.table)
+	if (own === undefined || typeof own === "string" || own.kind !== "own") {
+		return undefined
+	}
+	return own.fixed.get(u.column) ?? (own.rows === "one" ? `${u.table}.${u.column}` : undefined)
 }
 
 /** A parameter's canonical name: the declared parameter it carries, else its number. */
@@ -712,64 +796,21 @@ const definedOf = (
 }
 
 /**
- * The parameter an expression's value carries for the call, by its canonical name, through casts and the targets of
- * the call's own cores it reads, a derived table's or a query CTE's of one core: none where it reaches anything else,
- * a stored table's column, a relation input's or a computed value.
+ * The value each column an INSERT writes carries for the call, where it carries one: each item of its one VALUES row
+ * that holds one (callText, over no source), or each column its source query fixes (Statement.fixedColumns).
  */
-const valueOf = (
-	e: Expr,
-	from: ReadonlyArray<FromItem>,
-	ctes: Ctes,
-	paramOf: (n: number) => string | undefined
-): string | undefined => {
-	if (e.kind === "cast" || e.kind === "collate") {
-		return valueOf(e.expr, from, ctes, paramOf)
+const insertValues = (s: Insert, ctes: Ctes, statement: Statement): ReadonlyMap<string, string> => {
+	if (s.source.kind === "query") {
+		return statement.fixedColumns(s.source.query, s.columns, ctes)
 	}
-	const placeholder = placeholderName(e, paramOf)
-	if (placeholder !== undefined) {
-		return placeholder
-	}
-	if (e.kind !== "column" || e.table === undefined) {
-		return undefined
-	}
-	const alias = e.table
-	const source = sourcesOf(from)
-		.map((s) => s.source)
-		.find((s) => nameOf(s)[0] === alias)
-	const defined = source === undefined ? undefined : definedOf(source, ctes)
-	const body = defined?.query.body
-	if (defined === undefined || body?.kind !== "core" || defined.query.with !== undefined) {
-		return undefined
-	}
-	const names = defined.columns.length > 0 ? defined.columns : body.targets.map((t) => t.alias)
-	const target = body.targets[names.indexOf(e.column)]
-	return target === undefined ? undefined : valueOf(target.expr, body.from, defined.ctes, paramOf)
-}
-
-/** The parameter each column an INSERT writes carries, where its source, one core or one VALUES row, gives one. */
-const insertValues = (
-	s: Insert,
-	ctes: Ctes,
-	paramOf: (n: number) => string | undefined
-): ReadonlyMap<string, string> => {
+	const [only, ...rest] = s.source.rows
 	const out = new Map<string, string>()
-	const row = (
-		i: number
-	): { readonly expr: Expr; readonly from: ReadonlyArray<FromItem> } | undefined => {
-		if (s.source.kind === "values") {
-			const [only, ...rest] = s.source.rows
-			const expr = rest.length === 0 ? only[i] : undefined
-			return expr === undefined ? undefined : { expr, from: [] }
-		}
-		const q = s.source.query
-		const target = q.with === undefined && q.body.kind === "core" ? q.body.targets[i] : undefined
-		return target === undefined || q.body.kind !== "core"
-			? undefined
-			: { expr: target.expr, from: q.body.from }
+	if (rest.length > 0) {
+		return out
 	}
 	for (const [i, column] of s.columns.entries()) {
-		const at = row(i)
-		const value = at === undefined ? undefined : valueOf(at.expr, at.from, ctes, paramOf)
+		const item = only[i]
+		const value = item === undefined ? undefined : callText(item, new Map(), statement.paramOf)
 		if (value !== undefined) {
 			out.set(column, value)
 		}
@@ -991,7 +1032,7 @@ export class Walk<Top extends Arrival> {
 			if (conflict.kind === "every" && this.#statement.level === "readCommitted") {
 				this.#opaque(`?every:${printObjectName(table)}`, c)
 			} else {
-				const values = insertValues(s, inner.ctes, this.#statement.paramOf)
+				const values = insertValues(s, inner.ctes, this.#statement)
 				const relation = this.#statement.names.relationOf(table)
 				const arbitrated: ReadonlyArray<ReadonlyArray<string> | undefined> =
 					conflict.kind === "columns"
@@ -1060,7 +1101,7 @@ export class Walk<Top extends Arrival> {
 		const scope: Scope = new Map([
 			...inner.scope,
 			[s.alias, "table"],
-			...using.map(({ source }) => namedIn(source, inner.ctes))
+			...using.map(({ source }) => namedIn(source, inner.ctes, this.#statement))
 		])
 		const here: Context<Top> = { ...inner, scope }
 		const on = [...conjunctsOf(s.on), ...innerConditions(using)]
@@ -1214,7 +1255,10 @@ export class Walk<Top extends Arrival> {
 			{
 				...c,
 				counted: c.counted || aggregates,
-				scope: new Map([...c.scope, ...sources.map(({ source }) => namedIn(source, c.ctes))]),
+				scope: new Map([
+					...c.scope,
+					...sources.map(({ source }) => namedIn(source, c.ctes, this.#statement))
+				]),
 				core
 			},
 			parts.groups ? core : undefined
@@ -1524,10 +1568,94 @@ export class Statement {
 	readonly #reading: Array<Array<Nested>> = []
 	readonly #queries = new Map<OperandSelect, number>()
 
+	readonly #fixed = new Map<OperandSelect, ReadonlyMap<string, string>>()
+
 	constructor(names: ExtractNames, paramOf: (n: number) => string | undefined, level: Isolation) {
 		this.names = names
 		this.paramOf = paramOf
 		this.level = level
+	}
+
+	/**
+	 * The columns of a query, named `columns` (or its targets' aliases where none), that hold one value for the call in
+	 * every row it yields, each with that value's text (callText), found once per query of the statement: a core's
+	 * target that holds one itself, or is a column its conditions equate with one, its WHERE's and its inner joins',
+	 * through any chain of their equalities (equalityClosure, the one closure grizzle reads a conjunction's equalities
+	 * by), a column of each own source among them its fixed columns; a UNION's or UNION ALL's where every arm fixes it to
+	 * the same. A query with a WITH of its own fixes none, nor does any other set operation. A row that fixes a column so
+	 * equals the value there, so a read bound to the column reads one group for the call (ReadGroup `one`), however many
+	 * rows the query yields: a relation parameter's query at `child = :child` binds every read joined on its `child` to
+	 * `:child`.
+	 */
+	fixedColumns(
+		q: OperandSelect,
+		columns: ReadonlyArray<string>,
+		ctes: Ctes
+	): ReadonlyMap<string, string> {
+		return this.#fixed.getOrInsertComputed(q, () => {
+			const targets = q.with === undefined ? this.#fixedTargets(q.body, ctes) : undefined
+			const out = new Map<string, string>()
+			if (targets === undefined) {
+				return out
+			}
+			const names = columns.length > 0 ? columns : targetNames(q.body)
+			for (const [i, name] of names.entries()) {
+				const value = targets[i]
+				if (name !== undefined && value !== undefined) {
+					out.set(name, value)
+				}
+			}
+			return out
+		})
+	}
+
+	/** The value each target of a body holds for the call, by its place, where it holds one (fixedColumns); none for a
+	 * body no target of which can be said to. */
+	#fixedTargets(body: OperandBody, ctes: Ctes): ReadonlyArray<string | undefined> | undefined {
+		switch (body.kind) {
+			case "core": {
+				const sources = sourcesOf(body.from)
+				const named = new Map(sources.map(({ source }) => namedIn(source, ctes, this)))
+				const equalities = [...conjunctsOf(body.where), ...innerConditions(sources)].flatMap(
+					(e): ReadonlyArray<readonly [Expr, Expr]> =>
+						e.kind === "binary" && e.op === "=" ? [[e.left, e.right]] : []
+				)
+				const anchorOf = equalityClosure(
+					equalities,
+					columnName,
+					(e) => callText(e, named, this.paramOf) !== undefined
+				)
+				return body.targets.map((t) => {
+					const direct = callText(t.expr, named, this.paramOf)
+					if (direct !== undefined) {
+						return direct
+					}
+					const name = columnName(t.expr)
+					const anchor = name === undefined ? undefined : anchorOf(name)
+					return anchor === undefined ? undefined : callText(anchor, named, this.paramOf)
+				})
+			}
+			case "select":
+				return body.with === undefined ? this.#fixedTargets(body.body, ctes) : undefined
+			case "setOp": {
+				if (body.op !== "UNION" && body.op !== "UNION ALL") {
+					return undefined
+				}
+				const [first, ...rest] = body.arms.map((arm) =>
+					arm.kind === "core"
+						? this.#fixedTargets(arm, ctes)
+						: arm.with === undefined
+							? this.#fixedTargets(arm.body, ctes)
+							: undefined
+				)
+				if (first === undefined || rest.some((arm) => arm === undefined)) {
+					return undefined
+				}
+				return first.map((value, i) =>
+					rest.every((arm) => arm?.[i] === value) ? value : undefined
+				)
+			}
+		}
 	}
 
 	/**
@@ -1633,13 +1761,27 @@ const boundGroup = (bound: ReadonlyArray<Bound>): ReadGroup | undefined => {
 		: undefined
 }
 
-/** What a column of the call's own sources takes: one value or many, none for a stored table's or an unknown name. */
-const ownRowsOf = (scope: Scope, table: string): ReadGroup["rows"] | undefined => {
+/**
+ * What a column of the call's own sources binds a column equal to it to: a fixed column's value, once for the call
+ * (OwnRows `fixed`), else the column itself, one value or one per row as its source holds; an INSERT's met rows' one
+ * per row; none for a stored table's or an unknown name.
+ */
+const ownBinding = (
+	scope: Scope,
+	table: string,
+	column: string
+): { readonly by: string; readonly rows: ReadGroup["rows"] } | undefined => {
 	const named = scope.get(table)
 	if (named === undefined || named === "table") {
 		return undefined
 	}
-	return typeof named === "string" ? named : "many"
+	if (named.kind === "metRows") {
+		return { by: `${table}.${column}`, rows: "many" }
+	}
+	const fixed = named.fixed.get(column)
+	return fixed === undefined
+		? { by: `${table}.${column}`, rows: named.rows }
+		: { by: fixed, rows: "one" }
 }
 
 /**
@@ -1670,8 +1812,8 @@ const bindingsOf = (
 		if (other.kind !== "column" || other.table === undefined) {
 			return []
 		}
-		const rows = ownRowsOf(scope, other.table)
-		return rows === undefined ? [] : [{ column, by: `${other.table}.${other.column}`, rows }]
+		const bound = ownBinding(scope, other.table, other.column)
+		return bound === undefined ? [] : [{ column, ...bound }]
 	}
 	const out = new Map<string, Bound>()
 	for (const { expr: e, scope } of conditions) {
@@ -1722,7 +1864,7 @@ const proposesAlone = (insert: Insert, proposed: string): boolean => {
  */
 const metSealed = (source: Met, here: Context): ReadonlyArray<string> | undefined => {
 	const rows = here.scope.get(source.rows)
-	if (rows === undefined || typeof rows === "string") {
+	if (rows === undefined || typeof rows === "string" || rows.kind !== "metRows") {
 		return undefined
 	}
 	const written = here.ctes.get(rows.insert)

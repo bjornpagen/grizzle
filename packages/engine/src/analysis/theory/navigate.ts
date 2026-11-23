@@ -1,4 +1,5 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { equalityClosure } from "@bjornpagen/grizzle-text/base/equality"
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	flatMapNonEmpty,
@@ -752,48 +753,12 @@ const equalitiesOf = (
 const equatedWith = (
 	conditions: ReadonlyArray<InferredExpr>,
 	held: (e: InferredExpr) => boolean
-): ((id: string) => InferredExpr | undefined) => {
-	const parent = new Map<string, string>()
-	const root = (id: string): string => {
-		const up = parent.get(id)
-		return up === undefined || up === id ? id : root(up)
-	}
-	const equalities = equalitiesOf(conditions)
-	for (const { left, right } of equalities) {
-		if (left.kind !== "var" || right.kind !== "var") {
-			continue
-		}
-		const a = root(left.var)
-		const b = root(right.var)
-		if (a !== b) {
-			parent.set(a, b)
-		}
-	}
-	const anchors = new Map<string, InferredExpr>()
-	const anchor = (id: string, term: InferredExpr): void => {
-		if (!anchors.has(root(id))) {
-			anchors.set(root(id), term)
-		}
-	}
-	for (const { left, right } of equalities) {
-		for (const [v, term] of [
-			[left, right],
-			[right, left]
-		] as const) {
-			if (v.kind === "var" && term.kind !== "var" && held(term)) {
-				anchor(v.var, term)
-			}
-		}
-	}
-	for (const { left, right } of equalities) {
-		for (const side of [left, right]) {
-			if (side.kind === "var" && held(side)) {
-				anchor(side.var, side)
-			}
-		}
-	}
-	return (id) => anchors.get(root(id))
-}
+): ((id: string) => InferredExpr | undefined) =>
+	equalityClosure(
+		equalitiesOf(conditions).map(({ left, right }) => [left, right] as const),
+		(e) => (e.kind === "var" ? e.var : undefined),
+		held
+	)
 
 /**
  * The equalities of `conditions` their closure implies (`equatedWith`) between a variable and a term `known` holds: a

@@ -161,7 +161,8 @@ export const aChangeMembersFactsNameEveryReadByItsModeItsOwnItsGroupAndItsBindin
 			"a CTE that holds an INSERT's met rows whole",
 			"the row an arbitration met, through a CTE that holds its met rows whole",
 			"a group bound by a derived table of the context's fact, one value",
-			"a group bound by a derived table of the context's fact and VALUES, one per row"
+			"a group bound by a derived table of the context's fact and VALUES, one per row",
+			"a group bound by a column its own source's query fixes"
 		] satisfies ReadonlyArray<Reached<Shape>>,
 		check: (_2, k: Case<Shape>) => (c) =>
 			Effect.sync(() => {
@@ -299,9 +300,22 @@ export const aChangeMembersFactsNameEveryReadByItsModeItsOwnItsGroupAndItsBindin
 		kills: [
 			{
 				file: "packages/engine/src/program/isolation/extract.ts",
+				original: "\tconst fixed = named.fixed.get(column)\n",
+				replacement: "\tconst fixed: string | undefined = undefined\n",
+				why: "A column of an own source read as one value per row whatever its query fixes, as extract.ts read it: a read joined on a relation parameter's column its query fixes to a parameter binds one group per row, unsealed (edullm's QTIAPP-LEARNER: the ledger's `sittings`, a TestSession query at child = :child, left every read joined on it of no one group)."
+			},
+			{
+				file: "packages/engine/src/program/isolation/extract.ts",
 				original:
-					"\treturn held === undefined ? nameOf(source) : [source.alias ?? source.name, held]",
-				replacement: "\treturn nameOf(source)",
+					"\t\t\t\t\treturn anchor === undefined ? undefined : callText(anchor, named, this.paramOf)\n",
+				replacement: "\t\t\t\t\treturn undefined\n",
+				why: "A query's target fixed only where it is a parameter or a fixed column itself, never through its conditions' equalities: a target the WHERE equates with a parameter, the relation parameter's own key column, fixes nothing."
+			},
+			{
+				file: "packages/engine/src/program/isolation/extract.ts",
+				original:
+					"\t\tif (held !== undefined) {\n\t\t\treturn [source.alias ?? source.name, held]\n\t\t}\n",
+				replacement: "",
 				why: "A query CTE that holds an INSERT's met rows whole read as any CTE's rows, as extract.ts read it: the row met through it, which the SERIALIZABLE insert protocol reads (write/insert/protocol.ts classifyMet), is read by its place, unsealed, so every SERIALIZABLE inserter is a pivot of what it inserts (METIS-ROLES's roles-mini, admin) and keeps every reader of it SERIALIZABLE by `writers`."
 			},
 			{
