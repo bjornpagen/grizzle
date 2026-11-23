@@ -40,7 +40,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** The widest fact of every generated key the compiler accepts is one PostgreSQL's B-tree accepts. */
 export const acceptsTheWidestFact = property.explore(keyGen, {
-	needs: { substrate: Substrate.installing },
+	needs: { tx: Substrate.transaction },
 	/**
 	 * Its search budget: the fewest runs at which each kill it declares still fails a witness, the cull rule's measure
 	 * (grizzle main, 2026-11-23).
@@ -77,60 +77,55 @@ export const acceptsTheWidestFact = property.explore(keyGen, {
 		Reached<ReprFeature>
 	>,
 	check:
-		({ substrate }, k: Case<ReprFeature>) =>
+		({ tx }, k: Case<ReprFeature>) =>
 		(sketch) =>
-			Effect.provideServiceEffect(
-				Effect.gen(function* () {
-					const s = yield* Substrate
-					const schema = yield* s.schema({ create: false, label: "repr" })
-					const session = yield* s.admin.pin
-					const fields = filled(sketch)
-					const layout = layoutOf(fields)
-					if (!layout.ok) {
-						return
-					}
-					k.note("accepted key")
-					if (
-						sketch.fill &&
-						Arr.some(fields, (f) => f.kind === "text") &&
-						layout.value.btreeBytes > btreeMaxItemSize - 8
-					) {
-						k.note("key at the computed maximum")
-					}
-					const columns = names(fields)
-					const table = `"${schema}"."t"`
-					const ddl = `CREATE TABLE ${table} (${Arr.join(
-						Arr.map(fields, (f, i) => `"${columns[i]}" ${columnSql(f)} NOT NULL`),
-						", "
-					)}, PRIMARY KEY (${Arr.join(
-						Arr.map(columns, (c) => `"${c}"`),
-						", "
-					)}))`
-					const insert = `INSERT INTO ${table} VALUES (${Arr.join(
-						Arr.map(indices(fields.length), (i) => `$${i + 1}`),
-						", "
-					)})`
-					const run = Effect.gen(function* () {
-						yield* session.query("BEGIN", [])
-						yield* session.query(`CREATE SCHEMA "${schema}"`, [])
-						yield* session.query(ddl, [])
-						yield* session.query(
-							insert,
-							Arr.map(fields, (f, i) => widestValue(f, sketch.salt + i))
-						)
-					}).pipe(Effect.ensuring(Effect.ignore(session.query("ROLLBACK", []))))
-					const outcome = yield* Effect.result(run)
-					succeeded(
-						outcome,
-						`the compiler accepts the key (${Arr.join(
-							Arr.map(fields, (f) => columnSql(f)),
-							", "
-						)}) at ${layout.value.btreeBytes} bytes, but PostgreSQL refuses its widest fact\n${ddl}`
+			Effect.gen(function* () {
+				const held = yield* tx
+				const schema = yield* held.schema("repr")
+				const session = held.connection
+				const fields = filled(sketch)
+				const layout = layoutOf(fields)
+				if (!layout.ok) {
+					return
+				}
+				k.note("accepted key")
+				if (
+					sketch.fill &&
+					Arr.some(fields, (f) => f.kind === "text") &&
+					layout.value.btreeBytes > btreeMaxItemSize - 8
+				) {
+					k.note("key at the computed maximum")
+				}
+				const columns = names(fields)
+				const table = `"${schema}"."t"`
+				const ddl = `CREATE TABLE ${table} (${Arr.join(
+					Arr.map(fields, (f, i) => `"${columns[i]}" ${columnSql(f)} NOT NULL`),
+					", "
+				)}, PRIMARY KEY (${Arr.join(
+					Arr.map(columns, (c) => `"${c}"`),
+					", "
+				)}))`
+				const insert = `INSERT INTO ${table} VALUES (${Arr.join(
+					Arr.map(indices(fields.length), (i) => `$${i + 1}`),
+					", "
+				)})`
+				const run = Effect.gen(function* () {
+					yield* session.query(`CREATE SCHEMA "${schema}"`, [])
+					yield* session.query(ddl, [])
+					yield* session.query(
+						insert,
+						Arr.map(fields, (f, i) => widestValue(f, sketch.salt + i))
 					)
-				}).pipe(Effect.scoped),
-				Substrate,
-				substrate
-			),
+				})
+				const outcome = yield* Effect.result(run)
+				succeeded(
+					outcome,
+					`the compiler accepts the key (${Arr.join(
+						Arr.map(fields, (f) => columnSql(f)),
+						", "
+					)}) at ${layout.value.btreeBytes} bytes, but PostgreSQL refuses its widest fact\n${ddl}`
+				)
+			}).pipe(Effect.scoped),
 	oracle: { kind: "postgresql", name: "the B-tree item limit of the key's unique index, 54000" },
 	kept: [],
 	kills: [
