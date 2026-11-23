@@ -47,16 +47,13 @@ import {
 	plantedPairs,
 	programs,
 	seedFacts,
-	seedRow,
 	Typed,
 	encodingAims
 } from "#test/pg/api-errors/apply-errors.fixtures.ts"
 import { tappedPool } from "#test/pg/api-errors/support.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
 import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
-import { namesOf } from "#test/support/kernel/naming.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
-import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -82,16 +79,13 @@ export const applyErrorThroughThePublicAPIAValueItsCodecRefusesIsRefusedAsInputN
 					Effect.gen(function* () {
 						const taken = yield* fixture
 						const o = yield* openedIn(Fixture, seedFacts, applyInstall, taken)
-						const s = taken.substrate
 						return yield* Effect.provideService(
 							Effect.gen(function* () {
-								const names = namesOf(o.installed)
 								const { ctx, load } = yield* openServedDb(o.installed, o.server.roles.app, {})
 								const members = yield* load(programs)
 								const { pool, tap } = yield* tappedPool(o.installed.as(o.server))
 								const tapped = { ...ctx, pool }
 
-								yield* replaceRows(s.admin, installationGroup(names), [seedRow(names)])
 								const value = c.value.kind === "refused" ? c.value.value : passed(c.value)
 								const fact: Record<string, unknown> = { ...live, [c.field]: value }
 								const mark = tap.mark()

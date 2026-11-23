@@ -24,9 +24,7 @@ import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import { pg, query, relation, schema, span, str, v } from "#index.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import { Id } from "#test/support/ids.ts"
-import type { Names } from "#test/support/kernel/naming.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
-import type { ReplacedStatement } from "#test/support/substrate/replace.ts"
 
 export const Typed = relation(
 	"Typed",
@@ -46,12 +44,6 @@ const Seed = relation("Seed", { id: Id }, ["id"])
 export const Fixture = schema("ApiErrors", [Typed, Seed], [])
 
 const seed = "00000000-0000-4000-8000-000000000001"
-
-/** The installation's one Seed fact, which every reset writes back with the case's rows (substrate/replace.ts). */
-export const seedRow = (names: Names): ReplacedStatement => ({
-	sql: `INSERT INTO ${names.table(Seed)} (${names.column(Seed, "id")}) VALUES ($1::uuid)`,
-	params: [seed]
-})
 
 const fresh = "00000000-0000-4000-8000-000000000003"
 
