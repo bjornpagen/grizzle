@@ -395,6 +395,7 @@ export const installedScope = (
 			),
 			views: created(snapshot, "materializedView", viewOf),
 			bookkeeping,
+			heads: created(snapshot, "head", tableOf),
 			ledger: ledgerTableName,
 			guarded: created(snapshot, "isolationTrigger", guardedTableOf),
 			functions: new Map<string, InstalledFunction>([
@@ -405,6 +406,7 @@ export const installedScope = (
 				...functionsOf("immutableGuard", { kind: "immutableGuard" }),
 				...functionsOf("snapshotGuard", { kind: "snapshotGuard" }),
 				...functionsOf("worldFunction", { kind: "world" }),
+				...functionsOf("head", { kind: "stamp" }),
 				...unitFunctions(
 					Arr.flatMap(installation.owned.statements, (st) =>
 						st.kind === "retirable" ? [st.header.relation] : []

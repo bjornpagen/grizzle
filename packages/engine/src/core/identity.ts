@@ -1341,6 +1341,37 @@ export const identity = Object.freeze({
 			hashed
 		),
 	/**
+	 * The head table of a clock or a place (ir/instant.ts Head), by its relation and its field: each child's last stamp,
+	 * which the head's stamp function alone advances (physical/ddl/stamps.ts).
+	 */
+	head: (relation: string, field: string): Identity<"head"> =>
+		mint(
+			"head",
+			[relation, field],
+			["head", ...nameSegments(relation), ...nameSegments(field)],
+			`head table of ${relation}.${field}`,
+			hashed
+		),
+	/** The primary key of a head table, its child's fields, by the head's relation and field. */
+	headKey: (relation: string, field: string): Identity<"headKey"> =>
+		mint(
+			"headKey",
+			[relation, field],
+			["head", ...nameSegments(relation), ...nameSegments(field), "pk"],
+			`primary key of the head table of ${relation}.${field}`,
+			hashed
+		),
+	/** The stamp function of a clock or a place, by its relation and its field, which advances each child's head and
+	 * returns it (physical/ddl/stamps.ts). */
+	stamp: (relation: string, field: string): Identity<"stamp"> =>
+		mint(
+			"stamp",
+			[relation, field],
+			["stamp", ...nameSegments(relation), ...nameSegments(field)],
+			`stamp function of ${relation}.${field}`,
+			hashed
+		),
+	/**
 	 * A stored relation's primary key, by its relation alone: a relation has exactly one, so a migration that moves it
 	 * to other fields replaces it under its name, the one order PostgreSQL admits (a table holds at most one: 42P16).
 	 */

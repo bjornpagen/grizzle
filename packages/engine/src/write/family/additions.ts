@@ -832,7 +832,7 @@ interface StampingSource {
  * field's column beside its own, and every other source as `stated` and `sent` read it.
  *
  * Each head its sources stamp is stamped once, by one CTE of its stamps at each child its rows hold, every source's
- * children read into one DISTINCT (write/insert/stamp.ts headStampsCte), so the head is probed once at each child,
+ * children read into one DISTINCT (write/insert/stamp.ts headStampsCte), so the head is advanced once at each child,
  * and every row that carries the head's stamp, the root's own and every member's paired with it, joins that one row: a
  * member carries exactly its owner's stamp, and two of a call's rows at one child carry one. A member's child is its
  * owner's, which the walk copied, so it joins the stamp its owner's row does.

@@ -203,6 +203,14 @@ export type Installed<O extends AnyObject = ManifestObject> =
 	  }
 	| { readonly kind: "ledger"; readonly object: O; readonly create: CreateTable }
 	| {
+			/** A head's table and its stamp function, one object (physical/ddl/stamps.ts): the table's CREATE TABLE and its
+			 * revoke, then the function's CREATE FUNCTION and its revoke. */
+			readonly kind: "head"
+			readonly object: O
+			readonly create: CreateTable
+			readonly stamp: FunctionHeader
+	  }
+	| {
 			readonly kind: "schema" | "extension" | "validation" | "databaseDefault"
 			readonly object: O
 	  }
@@ -499,6 +507,18 @@ export const installed = <O extends AnyObject>(o: O): Installed<O> => {
 			return s?.kind === "createTable"
 				? { kind: o.kind, object: o, create: s }
 				: malformed("the migrations ledger by its CREATE TABLE")
+		case "head": {
+			const stamp = functionHeaderOf(o.ddl[2])
+			return o.ddl.length === 4 &&
+				s?.kind === "createTable" &&
+				o.ddl[1]?.kind === "revoke" &&
+				stamp !== undefined &&
+				o.ddl[3]?.kind === "revoke"
+				? { kind: o.kind, object: o, create: s, stamp }
+				: malformed(
+						"a head's CREATE TABLE and its revoke, then its stamp function's CREATE FUNCTION and its revoke"
+					)
+		}
 		case "schema":
 		case "extension":
 		case "validation":
@@ -515,6 +535,7 @@ export const objectTable = (o: AnyObject): ObjectName | undefined => {
 	switch (v.kind) {
 		case "table":
 		case "ledger":
+		case "head":
 			return v.create.table
 		case "materializedView":
 			return v.create.name
@@ -697,6 +718,7 @@ export const builtOver = <O extends AnyObject>(
 		case "schema":
 		case "extension":
 		case "ledger":
+		case "head":
 		case "validation":
 		case "databaseDefault":
 			return undefined
@@ -822,6 +844,7 @@ const objectParts = <O extends AnyObject>(
 		case "schema":
 		case "extension":
 		case "ledger":
+		case "head":
 		case "validation":
 		case "databaseDefault":
 			return []

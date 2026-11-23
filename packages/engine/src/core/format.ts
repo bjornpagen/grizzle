@@ -141,7 +141,11 @@
  * at its parent's values (lower/conservative/call/index.ts parentEvaluations), where format 7 evaluated it again in each
  * attachment's child; and each block of a rule judge's part is a function of its own (physical/ddl/rules.ts partBody,
  * identity.ruleJudgeBlock), which the part calls under the block's guard, where format 7 held every block's statement
- * in its part, so 04-validate.sql creates a function per block and 05-publish.sql comments each
+ * in its part, so 04-validate.sql creates a function per block and 05-publish.sql comments each. Each clock's and
+ * place's head is a table of its children's last stamps beside its relation, with the stamp function that advances it,
+ * one manifest object of kind `head` (physical/ddl/stamps.ts), which a statement that stamps calls in its stamps' CTE
+ * and a migration fills from its relation as it creates it, where format 7 read each child's head from the relation's
+ * primary key backwards and had no such object
  */
 export const artifactFormat = 7
 

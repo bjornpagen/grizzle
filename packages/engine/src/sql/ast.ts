@@ -282,7 +282,8 @@ export type BinaryOperator = (typeof binaryOperators)[number]
  * (physical/ddl/rules.ts judged), the database default's
  * statement and the binary comparison of two rows, the function of PostgreSQL's `*<>` (record_image_ne), by which a
  * migration's backfill writes only the rows whose drawn values change (deploy/diff/backfill.ts staged), and full text
- * search's parse, weighting, query parse and ranks (lower/conservative/search); a relation input's arrays are a FROM
+ * search's parse, weighting, query parse and ranks (lower/conservative/search), and a stamp function's reading of its own
+ * transaction's id (physical/ddl/stamps.ts); a relation input's arrays are a FROM
  * item of their own. Extension functions (pgvector) are qualified by their extension's schema instead. Each with where
  * its call computes (`reach`): over its row's values, or over many rows, as an aggregate or a window function does.
  */
@@ -389,7 +390,9 @@ export const builtinFunctions = {
 	ts_rank: { reach: "row" },
 	ts_rank_cd: { reach: "row" },
 	timezone: { reach: "row" },
-	extract: { reach: "row" }
+	extract: { reach: "row" },
+	pg_current_xact_id: { reach: "row" },
+	xid: { reach: "row" }
 } as const satisfies { readonly [name: string]: { readonly reach: "row" | "rows" } }
 export type BuiltinFunctionName = keyof typeof builtinFunctions
 

@@ -7,12 +7,7 @@ import {
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { CheckedEntry } from "#compiler/analysis/schema.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
-import {
-	CompileError,
-	type NamedSide,
-	type NoFormWhy,
-	type ReadBackCrossing
-} from "#compiler/core/errors.ts"
+import { CompileError, type NamedSide, type ReadBackCrossing } from "#compiler/core/errors.ts"
 import type { EntryName, StoredRelationName } from "#compiler/core/ids.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
@@ -410,19 +405,12 @@ const scopedPrecheckOf = (put: ChosenAction): ReadonlyArray<DraftStep> =>
  */
 const formedAt = (action: ChosenAction, level: Isolation): void => {
 	const relation = action.info.relation
-	const why: NoFormWhy | undefined =
-		primaryKeyShape(relation).kind === "span"
-			? "spanKey"
-			: headStamped(action.info.stamps).length > 0
-				? "stamp"
-				: undefined
-	if (level === "readCommitted" && why !== undefined) {
+	if (level === "readCommitted" && primaryKeyShape(relation).kind === "span") {
 		throw new Refusal(
 			CompileError.make({
 				_tag: "NoReadCommittedForm",
 				at: childLoc(SourceLoc("ChangeSet", []), "writes", relation.name),
-				relation: relation.name,
-				why
+				relation: relation.name
 			})
 		)
 	}

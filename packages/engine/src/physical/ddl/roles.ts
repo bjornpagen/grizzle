@@ -72,10 +72,11 @@ import type { InstalledFunction } from "#compiler/physical/ddl/functions.ts"
 import { snapshotGuardFunction } from "#compiler/physical/ddl/ledger.ts"
 import { levelIn, type NamedRole, roleView } from "#compiler/physical/ddl/names.ts"
 import type { UnitFunction, UnitFunctions } from "#compiler/physical/ddl/retire.ts"
+import type { StampFunction } from "#compiler/physical/ddl/stamps.ts"
 
-/** A function a role executes beside its statements' own: a retirable unit's hold or retirement, or a declared
- * function its served programs call. */
-type CalledFunction = UnitFunction | InstalledFunction
+/** A function a role executes beside its statements' own: a retirable unit's hold or retirement, a head's stamp
+ * function, or a declared function its served programs call. */
+type CalledFunction = UnitFunction | StampFunction | InstalledFunction
 import {
 	derivedReading,
 	type LoweredDefinition,
@@ -1540,7 +1541,7 @@ const addLogin = (
 	{ login, roles }: CheckedLogin,
 	carriers: ReadonlyArray<RoleCarriers>,
 	fenced: ReadonlyArray<string>,
-	held: (role: OwnedRole) => ReadonlyArray<CalledFunction>
+	held: (role: CheckedRole) => ReadonlyArray<CalledFunction>
 ): {
 	readonly installed: InstalledLogin
 	readonly vector: boolean
@@ -1601,7 +1602,7 @@ const addLogin = (
 				r,
 				{ role, object: roleObject },
 				carriers.find((c) => c.login === login.name && c.role === r.checked.world.role.name),
-				held(r.checked.world.role)
+				held(r)
 			)
 		)
 	return {
@@ -1778,7 +1779,9 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
  *   EXECUTE on the hold function of each retirable unit its served workload holds (`holds`, stated by the served
  *   workload's extension; physical/ddl/retire.ts addUnitFunctions), which every served call that touches the unit
  *   calls before it touches it, and on the retirement function of each unit whose header its `retire` list names, which
- *   its ChangeSets' retire members call; no role holds EXECUTE on any other unit function.
+ *   its ChangeSets' retire members call; no role holds EXECUTE on any other unit function. EXECUTE on the stamp
+ *   function of each head of a relation it holds INSERT on (physical/ddl/stamps.ts addStamps), which each of its inserts
+ *   that stamps the head calls; no role holds any privilege on a head's table.
  *
  * Row security is enabled on exactly the tables some role writes through a query entry with a filter, once their
  * policies stand, `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`; its owner, the migration identity, bypasses it, and FORCE
@@ -1798,6 +1801,7 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
 export const addWorlds = (
 	b: InstallBuilder,
 	units: ReadonlyMap<string, UnitFunctions>,
+	stamps: ReadonlyMap<string, ReadonlyArray<StampFunction>>,
 	revocable: Revocable,
 	checkedLogins: ReadonlyArray<CheckedLogin>,
 	carriers: ReadonlyArray<RoleCarriers>,
@@ -1817,23 +1821,31 @@ export const addWorlds = (
 	const writers: Array<Writer> = []
 	for (const login of logins) {
 		/** The functions a role calls: the hold of each unit its served workload holds, the retirement of each unit
-		 * whose header its retire list names, and each declared function its served programs call. */
-		const held = (role: OwnedRole): ReadonlyArray<CalledFunction> => [
-			...holds.flatMap((h) =>
-				h.login === login.login.name && h.role === role.name
-					? [defined(units.get(h.header), `the hold function of retirable ${h.header}`).hold]
-					: []
-			),
-			...role.retire.map(
-				(header) =>
-					defined(units.get(header), `the retirement function of retirable ${header}`).retire
-			),
-			...calls.calls.flatMap((c) =>
-				c.login === login.login.name && c.role === role.name
-					? [defined(calls.declared.get(c.function), `the declared function ${c.function}`)]
-					: []
-			)
-		]
+		 * whose header its retire list names, the stamp function of each head of a relation its grants let it insert
+		 * into (grantedPrivileges), which every insert of the relation that stamps the head calls, and each declared
+		 * function its served programs call. */
+		const held = ({ checked }: CheckedRole): ReadonlyArray<CalledFunction> => {
+			const role = checked.world.role
+			return [
+				...holds.flatMap((h) =>
+					h.login === login.login.name && h.role === role.name
+						? [defined(units.get(h.header), `the hold function of retirable ${h.header}`).hold]
+						: []
+				),
+				...role.retire.map(
+					(header) =>
+						defined(units.get(header), `the retirement function of retirable ${header}`).retire
+				),
+				...[...grantedPrivileges(b.model, checked)].flatMap(([relation, privileges]) =>
+					privileges.has("INSERT") ? (stamps.get(relation) ?? []) : []
+				),
+				...calls.calls.flatMap((c) =>
+					c.login === login.login.name && c.role === role.name
+						? [defined(calls.declared.get(c.function), `the declared function ${c.function}`)]
+						: []
+				)
+			]
+		}
 		const added = addLogin(
 			b,
 			cx,

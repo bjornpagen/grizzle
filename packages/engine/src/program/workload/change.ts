@@ -604,7 +604,7 @@ const readCommittedMember = <S extends ParamSource>(program: {
 	return reason._tag === "NoReadCommittedForm"
 		? {
 				kind: "unformed",
-				unformed: { member: program.name, relation: reason.relation, why: reason.why }
+				unformed: { member: program.name, relation: reason.relation }
 			}
 		: { kind: "refused", error: variants.error }
 }

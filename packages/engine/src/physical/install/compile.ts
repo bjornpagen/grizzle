@@ -41,6 +41,7 @@ import { addLiveSource } from "#compiler/physical/ddl/live.ts"
 import { addUnitFunctions } from "#compiler/physical/ddl/retire.ts"
 import { addWorlds, grantedPrivileges, type InstalledLogin } from "#compiler/physical/ddl/roles.ts"
 import { addRules } from "#compiler/physical/ddl/rules.ts"
+import { addStamps } from "#compiler/physical/ddl/stamps.ts"
 import { addTables } from "#compiler/physical/ddl/tables.ts"
 import { wholeTables } from "#compiler/physical/ddl/whole.ts"
 import {
@@ -482,6 +483,7 @@ const installationIn = (
 				const declared = addFunctions(b)
 				const { keyIndexes, tables } = addTables(b)
 				const units = addUnitFunctions(b)
+				const stamps = addStamps(b)
 				const rules = phased(phases, { name: "judge", of: [] }, () => addRules(b))
 				addImmutableGuards(b)
 				addSpanStorage(b, plan.spans)
@@ -510,6 +512,7 @@ const installationIn = (
 				const worlds = addWorlds(
 					b,
 					units,
+					stamps,
 					{ tables, domains: [...domains, ...paramDomains] },
 					plan.logins,
 					statedOnce(

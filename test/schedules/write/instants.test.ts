@@ -6,36 +6,36 @@
  * The role `writer` inserts both, and its workload is `stamp`, an insertion of Log's rows, and `held`, an insertion of
  * Log's rows and then, in a later stratum, of a Gate row. Each call states its rows as an array of `{ child, note }`,
  * which leaves `at` out, so every row is stamped with the call's instant at its child, `greatest(c, h + 1)`, c the
- * call's reading of the database's clock in microseconds and h the latest instant the child holds
- * (write/insert/stamp.ts). The schema and its logins are installed and served as `grizzle generate` drafts them
- * (schedules/rig.ts openRig): `writer` runs at the level generate certifies, which the stamps make SERIALIZABLE
- * (write/schedule/plan.ts formedAt), read off each writer's served Db.
+ * call's reading of the database's clock in microseconds and h the child's head, which the clock's stamp function
+ * advances in the statement that stamps, locking the child's head row until the call ends (physical/ddl/stamps.ts,
+ * write/insert/stamp.ts). The schema and its logins are installed and served as `grizzle generate` drafts them
+ * (schedules/rig.ts openRig): `writer` runs at the level generate certifies, READ COMMITTED, read off each writer's
+ * served Db.
  *
  * A case's stored state gives each of the children 1 and 2 no row, a row at instant 1, below every reading of the
  * clock, or a row at instant F, a microsecond in 2100, above every reading: a clock that stepped back, simulated by the
- * head the test writes as the schema's owner, never by the server's clock. Two writers A and B, two Dbs of `writer`
- * over DbLayers of their own, run one call each, A `held` and B `stamp`, each retried after a TransientFailure until it
- * answers. In `concurrent`, the schema's owner holds Gate in SHARE mode while A runs: A's rows are stamped and
- * uncommitted when its Gate insert waits on that lock, and B runs then. B waits for A where they meet at a key, both
- * stamping F + 1 at a child over F and stating one note there; then the owner's COMMIT lets A commit first, and B's
- * statement fails with 40001 at the row it cannot see, its retry stamping after it. Otherwise B commits while A waits,
- * and A, which read the child's head that B wrote into, and wrote into the head B read, is failed by SSI with 40001
- * where they share a child, its retry stamping after B. In `sequential`, A's call commits before B's begins.
+ * row the test writes as the schema's owner, each child's head filled from the rows as a migration fills it
+ * (schedules/rig.ts replace), never by the server's clock. Two writers A and B, two Dbs of `writer` over DbLayers of
+ * their own, run one call each, A `held` and B `stamp`, each retried after a TransientFailure until it answers. In
+ * `concurrent`, the schema's owner holds Gate in SHARE mode while A runs: A's rows are stamped, its children's heads
+ * held and uncommitted, when its Gate insert waits on that lock, and B runs then. B waits for A wherever they share a
+ * child, at its head; the owner's COMMIT lets A commit first, and B stamps after it. Otherwise B commits while A waits.
+ * In `sequential`, A's call commits before B's begins.
  *
  * Properties, per case:
- * - each call is accepted, adding each of its rows, and B waits for A exactly where they meet at a key;
+ * - each call is accepted at its first try, adding each of its rows, no TransientFailure met, and B waits for A
+ *   exactly where they share a child;
  * - at each child, the rows the calls added hold one instant per call that stamps the child, its every row there at
  *   it, and the instants increase in the order the calls commit: A then B, unless B committed while A waited;
  * - each instant is above the head the child held before the call; at a child over F, the k-th call to commit stamps
  *   F + k, and at any other, the first stamps at least the clock's reading before the calls began.
  *
- * Oracle: the rule, stated over the case's stored heads and the commit order its moves give. Kills: the stamp the raw
- * clock, its head unread, which stamps a child over F below F and two concurrent calls in the order they began; and a
- * stamp's insert formed at READ COMMITTED, where the two calls read the child's head without seeing each other, so
- * they commit in the other order or share an instant.
+ * Oracle: the rule, stated over the case's stored heads and the commit order its moves give. Kills, by hand: a head's
+ * advance the call's clock alone, the head unread, which stamps a child over F below F and two concurrent calls in the
+ * order they began; and a head row per clock, not per child, where B waits for A at a child they do not share.
  *
- * Features: each stored head, a child both calls stamp, concurrently and in turn, B waiting for A, A retried, a call's
- * two rows at one child, and two children in one call.
+ * Features: each stored head, a child both calls stamp, concurrently and in turn, B waiting for A, a call's two rows
+ * at one child, and two children in one call.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
@@ -55,7 +55,7 @@ import {
 	Gate,
 	headAt,
 	Log,
-	meets,
+	shares,
 	type Row,
 	callRows,
 	type StampFeature,
@@ -85,8 +85,7 @@ export const twoWritersStampingOneClockStampEachChildsInstantsInTheOrderItsCalls
 			"a child over a future head: the clock stepped back",
 			"a child both calls stamp, concurrently",
 			"a child both calls stamp, in turn",
-			"B waited for A at a key",
-			"A retried after B committed",
+			"B waited for A at a child",
 			"two rows of one child in one call",
 			"two children in one call"
 		] satisfies ReadonlyArray<Reached<StampFeature>>,
@@ -219,9 +218,11 @@ export const twoWritersStampingOneClockStampEachChildsInstantsInTheOrderItsCalls
 												["B", c.b]
 											]
 								const accepted = (name: string, rows: ReadonlyArray<Row>, x: Answered) =>
-									Result.isSuccess(x.ran) && addedTo(x.ran.success) === BigInt(rows.length)
+									Result.isSuccess(x.ran) &&
+									addedTo(x.ran.success) === BigInt(rows.length) &&
+									x.tries === 1
 										? undefined
-										: `${name} is accepted, adding its ${rows.length} rows: ${Formatter.format(x.ran)}`
+										: `${name} is accepted at its first try, adding its ${rows.length} rows: ${x.tries} tries, ${Formatter.format(x.ran)}`
 								const added = (child: 1 | 2) =>
 									Arr.sort(
 										Arr.filter(final, (r) => r.child === child && r.note !== 9),
@@ -234,8 +235,8 @@ export const twoWritersStampingOneClockStampEachChildsInstantsInTheOrderItsCalls
 											: undefined,
 										accepted("A", c.a, answeredA),
 										accepted("B", c.b, answeredB),
-										holding && (observed === "waited") !== meets(c)
-											? `B ${meets(c) ? "ended without waiting for A, where they meet at a key" : "waited for A, where they meet at no key"}`
+										holding && (observed === "waited") !== shares(c)
+											? `B ${shares(c) ? "ended without waiting for A, where they share a child" : "waited for A, where they share no child"}`
 											: undefined,
 										...Arr.map([1, 2] as const, (child) =>
 											departureAt(child, c.heads[child], added(child), order, before)
@@ -271,10 +272,7 @@ export const twoWritersStampingOneClockStampEachChildsInstantsInTheOrderItsCalls
 									}
 								}
 								if (holding && observed === "waited") {
-									k.note("B waited for A at a key")
-								}
-								if (answeredA.tries > 1 && holding && observed === "ended") {
-									k.note("A retried after B committed")
+									k.note("B waited for A at a child")
 								}
 								for (const rows of [c.a, c.b]) {
 									if (childrenOf(rows).length === 2) {

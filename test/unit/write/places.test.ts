@@ -164,12 +164,11 @@ export const aPlaceThatStatesNoOrderCompilesAndStampsExactlyAsOneOrderedByAField
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/write/insert/stamp.ts",
-				original:
-					'\t\t\tcase "place":\n\t\t\t\treturn { kind: "coalesce", args: [next, lit.int(0, types.bigint)] }\n',
+				file: "packages/engine/src/physical/ddl/stamps.ts",
+				original: '\t\t\tcase "place":\n\t\t\t\treturn lit.int(0, types.bigint)\n',
 				replacement:
-					'\t\t\tcase "place":\n\t\t\t\treturn head.order.kind === "by" ? { kind: "coalesce", args: [next, lit.int(0, types.bigint)] } : next\n',
-				why: "An unordered place's insert stamps one past its group's greatest place with no first place, so a group's first row would hold NULL: its insert differs from the ordered place's, and the property fails."
+					'\t\t\tcase "place":\n\t\t\t\treturn head.order.kind === "by" ? lit.int(0, types.bigint) : lit.int(1, types.bigint)\n',
+				why: "An unordered place's head starts its group at 1, not 0, so a group's first row would hold 1 and leave 0 a gap: its stamp function differs from the ordered place's, and the property fails."
 			},
 			{
 				file: "packages/engine/src/analysis/theory/instants.ts",

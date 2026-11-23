@@ -1,5 +1,9 @@
 import { rowsEmptied } from "@bjornpagen/testing/resources"
 import { Array as Arr, Brand, Effect } from "effect"
+import { headsOf } from "#compiler/ir/instant.ts"
+import { headFill } from "#compiler/physical/ddl/stamps.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
+import { printStatement } from "#compiler/sql/print.ts"
 import type { Names } from "#test/support/kernel/naming.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { TransactionRolledBack } from "#test/support/substrate/errors.ts"
@@ -34,6 +38,16 @@ export const installationGroup = (names: Names): ResetGroup =>
  */
 export const tablesGroup = (tables: ReadonlyArray<string>): ResetGroup =>
 	ResetGroup({ tables, views: [] })
+
+/**
+ * The fill of every head of `installation` from its relation as it stands (physical/ddl/stamps.ts headFill), each a
+ * statement: what a seed that writes a stamped relation's rows as the owner runs after them, as a migration fills a
+ * head it creates beside stored rows, so every stamp after it is above every row the seed wrote.
+ */
+export const headFills = (installation: Installation): ReadonlyArray<string> =>
+	Arr.map(headsOf(installation.laws.theory.instants), (head) =>
+		printStatement(headFill(installation.names, head))
+	)
 
 /** No table: the group of a template whose cases write no table of its own (substrate.ts base). */
 export const noTables: ResetGroup = tablesGroup([])

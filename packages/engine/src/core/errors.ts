@@ -560,13 +560,11 @@ const keyRefusalText = (key: KeyRefusal): string => keyFaultText(key.subject, ke
  *   retirement removes its groups whole, by its unit's function, whose rows no other statement of the call sees, so a
  *   ChangeSet that retires a unit reads and writes it no other way (write/hold/stated.ts heldUnits).
  * - `NoReadCommittedForm`: the write at `at` inserts into `relation` and is compiled for READ COMMITTED, where the
- *   insert has no form, as `why` says (NoFormWhy): `spanKey`, its primary key holds a span, whose exclusion constraint
- *   arbitrates an INSERT by ON CONFLICT DO NOTHING alone, so no statement of the insert tells a requested fact it met
- *   from one it made, where SERIALIZABLE arbitrates every object and classifies what it met (write/insert/protocol.ts
- *   Arbitration `every`); or `stamp`, it stamps an instant, whose head two calls at READ COMMITTED both read before
- *   either commits, so their instants need not follow their commits, where SERIALIZABLE orders them (ir/instant.ts).
- *   Certification reads it as the condition `form` of the role it compiles (analysis/isolation/certify.ts), which then
- *   runs SERIALIZABLE; only a compile for a level no certificate gives meets it as a refusal.
+ *   insert has no form: its primary key holds a span, whose exclusion constraint arbitrates an INSERT by ON CONFLICT DO
+ *   NOTHING alone, so no statement of the insert tells a requested fact it met from one it made, where SERIALIZABLE
+ *   arbitrates every object and classifies what it met (write/insert/protocol.ts Arbitration `every`). Certification
+ *   reads it as the condition `form` of the role it compiles (analysis/isolation/certify.ts), which then runs
+ *   SERIALIZABLE; only a compile for a level no certificate gives meets it as a refusal.
  * - `UninstalledDomain`: a statement at `at` casts a value to `domain` (UninstalledType), a domain the installation it is
  *   compiled for installs none of: a statement is served only over the domains its installation holds, so a value cast
  *   to another is refused where it is compiled, never by PostgreSQL where it runs.
@@ -816,7 +814,6 @@ export type CompileReason =
 			readonly _tag: "NoReadCommittedForm"
 			readonly at: SourceLoc
 			readonly relation: string
-			readonly why: NoFormWhy
 	  }
 	| { readonly _tag: "UninstalledDomain"; readonly at: SourceLoc; readonly domain: UninstalledType }
 	| { readonly _tag: "UninstalledFunction"; readonly at: SourceLoc; readonly fn: string }
@@ -1099,19 +1096,9 @@ export const prose = (tag: ProseTag, at: SourceLoc, text: string): CompileReason
 		? { _tag: tag, at, what: text }
 		: { _tag: tag, at, capability: text }
 
-/** Why an insert has no READ COMMITTED form (NoReadCommittedForm): a span primary key, or an instant or a place it
- * stamps. */
-export type NoFormWhy = "spanKey" | "stamp"
-
-/** Why an insert into `relation` has no READ COMMITTED form, as `why` says (NoReadCommittedForm). */
-export const noReadCommittedFormText = (relation: string, why: NoFormWhy): string => {
-	switch (why) {
-		case "spanKey":
-			return `an insert into ${relation}, whose primary key holds a span, has no READ COMMITTED form: its exclusion constraint arbitrates by ON CONFLICT DO NOTHING alone, so no statement tells a requested fact it met from one it made, and it runs SERIALIZABLE`
-		case "stamp":
-			return `an insert into ${relation} that stamps an instant or a place has no READ COMMITTED form: two calls of one child would both read its head before either commits, so their instants need not follow their commits nor their places differ, and it runs SERIALIZABLE, where they do`
-	}
-}
+/** Why an insert into `relation`, whose primary key holds a span, has no READ COMMITTED form (NoReadCommittedForm). */
+export const noReadCommittedFormText = (relation: string): string =>
+	`an insert into ${relation}, whose primary key holds a span, has no READ COMMITTED form: its exclusion constraint arbitrates by ON CONFLICT DO NOTHING alone, so no statement tells a requested fact it met from one it made, and it runs SERIALIZABLE`
 
 /**
  * A RecordNameTooLong's sentence: the relation, its name's identifier and bytes past the bound, and its fix, a name
@@ -1221,7 +1208,7 @@ export const compileReasonText = (reason: CompileReason): string => {
 		case "RetiredUnitTouched":
 			return `the ChangeSet retires the groups of ${reason.header} and ${reason.how === "written" ? "writes" : reason.how === "read" ? "reads" : "reads the delta of"} ${reason.relation}, a relation of its unit: a retirement removes its groups whole, by the unit's function, whose rows no other statement of the call sees, so retire ${reason.header} in a ChangeSet that reads and writes its unit no other way`
 		case "NoReadCommittedForm":
-			return noReadCommittedFormText(reason.relation, reason.why)
+			return noReadCommittedFormText(reason.relation)
 		case "UninstalledDomain":
 			return uninstalledText(reason.domain)
 		case "UninstalledFunction":

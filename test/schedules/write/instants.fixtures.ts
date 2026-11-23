@@ -74,8 +74,7 @@ export type StampFeature =
 	| "a child over a future head: the clock stepped back"
 	| "a child both calls stamp, concurrently"
 	| "a child both calls stamp, in turn"
-	| "B waited for A at a key"
-	| "A retried after B committed"
+	| "B waited for A at a child"
 	| "two rows of one child in one call"
 	| "two children in one call"
 
@@ -108,24 +107,15 @@ export const stampingGen: Gen<Stamping> = (source) => ({
 })
 
 /**
- * Cases constructed to reach the situations a draw rarely meets: B waiting for A at a key, both stamping F + 1 at a
- * child over F with one note, and A retried after B committed, the two stamping one child over no head at two notes.
+ * A case constructed to reach the situation a draw rarely meets: B waiting for A at a child, both stamping child 1
+ * concurrently, over a head the clock is below.
  */
 export const aims: ReadonlyArray<readonly [Reached<StampFeature>, Gen<Stamping>]> = [
 	[
-		"B waited for A at a key",
+		"B waited for A at a child",
 		constant<Stamping>({
 			mode: "concurrent",
 			heads: { 1: "future", 2: "none" },
-			a: [{ child: 1, note: 0 }],
-			b: [{ child: 1, note: 0 }]
-		})
-	],
-	[
-		"A retried after B committed",
-		constant<Stamping>({
-			mode: "concurrent",
-			heads: { 1: "none", 2: "none" },
 			a: [{ child: 1, note: 0 }],
 			b: [{ child: 1, note: 1 }]
 		})
@@ -135,9 +125,9 @@ export const aims: ReadonlyArray<readonly [Reached<StampFeature>, Gen<Stamping>]
 export const childrenOf = (rows: ReadonlyArray<Row>): ReadonlyArray<1 | 2> =>
 	Arr.dedupe(Arr.map(rows, (r) => r.child))
 
-/** Whether B meets A at a key, so waits for it in `concurrent`: both stamp F + 1 at a child over F, with one note. */
-export const meets = (c: Stamping): boolean =>
-	Arr.some(c.a, (r) => c.heads[r.child] === "future" && Arr.some(c.b, (s) => sameRow(r, s)))
+/** Whether B shares a child with A, so waits for it at the child's head in `concurrent`. */
+export const shares = (c: Stamping): boolean =>
+	Arr.some(c.a, (r) => Arr.some(c.b, (s) => r.child === s.child))
 
 /** A stored row, read back: its child, its instant and its note. */
 export interface Stored {

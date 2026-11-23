@@ -22,8 +22,9 @@
  * meaning S' = (S \ D) ∪ A over its one snapshot: where its sources hold two facts at one key, or one at the key Budget
  * stores that differs at a field it states, it is refused on Budget's primary key's law and the state is the stored
  * one; otherwise it is accepted, each child has one new moment, Budget holds the stored budget and each other fact the
- * sources give once, at its child's new moment, the instant stamped once, and Old holds its notes but the deletes'. Oracle: specification, the model. Kill:
- * each query its own action, as before the merge, so every case's write does not compile.
+ * sources give once, at its child's new moment, the instant stamped once, and Old holds its notes but the deletes'. Oracle: specification, the model. Kills:
+ * each query its own action, as before the merge, so every case's write does not compile; and a head its call already
+ * advanced advanced again, so Moment's stamp and Budget's reference to it take two instants.
  *
  * Features: each shape of sources, and each way their facts meet.
  */
@@ -226,6 +227,12 @@ export const aStratumsSourcesOfOneOperationOnOneRelationAreOneActionSoAStratumTh
 				original: "\t\t\t\t\tconst group = headed.find((g) => sameHeading(g.heading, heading))\n",
 				replacement: "\t\t\t\t\tconst group = headed.find(() => false)\n",
 				why: "Each query of an operation on a relation is its own action, as before the merge: Budget's queries are two actions of one relation, the stratum runs statement after statement, and its write is refused as stamping Moment.at in several statements."
+			},
+			{
+				file: "packages/engine/src/physical/ddl/stamps.ts",
+				original: "\t\t\t\tresult: col(held, at)\n",
+				replacement: "\t\t\t\tresult: stepped\n",
+				why: "A head its own call already advanced is advanced again (physical/ddl/stamps.ts): the statement's two stamps of Moment's clock, Moment's own and Budget's reference to it, take two instants, so each budget names no moment of its child and Budget's containment in Moment refuses the call."
 			}
 		]
 	})

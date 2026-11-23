@@ -5,7 +5,6 @@
  */
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { Witness } from "#compiler/analysis/theory/query.ts"
-import type { NoFormWhy } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
 import type { OnUpdate } from "#compiler/ir/law.ts"
@@ -261,7 +260,6 @@ export interface MemberFacts {
 export interface Unformed {
 	readonly member: string
 	readonly relation: string
-	readonly why: NoFormWhy
 }
 
 /**

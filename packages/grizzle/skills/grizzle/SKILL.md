@@ -112,8 +112,9 @@ export default defineConfig({
   reading is a value, a `bigint`, never an `instant`: a row records when it was written
   by a field of type `instant`, which no caller states. Key the row by its natural fields and the instant after them,
   `relation("SignIn", { user, at: instant, ... }, ["user", "at"])`: its `at` is a clock of child `user`, which an
-  insert leaving it out stamps with the call's instant at the user, `greatest(clock, the user's latest + 1)`, so a
-  user's instants increase in the order their calls commit; a role that stamps runs SERIALIZABLE. An instant a
+  insert leaving it out stamps with the call's instant at the user, `greatest(clock, the user's latest + 1)`, from
+  the user's head row, which two calls of one user take in turn, so a user's instants increase in the order their
+  calls commit at every level, and calls of different users never wait on each other. An instant a
   containment carries into another relation's instant is a reference, stamped beside an insert of its clock or stated
   from a stored instant (README "Instants"). A read delivers an instant as an `Instant`, a bigint only a read mints;
   `instant.stored` is a field of instant's type its caller writes as it read it, the database drawing nothing, so a
@@ -927,7 +928,7 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   `member M, statement N, relation R` (N the statement's place among those a call of ChangeSet M sends); or, where it
   fails none by itself, a line `fix login L, role R first (<counts>)` per role that runs SERIALIZABLE and gives it one
   (`laws`, a SERIALIZABLE ChangeSet reading what it writes, and `writers`): fix those roles first. The fixes:
-  - `form`: move each ChangeSet that inserts into a relation whose primary key holds a span, or stamps an instant or a place, to a role of its own, which runs SERIALIZABLE: such a write has no READ COMMITTED form
+  - `form`: move each ChangeSet that inserts into a relation whose primary key holds a span to a role of its own, which runs SERIALIZABLE: such a write has no READ COMMITTED form
   - `facts`: name no table or function in the role's ChangeSets that is no relation of the installation; where grizzle named it (a function of its own, named __), report the line to grizzle
   - `members`: write through a ChangeSet in the login's workload, or state neither write nor insert on the role: a role that writes by direct SQL alone is judged to write all its grants permit
   - `privileges`: state insert, not write, on the relation, and let no role update or delete a relation the role writes: record each change as an inserted fact

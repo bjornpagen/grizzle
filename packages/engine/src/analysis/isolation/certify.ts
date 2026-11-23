@@ -2450,7 +2450,7 @@ const formReasons = (
 		reason(
 			"form",
 			{ kind: "member", member: u.member, relation: u.relation },
-			noReadCommittedFormText(u.relation, u.why)
+			noReadCommittedFormText(u.relation)
 		)
 	)
 

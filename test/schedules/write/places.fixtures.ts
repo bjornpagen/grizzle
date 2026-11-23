@@ -105,8 +105,7 @@ export type PlaceFeature =
 	| "an item over two places"
 	| "an item both calls stamp, concurrently"
 	| "an item both calls stamp, in turn"
-	| "B waited for A at a key"
-	| "B retried after A committed"
+	| "B waited for A at a group"
 	| "two items in one call"
 	| "a session nesting marks"
 	| "a session nesting none"
@@ -127,10 +126,10 @@ export const placingGen: Gen<Placing> = (source) => ({
 	}
 })
 
-/** A case constructed to reach B waiting for A at a key and its retry: both stamping item 1, concurrently. */
+/** A case constructed to reach B waiting for A at a group: both stamping item 1, concurrently. */
 export const aims: ReadonlyArray<readonly [Reached<PlaceFeature>, Gen<Placing>]> = [
 	[
-		"B waited for A at a key",
+		"B waited for A at a group",
 		constant<Placing>({
 			mode: "concurrent",
 			heads: { 1: 1, 2: 0 },
@@ -141,7 +140,7 @@ export const aims: ReadonlyArray<readonly [Reached<PlaceFeature>, Gen<Placing>]>
 	]
 ]
 
-/** Whether A and B stamp one item, which in `concurrent` B waits for A at. */
+/** Whether A and B stamp one item, whose group's head B waits for A at in `concurrent`. */
 export const meets = (c: Placing): boolean => Arr.some(c.a, (item) => Arr.contains(c.b, item))
 
 /** The stage a call's row at `item` states: A's 10 + item, B's 20 + item, a stored row's 100 on. */

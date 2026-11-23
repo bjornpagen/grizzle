@@ -12,7 +12,8 @@ import type {
  * What a function of the installation is, by the object that installs it, which decides how it is installed and who
  * may execute it: a world's function (a writable query entry's filter function, key probe or unique probe), the
  * refusal function, the snapshot guard, the
- * isolation guard, a rule over a query's trigger function, a retirable unit's hold or retirement, or a constant: a
+ * isolation guard, a rule over a query's trigger function, a retirable unit's hold or retirement, a head's stamp
+ * function (physical/ddl/stamps.ts), or a constant: a
  * roster's names constant, which only a view's decoded closed id reads; a roster's live-codes constant, read by the
  * CHECK of each of `domains`, its roster's domain and its sets' where a set is typed over it; or a closed relation's or
  * a side's constant, named by its content's digest.
@@ -35,6 +36,7 @@ export type InstalledFunction =
 	| { readonly kind: "rule" }
 	| { readonly kind: "hold" }
 	| { readonly kind: "retire" }
+	| { readonly kind: "stamp" }
 	| { readonly kind: "names" }
 	| { readonly kind: "live"; readonly domains: ReadonlyArray<string> }
 	| {
@@ -101,6 +103,11 @@ export interface ErasureExpectation {
 	 * each under the isolation guard, on which no login holds a privilege but the ledger's SELECT.
 	 */
 	readonly bookkeeping: ReadonlySet<string>
+	/**
+	 * The heads' tables (physical/ddl/stamps.ts): beside the authored ones, under no isolation guard, written by their
+	 * stamp functions alone, on which no role and no login holds any privilege.
+	 */
+	readonly heads: ReadonlySet<string>
 	/** The migrations ledger's table, a bookkeeping table, which every login reads and the live source publishes. */
 	readonly ledger: string
 	/**
@@ -525,7 +532,12 @@ const standingProblems = (j: Judging, t: Table): ReadonlyArray<ErasureProblem> =
 	if (t.kind !== "r") {
 		return [{ kind: "foreignRelation", relation: t.name, relkind: t.kind }]
 	}
-	if (!j.expect.tables.has(t.name) && !j.expect.bookkeeping.has(t.name) && !isSecret(j, t)) {
+	if (
+		!j.expect.tables.has(t.name) &&
+		!j.expect.bookkeeping.has(t.name) &&
+		!j.expect.heads.has(t.name) &&
+		!isSecret(j, t)
+	) {
 		return [{ kind: "unexpectedTable", table: t.name }]
 	}
 	const count = Arr.filter(
@@ -583,9 +595,10 @@ const decoderReads = (j: Judging, t: Table, g: HeldGrant): boolean =>
 	g.grantee === j.expect.liveSource.decoder &&
 	g.privilege === "SELECT"
 
-/** What a world role may hold on `t`: nothing on the secret, a materialized view's or a table's privileges otherwise. */
+/** What a world role may hold on `t`: nothing on the secret or a head's table, a materialized view's or a table's
+ * privileges otherwise. */
 const worldPrivileges = (j: Judging, t: Table): ReadonlySet<string> => {
-	if (isSecret(j, t)) {
+	if (isSecret(j, t) || j.expect.heads.has(t.name)) {
 		return allowed.none
 	}
 	return t.kind === "m" ? allowed.view : allowed.table
@@ -703,8 +716,8 @@ const refresherProblems = (j: Judging): ReadonlyArray<ErasureProblem> =>
 
 /**
  * A SECURITY DEFINER function grizzle installs, owned by the owner, its search_path fixed: a world's function is STABLE
- * and executable by one role; every other is VOLATILE, and is the refusal function or a retirable
- * unit's hold or retirement (EXECUTE to world roles alone), the snapshot guard (EXECUTE to every login and no role), or
+ * and executable by one role; every other is VOLATILE, and is the refusal function, a retirable
+ * unit's hold or retirement or a head's stamp function (EXECUTE to world roles alone), the snapshot guard (EXECUTE to every login and no role), or
  * the isolation guard or a law function (EXECUTE to no one). A function the installation does not include is
  * foreign, and judged as one that grants EXECUTE to no one.
  */
@@ -785,6 +798,7 @@ const functionProblems = (j: Judging, f: Fn): ReadonlyArray<ErasureProblem> => {
 		case "refusal":
 		case "hold":
 		case "retire":
+		case "stamp":
 			return [...definer, ...grantProblems(j, held, allowed.function, allowed.none)]
 		case "snapshotGuard":
 			return [

@@ -1,35 +1,34 @@
 /**
  * An insert's stamps (ir/instant.ts): the fields its rows leave out, each stamped from its head at the row's child:
  * an instant with the call's instant of its clock, `greatest(c, h + 1)`, c the call's reading of the database's clock
- * in microseconds and h the latest instant the child holds, none where it holds none, which `greatest` passes over as
- * it does a NULL; a place with `coalesce(h + 1, 0)`, h the greatest place its group holds.
+ * in microseconds and h the child's head, the last instant stamped at it, none for a child never stamped; a place with
+ * `coalesce(h + 1, 0)`, h the greatest place its group holds. The head is the child's row of the head's table, which the
+ * head's stamp function advances and returns (physical/ddl/stamps.ts).
  *
- * Its input is read once, then each head's stamps are worked out once per child, each child read once from the input's
+ * Its input is read once, then each head's stamps are taken once per child, each child read once from the input's
  * distinct children, so the stamps are keyed by their child and want no second duplicate elimination, and the input is
  * read again with them, so every statement after reads complete facts, the input's own fields and the stamped ones
  * alike:
  *
  *   "<input>"("<x1>", …) AS (<the input's read of the fields it carries>),
  *   "<stamps>"("<c1>", …, "<at>") AS MATERIALIZED (
- *     SELECT "<d>"."<c1>", …, greatest(<clock>, (SELECT "<h>"."<at>" + 1 FROM LATERAL (SELECT
- *       "<inner>"."<at>" FROM <clock's table> AS "<inner>" WHERE "<inner>"."<child1>" = "<d>"."<c1>" AND …
- *       ORDER BY "<inner>"."<at>" DESC LIMIT 1) AS "<h>"("<at>")))
- *     FROM (SELECT DISTINCT "<input>"."<x1>", … FROM "<input>") AS "<d>"("<c1>", …)),
+ *     SELECT "<s>"."<child 1>", …, "<s>"."<at>"
+ *     FROM (SELECT (array_agg("<d>"."<c1>" ORDER BY "<d>"."<c1>", …))::<type 1>[], …
+ *           FROM (SELECT DISTINCT "<input>"."<x1>", … FROM "<input>") AS "<d>"("<c1>", …)) AS "<a>"("<a1>", …),
+ *          LATERAL "<level>"."<stamp>"("<a>"."<a1>", …[, <clock>]) AS "<s>"),
  *   "<r1>"(…) AS (SELECT "<input>"."<x1>", …, "<stamps>"."<at>" FROM "<input>" JOIN "<stamps>" ON
  *     "<input>"."<x1>" = "<stamps>"."<c1>" AND …)
  *
- * The head is the clock's or the place's primary key read backwards from the child, its last row, one index probe per
- * child
- * (write/probe.ts probeGroup `last`), as a counted family's kept count reads its last member (family/additions.ts
- * storedKept). Every part of the statement that stamps a clock reads it at the statement's one snapshot, so the parts
- * of one stratum's single statement that stamp one clock at one child, its own rows and its references' alike, stamp
- * one instant, and none sees another's row; so do a place's, one place for every row of the call in its group. The
- * clock is the call's transaction_timestamp(), one value in every statement of the call, or that instant moved by the
- * call's offset under a moved clock (lower/conservative/context.ts clockReading).
- * Under SERIALIZABLE, two calls that stamp one group's place each read the other's head or are refused, so no two
- * commit one place.
+ * Each insert's CTE of a head's stamps calls the function once, MATERIALIZED, and the function stamps each child once a
+ * call, returning a head its own call advanced as it stands, so the parts of one stratum's single statement that stamp
+ * one clock at one child, its own rows and its references' alike, stamp one instant; so do a place's, one place for
+ * every row of the call in its group. It locks each child's head until the call ends, so two calls that stamp one
+ * child take turns at every level, the later stamping after the earlier's head, and calls that stamp different
+ * children wait on nothing of each other's. The clock is the call's transaction_timestamp(), one value
+ * in every statement of the call, or that instant moved by the call's offset under a moved clock
+ * (lower/conservative/context.ts clockReading).
  */
-import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	concatNonEmpty,
 	mapNonEmpty,
@@ -44,30 +43,43 @@ import {
 	type Stamped
 } from "#compiler/ir/instant.ts"
 import type { LawField } from "#compiler/ir/law.ts"
+import { fieldColumnType } from "#compiler/ir/physical.ts"
 import { emptyEnv } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
-import type { Cte, Expr, FromItem, JoinStep, OperandSelect, Select } from "#compiler/sql/ast.ts"
+import type {
+	Cte,
+	Expr,
+	FromItem,
+	FunctionParam,
+	JoinStep,
+	OperandSelect,
+	Select,
+	TypeRef
+} from "#compiler/sql/ast.ts"
 import {
 	and,
-	binary,
+	arrayOf,
+	asc,
+	call,
 	cast,
 	col,
+	core,
 	cteRef,
 	derived,
 	distinctCore,
 	eq,
-	lit,
+	operandSelect,
 	provedCore,
+	qualifiedCall,
 	select,
-	simpleSelect,
 	target,
+	targetAs,
 	types
 } from "#compiler/sql/build.ts"
 import type { NameSupply } from "#compiler/sql/naming.ts"
 import type { FieldColumns } from "#compiler/write/defined.ts"
 import { written } from "#compiler/write/family/written.ts"
 import type { WriteContext } from "#compiler/write/insert/statement.ts"
-import { bound, probeGroup } from "#compiler/write/probe.ts"
 
 const internal = (purpose: string) => ({ kind: "internal", purpose }) as const
 
@@ -85,11 +97,38 @@ export interface HeadStamps {
 	readonly at: string
 }
 
+/** The clock reading's parameter of a clock's stamp function (`stampParams`). */
+export const stampClockParam = "__clock"
+
+/** A head's stamp function's parameters: an array of each child field's values, in key order, `__children_1` the first,
+ * and a clock's reading in microseconds, `__clock`. A declared name never starts with `__`, so no column the function's
+ * statement names is one of them. */
+export const stampParams = (
+	head: Head,
+	columnType: (field: LawField) => TypeRef
+): NonEmptyReadonlyArray<FunctionParam> => {
+	const children = mapNonEmpty(head.child, (field, at): FunctionParam => {
+		const array = arrayOf(columnType(field))
+		if (array === undefined) {
+			throw defect(`a child field ${head.relation}.${field.name} of a type with an array`)
+		}
+		return { name: `__children_${at + 1}`, type: array }
+	})
+	switch (head.kind) {
+		case "clock":
+			return [...children, { name: stampClockParam, type: types.bigint }]
+		case "place":
+			return children
+	}
+}
+
 /**
  * The CTE `names` of `head`'s stamps at each child `children` holds, one row a child, its columns in the head's child
- * order (see the module's header): a clock's `greatest(c, h + 1)`, a place's `coalesce(h + 1, 0)`, h the head's
- * greatest value at the child, read by one probe of the head's primary key backwards from the child. `children` holds
- * each child once, so its one materialized evaluation probes each child once.
+ * order (see the module's header): the rows the head's stamp function returns (physical/ddl/stamps.ts), called once
+ * with the children's arrays, each aggregated in key order and cast to its child field's column type, and for a clock
+ * the call's reading of the database's clock in microseconds. The function advances each child's head, a clock's to
+ * `greatest(c, h + 1)` and a place's to `coalesce(h + 1, 0)`, and returns it, each stamp written at its field's type.
+ * `children` holds each child once, so the function meets each child's head once.
  */
 export const headStampsCte = (
 	w: WriteContext,
@@ -99,40 +138,34 @@ export const headStampsCte = (
 	children: OperandSelect
 ): Cte => {
 	const distinct = supply.relation(internal("stamped children"))
-	const childAt = (i: number): Expr =>
-		col(distinct, defined(names.child[i], "a stamped child column"))
-	const probed = probeGroup(
-		w,
-		supply,
-		head.relation,
-		"last",
-		mapNonEmpty(head.child, (f, i) => bound(w, head.relation, f, childAt(i))),
-		[w.names.column(head.relation, head.field.name)],
-		{ read: [w.names.column(head.relation, head.field.name)], filter: () => [] }
-	)
-	const latest = probed.at(w.names.column(head.relation, head.field.name))
-	/** One past the head, read as the bigint it is, none where the child holds none. */
-	const next: Expr = {
-		kind: "subquery",
-		query: simpleSelect(
-			[target(binary("+", cast(latest, types.bigint), lit.int(1, types.bigint)))],
-			[probed.source],
-			undefined
-		)
-	}
-	/** A clock's stamp is the greater of the clock and one past the head; a place's is one past the head, 0 where
-	 * there is none. Each is written at its field's type. */
-	const stamp: Expr = ((): Expr => {
+	const arrays = supply.relation(internal("stamped children's arrays"))
+	const stamped = supply.relation(internal("stamped heads"))
+	const columnType = (f: LawField): TypeRef => fieldColumnType(w.names, f.type).type
+	const params = stampParams(head, columnType)
+	const order = names.child.map((c) => asc(col(distinct, c)))
+	const aggregated = mapNonEmpty(head.child, (_, i) => {
+		const array = defined(params[i], "a stamped child's array parameter").type
+		return {
+			column: supply.column(internal("stamped child's array")),
+			value: cast(
+				{
+					...call("array_agg", [col(distinct, defined(names.child[i], "a stamped child column"))]),
+					orderBy: order
+				},
+				array
+			)
+		}
+	})
+	const clock: ReadonlyArray<Expr> = ((): ReadonlyArray<Expr> => {
 		switch (head.kind) {
 			case "clock":
-				return {
-					kind: "greatest",
-					args: [w.cx.clockReading({ kind: "stamp" }, "micros", types.bigint), next]
-				}
+				return [w.cx.clockReading({ kind: "stamp" }, "micros", types.bigint)]
 			case "place":
-				return { kind: "coalesce", args: [next, lit.int(0, types.bigint)] }
+				return []
 		}
 	})()
+	const fn = w.names.stamp(head.relation, head.field.name)
+	const headColumn = (f: LawField): Expr => col(stamped, w.names.column(head.relation, f.name))
 	return {
 		name: names.name,
 		columns: [...names.child, names.at],
@@ -141,10 +174,34 @@ export const headStampsCte = (
 			provedCore(
 				"keyed",
 				[
-					...mapNonEmpty(names.child, (_, i) => target(childAt(i))),
-					target(written(w, stamp, head.field.type))
+					...mapNonEmpty(head.child, (f) => target(headColumn(f))),
+					target(written(w, headColumn(head.field), head.field.type))
 				],
-				[derived(children, distinct, names.child, false)],
+				[
+					derived(
+						operandSelect(
+							core(
+								aggregated.map((a) => targetAs(a.value, a.column)),
+								[derived(children, distinct, names.child, false)],
+								undefined
+							)
+						),
+						arrays,
+						aggregated.map((a) => a.column),
+						false
+					),
+					{
+						kind: "function",
+						call: qualifiedCall(fn.schema, fn.name, [
+							...aggregated.map((a) => col(arrays, a.column)),
+							...clock
+						]),
+						alias: stamped,
+						columns: [],
+						lateral: true,
+						ordinality: false
+					}
+				],
 				undefined
 			)
 		)

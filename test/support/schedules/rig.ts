@@ -20,7 +20,7 @@ import { type GrizzleActor, grizzleActor } from "#test/support/schedules/actors.
 import { type ExploreEnv, exploreEnv } from "#test/support/schedules/interleave.ts"
 import { servedFixtureOf } from "#test/support/served-db.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
-import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
+import { headFills, installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import type { SubstrateWorld } from "#test/support/substrate/session.ts"
 import {
 	Substrate,
@@ -63,8 +63,9 @@ export interface Rig<W extends RigWorlds> {
 	) => Effect.Effect<void, SqlError | TransactionRolledBack>
 	/**
 	 * Every relation's rows replaced with what `sql` inserts, as the owner, in one transaction after every stored
-	 * relation's rows are deleted: a reset between runs that writes the whole state and is never an SSI pivot
-	 * (installationGroup, replaceRows).
+	 * relation's rows are deleted, each head then filled from the rows as a migration fills it (physical/ddl/stamps.ts
+	 * headFill), so a stored row is at most its child's head as every stamp leaves it: a reset between runs that writes
+	 * the whole state and is never an SSI pivot (installationGroup, replaceRows).
 	 */
 	readonly replace: (
 		sql: ReadonlyArray<string>
@@ -171,7 +172,10 @@ const rigOver = <W extends RigWorlds>(
 				replaceRows(
 					s.admin,
 					installationGroup(namesOf(installed)),
-					Arr.map(sql, (text) => ({ sql: text, params: [] }))
+					Arr.map([...sql, ...headFills(installed.installation)], (text) => ({
+						sql: text,
+						params: []
+					}))
 				),
 			servedWriter: (actorName, open, first) =>
 				Effect.gen(function* () {

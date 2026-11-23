@@ -527,6 +527,7 @@ export const physicalKinds = [
 	"foreignKey",
 	"refusalFunction",
 	"unitFunction",
+	"head",
 	"isolationFunction",
 	"snapshotGuard",
 	"isolationTrigger",

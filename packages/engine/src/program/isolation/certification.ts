@@ -20,6 +20,7 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { prepared } from "#compiler/core/prepared.ts"
+import { headsOf } from "#compiler/ir/instant.ts"
 import type { NativeColumn, NativeObject } from "#compiler/ir/law.ts"
 import { triggerLawsOver } from "#compiler/laws/model/model.ts"
 import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
@@ -108,10 +109,12 @@ const variantWrites = (variants: CompiledVariants): ReadonlyArray<CompiledWrite>
  *   the view's own;
  * - a column of a stored relation's table is its field, and none of a law column;
  * - the refusal function, each closed relation's constant functions, each library function whose definition reads no
- *   table (physical/ddl/library.ts tablelessLibrary, a text's digest among them) and each declared function read no
- *   table: a declared function runs as the installation's function owner, which holds no privilege on any table or
- *   view, so a read of one fails its call with 42501 (physical/ddl/functions.ts); a retirable unit's retirement
- *   function writes its header's and its bodies' tables by a retirement; any other function may read any;
+ *   table (physical/ddl/library.ts tablelessLibrary, a text's digest among them), each declared function and each head's
+ *   stamp function read no table: a declared function runs as the installation's function owner, which holds no
+ *   privilege on any table or view, so a read of one fails its call with 42501 (physical/ddl/functions.ts); a stamp
+ *   function writes and reads only its head's table, which no relation names, and returns each child's stamp, a value
+ *   its call takes as it takes the clock's (physical/ddl/stamps.ts); a retirable unit's retirement function writes its
+ *   header's and its bodies' tables by a retirement; any other function may read any;
  * - the objects an ON CONFLICT with no target arbitrates on a relation's table are its primary key's, each UNIQUE's and
  *   each span key's natives, each by the columns of its fields.
  *
@@ -172,6 +175,10 @@ const extractNames = (role: RoleChanges): ExtractNames => {
 				noTable.add([fn.schema, fn.name])
 			}
 		}
+	}
+	for (const head of headsOf(artifacts.laws.theory.instants)) {
+		const stamp = names.stamp(head.relation, head.field.name)
+		noTable.add([stamp.schema, stamp.name])
 	}
 	const retirements = new TupleMap<readonly [string, string], ReadonlyArray<RetiredTable>>()
 	for (const st of owned.base.statements) {

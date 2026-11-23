@@ -130,6 +130,7 @@ export const kindModel: { readonly [K in PhysicalKind]: KindModel } = {
 	},
 	refusalFunction: inSchema,
 	unitFunction: onTable("any reason"),
+	head: onTable("any reason"),
 	isolationFunction: inSchema,
 	snapshotGuard: inSchema,
 	isolationTrigger: { after: ["schema", "table", "isolationFunction"], justified: "any reason" },

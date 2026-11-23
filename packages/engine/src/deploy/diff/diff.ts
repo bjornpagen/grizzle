@@ -112,11 +112,12 @@ import {
 	type RosterCodec,
 	type RosterFate
 } from "#compiler/ir/codes.ts"
-import type { Head } from "#compiler/ir/instant.ts"
+import { type Head, headsOf } from "#compiler/ir/instant.ts"
 import type { InstallationManifest, PhysicalKind } from "#compiler/ir/products.ts"
 import { migrationGenerations } from "#compiler/laws/model/generation.ts"
 import { rosterConstants } from "#compiler/physical/ddl/constants.ts"
 import { guardBracket } from "#compiler/physical/ddl/immutable.ts"
+import { headFill } from "#compiler/physical/ddl/stamps.ts"
 import { type InlineSubcommand, notInline, wholeTable } from "#compiler/physical/ddl/whole.ts"
 import { refreshStatement } from "#compiler/physical/derived/objects.ts"
 import { targetKey, touchedTargets } from "#compiler/physical/install/comments.ts"
@@ -242,6 +243,7 @@ export const staleReplaced: { readonly [K in PhysicalKind]: boolean } = {
 	foreignKey: true,
 	refusalFunction: true,
 	unitFunction: true,
+	head: true,
 	isolationFunction: true,
 	snapshotGuard: true,
 	isolationTrigger: false,
@@ -389,6 +391,7 @@ const dropOrder: { readonly [K in Dropped]: number } = {
 	isolationTrigger: 3,
 	refusalFunction: 11,
 	unitFunction: 11,
+	head: 11,
 	isolationFunction: 11,
 	snapshotGuard: 11,
 	lawFunction: 11,
@@ -469,16 +472,9 @@ const stampedHeadsOf = (
 		const of = out.getOrInsertComputed(key, () => new Map<string, Head>())
 		of.set(head.field.column, head)
 	}
-	for (const roles of installation.laws.theory.instants.roles.values()) {
-		for (const role of roles.values()) {
-			if (role.kind === "clock" && role.stamp.head.kind === "clock") {
-				put(role.stamp.head)
-			}
-		}
-	}
-	for (const place of installation.laws.theory.instants.places.values()) {
-		if (place.order.kind === "unordered") {
-			put(place)
+	for (const head of headsOf(installation.laws.theory.instants)) {
+		if (head.kind === "clock" || head.order.kind === "unordered") {
+			put(head)
 		}
 	}
 	return out
@@ -979,6 +975,8 @@ class Differ {
 	/** The target's stamped heads a migration gives one value on every stored row, by their table's key and their column
 	 * (stampedHeadsOf): a clock or an unordered place this migration adds to a table that may hold rows (stampedColumn). */
 	readonly stamped: ReadonlyMap<NameKey, ReadonlyMap<string, Head>>
+	/** The target's heads by their tables' keys (physical/ddl/stamps.ts), which a head's fill reads its relation by. */
+	readonly heads: ReadonlyMap<NameKey, Head>
 	/** The drawn columns this migration adds to tables that may hold rows under their placeholders, by table key, in the
 	 * order it adds them, which the backfill draws and then drops the default of. */
 	readonly backfilled = new Map<
@@ -997,6 +995,11 @@ class Differ {
 		this.schema = input.target.schema
 		this.drawn = drawnColumns(input.installation)
 		this.stamped = stampedHeadsOf(input.installation)
+		this.heads = new Map(
+			headsOf(input.installation.laws.theory.instants).map(
+				(h) => [nameKey(input.installation.names.head(h.relation, h.field.name)), h] as const
+			)
+		)
 		this.generationOf = migrationGenerations(input.installation.laws, (r) =>
 			input.installation.names.relation(r)
 		)
@@ -2122,6 +2125,13 @@ class Differ {
 					this.unitFunction(before, v.create, o.ddl)
 				}
 				return
+			case "head":
+				if (before === undefined) {
+					this.sql("structure.heads", [...o.ddl, ...this.headFillOf(v.create.table)])
+				} else if (!this.unchanged(before, o)) {
+					this.head(before, v.create.table, o.ddl)
+				}
+				return
 			case "functionOwner":
 				if (before === undefined) {
 					this.sql("setup", o.ddl)
@@ -2314,6 +2324,37 @@ class Differ {
 				? [{ kind: "dropFunction", name: functionNameOf(previous.create), ifExists: false }]
 				: []
 		this.sql("structure", [...drop, ...ddl])
+	}
+
+	/**
+	 * A head whose table or stamp function changes (physical/ddl/stamps.ts): dropped, its function first, which returns
+	 * its table's rows, then its table, and created again and filled from its relation in structure.heads, after every
+	 * data step, so its children's heads start above every row the migration leaves stored, as a new head's do; the
+	 * function's grants went with it, so they are granted again (recreatedFunctions).
+	 */
+	head(before: RecordedObject, table: ObjectName, ddl: ManifestObject["ddl"]): void {
+		const previous = installed(before)
+		if (previous.kind !== "head") {
+			throw defect(`the head ${before.ident} was recorded as a head`)
+		}
+		this.recreatedFunctions.add(nameKey(previous.stamp.name))
+		this.sql("structure.heads", [
+			{ kind: "dropFunction", name: functionNameOf(previous.stamp), ifExists: false },
+			{ kind: "drop", object: "TABLE", name: previous.create.table, ifExists: false },
+			...ddl,
+			...this.headFillOf(table)
+		])
+	}
+
+	/**
+	 * The fill of the head whose table the target names `table` (physical/ddl/stamps.ts headFill), where its relation's
+	 * table may hold rows: a new relation's holds none, so its head starts empty, as a fresh installation's.
+	 */
+	headFillOf(table: ObjectName): ReadonlyArray<SqlStatement> {
+		const head = defined(this.heads.get(nameKey(table)), `the head of the table ${table.name}`)
+		return this.mayHoldRows(this.input.installation.names.relation(head.relation))
+			? [headFill(this.input.installation.names, head)]
+			: []
 	}
 
 	/**
@@ -3415,6 +3456,16 @@ class Differ {
 				return
 			case "table":
 				drop(v.kind, statement(dropObject(v)))
+				return
+			case "head":
+				drop(
+					v.kind,
+					statement({ kind: "dropFunction", name: functionNameOf(v.stamp), ifExists: false })
+				)
+				drop(
+					v.kind,
+					statement({ kind: "drop", object: "TABLE", name: v.create.table, ifExists: false })
+				)
 				return
 			case "refusalFunction":
 			case "unitFunction":
@@ -4624,6 +4675,11 @@ const grantObjectsOf = (v: Installed<AnyObject>): ReadonlyArray<GrantObject> => 
 		case "table":
 		case "ledger":
 			return [{ kind: "TABLE", name: v.create.table }]
+		case "head":
+			return [
+				{ kind: "TABLE", name: v.create.table },
+				{ kind: "FUNCTION", name: functionNameOf(v.stamp) }
+			]
 		case "view":
 		case "materializedView":
 			return [{ kind: "TABLE", name: v.create.name }]

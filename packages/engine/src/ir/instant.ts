@@ -19,10 +19,11 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
  * A write stamps an instant it leaves out with the call's instant of the clock that fills it (StampSource): a clock's
  * own, or for a reference the clock its containments reach, at the child the containments carry its row to. The call's
  * instant of a clock at a child is `greatest(c, h + 1)`, c the call's reading of the database's clock in microseconds
- * (transaction_timestamp()) and h the latest instant the child holds, or none: one value for every row of the call at
- * that child, and later than every instant the child held before it. Under SERIALIZABLE, two calls that stamp one
- * child each read the other's head or are refused, so a child's instants increase in the order its calls commit,
- * whatever the clock reads (README "Instants").
+ * (transaction_timestamp()) and h the child's head, the last instant ever stamped at it, none for a child never
+ * stamped: one value for every row of the call at that child, and later than every instant the child held before it.
+ * The head is a row of its own, the child's row of the clock's head table, which only the stamp advances, locking it
+ * until its call ends (physical/ddl/stamps.ts), so two calls that stamp one child take turns at every level, and a
+ * child's instants increase in the order its calls commit, whatever the clock reads (README "Instants").
  */
 
 /**
@@ -60,8 +61,8 @@ export interface Clock {
 
 /**
  * A place (ir/desc.ts Writing place): a natural last in its relation's primary key, after at least one field, its child
- * the key's fields before it, its group, which the insert that adds a row stamps `coalesce(h + 1, 0)`, h the greatest
- * place the group holds, none where it holds none: one place for every row of the call in the group, so a group's
+ * the key's fields before it, its group, which the insert that adds a row stamps `coalesce(h + 1, 0)`, h the group's
+ * head, the greatest place it holds, none where it holds none: one place for every row of the call in the group, so a group's
  * places run gapless from 0 in the order its rows' calls commit, and its relation admits no put and no delete, which
  * would state a place or leave a gap. `order` is how a migration that adds the place to a table holding rows numbers
  * them (PlaceOrder), the one thing a place reads beyond its group.
@@ -86,8 +87,20 @@ export type PlaceOrder =
 	| { readonly kind: "unordered" }
 	| { readonly kind: "by"; readonly field: LawField }
 
-/** What a stamp counts on from: the head of a clock or a place, the greatest value its child holds. */
+/** What a stamp counts on from: the head of a clock or a place, the last value stamped at its child, which the child's
+ * row of the head's table holds (physical/ddl/stamps.ts). */
 export type Head = Clock | PlaceHead
+
+/** Every head of the schema (Instants): each clock, which its own stamp source names, and each place, each once. A
+ * reference has no head of its own: it is stamped from its clock's. */
+export const headsOf = (instants: Instants): ReadonlyArray<Head> => [
+	...[...instants.roles.values()].flatMap((roles) =>
+		[...roles.values()].flatMap((role) =>
+			role.kind === "clock" && role.stamp.head.kind === "clock" ? [role.stamp.head] : []
+		)
+	),
+	...instants.places.values()
+]
 
 /**
  * What stamps a field a write leaves out: the head `head`, at the child the stamped row's fields `child` hold,

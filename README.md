@@ -3940,37 +3940,42 @@ export const signIn = ChangeSet.empty(Auth)
   meets no stored row at the primary key: `delta.met` holds none of its rows ([Rows an insertion
   met](#rows-an-insertion-met)), and a call retried after `commitUnknown` adds them again, at a later instant.
 - **The stamp.** The call's instant at a child is `greatest(c, h + 1)`: `c` the call's reading of the database's clock
-  in microseconds, `transaction_timestamp()`, and `h` the latest instant the child holds, `max(at)` over the clock's
-  primary key at the child, one index probe per child. A role whose ChangeSet stamps an instant runs SERIALIZABLE.
+  in microseconds, `transaction_timestamp()`, and `h` the child's head, the last instant ever stamped at it. Each clock
+  keeps its children's heads in a table of its own, one row a child, beside its relation, which no role reads or writes:
+  the statement that stamps calls the clock's stamp function, which advances each child's row by one `INSERT ... ON
+  CONFLICT DO UPDATE` and returns it. A ChangeSet that stamps has a READ COMMITTED form, so its role runs at the level
+  the rest of its workload earns ([READ COMMITTED writes](#read-committed-writes)).
 
-**Why it is the child's order.** For one child of one clock:
+**Why it is the child's order.** For one child of one clock, at every level:
 
-- **Instant order is commit order.** Two calls that stamp the child and both commit: if neither saw the other's row,
-  each read the child's head, the range of the clock's key at the child, and the other inserted into it, a
-  read-write dependency each way, a cycle SSI refuses by failing one of them with 40001, a retryable `transient`. So
-  the later's snapshot holds the earlier's commit: its instant is at least the earlier's plus one, and the earlier
-  committed before that snapshot was taken, so before the later commits. Whatever plan PostgreSQL chooses, the head is
-  read under its predicate locks, of the index page a new row of the child lands on or of the whole table. Without
-  the head, overlapping calls would stamp in the order their transactions began, which is no order of commits.
+- **Two calls that stamp the child take turns, and instant order is commit order.** The stamp function's upsert either
+  inserts the child's head row or locks the row it meets and assigns from its latest committed version, whatever the
+  calling statement's snapshot holds, and keeps that lock until the call ends (PostgreSQL's ON CONFLICT DO UPDATE). So a
+  call that stamps the child while another holds its head waits for that call to end, then stamps at least one past
+  its instant, and commits after it. At SERIALIZABLE, a call whose snapshot cannot see the head's latest version, one a
+  call that committed since wrote, is refused with 40001, a retryable `transient`, and its retry stamps after it.
+- **Calls that stamp different children never wait on each other.** Each child's head is its own row, so no lock of one
+  child's stamp is another's: the child is the shard key, and children shard freely. A call that stamps several
+  children of one clock takes their heads in key order, so two such calls never wait on each other in a cycle. Two
+  calls that each stamp two heads, clocks or places, at children the other stamps too may: a ChangeSet that stamps
+  one of them before the other, in an earlier stratum or an earlier part of one statement, beside one that stamps them
+  the other way round. PostgreSQL then fails one of them with 40P01, a retryable `transient`.
 - **A clock that steps back reorders nothing.** An NTP step or a failover to a host whose clock is behind gives a
   smaller `c`, and `h + 1` wins: the child's instants count up by one a write until the clock passes them again. An
   instant is never earlier than its call's reading.
-- **Two calls in one microsecond** stamp `h + 1` where one sees the other; where neither does, they meet at the key,
-  the later fails with 40001, and its retry reads the head the first committed.
-- **No occupant of the call's microsecond is met.** A row stamped in the same microsecond by a call that committed
-  before this call's snapshot is the child's head, so this call stamps after it; a call that commits after the
-  snapshot is the concurrent case above, never a key conflict.
-- **What a child holds.** The order is over the rows the child holds: a write may delete its head, and a later stamp
-  is then above every row still held, not above the deleted one.
+- **A call that rolls back stamps nothing**: its head's advance rolls back with it.
+- **No occupant of the call's microsecond is met.** A stamped row's instant is above every instant ever stamped at its
+  child, so an insertion that stamps a clock meets no stored row at the primary key.
+- **What a child holds.** A write may delete its head; a later stamp is still above it, since the head keeps the last
+  instant stamped, not the greatest one held.
 - **A clock a migration adds to stored rows** takes the migration's instant on every one, its transaction's reading
   of the database's clock, under a DEFAULT the backfill then drops, with no placeholder: re-keying `VerifiedEmail` from
-  `(user)` to `(user, at)` gives each stored row the one instant, and every later insert stamps above it. That keeps
+  `(user)` to `(user, at)` gives each stored row the one instant, and every later insert stamps above it. A migration
+  that creates a clock's head table beside stored rows, for a clock it adds, a child it re-keys or a type it changes,
+  fills it with each child's greatest stored instant, so every later stamp is above every row it finds. That keeps
   the rows apart exactly when the new primary key holds the old one beside the clock; a clock added under a key that
   does not, `(user, email)` to `(user, at)`, is refused when generate drafts it (`InstantRefused`, `addedOverRows`,
   naming both keys): keep the old key's fields, or re-key in a migration of its own.
-- **The child is the shard key.** The theory orders one child's instants and claims nothing between two children, so
-  each child needs one place that serializes its writes, its rows on one machine, which stamps them, and children
-  shard freely.
 
 **An instant stored as it is.** A read delivers an instant as an `Instant`, a `bigint` under the brand grizzle's read of
 one alone mints, so a host holds an instant only where a read delivered it. `instant.stored` is a field of instant's
@@ -4000,9 +4005,9 @@ and no count for a write to read.
 - **Stamped by its insert.** An insert's rows leave the place out, as they leave out every field grizzle writes: a row
   that states one is refused as its heading's mismatch. Every row a call stamps in one group holds one place, so a
   call adds one row a group. A place is stamped as a clock is, in one statement of one stratum (`stampedApart`), never
-  at a group the same insert stamps (`groupStamped`), and a role whose ChangeSet stamps one runs SERIALIZABLE: two
-  calls that stamp one group each read the other's head or are refused with 40001, a retryable `transient`, so no two
-  commit one place.
+  at a group the same insert stamps (`groupStamped`), from its group's head row ([Instants](#instants)): two calls
+  that stamp one group take turns at its head, at every level, so no two commit one place, and a call that rolls back
+  leaves no gap.
 - **Its members carry it.** An owner whose place a nested insert stamps hands it to its members: each member's group
   field paired with the place carries the one place its owner's row takes, at any depth, and no member states it. The
   owner and every member are written by one family statement, which stamps the place once at each group, every row that
@@ -5457,7 +5462,9 @@ statement's. The role is certified READ COMMITTED when all of these hold, and st
 - **Each of its ChangeSets has a READ COMMITTED form.** An insert into a relation whose primary key holds a span has
   none: PostgreSQL arbitrates an exclusion constraint by `ON CONFLICT ON CONSTRAINT ... DO NOTHING` alone, so no
   statement can tell a fact the insert met from one it made. A role with such an insert, or a put of such a relation,
-  runs SERIALIZABLE, where the insert arbitrates every key at once and classifies what it met.
+  runs SERIALIZABLE, where the insert arbitrates every key at once and classifies what it met. An insert that stamps an
+  instant or a place has one: it takes its stamp from its child's head row, which serializes the calls of one child and
+  no others ([Instants](#instants)), and reads nothing of its own relation to do it.
 - **It only inserts.** It states `insert`, not `write`, so it holds INSERT and SELECT alone, and every relation it
   writes is one no role updates or deletes: by a grant, by a ChangeSet, or by an `ON UPDATE CASCADE` into it.
 - **Its relations' laws hold at READ COMMITTED.** Every law over a relation it writes is one PostgreSQL checks at every
@@ -5521,7 +5528,7 @@ counts of it. Each fence follows the roles. The conditions:
 
 | Condition    | What fails it                                                                                                                            |
 | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `form`       | a ChangeSet with no READ COMMITTED form: it inserts into or puts a relation whose primary key holds a span, or stamps an instant or a place |
+| `form`       | a ChangeSet with no READ COMMITTED form: it inserts into or puts a relation whose primary key holds a span |
 | `facts`      | a relation it touches that the installation states no fact of, or a table or function its statements name that no relation is         |
 | `members`    | no ChangeSet in its workload                                                                                                             |
 | `privileges` | it states `write`, or some role updates or deletes a relation it writes                                                                 |

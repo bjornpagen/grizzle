@@ -65,6 +65,12 @@ export interface InstallNames extends PhysicalNames {
 	readonly hold: (header: string) => ObjectName
 	/** A retirable header's retire function, in the header's level's schema, which takes its groups' key arrays. */
 	readonly retire: (header: string) => ObjectName
+	/** The head table of a clock or a place, by its relation and field, in the relation's level's schema
+	 * (physical/ddl/stamps.ts). */
+	readonly head: (relation: string, field: string) => ObjectName
+	/** The stamp function of a clock or a place, by its relation and field, in the relation's level's schema, which
+	 * takes its children's key arrays (physical/ddl/stamps.ts). */
+	readonly stamp: (relation: string, field: string) => ObjectName
 	/** The primary key constraint of a stored relation, which an insert into a span primary key names as its
 	 * arbiter. */
 	readonly primaryKey: (relation: string) => ConstraintName
@@ -567,6 +573,14 @@ export const installNames = (input: NamesInput): InstallNames => {
 		retire: (header) => ({
 			schema: identifierOf(levelOf(header)),
 			name: identifierOf(identity.retire(header))
+		}),
+		head: (relation, field) => ({
+			schema: identifierOf(levelOf(relation)),
+			name: identifierOf(identity.head(relation, field))
+		}),
+		stamp: (relation, field) => ({
+			schema: identifierOf(levelOf(relation)),
+			name: identifierOf(identity.stamp(relation, field))
 		}),
 		primaryKey: (relation) => {
 			const key = relationOf(owned, relation).keys.find((k) => k.primary)

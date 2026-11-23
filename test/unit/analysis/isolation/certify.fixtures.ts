@@ -4395,9 +4395,9 @@ export const sharedFeatures = (st: StatementFacts): ReadonlyArray<SharedFeature>
 
 /**
  * A case of the form search: a drawn installation (caseGen's), and the roles with a change member that has no READ
- * COMMITTED form (analysis/isolation/facts.ts Unformed), each with the sites it has none at, by member and relation, and
- * why, a span key or a stamp. Such a role has no member at READ COMMITTED, so its sketch's READ COMMITTED members are
- * none (`formOf`).
+ * COMMITTED form (analysis/isolation/facts.ts Unformed), each with the sites it has none at, by member and relation, an
+ * insert into a span primary key. Such a role has no member at READ COMMITTED, so its sketch's READ COMMITTED members
+ * are none (`formOf`).
  */
 interface FormCase {
 	readonly sketch: Sketch
@@ -4409,8 +4409,7 @@ interface FormCase {
 
 const unformedSiteGen: Gen<Unformed> = (s) => ({
 	member: `m${s.draw(int(0, 2))}`,
-	relation: relationName(s.draw(relationGen)),
-	why: s.draw(element(["spanKey", "stamp"] as const))
+	relation: relationName(s.draw(relationGen))
 })
 
 export const formCaseGen: Gen<FormCase> = (s) => {

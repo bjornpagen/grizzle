@@ -51,6 +51,9 @@ export interface WriteNames extends PhysicalNames {
 	readonly hold: (header: string) => ObjectName
 	/** A retirable header's retirement function (physical/ddl/retire.ts), which a write that retires its groups calls. */
 	readonly retire: (header: string) => ObjectName
+	/** A clock's or a place's stamp function, by its relation and field (physical/ddl/stamps.ts), which the statement
+	 * that stamps it calls. */
+	readonly stamp: (relation: string, field: string) => ObjectName
 	readonly primaryKey: (relation: string) => ConstraintName
 }
 

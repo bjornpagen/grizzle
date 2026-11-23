@@ -44,6 +44,7 @@ import {
 } from "#compiler/ir/desc.ts"
 
 import { type Codebook, codeOf, firstCodebook } from "#compiler/ir/codes.ts"
+import { headsOf } from "#compiler/ir/instant.ts"
 import { type NativeColumn, type NativeObject, type NativeOf } from "#compiler/ir/law.ts"
 import { installedSpellings } from "#compiler/ir/pattern.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
@@ -372,8 +373,8 @@ export interface Names extends LawNames {
 	/** A stored, closed or derived relation's table or view, schema-qualified and quoted. */
 	readonly table: (relation: AnyRelation | AnyDerived) => string
 	/**
-	 * Every stored relation's table, as `table` names it: the tables a reset empties together
-	 * (substrate/replace.ts installationGroup).
+	 * Every stored relation's table, as `table` names it, and each head's table (physical/ddl/stamps.ts), whose rows its
+	 * relation's stamps wrote: the tables a reset empties together (substrate/replace.ts installationGroup).
 	 */
 	readonly storedTables: ReadonlyArray<string>
 	/**
@@ -1076,9 +1077,15 @@ const namesOver = (installation: Installation, schema: string): Names => {
 		reported: (law) => reportedLawId(installation.described, law),
 		schema,
 		table,
-		storedTables: Arr.flatMap(Rec.values(installation.owned.relations), (r) =>
-			r.kind === "relation" ? [table(r)] : []
-		),
+		storedTables: [
+			...Arr.flatMap(Rec.values(installation.owned.relations), (r) =>
+				r.kind === "relation" ? [table(r)] : []
+			),
+			...Arr.map(headsOf(installation.laws.theory.instants), (h) => {
+				const q = names.head(h.relation, h.field.name)
+				return `${quoteIdent(q.schema)}.${quoteIdent(q.name)}`
+			})
+		],
 		materializedViews: Arr.map(
 			Arr.sort(
 				Arr.flatMap(Rec.values(installation.owned.relations), (r) =>

@@ -8,6 +8,7 @@ import {
 	type FromItem,
 	type FromSource,
 	type FunctionCall,
+	type Insert,
 	type ObjectName,
 	type PackConstant,
 	type OperandSelect,
@@ -2891,6 +2892,29 @@ class Model {
 		}
 	}
 
+	/**
+	 * INSERT INTO … (<columns>) SELECT …, as a migration runs it to fill a head's table (physical/ddl/stamps.ts
+	 * headFill): each row its query yields added, each listed column at its value in the query's order, stored as its
+	 * column's type stores it (stored); every other column of the table has none. An INSERT of VALUES, of an ON CONFLICT
+	 * or that returns rows is Unevaluable, since no migration states one. The model holds no row's key: the head's
+	 * fill groups its rows by its key.
+	 */
+	#insert(s: Insert, table: ObjectName): void {
+		if (s.source.kind !== "query" || s.onConflict !== undefined || s.returning.length > 0) {
+			return unevaluable("an INSERT of no query, or with an ON CONFLICT or a RETURNING")
+		}
+		const t = this.#table(table)
+		const relation = this.#select(s.source.query, new Map())
+		const listed = Arr.map(s.columns, (name) => this.#column(t, table, name))
+		for (const tuple of positional(relation, s.columns)) {
+			t.rows.push(
+				new Map(
+					Arr.map(listed, (c) => [c.name, this.#stored(tuple.get(c.name), c, table)] as const)
+				)
+			)
+		}
+	}
+
 	/** Every stored row of `table` meets its CHECK `name`, or it fails as PostgreSQL's validateCheckConstraint does (23514). */
 	#validateCheck(table: string, name: string, predicate: Expr): void {
 		const t = this.#tables.get(table)
@@ -4020,9 +4044,18 @@ class Model {
 					this.#update(s)
 				}
 				return
+			case "insert": {
+				const table = s.table
+				if (typeof table === "string") {
+					return unevaluable("an INSERT into a carrier, which no migration states")
+				}
+				if (this.#ours(table)) {
+					this.#insert(s, table)
+				}
+				return
+			}
 			case "setConstraintsImmediate":
 				return
-			case "insert":
 			case "delete":
 			case "merge":
 			case "createCarrier":
