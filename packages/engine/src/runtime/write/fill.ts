@@ -54,7 +54,7 @@ import {
 	columnKeyOf
 } from "#compiler/ir/law.ts"
 import { type CombineBuild, type CombineStep, combine, monoidSpecs } from "#compiler/ir/monoid.ts"
-import type { ClosedIndex, HeadingColumn, IndexedClosed } from "#compiler/ir/rel.ts"
+import type { ClosedIndex, ClosedRows, HeadingColumn, IndexedClosed } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { Cells, ColumnIndex, Columns, Texts } from "#compiler/runtime/write/cells.ts"
 import {
@@ -599,13 +599,6 @@ export const closedNamed = (names: ReadonlyArray<string>, table: ClosedTable): C
 		)
 	)
 
-/** A closed relation as the host reads it: its heading's names, its key's width, and its rows in heading order. */
-export interface ClosedRows {
-	readonly heading: ReadonlyArray<{ readonly name: string }>
-	readonly key: number
-	readonly rows: ReadonlyArray<ReadonlyArray<TypedLiteral>>
-}
-
 /** A closed relation's key cell as its host value: a closed id's handle, which every key field is. */
 const keyHost = (cell: TypedLiteral): HostValue => hostOfLiteral("code", cell)
 
@@ -631,9 +624,18 @@ const indexedClosed = (c: ClosedRows): IndexedClosed => {
 	return Object.freeze({ heading: c.heading, rows, completions })
 }
 
-/** The closed relations of `table` indexed for the host's reads of them (`indexedClosed`), each once, by name. */
+/**
+ * Each closed relation's index (`indexedClosed`), by the rows it indexes: a function of them alone, made once for
+ * every evaluator that reads them (a schema's relation's rows are one value, check/schema.ts ClosedRelation `host`; a
+ * served file's, one for the file), and dropped with them.
+ */
+const indexes = new WeakMap<ClosedRows, IndexedClosed>()
+
+/** The closed relations of `table` indexed for the host's reads of them, by name, each indexed once (`indexes`). */
 export const closedIndexOf = (table: ClosedTable): ClosedIndex =>
-	new Map(Array.from(table, ([name, c]) => [name, indexedClosed(c)] as const))
+	new Map(
+		Array.from(table, ([name, c]) => [name, indexes.getOrInsertComputed(c, indexedClosed)] as const)
+	)
 
 /**
  * The closed reads the host evaluates a generation expression's C.at, C.row and C.has by, over the closed relations

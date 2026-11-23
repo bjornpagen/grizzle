@@ -77,7 +77,8 @@ export {
 } from "#compiler/runtime/write/bind.ts"
 export { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 export type { ExecutionPart } from "#compiler/runtime/write/staged.ts"
-export { closedNamed, type ClosedRows, type ClosedTable } from "#compiler/runtime/write/fill.ts"
+export type { ClosedRows } from "#compiler/ir/rel.ts"
+export { closedNamed, type ClosedTable } from "#compiler/runtime/write/fill.ts"
 export { closedTableOf } from "#compiler/analysis/schema.ts"
 export {
 	type FlightStatement,

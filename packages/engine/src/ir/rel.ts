@@ -460,6 +460,13 @@ export const closedValues = (
 	return values
 }
 
+/** A closed relation as the host reads it: its heading's names, its key's width, and its rows in heading order. */
+export interface ClosedRows {
+	readonly heading: ReadonlyArray<{ readonly name: string }>
+	readonly key: number
+	readonly rows: ReadonlyArray<ReadonlyArray<TypedLiteral>>
+}
+
 /**
  * A closed relation indexed for the host's reads of it (runtime/write/fill.ts closedLeaf): its heading's names, each
  * row in heading order by its key, and each key's prefix short of its last field by the handles of the last that

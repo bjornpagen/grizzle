@@ -368,25 +368,12 @@ const leafText = (leaf: LeafDesc): string => {
 
 /**
  * The closed relations of a checked schema as its evaluators read them (runtime/write/fill.ts ClosedTable), by name,
- * each its heading's names, its key's width and its rows in heading order: the table a write compiled in process
- * prepares its binding against, a served file's closed relations are drawn from, and an installation indexes for its
- * host's reads (ir/physical.ts PhysicalNames closedIndex).
+ * each its relation's own (check/schema.ts ClosedRelation `host`): its heading's names, its key's width and its rows in
+ * heading order: the table a write compiled in process prepares its binding against, a served file's closed relations
+ * are drawn from, and an installation indexes for its host's reads (ir/physical.ts PhysicalNames closedIndex).
  */
 export const closedTableOf = (checked: Pick<CheckedSchema, "closed">): ClosedTable =>
-	new Map(
-		Array.from(
-			checked.closed,
-			([name, c]) =>
-				[
-					name,
-					Object.freeze({
-						heading: c.heading.map((h) => ({ name: h.name })),
-						key: c.relation.primaryFields.length,
-						rows: c.rows
-					})
-				] as const
-		)
-	)
+	new Map(Array.from(checked.closed, ([name, c]) => [name, c.host] as const))
 
 /**
  * The schema as the checker reads it (check/schema.ts SchemaReading), with its views analyzed.
@@ -976,12 +963,19 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 					? []
 					: desc.slots.map((slot) => this.#slot(slot, primaryFields, loc, patterns))
 		}
+		const columns = headingColumns(heading)
+		const headingRows = rows.map((row) => heading.map((f) => closedCell(row, f.position)))
 		return {
 			kind: "closed",
 			relation,
 			name,
-			heading: headingColumns(heading),
-			rows: rows.map((row) => heading.map((f) => closedCell(row, f.position))),
+			heading: columns,
+			rows: headingRows,
+			host: Object.freeze({
+				heading: columns.map((h) => ({ name: h.name })),
+				key: primaryFields.length,
+				rows: headingRows
+			}),
 			loc,
 			desc
 		}

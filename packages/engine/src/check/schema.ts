@@ -4,7 +4,7 @@ import type { FieldDesc, LiteralDesc, SchemaRelationDesc } from "#compiler/ir/de
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { ViewRead } from "#compiler/ir/keys.ts"
 import type { ClosedTheoryRelation, FieldWriting, RelationInfo } from "#compiler/ir/law.ts"
-import type { Heading, HeadingColumn } from "#compiler/ir/rel.ts"
+import type { ClosedRows, Heading, HeadingColumn } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { LiteralMeeting } from "#compiler/scalar/compute/literal.ts"
 import type { ClosedRelations } from "#compiler/scalar/compute/typing.ts"
@@ -41,6 +41,13 @@ export interface ClosedRelation {
 	readonly name: string
 	readonly heading: Heading
 	readonly rows: ReadonlyArray<ReadonlyArray<TypedLiteral>>
+	/**
+	 * Its rows as a host's evaluators read them (ir/rel.ts ClosedRows): one value for the relation, which every
+	 * role of its schema holds as its own, so the index the host reads it through is made once, whatever evaluates over
+	 * it (closedIndexOf), where each write's front end indexed every closed relation of its schema afresh (metis's full
+	 * installation: 261 front ends, each holding an index of its schema's 261 closed relations, 1.4 GB of its heap).
+	 */
+	readonly host: ClosedRows
 	readonly loc: SourceLoc
 	/**
 	 * The description it is read from, a roster's or a closed relation's (ir/desc.ts AdmittedClosedRelation): one value,
