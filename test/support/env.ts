@@ -28,10 +28,11 @@ export const pgPin = {
 export const pgCluster: LocalCluster<WorkerSizing> = grizzleCluster
 
 /**
- * The port grizzle's cluster names its first member by (pg.config.ts clusterNetwork): what a module that names the
- * cluster with no member at hand states, a connection no test opens among them.
+ * The first port grizzle's families claim their members' from (pg.config.ts clusterNetwork): what a module that names
+ * the cluster with no member at hand states, for a connection no test opens. A member's own port is its family's claim,
+ * read through its member (test/support/cluster.ts clusterMembers).
  */
-export const clusterPort: number = clusterNetwork.port
+export const clusterPort: number = clusterNetwork.from
 
 /**
  * The bootstrap superuser's URL to `database` over the local socket of `cluster`, the member this process reaches: the

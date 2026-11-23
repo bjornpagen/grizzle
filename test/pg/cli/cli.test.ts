@@ -50,7 +50,8 @@ import {
 	commandConnections,
 	configName,
 	configOf,
-	type ConfigSpec,
+	connectionOf,
+	type MemberConnection,
 	ownerOn,
 	resolvedConfig,
 	type SchemaSpec,
@@ -112,15 +113,15 @@ export const configurations = property.explore(aimed(configGen, refusalAims), {
 									)
 								)
 							: Option.none()
-						const connection: ConfigSpec["connection"] = Option.match(intruder, {
-							onNone: (): ConfigSpec["connection"] => ({
+						const connection: MemberConnection = Option.match(intruder, {
+							onNone: (): MemberConnection => ({
 								...ownerOn(substrate.cluster, substrate.database),
 								as: {
 									kind: "migration identity",
 									password: sketch.connection === "an Effect password" ? "effect" : "owner"
 								}
 							}),
-							onSome: (role): ConfigSpec["connection"] => ({
+							onSome: (role): MemberConnection => ({
 								...ownerOn(substrate.cluster, substrate.database),
 								as: { kind: "role", role: role.role, password: Redacted.value(role.password) }
 							})
@@ -140,7 +141,11 @@ export const configurations = property.explore(aimed(configGen, refusalAims), {
 							assert.equal(migrateExit, 1, "migrate as a role that does not own the schemas")
 							if (sketch.executor === "in process") {
 								const config = yield* resolvedConfig(
-									defineConfig(configOf(substrate.cluster, { schemas: specs, connection })),
+									defineConfig(
+										configOf({ schemas: specs, connection }, () =>
+											connectionOf(substrate.cluster, connection)
+										)
+									),
 									`${ws}/${configName}`
 								)
 								const resolved = succeeded(config)

@@ -110,14 +110,21 @@ export type ConnectionAs =
 	| { readonly kind: "role"; readonly role: string; readonly password: string }
 
 /**
- * Where migrate connects: `database` at `port` on the cluster's host (a closed port shows a command never connects),
- * verify-full against the cluster's CA, as `as`.
+ * A connection to a member of the cluster: `database` at `port`, the member's, on the cluster's host, verify-full
+ * against the cluster's CA, as `as`.
  */
-export type ConnectionSpec = {
+export type MemberConnection = {
+	readonly kind: "member"
 	readonly database: string
 	readonly port: number
 	readonly as: ConnectionAs
 }
+
+/**
+ * Where migrate connects: a member (MemberConnection), or nowhere, for a configuration no command of the test connects
+ * with (`unconnected`), which reads no member.
+ */
+export type ConnectionSpec = MemberConnection | { readonly kind: "offline" }
 
 /** A configuration: its schemas, and where migrate connects. */
 export type ConfigSpec = {
@@ -126,22 +133,19 @@ export type ConfigSpec = {
 }
 
 /** The migration identity on `database` of `cluster`, the member this process reaches, with its password. */
-export const ownerOn = (cluster: PgMember, database: string): ConnectionSpec => ({
+export const ownerOn = (cluster: PgMember, database: string): MemberConnection => ({
+	kind: "member",
 	database,
 	port: cluster.port,
 	as: { kind: "migration identity", password: "owner" }
 })
 
 /**
- * The connection of a configuration no command of the test connects with: generate, check and names never read it,
- * and a migrate on it finds no such database. Its port is the cluster's name (pg.config.ts), which no module-level
- * value reaches through a member.
+ * The connection of a configuration no command of the test connects with: generate, check and names never read it.
+ * It names no member, so its configuration is built reading none (specConfig), the migration identity's connection to
+ * no cluster (offlineOwner) standing in for it, and a command line over it needs no settled cluster.
  */
-export const unconnected: ConnectionSpec = {
-	database: "unconnected",
-	port: clusterPort,
-	as: { kind: "migration identity", password: "owner" }
-}
+export const unconnected: ConnectionSpec = { kind: "offline" }
 
 /** The file every workspace's configuration lies in, as its command lines name it, relative to the workspace. */
 export const configName = "grizzle.config.ts"
@@ -205,7 +209,7 @@ const credentialsOf = (
  */
 export const connectionOf = (
 	cluster: BudgetedCluster,
-	spec: ConnectionSpec
+	spec: MemberConnection
 ): MigrationConnectionConfig => {
 	const { role, password } = credentialsOf(cluster, spec.as)
 	const base = clusterConnection(cluster, spec.database, password)
@@ -218,7 +222,10 @@ export const connectionOf = (
  *
  * @internal
  */
-export const configOf = (cluster: BudgetedCluster, spec: ConfigSpec): GrizzleConfig => {
+export const configOf = (
+	spec: ConfigSpec,
+	connection: () => MigrationConnectionConfig
+): GrizzleConfig => {
 	const built = Arr.map(spec.schemas, (s) =>
 		s.fixture === "ledger" ? ledger(s.name) : shop(s.name, s.version, s.workload)
 	)
@@ -230,7 +237,7 @@ export const configOf = (cluster: BudgetedCluster, spec: ConfigSpec): GrizzleCon
 		schemas: [first, ...rest],
 		logins: Arr.map(built, (b) => b.server),
 		migrations: "migrations",
-		connection: () => connectionOf(cluster, spec.connection)
+		connection
 	}
 }
 
@@ -279,9 +286,9 @@ const memberAt = (port: number) =>
 	})
 
 /**
- * The configuration of the spec in `dir`, as its grizzle.config.ts and an in-process run build it: its password and
- * CA are those of the member its connection's port names (memberAt), read once for it, and its connection's sockets
- * draw from a budget of commandConnections of its own.
+ * The configuration of the spec in `dir`, as its grizzle.config.ts and an in-process run build it: a member
+ * connection's password and CA are those of the member its port names (memberAt), read once for it, and its sockets
+ * draw from a budget of commandConnections of its own; an offline one reads no member, its connection offlineOwner.
  *
  * @internal
  */
@@ -296,8 +303,16 @@ export const specConfig = (
 		const fs = yield* FileSystem.FileSystem
 		const text = yield* fs.readFileString(`${dir}/${specFileName}`)
 		const spec = trustedJson<ConfigSpec>(text)
-		const cluster = yield* memberAt(spec.connection.port)
-		return configOf(budgeted(cluster, connectionBudget(commandConnections)), spec)
+		switch (spec.connection.kind) {
+			case "offline":
+				return configOf(spec, () => offlineOwner)
+			case "member": {
+				const member = spec.connection
+				const reached = yield* memberAt(member.port)
+				const cluster = budgeted(reached, connectionBudget(commandConnections))
+				return configOf(spec, () => connectionOf(cluster, member))
+			}
+		}
 	})
 
 /**

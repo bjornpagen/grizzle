@@ -1,5 +1,8 @@
 import {
+	checkoutHere,
 	type ClusterFailed,
+	familyOf,
+	homesHere,
 	type MemberTls,
 	membersRead,
 	type PgMember,
@@ -40,23 +43,28 @@ export const overTls = (member: PgMember): Effect.Effect<TlsMember, SocketOnlyMe
 		: Effect.fail(new SocketOnlyMember({ member: member.name }))
 
 /**
- * The members of grizzle's local cluster (pg.config.ts), in member order, each as a client reaches it (TlsMember: its
- * port, socket, owner's password and CA): read as a run reads them, writing nothing (@bjornpagen/testing/pg
- * membersRead), a member not as its spec states refused, naming `toolchain-pg settle`, which gives it them. Every
- * connection test support opens reaches a member through these.
+ * The members of this checkout's family of grizzle's local cluster (pg.config.ts; @bjornpagen/testing/pg familyOf, of
+ * the checkout and homes checkoutHere and homesHere read), in member order, each as a client reaches it (TlsMember: its
+ * port, socket, owner's password and CA): read as a run reads them, writing nothing (membersRead), a member not as its
+ * spec states refused, naming `toolchain-pg settle`, which gives it them. Every connection test support opens reaches a
+ * member through these.
  */
 export const clusterMembers: Effect.Effect<
 	Arr.NonEmptyReadonlyArray<TlsMember>,
 	ClusterFailed | SocketOnlyMember,
 	Platform
-> = Effect.flatMap(membersRead(pgCluster), (members) =>
-	Effect.map(
-		Effect.all([
-			overTls(Arr.headNonEmpty(members)),
-			Effect.forEach(Arr.tailNonEmpty(members), overTls)
-		]),
-		([head, tail]) => Arr.prepend(tail, head)
-	)
+> = Effect.flatMap(
+	Effect.flatMap(Effect.all([checkoutHere, homesHere]), ([checkout, homes]) =>
+		membersRead(familyOf(pgCluster, checkout, homes))
+	),
+	(members) =>
+		Effect.map(
+			Effect.all([
+				overTls(Arr.headNonEmpty(members)),
+				Effect.forEach(Arr.tailNonEmpty(members), overTls)
+			]),
+			([head, tail]) => Arr.prepend(tail, head)
+		)
 )
 
 /** A port a process was told to reach that is none of the cluster's members. */

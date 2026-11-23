@@ -1,64 +1,53 @@
 import { localCluster } from "@bjornpagen/testing/pg"
 
 /**
- * c*, the test workers one member of the family serves at once, each running one property's cases at a time (a runner
- * worker). Every cost it divides is the member's own, a cluster's, and grows
- * with the files that share it: the SSI LWLocks (SerializableFinishedList, SerializableXactHash,
- * SerializablePredicateList) and SxactGlobalXmin, which every SERIALIZABLE transaction of the cluster shares; the safe
- * snapshot a DEFERRABLE read waits for, until every SERIALIZABLE writer of the cluster that began before it has ended;
- * and the one checkpointer, which syncs every file the cluster wrote since its last checkpoint. So it bounds the workers
- * a member serves, and the members' count follows from it (a run's workers over it, rounded up: the testing library's
- * family `spread`), each member's sizes from its share (the sizing below), so a family's total stays what one cluster
- * sized for every worker would hold.
+ * The test workers one member of a family serves at once, each running one property's cases at a time (a runner
+ * worker). Every cost it divides is the member's own, a cluster's, and grows with the workers that share it: the one
+ * checkpointer, which every CREATE DATABASE and DROP DATABASE of the member waits on (a clone per case, and a forced
+ * checkpoint per drop), the SSI LWLocks every SERIALIZABLE transaction of the member shares, and the WAL. So it bounds
+ * the workers a member serves, and the members' count follows from it (a run's workers over it, rounded up: the
+ * testing library's family `spread`), each member's shared buffers from its share, so a family's buffers stay what one
+ * cluster sized for every worker would hold. At 1, one server a worker: no worker waits on another's checkpoint or SSI
+ * lock.
  *
  * @limitKind measured
  * @owner grizzle's network test tier (pg.config.ts)
- * @unit test files
- * @scope the network tests one member of the local cluster family runs at once, each worker's case at a time, at a
- *   run's width (the testing library's testWorkers, one worker per core), on a member sized for its share; measured
- *   when each worker ran one Vitest file at a time (@environment), which a worker's case now stands in for
- * @evidence packages/experiments/cluster-share at 14b2e2b9 (deleted in the commit after it): two checkouts of grizzle
- *   0b7b5f31 that differ only in this value, each tagged by tag.sh and on a private family scripts/pg/init.sh made from it
- *   (2 members at 32, 4 at 16), run at once by `TEST_SEED=1234567 pair.sh <out> c32 <tree> 5771 c16 <tree> 5781`,
- *   every member's pg_stat_activity sampled each second and its SERIALIZABLE transactions every ten as the bootstrap
- *   superuser, then `compare.sh <out> c32 c16` with the seven files failing for causes outside this value left out;
- *   each member's checkpoint lines from its server log; uncommitted run files in
- *   ~/.cache/grizzle-release/IDLEXACT/measure (c32.out, c16.out, c32.wall, c16.wall, c32.<port>.samples,
- *   c16.<port>.samples, checkpoints.<port>.log, verdict.txt)
- * @observed 2026-11-14 23:08:31 to 2026-11-15 02:06:52 UTC, the two runs at once (16's ended at 01:49:31)
- * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GB of memory, shared with other lanes' runs
- *   (1-minute load 300 to 455 during the runs); the local PostgreSQL 19rc2 (scripts/pg/pin.env), each member sized by
- *   scripts/pg/init.sh for its share (grizzle's size.ts clusterSize then, the sizing below now: at 32, shared_buffers
- *   1216256 kB and max_connections 2215 a member; at 16, 608128 kB and 1111); grizzle 0b7b5f31 with vendor/toolchain at
- *   its pin, whose testWorkers is availableParallelism(), 64; Node 26.13.1, Vitest 5.1.0
- * @workload the whole network tier, 342 files and 594 tests, at 64 workers, TEST_SEED=1234567: at 32, 2 members of 32
- *   files each; at 16, 4 members of 16; the two runs at once, one run at each value
- * @result Wall time 10701 s at 32 and 9660 s at 16, both set by test/pg/substrate/tree.test.ts, the last file of both,
- *   cut by its hour (10515 s and 9230 s). Over the 311 files both runs passed, leaving out pg/fin/plans,
- *   schedules/install/database-default, pg/serverless/pool, pg/sql/print, pg/migrate/redraft, pg/live/routing and
- *   pg/world-model/inductive: 236111 s summed at 32 and 169681 s at 16, a ratio of 0.72, the per-file ratio's median
- *   0.70 and geometric mean 0.69. Files cut by their hour: 23 at 32, 13 at 16, each of 16's also cut at 32 but
- *   pg/live/exactness; no other failure. SSI LWLock waiters, as a share of the active backends: 8% and 10% of the
- *   members at 32; 1%, 2%, 5% and 1% at 16 (92% on one cluster at be5f3ec4). The oldest SERIALIZABLE transaction: 571
- *   s at 32, 439 s at 16 beside serverless/pool's hung lease (3591 s). Freeze windows (10 s and more with at most two
- *   backends on the CPU and half the active ones waiting on SSI's LWLocks): none at 32; one of 12 s at 16, as the hung
- *   lease's transaction ended. Checkpoints back to back on every member: 1.07 and 1.11 million files synced a member
- *   at 32, 0.59 to 0.92 million at 16, the longest 2267 s and 2296 s. Safe-snapshot waits past 10 s: 5482 samples at
- *   32, 3236 at 16 (2326 of them behind the hung lease). A family's shared memory: 2 x 1454 MB at 32, 4 x 738 MB at
- *   16. No cluster errors
- * @decision 16: at this load every measure favors it over 32: 28% less time over the files both runs passed, the ratio
- *   steady across them (median 0.70), 9.7% less wall time, ten fewer hour cuts, a tenth to a half of 32's SSI waiting
- *   share and less checkpoint sync work a member, for 44 MB more shared memory a family, since each member's memory
- *   follows its share (the sizing below, which `toolchain-pg settle` gives every member).
- *   Every coupling it divides is a cluster's own, so the quantity is the files one member runs at once. One run at each
- *   value, at one seed, on a loaded machine; below 16 is unmeasured. No headroom added
- * @revalidate a run at 8, and at 16 again, at a quiet window; a network tier whose files hold more SERIALIZABLE
- *   transactions or hold them longer, or create more databases (the checkpoints' sync work); a change of SSI's
- *   settings (max_pred_locks_*), of the checkpoint settings or of a worker's connections (test/support/substrate/connections.ts
- *   connectionsPerWorker); a PostgreSQL repin;
- *   another machine or core count
+ * @unit test workers
+ * @scope the network tier's workers one member of a checkout's family serves at once, at a run's width (the testing
+ *   library's testWorkers), each family's members' data in memory (~/.config/postgres/memory names grizzle-test-*)
+ * @evidence lane RUNPG1's runs, uncommitted in ~/.cache/grizzle-release/RUNPG1/out: run-w1.log, run-w4.log (the first
+ *   pair), run2-w1.log, run2-w4.log (the second), run3-w1.log, run3-w4.log, run3-w16.log (the third), each its runner's
+ *   summary and `wall_ms`; settle.times and pair12/settle.times (each fresh family's settle, timed by settle-timed.sh);
+ *   <family>.samples and pair12/<family>.samples (every member's cgroup memory.current, memory.peak, CPU and /dev/shm
+ *   bytes every 10 s, by sample.sh); summarize.sh reads them; and lane PGFAMILY's sweep on disk,
+ *   ~/.cache/toolchain/PGFAMILY/packages/testing/out/pgfamily/sweep (report.txt)
+ * @observed 2026-11-23 03:21 to 04:21 UTC: the first pair 03:22 to 03:33, the second 03:34 to 03:43, the third
+ *   03:48 to 04:21, each pair's or trio's runs at once; PGFAMILY's sweep 02:06 to 02:25 UTC
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB, shared with other lanes' runs (1-minute
+ *   load 245 at the first pair, 330 at the second, 290 to 450 at the third; 52 to 90 GiB of the account in swap); the
+ *   machine's PostgreSQL 19.0 as fresh families of this spec in /dev/shm (fsync off, clones by FILE_COPY), at toolchain
+ *   b87bc72c0 (the first two) and RUNPG1's draft on it (the third, whose members log no test's errors); grizzle
+ *   f87b2aaab with PGFAMILY's families bump
+ * @workload test/pg/laws' 13 files of two properties or more (rule-whole, rule-seeding, projections/source and
+ *   mirrors, outcomes/witness, families/alternatives, superkey-orders, rule-tokens, rule-suffix, rule-net-write,
+ *   rule-aggregate, lowering, curriculum), 73 properties at 32 workers, TEST_SEED=2219874524: each run at 1 (32
+ *   members) and 4 (8 members) at once, the first and third from fresh families, the second on the first's templates;
+ *   the third beside a run at 16 (2 members)
+ * @result the runner's time for the properties, 1 against 4: 360 s and 350 s; 485 s and 505 s; 543 s and 608 s
+ *   (16: 1,196 s), a ratio of 1.03, 0.96 and 0.89, geometric mean 0.96. The members' server CPU over them: 1,763 s
+ *   and 1,766 s; 1,420 s and 1,369 s; 1,488 s and 1,501 s (16: 1,685 s). The family's /dev/shm: 9.8 and 7.0 GiB at
+ *   the run's end; 14.4 and 9.8 GiB at its peak; 10.4 and 7.3 GiB at its end (16: 4.4 GiB), half of it in swap under
+ *   the machine's pressure. A fresh family's settle: 9.3 s and 6.7 s; 11.6 s and 8.8 s (16: 7.4 s). 0 failed in
+ *   each. On disk (PGFAMILY, toolchain 5de5e1a1 with clones by WAL_LOG, load 160): 4, 597 s; 8, 790 s; 16, 909 s
+ * @decision 1: 4% less time than 4 over the three, its lead growing with the machine's load (none at 245, 11% at
+ *   450), the same server CPU, for 40 to 47% more of the family in memory (3 to 4.6 GiB on this subset) and 3 s more
+ *   to settle a fresh family; 16 took twice 4's time in memory, as on disk it took 52% more. Below 1 is no family. No
+ *   headroom added
+ * @revalidate the whole network tier in memory, whose members each hold the templates their worker's properties build
+ *   (a family's /dev/shm past this subset's is unmeasured; /dev/shm holds 124 GiB); a family on disk; a family's pages
+ *   swapped; a change of the clone strategy or of the predicate room; a PostgreSQL repin; another machine or core count
  */
-const workersPerMember = 16
+const workersPerMember = 1
 
 /**
  * The largest database a network worker's files work in, measured: each worker's shared database, which file after
@@ -125,23 +114,70 @@ const workerDatabaseBytes = 38_916_935
 const busyBackendBytes = 102_005_760
 
 /**
- * How grizzle's clients reach the cluster's members: over verify-full TLS at localhost, member i on 5442 + i, the one
- * way grizzle's client connects (packages/grizzle/src/adapter/types/layer.ts refuses a socket path). A module that
- * names the cluster's port with no member at hand reads it here (test/support/env.ts clusterPort).
+ * The predicate lock room one network worker's cases take on its member at once, its SIREAD targets as PostgreSQL's
+ * table counts them (spec.ts PredicateRoom): what sizes each member's max_pred_locks_per_transaction, the least whose
+ * table holds its workers' room, never under PostgreSQL's 10, so a member's table no longer grows with its connections
+ * and senders, which every DROP INDEX of the member walks under every SSI LWLock.
+ *
+ * @limitKind measured
+ * @owner grizzle's network test tier (pg.config.ts)
+ * @unit predicate lock targets
+ * @scope the SIREAD targets one network worker's SERIALIZABLE transactions hold on its member at once, committed ones
+ *   PostgreSQL keeps among them, at a run's width
+ * @evidence lane PGFAMILY's arms, uncommitted in ~/.cache/toolchain/PGFAMILY/packages/testing/out/pgfamily/arms:
+ *   c.dense and d.dense, each member's `select count(*), count(distinct (database, relation, page, tuple)) from pg_locks
+ *   where mode = 'SIReadLock'` read once a second by a transient timer unit (dense.sh), beside runs of the subset below
+ *   (run-c.log, run-d.log); a.locks, b.locks every 15 s (sample.sh); report.txt; and lane PGFAMILY's proof pair,
+ *   ~/.cache/toolchain/PGFAMILY/packages/testing/out/pgfamily/proof (z1.locks, z2.locks every 15 s; report.txt)
+ * @observed 2026-11-22 18:11 to 18:41 UTC, the arms' runs, until their members were stopped (PGFAMILY's incident);
+ *   2026-11-22 23:19 UTC to 2026-11-23 00:38 UTC, the proof pair's two runs of this spec, each on its own family, whole
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB, load 600 to 640 (five runs of 32 workers
+ *   beside trunk and other lanes); the machine's PostgreSQL 19.0 as private families of this spec (2 members of 16
+ *   workers, and 1 of 32), max_pred_locks_per_transaction 64 and max_pred_locks_per_relation 1023; grizzle c2e208938
+ *   with vendor/toolchain at 2cc481724
+ * @workload test/pg/laws' 13 files of two properties or more (rule-whole, rule-seeding, projections/source and
+ *   mirrors, outcomes/witness, families/alternatives, superkey-orders, rule-tokens, rule-suffix, rule-net-write,
+ *   rule-aggregate, lowering, curriculum), 73 properties at 32 workers, TEST_SEED=2219874524
+ * @result peaks: 1,879 SIREAD locks over 265 targets on a member of 16 workers, 1,273 over 256 on the other; 3,081 over
+ *   512 on the member of 32; 938 over 335 on a member two runs shared (32 workers). PostgreSQL's table holds two locks a
+ *   target, so a member's room is the larger of its targets and half its locks: 940 for 16 workers, 59 a worker; 1,541
+ *   for 32, 48 a worker. The proof pair's runs, whole, on families of this spec (2 members of 16 workers, 10 predicate
+ *   locks a backend): 1,905 locks over 272 targets at most on a member, 953 a member, 60 a worker. No 53200 in any
+ *   run, nor in the workersPerMember sweep's run at 4 workers a member (8 members), nor in lane RUNPG1's six runs at 1
+ *   and 4 and one at 16, whose locks were not sampled. Unmeasured: the rest of the network tier, and the peak a worker
+ *   at 1 worker a member
+ * @decision 60, the largest a worker: at it a member of 1 worker (workersPerMember) needs 60 targets, and holds
+ *   PostgreSQL's least, 10 a backend, about 1,900 targets at this machine's 192 backends a member of 32, 32 times its
+ *   room. No headroom added: the room moves the setting only past about 1,900 a worker
+ * @revalidate a 53200 ("out of shared memory", a predicate lock) in any run; a network tier whose SERIALIZABLE
+ *   transactions read more rows or hold them longer; a change of workersPerMember, of the promotion
+ *   (max_pred_locks_per_relation) or of busyBackendBytes; a PostgreSQL repin; another machine
  */
-export const clusterNetwork = { kind: "tls", port: 5442 } as const
+const predicateRoomPerWorker = 60
 
 /**
- * grizzle's local cluster, which every test, benchmark and script reaches: the workbench's PostgreSQL units
- * postgres@grizzle-test-<i> (~/Documents/beefy-workspace/workbench/parts/postgres), member i listening on localhost at
- * 5442 + i over verify-full TLS alone, which grizzle's client demands, the server's certificate the workbench's, signed
- * by the CA PGSSLROOTCERT names; owned by grizzle_dev, the migration identity, its template grizzle_template carrying
- * pgvector in vector_ext, throwaway, a family of members each serving workersPerMember of a run's workers, each member
- * admitting as many connections as the machine's memory holds of busy backends (busyBackendBytes), a replication slot
- * and a WAL sender for each, a live source's leader holding one of each, and each worker's largest database in shared
- * buffers. `pnpm pg settle` (toolchain-pg settle, run as a unit) gives every member this spec; a run only reads it and
- * refuses a member that is not as it states. Nothing admits or queues a run's connections: a member past its capacity
- * refuses one (53300), a problem met, measured and fixed where it happens.
+ * The first port a family's members claim from (@bjornpagen/testing/pg family.ts): each member's, the lowest from it
+ * that no family claims and nothing listens at, the one way grizzle's client connects (verify-full TLS at localhost,
+ * packages/grizzle/src/adapter/types/layer.ts refuses a socket path). Above every fixed port of the clusters made before
+ * families (5432 to 5999 on cassowary, 2026-11-22) and below the kernel's ephemeral range (from 32768). A module that
+ * names the cluster's port with no member at hand, for a connection no test opens, reads it here (test/support/env.ts
+ * clusterPort).
+ */
+export const clusterNetwork = { kind: "tls", from: 20_000 } as const
+
+/**
+ * grizzle's local cluster, which every test, benchmark and script reaches: at each checkout (a lane's workspace,
+ * trunk's worktree) a family of its own, the workbench's PostgreSQL units postgres@grizzle-test-<key>-<i>
+ * (~/Documents/beefy-workspace/workbench/parts/postgres), each member listening on localhost at a port it claims from
+ * clusterNetwork's over verify-full TLS alone, which grizzle's client demands, the server's certificate the
+ * workbench's, signed by the CA PGSSLROOTCERT names; owned by grizzle_dev, the migration identity, its template
+ * grizzle_template carrying pgvector in vector_ext, throwaway, its members each serving workersPerMember of a run's
+ * workers, each member admitting as many connections as the machine's memory holds of busy backends (busyBackendBytes),
+ * a replication slot and a WAL sender for each, a live source's leader holding one of each, each worker's largest
+ * database in shared buffers, and a predicate lock table of its workers' room (predicateRoomPerWorker). `pnpm pg
+ * settle` (toolchain-pg settle, run as a unit) gives the checkout's family this spec; a run only reads it and refuses a
+ * member that is not as it states. Nothing admits or queues a run's connections: a member past its capacity refuses
+ * one (53300), a problem met, measured and fixed where it happens.
  */
 export default localCluster({
 	unit: "grizzle-test",
@@ -157,6 +193,7 @@ export default localCluster({
 		connections: { kind: "capacity", backendBytes: busyBackendBytes },
 		replication: { kind: "capacity" },
 		sharedBuffers: { kind: "perWorker", bytes: workerDatabaseBytes },
-		locks: { kind: "default" }
+		locks: { kind: "default" },
+		predicateLocks: { kind: "perWorker", targets: predicateRoomPerWorker }
 	}
 })
