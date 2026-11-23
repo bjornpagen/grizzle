@@ -6,7 +6,7 @@ import {
 	type PhysicalAnalysis,
 	unplaced
 } from "#compiler/analysis/physical/analyze.ts"
-import type { Realization } from "#compiler/analysis/physical/props.ts"
+import type { FixedFacts, Realization } from "#compiler/analysis/physical/props.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { unbounded } from "#compiler/ir/cardinality.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
@@ -132,8 +132,11 @@ export const shapedFacts = (
 	return { facts, certificates, analysis }
 }
 
+/** No column of any node fixed: what the baseline facts know of fixings. */
+const nothingFixed: ReadonlyMap<string, FixedFacts> = new Map()
+
 /**
- * The baseline facts: nothing is unique, every boundary is realized `distinct`, and no
+ * The baseline facts: nothing is unique or fixed, every boundary is realized `distinct`, and no
  * certificate is kept. Shapes driven by them deduplicate at every set boundary, like the conservative lowering.
  */
 export const conservativeShapeFacts = (overrides: Partial<ShapeFacts>): ShapeFacts => ({
@@ -143,6 +146,7 @@ export const conservativeShapeFacts = (overrides: Partial<ShapeFacts>): ShapeFac
 	distinctFacts: () => false,
 	keyedBy: () => undefined,
 	maxCard: () => unbounded,
+	fixed: () => nothingFixed,
 	childUniquePerParent: () => ({ kind: "unproved" }),
 	derivedDefinition: false,
 	certify: () => {},

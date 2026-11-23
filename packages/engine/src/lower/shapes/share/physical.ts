@@ -1,7 +1,12 @@
 import type { PhysicalAnalysis } from "#compiler/analysis/physical/analyze.ts"
 import { consumerIn } from "#compiler/analysis/physical/consumers.ts"
 import type { Identification, Justification } from "#compiler/analysis/physical/fds.ts"
-import { keyedBy, type Realization, type Uniqueness } from "#compiler/analysis/physical/props.ts"
+import {
+	type FixedFacts,
+	keyedBy,
+	type Realization,
+	type Uniqueness
+} from "#compiler/analysis/physical/props.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import type { Cardinality } from "#compiler/ir/cardinality.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
@@ -63,6 +68,8 @@ export interface ShapeFacts {
 	readonly keyedBy: (node: RelNode, columns: KeySet) => Identification | undefined
 	/** The node's maximum cardinality, where the analysis knows one. */
 	readonly maxCard: (node: RelNode) => Cardinality
+	/** What each column of a node is fixed to per evaluation (PhysicalProps fixed): a value, or an outer row's column. */
+	readonly fixed: (node: RelNode) => ReadonlyMap<string, FixedFacts>
 	/** Why an attachment's child rows are unique per parent binding, or that nothing proves it. */
 	readonly childUniquePerParent: (attach: NodeOf<"Attach">) => ChildUniqueness
 	/** Compiling a derived-relation definition, which always wants every group (R20). */
@@ -122,6 +129,7 @@ export const shapeFactsFromPlan = (
 		distinctFacts: (node) => propsOf(node).facts !== undefined,
 		keyedBy: (node, columns) => keyedBy(propsOf(node), columns),
 		maxCard: (node) => propsOf(node).maxCard,
+		fixed: (node) => propsOf(node).fixed,
 		/**
 		 * A child edge that observes and is discharged proves the child unique per parent; a child edge that does not
 		 * observe (the child is realized distinct, absorbing repeats) proves it too.

@@ -14,7 +14,7 @@ import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { CarrierDecl } from "#compiler/ir/products.ts"
 import type { Heading, HeadingColumn, RelNode } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { type ColumnMap, columnIn, emptyEnv } from "#compiler/lower/conservative/context.ts"
+import { columnIn, emptyEnv } from "#compiler/lower/conservative/context.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
 import type { StandUp } from "#compiler/runtime/write/flight.ts"
 import {
@@ -22,7 +22,6 @@ import {
 	type CreateCarrier,
 	type EmittedText,
 	type EmptyCarrier,
-	type Expr,
 	type FromItem,
 	type Insert,
 	isSetQuery,
@@ -389,20 +388,12 @@ const factDifference = (w: WriteContext, left: FactsRead, right: FactsRead): Sel
  * member's lowering is a set and every cast keeps its value (writeKeeps); otherwise they are bounded as a set of facts
  * (ir/compare.ts factSet), since a plain root may repeat a row and a cast may round two values onto one, and a float's
  * two zeros are two facts. A member of no field is bounded under its unit
- * marker: its rows are the unit relation's, one row of no column at most. The rows are those `kept` holds of over the
- * node's columns, every row where it states no condition (everyRow): a restricted share's fill keeps those its partner
- * matches (lower/shapes/share/statements.ts StatementSharing restriction).
+ * marker: its rows are the unit relation's, one row of no column at most.
  */
-export const memberRows = (
-	w: WriteContext,
-	heading: Heading,
-	node: RelNode,
-	kept: (columns: ColumnMap) => Expr | undefined
-): Select => {
+export const memberRows = (w: WriteContext, heading: Heading, node: RelNode): Select => {
 	const lowered = w.cx.lower(node, emptyEnv)
 	const origin = { kind: "node", node: node.id } as const
 	const wrapped = w.cx.wrap(lowered, node.heading, origin)
-	const where = kept(wrapped.map)
 	const columns = heading.map((c) => {
 		const value = columnIn(wrapped.map, c.name)
 		const type = columnType(node.heading, c.name)
@@ -414,22 +405,19 @@ export const memberRows = (
 	})
 	const targets = columns.map((c) => c.target)
 	if (isSetQuery(lowered) && columns.every((c) => c.keeps)) {
-		return select(keyedSet(targets, [wrapped.item], where, "a described member's rows"))
+		return select(keyedSet(targets, [wrapped.item], undefined, "a described member's rows"))
 	}
 	if (isNonEmpty(columns)) {
-		return select(factSet(columns, [wrapped.item], where))
+		return select(factSet(columns, [wrapped.item], undefined))
 	}
-	const unit = w.cx.wrap(select(distinctCore(unitTargets, [wrapped.item], where)), [], origin)
+	const unit = w.cx.wrap(select(distinctCore(unitTargets, [wrapped.item], undefined)), [], origin)
 	return select(keyedSet([], [unit.item], undefined, "a described member's row of no column"))
 }
-
-/** Every row of a member: no condition (memberRows). */
-const everyRow = (_columns: ColumnMap): Expr | undefined => undefined
 
 const fillQuery = (w: WriteContext, carrier: WriteCarrier, source: CarrierSource): Select => {
 	switch (source.kind) {
 		case "member":
-			return memberRows(w, carrier.heading, source.node, everyRow)
+			return memberRows(w, carrier.heading, source.node)
 		case "relation":
 			return select(keyedFacts(storedFacts(w, source.relation, source.names)))
 		case "difference": {

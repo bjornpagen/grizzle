@@ -67,7 +67,9 @@ export const theSharePlanningKeyedByBlocksCarriesWhatThePlanningKeyedByEachNodes
 			Effect.sync(() => {
 				const p = programOf(sketch)
 				const shares = succeeded(
-					planStatementShares(new ShareIndex(p.dag, new DagTemplates()), p.roots, noneHeld, "never")
+					planStatementShares(new ShareIndex(p.dag, new DagTemplates()), p.roots, noneHeld, {
+						kind: "never"
+					})
 				)
 				const reference = referenceShares(new ShareIndex(p.dag, new DagTemplates()), p.dag, p.roots)
 				const view = (
@@ -120,14 +122,16 @@ export const theCarriedSharesDoNotDependOnTheOrderTheMembersStandIn = property.e
 						)
 					}))
 				const inOrder = succeeded(
-					planStatementShares(new ShareIndex(p.dag, new DagTemplates()), p.roots, noneHeld, "never")
+					planStatementShares(new ShareIndex(p.dag, new DagTemplates()), p.roots, noneHeld, {
+						kind: "never"
+					})
 				)
 				const permuted = succeeded(
 					planStatementShares(
 						new ShareIndex(p.dag, new DagTemplates()),
 						Arr.map(order, (i) => present(p.roots[i], "a statement")),
 						noneHeld,
-						"never"
+						{ kind: "never" }
 					)
 				)
 				assert.equal(inOrder.length, 2, "both classes carried")
@@ -222,7 +226,7 @@ export const anAttachmentsChildReadingBelowItsSealedParentNamesItsPlaceSoCopiesB
 			Effect.sync(() => {
 				const p = attachedBelowItsParent(same)
 				const index = new ShareIndex(p.dag, new DagTemplates())
-				const shares = succeeded(planStatementShares(index, p.roots, noneHeld, "never"))
+				const shares = succeeded(planStatementShares(index, p.roots, noneHeld, { kind: "never" }))
 				const [first, second] = p.copies
 				assert.equal(
 					index.key(first) === index.key(second),

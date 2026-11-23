@@ -1,17 +1,18 @@
 /**
  * A join no value of a write's single statement restricts, which its parts read joined to a carried part by its
- * columns, is computed once, restricted by that part (lower/shapes/share/statements.ts restrictedShares, StatementSharing
- * restriction): one part of the statement holds the join's rows that match a row of its partner, an EXISTS over the
- * partner's part, and every read of it reads that part. Each read restated the join whole, which PostgreSQL planned
- * again at each: edullm's ledger grade read every item's response declarations, a join of four reads of the attributes,
- * 36 times, each joined to the gradable runs by the item, 934 MB of the grade's 1,186 MB of planning.
+ * columns, is computed once at the keys its reads read it at (lower/shapes/share/statements.ts keyedShares, keys.ts,
+ * StatementSharing #keyedBody): one part of the statement holds the join's rows whose columns match a row of its key
+ * set, an EXISTS over a DISTINCT CTE that reads its readers' keys from the carried part, and every read of it reads that
+ * part. Each read restated the join whole, which PostgreSQL planned again at each: edullm's ledger grade read every
+ * item's response declarations, a join of four reads of the attributes, 36 times, each joined to the gradable runs by
+ * the item, 934 MB of the grade's 1,186 MB of planning.
  *
  * The box, exhausted: a call of four rows arguments, one, two or all four reading every item's labels (a join of Tag and
  * Label) joined to the open items of the call's sessions by the item, or alone; a second member writing the open items,
  * so the statement carries them as a part.
  *
  * Oracle: specification, the labels read by two arguments or four scanned once, in one part that reads no Item and keeps
- * its rows by an EXISTS over another part; read by one argument, or alone, scanned where each argument reads them.
+ * its rows by an EXISTS over its key set; read by one argument, or alone, scanned where each argument reads them.
  *
  * Features: by the open items; alone.
  */
@@ -29,10 +30,10 @@ import {
 } from "#test/unit/write/restricted-share.fixtures.ts"
 
 /**
- * A join a write's parts read joined to a carried part by its columns is computed once in the statement, restricted by
- * that part, where two arguments or more read it so.
+ * A join a write's parts read joined to a carried part by its columns is computed once in the statement, at the keys
+ * its reads read it at, where two arguments or more read it so.
  */
-export const aJoinTheStatementsPartsReadJoinedToACarriedPartIsComputedOnceRestrictedByThatPart =
+export const aJoinTheStatementsPartsReadJoinedToACarriedPartIsComputedOnceAtTheKeysItsReadsReadItAt =
 	property.exhaust(finite(boxGen), {
 		needs: {},
 		situations: ["by the open items", "alone"],
@@ -48,32 +49,33 @@ export const aJoinTheStatementsPartsReadJoinedToACarriedPartIsComputedOnceRestri
 					`${box.reading} arguments reading the labels ${box.content}: Tag scanned ${restricted ? "once" : "at each"}\n${sql}`
 				)
 				const parts = labelParts(sql)
-				const held = Arr.map(parts, (p) => `${p.name}${p.keptByAPart ? " kept by a part" : ""}`)
-				const heldOnce: boolean = parts.length === 1 && Arr.every(parts, (p) => p.keptByAPart)
+				const held = Arr.map(parts, (p) => `${p.name}${p.keptByKeys ? " kept by its key set" : ""}`)
+				const heldOnce: boolean = parts.length === 1 && Arr.every(parts, (p) => p.keptByKeys)
 				assert.equal(
 					heldOnce,
 					restricted,
-					`${box.reading} arguments reading the labels ${box.content}: ${restricted ? "one part holds them, kept by an EXISTS over its partner's part" : "no part holds them"} (${Arr.join(held, ", ")})\n${sql}`
+					`${box.reading} arguments reading the labels ${box.content}: ${restricted ? "one part holds them, kept by an EXISTS over its key set" : "no part holds them"} (${Arr.join(held, ", ")})\n${sql}`
 				)
 			}),
 		oracle: {
 			kind: "specification",
-			name: "the labels two arguments read by the open items computed once, restricted by the open items' part; otherwise where each reads them"
+			name: "the labels two arguments read by the open items computed once, at the keys the open items' part gives them; otherwise where each reads them"
 		},
 		box: "one, two or four of a call's four arguments reading every item's labels joined to the open items by the item, or alone, a second member carrying the open items",
 		kept: [],
 		kills: [
 			{
 				file: "packages/engine/src/lower/shapes/share/statements.ts",
-				original: '\t\t\tcase "byPartners":\n',
-				replacement: '\t\t\tcase "byPartners":\n\t\t\t\treturn whole\n',
-				why: "No join is carried restricted, as before: each argument that reads the labels restates the join of Tag and Label, and Tag is scanned once per argument."
+				original: '\t\t\tcase "byKeys":\n',
+				replacement: '\t\t\tcase "byKeys":\n\t\t\t\treturn whole\n',
+				why: "No share is carried at its keys, as before: each argument that reads the labels restates the join of Tag and Label, and Tag is scanned once per argument."
 			},
 			{
-				file: "packages/engine/src/write/program/compile.ts",
-				original: "\t\t\t\t\t\t\t\t\t\tsharing.restriction(share, columns, filling.cx)\n",
-				replacement: "\t\t\t\t\t\t\t\t\t\tundefined\n",
-				why: "The restricted share's part holds the join whole, every item's labels, no EXISTS over its partner's part: the join materialized whole, unrestricted."
+				file: "packages/engine/src/lower/shapes/share/statements.ts",
+				original:
+					"\t\t\t\texists(simpleSelect([target(lit.int(1, types.integer))], [keyRows.item], conjunction(on)))\n",
+				replacement: "\t\t\t\tundefined\n",
+				why: "The keyed share's part holds the join whole, every item's labels, no EXISTS over its key set: the join materialized whole, unrestricted."
 			}
 		]
 	})

@@ -725,8 +725,9 @@ const extendSame = (node: RelNode, input: PhysicalProps): FixedState => {
 }
 
 /**
- * A filter keeps its input's keys and can fix key components. A span held to contain a point the input's columns, or
- * values fixed per evaluation, give has that point known.
+ * A filter keeps its input's keys and can fix key components: a column it equates to a value, or to a column fixed to
+ * one, is fixed to what that value is, each value it names, an outer row's column too. A span held to contain a point
+ * the input's columns, or values fixed per evaluation, give has that point known.
  */
 const filterProps = (node: NodeOf<"Filter">, cx: RuleContext): PhysicalProps => {
 	const input = cx.props(node.input)
@@ -769,6 +770,16 @@ const filterProps = (node: NodeOf<"Filter">, cx: RuleContext): PhysicalProps => 
 		)
 		if (x.kind === "column" && y.kind === "column") {
 			fds.equate(x.column, y.column, eqJust)
+			for (const [to, from] of [
+				[x.column, y.column],
+				[y.column, x.column]
+			] as const) {
+				for (const f of s.fixed.get(from) ?? []) {
+					if (f.fixed.kind !== "expr") {
+						recordFact(s.fixed, to, { fixed: f.fixed, just: joinJustifications([f.just, eqJust]) })
+					}
+				}
+			}
 		}
 		for (const [col, other] of [
 			[x, y],

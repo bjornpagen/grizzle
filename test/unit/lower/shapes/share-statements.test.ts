@@ -61,7 +61,7 @@ export const subQueriesCarriedAcrossAStratumsStatementsCarryPickOnceEveryCopyThr
 			Effect.sync(() => {
 				const p = program(statements)
 				const index = new ShareIndex(p.dag, new DagTemplates())
-				const shares = succeeded(planStatementShares(index, p.roots, noneHeld, "never"))
+				const shares = succeeded(planStatementShares(index, p.roots, noneHeld, { kind: "never" }))
 				if (statements < 2) {
 					assert.deepEqual(shares, [])
 					c.note("inline")
@@ -196,12 +196,9 @@ export const twoCallsOfAVolatileFunctionAreNeverOneCarrierOrOneCteWhereOneCallRe
 				Effect.sync(() => {
 					const p = drawnCalls(volatility, twice)
 					const shares = succeeded(
-						planStatementShares(
-							new ShareIndex(p.dag, new DagTemplates()),
-							p.roots,
-							noneHeld,
-							"never"
-						)
+						planStatementShares(new ShareIndex(p.dag, new DagTemplates()), p.roots, noneHeld, {
+							kind: "never"
+						})
 					)
 					const ctes = statementCtes(new ShareIndex(p.dag, new DagTemplates()), p.root, () => false)
 					if (volatility === "volatile" && !twice) {
@@ -376,7 +373,9 @@ export const theCarriedSharesPlanningReadsAStatementAgainOnlyInARoundWhoseKeyItR
 				Effect.sync(() => {
 					const p = chained(reads)
 					const counting = new CountingIndex(p.dag, new DagTemplates())
-					const shares = succeeded(planStatementShares(counting, p.roots, noneHeld, "never"))
+					const shares = succeeded(
+						planStatementShares(counting, p.roots, noneHeld, { kind: "never" })
+					)
 					const reference = new CountingIndex(p.dag, new DagTemplates())
 					const byRounds = plannedByRounds(reference, p.roots)
 					const view = (all: ReadonlyArray<CarriedShare>) =>

@@ -639,23 +639,32 @@ const filteredAtValues = (
 	| undefined => atKeys(filter.input, valueEqualities(filter))
 
 /**
- * The columns of a filter's input a conjunct of it equates to a value that reads no relation, a parameter or a literal:
- * the filter keeps only the rows at those values.
+ * The columns of a filter's input a conjunct of it equates to a value that reads no relation, a parameter or a literal,
+ * each with that value: the filter keeps only the rows at those values.
  */
-const valueEqualities = (filter: NodeOf<"Filter">): ReadonlyArray<string> =>
+export const valueFixings = (
+	filter: NodeOf<"Filter">
+): ReadonlyArray<{ readonly column: string; readonly value: ScalarExpr }> =>
 	conjuncts(filter.pred).flatMap((e) => {
 		const [x, y, ...more] = e.kind === "op" && nativeOp(e.op)?.fn === "eq" ? e.args : []
 		if (x === undefined || y === undefined || more.length > 0) {
 			return []
 		}
-		const columnAtValue = (column: ScalarExpr, value: ScalarExpr): ReadonlyArray<string> =>
+		const columnAtValue = (
+			column: ScalarExpr,
+			value: ScalarExpr
+		): ReadonlyArray<{ readonly column: string; readonly value: ScalarExpr }> =>
 			column.kind === "column" &&
 			column.column.node === filter.input.id &&
 			value.deps.nodes.length === 0
-				? [column.column.name]
+				? [{ column: column.column.name, value }]
 				: []
 		return [...columnAtValue(x, y), ...columnAtValue(y, x)]
 	})
+
+/** The columns of a filter's input it keeps at values (valueFixings). */
+const valueEqualities = (filter: NodeOf<"Filter">): ReadonlyArray<string> =>
+	valueFixings(filter).map((f) => f.column)
 
 /**
  * The fold or union an occurrence reads at values, through projections that rename its columns and filters

@@ -13,17 +13,11 @@ import type { NodeId } from "#compiler/core/ids.ts"
 import { type DagTemplates, ShareKeys } from "#compiler/ir/dag-digest.ts"
 import { freeVars, type NodeScope, nodeScopes, nodesByLabel, topoOrder } from "#compiler/ir/dag.ts"
 import { Fold } from "#compiler/ir/fold.ts"
-import {
-	edgesOf,
-	inputsOf,
-	type NodeOf,
-	type Occurrence,
-	type RelNode,
-	regionVarClasses,
-	type ValidDag
-} from "#compiler/ir/rel.ts"
+import { edgesOf, inputsOf, type NodeOf, type RelNode, type ValidDag } from "#compiler/ir/rel.ts"
+import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { evaluationQuery, statementEvaluations } from "#compiler/lower/conservative/call/index.ts"
 import {
+	type ColumnEqualities,
 	type ColumnMap,
 	columnIn,
 	type CteTable,
@@ -35,19 +29,33 @@ import {
 	type NodeDispatch,
 	withLeading
 } from "#compiler/lower/conservative/context.ts"
+import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import {
 	costClass,
 	ownCost,
 	restrictedByValues
 } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { feedbackReadsOf, nodeGraph } from "#compiler/lower/optimize/demand/editor.ts"
+import {
+	computedAt,
+	type FixedOf,
+	KeyAnalysis,
+	type Keys,
+	type KeySet,
+	type KeySource,
+	keySetReads,
+	whole as wholeKeys
+} from "#compiler/lower/shapes/share/keys.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
 import type { Expr, FromSource, OperandSelect, Select } from "#compiler/sql/ast.ts"
 import {
 	col,
 	conjunction,
 	core,
+	cteRefAs,
+	type DefinedCte,
 	derived,
+	distinctCore,
 	exists,
 	keyedSet,
 	lit,
@@ -91,7 +99,12 @@ import type { CarrierName } from "#compiler/sql/naming.ts"
  * or a join the statement's own values restrict (cte-policy restrictedByValues), uncorrelated, off every recursion's
  * feedback, read laterally by no expression, so that its rows are a set the statement can read under any alias. A node
  * that only scans, filters and projects one source, or a join no value of the statement restricts, is left inline at
- * each use (cte-policy rules 4 and 6), each read's restriction pushed into it, never derived whole. The rows a carrier
+ * each use (cte-policy rules 4 and 6), each read's restriction pushed into it, never derived whole; a single
+ * statement's parts carry such a join that two reads or more read at keys, at those keys (keyedShares).
+ *
+ * What a shared node holds: its rows at the keys every read of it reads it at, where every read restricts it (keys.ts,
+ * magic sets), a key set a MATERIALIZED DISTINCT CTE of the statement that reads what the statement fixes; and a union
+ * or a fold a statement lowers in place is read at its keys too, every arm at them or the keys below its aggregate. The rows a carrier
  * or a CTE holds are exactly the rows the copy's lowering delivers, repeats included where the placement realized it
  * plain, so every reader sees what its inline copy would deliver.
  */
@@ -175,9 +188,9 @@ export class ShareIndex {
 	}
 
 	/**
-	 * Whether the node may be carried restricted by a partner (restrictedShares): a join no value of the statement
-	 * restricts (cte-policy costClass, restrictedByValues), which sharedOnce leaves inline at each read, a set the
-	 * statement can read under any alias as an eligible node is.
+	 * Whether the node may be carried at its keys alone (keyedShares): a join no value of the statement restricts
+	 * (cte-policy costClass, restrictedByValues), which sharedOnce leaves inline at each read, a set the statement can
+	 * read under any alias as an eligible node is.
 	 */
 	restrictable(node: RelNode): boolean {
 		return costClass(node) === "join" && !restrictedByValues(node) && this.#isShareable(node)
@@ -246,36 +259,20 @@ export interface CarriedShare {
 }
 
 /**
- * The rows a carrier holds of its copy: every row the copy delivers, or those whose `columns` equal, column for column,
- * the `columns` of a row of one of the carried sub-queries `partners` (restrictedShares), each a partner some reader
- * of the copies joins them to by those columns.
+ * The rows a carrier holds of its copy: every row the copy delivers, or those at its key set (keys.ts KeySet), the keys
+ * every read of its copies reads them at (keyedShares).
  */
 export type ShareRestriction =
 	| { readonly kind: "whole" }
-	| {
-			readonly kind: "partners"
-			readonly columns: NonEmptyReadonlyArray<string>
-			readonly partners: NonEmptyReadonlyArray<Partner>
-	  }
-
-/** A carried sub-query a restricted copy's reader joins it to, and its columns that reader equates to the copy's. */
-export interface Partner {
-	readonly share: CarriedShare
-	readonly columns: NonEmptyReadonlyArray<string>
-}
-
-/** A column of a restricted copy and the column of its partner a reader equates it to. */
-interface PartnerPair {
-	readonly column: string
-	readonly partnerColumn: string
-}
+	| { readonly kind: "keys"; readonly keys: Keys }
 
 /**
- * Whether a planning carries joins no value of the statement restricts, each restricted by a partner its readers join it
- * to (restrictedShares): a single statement's, whose parts every later part reads; never across statements realized
- * one after another.
+ * Whether a planning carries its shares at their keys (keyedShares), each column's fixings read from `fixed`: a single
+ * statement's, whose parts every later part reads; never across statements realized one after another.
  */
-export type Restricting = "byPartners" | "never"
+export type Restricting =
+	| { readonly kind: "byKeys"; readonly fixed: FixedOf }
+	| { readonly kind: "never" }
 
 /** No node is opaque to a reach: it enters every node's inputs. */
 export const noneOpaque = (_node: RelNode): boolean => false
@@ -323,8 +320,8 @@ export const noneHeld: HeldEvaluation = () => undefined
  * in fill order: a carried sub-query before every carried sub-query that reads it.
  *
  * Every copy of each carried key the statements and the fills reach; filled lowest first. Where `restricting` carries
- * them, the joins no value of the statement restricts that its statements read joined to a carried sub-query follow,
- * each restricted by it (restrictedShares).
+ * them so, each is carried at the keys every read of it reads it at, and each join no value of the statement restricts
+ * that two reads or more read is carried at its keys too (keyedShares).
  */
 export const planStatementShares = (
 	index: ShareIndex,
@@ -456,202 +453,188 @@ export const planStatementShares = (
 				return { ...c, copies, restriction: { kind: "whole" }, height: index.height(c.node) }
 			})
 			.toSorted((a, b) => a.height - b.height)
-		switch (restricting) {
+		switch (restricting.kind) {
 			case "never":
 				return whole
-			case "byPartners":
-				return [
-					...whole,
-					...restrictedShares(
-						index,
-						units.map((u) => u.nodes),
-						whole
-					)
-				].toSorted((a, b) => a.height - b.height)
+			case "byKeys":
+				return keyedShares(
+					index,
+					units.map((u) => u.nodes),
+					whole,
+					restricting.fixed
+				)
 		}
 	})
 
-/** A region's read of a restrictable copy (ShareIndex.restrictable) and the partner it is restricted by there. */
-interface PartnerSite {
-	readonly partner: CarriedShare
-	readonly pairs: NonEmptyReadonlyArray<PartnerPair>
-}
-
 /**
- * The partner a region's occurrence `o` of a restrictable copy is read joined to: of the region's other occurrences of a
- * carried copy (`carriedBy`), the one whose variables equal the most of the copy's columns (a variable both bind, or two
- * the region's equalities equate), its pairs in the copy's column order, the least key among equals; none where no
- * occurrence of a carried copy shares a variable with it.
+ * The carried sub-queries of a single statement, each held at the keys every read of its copies reads them at
+ * (keys.ts KeyAnalysis over the program's DAG, its roots whole: magic sets) where no value of the statement restricts it, every read restricts it,
+ * and no cycle closes (keyedOrder): computed once at its key set's rows, a union's each arm at them, a fold's below its
+ * aggregate, a join's kept by an EXISTS over them (StatementSharing #keyedBody); and each join no value of the
+ * statement restricts (ShareIndex restrictable) that the statements read twice or more, its copies one share key's,
+ * carried so at its keys, where each read restated it whole; one no read restricts stays inline at each. Each is
+ * filled past every carried sub-query its computation reads, its key set's among them. metis's assign derived the
+ * status of every assignment, a union of five rules over 100,028 assignments, for two guards that read the statuses of
+ * the assigned test's assignments alone; edullm's ledger grade read every item's response declarations, a join of four
+ * reads of the attributes, 36 times, each joined to the gradable runs by the item, 934 MB of the grade's 1,186 MB of
+ * planning.
  */
-const partnerAt = (
-	region: NodeOf<"MatchRegion">,
-	o: Occurrence,
-	carriedBy: ReadonlyMap<RelNode, CarriedShare>
-): PartnerSite | undefined => {
-	const classOf = regionVarClasses(region)
-	const sites = region.occurrences.flatMap((q): ReadonlyArray<PartnerSite> => {
-		const partner = q === o ? undefined : carriedBy.get(q.source)
-		if (partner === undefined) {
-			return []
-		}
-		const pairs = o.bindings.flatMap((b): ReadonlyArray<PartnerPair> => {
-			const bound = q.bindings.find((c) => classOf(c.var) === classOf(b.var))
-			return bound === undefined ? [] : [{ column: b.column, partnerColumn: bound.column }]
-		})
-		const distinct = pairs.filter((p, i) => pairs.findIndex((x) => x.column === p.column) === i)
-		return isNonEmpty(distinct) ? [{ partner, pairs: distinct }] : []
-	})
-	return sites.reduce<PartnerSite | undefined>(
-		(best, x) =>
-			best === undefined ||
-			x.pairs.length > best.pairs.length ||
-			(x.pairs.length === best.pairs.length && x.partner.key < best.partner.key)
-				? x
-				: best,
-		undefined
-	)
-}
-
-/**
- * The joins no value of the statement restricts (ShareIndex.restrictable) that the statements, each reading the nodes of
- * `read`, read joined to carried sub-queries of `whole`, each carried restricted by them: a region reading a copy beside
- * an occurrence of a carried copy, the two sharing variables, delivers no row of the copy whose shared columns equal no
- * row of that partner, so the carrier holds only the copy's rows that equal a row of one of its readers' partners,
- * every row a reader of it can deliver, and every reader reads it in place of its copy (StatementSharing restriction,
- * the EXISTS of its fill over the union of the partners' columns). Computed once, as rule 5d computes a join the
- * statement's values restrict (cte-policy), where each read restated it whole: edullm's ledger grade read the response
- * declarations of every item, a join of four reads of the attributes, at 36 regions, 35 joining them to the gradable
- * runs by their item and one to the runs to grade, 708 KB of its 2.24 MB statement and 934 MB of its 1,186 MB of
- * planning. A copy is carried restricted only where every node reads it as a region's occurrence, each beside a
- * partner, and its key's copies are read so at least twice; its columns are those every reader's partner restricts.
- * The rest stay inline, restricted where they stand. Each restricted share is filled past its partners.
- */
-const restrictedShares = (
+const keyedShares = (
 	index: ShareIndex,
 	read: ReadonlyArray<ReadonlyArray<RelNode>>,
-	whole: ReadonlyArray<CarriedShare>
+	whole: ReadonlyArray<CarriedShare>,
+	fixed: FixedOf
 ): ReadonlyArray<CarriedShare> => {
-	const carriedBy = new Map(whole.flatMap((share) => share.copies.map((c) => [c, share] as const)))
-	const nodes = [...new Set(read.flat())]
-	/** Each restrictable copy's sites, or "no" where a node reads it otherwise or no partner restricts it there. */
-	const sites = new Map<RelNode, Array<PartnerSite> | "no">()
-	const mark = (node: RelNode, site: PartnerSite | undefined): void => {
-		const known = sites.get(node)
-		if (known === "no") {
-			return
-		}
-		if (site === undefined) {
-			sites.set(node, "no")
-			return
-		}
-		sites.set(node, [...(known ?? []), site])
-	}
-	for (const node of nodes) {
-		if (node.kind === "MatchRegion") {
-			for (const o of node.occurrences) {
-				if (index.restrictable(o.source)) {
-					mark(o.source, partnerAt(node, o, carriedBy))
-				}
-			}
-			continue
-		}
+	const analysis = new KeyAnalysis(
+		topoOrder(index.dag),
+		new Map(index.dag.roots.map((r) => [r, wholeKeys] as const)),
+		fixed
+	)
+	const carried = new Set(whole.flatMap((share) => share.copies))
+	const roots = new Set(read.flatMap((statement) => statement.slice(0, 1)))
+	/** The joins the statements read, by share key: their copies and how many reads read one. */
+	const joins = new Map<string, { readonly copies: Array<RelNode>; reads: number }>()
+	for (const node of new Set(read.flat())) {
 		for (const input of index.inputs(node)) {
-			if (index.restrictable(input)) {
-				mark(input, undefined)
+			if (carried.has(input) || !index.restrictable(input)) {
+				continue
 			}
+			const join = joins.getOrInsertComputed(index.restrictedKey(input), () => ({
+				copies: [],
+				reads: 0
+			}))
+			if (!join.copies.includes(input)) {
+				join.copies.push(input)
+			}
+			join.reads += 1
 		}
 	}
-	for (const statement of read) {
-		const [root] = statement
-		if (root !== undefined && index.restrictable(root)) {
-			mark(root, undefined)
-		}
-	}
-	/** The copies of one key restricted on the same columns by the same partners, by both, and their reads. */
-	const groups = new Map<
-		string,
-		{
-			readonly restriction: Extract<ShareRestriction, { readonly kind: "partners" }>
-			readonly copies: Array<RelNode>
-			reads: number
-		}
-	>()
-	for (const [copy, at] of sites) {
-		const restriction = at === "no" ? undefined : partnersOf(at)
-		if (at === "no" || restriction === undefined) {
-			continue
-		}
-		const group = groups.getOrInsertComputed(
-			`${index.restrictedKey(copy)}|${restrictionKey(restriction)}`,
-			() => ({ restriction, copies: [], reads: 0 })
-		)
-		group.copies.push(copy)
-		group.reads += at.length
-	}
-	return [...groups]
+	const joined = [...joins]
 		.toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-		.flatMap(([key, { restriction, copies, reads }]): ReadonlyArray<CarriedShare> => {
+		.flatMap(([key, { copies, reads }]): ReadonlyArray<CarriedShare> => {
 			const [node] = copies
-			return node === undefined || reads < 2
+			return node === undefined || reads < 2 || copies.some((c) => roots.has(c))
 				? []
-				: [
-						{
-							key,
-							node,
-							copies,
-							restriction,
-							height: restriction.partners.reduce(
-								(h, p) => Math.max(h, p.share.height + 1),
-								index.height(node)
-							)
-						}
-					]
+				: [{ key, node, copies, restriction: { kind: "whole" }, height: index.height(node) }]
 		})
+	const shares = [...whole, ...joined]
+	const order = keyedOrder(
+		index,
+		shares.map((share) => ({
+			copies: share.copies,
+			keys: restrictedByValues(share.node)
+				? wholeKeys
+				: computedAt(share.node, analysis.keysOfAll(share.copies)),
+			height: share.height
+		}))
+	)
+	return shares.flatMap((share, i): ReadonlyArray<CarriedShare> => {
+		const at = defined(order[i], "a share's order")
+		return at.keys === undefined
+			? i < whole.length
+				? [{ ...share, height: at.height }]
+				: []
+			: [{ ...share, restriction: { kind: "keys", keys: at.keys }, height: at.height }]
+	})
 }
 
 /**
- * The restriction a copy's sites give it: the copy's columns every site's partner restricts, in the copy's column order,
- * and each distinct partner with its columns equated to those, in order of their keys; none where no column is common
- * to every site, or the copy has no column.
+ * Which of `candidates`, each a sub-query computed once (its copies), are computed at their key sets, and the height
+ * each is computed at: each with a key set, lowest first, at its keys unless the nodes its key set reads (keys.ts
+ * keySetReads) or a node below one hold a copy of a candidate whose computation reaches it in turn, which no order computes
+ * first; a candidate's computation reads every candidate below its copies, and one at its keys every candidate its key
+ * set's reads hold too, so it stands past each of them.
  */
-const partnersOf = (
-	sites: ReadonlyArray<PartnerSite>
-): Extract<ShareRestriction, { readonly kind: "partners" }> | undefined => {
-	const [first, ...rest] = sites
-	if (first === undefined) {
-		return undefined
-	}
-	const common = first.pairs
-		.map((p) => p.column)
-		.filter((c) => rest.every((x) => x.pairs.some((p) => p.column === c)))
-	if (!isNonEmpty(common)) {
-		return undefined
-	}
-	const partners = new Map<string, Partner>()
-	for (const site of sites) {
-		const columns = common.map(
-			(c) =>
-				defined(
-					site.pairs.find((p) => p.column === c),
-					"a common column every site's partner restricts"
-				).partnerColumn
-		)
-		const [head, ...tail] = columns
-		if (head === undefined) {
-			return undefined
+const keyedOrder = (
+	index: ShareIndex,
+	candidates: ReadonlyArray<{
+		readonly copies: ReadonlyArray<RelNode>
+		readonly keys: KeySet
+		readonly height: number
+	}>
+): ReadonlyArray<{ readonly keys: Keys | undefined; readonly height: number }> => {
+	const owner = new Map<RelNode, number>()
+	for (const [i, c] of candidates.entries()) {
+		for (const copy of c.copies) {
+			owner.set(copy, i)
 		}
-		const partner: Partner = { share: site.partner, columns: [head, ...tail] }
-		partners.set(`${site.partner.key}(${columns.join(",")})`, partner)
 	}
-	const ordered = [...partners]
-		.toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-		.map(([, p]) => p)
-	return isNonEmpty(ordered) ? { kind: "partners", columns: common, partners: ordered } : undefined
+	const none: ReadonlySet<number> = new Set()
+	/** The candidates a node or a node below it holds a copy of. */
+	const under = new Fold<RelNode, ReadonlySet<number>>(function* (node) {
+		const own = owner.get(node)
+		let met: ReadonlySet<number> = own === undefined ? none : new Set([own])
+		for (const input of inputsOf(node)) {
+			const below: ReadonlySet<number> = yield input
+			met = below.isSubsetOf(met) ? met : met.union(below)
+		}
+		return met
+	})
+	/** The candidates whose copies `from` or a node below them hold. */
+	const held = (from: ReadonlyArray<RelNode>): Set<number> =>
+		new Set(from.flatMap((node) => [...under.of(node)]))
+	const below = candidates.map((c, i) => {
+		const met = held(c.copies.flatMap((copy) => index.inputs(copy)))
+		met.delete(i)
+		return met
+	})
+	const throughKeys = candidates.map((c) =>
+		c.keys.kind === "keys" ? held(keySetReads(c.keys)) : new Set<number>()
+	)
+	const keyed = new Set<number>()
+	const edges = (i: number): ReadonlyArray<number> => [
+		...defined(below[i], "a candidate's reads"),
+		...(keyed.has(i) ? defined(throughKeys[i], "a candidate's key set's reads") : [])
+	]
+	/** Whether a candidate's computation reaches `to` from `from`. */
+	const reaches = (from: Iterable<number>, to: number): boolean => {
+		const seen = new Set<number>()
+		const queue = [...from]
+		for (const at of queue) {
+			if (at === to) {
+				return true
+			}
+			if (!seen.has(at)) {
+				seen.add(at)
+				for (const next of edges(at)) {
+					queue.push(next)
+				}
+			}
+		}
+		return false
+	}
+	const lowestFirst = [...candidates.keys()].toSorted(
+		(a, b) =>
+			defined(candidates[a], "a candidate").height - defined(candidates[b], "a candidate").height ||
+			a - b
+	)
+	for (const i of lowestFirst) {
+		const c = defined(candidates[i], "a candidate")
+		if (
+			c.keys.kind === "keys" &&
+			!reaches(defined(throughKeys[i], "a candidate's key set's reads"), i)
+		) {
+			keyed.add(i)
+		}
+	}
+	const heights = new Map<number, number>()
+	const heightOf = (i: number): number => {
+		const known = heights.get(i)
+		if (known !== undefined) {
+			return known
+		}
+		const h = edges(i).reduce(
+			(most, j) => Math.max(most, heightOf(j) + 1),
+			defined(candidates[i], "a candidate").height
+		)
+		heights.set(i, h)
+		return h
+	}
+	return candidates.map((c, i) => ({
+		keys: keyed.has(i) && c.keys.kind === "keys" ? c.keys : undefined,
+		height: heightOf(i)
+	}))
 }
-
-/** A restriction as one text, equal for two copies one restricted share serves. */
-const restrictionKey = (r: Extract<ShareRestriction, { readonly kind: "partners" }>): string =>
-	`${r.columns.join(",")}<${r.partners.map((p) => `${p.share.key}(${p.columns.join(",")})`).join("|")}>`
 
 /**
  * The classes of one share key among `nodes`, each a node that may be shared, in the order the statements first read
@@ -814,7 +797,149 @@ const sourceItem = (source: SharedSource, alias: string): FromSource =>
 interface StatementScope extends CteTable<string> {
 	/** The copies of each share key the statement computes once as a MATERIALIZED CTE (statementCtes), by label. */
 	readonly materialize: ReadonlyMap<NodeId, string>
+	/** The key set each share key of `materialize` is computed at, where it is one (statementKeys). */
+	readonly keyed: ReadonlyMap<string, Keys>
+	/**
+	 * The key set each union or fold the statement lowers in place is computed at, where it is one (statementKeys): the
+	 * keys every read of it reaches it at through the nodes above it.
+	 */
+	readonly inline: ReadonlyMap<RelNode, Keys>
+	/** Each key set's MATERIALIZED CTE, defined at its first use (StatementSharing #keyRows). */
+	readonly keySets: Map<Keys, DefinedCte>
 }
+
+/**
+ * The key sets a statement rooted at `root` computes its nodes at (keys.ts KeyAnalysis over the statement's own
+ * `nodes`, the root at `rootKeys`, every key set read where the statement reads it): each share key it computes as a
+ * CTE (statementCtes) at its copies' key set, and each union or fold it lowers in place, uncorrelated, at its own, where
+ * no value of the statement restricts it and no cycle closes (keyedOrder); every other node whole.
+ */
+const statementKeys = (
+	index: ShareIndex,
+	root: RelNode,
+	rootKeys: KeySet,
+	nodes: ReadonlyArray<RelNode>,
+	materialize: ReadonlyMap<NodeId, string>,
+	fixed: FixedOf
+): { readonly keyed: ReadonlyMap<string, Keys>; readonly inline: ReadonlyMap<RelNode, Keys> } => {
+	const analysis = new KeyAnalysis(nodes, new Map([[root, rootKeys]]), fixed)
+	const copiesOf = new Map<string, Array<RelNode>>()
+	const inPlace: Array<RelNode> = []
+	for (const node of nodes) {
+		const key = materialize.get(node.id)
+		if (key !== undefined) {
+			copiesOf.getOrInsertComputed(key, () => []).push(node)
+		} else if (node !== root && readAtKeys(node) && outerOf(node).length === 0) {
+			inPlace.push(node)
+		}
+	}
+	const keys = [...copiesOf]
+	const candidates = [
+		...keys.map(([, copies]) => ({
+			copies,
+			keys: copies.some(restrictedByValues)
+				? wholeKeys
+				: computedAt(defined(copies[0], "a share key's copy"), analysis.keysOfAll(copies)),
+			height: copies.reduce((h, c) => Math.max(h, index.height(c)), 0)
+		})),
+		...inPlace.map((node) => ({
+			copies: [node],
+			keys: restrictedByValues(node) ? wholeKeys : computedAt(node, analysis.keysOf(node)),
+			height: index.height(node)
+		}))
+	]
+	const order = keyedOrder(index, candidates)
+	const keyedAt = (i: number): Keys | undefined => order[i]?.keys
+	return {
+		keyed: new Map(
+			keys.flatMap(([key], i) => {
+				const at = keyedAt(i)
+				return at === undefined ? [] : [[key, at] as const]
+			})
+		),
+		inline: new Map(
+			inPlace.flatMap((node, i) => {
+				const at = keyedAt(keys.length + i)
+				return at === undefined ? [] : [[node, at] as const]
+			})
+		)
+	}
+}
+
+/**
+ * A key set's sources, each that reads what an earlier one reads once: two copies of one sub-query read the same rows
+ * (ShareIndex key), so a source whose atoms read copies of the same nodes, each column at the same place among its slots,
+ * at no value of the statement's own, repeats the earlier one's rows; one that reads a value is kept.
+ */
+const distinctSources = (
+	index: ShareIndex,
+	sources: NonEmptyReadonlyArray<KeySource>
+): NonEmptyReadonlyArray<KeySource> => {
+	/** What a source reads, as text: none for one that reads a value of the statement's, which is always kept. */
+	const textOf = (source: KeySource): string | undefined => {
+		if (
+			source.fixed.length > 0 ||
+			source.atoms.some((a) => a.kind === "read" && a.constants.length > 0)
+		) {
+			return undefined
+		}
+		const places = new Map<string, number>()
+		const place = (slot: string): number => places.getOrInsertComputed(slot, () => places.size)
+		const atoms = source.atoms.map(
+			(a) =>
+				`${a.kind === "read" ? (index.key(a.node) ?? a.node.id) : `keys ${a.of.id}`}(${a.bindings
+					.map((b) => `${b.column}=${place(b.slot)}`)
+					.join(",")})`
+		)
+		return `${atoms.join(" ")} -> ${source.keys.map((k) => `${k.column}=${place(k.slot)}`).join(",")}`
+	}
+	const [first, ...rest] = sources
+	const firstText = textOf(first)
+	const seen = new Set<string>(firstText === undefined ? [] : [firstText])
+	const kept = rest.filter((source) => {
+		const text = textOf(source)
+		if (text === undefined) {
+			return true
+		}
+		if (seen.has(text)) {
+			return false
+		}
+		seen.add(text)
+		return true
+	})
+	return [first, ...kept]
+}
+
+/**
+ * A union or a fold read at keys, each restricted column of it equal to its value: lower/shapes/union keyedUnion, each
+ * arm at the values, or lower/shapes/aggregate keyedGroup, the keys restricted below the aggregate.
+ */
+export type KeyedRead = (
+	node: NodeOf<"Union"> | NodeOf<"Group">,
+	cx: LowerContext,
+	env: Env,
+	restriction: ColumnEqualities
+) => OperandSelect
+
+/** The targets of every column of a node's heading, each read through `columns`; one at least, a set's row. */
+const headingTargetsOf = (
+	node: RelNode,
+	columns: ColumnMap
+): NonEmptyReadonlyArray<ReturnType<typeof target>> => {
+	const [first, ...rest] = node.heading.map((c) => target(columnIn(columns, c.name)))
+	if (first === undefined) {
+		throw defect("a held node's heading, of at least one column")
+	}
+	return [first, ...rest]
+}
+
+/**
+ * Whether a node held at its keys is read at them inside (StatementSharing #atKeys): a union, each arm at the keys, or a
+ * fold, below its aggregate, where a restriction placed over either reaches no arm and no group; a join's restriction
+ * stands over it, its EXISTS a semi-join PostgreSQL plans with the join's sources.
+ */
+const readAtKeys = (node: RelNode): node is NodeOf<"Union"> | NodeOf<"Group"> =>
+	node.kind === "Union" || node.kind === "Group"
 
 /**
  * The dispatch of a program's statements with sharing: a node a carrier holds reads the carrier, a node whose share key
@@ -829,22 +954,29 @@ export class StatementSharing {
 	readonly #inner: NodeDispatch
 	/** What each carried copy reads, by the copy's label. */
 	readonly #carried = new Map<NodeId, { readonly key: string; readonly source: SharedSource }>()
-	/** What each carried sub-query's readers read, which a share restricted by it reads too (restriction). */
-	readonly #sources = new Map<CarriedShare, SharedSource>()
 	/**
 	 * The CTE of the single statement that holds a call's evaluation as a part (carryEvaluation), by the call's
 	 * evaluation key (lower/conservative/call evaluationKey), which every read of it in the statement's parts reads.
 	 */
 	readonly #evaluations = new Map<string, Extract<SharedSource, { readonly kind: "enclosing" }>>()
 
-	constructor(index: ShareIndex, inner: NodeDispatch) {
+	/**
+	 * A union or a fold read at keys (lower/shapes/union keyedUnion, lower/shapes/aggregate keyedGroup), each restricted
+	 * column equal to its value, which a node held at its keys is read by (#atKeys).
+	 */
+	readonly #keyed: KeyedRead
+	/** What each column of a node is fixed to per evaluation, which the statements' key sets read (keys.ts FixedOf). */
+	readonly #fixed: FixedOf
+
+	constructor(index: ShareIndex, inner: NodeDispatch, keyed: KeyedRead, fixed: FixedOf) {
 		this.index = index
 		this.#inner = inner
+		this.#keyed = keyed
+		this.#fixed = fixed
 	}
 
 	/** Every copy of `share` reads `source` from now on. */
 	carry(share: CarriedShare, source: SharedSource): void {
-		this.#sources.set(share, source)
 		for (const copy of share.copies) {
 			this.#carried.set(copy.id, { key: share.key, source })
 		}
@@ -856,73 +988,10 @@ export class StatementSharing {
 	 */
 	uncarry(shares: ReadonlyArray<CarriedShare>): void {
 		for (const share of shares) {
-			this.#sources.delete(share)
 			for (const copy of share.copies) {
 				if (this.#carried.get(copy.id)?.key === share.key) {
 					this.#carried.delete(copy.id)
 				}
-			}
-		}
-	}
-
-	/**
-	 * The condition a restricted share's fill keeps its copy's rows by, over `columns`, the copy's columns as its fill
-	 * reads them: EXISTS a row of its partner, read where every reader reads it, whose paired columns equal the row's
-	 * (ShareRestriction), the equality the readers' regions compare them by; none for a share that holds every row.
-	 */
-	restriction(share: CarriedShare, columns: ColumnMap, cx: LowerContext): Expr | undefined {
-		const restriction = share.restriction
-		switch (restriction.kind) {
-			case "whole":
-				return undefined
-			case "partners": {
-				const origin = { kind: "node", node: share.node.id } as const
-				/** Each partner's columns, read where every reader reads it: one arm of the union of its readers' keys. */
-				const arms = mapNonEmpty(restriction.partners, (p) => {
-					const source = defined(
-						this.#sources.get(p.share),
-						"a restricted share's partner, filled before it (planStatementShares heights)"
-					)
-					const alias = cx.relationAlias({ kind: "node", node: p.share.node.id })
-					return core(
-						p.columns.map((name) =>
-							target(
-								col(
-									alias,
-									defined(
-										source.columns[p.share.node.heading.findIndex((c) => c.name === name)],
-										"a partner column its carrier holds, in its copy's heading order"
-									)
-								)
-							)
-						),
-						[sourceItem(source, alias)],
-						undefined
-					)
-				})
-				const keys = cx.relationAlias(origin)
-				const named = cx.freshColumns(restriction.columns, origin)
-				const on = named.map((n) =>
-					cx.equal(
-						columnType(share.node.heading, n.name),
-						col(keys, n.column),
-						columnIn(columns, n.name)
-					)
-				)
-				return exists(
-					simpleSelect(
-						[target(lit.int(1, types.integer))],
-						[
-							derived(
-								operandSelect(operandUnionAll(arms)),
-								keys,
-								named.map((n) => n.column),
-								false
-							)
-						],
-						conjunction(on)
-					)
-				)
 			}
 		}
 	}
@@ -1005,7 +1074,188 @@ export class StatementSharing {
 
 	/** The dispatch of the statement that fills `share`'s carrier: its own copies are lowered, not read from the carrier. */
 	filling(share: CarriedShare): NodeDispatch {
-		return (node, cx, env) => this.#root(node, cx, env, share.key)
+		return (node, cx, env) => {
+			const restriction = share.restriction
+			return node === share.node && restriction.kind === "keys"
+				? this.#statement(node, cx, share.key, restriction.keys, (root, scope) =>
+						this.#keyedBody(node, restriction.keys, root, scope)
+					)
+				: this.#root(node, cx, env, share.key)
+		}
+	}
+
+	/**
+	 * A node's rows at its key set's rows: a union or a fold read at them inside (#atKeys), a join kept by an EXISTS a key
+	 * whose columns equal the row's, which PostgreSQL plans with the join's sources.
+	 */
+	#keyedBody(node: RelNode, keys: Keys, cx: LowerContext, scope: StatementScope): OperandSelect {
+		if (readAtKeys(node)) {
+			return this.#atKeys(node, keys, cx, emptyEnv, scope)
+		}
+		const origin = { kind: "node", node: node.id } as const
+		const rows = cx.wrap(this.#inner(node, cx, emptyEnv), node.heading, origin)
+		const keyRows = this.#keyRows(node, keys, cx, scope)
+		const on = keyRows.named.map((n) =>
+			cx.equal(
+				columnType(node.heading, n.name),
+				col(keyRows.alias, n.column),
+				columnIn(rows.map, n.name)
+			)
+		)
+		return select(
+			distinctCore(
+				headingTargetsOf(node, rows.map),
+				[rows.item],
+				exists(simpleSelect([target(lit.int(1, types.integer))], [keyRows.item], conjunction(on)))
+			)
+		)
+	}
+
+	/**
+	 * A union's or a fold's rows at its key set's rows (readAtKeys): each key once, and the node LATERAL beside it read at
+	 * that key, `SELECT u.* FROM (SELECT DISTINCT k FROM <the keys>) AS p, LATERAL (<the node at k>) AS u`, a union with
+	 * each arm at the key (keyedUnion), a fold with the key restricted below its aggregate (keyedGroup), as a region reads
+	 * either by its keys (cte-policy probesByKey); PostgreSQL moves no restriction placed over a union or a fold into its
+	 * arms or below its grouping, so restricting the whole would read every row of every arm.
+	 */
+	#atKeys(
+		node: NodeOf<"Union"> | NodeOf<"Group">,
+		keys: Keys,
+		cx: LowerContext,
+		env: Env,
+		scope: StatementScope
+	): OperandSelect {
+		const origin = { kind: "node", node: node.id } as const
+		const keyRows = this.#keyRows(node, keys, cx, scope)
+		const equalities: ColumnEqualities = keyRows.named.map((n) => ({
+			column: n.name,
+			value: col(keyRows.alias, n.column)
+		}))
+		const rows = cx.wrapAs(this.#keyed(node, cx, env, equalities), node.heading, origin, true)
+		return select(
+			distinctCore(headingTargetsOf(node, rows.map), [keyRows.item, rows.item], undefined)
+		)
+	}
+
+	/**
+	 * A key set's rows, each key once, the statement's MATERIALIZED CTE of them, defined at its first use and read by
+	 * every use after: `SELECT DISTINCT k FROM (<source 1> UNION ALL ...)`, each source its atoms read where the key set
+	 * stands (a carried copy from its carrier, a stored relation at its constants, a key set it reads in turn), joined
+	 * where two bind one slot, its keys' slots selected.
+	 */
+	#keyRows(
+		node: RelNode,
+		keys: Keys,
+		cx: LowerContext,
+		scope: StatementScope
+	): {
+		readonly item: FromSource
+		readonly alias: string
+		readonly named: ReadonlyArray<{ readonly name: string; readonly column: string }>
+	} {
+		const origin = { kind: "node", node: node.id } as const
+		const known = scope.keySets.get(keys)
+		const cte = known ?? this.#keySetCte(node, keys, cx, scope)
+		if (known === undefined) {
+			scope.keySets.set(keys, cte)
+		}
+		const alias = cx.relationAlias(origin)
+		return {
+			item: cteRefAs(cte.name, alias),
+			alias,
+			named: keys.columns.map((name, i) => ({
+				name,
+				column: defined(cte.columns[i], "a key set's CTE column, one a key column")
+			}))
+		}
+	}
+
+	/** The CTE of a key set's rows (#keyRows), entered in the statement's WITH past every CTE its sources read. */
+	#keySetCte(node: RelNode, keys: Keys, cx: LowerContext, scope: StatementScope): DefinedCte {
+		const origin = { kind: "node", node: node.id } as const
+		const [first, ...rest] = distinctSources(this.index, keys.sources)
+		const arms = mapNonEmpty([first, ...rest], (source) =>
+			this.#sourceRows(source, keys.columns, cx, scope)
+		)
+		const unionAlias = cx.relationAlias(origin)
+		const unionColumns = mapNonEmpty(keys.columns, () => cx.supply.column(origin))
+		const union = derived(operandSelect(operandUnionAll(arms)), unionAlias, unionColumns, false)
+		const query = select(
+			distinctCore(
+				mapNonEmpty(unionColumns, (c) => target(col(unionAlias, c))),
+				[union],
+				undefined
+			)
+		)
+		const name = cx.relationAlias(origin)
+		const columns = cx.supply.columns(keys.columns.map(() => origin))
+		scope.ctes.add({ name, columns, materialized: "MATERIALIZED", query })
+		return { name, columns, set: true }
+	}
+
+	/** One key source's rows: its atoms read where it stands, joined at their shared slots, its keys selected in order. */
+	#sourceRows(
+		source: KeySource,
+		columns: NonEmptyReadonlyArray<string>,
+		cx: LowerContext,
+		scope: StatementScope
+	): ReturnType<typeof core> {
+		const from: Array<FromSource> = []
+		const where: Array<Expr> = []
+		const atSlot = new Map<string, { readonly expr: Expr; readonly type: ScalarType }>()
+		const bind = (slot: string, expr: Expr, type: ScalarType): void => {
+			const known = atSlot.get(slot)
+			if (known === undefined) {
+				atSlot.set(slot, { expr, type })
+			} else {
+				where.push(cx.equal(type, known.expr, expr))
+			}
+		}
+		for (const f of source.fixed) {
+			atSlot.set(f.slot, { expr: lowerExpr(cx, f.expr, emptyEnv), type: f.expr.pgType })
+		}
+		for (const atom of source.atoms) {
+			switch (atom.kind) {
+				case "read": {
+					const read = cx.source(atom.node, emptyEnv)
+					from.push(read.item)
+					for (const c of atom.constants) {
+						where.push(
+							cx.equal(
+								columnType(atom.node.heading, c.column),
+								columnIn(read.map, c.column),
+								lowerExpr(cx, c.expr, emptyEnv)
+							)
+						)
+					}
+					for (const b of atom.bindings) {
+						bind(b.slot, columnIn(read.map, b.column), columnType(atom.node.heading, b.column))
+					}
+					break
+				}
+				case "keys": {
+					const rows = this.#keyRows(atom.of, atom.keys, cx, scope)
+					from.push(rows.item)
+					for (const b of atom.bindings) {
+						const n = rows.named.find((x) => x.name === b.column)
+						if (n !== undefined) {
+							bind(b.slot, col(rows.alias, n.column), columnType(atom.of.heading, b.column))
+						}
+					}
+					break
+				}
+			}
+		}
+		const targets = columns.map((c) => {
+			const k = defined(
+				source.keys.find((x) => x.column === c),
+				"a key column every source of a key set binds"
+			)
+			return target(
+				defined(atSlot.get(k.slot), "a key's slot, bound by an atom of its source").expr
+			)
+		})
+		return core(targets, from, conjunction(where))
 	}
 
 	/**
@@ -1039,7 +1289,9 @@ export class StatementSharing {
 		if (carried !== undefined) {
 			return carried
 		}
-		return this.#statement(node, cx, filling, (root, scope) => this.#shared(node, root, env, scope))
+		return this.#statement(node, cx, filling, wholeKeys, (root, scope) =>
+			this.#shared(node, root, env, scope)
+		)
 	}
 
 	/**
@@ -1049,7 +1301,9 @@ export class StatementSharing {
 	 * argument was a statement of its own and computed its copy again. A copy a carrier holds is read from it.
 	 */
 	evaluation(read: NodeOf<"Call">, cx: LowerContext): Select {
-		return this.#statement(read, cx, undefined, (root) => evaluationQuery(read, root, emptyEnv))
+		return this.#statement(read, cx, undefined, wholeKeys, (root) =>
+			evaluationQuery(read, root, emptyEnv)
+		)
 	}
 
 	/**
@@ -1062,15 +1316,27 @@ export class StatementSharing {
 		node: RelNode,
 		cx: LowerContext,
 		filling: string | undefined,
+		rootKeys: KeySet,
 		lower: (root: LowerContext, scope: StatementScope) => Q
 	): Q {
+		const carried = (n: RelNode): boolean => this.#carrierIn(n, filling) !== undefined
+		const materialize = statementCtes(this.index, node, carried)
 		const scope: StatementScope = {
 			ctes: new Set(),
 			defined: new Map(),
-			materialize: statementCtes(this.index, node, (n) => this.#carrierIn(n, filling) !== undefined)
+			materialize,
+			...statementKeys(
+				this.index,
+				node,
+				rootKeys,
+				reach(this.index, node, carried, noneOpaque),
+				materialize,
+				this.#fixed
+			),
+			keySets: new Map()
 		}
 		const inScope: NodeDispatch = (n, ncx, nenv) =>
-			this.#readCarrier(n, ncx, filling) ?? this.#shared(n, ncx, nenv, scope)
+			this.#readCarrier(n, ncx, filling) ?? this.#inPlace(n, ncx, nenv, scope)
 		const root = cx.withDispatch(inScope)
 		const query = lower(
 			root
@@ -1081,13 +1347,26 @@ export class StatementSharing {
 		return withLeading(query, scope.ctes)
 	}
 
+	/**
+	 * A node the statement lowers: a union or a fold its reads restrict (StatementScope inline) at its keys, each arm at
+	 * them or the keys below its aggregate (#atKeys), where computed whole it would read every row, PostgreSQL moving no
+	 * restriction into an arm or below a grouping; any other node as the statement shares it.
+	 */
+	#inPlace(node: RelNode, cx: LowerContext, env: Env, scope: StatementScope): OperandSelect {
+		const keys = scope.inline.get(node)
+		return keys !== undefined && readAtKeys(node) && scope.materialize.get(node.id) === undefined
+			? this.#atKeys(node, keys, cx, env, scope)
+			: this.#shared(node, cx, env, scope)
+	}
+
 	#shared(node: RelNode, cx: LowerContext, env: Env, scope: StatementScope): OperandSelect {
 		const key = scope.materialize.get(node.id)
 		if (key === undefined || cx.readsFeedback(node)) {
 			return this.#inner(node, cx, env)
 		}
+		const keys = scope.keyed.get(key)
 		return cteAtFirstUse(cx, node, scope, key, "MATERIALIZED", () =>
-			this.#inner(node, cx, emptyEnv)
+			keys === undefined ? this.#inner(node, cx, emptyEnv) : this.#keyedBody(node, keys, cx, scope)
 		)
 	}
 }

@@ -49,6 +49,7 @@ import { emptyCtePlan } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { placeDeduplication } from "#compiler/lower/optimize/dedup/place.ts"
 import type { DedupPlan } from "#compiler/lower/optimize/dedup/plan.ts"
 import { partQuery, type TaggedPart } from "#compiler/lower/parts.ts"
+import { keyedGroup } from "#compiler/lower/shapes/aggregate/index.ts"
 import {
 	type OptimizedDeliveryProgram,
 	optimizedDispatch,
@@ -56,6 +57,7 @@ import {
 	type SentStatement,
 	ShapeState
 } from "#compiler/lower/shapes/index.ts"
+import { keySetReads } from "#compiler/lower/shapes/share/keys.ts"
 import { type ShapeFacts, shapeFactsFromPlan } from "#compiler/lower/shapes/share/physical.ts"
 import {
 	type CarriedShare,
@@ -65,6 +67,7 @@ import {
 	StatementSharing
 } from "#compiler/lower/shapes/share/statements.ts"
 import type { RelationInput } from "#compiler/lower/shapes/take/index.ts"
+import { keyedUnion } from "#compiler/lower/shapes/union/index.ts"
 import { sentHeading, sentSpec, specifiedProgram } from "#compiler/lower/template.ts"
 import { oneForm } from "#compiler/runtime/lower/forms.ts"
 import { plainType } from "#compiler/scalar/native.ts"
@@ -330,24 +333,24 @@ const plannedNodes = (planned: PlannedWrite): ReadonlyArray<RelNode> => {
 }
 
 /**
- * The certificate of a share restricted by partners (CarriedShare restriction, share.restricted): its copies, read where
- * every reader joins them to one of the partners by its columns, held as the rows that match a row of one, the proof
- * reading the copies and the partners' nodes; none for a share that holds every row.
+ * The certificate of a share held at its keys (CarriedShare restriction, share.restricted): its copies, held as their
+ * rows at the key set every read of theirs reads them at, the proof reading the copies and the nodes the key set reads
+ * (keys.ts KeyAnalysis reads); none for a share that holds every row.
  */
 const certifyRestriction = (facts: ShapeFacts, share: CarriedShare): void => {
 	const restriction = share.restriction
 	switch (restriction.kind) {
 		case "whole":
 			return
-		case "partners": {
-			const partners = restriction.partners.map((p) => p.share.node.id)
+		case "keys": {
+			const reads = [...new Set(keySetReads(restriction.keys).map((n) => n.id))]
 			const copies = share.copies.map((c) => c.id)
 			facts.certify(
 				localCertificate(
 					"share.restricted",
-					[...copies, ...partners],
+					[...copies, ...reads],
 					copies,
-					[...partners, ...copies],
+					[...reads, ...copies],
 					share.node.heading.map((c) => c.name)
 				)
 			)
@@ -428,7 +431,7 @@ const heldParts = (
 					kind: "share",
 					share,
 					height: share.height,
-					first: share.restriction.kind === "partners"
+					first: share.restriction.kind === "keys"
 				}) as const
 		)
 	].toSorted((a, b) => a.height - b.height || Number(b.first) - Number(a.first))
@@ -1346,9 +1349,7 @@ const optimizedPlacement = (
 								/** A shared sub-query's CTE lowers its own copies rather than reading itself. */
 								const source = part(heading.length, () => {
 									const filling = { ...w, start, cx: w.cx.withDispatch(sharing.filling(share)) }
-									return memberRows(filling, heading, share.node, (columns) =>
-										sharing.restriction(share, columns, filling.cx)
-									)
+									return memberRows(filling, heading, share.node)
 								})
 								sharing.carry(share, source)
 								break
@@ -1946,7 +1947,12 @@ const compileAt = (
 	const templates = new DagTemplates()
 	const sharing = new StatementSharing(
 		new ShareIndex(restated.ir.dag, templates),
-		optimizedDispatch(placed.facts, state)
+		optimizedDispatch(placed.facts, state),
+		(node, cx, env, restriction) =>
+			node.kind === "Union"
+				? keyedUnion(placed.facts, node, cx, env, restriction)
+				: keyedGroup(placed.facts, node, cx, env, restriction),
+		placed.facts.fixed
 	)
 	const lowering: Lowering = {
 		state,
@@ -1970,7 +1976,7 @@ const compileAt = (
 					sharing.index,
 					members,
 					single ? (node) => heldEvaluationKey(lowering.w.cx, node) : noneHeld,
-					single ? "byPartners" : "never"
+					single ? { kind: "byKeys", fixed: placed.facts.fixed } : { kind: "never" }
 				)
 			)
 			for (const planned of shares) {
