@@ -299,7 +299,7 @@ export const snapshotServedEntry = (
 
 /**
  * The served file of `login` under `snapshot` alone (`snapshotCompiled`, then `servedEntryOf`), every reading of the
- * clock its clocked reads and ChangeSets make moved by the clock's offset, which each of them declares and a Db over a
+ * clock its clocked reads and ChangeSets make the clock's stated instant, which each of them declares and a Db over a
  * moved clock states at each call (adapter/db/moved.ts): adapter/public/compile.ts compileServedMoved's.
  */
 export const snapshotMovedEntry = (

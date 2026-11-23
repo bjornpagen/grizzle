@@ -270,19 +270,19 @@ const printCatalogType = (name: CatalogTypeName): string => {
 }
 
 /**
- * The instant a reading counts (sql/ast.ts ClockInstant): the call's transaction's, or that instant plus its offset's
- * microseconds as an interval, `<n> microseconds`, which interval input reads as exactly n, an int64 of the unit
- * (REL_19_0 src/backend/utils/adt/datetime.c DecodeInterval, strtoi64 then AdjustMicroseconds), where interval * float8
- * would round an offset past 2^53, so the sum is exact and a moved instant timestamptz cannot hold is PostgreSQL's
+ * The instant a reading counts (sql/ast.ts ClockInstant): the call's transaction's, or the instant a moved call states,
+ * the Unix epoch plus its microseconds as an interval, `<n> microseconds`, which interval input reads as exactly n, an
+ * int64 of the unit (REL_19_0 src/backend/utils/adt/datetime.c DecodeInterval, strtoi64 then AdjustMicroseconds), where
+ * to_timestamp's float8 seconds would round an instant to a float's precision, so the instant is exactly the one
+ * stated, a reading of it in microseconds the stated count itself, and one timestamptz cannot hold is PostgreSQL's
  * refusal, every reading of it inside the clock's range (core/clock.ts clockReadingRange).
  */
 const printInstant = (instant: ClockInstant): string => {
-	const began = `${inCatalog("transaction_timestamp")}()`
 	switch (instant.kind) {
 		case "transaction":
-			return began
+			return `${inCatalog("transaction_timestamp")}()`
 		case "moved":
-			return `(${began} + ${inCatalog("format")}(${printLiteral({ kind: "text", value: "%s microseconds" }, types.text).text}, ${printExpr(instant.offset)})::${inCatalog("interval")})`
+			return `(${printLiteral({ kind: "text", value: "epoch" }, types.text).text}::${inCatalog("timestamptz")} + ${inCatalog("format")}(${printLiteral({ kind: "text", value: "%s microseconds" }, types.text).text}, ${printExpr(instant.at)})::${inCatalog("interval")})`
 	}
 }
 

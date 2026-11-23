@@ -240,14 +240,14 @@ export class Transform {
 
 	readonly expr = (e: Expr): Expr => this.#expr(this.exprChildren(e), e)
 
-	/** A reading's instant, a moved one's offset through the expression hooks. */
+	/** A reading's instant, a moved one's stated instant through the expression hooks. */
 	readonly instant = (instant: ClockInstant): ClockInstant => {
 		switch (instant.kind) {
 			case "transaction":
 				return instant
 			case "moved": {
-				const offset = this.expr(instant.offset)
-				return offset === instant.offset ? instant : { kind: "moved", offset }
+				const at = this.expr(instant.at)
+				return at === instant.at ? instant : { kind: "moved", at }
 			}
 		}
 	}
@@ -2224,7 +2224,7 @@ class Visit {
 					case "transaction":
 						return
 					case "moved":
-						this.expr(instant.offset)
+						this.expr(instant.at)
 						return
 				}
 			}

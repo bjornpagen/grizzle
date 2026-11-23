@@ -362,7 +362,7 @@ export interface ServedRefresh {
  * `constant`, a read of closed relations alone, whose rows only a migration changes, so its watch subscribes to no row,
  * and only the installation's version notice ends it; `routed`, every other, by its footprint's tables and views, at
  * least one, and their routes. Whether an answered read reads the database's clock is its program's to state: under a
- * moved clock it declares the clock's offset (check/clock.ts sourcedParams).
+ * moved clock it declares the clock's stated instant (check/clock.ts sourcedParams).
  */
 export type ServedReadLive =
 	| { readonly kind: "answered" }

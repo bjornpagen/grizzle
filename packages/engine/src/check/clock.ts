@@ -6,7 +6,7 @@ import { compareStrings } from "#compiler/core/order.ts"
 import {
 	type ClockBinding,
 	type ClockSource,
-	clockOffsetName,
+	clockInstantName,
 	isInt8Type
 } from "#compiler/ir/clock.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
@@ -60,21 +60,22 @@ export const clockParams = (
 }
 
 /**
- * The clock's offset: a bigint count of microseconds, the parameter every program a moved clock's compile serves that
- * may read the clock declares (sourcedParams), which a Db over a moved clock states at each call, the same in every
- * statement of the call, and which every reading of the clock in the program is moved by (lower/conservative/context.ts
- * clockReading). PostgreSQL's own resolution, so every unit's reading of the moved instant is exact.
+ * The clock's stated instant: a bigint count of microseconds since the Unix epoch, the parameter every program a moved
+ * clock's compile serves that may read the clock declares (sourcedParams), which a Db over a moved clock states at each
+ * call, the same in every statement of the call, and which every reading of the clock in the program reads
+ * (lower/conservative/context.ts clockReading). PostgreSQL's own resolution, so every unit's reading of it is exact: a
+ * reading in microseconds is the stated count itself.
  */
-export const clockOffset: Extract<ParamDecl, { readonly kind: "scalar" }> = Object.freeze({
-	id: ParamId(clockOffsetName),
-	name: clockOffsetName,
+export const clockInstant: Extract<ParamDecl, { readonly kind: "scalar" }> = Object.freeze({
+	id: ParamId(clockInstantName),
+	name: clockInstantName,
 	kind: "scalar",
 	type: plainType("int8")
 })
 
 /**
  * The declared parameters of a program that may read the clock, compiled under `source`: its own, and under a moved
- * clock the clock's offset after them, which its readings are moved by.
+ * clock the clock's stated instant after them, which its readings read.
  */
 export const sourcedParams = (
 	params: ReadonlyArray<ParamDecl>,
@@ -84,6 +85,6 @@ export const sourcedParams = (
 		case "transaction":
 			return params
 		case "moved":
-			return [...params, clockOffset]
+			return [...params, clockInstant]
 	}
 }

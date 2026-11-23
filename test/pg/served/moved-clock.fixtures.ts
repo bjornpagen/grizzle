@@ -64,72 +64,106 @@ export const movedInstall = Object.freeze({ label: "moved", programs })
 /** Moved installed as `grizzle generate` drafts it, once per member: the template every case clones. */
 export const movedTemplate = fixtureTemplate(import.meta, Moved, movedInstall)
 
-/** An hour, in microseconds, the unit every reading and offset here counts. */
+/** An hour, in microseconds, the unit every reading and instant here counts. */
 const hour = 3_600_000_000n
 
 /** A day, in microseconds. */
 const day = 24n * hour
 
 /**
- * A case: the offset the lease is taken at; its budget, an hour or more, so no call's run outlasts it; and where it is
- * judged: at the offset it was taken at, within its lease, or past its bound, the taking's offset plus the budget and
- * `past` more.
+ * The instants a lease is taken at, in microseconds since the Unix epoch: the epoch itself, the least instant an
+ * instant holds (scalar/instant.ts: never below zero); one of 2026 to the microsecond; one of 2056; and the last
+ * microsecond of the year 9999. None of them is the database's own instant, which a moved Db never reads.
  */
+const takings = {
+	"the epoch": 0n,
+	"an instant of 2026 to the microsecond": 1_795_392_000_123_457n,
+	"an instant of 2056": 2_717_366_400_000_001n,
+	"the last microsecond of 9999": 253_402_300_799_999_999n
+} as const
+
+type Taking = keyof typeof takings
+
+/**
+ * Where a lease is judged, from the instant it was taken at: at that instant, at the last microsecond of its lease, at
+ * its bound (the taking plus the budget), or past it by `by`.
+ */
+type Judging =
+	| { readonly kind: "at the taking" }
+	| { readonly kind: "at its last instant within" }
+	| { readonly kind: "past"; readonly by: bigint }
+
+/** A case: the instant the lease is taken at, its budget, and where it is judged. */
 export interface Moving {
-	readonly taken: bigint
+	readonly taking: Taking
 	readonly budget: bigint
-	readonly judged: { readonly kind: "within" } | { readonly kind: "past"; readonly by: bigint }
+	readonly judged: Judging
 }
 
 export const movingGen: Gen<Moving> = (source) => ({
-	taken: source.draw(element([0n, -hour, 30n * 365n * day, -3n * 365n * day] as const)),
-	budget: source.draw(element([hour, 7n * hour, day] as const)),
+	taking: source.draw(
+		element<Taking>([
+			"the epoch",
+			"an instant of 2026 to the microsecond",
+			"an instant of 2056",
+			"the last microsecond of 9999"
+		])
+	),
+	budget: source.draw(element([1n, hour, day] as const)),
 	judged: source.draw(
-		element([
-			{ kind: "within" },
+		element<Judging>([
+			{ kind: "at the taking" },
+			{ kind: "at its last instant within" },
 			{ kind: "past", by: 0n },
 			{ kind: "past", by: 1n },
 			{ kind: "past", by: day }
-		] as const)
+		])
 	)
 })
 
-/** The offset a case's lease is judged at. */
+/** The instant a case's lease is taken at. */
+export const takenAt = (c: Moving): bigint => takings[c.taking]
+
+/** The instant a case's lease is judged at. */
 export const judgedAt = (c: Moving): bigint => {
 	switch (c.judged.kind) {
-		case "within":
-			return c.taken
+		case "at the taking":
+			return takenAt(c)
+		case "at its last instant within":
+			return takenAt(c) + c.budget - 1n
 		case "past":
-			return c.taken + c.budget + c.judged.by
+			return takenAt(c) + c.budget + c.judged.by
 	}
 }
 
+/** Whether a case's lease is live where it is judged: before its bound. */
+export const liveWhenJudged = (c: Moving): boolean => c.judged.kind !== "past"
+
 export type MovingFeature =
-	| "offset 0"
-	| "an offset into the past"
-	| "an offset into the future"
-	| "judged within the lease"
+	| Taking
+	| "judged at the taking"
+	| "judged at its last instant within"
 	| "judged at its bound"
 	| "judged past its bound"
 
 export const movingFeatures = (c: Moving): ReadonlyArray<MovingFeature> => [
-	c.taken === 0n
-		? "offset 0"
-		: c.taken < 0n
-			? "an offset into the past"
-			: "an offset into the future",
-	c.judged.kind === "within"
-		? "judged within the lease"
-		: c.judged.by === 0n
-			? "judged at its bound"
-			: "judged past its bound"
+	c.taking,
+	c.judged.kind === "at the taking"
+		? "judged at the taking"
+		: c.judged.kind === "at its last instant within"
+			? "judged at its last instant within"
+			: c.judged.by === 0n
+				? "judged at its bound"
+				: "judged past its bound"
 ]
 
 export const situations = [
-	"offset 0",
-	"an offset into the past",
-	"an offset into the future",
-	"judged within the lease",
+	"the epoch",
+	"an instant of 2026 to the microsecond",
+	"an instant of 2056",
+	"the last microsecond of 9999",
+	"judged at the taking",
+	"judged at its last instant within",
 	"judged at its bound",
 	"judged past its bound"
 ] as const satisfies ReadonlyArray<Reached<MovingFeature>>

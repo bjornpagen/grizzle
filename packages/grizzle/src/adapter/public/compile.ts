@@ -89,10 +89,10 @@ export const compileServed = (
 /**
  * compileServedMoved(login, snapshot, workloads): compileServed's file of `login` with `workloads`, compiled for a moved
  * clock (adapter/served/compile.ts snapshotMovedEntry): every clocked read and every ChangeSet of it declares the
- * clock's offset and reads each instant of the database's clock, its clocked parameters' and its stamps' alike, moved by
- * it, which a Db over a moved clock states at each call (Db.openMoved). A test's file alone: served by its login's
- * DbLayer as any served file is, its roles opened by Db.openMoved, so a test reads a time-dependent law at the instant
- * it states. Every other program compiles as compileServed compiles it.
+ * clock's stated instant and reads each instant of the database's clock, its clocked parameters' and its stamps' alike,
+ * as it, which a Db over a moved clock states at each call (Db.openMoved). A test's file alone: served by its login's
+ * DbLayer as any served file is, its roles opened by Db.openMoved, so a test reads a time-dependent law, and stamps its
+ * rows, at exactly the instant it states. Every other program compiles as compileServed compiles it.
  */
 export const compileServedMoved = (
 	login: AnyLogin,

@@ -25,7 +25,7 @@
  * every row of the call in its group. It locks each child's head until the call ends, so two calls that stamp one
  * child take turns at every level, the later stamping after the earlier's head, and calls that stamp different
  * children wait on nothing of each other's. The clock is the call's transaction_timestamp(), one value
- * in every statement of the call, or that instant moved by the call's offset under a moved clock
+ * in every statement of the call, or the instant the call states under a moved clock
  * (lower/conservative/context.ts clockReading).
  */
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"

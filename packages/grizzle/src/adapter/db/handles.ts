@@ -882,7 +882,7 @@ export interface MemberHandleParts {
 /**
  * The record of a Db's workload handles over `members`, each member's calls and explains as `partsOf` gives them
  * (handleCalls, explainsOf), under its name: a served Db's (servedHandles), and a Db's over a moved clock, whose clocked
- * reads and changes state the clock's offset at each call (db/moved.ts).
+ * reads and changes state the clock's instant at each call (db/moved.ts).
  */
 export const handlesOf = (
 	members: ReadonlyArray<LoadedMember>,

@@ -39,21 +39,21 @@ export const readingOf = (binding: ClockBinding, name: string): ParamReading => 
 /**
  * Where a compile's readings of the database's clock count from (sql/ast.ts ClockInstant): `transaction`, the instant
  * each call's transaction began, which every served Db reads and every served file `grizzle generate` writes is compiled
- * under; or `moved`, that instant moved by the clock's offset (check/clock.ts clockOffset), which every program the
- * compile serves that may read the clock declares and a Db over a moved clock states at each call (packages/grizzle
- * adapter/db/moved.ts), so a test reads time-dependent laws (a lease's end, a claim's until) at the instant it states,
- * through the statements a served file runs, and sleeps for none.
+ * under; or `moved`, the instant each call states (check/clock.ts clockInstant), which every program the compile serves
+ * that may read the clock declares and a Db over a moved clock states at each call (packages/grizzle
+ * adapter/db/moved.ts), so a test reads time-dependent laws (a lease's end, a claim's until) and stamps its rows at
+ * exactly the instant it states, through the statements a served file runs, and sleeps for none.
  */
 export type ClockSource = { readonly kind: "transaction" } | { readonly kind: "moved" }
 
 /** The production clock: every reading counts the instant its call's transaction began. */
 export const transactionClock: ClockSource = Object.freeze({ kind: "transaction" })
 
-/** A test's moved clock: every reading counts the call's transaction's instant moved by the call's offset. */
+/** A test's moved clock: every reading counts the instant the call states. */
 export const movedClock: ClockSource = Object.freeze({ kind: "moved" })
 
 /**
- * The name of the clock's offset, which no declared name spells (core/identity.ts: a declared name is ASCII letters,
- * digits and underscores), so it is no parameter of any program a caller writes.
+ * The name of the clock's stated instant, which no declared name spells (core/identity.ts: a declared name is ASCII
+ * letters, digits and underscores), so it is no parameter of any program a caller writes.
  */
-export const clockOffsetName = "clock:offset"
+export const clockInstantName = "clock:instant"

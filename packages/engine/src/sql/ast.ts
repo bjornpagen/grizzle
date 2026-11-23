@@ -500,13 +500,13 @@ export type ClockOf =
 
 /**
  * The instant a reading of the database's clock counts (Expr `clock`): `transaction`, the instant the call's transaction
- * began, transaction_timestamp(), as every served Db reads it; or `moved`, that instant moved by `offset`, a bigint count
- * of microseconds, the placeholder of the offset a Db over a moved clock states at each call (ir/clock.ts ClockSource),
- * so the moved instant is still one timestamptz, in the range PostgreSQL's timestamptz holds or refused by it.
+ * began, transaction_timestamp(), as every served Db reads it; or `moved`, the instant `at` states, a bigint count of
+ * microseconds since the Unix epoch, the placeholder of the instant a Db over a moved clock states at each call
+ * (ir/clock.ts ClockSource), one timestamptz, in the range PostgreSQL's timestamptz holds or refused by it.
  */
 export type ClockInstant =
 	| { readonly kind: "transaction" }
-	| { readonly kind: "moved"; readonly offset: Expr }
+	| { readonly kind: "moved"; readonly at: Expr }
 
 /** The instant the call's transaction began: every reading of a production compile's (ClockInstant `transaction`). */
 export const transactionInstant: ClockInstant = Object.freeze({ kind: "transaction" })

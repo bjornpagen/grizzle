@@ -167,7 +167,7 @@ export interface FrontendOptions {
 	readonly clock: ClockBinding
 	/**
 	 * Where the ChangeSet's readings of the clock count from, its clocked parameters' and its stamps' alike (ir/clock.ts
-	 * ClockSource): a moved clock's declares the clock's offset after the ChangeSet's own parameters.
+	 * ClockSource): a moved clock's declares the clock's stated instant after the ChangeSet's own parameters.
 	 */
 	readonly source: ClockSource
 }

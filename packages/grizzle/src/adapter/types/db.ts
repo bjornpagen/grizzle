@@ -69,15 +69,15 @@ export interface DbConstructor {
 		options: OpenOptions<R>
 	): Effect.Effect<DbOf<R, P>, OpenError, DbLayerService<R>>
 	/**
-	 * Db.openMoved(role, options, offset): a test's Db of `role` over a moved clock (adapter/db/moved.ts), opened as
+	 * Db.openMoved(role, options, instant): a test's Db of `role` over a moved clock (adapter/db/moved.ts), opened as
 	 * Db.open opens it, its role a role of a served file compiled for a moved clock (compileServedMoved): each call of a
-	 * clocked read or a change reads `offset` once, a bigint count of microseconds, and every reading of the database's
-	 * clock in it is the instant its transaction began moved by it.
+	 * clocked read or a change reads `instant` once, a bigint count of microseconds since the Unix epoch, and every
+	 * reading of the database's clock in it, each clocked parameter's and each stamp's, is exactly that instant.
 	 */
 	openMoved<R extends AnyRole, P>(
 		role: ServedRole<R, P>,
 		options: OpenOptions<R>,
-		offset: Effect.Effect<bigint>
+		instant: Effect.Effect<bigint>
 	): Effect.Effect<DbOf<R, P>, OpenError, DbLayerService<R>>
 }
 

@@ -115,6 +115,10 @@
  * connection whose prefix is longer, where format 7's configuration stated none and generate drafted a role a
  * prefixed installation's migrate then cut short: metis's harness, under 13-byte prefixes, failed at 05-publish.sql
  * on role stems of 51 to 56 bytes.
+ * A served file compiled for a moved clock (compileServedMoved) declares the clock's instant, `clock:instant`, a count of
+ * microseconds since the Unix epoch that every reading and stamp of a call reads exactly (check/clock.ts clockInstant,
+ * sql/print.ts printInstant), where format 7's declared the clock's offset, `clock:offset`, which moved the instant its
+ * call's transaction began, so a stamp was the test's aim plus the latency to BEGIN.
  * A served read records no `deferrable`, and a served session's read BEGIN is one text, SERIALIZABLE READ ONLY
  * (served/forms.ts ServedRead, ServedSession), where format 7 recorded whether a read's member was declared
  * deferrable(...) and keyed the read BEGINs `immediate` and `deferrable`, without and with DEFERRABLE.

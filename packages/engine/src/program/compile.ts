@@ -84,8 +84,8 @@ export interface CompileQueryOptions extends TemplateReading {
 	readonly clock: ClockBinding
 	/**
 	 * Where the template's readings of the clock count from (ir/clock.ts ClockSource): a moved clock's declares the
-	 * clock's offset after the query's own parameters, which a clocked member's call states; the transaction's for every
-	 * query a served file serves.
+	 * clock's stated instant after the query's own parameters, which a clocked member's call states; the transaction's
+	 * for every query a served file serves.
 	 */
 	readonly source: ClockSource
 	/** The schema's artifacts: its installed names, law model and evidence catalog (program/schema.ts). */
