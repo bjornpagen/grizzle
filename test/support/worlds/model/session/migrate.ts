@@ -12,7 +12,7 @@ import {
 	revokesAnew,
 	sameNames
 } from "#test/support/worlds/model/session/catalog.ts"
-import { standingGrants } from "#test/support/worlds/model/session/compiled.ts"
+import { declaredStatistics, standingGrants } from "#test/support/worlds/model/session/compiled.ts"
 
 import { domainLawKey, lawDomainsOf } from "#test/support/worlds/model/session/domains.ts"
 import {
@@ -212,8 +212,9 @@ const asLeft = <S extends Unnamed>(state: S): S => state
  * A file of a folder drafted from one installation to another, as packages/engine/src/deploy/diff/plan.ts runs its slots,
  * one file for each run of slots that holds a statement, in this order: Setup, the new constants and domains (a changed
  * roster's new names constant among them); Structure, a changed roster domain's CHECK re-pointed NOT VALID, the world objects of the roles the installation holds that change or go and
- * every new world function, new tables and columns, and constraints NOT VALID; the indexes of new relations; the
- * concurrent indexes of relations that may hold rows; Validate, the constraints validated and the concurrent indexes
+ * every new world function, new tables and columns, and constraints NOT VALID; Indexes, the indexes of new relations
+ * and each table's declared statistics the folder changes or makes anew, in one transaction; the concurrent indexes of
+ * relations that may hold rows; Validate, the constraints validated and the concurrent indexes
  * attached; Publish, the roles, logins, memberships and the grants that change, the new roles' world objects, what the target no longer
  * has (an index a new key serves instead, a roster's old constant, dropped RESTRICT, among it), a re-pointed roster
  * domain's CHECK validated once that is gone, and last the COMMENT of every object the folder creates under a hashed
@@ -297,7 +298,14 @@ export const folderFiles = (from: InstallSpec, to: InstallSpec): ReadonlyArray<F
 	 * this folder attaches, which Publish adds once the key is (intoAttached). */
 	const addedNotValid = Arr.filter(notValid, (law) => !intoAttached(law))
 	const structure = worlds || gains || addedNotValid.length > 0 || rosterChanged
-	const indexes = Arr.some(native, (law) => uniqueIndexed(law) && !onHeld(law))
+	/** The declared statistics the target states otherwise than the installation, or anew: a key added on a relation
+	 * that may hold rows binds its table otherwise, which Indexes declares before the key is built concurrently. */
+	const declared = declaredStatistics(from)
+	const redeclares = Arr.some(
+		[...declaredStatistics(to)],
+		([table, statement]) => declared.get(table) !== statement
+	)
+	const indexes = redeclares || Arr.some(native, (law) => uniqueIndexed(law) && !onHeld(law))
 	/** An index the installation holds on a containment's source fields, which a new key leading with them serves instead. */
 	const servedAnew = Arr.some(
 		native,

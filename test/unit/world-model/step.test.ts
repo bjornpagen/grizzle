@@ -150,7 +150,7 @@ export const theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumb
 					"test/unit/world-model/step.test.ts#theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumberGrizzlesGenerateDraftsThem:-:4.0.1.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.1.0.0.0.0.0.1.1"
 				),
 				reason:
-					"a key added on Doc beneath alpha's view of the derived OrgDocs: the derived relation's keys, its materialized view's unique indexes, change no world object, so the folder drafts the index and its comment and no Structure",
+					"a key added on Doc beneath alpha's view of the derived OrgDocs: the derived relation's keys, its materialized view's unique indexes, change no world object, so the folder drafts no Structure: Indexes declares the statistics the new key changes, the index is built concurrently, and Publish writes its comment",
 				since: "2026-11-19"
 			},
 			{
