@@ -136,6 +136,7 @@ const draftOf = (shape: Shape) =>
 					schemas: [shape.schema],
 					logins: [shape.login],
 					migrations: "migrations",
+					rolePrefixBytes: 0,
 					connection: () => offlineOwner
 				}),
 				`${repoRoot}app/grizzle.config.ts`

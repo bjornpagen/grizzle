@@ -26,6 +26,7 @@ export default defineConfig({
 	schemas: [Notes],
 	logins: [Web],
 	migrations: "migrations",
+	rolePrefixBytes: 0,
 	connection: () => ({
 		driver: pgDriver,
 		transport: {

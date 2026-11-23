@@ -88,6 +88,7 @@ export const config = defineConfig({
 	schemas: [shop.schema],
 	logins: [shop.server],
 	migrations: "migrations",
+	rolePrefixBytes: 0,
 	connection: () => offlineOwner
 })
 

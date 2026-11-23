@@ -16,6 +16,7 @@ export default defineConfig({
 	schemas: [Items],
 	logins: [Server],
 	migrations: Effect.runSync(Config.String("EOCG_GRIZZLE_MIGRATIONS")),
+	rolePrefixBytes: 0,
 	connection: () => ({
 		driver: pg,
 		transport: {

@@ -117,6 +117,7 @@ export const refreshConfigOf = (positions: Arr.NonEmptyReadonlyArray<number>) =>
 			})
 		],
 		migrations: "migrations",
+		rolePrefixBytes: 0,
 		connection: () => offlineOwner
 	})
 }

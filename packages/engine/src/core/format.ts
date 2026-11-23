@@ -109,6 +109,12 @@
  * ChangeSet.insertAllComputed(rows, computed) is the one computed insert: insertAll's record, every relation it names
  * computing each field of one record of terms over the call, a relation lacking one refused at its key, where format 7
  * had insertComputed(R, rows, computed) of one relation alone.
+ * grizzle.config.ts states `rolePrefixBytes`, the bytes of the longest role prefix an installation of it is under (0
+ * where none is), and every command refuses a login or role whose PostgreSQL role would pass 63 bytes under a prefix
+ * that long (core/identity.ts longestRoleBytes; the shell's cli/config.ts, LoginEntryRefused `roleTooLong`), and a
+ * connection whose prefix is longer, where format 7's configuration stated none and generate drafted a role a
+ * prefixed installation's migrate then cut short: metis's harness, under 13-byte prefixes, failed at 05-publish.sql
+ * on role stems of 51 to 56 bytes.
  * A served read records no `deferrable`, and a served session's read BEGIN is one text, SERIALIZABLE READ ONLY
  * (served/forms.ts ServedRead, ServedSession), where format 7 recorded whether a read's member was declared
  * deferrable(...) and keyed the read BEGINs `immediate` and `deferrable`, without and with DEFERRABLE.

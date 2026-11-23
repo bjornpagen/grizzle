@@ -131,6 +131,7 @@ export const liveIsTheUnion = (
 					schemas: [drawnSchemaCase.laws.schema],
 					logins: [drawnLogin(drawnSchemaCase, shapes)],
 					migrations: "migrations",
+					rolePrefixBytes: 0,
 					connection: () => offlineOwner
 				}),
 				file

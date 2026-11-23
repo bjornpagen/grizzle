@@ -79,6 +79,7 @@ export const grizzleCheckOverAClosedRelationsHexLiteralsPassesADraftedLiteralAnd
 						schemas: [gridSchema],
 						logins: [],
 						migrations: "migrations",
+						rolePrefixBytes: 0,
 						connection: () => offlineOwner
 					})
 					const owned = owning(gridSchema)

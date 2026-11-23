@@ -230,6 +230,7 @@ export const stepsAt = (dir: ScratchDir) => (size: Size) =>
 				schemas: [base],
 				logins: [server],
 				migrations: "migrations",
+				rolePrefixBytes: 0,
 				connection: () => unreachable
 			})
 			const ws = yield* fs.makeTempDirectoryScoped({ directory: dir, prefix: "startup-" })

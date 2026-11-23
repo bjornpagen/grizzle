@@ -101,6 +101,7 @@ export const drift = property.explore(steered(aimedPlantsGen), {
 						schemas: [w.schema],
 						logins: [w.desk],
 						migrations: "migrations",
+						rolePrefixBytes: 0,
 						connection: () =>
 							connectionOf(substrate.cluster, ownerOn(substrate.cluster, substrate.database))
 					})

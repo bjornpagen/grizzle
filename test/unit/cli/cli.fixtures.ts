@@ -1,5 +1,6 @@
 /** What the properties of cli.test.ts read: its spaces, models and helpers. */
 
+import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	type Aimed,
@@ -32,7 +33,12 @@ import {
 	generateFlags,
 	type MigrationNameRefused
 } from "#cli/errors.ts"
-import { identifierOf, identity } from "#compiler/core/identity.ts"
+import {
+	identifierOf,
+	identity,
+	maxIdentifierBytes,
+	maxRolePrefixBytes
+} from "#compiler/core/identity.ts"
 import { type FolderNaming, type MigrationName } from "#compiler/deploy/render/folder.ts"
 import { maxMigrationNameLength } from "#compiler/deploy/render/layout.ts"
 import { login, role } from "#compiler/public/schema.ts"
@@ -692,6 +698,23 @@ interface SchemaEntry {
 /** How the migrations directory is given: relative to the configuration file's directory, or absolute. */
 type MigrationsForm = "db" | "./db/mig" | "nested/dir/" | "../up" | "absolute"
 
+/** A rolePrefixBytes that is no integer from 0 to maxRolePrefixBytes: below it, past it, a fraction, or a text. */
+type MalformedBound = "-1" | "past the most" | "a fraction" | "a text"
+
+/** A malformed bound's value, as JavaScript would set it past defineConfig's type. */
+const malformedBound: { readonly [M in MalformedBound]: unknown } = {
+	"-1": -1,
+	"past the most": maxRolePrefixBytes + 1,
+	"a fraction": 1.5,
+	"a text": "13"
+}
+
+/**
+ * The role prefix of the connection a configuration without a planted fault gives: none; one exactly as long as its
+ * rolePrefixBytes; or one byte longer, which every command that connects refuses.
+ */
+type ConnectionPrefix = "none" | "at the bound" | "past the bound"
+
 /** What a configuration's value is that no configuration is. */
 type Nonobject = "undefined" | "a list" | "a text" | "a number"
 
@@ -703,9 +726,11 @@ type ConfigFault =
 	| { readonly kind: "an unknown setting"; readonly setting: "poolSize" | "migration" | "schema" }
 	| {
 			readonly kind: "a setting left out"
-			readonly setting: "schemas" | "logins" | "migrations" | "connection"
+			readonly setting: "schemas" | "logins" | "migrations" | "rolePrefixBytes" | "connection"
 	  }
 	| { readonly kind: "an empty migrations path" }
+	| { readonly kind: "a rolePrefixBytes no bound"; readonly value: MalformedBound }
+	| { readonly kind: "a role past the limit under the prefix"; readonly of: number }
 	| { readonly kind: "no schema" }
 	| {
 			readonly kind: "a schema entry no schema value"
@@ -728,6 +753,13 @@ interface ConfigSketch {
 	readonly migrations: MigrationsForm
 	/** Whether the connection's port is out of range, which only migrate and drift read. */
 	readonly broken: boolean
+	/** The bytes of the longest role prefix its installations are under (rolePrefixBytes). */
+	readonly rolePrefixBytes: number
+	/** The role prefix its connection gives, against rolePrefixBytes. */
+	readonly connectionPrefix: ConnectionPrefix
+	/** A login planted beside the listed ones whose PostgreSQL role fills 63 bytes exactly under the prefix, over the
+	 * schema at this index; none where none is planted. */
+	readonly atLimit: Option.Option<number>
 	readonly fault: ConfigFault
 }
 
@@ -759,12 +791,20 @@ const configFaultGen = (schemas: number, logins: ReadonlyArray<number>): Gen<Con
 		],
 		[
 			1,
-			map(element(["schemas", "logins", "migrations", "connection"] as const), (setting) => ({
-				kind: "a setting left out",
-				setting
-			}))
+			map(
+				element(["schemas", "logins", "migrations", "rolePrefixBytes", "connection"] as const),
+				(setting) => ({ kind: "a setting left out", setting })
+			)
 		],
 		[1, constant({ kind: "an empty migrations path" })],
+		[
+			1,
+			map(element<MalformedBound>(["-1", "past the most", "a fraction", "a text"]), (value) => ({
+				kind: "a rolePrefixBytes no bound",
+				value
+			}))
+		],
+		[1, map(schemaAt, (of) => ({ kind: "a role past the limit under the prefix", of }))],
 		[1, constant({ kind: "no schema" })],
 		[
 			1,
@@ -790,25 +830,96 @@ const configFaultGen = (schemas: number, logins: ReadonlyArray<number>): Gen<Con
 	])
 }
 
-export const sketchGen: Gen<ConfigSketch> = (source) => {
-	const names = source.draw(shuffled(schemaNames, { min: 1, max: schemaNames.length }))
-	const schemas = Arr.map(names, (name) => ({ name, ...source.draw(entryGen) }))
-	const logins = source.draw(
-		shuffled(
-			upTo(schemas.length, (i) => i),
-			{ min: 0, max: schemas.length }
-		)
-	)
-	return {
-		schemas,
-		logins,
-		migrations: source.draw(
-			element<MigrationsForm>(["db", "./db/mig", "nested/dir/", "../up", "absolute"])
-		),
-		broken: source.draw(boolean),
-		fault: source.draw(configFaultGen(schemas.length, logins))
-	}
+/**
+ * What a sketch is drawn toward, each left to its draw where absent: its planted fault, drawn from `fault`; and a
+ * configuration with no fault whose connection is whole and gives a prefix against the declared one, and maybe plants
+ * a login at the limit under it (`connection`).
+ */
+interface SketchAim {
+	readonly fault?: (schemas: number, logins: ReadonlyArray<number>) => Gen<ConfigFault>
+	readonly connection?: { readonly prefix: ConnectionPrefix; readonly atLimit: boolean }
 }
+
+/** A sketch drawn toward `aim` (SketchAim). */
+const sketchOf =
+	(aim: SketchAim): Gen<ConfigSketch> =>
+	(source) => {
+		const names = source.draw(shuffled(schemaNames, { min: 1, max: schemaNames.length }))
+		const schemas = Arr.map(names, (name) => ({ name, ...source.draw(entryGen) }))
+		const logins = source.draw(
+			shuffled(
+				upTo(schemas.length, (i) => i),
+				{ min: 0, max: schemas.length }
+			)
+		)
+		const connection = aim.connection
+		const fault: ConfigFault =
+			connection === undefined
+				? source.draw((aim.fault ?? configFaultGen)(schemas.length, logins))
+				: { kind: "none" }
+		/** A role under the prefix exists only where there is one: a planted role's case declares a prefix of a byte at
+		 * least, as does one aimed at a connection's prefix. */
+		const prefixed =
+			fault.kind === "a role past the limit under the prefix" ||
+			connection !== undefined ||
+			source.draw(boolean)
+		const atLimit =
+			connection === undefined
+				? option(int(0, schemas.length - 1))
+				: connection.atLimit
+					? map(int(0, schemas.length - 1), Option.some)
+					: constant(Option.none<number>())
+		return {
+			schemas,
+			logins,
+			migrations: source.draw(
+				element<MigrationsForm>(["db", "./db/mig", "nested/dir/", "../up", "absolute"])
+			),
+			broken: connection === undefined && source.draw(boolean),
+			rolePrefixBytes: prefixed ? source.draw(int(1, maxRolePrefixBytes)) : 0,
+			connectionPrefix:
+				connection?.prefix ??
+				source.draw(element<ConnectionPrefix>(["none", "at the bound", "past the bound"])),
+			atLimit: prefixed ? source.draw(atLimit) : Option.none(),
+			fault
+		}
+	}
+
+/**
+ * The configurations a case draws: any sketch, and one aimed at each situation of the declared role prefix, so the
+ * cases that reach them are constructed, never left to a draw.
+ */
+export const sketchSpace: Aimed<ConfigSketch, ConfigFeature> = aimed(sketchOf({}), [
+	[
+		"a rolePrefixBytes no bound",
+		sketchOf({
+			fault: () =>
+				map(element<MalformedBound>(["-1", "past the most", "a fraction", "a text"]), (value) => ({
+					kind: "a rolePrefixBytes no bound",
+					value
+				}))
+		})
+	],
+	[
+		"a role past the limit under the prefix",
+		sketchOf({
+			fault: (schemas) =>
+				map(int(0, schemas - 1), (of) => ({ kind: "a role past the limit under the prefix", of }))
+		})
+	],
+	[
+		"a role at the limit under the prefix",
+		sketchOf({ connection: { prefix: "none", atLimit: true } })
+	],
+	[
+		"a connection prefix at the bound",
+		sketchOf({ connection: { prefix: "at the bound", atLimit: false } })
+	],
+	[
+		"a connection prefix past the bound",
+		sketchOf({ connection: { prefix: "past the bound", atLimit: false } })
+	]
+])
 
 /** The configuration file every case names, in a directory of the repository. */
 export const configFile = `${repoRoot}app/grizzle.config.ts`
@@ -834,6 +945,47 @@ export const migrationsOf = (
 /** The schema and login values of a configured schema. */
 const built = (e: SchemaEntry) => shop(e.name, e.version, e.workload)
 
+/** The PostgreSQL schema of a configured schema's root, which its logins' stems lead with. */
+const identOf = (e: SchemaEntry): string => identifierOf(identity.schema(parsedSchemaName(e.name)))
+
+/**
+ * The name of a login over `e` whose PostgreSQL role, `<prefix>__<schema>__<name>`, takes 63 bytes under a prefix of
+ * `prefixBytes` bytes, and `past` more: `q`s, its own conversion, so its stem's bytes are the arithmetic's.
+ */
+const nameUnderPrefix = (e: SchemaEntry, prefixBytes: number, past: number): string =>
+	Str.repeat(maxIdentifierBytes - prefixBytes - 2 - utf8Length(identOf(e)) - 2 + past)("q")
+
+/**
+ * A login over `e`, with one role of its own name, `role`, named to fill 63 bytes under the prefix, and `past` more
+ * (nameUnderPrefix): the login's role is the longest of the two.
+ */
+const loginUnderPrefix = (e: SchemaEntry, prefixBytes: number, past: number, roleName: string) => {
+	const v = built(e)
+	return login(v.schema, nameUnderPrefix(e, prefixBytes, past), [
+		role(v.schema, roleName, v.schema.relations)
+	])
+}
+
+/** The stem of the login a sketch plants over `e` under its prefix, `past` bytes past the limit: what a refusal names. */
+export const stemUnderPrefix = (s: ConfigSketch, of: number, past: number): string => {
+	const e = defined(s.schemas[of], "the planted login's schema")
+	return `${identOf(e)}__${nameUnderPrefix(e, s.rolePrefixBytes, past)}`
+}
+
+/** The role prefix of the connection a sketch gives, its connection's `rolePrefix`; none for none. */
+export const prefixOf = (s: ConfigSketch): Option.Option<string> => {
+	switch (s.connectionPrefix) {
+		case "none":
+			return Option.none()
+		case "at the bound":
+			return s.rolePrefixBytes === 0
+				? Option.none()
+				: Option.some(Str.repeat(s.rolePrefixBytes)("p"))
+		case "past the bound":
+			return Option.some(Str.repeat(s.rolePrefixBytes + 1)("p"))
+	}
+}
+
 /** `entry` inserted into `entries` at `at`, as a list a configuration file could hold. */
 const inserted = (
 	entries: ReadonlyArray<unknown>,
@@ -850,16 +1002,29 @@ export const valueOf = (
 ): { readonly value: unknown; readonly connection: () => MigrationConnectionConfig } => {
 	const values = Arr.map(s.schemas, built)
 	const at = (i: number) => defined(values[i], "a configured schema")
+	const prefixed = Option.match(prefixOf(s), {
+		onNone: () => offlineOwner,
+		onSome: (rolePrefix) => ({ ...offlineOwner, rolePrefix })
+	})
 	const connection = (): MigrationConnectionConfig =>
-		s.broken
-			? { ...offlineOwner, transport: { ...offlineOwner.transport, port: 70000 } }
-			: offlineOwner
+		s.broken ? { ...prefixed, transport: { ...prefixed.transport, port: 70000 } } : prefixed
 	const schemas = Arr.map(values, (v) => v.schema)
-	const logins = Arr.map(s.logins, (i) => at(i).server)
+	const logins = [
+		...Arr.map(s.logins, (i) => at(i).server),
+		...Arr.map(Option.toArray(s.atLimit), (i) =>
+			loginUnderPrefix(
+				defined(s.schemas[i], "the planted login's schema"),
+				s.rolePrefixBytes,
+				0,
+				"steward"
+			)
+		)
+	]
 	const config = defineConfig({
 		schemas: [at(0).schema, ...Arr.drop(schemas, 1)],
 		logins,
 		migrations: migrationsOf(s.migrations).given,
+		rolePrefixBytes: s.rolePrefixBytes,
 		connection
 	})
 	const listed = (of: number): ReadonlyArray<unknown> =>
@@ -884,6 +1049,17 @@ export const valueOf = (
 		case "an empty migrations path":
 			Reflect.set(config, "migrations", "")
 			return { value: config, connection }
+		case "a rolePrefixBytes no bound":
+			Reflect.set(config, "rolePrefixBytes", malformedBound[f.value])
+			return { value: config, connection }
+		case "a role past the limit under the prefix": {
+			const e = defined(s.schemas[f.of], "the schema of the planted login")
+			Reflect.set(config, "logins", [
+				...listed(f.of),
+				loginUnderPrefix(e, s.rolePrefixBytes, 1, "examiner")
+			])
+			return { value: config, connection }
+		}
 		case "no schema":
 			Reflect.set(config, "schemas", [])
 			return { value: config, connection }
@@ -926,9 +1102,10 @@ export const valueOf = (
 	}
 }
 
-/** Where a planted fault's login stands in the configuration's logins: the last, after its own schema's login. */
+/** Where a planted fault's login stands in the configuration's logins: the last, after its own schema's login and the
+ * login planted at the limit. */
 const appendedAt = (s: ConfigSketch, of: number): number =>
-	s.logins.length + (Arr.contains(s.logins, of) ? 0 : 1)
+	s.logins.length + Option.toArray(s.atLimit).length + (Arr.contains(s.logins, of) ? 0 : 1)
 
 /** The refusal a planted fault must meet: its reason's tag, and the fault and index the reason names. */
 interface Expected {
@@ -955,8 +1132,11 @@ export const expectedOf = (
 				index: undefined
 			}
 		case "an empty migrations path":
+		case "a rolePrefixBytes no bound":
 		case "no schema":
 			return { tag: "SettingRefused", fault: "malformed", index: undefined }
+		case "a role past the limit under the prefix":
+			return { tag: "LoginEntryRefused", fault: "roleTooLong", index: appendedAt(s, f.of) }
 		case "a schema entry no schema value":
 			return { tag: "SchemaEntryRefused", fault: "notBuilt", index: f.at }
 		case "a schema at a second version":
@@ -1001,13 +1181,18 @@ export const resolvedSchemas = (c: ResolvedConfig) =>
 export const modelSchemas = (s: ConfigSketch) => {
 	const migrations = migrationsOf(s.migrations).resolved
 	return Arr.map(s.schemas, (e, index) => {
-		const ident = identifierOf(identity.schema(parsedSchemaName(e.name)))
+		const ident = identOf(e)
 		return {
 			index,
 			declared: e.name,
 			ident,
 			directory: `${migrations}/${ident}`,
-			logins: Arr.flatMap(s.logins, (listed, j) => (listed === index ? [j] : []))
+			logins: [
+				...Arr.flatMap(s.logins, (listed, j) => (listed === index ? [j] : [])),
+				...Arr.flatMap(Option.toArray(s.atLimit), (planted) =>
+					planted === index ? [s.logins.length] : []
+				)
+			]
 		}
 	})
 }
@@ -1017,6 +1202,9 @@ export type ConfigFeature =
 	| "three schemas"
 	| "a schema with no login listed"
 	| "a broken connection kept"
+	| "a role at the limit under the prefix"
+	| "a connection prefix at the bound"
+	| "a connection prefix past the bound"
 
 export const configFaultKinds = [
 	"not an object",
@@ -1024,6 +1212,8 @@ export const configFaultKinds = [
 	"an unknown setting",
 	"a setting left out",
 	"an empty migrations path",
+	"a rolePrefixBytes no bound",
+	"a role past the limit under the prefix",
 	"no schema",
 	"a schema entry no schema value",
 	"a schema at a second version",

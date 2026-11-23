@@ -959,6 +959,7 @@ const configOf = (m: Model) => {
 		schemas: [Arr.headNonEmpty(built).schema, ...Arr.map(Arr.tailNonEmpty(built), (b) => b.schema)],
 		logins: Arr.map(built, (b) => b.server),
 		migrations: "migrations",
+		rolePrefixBytes: 0,
 		connection: () => offlineOwner
 	})
 }

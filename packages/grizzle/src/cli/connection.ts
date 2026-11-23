@@ -12,6 +12,7 @@ import {
 	cliError,
 	thrownOf
 } from "#cli/errors.ts"
+import { prefixPastBound, type RolePrefixBound } from "#compiler/plan/common.ts"
 
 /**
  * Where `grizzle migrate`, `grizzle drift`, `grizzle roles` and `grizzle uninstall` connect: the configuration's
@@ -61,11 +62,42 @@ export const calledConnection = (
 	)
 
 /**
+ * The migration connection `connection`, refused where its role prefix is longer than `bound`, the configuration's
+ * rolePrefixBytes (core/identity.ts prefixPastBound): its logins' and roles' PostgreSQL roles were held to PostgreSQL's
+ * 63 bytes under a prefix of that length alone (config.ts), so under a longer one a migration could name a role
+ * PostgreSQL cuts short.
+ */
+const withinBound = (
+	connection: MigrationConnection,
+	bound: RolePrefixBound
+): Result.Result<MigrationConnection, CliError> => {
+	const bytes = prefixPastBound(connection.roles, bound)
+	return bytes === undefined
+		? Result.succeed(connection)
+		: Result.fail(
+				cliError(
+					new ConnectionRefused({
+						setting: ["connection", "rolePrefix"],
+						rule: { kind: "declaredPrefix", bytes, bound }
+					})
+				)
+			)
+}
+
+/**
  * Where `grizzle migrate`, `grizzle drift`, `grizzle roles` and `grizzle uninstall` connect: the configuration's
- * connection, called once here, the one place
- * a command calls it, in a process environment that sends no startup variable (ownerEnvironment).
+ * connection, called once here, the one place a command calls it, in a process environment that sends no startup
+ * variable (ownerEnvironment), under a role prefix within the configuration's rolePrefixBytes (withinBound).
  */
 export const migrationConnection = (
 	config: ResolvedConfig
 ): Effect.Effect<MigrationConnection, CliError> =>
-	Effect.andThen(ownerEnvironment, Effect.fromResult(calledConnection(() => config.connection())))
+	Effect.andThen(
+		ownerEnvironment,
+		Effect.fromResult(
+			Result.flatMap(
+				calledConnection(() => config.connection()),
+				(connection) => withinBound(connection, config.rolePrefixBytes)
+			)
+		)
+	)

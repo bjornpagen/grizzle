@@ -190,6 +190,7 @@ export const limitCase = (n: Names, c: Case<LimitFeature>) =>
 				schemas: [world.schema],
 				logins: [world.login],
 				migrations: "migrations",
+				rolePrefixBytes: 0,
 				connection: () =>
 					connectionOf(substrate.cluster, ownerOn(substrate.cluster, substrate.database))
 			})

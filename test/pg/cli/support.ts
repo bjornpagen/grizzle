@@ -237,6 +237,7 @@ export const configOf = (
 		schemas: [first, ...rest],
 		logins: Arr.map(built, (b) => b.server),
 		migrations: "migrations",
+		rolePrefixBytes: 0,
 		connection
 	}
 }

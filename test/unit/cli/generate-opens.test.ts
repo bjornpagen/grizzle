@@ -53,6 +53,7 @@ export const generateAndDbLayerMakeCompileALoginsProgramsAlikeAtTheSelectListsBo
 						schemas: [pairs.schema],
 						logins: [pairs.login],
 						migrations: "migrations",
+						rolePrefixBytes: 0,
 						connection: () => offlineOwner
 					}),
 					file

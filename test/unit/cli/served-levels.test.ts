@@ -84,6 +84,7 @@ export const aLoginsServedFileIsTheSameTextFromTheDraftsWorkloadPlanAndFromTheCo
 						schemas: [Reports],
 						logins: [below, above],
 						migrations: "migrations",
+						rolePrefixBytes: 0,
 						connection: () => offlineOwner
 					}),
 					file

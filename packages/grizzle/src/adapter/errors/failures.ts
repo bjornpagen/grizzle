@@ -236,7 +236,9 @@ export type AcquireRefusal = ConnectRefusal | LayerReleased
  * - `servedLogin`: a login served(...) built; `builtLogin`: a login login(...) built; `snapshot`: the committed
  *   snapshot.json, as an import of it yields;
  * - `function`; `verifier`: a function, since `role` of `login` declares a token's context; `attester`: a function, since
- *   `role` of `login` declares a context its server attests.
+ *   `role` of `login` declares a context its server attests;
+ * - `rolePrefix`: a role prefix, used verbatim; `installedRole`: a prefix under which `role` fits `limit` bytes;
+ *   `declaredPrefix`: a prefix of at most `bound` bytes, the configuration's rolePrefixBytes, not `bytes`.
  */
 export type SettingRule =
 	| { readonly kind: "object"; readonly settings: ReadonlyArray<string> }
@@ -265,6 +267,7 @@ export type SettingRule =
 	| { readonly kind: "attester"; readonly role: string; readonly login: string }
 	| { readonly kind: "rolePrefix"; readonly fault: RolePrefixFault }
 	| { readonly kind: "installedRole"; readonly role: string; readonly limit: number }
+	| { readonly kind: "declaredPrefix"; readonly bytes: number; readonly bound: number }
 
 /**
  * A setting a block's parse refuses: `setting`, its path from the block (`["DbConfig", "transport", "port"]`, an
@@ -320,6 +323,8 @@ const ruleText = (rule: SettingRule): string => {
 			return `must be a role prefix, used verbatim: ${rolePrefixFaultText(rule.fault)}`
 		case "installedRole":
 			return `must be a role prefix under which the role ${rule.role} fits ${rule.limit} bytes`
+		case "declaredPrefix":
+			return `must be a role prefix of at most ${rule.bound} bytes, the configuration's rolePrefixBytes, not ${rule.bytes}: every login's and role's PostgreSQL role is held to PostgreSQL's 63 bytes under that length alone`
 	}
 }
 

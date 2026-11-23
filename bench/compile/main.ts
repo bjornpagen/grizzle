@@ -408,6 +408,7 @@ const measure = Effect.fn("measure")(function* (scale: Scale) {
 		schemas: [made.base],
 		logins: [made.web],
 		migrations: "migrations",
+		rolePrefixBytes: 0,
 		connection: () => owner
 	})
 	const load: ConfigLoader = (at) => Effect.succeed({ file: at, value: config })

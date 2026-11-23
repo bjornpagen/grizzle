@@ -19,6 +19,8 @@ import {
 	identifierOf,
 	isList,
 	levelChain,
+	longestRoleBytes,
+	maxIdentifierBytes,
 	ownBuilt,
 	type Owned,
 	type OwnedLogin,
@@ -26,6 +28,8 @@ import {
 	type SchemaContent,
 	type SchemaDesc,
 	parseDeclaredName,
+	parseRolePrefixBound,
+	type RolePrefixBound,
 	sameLevel,
 	schemaInstallation,
 	SourceLoc,
@@ -43,7 +47,9 @@ import {
  *     import { defineConfig } from "@bjornpagen/grizzle"
  *     import { connection, Web, Work } from "./src/db.ts"
  *
- *     export default defineConfig({ schemas: [Work], logins: [Web], migrations: "migrations", connection })
+ *     export default defineConfig({
+ *         schemas: [Work], logins: [Web], migrations: "migrations", rolePrefixBytes: 0, connection
+ *     })
  *
  * - `schemas`: the installations to migrate, at least one, each listed by its top level, a schema(...) or
  *   schema.extend(...) value: an installation is every level of it, each in its own PostgreSQL schema, and its root's
@@ -55,6 +61,10 @@ import {
  *   workloads (login(..., { workload })), which login(...) admitted, plan the schema's access paths; a schema whose
  *   logins own none drafts no access path.
  * - `migrations`: the migrations directory, absolute or relative to the configuration file's directory.
+ * - `rolePrefixBytes`: the bytes of the longest role prefix an installation of the configuration is under, 0 where
+ *   none is (core/identity.ts RolePrefixBound). A login or role whose PostgreSQL role would pass PostgreSQL's 63 bytes
+ *   under a prefix of that length (core/identity.ts longestRoleBytes) is refused by name, its role, its bytes and the
+ *   limit, before any command writes anything; and the connection's `rolePrefix` is held to it (connection.ts).
  * - `connection`: where `grizzle migrate`, `grizzle drift`, `grizzle roles` and `grizzle uninstall` connect
  *   (connection.ts). It is kept as given and checked only by them: generate, check and names never read it, and the
  *   configuration refuses only its absence.
@@ -115,6 +125,8 @@ export interface ResolvedConfig {
 	readonly directory: string
 	/** The migrations directory, absolute. */
 	readonly migrations: string
+	/** The longest role prefix an installation is under (core/identity.ts RolePrefixBound). */
+	readonly rolePrefixBytes: RolePrefixBound
 	/** In configured order. */
 	readonly schemas: ReadonlyArray<ConfiguredSchema>
 	/**
@@ -154,7 +166,7 @@ const onlyKeys = (value: Record<string, unknown>): Result.Result<void, CliError>
 
 /** Refuses the value of `setting`, which is not of its kind. */
 const malformedSetting = (
-	setting: "schemas" | "logins" | "migrations"
+	setting: "schemas" | "logins" | "migrations" | "rolePrefixBytes"
 ): Result.Result<never, CliError> =>
 	Result.fail(cliError(new SettingRefused({ fault: { kind: "malformed", setting } })))
 
@@ -170,6 +182,43 @@ const takenAlike = (a: string, b: string): boolean => {
 	const y = parseDeclaredName(b)
 	return x.ok && y.ok && declaredAlike(x.value, y.value)
 }
+
+/**
+ * The first of a login's names, its own and its roles', whose PostgreSQL role, the stem the value carries (core/stems.ts),
+ * would pass PostgreSQL's longest identifier under a role prefix of `bound`'s bytes (core/identity.ts longestRoleBytes),
+ * with what holds it and its bytes. A name whose stem the naming door refused has no PostgreSQL role, and its login's
+ * compile refuses it.
+ */
+const roleTooLong = (
+	read: BuiltLogin,
+	bound: RolePrefixBound
+): Option.Option<LoginEntryRefused["fault"]> =>
+	Arr.findFirst(
+		[
+			{ stem: read.stem, holder: { kind: "login", name: read.desc.name } as const },
+			...Arr.map(read.roles, (r) => ({
+				stem: r.stem,
+				holder: { kind: "role", name: r.name, login: read.desc.name } as const
+			}))
+		],
+		({ stem, holder }) => {
+			if (!stem.ok) {
+				return Option.none()
+			}
+			const bytes = longestRoleBytes(bound, stem.value)
+			return bytes > maxIdentifierBytes
+				? Option.some({
+						kind: "roleTooLong",
+						login: read.desc.name,
+						holder,
+						role: stem.value,
+						prefixBytes: bound,
+						bytes,
+						limit: maxIdentifierBytes
+					} as const)
+				: Option.none()
+		}
+	)
 
 /** `schemas[index]` of the configuration file `file` parsed as a built schema, read once where it names it. */
 const builtSchema = (
@@ -248,10 +297,15 @@ const resolveConfigWith = (
 		migrations: migrationsSetting,
 		schemas: schemaValues,
 		logins: loginValues,
+		rolePrefixBytes: rolePrefixSetting,
 		connection: connectionSetting
 	} = value
 	if (!nonempty(migrationsSetting)) {
 		return malformedSetting("migrations")
+	}
+	const rolePrefixBytes = parseRolePrefixBound(rolePrefixSetting)
+	if (rolePrefixBytes === undefined) {
+		return malformedSetting("rolePrefixBytes")
 	}
 	if (typeof connectionSetting !== "function") {
 		return Result.fail(cliError(new SettingRefused({ fault: { kind: "unconnected" } })))
@@ -355,12 +409,17 @@ const resolveConfigWith = (
 				})
 			)
 		}
+		const tooLong = roleTooLong(read, rolePrefixBytes)
+		if (Option.isSome(tooLong)) {
+			return Result.fail(refuseLogin(tooLong.value))
+		}
 		entry.logins.push({ index: i, login: read })
 	}
 	return Result.succeed({
 		file,
 		directory,
 		migrations,
+		rolePrefixBytes,
 		schemas,
 		connection: typed.value.connection
 	})

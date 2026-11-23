@@ -137,6 +137,7 @@ export const config = defineConfig({
 	schemas: [servedShop.schema],
 	logins: [servedShop.server],
 	migrations: "migrations",
+	rolePrefixBytes: 0,
 	connection: () => offlineOwner
 })
 

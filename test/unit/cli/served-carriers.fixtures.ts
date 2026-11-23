@@ -172,6 +172,7 @@ export const drafted = (
 				schemas: [Base],
 				logins: [app, ...others],
 				migrations: "migrations",
+				rolePrefixBytes: 0,
 				connection: () => offlineOwner
 			}),
 			file

@@ -4754,6 +4754,7 @@ export default defineConfig({
 	schemas: [Blog],
 	logins: [Web, EtlJob],
 	migrations: "migrations",
+	rolePrefixBytes: 0,
 	connection: () => ({
 		driver: pgDriver,
 		transport: {
@@ -4781,6 +4782,13 @@ Every setting is required, and nothing else is configurable:
   over a schema no listed one holds is refused; a login not listed is not installed, nor are its roles. Login and role
   names are unique across an installation.
 - **`migrations`**: the directory, absolute or relative to the config file's directory.
+- **`rolePrefixBytes`**: the bytes of the longest role prefix any installation of the config is under, a fact of the
+  deployment: `0` where every installation's roles are at their stems, as production's alone on its cluster; a test
+  harness that installs each case under a prefix of its own states the longest such prefix's length. Every command
+  refuses a login or role whose PostgreSQL role, `<prefix>__<stem>`, would pass PostgreSQL's
+  63 bytes under a prefix that long, naming the role, its bytes and the limit, before anything is written, so
+  `generate` never drafts a role `migrate` would cut short; and every command that connects refuses a connection whose
+  `rolePrefix` is longer.
 - **`connection`**: a function returning where `migrate`, `drift`, `upgrade`, `roles` and `uninstall` connect, as the
   role that owns the schemas. Only they call it, so `generate`, `check` and `names` read no cluster setting and no CA file, and
   run in CI where no cluster is reachable. Its password is a `Redacted` or an Effect evaluated for each connection
@@ -5006,7 +5014,8 @@ deploy.
   `__owner_<digest>`, and a login's role set aside while logins are renamed, `__aside_<digest>`, fit under it in
   PostgreSQL's 63; anything else is refused at
   stage `config`), beside its `database`, in `grizzle.config.ts` and in
-  `DbLayer.make` alike. Every login's and role's PostgreSQL role is then `<rolePrefix>__<stem>`: `a__keys__dashboard`
+  `DbLayer.make` alike, and state the longest in the config's `rolePrefixBytes`. Every login's and role's PostgreSQL
+  role is then `<rolePrefix>__<stem>`: `a__keys__dashboard`
   in one installation, `b__keys__dashboard` in the other, `keys__dashboard` in one without a prefix, the names never
   meeting. One committed `generate` output installs into all of them: the drafted SQL names each role by its variable,
   `:"keys__dashboard"`, and the current database, which a `GRANT TEMPORARY ON DATABASE` names, by `:"DBNAME"`, as psql

@@ -145,6 +145,7 @@ const withPost = (name: string, version: Version) => {
 			})
 		],
 		migrations: "migrations",
+		rolePrefixBytes: 0,
 		connection: () => offlineOwner
 	})
 }
@@ -176,6 +177,7 @@ const withNote = (name: string, version: Version) => {
 			})
 		],
 		migrations: "migrations",
+		rolePrefixBytes: 0,
 		connection: () => offlineOwner
 	})
 }

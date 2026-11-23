@@ -14,6 +14,7 @@ import {
 	formatRefusal,
 	isCompileError,
 	jsonText,
+	maxRolePrefixBytes,
 	nominal,
 	type RecordedFormat,
 	recordedFormatText
@@ -321,20 +322,27 @@ export class ExportRefused extends Data.TaggedError("ExportRefused")<{
 }
 
 /** The settings of a configuration, in the order a refusal lists them; each is required. */
-export const configSettings = ["schemas", "logins", "migrations", "connection"] as const
+export const configSettings = [
+	"schemas",
+	"logins",
+	"migrations",
+	"rolePrefixBytes",
+	"connection"
+] as const
 
 /**
  * The settings whose value the configuration reads itself; `connection` is a function migrate and drift call and
  * check the result of, so the configuration refuses only a connection that is no function.
  */
-type ReadSetting = "schemas" | "logins" | "migrations"
+type ReadSetting = "schemas" | "logins" | "migrations" | "rolePrefixBytes"
 
 const malformedSettingText: Readonly<Record<ReadSetting, string>> = {
 	schemas: "schemas must be a nonempty list of the declared schema values to migrate",
 	logins:
 		"logins must be a list of the login values whose roles the migrations install, and whose workloads plan its indexes",
 	migrations:
-		"migrations must be a nonempty path of the migrations directory, absolute or relative to the configuration file's directory"
+		"migrations must be a nonempty path of the migrations directory, absolute or relative to the configuration file's directory",
+	rolePrefixBytes: `rolePrefixBytes must be an integer from 0 to ${maxRolePrefixBytes}: the bytes of the longest role prefix an installation of the configuration is under, 0 where none is under one`
 }
 
 /**
@@ -395,17 +403,23 @@ export class SchemaEntryRefused extends Data.TaggedError("SchemaEntryRefused")<{
 }
 
 /**
- * What already holds a name alike to one a login takes: another login of the schema, `name`, or a role `name` of login
- * `login`.
+ * A login of a schema, `name`, or a role `name` of login `login`: what already holds a name alike to one a login takes,
+ * or whose PostgreSQL role is too long.
  */
 type NameHolder =
 	| { readonly kind: "login"; readonly name: string }
 	| { readonly kind: "role"; readonly name: string; readonly login: string }
 
+/** A login or a role, as a refusal names it. */
+const holderText = (holder: NameHolder): string =>
+	holder.kind === "login" ? `login ${holder.name}` : `role ${holder.name} of login ${holder.login}`
+
 /**
  * `logins[index]` is no login value, does not compile, is over a schema `schemas` does not list or over another version
- * of one it does, or names a login or role (`name`) alike to a name another login or role of its schema holds: their
- * segments agree, so both would be the one PostgreSQL role `<schema>__<conversion>`.
+ * of one it does, names a login or role (`name`) alike to a name another login or role of its schema holds: their
+ * segments agree, so both would be the one PostgreSQL role `<schema>__<conversion>`; or names a login or role whose
+ * PostgreSQL role, its stem `role` under a role prefix of the configuration's `rolePrefixBytes` (`prefixBytes`), takes
+ * `bytes`, past PostgreSQL's `limit`, which would cut it short and so install no role of that name.
  */
 type LoginEntryFault =
 	| { readonly kind: "notBuilt" }
@@ -418,6 +432,15 @@ type LoginEntryFault =
 			readonly name: string
 			readonly holder: NameHolder
 			readonly schema: string
+	  }
+	| {
+			readonly kind: "roleTooLong"
+			readonly login: string
+			readonly holder: NameHolder
+			readonly role: string
+			readonly prefixBytes: number
+			readonly bytes: number
+			readonly limit: number
 	  }
 
 export class LoginEntryRefused extends Data.TaggedError("LoginEntryRefused")<{
@@ -436,13 +459,10 @@ export class LoginEntryRefused extends Data.TaggedError("LoginEntryRefused")<{
 				return `${at} (${fault.login}) is over schema ${fault.schema}, which schemas does not list; a login is installed with its schema`
 			case "otherVersion":
 				return `${at} (${fault.login}) is over another version of schema ${fault.schema} than the one schemas lists; a login must be built over the configured schema value`
-			case "nameTaken": {
-				const holder =
-					fault.holder.kind === "login"
-						? `login ${fault.holder.name}`
-						: `role ${fault.holder.name} of login ${fault.holder.login}`
-				return `${at} (${fault.login}) names ${fault.name}, one name with ${holder} of schema ${fault.schema}; logins and roles of one schema have names that convert apart, their PostgreSQL roles being <schema>__<name>, so rename one of them`
-			}
+			case "nameTaken":
+				return `${at} (${fault.login}) names ${fault.name}, one name with ${holderText(fault.holder)} of schema ${fault.schema}; logins and roles of one schema have names that convert apart, their PostgreSQL roles being <schema>__<name>, so rename one of them`
+			case "roleTooLong":
+				return `${at} (${fault.login}): the PostgreSQL role of ${holderText(fault.holder)}, ${fault.role}, takes ${fault.bytes} bytes under a role prefix of ${fault.prefixBytes} bytes (<prefix>__${fault.role}, rolePrefixBytes), past PostgreSQL's ${fault.limit}, which would cut it short; shorten its name or its schema's, or the prefix`
 		}
 	}
 }

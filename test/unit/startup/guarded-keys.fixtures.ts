@@ -87,6 +87,7 @@ export const stepsAt = (dir: ScratchDir) => (k: number) =>
 				schemas: [base],
 				logins: [server],
 				migrations: "migrations",
+				rolePrefixBytes: 0,
 				connection: () => offlineOwner
 			})
 			const ws = yield* fs.makeTempDirectoryScoped({ directory: dir, prefix: "guarded-" })

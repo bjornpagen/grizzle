@@ -198,6 +198,7 @@ export const runCertified = (drawn: Drawn, c: Case<GroupWitnessFeature>) =>
 				schemas: [S],
 				logins: [app],
 				migrations: "migrations",
+				rolePrefixBytes: 0,
 				connection: () => offlineOwner
 			}),
 			file

@@ -218,6 +218,7 @@ export const servedRoles = (c: Case) =>
 				schemas: [Base],
 				logins: [loginOf(c.roles)],
 				migrations: "migrations",
+				rolePrefixBytes: 0,
 				connection: () => offlineOwner
 			}),
 			file

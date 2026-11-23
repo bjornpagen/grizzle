@@ -230,6 +230,7 @@ export const compiled = (c: Case, clocked: boolean) =>
 				schemas: [Box],
 				logins: [app],
 				migrations: "migrations",
+				rolePrefixBytes: 0,
 				connection: () => offlineOwner
 			}),
 			file

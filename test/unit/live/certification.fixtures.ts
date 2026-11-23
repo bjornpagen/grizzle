@@ -203,6 +203,7 @@ export const draftOf = (c: Case, platformReads: ReadonlyArray<string>, withReads
 				schemas: [built.schema],
 				logins: built.logins,
 				migrations: "migrations",
+				rolePrefixBytes: 0,
 				connection: () => offlineOwner
 			}),
 			configFile

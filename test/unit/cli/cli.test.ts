@@ -11,10 +11,13 @@
  *   read back as the second it names and as nothing when its digits name none; a new folder's is the current second or
  *   one second after the schema's newest folder, whichever is later, its digits counted on as a number when they name
  *   no second.
- * - The configuration, generated: defineConfig({ schemas, logins, migrations, connection }) over one to three
- *   schemas and any of their logins resolves to exactly its schemas, each with its PostgreSQL schema, its directory and
- *   its logins, the migrations directory against the configuration file's, and the connection kept unread; one fault
- *   planted into it is refused at stage config by its own reason, and no refusal names the password.
+ * - The configuration, generated: defineConfig({ schemas, logins, migrations, rolePrefixBytes, connection }) over one
+ *   to three schemas and any of their logins, and maybe a login whose PostgreSQL role fills 63 bytes under the declared
+ *   role prefix, resolves to exactly its schemas, each with its PostgreSQL schema, its directory and its logins, the
+ *   migrations directory against the configuration file's, and the connection kept unread; one fault planted into it,
+ *   a login whose role passes 63 bytes under the declared prefix by one among them, is refused at stage config by its
+ *   own reason, a too-long role named with its bytes and the limit, and no refusal names the password. The connection
+ *   a command calls is refused where its role prefix is longer than the declared one.
  * - The bin's loading of the configuration file, generated: a command naming no file is a usage error; a file that is
  *   missing, whose import throws, fails to parse, imports what does not exist or awaits a rejection, that exports no
  *   default, or whose default is any value but a configuration grizzle runs, built by defineConfig or not, is refused,
@@ -28,6 +31,7 @@
  * configuration fault, and each way the bin's loading ends.
  */
 import { inspect } from "node:util"
+import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { assert, lacksText } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import { type Reached } from "@bjornpagen/testing/features"
@@ -39,11 +43,20 @@ import {
 	FileSystem,
 	Formatter,
 	Option,
+	Result,
 	String as Str
 } from "effect"
 import { parseArgs } from "#cli/args.ts"
 import { formatTimestamp, nextTimestamp, parseTimestamp } from "#cli/clock.ts"
+import { migrationConnection } from "#cli/connection.ts"
 import { cliStageFix } from "#cli/refusals.ts"
+import {
+	maxIdentifierBytes,
+	maxRolePrefixBytes,
+	roleInSpace,
+	type RoleSpace,
+	roleSpaceOf
+} from "#compiler/core/identity.ts"
 import {
 	bin,
 	configName,
@@ -76,12 +89,14 @@ import {
 	modelSchemas,
 	namedBy,
 	nextOf,
+	prefixOf,
 	resolvedSchemas,
-	sketchGen,
+	sketchSpace,
 	spelledSpace,
 	type StampFeature,
 	stampingSpace,
 	statusOf,
+	stemUnderPrefix,
 	valueOf
 } from "#test/unit/cli/cli.fixtures.ts"
 
@@ -265,6 +280,13 @@ export const folderTimestampsGeneratedAreTheUTCSecondAsFourteenDigitsReadBackAsT
 		]
 	})
 
+/** The role space of a prefix of `bytes` bytes, as migrate fills a role variable under it (core/identity.ts roleInSpace). */
+const declaredSpace = (bytes: number): RoleSpace => {
+	const space = roleSpaceOf(Str.repeat(bytes)("p"))
+	assert.ok(space.ok, `a prefix of ${bytes} bytes`)
+	return space.value
+}
+
 /**
  * The configuration file, generated, resolves to exactly its schemas, logins and migrations directory, its connection
  * unread, and refuses one planted fault by its own reason, never naming the password.
@@ -273,13 +295,16 @@ export const folderTimestampsGeneratedAreTheUTCSecondAsFourteenDigitsReadBackAsT
  * at grizzle 4ca3036a).
  */
 export const theConfigurationFileGeneratedResolvesToExactlyItsSchemasLoginsAndMigrationsDirectoryItsConnectionUnreadAndRefusesOnePlantedFaultByItsOwnReasonNeverNamingThePassword =
-	property.explore(sketchGen, {
+	property.explore(sketchSpace, {
 		needs: {},
 		situations: [
 			...configFaultKinds,
 			"three schemas",
 			"a schema with no login listed",
-			"a broken connection kept"
+			"a broken connection kept",
+			"a role at the limit under the prefix",
+			"a connection prefix at the bound",
+			"a connection prefix past the bound"
 		] satisfies ReadonlyArray<Reached<ConfigFeature>>,
 		check: (_, c: Case<ConfigFeature>) => (s) =>
 			Effect.gen(function* () {
@@ -291,6 +316,11 @@ export const theConfigurationFileGeneratedResolvesToExactlyItsSchemasLoginsAndMi
 					assert.equal(config.migrations, migrationsOf(s.migrations).resolved)
 					assert.deepEqual(resolvedSchemas(config), modelSchemas(s))
 					assert.ok(config.connection === connection, "the connection kept as given")
+					assert.equal(
+						Number(config.rolePrefixBytes),
+						s.rolePrefixBytes,
+						"the declared prefix's bytes"
+					)
 					c.noteAll([
 						...(s.schemas.length === 3 ? (["three schemas"] as const) : []),
 						...(s.logins.length < s.schemas.length
@@ -298,11 +328,72 @@ export const theConfigurationFileGeneratedResolvesToExactlyItsSchemasLoginsAndMi
 							: []),
 						...(s.broken ? (["a broken connection kept"] as const) : [])
 					])
+					for (const at of Option.toArray(s.atLimit)) {
+						c.note("a role at the limit under the prefix")
+						const stem = stemUnderPrefix(s, at, 0)
+						const role = roleInSpace(declaredSpace(s.rolePrefixBytes), stem)
+						assert.ok(
+							role.ok && utf8Length(role.value) === maxIdentifierBytes,
+							"migrate names the planted login's role in 63 bytes under the declared prefix"
+						)
+					}
+					if (s.broken) {
+						return
+					}
+					const called = yield* Effect.result(migrationConnection(config))
+					const prefix = prefixOf(s)
+					const bytes = Option.match(prefix, { onNone: () => 0, onSome: utf8Length })
+					if (bytes <= s.rolePrefixBytes) {
+						c.noteAll(Option.isSome(prefix) ? (["a connection prefix at the bound"] as const) : [])
+						assert.ok(Result.isSuccess(called), "a connection within the declared prefix")
+						return
+					}
+					c.note("a connection prefix past the bound")
+					assert.ok(Result.isFailure(called), "a connection past the declared prefix is refused")
+					const reason = called.failure.reason
+					assert.ok(
+						reason._tag === "ConnectionRefused",
+						`refused for its connection: ${reason._tag}`
+					)
+					assert.deepEqual(reason.setting, ["connection", "rolePrefix"])
+					assert.deepEqual(
+						reason.rule,
+						bytes > maxRolePrefixBytes
+							? { kind: "rolePrefix", fault: { kind: "length", bytes, limit: maxRolePrefixBytes } }
+							: { kind: "declaredPrefix", bytes, bound: s.rolePrefixBytes }
+					)
 					return
 				}
 				c.note(f.kind)
 				const refusal = refusedAt(resolved, "stage", "config")
 				assert.deepEqual(namedBy(refusal), expectedOf(s, f))
+				if (f.kind === "a role past the limit under the prefix") {
+					const reason = refusal.reason
+					const stem = stemUnderPrefix(s, f.of, 1)
+					assert.ok(
+						reason._tag === "LoginEntryRefused" && reason.fault.kind === "roleTooLong",
+						"a login entry refused for its role's length"
+					)
+					assert.deepEqual(
+						{
+							role: reason.fault.role,
+							bytes: reason.fault.bytes,
+							limit: reason.fault.limit,
+							prefixBytes: reason.fault.prefixBytes
+						},
+						{
+							role: stem,
+							bytes: maxIdentifierBytes + 1,
+							limit: maxIdentifierBytes,
+							prefixBytes: s.rolePrefixBytes
+						},
+						"the refusal names the role, its bytes and the limit"
+					)
+					assert.ok(
+						!roleInSpace(declaredSpace(s.rolePrefixBytes), stem).ok,
+						"migrate would refuse the role under a prefix of the declared length"
+					)
+				}
 				lacksText(
 					`${refusal.message}\n${inspect(refusal, { depth: 12 })}`,
 					offlinePassword,
@@ -321,6 +412,24 @@ export const theConfigurationFileGeneratedResolvesToExactlyItsSchemasLoginsAndMi
 				original: "\tif (!Predicate.isObject(value)) {",
 				replacement: "\tif (false) {",
 				why: 'Operator mutant (boolean-return) at packages/grizzle/src/cli/config.ts:141 in isObject: `typeof v === "object" && v !== null && !Arr.isArray(v)` becomes `true`; the property fails (lane CATCH, grizzle 0baff5d6). Restated where the configuration reads Predicate.isObject (lane UNIFY7).'
+			},
+			{
+				file: "packages/engine/src/core/identity.ts",
+				original: "\tbound === 0 ? utf8Length(name) : prefixedBytes(bound, name)",
+				replacement: "\tutf8Length(name)",
+				why: "A role's bytes are read at its stem whatever the declared prefix, so a login whose role passes 63 bytes under the prefix resolves, and generate drafts a role migrate cuts short: the planted role past the limit is not refused."
+			},
+			{
+				file: "packages/grizzle/src/cli/config.ts",
+				original: "\t\t\treturn bytes > maxIdentifierBytes",
+				replacement: "\t\t\treturn bytes >= maxIdentifierBytes",
+				why: "A role of exactly 63 bytes under the declared prefix, which PostgreSQL keeps whole, is refused: the login planted at the limit does not resolve."
+			},
+			{
+				file: "packages/engine/src/core/identity.ts",
+				original: "\treturn bytes > bound ? bytes : undefined",
+				replacement: "\treturn bytes > bound + 1 ? bytes : undefined",
+				why: "A connection whose role prefix is a byte longer than the declared one is taken, under which a role the configuration admitted can pass 63 bytes: the connection past the bound is not refused."
 			}
 		]
 	})

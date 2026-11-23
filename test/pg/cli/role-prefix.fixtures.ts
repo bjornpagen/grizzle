@@ -107,11 +107,18 @@ export const spaceCase = (s: Spaces, c: Case<SpaceFeature>) =>
 				rolePrefix: s.second === "prefixed" ? Option.some(uniqueSchemaName("rb", 0)) : Option.none()
 			}
 			const dir = yield* workspace("rolespace")
+			/** The longest prefix either installation is under: the harness's own fact, which its configuration states. */
+			const rolePrefixBytes = Arr.reduce(
+				Arr.flatMap([first, second], (i) => Option.toArray(i.rolePrefix)),
+				0,
+				(most, prefix) => Math.max(most, utf8Length(prefix))
+			)
 			const configFor = (i: Installation) =>
 				defineConfig({
 					schemas: [shop.schema],
 					logins: [shop.server],
 					migrations: "migrations",
+					rolePrefixBytes,
 					connection: () => ({
 						...connectionOf(substrate.cluster, ownerOn(substrate.cluster, i.database)),
 						...named(i)

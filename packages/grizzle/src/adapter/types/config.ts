@@ -16,10 +16,13 @@ export type MigrationConnectionConfig = DbConnection & { readonly role: string }
  *
  * Every setting is required, and nothing else is configurable: grizzle chooses no directory and takes no setting from
  * the environment. A configuration names the schemas, the logins (and through them every role and workload), the
- * migrations directory and where migrate, drift, roles and uninstall connect:
+ * migrations directory, the longest role prefix an installation is under and where migrate, drift, roles and uninstall
+ * connect:
  *
  *     import { defineConfig } from "@bjornpagen/grizzle"
- *     export default defineConfig({ schemas: [Blog], logins: [Web, EtlJob], migrations: "migrations", connection })
+ *     export default defineConfig({
+ *         schemas: [Blog], logins: [Web, EtlJob], migrations: "migrations", rolePrefixBytes: 0, connection
+ *     })
  *
  * The connection is the application's to build, from whatever its deploy provides, when a command that connects asks
  * for it: a password Effect (an RDS IAM token, a secret manager's lookup) is evaluated for each connection attempt.
@@ -38,6 +41,15 @@ export interface GrizzleConfig {
 	readonly logins: ReadonlyArray<AnyLogin>
 	/** The migrations directory: absolute, or relative to the configuration file's directory. */
 	readonly migrations: string
+	/**
+	 * The bytes of the longest role prefix (DbConnection.rolePrefix) any installation of this configuration is under, a
+	 * fact of its deployment: 0 where every installation's roles are at their stems, as a production database's alone
+	 * on its cluster, or the length of the longest prefix one is under, as a test harness's that installs each case under
+	 * a prefix of its own. An integer from 0 to maxRolePrefixBytes (core/identity.ts RolePrefixBound). Every command
+	 * refuses a login or role whose PostgreSQL role would pass PostgreSQL's 63 bytes under a prefix of this length,
+	 * before anything is written, and every command that calls `connection` refuses one whose `rolePrefix` is longer.
+	 */
+	readonly rolePrefixBytes: number
 	/**
 	 * Where `grizzle migrate`, `grizzle drift`, `grizzle roles` and `grizzle uninstall` connect, and under which role
 	 * prefix (its `rolePrefix`), built when one of them runs: generate, check and names never

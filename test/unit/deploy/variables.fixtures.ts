@@ -209,6 +209,7 @@ export const draftCase = (d: Drafting, c: Case<DraftFeature>) =>
 				schemas: [shop.schema],
 				logins: [shop.server],
 				migrations: "migrations",
+				rolePrefixBytes: 0,
 				connection: () => offlineOwner
 			})
 			const ran = yield* cliOver(dir, config, ["generate", configName], at)

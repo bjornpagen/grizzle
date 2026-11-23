@@ -1188,6 +1188,7 @@ const generatedDraft = (
 							schemas: [version.schema],
 							logins: version.logins,
 							migrations: "migrations",
+							rolePrefixBytes: 0,
 							connection: () => offlineOwner
 						}),
 						generatedConfig

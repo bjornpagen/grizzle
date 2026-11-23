@@ -115,6 +115,7 @@ export const aRolesIsolationLevelIsDecidedOnceFromTheStatementsItsWritesSendEver
 						schemas: [Work],
 						logins: [app, ...psql],
 						migrations: "migrations",
+						rolePrefixBytes: 0,
 						connection: () => offlineOwner
 					}),
 					file

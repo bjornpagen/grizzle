@@ -56,7 +56,9 @@ import {
 	roleArtifacts,
 	type SchemaArtifacts,
 	SourceLoc,
-	transactionClock
+	stemOf,
+	transactionClock,
+	type WorldStem
 } from "#compiler/plan/common.ts"
 import { keyQuery, templateFor } from "#compiler/plan/read.ts"
 import {
@@ -108,15 +110,20 @@ const roleRefused =
 		new WorkloadRefused({ role, program: undefined, error })
 
 /**
- * A login value login(...) built, read once where it is given: its Description, its base's built schema, its role
- * values by their names in the login, in its order, and its workloads, as login(...) admitted them. login(...) held each
- * role to the base, by content (schema/world.ts admitLogin), so every role is compiled over the base the login's
- * compilation owns once.
+ * A login value login(...) built, read once where it is given: its Description, its stem, its base's built schema, its
+ * role values with their stems by their names in the login, in its order, and its workloads, as login(...) admitted
+ * them. login(...) held each role to the base, by content (schema/world.ts admitLogin), so every role is compiled over
+ * the base the login's compilation owns once.
  */
 export interface BuiltLogin {
 	readonly desc: LoginDesc
+	readonly stem: WorldStem
 	readonly base: BuiltSchema
-	readonly roles: ReadonlyArray<{ readonly name: string; readonly value: unknown }>
+	readonly roles: ReadonlyArray<{
+		readonly name: string
+		readonly value: unknown
+		readonly stem: WorldStem
+	}>
 	readonly workload: ReadonlyArray<AnyWorkload>
 }
 
@@ -130,8 +137,13 @@ export const builtLogin = (value: unknown): BuiltLogin | undefined => {
 	return base.ok
 		? {
 				desc: entry.desc,
+				stem: stemOf(entry.value),
 				base: base.value,
-				roles: Arr.map(Rec.toEntries(entry.value.roles), ([name, r]) => ({ name, value: r.role })),
+				roles: Arr.map(Rec.toEntries(entry.value.roles), ([name, r]) => ({
+					name,
+					value: r.role,
+					stem: stemOf(r.role)
+				})),
 				workload: entry.value.workload
 			}
 		: undefined

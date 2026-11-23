@@ -129,11 +129,12 @@ const stemBudget: number =
  * and the budget a constant. So every prefix within it leads the installation's decoder login and every
  * role set aside within maxIdentifierBytes, whatever the installation's names: a prefix too long for them is refused
  * where it is parsed (parseRolePrefix), before any connection or statement, never by a migration's statement. A
- * login's or a role's own name, which its declared names lengthen, is held to maxIdentifierBytes with the prefix where
- * the role is named (roleInSpace). No limit of its own: maxIdentifierBytes less `<prefix>__<name>`'s separator and the
- * longest hashed role name, `__aside_<digest>`, each a width of the naming door's format.
+ * login's or a role's own name, which its declared names lengthen, is held to maxIdentifierBytes under the longest
+ * prefix its configuration declares (RolePrefixBound) before generate writes anything, and with the prefix itself
+ * where the role is named (roleInSpace). No limit of its own: maxIdentifierBytes less `<prefix>__<name>`'s separator
+ * and the longest hashed role name, `__aside_<digest>`, each a width of the naming door's format.
  */
-const rolePrefixBytes: number =
+export const maxRolePrefixBytes: number =
 	maxIdentifierBytes -
 	roleSeparator.length -
 	(hashedLead.length +
@@ -412,7 +413,7 @@ const rolePrefixOf = nominal<string, RolePrefix>()
 /**
  * Why a text is no role prefix: not a string; empty; a character outside lowercase ASCII letters, digits and `_`; a
  * digit first; a `__`, the separator a prefix must not forge; `pg_` first, which PostgreSQL reserves for its own roles;
- * or longer than rolePrefixBytes, past which the decoder login or a role set aside would not fit under it.
+ * or longer than maxRolePrefixBytes, past which the decoder login or a role set aside would not fit under it.
  */
 export type RolePrefixFault =
 	| { readonly kind: "notText" }
@@ -450,7 +451,7 @@ const isPrefixUnit = (code: number): boolean =>
 /**
  * The rule a role prefix keeps, used verbatim, never converted: a lowercase PostgreSQL identifier segment,
  * `[a-z_][a-z0-9_]*`, holding no `__`, so `<prefix>__<stem>` parts at its first `__` past the prefix, not starting with
- * `pg_`, and within rolePrefixBytes, so the hashed role names fit under it. Each role it leads is held to
+ * `pg_`, and within maxRolePrefixBytes, so the hashed role names fit under it. Each role it leads is held to
  * maxIdentifierBytes with its name (roleInSpace). The prefix, as given, or the fault it breaks the rule by.
  */
 export const parseRolePrefix = (prefix: string): Result.Result<RolePrefix, RolePrefixFault> => {
@@ -474,8 +475,8 @@ export const parseRolePrefix = (prefix: string): Result.Result<RolePrefix, RoleP
 		return Result.err({ kind: "reserved" })
 	}
 	const bytes = utf8Length(prefix)
-	return bytes > rolePrefixBytes
-		? Result.err({ kind: "length", bytes, limit: rolePrefixBytes })
+	return bytes > maxRolePrefixBytes
+		? Result.err({ kind: "length", bytes, limit: maxRolePrefixBytes })
 		: Result.ok(rolePrefixOf(prefix))
 }
 
@@ -517,11 +518,16 @@ export interface InstalledRoleTooLong {
 	readonly limit: number
 }
 
+/** The bytes of the PostgreSQL role `<prefix>__<name>` for a prefix of `prefixBytes` bytes: the one count of a prefixed
+ * role's bytes, which roleInSpace and longestRoleBytes read. */
+const prefixedBytes = (prefixBytes: number, name: string): number =>
+	prefixBytes + roleSeparator.length + utf8Length(name)
+
 /**
  * The PostgreSQL role the installation of role space `space` installs for the role the naming door names `name`, in
  * any of its forms (RoleNameForm), or its refusal past maxIdentifierBytes: the one place a cluster role's name is
  * made from a minted one. A minted name fits by its minting (fitted, the hashed form's budget), so only a prefix
- * lengthens it; a hashed role name never past it, since a prefix is within rolePrefixBytes.
+ * lengthens it; a hashed role name never past it, since a prefix is within maxRolePrefixBytes.
  */
 export const roleInSpace = (
 	space: RoleSpace,
@@ -531,10 +537,48 @@ export const roleInSpace = (
 		return Result.ok(name)
 	}
 	const role = `${space.prefix}${roleSeparator}${name}`
-	const bytes = utf8Length(role)
+	const bytes = prefixedBytes(utf8Length(space.prefix), name)
 	return bytes > maxIdentifierBytes
 		? Result.err({ role, bytes, limit: maxIdentifierBytes })
 		: Result.ok(role)
+}
+
+declare const rolePrefixBoundBrand: unique symbol
+
+/**
+ * The bytes of the longest role prefix any installation of one configuration is under (GrizzleConfig
+ * `rolePrefixBytes`), a fact of its deployment: 0 where every installation's roles are at their stems, as a production
+ * database's alone on its cluster, else the bytes of the longest prefix one is under, as a test harness's that installs
+ * each case under a prefix of its own. An integer from 0 to maxRolePrefixBytes, minted only by parseRolePrefixBound.
+ */
+export type RolePrefixBound = number & { readonly [rolePrefixBoundBrand]: true }
+
+const rolePrefixBoundOf = nominal<number, RolePrefixBound>()
+
+/** A configuration's `rolePrefixBytes`, read as its RolePrefixBound, or undefined for a value that is no integer from 0
+ * to maxRolePrefixBytes. */
+export const parseRolePrefixBound = (value: unknown): RolePrefixBound | undefined =>
+	typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= maxRolePrefixBytes
+		? rolePrefixBoundOf(value)
+		: undefined
+
+/**
+ * The bytes of the longest PostgreSQL role the role the naming door names `name` installs as in an installation whose
+ * role space is within `bound` (prefixPastBound): the name alone under a bound of 0, every role at its stem, else the
+ * name under a prefix of the bound's bytes (roleInSpace), longer than at its stem. A configuration's roles that fit
+ * maxIdentifierBytes so are each installed whole under every role space within its bound.
+ */
+export const longestRoleBytes = (bound: RolePrefixBound, name: string): number =>
+	bound === 0 ? utf8Length(name) : prefixedBytes(bound, name)
+
+/** The bytes of role space `space`'s prefix where they pass `bound`; undefined where the space is within it, its roles
+ * at their stems or under a prefix of at most the bound's bytes. */
+export const prefixPastBound = (space: RoleSpace, bound: RolePrefixBound): number | undefined => {
+	if (space.kind === "stems") {
+		return undefined
+	}
+	const bytes = utf8Length(space.prefix)
+	return bytes > bound ? bytes : undefined
 }
 
 /** Whether `text` is a declared name's conversion, as the naming door spells one: what a stem's two parts each are. */
@@ -546,7 +590,7 @@ const isConversion = (text: string): boolean => parsedName(text).ok && conversio
  * the name a migration sets a role aside under while it renames logins (identity.roleAside), hashed, `__aside_<digest>`;
  * the installation's live source's, its decoder login's (identity.liveSource), hashed, `__live_<digest>`; or the
  * installation's function owner's (identity.functionOwner), hashed, `__owner_<digest>`. A hashed
- * role name's stem is its lead word alone (rolePrefixBytes), so its form is read by its lead and its digest, with no
+ * role name's stem is its lead word alone (maxRolePrefixBytes), so its form is read by its lead and its digest, with no
  * segment of any name to read back.
  *
  * These are the forms every committed folder holds: a folder is history, its files' digests in the installation's
@@ -1722,7 +1766,7 @@ export const identity = Object.freeze({
 	 * installation's role space (roleInSpace), and the stem of its replication slot in each database (liveSlotOf); the
 	 * publication's name is also the fan-out channel and the prefix of the logical messages the installation announces.
 	 * Hashed by the root's identifier, `__live_<digest>`, its stem the lead word alone, so its length is one whatever the
-	 * root's (rolePrefixBytes) and every role prefix within rolePrefixBytes leads it within maxIdentifierBytes.
+	 * root's (maxRolePrefixBytes) and every role prefix within maxRolePrefixBytes leads it within maxIdentifierBytes.
 	 */
 	liveSource: (root: string): Identity<"liveSource"> =>
 		mint("liveSource", [root], [liveSegment], `live source of ${root}`, hashed),
@@ -1745,7 +1789,7 @@ export const identity = Object.freeze({
 	 * table. Cluster-wide under the installation's role space (roleInSpace), hashed by the root's identifier, as the live
 	 * source is, so every spelling of the root's declared name that installs one schema has one owner, and the
 	 * installation's roles are read off its levels' schemas alone (installationRoleOf): `__owner_<digest>`, its stem the
-	 * lead word alone, so its length is one whatever the root's (rolePrefixBytes).
+	 * lead word alone, so its length is one whatever the root's (maxRolePrefixBytes).
 	 */
 	functionOwner: (root: string): Identity<"functionOwner"> =>
 		mint("functionOwner", [root], [ownerSegment], `function owner of ${root}`, hashed),
@@ -1934,7 +1978,7 @@ export const identity = Object.freeze({
 	/**
 	 * The name a migration sets the cluster role `role` aside under while it renames logins (deploy/diff/declared.ts
 	 * loginRenamed), `__aside_<digest>`: its stem the lead word alone, so its length is one whatever the role's
-	 * (rolePrefixBytes) and every role prefix within rolePrefixBytes leads it within maxIdentifierBytes. An object's
+	 * (maxRolePrefixBytes) and every role prefix within maxRolePrefixBytes leads it within maxIdentifierBytes. An object's
 	 * aside name (identity.aside) takes no prefix, so it keeps its readable stem.
 	 */
 	roleAside: (role: string): Identity<"roleAside"> =>

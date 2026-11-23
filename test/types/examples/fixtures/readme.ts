@@ -1746,6 +1746,7 @@ export default defineConfig({
 	schemas: [Blog],
 	logins: [Web, EtlJob],
 	migrations: "migrations",
+	rolePrefixBytes: 0,
 	connection: () => ({
 		driver: pgDriver,
 		transport: {

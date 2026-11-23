@@ -90,6 +90,7 @@ export const anUpgradeRebasesALiveInstallationOfAnyRosterHistoryOntoThisGrizzles
 								schemas: [box.schema],
 								logins: [box.server],
 								migrations: "migrations",
+								rolePrefixBytes: 0,
 								connection: () =>
 									connectionOf(substrate.cluster, ownerOn(substrate.cluster, substrate.database))
 							})

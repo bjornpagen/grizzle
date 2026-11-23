@@ -186,6 +186,7 @@ export const coveredWhereMigrated = (install: InstallSpec, c: Case<Feature>) =>
 					schemas: [built.made.base],
 					logins,
 					migrations: "migrations",
+					rolePrefixBytes: 0,
 					connection: () => offlineOwner
 				}),
 				file

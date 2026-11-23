@@ -19,6 +19,8 @@ export default defineConfig({
 	logins: [Web, EtlJob],
 	/** Required: the migrations directory, relative to this file. */
 	migrations: "migrations",
+	/** Required: the bytes of the longest role prefix an installation is under, 0 where none is (a test harness states its own). */
+	rolePrefixBytes: 0,
 	/** Required: where grizzle migrate and grizzle drift connect, as the role that owns the schemas, built only when they run. */
 	connection: () => ({
 		driver: pgDriver,
