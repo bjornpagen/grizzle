@@ -43,17 +43,17 @@ import { fullWorld } from "#test/support/worlds.ts"
  */
 export const everyFoldsEndThroughGrizzlesApplyOnPostgreSQL19StoresExactlyTheREADMEsFoldOfEveryMembersStepEveryEndAndRunningValueAfterEveryWriteOfEveryFamilyKind =
 	property.explore(caseGen, {
-		needs: { ...Substrate.oneOf(endsTemplates, Substrate.seat), compiles: endsCompiles },
+		needs: { ...Substrate.oneOf(endsTemplates, Substrate.freshOf), compiles: endsCompiles },
 		situations: situations satisfies ReadonlyArray<Reached<Situation>>,
-		check: (seats, c: Case<Situation>) => (sketch) =>
+		check: (ends, c: Case<Situation>) => (sketch) =>
 			Effect.scoped(
-				Effect.flatMap(seats[sketch.kind], (taken) =>
+				Effect.flatMap(ends[sketch.kind], (taken) =>
 					Effect.provideService(
 						Effect.gen(function* () {
 							const s = schemas[sketch.kind]
 							const done = taken.value
 							const value = s.value(done.schema)
-							const compiles = yield* seats.compiles
+							const compiles = yield* ends.compiles
 							const db = yield* compiles.db(done, fullWorld(value, {}).server.roles.app)
 							const o = { kind: sketch.kind, s, done, value, db } as const
 							let state = emptyState

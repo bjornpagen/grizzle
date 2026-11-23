@@ -737,9 +737,6 @@ export interface FoldJudged {
 	readonly end: End
 }
 
-/** The relations of a fold seat, which an empty seat's real COMMIT clears. */
-const FOLD_RELATIONS = ["Owner", "Member"] as const
-
 /** No owner and no row: the state of an empty seat. */
 export const emptyFold: FoldStored = { owners: [], rows: [] }
 
@@ -830,8 +827,8 @@ export const byMember = (s: FoldStored): FoldStored => ({
  * with 23514; a commit that reads back exactly.
  *
  * The state before is written in the case's own transaction, so a case takes one transaction: a checked end rolls it
- * back whole, and a real COMMIT's rows are cleared once read (installed.ts ended), so every case starts on an empty seat
- * with no TRUNCATE of its own. Its writes are lawful, so every check they queue passes wherever it fires, and each
+ * back whole, and a real COMMIT's rows stay on the case's own clone (installed.ts ended), so every case starts on an
+ * empty seat. Its writes are lawful, so every check they queue passes wherever it fires, and each
  * check the model judges fires where it would over a stored state: an immediate one at its statement, a deferred one
  * at the commit or a SET CONSTRAINTS that follows the state's writes.
  */
@@ -851,14 +848,7 @@ export const sentOver = (
 	Effect.gen(function* () {
 		const sql = (s: ReadonlyArray<FoldStatement>) => Arr.map(s, (st) => foldStatementSql(fold, st))
 		const unseen = [...sql(foldWriteOf(before)), ...prefix]
-		const sent = yield* ended(
-			fold.seat,
-			FOLD_RELATIONS,
-			"empty",
-			[...unseen, ...sql(statements)],
-			end,
-			foldRead(fold)
-		)
+		const sent = yield* ended(fold.seat, [...unseen, ...sql(statements)], end, foldRead(fold))
 		return { sent, unseen }
 	})
 

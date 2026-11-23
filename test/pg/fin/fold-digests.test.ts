@@ -56,10 +56,8 @@ import {
 } from "#test/pg/fin/fold-digests.fixtures.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
 import { rowsOf, writeAnswerOf } from "#test/support/calls.ts"
-import { namesOf } from "#test/support/kernel/naming.ts"
 import { attemptChecked, refusalText } from "#test/support/substrate.ts"
 import { reportedOwnerOf } from "#test/support/substrate/errors.ts"
-import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
@@ -86,7 +84,7 @@ const dueOf = (
  */
 export const concatFoldsCarriedByTheirDigestsStoreTheREADMEsFoldOfTextsPastTheBTreeEntryAndPostgreSQLRefusesEveryJunkRunningTextByTheFoldsAxesOrPins =
 	property.explore(sketchGen, {
-		needs: { seat: Substrate.seat(digestsTemplate) },
+		needs: { digests: Substrate.freshOf(digestsTemplate) },
 		situations: [
 			"a running text past the B-tree entry",
 			"an owner's end past the B-tree entry",
@@ -100,17 +98,12 @@ export const concatFoldsCarriedByTheirDigestsStoreTheREADMEsFoldOfTextsPastTheBT
 			"an empty owner's end off the empty text"
 		] satisfies ReadonlyArray<Reached<Feature>>,
 		check:
-			({ seat }, cx: Case<Feature>) =>
+			({ digests }, cx: Case<Feature>) =>
 			(sketch) =>
 				Effect.scoped(
 					Effect.gen(function* () {
-						const taken = yield* seat
+						const taken = yield* digests
 						const opened = yield* openedIn(Digests, {}, digestsInstall, taken)
-						yield* replaceRows(
-							taken.substrate.admin,
-							installationGroup(namesOf(opened.installed)),
-							[]
-						)
 						return yield* Effect.gen(function* () {
 							const db = yield* Db.open(opened.served.login.roles.app, {})
 							const docs = yield* writeAnswerOf(

@@ -28,7 +28,7 @@
  * immutable default, prescribed or rewritten whole; the search requires every one of them.
  *
  * Each case is one transaction from an empty seat: it writes its family, then sends its removal, checked as its COMMIT
- * would check it and rolled back, or ended by a real COMMIT whose rows are then cleared, as the case draws its end on
+ * would check it and rolled back, or ended by a real COMMIT whose rows are then read, as the case draws its end on
  * its tape (installed.ts endGen; folds.ts judgedFold): the search requires both ends.
  */
 import { assert, deepEquals, defined } from "@bjornpagen/testing/assert"
@@ -93,7 +93,7 @@ const swapBudget = { runs: 13, steered: 64 } as const
 /**
  * Counted swap-with-last through grizzle's lowering on PostgreSQL 19: remove each member of a counted family of
  * at most four by swap-with-last under the deferred predecessor axis, and refuse every misorder, one property for each
- * counted fold spec, each case on the worker's seat of its spec's schema.
+ * counted fold spec, each case on a clone of its own of its spec's schema.
  */
 export const countedSwapWithLast = family(
 	Rec.fromEntries(
@@ -104,8 +104,8 @@ export const countedSwapWithLast = family(
 				spec.label,
 				property.explore(sketchGen, {
 					needs: {
-						mutable: Substrate.seat(seats.mutable),
-						immutable: Substrate.seat(seats.immutable)
+						mutable: Substrate.freshOf(seats.mutable),
+						immutable: Substrate.freshOf(seats.immutable)
 					},
 					situations: [
 						"a case ended by COMMIT",

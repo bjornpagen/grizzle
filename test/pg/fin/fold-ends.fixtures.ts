@@ -653,7 +653,7 @@ const servedOf = (
 	}
 }
 
-/** What a case compiles through: its served Db over its kind's seat (db), and each write's member and facts (write). */
+/** What a case compiles through: its served Db over its own clone (db), and each write's member and facts (write). */
 export interface EndsCompiles {
 	readonly db: (
 		done: Installed,
@@ -671,7 +671,7 @@ export interface EndsCompiles {
 }
 
 /**
- * Each kind's served fixture of its full world's login, by its seat's database and schema, and each write's served
+ * Each kind's served fixture of its full world's login, by its clone's database and schema, and each write's served
  * member, by its schema and its shape, compiled once per worker: a write's ChangeSet is a function of its shape alone,
  * the ops and relations it states in order (servedOf), and a served file a function of the installation's snapshot, the
  * login and its programs (test/support/served-db.ts servedFixture, ServedDb.load), so every later case or write of one
@@ -896,7 +896,7 @@ export const judgeRefused = (
 	return named
 }
 
-/** A family kind's schema migrated with its full world's login, once per member: the template its cases' seats clone. */
+/** A family kind's schema migrated with its full world's login, once per member: the template its cases clone. */
 const endsTemplate = (kind: FamilyKind): SubstrateTemplate<Installed> => {
 	const declaredKind = schemas[kind].value(`FoldEnds_${kind}`)
 	return installedTemplate({

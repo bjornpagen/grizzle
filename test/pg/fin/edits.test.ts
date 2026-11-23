@@ -23,7 +23,6 @@ import {
 	spannedInstall,
 	spannedTemplate
 } from "#test/pg/fin/edits.fixtures.ts"
-import { cleared, seatOfInstalled } from "#test/pg/fin/installed.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
 import { writeAnswerOf } from "#test/support/calls.ts"
 import { tableState } from "#test/support/substrate/state.ts"
@@ -39,7 +38,7 @@ import { withLayer } from "#test/support/with-layer.ts"
  */
 export const countedPutAndDeleteThroughGrizzlesApplyOnPostgreSQL19PutASpanKeyedOwnerInPlaceLeavingEveryOwnersLabelCountAndFoldEndAndEveryMemberAsTheFamiliesModelStatesThem =
 	property.explore(spanSketchGen, {
-		needs: { fixture: Substrate.seat(spannedTemplate) },
+		needs: { fixture: Substrate.freshOf(spannedTemplate) },
 		situations: [
 			"a span-keyed owner put in place",
 			"a span-keyed owner put in place over its family's members",
@@ -53,15 +52,8 @@ export const countedPutAndDeleteThroughGrizzlesApplyOnPostgreSQL19PutASpanKeyedO
 						Effect.provideService(
 							Effect.gen(function* () {
 								const o = yield* openedIn(SpanEdited, {}, spannedInstall, taken)
-								const seat = yield* seatOfInstalled(
-									o.installed,
-									["SpanOwner", "SpanMember"],
-									"span_edits"
-								)
 								return yield* Effect.gen(function* () {
 									const db = yield* Db.open(o.served.login.roles.app, {})
-
-									yield* cleared(seat, ["SpanOwner", "SpanMember"])
 									const xOf = (member: number): number =>
 										defined(sketch.xs[member], "a member's step value")
 									const labelOf = (i: number): number =>

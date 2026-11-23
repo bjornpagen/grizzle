@@ -25,7 +25,7 @@ import type { AnySchema } from "#compiler/public/schema.ts"
  * and in the prescribed order with the predecessor axis immediate.
  *
  * Each case is one transaction from an empty seat: it writes its family, then sends its removal, checked as its COMMIT
- * would check it and rolled back, or ended by a real COMMIT whose rows are then cleared, as the case draws its end on
+ * would check it and rolled back, or ended by a real COMMIT whose rows are then read, as the case draws its end on
  * its tape (installed.ts endGen; folds.ts judgedFold): the box holds every case under both ends.
  */
 import {

@@ -213,8 +213,8 @@ export type SeatCase = SubstrateCase<Installed>
 
 /**
  * seatOf's installation as a template (install-migrate.ts installedTemplate): `schema` migrated through its first
- * migration once per member, under `label`, which names the template among its declaring module's. A case takes the
- * worker's clone of it (Substrate.seat, its tables emptied after the case) and reads its seat there (seatIn).
+ * migration once per member, under `label`, which names the template among its declaring module's. A case takes a
+ * clone of its own (Substrate.freshOf), dropped after it, and reads its seat there (seatIn).
  */
 export const seatTemplate = (
 	declaredIn: ImportMeta,
@@ -231,8 +231,7 @@ export const seatTemplate = (
 /**
  * seatTemplate's installation with what every case reads written once per member right after the install
  * (install-migrate.ts seededTemplate): `seed` over the build's seat of it (seatOfInstalled), such as a planted load
- * analyzed, where a search wrote it once before its cases. Its seat empties no table, so a case commits nothing to it,
- * and a case reads its seat as seatTemplate's (seatIn).
+ * analyzed, where a search wrote it once before its cases. A case reads its seat as seatTemplate's (seatIn).
  */
 export const seededSeatTemplate = <E>(
 	declaredIn: ImportMeta,
@@ -377,10 +376,10 @@ export const constraintText = (c: Catalogued): string =>
 	})}${c.deferrable ? " deferrable" : ""}${c.cascades ? " on update cascade" : ""}`
 
 /**
- * Removes every row of the relations, so a case starts empty: the one reset (substrate/replace.ts clearRows), a READ
- * COMMITTED deletion under the replica role, which fires no guard and holds no SIREAD lock.
+ * Removes every row of the relations, so a replacement (replaced) starts empty: the one reset (substrate/replace.ts
+ * clearRows), a READ COMMITTED deletion under the replica role, which fires no guard and holds no SIREAD lock.
  */
-export const cleared = (
+const cleared = (
 	seat: Seat,
 	relations: Arr.NonEmptyReadonlyArray<string>
 ): Effect.Effect<void, SqlError> =>
@@ -441,41 +440,31 @@ export const refusedAtCommitBy = (end: End): EndFeature =>
 	end === "commit" ? "a case refused at a real COMMIT" : "a case refused at its checked commit"
 
 /**
- * Where a case's transaction starts on its seat: `empty`, the seat holding no row, as every case of its suite leaves it
- * (ended); or `replaced`, its rows first replaced by the state `before` (replaced), whose rows, and whatever the case
- * commits over them, the next case's replacement empties.
+ * Where a case's transaction starts on its seat: `empty`, the seat holding no row, as the case's own clone holds none; or
+ * `replaced`, its rows first replaced by the state `before` (replaced), whose rows, and whatever the case commits over
+ * them, the case's next replacement empties.
  */
 export type Start<S> =
 	| { readonly kind: "empty" }
 	| { readonly kind: "replaced"; readonly before: S }
 
 /**
- * One transaction of `statements` on a seat, ended as `end` says (End), with `read` of what it left or committed. From
- * an empty seat a real COMMIT's rows are cleared once read, and a checked end or a refusal rolls back, so the seat is
- * empty again for the next case; and a failure clears it before it goes on, so the candidates a shrink runs meet none
- * of its rows, whatever its transaction left. From a replaced seat its rows stay for the next replacement.
+ * One transaction of `statements` on a seat, ended as `end` says (End), with `read` of what it left or committed: what a
+ * real COMMIT leaves stays on the case's own clone, which no later case takes.
  */
 export const ended = <A>(
 	seat: Seat,
-	relations: Arr.NonEmptyReadonlyArray<string>,
-	start: Start<unknown>["kind"],
 	statements: ReadonlyArray<string>,
 	end: End,
 	read: Effect.Effect<A, SqlError>
-): Effect.Effect<Checked<A>, SqlError | TransactionRolledBack> => {
-	const committed = Effect.gen(function* () {
-		const real = yield* attempt(seat.session, statements)
-		if (real.kind === "refused") {
-			return real
-		}
-		const found = yield* read
-		if (start === "empty") {
-			yield* cleared(seat, relations)
-		}
-		return { kind: "committed", read: found } satisfies Checked<A>
-	})
-	const sent = end === "checked" ? attemptChecked(seat.session, statements, read) : committed
-	return start === "empty"
-		? Effect.onError(sent, () => Effect.ignore(cleared(seat, relations)))
-		: sent
-}
+): Effect.Effect<Checked<A>, SqlError | TransactionRolledBack> =>
+	end === "checked"
+		? attemptChecked(seat.session, statements, read)
+		: Effect.gen(function* () {
+				const real = yield* attempt(seat.session, statements)
+				if (real.kind === "refused") {
+					return real
+				}
+				const found = yield* read
+				return { kind: "committed", read: found } satisfies Checked<A>
+			})

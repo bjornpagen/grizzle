@@ -90,13 +90,13 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 const statesBudget = { runs: 13, steered: 16 } as const
 
 /**
- * Commit exactly the drawn states the families theorem holds of, through grizzle's seat of each shape, each case on the
- * worker's seats of both; each direction's drop is a kill.
+ * Commit exactly the drawn states the families theorem holds of, through grizzle's seat of each shape, each case on a
+ * clone of its own of both; each direction's drop is a kill.
  */
 export const commitExactlyTheStatesOfTheBoxTheFamiliesTheoremHoldsOf = property.explore(stateGen, {
 	needs: {
-		ordered: Substrate.seat(lemmaFamilies.ordered),
-		counted: Substrate.seat(lemmaFamilies.counted)
+		ordered: Substrate.freshOf(lemmaFamilies.ordered),
+		counted: Substrate.freshOf(lemmaFamilies.counted)
 	},
 	situations: [
 		"a case ended by COMMIT",
@@ -138,19 +138,16 @@ export const commitExactlyTheStatesOfTheBoxTheFamiliesTheoremHoldsOf = property.
 								const stored = storedOfSketch(sketch)
 								const statements = writeStatements(stored)
 								const lawful = Result.isSuccess(theorem(stored))
-								/** Uninterruptible: a seat's transaction and its clearing run whole. */
-								const j = yield* Effect.uninterruptible(
-									Effect.provideService(
-										judgedFamily(
-											seat.family,
-											{ kind: "empty" },
-											statements,
-											settledOn(seat, emptyStored, statements),
-											end
-										),
-										Substrate,
-										taken.substrate
-									)
+								const j = yield* Effect.provideService(
+									judgedFamily(
+										seat.family,
+										{ kind: "empty" },
+										statements,
+										settledOn(seat, emptyStored, statements),
+										end
+									),
+									Substrate,
+									taken.substrate
 								)
 								c.note(`${shape} ${j.verdict}`)
 								c.note(endedBy(j.end))
@@ -192,21 +189,21 @@ export const commitExactlyTheStatesOfTheBoxTheFamiliesTheoremHoldsOf = property.
 
 /**
  * Refuse exactly the steps of random programs of family mutations the model refuses, where it refuses them, and commit
- * the rest to the model's families, each case on the worker's seat of its program's shape.
+ * the rest to the model's families, each case on a clone of its own of its program's shape.
  *
  * Its pre-conversion budget: runs 200, coverage cases 400 (test/pg/fin/lemmas.test.ts at edabdcc5f).
  */
 export const refuseExactlyTheStepsOfRandomProgramsTheModelRefusesAndCommitTheRest =
 	property.explore(programs, {
 		needs: {
-			ordered: Substrate.seat(lemmaFamilies.ordered),
-			counted: Substrate.seat(lemmaFamilies.counted)
+			ordered: Substrate.freshOf(lemmaFamilies.ordered),
+			counted: Substrate.freshOf(lemmaFamilies.counted)
 		},
 		situations: programSituations,
-		check: (seats, c: Case<ProgramFeature>) => (p) =>
+		check: (families, c: Case<ProgramFeature>) => (p) =>
 			Effect.scoped(
 				Effect.gen(function* () {
-					const taken = yield* seats[p.shape]
+					const taken = yield* families[p.shape]
 					const f = yield* familySeatIn(p.shape, taken, `programs ${p.shape}`)
 					yield* Effect.provideService(
 						Effect.gen(function* () {

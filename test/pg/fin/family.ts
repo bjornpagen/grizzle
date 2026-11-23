@@ -353,14 +353,7 @@ export const judgedFamily = (
 				return yield* disagree("writing the state before was refused", setup)
 			}
 		}
-		const real = yield* ended(
-			seat,
-			FAMILY_RELATIONS,
-			start.kind,
-			sql(statements),
-			end,
-			seat.session.values(storedSql(f), [])
-		)
+		const real = yield* ended(seat, sql(statements), end, seat.session.values(storedSql(f), []))
 		if (outcome.kind === "committed" && real.kind === "committed") {
 			const read = familyStoredOf(real.read)
 			if (!deepEquals(canonical(read), canonical(outcome.stored))) {

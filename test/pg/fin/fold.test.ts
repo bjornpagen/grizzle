@@ -19,7 +19,7 @@
  * empty family's end. Features are (monoid, axis, verdict).
  *
  * Each case's transaction runs on a seat with no rows and is checked as its COMMIT would check it and rolled back, or
- * ends by a real COMMIT whose rows are read and cleared, as the case draws its end on its tape (installed.ts endGen):
+ * ends by a real COMMIT whose rows are read, as the case draws its end on its tape (installed.ts endGen):
  * the search requires both ends, each meeting a refusal at commit, so it shows a real COMMIT never decides otherwise
  * than the checked end.
  */
@@ -83,12 +83,12 @@ const foldBudget = { runs: 13, steered: 80 } as const
 
 /**
  * Folds through grizzle's lowering on PostgreSQL 19 commit the reference fold of a family of at most four members over
- * five values, and refuse a single junk accumulator by the native that owns its axis, each case on the worker's seat of
- * the int4 sum's schema.
+ * five values, and refuse a single junk accumulator by the native that owns its axis, each case on a clone of its own
+ * of the int4 sum's schema.
  */
 export const foldsThroughGrizzlesLoweringCommitTheReferenceFoldAndRefuseEverySingleJunkAccumulator =
 	property.explore(sketchGen(SPEC.planes.length), {
-		needs: { fold: Substrate.seat(foldSeat) },
+		needs: { fold: Substrate.freshOf(foldSeat) },
 		situations: [
 			"a case ended by COMMIT",
 			"a case ended by SET CONSTRAINTS and ROLLBACK",
@@ -129,13 +129,8 @@ export const foldsThroughGrizzlesLoweringCommitTheReferenceFoldAndRefuseEverySin
 										})
 									}
 								}
-								/** Uninterruptible: a seat's transaction and its clearing run whole, so one seat's failure never leaves another's rows. */
 								const end = c.draw(endGen)
-								const judgedOn = (judging: Judging) =>
-									Effect.uninterruptible(
-										judgedFold(judging, emptyFold, foldWriteOf(stored), [], end)
-									)
-								const j = yield* judgedOn(grizzle)
+								const j = yield* judgedFold(grizzle, emptyFold, foldWriteOf(stored), [], end)
 								c.note(`${SPEC.label} ${axis} ${j.verdict}`)
 								c.note(endedBy(j.end))
 								if (Option.exists(j.moment, (m) => m.kind === "commit")) {

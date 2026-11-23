@@ -83,13 +83,13 @@ const plansBudget = { runs: 29, steered: 32 } as const
 
 /**
  * Read a tree in document order with no sort, each subtree's descendants by a range scan of T1's index, and a family's
- * members by its key, with no sequential scan and no recursion, each case on the worker's seats of the planted tree and
+ * members by its key, with no sequential scan and no recursion, each case on clones of its own of the planted tree and
  * family.
 
  */
 export const familyAndTreeReadsGoThroughGrizzlesInstalledIndexesWithNoSortSequentialScanOrRecursion =
 	property.explore(probes, {
-		needs: { tree: Substrate.seat(plansTree), family: Substrate.seat(plansFamily) },
+		needs: { tree: Substrate.freshOf(plansTree), family: Substrate.freshOf(plansFamily) },
 		situations: planSituations,
 		check:
 			({ tree, family: familyNeed }, cx: Case<PlanFeature>) =>
