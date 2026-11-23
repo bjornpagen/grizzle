@@ -332,7 +332,7 @@ export const twoWritersStampingOneGroupsPlaceStampItsPlacesGaplessFromItsHeadInT
 /** A delete of a place's whole groups deletes their heads with them, so each group it cleared stamps its first place, 0, again, and every other group goes on from its head. */
 export const aDeleteOfAPlacesWholeGroupsDeletesTheirHeadsSoEachClearedGroupStampsItsFirstPlaceAgain =
 	property.exhaust(finite(clearingGen), {
-		needs: { rigged: Substrate.freshOf(clearedRig) },
+		needs: { rigged: Substrate.fresh(clearedRig) },
 		situations: [
 			"an owner's groups cleared",
 			"a plain relation's groups cleared",
