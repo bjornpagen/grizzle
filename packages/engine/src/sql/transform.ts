@@ -1406,7 +1406,7 @@ export class Transform {
 				return table === s.table ? s : { ...s, table }
 			}
 			case "dropPublication":
-			case "alterDatabaseDefault":
+			case "resetDatabaseDefault":
 				return s
 			case "grant":
 			case "revoke": {
@@ -1500,7 +1500,7 @@ export class Transform {
 				const columns = mapList(s.columns, (c) => this.columnDef(c))
 				return columns === s.columns ? s : { ...s, columns }
 			}
-			case "alterDatabaseDefault":
+			case "resetDatabaseDefault":
 			case "alterDefaultPrivileges":
 			case "alterDomain":
 			case "alterRole":

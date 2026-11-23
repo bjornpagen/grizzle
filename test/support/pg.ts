@@ -644,11 +644,16 @@ export const backendOf = (client: Client): number => numberOf(client, "processID
 /**
  * The startup options of every harness session: the closed search path and fixed values of every setting an ambient
  * session draws (test/support/ambient.ts), so an oracle's, a fixture's or a direct writer's SQL never runs, parses or
- * prints under the defaults a suite draws for the subject, whatever the database's or a role's defaults say.
+ * prints under the defaults a suite draws for the subject, whatever the database's or a role's defaults say; and
+ * SERIALIZABLE as each of its transactions' default, the only level at which a guarded table admits a write, so a plain
+ * client's seeding and resets are admitted: the harness's own choice, on its own sessions, as any client of a grizzle
+ * database makes it, since grizzle sets no database default (physical/ddl/isolation.ts) and no test database holds one
+ * (testDatabaseSettings).
  */
 const harnessSessionOptions = Arr.join(
 	Arr.map(
 		[
+			"default_transaction_isolation=serializable",
 			"search_path=pg_catalog,pg_temp",
 			"extra_float_digits=1",
 			"lc_monetary=C.UTF-8",
@@ -896,23 +901,23 @@ export const runAlone = (
 	)
 
 /**
- * The settings every test database runs with, as database-level defaults (a clone does not copy its template's):
- * - a low deadlock_timeout, so the concurrency driver's wait for each blocked step's deadlock check is short
- *   (test/support/schedules/interleave.ts). It is superuser-only; the owner holds SET on it (@bjornpagen/testing/pg grants it every owner);
- * - SERIALIZABLE as every transaction's default, the only level at which grizzle admits a write, so a plain client's
- *   seeding and resets are admitted.
- * A commit waits for its WAL to reach the disk, PostgreSQL's default, since a test can tell an asynchronous commit
- * apart: until it is flushed, PostgreSQL sets no hint bit on a row whose inserting transaction id shares its group of
- * 32 in the commit log (clog.c CLOG_XACTS_PER_LSN_GROUP, heapam_visibility.c SetHintBitsExt), whichever database that
- * commit was in, and VACUUM marks no page holding such a row all-visible (pruneheap.c). A table VACUUMed right after its
- * load then keeps an unset visibility map, and the planner costs an index-only scan of it as a plain index scan, the
- * heap fetched for every row (costsize.c cost_index), so the plans the serving judges read (test/pg/physical/serving.ts
- * loadRows) would turn on the WAL writer's timing.
- * substrate/shared.ts `leftoversCheck` treats exactly these, and nothing else, as a test database's own settings.
+ * The settings every test database runs with, as database-level defaults (a clone does not copy its template's): a low
+ * deadlock_timeout, so the concurrency driver's wait for each blocked step's deadlock check is short
+ * (test/support/schedules/interleave.ts). It is superuser-only; the owner holds SET on it (@bjornpagen/testing/pg
+ * grants it every owner). No default isolation: a test database holds none, as grizzle's install sets none, so every
+ * session grizzle does not open starts at the server's, READ COMMITTED, and the harness's own sessions start
+ * SERIALIZABLE by their startup options (harnessSessionOptions). A commit waits for its WAL to reach the disk,
+ * PostgreSQL's default, since a test can tell an asynchronous commit apart: until it is flushed, PostgreSQL sets no
+ * hint bit on a row whose inserting transaction id shares its group of 32 in the commit log (clog.c
+ * CLOG_XACTS_PER_LSN_GROUP, heapam_visibility.c SetHintBitsExt), whichever database that commit was in, and VACUUM
+ * marks no page holding such a row all-visible (pruneheap.c). A table VACUUMed right after its load then keeps an unset
+ * visibility map, and the planner costs an index-only scan of it as a plain index scan, the heap fetched for every row
+ * (costsize.c cost_index), so the plans the serving judges read (test/pg/physical/serving.ts loadRows) would turn on
+ * the WAL writer's timing. substrate/shared.ts `leftoversCheck` treats exactly these, and nothing else, as a test
+ * database's own settings.
  */
 export const testDatabaseSettings: ReadonlyArray<readonly [name: string, value: string]> = [
-	["deadlock_timeout", "10ms"],
-	["default_transaction_isolation", "serializable"]
+	["deadlock_timeout", "10ms"]
 ]
 
 /** Gives database `name` the test database settings, on `admin`. */

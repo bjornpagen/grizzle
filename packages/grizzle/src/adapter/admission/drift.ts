@@ -3,8 +3,8 @@ import { Array as Arr, Option, Order, pipe, Result, String as Str } from "effect
 import {
 	attributeDifferences,
 	attributesQuery,
-	databaseDifferences,
 	databaseSettingsQuery,
+	formerDefaultHeld,
 	defaultPrivilegeDifferences,
 	defaultPrivilegesParams,
 	defaultPrivilegesQuery,
@@ -1322,7 +1322,6 @@ const inScratch = (
 		case "createLiveSecret":
 			return [transformStatement(s, hooks)]
 		case "createPublication":
-		case "alterDatabaseDefault":
 		case "createRole":
 		case "alterRole":
 		case "grantRole":
@@ -1787,6 +1786,7 @@ interface Beside {
 	readonly privileges: ReadonlyArray<RolePrivilege>
 	readonly policies: ReadonlyArray<RolePolicy>
 	readonly others: ReadonlyArray<DriftMismatch>
+	readonly formerDefault: boolean
 }
 
 /**
@@ -1807,6 +1807,12 @@ export interface DriftFound {
 	readonly policies: ReadonlyArray<RolePolicy>
 	/** Every other fact beside the descriptions that differs (Beside `others`). */
 	readonly others: ReadonlyArray<DriftMismatch>
+	/**
+	 * Whether the database holds the default an installation of format 7 or before set, default_transaction_isolation
+	 * serializable (admission/roles.ts formerDefaultHeld): no mismatch, since grizzle sets no database default and reads
+	 * none, but `grizzle upgrade` resets it (upgrade.ts liveObjects).
+	 */
+	readonly formerDefault: boolean
 }
 
 /**
@@ -1951,11 +1957,7 @@ export const driftCheck = (
 						out.push(mismatch)
 					}
 				}
-				for (const d of databaseDifferences(yield* database.rows(first))) {
-					for (const fact of settingFacts(d, "database")) {
-						out.push(fact)
-					}
-				}
+				const formerDefault = formerDefaultHeld(yield* database.rows(first))
 				for (const { expectation, slot } of defaults) {
 					const owned = yield* slot.rows(first)
 					for (const d of defaultPrivilegeDifferences(owned, expectation)) {
@@ -2007,7 +2009,8 @@ export const driftCheck = (
 					sources: new Set(Arr.map(sourced, (m) => m.object)),
 					privileges,
 					policies,
-					others: out
+					others: out,
+					formerDefault
 				}
 				return found
 			})
@@ -2116,7 +2119,8 @@ export const driftCheck = (
 									sources: besides.sources,
 									privileges: besides.privileges,
 									policies: besides.policies,
-									others: besides.others
+									others: besides.others,
+									formerDefault: besides.formerDefault
 								}
 							}
 							return verdict

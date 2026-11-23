@@ -550,7 +550,7 @@ export type CatalogPerturbation =
 	  }
 	| {
 			readonly kind: "database-setting"
-			readonly change: "isolation-changed" | "isolation-reset" | "owner-setting"
+			readonly change: "isolation-changed" | "owner-setting"
 	  }
 	| {
 			readonly kind: "row-security"

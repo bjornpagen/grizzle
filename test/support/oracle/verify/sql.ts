@@ -2433,7 +2433,7 @@ class StatementAuditor {
 			case "createPublication":
 			case "dropPublication":
 			case "createLiveSecret":
-			case "alterDatabaseDefault":
+			case "resetDatabaseDefault":
 			case "createRole":
 			case "alterRole":
 			case "grant":
@@ -2869,7 +2869,7 @@ class StatementAuditor {
 			case "createLiveSecret":
 				this.objectName(statement.table, "table", "table")
 				return
-			case "alterDatabaseDefault":
+			case "resetDatabaseDefault":
 				return
 			case "createRole":
 				this.ident(statement.name, "role", "name")

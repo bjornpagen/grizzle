@@ -800,7 +800,7 @@ const effectOf = (install: InstallSpec, p: CatalogPerturbation): PerturbationEff
 		case "role-setting":
 			return settingEffect(install, p)
 		case "database-setting":
-			return p.change === "owner-setting" ? noChange : changed
+			return noChange
 		case "row-security":
 			return rowSecurityEffect(install, p)
 		case "extra-grant":

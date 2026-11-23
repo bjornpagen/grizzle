@@ -876,7 +876,6 @@ const snapshotTablesOf = (installation: Installation): SnapshotTables => {
 			case "schema":
 			case "extension":
 			case "validation":
-			case "databaseDefault":
 				break
 		}
 	}

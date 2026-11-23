@@ -120,7 +120,7 @@ import {
 	type CatalogStatement,
 	type DoBlock,
 	type DoStatement,
-	databaseDefaultBlock,
+	databaseResetBlock,
 	databaseLock
 } from "#compiler/sql/catalog.ts"
 import { lineFeedsEscaped } from "#compiler/sql/escape.ts"
@@ -2341,8 +2341,8 @@ export const printCommentTarget = (on: CommentTarget): string => {
  *
  * One clause per line, each after the first indented once.
  *
- * The database default's DO block reads the database's name (sql/ast.ts AlterDatabaseDefault, sql/catalog.ts
- * databaseDefaultBlock); `%I` quotes it as an identifier. A GRANT or REVOKE on the current database names it by its
+ * The database default's reset's DO block reads the database's name (sql/ast.ts ResetDatabaseDefault, sql/catalog.ts
+ * databaseResetBlock); `%I` quotes it as an identifier. A GRANT or REVOKE on the current database names it by its
  * variable (printDatabase).
  *
  * Every role of the installation prints as its variable (printRole); the owner a FOR ROLE names is no role of it and
@@ -2549,8 +2549,8 @@ const writeCommand = (out: Lines, statement: SqlStatement): void => {
 				`CREATE TABLE ${printObjectName(statement.table)} (${quoteIdent("secret")}) AS SELECT ${inCatalog("sha256")}(${draw} || ${draw})`
 			)
 		}
-		case "alterDatabaseDefault":
-			return writeDo(out, databaseDefaultBlock(statement))
+		case "resetDatabaseDefault":
+			return writeDo(out, databaseResetBlock(statement))
 		case "createRole":
 			return out.line(
 				`CREATE ROLE ${printRole(statement.name)} ${statement.login ? "LOGIN NOINHERIT" : "NOLOGIN"}`
@@ -2629,7 +2629,7 @@ const writeCommand = (out: Lines, statement: SqlStatement): void => {
 export const commandsOf = (statement: SqlStatement): NonEmptyReadonlyArray<Command> => {
 	const command: Command = (out) => writeCommand(out, statement)
 	switch (statement.kind) {
-		case "alterDatabaseDefault":
+		case "resetDatabaseDefault":
 		case "alterDefaultPrivileges":
 		case "createExtension":
 			return databaseWide(command)

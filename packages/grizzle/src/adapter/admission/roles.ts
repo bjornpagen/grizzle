@@ -2,7 +2,6 @@ import { Array as Arr, Option, String as Str } from "effect"
 import type { CatalogQuery } from "#adapter/wire/statement.ts"
 import {
 	C,
-	databaseSettings,
 	type DefaultGrant,
 	type DefaultPrivilegesExpectation,
 	type ExpectedPolicy,
@@ -134,20 +133,14 @@ export type SettingDifference =
 			readonly observed: string
 	  }
 
-/** What a scope requires: its settings, and whether it holds exactly those or holds them among others. */
-interface ScopeRequirement {
-	readonly settings: ReadonlyMap<string, string>
-	readonly holds: "exactly" | "among others"
-}
-
 /**
- * Every difference between the stored settings of `scope` and what it requires: a required setting missing or at
- * another value, and in a scope that holds exactly its settings, any other one.
+ * Every difference between the stored settings of `scope` and the settings it holds exactly, `settings`: one of them
+ * missing or at another value, and any other one.
  */
 const scopeDifferences = (
 	stored: ReadonlyArray<StoredSetting>,
 	scope: SettingScope,
-	want: ScopeRequirement
+	settings: ReadonlyMap<string, string>
 ): ReadonlyArray<SettingDifference> => {
 	const out: Array<SettingDifference> = []
 	const have = new Map(
@@ -156,7 +149,7 @@ const scopeDifferences = (
 			(s) => [s.parameter, s.value]
 		)
 	)
-	for (const [parameter, value] of want.settings) {
+	for (const [parameter, value] of settings) {
 		const observed = have.get(parameter)
 		if (observed === undefined) {
 			out.push({ kind: "missing", scope, parameter, value })
@@ -164,25 +157,28 @@ const scopeDifferences = (
 			out.push({ kind: "differs", scope, parameter, expected: value, observed })
 		}
 	}
-	if (want.holds === "exactly") {
-		for (const [parameter, value] of have) {
-			if (!want.settings.has(parameter)) {
-				out.push({ kind: "unexpected", scope, parameter, value })
-			}
+	for (const [parameter, value] of have) {
+		if (!settings.has(parameter)) {
+			out.push({ kind: "unexpected", scope, parameter, value })
 		}
 	}
 	return out
 }
 
 /**
- * The database holds the installation's defaults among others: its other defaults, a deadlock_timeout or a
- * statement_timeout, are the database owner's, which neither check judges. A fact of the database, judged once
- * whatever roles the snapshot creates.
+ * Whether the database holds the default an installation of format 7 or before set: default_transaction_isolation
+ * serializable, ALTER DATABASE ... SET's. grizzle sets no database default and judges none, every one of them the
+ * database owner's; `grizzle upgrade` resets this one, the value grizzle itself set (adapter/admission/upgrade.ts
+ * liveObjects), and leaves any other value of it, the owner's.
  */
-export const databaseDifferences = (
-	stored: ReadonlyArray<StoredSetting>
-): ReadonlyArray<SettingDifference> =>
-	scopeDifferences(stored, "database", { settings: databaseSettings, holds: "among others" })
+export const formerDefaultHeld = (stored: ReadonlyArray<StoredSetting>): boolean =>
+	Arr.some(
+		stored,
+		(s) =>
+			s.scope === "database" &&
+			s.parameter === "default_transaction_isolation" &&
+			s.value === "serializable"
+	)
 
 /**
  * The role's own defaults are exactly the snapshot's, and the role holds none in this database alone, which would take
@@ -192,8 +188,8 @@ export const roleDifferences = (
 	stored: ReadonlyArray<StoredSetting>,
 	expectation: RoleExpectation
 ): ReadonlyArray<SettingDifference> => [
-	...scopeDifferences(stored, "role", { settings: expectation.settings, holds: "exactly" }),
-	...scopeDifferences(stored, "roleInDatabase", { settings: new Map(), holds: "exactly" })
+	...scopeDifferences(stored, "role", expectation.settings),
+	...scopeDifferences(stored, "roleInDatabase", new Map())
 ]
 
 /** A privilege the role should hold and does not, or holds and should not. */

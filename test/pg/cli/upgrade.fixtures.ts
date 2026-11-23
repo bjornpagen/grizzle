@@ -62,14 +62,20 @@ export const kinds = (name: string, version: Version) => {
  * A change of the live installation a format's change of what grizzle installs makes, done by hand: a function the
  * format names otherwise, its trigger then calling it under its old name (`a function renamed`); a constant the format
  * no longer installs (`a stray constant`); a function the format defines otherwise, its volatility (`a function
- * defined otherwise`).
+ * defined otherwise`); and the database default format 7 and every format before it set, SERIALIZABLE as every
+ * transaction's default, which grizzle no longer sets (`a former database default`).
  */
-export type Shift = "a function renamed" | "a stray constant" | "a function defined otherwise"
+export type Shift =
+	| "a function renamed"
+	| "a stray constant"
+	| "a function defined otherwise"
+	| "a former database default"
 
 const shifts: readonly [Shift, ...Array<Shift>] = [
 	"a function renamed",
 	"a stray constant",
-	"a function defined otherwise"
+	"a function defined otherwise",
+	"a former database default"
 ]
 
 /** A case: the last version the history reaches, the shifts a format makes, and the rows stored at each version. */
@@ -96,8 +102,11 @@ export const caseGen: Gen<UpgradeCase> = (source) => ({
 	shifts: Arr.filter(shifts, () => source.draw(boolean))
 })
 
-/** The statements of `shift` on the installation of `schemaName`, read off its catalog, as the cluster's superuser. */
-export const shiftStatements = (shift: Shift, schemaName: string) =>
+/**
+ * The statements of `shift` on the installation of `schemaName` in `database`, read off its catalog, as the cluster's
+ * superuser.
+ */
+export const shiftStatements = (shift: Shift, schemaName: string, database: string) =>
 	Effect.gen(function* () {
 		const admin = (yield* Substrate).admin
 		const s = quoteIdent(schemaName)
@@ -117,7 +126,27 @@ export const shiftStatements = (shift: Shift, schemaName: string) =>
 				]
 			case "a function defined otherwise":
 				return [`ALTER FUNCTION ${s}."__snapshot_guard"(pg_catalog.text) STABLE`]
+			case "a former database default":
+				return [
+					`ALTER DATABASE ${quoteIdent(database)} SET default_transaction_isolation = 'serializable'`
+				]
 		}
+	})
+
+/**
+ * The default isolation `database` holds of its own, as pg_db_role_setting lists it for every role, or none: none after
+ * a fresh install and after any upgrade, since grizzle sets none and an upgrade resets a former one.
+ */
+export const databaseIsolation = (database: string) =>
+	Effect.gen(function* () {
+		const admin = (yield* Substrate).admin
+		const rows = yield* admin.queryValues(
+			"SELECT s.setting FROM pg_catalog.pg_db_role_setting AS d JOIN pg_catalog.pg_database AS b ON b.oid = d.setdatabase CROSS JOIN LATERAL pg_catalog.unnest(d.setconfig) AS s (setting) WHERE b.datname = $1 AND d.setrole = 0::oid AND s.setting LIKE 'default\\_transaction\\_isolation=%'",
+			[database]
+		)
+		return Arr.map(trusted<ReadonlyArray<ReadonlyArray<string>>>(rows), ([setting]) =>
+			String(setting)
+		)
 	})
 
 /** A snapshot.json's text recording `format`, its one `format` member replaced: the file of another format. */

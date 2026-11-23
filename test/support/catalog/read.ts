@@ -308,8 +308,6 @@ export interface Catalog {
 	readonly defaultAcls: ReadonlyArray<CatalogDefaultAcl>
 	/** Every other type the schema holds (composite row types of tables excluded). */
 	readonly otherTypes: ReadonlyArray<string>
-	/** The database's own settings, for every role (pg_db_role_setting with setrole 0), each `name=value`. */
-	readonly databaseSettings: ReadonlyArray<string>
 	/**
 	 * Every table of the level schemas a publication of the database publishes, with that publication, as
 	 * pg_publication_tables names it: a publication of all tables or of a schema's tables names each of them too.
@@ -484,13 +482,6 @@ const queries = {
 	FROM pg_catalog.pg_type t JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
 	WHERE n.nspname = ANY($1::text[]) AND t.typtype NOT IN ('e', 'd') AND t.typtype <> 'b'
 	AND NOT (t.typtype = 'c' AND EXISTS (SELECT 1 FROM pg_catalog.pg_class c WHERE c.oid = t.typrelid AND c.relkind <> 'c'))`,
-	/**
-	 * The database's settings, whatever the schema: $1 is read only so the query takes the parameter every query takes.
-	 */
-	databaseSettings: `SELECT COALESCE(json_agg(x ORDER BY x), '[]'::json)::text
-	FROM pg_catalog.pg_db_role_setting s CROSS JOIN LATERAL unnest(s.setconfig) AS x
-	WHERE s.setrole = 0 AND s.setdatabase = (SELECT d.oid FROM pg_catalog.pg_database d WHERE d.datname = pg_catalog.current_database())
-	AND $1::text[] IS NOT NULL`,
 	publishedTables: `SELECT COALESCE(json_agg(json_build_object(
 		'publication', t.pubname::text, 'schema', t.schemaname::text, 'table', t.tablename::text
 	) ORDER BY t.pubname, t.schemaname, t.tablename), '[]'::json)::text
@@ -662,7 +653,6 @@ export const readCatalogWith = <E>(
 			foreignGrants: read(queries.foreignGrants),
 			defaultAcls: read(queries.defaultAcls),
 			otherTypes: read(queries.otherTypes),
-			databaseSettings: read(queries.databaseSettings),
 			publishedTables: read(queries.publishedTables)
 		})
 		return {
@@ -698,7 +688,6 @@ export const readCatalogWith = <E>(
 					defaultAclOf
 				),
 				otherTypes: trustedJson<ReadonlyArray<string>>(texts.otherTypes),
-				databaseSettings: trustedJson<ReadonlyArray<string>>(texts.databaseSettings),
 				publishedTables: trustedJson<ReadonlyArray<CatalogPublishedTable>>(texts.publishedTables)
 			}
 		}

@@ -9,7 +9,6 @@ import {
 	qualifiedIdent
 } from "#compiler/physical/obligations/graph.ts"
 import type {
-	AlterDatabaseDefault,
 	CreateGuardTrigger,
 	Expr,
 	ObjectName,
@@ -23,15 +22,6 @@ import { call, lit, ne, objectName, types } from "#compiler/sql/build.ts"
 export const isolationGuardName: string = identifierOf(identity.isolationGuard())
 /** The name of every table's guard trigger. */
 const isolationTriggerName: string = identifierOf(identity.isolationTrigger())
-
-/** The database defaults the installation sets, each the fact a check of the database compares. */
-export const databaseDefaults: ReadonlyArray<AlterDatabaseDefault> = [
-	{
-		kind: "alterDatabaseDefault",
-		parameter: "default_transaction_isolation",
-		value: "serializable"
-	}
-]
 
 /** The installed guard function of a schema. */
 const isolationFunction = (schema: string): ObjectName => objectName(schema, isolationGuardName)
@@ -99,19 +89,27 @@ const isolationFunctionDdl = (schema: string): readonly [PlFunction, Revoke] => 
 export const isolationFunctionIdent = (schema: string): string =>
 	qualifiedIdent("function", schema, isolationGuardName)
 
-/** The manifest identity of a database default. */
-const databaseDefaultIdent = (d: AlterDatabaseDefault): string => `databaseDefault:${d.parameter}`
-
-/** The database defaults and the guard function, in Setup: neither names a type or a table.
+/**
+ * The guard function, in Setup: it names no type or table.
  *
- * Every transaction runs at SERIALIZABLE, but a write of a role that certification runs READ COMMITTED
- * (core/isolation.ts), whose BEGIN states its level. Three installed facts make it so, and every other module relies on
- * it:
+ * Every transaction grizzle opens states its level, and every write of a grizzle table runs SERIALIZABLE but a write of
+ * a role that certification runs READ COMMITTED (core/isolation.ts), whose BEGIN states its level. No installed default
+ * makes it so, and no session grizzle does not open relies on one: the installation sets no database default, so a
+ * foreign session, psql or a monitoring tool, starts at the server's default, READ COMMITTED unless its operator chose
+ * otherwise, and counts among no SERIALIZABLE transaction of the cluster unless it says SERIALIZABLE itself (such a
+ * transaction makes every SERIALIZABLE READ ONLY read on the cluster take predicate locks, and every DEFERRABLE one
+ * wait for it to end: predicate.c counts SERIALIZABLE read-write transactions cluster-wide). What makes it so:
  *
- * - the database default: default_transaction_isolation = serializable on the installation's database
- *   (`databaseDefaults`), so a session of any role that names no level runs
- *   SERIALIZABLE. Setting it needs the database's owner, so an installation by any other role fails with 42501;
- * - the guard function, one per installation:
+ * - Every BEGIN grizzle sends names its level: a served read's SERIALIZABLE READ ONLY, DEFERRABLE for a deferrable(...)
+ *   member's, a served write's at its role's, a refresh's and a migration file's transaction SERIALIZABLE
+ *   (the shell's adapter/migrate/session.ts fileTransaction), the ledger's records in a migration's transaction, the
+ *   drift check's SERIALIZABLE and rolled back, and the live leader's fanout READ COMMITTED; `grizzle check` and
+ *   `grizzle upgrade` open those same sessions. A statement grizzle sends outside a BEGIN runs on an owner's session,
+ *   the migration identity's (a survey or catalog read, a catalog's DDL, a `-- grizzle: no-transaction` file's
+ *   statements), whose startup options state SERIALIZABLE as its default (the shell's adapter/wire/session.ts, owner
+ *   startup), so each still runs SERIALIZABLE by grizzle's own statement; a login's session sends no write outside a
+ *   BEGIN.
+ * - The guard function, one per installation:
  *
  *     CREATE OR REPLACE FUNCTION <schema>.<guard>() RETURNS trigger ... AS $$
  *     BEGIN
@@ -125,27 +123,24 @@ const databaseDefaultIdent = (d: AlterDatabaseDefault): string => `databaseDefau
  *
  *   A statement trigger's return value is ignored, and NEW is NULL in one;
  * - the guard trigger, one per table, the migrations ledger's included, BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE
- *   FOR EACH STATEMENT, so a session or role that sets a lower level is refused with 25000, naming the table, before
- *   the statement writes a row. Its name is one fixed name, which PostgreSQL scopes to its table, so a renamed table
- *   carries it unchanged. A table every writer of which certification runs READ COMMITTED takes none
- *   (`readCommittedRelations`): the installation holds no guard object for it, so no statement branches on a level.
+ *   FOR EACH STATEMENT, so a session or role at a lower level is refused with 25000, naming the table, before the
+ *   statement writes a row. Its name is one fixed name, which PostgreSQL scopes to its table, so a renamed table carries
+ *   it unchanged. A table every writer of which certification runs READ COMMITTED takes none (`readCommittedRelations`):
+ *   the installation holds no guard object for it, so no statement branches on a level.
+ *
+ * The guard alone keeps a direct SQL writer inside the certified model, whatever any default says: a guarded table is
+ * one some role that runs SERIALIZABLE writes, every role with no change member among them (certify.ts `members`), and
+ * its guard refuses every write of it below SERIALIZABLE, so a direct writer of it either says SERIALIZABLE, and SSI
+ * tracks it as it tracks every SERIALIZABLE role, or is refused. A table with no guard has only writers certified READ
+ * COMMITTED that hold INSERT and SELECT alone; a direct insert of it through one of their grants falls outside the
+ * certification at any level, since SSI never tracks the READ COMMITTED members beside it, as it did under the database
+ * default format 7 set, which made such a write SERIALIZABLE and no more certified. So that default only ever let an
+ * unlabeled direct write succeed where the guard now refuses it; no fact of the certification rested on it.
  *
  * With every writer of a guarded table SERIALIZABLE, PostgreSQL's SSI orders every write and every law function's reads
  * there: a transaction that would commit in no serial order with a concurrent one fails with 40001, a TransientFailure
  * the caller may run again. */
 export const addIsolation = (b: InstallBuilder): Node<"setup"> => {
-	for (const d of databaseDefaults) {
-		b.add(
-			{
-				kind: "databaseDefault",
-				ident: { kind: "text", text: databaseDefaultIdent(d) },
-				ddl: [d],
-				reasons: [enforcement(`the database default ${d.parameter} of schema ${b.owned.name}`)],
-				phase: "setup"
-			},
-			[]
-		)
-	}
 	b.name(identity.isolationGuard())
 	b.name(identity.isolationTrigger())
 	return b.add(

@@ -3,7 +3,6 @@ import { type InstalledRoleTooLong, roleInSpace, type RoleSpace } from "#compile
 import { compareStrings, mapInput, thenBy } from "#compiler/core/order.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import type { ManifestStatement } from "#compiler/deploy/admission/manifest.ts"
-import { databaseDefaults } from "#compiler/physical/ddl/isolation.ts"
 import type {
 	AlterDefaultPrivileges,
 	CreatePolicy,
@@ -75,8 +74,8 @@ export interface ExpectedPolicy {
  * - Settings, each a map from parameter to the value PostgreSQL stores (storedSettingValue): a login's or role's own
  *   exactly (every ALTER ROLE <role> SET the manifest holds: a login's defaults, its search_path pin among them, a
  *   theory role's none), none for it in this database alone (ALTER ROLE ... IN DATABASE ... SET, which takes
- *   precedence over its own at login), and the database's own defaults the installation's databaseDefault object sets
- *   (ALTER DATABASE ... SET) among whatever others the database's owner sets. grizzle never issues a session-level SET.
+ *   precedence over its own at login); the database's own defaults are its owner's, none of them grizzle's (it sets no
+ *   database default, physical/ddl/isolation.ts). grizzle never issues a session-level SET.
  * - Privileges, as PostgreSQL itself judges them: what the role may do to each object of the installed schema and of
  *   every role's schema, and to each other schema the snapshot grants on, through its own grants, PUBLIC's and every
  *   role it inherits from (has_*_privilege), is exactly what the manifest grants it, a column-level privilege
@@ -126,11 +125,6 @@ export interface RoleExpectation {
 	/** The tables of the installed schema it writes through a query entry, whose row security must stand, sorted. */
 	readonly secured: ReadonlyArray<string>
 }
-
-/** The database's own defaults, by parameter: the installation's one source of them. */
-export const databaseSettings: ReadonlyMap<string, string> = new Map(
-	databaseDefaults.map((d) => [d.parameter, d.value] as const)
-)
 
 const familyOf = (on: GrantObjects): PrivilegeFamily => {
 	switch (on.kind) {

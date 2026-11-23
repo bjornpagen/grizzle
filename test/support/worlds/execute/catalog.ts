@@ -507,22 +507,10 @@ const roleSettingStatements = (
 	})
 
 /**
- * The installation's own database default, as migrate sends it into the catalog's database, which restores the
- * database's isolation once the realization ends: its commands (compile.ts filledStatements, sql/print.ts
- * printCommands), the database lock's and its own, each sent as one message.
- */
-const databaseDefault = (catalog: Catalog): Effect.Effect<ReadonlyArray<string>> =>
-	Option.match(
-		Arr.findFirst(catalog.installation.statements, (s) => s.kind === "alterDatabaseDefault"),
-		{
-			onNone: () => Effect.die(new Error("the installation stores no database default")),
-			onSome: (s) => Effect.succeed(filledStatements([s], catalog.database))
-		}
-	)
-
-/**
- * A database-level setting changed behind grizzle's back: the default isolation changed or reset, or a setting of the
- * owner's in this database, which the drift check does not judge. Each is undone when the realization ends.
+ * A database-level setting made behind grizzle's back: a default isolation, REPEATABLE READ, which no session grizzle
+ * opens starts at, or a setting of the owner's in this database, neither of which the drift check judges, since grizzle
+ * sets no database default and every transaction it opens names its level (physical/ddl/isolation.ts). Each is undone
+ * when the realization ends: a test database holds no default isolation (test/support/pg.ts testDatabaseSettings).
  */
 const databaseSettingStatements = (
 	admin: PgConnection,
@@ -532,15 +520,11 @@ const databaseSettingStatements = (
 	Effect.gen(function* () {
 		const database = quoteIdent(catalog.database)
 		switch (change) {
-			case "isolation-changed":
-			case "isolation-reset": {
-				const restore = yield* databaseDefault(catalog)
+			case "isolation-changed": {
 				yield* catalog.restoring(
-					Effect.forEach(restore, (sql) => admin.query(sql, []), { discard: true })
+					admin.query(`ALTER DATABASE ${database} RESET default_transaction_isolation`, [])
 				)
-				return change === "isolation-changed"
-					? [`ALTER DATABASE ${database} SET default_transaction_isolation = 'read committed'`]
-					: [`ALTER DATABASE ${database} RESET default_transaction_isolation`]
+				return [`ALTER DATABASE ${database} SET default_transaction_isolation = 'repeatable read'`]
 			}
 			case "owner-setting": {
 				const owner = `ALTER ROLE ${quoteIdent(catalog.owner)} IN DATABASE ${database}`

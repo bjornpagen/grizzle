@@ -629,14 +629,14 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
 ## Deploy
 
 - Run `grizzle migrate` as the role that owns the schema and the database. No snapshot or migration names that role,
-  so dev and prod may use different ones; a schema owned by another role is refused at the stage owner. The first
-  migration's Setup sets the database's default isolation, which only the database's owner may: as any other role
-  it fails at the stage statement with 42501. Each file first takes the ledger's exclusive lock, which waits for the
+  so dev and prod may use different ones; a schema owned by another role is refused at the stage owner. grizzle sets
+  no database default; `grizzle upgrade` resets the SERIALIZABLE default an installation of format 7 or before set.
+  Each file first takes the ledger's exclusive lock, which waits for the
   `Db` transactions in flight; from then until the migration's last file commits, no `Db` call runs and no `Db` opens,
   so plan migrations as downtime.
-- Every transaction runs at SERIALIZABLE, a direct SQL writer's included. grizzle sets it as the database's default,
-  so psql sessions get it without asking, and a write below it on a grizzle table is refused with 25000 by the table's
-  guard trigger. A table some role writes, every writer of which is certified READ COMMITTED and holds only INSERT and
+- Every transaction grizzle opens names its level, and a direct SQL writer of a grizzle table writes at SERIALIZABLE:
+  grizzle sets no database default, so psql starts at the server's default, and a write below SERIALIZABLE on a grizzle
+  table is refused with 25000 by the table's guard trigger; have tools that only read state say READ ONLY. A table some role writes, every writer of which is certified READ COMMITTED and holds only INSERT and
   SELECT on it, has no guard: a direct writer there meets its role's grants and the table's constraints alone. A
   migration that changes whether a table qualifies drops or creates its guard.
 - Size the server's lock table, `max_locks_per_transaction × (max_connections + autovacuum_worker_slots +

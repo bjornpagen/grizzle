@@ -281,7 +281,6 @@ export type ErasureProblem =
 			readonly expected: string
 			readonly calls: ReadonlyArray<ReadonlyArray<string>>
 	  }
-	| { readonly kind: "isolationDefault" }
 	| { readonly kind: "inertPolicy"; readonly policy: string; readonly table: string }
 	| { readonly kind: "policyCommand"; readonly policy: string; readonly table: string }
 	| {
@@ -1439,12 +1438,6 @@ export const verifyErasure = (
 		...Arr.flatMap(catalog.functions, (f) => functionProblems(j, f)),
 		...Arr.flatMap(catalog.triggers, (t) => triggerProblems(j, t)),
 		...rosterDomainProblems(j),
-		...unless(
-			Arr.contains(catalog.databaseSettings, "default_transaction_isolation=serializable"),
-			{
-				kind: "isolationDefault"
-			}
-		),
 		...Arr.flatMap(catalog.policies, (p) => policyProblems(j, p)),
 		...Arr.flatMap(catalog.otherTypes, (type): ReadonlyArray<ErasureProblem> =>
 			unless(j.expect.rowTypes.has(type), { kind: "foreignType", type })

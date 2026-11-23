@@ -4,7 +4,6 @@
  * plan/migration.ts's, which a login's runtime never loads.
  */
 export {
-	databaseSettings,
 	type DefaultGrant,
 	type DefaultPrivilegesExpectation,
 	defaultPrivilegesExpectations,

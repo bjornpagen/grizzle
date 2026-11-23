@@ -1872,26 +1872,27 @@ export interface CreateLiveSecret {
 }
 
 /**
- * The current database's default of a configuration parameter, whatever the database is named, printed as a DO block
- * (sql/catalog.ts DoBlock, built by sql/catalog.ts databaseDefaultBlock) after the database lock (sql/print.ts
+ * The reset of the current database's default of a configuration parameter, whatever the database is named, printed as
+ * a DO block (sql/catalog.ts DoBlock, built by sql/catalog.ts databaseResetBlock) after the database lock (sql/print.ts
  * databaseWide), since every installation in the database writes the same pg_db_role_setting row:
  *
  *   SELECT "pg_catalog"."pg_advisory_xact_lock"(<key>::bigint);
  *   DO $$
  *   BEGIN
- *     EXECUTE "pg_catalog"."format"('ALTER DATABASE %I SET <parameter> = %L'::"pg_catalog"."text",
- *       "pg_catalog"."current_database"(), '<value>'::"pg_catalog"."text");
+ *     EXECUTE "pg_catalog"."format"('ALTER DATABASE %I RESET <parameter>'::"pg_catalog"."text",
+ *       "pg_catalog"."current_database"());
  *   END
  *   $$
  *
  * ALTER DATABASE names its database and an installation's statements name none, so the block reads its name; PostgreSQL
- * reads `ALTER DATABASE CURRENT_DATABASE` as a database of that name. The installation's one database default is
- * SERIALIZABLE for every transaction (physical/ddl/isolation.ts).
+ * reads `ALTER DATABASE CURRENT_DATABASE` as a database of that name. grizzle sets no database default: an installation
+ * of format 7 or before set default_transaction_isolation to serializable, which `grizzle upgrade` resets where a live
+ * database still holds it (deploy/diff/departed.ts Departure `databaseDefault`), so every session grizzle does not open
+ * starts at the server's default (physical/ddl/isolation.ts).
  */
-export interface AlterDatabaseDefault {
-	readonly kind: "alterDatabaseDefault"
+export interface ResetDatabaseDefault {
+	readonly kind: "resetDatabaseDefault"
 	readonly parameter: "default_transaction_isolation"
-	readonly value: "serializable"
 }
 
 /**
@@ -2578,7 +2579,7 @@ export type Ddl =
 	| CreatePublication
 	| DropPublication
 	| CreateLiveSecret
-	| AlterDatabaseDefault
+	| ResetDatabaseDefault
 	| CreateRole
 	| AlterRole
 	| GrantRole

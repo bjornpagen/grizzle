@@ -342,9 +342,8 @@ class InstallationFailed extends Data.TaggedError("InstallationFailed")<{
  * parameter types are one when they name the same pattern domains and contracts (paramTypesKey). An explicit value the
  * test makes (installations) and passes in RunOptions, never a memo.
  *
- * The committed installation runs every statement of its plan, the database default's DO block among them: every test
- * database already carries default_transaction_isolation = serializable (test/support/pg.ts testDatabaseSettings), so
- * the default it writes is the one the database holds, and the database's settings never change.
+ * The committed installation runs every statement of its plan, which sets no database default, so the database's
+ * settings, the test database's own (test/support/pg.ts testDatabaseSettings), never change.
  */
 export interface Installations {
 	/**

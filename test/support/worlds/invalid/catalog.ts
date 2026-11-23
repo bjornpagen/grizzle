@@ -309,7 +309,7 @@ export const catalogVariants = (state: ModelState): ReadonlyArray<Variant<Catalo
 		[
 			"database-setting",
 			map(
-				element(["isolation-changed", "isolation-reset", "owner-setting"] as const),
+				element(["isolation-changed", "owner-setting"] as const),
 				(change): CatalogPerturbation => ({ kind: "database-setting", change })
 			)
 		],
@@ -496,10 +496,10 @@ export const enumeratePerturbations = (state: ModelState): ReadonlyArray<Catalog
 					)
 				)
 		),
-		...Arr.map(
-			["isolation-changed", "isolation-reset", "owner-setting"] as const,
-			(change): CatalogPerturbation => ({ kind: "database-setting", change })
-		),
+		...Arr.map(["isolation-changed", "owner-setting"] as const, (change): CatalogPerturbation => ({
+			kind: "database-setting",
+			change
+		})),
 		...Arr.map(["disabled", "forced", "enabled"] as const, (s): CatalogPerturbation => ({
 			kind: "row-security",
 			relation: relation.name,

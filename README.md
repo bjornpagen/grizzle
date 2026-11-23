@@ -53,8 +53,8 @@ through views of its own, under row-level security where it writes only some row
 Every call is one transaction, SERIALIZABLE unless `grizzle generate` proved its role's writes safe at READ
 COMMITTED, its statements pipelined into one round trip, or two when a write must first read stored values it builds
 on. There are no interactive transactions to hold open: a read that decides a write
-is a query inside the write. The first migration makes SERIALIZABLE the database's default, and a write below it on a
-grizzle table is refused, so psql and scripts get the same isolation, on every table but one whose every writer is
+is a query inside the write. Every transaction grizzle opens names its level, and a write below SERIALIZABLE on a
+grizzle table is refused, so psql and scripts that write say SERIALIZABLE, on every table but one whose every writer is
 certified to run READ COMMITTED and may only insert ([Transactions and concurrency](#transactions-and-concurrency)). Every failure is typed: a call fails with one
 `CallError` of a closed set of kinds, a broken rule's `refused` naming the rule. A `transient` one changed nothing, and
 grizzle never retries: whether to run it again is your code's decision.
@@ -976,7 +976,7 @@ Each debit carries its slot among its grant's debits, a copy of the grant's coun
 
 The slot is a coordinate the proof counts by, never a multiplicity: a grant's debits are a set, one row per debit. There is no trigger, and a writer outside grizzle fills those columns as grizzle does or is refused ([Direct SQL access](#direct-sql-access)).
 
-Every transaction is SERIALIZABLE: the first migration makes it the database's default, and a write below it on a grizzle table is refused, psql's included. Two calls that spend one grant both rewrite its count and total, so they can't both commit: one fails with a `transient` error that changed nothing, `retry: "safe"`. grizzle never retries on its own. `spend` runs the call again with `Effect.retry`, and the run sees the other's debit: it commits if the grant still covers it, and otherwise fails with an error you match on, never a message to parse:
+Every write is SERIALIZABLE: grizzle's transactions name their level, and a write below it on a grizzle table is refused, psql's included. Two calls that spend one grant both rewrite its count and total, so they can't both commit: one fails with a `transient` error that changed nothing, `retry: "safe"`. grizzle never retries on its own. `spend` runs the call again with `Effect.retry`, and the run sees the other's debit: it commits if the grant still covers it, and otherwise fails with an error you match on, never a message to parse:
 
 ```text
 {
@@ -5373,8 +5373,14 @@ that is no safe integer of at least 0 among its anchor's faults.
 
 ## Transactions and concurrency
 
-- **Every transaction is SERIALIZABLE.** The first migration makes it the database's default, so every session gets
-  it, psql included. A write below it on a grizzle table is refused with 25000, by the table's guard trigger.
+- **Every transaction grizzle opens names its level.** A write runs SERIALIZABLE unless its role is certified READ
+  COMMITTED, and a read SERIALIZABLE READ ONLY, DEFERRABLE for a `deferrable(...)` member; a statement grizzle sends
+  outside a transaction, a `-- grizzle: no-transaction` file's among them, runs SERIALIZABLE, since every session of the
+  migration identity starts with SERIALIZABLE as its default. grizzle sets no database default: a foreign session
+  starts at the server's, READ COMMITTED unless the operator chose otherwise. A write below SERIALIZABLE on a grizzle
+  table is refused with 25000, by the table's guard trigger, psql's included, so a direct writer says SERIALIZABLE; the
+  guard, not a default, keeps every direct writer of a guarded table inside what certification proves. An installation
+  of format 7 or before set the database's default to SERIALIZABLE; `grizzle upgrade` resets it.
 - **A role's writes run READ COMMITTED only where generate proves it.** `grizzle generate` certifies each role from
   the statements its ChangeSets send, against every other writer, and the role's served file begins its writes at the
   level it proved ([READ COMMITTED writes](#read-committed-writes)). Reads are always SERIALIZABLE READ ONLY, and
@@ -5773,8 +5779,8 @@ checks (below). `grizzle migrate`, which runs the drift check after every apply,
   `max_stack_depth` at least its default, 2MB, which the limits grizzle holds every pattern to rest on
   ([Limits](#limits)); `grizzle migrate` refuses a server below it. The extensions the schema needs are the
   migration's to install.
-- **Settings:** the database's default isolation SERIALIZABLE, and the login's and the role's settings exactly as the
-  snapshot installs them. Every login's own defaults pin its sessions, each a setting a grizzle guarantee rests on:
+- **Settings:** the login's and the role's settings exactly as the snapshot installs them; the database's own defaults
+  are its owner's, none of them grizzle's. Every login's own defaults pin its sessions, each a setting a grizzle guarantee rests on:
   `search_path = pg_catalog, pg_temp`, `extra_float_digits = 1`, `DateStyle = 'ISO, YMD'`, `bytea_output = hex`, and
   `lc_monetary`, `lc_numeric` and `lc_time` at `C.UTF-8`; a login whose roles search vectors also
   `hnsw.iterative_scan = strict_order`. Every session of the login's pool sends them as startup options, so neither a

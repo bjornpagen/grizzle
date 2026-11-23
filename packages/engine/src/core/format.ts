@@ -155,7 +155,11 @@
  * judged statement's step looks its relation up by every column an equality chain of its rule fixes to a value the
  * steps before it hold (analysis/theory/navigate.ts implied), where format 7 bound only the columns equated with such a
  * value directly, so a read of an import inlined into an arm of a definition read at a written row's keys gains the
- * equality of each key column the arm equates with its channel
+ * equality of each key column the arm equates with its channel. An installation sets no database default and its
+ * snapshot records none (physical/ddl/isolation.ts), where format 7 set default_transaction_isolation SERIALIZABLE on
+ * the database, its snapshot's `databaseDefault` object, so an owner's session starts SERIALIZABLE by its startup
+ * options (adapter/wire/session.ts ownerOptions) and `grizzle upgrade` resets the former default
+ * (adapter/admission/upgrade.ts formerDefault)
  */
 export const artifactFormat = 7
 

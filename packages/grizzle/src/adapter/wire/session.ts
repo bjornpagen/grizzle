@@ -169,6 +169,31 @@ type Startup =
 	| { readonly kind: "replication" }
 
 /**
+ * An owner's sessions' startup options: SERIALIZABLE as each one's default level. grizzle sets no database default
+ * (engine physical/ddl/isolation.ts), so a statement an owner's session sends outside a BEGIN, the migration identity's
+ * (a survey or catalog read, a catalog's DDL, a `-- grizzle: no-transaction` file's statements), runs SERIALIZABLE by
+ * this statement of grizzle's own, as every BEGIN grizzle sends names its level; a guarded table's guard refuses a
+ * write below it (25000).
+ */
+const ownerOptions = "-c default_transaction_isolation=serializable"
+
+/**
+ * The startup packet's `options` of a session of `startup`: a login's its pinned defaults (engine physical/ddl/roles.ts
+ * loginStartupOptions), an owner's its default level (ownerOptions), a replication connection's none, which runs no
+ * transaction.
+ */
+const startupOptionsOf = (startup: Startup): { readonly options?: string } => {
+	switch (startup.kind) {
+		case "login":
+			return { options: startup.options }
+		case "owner":
+			return { options: ownerOptions }
+		case "replication":
+			return {}
+	}
+}
+
+/**
  * The wire mode of a session of `startup` (types/driver.ts PgWireMode): a login's and an owner's pipelined; a
  * replication connection's a walsender of its database, never pipelined, since pg 8.23 refuses its stream, a
  * Submittable (replicationOf), on a pipelined client before a byte of START_REPLICATION is sent: a pipelined leader
@@ -440,8 +465,8 @@ const passwordOf = (spec: SessionSpec, services: AttemptServices): (() => Promis
 /**
  * A session's client configuration over `socket`, the one the transport opened for it: it states every startup and
  * wire setting pg would otherwise read from the environment and can be told, the client encoding and the TLS
- * negotiation among them, so `PGCLIENT_ENCODING` and `PGSSLNEGOTIATION` reach no session, and a login's session its
- * options, so `PGOPTIONS` reaches none of a login's; the startup variables it cannot be told are
+ * negotiation among them, so `PGCLIENT_ENCODING` and `PGSSLNEGOTIATION` reach no session, and a login's and an owner's
+ * session its options (startupOptionsOf), so `PGOPTIONS` reaches none of theirs; the startup variables it cannot be told are
  * connection/environment.ts's. The password is the attempt's (passwordOf).
  */
 const clientConfig = (
@@ -456,7 +481,7 @@ const clientConfig = (
 	password,
 	client_encoding: "utf8",
 	sslnegotiation: "postgres",
-	...(spec.startup.kind === "login" ? { options: spec.startup.options } : {}),
+	...startupOptionsOf(spec.startup),
 	...wireModeOf(spec.startup),
 	types: rawText,
 	connectionTimeoutMillis: 0,

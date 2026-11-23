@@ -225,7 +225,6 @@ interface DiffInput {
  * `grizzle upgrade` refuses before anything is drafted (the shell's adapter/admission/upgrade.ts).
  */
 export const staleReplaced: { readonly [K in PhysicalKind]: boolean } = {
-	databaseDefault: false,
 	schema: false,
 	extension: false,
 	constant: false,
@@ -348,13 +347,7 @@ export const loginRoleExchange =
 type Dropped =
 	| Exclude<
 			PhysicalKind,
-			| "databaseDefault"
-			| "extension"
-			| "validation"
-			| "privileges"
-			| "ledger"
-			| "membership"
-			| "ruleJudge"
+			"extension" | "validation" | "privileges" | "ledger" | "membership" | "ruleJudge"
 	  >
 	| "column"
 
@@ -2075,7 +2068,6 @@ class Differ {
 					this.sql("setup", o.ddl)
 				}
 				return
-			case "databaseDefault":
 			case "ledger":
 			case "extension":
 				if (before === undefined) {
@@ -3424,7 +3416,6 @@ class Differ {
 				)
 			case "extension":
 			case "privileges":
-			case "databaseDefault":
 				return
 			case "view":
 			case "worldFunction":
@@ -4728,7 +4719,6 @@ const grantObjectsOf = (v: Installed<AnyObject>): ReadonlyArray<GrantObject> => 
 		case "foreignKey":
 		case "extension":
 		case "validation":
-		case "databaseDefault":
 			return []
 	}
 }

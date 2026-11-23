@@ -509,7 +509,6 @@ export type PhysicalReason =
  * the physical package installs (physical/obligations/graph.ts), and the migrations ledger a snapshot's manifest adds.
  */
 export const physicalKinds = [
-	"databaseDefault",
 	"schema",
 	"extension",
 	"constant",

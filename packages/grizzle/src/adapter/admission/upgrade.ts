@@ -125,7 +125,7 @@ const departureOf = (ident: GraphIdent, facts: ReadonlyArray<Fact>): Option.Opti
  * The order departed objects are dropped in, by kind, as the diff drops its own (deploy/diff/diff.ts dropOrder): the
  * policies and views before the functions they call, the triggers and foreign keys before the keys and functions they
  * read, the constraints and indexes before the domains, types and functions their definitions read, the generated
- * columns before what their generations read, and a role's schema last.
+ * columns before what their generations read, a role's schema, and the former database default last.
  */
 const departureRank: { readonly [K in Departure["kind"]]: number } = {
 	policy: 0,
@@ -141,8 +141,16 @@ const departureRank: { readonly [K in Departure["kind"]]: number } = {
 	generatedColumn: 9,
 	domain: 10,
 	type: 10,
-	schema: 11
+	schema: 11,
+	databaseDefault: 12
 }
+
+/**
+ * The departed object that is the database default an installation of format 7 or before set (drift.ts DriftFound
+ * `formerDefault`), which the upgrade resets: grizzle sets no database default, so every session it does not open
+ * starts at the server's.
+ */
+const formerDefault = "databaseDefault:default_transaction_isolation"
 
 /** Departed objects in their drop order: by kind (departureRank), then by identity. */
 const dropOrder: Order.Order<Departed> = Order.combine(
@@ -223,6 +231,9 @@ export const liveObjects = (
 			return Result.fail({ kind: "stored", object, facts: Arr.map(facts, factText) })
 		}
 		departed.push({ object, departure: departure.value })
+	}
+	if (found.formerDefault) {
+		departed.push({ object: formerDefault, departure: { kind: "databaseDefault" } })
 	}
 	return Result.succeed({
 		held,

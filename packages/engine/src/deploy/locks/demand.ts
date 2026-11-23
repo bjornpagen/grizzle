@@ -628,7 +628,7 @@ const learn = (catalogOf: LockCatalog, s: SqlStatement | RecordedStatement): voi
 			return
 		}
 		case "adoptRole":
-		case "alterDatabaseDefault":
+		case "resetDatabaseDefault":
 		case "alterDefaultPrivileges":
 		case "alterRole":
 		case "comment":
@@ -1611,7 +1611,7 @@ const lockStatement = (locks: Locks, s: SqlStatement | RecordedStatement): void 
 		case "createLiveSecret":
 			locks.created(s.table, true)
 			return
-		case "alterDatabaseDefault":
+		case "resetDatabaseDefault":
 			locks.add([target("advisory", "database"), target("database"), catalog("pg_db_role_setting")])
 			return
 		case "createRole":

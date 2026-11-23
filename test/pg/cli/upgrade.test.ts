@@ -6,16 +6,19 @@
  *   b removed (a hole), then c renamed d, then a and d swapping names, each version generated and migrated through the
  *   command line, items stored at each, holding codes. Then each set of the changes a format's change of what
  *   grizzle installs makes, done by hand: a function renamed, its trigger calling it under its old name; a stray
- *   constant; a function defined otherwise. snapshot.json is set to another format, so no command reads it. `grizzle
- *   upgrade`, then `check`, `migrate` and `drift`, each succeed. The migrations directory's snapshot and served files
- *   are byte for byte the ones generate wrote at the last version, a fresh draft of the same history under this
- *   grizzle; with no change by hand, nothing else is written (a rebase of the snapshot alone), and with any, one folder
- *   `<timestamp>_upgrade`. The stored items hold the codes they held.
+ *   constant; a function defined otherwise; the database's default isolation SERIALIZABLE, as format 7 and every format
+ *   before it set it. snapshot.json is set to another format, so no command reads it. `grizzle upgrade`, then `check`,
+ *   `migrate` and `drift`, each succeed. The migrations directory's snapshot and served files are byte for byte the
+ *   ones generate wrote at the last version, a fresh draft of the same history under this grizzle; with no change by
+ *   hand, nothing else is written (a rebase of the snapshot alone), and with any, one folder `<timestamp>_upgrade`. The
+ *   stored items hold the codes they held. The database holds no default isolation after the fresh install, as grizzle
+ *   sets none, and none after the upgrade, which resets a former one.
  * - **Oracle:** the history itself: generate's own files at the last version, and the drift check, which judges the
  *   database by them after the upgrade's migrate.
  * - **Kills:** the drift identity check skipped (a stale object read as held, never replaced); the codes minted from the
- *   source alone (a roster with a hole, a renamed handle or a swap names no live constant, refused).
- * - **Box, exhausted:** each subset of the three changes over the whole history, eight cases.
+ *   source alone (a roster with a hole, a renamed handle or a swap names no live constant, refused); a former database
+ *   default read as none (left, never reset).
+ * - **Box, exhausted:** each subset of the four changes over the whole history, sixteen cases.
  * - **Features:** each change, none, a hole, a renamed handle, a handle swap, a rebase of the snapshot alone, an
  *   upgrade folder.
  */
@@ -33,6 +36,7 @@ import { cliOver, configName, connectionOf, ownerOn, workspace } from "#test/pg/
 import {
 	caseGen,
 	committedFiles,
+	databaseIsolation,
 	declaredAt,
 	filesUnder,
 	historyFeatures,
@@ -53,11 +57,12 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 export const anUpgradeRebasesALiveInstallationOfAnyRosterHistoryOntoThisGrizzlesCompileItsSnapshotAndServedFilesGeneratesOwnAFolderOnlyWhereTheDatabaseHoldsTheCompileOtherwiseAndEveryStoredCodeKept =
 	property.exhaust(finite(caseGen), {
 		needs: { caseSubstrate: Substrate.installing },
-		box: "the roster's whole history, a hole, a renamed handle and a swap, under each subset of the three shifts, the empty one included",
+		box: "the roster's whole history, a hole, a renamed handle and a swap, under each subset of the four shifts, the empty one included",
 		situations: [
 			"a function renamed",
 			"a stray constant",
 			"a function defined otherwise",
+			"a former database default",
 			"no shift",
 			"a hole",
 			"a renamed handle",
@@ -99,12 +104,18 @@ export const anUpgradeRebasesALiveInstallationOfAnyRosterHistoryOntoThisGrizzles
 							assert.equal(migrated.code, 0, `migrate version ${version}: ${migrated.stderr}`)
 							yield* substrate.admin.pipeline(storeItems(schemaName, version))
 						}
+						const installedIsolation = yield* databaseIsolation(substrate.database)
+						assert.deepEqual(
+							installedIsolation,
+							[],
+							"a fresh install sets no default isolation: every session grizzle does not open starts at the server's"
+						)
 						c.noteAll(historyFeatures(x.version))
 						const directory = `${ws}/migrations/${schemaName}`
 						const generatedFiles = yield* filesUnder(directory)
 						const stored = yield* itemRows(schemaName)
 						for (const shift of x.shifts) {
-							for (const sql of yield* shiftStatements(shift, schemaName)) {
+							for (const sql of yield* shiftStatements(shift, schemaName, substrate.database)) {
 								yield* substrate.admin.query(sql, [])
 							}
 							c.note(shift)
@@ -143,6 +154,12 @@ export const anUpgradeRebasesALiveInstallationOfAnyRosterHistoryOntoThisGrizzles
 							)
 							c.note("an upgrade folder")
 						}
+						const upgradedIsolation = yield* databaseIsolation(substrate.database)
+						assert.deepEqual(
+							upgradedIsolation,
+							[],
+							"after the upgrade the database holds no default isolation: a former one is reset"
+						)
 						const kept = yield* itemRows(schemaName)
 						assert.deepEqual(kept, stored, "every stored code is kept")
 					}).pipe(Effect.scoped),
@@ -167,6 +184,12 @@ export const anUpgradeRebasesALiveInstallationOfAnyRosterHistoryOntoThisGrizzles
 				replacement:
 					'\t\t\tconst codec = rosterCodec(\n\t\t\t\troster.closed,\n\t\t\t\troster.handles.map((handle): CodeSlot => ({ kind: "live", handle }))\n\t\t\t)',
 				why: "The codes minted from the source alone re-code every stored value: a history with a hole, a renamed handle or a swap names no live constant, and the upgrade is refused."
+			},
+			{
+				file: "packages/grizzle/src/adapter/admission/upgrade.ts",
+				original: "\tif (found.formerDefault) {",
+				replacement: "\tif (!found.formerDefault) {",
+				why: "A former database default read as none: the upgrade leaves SERIALIZABLE as the database's default, and resets one where none is held, a folder where the database holds the compile whole."
 			}
 		]
 	})

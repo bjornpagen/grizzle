@@ -60,7 +60,6 @@ export type ManifestStatement =
 					| "createTransitionTrigger"
 					| "createPublication"
 					| "createLiveSecret"
-					| "alterDatabaseDefault"
 					| "createRole"
 					| "grantRole"
 					| "grant"
@@ -104,7 +103,6 @@ const manifestStatement = (s: SqlStatement): ManifestStatement => {
 		case "createTransitionTrigger":
 		case "createPublication":
 		case "createLiveSecret":
-		case "alterDatabaseDefault":
 		case "createRole":
 		case "grantRole":
 		case "grant":
@@ -142,6 +140,7 @@ const manifestStatement = (s: SqlStatement): ManifestStatement => {
 		case "dropFunction":
 		case "dropTrigger":
 		case "dropPublication":
+		case "resetDatabaseDefault":
 		case "lockTable":
 		case "insert":
 		case "update":

@@ -4029,7 +4029,7 @@ class Model {
 				return
 			}
 			case "createSchema":
-			case "alterDatabaseDefault":
+			case "resetDatabaseDefault":
 			case "createRole":
 			case "alterRole":
 			case "grantRole":

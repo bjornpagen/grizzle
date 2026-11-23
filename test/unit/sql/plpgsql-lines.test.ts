@@ -6,7 +6,8 @@
  *
  * - **Property:** over generated schemas, every PL/pgSQL function and DO block an installation's statements print, its
  *   source as PostgreSQL stores it, resolves its locations with at most one rescan, the BEGIN's, and walks at most its
- *   source once and the lines up to its BEGIN once more.
+ *   source once and the lines up to its BEGIN once more. An installation prints no DO block (it sets no database
+ *   default, physical/ddl/isolation.ts), so the blocks' property reaches one.
  * - **Oracle:** specification: PL/pgSQL's grammar's order of resolution (pl_gram.y: a simple statement as it is read, a
  *   compound statement, each ELSIF and each WHEN arm after its body, the block's BEGIN after its END) and the
  *   resolver's walk, line by line, transcribed apart from the printer (plpgsql-lines.fixtures.ts), read off the
@@ -14,7 +15,7 @@
  * - **Space:** generated schemas (install.fixtures.ts generatedGen), each installed with the oracle's login; and every
  *   block of one to three IFs or CASE arms, each holding a RAISE or another IF, a text constant in its condition or a
  *   RAISE's message holding a line feed or not, as a function's source and as a DO statement.
- * - **Features:** a function's body, a DO block and a compound statement over generated schemas; over the blocks, one
+ * - **Features:** a function's body and a compound statement over generated schemas; over the blocks, a DO block, one
  *   nested in another and a constant holding a line feed too.
  */
 
@@ -62,7 +63,7 @@ export const everyPlpgsqlBlockResolvesItsLinesInOnePassAndOneRescanOfItsDeclarat
 	property.explore(generatedGen, {
 		needs: {},
 		budget: { runs: 40, steered: 40 },
-		situations: ["a function's body", "a DO block", "a compound statement"] satisfies ReadonlyArray<
+		situations: ["a function's body", "a compound statement"] satisfies ReadonlyArray<
 			Reached<LinesFeature>
 		>,
 		check: (_, c: Case<LinesFeature>) => (desc) =>

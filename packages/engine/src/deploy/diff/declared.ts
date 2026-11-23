@@ -1965,7 +1965,7 @@ const withColumns = (
 		case "createGuardTrigger":
 		case "createUpdateGuardTrigger":
 		case "createTransitionTrigger":
-		case "alterDatabaseDefault":
+		case "resetDatabaseDefault":
 		case "createExtension":
 		case "lockTable":
 		case "createCarrier":
@@ -2051,7 +2051,7 @@ const withRoles = (s: WholeStatement, roles: ReadonlyMap<string, string>): Whole
 		case "createUpdateGuardTrigger":
 		case "createConstraintTrigger":
 		case "createTransitionTrigger":
-		case "alterDatabaseDefault":
+		case "resetDatabaseDefault":
 		case "createExtension":
 		case "createStatistics":
 		case "lockTable":

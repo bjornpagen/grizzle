@@ -2,7 +2,7 @@ import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonemp
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import { wellFormed } from "#compiler/core/text.ts"
 import type {
-	AlterDatabaseDefault,
+	ResetDatabaseDefault,
 	CatalogTypeName,
 	Expr,
 	ObjectName,
@@ -754,11 +754,11 @@ export const advisoryKey = (lock: AdvisoryLock): bigint =>
 	)
 
 /**
- * The DO block that sets the current database's default (sql/ast.ts AlterDatabaseDefault): ALTER DATABASE of the
+ * The DO block that resets the current database's default (sql/ast.ts ResetDatabaseDefault): ALTER DATABASE of the
  * database's own name, which format quotes as an identifier (`%I`). It writes a row every installation in the database
  * writes, so the printer emits it behind the database lock (databaseLock).
  */
-export const databaseDefaultBlock = (statement: AlterDatabaseDefault): DoBlock => ({
+export const databaseResetBlock = (statement: ResetDatabaseDefault): DoBlock => ({
 	kind: "do",
 	declare: [],
 	body: [
@@ -767,9 +767,8 @@ export const databaseDefaultBlock = (statement: AlterDatabaseDefault): DoBlock =
 			command: {
 				kind: "formatted",
 				text: valueCall("format", [
-					lit.text(`ALTER DATABASE %I SET ${statement.parameter} = %L`, types.text),
-					valueCall("current_database", []),
-					lit.text(statement.value, types.text)
+					lit.text(`ALTER DATABASE %I RESET ${statement.parameter}`, types.text),
+					valueCall("current_database", [])
 				])
 			},
 			into: undefined,

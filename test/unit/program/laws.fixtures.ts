@@ -771,7 +771,7 @@ export const reportable = (installation: Installation): ReadonlyArray<Identified
 			case "dropFunction":
 			case "refresh":
 			case "dropPolicy":
-			case "alterDatabaseDefault":
+			case "resetDatabaseDefault":
 			case "revokeRole":
 			case "alterDefaultPrivileges":
 			case "createExtension":

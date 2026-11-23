@@ -109,7 +109,6 @@ const onTable = (justified: KindModel["justified"]): KindModel => ({
 
 /** Every object kind's model, keyed by the union itself. */
 export const kindModel: { readonly [K in PhysicalKind]: KindModel } = {
-	databaseDefault: { after: [], justified: "any reason" },
 	schema: { after: [], justified: "any reason" },
 	extension: { after: [], justified: "any reason" },
 	constant: { after: ["schema"], justified: "any reason" },

@@ -2,7 +2,7 @@
 
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { assert } from "@bjornpagen/testing/assert"
-import { type Aimed, aimed, array, element, type Gen, int } from "@bjornpagen/testing/gen"
+import { type Aimed, aimed, array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order, Result } from "effect"
 import type { DriftFound, Fact } from "#adapter/admission/drift.ts"
@@ -30,10 +30,14 @@ type Fate = "held" | "proven" | "otherwise" | "absent" | "renamed" | "reshaped"
  */
 type Extra = "function" | "index" | "generatedColumn" | "storedColumn" | "table"
 
-/** A box: the target's objects, each with what the database holds of it, and what the database holds besides. */
+/**
+ * A box: the target's objects, each with what the database holds of it, what the database holds besides, and whether it
+ * holds the default an installation of format 7 or before set (drift.ts DriftFound `formerDefault`).
+ */
 interface Box {
 	readonly objects: ReadonlyArray<{ readonly shape: Shape; readonly fate: Fate }>
 	readonly extras: ReadonlyArray<Extra>
+	readonly formerDefault: boolean
 }
 
 /** Each shape's kind in the target's manifest (ir/products.ts PhysicalKind). */
@@ -190,7 +194,8 @@ const foundOf = (box: Box): DriftFound => {
 		sources: new Set(),
 		privileges: [],
 		policies: [],
-		others: []
+		others: [],
+		formerDefault: box.formerDefault
 	}
 }
 
@@ -206,8 +211,8 @@ type Expected =
 	| { readonly kind: "fault"; readonly fault: Pick<UpgradeFault, "kind" | "object"> }
 
 /**
- * The model of a box (Expected): each object held, stale or absent by its fate alone, each renamed one's old name and
- * each dropped extra departed; or the fault of the one object no rebase may change: a table held otherwise or under
+ * The model of a box (Expected): each object held, stale or absent by its fate alone, each renamed one's old name, each
+ * dropped extra and a former database default departed; or the fault of the one object no rebase may change: a table held otherwise or under
  * another column, or departed, and a stored column, holds rows; an isolation trigger held otherwise is of a kind no
  * draft changes; any other object under another key is reshaped.
  */
@@ -260,7 +265,8 @@ const modelOf = (box: Box): Expected => {
 					case "table":
 						return []
 				}
-			})
+			}),
+			...(box.formerDefault ? ["databaseDefault:default_transaction_isolation"] : [])
 		]
 	}
 }
@@ -286,7 +292,8 @@ const rebasedBox: Gen<Box> = (source) => ({
 	objects: source.draw(array(rebasedObject, { min: 1, max: 6 })),
 	extras: source.draw(
 		array(element(["function", "index", "generatedColumn"] as const), { min: 0, max: 3 })
-	)
+	),
+	formerDefault: source.draw(boolean)
 })
 
 /** A box with one part no rebase may change, at a drawn place among rebased ones. */
@@ -314,7 +321,7 @@ const refusedBox: Gen<Box> = (source) => {
 	}
 }
 
-/** A box with an object of each fate a rebase carries, each extra it drops among them. */
+/** A box with an object of each fate a rebase carries, each extra it drops among them, and a former database default. */
 const everyFateBox: Gen<Box> = (source) => ({
 	objects: [
 		{ shape: "function", fate: "otherwise" },
@@ -326,7 +333,8 @@ const everyFateBox: Gen<Box> = (source) => ({
 	extras: [
 		"generatedColumn",
 		...source.draw(array(element(["function", "index"] as const), { min: 0, max: 2 }))
-	]
+	],
+	formerDefault: true
 })
 
 export type LiveFeature =
@@ -337,6 +345,7 @@ export type LiveFeature =
 	| "an object renamed"
 	| "a departed object"
 	| "a departed generated column"
+	| "a former database default departed"
 	| "a stored table refused"
 	| "an unreplaceable kind refused"
 	| "an object under another key refused"
@@ -347,6 +356,7 @@ export const boxSpace: Aimed<Box, LiveFeature> = aimed(rebasedBox, [
 	["an unreplaceable kind refused", refusedBox],
 	["an object under another key refused", refusedBox],
 	["a departed generated column", everyFateBox],
+	["a former database default departed", everyFateBox],
 	["an object renamed", everyFateBox]
 ])
 
@@ -415,5 +425,8 @@ export const judgedCase = (box: Box, c: Case<LiveFeature>) =>
 		}
 		if (box.extras.includes("generatedColumn")) {
 			c.note("a departed generated column")
+		}
+		if (box.formerDefault) {
+			c.note("a former database default departed")
 		}
 	})

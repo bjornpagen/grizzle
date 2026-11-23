@@ -8,7 +8,8 @@ import type { ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
  * before any departure is drafted: a function, a key or CHECK or foreign key, a trigger, a policy, an index, a
  * statistics object, a view, a materialized view (whose rows its definition computes again), a domain, a composite
  * type, a generated column (a law column, which PostgreSQL computes from its row), a table's row security or replica
- * identity, and a role's schema.
+ * identity, a role's schema, and the database default an installation of format 7 or before set,
+ * default_transaction_isolation serializable, which grizzle no longer sets and which its departure resets.
  */
 export type Departure =
 	| { readonly kind: "function"; readonly name: ObjectName }
@@ -24,6 +25,7 @@ export type Departure =
 	| { readonly kind: "generatedColumn"; readonly table: ObjectName; readonly column: string }
 	| { readonly kind: "rowSecurity" | "replicaIdentity"; readonly table: ObjectName }
 	| { readonly kind: "schema"; readonly name: string }
+	| { readonly kind: "databaseDefault" }
 
 /** The drop of a departed object, RESTRICT, as a drop of the diff's own removals is: nothing outside it goes with it. */
 export const departureDrop = (d: Departure): SqlStatement => {
@@ -68,5 +70,7 @@ export const departureDrop = (d: Departure): SqlStatement => {
 			}
 		case "schema":
 			return { kind: "drop", object: "SCHEMA", name: d.name, ifExists: false }
+		case "databaseDefault":
+			return { kind: "resetDatabaseDefault", parameter: "default_transaction_isolation" }
 	}
 }

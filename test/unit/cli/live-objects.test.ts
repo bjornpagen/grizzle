@@ -2,11 +2,12 @@
  * How `grizzle upgrade` reads a live installation off the drift check of its target (adapter/admission/upgrade.ts
  * liveObjects), with no database: a drawn target of functions, CHECKs, rule and isolation triggers, indexes and tables,
  * each with a drawn fate in the database (held, proven by its row, held otherwise, absent, renamed by a format, or held
- * under another key), and drawn objects the database holds besides (a function, an index, a generated column, a stored
- * column, a table). The drift check's findings are built as descriptionSelect spells them.
+ * under another key), drawn objects the database holds besides (a function, an index, a generated column, a stored
+ * column, a table), and the database default of format 7 or before, held or not. The drift check's findings are built
+ * as descriptionSelect spells them.
  *
- * The oracle is the model of the box: each object held, stale or absent by its fate, each renamed object's old name and
- * each dropped extra departed; or the one fault of a part no rebase may change: a table held otherwise, under another
+ * The oracle is the model of the box: each object held, stale or absent by its fate, each renamed object's old name,
+ * each dropped extra and a former database default departed; or the one fault of a part no rebase may change: a table held otherwise, under another
  * column, renamed or held besides, and a stored column, hold rows; an isolation trigger held otherwise is of a kind no
  * draft changes; any other object under another key is reshaped.
  */
@@ -27,6 +28,7 @@ export const anUpgradeReadsEachObjectOfADrawnTargetAsHeldStaleAbsentOrDepartedEx
 			"an object renamed",
 			"a departed object",
 			"a departed generated column",
+			"a former database default departed",
 			"a stored table refused",
 			"an unreplaceable kind refused",
 			"an object under another key refused"
@@ -55,6 +57,12 @@ export const anUpgradeReadsEachObjectOfADrawnTargetAsHeldStaleAbsentOrDepartedEx
 				original: "\t\treturn generated(f) ? f.object : f.within",
 				replacement: "\t\treturn f.within",
 				why: "A generated column the database holds besides is read as its table's, a relation holding rows, and refused, where the upgrade drops it; the departed generated column fails."
+			},
+			{
+				file: "packages/grizzle/src/adapter/admission/upgrade.ts",
+				original: "\tif (found.formerDefault) {",
+				replacement: "\tif (!found.formerDefault) {",
+				why: "A former database default read as none: the upgrade leaves it where the database holds it and resets one where it holds none; the departed objects of every box fail."
 			}
 		]
 	})

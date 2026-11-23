@@ -211,7 +211,7 @@ export type Installed<O extends AnyObject = ManifestObject> =
 			readonly stamp: FunctionHeader
 	  }
 	| {
-			readonly kind: "schema" | "extension" | "validation" | "databaseDefault"
+			readonly kind: "schema" | "extension" | "validation"
 			readonly object: O
 	  }
 
@@ -522,7 +522,6 @@ export const installed = <O extends AnyObject>(o: O): Installed<O> => {
 		case "schema":
 		case "extension":
 		case "validation":
-		case "databaseDefault":
 			return { kind: o.kind, object: o }
 	}
 }
@@ -580,7 +579,6 @@ export const objectTable = (o: AnyObject): ObjectName | undefined => {
 		case "schema":
 		case "extension":
 		case "validation":
-		case "databaseDefault":
 			return undefined
 	}
 }
@@ -720,7 +718,6 @@ export const builtOver = <O extends AnyObject>(
 		case "ledger":
 		case "head":
 		case "validation":
-		case "databaseDefault":
 			return undefined
 	}
 }
@@ -846,7 +843,6 @@ const objectParts = <O extends AnyObject>(
 		case "ledger":
 		case "head":
 		case "validation":
-		case "databaseDefault":
 			return []
 	}
 }
