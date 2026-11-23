@@ -2486,8 +2486,9 @@ export const followUpGen =
 					countedOwners(f.member)
 				)
 			})
-		/** The ordered families of `owner` a member may be put at the end of: one that owns no sequence, mutable where
-		 * it owns a family, and naming a mutable owner of each counted family it is a member of. */
+		/** The ordered families of `owner` a member may be put at the end of: one that owns no sequence and is mutable,
+		 * open, since an append is a put of the member, and naming a mutable owner of each counted family it is a member
+		 * of. */
 		const orderedOf = (owner: number): ReadonlyArray<number> =>
 			Arr.filter(families, (k) => {
 				const f = familyAt(spec, k)
@@ -2495,7 +2496,7 @@ export const followUpGen =
 					f.kind === "ordered" &&
 					f.owner === owner &&
 					!ownsSequence(spec, f.member) &&
-					(mutable(f.member) || !Arr.some(spec.families, (o) => o.owner === f.member)) &&
+					mutable(f.member) &&
 					countedOwners(f.member)
 				)
 			})

@@ -13,7 +13,8 @@ import {
 	on,
 	relation,
 	role,
-	schema
+	schema,
+	unit
 } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { familyStoredOf } from "#test/pg/fin/family.ts"
@@ -51,6 +52,7 @@ const Member = relation("Member", { member: pg.integer, g: pg.integer }, ["membe
 const contended = (name: string) => {
 	const relations = { Owner, Member }
 	const base = schema(name, Rec.values(relations), [
+		unit("Owner", { id: pg.integer }),
 		mutable(Owner),
 		counted(on(Member, "g"), fin(Owner, "n"))
 	])

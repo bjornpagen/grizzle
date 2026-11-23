@@ -170,7 +170,8 @@ const without = (rows: ReadonlyArray<InstanceRow>, id: number): ReadonlyArray<In
  * the generator draws them: each that owns a family and is no family's member but its own tree's, whose nested
  * relations, through every family, are members only of families owned within the unit, so its delete is one the README
  * admits (a delete whose nested rows include a member of a family whose owner it does not remove is refused when the
- * ChangeSet compiles; WHOLEDEL's suite searches those refusals).
+ * ChangeSet compiles; WHOLEDEL's suite searches those refusals), and every one of them open, mutable inside its unit,
+ * since the delete removes them all and a closed relation's facts are never deleted.
  */
 export const unitRelations = (spec: FillSpec): ReadonlyArray<number> =>
 	Arr.filter(
@@ -195,7 +196,8 @@ export const unitRelations = (spec: FillSpec): ReadonlyArray<number> =>
 			return (
 				owns &&
 				alone &&
-				Arr.every(spec.families, (f) => !nested.has(f.member) || nested.has(f.owner))
+				Arr.every(spec.families, (f) => !nested.has(f.member) || nested.has(f.owner)) &&
+				Arr.every([...nested], (n) => relationAt(spec, n).mutable)
 			)
 		}
 	)
