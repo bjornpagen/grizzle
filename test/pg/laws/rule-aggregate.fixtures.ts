@@ -712,9 +712,11 @@ type ShapeAim = "free" | "negated" | "topic" | "under" | "extra" | "scored" | "i
 /**
  * A shape: the group columns, one to three of the attempt's (and the topic where the body joins), the fold, Read's
  * reading and second rule, the negation's place, and one or two laws of distinct kinds, `aim` forcing what an aimed
- * case needs. A shape whose rule could be unit-local is mutable, so every rule is judged by its probes,
- * which is what the search is of. A locality shape keys Read by group columns alone and bounds its fold above any group
- * it stores, so every group it stores keeps every law.
+ * case needs. A shape whose rule could be unit-local is mutable, its relations open in the child's unit, so its writes
+ * put and delete beside their inserts and its rule is judged whole over the children they touch (analysis/theory/
+ * unit.ts wholeRule); every other shape's rule is judged by its probes, which is what the search is of. A locality
+ * shape keys Read by group columns alone and bounds its fold above any group it stores, so every group it stores keeps
+ * every law.
  */
 const shapeGen =
 	(options: { readonly locality: boolean; readonly aim: ShapeAim }): Gen<Shape> =>

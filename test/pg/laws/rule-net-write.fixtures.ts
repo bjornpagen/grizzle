@@ -57,24 +57,32 @@ const A = relation(
 	},
 	["package", "path", "start", "name"]
 )
-/** A reference to an attribute, at the attribute's key. */
-const R = relation("R", { package: Path, path: Path, start: pg.bigint, name: pg.smallint }, [
-	"package",
+/** A reference to an attribute, at the attribute's key, its package in a pack. */
+const R = relation("R", { pack: Path, path: Path, start: pg.bigint, name: pg.smallint }, [
+	"pack",
 	"path",
 	"start",
 	"name"
 ])
-/** A name a package declares. */
-const Q = relation("Q", { package: Path, name: pg.smallint }, ["package", "name"])
+/** A name a package declares, in a pack. */
+const Q = relation("Q", { pack: Path, name: pg.smallint }, ["pack", "name"])
 
 /**
- * Mutable, inside each package's unit, so no rule over them is unit-local: each is judged by its probes, whose net
- * write the properties read, never whole over its units (analysis/theory/unit.ts).
+ * Mutable: P and A in the unit of their package, R and Q in the unit of their pack, so every rule over them reads the
+ * rows of two units, two borrows: each is judged by its probes, whose net write the properties read, never whole over
+ * its units (analysis/theory/unit.ts wholeRule).
  */
 const Base = schema(
 	"NetWrite",
 	[P, A, R, Q],
-	[mutable(P), mutable(A), mutable(R), mutable(Q), unit("Package", { package: Path })]
+	[
+		mutable(P),
+		mutable(A),
+		mutable(R),
+		mutable(Q),
+		unit("Package", { package: Path }),
+		unit("Pack", { pack: Path })
+	]
 )
 
 /** The attributes of governor 1, each at its key. */
@@ -111,9 +119,9 @@ const NetWrite = schema.extend(
 	[
 		contained(
 			on(Media, "package", "path", "start", "name"),
-			on(R, "package", "path", "start", "name")
+			on(R, "pack", "path", "start", "name")
 		),
-		contained(on(Named, "package", "name"), on(Q, "package", "name"))
+		contained(on(Named, "package", "name"), on(Q, "pack", "name"))
 	]
 )
 
@@ -560,27 +568,29 @@ const statementOf = (installed: Installed, op: Exclude<Op, { readonly kind: "jud
 	const names = namesOf(installed)
 	const a = names.table(A)
 	const text = (x: string) => `'${x}'`
-	const at = (o: { readonly pkg: Pkg; readonly start: Coordinate; readonly name: Coordinate }) =>
-		`package = ${text(o.pkg)} AND path = 'd' AND start = ${o.start} AND name = ${o.name}`
+	const at = (
+		o: { readonly pkg: Pkg; readonly start: Coordinate; readonly name: Coordinate },
+		key: "package" | "pack"
+	) => `${key} = ${text(o.pkg)} AND path = 'd' AND start = ${o.start} AND name = ${o.name}`
 	switch (op.kind) {
 		case "put":
 			return `INSERT INTO ${a} (package, path, start, name, governor, note) SELECT ${text(op.pkg)}, 'd', ${op.start}, ${op.name}, ${op.governor}, ${op.note} WHERE EXISTS (SELECT FROM ${names.table(P)} WHERE package = ${text(op.pkg)}) ON CONFLICT DO NOTHING`
 		case "remove":
-			return `DELETE FROM ${a} WHERE ${at(op)}`
+			return `DELETE FROM ${a} WHERE ${at(op, "package")}`
 		case "govern":
-			return `UPDATE ${a} SET governor = ${op.governor} WHERE ${at(op)}`
+			return `UPDATE ${a} SET governor = ${op.governor} WHERE ${at(op, "package")}`
 		case "annotate":
-			return `UPDATE ${a} SET note = ${op.note} WHERE ${at(op)}`
+			return `UPDATE ${a} SET note = ${op.note} WHERE ${at(op, "package")}`
 		case "move":
-			return `UPDATE ${a} SET start = ${op.to} WHERE ${at(op)} AND NOT EXISTS (SELECT FROM ${a} AS b WHERE b.package = ${text(op.pkg)} AND b.path = 'd' AND b.start = ${op.to} AND b.name = ${op.name})`
+			return `UPDATE ${a} SET start = ${op.to} WHERE ${at(op, "package")} AND NOT EXISTS (SELECT FROM ${a} AS b WHERE b.package = ${text(op.pkg)} AND b.path = 'd' AND b.start = ${op.to} AND b.name = ${op.name})`
 		case "refer":
-			return `INSERT INTO ${names.table(R)} (package, path, start, name) VALUES (${text(op.pkg)}, 'd', ${op.start}, ${op.name}) ON CONFLICT DO NOTHING`
+			return `INSERT INTO ${names.table(R)} (pack, path, start, name) VALUES (${text(op.pkg)}, 'd', ${op.start}, ${op.name}) ON CONFLICT DO NOTHING`
 		case "unrefer":
-			return `DELETE FROM ${names.table(R)} WHERE ${at(op)}`
+			return `DELETE FROM ${names.table(R)} WHERE ${at(op, "pack")}`
 		case "declare":
-			return `INSERT INTO ${names.table(Q)} (package, name) VALUES (${text(op.pkg)}, ${op.name}) ON CONFLICT DO NOTHING`
+			return `INSERT INTO ${names.table(Q)} (pack, name) VALUES (${text(op.pkg)}, ${op.name}) ON CONFLICT DO NOTHING`
 		case "undeclare":
-			return `DELETE FROM ${names.table(Q)} WHERE package = ${text(op.pkg)} AND name = ${op.name}`
+			return `DELETE FROM ${names.table(Q)} WHERE pack = ${text(op.pkg)} AND name = ${op.name}`
 		case "drop":
 			return `DELETE FROM ${names.table(P)} WHERE package = ${text(op.pkg)}`
 		case "restore":
@@ -865,8 +875,8 @@ export const runTie = (
 		}
 		const touched =
 			tie.governor === 1
-				? `INSERT INTO ${names.table(R)} (package, path, start, name) VALUES ('pkg', 'doc/touched', 0, 7)`
-				: `INSERT INTO ${names.table(Q)} (package, name) VALUES ('pkg', 7)`
+				? `INSERT INTO ${names.table(R)} (pack, path, start, name) VALUES ('pkg', 'doc/touched', 0, 7)`
+				: `INSERT INTO ${names.table(Q)} (pack, name) VALUES ('pkg', 7)`
 		for (const sql of [
 			touched,
 			`INSERT INTO ${a} (package, path, start, name, governor, note) VALUES ('pkg', 'doc/touched', 0, 7, ${tie.governor}, 0)`

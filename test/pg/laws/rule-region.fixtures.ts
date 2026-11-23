@@ -36,8 +36,9 @@ type Judged = (typeof judgings)[number]
  * The rule each judgment holds over Stated, each unit's g, a derived relation every row of its unit derives its fact of,
  * so a unit's rows that state one g derive one fact, each a read of the unit's rows once per binding of its region:
  *
- * - `probed`: T mutable, and One g, a key over Stated by the unit, probed: each probe reads the rows a transaction wrote
- *   of T as its region, then the unit's Stated rows at each binding of it;
+ * - `probed`: T mutable in the unit of its whole key, (package, id), wider than the package a key over Stated pairs its
+ *   rows within, so no borrow of one row covers it, and One g, that key, probed: each probe reads the rows a
+ *   transaction wrote of T as its region, then the unit's Stated rows at each binding of it;
  * - `whole`: T immutable, and Natural g, a check over Stated, unit-local and judged whole: its step reads the unit's
  *   Stated rows once per unit of its region. A key would pair the unit's rows with each other in that one read, the
  *   square of the unit at any region, so the check is the rule whose read of a unit is linear.
@@ -48,7 +49,7 @@ const regionSchema = (judged: Judged) => {
 			const Base = schema(
 				"ProbedRegion",
 				[T],
-				[mutable(T), unit("Package", { package: pg.integer })]
+				[mutable(T), unit("Row", { package: pg.integer, id: pg.integer })]
 			)
 			const Stated = derived(
 				"Stated",
@@ -156,6 +157,13 @@ export const runRepeats = (
 	c: Case<RepeatsFeature>
 ) =>
 	Effect.gen(function* () {
+		const [rule, ...others] = installed.installation.laws.rules
+		assert.ok(
+			rule !== undefined &&
+				others.length === 0 &&
+				(rule.rule.kind === "whole") === (drawn.judged === "whole"),
+			`the ${drawn.judged} judgment's one rule ${drawn.judged === "whole" ? "judged whole" : "probed"}`
+		)
 		for (const sql of written(installed, 0, drawn.rows - 1, drawn.g)) {
 			yield* connection.query(sql, [])
 		}

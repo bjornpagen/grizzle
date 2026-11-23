@@ -220,10 +220,10 @@ export type QueryRule = ProbedRule | WholeRule
 export type ProbedRule = RuleLaw<RuleSide>
 
 /**
- * A unit-local rule (analysis/theory/unit.ts), whatever its query reads: every relation it reads immutable and leading
- * its key with one unit key, which every rule of its violation query joins on, so every fact of its violation lies
- * within one unit. The judge reads its violation query, the one the migration that adds it runs, over the units a
- * transaction wrote (`judged`), once whatever rows of them it wrote, never row by row.
+ * A unit-local rule (analysis/theory/unit.ts), whatever its query reads: every relation it reads immutable, or all of
+ * them in one declared unit, and leading its key with one unit key, which every rule of its violation query joins on,
+ * so every fact of its violation lies within one unit. The judge reads its violation query, the one the migration that
+ * adds it runs, over the units a transaction wrote (`judged`), once whatever rows of them it wrote, never row by row.
  */
 export interface WholeRule {
 	readonly kind: "whole"
@@ -513,7 +513,7 @@ class Flattener {
 				return this.#stage(relation, stage.input, columns)
 			case "recursive":
 				return this.#refuseKind(
-					"a rule reads a recursion only where it is unit-local: every relation it reads immutable, every match of it within one unit, and every step carrying the unit from self into its head"
+					"a rule reads a recursion only where it is unit-local: every relation it reads immutable or all of them in one declared unit, every match of it within one unit, and every step carrying the unit from self into its head"
 				)
 			case "attach":
 				return this.#refuseKind(

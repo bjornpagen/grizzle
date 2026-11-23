@@ -1,17 +1,16 @@
 /**
- * An alternatives statement lowers to plain containments' natives (fin.md §7, w4-w7 §2.5), with no residual law and no
- * head: the discriminator's roster domain types it. The oracle is fin.md §7 turned into a checker:
+ * An alternatives statement states plain containments (fin.md §7, ir/desc.ts expandAlternatives), with no residual law
+ * and no head, the discriminator's roster domain typing it:
  *
- * - **forward**, per arm relation X serving the handles H: each X row's parent is a parent of a handle in H, a law
- *   column on the parent holding its id where its tag is in H, referenced by X's id. One handle's is the column the
- *   reverse containment of that handle references from, whose UNIQUE serves its probe too (laws/model/plan.ts
- *   `#reference`), so the arm holds no constant and the parent no UNIQUE over (id, tag);
- * - **reverse**, per armed handle h: each parent of tag h has its arm row, a law column on the parent holding its id
- *   where its tag is h, referencing X's id: one generated column per armed handle;
- * - every one of these foreign keys is deferred, since forward and reverse form a cycle, and no other is installed.
+ * - **forward**, per arm relation X serving the handles H: X's ids among the parents tagged by a handle of H;
+ * - **reverse**, per armed handle h: the parents tagged h among its arm's ids.
  *
- * A law column is told by what it holds, read by the reference evaluator on a parent of every tag: the handles whose
- * parents it is defined for, or the one handle a constant holds.
+ * Every relation is keyed by its id and open inside the unit of it, so every containment joins within one unit, its
+ * relations its declared unit's, and is judged whole over the units a transaction wrote (laws/model/plan.ts
+ * containmentDischarge): the law model installs no foreign key and no law column for any of them.
+ *
+ * The oracle is fin.md §7's containments stated apart, a second statement of the same laws: the alternatives statement
+ * states exactly their laws, each one identity (ir/dag.ts), and each is a whole rule.
  *
  * Box: every roster of 1 to 3 handles, each handle unarmed or armed by one of two arm relations, at least one armed,
  * constructed by its first armed handle: 2 + 8 + 26 = 36 assignments, exhausted.
@@ -31,8 +30,8 @@ import {
 	features
 } from "#test/unit/laws/model/alternatives.fixtures.ts"
 
-/** Alternatives lowers to its containments' natives every roster of 1 to 3 handles with every arm assignment. */
-export const alternativesLowersToItsContainmentsNativesEveryRosterOf1To3HandlesWithEveryArmAssignment =
+/** Alternatives states its containments, each judged whole, every roster of 1 to 3 handles with every arm assignment. */
+export const alternativesStatesItsContainmentsEachJudgedWholeEveryRosterOf1To3HandlesWithEveryArmAssignment =
 	property.exhaust(finite(assignmentGen), {
 		needs: {},
 		situations: features satisfies ReadonlyArray<Reached<Feature>>,
@@ -55,11 +54,17 @@ export const alternativesLowersToItsContainmentsNativesEveryRosterOf1To3HandlesW
 			}),
 		oracle: {
 			kind: "specification",
-			name: "fin.md §7's forward and reverse containments as a checker"
+			name: "fin.md §7's forward and reverse containments stated apart: the same laws, each a whole rule"
 		},
 		box: "every roster of 1 to 3 handles, each unarmed or armed by one of two arm relations",
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/analysis/theory/unit.ts",
+				original: '\t\t\t\t\t"condition" in\n',
+				replacement: '\t\t\t\t\ttrue ||\n\t\t\t\t\t"condition" in\n',
+				why: "A containment over a mutable relation is native, as before, its declared unit unread: every containment of the alternatives over open relations installs its foreign key and law column, and none is a whole rule."
+			},
 			{
 				file: "packages/engine/src/ir/desc.ts",
 				original:

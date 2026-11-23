@@ -53,7 +53,8 @@ const Answer = relation("Answer", { child: pg.integer, at: pg.integer, n: pg.int
 	"at",
 	"n"
 ])
-/** A learner's note on a document: mutable, so the rule over it is probed, never judged whole. */
+/** A learner's note on a document: mutable in the learner's unit, read beside documents keyed by their package, so the
+ * rule over it joins no one unit and is probed, never judged whole. */
 const Note = relation("Note", { child: pg.integer, package: pg.integer, doc: pg.integer }, [
 	"child",
 	"package",

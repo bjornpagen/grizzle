@@ -8,10 +8,10 @@
  * Property: over every case, the installation plans an index of U whose keys are exactly package and g, the columns
  * the step reading U binds, a whole rule's led by package.
  *
- * The box: T(package, id, x), U(package, id, g, w) and S(package, w), each keyed by package first, immutable, so the
- * containment of D in S is unit-local and judged whole, or mutable, so its probes judge it; D the w of each U row of a
- * T row's package whose g is a term of the T row's x: a sum, a conditional, or a bounded text's guarded cast into
- * another bounded text than g's, the CASE the lowering prints for it.
+ * The box: T(package, id, x) and U(package, id, g, w), keyed by package first, and S(pack, w), immutable, so the
+ * containment of D in S is unit-local and judged whole, or mutable, S in a unit of its own, so its probes judge it; D
+ * the w of each U row of a T row's package whose g is a term of the T row's x: a sum, a conditional, or a bounded
+ * text's guarded cast into another bounded text than g's, the CASE the lowering prints for it.
  *
  * Oracle: specification, the planned indexes against the columns the step binds.
  */

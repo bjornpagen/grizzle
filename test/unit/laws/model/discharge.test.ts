@@ -11,21 +11,24 @@
  * kind 1 or 2 into C's of kind 2, from C into B at its primary key, into G at its declared key, into F at a superkey
  * and into E, from C's facts of kind 4 into E, from C's facts of kind 3 into D at i alone, and from C's facts whose
  * kind plus one is at least 4 into B; with one containment into a target no key holds or none, plain and unit-local,
- * across units, or selected by a computed value; and with no relation mutable, or B, C, both or D; H is immutable.
+ * across units, or selected by a computed value; and with no relation mutable, or B, C, both or D, each inside its
+ * unit, the group's holding H, B, C, E, F and G; H is immutable.
  *
  * - **discharge**: the specification, the decision table: every plain containment
  *   into a target a key holds native, at its declared key or a superkey, its foreign key stating it exactly with no
  *   law column, the plain one into E's every field immediate, the existence evidence a read inside a transaction relies
  *   on; one with a side selected by a computed value native, its law column computing it where a query's site may
- *   refuse it; one joined across units, or over a mutable relation, native; the selected ones whole; and the plain
- *   one into a target no key holds whole where it is unit-local over immutable relations, the schema refused anywhere
- *   else, as one across units or selected by a computed value is. Each law is held exactly one way, and the laws that
+ *   refuse it; one joined across units native; the selected ones whole, over immutable relations or one unit's
+ *   mutable ones alike; and the plain one into a target no key holds whole where it is unit-local, its relations
+ *   immutable or all in one declared unit, the schema refused anywhere else, as one across units or selected by a
+ *   computed value is. Each law is held exactly one way, and the laws that
  *   give containment evidence are those whose source selects by fixed fields alone (analysis/theory/theory.ts
  *   evidenceSides), whatever their discharge, a whole one's committed-snapshot, which the law model's existence
  *   evidence reads too where its sides select nothing.
  * - **migration**: a migration that changes a containment's discharge checks its rows only where no previous
  *   installation held the law: the selected containment absent, native or whole before, and native or whole after,
- *   drafted from the previous version's snapshot. The law is checked over every row exactly when it is added whole,
+ *   native where its two relations are mutable, each in a unit of its own, drafted from the previous version's
+ *   snapshot. The law is checked over every row exactly when it is added whole,
  *   a new law the judge holds; a native one now whole is held already, its natives having held this very law on every
  *   write (deploy/diff/diff.ts heldBefore); and a native one PostgreSQL validates as it adds its foreign key.
  */
@@ -52,6 +55,7 @@ import {
 	evidenced,
 	expected,
 	lawOf,
+	readsMutable,
 	type MigrationCase,
 	migrationCaseGen,
 	schemaOf,
@@ -66,11 +70,11 @@ type Feature =
 	| "the immediate evidence of a plain containment into a target referenced whole"
 	| "a native containment selected by a computed value"
 	| "a native containment across units"
-	| "a native containment over a mutable relation"
+	| "a whole containment over a mutable relation"
 	| "the evidence of a whole containment"
 	| "a whole plain containment into a target no key holds"
 	| "the existence evidence of a whole containment"
-	| "a refusal over a mutable relation"
+	| "a whole plain containment into a target no key holds over a mutable relation"
 	| "a refusal across units"
 	| "a refusal of a computed selection"
 
@@ -87,11 +91,11 @@ export const aContainmentIsWholeWhereItIsUnitLocalAndSelectedOrIntoATargetNoKeyH
 			"the immediate evidence of a plain containment into a target referenced whole",
 			"a native containment selected by a computed value",
 			"a native containment across units",
-			"a native containment over a mutable relation",
+			"a whole containment over a mutable relation",
 			"the evidence of a whole containment",
 			"a whole plain containment into a target no key holds",
 			"the existence evidence of a whole containment",
-			"a refusal over a mutable relation",
+			"a whole plain containment into a target no key holds over a mutable relation",
 			"a refusal across units",
 			"a refusal of a computed selection"
 		] satisfies ReadonlyArray<Reached<Feature>>,
@@ -108,9 +112,7 @@ export const aContainmentIsWholeWhereItIsUnitLocalAndSelectedOrIntoATargetNoKeyH
 					k.note(
 						c.unkeyed === "unkeyed across"
 							? "a refusal across units"
-							: c.unkeyed === "unkeyed computed"
-								? "a refusal of a computed selection"
-								: "a refusal over a mutable relation"
+							: "a refusal of a computed selection"
 					)
 					return
 				}
@@ -118,7 +120,7 @@ export const aContainmentIsWholeWhereItIsUnitLocalAndSelectedOrIntoATargetNoKeyH
 				const theory = installation.laws.theory
 				for (const of of containments) {
 					const law = lawOf(theory.laws, of)
-					const want = expected(c, of)
+					const want = expected(of)
 					assert.equal(
 						dischargedIn(installation, law.id),
 						want,
@@ -126,6 +128,9 @@ export const aContainmentIsWholeWhereItIsUnitLocalAndSelectedOrIntoATargetNoKeyH
 					)
 					if (want === "whole") {
 						k.note("a whole containment")
+						if (readsMutable(c, of)) {
+							k.note("a whole containment over a mutable relation")
+						}
 						for (const e of Arr.filter(theory.evidence.containments, (e) => e.law === law.id)) {
 							assert.equal(e.context, "committedSnapshot", `the ${of} containment holds at COMMIT`)
 							k.note("the evidence of a whole containment")
@@ -161,8 +166,7 @@ export const aContainmentIsWholeWhereItIsUnitLocalAndSelectedOrIntoATargetNoKeyH
 						case "selected":
 						case "listed":
 						case "selected into whole":
-							k.note("a native containment over a mutable relation")
-							break
+							return assert.fail(`the ${of} containment is whole`)
 					}
 				}
 				const wholes = unkeyed === "whole" ? [lawOf(theory.laws, "unkeyed")] : []
@@ -173,6 +177,9 @@ export const aContainmentIsWholeWhereItIsUnitLocalAndSelectedOrIntoATargetNoKeyH
 						`the ${c.unkeyed} containment, ${c.mutable} mutable`
 					)
 					k.note("a whole plain containment into a target no key holds")
+					if (c.mutable !== "none" && c.mutable !== "D") {
+						k.note("a whole plain containment into a target no key holds over a mutable relation")
+					}
 					const existence = Arr.filter(installation.laws.existence, (e) => e.law === law.id)
 					assert.deepEqual(
 						Arr.map(existence, (e) => e.context),
@@ -198,11 +205,17 @@ export const aContainmentIsWholeWhereItIsUnitLocalAndSelectedOrIntoATargetNoKeyH
 			}),
 		oracle: {
 			kind: "specification",
-			name: "the decision table: a plain containment into a target a key holds, a computed selection, a join across units or a mutable relation native, every other whole where it is unit-local, a containment into a target no key holds refused where it is not; the evidence the same either way"
+			name: "the decision table: a plain containment into a target a key holds, a computed selection or a join across units native, every other whole where it is unit-local over immutable relations or one declared unit's, a containment into a target no key holds refused where it is not; the evidence the same either way"
 		},
 		box: "H and B and C keyed by its unit first, D keyed apart, E keyed by the unit at its every field, F with a field beyond a superkey, G with a declared key beside its primary key, nine containments into a key of each, one into a target no key holds or none, and no relation mutable, or B, C, both or D",
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/analysis/theory/unit.ts",
+				original: '\t\t\t\t\t"condition" in\n',
+				replacement: '\t\t\t\t\ttrue ||\n\t\t\t\t\t"condition" in\n',
+				why: "A containment over a mutable relation is native, as before, its declared unit unread: the selected containment with B mutable inside the group's unit is native, its law columns, UNIQUE and index restored; its discharge fails."
+			},
 			{
 				file: "packages/engine/src/laws/model/plan.ts",
 				original: "\t\t(isPlain(d) && keyHolds(projected, d.to)) ||",
@@ -303,6 +316,12 @@ export const aMigrationChecksAContainmentsRowsOnlyWhereNoPreviousInstallationHel
 		box: "the selected containment absent, native or whole, then native or whole, each drafted from the previous version's snapshot",
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/analysis/theory/unit.ts",
+				original: "\t\t\t\t(all.some((r) => r.mutable) &&",
+				replacement: "\t\t\t\t(false &&",
+				why: "A containment over mutable relations of two units is judged whole, its borrows unread: the native version is whole, so a containment added native is checked over every row as one added whole is; absent then native fails."
+			},
 			{
 				file: "packages/engine/src/deploy/diff/diff.ts",
 				original: '\t\t\treturn check.meaning === "stated"',

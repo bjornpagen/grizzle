@@ -2,6 +2,7 @@
 
 import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
+import { Array as Arr } from "effect"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { Logic, Num } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -28,8 +29,9 @@ export const caseGen: Gen<Case> = (s) => ({
 export type Feature = Case["term"] | `judged by ${Case["judged"]}`
 
 /**
- * The case's schema: T(package, id, x), U(package, id, g, w) and S(package, w), each keyed by package first, immutable
- * unless the case is probed, open then inside the unit of its package; Low, the union of U's rows of w at most 5 and of w above 9, an import of two rules read
+ * The case's schema: T(package, id, x) and U(package, id, g, w), keyed by package first, and S(pack, w), keyed by its
+ * pack, immutable unless the case is probed, open then each inside the unit of its key's first field, so the
+ * containment reads two units; Low, the union of U's rows of w at most 5 and of w above 9, an import of two rules read
  * whole; D, the w of each Low row of a T row's package whose g is the case's term of the T row's x; and D in S.
  */
 const schemaOf = (c: Case) => {
@@ -38,7 +40,7 @@ const schemaOf = (c: Case) => {
 		"package",
 		"id"
 	])
-	const S = relation("S", { package: pg.integer, w: pg.integer }, ["package", "w"])
+	const S = relation("S", { pack: pg.integer, w: pg.integer }, ["pack", "w"])
 	const Base = schema("computed_import", [T, U, S], c.judged === "probes" ? opened([T, U, S]) : [])
 	const low = query(Base)
 		.rule((r) => {
@@ -68,7 +70,7 @@ const schemaOf = (c: Case) => {
 		[Base],
 		"computed_import_1",
 		[D],
-		[contained(on(D, "package", "w"), on(S, "package", "w"))]
+		[contained(on(D, "package", "w"), on(S, "pack", "w"))]
 	)
 }
 
@@ -79,6 +81,13 @@ export const judged = (c: Case, note: (f: Feature) => void): void => {
 	assert.ok(
 		installation.ok,
 		`a containment over a union matched at ${c.term} of another match's variable compiles: ${installation.ok ? "" : installation.error.message}`
+	)
+	assert.ok(
+		Arr.every(
+			installation.value.laws.rules,
+			(r) => (r.rule.kind === "whole") === (c.judged === "whole")
+		),
+		`the containment is judged ${c.judged === "whole" ? "whole" : "by its probes"}`
 	)
 	note(c.term)
 	note(`judged by ${c.judged}`)

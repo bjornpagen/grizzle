@@ -36,13 +36,19 @@ export type Reached = "a probe of several rows" | "a probe whose rows outnumber 
 const schemaOf = (shape: Shape) => {
 	const T = relation("T", { k: pg.integer, a: pg.integer }, ["k"])
 	const U = relation("U", { k: pg.integer }, ["k"])
-	const S = relation("S", { k: pg.integer }, ["k"])
-	/** Mutable, inside the unit of their key, so the containment over them is no unit-local rule but a probed one, whose
-	 * probes the test reads. */
+	const S = relation("S", { j: pg.integer }, ["j"])
+	/** Mutable, T and U inside the unit of their key and S inside the unit of its own, so the containment over them reads
+	 * the rows of two units, two borrows, and is no whole rule but a probed one, whose probes the test reads. */
 	const Base = schema(
 		"rule_probes",
 		[T, U, S],
-		[unit("Ks", { k: pg.integer }), mutable(T), mutable(U), mutable(S)]
+		[
+			unit("Ks", { k: pg.integer }),
+			unit("Js", { j: pg.integer }),
+			mutable(T),
+			mutable(U),
+			mutable(S)
+		]
 	)
 	const first = query(Base).rule((r) => {
 		const { k } = v(T, "t")
@@ -60,7 +66,7 @@ const schemaOf = (shape: Shape) => {
 		return (shape.joined ? held.match(U, { k }) : held).find({ k })
 	})
 	const D = derived("D", shape.arms === 1 ? first : shape.arms === 2 ? second : third)
-	return schema.extend([Base], "rule_probes_1", [D], [contained(on(S, "k"), on(D, "k"))])
+	return schema.extend([Base], "rule_probes_1", [D], [contained(on(S, "j"), on(D, "k"))])
 }
 
 /** A guarded block of the judge: whether it reads a delta of removed rows, the one a DELETE or an UPDATE fills, and its

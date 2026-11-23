@@ -1,18 +1,19 @@
 /**
  * Unit-local rules: a rule over a query every fact of whose violation lies within one unit, a value of the key every
- * relation it reads leads with, each of them immutable (ir/unit.ts), which the judge reads whole over the units a
- * transaction wrote, never probing the rows it wrote (analysis/theory/query.ts WholeRule).
+ * relation it reads leads with, each of them immutable or all of them in one declared unit (ir/unit.ts), which the
+ * judge reads whole over the units a transaction wrote, never probing the rows it wrote (analysis/theory/query.ts
+ * WholeRule).
  *
  * A rule is unit-local when its violation query (query.ts violationQuery), the one the migration that adds it runs,
- * joins within one unit at every rule of it: every stored relation it reads is immutable and leads its primary key with
- * k fields of one sequence of types; in every rule of the query, at any depth, every match of a stored relation binds
- * those k fields to one sequence of variables, the rule's unit, every match of an imported query binds the fields its
- * head delivers its unit at (`Delivered`) to those same variables, and every negation is correlated at them; an import
- * whose head holds no unit is the only source of a unit its rule reads; every rule of a union delivers its unit alike;
- * and an aggregating rule's head delivers its unit, so its groups lie inside one unit. A fact of such a query is then
- * derived from the rows of one unit alone, and a write changes it only at the units whose rows it writes. The width k
- * is the most for which the query is unit-local, so a unit is as narrow as the rule's joins allow; a rule unit-local at
- * no width is probed.
+ * joins within one unit at every rule of it: every stored relation it reads leads its primary key with k fields of one
+ * sequence of types; in every rule of the query, at any depth, every match of a stored relation binds those k fields to
+ * one sequence of variables, the rule's unit, every match of an imported query binds the fields its head delivers its
+ * unit at (`Delivered`) to those same variables, and every negation is correlated at them; an import whose head holds
+ * no unit is the only source of a unit its rule reads; every rule of a union delivers its unit alike; and an
+ * aggregating rule's head delivers its unit, so its groups lie inside one unit. A fact of such a query is then derived
+ * from the rows of one unit alone, and a write changes it only at the units whose rows it writes. The width k is the
+ * most for which the query is unit-local, so a unit is as narrow as the rule's joins allow; a rule unit-local at no
+ * width is probed.
  *
  * The judge reads a whole rule's violation restricted to the units a transaction wrote (`restrictToUnits`): every
  * outermost rule of the query that binds a unit, from a stored relation it matches or a query that delivers one, is
@@ -1070,6 +1071,12 @@ export interface RegionFacts {
 	 * one value of r… are one tree, its every row but its root a member of its parent at one slot below its count.
 	 */
 	readonly roots: ReadonlyMap<string, NonEmptyReadonlyArray<string>>
+	/**
+	 * Each stored relation that sits in a declared unit, by name, with the unit and the fields its primary key leads
+	 * with (schema/own.ts unitOf): every write of its rows borrows that unit at their key exclusively, so its rows at a
+	 * unit a transaction writes are the transaction's own until it commits (`declaredOf`).
+	 */
+	readonly members: ReadonlyMap<string, DeclaredMember>
 }
 
 /**
@@ -1223,7 +1230,8 @@ const pairedKey = (c: FieldContainment): string =>
 export const regionFactsOf = (
 	statements: ReadonlyArray<OwnedStatement>,
 	relations: ReadonlyMap<string, TheoryRelation>,
-	definitions: ReadonlyMap<string, QueryDesc>
+	definitions: ReadonlyMap<string, QueryDesc>,
+	members: ReadonlyMap<string, DeclaredMember>
 ): RegionFacts => {
 	const stored = (name: string): RelationInfo | undefined => {
 		const r = relations.get(name)
@@ -1300,7 +1308,7 @@ export const regionFactsOf = (
 			return [[r.name, held] as const]
 		})
 	)
-	return { containments, roots, keys }
+	return { containments, roots, keys, members }
 }
 
 /** E ⊆ N from E ⊆ M (`first`) and M ⊆ N (`second`), a containment over every row of M (`regionFactsOf` reads each
@@ -1457,7 +1465,11 @@ const witnessOrder: Comparator<Witness> = combineAll([
  * (`covers`), each such row of E in one of them, which proves it at the same fields. Every such occurrence beside
  * `r`, those whose one containment's selection its conditions imply and those the union of their containments'
  * selections covers alone, in the order of what each reads (`witnessOrder`), least first, so the order the schema
- * states its containments in decides no proof; none where `r` is not positive.
+ * states its containments in decides no proof; none where `r` is not positive, or N is mutable: an update of N's row in
+ * place gains a row at a key where the side of olds lost none, since it captures an update only where it changes a
+ * column that side reads (query.ts wholeTouches), so no proof finds the gained row a replacement. A mutable E needs no
+ * such care: an update of a row of E beside `r` changes a column the rule reads there, or none the proof rests on, and
+ * its unit is captured as any write of its side is.
  */
 const witnessesOf = (
 	r: RegionRead,
@@ -1466,7 +1478,7 @@ const witnessesOf = (
 	relations: ReadonlyMap<string, TheoryRelation>
 ): ReadonlyArray<Witness> => {
 	const n = relations.get(r.relation)
-	if (r.polarity !== "positive" || n?.kind !== "relation") {
+	if (r.polarity !== "positive" || n?.kind !== "relation" || n.mutable) {
 		return []
 	}
 	const root = facts.roots.get(n.name)
@@ -1540,18 +1552,19 @@ const witnessesOf = (
  * The proof. Let `r` be a positive occurrence of N matched beside an occurrence of E, a containment of E into N, one
  * the schema states or composes or N's identity, holding over the rows of E its selection admits, the occurrence of E
  * reading only such rows, and E(F_E) ⊆ N(F_N) its projection onto the pairs both occurrences bind to one variable each
- * (`witnessesOf`), N and E immutable, as every holder of a unit is (`wholeRule`). The projection holds wherever the
- * containment does: each row of E meets a row of N at every pair, so at the pairs kept; and E and N may be one
- * relation, a tree's own parent axis or N's identity, two occurrences of it beside each other. A fact that `r` reads
- * from a row n that a transaction gave N holds a row e of E with e[F_E] = n[F_N], one the occurrence of E reads, so one
- * the selection admits. If the transaction gave E the row e too, the fact holds a row its relation gained at the
- * occurrence of E, which the assignment proves of nothing, so its region reads e among the rows E gained, or proves by
- * a witness of its own, whose chain is shorter by one: by induction along the chain, which ends at an occurrence proved
- * of nothing, every occurrence of it beside the next in one rule and so in the fact, the fact's unit is the region's,
- * through a row gained at that last occurrence or a row lost at one before it. Otherwise e stood before the transaction,
- * in a committed state, where the containment held: a row n0 of N stood with n0[F_N] = e[F_E] = n[F_N], and so at n's
- * values of the fields G the witness names, no field of N `r` reads being changed in place (law.ts RelationInfo `inPlace`,
- * which wholeRule admits none of and N's immutability guard holds against every UPDATE, physical/ddl/immutable.ts):
+ * (`witnessesOf`), N immutable. The projection holds wherever the containment does: each row of E meets a row of N at
+ * every pair, so at the pairs kept; and E and N may be one relation, a tree's own parent axis or N's identity, two
+ * occurrences of it beside each other. A fact that `r` reads from a row n that a transaction gave N holds a row e of E
+ * with e[F_E] = n[F_N], one the occurrence of E reads, so one the selection admits. If the transaction gave E the row e
+ * too, the fact holds a row its relation gained at the occurrence of E, which the assignment proves of nothing, so its
+ * region reads e among the rows E gained, an update of a mutable E at a field the occurrence reads among them (query.ts
+ * wholeTouches), or proves by a witness of its own, whose chain is shorter by one: by induction along the chain, which
+ * ends at an occurrence proved of nothing, every occurrence of it beside the next in one rule and so in the fact, the
+ * fact's unit is the region's, through a row gained at that last occurrence or a row lost at one before it. Otherwise e
+ * stood before the transaction at the fields the occurrence reads, F_E among them, in a committed state, where the
+ * containment held: a row n0 of N stood with n0[F_N] = e[F_E] = n[F_N], and so at n's values of the fields G the
+ * witness names, no field of N `r` reads being changed in place (law.ts RelationInfo `inPlace`, which wholeRule admits
+ * none of and N's immutability guard holds against every UPDATE, physical/ddl/immutable.ts):
  *
  * - G = F_N, a key of N among them: N holds at most one row at those values, so the transaction removed n0, which its
  *   delta of the rows N lost holds, at n's values of F_N;
@@ -1817,8 +1830,8 @@ const unitAt = (
 /**
  * The first read of `found` at a field an immutable relation's rows change in place (law.ts RelationInfo `inPlace`), if
  * any: grizzle's own rewrites, a fold's accumulator through its owner axis, which no write of the relation itself
- * makes. A mutable relation's every field changes in place by its own writes, which a whole rule never reads (it is no
- * rule's whole) and a stored relation reads under its unit's exclusive borrow (`storedUnit`).
+ * makes. A mutable relation's every field changes in place by its own writes, which a whole rule and a stored relation
+ * read under their unit's exclusive borrow (`wholeRule`, `storedUnit`), each update captured as any write is.
  */
 const inPlaceRead = (
 	found: UnitFound,
@@ -1836,11 +1849,15 @@ const inPlaceRead = (
 
 /**
  * The whole rule of `law`, whose violation query is `violation`, where it is unit-local (see the header), decided once
- * when the schema compiles: every stored relation it reads immutable and no field it reads one its relation's rows
- * change in place (law.ts RelationInfo `inPlace`), so every row it reads holds the values it was inserted with until it
- * is deleted, which its immutability guard holds against every UPDATE (physical/ddl/immutable.ts); at the widest unit
- * key its joins allow, its violation restricted to the units a transaction wrote (`restrictToUnits`); none where it is
- * not unit-local, which its probes judge.
+ * when the schema compiles: no field it reads one an immutable relation's rows change in place (law.ts RelationInfo
+ * `inPlace`), and every stored relation it reads immutable, so every row it reads holds the values it was inserted with
+ * until it is deleted, which its immutability guard holds against every UPDATE (physical/ddl/immutable.ts), or, where
+ * it reads a mutable one, every relation it reads sitting in one declared unit whose key leads its own, the admission a
+ * stored relation's definition passes (`declaredOf`): every write of their rows, a mutable relation's updates and
+ * deletes among them, borrows that unit exclusively, so the rows the judge reads at a unit its transaction wrote are
+ * that transaction's alone until it commits, and an update of a column the rule reads is captured as any write of its
+ * side is (query.ts wholeTouches), the unit written; at the widest unit key its joins allow, its violation restricted
+ * to the units a transaction wrote (`restrictToUnits`); none where it is not unit-local, which its probes judge.
  */
 export const wholeRule = (
 	law: RuleLaw<LawSide>,
@@ -1851,14 +1868,21 @@ export const wholeRule = (
 ): WholeRule | undefined => {
 	const stored = storedReads(violation, relations)
 	const [first, ...rest] = stored
-	if (first === undefined || stored.some((r) => r.mutable)) {
+	if (first === undefined) {
 		return undefined
 	}
 	const all: NonEmptyReadonlyArray<RelationInfo> = [first, ...rest]
 	for (let k = widestOf(all); k >= 1; k--) {
 		const found = unitAt(violation, all, k, "rule")
 		if (!(found instanceof NotLocal)) {
-			if (inPlaceRead(found, all) !== undefined) {
+			if (
+				inPlaceRead(found, all) !== undefined ||
+				(all.some((r) => r.mutable) &&
+					"condition" in
+						declaredOf(found.unit, headNonEmpty(found.unit.holders).fields, (relation) =>
+							facts.members.get(relation)
+						))
+			) {
 				return undefined
 			}
 			return Object.freeze({

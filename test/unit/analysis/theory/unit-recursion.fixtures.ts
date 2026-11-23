@@ -72,8 +72,12 @@ export type Seed = "roots" | "a fixed document"
  */
 export type Law = "contained" | "parent contained" | "check" | "key"
 
-/** Whether every relation the walk reads is immutable, or Node is mutable, inside the unit of its document. */
-export type Mutability = "immutable" | "Node mutable"
+/**
+ * Whether every relation the walk reads is immutable, or Node is mutable: in the unit of its document, every relation's
+ * key leading with it, so every write of their rows borrows the document the walk stays in; or in the unit of a node's
+ * place, (doc, start), every relation's whole key, which no borrow of one place covers a walk of the document by.
+ */
+export type Mutability = "immutable" | "Node mutable in its document" | "Node mutable in its place"
 
 export interface WalkCase {
 	readonly seed: Seed
@@ -86,17 +90,20 @@ export const walkCase: Gen<WalkCase> = (s) => ({
 	seed: s.draw(element<Seed>(["roots", "a fixed document"])),
 	step: s.draw(element(steps)),
 	law: s.draw(element<Law>(["contained", "parent contained", "check", "key"])),
-	mutability: s.draw(element<Mutability>(["immutable", "Node mutable"]))
+	mutability: s.draw(
+		element<Mutability>(["immutable", "Node mutable in its document", "Node mutable in its place"])
+	)
 })
 
 /**
  * The rule (analysis/theory/unit.ts unitLocalRecursion, wholeRule): a rule over a recursion is judged whole, and so
- * compiles, exactly when every relation it reads is immutable, the base delivers its unit from a stored relation's
- * leading key field, and every step carries it from self through every match into its head, a derived relation a step
- * reads read through its definition; it is refused otherwise, since no probe reads a recursion.
+ * compiles, exactly when every relation it reads is immutable or all of them sit in one declared unit no wider than the
+ * walk's, the document, the base delivers its unit from a stored relation's leading key field, and every step carries
+ * it from self through every match into its head, a derived relation a step reads read through its definition; it is
+ * refused otherwise, since no probe reads a recursion.
  */
 export const localWalk = (c: WalkCase): boolean =>
-	c.mutability === "immutable" &&
+	c.mutability !== "Node mutable in its place" &&
 	c.seed === "roots" &&
 	(c.step === "child" || c.step === "derived child")
 
@@ -104,7 +111,11 @@ const Base = (mutability: Mutability) =>
 	schema(
 		"UnitWalk",
 		[Node, Link, Claim],
-		mutability === "Node mutable" ? [unit("Document", { doc: pg.integer }), mutable(Node)] : []
+		mutability === "Node mutable in its document"
+			? [unit("Document", { doc: pg.integer }), mutable(Node)]
+			: mutability === "Node mutable in its place"
+				? [unit("Place", { doc: pg.integer, start: pg.integer }), mutable(Node)]
+				: []
 	)
 
 /** The case's schema: the derived relations its step reads, the walk, and the rule over it. */
@@ -213,4 +224,4 @@ export const endedOf = (
 
 /** The refusal a rule over a recursion that is not unit-local meets: no probe reads a recursion. */
 export const notLocalRefusal: Ended =
-	"refused Refused: a rule reads a recursion only where it is unit-local: every relation it reads immutable, every match of it within one unit, and every step carrying the unit from self into its head"
+	"refused Refused: a rule reads a recursion only where it is unit-local: every relation it reads immutable or all of them in one declared unit, every match of it within one unit, and every step carrying the unit from self into its head"

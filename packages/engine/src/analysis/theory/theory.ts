@@ -525,7 +525,8 @@ class Builder {
 		this.regionFacts = regionFactsOf(
 			checked.closure.statements.map((s) => s.statement),
 			this.sides.relations,
-			this.definitions
+			this.definitions,
+			checked.owned.unitOf
 		)
 	}
 

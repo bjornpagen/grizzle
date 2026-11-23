@@ -4,7 +4,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
-import { query, v } from "#compiler/public/query.ts"
+import { query, type Rule, v } from "#compiler/public/query.ts"
 import {
 	check,
 	contained,
@@ -27,7 +27,8 @@ type Law = "check" | "contained" | "key"
 
 /**
  * One case: its law; D's arms, each T's facts of one literal of `a`; and its judge: whole, T and S immutable, so the
- * rule is unit-local and one statement reads every arm of D over a delta of T, or probed, both mutable, a probe of each
+ * rule is unit-local and one statement reads every arm of D over a delta of T, or probed, both mutable in their
+ * document's unit and each arm joining W, mutable in a unit of its own, so the rule reads two units, a probe of each
  * arm reading the delta once.
  */
 interface Shape {
@@ -61,27 +62,33 @@ const schemaOf = (shape: Shape) => {
 		"at"
 	])
 	const S = relation("S", { doc: pg.integer, at: pg.integer, ref: pg.integer }, ["doc", "at"])
+	const W = relation("W", { wdoc: pg.integer }, ["wdoc"])
+	const probed = shape.judge === "probed"
 	const Base = schema(
 		"delta_reads",
-		[T, S],
-		shape.judge === "probed" ? [unit("Document", { doc: pg.integer }), mutable(T), mutable(S)] : []
+		[T, S, W],
+		probed
+			? [
+					unit("Document", { doc: pg.integer }),
+					unit("Ws", { wdoc: pg.integer }),
+					mutable(T),
+					mutable(S),
+					mutable(W)
+				]
+			: []
 	)
-	const first = query(Base).rule((r) => {
+	/** The k-th arm: T's facts whose `a` is k, at a document W holds where the judge probes. */
+	const arm = (k: number) => (r: Rule<typeof Base>) => {
 		const { doc, at, b } = v(T, "t")
-		return r.match(T, { doc, at, a: 1, b }).find({ doc, at, b })
-	})
-	const second = first.rule((r) => {
-		const { doc, at, b } = v(T, "t")
-		return r.match(T, { doc, at, a: 2, b }).find({ doc, at, b })
-	})
-	const third = second.rule((r) => {
-		const { doc, at, b } = v(T, "t")
-		return r.match(T, { doc, at, a: 3, b }).find({ doc, at, b })
-	})
-	const fourth = third.rule((r) => {
-		const { doc, at, b } = v(T, "t")
-		return r.match(T, { doc, at, a: 4, b }).find({ doc, at, b })
-	})
+		const matched = r.match(T, { doc, at, a: k, b })
+		return probed
+			? matched.match(W, { wdoc: doc }).find({ doc, at, b })
+			: matched.find({ doc, at, b })
+	}
+	const first = query(Base).rule(arm(1))
+	const second = first.rule(arm(2))
+	const third = second.rule(arm(3))
+	const fourth = third.rule(arm(4))
 	const D = derived(
 		"D",
 		shape.arms === 1 ? first : shape.arms === 2 ? second : shape.arms === 3 ? third : fourth

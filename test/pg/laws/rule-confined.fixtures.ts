@@ -36,7 +36,8 @@ import type { PgConnection } from "#test/support/pg.ts"
  * containmentDischarge), a unit a node, where the plain containment would be Node's foreign key; its lookup of a node
  * binds its key from the unit and two fields from Typed's row, as edullm's element_type_in_node bound (package, path,
  * start) and kind and governor while it was judged whole. Placed, every node's
- * (pkg, kind, at), is contained in Gap, mutable, so the rule is probed, and its probe of Gap's deletes reads Node by
+ * (pkg, kind, at), is contained in Gap, mutable in a unit of its own, its package's pack, so the rule reads the rows of
+ * two units, two borrows, and is probed, and its probe of Gap's deletes reads Node by
  * (pkg, kind, at), every document of the package at that place: the index the engine creates for it is the one a whole
  * rule's lookup competes with. That index holds kind, one of the lookup's two fields from Typed's row, so governor
  * stays a filter of its scan and PostgreSQL costs the anti join's inner scan once (costsize.c has_indexed_join_quals),
@@ -55,8 +56,8 @@ const Typed = relation(
 	{ pkg: pg.integer, doc: Name, at: pg.integer, kind: pg.integer, gov: pg.integer },
 	["pkg", "doc", "at"]
 )
-const Gap = relation("Gap", { pkg: pg.integer, kind: pg.integer, at: pg.integer }, [
-	"pkg",
+const Gap = relation("Gap", { pack: pg.integer, kind: pg.integer, at: pg.integer }, [
+	"pack",
 	"kind",
 	"at"
 ])
@@ -77,7 +78,8 @@ const Base = schema(
 			),
 			on(Node, "pkg", "doc", "at", "kind", "gov")
 		),
-		unit("Package", { pkg: pg.integer })
+		unit("Package", { pkg: pg.integer }),
+		unit("Pack", { pack: pg.integer })
 	]
 )
 const Placed = derived(
@@ -91,7 +93,7 @@ const confinedSchema = schema.extend(
 	[Base],
 	"rule_confined_1",
 	[Placed],
-	[contained(on(Placed, "pkg", "kind", "at"), on(Gap, "pkg", "kind", "at"))]
+	[contained(on(Placed, "pkg", "kind", "at"), on(Gap, "pack", "kind", "at"))]
 )
 
 export const confinedTemplate = migratedTemplate({
@@ -156,7 +158,7 @@ export const runConfined = (
 		)
 		const gap = names.table(Gap)
 		const gapColumns = Arr.join(
-			Arr.map(["pkg", "kind", "at"] as const, (f) => names.column(Gap, f)),
+			Arr.map(["pack", "kind", "at"] as const, (f) => names.column(Gap, f)),
 			", "
 		)
 		const typedColumns = Arr.join(

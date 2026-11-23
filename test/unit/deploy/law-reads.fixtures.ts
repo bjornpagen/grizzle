@@ -29,7 +29,8 @@ type Change = "drop" | "rename"
 
 /**
  * One case: its law; whether D's arm selects T by a literal of `a`; its judge, whole, T and S immutable, or probed, both
- * mutable inside the unit of their document; and what the second version does to `pay`.
+ * mutable inside the unit of their document and D's arm joining T to W, mutable in a unit of its own, so every rule
+ * over D reads the rows of two units; and what the second version does to `pay`.
  */
 interface Shape {
 	readonly law: Law
@@ -55,9 +56,9 @@ export type Reached =
 const read = Object.freeze({ doc: pg.integer, at: pg.integer, a: pg.integer, b: pg.integer })
 
 /**
- * The schema of `shape` over T: S's references into D, T's facts by document and place with their `b`, selected by
- * `a` where the shape selects; the rule its law states over D. T's fourth column, unread, is `pay` in the first
- * version, and absent or `paid` in the second.
+ * The schema of `shape` over T: S's references into D, T's facts by document and place with their `b`, selected by `a`
+ * where the shape selects, each at a place W holds where the shape is probed; the rule its law states over D. T's
+ * fourth column, unread, is `pay` in the first version, and absent or `paid` in the second.
  */
 const schemaOf = (shape: Shape, unread: "pay" | "paid" | "none") => {
 	const T = relation(
@@ -70,16 +71,28 @@ const schemaOf = (shape: Shape, unread: "pay" | "paid" | "none") => {
 		["doc", "at"]
 	)
 	const S = relation("S", { doc: pg.integer, at: pg.integer, ref: pg.integer }, ["doc", "at"])
+	const W = relation("W", { wdoc: pg.integer, at: pg.integer }, ["wdoc", "at"])
 	const Base = schema(
 		"law_reads",
-		[T, S],
-		shape.judge === "probed" ? [unit("Document", { doc: pg.integer }), mutable(T), mutable(S)] : []
+		[T, S, W],
+		shape.judge === "probed"
+			? [
+					unit("Document", { doc: pg.integer }),
+					unit("Ws", { wdoc: pg.integer }),
+					mutable(T),
+					mutable(S),
+					mutable(W)
+				]
+			: []
 	)
 	const D = derived(
 		"D",
 		query(Base).rule((r) => {
 			const { doc, at, a, b } = v(T, "t")
-			return r.match(T, { doc, at, a: shape.selected ? 1 : a, b }).find({ doc, at, b })
+			const matched = r.match(T, { doc, at, a: shape.selected ? 1 : a, b })
+			return shape.judge === "probed"
+				? matched.match(W, { wdoc: doc, at }).find({ doc, at, b })
+				: matched.find({ doc, at, b })
 		})
 	)
 	const law = (() => {

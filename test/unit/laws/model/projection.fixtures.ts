@@ -404,9 +404,9 @@ export const containmentsOf = (left: MirrorLeft): ReadonlyArray<Statement> =>
 
 /**
  * The installation of a law's statements over the box's five relations, every one mutable, inside the unit of its own
- * id (Owner, Item, Note) or of its owner (Profile, Seat): a containment between immutable relations that joins within
- * one unit is judged whole and installs no foreign key (laws/model/plan.ts containmentDischarge), and this box reads the
- * native lowering.
+ * id (Owner, Item, Note) or of its owner (Profile, Seat): a containment that joins within one unit, its relations
+ * immutable or all in one declared unit, is judged whole and installs no foreign key (laws/model/plan.ts
+ * containmentDischarge), and this box's join the rows of two units, so it reads the native lowering.
  */
 export const installed = (statements: ReadonlyArray<Statement>): Installation => {
 	const relations = [Owner, Item, Note, Profile, Seat] as const

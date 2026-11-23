@@ -24,11 +24,12 @@ import { owning } from "#test/support/policy.ts"
 type Join = "g" | "h" | "gh"
 
 /**
- * One case: whether T, U and S are immutable, so the containment over D is unit-local and judged whole, or mutable,
- * so it is probed; the columns D joins T and U by beside `package`; whether D holds U's w to a literal; whether a
- * second rule reads U across units, E's g of every U row held in Q, keyed by g alone, whose probes of Q's deletes read
- * U by g, every unit's rows of it; and whether U declares a key over g alone, which a read of U that binds g looks it
- * up by, a key its unit does not lead.
+ * One case: whether T, U and S are immutable, so the containment over D is unit-local and judged whole, or mutable, T
+ * and U in the unit of their package and S in the unit of its pack, so it reads the rows of two units and is probed;
+ * the columns D joins T and U by beside `package`; whether D holds U's w to a literal; whether a second rule reads U
+ * across units, E's g of every U row held in Q, keyed by g alone, whose probes of Q's deletes read U by g, every unit's
+ * rows of it; and whether U declares a key over g alone, which a read of U that binds g looks it up by, a key its unit
+ * does not lead.
  */
 interface Shape {
 	readonly unitLocal: boolean
@@ -56,8 +57,8 @@ export type Reached =
 const joinColumns = (join: Join): ReadonlyArray<"g" | "h"> => (join === "gh" ? ["g", "h"] : [join])
 
 /**
- * The schema of a shape: T, U and S keyed by their unit, `package`, then a column of their own, and D, T's x of each T
- * row and U row of one package that agree on the join, held in S.
+ * The schema of a shape: T and U keyed by their unit, `package`, then a column of their own, S by its pack and x, and
+ * D, T's x of each T row and U row of one package that agree on the join, held in S at its pack.
  */
 const schemaOf = (shape: Shape) => {
 	const T = relation(
@@ -70,7 +71,7 @@ const schemaOf = (shape: Shape) => {
 		{ package: pg.integer, id: pg.integer, g: pg.integer, h: pg.integer, w: pg.integer },
 		["package", "id"]
 	)
-	const S = relation("S", { package: pg.integer, x: pg.integer }, ["package", "x"])
+	const S = relation("S", { pack: pg.integer, x: pg.integer }, ["pack", "x"])
 	const Q = relation("Q", { g: pg.integer }, ["g"])
 	const Base = schema(
 		"rule_requests",
@@ -81,6 +82,7 @@ const schemaOf = (shape: Shape) => {
 				? []
 				: [
 						unit("Package", { package: pg.integer }),
+						unit("Packs", { pack: pg.integer }),
 						unit("Gs", { g: pg.integer }),
 						mutable(T),
 						mutable(U),
@@ -112,13 +114,13 @@ const schemaOf = (shape: Shape) => {
 				[Base],
 				"rule_requests_1",
 				[D, E],
-				[contained(on(D, "package", "x"), on(S, "package", "x")), contained(on(E, "g"), on(Q, "g"))]
+				[contained(on(D, "package", "x"), on(S, "pack", "x")), contained(on(E, "g"), on(Q, "g"))]
 			)
 		: schema.extend(
 				[Base],
 				"rule_requests_1",
 				[D],
-				[contained(on(D, "package", "x"), on(S, "package", "x"))]
+				[contained(on(D, "package", "x"), on(S, "pack", "x"))]
 			)
 }
 

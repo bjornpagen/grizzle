@@ -15,7 +15,9 @@
  * over some of its columns, a check that its fold is at most a bound, Expect's rows contained in it at the group
  * columns or at the fold too, and its groups contained in Allowed. A mutable shape's stored relations are all mutable,
  * each inside the unit its key leads with, and its writes insert, put and delete; an immutable shape's insert alone. A
- * shape whose rule every relation it reads could keep unit-local is mutable, so every rule here is judged by its probes.
+ * shape whose rule every relation it reads could keep unit-local is mutable, its relations open in the child's unit,
+ * so its rule is judged whole over the children its writes touch (analysis/theory/unit.ts wholeRule), puts and deletes
+ * among them; every other shape's rule is judged by its probes.
  *
  * - **Equivalence:** the specification turned into a checker. A history of ChangeSets of inserts, puts and deletes of
  *   the shape's stored relations, each applied through grizzle's served write as the full world's login, each drawn
@@ -26,14 +28,14 @@
  *   (out/aggrule-bisect/minimal, the key over DirectOpen(child, item) of `counts` with ItemMode negated in the reader)
  *   and its cross-arm variant (ItemMode negated in Read's other rule alone), each with a history whose refusal comes
  *   through ItemMode alone.
- * - **Locality:** an invariance, never a time. A shape's touched group stored beside 200 to 400 untouched groups, each an
- *   attempt of its own that is a group of its own under any grouping, and then beside 600 to 900 more; each time a
- *   second attempt of the touched group written in a transaction rolled back, and every judged statement explained while
- *   the deltas hold it, under the planner settings of a table large beside one group's rows. Each statement's scans
- *   read the same rows both times: a probe of a touched group reads that group alone, never the groups beside it. The
- *   settings are the test's, never grizzle's output, which carries none: what this proves is that a plan of every judged
- *   statement exists whose work is bounded by the touched group, the same at both counts of groups; not that
- *   PostgreSQL's planner, with no statistics, picks it.
+ * - **Locality:** an invariance, never a time. A shape's touched group stored beside 200 to 400 untouched groups, each
+ *   an attempt of its own that is a group of its own under any grouping, and then beside 600 to 900 more; each time a
+ *   second attempt of the touched group written in a transaction rolled back, and every judged statement explained
+ *   while the deltas hold it, under the planner settings of a table large beside one group's rows. Each statement's
+ *   scans read the same rows both times: a probe of a touched group, or a unit-local shape's whole statement of its
+ *   unit, reads that group alone, never the groups beside it. The settings are the test's, never grizzle's output,
+ *   which carries none: what this proves is that a plan of every judged statement exists whose work is bounded by the
+ *   touched group, the same at both counts of groups; not that PostgreSQL's planner, with no statistics, picks it.
  */
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed, recorded } from "@bjornpagen/testing/gen"
@@ -132,7 +134,8 @@ export const aRuleOverAnAggregatingDerivedRelationCommitsExactlyTheWritesWhoseSt
 	})
 
 /**
- * A probe of the groups a write touched reads those groups alone, however many groups stand beside them.
+ * A probe of the groups a write touched reads those groups alone, however many groups stand beside them, as a
+ * unit-local shape's whole statement reads its unit's.
  *
  * Its budget is the runner's: a new property, with no suite before it to carry a count from.
  */
@@ -184,14 +187,6 @@ export const aProbeOfTheGroupsAWriteTouchedReadsThoseGroupsAloneHoweverManyGroup
 				original: "\t\t\tconst rule = foldedOverBody(arm, interned)",
 				replacement: "\t\t\tconst rule = arm",
 				why: "An aggregating rule's body is read as written, one join PostgreSQL orders by its estimates: a group of n and topic folds Attempt and Topic in one order beside a few hundred groups and in the other beside a thousand, so its probe handles a row more."
-			},
-			{
-				file: "bench/harness/explain.ts",
-				original:
-					"export const rowsRead = (plan: PlanNode): number => scanned(planNodes(plan).filter(storedScan))",
-				replacement:
-					'export const rowsRead = (plan: PlanNode): number => scanned(planNodes(plan).filter((n) => storedScan(n) || n.nodeType === "Sort"))',
-				why: "A sort's rows are counted as rows read, as every node's were: PostgreSQL sorts the kept case's touched group's two attempts beside a few hundred groups and reads them in order by the primary key beside a thousand, so its probe reads two rows more beside fewer groups for the same two rows of Attempt; the property fails."
 			}
 		]
 	})

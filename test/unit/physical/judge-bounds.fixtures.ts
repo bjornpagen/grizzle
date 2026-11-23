@@ -42,9 +42,14 @@ const TB = relation(
 )
 const learnerRelations = [RS, IS, TS, TV, TU, TE, SG, TB] as const
 
-/** The learner's relations, mutable inside the unit of their learner so every rule over them is probed. */
+/**
+ * The learner's relations, mutable: those keyed by a learner's stage inside the unit of the stage, those keyed by a
+ * learner's item inside the unit of the item, each wider than the learner every rule over them reads within, so every
+ * rule reads the rows of two units, or several of one, and is probed.
+ */
 const Base = schema("Bounds", learnerRelations, [
-	unit("Learner", { child: pg.integer }),
+	unit("Sitting", { child: pg.integer, stage: pg.integer }),
+	unit("Item", { child: pg.integer, n: pg.integer }),
 	...Arr.map(learnerRelations, (t) => mutable(t))
 ])
 
@@ -260,6 +265,10 @@ export type Feature =
 export const judged = (shape: Shape, note: (f: Feature) => void): void => {
 	const owned = owning(shapes[shape]())
 	const installation = succeeded(compileInstallation(owned, installOptions(owned)))
+	assert.ok(
+		Arr.every(installation.laws.rules, (r) => r.rule.kind !== "whole"),
+		"every rule over the learner's relations is probed"
+	)
 	const learners = new Set<string>(Arr.map(learnerRelations, (t) => t.name))
 	let asked = 0
 	for (const index of installation.indexes) {

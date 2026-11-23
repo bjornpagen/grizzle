@@ -8,9 +8,10 @@
  *
  * Property: over every case, the schema compiles to its installation.
  *
- * The box: T(package, id, x), U(package, id, g, w) and S(package, w), each keyed by package first, immutable, so the
- * containment of D in S is unit-local and judged whole, or mutable, so its probes judge it; Low, a union of two rules
- * over U, read whole; D the w of each Low row of a T row's package whose g is a sum or a conditional of the T row's x.
+ * The box: T(package, id, x) and U(package, id, g, w), keyed by package first, and S(pack, w), immutable, so the
+ * containment of D in S is unit-local and judged whole, or mutable, S in a unit of its own, so its probes judge it;
+ * Low, a union of two rules over U, read whole; D the w of each Low row of a T row's package whose g is a sum or a
+ * conditional of the T row's x.
  *
  * Oracle: the builders' admission, a schema schema.extend builds compiles to its installation.
  */

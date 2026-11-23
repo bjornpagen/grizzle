@@ -31,11 +31,18 @@ import type { PgConnection } from "#test/support/pg.ts"
  * start, its parent's start beside it (qti.node); a reference at a node, naming a resource of its document by its ref
  * (qti.dependency); and a resource's name at its node, distinct in its package (qti.resource_id, "DocumentId key").
  */
-const Node = relation(
-	"Node",
-	{ pkg: pg.integer, path: pg.integer, start: pg.integer, parent: pg.integer },
-	["pkg", "path", "start"]
-)
+/** Node's key: its package, path and start, in its judgment's order (`bindingSchema`). */
+type NodeKey = readonly ["pkg" | "path", "pkg" | "path", "start"]
+
+const nodeOf = (key: NodeKey) =>
+	relation(
+		"Node",
+		{ pkg: pg.integer, path: pg.integer, start: pg.integer, parent: pg.integer },
+		key
+	)
+
+/** The node every write names: one name and one heading in either judgment. */
+const NodeTable = nodeOf(["pkg", "path", "start"])
 
 const Ref = relation(
 	"Ref",
@@ -54,8 +61,9 @@ const judgings = ["probed", "whole"] as const
 type Judged = (typeof judgings)[number]
 
 /**
- * The rules each judgment holds, the relations mutable where it probes and immutable where it judges whole, each
- * document a unit of (pkg, path):
+ * The rules each judgment holds, the relations immutable where it judges whole, each document a unit of (pkg, path),
+ * and mutable where it probes, Ref and Named in the unit of their package and Node, keyed by its path first, in the
+ * unit of its path, so no rule binds one unit key across Node and the others:
  *
  * - Resolved: every reference names a resource of its document, qti's "Dependency target" over DependencyResolved: a
  *   containment of Ref into a derived join of Ref, its node and the resource its ref names, which a probe of Ref's rows
@@ -66,13 +74,20 @@ type Judged = (typeof judgings)[number]
  */
 const bindingSchema = (judged: Judged) => {
 	const name = judged === "probed" ? "ProbedBinding" : "WholeBinding"
+	const Node = nodeOf(judged === "probed" ? ["path", "pkg", "start"] : ["pkg", "path", "start"])
 	const Base = schema(
 		name,
 		[Node, Ref, Named],
 		[
 			key(on(Named, "pkg", "name")),
 			...(judged === "probed"
-				? [mutable(Node), mutable(Ref), mutable(Named), unit("Package", { pkg: pg.integer })]
+				? [
+						mutable(Node),
+						mutable(Ref),
+						mutable(Named),
+						unit("Package", { pkg: pg.integer }),
+						unit("Path", { path: pg.integer })
+					]
 				: [])
 		]
 	)
@@ -182,8 +197,8 @@ const documentRows = (
 	const docs = `generate_series(1, ${documents}) AS d(path)`
 	const starts = `generate_series(1, ${nodes - 1}) AS s(start)`
 	return [
-		`INSERT INTO ${names.table(Node)} (pkg, path, start, parent) SELECT ${pkg}, path, 0, 0 FROM ${docs}`,
-		`INSERT INTO ${names.table(Node)} (pkg, path, start, parent) SELECT ${pkg}, path, start, 0 FROM ${docs}, ${starts}`,
+		`INSERT INTO ${names.table(NodeTable)} (pkg, path, start, parent) SELECT ${pkg}, path, 0, 0 FROM ${docs}`,
+		`INSERT INTO ${names.table(NodeTable)} (pkg, path, start, parent) SELECT ${pkg}, path, start, 0 FROM ${docs}, ${starts}`,
 		`INSERT INTO ${names.table(Named)} (pkg, path, start, name) SELECT ${pkg}, path, start, path * 1000000 + start FROM ${docs}, ${starts}`,
 		`INSERT INTO ${names.table(Ref)} (pkg, path, start, ref) SELECT ${pkg}, path, start, path * 1000000 + start % ${nodes - 1} + 1 FROM ${docs}, ${starts} WHERE start % 8 = 0`
 	]
@@ -214,7 +229,7 @@ export const runBinding = (
 ) =>
 	Effect.gen(function* () {
 		const names = namesOf(installed)
-		const tables = Arr.map([Node, Ref, Named], (t) => names.table(t))
+		const tables = Arr.map([NodeTable, Ref, Named], (t) => names.table(t))
 		const statistics = b.statistics === "analyzed" ? Arr.map(tables, (t) => `ANALYZE ${t}`) : []
 		for (const sql of [
 			...Arr.map(tables, (t) => `ALTER TABLE ${t} DISABLE TRIGGER USER`),
@@ -225,6 +240,13 @@ export const runBinding = (
 		]) {
 			yield* connection.query(sql, [])
 		}
+		assert.ok(
+			Arr.every(
+				installed.installation.laws.rules,
+				(r) => (r.rule.kind === "whole") === (b.judged === "whole")
+			),
+			`every rule of the ${b.judged} judgment ${b.judged === "whole" ? "judged whole" : "probed"}`
+		)
 		const rows = writtenRows(b)
 		const statements = judgedStatementsOf(installed.installation)
 		const judged = yield* judgedPlans(

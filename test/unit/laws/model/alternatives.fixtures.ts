@@ -1,27 +1,25 @@
 /** What the properties of alternatives.test.ts read: its spaces, models and helpers. */
 
-import { assert, defined } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order, Record as Rec } from "effect"
-import type { LawRelation, NativeColumn } from "#compiler/ir/law.ts"
+import type { LawId } from "#compiler/core/ids.ts"
+import type { ExprDesc } from "#compiler/ir/desc.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import {
 	alternatives,
+	type AuthoredStatementDesc,
 	closed,
+	contained,
 	f,
+	on,
+	onWhere,
 	relation,
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import { openedDescs } from "#test/support/open.ts"
-import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
 import { upTo } from "#test/support/up-to.ts"
-import {
-	assertWellFormed,
-	generatedOn,
-	lawColumnsOf,
-	modelOf,
-	nativesOf
-} from "#test/unit/laws/model/natives.ts"
+import { assertWellFormed, modelOf, nativesOf } from "#test/unit/laws/model/natives.ts"
 
 type Arm = "none" | "A" | "B"
 
@@ -68,124 +66,101 @@ export const armsOf = (
 		return handles.length === 0 ? [] : [{ arm, handles }]
 	})
 
-/** The assignment's schema, its relations open, so its alternatives' containments are the natives this box reads, never
- * judged whole (laws/model/plan.ts ContainmentDischarge). */
-const schemaOf = (a: Assignment): SchemaDesc => {
-	const arms = armsOf(a)
-	const roster = { name: "Tag", handles: handlesOf(a) }
-	const stored = [
-		relation("Parent", { id: f.bigint, tag: f.closedId("Tag") }, ["id"]),
-		...Arr.map(arms, (x) => relation(x.arm, { id: f.bigint }, ["id"]))
-	]
+/** The assignment's relations: Parent, tagged by the roster, and each arm relation, each keyed by its id. */
+const storedOf = (a: Assignment) => [
+	relation("Parent", { id: f.bigint, tag: f.closedId("Tag") }, ["id"]),
+	...Arr.map(armsOf(a), (x) => relation(x.arm, { id: f.bigint }, ["id"]))
+]
+
+/** The assignment's schema over its relations, open, and `statements`, its laws over them. */
+const schemaOver = (
+	a: Assignment,
+	statements: ReadonlyArray<AuthoredStatementDesc>
+): SchemaDesc => {
+	const stored = storedOf(a)
 	return {
 		name: "Alternatives",
-		relations: [closed.ordered("Tag", roster.handles), ...stored],
-		statements: [
-			alternatives(
-				{ name: "Parent", primaryKey: ["id"] },
-				"tag",
-				roster,
-				Rec.fromEntries(
-					Arr.flatMap(handlesOf(a), (h, i) => {
-						const arm = a[i]
-						return arm === undefined || arm === "none"
-							? []
-							: [[h, { name: arm, primaryKey: ["id"] }] as const]
-					})
-				)
-			),
-			...openedDescs(stored)
-		],
+		relations: [closed.ordered("Tag", handlesOf(a)), ...stored],
+		statements: [...statements, ...openedDescs(stored)],
 		bases: []
 	}
 }
 
-/** A column by what it holds: a field by its name; a law column, which only the parent holds, by the handles of the
- * parents it is defined for. */
-const holds = (model: LawModel, a: Assignment, relation: LawRelation, c: NativeColumn): string => {
-	if (c.kind === "field") {
-		return c.field.name
-	}
-	assert.equal(relation.name, "Parent", `the law column ${c.column} is the parent's, no arm's`)
-	const native = defined(
-		lawColumnsOf(model, relation.name).get(c.column),
-		`the law column ${c.column}`
-	)
-	const defined_ = Arr.filter(
-		handlesOf(a),
-		(h) =>
-			generatedOn(
-				native,
-				new Map<string, ModelValue>([
-					["id", 7n],
-					["tag", h]
-				])
-			) !== undefined
-	)
-	return `‹id | ${Arr.join(defined_, ",")}›`
-}
-
-/** A foreign key by what it pairs, its relations and its deferral. */
-const shapeText = (
-	from: string,
-	to: string,
-	pairs: ReadonlyArray<string>,
-	deferrable: boolean
-): string =>
-	`${from}(${Arr.join(Arr.sort(pairs, Order.String), "; ")}) → ${to}${deferrable ? " deferred" : ""}`
-
-const expected = (a: Assignment): ReadonlyArray<string> =>
-	Arr.sort(
-		[
-			...Arr.map(armsOf(a), (x) =>
-				shapeText(x.arm, "Parent", [`id → ‹id | ${Arr.join(x.handles, ",")}›`], true)
-			),
-			...Arr.flatMap(handlesOf(a), (h, i) => {
+/** The assignment's alternatives statement: each armed handle's arm relation, by its id. */
+const stated = (a: Assignment): AuthoredStatementDesc =>
+	alternatives(
+		{ name: "Parent", primaryKey: ["id"] },
+		"tag",
+		{ name: "Tag", handles: handlesOf(a) },
+		Rec.fromEntries(
+			Arr.flatMap(handlesOf(a), (h, i) => {
 				const arm = a[i]
 				return arm === undefined || arm === "none"
 					? []
-					: [shapeText("Parent", arm, [`‹id | ${h}› → id`], true)]
+					: [[h, { name: arm, primaryKey: ["id"] }] as const]
 			})
-		],
+		)
+	)
+
+/** The parents tagged by one of `handles`: `tag = h` for one, `tag IN (…)` for several. */
+const taggedBy = (handles: Arr.NonEmptyReadonlyArray<string>): ExprDesc => {
+	const tag: ExprDesc = { kind: "field", field: "tag" }
+	const [only, ...rest] = handles
+	return rest.length === 0
+		? { kind: "compare", op: "eq", left: tag, right: { kind: "literal", value: only } }
+		: { kind: "in", arg: tag, values: handles }
+}
+
+/**
+ * The assignment's containments stated apart, fin.md §7's: per arm relation X, X's ids among the parents tagged by the
+ * handles it is the arm of (forward); per armed handle h, the parents tagged h among its arm's ids (reverse).
+ */
+const apart = (a: Assignment): ReadonlyArray<AuthoredStatementDesc> => [
+	...Arr.flatMap(armsOf(a), (x) =>
+		Arr.isReadonlyArrayNonEmpty(x.handles)
+			? [contained(on(x.arm, ["id"]), onWhere("Parent", ["id"], taggedBy(x.handles)))]
+			: []
+	),
+	...Arr.flatMap(handlesOf(a), (h, i) => {
+		const arm = a[i]
+		return arm === undefined || arm === "none"
+			? []
+			: [contained(onWhere("Parent", ["id"], taggedBy([h])), on(arm, ["id"]))]
+	})
+]
+
+/** The ids of a law model's containments, sorted. */
+const containmentIds = (model: LawModel): ReadonlyArray<LawId> =>
+	Arr.sort(
+		Arr.flatMap(model.theory.laws, (law) => (law.detail.kind === "containment" ? [law.id] : [])),
 		Order.String
 	)
 
+/**
+ * One assignment: its alternatives statement states exactly the laws of its containments stated apart, each law one
+ * identity (ir/dag.ts), and each is judged whole over the unit of the id every relation is keyed by, open there (laws/
+ * model/plan.ts containmentDischarge): the law model installs no foreign key and no law column for any of them.
+ */
 export const checkAssignment = (a: Assignment): void => {
-	const model = modelOf(schemaOf(a))
+	const model = modelOf(schemaOver(a, [stated(a)]))
 	assertWellFormed(model)
-	const actual = Arr.sort(
+	const ids = containmentIds(model)
+	assert.deepEqual(
+		ids,
+		containmentIds(modelOf(schemaOver(a, apart(a)))),
+		"the alternatives statement states the laws of its containments stated apart"
+	)
+	for (const id of ids) {
+		assert.ok(
+			Arr.some(model.rules, (r) => r.law.id === id && r.rule.kind === "whole"),
+			`the containment ${id} is judged whole`
+		)
+	}
+	assert.deepEqual(
 		Arr.flatMap(nativesOf(model), (o) =>
-			o.kind === "ForeignKey"
-				? [
-						shapeText(
-							o.relation.name,
-							o.target.name,
-							Arr.map(
-								Arr.zip(o.columns, o.targetColumns),
-								([x, y]) => `${holds(model, a, o.relation, x)} → ${holds(model, a, o.target, y)}`
-							),
-							o.deferrable
-						)
-					]
-				: []
+			o.kind === "ForeignKey" || o.kind === "LawColumn" ? [o.kind] : []
 		),
-		Order.String
-	)
-	assert.deepEqual(actual, [...expected(a)])
-	const reverseColumns = Arr.filter([...lawColumnsOf(model, "Parent").values()], (c) => {
-		const text = holds(model, a, defined(model.theory.relations["Parent"]), {
-			kind: "law",
-			column: c.column
-		})
-		return Arr.some(handlesOf(a), (h) => text === `‹id | ${h}›`)
-	})
-	assert.equal(
-		reverseColumns.length,
-		Arr.filter(a, (x) => x !== "none").length,
-		"one generated column per armed handle on the parent"
-	)
-	assert.ok(
-		Arr.every(nativesOf(model), (o) => o.kind !== "PeriodForeignKey" && o.kind !== "ClosedCheck"),
-		"alternatives installs plain foreign keys"
+		[],
+		"alternatives installs no foreign key and no law column"
 	)
 }

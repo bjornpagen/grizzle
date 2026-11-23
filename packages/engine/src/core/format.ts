@@ -261,6 +261,10 @@
  * reads whole (served/forms.ts ServedRefusals `unmatched`, write/unmatched.ts), which the shell runs after a COMMIT that
  * key refused, so the refusal names the key of a row the write leaves unmatched, or `unreproduced` where none is left
  * (adapter/apply/run.ts unmatchedWitness), where format 8 left every refusal at COMMIT unreported.
+ * A rule over a query that reads a mutable relation is judged whole where every relation it reads sits in one declared
+ * unit whose key leads its own (analysis/theory/unit.ts wholeRule), and a containment between selected sides of such
+ * relations is discharged whole (laws/model/plan.ts containmentDischarge), where format 8 probed the one and made the
+ * other native, its law columns, their UNIQUE and their index.
  */
 export const artifactFormat = 8
 

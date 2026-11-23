@@ -13,7 +13,8 @@
  * least a bound, and Small, D2's `b` at most 100, each a rule over a query; Tiered, a containment between the closed
  * relations TierNext and TierRank, a law the migration checks once; D3, U's facts, each of a tier; Capped, D3's `b` at
  * most its tier's cap, Listed, its tier one the closed Cap holds, and Covered, its tier among those Cap holds, each a
- * rule over a query reading Cap by a closed read alone (C.at, C.has, C.row). Each law reads what no other does.
+ * rule over a query reading Cap by a closed read alone (C.at, C.has, C.row). Each law reads what no other does, but W,
+ * which every probed rule reads and no change touches.
  *
  * Property 1, one law, one identity: the schema installed in two PostgreSQL schemas, whose checks' SQL names their
  * tables apart, checks each law under one identity in both.
@@ -23,7 +24,8 @@
  * exactly the laws whose meaning the change changes (fixtures changedBy, the schema's own reads), each once.
  *
  * Oracle: a specification read off the schema, each law reading its own relation. The box, exhausted: every change,
- * with T immutable or mutable.
+ * with T and U immutable, each rule judged whole, or mutable in their document's unit and each definition joining W, in
+ * a unit of its own, each rule probed.
  */
 
 import { assert } from "@bjornpagen/testing/assert"

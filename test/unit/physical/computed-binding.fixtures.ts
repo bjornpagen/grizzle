@@ -39,13 +39,13 @@ const anyText = str.regex("^.*$", "su")
 const short = str.bytes(40, anyText)
 const wider = str.bytes(60, anyText)
 
-/** A case's judgement as its schema's statements: every relation open, mutable inside the unit of its package, where its
- * probes judge the rule. */
+/** A case's judgement as its schema's statements: every relation open, mutable inside the unit of its key's first field,
+ * T's and U's package and S's pack, two units, where its probes judge the rule. */
 const mutability = (c: Case, relations: ReadonlyArray<Openable<FieldBase>>) =>
 	c.judged === "probes" ? opened(relations) : []
 
 /**
- * Each term's schema: T(package, id, x), U(package, id, g, w) and S(package, w), each keyed by package first; D, the w
+ * Each term's schema: T(package, id, x) and U(package, id, g, w), keyed by package first, and S(pack, w); D, the w
  * of each U row of a T row's package whose g is the term of the T row's x; and D contained in S.
  */
 const schemaOf = (c: Case) => {
@@ -60,7 +60,7 @@ const schemaOf = (c: Case) => {
 				{ package: pg.integer, id: pg.integer, g: pg.integer, w: pg.integer },
 				["package", "id"]
 			)
-			const S = relation("S", { package: pg.integer, w: pg.integer }, ["package", "w"])
+			const S = relation("S", { pack: pg.integer, w: pg.integer }, ["pack", "w"])
 			const Base = schema("computed_binding", [T, U, S], mutability(c, [T, U, S]))
 			const D = derived(
 				"D",
@@ -77,7 +77,7 @@ const schemaOf = (c: Case) => {
 				[Base],
 				"computed_binding_1",
 				[D],
-				[contained(on(D, "package", "w"), on(S, "package", "w"))]
+				[contained(on(D, "package", "w"), on(S, "pack", "w"))]
 			)
 		}
 		case "a conditional": {
@@ -90,7 +90,7 @@ const schemaOf = (c: Case) => {
 				{ package: pg.integer, id: pg.integer, g: pg.integer, w: pg.integer },
 				["package", "id"]
 			)
-			const S = relation("S", { package: pg.integer, w: pg.integer }, ["package", "w"])
+			const S = relation("S", { pack: pg.integer, w: pg.integer }, ["pack", "w"])
 			const Base = schema("computed_binding", [T, U, S], mutability(c, [T, U, S]))
 			const D = derived(
 				"D",
@@ -107,7 +107,7 @@ const schemaOf = (c: Case) => {
 				[Base],
 				"computed_binding_1",
 				[D],
-				[contained(on(D, "package", "w"), on(S, "package", "w"))]
+				[contained(on(D, "package", "w"), on(S, "pack", "w"))]
 			)
 		}
 		case "a bounded text's guarded cast": {
@@ -119,7 +119,7 @@ const schemaOf = (c: Case) => {
 				"package",
 				"id"
 			])
-			const S = relation("S", { package: pg.integer, w: pg.integer }, ["package", "w"])
+			const S = relation("S", { pack: pg.integer, w: pg.integer }, ["pack", "w"])
 			const Base = schema("computed_binding", [T, U, S], mutability(c, [T, U, S]))
 			const D = derived(
 				"D",
@@ -144,7 +144,7 @@ const schemaOf = (c: Case) => {
 				[Base],
 				"computed_binding_1",
 				[D],
-				[contained(on(D, "package", "w"), on(S, "package", "w"))]
+				[contained(on(D, "package", "w"), on(S, "pack", "w"))]
 			)
 		}
 	}
@@ -157,6 +157,10 @@ const schemaOf = (c: Case) => {
 export const judged = (c: Case, note: (f: Feature) => void): void => {
 	const owned = owning(schemaOf(c))
 	const installation = succeeded(compileInstallation(owned, installOptions(owned)))
+	assert.ok(
+		Arr.every(installation.laws.rules, (r) => (r.rule.kind === "whole") === (c.judged === "whole")),
+		`the containment is judged ${c.judged === "whole" ? "whole" : "by its probes"}`
+	)
 	const serving = Arr.filter(
 		installation.indexes,
 		(index) =>

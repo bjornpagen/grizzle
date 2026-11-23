@@ -32,7 +32,8 @@ type Law = "contained" | "check" | "key"
 
 /**
  * One case: its law; whether D's arm selects T by a literal of `a`; and its judge: whole, T and S immutable, so the
- * rule is unit-local, or probed, both mutable.
+ * rule is unit-local, or probed, both mutable in their document's unit and D's arm joining W, mutable in a unit of its
+ * own, so the rule reads two units.
  */
 interface Shape {
 	readonly law: Law
@@ -54,7 +55,8 @@ export type Reached =
 
 /**
  * T and S, each keyed by its document first, and each with a field no rule reads, `pay` and `note`; D, T's facts by
- * document and place with their `b`, selected by `a` where the shape selects, `a` an unread witness elsewhere. The rule
+ * document and place with their `b`, selected by `a` where the shape selects, `a` an unread witness elsewhere, at a
+ * document W holds where the shape is probed. The rule
  * judges D: S's references among its `b`s by document, which no key of T holds, so the judge holds it and no foreign key
  * does, its `b` at least 0, or its `b` once per document.
  */
@@ -68,16 +70,29 @@ const schemaOf = (shape: Shape) => {
 		"doc",
 		"at"
 	])
+	const W = relation("W", { wdoc: pg.integer }, ["wdoc"])
+	const probed = shape.judge === "probed"
 	const Base = schema(
 		"judge_sources",
-		[T, S],
-		shape.judge === "probed" ? [unit("Document", { doc: pg.integer }), mutable(T), mutable(S)] : []
+		[T, S, W],
+		probed
+			? [
+					unit("Document", { doc: pg.integer }),
+					unit("Ws", { wdoc: pg.integer }),
+					mutable(T),
+					mutable(S),
+					mutable(W)
+				]
+			: []
 	)
 	const D = derived(
 		"D",
 		query(Base).rule((r) => {
 			const { doc, at, a, b } = v(T, "t")
-			return r.match(T, { doc, at, a: shape.selected ? 1 : a, b }).find({ doc, at, b })
+			const matched = r.match(T, { doc, at, a: shape.selected ? 1 : a, b })
+			return probed
+				? matched.match(W, { wdoc: doc }).find({ doc, at, b })
+				: matched.find({ doc, at, b })
 		})
 	)
 	const law = (() => {
@@ -94,7 +109,7 @@ const schemaOf = (shape: Shape) => {
 }
 
 /** The tables of the schema, by their names as installed. */
-const tables = ["t", "s"] as const
+const tables = ["t", "s", "w"] as const
 type Table = (typeof tables)[number]
 
 /** What each table declares: its width, every field, and its primary key's columns, which a stored scan keeps. */
@@ -102,17 +117,19 @@ const declared: {
 	readonly [K in Table]: { readonly width: number; readonly key: ReadonlySet<string> }
 } = {
 	t: { width: 5, key: new Set(["doc", "at"]) },
-	s: { width: 4, key: new Set(["doc", "at"]) }
+	s: { width: 4, key: new Set(["doc", "at"]) },
+	w: { width: 1, key: new Set(["wdoc"]) }
 }
 
 /**
  * The fields the shape's rule binds of each table, its key's among them: of T every field D's arm matches, its
- * document, place, `a` and `b`; of S, which a containment alone reads, its document, place and reference. Never `pay`
- * or `note`.
+ * document, place, `a` and `b`; of S, which a containment alone reads, its document, place and reference; of W, which
+ * a probed shape's arm alone reads, its key. Never `pay` or `note`.
  */
 const readFields = (shape: Shape): { readonly [K in Table]: ReadonlySet<string> } => ({
 	t: new Set(["doc", "at", "a", "b"]),
-	s: new Set(shape.law === "contained" ? ["doc", "at", "ref"] : [])
+	s: new Set(shape.law === "contained" ? ["doc", "at", "ref"] : []),
+	w: new Set(shape.judge === "probed" ? ["wdoc"] : [])
 })
 
 const tableNamed = (name: string): Table | undefined =>

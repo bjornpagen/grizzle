@@ -9,9 +9,10 @@
  * exactly where the rule reads a stable value, the refusal naming the rule, and written where every value it reads is
  * immutable.
  *
- * The box: A(id, n, x), immutable, so the check is judged whole over the units a transaction wrote, or mutable, so its
- * probes judge it; D, A's rows with a value of x and of n computed in D's head, or compared in a condition of D's rule;
- * the value a declared function's call, immutable or stable, or a conversion of the integer to money; a check over D.
+ * The box: A(id, n, x) and W(wid), immutable, so the check is judged whole over the units a transaction wrote, or
+ * mutable, each in a unit of its own, so its probes judge it; D, A's rows at an id W holds with a value of x and of n
+ * computed in D's head, or compared in a condition of D's rule; the value a declared function's call, immutable or
+ * stable, or a conversion of the integer to money; a check over D.
  *
  * Oracle: the volatility each value states, a declared function's its declaration's and a conversion's PostgreSQL's
  * (pg_proc.provolatile of int4_cash, 's').

@@ -34,25 +34,27 @@ import { refusalOf } from "#test/support/substrate.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 
 /**
- * A learner's rows beside what they may be judged against, keyed by one integer each, every relation mutable, so every
- * rule over them is probed (analysis/theory/query.ts probe), never judged whole over units:
+ * A learner's rows beside what they may be judged against, keyed by one integer each, every relation mutable: R and X
+ * in a unit of their own, keyed by c, every other relation in the unit of k or of a group, so every rule over them
+ * reads the rows of two units, two borrows, and is probed (analysis/theory/query.ts probe), never judged whole over
+ * units:
  *
- * - R, the covered relation, keyed by k, beside a cap; S, keyed by k, in a group with a score; S(k) ⊆ R(k), as the
+ * - R, the covered relation, keyed by c, beside a cap; S, keyed by k, in a group with a score; S(k) ⊆ R(c), as the
  *   ledger's HumanOperatorValue is contained in Attempt at its attempt's key;
- * - T(k) ⊆ S(k), so T(k) ⊆ R(k) by composition alone (analysis/theory/unit.ts regionFactsOf);
+ * - T(k) ⊆ S(k), so T(k) ⊆ R(c) by composition alone (analysis/theory/unit.ts regionFactsOf);
  * - U(k) ⊆ V(k) and V(k) ⊆ U(k), a cycle;
- * - Lim, a group's maximum; X, a value at k; A and B, keys a definition reads; W, a key's dependence on another key x.
+ * - Lim, a group's maximum; X, a value at c; A and B, keys a definition reads; W, a key's dependence on another key x.
  *
  * Each containment's target holds a field it does not reference, so each is a foreign key checked at COMMIT, which a
  * transaction may break and repair before it ends.
  */
-const R = relation("R", { k: pg.integer, cap: pg.integer }, ["k"])
+const R = relation("R", { c: pg.integer, cap: pg.integer }, ["c"])
 const S = relation("S", { k: pg.integer, grp: pg.integer, score: pg.integer }, ["k"])
 const T = relation("T", { k: pg.integer, tag: pg.integer }, ["k"])
 const U = relation("U", { k: pg.integer, score: pg.integer }, ["k"])
 const V = relation("V", { k: pg.integer, flag: pg.integer }, ["k"])
 const Lim = relation("Lim", { grp: pg.integer, max: pg.integer }, ["grp"])
-const X = relation("X", { k: pg.integer, v: pg.integer }, ["k"])
+const X = relation("X", { c: pg.integer, v: pg.integer }, ["c"])
 const A = relation("A", { k: pg.integer }, ["k"])
 const B = relation("B", { k: pg.integer }, ["k"])
 const W = relation("W", { k: pg.integer, x: pg.integer }, ["k", "x"])
@@ -61,12 +63,13 @@ const stored = [R, S, T, U, V, Lim, X, A, B, W] as const
 
 const Base = schema("Cover", stored, [
 	...Arr.map(stored, (t) => mutable(t)),
-	contained(on(S, "k"), on(R, "k")),
+	contained(on(S, "k"), on(R, "c")),
 	contained(on(T, "k"), on(S, "k")),
 	contained(on(U, "k"), on(V, "k")),
 	contained(on(V, "k"), on(U, "k")),
 	unit("Keyed", { k: pg.integer }),
-	unit("Group", { grp: pg.integer })
+	unit("Group", { grp: pg.integer }),
+	unit("Covered", { c: pg.integer })
 ])
 
 /** S's score beside its group's maximum, at each k R holds: R read at its key alone, which S's row pins. */
@@ -77,7 +80,7 @@ const Direct = derived(
 		const { max } = v(Lim, "lim")
 		return r
 			.match(S, { k, grp, score })
-			.match(R, { k })
+			.match(R, { c: k })
 			.match(Lim, { grp, max })
 			.find({ k, score, max })
 	})
@@ -89,7 +92,7 @@ const Capped = derived(
 	query(Base).rule((r) => {
 		const { k, score } = v(S, "s")
 		const { cap } = v(R, "r")
-		return r.match(S, { k, score }).match(R, { k, cap }).find({ k, score, cap })
+		return r.match(S, { k, score }).match(R, { c: k, cap }).find({ k, score, cap })
 	})
 )
 
@@ -99,7 +102,7 @@ const Chained = derived(
 	query(Base).rule((r) => {
 		const { k } = v(T, "t")
 		const { v: value } = v(X, "x")
-		return r.match(T, { k }).match(R, { k }).match(X, { k, v: value }).find({ k, value })
+		return r.match(T, { k }).match(R, { c: k }).match(X, { c: k, v: value }).find({ k, value })
 	})
 )
 
@@ -109,7 +112,7 @@ const Cycled = derived(
 	query(Base).rule((r) => {
 		const { k } = v(U, "u")
 		const { v: value } = v(X, "x")
-		return r.match(U, { k }).match(V, { k }).match(X, { k, v: value }).find({ k, value })
+		return r.match(U, { k }).match(V, { k }).match(X, { c: k, v: value }).find({ k, value })
 	})
 )
 
@@ -118,12 +121,12 @@ const Either = derived(
 	"Either",
 	query(Base)
 		.rule((r) => {
-			const { k } = v(R, "r")
-			return r.match(R, { k }).match(A, { k }).find({ k })
+			const { c: k } = v(R, "r")
+			return r.match(R, { c: k }).match(A, { k }).find({ k })
 		})
 		.rule((r) => {
-			const { k } = v(R, "r")
-			return r.match(R, { k }).match(B, { k }).find({ k })
+			const { c: k } = v(R, "r")
+			return r.match(R, { c: k }).match(B, { k }).find({ k })
 		})
 )
 
@@ -134,7 +137,7 @@ const Blocked = derived(
 		const { k, x } = v(W, "w")
 		return r
 			.match(W, { k, x })
-			.where(r.not(R, { k: x }))
+			.where(r.not(R, { c: x }))
 			.find({ k })
 	})
 )
@@ -396,6 +399,10 @@ const coverAims: ReadonlyArray<readonly [CoverFeature, Gen<Schedule>]> = [
 
 export const coverSpace = aimed(scheduleGen, coverAims)
 
+/** The column a written relation's key is in: R's and X's c, every other's k. */
+const keyColumn = (relation: Written): "c" | "k" =>
+	relation === "R" || relation === "X" ? "c" : "k"
+
 /** The statement of one write, on the installation's names. */
 const statementOf = (installed: Installed, op: Op): string => {
 	const names = namesOf(installed)
@@ -404,7 +411,7 @@ const statementOf = (installed: Installed, op: Op): string => {
 			const t = names.table(relations[op.relation])
 			switch (op.relation) {
 				case "R":
-					return `INSERT INTO ${t} (k, cap) VALUES (${op.k}, ${op.value}) ON CONFLICT DO NOTHING`
+					return `INSERT INTO ${t} (c, cap) VALUES (${op.k}, ${op.value}) ON CONFLICT DO NOTHING`
 				case "S":
 					return `INSERT INTO ${t} (k, grp, score) VALUES (${op.k}, 1, ${op.value}) ON CONFLICT DO NOTHING`
 				case "T":
@@ -414,7 +421,7 @@ const statementOf = (installed: Installed, op: Op): string => {
 				case "V":
 					return `INSERT INTO ${t} (k, flag) VALUES (${op.k}, 0) ON CONFLICT DO NOTHING`
 				case "X":
-					return `INSERT INTO ${t} (k, v) VALUES (${op.k}, ${op.value}) ON CONFLICT DO NOTHING`
+					return `INSERT INTO ${t} (c, v) VALUES (${op.k}, ${op.value}) ON CONFLICT DO NOTHING`
 				case "A":
 				case "B":
 					return `INSERT INTO ${t} (k) VALUES (${op.k}) ON CONFLICT DO NOTHING`
@@ -424,10 +431,10 @@ const statementOf = (installed: Installed, op: Op): string => {
 		}
 		case "set": {
 			const column = { R: "cap", S: "score", U: "score", X: "v" }[op.relation]
-			return `UPDATE ${names.table(relations[op.relation])} SET ${column} = ${op.value} WHERE k = ${op.k}`
+			return `UPDATE ${names.table(relations[op.relation])} SET ${column} = ${op.value} WHERE ${keyColumn(op.relation)} = ${op.k}`
 		}
 		case "remove":
-			return `DELETE FROM ${names.table(relations[op.relation])} WHERE k = ${op.k}`
+			return `DELETE FROM ${names.table(relations[op.relation])} WHERE ${keyColumn(op.relation)} = ${op.k}`
 		case "depend":
 			return `INSERT INTO ${names.table(W)} (k, x) VALUES (${op.k}, ${op.x}) ON CONFLICT DO NOTHING`
 		case "undepend":
@@ -485,7 +492,7 @@ const judged = (installed: Installed, session: RawSession, where: string) =>
 		const brokenContainments: Array<string> = []
 		for (const [from, to] of containments) {
 			const found = yield* session.values(
-				`SELECT EXISTS (SELECT FROM ${names.table(relations[from])} AS f WHERE NOT EXISTS (SELECT FROM ${names.table(relations[to])} AS t WHERE t.k = f.k))`,
+				`SELECT EXISTS (SELECT FROM ${names.table(relations[from])} AS f WHERE NOT EXISTS (SELECT FROM ${names.table(relations[to])} AS t WHERE t.${keyColumn(to)} = f.${keyColumn(from)}))`,
 				[]
 			)
 			if (found[0]?.[0] === true) {
@@ -645,7 +652,7 @@ const standingOf = (installed: Installed, session: RawSession) =>
 		const rows: Array<string> = []
 		for (const relation of ["R", "S"] as const) {
 			for (const row of yield* session.values(
-				`SELECT k FROM ${names.table(relations[relation])}`,
+				`SELECT ${keyColumn(relation)} FROM ${names.table(relations[relation])}`,
 				[]
 			)) {
 				rows.push(`${relation} ${String(row[0])}`)

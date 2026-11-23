@@ -14,7 +14,8 @@ import { testArtifacts, testCompile } from "#test/support/compile.ts"
 const values = ["an immutable function", "a stable function", "a conversion to money"] as const
 /** Where the derived relation the check reads computes it: in its head, or in a condition of its rule. */
 const sites = ["head", "condition"] as const
-/** How the rule is judged: whole over the units a transaction wrote (A immutable), or by its probes (A mutable). */
+/** How the rule is judged: whole over the units a transaction wrote (A and W immutable), or by its probes (A and W
+ * mutable, each in a unit of its own, so the check reads the rows of two units). */
 const judgements = ["whole", "probes"] as const
 
 export interface Case {
@@ -33,6 +34,9 @@ export type Feature = Case["value"] | `in the ${Case["site"]}` | `judged by ${Ca
 
 const A = relation("A", { id: pg.integer, n: pg.integer, x: pg.integer }, ["id", "n"])
 
+/** An id D reads A's rows at, keyed by its own field. */
+const W = relation("W", { wid: pg.integer }, ["wid"])
+
 /** The declared function of the case's volatility, `x` doubled. */
 const doubled = (volatility: "immutable" | "stable") =>
 	fn("doubled", {
@@ -45,23 +49,26 @@ const doubled = (volatility: "immutable" | "stable") =>
 		body: fn.body`SELECT $1 * 2`
 	})
 
-/** A's schema, A immutable where the case is judged whole and mutable, under the unit of its id, where its probes judge
- * it, with `doubled`. */
+/** A's and W's schema, both immutable where the case is judged whole and mutable where its probes judge it, A in the
+ * unit of its id and W in the unit of its own, with `doubled`. */
 const baseOf = (c: Case) => {
 	const called = doubled(c.value === "a stable function" ? "stable" : "immutable")
 	return {
 		called,
 		Base: schema(
 			"Stable",
-			[A, called],
-			c.judged === "probes" ? [unit("As", { id: pg.integer }), mutable(A)] : []
+			[A, W, called],
+			c.judged === "probes"
+				? [unit("As", { id: pg.integer }), unit("Ws", { wid: pg.integer }), mutable(A), mutable(W)]
+				: []
 		)
 	}
 }
 
 /**
- * Each value's schema at each site: A(id, n, x); D, A's rows with w, the value of x, and u, the value of n, computed in
- * D's head, or each of x and n and the condition that x's value is at most n's; and a check over D that w is at most u.
+ * Each value's schema at each site: A(id, n, x) and W(wid); D, A's rows at an id W holds with w, the value of x, and u,
+ * the value of n, computed in D's head, or each of x and n and the condition that x's value is at most n's; and a check
+ * over D that w is at most u.
  */
 const schemas = {
 	"function, head": (c: Case) => {
@@ -72,6 +79,7 @@ const schemas = {
 				const { id, n, x } = v(A, "a")
 				return r
 					.match(A, { id, n, x })
+					.match(W, { wid: id })
 					.find({ id, w: Fn.call(called, { x }), u: Fn.call(called, { x: n }) })
 			})
 		)
@@ -85,6 +93,7 @@ const schemas = {
 				const { id, n, x } = v(A, "a")
 				return r
 					.match(A, { id, n, x })
+					.match(W, { wid: id })
 					.where(r.le(Fn.call(called, { x }), Fn.call(called, { x: n })))
 					.find({ id, w: x, u: n })
 			})
@@ -99,6 +108,7 @@ const schemas = {
 				const { id, n, x } = v(A, "a")
 				return r
 					.match(A, { id, n, x })
+					.match(W, { wid: id })
 					.find({ id, w: Type.cast(x, pg.money), u: Type.cast(n, pg.money) })
 			})
 		)
@@ -112,6 +122,7 @@ const schemas = {
 				const { id, n, x } = v(A, "a")
 				return r
 					.match(A, { id, n, x })
+					.match(W, { wid: id })
 					.where(r.le(Type.cast(x, pg.money), Type.cast(n, pg.money)))
 					.find({ id, w: x, u: n })
 			})

@@ -140,6 +140,19 @@ const unkeyedOf = (u: Unkeyed) => {
 /** The box's relations, by name. */
 type Name = "H" | "B" | "C" | "D" | "E" | "F" | "G"
 
+/** The relations each containment of the box reads. */
+const reads: { readonly [K in Containment]: ReadonlyArray<Name> } = {
+	selected: ["C", "B"],
+	listed: ["B", "C"],
+	plain: ["C", "B"],
+	"into declared key": ["C", "G"],
+	"into superkey": ["C", "F"],
+	"into whole": ["C", "E"],
+	"selected into whole": ["C", "E"],
+	across: ["C", "D"],
+	computed: ["C", "B"]
+}
+
 /** Whether a case declares the relation `name` mutable. */
 const isMutable = (m: Mutability, name: Name): boolean => {
 	switch (m) {
@@ -219,23 +232,13 @@ export type Discharged = "whole" | "native"
 
 /**
  * The discharge the box's statement of each containment states (the specification, laws/model/plan.ts
- * ContainmentDischarge): whole exactly where it selects, each side selects by comparisons of its
- * fields, every term a field, every relation it reads is immutable, and its two sides join within one unit, which the
- * box's every statement but `across` does; native everywhere else, every plain containment among them, each into a
- * target a key holds apart, at a declared key's fields or a superkey's.
+ * ContainmentDischarge): whole exactly where it selects, each side selects by comparisons of its fields, every term a
+ * field, every relation it reads is immutable or all of them sit in one declared unit, and its two sides join within
+ * one unit, which the box's every statement but `across` does, the group's unit holding B, C, E, F, G and H wherever B
+ * or C is mutable; native everywhere else, every plain containment among them, each into a target a key holds apart,
+ * at a declared key's fields or a superkey's.
  */
-export const expected = (c: Case, of: Containment): Discharged => {
-	const reads: { readonly [K in Containment]: ReadonlyArray<Name> } = {
-		selected: ["C", "B"],
-		listed: ["B", "C"],
-		plain: ["C", "B"],
-		"into declared key": ["C", "G"],
-		"into superkey": ["C", "F"],
-		"into whole": ["C", "E"],
-		"selected into whole": ["C", "E"],
-		across: ["C", "D"],
-		computed: ["C", "B"]
-	}
+export const expected = (of: Containment): Discharged => {
 	switch (of) {
 		case "plain":
 		case "into declared key":
@@ -247,22 +250,27 @@ export const expected = (c: Case, of: Containment): Discharged => {
 		case "selected":
 		case "listed":
 		case "selected into whole":
-			return Arr.some(reads[of], (r) => isMutable(c.mutable, r)) ? "native" : "whole"
+			return "whole"
 	}
 }
+
+/** Whether a case's containment `of` reads a relation the case declares mutable. */
+export const readsMutable = (c: Case, of: Containment): boolean =>
+	Arr.some(reads[of], (r) => isMutable(c.mutable, r))
 
 /**
  * What the box's statement of a case's unkeyed containment states (the specification, laws/model/plan.ts
  * containmentDischarge): no native constraint states it, so it is whole where its sides select by comparisons of their
- * fields, every relation it reads is immutable and its two sides join within one unit, as unkeyed does over C and B;
- * and the schema is refused anywhere else, across units, selected by a computed value, or over a mutable relation.
+ * fields, every relation it reads is immutable or all of them sit in one declared unit, and its two sides join within
+ * one unit, as unkeyed does over C and B, mutable or not; and the schema is refused anywhere else, across units or
+ * selected by a computed value.
  */
 export const unkeyedExpected = (c: Case): "absent" | "whole" | "refused" => {
 	switch (c.unkeyed) {
 		case "none":
 			return "absent"
 		case "unkeyed":
-			return isMutable(c.mutable, "B") || isMutable(c.mutable, "C") ? "refused" : "whole"
+			return "whole"
 		case "unkeyed across":
 		case "unkeyed computed":
 			return "refused"
@@ -365,12 +373,15 @@ export const migrationCaseGen: Gen<MigrationCase> = (s) => ({
 	after: s.draw(element(afters))
 })
 
-/** The schema of one version of a migration case: B and C, the selected containment unless absent, native where B is
- * mutable, inside the unit of its group, whole where it is not. */
+/** The migration case's B, keyed by its own h then i, so a unit of h holds it apart from C, keyed by g. */
+const Bh = relation("B", { h: pg.integer, i: pg.integer, kind: pg.integer }, ["h", "i"])
+
+/** The schema of one version of a migration case: B and C, the selected containment unless absent, native where B and C
+ * are mutable, each in a unit of its own, so the containment reads the rows of two units, whole where neither is. */
 export const versionOf = (discharge: MigrationCase["before"]): AnySchema =>
 	schema(
 		"discharge_migrated",
-		[B, C],
+		[Bh, C],
 		[
 			...(discharge === "absent"
 				? []
@@ -381,10 +392,12 @@ export const versionOf = (discharge: MigrationCase["before"]): AnySchema =>
 								"g",
 								"i"
 							),
-							on(B, "g", "i")
+							on(Bh, "h", "i")
 						)
 					]),
-			...(discharge === "native" ? [groupUnit, mutable(B)] : [])
+			...(discharge === "native"
+				? [groupUnit, unit("Hs", { h: pg.integer }), mutable(Bh), mutable(C)]
+				: [])
 		]
 	)
 

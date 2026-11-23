@@ -2474,7 +2474,9 @@ definition too.
   stays bounded and non-empty. The judge holds each bound at COMMIT, whether the transaction writes a visit, a start or
   an end, and the host judges a row of either as PostgreSQL does (`rowEvaluator`).
 - **Unit-local rules are judged whole.** A rule is unit-local when every stored relation its query reads is immutable,
-  no field it reads one grizzle rewrites in place (a member's copy of a mutable owner's column), and
+  or every one sits in one declared unit whose key leads its own (`unit(...)`: every write of their rows, a mutable
+  relation's updates and deletes among them, borrows that unit, and an update of a column the rule reads is captured
+  as any write is), no field it reads one grizzle rewrites in place (a member's copy of a mutable owner's column), and
   leads its primary key with the same fields, its unit key, and its query joins within one unit: every match of a
   stored relation, in every rule of its violation query at any depth, binds those fields to the same variables, every
   negation is correlated at them, and every aggregate's groups hold them. A content package's relations keyed
@@ -2511,11 +2513,12 @@ definition too.
 - **The cost of a unit-local rule** is a read of each unit the transaction wrote, whole, once per rule. A write of
   whole units, as a content package's publish is, reads the rows it wrote once more for each rule. A write of a sliver
   of a large unit, one row into a package of thousands, still reads the whole unit for each rule that reads that row's
-  relation: a relation written row by row into large units is better declared `mutable`, whose rules are probed.
+  relation: a relation written row by row into large units is better declared in a unit of a longer key than the one
+  its rules join within, where no borrow of one of its units covers a rule's unit, so its rules are probed.
 - **A unit-local containment with a selected side is judged whole.** A containment between two tables is a foreign
   key; one whose side is a selection, `on(select(T, φ), …)`, is a foreign key over STORED generated columns
   (`CASE WHEN φ THEN key END`), the UNIQUE it references and an index, kept on every row of the table. Where its
-  tables are immutable, its two sides
+  tables are immutable, or all in one declared unit, its two sides
   join within one unit and each selection compares fields with literals (`eq`, `in`, ranges, `and`, `or`, `not` and a
   closed relation's constants), grizzle judges it whole instead, as a unit-local rule: no column, no UNIQUE, no index
   and no foreign key, its violation read at COMMIT over the units of the rows the transaction wrote that its sides
@@ -2531,7 +2534,8 @@ definition too.
   them SERIALIZABLE; it holds at every
   statement where it references every field of its target off a cycle, and at COMMIT where its target holds a field
   it does not reference. So does one whose selection computes (a pattern's match, an arithmetic), whose generated
-  column a query cannot always restate, and any containment over a mutable table. A containment into a target no key
+  column a query cannot always restate, and any containment over a mutable table outside its sides' one declared unit.
+  A containment into a target no key
   holds apart, such as `on(T, "unit", "kind")` with T keyed by `(unit, id)`, has no UNIQUE grizzle may add, one over its
   columns refusing rows the schema admits: it is judged whole where it is unit-local as above, and refused
   (`UnsupportedLawFamily`) anywhere else. A migration that moves a containment from its foreign key to the judge checks
@@ -6163,7 +6167,7 @@ grizzle fits applications that own their data end to end, with rules worth decla
 - **grizzle never hashes a key behind your back.** A key holds every column as itself. Where one could outgrow its entry, declare a byte bound (`str.bytes(n)`) or a precision, or key by an explicit digest field you declare, a generated `Crypto.sha256(x)`, which the key then holds and reads by like any other field. A key that large is almost always a modelling bug: an identity is a short name, a path or a digest, never a document. (Settled: CONTRIBUTING.md "Settled decisions".)
 - **A family axis carries a set by its roster's codes.** A `Monoid.concat` fold's accumulators ride its axes as themselves, so their text needs a byte bound that fits the axis's UNIQUE beside its other columns (`keyTextBytes`, and the bound a refused fold names), or the fold names their SHA-256 digests in their places ([Families](#families)). An `or` or `twos` fold's set is its roster's `bit(n)`, `n` every code the roster has minted, removed handles' included, in whole bytes, sized when `generate`, `check` or `migrate` compiles the installation, so a roster grown and pruned past about 21,000 codes refuses the UNIQUE there.
 - **A lookup holds only the columns that fit its entry.** An index grizzle plans for a rule's probe, a workload program's equality lookup or join key, the equality prefix of a range or a prefix search, or a page holds its columns as themselves, never by an image. Where they could not all fit `BTMaxItemSize` in any order, it leaves out the columns its requests bind by equality, the widest first and a column of no byte bound widest of all, until the rest fits: each left out is a filter the read applies beside the index, and the index's comment in the drafted SQL names it (`COMMENT ON INDEX … IS 'btree index Attribute(package, name), value filtered beside it, not indexed: no byte bound fits the entry'`), so a review sees every lookup column a byte bound would bring into its index. A column it orders by or matches a prefix of stays, and an entry those still overfill is `UnrepresentableKey` naming them; a lookup left no column is refused for the widest it binds.
-- **A containment's target holds a key.** A foreign key references a UNIQUE, so grizzle states a containment as one only into a side a key of its target's relation holds apart: at that key's own UNIQUE, or at one over a superkey of it, which the key implies and which must fit its index entry as above. A containment into a side no key holds apart is judged whole where it is unit-local over immutable relations, and refused anywhere else ([Rules over queries](#rules-over-queries)).
+- **A containment's target holds a key.** A foreign key references a UNIQUE, so grizzle states a containment as one only into a side a key of its target's relation holds apart: at that key's own UNIQUE, or at one over a superkey of it, which the key implies and which must fit its index entry as above. A containment into a side no key holds apart is judged whole where it is unit-local over immutable relations or one declared unit's, and refused anywhere else ([Rules over queries](#rules-over-queries)).
 - **A containment's reverse index never refuses free text.** Its probe is PostgreSQL's RI trigger's, which states the referencing columns' equalities alone, so grizzle indexes the lookup of referencing rows by a B-tree over the longest leading run of bounded referencing columns whose entry fits, or, with no such run, a hash index on one referencing column, whose entry is a 4-byte hash code. A PERIOD reference's GiST index holds the longest leading run of bounded scalars that fits a GiST page, then the span. Only the referenced UNIQUE must be bounded. With no fitting run and every referencing column of a type no hash index takes (money, a set's `bit(n)`, a vector), the containment is `UnrepresentableKey` when the schema compiles.
 - **A containment's source is one table or a selection of it.** A containment whose source is a join, such as the rows of R that have a matching row in S, is not supported yet.
 

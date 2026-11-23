@@ -72,9 +72,10 @@ export const shapeKeys: Arr.NonEmptyReadonlyArray<ShapeKey> = [
 
 const shapeGen: Gen<ShapeKey> = element(shapeKeys)
 
-/** The key of a relation of a shape of width `width`: doc, then sub and part as wide as the shape is, then start. */
-type PlacedKey = readonly ["doc", ...ReadonlyArray<"sub" | "part" | "start">]
+/** A relation's key: its place's fields as wide as its shape is, and its start, in its judge's order. */
+type PlacedKey = readonly ["doc" | "start", ...ReadonlyArray<"doc" | "sub" | "part" | "start">]
 
+/** The key of a relation of a shape of width `width`: doc, then sub and part as wide as the shape is, then start. */
 const placedKey = (width: UnitShape[0]): PlacedKey => {
 	switch (width) {
 		case 1:
@@ -94,6 +95,21 @@ const inOrder =
 			? { doc: place.doc, sub: place.sub, part: place.part }
 			: { part: place.part, sub: place.sub, doc: place.doc }
 
+/**
+ * The key of the probed judge's Expr and Tag (`judgeSchema`): their start, then their place as wide as the shape is, so
+ * no rule binds one unit key across them and Node, keyed by its place first.
+ */
+const startedKey = (width: UnitShape[0]): PlacedKey => {
+	switch (width) {
+		case 1:
+			return ["start", "doc"]
+		case 2:
+			return ["start", "doc", "sub"]
+		case 3:
+			return ["start", "doc", "sub", "part"]
+	}
+}
+
 /** A node of a document, keyed by its place then its start: its parent's start, its start at a root, its kind. */
 const nodeOf = (shape: UnitShape) =>
 	relation(
@@ -107,8 +123,8 @@ const nodeOf = (shape: UnitShape) =>
 		placedKey(shape[0])
 	)
 
-/** An expression at a node, keyed as its node is: its type. */
-const exprOf = (shape: UnitShape) =>
+/** An expression at a node, keyed by `key`: its type. */
+const exprOf = (shape: UnitShape, key: PlacedKey) =>
 	relation(
 		"Expr",
 		{
@@ -116,11 +132,11 @@ const exprOf = (shape: UnitShape) =>
 			start: pg.integer,
 			type: pg.integer
 		},
-		placedKey(shape[0])
+		key
 	)
 
-/** A tag at a node, keyed as its node is: its mark. */
-const tagOf = (shape: UnitShape) =>
+/** A tag at a node, keyed by `key`: its mark. */
+const tagOf = (shape: UnitShape, key: PlacedKey) =>
 	relation(
 		"Tag",
 		{
@@ -128,14 +144,25 @@ const tagOf = (shape: UnitShape) =>
 			start: pg.integer,
 			mark: pg.integer
 		},
-		placedKey(shape[0])
+		key
 	)
 
-/** Each shape's three stored relations, which both of its judges state and its writes name. */
+/**
+ * Each shape's three stored relations of each judge, which its writes name: the whole judge's Expr and Tag keyed as
+ * Node is, the probed judge's by their start first (`startedKey`); one name and one heading each, so one write writes
+ * either judge's.
+ */
 const relationsOf = Rec.map(shapes, (shape) => ({
-	Node: nodeOf(shape),
-	Expr: exprOf(shape),
-	Tag: tagOf(shape)
+	whole: {
+		Node: nodeOf(shape),
+		Expr: exprOf(shape, placedKey(shape[0])),
+		Tag: tagOf(shape, placedKey(shape[0]))
+	},
+	probed: {
+		Node: nodeOf(shape),
+		Expr: exprOf(shape, startedKey(shape[0])),
+		Tag: tagOf(shape, startedKey(shape[0]))
+	}
 }))
 
 /**
@@ -144,7 +171,7 @@ const relationsOf = Rec.map(shapes, (shape) => ({
  */
 const placed = (doc: number): string => `${doc}, ${doc + 1000000}, ${doc + 2000000}`
 
-/** The judges of each shape: whole, its relations immutable, and probed, its relations mutable. */
+/** The judges of each shape: whole, its relations immutable, and probed, its relations mutable and keyed apart. */
 type Judge = "whole" | "probed"
 
 /** The kinds of node Expressed's selection holds, each an expression: a node of any other kind stands outside it. */
@@ -152,11 +179,12 @@ const expressedKinds = [1, 2] as const satisfies ReadonlyArray<Kind>
 
 /**
  * The schema the properties judge of shape `shape`, by its rules over queries and its containments between selected
- * sides, every one unit-local: each relation keyed by its document's place first, every rule joining within one
- * document. The probed judge's Node and Expr are mutable, so no rule is unit-local and each is probed, and each
- * containment is native, its foreign key deferred since the two close a cycle (laws/model/model.ts FkCycles); the
- * whole judge's immutable, so each rule and each containment is judged whole over the documents a transaction wrote,
- * the unit, and the aggregate's rule beside them, which no probe reads.
+ * sides, every one unit-local in the whole judge: each relation keyed by its document's place first, every rule joining
+ * within one document. The probed judge's Node, Expr and Tag are mutable, Node in the unit of its document and Expr and
+ * Tag, keyed by their start first (`startedKey`), in the unit of their start, so no rule is unit-local and each is
+ * probed, and each containment is native, its foreign key deferred since the two close a cycle (laws/model/model.ts
+ * FkCycles); the whole judge's immutable, so each rule and each containment is judged whole over the documents a
+ * transaction wrote, the unit, and the aggregate's rule beside them, which no probe reads.
  *
  * - Expressed: a node of kind 1 or 2 is an expression: a containment from a side selected by a list of kinds, which
  *   a node's insert breaks and an expression's delete does.
@@ -193,7 +221,7 @@ const expressedKinds = [1, 2] as const satisfies ReadonlyArray<Kind>
 const judgeSchema = (judge: Judge, shape: ShapeKey) => {
 	const [width, order] = shapes[shape]
 	const name = `${judge === "whole" ? "Whole" : "Probed"}Judge${width}${order === "key" ? "Keyed" : "Reversed"}`
-	const { Node, Expr, Tag } = relationsOf[shape]
+	const { Node, Expr, Tag } = relationsOf[shape][judge]
 	const ordered = inOrder(order)
 	const probed = judge === "probed"
 	const Base = schema(
@@ -237,7 +265,13 @@ const judgeSchema = (judge: Judge, shape: ShapeKey) => {
 				)
 			),
 			...(probed
-				? [mutable(Node), mutable(Expr), mutable(Tag), unit("Document", { doc: pg.integer })]
+				? [
+						mutable(Node),
+						mutable(Expr),
+						mutable(Tag),
+						unit("Document", { doc: pg.integer }),
+						unit("Started", { start: pg.integer })
+					]
 				: [])
 		]
 	)
@@ -458,7 +492,7 @@ export interface Tables {
 
 export const tablesOf = (installed: Installed, shape: ShapeKey): Tables => {
 	const names = namesOf(installed)
-	const { Node, Expr, Tag } = relationsOf[shape]
+	const { Node, Expr, Tag } = relationsOf[shape].whole
 	return { node: names.table(Node), expr: names.table(Expr), tag: names.table(Tag) }
 }
 
@@ -1078,6 +1112,11 @@ export const runEquivalence = (
 	c: Case<WholeFeature>
 ) =>
 	Effect.gen(function* () {
+		assert.ok(
+			Arr.every(whole.installed.installation.laws.rules, (r) => r.rule.kind === "whole") &&
+				Arr.every(probed.installed.installation.laws.rules, (r) => r.rule.kind !== "whole"),
+			"the whole judge judges every rule whole, and the probed judge none"
+		)
 		const sides = Arr.map([whole, probed], (side) => ({
 			...side,
 			tables: tablesOf(side.installed, schedule.shape)

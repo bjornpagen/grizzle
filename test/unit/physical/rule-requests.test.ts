@@ -8,11 +8,12 @@
  * unit does not lead, which asks for no index: the key's own serves it, as the scan a whole rule's check over every row
  * starts from needs none.
  *
- * Each case is a containment of D in S, D the x of each T row and U row of one package that agree on g, on h or on both,
- * U's w held to a literal or not, over relations each keyed by `package` and a column of its own, immutable, so the rule
- * is unit-local and judged whole, or mutable, so it is probed; and, beside it or not, a containment of E, U's g of
- * every row, in Q, keyed by g alone, whose probe of Q's deletes reads U by g across every unit; with U declaring a key
- * over g alone or not, which a read of U that binds g looks it up by. The schema compiles to its installation.
+ * Each case is a containment of D in S, D the x of each T row and U row of one package that agree on g, on h or on
+ * both, U's w held to a literal or not, over T and U keyed by `package` and a column of their own and S by its pack,
+ * immutable, so the rule is unit-local and judged whole, or mutable, S in a unit of its own, so it reads two units and
+ * is probed; and, beside it or not, a containment of E, U's g of every row, in Q, keyed by g alone, whose probe of Q's
+ * deletes reads U by g across every unit; with U declaring a key over g alone or not, which a read of U that binds g
+ * looks it up by. The schema compiles to its installation.
  *
  * Oracle: specification, read from the installation's planned indexes: each read of a probe's chain and of a whole
  * rule's, U and T by the join's columns and `package` (U also by w where D holds it, and by its key over g alone where

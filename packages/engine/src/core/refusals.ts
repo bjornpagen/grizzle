@@ -76,7 +76,7 @@ export const refusals = [
 	"a rule reads a derived relation whose definition joins, selects and projects: this one attaches a nested query",
 	"a rule reads a derived relation whose definition joins, selects and projects: this one orders and takes",
 	"a rule reads a derived relation whose definition joins, selects and projects: this one produces spans",
-	"a rule reads a recursion only where it is unit-local: every relation it reads immutable, every match of it within one unit, and every step carrying the unit from self into its head",
+	"a rule reads a recursion only where it is unit-local: every relation it reads immutable or all of them in one declared unit, every match of it within one unit, and every step carrying the unit from self into its head",
 	"a schema predicate reads no parameter",
 	"a scoped entry is a relation of the base under its own name",
 	"a search's take, the requested result bound, is a positive integer of at most 9007199254740991, the largest safe integer",

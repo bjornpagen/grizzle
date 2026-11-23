@@ -55,7 +55,10 @@ const changes = [
 
 export type Change = (typeof changes)[number]
 
-/** One case: its change, and its judge, whole, T immutable, or probed, T mutable inside the unit of its document. */
+/**
+ * One case: its change, and its judge, whole, T and U immutable, or probed, T and U mutable inside the unit of their
+ * document and each definition joining W, mutable in a unit of its own, so every rule reads the rows of two units.
+ */
 export interface Shape {
 	readonly change: Change
 	readonly judge: "whole" | "probed"
@@ -141,15 +144,28 @@ const schemaOf = (shape: Shape, version: "first" | "second") => {
 					{ tier: "high", cap: changed("cap") ? 30 : 20, note: 1 }
 				]
 	)
+	const W = relation("W", { wdoc: pg.integer }, ["wdoc"])
+	const probed = shape.judge === "probed"
 	const Base = schema(
 		"check_identity",
-		[T, U, Tier, TierRank, TierNext, Cap],
-		shape.judge === "probed" ? [unit("Document", { doc: pg.integer }), mutable(T), mutable(U)] : []
+		[T, U, W, Tier, TierRank, TierNext, Cap],
+		probed
+			? [
+					unit("Document", { doc: pg.integer }),
+					unit("Ws", { wdoc: pg.integer }),
+					mutable(T),
+					mutable(U),
+					mutable(W)
+				]
+			: []
 	)
 	const selected = (a: number) =>
 		query(Base).rule((r) => {
 			const { doc, at, b } = v(T, "t")
-			return r.match(T, { doc, at, a, b }).find({ doc, at, b })
+			const matched = r.match(T, { doc, at, a, b })
+			return probed
+				? matched.match(W, { wdoc: doc }).find({ doc, at, b })
+				: matched.find({ doc, at, b })
 		})
 	const D1 = derived("D1", selected(changed("first definition") ? 3 : 1))
 	const D2 = derived("D2", selected(changed("second definition") ? 4 : 2))
@@ -157,7 +173,10 @@ const schemaOf = (shape: Shape, version: "first" | "second") => {
 		"D3",
 		query(Base).rule((r) => {
 			const { doc, tier, b } = v(U, "u")
-			return r.match(U, { doc, tier, b }).find({ doc, tier, b })
+			const matched = r.match(U, { doc, tier, b })
+			return probed
+				? matched.match(W, { wdoc: doc }).find({ doc, tier, b })
+				: matched.find({ doc, tier, b })
 		})
 	)
 	const bound = changed("bound") ? 1 : 0

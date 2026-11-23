@@ -20,8 +20,8 @@ const S = relation("S", { id: pg.integer, a: pg.integer }, ["id"])
 
 const G = relation("G", { x: pg.integer }, ["x"])
 
-/** Every relation mutable, each inside the unit of its key, so no rule over them is unit-local: each is probed, its check
- * its probes over every row. */
+/** Every relation mutable, each inside the unit of its key, and every rule over D reading T beside S or G away from T's
+ * key, so none is unit-local: each is probed, its check its probes over every row. */
 const Base = schema(
 	"every_row",
 	[T, S, G],

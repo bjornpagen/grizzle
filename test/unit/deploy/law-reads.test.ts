@@ -6,7 +6,8 @@
  * law binds and the relation's key, so a column it never reads, dropped or renamed, leaves its reads, and the identity,
  * as they were. Each case is a rule over D, T's facts by document
  * and place, selected by a literal of T's `a` or not: S's containment in it, a check over its `b` or a key over its `b`
- * by document; whole, T and S immutable, or probed, both mutable; T's `pay`, which no law reads, dropped or renamed.
+ * by document; whole, T and S immutable, or probed, both mutable in their document's unit and D joining T to W, in a
+ * unit of its own; T's `pay`, which no law reads, dropped or renamed.
  *
  * Oracle: a specification, read off the shape: the second draft checks no law, and the first checks the rule wherever
  * the schema holds one (a containment of an unselected D is a foreign key, which no check holds).

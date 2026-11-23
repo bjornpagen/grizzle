@@ -876,10 +876,11 @@ const sideReadsAlike = (side: ResolvedSide): boolean =>
  *   its law columns compute the term or the selection in a generated column, where a judged query would negate the
  *   target at a computed value, which the checker refuses, or evaluate the selection at a query's site, which may
  *   refuse it;
- * - any other containment of field terms, one with a selected side or into a target no key holds apart, is whole
- *   where its violation query is unit-local, every relation it reads immutable and both sides joined within one unit
- *   (unit.ts wholeRule), its law columns, their UNIQUE and their index gone with its key, and native where it is not,
- *   which `#reference` refuses into a target no key holds: no UNIQUE the law model may add holds it apart.
+ * - any other containment of field terms, one with a selected side or into a target no key holds apart, is whole where
+ *   its violation query is unit-local, both sides joined within one unit, and every relation it reads immutable or all
+ *   of them in one declared unit (unit.ts wholeRule), its law columns, their UNIQUE and their index gone with its key,
+ *   and native where it is not, which `#reference` refuses into a target no key holds: no UNIQUE the law model may add
+ *   holds it apart.
  */
 const containmentDischarge = (
 	law: TheoryLaw,
