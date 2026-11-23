@@ -396,6 +396,15 @@ export const installedScope = (
 			views: created(snapshot, "materializedView", viewOf),
 			bookkeeping,
 			heads: created(snapshot, "head", tableOf),
+			releasedHeads: new Set(
+				Arr.flatMap(Rec.toEntries(snapshot.theory.relations), ([name, r]) =>
+					r.kind === "relation"
+						? Arr.flatMap(r.fields, (f) =>
+								f.writing === "place" ? [installation.names.head(name, f.name).name] : []
+							)
+						: []
+				)
+			),
 			ledger: ledgerTableName,
 			guarded: created(snapshot, "isolationTrigger", guardedTableOf),
 			functions: new Map<string, InstalledFunction>([

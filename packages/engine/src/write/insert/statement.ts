@@ -54,6 +54,9 @@ export interface WriteNames extends PhysicalNames {
 	/** A clock's or a place's stamp function, by its relation and field (physical/ddl/stamps.ts), which the statement
 	 * that stamps it calls. */
 	readonly stamp: (relation: string, field: string) => ObjectName
+	/** A clock's or a place's head table, by its relation and field (physical/ddl/stamps.ts), whose rows of the groups a
+	 * delete of a place's relation removes it deletes (write/insert/stamp.ts placeReleases). */
+	readonly head: (relation: string, field: string) => ObjectName
 	readonly primaryKey: (relation: string) => ConstraintName
 }
 

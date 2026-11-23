@@ -13,7 +13,7 @@
  * `flaggedKeys`), never by a join of two: a CTE holds no statistics, so PostgreSQL estimates it at a row and may pair
  * every row of one with every row of the other.
  */
-import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	appendNonEmpty,
 	extendNonEmpty,
@@ -65,16 +65,36 @@ import { amongHeld } from "#compiler/write/probe.ts"
 type GroupPair = Family["group"][number]
 
 /**
- * An access path of a relation that binds its own fields: its primary key, every primary field; or a tree's root, its
- * root fields, which the tree relation's primary key leads with (ir/family.ts TreeShape).
+ * An access path of a relation that binds its own fields: its primary key, every primary field; its stated key, every
+ * primary field but a place, which no fact carries and a delete of a place's relation leaves unbound, removing whole
+ * groups (write/frontend/instants.ts Removal); or a tree's root, its root fields, which the tree relation's primary key
+ * leads with (ir/family.ts TreeShape).
  */
 export type Access =
 	| { readonly kind: "key"; readonly relation: RelationInfo }
+	| { readonly kind: "stated"; readonly relation: RelationInfo }
 	| { readonly kind: "root"; readonly relation: RelationInfo; readonly tree: TreeShape }
 
+/** The primary fields of `relation` a fact states: every one but a place. */
+export const statedKey = (relation: RelationInfo): NonEmptyReadonlyArray<LawField> => {
+	const stated = relation.primaryFields.filter((f) => f.writing.kind !== "place")
+	if (!isNonEmpty(stated)) {
+		throw defect(`the primary key of ${relation.name}, a place alone`)
+	}
+	return stated
+}
+
 /** The fields an access path binds, in order. */
-const accessFields = (access: Access): NonEmptyReadonlyArray<LawField> =>
-	access.kind === "key" ? access.relation.primaryFields : access.tree.root
+const accessFields = (access: Access): NonEmptyReadonlyArray<LawField> => {
+	switch (access.kind) {
+		case "key":
+			return access.relation.primaryFields
+		case "stated":
+			return statedKey(access.relation)
+		case "root":
+			return access.tree.root
+	}
+}
 
 /**
  * One hop of a keyed read: a stored relation's rows under `alias`, reached through an access path its installation

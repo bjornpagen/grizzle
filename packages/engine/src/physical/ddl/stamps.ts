@@ -24,9 +24,10 @@
  * format upgraded, fills it (`headFill`): each child's head the greatest value the relation holds at it, so it starts
  * above every stored row; a fresh installation's relation holds none. From then on the stamp function is the head's
  * only writer: a clock is only ever
- * stamped (`clockStated`), a put of a relation with a clock is refused, and a place's relation admits no put and no
- * delete (write/frontend/instants.ts), so every value the relation holds at a child is at most its head. A deleted row
- * leaves the head where it was, and a later stamp is above it too.
+ * stamped (`clockStated`), a put of a relation with a clock is refused, and a place's relation admits no put and a
+ * delete of whole groups alone, which deletes their heads (write/frontend/instants.ts), so every value the relation
+ * holds at a child is at most its head. A clock's deleted row leaves the head where it was, and a later stamp is above
+ * it too.
  *
  * A call stamps each child once: a head its own transaction already wrote, its row's xmin the call's transaction id,
  * stands as it is, so every statement part that stamps the head at a child in one call, a clock's own rows and its
@@ -45,8 +46,11 @@
  * head never wait on each other in a cycle.
  *
  * The function is SECURITY DEFINER, so its caller holds no privilege on the table, and PUBLIC holds no EXECUTE on it: a
- * role that may insert into the head's relation holds EXECUTE on it (physical/ddl/roles.ts), and no role holds any
- * privilege on the table. No relation, law, judge, capture or publication names the table, and certification reads the
+ * role that may insert into the head's relation holds EXECUTE on it (physical/ddl/roles.ts). A place's relation admits a
+ * delete of whole groups alone, which deletes the head of each group it removes in its own statement, so the next
+ * insert into the group stamps 0 again (write/insert/stamp.ts placeReleases): a role that may delete from it holds
+ * SELECT and DELETE on the place's head's table, which lets it do no more than its DELETE on the relation does, a gap in
+ * a group or a refusal at its key; no role holds any other privilege on a head's table. No relation, law, judge, capture or publication names the table, and certification reads the
  * call as one that reads no relation's table (program/isolation/certification.ts).
  */
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
@@ -93,10 +97,12 @@ import { assignments, ungenerated } from "#compiler/sql/generation.ts"
 import { stampClockParam, stampParams } from "#compiler/write/insert/stamp.ts"
 
 /** A head's stamp function as a grant names it and orders after it: its object, and its name with its parameters'
- * types. */
+ * types; and, for a place's head, its table, which a role that deletes from the place's relation deletes the heads of
+ * the groups it removes from (write/insert/stamp.ts placeReleases). */
 export interface StampFunction {
 	readonly node: Node<"structure">
 	readonly name: FunctionName
+	readonly released: ObjectName | undefined
 }
 
 /** A function's argument as its body reads it, by name. */
@@ -339,7 +345,13 @@ export const addStamps = (b: InstallBuilder): ReadonlyMap<string, ReadonlyArray<
 			},
 			[b.levelNode(head.relation), b.table(head.relation)]
 		)
-		out.getOrInsertComputed(head.relation, () => []).push({ node, name: functionNameOf(fn) })
+		out
+			.getOrInsertComputed(head.relation, () => [])
+			.push({
+				node,
+				name: functionNameOf(fn),
+				released: head.kind === "place" ? tableName : undefined
+			})
 	}
 	return out
 }

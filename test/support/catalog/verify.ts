@@ -106,9 +106,15 @@ export interface ErasureExpectation {
 	readonly bookkeeping: ReadonlySet<string>
 	/**
 	 * The heads' tables (physical/ddl/stamps.ts): beside the authored ones, under no isolation guard, written by their
-	 * stamp functions alone, on which no role and no login holds any privilege.
+	 * stamp functions and a place's by the deletes of its whole groups alone, on which no role and no login holds any
+	 * other privilege.
 	 */
 	readonly heads: ReadonlySet<string>
+	/**
+	 * The heads of places among them, on each of which a role that deletes from the place's relation holds SELECT and
+	 * DELETE, deleting the heads of the groups its deletes remove (write/insert/stamp.ts placeReleases).
+	 */
+	readonly releasedHeads: ReadonlySet<string>
 	/** The migrations ledger's table, a bookkeeping table, which every login reads and the live source publishes. */
 	readonly ledger: string
 	/**
@@ -378,6 +384,7 @@ const allowed = {
 	usage: new Set(["USAGE"]),
 	function: new Set(["EXECUTE"]),
 	ledger: new Set(["SELECT"]),
+	releasedHead: new Set(["SELECT", "DELETE"]),
 	none: new Set<string>()
 } as const
 
@@ -595,9 +602,12 @@ const decoderReads = (j: Judging, t: Table, g: HeldGrant): boolean =>
 	g.grantee === j.expect.liveSource.decoder &&
 	g.privilege === "SELECT"
 
-/** What a world role may hold on `t`: nothing on the secret or a head's table, a materialized view's or a table's
- * privileges otherwise. */
+/** What a world role may hold on `t`: nothing on the secret or a clock's head's table, SELECT and DELETE on a place's
+ * head's table, a materialized view's or a table's privileges otherwise. */
 const worldPrivileges = (j: Judging, t: Table): ReadonlySet<string> => {
+	if (j.expect.releasedHeads.has(t.name)) {
+		return allowed.releasedHead
+	}
 	if (isSecret(j, t) || j.expect.heads.has(t.name)) {
 		return allowed.none
 	}

@@ -16,9 +16,9 @@
  *   its clock in that stratum (`clockUnstamped`). A later stratum reads the stamped rows back as stored instants.
  *
  * A place (ir/instant.ts PlaceHead) is stamped as a clock is, by its own head at its group, and refused as PlaceRefused:
- * no put or delete writes its relation (`written`), its group holds no field the same insert stamps (`groupStamped`),
- * and one call stamps it in one statement (`stampedApart`). No member head holds a place, as none holds a field grizzle
- * writes (check/member.ts), so an insert's rows state none.
+ * no put writes its relation, and a delete only where it removes whole groups (`written`, Removal), its group holds no
+ * field the same insert stamps (`groupStamped`), and one call stamps it in one statement (`stampedApart`). No member
+ * head holds a place, as none holds a field grizzle writes (check/member.ts), so an insert's rows state none.
  *
  * What a stratum's statements stamp together is the plan's to keep in one statement (write/schedule/plan.ts).
  */
@@ -45,6 +45,42 @@ const refused = (loc: SourceLoc, relation: string, field: string, rule: InstantR
 /** The refusal of `relation`'s place `field` by `rule`, at `loc`. */
 const placeRefused = (loc: SourceLoc, relation: string, field: string, rule: PlaceRule): never => {
 	throw new Refusal(CompileError.make({ _tag: "PlaceRefused", at: loc, relation, field, rule }))
+}
+
+/**
+ * What a delete removes of its relation's place groups: `groups`, where every field its rows state is a field of the
+ * place's group (PlaceHead `child`), so every group it reaches it removes whole and each group left stays gapless
+ * from 0; `rows` otherwise, which may leave a gap, and for a relation with no place, where it decides nothing.
+ */
+export type Removal = "rows" | "groups"
+
+/** What a delete of `relation` whose rows state the fields `stated` removes of its place's groups (Removal). */
+export const removalOf = (
+	instants: Instants,
+	relation: RelationInfo,
+	stated: ReadonlyArray<string>
+): Removal => {
+	const place = instants.places.get(relation.name)
+	return place !== undefined && stated.every((f) => place.child.some((c) => c.name === f))
+		? "groups"
+		: "rows"
+}
+
+/**
+ * Refuses a delete of a tree's or a family owner's units, removing every row nested under the rows it names, of a
+ * relation whose place it would leave a gap in: one that removes rows of its groups, not whole groups (Removal), as
+ * stampsOf refuses any other delete of a place's relation.
+ */
+export const refuseUnitPlace = (
+	instants: Instants,
+	relation: RelationInfo,
+	removes: Removal,
+	loc: SourceLoc
+): void => {
+	const place = instants.places.get(relation.name)
+	if (place !== undefined && removes === "rows") {
+		placeRefused(loc, relation.name, place.field.name, { kind: "written", op: "delete" })
+	}
 }
 
 /** A stamp's head's spelling in a refusal: its relation and field. */
@@ -79,14 +115,15 @@ export type StampingWriter =
  * What an action of `op` over `relation` stamps, its source delivering `heading`, its rows written by `writer`: the
  * instant fields its insert's rows leave out, each with its stamp source, its relation's place, which an insert always
  * stamps, and `computed`, the fields its insert computes from the call (ir/instant.ts Computed), each its value; none
- * for a put or a delete, which state every instant and write no relation with a place. A head's child may hold a
- * computed field, which every row of the call holds alike, never a field a head stamps. Refused as the module's header
- * says.
+ * for a put or a delete, which state every instant and write a relation with a place only as a delete that `removes`
+ * whole groups. A head's child may hold a computed field, which every row of the call holds alike, never a field a head
+ * stamps. Refused as the module's header says.
  */
 export const stampsOf = (
 	instants: Instants,
 	relation: RelationInfo,
 	op: WriteOp,
+	removes: Removal,
 	heading: Heading,
 	writer: StampingWriter,
 	loc: SourceLoc,
@@ -116,6 +153,9 @@ export const stampsOf = (
 		stamped.push({ field, stamp: { kind: "head", ...role.stamp } })
 	}
 	if (place !== undefined) {
+		if (op === "delete" && removes === "groups") {
+			return stamped
+		}
 		if (op !== "insert") {
 			return placeRefused(loc, relation.name, place.field.name, { kind: "written", op })
 		}

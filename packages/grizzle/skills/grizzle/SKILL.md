@@ -125,7 +125,8 @@ export default defineConfig({
   the bound its query proves, a `Decimal` past it `numericBound`; numeric's own limits are `pg.numeric` (README "Tables
   and types"). A row's place in its group is `place`, last in its primary key after the
   group: an insert leaving it out stamps one past the group's greatest, 0 first, so a group's places are gapless from 0
-  in commit order; no put or delete writes its relation. A nested insert's members carry their owner's stamped place in
+  in commit order; no put writes its relation, and a delete only whole groups, its rows stating fields of the group
+  alone. A nested insert's members carry their owner's stamped place in
   their group, the owner and its members one family statement that stamps it once, and a read-back of the owner's
   `delta.added` returns the place stamped; a generated field over a carried place is PostgreSQL's, a fold, copy or step
   reading one is refused (`UnfillableField`, `stamped`), and two owners of one call in one group meet at the owner's

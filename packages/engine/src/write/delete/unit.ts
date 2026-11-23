@@ -122,6 +122,7 @@ import {
 	rowOf,
 	rowsAmong,
 	rowsWhere,
+	statedKey,
 	storedKey
 } from "#compiler/write/family/keyset.ts"
 import type { Shaped } from "#compiler/write/family/scan.ts"
@@ -138,6 +139,7 @@ import {
 } from "#compiler/write/family/written.ts"
 import type { MemberSlot } from "#compiler/write/frontend/compile.ts"
 import { readInput, type RelationInput, unproved } from "#compiler/write/insert/input.ts"
+import { placeReleases } from "#compiler/write/insert/stamp.ts"
 import {
 	keyFirst,
 	returnedColumn,
@@ -684,7 +686,10 @@ export const unitSql = (
 				)
 				break
 			case "facts": {
-				const rest = match.fields.filter((f) => !unit.relation.primaryFields.includes(f))
+				/** The rows its facts name, reached at their stated key: the primary key but a place, whose every group a
+				 * delete of a place's relation removes whole (write/frontend/instants.ts Removal). */
+				const stated = statedKey(unit.relation)
+				const rest = match.fields.filter((f) => !stated.includes(f))
 				doom(
 					unit.relation,
 					undefined,
@@ -692,7 +697,7 @@ export const unitSql = (
 					[
 						{
 							held,
-							hops: [{ kind: "key", relation: unit.relation, alias: t, at }],
+							hops: [{ kind: "stated", relation: unit.relation, alias: t, at }],
 							where: isNonEmpty(rest)
 								? factEq(
 										{
@@ -773,6 +778,15 @@ export const unitSql = (
 				using: [cteRefAs(found.removed.name, k)],
 				where: conjunction([rowAt(k, found.removed, t), rowsAmong(supply, found.removed, t)]),
 				returning: returned.map((x) => targetAs(stored(t, relation, x.field), x.alias))
+			}),
+			/** The heads of the place groups it removed, which go with them (write/insert/stamp.ts placeReleases). */
+			...placeReleases(w, supply, relation, {
+				cte: del,
+				column: (f) =>
+					defined(
+						returned.find((x) => x.field === f),
+						`the returned column of ${relation.name}.${f.name}`
+					).alias
 			})
 		)
 		return {

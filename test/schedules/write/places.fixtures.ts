@@ -2,12 +2,12 @@
 
 import { deepEquals } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
-import { constant, element, type Gen } from "@bjornpagen/testing/gen"
+import { constant, element, type Gen, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Option, Order, Result } from "effect"
 import type { CallError, WriteOutcome } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { drawn, natural, pg, place } from "#compiler/public/fields.ts"
-import { query, v } from "#compiler/public/query.ts"
+import { param, query, v } from "#compiler/public/query.ts"
 import { fin, key, login, on, ordered, relation, role, schema } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import type { WriteAnswer } from "#test/support/calls.ts"
@@ -291,3 +291,109 @@ export const stampedDeparture = (
 		? undefined
 		: `B reads back the sessions it added at the places stamped: ${Formatter.format(expected)}: ${Formatter.format(rows)}`
 }
+
+/** A child's note of an item at its place `n` within the child's item: a place's relation that owns no family. */
+export const Note = relation(
+	"Note",
+	{ child: pg.integer, item: pg.integer, n: place, w: pg.integer },
+	["child", "item", "n"]
+)
+
+/**
+ * The schema of the clearing property: Session and its marks, and Note, which owns no family; the role `writer`, which
+ * inserts them, and `clearer`, which deletes whole groups of either, an item of a child's sessions with their marks or
+ * its notes, by the place's group (write/frontend/instants.ts Removal), a Session's through its owner's units and a
+ * Note's by its exact rows, in one login.
+ */
+export const cleared = (name: string) => {
+	const base = schema(
+		name,
+		[Session, Mark, Note],
+		[
+			key(on(Session, "child", "item", "stage")),
+			ordered(on(Mark, "child", "item", "n", "at"), fin(Session, "marks"))
+		]
+	)
+	const writer = role(
+		base,
+		"writer",
+		{ Session, Mark, Note },
+		{ insert: ["Session", "Mark", "Note"] }
+	)
+	const clearer = role(
+		base,
+		"clearer",
+		{ Session, Mark, Note },
+		{ write: ["Session", "Mark", "Note"] }
+	)
+	const direct = role(base, "direct", { Session, Mark, Note })
+	return {
+		schema: base,
+		writer,
+		clearer,
+		direct,
+		server: login(base, "server", [writer, clearer], {
+			workload: [
+				workload(writer, {
+					stamp: ChangeSet.empty(base).insert(Session, []),
+					note: ChangeSet.empty(base).insert(Note, [])
+				}),
+				workload(clearer, {
+					clear: ChangeSet.empty(base).deleteWhere({
+						Session: { child: param("child", pg.integer), item: param("item", pg.integer) }
+					}),
+					clearNotes: ChangeSet.empty(base).deleteWhere({
+						Note: { child: param("child", pg.integer), item: param("item", pg.integer) }
+					})
+				})
+			]
+		}),
+		psql: login(base, "psql", [direct])
+	}
+}
+
+/** The clearing property's installation made once per member, which each case's clone holds. */
+export const clearedRig = rigTemplate(import.meta, "cleared", cleared)
+
+/** A clearing case: the relation it clears, each item's places before it, at least one, and the items it clears, at
+ * least one. */
+export interface Clearing {
+	readonly relation: "Session" | "Note"
+	readonly heads: { readonly 1: 1 | 2; readonly 2: 1 | 2 }
+	readonly cleared: ReadonlyArray<1 | 2>
+}
+
+export const clearingGen: Gen<Clearing> = (source) => ({
+	relation: source.draw(element(["Session", "Note"] as const)),
+	heads: {
+		1: source.draw(element([1, 2] as const)),
+		2: source.draw(element([1, 2] as const))
+	},
+	cleared: source.draw(subset([1, 2] as const, { min: 1, max: 2 }))
+})
+
+export type ClearingFeature =
+	| "an owner's groups cleared"
+	| "a plain relation's groups cleared"
+	| "one item cleared"
+	| "both items cleared"
+	| "a cleared item over two places"
+
+export const clearingFeatures = (c: Clearing): ReadonlyArray<ClearingFeature> => [
+	c.relation === "Session" ? "an owner's groups cleared" : "a plain relation's groups cleared",
+	c.cleared.length === 1 ? "one item cleared" : "both items cleared",
+	...(Arr.some(c.cleared, (item) => c.heads[item] === 2)
+		? ["a cleared item over two places" as const]
+		: [])
+]
+
+/** The stored rows of a clearing case's relation: each item's places 0 on, a Session's at stages 100 on nesting no
+ * mark, a Note's at 100 on, as SQL row literals. */
+export const clearingRows = (c: Clearing): ReadonlyArray<string> =>
+	Arr.flatMap([1, 2] as const, (item) =>
+		Array.from({ length: c.heads[item] }, (_, n) =>
+			c.relation === "Session"
+				? `(1, ${item}, ${n}, ${100 + n}, 0)`
+				: `(1, ${item}, ${n}, ${100 + n})`
+		)
+	)

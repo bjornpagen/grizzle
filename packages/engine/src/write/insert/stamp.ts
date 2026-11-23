@@ -42,12 +42,13 @@ import {
 	sameStamp,
 	type Stamped
 } from "#compiler/ir/instant.ts"
-import type { LawField } from "#compiler/ir/law.ts"
+import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
 import { fieldColumnType } from "#compiler/ir/physical.ts"
 import { emptyEnv } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import type {
 	Cte,
+	Delete,
 	Expr,
 	FromItem,
 	FunctionParam,
@@ -64,7 +65,9 @@ import {
 	cast,
 	col,
 	core,
+	cte,
 	cteRef,
+	cteRefAs,
 	derived,
 	distinctCore,
 	eq,
@@ -78,6 +81,7 @@ import {
 } from "#compiler/sql/build.ts"
 import type { NameSupply } from "#compiler/sql/naming.ts"
 import type { FieldColumns } from "#compiler/write/defined.ts"
+import { statedKey } from "#compiler/write/family/keyset.ts"
 import { written } from "#compiler/write/family/written.ts"
 import type { WriteContext } from "#compiler/write/insert/statement.ts"
 
@@ -389,4 +393,62 @@ export const stampedInput = (
 		...stampCtes,
 		{ name: out.name, columns: out.columns.columns, materialized: undefined, query: whole }
 	]
+}
+
+/**
+ * The CTE that deletes the heads of the place groups the rows a delete removed belong to (physical/ddl/stamps.ts), none
+ * for a relation with no place: a delete of a place's relation removes whole groups (write/frontend/instants.ts
+ * Removal), so every group the delete reaches is gone, and its head goes with it, the next insert into the group
+ * stamping its first place, 0, again. `removed` is the delete's own CTE, its RETURNING each removed row's fields under
+ * `column`; a data-modifying CTE runs whether or not the statement reads it.
+ *
+ *   "<name>" AS (DELETE FROM "<level>"."<head>" AS "<h>"
+ *     USING (SELECT DISTINCT "<removed>"."<g1>", … FROM "<removed>") AS "<d>"("<c1>", …)
+ *     WHERE "<h>"."<g1>" = "<d>"."<c1>" AND …)
+ */
+export const placeReleases = (
+	w: WriteContext,
+	supply: NameSupply,
+	relation: RelationInfo,
+	removed: { readonly cte: string; readonly column: (field: LawField) => string }
+): ReadonlyArray<Cte> => {
+	const place = relation.fields.find((f) => f.writing.kind === "place")
+	if (place === undefined) {
+		return []
+	}
+	const group = statedKey(relation)
+	const held = supply.relation(internal("released head"))
+	const groups = supply.relation(internal("released groups"))
+	const from = supply.relation(internal("removed row"))
+	const columns = mapNonEmpty(group, () => supply.column(internal("released group")))
+	const release: Delete = {
+		kind: "delete",
+		with: undefined,
+		table: w.names.head(relation.name, place.name),
+		alias: held,
+		using: [
+			derived(
+				operandSelect(
+					distinctCore(
+						mapNonEmpty(group, (f) => target(col(from, removed.column(f)))),
+						[cteRefAs(removed.cte, from)],
+						undefined
+					)
+				),
+				groups,
+				columns,
+				false
+			)
+		],
+		where: and(
+			mapNonEmpty(group, (f, i) =>
+				eq(
+					col(held, w.names.column(relation.name, f.name)),
+					col(groups, defined(columns[i], "a released group's column"))
+				)
+			)
+		),
+		returning: []
+	}
+	return [cte(supply.relation(internal("place release")), [], release)]
 }

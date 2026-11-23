@@ -45,9 +45,9 @@
  * call, and a session nesting marks or none.
  */
 
-import { assert } from "@bjornpagen/testing/assert"
+import { assert, deepEquals } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
-import { aimed } from "@bjornpagen/testing/gen"
+import { aimed, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Fiber, Formatter, Option, Order, Result } from "effect"
 import { openServed } from "#adapter/db/served.ts"
@@ -56,11 +56,19 @@ import {
 	aims,
 	type Answered,
 	callRows,
+	type Clearing,
+	type ClearingFeature,
+	cleared,
+	clearedRig,
+	clearingFeatures,
+	clearingGen,
+	clearingRows,
 	departureAt,
 	Gate,
 	type Items,
 	Mark,
 	marksDeparture,
+	Note,
 	meets,
 	type PlaceFeature,
 	places,
@@ -319,4 +327,139 @@ export const twoWritersStampingOneGroupsPlaceStampItsPlacesGaplessFromItsHeadInT
 		budget: { runs: 100, steered: 100 },
 		kept: [],
 		kills: []
+	})
+
+/** A delete of a place's whole groups deletes their heads with them, so each group it cleared stamps its first place, 0, again, and every other group goes on from its head. */
+export const aDeleteOfAPlacesWholeGroupsDeletesTheirHeadsSoEachClearedGroupStampsItsFirstPlaceAgain =
+	property.exhaust(finite(clearingGen), {
+		needs: { rigged: Substrate.freshOf(clearedRig) },
+		situations: [
+			"an owner's groups cleared",
+			"a plain relation's groups cleared",
+			"one item cleared",
+			"both items cleared",
+			"a cleared item over two places"
+		] satisfies ReadonlyArray<Reached<ClearingFeature>>,
+		check:
+			({ rigged }, k: Case<ClearingFeature>) =>
+			(c: Clearing) =>
+				Effect.scoped(
+					Effect.flatMap(rigged, (taken) =>
+						Effect.provideService(
+							Effect.gen(function* () {
+								k.noteAll(clearingFeatures(c))
+								const s = yield* Substrate
+								const rig = yield* rigIn(taken, cleared)
+								const names = namesOf(rig.installed)
+								const owner = c.relation === "Session"
+								const table = owner ? names.table(Session) : names.table(Note)
+								const column = (field: "child" | "item" | "n") =>
+									owner ? names.column(Session, field) : names.column(Note, field)
+								const columns = owner
+									? `${column("child")}, ${column("item")}, ${column("n")}, ${names.column(Session, "stage")}, ${names.column(Session, "marks")}`
+									: `${column("child")}, ${column("item")}, ${column("n")}, ${names.column(Note, "w")}`
+								yield* rig.replace([
+									`INSERT INTO ${table} (${columns}) VALUES ${Arr.join(clearingRows(c), ", ")}`
+								])
+								const clearer = yield* rig.servedWriter(
+									"clearer",
+									(context) =>
+										openServed(rig.served.roles.clearer, {}).pipe(Effect.provideContext(context)),
+									(db) =>
+										writeAnswerOf(
+											db.workload.clear.once({ params: { child: 1, item: 0 }, facts: {} })
+										)
+								)
+								const writer = yield* rig.servedWriter(
+									"writer",
+									(context) =>
+										openServed(rig.served.roles.writer, {}).pipe(Effect.provideContext(context)),
+									(db) =>
+										writeAnswerOf(
+											db.workload.stamp.once({ params: {}, facts: { insert: { Session: [] } } })
+										)
+								)
+								const clears = yield* Effect.forEach(c.cleared, (item) =>
+									(owner
+										? clearer.db.workload.clear.once({ params: { child: 1, item }, facts: {} })
+										: clearer.db.workload.clearNotes.once({ params: { child: 1, item }, facts: {} })
+									).pipe(writeAnswerOf, untilAnswered)
+								)
+								const items = [1, 2] as const
+								const stamped = yield* (
+									owner
+										? writer.db.workload.stamp.once({
+												params: {},
+												facts: {
+													insert: {
+														Session: Arr.map(items, (item) => ({
+															child: 1,
+															item,
+															stage: 30 + item,
+															marks: []
+														}))
+													}
+												}
+											})
+										: writer.db.workload.note.once({
+												params: {},
+												facts: {
+													insert: {
+														Note: Arr.map(items, (item) => ({ child: 1, item, w: 30 + item }))
+													}
+												}
+											})
+								).pipe(writeAnswerOf, untilAnswered)
+								const placed = yield* Effect.map(
+									s.admin.queryValues(
+										`SELECT ${column("item")}::text, ${column("n")}::text FROM ${table} WHERE ${owner ? names.column(Session, "stage") : names.column(Note, "w")} < 100 ORDER BY 1`,
+										[]
+									),
+									(rows) => Arr.map(rows, (row) => [Number(row[0]), Number(row[1])] as const)
+								)
+								const expected = Arr.map(
+									items,
+									(item) => [item, Arr.contains(c.cleared, item) ? 0 : c.heads[item]] as const
+								)
+								const added = (x: Answered): bigint =>
+									Result.isSuccess(x.ran) && x.ran.success.kind === "accepted"
+										? Arr.reduce(x.ran.success.counts, 0n, (n, count) => n + count.added)
+										: 0n
+								const departures = Arr.filter(
+									[
+										...Arr.map(clears, (x, at) =>
+											Result.isSuccess(x.ran) && x.ran.success.kind === "accepted"
+												? undefined
+												: `the clear of item ${String(c.cleared[at])} is accepted: ${Formatter.format(x.ran)}`
+										),
+										added(stamped) === 2n
+											? undefined
+											: `the stamp after the clears adds its two rows: ${Formatter.format(stamped.ran)}`,
+										deepEquals(placed, expected)
+											? undefined
+											: `each cleared item stamps 0 again and every other its head: ${Formatter.format(expected)}: ${Formatter.format(placed)}`
+									],
+									(d): d is string => d !== undefined
+								)
+								assert.deepEqual(departures, [], "a cleared group starts its places again at 0")
+							}),
+							Substrate,
+							taken.substrate
+						)
+					)
+				),
+		oracle: {
+			kind: "specification",
+			name: "README's Places: a delete of a place's relation removes whole groups and their heads, so a cleared group's next place is 0, as a group never stamped's"
+		},
+		box: "Session, an owner of its marks, or Note, which owns no family: items 1 and 2 of child 1, each over one or two stored places, one or both cleared by deleteWhere at the place's group, then one row stamped at each",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/write/insert/stamp.ts",
+				original: '\treturn [cte(supply.relation(internal("place release")), [], release)]\n',
+				replacement: "\treturn []\n",
+				why: "A delete of whole groups leaves their heads, so a cleared group's next insert stamps one past its old head, not 0, and the cleared item's place departs."
+			}
+		]
 	})

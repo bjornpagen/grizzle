@@ -4,7 +4,7 @@ import { int as between, element, type Gen, map } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import type { PlaceRule } from "#compiler/core/causes.ts"
 import { drawn, instant, natural, type PlaceField, pg, place } from "#compiler/public/fields.ts"
-import { query, v } from "#compiler/public/query.ts"
+import { param, query, v } from "#compiler/public/query.ts"
 import { contained, fin, key, on, ordered, relation, schema } from "#compiler/public/schema.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
@@ -22,6 +22,18 @@ const Session = relation(
 	{ child: pg.integer, item: pg.integer, n: place.by("stage"), stage: instant },
 	["child", "item", "n"]
 )
+/** A child's turn at its place `n`, its moves its ordered family: an owner whose delete removes its moves with it. */
+const Turn = relation(
+	"Turn",
+	{ child: pg.integer, n: place, x: pg.integer, moves: drawn(natural) },
+	["child", "n"]
+)
+/** A move of a turn, at its place among the turn's moves. */
+const Move = relation(
+	"Move",
+	{ child: pg.integer, n: natural, at: drawn(natural), y: pg.integer },
+	["child", "n", "at"]
+)
 /** A mark at its place within a group that holds a clock: `at`, of child `child`. */
 const Mark = relation("Mark", { child: pg.integer, at: instant, n: place.by("x"), x: pg.integer }, [
 	"child",
@@ -31,8 +43,9 @@ const Mark = relation("Mark", { child: pg.integer, at: instant, n: place.by("x")
 
 export const Placed = schema(
 	"Placed",
-	[Stage, Session, Mark],
+	[Stage, Session, Mark, Turn, Move],
 	[
+		ordered(on(Move, "child", "n", "at"), fin(Turn, "moves")),
 		contained(on(Session, "child", "stage"), on(Stage, "child", "at")),
 		key(on(Session, "child", "item", "stage")),
 		key(on(Mark, "child", "at", "x"))
@@ -57,6 +70,10 @@ const sessionAt = query(Placed).rule((r) => {
 		.match(Stage, { child, at })
 		.find({ child, item: r.param("item", pg.integer), n: r.param("n", natural), stage: at })
 })
+/** A turn's fields but its place and its moves. */
+const turn = query(Placed).rule((r) =>
+	r.find({ child: r.param("child", pg.integer), x: r.param("x", pg.integer) })
+)
 /** A mark's fields but its clock and its place. */
 const mark = query(Placed).rule((r) =>
 	r.find({ child: r.param("child", pg.integer), x: r.param("x", pg.integer) })
@@ -119,6 +136,29 @@ const writeCases: readonly [PlaceWriteCase, ...ReadonlyArray<PlaceWriteCase>] = 
 		name: "a delete of its relation",
 		changeSet: () => empty.delete(Session, sessionOfStored),
 		verdict: refusedAt("Session", { kind: "written", op: "delete" })
+	},
+	{
+		name: "a delete of its relation's whole groups, by a field of its group",
+		changeSet: () => empty.deleteWhere({ Session: { child: param("child", pg.integer) } }),
+		verdict: compiled
+	},
+	{
+		name: "a delete of its relation's whole groups, by its group's every field",
+		changeSet: () =>
+			empty.deleteWhere({
+				Session: { child: param("child", pg.integer), item: param("item", pg.integer) }
+			}),
+		verdict: compiled
+	},
+	{
+		name: "a delete of a family owner's whole groups, its members with them",
+		changeSet: () => empty.deleteWhere({ Turn: { child: param("child", pg.integer) } }),
+		verdict: compiled
+	},
+	{
+		name: "a delete of a family owner's rows",
+		changeSet: () => empty.delete(Turn, turn),
+		verdict: refusedAt("Turn", { kind: "written", op: "delete" })
 	},
 	{
 		name: "a place whose group the insert stamps",

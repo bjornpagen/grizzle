@@ -101,7 +101,10 @@ import type { UnitDelete, UnitMatch, UnitMember, UnitSource } from "#compiler/wr
 import { type NestedLayout, type Nesting, nestingOf } from "#compiler/write/family/nesting.ts"
 import { endColumns, memberFamilies } from "#compiler/write/family/statements.ts"
 import {
+	type Removal,
 	refuseStampsApart,
+	refuseUnitPlace,
+	removalOf,
 	type StampingAction,
 	stampsOf
 } from "#compiler/write/frontend/instants.ts"
@@ -829,6 +832,8 @@ interface CheckedMember {
 	readonly op: WriteOp
 	readonly target: CheckedTarget
 	readonly loc: SourceLoc
+	/** What its delete removes of its relation's place groups (write/frontend/instants.ts Removal). */
+	readonly removes: Removal
 	/** Its Description as the planner reads it: a field-equality member's its query's. */
 	readonly planned: PlannedMemberDesc
 	readonly source:
@@ -874,6 +879,9 @@ interface Draft {
 	readonly carried: Heading
 	readonly reads: DraftReads
 	readonly entry: DraftEntry
+	/** What its delete removes of its relation's place groups: every member's, `groups` only where each removes whole
+	 * groups (write/frontend/instants.ts Removal). */
+	readonly removes: Removal
 	/** The fields its host rows leave out that the call computes, each filled by the call's value (ir/instant.ts Stamp
 	 * `call`); none for a described member's rows, which state every field. */
 	readonly computed: ReadonlyArray<Stamped>
@@ -888,6 +896,8 @@ interface UnitDraft {
 	readonly heading: Heading
 	readonly slot: MemberSlot | undefined
 	readonly roots: ReadonlyArray<RelNode>
+	/** What it removes of its relation's place groups (write/frontend/instants.ts Removal). */
+	readonly removes: Removal
 	readonly loc: SourceLoc
 }
 
@@ -1124,6 +1134,7 @@ const compile = (
 					laws.theory.instants,
 					relation,
 					"insert",
+					"rows",
 					relation.fields
 						.filter(
 							(f) =>
@@ -1668,11 +1679,19 @@ const compile = (
 							}
 						: relation
 			const source = member.member
+			/** What a delete of the member removes of its relation's place groups, by the fields its rows state: a
+			 * field-equality member's equated fields, any other member's written heading. */
+			const removes = removalOf(
+				laws.theory.instants,
+				relation,
+				source.kind === "equal" ? Object.keys(source.fields) : written.heading.map((c) => c.name)
+			)
 			if (source.kind === "array" || source.kind === "stream") {
 				return {
 					op: member.op,
 					target,
 					loc,
+					removes,
 					planned: { op: member.op, relation: member.relation, member: source, loc },
 					source: { kind: "enumerated", member: source }
 				}
@@ -1699,6 +1718,7 @@ const compile = (
 				op: member.op,
 				target,
 				loc,
+				removes,
 				planned: {
 					op: member.op,
 					relation: member.relation,
@@ -1956,6 +1976,8 @@ const compile = (
 			})
 			for (const { op, ofOp } of ops) {
 				const firstOfOp = headNonEmpty(ofOp)
+				/** What the operation removes of its relation's place groups: whole groups only where every member does. */
+				const removes: Removal = ofOp.every((m) => m.removes === "groups") ? "groups" : "rows"
 				const enumerated = ofOp.flatMap((m) =>
 					m.source.kind === "enumerated" ? [m.source.member] : []
 				)
@@ -2070,6 +2092,7 @@ const compile = (
 							carried,
 							reads,
 							entry: target,
+							removes,
 							loc: site,
 							computed
 						})
@@ -2088,6 +2111,7 @@ const compile = (
 						carried,
 						reads,
 						entry: { kind: "entry", entry: target.entry, fill },
+						removes,
 						loc: site,
 						computed
 					})
@@ -2184,6 +2208,7 @@ const compile = (
 								heading: named,
 								slot: singleInput(act, named, named),
 								roots: queries.map((q) => q.root),
+								removes,
 								loc
 							})
 							break
@@ -2357,7 +2382,7 @@ const compile = (
 	const builtByStratum = draftsByStratum.map(({ stratum, drafts, outside }) => ({
 		stratum,
 		outside,
-		built: drafts.map(({ act, relation, carried, reads, entry, loc, computed }): Built => {
+		built: drafts.map(({ act, relation, carried, reads, entry, removes, loc, computed }): Built => {
 			/** The source, what it reads and the heading it delivers: the slot alone; one described member's query alone;
 			 * or the Union of the slot's InputSet and of every described member's query. A query entry's sources, in its
 			 * facts, fill its fill's relation parameter, and the fill is the source. */
@@ -2408,6 +2433,7 @@ const compile = (
 					laws.theory.instants,
 					relation,
 					act.op,
+					removes,
 					read.heading,
 					entry.kind === "whole"
 						? managed(relation.name) || nests(relation.name)
@@ -2449,6 +2475,7 @@ const compile = (
 		stratum,
 		below,
 		units: units.map((unit): UnitDelete => {
+			refuseUnitPlace(laws.theory.instants, unit.relation, unit.removes, unit.loc)
 			const [firstRoot, ...moreRoots] = unit.roots
 			const source: UnitSource =
 				firstRoot === undefined

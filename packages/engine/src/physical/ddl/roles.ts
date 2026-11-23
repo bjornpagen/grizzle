@@ -74,6 +74,16 @@ import type { StampFunction } from "#compiler/physical/ddl/stamps.ts"
 /** A function a role executes beside its statements' own: a retirable unit's hold or retirement, a head's stamp
  * function, or a declared function its served programs call. */
 type CalledFunction = UnitFunction | StampFunction | InstalledFunction
+
+/**
+ * What a role holds beside its statements' own objects: EXECUTE on each function it calls, and SELECT and DELETE on the
+ * head table of each place of a relation it deletes from, whose deletes delete the heads of the groups they remove
+ * (write/insert/stamp.ts placeReleases).
+ */
+interface Held {
+	readonly called: ReadonlyArray<CalledFunction>
+	readonly released: ReadonlyArray<{ readonly node: Node<"structure">; readonly table: ObjectName }>
+}
 import {
 	derivedReading,
 	type LoweredDefinition,
@@ -1275,7 +1285,7 @@ const addRole = (
 	{ theory: named, checked }: CheckedRole,
 	login: { readonly role: string; readonly object: Node<"publish"> },
 	carried: RoleCarriers | undefined,
-	held: ReadonlyArray<CalledFunction>
+	{ called: held, released }: Held
 ): RoleOutcome => {
 	const role = checked.world.role
 	const theory = b.name(named)
@@ -1502,6 +1512,14 @@ const addRole = (
 			grant(["EXECUTE"], { kind: "FUNCTION", names: mapNonEmpty(held, (h) => h.name) })
 		)
 	}
+	if (isNonEmpty(released)) {
+		privileges.push(
+			grant(["SELECT", "DELETE"], {
+				kind: "TABLE",
+				names: mapNonEmpty(released, (r) => r.table)
+			})
+		)
+	}
 	b.add(
 		{
 			kind: "privileges",
@@ -1510,7 +1528,13 @@ const addRole = (
 			reasons: why,
 			phase: "publish"
 		},
-		[...after, ...usedNodes(use), ...executes.map((e) => e.node), ...held.map((h) => h.node)]
+		[
+			...after,
+			...usedNodes(use),
+			...executes.map((e) => e.node),
+			...held.map((h) => h.node),
+			...released.map((r) => r.node)
+		]
 	)
 	return {
 		installed: { name: role.name, role: theory, schema },
@@ -1526,7 +1550,7 @@ const addLogin = (
 	{ login, roles }: CheckedLogin,
 	carriers: ReadonlyArray<RoleCarriers>,
 	fenced: ReadonlyArray<string>,
-	held: (role: CheckedRole) => ReadonlyArray<CalledFunction>
+	held: (role: CheckedRole) => Held
 ): {
 	readonly installed: InstalledLogin
 	readonly vector: boolean
@@ -1766,7 +1790,9 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
  *   calls before it touches it, and on the retirement function of each unit whose header its `retire` list names, which
  *   its ChangeSets' retire members call; no role holds EXECUTE on any other unit function. EXECUTE on the stamp
  *   function of each head of a relation it holds INSERT on (physical/ddl/stamps.ts addStamps), which each of its inserts
- *   that stamps the head calls; no role holds any privilege on a head's table.
+ *   that stamps the head calls; SELECT and DELETE on the head table of each place of a relation it holds DELETE on, which
+ *   each of its deletes, removing whole groups, deletes the groups' heads of (write/insert/stamp.ts placeReleases); no
+ *   role holds any other privilege on a head's table.
  *
  * Row security is enabled on exactly the tables some role writes through a query entry with a filter, once their
  * policies stand, `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`; its owner, the migration identity, bypasses it, and FORCE
@@ -1808,10 +1834,12 @@ export const addWorlds = (
 		/** The functions a role calls: the hold of each unit its served workload holds, the retirement of each unit
 		 * whose header its retire list names, the stamp function of each head of a relation its grants let it insert
 		 * into (grantedPrivileges), which every insert of the relation that stamps the head calls, and each declared
-		 * function its served programs call. */
-		const held = ({ checked }: CheckedRole): ReadonlyArray<CalledFunction> => {
+		 * function its served programs call; and the head of each place of a relation its grants let it delete from,
+		 * which its deletes delete the removed groups' heads of. */
+		const held = ({ checked }: CheckedRole): Held => {
 			const role = checked.world.role
-			return [
+			const granted = [...grantedPrivileges(b.model, checked)]
+			const called = [
 				...holds.flatMap((h) =>
 					h.login === login.login.name && h.role === role.name
 						? [defined(units.get(h.header), `the hold function of retirable ${h.header}`).hold]
@@ -1821,7 +1849,7 @@ export const addWorlds = (
 					(header) =>
 						defined(units.get(header), `the retirement function of retirable ${header}`).retire
 				),
-				...[...grantedPrivileges(b.model, checked)].flatMap(([relation, privileges]) =>
+				...granted.flatMap(([relation, privileges]) =>
 					privileges.has("INSERT") ? (stamps.get(relation) ?? []) : []
 				),
 				...calls.calls.flatMap((c) =>
@@ -1830,6 +1858,14 @@ export const addWorlds = (
 						: []
 				)
 			]
+			const released = granted.flatMap(([relation, privileges]) =>
+				privileges.has("DELETE")
+					? (stamps.get(relation) ?? []).flatMap((f) =>
+							f.released === undefined ? [] : [{ node: f.node, table: f.released }]
+						)
+					: []
+			)
+			return { called, released }
 		}
 		const added = addLogin(
 			b,

@@ -4,16 +4,18 @@
  * ordered by another field under a key within the group and that field, and refuses every other as PlaceRefused, naming
  * the key the group and the field would be; a place's order is read by a migration alone, so an unordered place
  * installs and writes exactly as its twin ordered by a field; a write (write/frontend/instants.ts stampsOf) stamps a
- * place an insert leaves out, and refuses a put or a delete of its relation, a place whose group the same insert
- * stamps, and a place stamped in two strata, and an insert stating one is refused as no member head holds a field
- * grizzle writes (check/member.ts).
+ * place an insert leaves out, and refuses a put of its relation, a delete but one of whole groups, every field its rows
+ * state a field of the place's group (write/frontend/instants.ts Removal), a family owner's among them, a place whose
+ * group the same insert stamps, and a place stamped in two strata, and an insert stating one is refused as no member
+ * head holds a field grizzle writes (check/member.ts).
  *
  * The boxes, exhausted: Session(child, item, n, stage, note) with n a place unordered or by `stage`, `when` or `n`, keyed
  * (child, item, n), (child, item, note), (n, child, item) or (child, n, item), beside the keys (child, item, stage),
  * (child, item), (child, note) and (item, stage, note) or none, its verdict README's rule (places.fixtures.ts
  * refusalOf); twins of a group of one or two fields keyed by the group and their order field or the group alone; and a
  * schema of Stage's clock, Session's place, its stage a reference to Stage's clock, and Mark's place within a group
- * holding Mark's own clock, each write case one ChangeSet built as a JavaScript caller builds it
+ * holding Mark's own clock, and Turn's place, the owner of its moves' sequence, each write case one ChangeSet built as
+ * a JavaScript caller builds it
  * (write/changeset/value.ts), so the shapes the types refuse are reached too.
  */
 
@@ -180,8 +182,8 @@ export const aPlaceThatStatesNoOrderCompilesAndStampsExactlyAsOneOrderedByAField
 	}
 )
 
-/** A ChangeSet stamps a place its insert leaves out and writes its relation by insert alone, each refusal naming its rule. */
-export const aChangeSetStampsAPlaceItsInsertLeavesOutAndWritesItsRelationByInsertAloneEachRefusalNamingItsRule =
+/** A ChangeSet stamps a place its insert leaves out and writes its relation by insert, and by a delete of whole groups alone, each refusal naming its rule. */
+export const aChangeSetStampsAPlaceItsInsertLeavesOutAndWritesItsRelationByInsertAndByDeletesOfWholeGroupsAloneEachRefusalNamingItsRule =
 	property.exhaust(finite(placeWriteGen), {
 		needs: {},
 		situations: [
@@ -220,7 +222,7 @@ export const aChangeSetStampsAPlaceItsInsertLeavesOutAndWritesItsRelationByInser
 			kind: "specification",
 			name: "the rules of how a write writes a place, stated per case (places.fixtures.ts writeCases)"
 		},
-		box: "Session's place beside Stage's clock and Mark's place within a group its own clock stamps, each case one ChangeSet inserting Session from host rows or a query leaving its place out or stating it, putting or deleting it, inserting Mark, or inserting Session in two strata",
+		box: "Session's place beside Stage's clock, Mark's place within a group its own clock stamps and Turn's place owning its moves, each case one ChangeSet inserting Session from host rows or a query leaving its place out or stating it, putting or deleting it, deleting whole groups of Session or of Turn by fields of their groups, deleting Turn's rows, inserting Mark, or inserting Session in two strata",
 		kept: [],
 		kills: [
 			{
@@ -228,6 +230,18 @@ export const aChangeSetStampsAPlaceItsInsertLeavesOutAndWritesItsRelationByInser
 				original: '\t\tif (op !== "insert") {\n\t\t\treturn placeRefused(',
 				replacement: "\t\tif (false) {\n\t\t\treturn placeRefused(",
 				why: "A put or a delete may write a place's relation, which would state a place or leave a gap, so both compile where the rule refuses them."
+			},
+			{
+				file: "packages/engine/src/write/frontend/instants.ts",
+				original: '\t\tif (op === "delete" && removes === "groups") {\n',
+				replacement: "\t\tif (false) {\n",
+				why: "Every delete of a place's relation is refused, whole groups and all, so the deletes of Session's whole groups are refused where the rule admits them."
+			},
+			{
+				file: "packages/engine/src/write/frontend/instants.ts",
+				original: '\tif (place !== undefined && removes === "rows") {\n',
+				replacement: "\tif (false) {\n",
+				why: "A family owner's delete of rows of its place's groups goes unrefused, leaving a gap, so the delete of Turn's rows compiles where the rule refuses it."
 			},
 			{
 				file: "packages/engine/src/check/member.ts",

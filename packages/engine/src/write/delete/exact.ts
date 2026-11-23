@@ -31,6 +31,7 @@ import {
 import type { NameSupply } from "#compiler/sql/naming.ts"
 import { type FieldColumns, fieldColumns } from "#compiler/write/defined.ts"
 import type { DeleteAnchor } from "#compiler/write/delete/anchor.ts"
+import { statedKey } from "#compiler/write/family/keyset.ts"
 import { primaryKeyShape } from "#compiler/write/frontend/targets.ts"
 import {
 	inputNeeds,
@@ -39,6 +40,7 @@ import {
 	uncarriedKeyGenerations,
 	type WriteInput
 } from "#compiler/write/insert/input.ts"
+import { placeReleases } from "#compiler/write/insert/stamp.ts"
 import { type HeldKey, joinedAtKey, keyedAmong } from "#compiler/write/probe.ts"
 
 import {
@@ -97,9 +99,11 @@ interface DeleteMatch {
 }
 
 /** The deletion statement: the DELETE of `relation` under alias `r3` as the data-modifying CTE `r2`, after the CTEs
- * it reads, returning the complete facts it removed into `returned`, and the outer SELECT of their result texts. */
+ * it reads, returning the complete facts it removed into `returned`, the heads of the place groups it removed deleted
+ * beside it, and the outer SELECT of their result texts. */
 const deletion = (
 	w: WriteContext,
+	supply: NameSupply,
 	relation: RelationInfo,
 	mode: DeleteResult["mode"],
 	names: { readonly r2: string; readonly r3: string; readonly returned: FieldColumns<string> },
@@ -136,10 +140,20 @@ const deletion = (
 		fields: fieldNames(outFields),
 		key: relation.primaryKey
 	}
+	/** The heads of the place groups it removed, which go with them (write/insert/stamp.ts placeReleases). */
+	const releases = placeReleases(w, supply, relation, {
+		cte: r2,
+		column: (f) => returned.of(f)
+	})
+	const [first, ...rest] = appendNonEmpty(match.leading, cte(r2, [], del))
+	const ctes: NonEmptyReadonlyArray<Cte> = [first, ...rest, ...releases]
 	return {
 		ast: {
 			...outer,
-			with: { recursive: false, ctes: appendNonEmpty(match.leading, cte(r2, [], del)) }
+			with: {
+				recursive: false,
+				ctes
+			}
 		},
 		role: "member" as const,
 		result,
@@ -171,6 +185,8 @@ const buildDelete = (
 		throw defect(`a deletion of ${relation.name} that matches no field`)
 	}
 	const compared: NonEmptyReadonlyArray<LawField> = matched
+	/** Its primary key's fields a fact states, which the target is reached at (`keys`). */
+	const reached = statedKey(relation)
 	/** The key generations of its primary key, which no fact carries, a function of the fields it does: each computed
 	 * over them where the deletion reaches its target at its key (input.ts keyGeneratedRead). */
 	const generations = uncarriedKeyGenerations(relation, compared)
@@ -219,8 +235,10 @@ const buildDelete = (
 		/** Each comparison is at its fields' types: a row holding a vector is spelled column by column through the
 		 * extension's qualified operator, which a row comparison would resolve through the search_path. */
 		const typeOf = rowType
-		/** The target reached at the input's keys by their index whatever the input's estimate (write/probe.ts). */
-		const keys = mapNonEmpty(pk, (field) => ({ field, column: inputs.of(field) }))
+		/** The target reached at the input's keys by their index whatever the input's estimate (write/probe.ts): its
+		 * primary key's fields but a place, which no fact carries and a delete of a place's relation leaves unread, since it
+		 * removes whole groups, each named by the fields before the place (write/frontend/instants.ts Removal). */
+		const keys = mapNonEmpty(reached, (field) => ({ field, column: inputs.of(field) }))
 		const where =
 			mode.kind === "exact"
 				? and([
@@ -235,6 +253,7 @@ const buildDelete = (
 					)
 		return deletion(
 			w,
+			supply,
 			relation,
 			mode.kind,
 			{ r2, r3, returned },
@@ -454,6 +473,7 @@ export const buildAnchoredDelete = (
 		}
 		return deletion(
 			w,
+			supply,
 			relation,
 			"exact",
 			{ r2, r3, returned },

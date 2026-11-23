@@ -4217,8 +4217,13 @@ and no count for a write to read.
   a fold's step or selection, or a copy, that reads the place or such a field is refused where the write compiles
   (`UnfillableField`, `stamped`). Two owners of one call in one group would take one place, so they meet at the owner's
   primary key, which the host holds at the group, and the call is refused there before any statement.
-- **Written by inserts alone.** A put would state a place and a delete would leave a gap, so neither writes a relation
-  with a place (`written`).
+- **Written by inserts, and deleted by whole groups.** A put would state a place, so none writes a relation with a
+  place (`written`). A delete removes whole groups, and leaves every group gapless: every field its rows state is a field
+  of the group, as `deleteWhere({ Claim: { root } })` states only `root` of a group `(root, step)`, so each group it
+  reaches goes whole, a family owner's members with it, and its statement deletes each removed group's head with it,
+  so an insert into the group again stamps 0; a delete whose rows state any other field, a row of a group rather than
+  the group, is refused (`written`). A role that deletes from a place's relation holds SELECT and DELETE on the place's
+  head table for it, and no other privilege on a head's table: no more than its DELETE on the relation lets it do.
 - **Its order is the migration's.** A place's declaration says nothing a write reads beyond the place itself; it states
   only how a migration that adds the place to a table holding rows numbers them. `place` states no order: a relation
   created with it numbers nothing, and a migration that adds it to stored rows gives every one place 0, which keeps them
