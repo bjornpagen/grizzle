@@ -7,7 +7,8 @@ import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/bat
  * `planned` or `recorded` (program/schema.ts InstalledSource), and never over an `unserved` one, which names a pattern
  * parameter's own domain where no installation installs it. The types hold it: a role's, a slice's and a layer's
  * artifacts are InstalledArtifacts (adapter/served/role.ts RoleContext, SliceArtifacts; adapter/served/login.ts
- * LayerArtifacts), runtimeEntry takes a ChangeEntry compiled over them, and runWrite's input, a WriteEntry, is minted by
+ * LayerArtifacts), runtimeEntry takes the servable form of a ChangeEntry compiled over them (program/workload/change.ts
+ * servableEntry, ServableEntry), and runWrite's input, a WriteEntry, is minted by
  * that door or by a served file's load (adapter/apply/compile.ts installedEntry, adapter/served/load.ts loadedEntry)
  * alone; and a bench gate's compiled query, which the gate runner runs, holds InstalledArtifacts
  * (bench/query/support/kit.ts Compiled).
@@ -15,7 +16,8 @@ import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/bat
  * The box, exhausted and printed as one program the type batch checks disarmed: every source a harness has handed
  * baseArtifacts (a planned source, a recorded one, `unserved` written out, the `unserved` constant, and a source of any
  * kind), by every door a compiled program passes on its way to a run (a role's artifacts, a slice's, a layer's, a bench
- * gate's compiled query's, and runWrite over runtimeEntry over compileParsed over the artifacts); and an entry's parts
+ * gate's compiled query's, and runWrite over runtimeEntry over servableEntry over compileParsed over the artifacts, as a
+ * role's compile of a ChangeSet passes it, adapter/served/forms.ts writeEntry); and an entry's parts
  * passed to runWrite, unminted and minted by loadedEntry.
  *
  * The oracle: a probe compiles exactly when its source is one an installation stands behind, and an entry exactly when
@@ -74,7 +76,7 @@ const doors: Arr.NonEmptyReadonlyArray<Door> = [
 	{
 		name: "runWrite over runtimeEntry",
 		probe: (source, i) =>
-			`export const run${i} = runWrite(runArgs[0], runArgs[1], runtimeEntry(value(compileParsed(${artifactsOver(source)}, ...parsedRest)), ...entryRest), runArgs[3], runArgs[4])`
+			`export const run${i} = runWrite(runArgs[0], runArgs[1], runtimeEntry(servableEntry(value(compileParsed(${artifactsOver(source)}, ...parsedRest))), ...entryRest), runArgs[3], runArgs[4])`
 	}
 ]
 
