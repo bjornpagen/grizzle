@@ -95,9 +95,9 @@ export const cost = costGate(memberForms, {
 		{
 			file: "packages/engine/src/types/query/query.ts",
 			original:
-				"\t\t: typeof phantom extends keyof X\n\t\t\t? OneMap<\n\t\t\t\t\tUnionToIntersection<\n\t\t\t\t\t\tParamsContribution<PhantomParams<NonNullable<X[typeof phantom & keyof X]>>>\n\t\t\t\t\t>\n\t\t\t\t>\n\t\t\t: unknown",
+				"\t\t: typeof phantom extends keyof X\n\t\t\t? OneMap<\n\t\t\t\t\tUnionToIntersection<\n\t\t\t\t\t\tParamsContribution<BundleParams<NonNullable<X[typeof phantom & keyof X]>>>\n\t\t\t\t\t>\n\t\t\t\t>\n\t\t\t: unknown",
 			replacement:
-				"\t\t: OneMap<\n\t\t\t\tUnionToIntersection<\n\t\t\t\t\tParamsContribution<PhantomParams<NonNullable<X[typeof phantom & keyof X]>>>\n\t\t\t\t>\n\t\t\t>",
+				"\t\t: OneMap<\n\t\t\t\tUnionToIntersection<\n\t\t\t\t\tParamsContribution<BundleParams<NonNullable<X[typeof phantom & keyof X]>>>\n\t\t\t\t>\n\t\t\t>",
 			why: "ParamsOf reads a member's phantom by its key without asking whether the member has one: an array indexed by a key it lacks is its fact, so a fact's field named `params` is read as the member's parameters, and the handle's once refuses the package parameter; the array programs fail with a diagnostic."
 		}
 	]

@@ -57,6 +57,7 @@ import type { AnyClosed, Relation } from "#compiler/types/schema/relation.ts"
 import { buildSwarm, featuresGen, type SwarmSpec, swarmSpecGen } from "#test/pg/write/swarm/spec.ts"
 import { Id } from "#test/support/ids.ts"
 import { identityText, ownedStatementText } from "#test/support/kernel/naming.ts"
+import { opened } from "#test/support/open.ts"
 import { jsMatcher } from "#test/support/regex.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { bareContract } from "#test/unit/schema/support.ts"
@@ -534,6 +535,14 @@ export const levelsOf = (
 				return mutableBuilder(valueAt(s.table))
 		}
 	})
+	/**
+	 * The units the mutable tables sit in (test/support/open.ts opened), stated on the base level, the core's: a unit is
+	 * stated at or below every relation under it, and the core's relations key by id first, as every table does.
+	 */
+	const units = Arr.filter(
+		opened(Arr.flatMap(c.statements, (s) => (s.kind === "mutable" ? [valueAt(s.table)] : []))),
+		(s) => statementDescOf(s)?.kind === "unit"
+	)
 	const tables: Level = {
 		relations: [
 			...Arr.map(values, (v) => [v.name, v] as const),
@@ -563,7 +572,10 @@ export const levelsOf = (
 				: [])
 		]
 	}
-	const base: Level = { relations: Rec.toEntries(core.relations), statements: core.statements }
+	const base: Level = {
+		relations: Rec.toEntries(core.relations),
+		statements: [...core.statements, ...units]
+	}
 	switch (c.levels.kind) {
 		case "one":
 			return {

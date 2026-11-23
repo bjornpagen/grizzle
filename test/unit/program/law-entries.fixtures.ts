@@ -1,6 +1,7 @@
 import { defined } from "@bjornpagen/testing/assert"
 import { boolean, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
+import { encode, withoutSourceLocs } from "#compiler/core/canonical.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
@@ -232,6 +233,18 @@ export const cataloguedEntries = (c: Catalogued): ReadonlyArray<readonly [string
 
 /** The catalog entry of index `at`, as law(...) takes it. */
 export const catalogAt = (at: number) => defined(catalog[at], "a catalog entry")
+
+/**
+ * The text every copy of a unit statement shares, its description's canonical text apart from source locations: a unit
+ * states no law, but law(...) gives it an entry, one over its copies, so two copies that declare two entries are refused
+ * as two statements of one law are. None for every other statement.
+ */
+export const unitText = (statement: Statement): Option.Option<string> => {
+	const desc = statementDescOf(statement)
+	return desc?.kind === "unit"
+		? Option.some(succeeded(encode(desc, withoutSourceLocs), "a unit's canonical text"))
+		: Option.none()
+}
 
 /** Whether a statement value states laws a catalog entry can name: every statement but a mutable and a race. */
 export const statesLaws = (statement: Statement): boolean => {

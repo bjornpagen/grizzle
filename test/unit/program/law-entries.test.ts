@@ -13,8 +13,9 @@
  * installation states them (laws.fixtures.ts statedBy), each by its identity text. A law any of whose statements
  * declares an entry carries that entry, `declared`, with its name and source as written; every other law the entry
  * grizzle derives from what it states, `derived`. Two statements of one law, or two copies of one statement, that
- * declare two entries are refused (MalformedDescription), as is law(...) of a mutable, which states no law, and of a
- * statement law(...) has named already. Every place a law is named carries the expected entry:
+ * declare two entries are refused (MalformedDescription), a unit's copies among them, which state no law but carry one
+ * entry, keyed by the unit's own text; and so is law(...) of a mutable, which states no law, and of a statement
+ * law(...) has named already. Every place a law is named carries the expected entry:
  *
  * - lawsOf and lawsByStatement, the schema's identity sites;
  * - the classifier a served Db reads PostgreSQL's refusals through (adapter/served/refusals.ts installationWitness): a
@@ -66,7 +67,8 @@ import {
 	sameEntry,
 	statedText,
 	statementsOf,
-	statesLaws
+	statesLaws,
+	unitText
 } from "#test/unit/program/law-entries.fixtures.ts"
 import { lawKinds, statedBy, subjectOf } from "#test/unit/program/laws.fixtures.ts"
 
@@ -151,12 +153,20 @@ export const everyLawCarriesTheCatalogEntryItsDeclarationStatesToEveryPlaceThatN
 						k.note("a mutable refused")
 						continue
 					}
-					const laws = Option.getOrThrowWith(
-						stated(statement),
-						() => new Error(`the installation states the case's ${statement.kind}`)
-					)
-					for (const l of laws) {
-						const text = statedText(l)
+					/** What its entry is keyed by: a unit's own text, its copies' alike, since a unit states no law; else each
+					 * law's identity text. */
+					const keyed = Option.match(unitText(statement), {
+						onSome: (text): ReadonlyArray<string> => [text],
+						onNone: () =>
+							Arr.map(
+								Option.getOrThrowWith(
+									stated(statement),
+									() => new Error(`the installation states the case's ${statement.kind}`)
+								),
+								statedText
+							)
+					})
+					for (const text of keyed) {
 						const known = declaredBy.get(text) ?? new Set<number>()
 						if (known.has(declared.value)) {
 							k.note("one entry declared at two statements of one law")

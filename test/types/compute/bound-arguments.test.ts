@@ -29,9 +29,11 @@ export const boundArguments = boxAgreement(finite(word(boundBox)), {
 			why: "A rows argument is admitted whatever its parameters, as it was before (lane TYPEBIND): a query of parameters passed unbound typechecks where the engine refuses it, and every unbound cell's directive is unused; the program fails."
 		},
 		{
-			file: "packages/engine/src/types/compute/call.ts",
-			original: "\t\t\t\t? SP\n\t\t\t\t: ParamsOfTerm<A[K]>",
-			replacement: "\t\t\t\t? unknown\n\t\t\t\t: ParamsOfTerm<A[K]>",
+			file: "packages/engine/src/types/core/phantom.ts",
+			original:
+				"B[K] extends Phantom<{ readonly sourceParams: infer SP }> ? SP : ParamsOfTerm<B[K]>",
+			replacement:
+				"B[K] extends Phantom<{ readonly sourceParams: infer SP }> ? unknown : ParamsOfTerm<B[K]>",
 			why: "A bound rows argument contributes none of its bind map's parameters to its call's, so a query whose argument is bound to the caller's parameter or relation parameter states none where the engine declares it; the program fails."
 		}
 	]
