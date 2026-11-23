@@ -157,7 +157,15 @@ const mediaPath = (m: number): number => 100 + m
 
 const digestOf = (p: number, m: number): number => 1000 * p + m
 
-/** The statements loading packages `from` to `to`, the tables' triggers off, as a publish writes them whole. */
+/**
+ * The statements loading packages `from` to `to`, the tables' triggers off, as a publish writes them whole, then each
+ * table vacuumed and analyzed, every page all-visible as autovacuum leaves a stored corpus at rest, so the planner meets
+ * one visibility state at both sizes where autovacuum's progress by the read chose it. Reference and Candidate are read
+ * by their covering index (path, pkg, target) index-only where their pages are all-visible, two buffers a descent, and
+ * by their key with a heap page a row where they are not: the release check at 8d95ede9d read Reference index-only at
+ * 226 packages, autovacuum having reached it, 81 buffers, and by its key at 536, 180, 2.2 times as many over a corpus
+ * 2.37 times as large, where analyzed alone the case's read touches 142 and 180, and vacuumed 81 and 81.
+ */
 const loaded = (
 	installed: Installed,
 	c: Corpus,
@@ -179,7 +187,7 @@ const loaded = (
 		`INSERT INTO ${names.table(Candidate)} SELECT p, d, i, 100 + (d + 2 * i) % ${c.media + 2} FROM ${series}, generate_series(0, ${c.candidates - 1}) AS k(i)`,
 		`INSERT INTO ${names.table(Media)} SELECT p, 100 + m, 1000 * p + m FROM generate_series(${from}, ${to}) AS g(p), generate_series(0, ${c.media - 1}) AS k(m)`,
 		...Arr.map(tables, (t) => `ALTER TABLE ${t} ENABLE TRIGGER USER`),
-		...Arr.map(tables, (t) => `ANALYZE ${t}`)
+		...Arr.map(tables, (t) => `VACUUM (ANALYZE) ${t}`)
 	]
 }
 
@@ -282,8 +290,8 @@ const scaledLess = (before: Read, after: Read, growth: number): boolean =>
 
 /**
  * One case on a fresh clone of the template, which no other case's rows, live or dead, share pages with: `packages`
- * packages loaded with the triggers off and analyzed, the read of package `read` explained and run; then `more`
- * packages loaded and the read again. Each time
+ * packages loaded with the triggers off, vacuumed and analyzed (loaded), the read of package `read` explained and run;
+ * then `more` packages loaded and the read again. Each time
  * it answers the host's files of every document of the package, and each arm reads only what the package's documents'
  * keys match, whatever else is stored: of Reference and Candidate the documents' own rows, and of Media at most the
  * package's files for each document in each of the two arms. The buffers each arm's relations' scans touch do not grow
