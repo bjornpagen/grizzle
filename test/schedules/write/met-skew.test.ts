@@ -58,7 +58,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aSERIALIZABLEInsertionsMetRowIsAReadSSISeesAWriteSkewThroughItNeverCommits =
 	property.exhaust(finite(skewGen), {
-		needs: { rigged: Substrate.seat(skewRig) },
+		needs: { rigged: Substrate.freshOf(skewRig) },
 		situations: [
 			"the skew through a met row refused with 40001",
 			"a new row beside D's deletion, D committed"

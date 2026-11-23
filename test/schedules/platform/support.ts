@@ -545,10 +545,10 @@ interface RaceInstall {
 	readonly laws: ReadonlyMap<LawId, HostLaw>
 }
 
-/** The platform races' schema and logins installed once per member (schedules/rig.ts rigTemplate): every race's seat. */
+/** The platform races' schema and logins installed once per member (schedules/rig.ts rigTemplate): every race's template. */
 export const racesRig = rigTemplate(import.meta, "platform races", racesAt)
 
-/** A case's race installation: its rig over its seat (rigIn), with the installation's names and laws. */
+/** A case's race installation: its rig over its clone (rigIn), with the installation's names and laws. */
 const racesIn = (taken: SubstrateCase<Generated>) =>
 	Effect.map(rigIn(taken, racesAt), (rig): RaceInstall => {
 		const names = namesOf(rig.installed)
@@ -1684,8 +1684,8 @@ const runsPerTest = 40
 
 /**
  * A race property: its races drawn as sketches `S` from `sketch` (aimed at what its kept races reached, where it has
- * them), each resolved in the case to its race (a resolution draws what the sketch's swarms thin), on the worker's seat
- * of the races' template (racesRig), and the features its population must reach.
+ * them), each resolved in the case to its race (a resolution draws what the sketch's swarms thin), on its own clone of
+ * the races' template (racesRig), and the features its population must reach.
  *
  * Its pre-conversion budget: runs 40, coverage cases 40 (test/schedules/platform/support.ts at 1061bc026).
  */
@@ -1695,7 +1695,7 @@ export const raceSuite = <S>(suite: {
 	readonly required: Situations<RaceFeature>
 }) =>
 	property.explore(suite.sketch, {
-		needs: { rigged: Substrate.seat(racesRig) },
+		needs: { rigged: Substrate.freshOf(racesRig) },
 		situations: suite.required,
 		check:
 			({ rigged }, c: Case<RaceFeature>) =>

@@ -52,7 +52,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const racesAtASpanCandidateKeyAnApplyBesideDirectWritersEveryRaceOfAnApplyAndDirectWritersAtASpanCandidateKeyIsSerializable =
 	property.explore(aimed(bookingRaceGen, raceAims), {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: ["the apply waited", "the apply refused"] satisfies ReadonlyArray<
 			Reached<BookingFeature>
 		>,

@@ -42,7 +42,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const grizzleActorsAGrizzleActorIsTheBackendItsDbsCallsRunOnWhateverSessionsOfItsLoginStandBesideIt =
 	property.explore(caseGen, {
-		needs: { seated: Substrate.seat(timekeepingTemplate) },
+		needs: { fresh: Substrate.freshOf(timekeepingTemplate) },
 		situations: [
 			"a writer named alone",
 			"a writer named beside an earlier writer",
@@ -51,9 +51,9 @@ export const grizzleActorsAGrizzleActorIsTheBackendItsDbsCallsRunOnWhateverSessi
 			"a writer whose interrupted call's connection its pool dropped"
 		] satisfies ReadonlyArray<Reached<ActorFeature>>,
 		check:
-			({ seated }, c: Case<ActorFeature>) =>
+			({ fresh }, c: Case<ActorFeature>) =>
 			(writers) =>
-				Effect.flatMap(seated, ({ substrate: seat, value: install }) =>
+				Effect.flatMap(fresh, ({ substrate: clone, value: install }) =>
 					Effect.provideService(
 						Effect.gen(function* () {
 							const s = yield* Substrate
@@ -123,7 +123,7 @@ export const grizzleActorsAGrizzleActorIsTheBackendItsDbsCallsRunOnWhateverSessi
 							}
 						}).pipe(Effect.scoped),
 						Substrate,
-						seat
+						clone
 					)
 				),
 		oracle: {

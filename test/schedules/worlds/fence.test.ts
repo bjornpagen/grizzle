@@ -17,7 +17,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const worldsScheduleTheLedgersFenceADbNeverWaitsOnAMigrationWhichWaitsOnlyForTheTransactionInFlight =
 	property.explore(caseGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: situations satisfies ReadonlyArray<Reached<FenceFeature>>,
 		check:
 			({ substrate }, c: Case<FenceFeature>) =>

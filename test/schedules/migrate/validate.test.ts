@@ -112,7 +112,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aMigrationsValidatePhaseOverViolatingRowsEveryKindOfLawRefusesWithItsIdentityAndLeavesTheRowsIntact =
 	property.explore(violationsGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: [],
 		check:
 			({ substrate }) =>
@@ -344,7 +344,7 @@ export const aMigrationsValidatePhaseOverViolatingRowsEveryKindOfLawRefusesWithI
  */
 export const aMigrationsValidatePhaseAWriterRacingTheMigrationCannotSlipAViolationPastASelectedSidesForeignKey =
 	property.exhaust(finite(racingGen), {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: [
 			"the migration succeeded",
 			"the migration refused by the law",

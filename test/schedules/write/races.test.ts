@@ -63,7 +63,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const writeRacesJudgedByASerialModelInserterRunsCasesOfCertifiedREADCOMMITTEDInsertersRacingAtBadgeEveryRunSerialEveryCallAnsweredOnItsOneTryAndIndependentCallsNeverWaitingOnEachOther =
 	property.explore(inserterCaseGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: [
 			"inserter accepted",
 			"inserter refused",
@@ -102,7 +102,7 @@ export const writeRacesJudgedByASerialModelInserterRunsCasesOfCertifiedREADCOMMI
  */
 export const writeRacesJudgedByASerialModelInserterRunsCasesOfCertifiedREADCOMMITTEDClaimersRacingAtClaimAndSeatEveryRunSerialWithARacedTablesHeldKeyMetEveryCallAnsweredOnItsOneTryEachRacedTableWonOrMetAsItsReadBacksShow =
 	property.explore(claimerCaseGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: [
 			"claimer accepted",
 			"claimer unchanged",
@@ -142,7 +142,7 @@ export const writeRacesJudgedByASerialModelInserterRunsCasesOfCertifiedREADCOMMI
  */
 export const writeRacesJudgedByASerialModelInserterRunsCasesOfAnInserterCallAloneOneFlightBegunREADCOMMITTEDAsGenerateCertifiedTheRoleAnsweredAsTheSerialModelSays =
 	property.explore(inserterAloneGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: ["alone accepted", "alone refused"] satisfies ReadonlyArray<Reached<AloneFeature>>,
 		check:
 			({ substrate }, c: Case<AloneFeature>) =>
@@ -172,7 +172,7 @@ export const writeRacesJudgedByASerialModelInserterRunsCasesOfAnInserterCallAlon
  */
 export const writeRacesJudgedByASerialModelRunsCasesOfPlantedAndDrawnRacesEveryRunIsExplainedByASerialOrder =
 	property.explore(raceCaseGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: situations satisfies ReadonlyArray<Reached<RaceFeature>>,
 		check:
 			({ substrate }, c: Case<RaceFeature>) =>

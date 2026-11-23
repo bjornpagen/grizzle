@@ -22,14 +22,14 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * In every interleaving the grizzle write is accepted, its only refusals serialization failures, and both appends are
- * stored at distinct slots in commit order, on the worker's seat of the rig, installed once per member, where the search
+ * stored at distinct slots in commit order, on its own clone of the rig, installed once per member, where the search
  * installed it.
  *
  * Its pre-conversion budget: every interleaving (test/schedules/fin/contention.test.ts at 948630c1c).
  */
 export const inEveryInterleavingTheGrizzleWriteIsAcceptedAndBothAppendsAreStoredAtDistinctSlotsInCommitOrder =
 	property.exhaust(everyInterleaving, {
-		needs: { rigged: Substrate.seat(contendedRig) },
+		needs: { rigged: Substrate.freshOf(contendedRig) },
 		situations: [],
 		check:
 			({ rigged }) =>

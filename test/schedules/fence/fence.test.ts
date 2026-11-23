@@ -39,7 +39,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const g3sFenceThroughTheAdapterAPublishersReplaceBesideAREADCOMMITTEDLearnerEveryRaceOfAFencedReplaceItsLearnerAndABlockerIsSerializableTheLearnersDeferredCheckWaitingOnTheFenceTheAdapterSends =
 	property.explore(raceGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: [
 			"generate certifies the learner READ COMMITTED",
 			"the login holds MAINTAIN on Pub, as migrate granted it",

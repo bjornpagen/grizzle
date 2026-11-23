@@ -718,8 +718,8 @@ const runDerivedRace = (
 const derivedRuns = 4
 
 /**
- * A property of refresh races: its races drawn from `space`, on the worker's clone of the base template held across
- * its cases (Substrate.installing), and the situations its floor and steered cases must reach.
+ * A property of refresh races: its races drawn from `space`, each case on its own clone of the base template
+ * (Substrate.fresh), and the situations its floor and steered cases must reach.
  *
  * Its pre-conversion budget: runs 4, coverage cases 4 (test/schedules/derived/support.ts at 27203b46b).
  */
@@ -728,7 +728,7 @@ export const derivedRaceSuite = (spec: {
 	readonly required: Situations<DerivedFeature>
 }) =>
 	property.explore(spec.space, {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: spec.required,
 		check:
 			({ substrate }, c: Case<DerivedFeature>) =>

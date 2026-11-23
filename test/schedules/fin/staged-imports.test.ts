@@ -28,7 +28,7 @@ import { everyInterleaving } from "#test/support/schedules/interleave.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * Both commit in every interleaving, one waiting on the other's commit in some, on the worker's seat of the rig,
+ * Both commit in every interleaving, one waiting on the other's commit in some, on its own clone of the rig,
  * installed once per member, where the search installed it.
  *
  * Its pre-conversion budget: every interleaving (test/schedules/fin/staged-imports.test.ts at 948630c1c).
@@ -36,7 +36,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 export const bothCommitInEveryInterleavingOneWaitingOnTheOthersCommitInSome = property.exhaust(
 	everyInterleaving,
 	{
-		needs: { rigged: Substrate.seat(importsRig) },
+		needs: { rigged: Substrate.freshOf(importsRig) },
 		situations: [],
 		check:
 			({ rigged }) =>

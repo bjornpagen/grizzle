@@ -37,7 +37,7 @@ import { racesRig } from "#test/schedules/platform/support.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * Every write below SERIALIZABLE is refused before it writes a row, each point on the worker's seat of the races' rig,
+ * Every write below SERIALIZABLE is refused before it writes a row, each point on its own clone of the races' rig,
  * installed once per member, where the search installed it.
  *
  * Its pre-conversion budget: the box (test/schedules/platform/planted.test.ts at 9788614e3).
@@ -45,7 +45,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 export const everyWriteBelowSerializableIsRefusedBeforeItWritesARow = property.exhaust(
 	finite(plantedCases),
 	{
-		needs: { rigged: Substrate.seat(racesRig) },
+		needs: { rigged: Substrate.freshOf(racesRig) },
 		situations: plantedFeatures satisfies ReadonlyArray<Reached<PlantedFeature>>,
 		check:
 			({ rigged }, c: Case<PlantedFeature>) =>

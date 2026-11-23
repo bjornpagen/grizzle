@@ -49,7 +49,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const theWorkQueuesRacesEveryRaceOfTwoWorkersClaimsAndSettlementsIsSerializable =
 	property.explore(aimed(raceGen, raceAims), {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: ["a write waited", "a write refused"] satisfies ReadonlyArray<
 			Reached<QueueFeature>
 		>,

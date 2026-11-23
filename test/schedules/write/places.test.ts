@@ -14,7 +14,7 @@
  * and its marks carry that one stamp, the session and its marks written by one family statement that stamps the head
  * once at each group and returns the sessions it inserted to the read-back riding it (write/family/additions.ts
  * stampedSources, write/program/compile.ts ridingFamily). The schema and its logins are installed and served as
- * `grizzle generate` drafts them, once per member, each case seated on a clone of that installation
+ * `grizzle generate` drafts them, once per member, each case on its own clone of that installation
  * (support/schedules/rig.ts rigTemplate and rigIn): `writer` runs at the level generate certifies, READ COMMITTED.
  *
  * A case's stored state gives each of the items 1 and 2 of child 1 none, one or two places before the calls, nesting no
@@ -83,7 +83,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 /** Two writers stamping one group's place stamp its places gapless from its head in the order their calls commit, each mark carrying its session's place, taking turns at the group's head. */
 export const twoWritersStampingOneGroupsPlaceStampItsPlacesGaplessFromItsHeadInTheOrderTheirCallsCommitEachMarkCarryingItsSessionsPlace =
 	property.explore(aimed(placingGen, aims), {
-		needs: { rigged: Substrate.seat(placesRig) },
+		needs: { rigged: Substrate.freshOf(placesRig) },
 		situations: [
 			"an item over no place",
 			"an item over one place",

@@ -1495,8 +1495,8 @@ const modeRaces = <P>(h: HistoryFamily<P>, population: Population<P>) => {
  * The generated law races of one family, over every population of its box in one property: a case's variant names its
  * schema and so its population, every feature a race notes is paired with its population's mode, and each population
  * must reach, in its own races, everything a family requires, its write skew included when it makes one. Each
- * population's window starts name its schemas past those of the populations before it. A case runs on the worker's
- * clone of its schema's template (history/families.ts HistoryFamily templates, Substrate.oneOf with Substrate.seat),
+ * population's window starts name its schemas past those of the populations before it. A case runs on its own clone
+ * of its schema's template (history/families.ts HistoryFamily templates, Substrate.oneOf with Substrate.freshOf),
  * whose installation is checked to enforce the host's laws as the host states them (enforcementProblem), where the
  * search installed each schema before its first case. `declaredIn` is the module that states the suite.
  *
@@ -1518,9 +1518,9 @@ export const raceSuite = <P>(declaredIn: ImportMeta, h: HistoryFamily<P>) => {
 		Arr.map(q.reach, (f) => [q.mode, f] as const)
 	)
 	return property.explore(raceCaseGen(variants.length, windows, skewStartsOf(h, variants)), {
-		needs: Substrate.oneOf(h.templates(declaredIn), Substrate.seat),
+		needs: Substrate.oneOf(h.templates(declaredIn), Substrate.freshOf),
 		situations: reach,
-		check: (seats, c: Case<RaceFeature>) => (rc) =>
+		check: (clones, c: Case<RaceFeature>) => (rc) =>
 			Effect.scoped(
 				Effect.gen(function* () {
 					const variant = elementAt(variants, rc.variant, "the family's schemas")
@@ -1545,16 +1545,16 @@ export const raceSuite = <P>(declaredIn: ImportMeta, h: HistoryFamily<P>) => {
 					modal.note(`variant: ${h.family.describe(variant)}`)
 					/** The race on its variant's model, the one the variant's installation holds. */
 					const race = c.draw(resolveRaceGen({ host, domains: h.family.domains }, rc.race))
-					const seat = yield* defined(
-						seats[String(h.family.variants.indexOf(variant))],
-						"the family's seats"
+					const taken = yield* defined(
+						clones[String(h.family.variants.indexOf(variant))],
+						"the family's clones"
 					)
-					const install = seat.value
+					const install = taken.value
 					const problem = enforcementProblem(install.host, install.names)
 					if (problem !== undefined) {
 						return yield* new CaseFailed({ report: `${h.family.describe(variant)}: ${problem}` })
 					}
-					yield* Effect.provideService(runRace(h, install, race, modal), Substrate, seat.substrate)
+					yield* Effect.provideService(runRace(h, install, race, modal), Substrate, taken.substrate)
 				})
 			),
 		oracle: {

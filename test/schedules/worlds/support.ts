@@ -138,9 +138,9 @@ const raceRuns = 6
 
 /**
  * A worlds race property: cases drawn from `space`, each resolved to a race (its installation realized, its Dbs opened,
- * its interleavings explored under its strategy, nature the case itself, and each run judged by the worlds model), on
- * the worker's clone of the base template held across its cases (Substrate.installing), and the features every run must
- * reach; `kept`, the cases a run once failed on, replayed by token.
+ * its interleavings explored under its strategy, nature the case itself, and each run judged by the worlds model), each
+ * case on its own clone of the base template (Substrate.fresh), and the features every run must reach; `kept`, the
+ * cases a run once failed on, replayed by token.
  *
  * Its pre-conversion budget: runs 6, coverage cases 6 (test/schedules/worlds/support.ts at 27203b46b).
  */
@@ -151,7 +151,7 @@ export const worldRaceSuite = <C>(spec: {
 	readonly kept: ReadonlyArray<Kept>
 }) =>
 	property.explore(spec.space, {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: spec.required,
 		check:
 			({ substrate }, k: Case<WorldRaceFeature>) =>

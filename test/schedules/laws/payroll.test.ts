@@ -46,7 +46,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const thePayrollExamplesRacesAtASpanPrimaryKeyEveryRaceOfALeaveInsertAndADirectWritersLeaveIsSerializable =
 	property.explore(aimed(raceGen, leaveAims), {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: ["the insert waited", "the insert refused"] satisfies ReadonlyArray<
 			Reached<LeaveFeature>
 		>,
