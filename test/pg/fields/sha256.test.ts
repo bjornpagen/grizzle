@@ -60,7 +60,7 @@ const hexOf = (value: unknown): string => {
 export const aDigestRoundTripsAKeyOverItHoldsAnyPathAndAParameterOfItFindsItsRow = property.explore(
 	space,
 	{
-		needs: { fixture: Substrate.seat(digestsTemplate) },
+		needs: { fixture: Substrate.freshOf(digestsTemplate) },
 		situations: [
 			"the empty path",
 			"a path past a B-tree entry",

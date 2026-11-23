@@ -91,7 +91,7 @@ import { ownerSession, Substrate, worldSession } from "#test/support/substrate/s
 /** Generated fields on PostgreSQL 19 every generated column holds what the host evaluator computes from its row, PostgreSQL refuses a writer's value for one and an absent key, and a changed expression migrates in place. */
 export const generatedFieldsOnPostgreSQL19EveryGeneratedColumnHoldsWhatTheHostEvaluatorComputesFromItsRowPostgreSQLRefusesAWritersValueForOneAndAnAbsentKeyAndAChangedExpressionMigratesInPlace =
 	property.explore(aimed(runGen, runAims), {
-		needs: { substrate2: Substrate.installing },
+		needs: { substrate2: Substrate.fresh },
 		situations: [
 			"a roster with a hole",
 			"a row written",

@@ -43,7 +43,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * relation holds the rows the model holds.
  */
 export const countsEachPutOfAnotherValueAndEachExactDelete = property.explore(cases, {
-	needs: { fixture: Substrate.seat(editsTemplate) },
+	needs: { fixture: Substrate.freshOf(editsTemplate) },
 	situations: [
 		"a put that keeps a value",
 		"a put one byte off",

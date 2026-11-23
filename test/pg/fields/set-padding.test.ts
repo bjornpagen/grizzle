@@ -42,7 +42,7 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 /** The set algebra over a drafted bits domain computes every set with its padding bits 0, accepted by the domain and read back as the model's. */
 export const theSetAlgebraOverADraftedBitsDomainComputesEverySetWithItsPaddingBits0AcceptedByTheDomainAndReadBackAsTheModels =
 	property.explore(space, {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: [
 			"one pad bit",
 			"two pad bits",

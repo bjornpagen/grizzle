@@ -36,7 +36,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aGenerationExpressionThePlannerFoldsInstallsEverySubtermItFoldsFoldedOnTheHostAndStoresWhatTheHostComputes =
 	property.explore(plannerCaseGen, {
-		needs: { caseSubstrate: Substrate.installing },
+		needs: { caseSubstrate: Substrate.fresh },
 		situations: [
 			"a CASE whose condition folds",
 			"a CASE a connective's operand decides, beside a literal in GREATEST or LEAST",

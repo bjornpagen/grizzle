@@ -52,7 +52,7 @@ const byId = Order.mapInput(Order.Number, (row: { readonly id: number }) => row.
 /** Each stored kind is written and read back exactly as a read delivered it, a computed numeric past its bound refused before any SQL and by its column's CHECK. */
 export const eachStoredKindIsWrittenAndReadBackExactlyAsAReadDeliveredItAComputedNumericPastItsBoundRefusedBeforeAnySQLAndByItsColumnsCheck =
 	property.explore(storedCaseGen, {
-		needs: { fixture: Substrate.seat(storedTemplate) },
+		needs: { fixture: Substrate.freshOf(storedTemplate) },
 		situations: [
 			"an amount within the bound kept",
 			"an amount past the bound refused",

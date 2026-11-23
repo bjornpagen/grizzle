@@ -36,7 +36,7 @@ import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 /** A family's bytes members read their stored suffix in chunks and write each re-placed member's bytes whole. */
 export const aFamilysBytesMembersReadTheirStoredSuffixInChunksAndWriteEachRePlacedMembersBytesWhole =
 	property.explore(space, {
-		needs: { fixture: Substrate.seat(filesTemplate) },
+		needs: { fixture: Substrate.freshOf(filesTemplate) },
 		situations: [
 			"the first member deleted",
 			"the last member deleted",
