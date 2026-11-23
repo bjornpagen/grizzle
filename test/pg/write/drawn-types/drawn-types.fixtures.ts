@@ -19,7 +19,8 @@ import {
 	ordered,
 	relation,
 	schema,
-	select
+	select,
+	unit
 } from "#compiler/public/schema.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
 
@@ -188,7 +189,10 @@ export const Drawn = schema(
 		contained(on(tallHeld, "number"), on(TallNumber, "number")),
 		mutable(MoveOwner),
 		mutable(MoveMember),
-		ordered(on(MoveMember, "g", "at"), fin(MoveOwner, "n"))
+		ordered(on(MoveMember, "g", "at"), fin(MoveOwner, "n")),
+		unit("Catalog", { series: closedId(Series) }),
+		unit("Group", { g: pg.integer }),
+		unit("Moved", { id: pg.integer })
 	]
 )
 

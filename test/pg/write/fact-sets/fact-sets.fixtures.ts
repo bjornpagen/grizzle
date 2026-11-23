@@ -7,7 +7,7 @@ import { quoteIdent } from "#compiler/core/text.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { mutable, relation, schema } from "#compiler/public/schema.ts"
+import { mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { floatBits } from "#compiler/scalar/compute/float.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
@@ -27,8 +27,9 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *   SnapshotRecord header reads `recordFloat` beside SnapshotRecordFloat;
  * - U, keyed by (s, variable): a member that is the union of two rules each reading `given` as Proj does, whose arms
  *   meet (the write placement's root union, lower/optimize/dedup/policy.ts);
- * - I, immutable, keyed by (s, variable): a put of Proj's member, which the DELETE-then-insert pair reads twice, so the
- *   write carries it (write/carriers/carriers.ts memberRows);
+ * - I, mutable, keyed by (s, variable): a put of Proj's member, a described put no proof updates in place, so the
+ *   DELETE-then-insert pair (write/put/choose.ts unproved) reads it twice and the write carries it
+ *   (write/carriers/carriers.ts memberRows);
  * - Arm, mutable, keyed by (s, variable, field): a deletion of `gone` beside an insert of `given` in one stratum, which
  *   the deletion reads as D EXCEPT A (write/delete/exact.ts);
  * - P, mutable, keyed by (s, variable): a put of Proj's member over a stored fact, read back as P's added and removed
@@ -37,7 +38,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *
  * Proj's member is also read by a region that leaves `field` unbound (`dropped`), so two facts of `given` meet in the
  * region itself, on a member's fact spine (lower/conservative/context.ts factSpine); and every write runs by both
- * artifacts, the optimized one generate serves and the conservative realization, the write oracle's baseline.
+ * artifacts, the optimized one generate serves and the conservative realization, the write oracle's baseline. The
+ * relations a write changes sit in the unit of their `s`.
  */
 const Proj = relation(
 	"Proj",
@@ -72,7 +74,11 @@ const P = relation("P", { s: pg.bigint, variable: pg.bigint, value: pg["double p
 	"variable"
 ])
 
-export const Facts = schema("Facts", [Proj, Rec, U, I, Arm, P], [mutable(Arm), mutable(P)])
+export const Facts = schema(
+	"Facts",
+	[Proj, Rec, U, I, Arm, P],
+	[mutable(I), mutable(Arm), mutable(P), unit("Sample", { s: pg.bigint })]
+)
 
 /** A parameter relation's facts whole, each at the call's snapshot: `gone`'s, a deletion's member. */
 const goneFacts = query(Facts).rule((r) => {

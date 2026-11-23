@@ -3,7 +3,7 @@
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order } from "effect"
 import { pg } from "#compiler/public/fields.ts"
-import { relation, schema } from "#compiler/public/schema.ts"
+import { mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
@@ -11,7 +11,8 @@ import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write
 /** An item and its count, keyed by its id. */
 export const Item = relation("Item", { id: pg.integer, n: pg.integer }, ["id"])
 
-export const build = (name: string) => schema(name, [Item], [])
+export const build = (name: string) =>
+	schema(name, [Item], [mutable(Item), unit("Row", { id: pg.integer })])
 
 export type Schema = ReturnType<typeof build>
 

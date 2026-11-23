@@ -14,7 +14,17 @@ import {
 } from "#bench/write/support/writes.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { drawn, natural, pg } from "#compiler/public/fields.ts"
-import { counted, fin, on, ordered, relation, schema, tree } from "#compiler/public/schema.ts"
+import {
+	counted,
+	fin,
+	mutable,
+	on,
+	ordered,
+	relation,
+	schema,
+	tree,
+	unit
+} from "#compiler/public/schema.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { writeAuditViolations } from "#test/support/write-audit.ts"
 
@@ -51,6 +61,10 @@ const Line = relation("Line", { doc: pg.bigint, at: drawn(natural), words: pg.bi
 
 const Tag = relation("Tag", { doc: pg.bigint, label: pg.bigint }, ["doc", "label"])
 
+/**
+ * The box's schema: a Doc owning its tree of nodes, its lines and its tags, every relation mutable, since a replace
+ * deletes the unit whole: a Doc's row inside the unit of its id, and its members inside the unit of their doc.
+ */
 const build = (name: string) =>
 	schema(
 		name,
@@ -59,7 +73,13 @@ const build = (name: string) =>
 			tree(on(Node, "parent", "at"), fin(Node, "children"), { root: ["doc"] }),
 			counted(on(Node, "doc"), fin(Doc, "nodes")),
 			ordered(on(Line, "doc", "at"), fin(Doc, "lines")),
-			counted(on(Tag, "doc"), fin(Doc, "tags"))
+			counted(on(Tag, "doc"), fin(Doc, "tags")),
+			mutable(Doc),
+			mutable(Node),
+			mutable(Line),
+			mutable(Tag),
+			unit("Document", { id: pg.bigint }),
+			unit("Body", { doc: pg.bigint })
 		]
 	)
 

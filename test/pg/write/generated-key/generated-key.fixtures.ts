@@ -36,7 +36,8 @@ import {
 	ordered,
 	relation,
 	schema,
-	select
+	select,
+	unit
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { type ParamMap } from "#compiler/types/core/phantom.ts"
@@ -120,7 +121,19 @@ const entryKey = key(on(Entry, "mapping", "value", "negative"))
 const Keys = schema(
 	"Keys",
 	[MapKey, Use, Tag, Mapping, Entry],
-	[typedKey, useRef, positiveTag, entries, entryKey, mutable(Tag), mutable(Mapping)]
+	[
+		typedKey,
+		useRef,
+		positiveTag,
+		entries,
+		entryKey,
+		mutable(MapKey),
+		mutable(Tag),
+		mutable(Mapping),
+		mutable(Entry),
+		unit("Map", { mapping: pg.integer }),
+		unit("Row", { id: pg.integer })
+	]
 )
 
 /**
@@ -356,11 +369,11 @@ const keyLaw = (law: LawId, relationName: string, fields: ReadonlyArray<string>)
 /** Keys as the law model states it. */
 const hostOf = (laws: KeysLaws): HostSchema => ({
 	relations: [
-		relationOf("MapKey", ["mapping", "text", "value", "negative"], ["mapping", "text"], false),
+		relationOf("MapKey", ["mapping", "text", "value", "negative"], ["mapping", "text"], true),
 		relationOf("Use", ["id", "mapping", "value", "negative"], ["id"], false),
 		relationOf("Tag", ["id", "text", "value"], ["id"], true),
 		relationOf("Mapping", ["id", "n"], ["id"], true),
-		relationOf("Entry", ["mapping", "at", "text", "value", "negative"], ["mapping", "text"], false)
+		relationOf("Entry", ["mapping", "at", "text", "value", "negative"], ["mapping", "text"], true)
 	],
 	laws: [
 		keyLaw(laws.mapKeyPrimary, "MapKey", ["mapping", "text"]),

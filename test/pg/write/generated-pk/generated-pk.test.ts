@@ -7,8 +7,8 @@ import { assert } from "@bjornpagen/testing/assert"
  * facts at a key; a delete names its fact by every field it states.
  *
  * The box: StimulusRef, pantry's shape (package, path, start, identifier), keyed by (package, pathDigest, start), its
- * digest the path's, immutable; and FoldedRef, the same shape keyed by the digest of the path with its ASCII letters
- * lowered, mutable, so two paths that differ in case meet at one key though their texts differ. Paths are four short
+ * digest the path's; and FoldedRef, the same shape keyed by the digest of the path with its ASCII letters lowered, so
+ * two paths that differ in case meet at one key though their texts differ: both mutable, each package's rows one unit. Paths are four short
  * spellings of two stems, and three past PostgreSQL's B-tree entry limit (btreeMaxItemSize + 1 bytes), so a write meets
  * stored rows and itself at every key, by its texts and, in FoldedRef, by its generation alone. A case stores a lawful
  * state, then writes one to three strata, each an insert, a put and a delete of each relation, each of up to two facts

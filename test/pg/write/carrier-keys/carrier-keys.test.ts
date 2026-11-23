@@ -8,14 +8,14 @@
  * carrier to a stored relation by its key alone scans the relation whole, which under SERIALIZABLE takes a
  * relation-level SIRead lock and fails every concurrent writer of it with 40001. No write analyzes a carrier.
  *
- * The box, exhausted: each shape whose facts two or more statements of its program read, so the program carries them
- * in a carrier of its own (write/program/slot-carriers.ts) and every one of those statements joins it to a stored
- * relation (carrier-keys.fixtures.ts shapes: the displacing deletion of an immutable relation's put, an owner's UPDATE,
- * a family's removals and additions over its edited, refilled, moved and recounted members), at one key and at 4096,
- * over 8192 stored owners of two items each and 8192 facts of the immutable relation, on a fresh installation per case.
- * The write is applied once, its statements each under EXPLAIN (ANALYZE, BUFFERS, SETTINGS, FORMAT JSON) in its place,
- * its carriers created and filled as the call fills them, its transaction ended by ROLLBACK (bench/write/support/
- * writes.ts explainedChange).
+ * The box, exhausted: each shape whose facts two or more statements of its program read, so the program carries them in
+ * a carrier of its own (write/program/slot-carriers.ts) and every one of those statements joins it to a stored relation
+ * (carrier-keys.fixtures.ts shapes: the displacing deletion of a candidate-keyed relation's put, an owner's UPDATE, a
+ * family's removals and additions over its edited, refilled, moved and recounted members), at one key and at 4096, over
+ * 8192 stored owners of two items each and 8192 facts of the candidate-keyed relation, on a fresh installation per
+ * case. The write is applied once, its statements each under EXPLAIN (ANALYZE, BUFFERS, SETTINGS, FORMAT JSON) in its
+ * place, its carriers created and filled as the call fills them, its transaction ended by ROLLBACK
+ * (bench/write/support/writes.ts explainedChange).
  *
  * Property, for each case: some statement reads a carrier, and no plan node reads a stored relation of the box but by a
  * key, an index scan's or a bitmap's index condition or a TID scan's tids (oracle: PostgreSQL's plan). Its kill drops
@@ -64,7 +64,7 @@ export const aWriteStatementReachesEveryStoredRelationItJoinsToANeverAnalyzedCar
 			kind: "postgresql",
 			name: "EXPLAIN ANALYZE of each statement in its place: every scan of a stored relation of the box by an index condition or tids"
 		},
-		box: "each shape whose facts its program carries, at one key and at 4096, over 8192 stored owners of two items each and 8192 immutable facts, each case on a fresh installation",
+		box: "each shape whose facts its program carries, at one key and at 4096, over 8192 stored owners of two items each and 8192 candidate-keyed facts, each case on a fresh installation",
 		kept: [],
 		kills: [
 			{

@@ -1,15 +1,15 @@
 /**
  * A query-sourced write into a relation with generated fields, against PostgreSQL 19.
  *
- * Items holds two relations of one heading, Item and Spot, the second mutable: each a key `id`, four written fields
- * (`v`, a tier, a numeral `k`, also a candidate key, and a day's text, one per numeral) and four generated fields of
- * three kinds: `copy`, the written `v` itself; `rate`, a closed read of the tier's rate, which Rate holds for low and
- * mid and not for high, so a high row's `rate` has no value; `parsed`, the numeral cast into a bigint; and `when`, the
- * day's text parsed into a date, which a generated column holds only as an IMMUTABLE expression. Each case stores up to
- * three lawful rows, then inserts or puts one to three rows, each fresh or a repeat of a stored one, from a query over
- * a relation parameter, a source the write cannot prove unique on the key, into one of the two relations. The write's
- * statements request the rows' written fields alone, and a requested fact's generated values are its generation
- * expressions over them.
+ * Items holds two relations of one heading, Item, closed, and Spot, open, mutable inside the unit of its id: each a key
+ * `id`, four written fields (`v`, a tier, a numeral `k`, also a candidate key, and a day's text, one per numeral) and
+ * four generated fields of three kinds: `copy`, the written `v` itself; `rate`, a closed read of the tier's rate, which
+ * Rate holds for low and mid and not for high, so a high row's `rate` has no value; `parsed`, the numeral cast into a
+ * bigint; and `when`, the day's text parsed into a date, which a generated column holds only as an IMMUTABLE
+ * expression. Each case stores up to three lawful rows, then writes one to three rows, each fresh or a repeat of a
+ * stored one, from a query over a relation parameter, a source the write cannot prove unique on the key: an insert into
+ * Item, or an insert or a put into Spot. The write's statements request the rows' written fields alone, and a requested
+ * fact's generated values are its generation expressions over them.
  *
  * The oracle is the write restated over the drawn rows: the source's rows as a set; two at one key that differ is
  * the primary key's refusal; a high row the generated `rate`'s; an insert at a stored key that differs, the primary
@@ -18,7 +18,7 @@
  * its expression's value, accepted where it changed a row and unchanged otherwise. A refused write names one of the
  * laws it breaks and changes nothing.
  *
- * Features: each relation's insert and put applied, a refusal by each law, and an unchanged write.
+ * Features: each relation's insert applied, Spot's put applied, a refusal by each law, and an unchanged write.
  */
 
 import { assert, unorderedEqual } from "@bjornpagen/testing/assert"
@@ -28,7 +28,7 @@ import { Array as Arr, Effect, Formatter, Result } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
 import {
-	type Case,
+	appliedOf,
 	caseGen,
 	expectedOf,
 	factOf,
@@ -36,6 +36,7 @@ import {
 	Items,
 	type Row,
 	type Target,
+	type Write,
 	writtenOf,
 	genqueryInstall,
 	genqueryTemplate
@@ -55,7 +56,6 @@ export const aQuerySourcedWriteIntoGeneratedFieldsAgainstPostgreSQL19AnInsertOrA
 		needs: { fixture: Substrate.fresh(genqueryTemplate) },
 		situations: [
 			"Item insert applied",
-			"Item put applied",
 			"Spot insert applied",
 			"Spot put applied",
 			"refused by primaryKey",
@@ -94,13 +94,11 @@ export const aQuerySourcedWriteIntoGeneratedFieldsAgainstPostgreSQL19AnInsertOrA
 													})
 												)
 									/** The write of the case into `target` from its query over `rows`. */
-									const write = (target: Target, op: Case["op"], rows: ReadonlyArray<Row>) => {
+									const write = (w: Write, rows: ReadonlyArray<Row>) => {
 										const params = { rows: Arr.map(rows, writtenOf) }
-										return target === "Item"
-											? op === "insert"
-												? writeAnswerOf(db.workload.insertItem.once({ params, facts: {} }))
-												: writeAnswerOf(db.workload.putItem.once({ params, facts: {} }))
-											: op === "insert"
+										return w.target === "Item"
+											? writeAnswerOf(db.workload.insertItem.once({ params, facts: {} }))
+											: w.op === "insert"
 												? writeAnswerOf(db.workload.insertSpot.once({ params, facts: {} }))
 												: writeAnswerOf(db.workload.putSpot.once({ params, facts: {} }))
 									}
@@ -112,7 +110,7 @@ export const aQuerySourcedWriteIntoGeneratedFieldsAgainstPostgreSQL19AnInsertOrA
 									const before: ReadonlyArray<Readonly<Record<string, unknown>>> = yield* read(
 										k.target
 									)
-									const applied = yield* Effect.result(write(k.target, k.op, k.source))
+									const applied = yield* Effect.result(write(k, k.source))
 									if (Result.isFailure(applied)) {
 										return assert.fail(
 											`a lawful schema's write is an outcome: ${applied.failure.kind}`
@@ -150,7 +148,7 @@ export const aQuerySourcedWriteIntoGeneratedFieldsAgainstPostgreSQL19AnInsertOrA
 										"accepted where the write changed a row"
 									)
 									unorderedEqual(after, Arr.map(expected.rows, factOf), "the rows after the write")
-									c.note(expected.changed ? `${k.target} ${k.op} applied` : "an unchanged write")
+									c.note(expected.changed ? appliedOf(k) : "an unchanged write")
 								}).pipe(Effect.scoped, withLayer(o.served.layer))
 							}).pipe(Effect.scoped),
 							Substrate,

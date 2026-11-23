@@ -78,8 +78,8 @@ export const aFloatsZerosAreOneKeyAndTwoFactsAWriteOfAFactAtAStoredFactsKeyWhose
 													params: { g: at.g, rows: [fact] },
 													facts: {}
 												})
-											case "putImmutable":
-												return db.workload.putImmutable.once({
+											case "putDisplacing":
+												return db.workload.putDisplacing.once({
 													params: {},
 													facts: { put: { I: [{ k: at.k, x: s.written }] } }
 												})
@@ -140,7 +140,7 @@ export const aFloatsZerosAreOneKeyAndTwoFactsAWriteOfAFactAtAStoredFactsKeyWhose
 			kind: "specification",
 			name: "the fact identity: a fact whose zero has the other sign is another fact at the same key"
 		},
-		box: "each write (three put targets on a mutable relation, the pair on an immutable one, an insert, an exact deletion) of a fact at a stored fact's key, each of the two zeros stored and written",
+		box: "each write (three put targets in place, the pair where a put reads back what it removed, an insert, an exact deletion) of a fact at a stored fact's key, each of the two zeros stored and written",
 		kept: [],
 		kills: [
 			{

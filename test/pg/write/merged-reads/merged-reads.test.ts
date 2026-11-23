@@ -5,7 +5,7 @@
  * into one ChangeSet with one read-back `standing`, and its rows are the state after the whole ChangeSet, every stratum
  * of either and of a third sequenced after them, never the state after the stratum of the ChangeSet that declared it.
  *
- * Schema: Item(id, n) keyed by id. Stored: Item 1 | 10 and 2 | 20.
+ * Schema: Item(id, n) keyed by id, mutable inside the unit of its id. Stored: Item 1 | 10 and 2 | 20.
  *
  * The box, exhausted: an insert's ChangeSet and a delete's, each reading standing, sequenced either way, unioned in one
  * stratum, or sequenced with a third ChangeSet after them that puts Item 3 | 33 and reads nothing; the insert's fact a

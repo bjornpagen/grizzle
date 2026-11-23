@@ -7,7 +7,7 @@ import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
 import { Type } from "#compiler/public/compute.ts"
 import { closedId, date, generated, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { closed, key, mutable, on, relation, schema } from "#compiler/public/schema.ts"
+import { closed, key, mutable, on, relation, schema, unit } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import { bareRecord } from "#test/support/assert.ts"
@@ -65,13 +65,13 @@ const spotNumeral = key(on(Spot, "k"))
 export const Items = schema(
 	"Items",
 	[Tier, Rate, Item, Spot],
-	[itemNumeral, spotNumeral, mutable(Spot)]
+	[itemNumeral, spotNumeral, mutable(Spot), unit("Row", { id: pg.integer })]
 )
 
 /**
  * The full world's workload: each relation's rows as grizzle reads them, generated fields included; each relation's
- * seed, an insert of each call's rows; and the case's write, an insert or a put of each relation from a query over the
- * relation parameter `rows`, delivered as they are.
+ * seed, an insert of each call's rows; and the case's write from a query over the relation parameter `rows`, delivered
+ * as they are: an insert of each relation, and a put of Spot.
  */
 const programs = Object.freeze({
 	itemRows: query(Items).rule((r) => {
@@ -89,14 +89,6 @@ const programs = Object.freeze({
 	seedItem: ChangeSet.empty(Items).insert(Item, []),
 	seedSpot: ChangeSet.empty(Items).insert(Spot, []),
 	insertItem: ChangeSet.empty(Items).insert(
-		Item,
-		query(Items).rule((r) => {
-			const rows = r.relation("rows", written)
-			const row = v(rows, "row")
-			return r.match(rows, row).find(row)
-		})
-	),
-	putItem: ChangeSet.empty(Items).put(
 		Item,
 		query(Items).rule((r) => {
 			const rows = r.relation("rows", written)
@@ -147,14 +139,23 @@ export const writtenOf = (row: Row) => ({ ...row, day: dayOf[row.k] })
 
 export type Target = "Item" | "Spot"
 
-export interface Case {
-	readonly target: Target
-	readonly op: "insert" | "put"
+/** A case's write: an insert into Item, which is closed, or an insert or a put into Spot, which is open. */
+export type Write =
+	| { readonly target: "Item"; readonly op: "insert" }
+	| { readonly target: "Spot"; readonly op: "insert" | "put" }
+
+export type Case = Write & {
 	/** The rows stored before the write: lawful, at distinct keys and numerals, of tiers Rate holds. */
 	readonly stored: ReadonlyArray<Row>
 	/** The rows the write's query delivers. */
 	readonly source: Arr.NonEmptyReadonlyArray<Row>
 }
+
+/** A write: its relation, then, into Spot, its operation. */
+const writeGen: Gen<Write> = (source) =>
+	source.draw(element(["Item", "Spot"] as const)) === "Item"
+		? { target: "Item", op: "insert" }
+		: { target: "Spot", op: source.draw(element(["insert", "put"] as const)) }
 
 const rowGen =
 	(tierGen: Gen<TierHandle>): Gen<Row> =>
@@ -182,8 +183,7 @@ const storedGen: Gen<ReadonlyArray<Row>> = (source) => {
 
 /** Any case: up to three stored rows, and one to three source rows, each fresh or a repeat of a stored one. */
 const anyCaseGen: Gen<Case> = (source) => {
-	const target = source.draw(element(["Item", "Spot"] as const))
-	const op = source.draw(element(["insert", "put"] as const))
+	const write = source.draw(writeGen)
 	const stored = source.draw(storedGen)
 	/** A source row: a fresh one, or, half the time, a repeat of a stored one. */
 	const row: Gen<Row> = Arr.isReadonlyArrayNonEmpty(stored)
@@ -191,7 +191,7 @@ const anyCaseGen: Gen<Case> = (source) => {
 		: rowGen(element(tiers))
 	const first = source.draw(row)
 	const more = source.draw(array(row, { min: 0, max: 2 }))
-	return { target, op, stored, source: [first, ...more] }
+	return { ...write, stored, source: [first, ...more] }
 }
 
 /**
@@ -201,8 +201,7 @@ const anyCaseGen: Gen<Case> = (source) => {
  * meet none at a relation and operation.
  */
 const freshCaseGen: Gen<Case> = (source) => {
-	const target = source.draw(element(["Item", "Spot"] as const))
-	const op = source.draw(element(["insert", "put"] as const))
+	const write = source.draw(writeGen)
 	const ids = source.draw(shuffled([1, 2, 3], { min: 1, max: 3 }))
 	const ks = source.draw(shuffled(numerals, { min: ids.length, max: ids.length }))
 	const rows = Arr.zipWith(ids, ks, (id, k) => ({
@@ -212,7 +211,7 @@ const freshCaseGen: Gen<Case> = (source) => {
 		k
 	}))
 	const [first, ...stored] = nonEmpty(rows, "a fresh case's rows, one id at least")
-	return { target, op, stored, source: [first] }
+	return { ...write, stored, source: [first] }
 }
 
 export const caseGen: Gen<Case> = oneOf([anyCaseGen, freshCaseGen])
@@ -278,9 +277,19 @@ export const expectedOf = (c: Case): Expected => {
 }
 
 export type Feature =
-	| `${Target} ${"insert" | "put"} applied`
+	| "Item insert applied"
+	| "Spot insert applied"
+	| "Spot put applied"
 	| `refused by ${"primaryKey" | "generated" | "key"}`
 	| "an unchanged write"
+
+/** The situation of a write applied. */
+export const appliedOf = (w: Write): Feature =>
+	w.target === "Item"
+		? "Item insert applied"
+		: w.op === "insert"
+			? "Spot insert applied"
+			: "Spot put applied"
 
 /** How the module's fixture is installed: its label and the programs its login's workload holds. */
 export const genqueryInstall = Object.freeze({ label: "genquery", programs })

@@ -6,7 +6,7 @@ import { Array as Arr, Record as Rec } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { instant, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { contained, on, relation, schema } from "#compiler/public/schema.ts"
+import { contained, mutable, on, relation, schema, unit } from "#compiler/public/schema.ts"
 
 /** A child's moment, its at a clock of child `child`: qti's TestMoment. */
 export const Moment = relation("Moment", { child: pg.integer, at: instant }, ["child", "at"])
@@ -18,7 +18,10 @@ export const Budget = relation(
 	["child", "k"]
 )
 
-/** A child's earlier note at a stored moment, keyed by the moment, so a delete states the instant of its key. */
+/**
+ * A child's earlier note at a stored moment, keyed by the moment, so a delete states the instant of its key: mutable,
+ * inside the unit of its child, which Moment and Budget sit in too.
+ */
 export const Old = relation("Old", { child: pg.integer, at: instant, n: pg.integer }, [
 	"child",
 	"at"
@@ -30,7 +33,9 @@ export const build = (name: string) =>
 		[Moment, Budget, Old],
 		[
 			contained(on(Budget, "child", "at"), on(Moment, "child", "at")),
-			contained(on(Old, "child", "at"), on(Moment, "child", "at"))
+			contained(on(Old, "child", "at"), on(Moment, "child", "at")),
+			mutable(Old),
+			unit("Learner", { child: pg.integer })
 		]
 	)
 

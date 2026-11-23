@@ -10,9 +10,9 @@
  * session's table records, so every fill after it extended the heap, a session's carriers growing by each write.
  *
  * The box, exhausted: each shape whose facts its program carries and whose write a session repeats (session-carriers
- * .fixtures.ts shapes: an immutable relation's put, its displacing deletion and its insert; owners put, their UPDATE, their
- * items refilled and recounted), at one key and at 256, three writes of it in turn on one session of a fresh
- * installation holding 256 owners of two items each and 256 immutable facts, each write's values its own.
+ * .fixtures.ts shapes: a candidate-keyed relation's put, its displacing deletion and its insert; owners put, their
+ * UPDATE, their items refilled and recounted), at one key and at 256, three writes of it in turn on one session of a
+ * fresh installation holding 256 owners of two items each and 256 candidate-keyed facts, each write's values its own.
  *
  * Property, for each case: one backend runs the three writes, the first holds a carrier, and just before each COMMIT the
  * session holds the same carriers, relation for relation (pg_class oid) and byte for byte (pg_total_relation_size), the

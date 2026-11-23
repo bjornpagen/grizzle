@@ -21,7 +21,8 @@ import {
 	on,
 	ordered,
 	relation,
-	schema
+	schema,
+	unit
 } from "#compiler/public/schema.ts"
 import { keyTextBytes, str } from "#compiler/public/text.ts"
 import { type ParamMap } from "#compiler/types/core/phantom.ts"
@@ -84,7 +85,9 @@ const Staged = schema(
 		mutable(Shelf),
 		shelved,
 		fold(shelved, Monoid.sum, on(Entry, "shelf", "size"), on(Shelf, "id", "total")),
-		check("Small", Entry, (e) => e.le(e.size, small))
+		check("Small", Entry, (e) => e.le(e.size, small)),
+		unit("Tagged", { id: pg.integer }),
+		unit("Stock", { id: Id })
 	]
 )
 

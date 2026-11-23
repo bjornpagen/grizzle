@@ -16,7 +16,7 @@ import {
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { drawn, natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { fin, on, relation, schema, tree } from "#compiler/public/schema.ts"
+import { fin, mutable, on, relation, schema, tree, unit } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -50,7 +50,11 @@ const build = (name: string) =>
 	schema(
 		name,
 		[Node],
-		[tree(on(Node, "parent", "at"), fin(Node, "children"), { root: ["pkg", "path"] })]
+		[
+			tree(on(Node, "parent", "at"), fin(Node, "children"), { root: ["pkg", "path"] }),
+			mutable(Node),
+			unit("Package", { pkg: pg.bigint })
+		]
 	)
 
 type Schema = ReturnType<typeof build>

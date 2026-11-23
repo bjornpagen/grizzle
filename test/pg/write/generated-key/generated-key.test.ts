@@ -10,15 +10,16 @@
  * (write/family/statements.ts candidateGate), refused on the key, witnessed by the appended row's key (README "Errors
  * and outcomes", Witness).
  *
- * Keys holds a typed map key, MapKey (mapping, text), primary key both, whose `value` and `negative` PostgreSQL
- * generates from its text, the integer it spells and whether it is spelled with a minus, keyed by (mapping, value,
- * negative): two spellings of one value in one mapping, "1" and "01", are one key, and "0" and "-0" are two. Use names
- * a typed key by a containment into it. Tag (id, text), mutable, keeps at most one tag of each positive value, a key
- * over a selected side whose term and selection read its generated `value`. Mapping, mutable, owns an ordered family of
- * Entry rows, primary key (mapping, text), each a typed key of its own, keyed by (mapping, value, negative), written
- * nested under a new mapping or appended to a stored one by a put of Entry: a put at a key the mapping stores repeats
- * its entry exactly, and any other takes the next slot, its gate (write/family/statements.ts candidateGate) probing
- * the stored entries under the statement's snapshot at the appended row's generated fields.
+ * Keys holds a typed map key, MapKey (mapping, text), mutable, primary key both, whose `value` and `negative`
+ * PostgreSQL generates from its text, the integer it spells and whether it is spelled with a minus, keyed by (mapping,
+ * value, negative): two spellings of one value in one mapping, "1" and "01", are one key, and "0" and "-0" are two. Use
+ * names a typed key by a containment into it. Tag (id, text), mutable, keeps at most one tag of each positive value, a
+ * key over a selected side whose term and selection read its generated `value`. Mapping, mutable, owns an ordered
+ * family of Entry rows, mutable, primary key (mapping, text), each a typed key of its own, keyed by (mapping, value,
+ * negative), written nested under a new mapping or appended to a stored one by a put of Entry: a put at a key the
+ * mapping stores repeats its entry exactly, and any other takes the next slot, its gate (write/family/statements.ts
+ * candidateGate) probing the stored entries under the statement's snapshot at the appended row's generated fields. Each
+ * mutable relation sits in its unit: a mapping's (MapKey, Entry) by its id, and the rest by their own id.
  *
  * Each case stores a lawful state, then applies one stratum of up to three writes: inserts, puts and deletes of MapKey
  * and Tag from an array or a query over a relation parameter, inserts of Use, inserts of new mappings with their

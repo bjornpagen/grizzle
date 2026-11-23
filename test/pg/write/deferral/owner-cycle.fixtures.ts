@@ -11,7 +11,6 @@ import {
 	countedBuilder,
 	finBuilder,
 	keyBuilder,
-	mutableBuilder,
 	onBuilder,
 	orderedBuilder,
 	selectBuilder
@@ -19,6 +18,7 @@ import {
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyRelation, Relation } from "#compiler/types/schema/relation.ts"
 import { Id } from "#test/support/ids.ts"
+import { opened } from "#test/support/open.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /**
@@ -258,9 +258,7 @@ export const buildOf = (spec: Spec): Built => {
 		...(key === undefined ? [] : [key]),
 		...(checked === undefined ? [] : [checked]),
 		...(refers === undefined ? [] : [refers]),
-		mutableBuilder(O),
-		mutableBuilder(M),
-		...(spec.referrer ? [mutableBuilder(R)] : [])
+		...opened(spec.referrer ? [O, M, R] : [O, M])
 	]
 	return {
 		O,

@@ -13,7 +13,17 @@ import {
 } from "#bench/write/support/writes.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { accumulated, drawn, natural, pg } from "#compiler/public/fields.ts"
-import { contained, counted, fin, mutable, on, relation, schema } from "#compiler/public/schema.ts"
+import {
+	contained,
+	counted,
+	fin,
+	key,
+	mutable,
+	on,
+	relation,
+	schema,
+	unit
+} from "#compiler/public/schema.ts"
 
 const Owner = relation("Owner", { id: pg.integer, v: pg.bigint, n: drawn(natural) }, ["id"])
 
@@ -23,10 +33,16 @@ const Item = relation(
 	["id"]
 )
 
-/** A relation no role updates, whose put deletes the facts it displaces and inserts its own (write/put/choose.ts). */
+/**
+ * A relation whose `w` is a candidate key, so its put deletes the facts it displaces and inserts its own, never updated
+ * in place (write/put/choose.ts candidateKey).
+ */
 const Fixed = relation("Fixed", { id: pg.integer, w: pg.integer }, ["id"])
 
-/** Owners counting their items, each item copying its owner's v, both mutable, and an immutable relation beside them. */
+/**
+ * Owners counting their items, each item copying its owner's v, and the candidate-keyed Fixed beside them, each
+ * mutable inside the unit of its id.
+ */
 const build = (name: string) =>
 	schema(
 		name,
@@ -34,8 +50,11 @@ const build = (name: string) =>
 		[
 			counted(on(Item, "owner"), fin(Owner, "n")),
 			contained(on(Item, "owner", "cv"), on(Owner, "id", "v")),
+			key(on(Fixed, "w")),
 			mutable(Owner),
-			mutable(Item)
+			mutable(Item),
+			mutable(Fixed),
+			unit("Row", { id: pg.integer })
 		]
 	)
 
@@ -43,11 +62,11 @@ type Schema = ReturnType<typeof build>
 
 /**
  * The shapes, each a write whose facts two or more of its statements read, so its program carries them in carriers of
- * its own (write/program/slot-carriers.ts), and each one a session repeats over its own last state: an immutable
+ * its own (write/program/slot-carriers.ts), and each one a session repeats over its own last state: a candidate-keyed
  * relation put, its displacing deletion and its insert; and owners put, the UPDATE of the owners, their items refilled
  * and recounted.
  */
-const shapes = ["an immutable relation put", "owners put"] as const
+const shapes = ["a candidate-keyed relation put", "owners put"] as const
 
 export type Shape = (typeof shapes)[number]
 
@@ -76,7 +95,7 @@ export const situations: ReadonlyArray<Situation> = Arr.flatMap(shapes, (shape) 
 /** The writes a case runs in its one session, one after another. */
 const writes = 3
 
-/** The owners stored before a case's writes, each with two items, and a Fixed fact per owner. */
+/** The owners stored before a case's writes, each with two items, and a Fixed fact per owner, each of its own w. */
 const owners = 256
 
 const seedOf = (s: Schema) =>
@@ -91,17 +110,17 @@ const seedOf = (s: Schema) =>
 		)
 		.insert(
 			Fixed,
-			Arr.map(indices(owners), (id) => ({ id, w: 0 }))
+			Arr.map(indices(owners), (id) => ({ id, w: id }))
 		)
 
 /** The `k`-th write of a case, from 1: its shape over its keys, every value written `k`. */
 const writeOf = (s: Schema, sketch: Sketch, k: number) => {
 	const named = indices(sketch.keys)
 	switch (sketch.shape) {
-		case "an immutable relation put":
+		case "a candidate-keyed relation put":
 			return ChangeSet.empty(s).put(
 				Fixed,
-				Arr.map(named, (id) => ({ id, w: k }))
+				Arr.map(named, (id) => ({ id, w: k * owners + id }))
 			)
 		case "owners put":
 			return ChangeSet.empty(s).put(

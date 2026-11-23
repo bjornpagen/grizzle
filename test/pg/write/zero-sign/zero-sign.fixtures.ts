@@ -5,7 +5,7 @@ import { Array as Arr } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { mutable, relation, schema } from "#compiler/public/schema.ts"
+import { mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { changeSetDesc } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import type { PutChoice } from "#compiler/write/put/choose.ts"
@@ -22,8 +22,11 @@ import { checking } from "#test/support/policy.ts"
  *   (write/put/choose.ts): an enumerated put an ON CONFLICT DO UPDATE, a put of M's own facts read with x a parameter an
  *   UPDATE ... FROM, a put of a relation parameter beside the deletion of M's other facts in its scope a MERGE; and an
  *   insert's repeat and an exact deletion compare a stored fact with the one written;
- * - I, immutable, keyed by k, whose put is the DELETE-then-insert pair, its deletion displacing a fact that differs;
+ * - I, mutable, keyed by k, whose put reads back the facts it removed, so it is the DELETE-then-insert pair
+ *   (write/put/choose.ts removedRead), its deletion displacing a fact that differs;
  * - K, mutable, keyed by its float x.
+ *
+ * M and I sit in the unit of their k, and K in the unit of its x.
  *
  * The model is the fact identity: a write of a fact at a stored fact's key whose x differs from the stored x by a zero's
  * sign alone writes another fact, so a put stores the written zero and is accepted, an insert is refused by the key, a
@@ -40,7 +43,17 @@ const P = relation("P", { id: pg.bigint, x: pg["double precision"] }, ["id"])
 
 const C = relation("C", { id: pg.bigint, x: pg["double precision"] }, ["id"])
 
-export const Zeros = schema("Zeros", [M, I, K, P, C], [mutable(M), mutable(K)])
+export const Zeros = schema(
+	"Zeros",
+	[M, I, K, P, C],
+	[
+		mutable(M),
+		mutable(I),
+		mutable(K),
+		unit("Keyed", { k: pg.bigint }),
+		unit("Zero", { x: pg["double precision"] })
+	]
+)
 
 /** M's facts of a relation parameter, matched whole. */
 const rowsOfM = query(Zeros).rule((r) => {
@@ -90,7 +103,14 @@ const programs = Object.freeze({
 					.find({ k, g, x })
 			})
 		),
-	putImmutable: ChangeSet.empty(Zeros).put(I, []),
+	putDisplacing: ChangeSet.empty(Zeros)
+		.put(I, [])
+		.read("removed", (d) =>
+			query(Zeros).rule((r) => {
+				const { k, x } = v(d.removed(I), "removed")
+				return r.match(d.removed(I), { k, x }).find({ k, x })
+			})
+		),
 	insertMutable: ChangeSet.empty(Zeros).insert(M, []),
 	deleteMutable: ChangeSet.empty(Zeros).delete(M, []),
 	putKeys: ChangeSet.empty(Zeros).put(K, [])
@@ -101,7 +121,7 @@ const writes = [
 	"putEnumerated",
 	"putDescribed",
 	"putScoped",
-	"putImmutable",
+	"putDisplacing",
 	"insertMutable",
 	"deleteMutable"
 ] as const satisfies ReadonlyArray<keyof typeof programs>
@@ -140,7 +160,7 @@ export const expected = (s: Sketch): Answer => {
 		case "putEnumerated":
 		case "putDescribed":
 		case "putScoped":
-		case "putImmutable":
+		case "putDisplacing":
 			return { outcome: same ? "unchanged" : "accepted", after: s.written }
 		case "insertMutable":
 			return { outcome: same ? "unchanged" : "refused", after: s.stored }
@@ -155,7 +175,7 @@ export const expected = (s: Sketch): Answer => {
 export const at = { k: 1n, g: 7n } as const
 
 /** The relation a case's write writes. */
-export const writtenRelation = (w: Write) => (w === "putImmutable" ? I : M)
+export const writtenRelation = (w: Write) => (w === "putDisplacing" ? I : M)
 
 export type Feature =
 	| `${Write} of the stored zero`

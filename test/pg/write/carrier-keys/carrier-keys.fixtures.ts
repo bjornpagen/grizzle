@@ -14,7 +14,17 @@ import {
 } from "#bench/write/support/writes.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { accumulated, drawn, natural, pg } from "#compiler/public/fields.ts"
-import { contained, counted, fin, mutable, on, relation, schema } from "#compiler/public/schema.ts"
+import {
+	contained,
+	counted,
+	fin,
+	key,
+	mutable,
+	on,
+	relation,
+	schema,
+	unit
+} from "#compiler/public/schema.ts"
 
 const Owner = relation("Owner", { id: pg.integer, v: pg.bigint, n: drawn(natural) }, ["id"])
 
@@ -24,12 +34,16 @@ const Item = relation(
 	["id"]
 )
 
-/** A relation no role updates, whose put deletes the facts it displaces and inserts its own (write/put/choose.ts). */
+/**
+ * A relation whose `w` is a candidate key, so its put deletes the facts it displaces and inserts its own, never updated
+ * in place, where an UPDATE moving one fact's w to another's would raise 23505 at a lawful state (write/put/choose.ts
+ * candidateKey).
+ */
 const Fixed = relation("Fixed", { id: pg.integer, w: pg.integer }, ["id"])
 
 /**
  * The box's schema: owners counting their items, each item copying its owner's v (a refill when the owner's v changes),
- * both mutable, and an immutable relation beside them.
+ * and the candidate-keyed Fixed beside them, each mutable inside the unit of its id.
  */
 const build = (name: string) =>
 	schema(
@@ -38,8 +52,11 @@ const build = (name: string) =>
 		[
 			counted(on(Item, "owner"), fin(Owner, "n")),
 			contained(on(Item, "owner", "cv"), on(Owner, "id", "v")),
+			key(on(Fixed, "w")),
 			mutable(Owner),
-			mutable(Item)
+			mutable(Item),
+			mutable(Fixed),
+			unit("Row", { id: pg.integer })
 		]
 	)
 
@@ -52,7 +69,7 @@ const boxRelations = ["Owner", "Item", "Fixed"] as const
  * The shapes, each a write whose facts two or more of its statements read, so its program carries them in a carrier of
  * its own (write/program/slot-carriers.ts) that every one of those statements joins to a stored relation:
  *
- * - an immutable relation put: the displacing deletion (delete/exact.ts) and the insert;
+ * - a candidate-keyed relation put: the displacing deletion (delete/exact.ts) and the insert;
  * - owners put: the UPDATE of the owners (put/statement.ts), their items refilled (family/removals.ts refill) and
  *   recounted (family/additions.ts);
  * - items moved: items deleted and others put into another owner's group, the removals statement's removed, touched,
@@ -60,7 +77,7 @@ const boxRelations = ["Owner", "Item", "Fixed"] as const
  * - owners put and items deleted: the edited and refilled members' keyset of one removals statement.
  */
 const shapes = [
-	"an immutable relation put",
+	"a candidate-keyed relation put",
 	"owners put",
 	"items moved",
 	"owners put and items deleted"
@@ -100,7 +117,7 @@ const itemsPerOwner = 2
 
 const itemOf = (owner: number, i: number) => ({ id: itemsPerOwner * owner + i, owner })
 
-/** The stored state: every owner with its items, and a Fixed fact per owner. */
+/** The stored state: every owner with its items, and a Fixed fact per owner, each of its own w. */
 const seedOf = (s: Schema) =>
 	ChangeSet.empty(s)
 		.insert(
@@ -113,7 +130,7 @@ const seedOf = (s: Schema) =>
 		)
 		.insert(
 			Fixed,
-			Arr.map(indices(owners), (id) => ({ id, w: 0 }))
+			Arr.map(indices(owners), (id) => ({ id, w: id }))
 		)
 
 /** The write of a case: its shape over the first `keys` owners, a moved item going to the owner `owners / 2` on. */
@@ -121,10 +138,10 @@ const writeOf = (s: Schema, sketch: Sketch) => {
 	const named = indices(sketch.keys)
 	const ownersPut = Arr.map(named, (id) => ({ id, v: BigInt(id + 1) }))
 	switch (sketch.shape) {
-		case "an immutable relation put":
+		case "a candidate-keyed relation put":
 			return ChangeSet.empty(s).put(
 				Fixed,
-				Arr.map(named, (id) => ({ id, w: 1 }))
+				Arr.map(named, (id) => ({ id, w: owners + id }))
 			)
 		case "owners put":
 			return ChangeSet.empty(s).put(Owner, ownersPut)

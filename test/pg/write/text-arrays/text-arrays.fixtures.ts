@@ -13,7 +13,7 @@ import {
 import { Array as Arr, Option, Order, String as Str } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { mutable, relation, schema } from "#compiler/public/schema.ts"
+import { mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import { Id } from "#test/support/ids.ts"
@@ -21,7 +21,11 @@ import { Id } from "#test/support/ids.ts"
 const Body = str.regex("^.*$", "su")
 const Note = relation("Note", { id: Id, body: Body }, ["id"])
 const Response = relation("Response", { id: Id, value: Body }, ["id"])
-export const Texts = schema("TextArrays", [Note, Response], [mutable(Note), mutable(Response)])
+export const Texts = schema(
+	"TextArrays",
+	[Note, Response],
+	[mutable(Note), mutable(Response), unit("Record", { id: Id })]
+)
 
 /**
  * The full world's workload: Note's insert, put and delete, each from its call's facts; Response's insert from the

@@ -15,7 +15,8 @@ import {
 	ordered,
 	relation,
 	schema,
-	tree
+	tree,
+	unit
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { btreeMaxItemSize } from "#compiler/schema/representability.ts"
@@ -33,7 +34,7 @@ const AnyText = str.regex("^.*$", "su")
 /**
  * A stimulus ref, keyed by its element (pantry's StimulusRef, qti/tests.ts): its document's package and path and the
  * element's start, its path read through its digest, a key generation (INTERFACE.md of lane GENPK §1), so a path past
- * PostgreSQL's B-tree entry limit keys it. Immutable, so a put displaces a stored ref by a delete and an insert.
+ * PostgreSQL's B-tree entry limit keys it. Mutable, as every relation a stratum puts or deletes is.
  */
 export const StimulusRef = relation.generated(
 	"StimulusRef",
@@ -154,9 +155,15 @@ export const GeneratedKeys = schema(
 		lineTitle,
 		noteTitle,
 		nodes,
+		mutable(StimulusRef),
 		mutable(FoldedRef),
 		mutable(Doc),
-		mutable(SetString)
+		mutable(Line),
+		mutable(Note),
+		mutable(TreeNode),
+		mutable(SetString),
+		unit("Bundle", { package: Package }),
+		unit("Learner", { child: pg.integer })
 	]
 )
 
