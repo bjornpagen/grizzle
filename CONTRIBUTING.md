@@ -664,13 +664,11 @@ text match. A type agreement's requirements are its property's situations, which
   caller or as a direct SQL writer would. Each action's observation must be one the model allows, no value hidden from
   the acting session may appear in anything grizzle answered, every stored relation must hold exactly the model's facts
   and every open session's connection probe as the model expects, and the model's state keeps every invariant. Its
-  suites: random programs over a documents base, guided by block coverage of the worlds code, an exhaustive small box,
-  and inductive single steps from drawn states (`test/pg/world-model`); concurrent races (`test/schedules/worlds`); and
-  the school system's installation (`test/pg/education`). The rules suite (`test/pg/world-model/rules.test.ts`) meets
-  every law family the README's Rules lists with writes through partial worlds, and holds every shown witness to
-  values the writer submitted or holds whole. The leak scan every suite's "no hidden value" rests on is itself searched
-  (`test/pg/world-model/execute.test.ts`): a hidden value planted in a real refusal must be reported in the field that
-  spells it.
+  suites: random programs over a documents base, guided by block coverage of the worlds code, and inductive single
+  steps from drawn states (`test/pg/world-model`); concurrent races (`test/schedules/worlds`); and the school system's
+  installation (`test/pg/education`). The rules suite (`test/pg/world-model/rules.test.ts`) meets every law family the
+  README's Rules lists with writes through partial worlds, and holds every shown witness to values the writer
+  submitted or holds whole.
 - **The protocol tap** (`test/support/wire-tap.ts`): a session whose every message, both ways, a test reads off the
   wire, on grizzle's public transport: its sockets are in memory, its server end answers the SSLRequest and terminates
   verify-full TLS with the tap's own CA (`test/support/memory-tls.ts`), and the tap carries the plaintext over its own

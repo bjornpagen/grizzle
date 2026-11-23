@@ -266,18 +266,6 @@ export interface InstalledNames {
 	/** The PostgreSQL role of each grizzle role and login. */
 	readonly roles: Readonly<Record<string, string>>
 	readonly logins: Readonly<Record<string, string>>
-	/**
-	 * Each roster's names constant, by the roster's name: the function every role view's decoded column calls, named by
-	 * the digest of its names in code order, so a removal's hole names a new one. A role that holds USAGE on the
-	 * roster's domain, or reads a view that decodes through it, holds EXECUTE on it.
-	 */
-	readonly rosterConstants: Readonly<Record<string, string>>
-	/**
-	 * Each roster's live-codes constant, by the roster's name: the function its domain's CHECK calls, named by its live
-	 * codes, so a rename, which moves no code, keeps it. A role that holds USAGE on the roster's domain holds EXECUTE on
-	 * it, since PostgreSQL checks EXECUTE against the invoker of the CHECK.
-	 */
-	readonly rosterLiveConstants: Readonly<Record<string, string>>
 	/** Each roster's handles by code, as the installation holds them: what a closed id's claim and column hold. */
 	readonly codes: HandleCodes
 	/**

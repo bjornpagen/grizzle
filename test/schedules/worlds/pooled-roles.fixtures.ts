@@ -79,8 +79,8 @@ const probe = (session: number): RaceOp => ({ kind: "probe", session })
  * ann then shares a document (committed) and writes a note on a document outside her tenant (refused). Whatever ended
  * the transaction before, each probe must read the login's own role with no claims and no transaction open: claims and
  * roles never cross transactions on a pooled connection. The probe right after a call interrupted mid-flight is the one
- * place it is checked after an interruption: the worlds model's serial drivers never have a call in flight to interrupt
- * (pg/world-model/pool's connection situations). The moves are ordered by the case's PCT schedule.
+ * place it is checked after an interruption: the worlds model's serial drivers never have a call in flight to
+ * interrupt. The moves are ordered by the case's PCT schedule.
  */
 export const race = (c: Case, nature: Nature): WorldRace => ({
 	name: "a reader and a member interleave on one pooled connection",

@@ -162,7 +162,7 @@ interface Probe {
 type KeyProbe = Extract<WorldFunction, { readonly kind: "key-probe" }>
 
 /**
- * A role's key probe as the installation defines it (privileges.ts definedWorldFunctions): over the target of the role's
+ * A role's key probe as the installation defines it (invalid/catalog.ts installedFunctionsOf): over the target of the role's
  * written query entry, testing the target's key at the probe's index in keysOf order. Undefined where the installation
  * defines no such probe: the entry is no written query entry, or its target has no key at that index.
  */

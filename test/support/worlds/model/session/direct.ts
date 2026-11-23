@@ -471,7 +471,7 @@ const closedWhole = (install: InstallSpec, entry: EntrySpec): boolean =>
 	entry.kind === "whole" && Arr.some(install.base.closed, (c) => c.name === entry.relation)
 
 /** A role's relation grizzle installs a view for: an entry of an installed role, but a closed roster held whole. */
-export const installedView = (
+const installedView = (
 	install: InstallSpec,
 	role: string,
 	relation: string

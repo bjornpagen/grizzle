@@ -46,7 +46,7 @@ export interface LiveInstallation {
 }
 
 /** The login every live world serves (test/support/worlds.ts fullWorld). */
-export const liveLogin = "server"
+const liveLogin = "server"
 
 /** The inserts of every fact of `c`, as one direct writer's commit, none where it has no fact. */
 const factsCommit = (c: LiveCase): ReadonlyArray<LiveCommit> => {

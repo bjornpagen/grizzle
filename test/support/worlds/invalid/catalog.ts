@@ -1,10 +1,16 @@
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { boolean, constant, element, type Gen, map, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 import { knownNonEmpty } from "#test/support/worlds/generate/domain.ts"
 import type { Variant } from "#test/support/worlds/invalid/kinds.ts"
 import { rowSecured } from "#test/support/worlds/model/session/catalog.ts"
-import { writtenNamed } from "#test/support/worlds/model/session/writes.ts"
+import {
+	filterReadsStored,
+	keysOf,
+	writtenNamed,
+	writtenOf
+} from "#test/support/worlds/model/session/writes.ts"
 import type {
 	BaseSpec,
 	CatalogPerturbation,
@@ -17,7 +23,6 @@ import type {
 	TriggerRef,
 	WorldFunction
 } from "#test/support/worlds/model/types.ts"
-import { definedWorldFunctions } from "#test/support/worlds/privileges.ts"
 
 const privileges: Arr.NonEmptyReadonlyArray<TablePrivilege> = [
 	"SELECT",
@@ -91,10 +96,30 @@ export const worldFunctionsOf = (state: ModelState): ReadonlyArray<WorldFunction
 
 /**
  * Every function the installation defines, which a perturbation may redefine: its world functions alone, since every law
- * is a native constraint with no function to perturb (fin.md §7).
+ * is a native constraint with no function to perturb (fin.md §7). For each query entry a role writes, a key probe of
+ * each key of its target (the model's keysOf order, the index a WorldFunction names), and its filter function when its
+ * membership reads a stored relation besides its target's row (filterReadsStored).
  */
-const installedFunctionsOf = (state: ModelState): ReadonlyArray<WorldFunction> =>
-	definedWorldFunctions(state.install)
+const installedFunctionsOf = (state: ModelState): ReadonlyArray<WorldFunction> => {
+	const base = state.install.base
+	return Arr.flatMap(state.install.roles, (role) =>
+		Arr.flatMap(writtenOf(base, role), (w): ReadonlyArray<WorldFunction> =>
+			w.kind === "whole"
+				? []
+				: [
+						...Arr.map(indices(keysOf(base, w.target).length), (key): WorldFunction => ({
+							kind: "key-probe",
+							role: role.name,
+							entry: w.entry,
+							key
+						})),
+						...(filterReadsStored(w.rules)
+							? [{ kind: "filter" as const, role: role.name, entry: w.entry }]
+							: [])
+					]
+		)
+	)
+}
 
 /** Every trigger the installation defines: each relation's below-SERIALIZABLE guard, and no law's (fin.md §7). */
 const triggersOf = (state: ModelState): Arr.NonEmptyReadonlyArray<TriggerRef> =>

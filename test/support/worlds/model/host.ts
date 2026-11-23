@@ -293,7 +293,7 @@ export const literalDefault = (value: HostValue): FieldDomain | undefined => {
  * A head field's domain from its rule set's arms that deliver it by a term: the one the first such arm in rule order
  * gives it, which every literal of the field takes; none for a field only literals fill.
  */
-export const termHeadDomain = (
+const termHeadDomain = (
 	base: BaseSpec,
 	rules: ReadonlyArray<Rule>,
 	field: string

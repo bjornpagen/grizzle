@@ -1548,7 +1548,7 @@ const claimUnreadOf = (
 	return negatedOnly && answered ? ["claim-unread:negation"] : []
 }
 
-export const claimRefusalsOf = (
+const claimRefusalsOf = (
 	state: ModelState,
 	action: Action,
 	observation: Observation
@@ -1713,9 +1713,9 @@ const readBacksOf = (
  * What a get's input is, as the harness reads its own draw, whatever the model allows it: fields within which no key of
  * its relation lies (model/session/keys.ts entryKeyed), a read of every row agreeing at them, since grizzle serves no
  * lookup by a field set a caller picks; and a value outside its field's domain, or a field outside the heading, by the
- * harness's own check of what it draws (generate/domain.ts inDomain). Each its own feature, so a class of the box
- * (generate/enumerate.ts exploreBox) holds such a get apart from a get by a key of its rows and checks it, wherever the
- * model's one judgment of a get (model/reads.ts getCompiles) puts its outcome.
+ * harness's own check of what it draws (generate/domain.ts inDomain). Each its own feature, so a suite's situations
+ * hold such a get apart from a get by a key of its rows, wherever the model's one judgment of a get (model/reads.ts
+ * getCompiles) puts its outcome.
  */
 const getShapeOf = (
 	state: ModelState,

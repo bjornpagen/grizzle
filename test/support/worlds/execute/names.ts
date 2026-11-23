@@ -1,7 +1,5 @@
 import { Array as Arr, Effect, Record as Rec } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
-import { everyProperty } from "#compiler/core/canonical.ts"
-import { constantDigest } from "#compiler/core/fingerprint.ts"
 import {
 	conversionOf,
 	identifierOf,
@@ -13,7 +11,6 @@ import type { LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import { type ConstraintOwner, lawsOfConstraint } from "#compiler/ir/products.ts"
-import { rosterConstants } from "#compiler/physical/ddl/constants.ts"
 import type { TextDomain } from "#compiler/physical/ddl/domains.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { Statement } from "#compiler/public/schema.ts"
@@ -280,27 +277,6 @@ export const namesOfBuiltAt = (
 				Arr.map(spec.base.relations, (r) => [r.name, names.primaryKeyLaw(r)] as const)
 			),
 			laws,
-			rosterConstants: Rec.fromEntries(
-				Arr.map(
-					[...installation.names.codes.rosters],
-					([roster, codec]) =>
-						[
-							roster,
-							identifierOf(
-								identity.rosterConstant(
-									roster,
-									constantDigest("roster-names", codec.names, everyProperty)
-								)
-							)
-						] as const
-				)
-			),
-			rosterLiveConstants: Rec.fromEntries(
-				Arr.map(
-					[...installation.names.codes.rosters],
-					([roster, codec]) => [roster, identifierOf(rosterConstants(codec).live)] as const
-				)
-			),
 			codes: rosterCodesOf(installation.names.codes),
 			keys: Rec.fromEntries(
 				Arr.map(

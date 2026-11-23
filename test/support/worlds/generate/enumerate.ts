@@ -1,5 +1,5 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
-import { TupleMap, TupleSet } from "@bjornpagen/grizzle-text/base/tuple-map"
+import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 import { WILD_KINDS } from "@bjornpagen/testing/lsw"
 import { Array as Arr, Option, Order, Record as Rec, String as Str } from "effect"
 import type { Atom, ValueIdentity } from "#test/support/kernel/identity.ts"
@@ -13,9 +13,6 @@ import {
 	violations
 } from "#test/support/laws/model.ts"
 import { upTo } from "#test/support/up-to.ts"
-import { installedNames } from "#test/support/worlds/execute/names.ts"
-import { canonicalForms } from "#test/support/worlds/generate/canonical.ts"
-import { invalidKindsOf } from "#test/support/worlds/generate/classify.ts"
 import {
 	domainKey,
 	fieldsOfSource,
@@ -52,7 +49,6 @@ import {
 	writtenAt,
 	writtenOf
 } from "#test/support/worlds/model/session/writes.ts"
-import { settle, step } from "#test/support/worlds/model/step.ts"
 import type {
 	Action,
 	ActionKind,
@@ -74,7 +70,6 @@ import type {
 	LoginSpec,
 	ModelState,
 	Occurrence,
-	ActionOutcome,
 	PageFrom,
 	ReadVia,
 	RelationSpec,
@@ -1200,35 +1195,6 @@ const boxReads = (
 }
 
 /**
- * The reads of a direct writer's open transaction the box offers (boxReads), each once, as enumerateKind offers its
- * statements: what a read after the transaction's write may show, without building the rest of its statements.
- */
-export const enumerateDirectReads = (
-	state: ModelState,
-	session: number,
-	scope: SmallScope
-): ReadonlyArray<Action> => {
-	const s = state.sessions[session]
-	if (s?.kind !== "direct" || !applicable(state, "direct")) {
-		return []
-	}
-	const { listed, added } = boxReads(state, s, scopedOf(state, scope))
-	return Arr.filter(
-		Arr.map(
-			[
-				...listed,
-				...Arr.filter(
-					Arr.dedupeWith(added, samePlain),
-					(x) => !Arr.some(listed, (y) => samePlain(x, y))
-				)
-			],
-			(statement): Action => ({ kind: "direct", session, statement })
-		),
-		(a) => namesOffered(state, a)
-	)
-}
-
-/**
  * The statements of a direct writer's open transaction in the box, each write over a base relation: among them, at each
  * stored fact's key, an INSERT ... ON CONFLICT DO SELECT and DO UPDATE raising on its first key field of each fact the
  * key holds in the box, the stored fact and each payload the box's values draw, each fact once.
@@ -2067,140 +2033,4 @@ export const enumerateInstalls = (
 			]
 		}
 	]
-}
-
-/** One step of a trail the box replays: an action, and the index of the branch of it the model took. */
-export interface BoxStep {
-	readonly action: Action
-	readonly branch: number
-}
-
-/** A transition of the box: the start it is reached from, the trail that first reached its state, and its action. */
-export interface BoxTransition {
-	readonly start: number
-	readonly trail: ReadonlyArray<BoxStep>
-	readonly action: Action
-}
-
-/** The box within its room, or past it: past it nothing is kept, so the box is never built whole. */
-export type Box =
-	| { readonly kind: "within"; readonly transitions: ReadonlyArray<BoxTransition> }
-	| { readonly kind: "past" }
-
-/**
- * What the model tells apart of one action's outcome: its observation's kind, refined by what names a refusal (a stage,
- * a SQLSTATE, a law and whether its witness shows, a reason, a relation), whether rows or drift are empty, and an
- * apply's verdict.
- */
-const outcomeClass = (o: ActionOutcome): string => {
-	switch (o.kind) {
-		case "open-refused":
-			return `${o.kind} ${o.stage} ${o.verifyCalls}`
-		case "opened":
-			return `${o.kind} ${o.verifyCalls}`
-		case "rows":
-			return `${o.kind} ${o.rows.length === 0 ? "none" : "some"}`
-		case "applied":
-			return `${o.kind} ${o.outcome}`
-		case "invariant-rejected":
-			return `${o.kind} ${o.law} ${o.witness.kind}`
-		case "law-refused":
-			return `${o.kind} ${o.sqlstate} ${Arr.join(o.laws, ",")} ${o.witness.kind}`
-		case "refused":
-			return `${o.kind} ${o.sqlstate}`
-		case "migration-refused":
-			return `${o.kind} ${o.stage}`
-		case "migration-law-refused":
-		case "migration-drifted":
-			return o.kind
-		case "stale-snapshot":
-			return `${o.kind} ${o.reason}`
-		case "transient":
-			return `${o.kind} ${o.reason}`
-		case "outside-world":
-			return `${o.kind} ${o.relation}`
-		case "drift":
-			return `${o.kind} ${o.objects.length === 0 ? "none" : "some"}`
-		case "encoding-refused":
-		case "compile-refused":
-		case "resource-bound":
-		case "commit-unknown":
-		case "interrupted":
-		case "handle-refused":
-		case "ok":
-			return o.kind
-	}
-}
-
-/**
- * Every transition of the exhaustive box from its starts, one per equivalence class (the small-scope hypothesis): a
- * breadth-first search over the model's `step`, each state (by its canonical form) once from the shortest trail that
- * reached it, a state at depth d offering its actions while d < scope.depth. An action's class is its kind, the invalid
- * kinds it carries (invalidKindsOf), and, over every branch the model allows it, what the model tells apart of its
- * outcome (outcomeClass) and the features `situation` reads of it (the suite's feature map): two actions alike in all
- * of these are one class, wherever they are taken, so the first is the class's representative transition and the
- * search goes on only from its successors. Every class the search meets is checked once. The search stops the moment it
- * passes `room` transitions.
- */
-export const exploreBox = (
-	starts: ReadonlyArray<ModelState>,
-	scope: SmallScope,
-	room: number,
-	situation: (
-		state: ModelState,
-		action: Action
-	) => (observation: ActionOutcome) => ReadonlyArray<string>
-): Box => {
-	const classes = new Set<string>()
-	const transitions: Array<BoxTransition> = []
-	const canonicalOf = canonicalForms()
-	for (const [start, state] of starts.entries()) {
-		const seen = new TupleSet<ValueIdentity>().add(canonicalOf(state))
-		let frontier: ReadonlyArray<{
-			readonly state: ModelState
-			readonly trail: ReadonlyArray<BoxStep>
-		}> = [{ state, trail: [] }]
-		for (let depth = 0; depth < scope.depth; depth++) {
-			const next: Array<{ readonly state: ModelState; readonly trail: ReadonlyArray<BoxStep> }> = []
-			for (const node of frontier) {
-				for (const action of enumerateActions(node.state, scope)) {
-					const branches = step(node.state, action)
-					const read = situation(node.state, action)
-					const traits = new Set(
-						Arr.flatMap(branches, (b) => [outcomeClass(b.observation), ...read(b.observation)])
-					)
-					const key = Arr.join(
-						[
-							action.kind,
-							...Arr.sort(invalidKindsOf(node.state, action), Order.String),
-							"|",
-							...Arr.sort([...traits], Order.String)
-						],
-						"\u0000"
-					)
-					if (classes.has(key)) {
-						continue
-					}
-					classes.add(key)
-					if (transitions.length === room) {
-						return { kind: "past" }
-					}
-					transitions.push({ start, trail: node.trail, action })
-					if (depth + 1 < scope.depth) {
-						for (const [branch, s] of branches.entries()) {
-							/** A landing completes under the compiler's names for its installation: the box runs no executor. */
-							const b = settle(s, installedNames)
-							const at = canonicalOf(b.next)
-							if (!seen.has(at)) {
-								seen.add(at)
-								next.push({ state: b.next, trail: [...node.trail, { action, branch }] })
-							}
-						}
-					}
-				}
-			}
-			frontier = next
-		}
-	}
-	return { kind: "within", transitions }
 }

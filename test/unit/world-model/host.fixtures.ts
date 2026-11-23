@@ -719,8 +719,6 @@ export const stateOf = (
 		laws: [],
 		domains: {},
 		patterns: {},
-		rosterConstants: {},
-		rosterLiveConstants: {},
 		codes: {},
 		keys: {},
 		roles: {},

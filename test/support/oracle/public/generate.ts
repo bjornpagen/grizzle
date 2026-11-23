@@ -1302,7 +1302,7 @@ const offProse = (pick: number): number => {
  * form-directed population, which turns on compared and bound parameters (formsOn), each relation's fields of kinds
  * other than prose, the one text with no byte bound (build.ts prose), so no index the compile plans for a read is
  * over one. A differential aims here so that it always compares programs the compile serves
- * (test/pg/live/differential.test.ts).
+ * (test/unit/check/meaning.fixtures.ts).
  */
 export const admittedSketchGen: Gen<CaseSketch> = (decisions) => {
 	const sketch = decisions.draw(caseSketchGen)

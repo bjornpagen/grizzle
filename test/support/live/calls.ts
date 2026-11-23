@@ -454,9 +454,3 @@ export const liveRegistrations = (
 				}
 			})
 	)
-
-/** A live world's registrations: its login's one role `app`, with the token of no claim. */
-export const worldRegistrations = (
-	live: LiveInstallation
-): Effect.Effect<Register, never, DbLayerOf<AnyLogin>> =>
-	liveRegistrations(live.file, "app", tokenOf({}))

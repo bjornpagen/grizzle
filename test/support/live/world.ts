@@ -94,7 +94,7 @@ export interface LiveSubscription {
 }
 
 /** The group a subscription binds, none for one that binds none. */
-export const groupOf = (subscription: LiveSubscription): number | undefined =>
+const groupOf = (subscription: LiveSubscription): number | undefined =>
 	subscription.binding.kind === "none" ? undefined : subscription.binding.group
 
 /** A write of one row: an insert of a free key, a delete of a stored row, or a stored row moved to `to` at its key. */
@@ -458,16 +458,16 @@ export const probeAtMember = "probeAt"
  * stored owner, which its one flight writes by the family write's additions statement, and which only a mutable owner
  * takes (write/frontend/compile.ts), so Shelf is mutable.
  */
-export const familyRelations = { owner: "Shelf", member: "Book" } as const
+const familyRelations = { owner: "Shelf", member: "Book" } as const
 
 /** The family's write members: a shelf's insert, and a book's, each from its call's facts. */
-export const familyMembers = { owner: "shelf", member: "book" } as const
+const familyMembers = { owner: "shelf", member: "book" } as const
 
 /**
  * The closed relation every world holds, `Tier` of two codes, and its member, every tier: a read of closed relations
  * alone, whose value no write changes and whose watch is a constant one, registered under no routing key.
  */
-export const closedRead = { relation: "Tier", member: "tiers" } as const
+const closedRead = { relation: "Tier", member: "tiers" } as const
 
 /** A relation's declared name, by place. */
 export const relationName = (place: RelationPlace): string => `Item${place}`
@@ -580,18 +580,6 @@ export const liveWorld = (c: LiveCase, name: string) => {
 const footprintOf = (read: WorldRead): ReadonlyArray<RelationPlace> =>
 	read.kind === "join" ? Arr.dedupe([read.relation, read.other]) : [read.relation]
 
-/**
- * The footprint a read's served file must record, by relation and the fields it routes by: every relation of its
- * footprint routed by `g`, which each of its matches fixes to the parameter `g`, but a wide read's, which fixes nothing.
- */
-export const expectedRoutes = (
-	read: WorldRead
-): ReadonlyArray<{ readonly relation: RelationPlace; readonly routes: ReadonlyArray<"g"> }> =>
-	Arr.map(footprintOf(read), (relation) => ({
-		relation,
-		routes: read.kind === "wide" ? [] : ["g"]
-	}))
-
 /** The rows a write touches: an insert's new row, a delete's old one, an update's both. */
 const touchedRows = (write: LiveWrite): ReadonlyArray<LiveFact> => {
 	switch (write.kind) {
@@ -607,11 +595,7 @@ const touchedRows = (write: LiveWrite): ReadonlyArray<LiveFact> => {
  * Whether `commit` touches a routing value of `subscription` (the routing oracle): it writes a relation of the read's
  * footprint, and the read binds no group, or one row it touches holds the bound group in `g`, before or after.
  */
-export const touches = (
-	c: LiveCase,
-	subscription: LiveSubscription,
-	commit: LiveCommit
-): boolean => {
+const touches = (c: LiveCase, subscription: LiveSubscription, commit: LiveCommit): boolean => {
 	const read = c.reads[subscription.read] ?? c.reads[0]
 	const footprint = footprintOf(read)
 	const group = groupOf(subscription)

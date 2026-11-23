@@ -42,8 +42,7 @@ export const fixtureNeedBudget = 120_000
 
 /**
  * The CPU a template's open may spend: its build, its first clone, or the wait on another worker's build
- * (Template.database, installTemplate and worldTemplate state it, every TemplateNeed over them takes it), but the
- * pair world's (pairWorldBudget).
+ * (Template.database, installTemplate and worldTemplate state it, every TemplateNeed over them takes it).
  *
  * @limitKind measured
  * @owner grizzle's tests (every template of test/support and test/pg)
@@ -58,7 +57,7 @@ export const fixtureNeedBudget = 120_000
  * @workload every pg property those runs ran (760), each readied on as many workers as its cases spread over; CORE-2's
  *   forms at 64 workers, unbuilt and built
  * @result pg properties' readyingCpu: median 1.17 s, 90th percentile 9.10 s, 99th 27.8 s; the largest 513.4 s
- *   (test/pg/world-model/roles.test.ts, the pair world's: pairWorldBudget), then 170.6 s
+ *   (test/pg/world-model/roles.test.ts's pair world, a property since deleted), then 170.6 s
  *   (test/pg/laws/families/generated.test.ts, whose templates are a choice's, opened at first take, so its readyings are
  *   its module's import and its oracle's), then 38.9 s (world-model/exhaustive.test.ts); with childrenCpu the same to
  *   0.2 s. CORE-2's slowest single readying 34.7 s of wall time, which bounds its CPU
@@ -69,25 +68,3 @@ export const fixtureNeedBudget = 120_000
  *   reported unopened over its budget
  */
 export const templateNeedBudget = 300_000
-
-/**
- * The CPU the pair world's template may spend opening (test/pg/world-model/roles.fixtures.ts pairWorld): far above
- * every other template's, as its property's readyings show.
- *
- * @limitKind measured
- * @owner grizzle's tests (test/pg/world-model/roles.fixtures.ts pairWorld)
- * @unit milliseconds of CPU, the build's children's among them
- * @scope each open of the pair world's template on one worker, alone or in its property's group
- * @evidence the record named above (distribution.json `pg`, modules.json `test/pg/world-model/roles.test.ts`)
- * @observed 2026-11-17 10:11Z to 2026-11-21 14:19Z (3,369 runs)
- * @environment cassowary, Ubuntu 26.04 (Linux 7.0.0) on an AWS Graviton3 (arm64) instance with 64 logical CPUs and
- *   247 GiB, Node 26.13.1, PostgreSQL 19; every grizzle lane's runs of those days, at load 100 to 1,100
- * @workload test/pg/world-model/roles.test.ts's property, its every case on a seat of the pair world
- * @result its largest readyingCpu 513.4 s (run 2119209567-2120614, REDFIX-stepE, 2026-11-19 19:05Z), its children's
- *   0.2 s besides: a sum over every worker that readied it
- * @decision 600 s: above the largest bound measured, so no open measured would have failed; an open past it has run
- *   away. The sum is over workers: an owner who times one open alone may state less
- * @revalidate a change to the pair world's install, another machine, a PostgreSQL or Node upgrade, its property
- *   reported unopened over its budget
- */
-export const pairWorldBudget = 600_000

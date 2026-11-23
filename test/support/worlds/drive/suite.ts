@@ -31,7 +31,6 @@ import { type RealWorld, realizeRace } from "#test/support/worlds/execute/index.
 import { installedNames } from "#test/support/worlds/execute/names.ts"
 import type { RealizeRefused } from "#test/support/worlds/execute/refused.ts"
 import {
-	claimRefusalsOf,
 	deletedBy,
 	featuresOf,
 	reachOf,
@@ -42,7 +41,6 @@ import { actionGen, offeredOf, withOpener } from "#test/support/worlds/generate/
 import { knownNonEmpty, pool } from "#test/support/worlds/generate/domain.ts"
 import {
 	defaultScope,
-	enumerateDirectReads,
 	enumerateKind,
 	enumerateThrough
 } from "#test/support/worlds/generate/enumerate.ts"
@@ -77,7 +75,7 @@ import {
 	docsOneShareInstall
 } from "#test/support/worlds/model/bases/docs.ts"
 import { classifyEntry, hostSchemaOf } from "#test/support/worlds/model/host.ts"
-import { entryContexts, relationSpecOf } from "#test/support/worlds/model/session/state.ts"
+import { entryContexts } from "#test/support/worlds/model/session/state.ts"
 import { writtenOf } from "#test/support/worlds/model/session/writes.ts"
 import { initialState, settle, step } from "#test/support/worlds/model/step.ts"
 import type {
@@ -125,12 +123,6 @@ const noted: Aiming["read"] = outcomeRead(featuresOf)
  * contexts to chance.
  */
 export const aimScope: SmallScope = { ...defaultScope, contexts: 2 }
-
-/** An action a case performed and the index of the branch the real system took on it. */
-export interface Taken {
-	readonly action: Action
-	readonly branch: number
-}
 
 /** The action kinds a suite draws: every program it runs draws only these, whatever its weights. */
 export type Focus = Arr.NonEmptyReadonlyArray<ActionKind>
@@ -255,33 +247,8 @@ const afterBegin =
 		)
 	}
 
-/**
- * What the transaction a BEGIN setting claims by hand reaches next through its views, read of the BEGIN's outcome: the
- * refusal of every hand-set claim (features.ts claimRefusalsOf) a read of a view the box offers it meets, as the model
- * predicts it. A role's entries read every context it reads, so a refusal one statement away is one view read away.
- */
-const afterHandSet =
-	(_state: ModelState, action: Action) =>
-	(outcome: Allowed): ReadonlyArray<WorldFeature> => {
-		const { observation: began, next } = settled(outcome)
-		if (action.kind !== "direct-begin" || began.kind !== "opened") {
-			return []
-		}
-		return Arr.flatMap(enumerateDirectReads(next, began.session, defaultScope), (a) =>
-			a.kind === "direct" && a.statement.kind === "select-view"
-				? Arr.flatMap(step(next, a), (b) => claimRefusalsOf(next, a, b.observation))
-				: []
-		)
-	}
-
 /** Whether an action is a BEGIN, any the box offers. */
 const everyBegin = (action: Action): boolean => action.kind === "direct-begin"
-
-/** Whether a BEGIN sets its transaction's claims by hand: a setting's text, judged where a statement reads it. */
-const setsClaimsByHand = (action: Action): boolean =>
-	action.kind === "direct-begin" &&
-	action.start.claims.kind === "set" &&
-	action.start.claims.setting.kind === "malformed"
 
 /** How a lead aims its BEGIN: at what `read` finds the BEGIN's outcome reaches, among the box's BEGINs `worth` admits. */
 interface BeginAim {
@@ -349,16 +316,6 @@ const transactionLead =
  */
 export const directTransaction = (required: ReadonlyArray<Reached<WorldFeature>>): Lead =>
 	transactionLead(required, { read: afterBegin, worth: everyBegin })
-
-/**
- * A lead for a suite requiring the refusals of a direct writer's hand-set claims (transactionLead): a BEGIN setting
- * claims by hand from which a required refusal still pending is one view read away (afterHandSet, aimed on every draw
- * among the box's BEGINs that set claims by hand). Its BEGIN looks ahead at the reads of views alone, not at every
- * statement the box offers after every BEGIN, which one draw cannot step without holding its process past a search's
- * deadline.
- */
-export const handSetTransaction = (required: ReadonlyArray<Reached<WorldFeature>>): Lead =>
-	transactionLead(required, { read: afterHandSet, worth: setsClaimsByHand })
 
 /**
  * What the Db an action opens reaches next through the calls of `kinds`, read of the open's outcome: every feature such
@@ -539,70 +496,6 @@ const refreshesWrittenRead =
 			: []
 	}
 
-/** The calls through a Db after an apply that a derived relation's staleness shows on: its reads and refreshes. */
-const afterApplyCalls: Arr.NonEmptyReadonlyArray<"read" | "refresh"> = ["read", "refresh"]
-
-/**
- * What the calls through a Db after an apply reach, read of the apply's outcome: every feature a read or refresh the box
- * offers through the Db then notes, as the model predicts them, in each state the apply leaves. A deletion shows on a
- * derived relation only on the read or refresh after the delete, so an apply aimed by this read is one a pending
- * deletion feature is one call past.
- */
-const callsAfterApply =
-	(_state: ModelState, action: Action) =>
-	(outcome: Allowed): ReadonlyArray<WorldFeature> => {
-		if (action.kind !== "apply") {
-			return []
-		}
-		const { next } = settled(outcome)
-		return Arr.flatMap(afterApplyCalls, (kind) =>
-			Arr.flatMap(enumerateThrough(next, kind, action.session, defaultScope), (a) =>
-				reachOf(next, a)
-			)
-		)
-	}
-
-/** What an apply reaches, and then the calls through the same Db after it (callsAfterApply). */
-const afterApply = (
-	state: ModelState,
-	action: Action
-): ((outcome: Allowed) => ReadonlyArray<WorldFeature>) => {
-	if (action.kind !== "apply") {
-		return () => []
-	}
-	const read = featuresOf(state, action)
-	const after = callsAfterApply(state, action)
-	return (outcome) => [...read(outcome.observation), ...after(outcome)]
-}
-
-/**
- * A lead for a suite requiring what a deletion shows on a derived relation: an open of a role that refreshes a derived
- * relation computed from one it writes (aimed on every draw), an apply aimed at the required features the read or
- * refresh after it reaches (afterApply), a read and a refresh each aimed at the required features the program has not
- * reached yet, and the Db's close. The derived relation keeps a deleted fact until a refresh, so the delete, the read
- * that still shows it and the refresh that drops it are three calls apart. It runs while a feature it aims at is
- * pending: the apply's look-ahead decides which of them the calls after it reach.
- */
-export const derivedLeftStale =
-	(required: ReadonlyArray<Reached<WorldFeature>>): Lead =>
-	(weights, _install, at) => {
-		const [first, ...rest] = requiredFeatures(required, () => true)
-		if (first === undefined) {
-			return []
-		}
-		return whilePending([first, ...rest], at, () => [
-			...staleDerivedMoves(weights, [first, ...rest]),
-			dbCall(weights, "read", [first, ...rest], noted),
-			dbCall(weights, "refresh", [first, ...rest], noted),
-			{
-				...weights,
-				kinds: withOpener("close"),
-				actions: { ...zeroWeights.actions, close: 1 },
-				validity: liveOnly
-			}
-		])
-	}
-
 /**
  * A live call of a kind through an open Db the state holds, aimed on every draw at `targets`, read of its outcome
  * through `read`; a state holding no Db to call through opens one instead (withOpener).
@@ -620,19 +513,6 @@ const dbCall = (
 	aims: everyDraw(targets, read, (a, s) => a.kind === kind && s.sessions[a.session]?.kind === "db")
 })
 
-/**
- * The moves that leave a derived relation stale one call before `targets`: an open of a role that refreshes a derived
- * relation computed from one it writes (aimed on every draw), and an apply through it aimed at `targets` as the read or
- * refresh after it reaches them (afterApply).
- */
-const staleDerivedMoves = (
-	weights: Weights,
-	targets: Arr.NonEmptyReadonlyArray<string>
-): Arr.NonEmptyReadonlyArray<Weights> => [
-	refreshingWrittenOpen(weights),
-	dbCall(weights, "apply", targets, afterApply)
-]
-
 /** A live open of a Db of a role that refreshes a derived relation computed from one it writes, aimed on every draw. */
 const refreshingWrittenOpen = (weights: Weights): Weights => ({
 	...weights,
@@ -641,10 +521,6 @@ const refreshingWrittenOpen = (weights: Weights): Weights => ({
 	validity: liveOnly,
 	aims: everyDraw([dbRefreshingWritten], refreshesWrittenRead, (a) => a.kind === "open-db")
 })
-
-/** A direct writer's COMMIT a law refused: what a COMMIT-law lead reaches. */
-const atCommitRefusals = (feature: WorldFeature): boolean =>
-	opIn({ kinds: ["direct-end"], writers: ["direct-role"], observations: ["law-refused"] })(feature)
 
 /**
  * What a COMMIT right after a direct statement reaches, read of the statement's outcome: the features of the
@@ -660,158 +536,6 @@ const commitAfter =
 		const { next } = settled(outcome)
 		const commit: Action = { kind: "direct-end", session: action.session, end: "commit" }
 		return reachOf(next, commit)
-	}
-
-/**
- * What the reads after a direct writer's delete reach, read of the delete's outcome: the features of each read of a view
- * or a table the box offers the transaction next, in each state the delete leaves. A read inside the transaction no
- * longer shows a fact it deleted, which only a read after the delete can show.
- */
-const readsAfterDelete =
-	(_state: ModelState, action: Action) =>
-	(outcome: Allowed): ReadonlyArray<WorldFeature> => {
-		if (
-			action.kind !== "direct" ||
-			(action.statement.kind !== "delete" && action.statement.kind !== "merge-delete")
-		) {
-			return []
-		}
-		const { next } = settled(outcome)
-		return Arr.flatMap(enumerateDirectReads(next, action.session, defaultScope), (a) =>
-			reachOf(next, a)
-		)
-	}
-
-/**
- * What the move after one statement of the transaction an action begins reaches, read of the BEGIN's outcome: the
- * features `read` reads of each statement the box offers the transaction. Who the transaction acts as and the claims it
- * sets decide whose law a statement breaks, whether the law's witness is shown to it and which facts a read inside it
- * shows, so an aimed BEGIN is one from which a pending feature is a statement and the move after it away.
- */
-const afterAStatementOf =
-	(read: Aiming["read"]) =>
-	(_state: ModelState, action: Action) =>
-	(outcome: Allowed): ReadonlyArray<string> => {
-		const { observation: began, next } = settled(outcome)
-		if (action.kind !== "direct-begin" || began.kind !== "opened") {
-			return []
-		}
-		return Arr.flatMap(enumerateThrough(next, "direct", began.session, defaultScope), (a) =>
-			Arr.flatMap(step(next, a), read(next, a))
-		)
-	}
-
-/**
- * The moves of a transaction one statement in, a move before `targets`: a BEGIN from which one of them is a statement
- * and the move after it away (afterAStatementOf), and a statement after which that move reaches one, both aimed on
- * every draw and read through `read`.
- */
-const oneStatementIn = (
-	weights: Weights,
-	targets: Arr.NonEmptyReadonlyArray<string>,
-	read: Aiming["read"]
-): Arr.NonEmptyReadonlyArray<Weights> => [
-	aimedBegin(weights, targets, { read: afterAStatementOf(read), worth: everyBegin }),
-	aimedStatement(weights, targets, read)
-]
-
-/**
- * A lead for a suite requiring laws a direct writer breaks at its COMMIT: a BEGIN
- * from which such a refusal still pending is a statement and the COMMIT away, a statement after which the COMMIT
- * reaches one (commitAfter), and the COMMIT, each aimed on every draw at the required features of a refused COMMIT. The
- * refusal comes two moves after the BEGIN that decides whose law it is, past the one-step reach of a suite's own aims.
- * It names the refused COMMITs it serves, where the other leads aim at every pending feature, because its BEGIN's
- * look-ahead steps a COMMIT after every statement, too costly to run in every led program of every suite that takes it.
- */
-export const breakingAtCommit =
-	(required: ReadonlyArray<Reached<WorldFeature>>): Lead =>
-	(weights, _install, at) => {
-		const [first, ...rest] = requiredFeatures(required, atCommitRefusals)
-		if (first === undefined) {
-			return []
-		}
-		const targets: Arr.NonEmptyReadonlyArray<WorldFeature> = [first, ...rest]
-		return whilePending(targets, at, () => [
-			...oneStatementIn(weights, targets, commitAfter),
-			endingIt(weights, targets)
-		])
-	}
-
-/**
- * A lead for a suite requiring what a direct writer's reads show past its own delete, such as a fact the transaction
- * deleted, gone from what it reads: a BEGIN from which a required feature still pending is a delete and the read after
- * it away, a delete after which a read of the transaction reaches one (readsAfterDelete), that read, each aimed on every
- * draw at the required features the program has not reached yet, and the transaction's end (endingIt). The read comes
- * two statements after the BEGIN that decides which facts the transaction's world holds and may delete, past the
- * one-statement reach of directTransaction's aims. It runs while a feature it aims at is pending: the BEGIN's
- * look-ahead decides which of them a read past a delete reaches.
- */
-export const readPastADelete =
-	(required: ReadonlyArray<Reached<WorldFeature>>): Lead =>
-	(weights, _install, at) => {
-		const [first, ...rest] = requiredFeatures(required, () => true)
-		if (first === undefined) {
-			return []
-		}
-		const targets: Arr.NonEmptyReadonlyArray<WorldFeature> = [first, ...rest]
-		return whilePending(targets, at, () => [
-			...oneStatementIn(weights, targets, readsAfterDelete),
-			aimedStatement(weights, targets, noted),
-			endingIt(weights, targets)
-		])
-	}
-
-/**
- * What the reads after a migration reach, read of the migration's outcome: every feature a read the box offers through
- * an open Db then notes, as the model predicts it. A Db's snapshot is moved past only by a migration after its open, so
- * a read refused by the snapshot guard needs a Db opened and the migration run first.
- */
-const readsAfterMigration =
-	(_state: ModelState, action: Action) =>
-	(outcome: Allowed): ReadonlyArray<WorldFeature> => {
-		if (action.kind !== "migrate") {
-			return []
-		}
-		const { next } = settled(outcome)
-		return Arr.flatMap(enumerateKind(next, "read", defaultScope), (a) =>
-			a.kind === "read" && next.sessions[a.session]?.kind === "db" ? reachOf(next, a) : []
-		)
-	}
-
-/**
- * A lead for a suite requiring what a Db shows once a migration moved past its snapshot: while it is pending, a live
- * open of a Db, a migration after which a read through an open Db reaches it (readsAfterMigration, aimed on every draw
- * among the box's migrations), and that read, aimed at it. The read comes two moves after the open whose snapshot it
- * holds, past the one-step reach of a suite's own aims. It names the stale-snapshot read it serves, where the other
- * leads aim at every pending feature, because a migration drawn when no pending feature lies past one would leave
- * every Db of the program stale for nothing.
- */
-export const callPastAMigration =
-	(required: ReadonlyArray<Reached<WorldFeature>>): Lead =>
-	(weights, _install, at) => {
-		const [first, ...rest] = requiredFeatures(
-			required,
-			(feature) => feature === "connection:after-stale-snapshot"
-		)
-		if (first === undefined) {
-			return []
-		}
-		const targets: Arr.NonEmptyReadonlyArray<WorldFeature> = [first, ...rest]
-		return whilePending(targets, at, () => [
-			{
-				...weights,
-				kinds: ["open-db"],
-				actions: { ...zeroWeights.actions, "open-db": 1 },
-				validity: liveOnly
-			},
-			{
-				...weights,
-				kinds: ["migrate"],
-				actions: { ...zeroWeights.actions, migrate: 1 },
-				aims: everyDraw(targets, readsAfterMigration, (a) => a.kind === "migrate")
-			},
-			dbCall(weights, "read", targets, noted)
-		])
 	}
 
 /**
@@ -931,37 +655,6 @@ const chainedOf = (base: BaseSpec, host: HostSchema, reality: HostState): HostSt
  */
 export const docsChainedRealities = (base: BaseSpec, host: HostSchema): Gen<HostState> =>
 	map(docsTenantRealities(base, host), (reality) => chainedOf(base, host, reality))
-
-/**
- * A reality holding a fact of `relation`: one holding none gains the fact of each field's first pool value, and the
- * whole repaired to lawful; a reality holding one, or a base without the relation, keeps what it has.
- */
-const holdingOne = (
-	base: BaseSpec,
-	host: HostSchema,
-	relation: string,
-	reality: HostState
-): HostState => {
-	const spec = relationSpecOf(base, relation)
-	if (spec === undefined || factsOf(reality, relation).length > 0) {
-		return reality
-	}
-	const fact: HostFact = Record.fromEntries(
-		Arr.map(spec.fields, (f) => [f.name, Arr.headNonEmpty(pool(f.domain))] as const)
-	)
-	return lawfulOf(host, new Map(reality).set(relation, [fact]))
-}
-
-/**
- * The realities of a suite whose views join Org ahead of a context they read: half of them drawn as realityGen draws
- * them, half holding an Org fact (holdingOne), since a plan over no fact of the one relation a rule joins drops every
- * row before it reads a claim, and only over one does every plan read the claims (model/session/direct.ts ClaimsOrder).
- */
-export const orgHeldRealities = (base: BaseSpec, host: HostSchema): Gen<HostState> =>
-	oneOf([
-		realityGen(base, host),
-		map(realityGen(base, host), (reality) => holdingOne(base, host, "Org", reality))
-	])
 
 /**
  * The documents bases' realities for a suite whose refusals need a document at its bound of shares: docsTenantRealities'
