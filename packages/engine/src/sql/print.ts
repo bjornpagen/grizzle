@@ -140,7 +140,7 @@ import {
 	databaseLock
 } from "#compiler/sql/catalog.ts"
 import { lineFeedsEscaped } from "#compiler/sql/escape.ts"
-import { statementParams } from "#compiler/sql/transform.ts"
+import { identityHooks, statementParams, Transform } from "#compiler/sql/transform.ts"
 
 /**
  * The most entries one select list holds, a SELECT's target list or a RETURNING list, each refused as ResourceBound
@@ -789,18 +789,18 @@ const expr = (e: Expr): Printed => {
 		case "inQuery": {
 			const keyword = e.not ? "NOT IN" : "IN"
 			return printed(
-				`${wrap(expr(e.expr), "other")} ${keyword} (${printSelectInline(e.query)})`,
+				`${wrap(expr(e.expr), "other")} ${keyword} (${printSelectInline(e.query, "placed")})`,
 				"between"
 			)
 		}
 		case "exists":
 			return e.not
-				? printed(`NOT EXISTS (${printSelectInline(e.query)})`, "not")
-				: printed(`EXISTS (${printSelectInline(e.query)})`, "atom")
+				? printed(`NOT EXISTS (${printSelectInline(e.query, "placed")})`, "not")
+				: printed(`EXISTS (${printSelectInline(e.query, "placed")})`, "atom")
 		case "subquery":
-			return printed(`(${printSelectInline(e.query)})`, "atom")
+			return printed(`(${printSelectInline(e.query, "placed")})`, "atom")
 		case "array":
-			return printed(`ARRAY(${printSelectInline(e.query)})`, "atom")
+			return printed(`ARRAY(${printSelectInline(e.query, "placed")})`, "atom")
 		case "row": {
 			const items = e.items.map((item) => printExpr(item)).join(", ")
 			return printed(e.items.length === 1 ? `ROW(${items})` : `(${items})`, "atom")
@@ -1020,7 +1020,7 @@ const printFromItem = (item: FromItem): string => {
 			return `${quoteIdent(item.table)} AS ${quoteIdent(item.alias)}`
 		case "derived": {
 			const lateral = item.lateral ? "LATERAL " : ""
-			return `${lateral}(${printSelectInline(item.query)}) AS ${quoteIdent(item.alias)}${aliasList(item.columns)}`
+			return `${lateral}(${printSelectInline(item.query, item.columns.length > 0 ? "placed" : "named")}) AS ${quoteIdent(item.alias)}${aliasList(item.columns)}`
 		}
 		case "function": {
 			const lateral = item.lateral ? "LATERAL " : ""
@@ -1110,7 +1110,150 @@ const printFrom = (items: ReadonlyArray<FromItem>): string => items.map(printFro
 const printValuesRows = (rows: ReadonlyArray<ReadonlyArray<Expr>>): string =>
 	`VALUES ${rows.map((row) => `(${row.map((e) => printExpr(e)).join(", ")})`).join(", ")}`
 
-const coreClauses = (out: Lines, core: SelectCore, keyword: "SELECT" | "PERFORM"): void => {
+/**
+ * Whether an expression holds a node of `kinds` anywhere in it, its nested queries' among them.
+ */
+const holds = (e: Expr, kinds: ReadonlySet<Expr["kind"]>): boolean => {
+	let found = false
+	new Transform({
+		...identityHooks,
+		expr: (x) => {
+			found ||= kinds.has(x.kind)
+			return x
+		}
+	}).expr(e)
+	return found
+}
+
+/**
+ * The expressions that call a function or read a query: a call, an aggregate's or a window's among them, or a subquery,
+ * EXISTS, IN or ARRAY of one. Every other expression PostgreSQL computes from its row alone, and leaves uncomputed
+ * where nothing reads it.
+ */
+const computing: ReadonlySet<Expr["kind"]> = new Set([
+	"call",
+	"subquery",
+	"exists",
+	"inQuery",
+	"array"
+])
+
+/** A placeholder: a statement's text binds each where it stands, and PostgreSQL types each by where it is read. */
+const binding: ReadonlySet<Expr["kind"]> = new Set(["param"])
+
+/**
+ * The core a pass-through projection reads, with the columns it picks, where `core` is one; undefined where it is not.
+ * A pass-through projection is a core of no WHERE, GROUP BY, HAVING or DISTINCT ON whose FROM is one derived table
+ * that names its columns, every target a column of it, over a query that is one core of no DISTINCT, GROUP BY or HAVING
+ * and no WITH, ORDER BY, LIMIT or OFFSET: it renames and picks the inner core's columns, which PostgreSQL pulls up
+ * (prepjointree.c pull_up_simple_subquery) at the cost of a range table entry, its targets' translation and their plan
+ * memory at every level. It prints as the inner core, its FROM, WHERE and targets, each target the inner target its
+ * column names under the outer target's alias, and the outer's DISTINCT. The rows are the same:
+ *
+ * - every inner target the outer reads twice is a column or a literal, so reading it twice is reading it once;
+ * - an inner target the outer leaves out is never computed: where no inner target calls a function or reads a query,
+ *   PostgreSQL pulls the inner core up and leaves it uncomputed as well, and one that binds a placeholder stays, so the
+ *   statement reads each of its placeholders where it read them, which types them, in the order it read them; where one does, an aggregate, a
+ *   window or a set-returning or volatile call among them, which keep PostgreSQL from pulling the core up, only a column
+ *   or a literal is left out, whose computing changes nothing, and every call stays, so an aggregate's one row and a
+ *   set-returning call's rows stay as they were.
+ */
+const passedThrough = (core: SelectCore, named: boolean): SelectCore | undefined => {
+	const [source, ...more] = core.from
+	if (
+		source?.kind !== "derived" ||
+		more.length > 0 ||
+		core.where !== undefined ||
+		core.groupBy.length > 0 ||
+		core.having !== undefined ||
+		typeof core.distinct === "object"
+	) {
+		return undefined
+	}
+	const inner = source.query
+	const body = inner.body
+	if (
+		inner.with !== undefined ||
+		inner.orderBy.length > 0 ||
+		inner.limit !== undefined ||
+		inner.offset !== undefined ||
+		body.kind !== "core" ||
+		body.distinct !== false ||
+		body.groupBy.length > 0 ||
+		body.having !== undefined ||
+		body.targets.length !== source.columns.length
+	) {
+		return undefined
+	}
+	const picked = core.targets.flatMap((t) => {
+		if (t.expr.kind !== "column" || t.expr.table !== source.alias) {
+			return []
+		}
+		const at = source.columns.indexOf(t.expr.column)
+		const read = body.targets[at]
+		const kept = read?.expr.kind === "column" && read.expr.column === t.expr.column
+		return read === undefined
+			? []
+			: [{ at, expr: read.expr, alias: t.alias ?? (named && !kept ? t.expr.column : undefined) }]
+	})
+	const anyComputing = body.targets.some((t) => holds(t.expr, computing))
+	const admitted = body.targets.every((t, i) => {
+		const reads = picked.filter((p) => p.at === i).length
+		const plain = t.expr.kind === "column" || t.expr.kind === "literal"
+		return reads === 1 || plain || (reads === 0 && !anyComputing && !holds(t.expr, binding))
+	})
+	const bound = picked.filter((p) => holds(p.expr, binding)).map((p) => p.at)
+	if (
+		picked.length !== core.targets.length ||
+		!admitted ||
+		bound.some((at, i) => i > 0 && at <= (bound[i - 1] ?? at))
+	) {
+		return undefined
+	}
+	const targets = picked.map((p) => ({ expr: p.expr, alias: p.alias }))
+	const frame = {
+		kind: "core",
+		from: body.from,
+		where: body.where,
+		groupBy: body.groupBy,
+		having: body.having
+	} as const
+	if (!core.distinct) {
+		return { ...frame, distinct: false, rows: core.rows, targets }
+	}
+	const [first, ...rest] = targets
+	return first === undefined ? undefined : { ...frame, distinct: true, targets: [first, ...rest] }
+}
+
+/**
+ * `core` with every pass-through projection it begins with folded into the core it reads (`passedThrough`), each target
+ * under the name it delivered where its reader reads its rows by name (`named`): a statement's rows, a view's, a CTE's
+ * or a derived table's that names no columns, a loop's record; one that names its columns, or a test of rows, reads
+ * them by place.
+ */
+const foldedCore = (core: SelectCore, named: boolean): SelectCore => {
+	const folded = passedThrough(core, named)
+	return folded === undefined ? core : foldedCore(folded, named)
+}
+
+/**
+ * How a core's reader reads its rows: through its query's ORDER BY, which names the core's own FROM, so the core prints
+ * as written; by its columns' names; or by their places alone.
+ */
+type CoreReader = "ordered" | "named" | "placed"
+
+/**
+ * A core's clauses, its leading keyword `keyword`, as its reader reads it (`CoreReader`): a core whose query orders it
+ * prints as written, since its ORDER BY reads the core's own FROM by name, which a fold would take away; every other
+ * folds (`foldedCore`).
+ */
+const coreClauses = (
+	out: Lines,
+	given: SelectCore,
+	keyword: "SELECT" | "PERFORM",
+	reader: CoreReader
+): void => {
+	const core = reader === "ordered" ? given : foldedCore(given, reader === "named")
 	const head =
 		core.distinct === false
 			? keyword
@@ -1186,37 +1329,52 @@ const tailClauses = (out: Lines, tail: Tail): void => {
  * lowerings build a query body with clauses at one of the two levels only, as the kernel's structural audit checks
  * (test/support/oracle/verify/sql.ts).
  */
-const nestedSelect = (select: OperandSelect): string => `(${printSelectInline(select)})`
+const nestedSelect = (select: OperandSelect, reader: "named" | "placed"): string =>
+	`(${printSelectInline(select, reader)})`
 
-const bodyInline = (body: OperandBody): string => {
+/**
+ * A query's body on one line, its core read as `reader` says (`coreClauses`); a set operation's arms by name, since the
+ * first arm's names are the operation's, which its ORDER BY reads.
+ */
+const bodyInline = (body: OperandBody, reader: CoreReader): string => {
 	switch (body.kind) {
 		case "core":
-			return inlineText((row) => coreClauses(row, body, "SELECT"))
+			return inlineText((row) => coreClauses(row, body, "SELECT", reader))
 		case "select":
-			return nestedSelect(body)
+			return nestedSelect(body, reader === "placed" ? "placed" : "named")
 		case "setOp":
-			return body.arms.map((arm) => bodyInline(arm)).join(` ${body.op} `)
+			return body.arms.map((arm) => bodyInline(arm, "named")).join(` ${body.op} `)
 	}
 }
 
-const bodyBlock = (out: Lines, body: OperandBody): void => {
+/** A query's body as block lines, read as bodyInline's. */
+const bodyBlock = (out: Lines, body: OperandBody, reader: CoreReader): void => {
 	switch (body.kind) {
 		case "core":
-			return coreClauses(out, body, "SELECT")
+			return coreClauses(out, body, "SELECT", reader)
 		case "select":
-			return out.line(nestedSelect(body))
+			return out.line(nestedSelect(body, reader === "placed" ? "placed" : "named"))
 		case "setOp":
 			for (const [i, arm] of body.arms.entries()) {
 				if (i > 0) {
 					out.line(body.op)
 				}
-				bodyBlock(out, arm)
+				bodyBlock(out, arm, "named")
 			}
 	}
 }
 
+/** The reader of a query's body core: its ORDER BY where it orders, else `rest`. */
+const bodyReader = (select: Pick<OperandSelect, "orderBy">, rest: "named" | "placed"): CoreReader =>
+	select.orderBy.length > 0 ? "ordered" : rest
+
 const withInline = (w: With): string => {
-	const ctes = w.ctes.map((cte) => `${cteHead(cte)} (${cteBodyInline(cte.query)})`).join(", ")
+	const ctes = w.ctes
+		.map(
+			(cte) =>
+				`${cteHead(cte)} (${cteBodyInline(cte.query, cte.columns.length > 0 ? "placed" : "named")})`
+		)
+		.join(", ")
 	return `WITH ${w.recursive ? "RECURSIVE " : ""}${ctes}`
 }
 
@@ -1226,9 +1384,9 @@ const cteHead = (cte: Cte): string => {
 }
 
 /** A data-modifying body keeps its own WITH, which PostgreSQL accepts inside the CTE's parentheses. */
-const cteBodyInline = (query: CteBody): string =>
+const cteBodyInline = (query: CteBody, reader: "named" | "placed"): string =>
 	query.kind === "select"
-		? printSelectInline(query)
+		? printSelectInline(query, reader)
 		: inlineText((out) => {
 				if (query.with !== undefined) {
 					out.line(withInline(query.with))
@@ -1240,14 +1398,16 @@ const cteBodyInline = (query: CteBody): string =>
  * A CTE body as block lines: a query on one line, a data-modifying statement clause by clause,
  * its own WITH first.
  */
-const cteBodyBlock = (out: Lines, query: CteBody): void =>
-	query.kind === "select" ? out.line(printSelectInline(query)) : dmlStatementBlock(out, query)
+const cteBodyBlock = (out: Lines, query: CteBody, reader: "named" | "placed"): void =>
+	query.kind === "select"
+		? out.line(printSelectInline(query, reader))
+		: dmlStatementBlock(out, query)
 
 /** A CTE as its WITH block writes it: `open` and its head on its first line, its body a level deeper, and its closing
  * parenthesis and `close` on its last. */
 const cteBlock = (out: Lines, cte: Cte, open: string, close: string): void => {
 	out.line(`${open}${cteHead(cte)} (`)
-	cteBodyBlock(out.nested(), cte.query)
+	cteBodyBlock(out.nested(), cte.query, cte.columns.length > 0 ? "placed" : "named")
 	out.line(`)${close}`)
 }
 
@@ -1273,14 +1433,15 @@ export const printCteBlock = (cte: Cte): string =>
 /** A set operation's arm as a statement's top-level body block holds it, between the blocks' `UNION ALL` lines
  * (bodyBlock). */
 export const printArmBlock = (core: SelectCore): string =>
-	sqlText(statementTextLoc, (out) => coreClauses(out, core, "SELECT"))
+	sqlText(statementTextLoc, (out) => coreClauses(out, core, "SELECT", "named"))
 
-const printSelectInline = (select: OperandSelect): string =>
+/** A query on one line, its rows read by name, or by place where `reader` says so (`CoreReader`). */
+const printSelectInline = (select: OperandSelect, reader: "named" | "placed"): string =>
 	inlineText((out) => {
 		if (select.with !== undefined) {
 			out.line(withInline(select.with))
 		}
-		out.line(bodyInline(select.body))
+		out.line(bodyInline(select.body, bodyReader(select, reader)))
 		tailClauses(out, select)
 	})
 
@@ -1288,7 +1449,7 @@ const selectBlock = (out: Lines, select: OperandSelect): void => {
 	if (select.with !== undefined) {
 		withBlock(out, select.with)
 	}
-	bodyBlock(out, select.body)
+	bodyBlock(out, select.body, bodyReader(select, "named"))
 	tailClauses(out, select)
 }
 
@@ -1335,7 +1496,7 @@ const insertBlock = (out: Lines, insert: Insert): void => {
 	out.line(`INSERT INTO ${printTableName(insert.table)}${alias}${columns}`)
 	out.line(
 		insert.source.kind === "query"
-			? printSelectInline(insert.source.query)
+			? printSelectInline(insert.source.query, "placed")
 			: printValuesRows(insert.source.rows)
 	)
 	if (insert.onConflict !== undefined) {
@@ -2090,7 +2251,7 @@ const printAlterRoleAction = (action: AlterRoleAction): string => {
 const performLine = (out: Lines, query: PerformQuery): void =>
 	out.line(
 		`${inlineText((row) => {
-			coreClauses(row, query.body, "PERFORM")
+			coreClauses(row, query.body, "PERFORM", bodyReader(query, "placed"))
 			tailClauses(row, query)
 		})};`
 	)
@@ -2120,7 +2281,7 @@ const plStatement = (out: Lines, statement: PlStatement): void => {
 			return out.line(`${quoteIdent(statement.target)} := ${printExpr(statement.value)};`)
 		case "forQuery":
 			out.line(
-				`FOR ${quoteIdent(statement.variable)} IN ${printSelectInline(statement.query)} LOOP`
+				`FOR ${quoteIdent(statement.variable)} IN ${printSelectInline(statement.query, "named")} LOOP`
 			)
 			plStatements(out.nested(), statement.body)
 			return out.line("END LOOP;")
@@ -2142,7 +2303,9 @@ const plStatement = (out: Lines, statement: PlStatement): void => {
 				`CREATE CONSTRAINT TRIGGER ${quoteIdent(statement.name)} AFTER INSERT ON ${printTableName({ schema: temporarySchema, name: statement.table })} DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION ${printObjectName(statement.function)}();`
 			)
 		case "whenFound":
-			out.line(`PERFORM 1 FROM ${nestedSelect(statement.query)} AS ${quoteIdent("found")};`)
+			out.line(
+				`PERFORM 1 FROM ${nestedSelect(statement.query, "placed")} AS ${quoteIdent("found")};`
+			)
 			out.line("IF FOUND THEN")
 			plStatements(out.nested(), statement.body)
 			return out.line("END IF;")

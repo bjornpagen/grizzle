@@ -150,6 +150,16 @@
  * and every role schema left with no query view as objects the target lacks, and creates the schemas of whole views
  * and their views, and every role's grants name them. `grizzle uninstall` drops each level's schema of whole views with
  * its levels'.
+ * A projection that only picks and renames the columns of the one derived table it reads, a core of no WHERE, GROUP BY,
+ * HAVING or DISTINCT ON whose every target is a column of a derived table that names its columns, over a query of one
+ * core with no DISTINCT, GROUP BY, HAVING, WITH, ORDER BY, LIMIT or OFFSET, prints as the core it reads, each target the
+ * inner target its column names, under the name its reader reads it by where that reader reads rows by name; never
+ * under its query's ORDER BY, which reads its FROM, and never where it would compute a target twice or leave out a
+ * placeholder or a call of a core that computes one (sql/print.ts passedThrough, foldedCore), where format 7 printed
+ * every such projection as a level of its own, which PostgreSQL pulled up at the cost of a range table entry, its
+ * targets' translation and their plan memory at every level: every judge function's body, served statement and view
+ * that held one moves, and its statements' digests with it; edullm's ledger's 04-validate.sql is 45.1 MB where it was
+ * 56.9 MB, and its served statements 116 MB where they were 133 MB.
  *
  * Format 7 (pin+1): a session table, a rule judge's delta (physical/ddl/rules.ts
  * emptied) or a write program's carrier (sql/print.ts carrierStandUp), is emptied by DELETE, and by TRUNCATE only once
