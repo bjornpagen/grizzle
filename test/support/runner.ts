@@ -149,11 +149,12 @@ const superuserSession =
 		})
 
 /**
- * The runner layer test.config.ts provides: PgCluster over grizzle's local cluster (pg.config.ts), its members read the
- * first time a need reaches it (PgCluster.layer reads nothing as it builds, and a run never settles a member), templates built from its template, the
- * toolchain's owner sessions and advisory locks in the owner's own database (ownerSession), and its bootstrap
- * superuser's sessions (superuserSession);
- * and the worker's budgets (WorkerBudgets), which the owner's sessions and every substrate of the worker draw from.
+ * The runner layer test.config.ts provides: PgCluster over grizzle's local cluster (pg.config.ts), the worker's own
+ * member brought up the first time a need reaches it, and no other (PgCluster.layer reads nothing as it builds; the
+ * member, where it is absent, is settled by its own unit), templates built from its template, the toolchain's owner
+ * sessions and advisory locks in the owner's own database (ownerSession), and its bootstrap superuser's sessions
+ * (superuserSession); and the worker's budgets (WorkerBudgets), which the owner's sessions and every substrate of the
+ * worker draw from.
  */
 export const grizzleCluster: Layer.Layer<PgCluster | WorkerBudgets, never, Platform | WorkerIndex> =
 	Layer.unwrap(

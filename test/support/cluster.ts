@@ -1,16 +1,18 @@
 import {
 	checkoutHere,
+	type CheckoutFamily,
 	type ClusterFailed,
 	familyOf,
 	homesHere,
 	type MemberTls,
-	membersRead,
+	memberAtPort,
+	memberRead,
 	type PgMember,
 	type Platform
 } from "@bjornpagen/testing/pg"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import { regex } from "arkregex"
-import { Array as Arr, Config, Context, Data, Effect, Layer, Option } from "effect"
+import { Config, Context, Data, Effect, Layer, Option } from "effect"
 import { pgCluster } from "#test/support/env.ts"
 
 /**
@@ -43,49 +45,38 @@ export const overTls = (member: PgMember): Effect.Effect<TlsMember, SocketOnlyMe
 		: Effect.fail(new SocketOnlyMember({ member: member.name }))
 
 /**
- * The members of this checkout's family of grizzle's local cluster (pg.config.ts; @bjornpagen/testing/pg familyOf, of
- * the checkout and homes checkoutHere and homesHere read), in member order, each as a client reaches it (TlsMember: its
- * port, socket, owner's password and CA): read as a run reads them, writing nothing (membersRead), a member not as its
- * spec states refused, naming `toolchain-pg settle`, which gives it them. Every connection test support opens reaches a
- * member through these.
+ * This checkout's family of grizzle's local cluster (pg.config.ts; @bjornpagen/testing/pg familyOf, of the checkout and
+ * homes checkoutHere and homesHere read).
  */
-export const clusterMembers: Effect.Effect<
-	Arr.NonEmptyReadonlyArray<TlsMember>,
-	ClusterFailed | SocketOnlyMember,
-	Platform
-> = Effect.flatMap(
-	Effect.flatMap(Effect.all([checkoutHere, homesHere]), ([checkout, homes]) =>
-		membersRead(familyOf(pgCluster, checkout, homes))
-	),
-	(members) =>
-		Effect.map(
-			Effect.all([
-				overTls(Arr.headNonEmpty(members)),
-				Effect.forEach(Arr.tailNonEmpty(members), overTls)
-			]),
-			([head, tail]) => Arr.prepend(tail, head)
-		)
+const clusterFamily: Effect.Effect<CheckoutFamily, ClusterFailed, Platform> = Effect.map(
+	Effect.all([checkoutHere, homesHere]),
+	([checkout, homes]) => familyOf(pgCluster, checkout, homes)
 )
 
-/** A port a process was told to reach that is none of the cluster's members. */
-class MemberUnknown extends Data.TaggedError("MemberUnknown")<{
-	readonly port: number
-	readonly why: string
-}> {
-	override get message(): string {
-		return `port ${this.port} is no member of grizzle's local cluster (pg.config.ts): ${this.why}`
-	}
-}
+/**
+ * The first member of this checkout's family, which `toolchain-pg settle` brings up, as a client reaches it
+ * (TlsMember: its port, socket, owner's password and CA), read writing nothing (memberRead), a member not as its spec
+ * states refused, naming `toolchain-pg settle`, which gives it them.
+ */
+const firstMember: Effect.Effect<TlsMember, ClusterFailed | SocketOnlyMember, Platform> =
+	Effect.flatMap(
+		Effect.flatMap(clusterFamily, (family) => memberRead(family, 0)),
+		overTls
+	)
 
-/** The member of `members` at `port`, or MemberUnknown saying who named it (`why`). */
+/**
+ * The member of this checkout's family at `port`, its family's claim, as a client reaches it (TlsMember), read alone,
+ * writing nothing and reading no other member (memberAtPort), so a process reaches the one member its parent's case runs
+ * on at the cost of that member's read: a command line child reads one member a command, where it read every member of
+ * the family (commandLineWorkflow's steered case 12 at cbafe522 spent its process tree's 60 s CPU budget on those
+ * reads). A port no member is at fails, naming the members' ports.
+ */
 export const memberAt = (
-	members: Arr.NonEmptyReadonlyArray<TlsMember>,
-	port: number,
-	why: string
-): Effect.Effect<TlsMember, MemberUnknown> =>
-	Effect.mapError(
-		Effect.fromOption(Arr.findFirst(members, (member) => member.port === port)),
-		() => new MemberUnknown({ port, why })
+	port: number
+): Effect.Effect<TlsMember, ClusterFailed | SocketOnlyMember, Platform> =>
+	Effect.flatMap(
+		Effect.flatMap(clusterFamily, (family) => memberAtPort(family, port)),
+		overTls
 	)
 
 /**
@@ -125,21 +116,15 @@ export const lentPlace: Effect.Effect<Option.Option<Lent>> = Effect.map(
 
 /**
  * The member of grizzle's local cluster this process reaches, read once: a child its parent lent a place to reaches the
- * parent's member (lentPlace); any other process, a bench's or a CLI child's, the first. A lent port that is no member
- * is MemberUnknown.
+ * parent's member (lentPlace, memberAt); any other process, a bench's or a CLI child's, the first.
  */
-const selectedMember: Effect.Effect<
-	TlsMember,
-	ClusterFailed | SocketOnlyMember | MemberUnknown,
-	Platform
-> = Effect.gen(function* () {
-	const members = yield* clusterMembers
-	const lent = yield* lentPlace
-	return yield* Option.match(lent, {
-		onNone: () => Effect.succeed(Arr.headNonEmpty(members)),
-		onSome: (place) => memberAt(members, place.port, `the place ${lentVariable} lent`)
-	})
-})
+const selectedMember: Effect.Effect<TlsMember, ClusterFailed | SocketOnlyMember, Platform> =
+	Effect.flatMap(lentPlace, (lent) =>
+		Option.match(lent, {
+			onNone: () => firstMember,
+			onSome: (place) => memberAt(place.port)
+		})
+	)
 
 /**
  * The member of grizzle's local cluster this process reaches, read once when the layer is built. Nothing reads the

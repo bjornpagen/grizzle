@@ -34,7 +34,7 @@ import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import type { AnyLogin } from "#compiler/public/schema.ts"
 import { servedPath } from "#compiler/served/forms.ts"
 import { ledger, shop } from "#test/pg/cli/fixture.ts"
-import { clusterMembers, memberAt as clusterMemberAt } from "#test/support/cluster.ts"
+import { memberAt as clusterMemberAt } from "#test/support/cluster.ts"
 import { clusterPort, pgCluster, pgPin } from "#test/support/env.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { decodersIn, type SourcedLayer, servedSourcedLayer } from "#test/support/live-layer.ts"
@@ -265,13 +265,12 @@ export const harnessCaVariable = "GRIZZLE_TEST_CA"
  * The member of grizzle's local cluster at `port`, read once: the member a spec's connection names by its port, so a
  * configuration connects with that member's CA and migration identity's password whichever process builds it, a case's
  * runner worker (on the member its runner places it, which no variable of the process names) or a command line's child,
- * whose reads take the CA from harnessCaVariable where it names one. A port that is no member is MemberUnknown.
+ * whose reads take the CA from harnessCaVariable where it names one; that member alone is read (cluster.ts memberAt). A
+ * port no member is at fails, naming the members' ports.
  */
 const memberAt = (port: number) =>
 	Effect.flatMap(Effect.orDie(Config.option(Config.String(harnessCaVariable))), (named) => {
-		const read = Effect.flatMap(clusterMembers, (members) =>
-			clusterMemberAt(members, port, "a configuration's connection names it")
-		)
+		const read = clusterMemberAt(port)
 		return Option.match(named, {
 			onNone: () => read,
 			onSome: () =>
