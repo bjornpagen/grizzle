@@ -354,7 +354,7 @@ export const aUnitLocalRulesJudgeAndCheckReadEachStepByWhatTheStepsBeforeItBound
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
 				original:
-					'\treturn (term) => (term.kind === "var" ? vars.get(term.var) : isFixed(term) ? term : undefined)',
+					'\treturn (term) => (term.kind === "var" ? fixed(term.var) : isFixed(term) ? term : undefined)',
 				replacement:
 					'\treturn (term) => (term.kind === "var" ? undefined : isFixed(term) ? term : undefined)',
 				why: "A variable the aggregate's rule equates with the unit's channel is no fixed term, so the unit stops at the aggregate's rule and its import's chain reads every Op row once per unit; it fails the key's case."

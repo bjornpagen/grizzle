@@ -732,6 +732,103 @@ class Passing {
 	}
 }
 
+/** The equalities among `conditions`, each its two sides. */
+const equalitiesOf = (
+	conditions: ReadonlyArray<InferredExpr>
+): ReadonlyArray<{ readonly left: InferredExpr; readonly right: InferredExpr }> =>
+	conditions.flatMap((c) =>
+		c.kind === "compare" && c.op === "eq" ? [{ left: c.left, right: c.right }] : []
+	)
+
+/**
+ * The term `held` admits that each variable of `conditions` is equated with, through any chain of their equalities
+ * between variables: of the class those equalities join a variable into, the first term in the conditions' order that a
+ * variable of it is equated with directly and `held` admits, else the first variable of it `held` admits. A rule's
+ * conditions are a conjunction, so every variable of a class holds the one value. Navigation reads this closure, never
+ * the direct equalities alone (`fixedTerms`, `implied`): a key's channel or a literal an import's head is equated with
+ * reaches the import's own variables through the head's equalities, which inlining the import states (Navigator
+ * `#inline`).
+ */
+const equatedWith = (
+	conditions: ReadonlyArray<InferredExpr>,
+	held: (e: InferredExpr) => boolean
+): ((id: string) => InferredExpr | undefined) => {
+	const parent = new Map<string, string>()
+	const root = (id: string): string => {
+		const up = parent.get(id)
+		return up === undefined || up === id ? id : root(up)
+	}
+	const equalities = equalitiesOf(conditions)
+	for (const { left, right } of equalities) {
+		if (left.kind !== "var" || right.kind !== "var") {
+			continue
+		}
+		const a = root(left.var)
+		const b = root(right.var)
+		if (a !== b) {
+			parent.set(a, b)
+		}
+	}
+	const anchors = new Map<string, InferredExpr>()
+	const anchor = (id: string, term: InferredExpr): void => {
+		if (!anchors.has(root(id))) {
+			anchors.set(root(id), term)
+		}
+	}
+	for (const { left, right } of equalities) {
+		for (const [v, term] of [
+			[left, right],
+			[right, left]
+		] as const) {
+			if (v.kind === "var" && term.kind !== "var" && held(term)) {
+				anchor(v.var, term)
+			}
+		}
+	}
+	for (const { left, right } of equalities) {
+		for (const side of [left, right]) {
+			if (side.kind === "var" && held(side)) {
+				anchor(side.var, side)
+			}
+		}
+	}
+	return (id) => anchors.get(root(id))
+}
+
+/**
+ * The equalities of `conditions` their closure implies (`equatedWith`) between a variable and a term `known` holds: a
+ * parameter, a channel, a typed literal, or a variable a step placed so far binds, for each variable equated with no
+ * such term directly and not known itself. A read that binds such a variable is so looked up by it at its own step
+ * (`#chain`, `fixed`), never equated with it at a later one: an import inlined into an arm of a definition read at a
+ * written row's keys binds its relation's column to the arm's variable, which the arm equates with the key's channel,
+ * so the column was the channel's two equalities away, and the read of the import's relation, placed first, took every
+ * row of the other key columns, a learner's snapshots of every learner at one instant (the ledger's "Response in
+ * time"), its predicate locks every learner's. A bare literal anchors nothing: it takes the type of the term it meets.
+ */
+const implied = (
+	conditions: ReadonlyArray<InferredExpr>,
+	known: (e: InferredExpr) => boolean
+): ReadonlyArray<InferredExpr> => {
+	const held = (e: InferredExpr): boolean => !isBare(e) && known(e)
+	const anchorOf = equatedWith(conditions, held)
+	const equalities = equalitiesOf(conditions)
+	const direct = new Set(
+		equalities.flatMap(({ left, right }) => [
+			...(left.kind === "var" && held(right) ? [left.var] : []),
+			...(right.kind === "var" && held(left) ? [right.var] : [])
+		])
+	)
+	const vars = new Set(
+		equalities.flatMap(({ left, right }) =>
+			[left, right].flatMap((e) => (e.kind === "var" && !known(e) ? [e.var] : []))
+		)
+	)
+	return [...vars].flatMap((id): ReadonlyArray<InferredExpr> => {
+		const term = anchorOf(id)
+		return direct.has(id) || term === undefined ? [] : [equal(varRef(id), term)]
+	})
+}
+
 /** Navigates rules, `loc` locating a refusal. */
 class Navigator {
 	readonly #loc: SourceLoc
@@ -1269,6 +1366,7 @@ class Navigator {
 			place(read)
 		}
 		while (reads.length > 0) {
+			appendAll(pending, implied(pending, isKnown))
 			const values = fixed()
 			const seeks = sought()
 			let best = 0
@@ -1620,22 +1718,14 @@ const isFixed = (e: InferredExpr): boolean => {
 
 /**
  * The term each binding of a rule's matches fixes, where it reads no variable of the rule (`isFixed`) or is a variable
- * the rule's conditions equate with such a term: an aggregate's rule its import's group fields at the unit's channels a
- * whole rule's step equates them with (`boundInside`).
+ * the rule's conditions equate with such a term, directly or through a chain of equalities between variables
+ * (`equatedWith`): an aggregate's rule its import's group fields at the unit's channels a whole rule's step equates
+ * them with (`boundInside`), and an import a rule binds at a variable its conditions equate with another that a
+ * channel fixes, its head's equality stated by inlining another import (Navigator `#inline`).
  */
 const fixedTerms = (rule: InferredRule): ((term: InferredExpr) => InferredExpr | undefined) => {
-	const vars = new Map<string, InferredExpr>()
-	for (const w of rule.where) {
-		if (w.kind !== "compare" || w.op !== "eq") {
-			continue
-		}
-		if (w.left.kind === "var" && isFixed(w.right)) {
-			vars.set(w.left.var, w.right)
-		} else if (w.right.kind === "var" && isFixed(w.left)) {
-			vars.set(w.right.var, w.left)
-		}
-	}
-	return (term) => (term.kind === "var" ? vars.get(term.var) : isFixed(term) ? term : undefined)
+	const fixed = equatedWith(rule.where, isFixed)
+	return (term) => (term.kind === "var" ? fixed(term.var) : isFixed(term) ? term : undefined)
 }
 
 /** The terms `flat`'s conditions fix its variables to (`fixedTerms`). */

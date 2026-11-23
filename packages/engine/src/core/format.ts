@@ -151,7 +151,11 @@
  * statementCtes), where format 7 counted every member reading a field of the call as reading its arguments, each
  * argument a MATERIALIZED CTE of the statement, and gave a read of a carried part a CTE of its own.; and no block probes a relation's added rows that a sibling stored match of the
  * probed arm covers through one of the schema's containments (analysis/theory/query.ts covered), where format 7 probed
- * every touched side, so a judge holds fewer blocks
+ * every touched side, so a judge holds fewer blocks; and a
+ * judged statement's step looks its relation up by every column an equality chain of its rule fixes to a value the
+ * steps before it hold (analysis/theory/navigate.ts implied), where format 7 bound only the columns equated with such a
+ * value directly, so a read of an import inlined into an arm of a definition read at a written row's keys gains the
+ * equality of each key column the arm equates with its channel
  */
 export const artifactFormat = 7
 

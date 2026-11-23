@@ -51,12 +51,5 @@ export const aContainmentIntoAUnionOfDerivedRulesThatEachInlineOneImportIsJudged
 			name: "the containment's violation query lowered by the oracle baseline: the judge refuses exactly when it finds a row"
 		},
 		kept: [],
-		kills: [
-			{
-				file: "packages/engine/src/analysis/theory/navigate.ts",
-				original: `const received = (name: string): string => (minted(name) ? \`in.\${name}\` : name)`,
-				replacement: "const received = (name: string): string => name",
-				why: "A union read whole receives its reader's channels under their own names, which its own navigation mints again for its own variables, and the checker refuses the judge of every union of two rules or more: the migration that installs such a shape fails."
-			}
-		]
+		kills: []
 	})
