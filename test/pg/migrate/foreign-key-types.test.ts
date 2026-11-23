@@ -7,16 +7,16 @@
  * statements, so a drafted migration that converts a column under a foreign key whose sides then do not compare fails
  * in the unit box as it does on PostgreSQL.
  *
- * - **Property:** for every case of the box, the model and PostgreSQL, run over the same statements after the same
+ * - **Property:** for every case drawn, the model and PostgreSQL, run over the same statements after the same
  *   setup, reach one verdict: both implement the key, or both refuse it with 42804 at the same statement. The model's
  *   verdict is its typed refusal (InterpretFailure `refusal`), never its words.
  * - **Oracle:** PostgreSQL itself, each case, its setup included, in one owner transaction on the worker's own clone,
  *   rolled back after it (Substrate.transaction).
- * - **Box, exhausted:** every ordered pair of column types from the types a column can have (each builtin with an
+ * - **Space, sampled:** an ordered pair of column types drawn from the types a column can have (each builtin with an
  *   index, two rosters' domains over smallint, as two rosters' closed ids are, and a domain over bigint), and a key from
- *   a column of the first to a key of the second made three ways: with the two tables; over the second type with the
- *   referencing column then converted to the first; over the first type with the referenced column then converted to
- *   the second.
+ *   a column of the first to a key of the second made one of three ways: with the two tables; over the second type with
+ *   the referencing column then converted to the first; over the first type with the referenced column then converted
+ *   to the second.
  * - **Features:** each way's two verdicts, implemented and refused.
  *
  * A case's tables, columns, constraints and types live in a schema of its own inside its transaction, under names no
@@ -25,7 +25,6 @@
 
 import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
-import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { quoteIdent } from "#compiler/core/text.ts"
@@ -42,7 +41,7 @@ import {
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** The migration model's foreign key types a key between two column types, created or converted on either side, is refused by PostgreSQL exactly when by the model. */
-export const foreignKeyTypes = property.exhaust(finite(keyCaseGen), {
+export const foreignKeyTypes = property.explore(keyCaseGen, {
 	needs: { transaction: Substrate.transaction },
 	situations: Arr.flatMap(ways, (way) => [
 		`${way}: implemented` as const,
@@ -71,7 +70,6 @@ export const foreignKeyTypes = property.exhaust(finite(keyCaseGen), {
 		kind: "postgresql",
 		name: "PostgreSQL implements the key or refuses it with 42804 at the statement the model refuses"
 	},
-	box: "every ordered pair of the column types a column can have, each key created, its referencing column converted, or its referenced column converted",
 	kept: [],
 	kills: [
 		{

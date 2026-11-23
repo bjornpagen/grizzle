@@ -95,7 +95,16 @@ export const handsVercelAReleasesIdleWaitExactlyWhenBothVercelUrlAndVercelRegion
 		box: "VERCEL_URL and VERCEL_REGION, each set or unset",
 		show: Formatter.format,
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/grizzle/src/adapter/wire/releasing-pool.ts",
+				original:
+					"\t\t\t\t\t? (error: unknown, client: object | undefined) => {\n\t\t\t\t\t\t\tResult.try(() => listener(error, client))\n",
+				replacement:
+					"\t\t\t\t\t? () => {\n\t\t\t\t\t\t\tResult.try(() => listener(undefined, undefined))\n",
+				why: "840b631d1's fix reverted: the release guard calls Vercel's listener with none of pg's arguments, so @vercel/functions 3.11.3 finds no request for the client and hands no release a wait."
+			}
+		]
 	})
 
 /**
@@ -211,5 +220,14 @@ export const attachesPgsOwnPoolOnceAndKeepsTheInstanceAlivePastTheIdleTimeoutAft
 		show: Formatter.format,
 		budget: { runs: 12, steered: 30 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/grizzle/src/adapter/wire/releasing-pool.ts",
+				original:
+					"\t\t\t\t\t? (error: unknown, client: object | undefined) => {\n\t\t\t\t\t\t\tResult.try(() => listener(error, client))\n",
+				replacement:
+					"\t\t\t\t\t? () => {\n\t\t\t\t\t\t\tResult.try(() => listener(undefined, undefined))\n",
+				why: "840b631d1's fix reverted: the release guard calls Vercel's listener with none of pg's arguments, so @vercel/functions 3.11.3 finds no request for the client and hands no release a wait."
+			}
+		]
 	})

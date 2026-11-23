@@ -90,5 +90,12 @@ export const renameHistoriesOnPostgreSQLEveryStepOfARenameHistoryMigratesToAFres
 		},
 		budget: { runs: 4, steered: 24 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/core/identity.ts",
+				original: '\tif (lead === asideSegment) {\n\t\treturn "aside"\n\t}\n',
+				replacement: "",
+				why: "864eefdb2's fix reverted: a login's name set aside while a migration renames it is no role a drafted statement names, so migrate refuses every login rename at stage input as unknownVariable."
+			}
+		]
 	})
