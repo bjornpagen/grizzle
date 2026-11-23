@@ -484,7 +484,22 @@ export const theFamilyWriterUnderASwarmEveryLawfulChangeSetStoresTheReferencesRo
 				reason:
 					"FRESHDRAW's rotating-stream case at grizzle 4083315c3: R1 owns the counted n0 of R2, R2 the counted n1 and the ordered n3 of R0, and R0 the ordered n2 of R1, so the owner keys run around R1, R0 and R2, n0's deferred (R1 is re-placed by a put) and n1's and n2's immediate; a follow-up puts R1's row 7 and nests two new R2 rows under it. Its additions insert R1's row again with its n0 members riding it, R2's rows at their copies of its count, which no reference from R0 reads; the compile ordered every rider's rows as appended, put R1's additions before R0's along R0's key into R2 and after them along R1's key into R0, and refused the stratum as UnorderableStratum, where R2's additions, then R0's, then R1's keep every immediate key",
 				since: "2026-11-19"
+			},
+			{
+				token: ReplayToken(
+					"test/pg/write/swarm/families.test.ts#theFamilyWriterUnderASwarmEveryLawfulChangeSetStoresTheReferencesRowsEveryUnlawfulOneIsRefusedByALawItBreaksAndEveryRefusalWhenItCompilesIsOneTheOracleStates:-:0.0.0.0.1.1.1.0.0.1.1.1.0.1.1.0.0.1.0.1.1.1.1.1.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.1.0.0.1.3.1.0.1.0.0.0.1.1.0.0.1.2.0.0.0.2.0.0.1.0.0.1.1.0.0.0.0.0.0.0.0.1.1.0.3.3.0.0.0.0.1.0.1.0.0.0.0.0.0.0.0.0.0"
+				),
+				reason:
+					"CO-PG's case at grizzle 9653f3d5c: R1 owns counted, ordered and counted families of R2 and the owner-into-members law of the first, and a plain insert of one R1 row with no member is refused at COMMIT by that law's deferred foreign key, so the shell sends the diagnosis flight (adapter/apply/run.ts unmatchedWitness) and the call takes two round trips, which the one-flight judge refused as `round trips on the wire 2 !== 1` until it admitted a diagnosis after a refusal at COMMIT by a deferred foreign key",
+				since: "2026-11-23"
 			}
 		],
-		kills: []
+		kills: [
+			{
+				file: "packages/grizzle/src/adapter/apply/run.ts",
+				original: 'runFramed(session, { ...frame, end: "ROLLBACK" }, [',
+				replacement: "runFramed(session, frame, [",
+				why: "The diagnosis of a refusal at COMMIT ends as the write's own flight does, with COMMIT, where it ends ROLLBACK: an unlawful write a deferred foreign key refuses at COMMIT, such as an owner the owner-into-members law leaves with no member, sends a second flight that tries to commit the write's statements again, which the one-flight judge refuses as a diagnosis not ending ROLLBACK, if the shell has not already died on the COMMIT the diagnosis met."
+			}
+		]
 	})

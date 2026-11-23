@@ -143,5 +143,9 @@ export const admittedAlone = (tapped: Tapped, m: MigrationSession, target: Migra
 			},
 			"the drift check's framing"
 		)
-		assert.deepEqual(window.backend.at(-1), { type: "Z", status: "I" }, "the drift check ends idle")
+		assert.deepEqual(
+			window.backend.at(-1),
+			{ type: "Z", status: "I", sqlstate: "" },
+			"the drift check ends idle"
+		)
 	})

@@ -77,10 +77,14 @@ export interface FrontendMessage {
 	readonly params: ReadonlyArray<string | null>
 }
 
-/** One backend message: its type byte, and the transaction status of a ReadyForQuery ("" for every other type). */
+/**
+ * One backend message: its type byte, the transaction status of a ReadyForQuery, and the SQLSTATE of an ErrorResponse
+ * (each "" for every other type).
+ */
 export interface BackendMessage {
 	readonly type: string
 	readonly status: string
+	readonly sqlstate: string
 }
 
 /**
@@ -146,12 +150,57 @@ const windowOf = (events: ReadonlyArray<WireEvent>): WireWindow => {
 	}
 }
 
+/**
+ * The window's round trips, each a window of its own: a write of the driver, every write after it before the server
+ * answers, and the answers until the driver writes again (WireWindow roundTrips).
+ */
+export const flightsOf = (window: WireWindow): ReadonlyArray<WireWindow> => {
+	const flights: Array<Array<WireEvent>> = []
+	let readSinceWrite = true
+	for (const event of window.events) {
+		if (event.side === "frontend" && readSinceWrite) {
+			flights.push([])
+		}
+		readSinceWrite = event.side === "backend"
+		flights.at(-1)?.push(event)
+	}
+	return Arr.map(flights, windowOf)
+}
+
+/**
+ * The SQLSTATE PostgreSQL refused a flight's last query with, its end where it is a framed transaction's COMMIT: the
+ * ErrorResponse among the answers after the last ReadyForQuery but one; none where that query was answered otherwise.
+ */
+export const lastQueryRefusal = (flight: WireWindow): string | undefined => {
+	const ready = Arr.flatMap(flight.backend, (message, i) => (message.type === "Z" ? [i] : []))
+	const from = ready.at(-2) ?? -1
+	const to = ready.at(-1) ?? flight.backend.length
+	return Arr.findFirst(flight.backend.slice(from + 1, to), (message) => message.type === "E").pipe(
+		Option.map((message) => message.sqlstate),
+		Option.getOrUndefined
+	)
+}
+
 const sslRequest = Buffer.from([0, 0, 0, 8, 0x04, 0xd2, 0x16, 0x2f])
 
 /** The C string at `offset` of `body`. */
 const cString = (body: Buffer, offset: number): string => {
 	const end = body.indexOf(0, offset)
 	return body.toString("utf8", offset, end < 0 ? body.length : end)
+}
+
+/** An ErrorResponse's SQLSTATE: the value of its field `C`, among its fields, each a type byte and a C string. */
+const errorCode = (body: Buffer): string => {
+	let offset = 0
+	while (offset < body.length && body[offset] !== 0) {
+		const field = String.fromCharCode(body[offset] ?? 0)
+		const value = cString(body, offset + 1)
+		if (field === "C") {
+			return value
+		}
+		offset += Buffer.byteLength(value) + 2
+	}
+	return ""
 }
 
 /** The statement a frontend message names: Parse's own name, Bind's after its portal, Close's after its target byte. */
@@ -899,7 +948,11 @@ export const makeTap = (cluster: BudgetedCluster): Tap => {
 			const backend = framer(false, (type, body) => {
 				log?.push({
 					side: "backend",
-					message: { type, status: type === "Z" ? cString(body, 0) : "" }
+					message: {
+						type,
+						status: type === "Z" ? cString(body, 0) : "",
+						sqlstate: type === "E" ? errorCode(body) : ""
+					}
 				})
 				judge()
 				if (type === "A") {
