@@ -34,7 +34,7 @@ import {
 	type FamilyNode,
 	familyNodeRelations
 } from "#compiler/write/frontend/schedule.ts"
-import { payloadOf, primaryKeyShape } from "#compiler/write/frontend/targets.ts"
+import { primaryKeyShape } from "#compiler/write/frontend/targets.ts"
 import { type HeldUnit, type RetiredUnit, storedReads } from "#compiler/write/hold/stated.ts"
 import {
 	type InputProof,
@@ -49,11 +49,12 @@ import { writesMet } from "#compiler/write/insert/protocol.ts"
 import { compareHeading, factHeading, keyFirst } from "#compiler/write/insert/statement.ts"
 import type { OutsideProbe } from "#compiler/write/insert/unique.ts"
 
-import type {
-	ChosenAction,
-	ChosenTargets,
-	InPlace,
-	KeyArbiter
+import {
+	type ChosenAction,
+	type ChosenTargets,
+	differingOf,
+	type InPlace,
+	type KeyArbiter
 } from "#compiler/write/put/choose.ts"
 import type { MergeScope } from "#compiler/write/put/proof.ts"
 import { deltaTarget } from "#compiler/write/readback/deltas.ts"
@@ -95,7 +96,7 @@ type WriteOpStep =
 	| { readonly op: "insert"; readonly stamps: ReadonlyArray<Stamped> }
 	| { readonly op: "exactDelete"; readonly except: ReadonlyArray<WriteInput> }
 	| { readonly op: "anchoredDelete"; readonly anchor: DeleteAnchor }
-	| { readonly op: "displace"; readonly payload: NonEmptyReadonlyArray<LawField> }
+	| { readonly op: "displace"; readonly differing: NonEmptyReadonlyArray<LawField> }
 	| { readonly op: "putInsert" }
 	| {
 			readonly op: "upsert"
@@ -439,11 +440,9 @@ const putOps = (put: Extract<ChosenAction, { readonly op: "put" }>): ReadonlyArr
 	const relation = put.info.relation
 	switch (choice.target) {
 		case "deleteThenInsert": {
-			const payload = payloadOf(relation)
+			const differing = differingOf(relation)
 			return [
-				...(payload.kind === "pureSet"
-					? []
-					: [{ op: "displace", payload: payload.fields } as const]),
+				...(differing === undefined ? [] : [{ op: "displace", differing } as const]),
 				...precheckOf(put),
 				{ op: "putInsert" }
 			]
@@ -1075,8 +1074,8 @@ const placeHolds = (
  * - an insertion: the insert protocol for its relation and member shape, followed, into a span primary key, by the
  *   statement that classifies each requested fact it did not insert;
  * - a put: its target's statements: the displacing deletion and the insert protocol as its insert half for the
- *   DELETE-then-insert pair (a pure set displaces nothing), or the one ON CONFLICT DO UPDATE, UPDATE ... FROM or MERGE
- *   statement, which absorbs the deletion it was proved with.
+ *   DELETE-then-insert pair (a pure set keyed by scalars alone displaces nothing), or the one ON CONFLICT DO UPDATE,
+ *   UPDATE ... FROM or MERGE statement, which absorbs the deletion it was proved with.
  *
  * Where each described member is evaluated. Every member of a stratum is evaluated against the state before the
  * stratum's writes, once. A member is a leading CTE of the statement that consumes it when that statement is its only

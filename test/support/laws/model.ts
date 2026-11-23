@@ -407,12 +407,39 @@ interface Identified {
 }
 
 /**
+ * Whether two facts of `relation` collide at its primary key: equal at its fields, or, where the schema states it as a
+ * span key, equal at its scalars with overlapping spans (`collide`), which its WITHOUT OVERLAPS refuses together.
+ */
+const primaryCollision = (
+	schema: HostSchema,
+	relation: HostRelation
+): ((a: HostFact, b: HostFact) => boolean) =>
+	Option.match(
+		Arr.findFirst(
+			schema.laws,
+			(law) =>
+				law.kind === "spanKey" &&
+				law.relation === relation.name &&
+				law.selection.kind === "every" &&
+				Arr.join(Arr.sort([...law.scalars, law.span], Order.String), "\u0000") ===
+					Arr.join(Arr.sort(relation.key, Order.String), "\u0000")
+		),
+		{
+			onNone: () => (a: HostFact, b: HostFact) =>
+				projection(a, relation.key) === projection(b, relation.key),
+			onSome: (law) => (a: HostFact, b: HostFact) => collide(law, a, b)
+		}
+	)
+
+/**
  * One relation's facts after a stratum's members of it, `mine`, over its facts before, `current`, each fact identified
  * once: a ChangeSet's facts are a set by identity, so identical facts stated twice, in one member or across members, are
  * one fact, and two facts that share a key with different identities both stay, for the relation's key law to refuse.
- * The additions join the state its removals leave.
+ * A put deletes every current occupant its facts collide with at the primary key (`primaryCollision`): at a span key
+ * each of its scalars whose span overlaps a fact's. The additions join the state its removals leave.
  */
 const relationAfter = (
+	schema: HostSchema,
 	relation: HostRelation,
 	current: ReadonlyArray<HostFact>,
 	mine: ReadonlyArray<HostOp>
@@ -420,17 +447,14 @@ const relationAfter = (
 	const identified = (fact: HostFact): Identified => ({ fact, id: identity(relation, fact) })
 	const before = Arr.map(current, identified)
 	const writes = Arr.filter(mine, (o) => o.kind !== "delete")
-	const puts = Arr.filter(mine, (o) => o.kind === "put")
+	const puts = Arr.flatMap(mine, (o) => (o.kind === "put" ? o.facts : []))
 	const deletes = Arr.filter(mine, (o) => o.kind === "delete")
 	const added = Arr.flatMap(writes, (o) => o.facts)
-	/** A put deletes the current occupants at its facts' keys. */
-	const putKeys = new Set(
-		Arr.flatMap(puts, (o) => Arr.map(o.facts, (f) => projection(f, relation.key)))
-	)
+	const collides = primaryCollision(schema, relation)
 	const deleted = new Set([
 		...Arr.flatMap(deletes, (o) => Arr.map(o.facts, (f) => identity(relation, f))),
 		...Arr.map(
-			Arr.filter(before, (b) => putKeys.has(projection(b.fact, relation.key))),
+			Arr.filter(before, (b) => Arr.some(puts, (f) => collides(b.fact, f))),
 			(b) => b.id
 		)
 	])
@@ -461,6 +485,7 @@ export const transition = (
 			relation.name,
 			named.has(relation.name)
 				? relationAfter(
+						schema,
 						relation,
 						factsIn(state, relation.name),
 						Arr.filter(ops, (o) => o.relation === relation.name)

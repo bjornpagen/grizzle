@@ -16,6 +16,7 @@ import { columnType } from "#compiler/runtime/lower/columns.ts"
 import type { Cte, Delete, Expr, FromItem, OperandSelect } from "#compiler/sql/ast.ts"
 import {
 	and,
+	binary,
 	col,
 	conjunction,
 	cte,
@@ -30,6 +31,7 @@ import {
 import type { NameSupply } from "#compiler/sql/naming.ts"
 import { type FieldColumns, fieldColumns } from "#compiler/write/defined.ts"
 import type { DeleteAnchor } from "#compiler/write/delete/anchor.ts"
+import { primaryKeyShape } from "#compiler/write/frontend/targets.ts"
 import {
 	inputNeeds,
 	inputSharing,
@@ -37,7 +39,7 @@ import {
 	uncarriedKeyGenerations,
 	type WriteInput
 } from "#compiler/write/insert/input.ts"
-import { joinedAtKey, keyedAmong } from "#compiler/write/probe.ts"
+import { type HeldKey, joinedAtKey, keyedAmong } from "#compiler/write/probe.ts"
 
 import {
 	buildStatement,
@@ -65,16 +67,17 @@ interface ExactDeleteSpec extends DeleteSpec {
 	readonly except: ReadonlyArray<WriteInput>
 }
 
-/** A put's displacing deletion's spec: also the relation's payload, which an occupant at a requested key differs in. */
+/** A put's displacing deletion's spec: also the fields an occupant a requested fact collides with may differ from it
+ * in (write/put/choose.ts differingOf). */
 interface DisplacingDeleteSpec extends DeleteSpec {
-	readonly payload: NonEmptyReadonlyArray<LawField>
+	readonly differing: NonEmptyReadonlyArray<LawField>
 }
 
 /** How a deletion matches stored facts: an exact deletion, a requested fact at every field, its stratum's additions
- * excepted; a displacing deletion, the occupant at a requested fact's key whose payload differs. */
+ * excepted; a displacing deletion, each occupant a requested fact collides with at the primary key that differs from it. */
 type DeleteMode =
 	| { readonly kind: "exact"; readonly except: ReadonlyArray<WriteInput> }
-	| { readonly kind: "displacing"; readonly payload: NonEmptyReadonlyArray<LawField> }
+	| { readonly kind: "displacing"; readonly differing: NonEmptyReadonlyArray<LawField> }
 
 /** An anchored deletion's spec: the occurrence its member is anchored on. */
 interface AnchoredDeleteSpec {
@@ -226,8 +229,8 @@ const buildDelete = (
 					])
 				: and(
 						appendNonEmpty(
-							joinedAtKey(w, supply, relation.name, r3, { name: r1, at: r1 }, keys),
-							factNe({ fields: mode.payload, typeOf, left: stored, right: inCol }, w.names)
+							collidingAtKey(w, supply, relation, r3, r1, keys),
+							factNe({ fields: mode.differing, typeOf, left: stored, right: inCol }, w.names)
 						)
 					)
 		return deletion(
@@ -251,6 +254,43 @@ const buildDelete = (
 			inputNeeds(input)
 		)
 	})
+}
+
+/**
+ * The stored rows, read through `stored`, a fact of the held rows collides with at the relation's primary key: equal at
+ * every key field (write/probe.ts joinedAtKey), or, at a key holding a span, equal at its scalar fields and overlapping at
+ * its span (`&&`), the comparison its WITHOUT OVERLAPS makes, so the occupants a put's fact displaces are those its key's
+ * law would refuse beside it. A primary key WITHOUT OVERLAPS holds a scalar field before its span (42601), so the scalars
+ * reach the rows by the key's index.
+ */
+const collidingAtKey = (
+	w: WriteContext,
+	supply: NameSupply,
+	relation: RelationInfo,
+	storedAt: string,
+	held: string,
+	keys: NonEmptyReadonlyArray<HeldKey>
+): NonEmptyReadonlyArray<Expr> => {
+	const shape = primaryKeyShape(relation)
+	const heldAt = { name: held, at: held }
+	if (shape.kind === "scalar") {
+		return joinedAtKey(w, supply, relation.name, storedAt, heldAt, keys)
+	}
+	const scalars = keys.filter((k) => k.field.name !== shape.span.name)
+	const span = keys.find((k) => k.field.name === shape.span.name)
+	if (!isNonEmpty(scalars) || span === undefined) {
+		throw defect(
+			`a span key of ${relation.name} without a scalar field before its span, or without its span`
+		)
+	}
+	return appendNonEmpty(
+		joinedAtKey(w, supply, relation.name, storedAt, heldAt, scalars),
+		binary(
+			"&&",
+			col(storedAt, w.names.column(relation.name, span.field.name)),
+			col(held, span.column)
+		)
+	)
 }
 
 /**
@@ -315,11 +355,15 @@ const keyGeneratedLeading = (
  *            RETURNING "r3"."id" AS "c4")
  *   SELECT "r2"."c4"::text AS "c4" FROM "r2"
  *
- * The deletion a put implies removes the current occupants at the members' keys whose payload differs, and the insert
- * protocol follows as a later statement, because a same-key deletion and addition cannot share one statement's
- * snapshot: DELETE FROM r USING (input) AS q WHERE (r.key) = (q.key) AND (r.payload) <>
- * (q.payload). An occupant equal to its member stays, so an identical put deletes nothing and its insert is an exact
- * repeat. A pure set has no payload, so its put displaces nothing and has no deletion.
+ * The deletion a put implies removes every current occupant a member collides with at the primary key that differs from
+ * it, and the insert protocol follows as a later statement, because a same-key deletion and addition cannot share one
+ * statement's snapshot: DELETE FROM r USING (input) AS q WHERE (r.key) = (q.key) AND (r.payload) <> (q.payload). At a
+ * key holding a span a member collides with each occupant of its scalars whose span overlaps its own, which the key's
+ * WITHOUT OVERLAPS would refuse beside it, so the member displaces all of them, its span compared with theirs beside its
+ * payload: WHERE (r.scalars) = (q.scalars) AND r.span && q.span AND (r.span, r.payload) <> (q.span, q.payload)
+ * (`collidingAtKey`). An occupant equal to its member stays, so an identical put deletes nothing and its insert is an
+ * exact repeat. A pure set keyed by scalars alone has no field an occupant at a member's key can differ in, so its put
+ * displaces nothing and has no deletion (write/put/choose.ts differingOf).
  *
  * A deletion whose member is anchored on an occurrence of its relation, with no addition of its stratum to except, is
  * the anchored deletion instead: the DELETE's target plays that occurrence, so the relation is read once.
@@ -336,7 +380,7 @@ export const buildDisplacingDelete = (
 	w: WriteContext,
 	spec: DisplacingDeleteSpec
 ): ModifyingStatement<DeleteResult> =>
-	buildDelete(w, spec, { kind: "displacing", payload: spec.payload })
+	buildDelete(w, spec, { kind: "displacing", differing: spec.differing })
 
 /** The anchored deletion: the DELETE's target plays the member's anchoring occurrence, so the relation is
  * read once. The rest of the region is lowered without that occurrence: its other occurrences are the USING list and

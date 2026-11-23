@@ -6,8 +6,8 @@ import { isCarried } from "#compiler/write/insert/statement.ts"
  * for a pure set, whose primary key is every field its facts carry. A generated field is no payload: PostgreSQL writes
  * it from the row's written fields, so no UPDATE assigns it and two facts equal at those are equal at it. Nor is a
  * drawn or accumulated field: grizzle draws it, so a put of an owner leaves its families as they
- * are. A pure set has no payload: its insert is ON CONFLICT DO NOTHING, and its put displaces nothing and updates
- * nothing in place. */
+ * are. A pure set has no payload: its insert is ON CONFLICT DO NOTHING, and its put updates nothing in place and, keyed
+ * by scalars alone, displaces nothing (write/put/choose.ts differingOf). */
 export type Payload =
 	| { readonly kind: "pureSet" }
 	| { readonly kind: "keyed"; readonly fields: NonEmptyReadonlyArray<LawField> }

@@ -210,7 +210,17 @@ const at = (relation: Rel, facts: ReadonlyArray<Fact>, key: Fact): ReadonlyArray
 const keyOf = (relation: Rel, fact: Fact): Fact =>
 	Arr.map(primaryKeyOf[relation], (c) => fact[c] ?? "")
 
-/** What an enumerated member deletes from `state` and adds to it: a put deletes the facts stored at its keys. */
+/**
+ * The stored facts of `relation` a put's fact collides with at the primary key: those at its key, or, at Room's key,
+ * which holds its span, those of its room whose span overlaps its own, which the key's WITHOUT OVERLAPS refuses beside it
+ * (write/delete/exact.ts collidingAtKey).
+ */
+const collidingAt = (relation: Rel, facts: ReadonlyArray<Fact>, fact: Fact): ReadonlyArray<Fact> =>
+	relation === "Room"
+		? Arr.filter(facts, (f) => spanOverlap(f, fact))
+		: at(relation, facts, keyOf(relation, fact))
+
+/** What an enumerated member deletes from `state` and adds to it: a put deletes the facts its facts collide with. */
 const enumeratedEffect = (
 	state: State,
 	member: Extract<Member, { readonly kind: "enumerated" }>
@@ -228,7 +238,7 @@ const enumeratedEffect = (
 			return {
 				relation: member.relation,
 				deleted: Arr.flatMap(member.facts, (f) =>
-					at(member.relation, state[member.relation], keyOf(member.relation, f))
+					collidingAt(member.relation, state[member.relation], f)
 				),
 				added: member.facts
 			}

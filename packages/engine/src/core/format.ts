@@ -92,6 +92,12 @@
  * uninstall` drops the slot of its database by that name. A slot an earlier grizzle's leader made under its decoder
  * login's name is none of this grizzle's: a leader of this grizzle makes its own beside it, and the earlier one holds
  * its WAL until it is dropped by hand.
+ * A put of a relation whose primary key holds a span displaces every occupant of its fact's scalars whose span overlaps
+ * its fact's, which the key's WITHOUT OVERLAPS would refuse beside it: its displacing deletion joins the occupants at
+ * the key's scalars and by `&&` at its span and compares the span beside the payload (write/delete/exact.ts
+ * collidingAtKey, write/put/choose.ts differingOf), a pure set's put included, where format 7 deleted only an occupant
+ * at an equal span, a pure set's none, and refused every other on the key, so each served span-keyed put's deletion
+ * moves and a span-keyed pure set's put gains one.
  *
  * Format 7 (pin+1): a session table, a rule judge's delta (physical/ddl/rules.ts
  * emptied) or a write program's carrier (sql/print.ts carrierStandUp), is emptied by DELETE, and by TRUNCATE only once

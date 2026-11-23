@@ -58,7 +58,7 @@ import {
 	writeContext
 } from "#compiler/write/insert/statement.ts"
 import { castsNothing } from "#compiler/write/program/artifact.ts"
-import { inPlaceOf } from "#compiler/write/put/choose.ts"
+import { differingOf, inPlaceOf } from "#compiler/write/put/choose.ts"
 import { buildUpdateFrom, type PutStatement } from "#compiler/write/put/statement.ts"
 import { breachGuard } from "#compiler/write/refusal.ts"
 
@@ -300,8 +300,9 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 							statement(buildUpdateFrom(w, { relation, input, inPlace: { payload: set } }))
 						}
 					} else {
-						if (payload.kind === "keyed") {
-							statement(buildDisplacingDelete(w, { relation, input, payload: payload.fields }))
+						const differing = differingOf(relation)
+						if (differing !== undefined) {
+							statement(buildDisplacingDelete(w, { relation, input, differing }))
 						}
 						precheck()
 					}

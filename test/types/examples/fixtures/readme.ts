@@ -49,6 +49,7 @@ import {
 	pred,
 	query,
 	race,
+	Range,
 	reachable,
 	records,
 	recordsFacts,
@@ -1379,6 +1380,76 @@ export const purge = ChangeSet.empty(Blog)
 				.find({ comments: r.count() })
 		})
 	)
+
+/** README: "A window a put extends". */
+const LearnerId = contract("LearnerId", pg.integer)
+const StageKey = contract("StageKey", pg.bigint)
+/** Microseconds on the database's clock, a window's ends; a reading is one below the top, so it ends a window too. */
+const Moment = contract("Moment", pg.bigint, (t) => Num.within(t, 0n, 2n ** 62n))
+const Reading = contract("Reading", pg.bigint, (t) => Num.within(t, 0n, 2n ** 62n - 1n))
+
+export const Presence = relation(
+	"Presence",
+	{ child: LearnerId, stage: StageKey, during: span(Moment) },
+	["child", "stage", "during"]
+)
+export const Attendance = schema(
+	"Attendance",
+	[Presence],
+	[unit("Learner", { child: LearnerId }), mutable(Presence)]
+)
+
+/** The reading [now, now + 1 µs) and every window of the sitting within 3 s of it, each by its ends. */
+const near = query(Attendance)
+	.rule((r) =>
+		r.find({
+			child: r.param("child", LearnerId),
+			stage: r.param("stage", StageKey),
+			start: Type.cast(Type.base(r.param("now", Reading)), Moment),
+			end: Type.cast(Num.add(Type.base(r.param("now", Reading)), 1n), Moment)
+		})
+	)
+	.rule((r) => {
+		const { child, stage, during } = v(Presence, "window")
+		const now = Type.base(r.param("now", Reading))
+		return r
+			.match(Presence, { child, stage, during })
+			.where(
+				r.eq(child, r.param("child", LearnerId)),
+				r.eq(stage, r.param("stage", StageKey)),
+				Logic.gt(Num.add(Type.base(Range.upper(during, Moment)), 3_000_000n), now),
+				Logic.lt(Type.base(Range.lower(during, Moment)), Num.add(now, 3_000_001n))
+			)
+			.find({ child, stage, start: Range.lower(during, Moment), end: Range.upper(during, Moment) })
+	})
+
+/** One window over them all: the earliest start to the latest end. */
+const hull = query(Attendance).rule((r) => {
+	const { child, stage, start, end } = v(near, "near")
+	const bound = near.bind({
+		child: r.param("child", LearnerId),
+		stage: r.param("stage", StageKey),
+		now: r.param("now", Reading)
+	})
+	return r
+		.match(bound, { child, stage, start, end })
+		.find({ child, stage, start: r.min(start), end: r.max(end) })
+})
+
+export const beacon = ChangeSet.empty(Attendance).put(
+	Presence,
+	query(Attendance).rule((r) => {
+		const { child, stage, start, end } = v(hull, "hull")
+		const bound = hull.bind({
+			child: r.param("child", LearnerId),
+			stage: r.param("stage", StageKey),
+			now: r.param("now", Reading)
+		})
+		return r
+			.match(bound, { child, stage, start, end })
+			.find({ child, stage, during: r.span(start, end) })
+	})
+)
 
 /** README: "Rows an insertion met". */
 /** File a post at its slug, or meet the one filed there: either way, read back the post its key holds. */

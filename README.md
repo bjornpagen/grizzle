@@ -3853,6 +3853,11 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
   key's other fields and differ elsewhere are two facts of one key, refused before any SQL is sent, and a put of the
   relation in the same stratum meets the call's rows at that key in the database, as a stored row does. A stratum computes one record for each relation; a query member's head computes its own fields
   instead, and an insert through a query entry states every field.
+- **A put at a no-overlap key** holds its row over every point of its span, as a put at a scalar key holds its row at
+  its key: it displaces each stored row that agrees with it on the key's other fields and shares a point of its span,
+  which the key would refuse beside it, every such row, one or several, and inserts its own. A row equal to it stays,
+  so an identical put is no change. A window extended to a later end is a put of the whole new window, which displaces
+  the window it grows from ([A window a put extends](#a-window-a-put-extends)).
 - **`read`** runs its query after the change, before COMMIT. `delta.added(T)` and `delta.removed(T)` are the rows the
   change added and removed, and `delta.met(T)` the stored rows its insertions met ([Rows an insertion
   met](#rows-an-insertion-met)). A ChangeSet's read-backs are one set by name, each run once after the whole change,
@@ -3929,6 +3934,92 @@ export const purge = ChangeSet.empty(Blog)
 no draft to put.
 `purge` takes `{ author: string }`, and its `accepted` outcome carries `reads.removed`, a
 `ReadonlyArray<{ comments: bigint }>`: `RETURNING`, as a query over what the change removed.
+
+### A window a put extends
+
+A learner's presence in a sitting is one row per stretch of readings no more than 3 s apart, each from its first
+reading to its last plus one microsecond, a span's end being excluded, so a window of one reading is
+`[now, now + 1 µs)` and its credited time, `upper − lower − 1 µs`, is its last reading less its first exactly. One put
+records a reading: its row is the window over the reading and every window of the sitting within 3 s of it, from the
+earliest start to the latest end, which displaces each window it grows from.
+
+```ts
+const LearnerId = contract("LearnerId", pg.integer)
+const StageKey = contract("StageKey", pg.bigint)
+/** Microseconds on the database's clock, a window's ends; a reading is one below the top, so it ends a window too. */
+const Moment = contract("Moment", pg.bigint, (t) => Num.within(t, 0n, 2n ** 62n))
+const Reading = contract("Reading", pg.bigint, (t) => Num.within(t, 0n, 2n ** 62n - 1n))
+
+export const Presence = relation(
+	"Presence",
+	{ child: LearnerId, stage: StageKey, during: span(Moment) },
+	["child", "stage", "during"]
+)
+export const Attendance = schema(
+	"Attendance",
+	[Presence],
+	[unit("Learner", { child: LearnerId }), mutable(Presence)]
+)
+
+/** The reading [now, now + 1 µs) and every window of the sitting within 3 s of it, each by its ends. */
+const near = query(Attendance)
+	.rule((r) =>
+		r.find({
+			child: r.param("child", LearnerId),
+			stage: r.param("stage", StageKey),
+			start: Type.cast(Type.base(r.param("now", Reading)), Moment),
+			end: Type.cast(Num.add(Type.base(r.param("now", Reading)), 1n), Moment)
+		})
+	)
+	.rule((r) => {
+		const { child, stage, during } = v(Presence, "window")
+		const now = Type.base(r.param("now", Reading))
+		return r
+			.match(Presence, { child, stage, during })
+			.where(
+				r.eq(child, r.param("child", LearnerId)),
+				r.eq(stage, r.param("stage", StageKey)),
+				Logic.gt(Num.add(Type.base(Range.upper(during, Moment)), 3_000_000n), now),
+				Logic.lt(Type.base(Range.lower(during, Moment)), Num.add(now, 3_000_001n))
+			)
+			.find({ child, stage, start: Range.lower(during, Moment), end: Range.upper(during, Moment) })
+	})
+
+/** One window over them all: the earliest start to the latest end. */
+const hull = query(Attendance).rule((r) => {
+	const { child, stage, start, end } = v(near, "near")
+	const bound = near.bind({
+		child: r.param("child", LearnerId),
+		stage: r.param("stage", StageKey),
+		now: r.param("now", Reading)
+	})
+	return r
+		.match(bound, { child, stage, start, end })
+		.find({ child, stage, start: r.min(start), end: r.max(end) })
+})
+
+export const beacon = ChangeSet.empty(Attendance).put(
+	Presence,
+	query(Attendance).rule((r) => {
+		const { child, stage, start, end } = v(hull, "hull")
+		const bound = hull.bind({
+			child: r.param("child", LearnerId),
+			stage: r.param("stage", StageKey),
+			now: r.param("now", Reading)
+		})
+		return r
+			.match(bound, { child, stage, start, end })
+			.find({ child, stage, during: r.span(start, end) })
+	})
+)
+```
+
+`Presence` is `mutable` in its learner's unit, the one exception to insert-only rows, and the beacon is served
+`clocked(beacon, { now: "micros" })`: its reading is `Reading`'s, one below `Moment`'s top, so `now + 1` casts into
+`Moment` unguarded. A reading within 3 s of the sitting's latest window extends it, and any other opens a new one. A
+call reads the clock as its transaction begins, so a slower call may read an instant before the latest window began:
+its reading falls inside the windows it lies within 3 s of, or joins them, so no reading is lost and no two windows
+overlap, whatever order the calls commit in, and the windows are the 3 s stretches of the readings committed.
 
 ### Rows an insertion met
 

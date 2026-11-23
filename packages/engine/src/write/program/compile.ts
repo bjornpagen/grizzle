@@ -1730,7 +1730,7 @@ const buildWriteOp = (
 		case "anchoredDelete":
 			return buildAnchoredDelete(w, { relation, anchor: step.anchor })
 		case "displace":
-			return buildDisplacingDelete(w, { relation, input, payload: step.payload })
+			return buildDisplacingDelete(w, { relation, input, differing: step.differing })
 		case "putInsert":
 			return buildInsert(w, { relation, input, of: "put", stamps: [] })
 		case "upsert":

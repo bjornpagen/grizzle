@@ -1,7 +1,7 @@
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { StoredRelationName } from "#compiler/core/ids.ts"
-import type { LawField } from "#compiler/ir/law.ts"
+import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
 import type { Action, PutAction } from "#compiler/ir/write.ts"
@@ -20,7 +20,7 @@ import {
 	type WrittenRelation
 } from "#compiler/write/frontend/compile.ts"
 import type { FamilyAt } from "#compiler/write/frontend/schedule.ts"
-import { type Payload, payloadOf } from "#compiler/write/frontend/targets.ts"
+import { type Payload, payloadOf, primaryKeyShape } from "#compiler/write/frontend/targets.ts"
 import { existingKeysProof, type MergeScope, mergeScopeProof } from "#compiler/write/put/proof.ts"
 
 /** Why a put is the DELETE-then-insert pair (see `choosePutTargets`). */
@@ -76,6 +76,24 @@ export type PutChoice = {
 			readonly merge: { readonly deletion: number; readonly scope: MergeScope }
 	  }
 )
+
+/**
+ * The fields a stored occupant a put's fact collides with at the primary key may differ from it in, which the put's
+ * displacing deletion compares (write/delete/exact.ts): a key's span, at which the fact collides with every occupant of
+ * its scalars whose span overlaps its own, then the payload (`payloadOf`); none for a pure set keyed by scalars alone,
+ * whose one colliding occupant is the fact itself, so its put displaces nothing.
+ */
+export const differingOf = (
+	relation: RelationInfo
+): NonEmptyReadonlyArray<LawField> | undefined => {
+	const key = primaryKeyShape(relation)
+	const payload = payloadOf(relation)
+	const fields = [
+		...(key.kind === "span" ? [key.span] : []),
+		...(payload.kind === "keyed" ? payload.fields : [])
+	]
+	return isNonEmpty(fields) ? fields : undefined
+}
 
 /** Whether a relation owns a family, whose count and ends grizzle draws on the owner's row. */
 const ownsFamily = (frontend: WriteFrontend, relation: string): boolean =>
@@ -154,6 +172,11 @@ const describedNode = (action: Action<ActionInfo>): RelNode | undefined =>
  * UPDATE sets only the entry's free head fields (`inPlaceOf`), and its precheck runs before it, so a fact outside the
  * entry or at the key of a fact outside it is refused as the pair's is, before the UPDATE meets the policy. The front end
  * refuses a put of an immutable owner.
+ *
+ * The pair's deletion displaces every occupant the put's fact collides with at the primary key and differs from
+ * (`differingOf`, write/delete/exact.ts): at a scalar key the occupant at its key, at a key holding a span each occupant
+ * of its scalars whose span overlaps its own, which the key's WITHOUT OVERLAPS refuses beside it, so a put of a span key
+ * holds its fact over every point of its span, as a put of a scalar key holds its fact at its key.
  *
  * Any other put lowers to the DELETE-then-insert pair (deleteThenInsert) when:
  *
