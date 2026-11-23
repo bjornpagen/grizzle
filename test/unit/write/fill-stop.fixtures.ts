@@ -20,7 +20,8 @@ import {
 	ordered,
 	relation,
 	schema,
-	select
+	select,
+	unit
 } from "#compiler/public/schema.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import { prepareBinding } from "#compiler/runtime/write/binding.ts"
@@ -97,6 +98,7 @@ const schemaOf = (selection: Selection, weighed: boolean) => {
 						on(stepSideOf(selection), "owner", "qty"),
 						on(Owner, "id", "total")
 					),
+					unit("Row", { id: Id }),
 					mutable(Owner),
 					mutable(Member)
 				]
@@ -119,6 +121,7 @@ const schemaOf = (selection: Selection, weighed: boolean) => {
 					on(Owner, "id", "total")
 				),
 				fold(family, Monoid.sum, on(Member, "owner", "w"), on(Owner, "id", "weighed")),
+				unit("Row", { id: Id }),
 				mutable(Owner),
 				mutable(Member)
 			]

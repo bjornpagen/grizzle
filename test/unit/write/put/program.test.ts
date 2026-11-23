@@ -1,7 +1,7 @@
 /**
  * A described member's relation parameter is bound from the caller's values, and a value the program needs and the
  * caller leaves out, or gives as no list of facts, is refused at bind with an EncodingFailure at that parameter's slot,
- * before any SQL. The programs put Item and Stock facts read from relation parameters, one each or both, a non-empty
+ * before any SQL. The programs insert Item facts and put Stock facts read from relation parameters, one each or both, a non-empty
  * subset drawn as one; the caller gives every parameter a list of facts, or leaves one out, or gives one a number, a
  * list twice as often as either fault, each weight written out.
  *
@@ -49,6 +49,7 @@ export const theWriteProgramsRelationParametersBindsADescribedMembersRelationPar
 			Arr.map(source.draw(subset(parameterMembers, { min: 1, max: 2 })), (m) => ({
 				relation: m.relation,
 				param: m.param,
+				op: m.op,
 				given: source.draw(givenGen),
 				qty: source.draw(bigint(0n, 9n))
 			})),
@@ -63,7 +64,9 @@ export const theWriteProgramsRelationParametersBindsADescribedMembersRelationPar
 			check: (_, c: Case<ParamFeature>) => (drawnMembers) =>
 				Effect.gen(function* () {
 					const value = Arr.reduce(drawnMembers, shopChangeSet(), (changes, m) =>
-						changes.put(m.relation, stockFromParam(m.relation, m.param))
+						m.op === "insert"
+							? changes.insert(m.relation, stockFromParam(m.relation, m.param))
+							: changes.put(m.relation, stockFromParam(m.relation, m.param))
 					)
 					const program = shopCompiled(value, shopCompile)
 					const params = Rec.fromEntries(

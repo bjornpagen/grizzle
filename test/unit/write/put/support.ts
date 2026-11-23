@@ -15,7 +15,8 @@ import {
 	mutable,
 	on,
 	relation,
-	schema
+	schema,
+	unit
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { type QueryValue, queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
@@ -81,6 +82,10 @@ const shopRelations = {
 } as const
 
 const shopLaws = [
+	unit("Row", { id: Id }),
+	unit("Seats", { no: pg.bigint }),
+	unit("Pairs", { a: Id }),
+	unit("Counters", { name: label }),
 	mutable(Stock),
 	mutable(Seat),
 	mutable(Code),

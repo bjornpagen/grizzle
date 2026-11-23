@@ -372,16 +372,17 @@ const wholeDeleteRefused = (spec: FillSpec, r: number): boolean => {
 	return Arr.some(below, (x) => Arr.some(into(x), (f) => !reached.includes(f.owner)))
 }
 
-/** Whether the README's rules admit a write of relation `r` by `op`, which then must compile. */
+/** Whether the README's rules admit a write of relation `r` by `op`, which then must compile: a put or a delete only of
+ * an open relation, mutable inside its unit, since a closed one's facts are inserted, never changed or deleted. */
 const ruleAdmits = (spec: FillSpec, r: number, op: "insert" | "put" | "delete"): boolean => {
 	const families = spec.families
+	const open = defined(spec.relations[r]).mutable
 	const tree = Arr.some(families, (f) => f.kind === "tree" && f.member === r)
 	const ordered = Arr.some(families, (f) => f.kind === "ordered" && f.member === r)
 	const immutableOwner = Arr.some(
 		families,
 		(f) => f.member === r && f.kind !== "tree" && !defined(spec.relations[f.owner]).mutable
 	)
-	const owns = Arr.some(families, (f) => f.owner === r)
 	/** The relations an insert of r writes: r, and every sequence's member its nesting reaches. */
 	const written = new Set([r])
 	for (const at of written) {
@@ -407,9 +408,9 @@ const ruleAdmits = (spec: FillSpec, r: number, op: "insert" | "put" | "delete"):
 		case "insert":
 			return !ordered && !immutableOwner && !nestedFixed
 		case "put":
-			return !tree && !nestsUnderMember && (!owns || defined(spec.relations[r]).mutable)
+			return open && !tree && !nestsUnderMember
 		case "delete":
-			return !tree && !nestsUnderMember && !immutableOwner && !wholeDeleteRefused(spec, r)
+			return open && !tree && !nestsUnderMember && !immutableOwner && !wholeDeleteRefused(spec, r)
 	}
 }
 
@@ -452,11 +453,12 @@ export const guards = (spec: FillSpec, note: (situation: FillSituation) => void)
 	const artifacts = succeeded(testArtifacts(value, testCompile), "the specification's artifacts")
 	const options = realityWrite(artifacts)
 	const checked = checking(value)
-	/** A relation no family has, whose put changes nothing a refill reads: named first beside a refused write, it is
-	 * never the write the refusal names. */
+	/** An open relation no family has, whose put changes nothing a refill reads: named first beside a refused write, it
+	 * is never the write the refusal names. */
 	const plain = Arr.findFirstIndex(
 		spec.relations,
-		(_, p) => !Arr.some(spec.families, (f) => f.owner === p || f.member === p)
+		(relation, p) =>
+			relation.mutable && !Arr.some(spec.families, (f) => f.owner === p || f.member === p)
 	)
 	for (const [r] of spec.relations.entries()) {
 		for (const op of ["put", "delete"] as const) {

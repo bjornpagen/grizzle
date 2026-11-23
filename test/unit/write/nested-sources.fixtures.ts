@@ -17,7 +17,8 @@ import {
 	ordered,
 	relation,
 	schema,
-	tree
+	tree,
+	unit
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
@@ -107,6 +108,7 @@ const Sources = schema(
 		ordered(on(Entry, "package", "at"), fin(Package, "entries")),
 		binned,
 		fold(binned, Monoid.sum, on(Entry, "bin", "size"), on(Bin, "id", "total")),
+		unit("Row", { id: Id }),
 		mutable(Shelf),
 		shelved,
 		fold(shelved, Monoid.sum, on(Entry, "shelf", "size"), on(Shelf, "id", "total")),

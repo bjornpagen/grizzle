@@ -17,7 +17,7 @@ import type { LiteralBound, MessageBound } from "#compiler/ir/products.ts"
 import { strataAt } from "#compiler/ir/stratum.ts"
 import { Num } from "#compiler/public/compute.ts"
 import { drawn, generated, natural, pg } from "#compiler/public/fields.ts"
-import { fin, on, ordered, relation, schema, tree } from "#compiler/public/schema.ts"
+import { fin, mutable, on, ordered, relation, schema, tree, unit } from "#compiler/public/schema.ts"
 import { prepareBinding } from "#compiler/runtime/write/binding.ts"
 import type { Cells } from "#compiler/runtime/write/cells.ts"
 import { type Normalization, normalizeChangeSet } from "#compiler/runtime/write/normalize.ts"
@@ -46,19 +46,19 @@ import { codesOf, compiled, cs, parsedOf } from "#test/unit/write/changeset/fixt
 const classes = 3
 
 /**
- * Bucket(a, b, v), its primary key (m, b), m the key generation `a mod classes`: no injective generation, so two facts
+ * Bucket(a, b, v), its primary key (b, m), m the key generation `a mod classes`: no injective generation, so two facts
  * whose reads (a, b) differ meet at one key whenever their a agree modulo the classes, the pair a key over the reads
- * holds apart.
+ * holds apart. Its key leads with b, a field its caller writes, so Bucket sits in the unit of its b, mutable inside it.
  */
 const Bucket = relation.generated(
 	"Bucket",
 	{ a: pg.integer, b: pg.integer, v: pg.integer },
-	["m", "b"],
+	["b", "m"],
 	(r) => ({ m: generated(pg.integer, Num.mod(r.a, classes)) })
 )
 
-/** The schema of Bucket alone. */
-const Keyed = schema("Keyed", [Bucket], [])
+/** The schema of Bucket alone, mutable inside the unit of its b. */
+const Keyed = schema("Keyed", [Bucket], [unit("Bs", { b: pg.integer }), mutable(Bucket)])
 
 /** A fact of Bucket as its caller states it: its written fields, no key generation. */
 type BucketFact = { readonly a: number; readonly b: number; readonly v: number }
@@ -108,13 +108,13 @@ const memberGen = (source: Source): Member => ({
 /** One to three strata of up to four members. */
 const strataGen = array(array(memberGen, { min: 0, max: 4 }), { min: 1, max: 3 })
 
-/** A lawful initial state: facts at distinct keys (m, b), by the model's fill, each key's first drawn fact kept. */
+/** A lawful initial state: facts at distinct keys (b, m), by the model's fill, each key's first drawn fact kept. */
 const initial = (source: Source): ReadonlyArray<BucketFact> =>
 	Arr.dedupeWith(source.draw(array(factGen, { min: 0, max: 4 })), (f, g) =>
 		sameKey(filledOf(f), filledOf(g))
 	)
 
-/** Whether two filled facts are at one key of Bucket's primary key (m, b). */
+/** Whether two filled facts are at one key of Bucket's primary key (b, m). */
 const sameKey = (f: FilledFact, g: FilledFact): boolean => f.m === g.m && f.b === g.b
 
 /** A case: a lawful initial state and one to three strata of members. */
@@ -183,13 +183,13 @@ const specOf = (field: string) => {
 }
 
 /** Bucket as the add-wins calculator holds it: every field, the key generation among them, and its primary key over
- * the key generation and b, which the model's filled facts are judged at. */
+ * b and the key generation, which the model's filled facts are judged at. */
 const oracleSchema: OracleSchema = {
 	relations: [
 		{
 			name: "Bucket",
 			heading: Arr.map(["a", "b", "m", "v"], (f) => ({ name: f, spec: specOf(f) })),
-			primaryKey: { law: lawNamesOf(Keyed).primaryKeyLaw(Bucket), fields: ["m", "b"] },
+			primaryKey: { law: lawNamesOf(Keyed).primaryKeyLaw(Bucket), fields: ["b", "m"] },
 			keys: [],
 			projectedKeys: []
 		} satisfies OracleRelation
@@ -305,7 +305,7 @@ const sameFact = (f: BucketFact, g: BucketFact): boolean =>
 
 /**
  * The property over one case: normalization refuses exactly where the add-wins meaning of the model's filled facts
- * rejects by Bucket's primary key whatever the state, its witness the filled key (m, b) two of one stratum's additions
+ * rejects by Bucket's primary key whatever the state, its witness the filled key (b, m) two of one stratum's additions
  * share; and where it passes, every slot holds each fact with its key generation filled as the model fills it, and the
  * ChangeSet its slots state means what the one it came from means, so its netting is the model's.
  */

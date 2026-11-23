@@ -5,7 +5,17 @@ import { Array as Arr } from "effect"
 import type { PlaceRule } from "#compiler/core/causes.ts"
 import { drawn, instant, natural, type PlaceField, pg, place } from "#compiler/public/fields.ts"
 import { param, query, v } from "#compiler/public/query.ts"
-import { contained, fin, key, on, ordered, relation, schema } from "#compiler/public/schema.ts"
+import {
+	contained,
+	fin,
+	key,
+	mutable,
+	on,
+	ordered,
+	relation,
+	schema,
+	unit
+} from "#compiler/public/schema.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -41,6 +51,8 @@ const Mark = relation("Mark", { child: pg.integer, at: instant, n: place.by("x")
 	"n"
 ])
 
+/** Session, Turn and Move mutable inside the unit of their child, so a put or a delete of them meets the place's own
+ * rule. */
 export const Placed = schema(
 	"Placed",
 	[Stage, Session, Mark, Turn, Move],
@@ -48,7 +60,11 @@ export const Placed = schema(
 		ordered(on(Move, "child", "n", "at"), fin(Turn, "moves")),
 		contained(on(Session, "child", "stage"), on(Stage, "child", "at")),
 		key(on(Session, "child", "item", "stage")),
-		key(on(Mark, "child", "at", "x"))
+		key(on(Mark, "child", "at", "x")),
+		unit("Child", { child: pg.integer }),
+		mutable(Session),
+		mutable(Turn),
+		mutable(Move)
 	]
 )
 

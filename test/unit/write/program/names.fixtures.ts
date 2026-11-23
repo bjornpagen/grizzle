@@ -13,10 +13,10 @@ import { succeeded } from "#test/support/assert.ts"
 import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import { parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 import {
-	Item,
 	shopChangeSet,
 	shopCompile,
 	shopCompiled,
+	Stock,
 	stockFromParam
 } from "#test/unit/write/put/support.ts"
 
@@ -29,7 +29,7 @@ const fact = (n: number) => ({ id: uuidOf(n), label: "a", qty: 1n })
 
 /** The placeholder texts every statement of the optimized artifact binds. */
 export const bound = Effect.fn("bound")(function* (name: string) {
-	const value = shopChangeSet().put(Item, stockFromParam(Item, name))
+	const value = shopChangeSet().put(Stock, stockFromParam(Stock, name))
 	const program = shopCompiled(value, shopCompile)
 	assert.ok(
 		Arr.some(program.params, (p) => p.name === name),

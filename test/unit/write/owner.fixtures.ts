@@ -17,7 +17,8 @@ import {
 	mutable,
 	on,
 	relation,
-	schema
+	schema,
+	unit
 } from "#compiler/public/schema.ts"
 import { carrierScope } from "#compiler/sql/naming.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
@@ -48,6 +49,7 @@ const Books = schema(
 		entries,
 		fold(entries, Monoid.sum, on(Entry, "ledger", "x"), on(Ledger, "id", "t")),
 		check("Balanced", Ledger, (l) => l.eq(l.t, l.total)),
+		unit("Row", { id: Id }),
 		mutable(Ledger),
 		mutable(Entry)
 	]

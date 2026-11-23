@@ -3,7 +3,7 @@
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { pg } from "#compiler/public/fields.ts"
-import { key, mutable, on, relation, schema, select } from "#compiler/public/schema.ts"
+import { key, mutable, on, relation, schema, select, unit } from "#compiler/public/schema.ts"
 import { queryOver as query, type QueryValue, varsOver as v } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
@@ -39,6 +39,7 @@ export const schemaOf = (uniques: Uniques) =>
 		"Put",
 		[R],
 		[
+			unit("Bs", { b: pg.integer }),
 			mutable(R),
 			...(uniques === "key(c)"
 				? [key(on(R, "c"))]

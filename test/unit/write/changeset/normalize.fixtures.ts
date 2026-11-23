@@ -15,7 +15,7 @@ import { hasProperties } from "#compiler/core/record.ts"
 import type { LiteralBound, MessageBound } from "#compiler/ir/products.ts"
 import { strataAt, type StratumAt } from "#compiler/ir/stratum.ts"
 import { pg } from "#compiler/public/fields.ts"
-import { key, on, relation, schema } from "#compiler/public/schema.ts"
+import { key, mutable, on, relation, schema, unit } from "#compiler/public/schema.ts"
 import { prepareBinding } from "#compiler/runtime/write/binding.ts"
 import { type Normalization, normalizeChangeSet } from "#compiler/runtime/write/normalize.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
@@ -46,8 +46,8 @@ const Pair = relation("Pair", { k: pg.integer, v: pg.integer, c: pg.integer }, [
 
 const pairC = key(on(Pair, "c"))
 
-/** The schema of Pair, with its candidate key on c. */
-const Small = schema("Small", [Pair], [pairC])
+/** The schema of Pair, with its candidate key on c, mutable inside the unit of its k. */
+const Small = schema("Small", [Pair], [pairC, unit("Ks", { k: pg.integer }), mutable(Pair)])
 
 type Category = "put" | "delete" | "insert"
 

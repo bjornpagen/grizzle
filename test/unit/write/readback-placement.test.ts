@@ -5,8 +5,8 @@
  * crossings. No artifact carries a delta in a temporary table: its one carrier is a member slot's two statements read
  * (write/program/slot-carriers.ts).
  *
- * The box, constructed: over immutable relations M, A and Z of an id and a payload, a first stratum that inserts, deletes
- * or puts M's facts, with or without the opposite action of M beside it (a delete beside an insert or a put, an insert
+ * The box, constructed: over relations M, A and Z of an id and a payload, M mutable inside the unit of its id and A and
+ * Z immutable, a first stratum that inserts, deletes or puts M's facts, with or without the opposite action of M beside it (a delete beside an insert or a put, an insert
  * beside a delete), and with or without a second stratum inserting M's facts again from a query over a relation
  * parameter; another relation W, A or Z, written by an insert in the first stratum, in the second, or not at all; and
  * one read-back of one rule joining by id M's added facts, its removed facts, or both, with W's added facts, W's
@@ -14,8 +14,9 @@
  * Exhausted.
  *
  * Oracle: the rule as a model over the statements the construction implies. M's first-stratum action is one statement,
- * an insert's or a delete's, or a put's two, its displacing deletion making removed facts and its insert half added
- * ones; an action beside it is one more; a second stratum's insert is one more. A stratum of one-statement writes of
+ * an insert's or a delete's, or a put's: its upsert alone where the read-back names M's added side alone, and else two,
+ * its displacing deletion making removed facts and its upsert, its insert half, added ones; an action beside it is one
+ * more; a second stratum's insert is one more. A stratum of one-statement writes of
  * two relations is one statement. A side is made whole by a statement exactly where that statement is its only maker
  * and no maker of the opposite side is of another stratum: no fact is both added and removed by the writes of one
  * stratum (README, "A row one stratum both adds and deletes stays"); a read-back rides where every side it names, of a

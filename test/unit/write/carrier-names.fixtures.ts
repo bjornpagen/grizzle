@@ -9,7 +9,7 @@ import { compileInstallation, installOptions } from "#compiler/physical/install/
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { mutable, relation, schema } from "#compiler/public/schema.ts"
+import { mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { carrierScope } from "#compiler/sql/naming.ts"
 import { changeSetDesc } from "#compiler/write/changeset/value.ts"
@@ -39,7 +39,7 @@ const layoutOf = (layout: Layout) => {
 	switch (layout) {
 		case "text": {
 			const R = relation("R", { id: pg.integer, v: str.regex("^[a-z]*$") }, ["id"])
-			const S = schema(schemaName, [R], [mutable(R)])
+			const S = schema(schemaName, [R], [unit("Row", { id: pg.integer }), mutable(R)])
 			return {
 				S,
 				changes: ChangeSet.empty(S)
@@ -61,7 +61,7 @@ const layoutOf = (layout: Layout) => {
 		}
 		case "bigint": {
 			const R = relation("R", { id: pg.integer, v: pg.bigint }, ["id"])
-			const S = schema(schemaName, [R], [mutable(R)])
+			const S = schema(schemaName, [R], [unit("Row", { id: pg.integer }), mutable(R)])
 			return {
 				S,
 				changes: ChangeSet.empty(S)
@@ -83,7 +83,7 @@ const layoutOf = (layout: Layout) => {
 		}
 		case "boolean": {
 			const R = relation("R", { id: pg.integer, v: pg.boolean }, ["id"])
-			const S = schema(schemaName, [R], [mutable(R)])
+			const S = schema(schemaName, [R], [unit("Row", { id: pg.integer }), mutable(R)])
 			return {
 				S,
 				changes: ChangeSet.empty(S)
@@ -105,7 +105,7 @@ const layoutOf = (layout: Layout) => {
 		}
 		case "uuid": {
 			const R = relation("R", { id: pg.integer, v: Id }, ["id"])
-			const S = schema(schemaName, [R], [mutable(R)])
+			const S = schema(schemaName, [R], [unit("Row", { id: pg.integer }), mutable(R)])
 			return {
 				S,
 				changes: ChangeSet.empty(S)

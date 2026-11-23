@@ -1,5 +1,5 @@
 /**
- * Bucket(a, b, v), its primary key (m, b), m = a mod 3 a key generation.
+ * Bucket(a, b, v), its primary key (b, m), m = a mod 3 a key generation, mutable inside the unit of its b.
  *
  * Host normalization over a relation whose primary key holds a key generation, checked against the brute-force add-wins
  * calculator over the facts the model fills first (each fact's m, a second implementation of `a mod 3`): a refusal

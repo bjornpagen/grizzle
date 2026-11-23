@@ -4,7 +4,7 @@ import { nonEmpty } from "@bjornpagen/testing/assert"
 import { element, type Gen, int, subarray } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record } from "effect"
 import { drawn, generated, natural, pg } from "#compiler/public/fields.ts"
-import { key, on, relation } from "#compiler/public/schema.ts"
+import { key, on, relation, unit } from "#compiler/public/schema.ts"
 import { Id } from "#test/support/ids.ts"
 
 /** Owner(id, n drawn): the owner of the sequence of Member. */
@@ -27,7 +27,24 @@ type Declared = Shape | "owner and generated y"
 export const declaredFields = (shape: Declared): ReadonlyArray<string> =>
 	shape === "owner and generated y" ? ["owner", "y"] : shapes[shape]
 
-/** The member under the primary key `primary`, and the declared key over it of each shape. */
+/** The unit of a row's own id, which Owner sits in, and Member where its primary key is its id alone. */
+const rowUnit = unit("Row", { id: Id })
+
+/** The units Owner and Member sit in, so both are mutable inside one: Owner's id, and the field Member's primary key
+ * leads with, where it is no id. */
+const unitsOf = (primary: Shape) => {
+	switch (primary) {
+		case "owner and index":
+		case "owner and x":
+			return [rowUnit, unit("Owned", { owner: Id })]
+		case "x and index":
+			return [rowUnit, unit("Xs", { x: pg.bigint })]
+		case "id alone":
+			return [rowUnit]
+	}
+}
+
+/** The member under the primary key `primary`, the declared key over it of each shape, and the units the two sit in. */
 export const memberOf = (primary: Shape) => {
 	const Member = relation.generated(
 		"Member",
@@ -49,7 +66,7 @@ export const memberOf = (primary: Shape) => {
 				return key(on(Member, "owner", "y"))
 		}
 	}
-	return { Member, declared }
+	return { Member, declared, units: unitsOf(primary) }
 }
 
 /** A case of the box: the write, Member's primary key, the keys declared beside it in order, and how many facts. */

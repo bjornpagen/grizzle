@@ -11,8 +11,9 @@
  * generation over them, so it reaches the row through the key's index; a general query stating p alone compares p
  * alone, no digest probe derived for it (main's ruling: only key reads apply the generation a key declares).
  *
- * The box: R(b, p, x, h), mutable, keyed by (b, h), (h, b) or (h), written by a put of its own facts, alone or beside a
- * deletion, an enumerated put, or an insert computed from S(b, p, x). The oracles: write/put/choose.ts's rules as they
+ * The box: R(b, p, x, h), keyed by (b, h), mutable inside the unit of its b, written by a put of its own facts, alone or
+ * beside a deletion, an enumerated put, or an insert computed from S(b, p, x); or keyed by (h, b) or (h), closed (no
+ * unit's heading holds h, a field grizzle writes), written by that insert alone. The oracles: write/put/choose.ts's rules as they
  * read a key of written fields (test/unit/write/put/choose.fixtures.ts expectedOf), and the installation's table and
  * constraints, h a plain column and one CHECK comparing it with its generation, and the lookup's key heads.
  *
@@ -59,7 +60,7 @@ export const aKeyGenerationIsAColumnGrizzleWritesProvedByItsKeysCheckAndEveryWri
 		] satisfies ReadonlyArray<Reached<KeyFeature>>,
 		check:
 			(_, c: Case<KeyFeature>) =>
-			([primary, form]) =>
+			({ primary, form }) =>
 				Effect.sync(() => {
 					assert.deepEqual(
 						Arr.sort(Record.keys(keyHeadsOfR), Order.String),
@@ -139,7 +140,7 @@ export const aKeyGenerationIsAColumnGrizzleWritesProvedByItsKeysCheckAndEveryWri
 			kind: "specification",
 			name: "choosePutTargets' rules over a key of written fields, and the key generation's column and CHECK"
 		},
-		box: "R(b, p, x, h = Crypto.sha256(p)), mutable, keyed by (b, h), (h, b) or (h), put from its own facts alone or beside a deletion, put enumerated, or inserted from a query over S(b, p, x)",
+		box: "R(b, p, x, h = Crypto.sha256(p)), keyed by (b, h), mutable inside the unit of its b, put from its own facts alone or beside a deletion, put enumerated, or inserted from a query over S(b, p, x); or keyed by (h, b) or (h), closed, inserted from that query",
 		kept: [],
 		kills: [
 			{

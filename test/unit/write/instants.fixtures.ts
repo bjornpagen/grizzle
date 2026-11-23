@@ -4,7 +4,7 @@ import { element, type Gen } from "@bjornpagen/testing/gen"
 import type { InstantRule } from "#compiler/core/causes.ts"
 import { instant, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { contained, on, relation, schema } from "#compiler/public/schema.ts"
+import { contained, mutable, on, relation, schema, unit } from "#compiler/public/schema.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 
 /** A user's sign-in, its at the clock of child user. */
@@ -24,6 +24,8 @@ const Orphan = relation("Orphan", { token: pg.integer, user: pg.integer, at: ins
 /** Its s a reference SignIn's clock stamps at its user, and its at a clock of child (user, s). */
 const Chain = relation("Chain", { user: pg.integer, s: instant, at: instant }, ["user", "s", "at"])
 
+/** SignIn, Visit and Session mutable, the first two inside the unit of their user and Session inside the unit of its
+ * token, since the cases put and delete them. */
 export const Clocks = schema(
 	"Clocks",
 	[SignIn, Session, Visit, Orphan, Chain],
@@ -31,7 +33,12 @@ export const Clocks = schema(
 		contained(on(Session, "user", "at"), on(SignIn, "user", "at")),
 		contained(on(Orphan, "user", "at"), on(SignIn, "user", "at")),
 		contained(on(Orphan, "user", "at"), on(Visit, "user", "at")),
-		contained(on(Chain, "user", "s"), on(SignIn, "user", "at"))
+		contained(on(Chain, "user", "s"), on(SignIn, "user", "at")),
+		unit("User", { user: pg.integer }),
+		unit("Token", { token: pg.integer }),
+		mutable(SignIn),
+		mutable(Visit),
+		mutable(Session)
 	]
 )
 

@@ -4,10 +4,11 @@ import { array, constant, type Gen, int, weighted } from "@bjornpagen/testing/ge
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 import { Item, Stock } from "#test/unit/write/put/support.ts"
 
-/** The described members whose relation parameter the program binds: Item's under items, Stock's under stocks. */
+/** The described members whose relation parameter the program binds: Item's insert under items (Item is closed, its
+ * facts only inserted), Stock's put under stocks. */
 export const parameterMembers = [
-	{ relation: Item, param: "items" },
-	{ relation: Stock, param: "stocks" }
+	{ relation: Item, param: "items", op: "insert" },
+	{ relation: Stock, param: "stocks", op: "put" }
 ] as const
 
 /** What the caller gives a parameter: facts, nothing, or a value that is no list. */

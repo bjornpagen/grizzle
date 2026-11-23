@@ -8,7 +8,7 @@ import type { Family } from "#compiler/ir/family.ts"
 import { familyKey } from "#compiler/ir/law.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { drawn, natural, pg } from "#compiler/public/fields.ts"
-import { counted, fin, mutable, on, relation, schema, tree } from "#compiler/public/schema.ts"
+import { counted, fin, mutable, on, relation, schema, tree, unit } from "#compiler/public/schema.ts"
 import type { Binding, CountedFamily } from "#compiler/runtime/write/binding.ts"
 import type { FillFamily, FillRelation } from "#compiler/runtime/write/fill.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
@@ -44,11 +44,12 @@ const Node = relation(
 )
 
 /** Node a member of three families: its tree, the sequence that nests its rows, and two counted ones, whose owners are
- * mutable so a tree may be inserted under stored ones. */
+ * mutable so a tree may be inserted under stored ones, each owner under the unit of its id. */
 const Picked = schema(
 	"Picked",
 	[Doc, Shelf, Node],
 	[
+		unit("Owner", { id: Id }),
 		mutable(Doc),
 		mutable(Shelf),
 		counted(on(Node, "shelf"), fin(Shelf, "nodes")),

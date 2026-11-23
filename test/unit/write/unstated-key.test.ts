@@ -12,8 +12,8 @@
  *
  * The box: a sequence's member, Member (id, owner, at drawn, x, and y generated from x), under each primary key of the
  * written shapes below (a primary key holds no generated field), beside every subset of the other shapes declared as
- * keys, the generated one among them, written by a put or a delete of one to three facts that state every field but the
- * index and `y`. The oracle is the rule itself: the primary key, then each declared key for a put, and the write is
+ * keys, the generated one among them, Owner and Member mutable inside the units their keys lead with, written by a put or
+ * a delete of one to three facts that state every field but the index and `y`. The oracle is the rule itself: the primary key, then each declared key for a put, and the write is
  * refused naming the first that holds the index, the primary key where it does and otherwise one of the declared keys
  * that do, with the index as the field no fact states; with none, the ChangeSet compiles and binds.
  *
@@ -65,13 +65,14 @@ export const aWriteThatNamesRowsByAPrimaryKeyRefusesAPutOrADeleteWhosePrimaryKey
 		] satisfies ReadonlyArray<Reached<Situation>>,
 		check: (_, c: Case<Situation>) => (box) =>
 			Effect.gen(function* () {
-				const { Member, declared } = memberOf(box.primary)
+				const { Member, declared, units } = memberOf(box.primary)
 				const Sequence = schema(
 					"Sequence",
 					[Owner, Member],
 					[
 						ordered(on(Member, "owner", "at"), fin(Owner, "n")),
 						...Arr.map(box.declared, declared),
+						...units,
 						mutable(Owner),
 						mutable(Member)
 					]

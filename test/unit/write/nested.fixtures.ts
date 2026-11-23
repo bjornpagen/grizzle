@@ -16,7 +16,8 @@ import {
 	ordered,
 	relation,
 	schema,
-	tree
+	tree,
+	unit
 } from "#compiler/public/schema.ts"
 import { carrierScope } from "#compiler/sql/naming.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
@@ -59,6 +60,7 @@ export const Nested = schema(
 	"Nested",
 	[Doc, Line, Node],
 	[
+		unit("Row", { id: Id }),
 		mutable(Doc),
 		lines,
 		fold(lines, Monoid.sum, on(Line, "doc", "qty"), on(Doc, "id", "total")),

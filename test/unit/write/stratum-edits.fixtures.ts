@@ -7,7 +7,16 @@ import { Array as Arr, Effect } from "effect"
 import { transactionClock } from "#compiler/ir/clock.ts"
 import { strataAt, type StratumAt } from "#compiler/ir/stratum.ts"
 import { drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
-import { counted, fin, mutable, on, ordered, relation, schema } from "#compiler/public/schema.ts"
+import {
+	counted,
+	fin,
+	mutable,
+	on,
+	ordered,
+	relation,
+	schema,
+	unit
+} from "#compiler/public/schema.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import {
 	compileChangeSet,
@@ -38,6 +47,9 @@ const Edits = schema(
 	[
 		counted(on(Member, "club"), fin(Club, "n")),
 		ordered(on(Line, "doc", "at"), fin(Doc, "lines")),
+		unit("Clubs", { id: pg.integer }),
+		unit("Members", { m: pg.integer }),
+		unit("Docs", { id: Id }),
 		mutable(Club),
 		mutable(Member),
 		mutable(Doc),

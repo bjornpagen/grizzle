@@ -1,4 +1,4 @@
-/** Pair(k, v, c): primary key k, candidate key c.
+/** Pair(k, v, c): primary key k, candidate key c, mutable inside the unit of its k.
  *
  * Host normalization of enumerated members, arrays and Streams alike, over one to three strata, checked against the
  * brute-force add-wins calculator: a refusal before SQL is a ChangeSet the add-wins meaning rejects, by a key law some

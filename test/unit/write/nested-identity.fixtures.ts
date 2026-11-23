@@ -17,7 +17,7 @@ import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { closedTableOf } from "#compiler/analysis/schema.ts"
 import { drawn as drawnField, natural } from "#compiler/public/fields.ts"
-import { fin, mutable, on, ordered, relation, schema } from "#compiler/public/schema.ts"
+import { fin, mutable, on, ordered, relation, schema, unit } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { bindWrite, type InsertedStratum } from "#compiler/runtime/write/bind.ts"
 import { prepareBinding } from "#compiler/runtime/write/binding.ts"
@@ -52,7 +52,13 @@ const Member = relation(
 export const Bodies = schema(
 	"Bodies",
 	[Owner, Member],
-	[ordered(on(Member, "owner", "at"), fin(Owner, "members")), mutable(Owner), mutable(Member)]
+	[
+		ordered(on(Member, "owner", "at"), fin(Owner, "members")),
+		unit("Owner", { id: Id }),
+		unit("Members", { owner: Id }),
+		mutable(Owner),
+		mutable(Member)
+	]
 )
 
 const reality = realityWrite(succeeded(testArtifacts(Bodies, testCompile)))

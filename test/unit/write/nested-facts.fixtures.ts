@@ -11,7 +11,8 @@ import {
 	on,
 	ordered,
 	relation,
-	schema
+	schema,
+	unit
 } from "#compiler/public/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
@@ -36,6 +37,8 @@ export const Sequenced = schema(
 	[
 		items,
 		fold(items, Monoid.sum, on(Item, "owner", "x"), on(Owner, "id", "total")),
+		unit("Owner", { id: Id }),
+		unit("Items", { owner: Id }),
 		mutable(Owner),
 		mutable(Item)
 	]

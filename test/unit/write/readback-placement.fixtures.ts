@@ -8,7 +8,7 @@ import { identity } from "#compiler/core/identity.ts"
 import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
-import { relation, schema } from "#compiler/public/schema.ts"
+import { mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import { removedTag, type WriteStepResult } from "#compiler/runtime/write/steps.ts"
@@ -34,7 +34,8 @@ const Z = relation("Z", { id: pg.integer, v: pg.integer }, ["id"])
 
 const schemaName = "readback_placement"
 
-const S = schema(schemaName, [M, A, Z], [])
+/** M mutable inside the unit of its id, since the cases put and delete it. */
+const S = schema(schemaName, [M, A, Z], [unit("Row", { id: pg.integer }), mutable(M)])
 
 type Op = "insert" | "delete" | "put"
 
@@ -76,9 +77,12 @@ interface Write {
 	readonly maker: Maker
 }
 
-/** The writes a case implies, each in the statement the realization puts it in. */
+/** The writes a case implies, each in the statement the realization puts it in. A put of the mutable M is its upsert,
+ * one statement, where the read-back names M's added side alone, and its displacing deletion and its upsert, two, where
+ * it names M's removed side. */
 const writesOf = (s: Sketch): ReadonlyArray<Write> => {
-	const firstSingle = s.op !== "put" && !s.beside && s.written === "first"
+	const upsertAlone = s.op === "put" && s.sides === "added"
+	const firstSingle = (s.op !== "put" || upsertAlone) && !s.beside && s.written === "first"
 	const secondSingle = s.again && s.written === "second"
 	const at = (stratum: 1 | 2, own: string): string =>
 		(stratum === 1 && firstSingle) || (stratum === 2 && secondSingle)
@@ -96,7 +100,9 @@ const writesOf = (s: Sketch): ReadonlyArray<Write> => {
 			? [of("M", "added", 1, "M", "insert")]
 			: s.op === "delete"
 				? [of("M", "removed", 1, "M", "delete")]
-				: [of("M", "removed", 1, "M displaced", "displaced"), of("M", "added", 1, "M put", "put")]
+				: upsertAlone
+					? [of("M", "added", 1, "M", "put")]
+					: [of("M", "removed", 1, "M displaced", "displaced"), of("M", "added", 1, "M put", "put")]
 	const beside: ReadonlyArray<Write> = !s.beside
 		? []
 		: s.op === "delete"
@@ -289,7 +295,7 @@ export const compiledSketch = (s: Sketch, at: Subject) =>
 		carrierScope: carrierScope(undefined)
 	})
 
-/** The kind of write a statement's result says made its delta. */
+/** The kind of write a statement's result says made its delta: a put's insert half of the mutable M is its upsert. */
 const makerOf = (result: WriteStepResult): Maker | undefined => {
 	switch (result.kind) {
 		case "insert":
@@ -297,6 +303,7 @@ const makerOf = (result: WriteStepResult): Maker | undefined => {
 		case "delete":
 			return removedTag(result)
 		case "upsert":
+			return "put"
 		case "update":
 		case "merge":
 			return undefined

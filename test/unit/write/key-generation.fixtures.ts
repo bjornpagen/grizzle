@@ -4,7 +4,7 @@ import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Predicate, Record } from "effect"
 import { Crypto } from "#compiler/public/compute.ts"
 import { generated, pg, sha256 } from "#compiler/public/fields.ts"
-import { mutable, relation, schema } from "#compiler/public/schema.ts"
+import { mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import type { KeyValues } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { queryOver as query, type QueryValue, varsOver as v } from "#compiler/query/build/query.ts"
@@ -22,7 +22,11 @@ export type Form = "own facts" | "own facts beside a deletion" | "enumerated" | 
 /** A text of any length, which no key may hold: what a key generation digests. */
 const Path = str.regex("^.*$", "su")
 
-/** R(b, p, x, h = Crypto.sha256(p)), mutable, keyed as `primary` says; S(b, p, x), the source a computed insert reads. */
+/**
+ * R(b, p, x, h = Crypto.sha256(p)), keyed as `primary` says: keyed by (b, h), mutable inside the unit of its b; keyed by
+ * its digest first, closed, since no unit's heading holds a field grizzle writes. S(b, p, x), the source a computed insert
+ * reads.
+ */
 export const schemaOf = (primary: Primary) => {
 	const R = relation.generated(
 		"R",
@@ -31,7 +35,15 @@ export const schemaOf = (primary: Primary) => {
 		(row) => ({ h: generated(sha256, Crypto.sha256(row.p)) })
 	)
 	const S = relation("S", { b: pg.integer, p: Path, x: pg.integer }, ["b"])
-	return { R, S, s: schema("Keyed", [R, S], [mutable(R)]) }
+	return {
+		R,
+		S,
+		s: schema(
+			"Keyed",
+			[R, S],
+			primary === "(b, h)" ? [unit("Bs", { b: pg.integer }), mutable(R)] : []
+		)
+	}
 }
 
 type Schema = ReturnType<typeof schemaOf>
@@ -123,8 +135,6 @@ export const expectedOf = (form: Exclude<Form, "computed insert">): Choice => {
 	}
 }
 
-const primaries: Arr.NonEmptyReadonlyArray<Primary> = ["(b, h)", "(h, b)", "(h)"]
-
 const forms: Arr.NonEmptyReadonlyArray<Form> = [
 	"own facts",
 	"own facts beside a deletion",
@@ -132,8 +142,20 @@ const forms: Arr.NonEmptyReadonlyArray<Form> = [
 	"computed insert"
 ]
 
-export const caseGen: Gen<readonly [Primary, Form]> = (source) =>
-	[source.draw(element(primaries)), source.draw(element(forms))] as const
+/**
+ * A case: R keyed by (b, h), mutable, under every form; or keyed by its digest first, closed, written by the computed
+ * insert alone, its facts inserted and never changed or deleted.
+ */
+export type KeyCase =
+	| { readonly primary: "(b, h)"; readonly form: Form }
+	| { readonly primary: "(h, b)" | "(h)"; readonly form: "computed insert" }
+
+export const caseGen: Gen<KeyCase> = (source) => {
+	const primary = source.draw(element<Primary>(["(b, h)", "(h, b)", "(h)"]))
+	return primary === "(b, h)"
+		? { primary, form: source.draw(element(forms)) }
+		: { primary, form: "computed insert" }
+}
 
 /**
  * What a caller states to name a fact of R by its key, R keyed by (b, h) (types/schema/statements.ts KeyValues): its
