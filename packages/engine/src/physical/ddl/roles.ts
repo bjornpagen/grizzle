@@ -39,7 +39,6 @@ import {
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
-import { typedEq } from "#compiler/ir/compare.ts"
 import type { FieldDesc, RoleWritingKey } from "#compiler/ir/desc.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
 import type { Family } from "#compiler/ir/family.ts"
@@ -55,8 +54,6 @@ import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { derivedKeyConstraints, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
-import { LowerContext } from "#compiler/lower/conservative/context.ts"
-import { dispatchNode } from "#compiler/lower/conservative/dispatch.ts"
 import { namesConstant } from "#compiler/physical/ddl/constants.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import {
@@ -109,26 +106,21 @@ import type {
 } from "#compiler/sql/ast.ts"
 
 import {
-	and,
-	binary,
 	col,
-	exists,
 	lit,
 	namedType,
-	not,
 	objectName,
 	or,
 	param,
 	provedSelect,
 	qualifiedCall,
-	simpleSelect,
 	table,
 	target
 } from "#compiler/sql/build.ts"
 import { nameOf } from "#compiler/sql/constants.ts"
 import { printExpr, printStartupOptions } from "#compiler/sql/print.ts"
 import { fieldColumns } from "#compiler/write/defined.ts"
-import { filterFields, renderMembership } from "#compiler/write/entry/render.ts"
+import { filterFields, renderMembership, renderProbes } from "#compiler/write/entry/render.ts"
 import { endColumns } from "#compiler/write/family/statements.ts"
 import {
 	type OutsideProbe,
@@ -137,7 +129,6 @@ import {
 	relationUniques,
 	scopedProbes
 } from "#compiler/write/insert/unique.ts"
-import { withinRow } from "#compiler/write/probe.ts"
 import { refusalFunction } from "#compiler/write/refusal.ts"
 
 /**
@@ -581,10 +572,6 @@ interface WritePlan {
 	readonly grants: ReadonlyArray<SqlStatement>
 }
 
-/** The alias a probe reads T's row under: r0, the input-row alias the write protocols use, since a lowering numbers its
- * own FROM items from r1, so no item inside the membership takes it. */
-const probeRow = "r0"
-
 /** Whether a role holds column UPDATE on a head field of its writable entry over a mutable T: only on a free one. A key
  * field is the identity an update matches by, a family's is grizzle's, which a role that writes the family's member
  * holds UPDATE on as its member writer, and a claim-fixed one holds the claim's value in every fact of the world, so the
@@ -700,36 +687,23 @@ const writePlan = (
 	 * at one of its unique objects and lies outside the entry's membership, which the policy's own predicate decides
 	 * over that row. One key probe per key of T, at the key's values (overlapping at a span field), and one unique probe
 	 * per unique object of T no key subsumes, such as a key over a selected side, at the values of the fields it reads,
-	 * within its guards on both sides. Each reads T and what the membership reads as the owner. */
-	const outside = not({
-		kind: "isTrue",
-		expr: unwrap(
-			renderMembership(writable, {
-				schema: cx.checked,
-				names: b.names,
-				catalog: cx.catalog,
-				row: (f) => col(probeRow, column(f))
-			})
-		)
-	})
-	/** The context a unique object's guards lower in: the law model's DAG, which holds them, and the installation's
-	 * names. A guard reads its row alone, so it takes no parameter. */
-	const guardCx = new LowerContext(
-		b.model.theory.dag,
-		{ names: b.names, params: [], subject: { kind: "query" } },
-		dispatchNode
+	 * within its guards on both sides. Each reads T and what the membership reads as the owner, as one rendering
+	 * gives it to the installation and the certifier alike (write/entry/render.ts renderProbes). */
+	const bodyOf = unwrap(
+		renderProbes(writable, {
+			schema: cx.checked,
+			names: b.names,
+			catalog: cx.catalog,
+			dag: b.model.theory.dag,
+			table: tableName,
+			column
+		})
 	)
-	/** A probed object's guards over one side's values (write/probe.ts withinRow): a declared key's none, since
-	 * it holds every fact apart. */
-	const within = (probed: OutsideProbe, of: (field: LawField) => Expr): ReadonlyArray<Expr> =>
-		probed.kind === "unique" ? withinRow(guardCx, probed.object, of) : []
 	/** A probe by its identity of its parameters (write/insert/unique.ts probeIdentity, probeParams), each at its base
-	 * type, true where a fact of T outside the entry meets them at its object: within its guards on both sides, equal
-	 * at its compared fields, overlapping at its span. */
+	 * type, true where a fact of T outside the entry meets them at its object (renderProbes). */
 	const probe = (probed: OutsideProbe): WorldFunction => {
 		const named = probeIdentity(theory, e.name, probed)
-		const u = probed.object
-		const what = probed.kind === "key" ? "the keys" : `the unique object ${u.name}`
+		const what = probed.kind === "key" ? "the keys" : `the unique object ${probed.object.name}`
 		const probeIdent = b.name(named)
 		const allocated = fieldColumns(probeParams(probed), (f, i) => ({
 			column: column(f),
@@ -741,7 +715,6 @@ const writePlan = (
 			const p = allocated.of(field)
 			return param(p.position, p.type)
 		}
-		const stored = (field: LawField): Expr => col(probeRow, column(field))
 		const probeName: FunctionName = {
 			schema: b.schema,
 			name: probeIdent,
@@ -762,23 +735,7 @@ const writePlan = (
 						security: "DEFINER",
 						returns: "boolean",
 						params: params.map((p) => ({ name: p.column, type: p.type })),
-						body: exists(
-							simpleSelect(
-								[target(lit.bool(true))],
-								[table(tableName.schema, tableName.name, probeRow)],
-								and(
-									appendNonEmpty(
-										[
-											...within(probed, stored),
-											...within(probed, given),
-											...u.equal.map((f) => typedEq(f.type, stored(f), given(f), b.names)),
-											...(u.kind === "span" ? [binary("&&", stored(u.span), given(u.span))] : [])
-										],
-										outside
-									)
-								)
-							)
-						)
+						body: bodyOf(probed, given)
 					},
 					{
 						kind: "revoke",

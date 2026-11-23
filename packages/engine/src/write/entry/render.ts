@@ -1,3 +1,4 @@
+import { appendNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { CheckedEntry, CheckedSchema } from "#compiler/analysis/schema.ts"
 import { checkQuery } from "#compiler/check/index.ts"
@@ -5,14 +6,31 @@ import { CheckSession } from "#compiler/check/session.ts"
 import { CompileError, prose } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { noClock } from "#compiler/ir/clock.ts"
+import { typedEq } from "#compiler/ir/compare.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
 import type { LawField } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
+import type { ValidDag } from "#compiler/ir/rel.ts"
 import { queryEvidence } from "#compiler/logical/annotate.ts"
-import { columnIn } from "#compiler/lower/conservative/context.ts"
+import { columnIn, LowerContext } from "#compiler/lower/conservative/context.ts"
+import { dispatchNode } from "#compiler/lower/conservative/dispatch.ts"
 import { lowerOptimized, optimizedInput } from "#compiler/lower/optimize/pipeline.ts"
-import type { Expr, OperandBody, OperandSelect, SetOperand } from "#compiler/sql/ast.ts"
-import { exists, lit, mapTargets, withArms } from "#compiler/sql/build.ts"
+import type { Expr, ObjectName, OperandBody, OperandSelect, SetOperand } from "#compiler/sql/ast.ts"
+import {
+	and,
+	binary,
+	col,
+	exists,
+	lit,
+	mapTargets,
+	not,
+	simpleSelect,
+	table,
+	target,
+	withArms
+} from "#compiler/sql/build.ts"
+import type { OutsideProbe } from "#compiler/write/insert/unique.ts"
+import { withinRow } from "#compiler/write/probe.ts"
 
 export interface MembershipOptions {
 	/** The base the entry's role is over, checked: the filter query reads its relations. */
@@ -145,4 +163,77 @@ export const renderMembership = (
 		)
 	}
 	return Result.ok(exists(unaliased(parts.delivered.ast)))
+}
+
+/**
+ * What a writable entry's probes are rendered over (renderProbes): the membership's options but its row, the law model's
+ * DAG, which holds a unique object's guards, T's table, and the column of each of T's fields there.
+ */
+export interface ProbeOptions extends Omit<MembershipOptions, "row"> {
+	readonly dag: ValidDag
+	readonly table: ObjectName
+	readonly column: (field: LawField) => string
+}
+
+/** The alias a probe reads T's row under: r0, the input-row alias the write protocols use, since a lowering numbers its
+ * own FROM items from r1, so no item inside the membership takes it. */
+const probeRow = "r0"
+
+/**
+ * The body of each probe of a writable entry (physical/ddl/roles.ts installs one per unique object of T its precheck
+ * calls, write/entry/precheck.ts), at the values `given` names for the fields it compares (write/insert/unique.ts
+ * probeParams): true where a fact of T outside the entry meets them at the probed object, within its guards on both
+ * sides, equal at its compared fields, overlapping at its span, the entry's membership at that fact false:
+ *
+ *   EXISTS (SELECT true FROM T AS r0 WHERE <guards at r0> AND <guards at given> AND r0.f = <f given> ...
+ *     [AND r0.span && <span given>] AND NOT (<membership at r0>) IS TRUE)
+ *
+ * The membership is rendered once for every probe of the entry. One rendering serves both readers: the probe function
+ * the installation creates, over its parameters, and the certifier's read of a call of it, over the call's arguments
+ * (program/isolation/certification.ts).
+ */
+export const renderProbes = (
+	entry: CheckedEntry,
+	options: ProbeOptions
+): Result.Result<
+	(probed: OutsideProbe, given: (field: LawField) => Expr) => Expr,
+	CompileError
+> => {
+	const stored = (field: LawField): Expr => col(probeRow, options.column(field))
+	const membership = renderMembership(entry, { ...options, row: stored })
+	if (!membership.ok) {
+		return membership
+	}
+	const outside = not({ kind: "isTrue", expr: membership.value })
+	/** The context a unique object's guards lower in: the law model's DAG, which holds them, and the installation's
+	 * names. A guard reads its row alone, so it takes no parameter. */
+	const guardCx = new LowerContext(
+		options.dag,
+		{ names: options.names, params: [], subject: { kind: "query" } },
+		dispatchNode
+	)
+	/** A probed object's guards over one side's values (write/probe.ts withinRow): a declared key's none, since it holds
+	 * every fact apart. */
+	const within = (probed: OutsideProbe, of: (field: LawField) => Expr): ReadonlyArray<Expr> =>
+		probed.kind === "unique" ? withinRow(guardCx, probed.object, of) : []
+	return Result.ok((probed, given) => {
+		const u = probed.object
+		return exists(
+			simpleSelect(
+				[target(lit.bool(true))],
+				[table(options.table.schema, options.table.name, probeRow)],
+				and(
+					appendNonEmpty(
+						[
+							...within(probed, stored),
+							...within(probed, given),
+							...u.equal.map((f) => typedEq(f.type, stored(f), given(f), options.names)),
+							...(u.kind === "span" ? [binary("&&", stored(u.span), given(u.span))] : [])
+						],
+						outside
+					)
+				)
+			)
+		)
+	})
 }
