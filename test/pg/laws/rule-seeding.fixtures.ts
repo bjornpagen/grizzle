@@ -17,7 +17,6 @@ import { check, contained, derived, key, on, relation, schema } from "#compiler/
 import { type PlDeclaration, type PlStatement } from "#compiler/sql/ast.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import {
-	cleared,
 	type Seat,
 	type SeatCase,
 	type SeatTemplate,
@@ -40,7 +39,7 @@ const L3 = relation("L3", { id: pg.integer, up: pg.integer, v: pg.integer }, ["i
 const M = relation("M", { id: pg.integer, up: pg.integer }, ["id"])
 const N = relation("N", { id: pg.integer }, ["id"])
 
-export const RELATIONS = ["L1", "L2", "L3", "M", "N"] as const
+const RELATIONS = ["L1", "L2", "L3", "M", "N"] as const
 type Table = (typeof RELATIONS)[number]
 type Link = Extract<Table, "L1" | "L2" | "L3">
 const LINKS = ["L1", "L2", "L3"] as const
@@ -777,7 +776,6 @@ export const judgeHistory = (
 		const { seat } = installed
 		const shape = c.shape
 		const session = seat.session
-		yield* cleared(seat, RELATIONS)
 		for (const [at, ops] of c.history.entries()) {
 			const statements = Arr.flatMap(ops, (op) => statementsOf(seat, op))
 			const where = `transaction ${at} of ${Formatter.format(c)}`

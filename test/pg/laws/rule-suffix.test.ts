@@ -23,7 +23,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { property, type Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
-import { cleared, seatIn } from "#test/pg/fin/installed.ts"
+import { seatIn } from "#test/pg/fin/installed.ts"
 import {
 	footprintBeside,
 	localityGen,
@@ -53,7 +53,6 @@ export const aForbiddenSuffixIsJudgedByASeekOfItsReferencesBesideAnyNumberOfOthe
 						Effect.provideService(
 							Effect.gen(function* () {
 								const seat = yield* seatIn(taken, RELATIONS, "rule_suffix")
-								yield* cleared(seat, RELATIONS)
 								const where = Formatter.format(l)
 								const before = yield* footprintBeside(seat, l.key, 1, l.before)
 								const after = yield* footprintBeside(seat, l.key, l.before + 1, l.after)

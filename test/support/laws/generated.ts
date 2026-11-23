@@ -630,7 +630,6 @@ const boxSession = (
 			)
 		return {
 			host,
-			reset: s.admin.query(`TRUNCATE ${Arr.join(Arr.map(p.point.relations, table), ", ")}`, []),
 			apply,
 			reported: (refused: IdentifiedLaw) =>
 				reportedLawId(installed.installation.described, refused),

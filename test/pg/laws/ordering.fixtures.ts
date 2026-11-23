@@ -9,7 +9,6 @@ import { contract, pg, span } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, constraintNamesOf, derived, relation, schema } from "#compiler/public/schema.ts"
 import {
-	cleared,
 	type Seat,
 	type SeatCase,
 	type SeatTemplate,
@@ -396,7 +395,6 @@ export const judgeHistory = (taken: SeatCase, c: Case, note: (f: Feature) => voi
 		const derivedOf = { VisitAfterStart: AfterStart, VisitBeforeEnd: BeforeEnd } as const
 		const pointOf = { VisitAfterStart: "Began", VisitBeforeEnd: "EndedAt" } as const
 		const session = seat.session
-		yield* cleared(seat, RELATIONS)
 		let state = emptyState
 		for (const [at, ops] of c.history.entries()) {
 			const where = `transaction ${at} of ${Formatter.format(c)}`

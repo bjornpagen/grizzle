@@ -76,7 +76,6 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { family, type Kill, property, type Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Record as Rec, String as Str } from "effect"
-import { cleared } from "#test/pg/fin/installed.ts"
 import {
 	aimsOf,
 	caseGen,
@@ -88,7 +87,6 @@ import {
 	type JudgedShape,
 	type LocalityFeature,
 	localityGen,
-	RELATIONS,
 	requiredOf,
 	seedTemplates,
 	shapes,
@@ -227,7 +225,6 @@ export const readTheSameRowsAndTakeTheSameSireadLocksBesideHundredsMoreKeys = fa
 								Effect.provideService(
 									Effect.gen(function* () {
 										const { seat } = yield* installedIn(taken, shape)
-										yield* cleared(seat, RELATIONS)
 										const few = yield* footprints(seat, l.key, 1, l.before)
 										const many = yield* footprints(seat, l.key, l.before + 1, l.after)
 										for (const [i, touched] of touchedOf(seat, l.key).entries()) {

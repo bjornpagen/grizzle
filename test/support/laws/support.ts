@@ -166,8 +166,6 @@ export const openWriter = <S extends AnySchema>(opened: {
 /** One installed family schema as the harness drives it. */
 export interface LawSession {
 	readonly host: HostSchema
-	/** Empties every table, as the owner. */
-	readonly reset: Effect.Effect<void, SqlError>
 	/** The served apply of the ChangeSet of `ops` (servedApply): its outcome, or its refusal as it compiled. */
 	readonly apply: (
 		ops: ReadonlyArray<HostOp>
@@ -179,13 +177,13 @@ export interface LawSession {
 }
 
 /**
- * The owner's side of an installed family schema: emptying every table, the committed state in stateRows' form, and
- * the closed id each field holds, whose column stores its handle's code.
+ * The owner's side of an installed family schema: the committed state in stateRows' form, and the closed id each field
+ * holds, whose column stores its handle's code. A case starts from its seat's empty tables (Substrate.seat empties every
+ * stored table after the case before), so the view empties nothing.
  */
 interface OwnerView {
 	readonly table: (relation: HostRelation) => string
 	readonly closed: (relation: string, field: string) => ClosedField | undefined
-	readonly reset: Effect.Effect<void, SqlError>
 	/** Every table's rows as their columns' output text, a closed id's code read back as the handle it names. */
 	readonly read: Effect.Effect<StateRows, SqlError>
 }
@@ -203,7 +201,6 @@ const ownerView = (
 		return {
 			table,
 			closed,
-			reset: s.admin.query(`TRUNCATE ${Arr.join(Arr.map(host.relations, table), ", ")}`, []),
 			read: Effect.forEach(host.relations, (r) => {
 				const texts = Arr.map(r.fields, (f) => namedText(installed.installation, r.name, f.name))
 				return Effect.map(
@@ -230,7 +227,6 @@ const sessionOf = (
 ): Effect.Effect<LawSession, never, Substrate> =>
 	Effect.map(ownerView(host, installed), (owner) => ({
 		host,
-		reset: owner.reset,
 		apply,
 		read: owner.read,
 		reported: (refused: IdentifiedLaw) => reportedLawId(installed.installation.described, refused)
