@@ -240,7 +240,8 @@
  * the columns its channels bind directly. A region that joins a union by columns an occurrence the statement's values
  * restrict binds reads it per binding, LATERAL, each arm at those values (lower/optimize/cte-policy probesByKey,
  * lower/shapes/union keyedUnion), and a fold the same way beside such an occurrence, where format 8 read the union
- * whole and joined it beside, and probed a fold only beside a stored relation. A fold or a union every reader of a
+ * whole and joined it beside, and probed a fold only beside a stored relation; a fold or a union the statement's values
+ * restrict itself is no such probe, read as it stands. A fold or a union every reader of a
  * workload's read reads at a value of a key column is read inline at each (lower/optimize/cte-policy perKeyReads, rule
  * 5c), where format 8 made one MATERIALIZED CTE of the whole node, read beside. A restricted share's EXISTS reads the
  * union of its readers' partners (lower/shapes/share/statements.ts restrictedShares), where 96b46005e's read one

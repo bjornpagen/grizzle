@@ -56,11 +56,13 @@ const inForce = query(Written)
 const sessions = { session: pg.integer } as const
 
 /**
- * How the case reads the outcomes in force: a write at the call's sessions, a relation parameter; a write beside every
+ * How the case reads the outcomes in force: a write at the call's sessions, a relation parameter; a write of the outcomes
+ * in force of the call's latest attempts, beside them, two reads the call's sessions restrict; a write beside every
  * stored attempt, which no value of the call restricts; or a workload's read beside every stored attempt.
  */
 export type Joined =
 	| "written at the call's sessions"
+	| "written at the call's latest attempts"
 	| "written beside every attempt"
 	| "read beside every attempt"
 
@@ -70,6 +72,7 @@ export interface Box {
 
 export const boxGen: Gen<Box> = element<Box>([
 	{ joined: "written at the call's sessions" },
+	{ joined: "written at the call's latest attempts" },
 	{ joined: "written beside every attempt" },
 	{ joined: "read beside every attempt" }
 ])
@@ -80,6 +83,61 @@ const atSessions = query(Written).rule((r) => {
 	return r
 		.match(r.relation("sittings", sessions), { session })
 		.match(inForce, { session, attempt, variable, value })
+		.find({ session, attempt, variable, value })
+})
+
+/**
+ * The outcomes in force of the sessions a reader names, `sessions`, a relation parameter: the union of `inForce`, each
+ * rule over the named sessions alone.
+ */
+const inForceOf = query(Written)
+	.rule((r) => {
+		const { session, attempt, variable, value } = v(Snapshot, "snapshot")
+		return r
+			.match(r.relation("sessions", sessions), { session })
+			.match(Snapshot, { session, attempt, variable, value })
+			.where(r.not(Assertion, { session, attempt, variable }))
+			.find({ session, attempt, variable, value })
+	})
+	.rule((r) => {
+		const { session, attempt, variable, value } = v(Assertion, "assertion")
+		return r
+			.match(r.relation("sessions", sessions), { session })
+			.match(Assertion, { session, attempt, variable, value })
+			.find({ session, attempt, variable, value })
+	})
+
+/** The latest attempt of each of the call's sessions, a fold over the call's `sittings`. */
+const latestOf = query(Written).rule((r) => {
+	const { session, attempt, opened } = v(Attempt, "attempt")
+	return r
+		.match(r.relation("sittings", sessions), { session })
+		.match(Attempt, { session, attempt, opened })
+		.find({ session, attempt: r.max(attempt) })
+})
+
+/** The sessions of the call's latest attempts, by their key. */
+const latestSessionOf = query(Written).rule((r) => {
+	const latest = latestOf.bind({ sittings: r.relation("sittings", sessions) })
+	const { session, attempt } = v(latest, "latest")
+	return r.match(latest, { session, attempt }).find({ session })
+})
+
+/**
+ * The outcomes in force of the call's latest attempts, as edullm's grade admission reads its values in force: the union
+ * bound to the latest attempts' sessions (a bound import whose relation parameter is bound to another bound import of
+ * the call's `sittings`), beside the latest attempts, a fold over them. Each read the call's sessions restrict.
+ */
+const atLatest = query(Written).rule((r) => {
+	const latest = latestOf.bind({ sittings: r.relation("sittings", sessions) })
+	const outcomes = inForceOf.bind({
+		sessions: latestSessionOf.bind({ sittings: r.relation("sittings", sessions) })
+	})
+	const { session, attempt } = v(latest, "latest")
+	const { variable, value } = v(outcomes, "outcome")
+	return r
+		.match(latest, { session, attempt })
+		.match(outcomes, { session, attempt, variable, value })
 		.find({ session, attempt, variable, value })
 })
 
@@ -113,6 +171,8 @@ export const statementsOf = (box: Box): ReadonlyArray<string> => {
 			return writeOf(
 				ChangeSet.empty(Written).insert(Recorded, atSessions).bind({ sittings: named })
 			)
+		case "written at the call's latest attempts":
+			return writeOf(ChangeSet.empty(Written).insert(Recorded, atLatest).bind({ sittings: named }))
 		case "written beside every attempt":
 			return writeOf(ChangeSet.empty(Written).insert(Recorded, besideAttempts))
 		case "read beside every attempt":

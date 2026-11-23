@@ -443,6 +443,15 @@ const renamedSource = (
  * replaced and its assertions, deduplicated whole and only then joined to the call's attempt (35 ms of 780 at 5,220
  * attempts). Each binding meets the rows at its keys, as the join of the whole node does, so the region's bindings
  * are the same set.
+ *
+ * An occurrence the statement's values restrict already is no probe: its rows are those values' alone, derived once
+ * where the statement shares them (rule 5d), so it is read as it stands, and binds the keys of another rather than
+ * waiting for another's. A probe's binders, stored relations and reads the statement's values restrict, are so never
+ * probes themselves, and the region places every probe after its binders in one order (conservative/match-region
+ * regionParts), where two reads each restricted by the values, each a fold or a union whose keys the other binds,
+ * each waited for the other: edullm's grade admission, the values in force of the call's latest item session (a union
+ * bound to that session) beside its latest attempt (a fold over the call's sittings), refused for no order of the
+ * region's occurrences in which every correlated source follows what it reads.
  */
 export const probesByKey = (
 	region: NodeOf<"MatchRegion">
@@ -450,7 +459,7 @@ export const probesByKey = (
 	const out = new Map<Occurrence, ProbedByKey>()
 	for (const o of region.occurrences) {
 		const beneath =
-			o.source.kind === "Base"
+			o.source.kind === "Base" || restrictedByValues(o.source)
 				? undefined
 				: probedBeneath(
 						o.source,

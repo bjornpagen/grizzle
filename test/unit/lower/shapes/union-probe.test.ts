@@ -8,15 +8,21 @@
  * with them.
  *
  * And a union beside a stored relation alone is read whole, derived once and joined, where each row of the relation would
- * read every arm again: a choice of work alone, the rows the same, read in the plan's shape.
+ * read every arm again: a choice of work alone, the rows the same, read in the plan's shape. And a union the statement's
+ * values restrict already is read as it stands (cte-policy probesByKey), never per key, as are its binders: the outcomes
+ * in force of the call's latest attempts, the union bound to their sessions beside a fold of them, each restricted by
+ * the call's sessions and each a probe the other bound, compiled to no order of the region (edullm's grade admission,
+ * C1, at 85910d893).
  *
- * The box, exhausted: the outcomes in force written at the call's sessions, a relation parameter, or beside every stored
- * attempt, which no value of the call restricts, or read beside every stored attempt by a workload's read.
+ * The box, exhausted: the outcomes in force written at the call's sessions, a relation parameter, or at the call's
+ * latest attempts, or beside every stored attempt, which no value of the call restricts, or read beside every stored
+ * attempt by a workload's read.
  *
  * Oracle: specification, the union read LATERAL with each arm at the call's session where the call's sessions bind it,
- * and read whole beside every stored attempt.
+ * and read as it stands where the call's sessions restrict it already or beside every stored attempt.
  *
- * Features: written at the call's sessions; written beside every attempt; read beside every attempt.
+ * Features: written at the call's sessions; written at the call's latest attempts; written beside every attempt; read
+ * beside every attempt.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
@@ -36,6 +42,7 @@ export const aRegionJoiningAUnionByColumnsARestrictedOccurrenceBindsReadsEachArm
 		needs: {},
 		situations: [
 			"written at the call's sessions",
+			"written at the call's latest attempts",
 			"written beside every attempt",
 			"read beside every attempt"
 		],
@@ -47,7 +54,7 @@ export const aRegionJoiningAUnionByColumnsARestrictedOccurrenceBindsReadsEachArm
 				assert.equal(
 					Str.includes("LATERAL ((SELECT")(sql),
 					probed,
-					`the outcomes in force ${box.joined}: the union ${probed ? "read per session, LATERAL" : "read whole"}\n${sql}`
+					`the outcomes in force ${box.joined}: the union ${probed ? "read per session, LATERAL" : "read as it stands"}\n${sql}`
 				)
 				assert.equal(
 					scans(sql, "snapshot"),
@@ -57,9 +64,9 @@ export const aRegionJoiningAUnionByColumnsARestrictedOccurrenceBindsReadsEachArm
 			}),
 		oracle: {
 			kind: "specification",
-			name: "the union read LATERAL, each arm at the call's session, where the call's sessions bind it; whole beside every attempt"
+			name: "the union read LATERAL, each arm at the call's session, where the call's sessions bind it; as it stands where they restrict it already, and whole beside every attempt"
 		},
-		box: "the outcomes in force, a union of two rules, written at the call's sessions or beside every stored attempt, or read beside every stored attempt",
+		box: "the outcomes in force, a union of two rules, written at the call's sessions, at the call's latest attempts or beside every stored attempt, or read beside every stored attempt",
 		kept: [],
 		kills: [
 			{
@@ -74,6 +81,12 @@ export const aRegionJoiningAUnionByColumnsARestrictedOccurrenceBindsReadsEachArm
 					'\t\t\t\t(restrictedByValues(q.source) || (probed.kind === "Group" && q.source.kind === "Base"))\n',
 				replacement: '\t\t\t\t(restrictedByValues(q.source) || q.source.kind === "Base")\n',
 				why: "A union beside a stored relation alone is read per row of it too: the read of every attempt's outcomes reads both arms again for each attempt, LATERAL, where it derived the union once and joined it."
+			},
+			{
+				file: "packages/engine/src/lower/optimize/cte-policy/index.ts",
+				original: '\t\t\to.source.kind === "Base" || restrictedByValues(o.source)\n',
+				replacement: '\t\t\to.source.kind === "Base"\n',
+				why: "A read the statement's values restrict is a probe too, as at 85910d893: the call's latest attempts' outcomes in force and the fold of the latest attempts each wait for the other's keys, and the write is refused for no order of the region's occurrences in which every correlated source follows what it reads."
 			}
 		]
 	})
