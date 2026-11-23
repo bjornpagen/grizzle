@@ -32,6 +32,7 @@ import {
 import { observationsOf, plannedBySql, runScripted } from "#test/support/flight/run.ts"
 import { runAlone } from "#test/support/pg.ts"
 import { testSql } from "#test/support/sql.ts"
+import { clearRows, tablesGroup } from "#test/support/substrate/replace.ts"
 import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
 import { backendCount, queriesSent, tappedSession } from "#test/support/wire-tap.ts"
 
@@ -83,7 +84,7 @@ export const theScriptedSessionAgainstPostgreSQLObservesWhatTheServerObservesFor
 							Effect.scoped(
 								Effect.gen(function* () {
 									const sqlOf = sqlOver(schema, c)
-									yield* s.admin.query(`TRUNCATE ${table}`, [])
+									yield* clearRows(s.admin, tablesGroup([table]))
 									const tapped = yield* tappedSession({
 										cluster: s.cluster,
 										database: s.database,
