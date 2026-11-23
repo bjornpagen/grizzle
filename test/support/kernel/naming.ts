@@ -372,7 +372,7 @@ export interface Names extends LawNames {
 	/** A stored, closed or derived relation's table or view, schema-qualified and quoted. */
 	readonly table: (relation: AnyRelation | AnyDerived) => string
 	/**
-	 * Every stored relation's table, as `table` names it: the tables a reset truncates together
+	 * Every stored relation's table, as `table` names it: the tables a reset empties together
 	 * (substrate/replace.ts installationGroup).
 	 */
 	readonly storedTables: ReadonlyArray<string>

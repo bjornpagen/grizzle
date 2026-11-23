@@ -1529,9 +1529,10 @@ const restoredProgram = (
 }
 
 /**
- * Stores the case's facts afresh for its second reading: every stored relation truncated in one SERIALIZABLE
- * transaction of the installation's owner (substrate/replace.ts replaceRows), whose TRUNCATE reads no row, then every
- * fact written again by the case's direct SQL writer (storeDirectly), in its restored order and spelling.
+ * Stores the case's facts afresh for its second reading: every stored relation's rows deleted by the installation's
+ * owner in a READ COMMITTED transaction of their own (substrate/replace.ts replaceRows), which no serializable
+ * transaction counts a conflict with, then every fact written again by the case's direct SQL writer (storeDirectly),
+ * in its restored order and spelling.
  */
 const restore = (
 	c: ProgramCase,

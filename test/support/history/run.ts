@@ -29,7 +29,6 @@ import {
 } from "#test/support/history/refused.ts"
 import type { Names } from "#test/support/kernel/naming.ts"
 import { type Domains, unorderableCycle } from "#test/support/laws/support.ts"
-import { transaction } from "#test/support/oracle/install/transaction.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { untilApplied } from "#test/support/schedules/grizzle.ts"
 
@@ -38,6 +37,7 @@ import {
 	reportedOwnerOf,
 	type TransactionRolledBack
 } from "#test/support/substrate/errors.ts"
+import { replaceRows, tablesGroup } from "#test/support/substrate/replace.ts"
 import type { BelowSerializable } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -221,8 +221,9 @@ export const writeSteps = (
 }
 
 /**
- * Empties every table and loads `state`, as the owner, in one transaction. RESTART IDENTITY restarts every sequence a
- * table owns, so a run's physical start is a function of its logical state.
+ * Empties every table and loads `state`, as the owner, in one transaction after the tables' rows are deleted
+ * (substrate/replace.ts replaceRows): the reset before every interleaving of a history, never a TRUNCATE. No table of
+ * a grizzle installation owns a sequence, so a run's physical start is a function of its logical state.
  */
 export const load = (
 	env: HistoryEnv,
@@ -230,16 +231,14 @@ export const load = (
 ): Effect.Effect<void, SqlError | TransactionRolledBack, Substrate> =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
-		yield* transaction(s.admin, [
-			`TRUNCATE ${Arr.join(
-				Arr.map(env.host.relations, (r) => tableOf(env, r.name)),
-				", "
-			)} RESTART IDENTITY`,
-			...Arr.flatMap(env.host.relations, (r) => {
+		yield* replaceRows(
+			s.admin,
+			tablesGroup(Arr.map(env.host.relations, (r) => tableOf(env, r.name))),
+			Arr.flatMap(env.host.relations, (r) => {
 				const facts = state.get(r.name) ?? []
-				return facts.length === 0 ? [] : [insertSql(env, r.name, facts)]
+				return facts.length === 0 ? [] : [{ sql: insertSql(env, r.name, facts), params: [] }]
 			})
-		])
+		)
 	})
 
 /**

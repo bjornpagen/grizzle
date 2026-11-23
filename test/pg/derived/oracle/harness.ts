@@ -356,7 +356,7 @@ export const snapshotOf = (
 		})
 	)
 
-/** Replaces every base relation's facts with `facts`, as the owner, in one transaction (`installationGroup`). Every base relation's table is truncated first and the facts inserted in the order given, so a
+/** Replaces every base relation's facts with `facts`, as the owner, in one transaction (`installationGroup`). Every base relation's rows are deleted first and the facts inserted in the order given, so a
  * reload of the same facts rewrites every base row. */
 export const reload = (
 	o: Opened,

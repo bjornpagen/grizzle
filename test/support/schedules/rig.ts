@@ -62,9 +62,9 @@ export interface Rig<W extends RigWorlds> {
 		sql: ReadonlyArray<string>
 	) => Effect.Effect<void, SqlError | TransactionRolledBack>
 	/**
-	 * Every relation's rows replaced with what `sql` inserts, as the owner, in one transaction that truncates every
-	 * stored relation's table first: a reset between runs that writes the whole state and is never an SSI pivot
-	 * (installationGroup).
+	 * Every relation's rows replaced with what `sql` inserts, as the owner, in one transaction after every stored
+	 * relation's rows are deleted: a reset between runs that writes the whole state and is never an SSI pivot
+	 * (installationGroup, replaceRows).
 	 */
 	readonly replace: (
 		sql: ReadonlyArray<string>

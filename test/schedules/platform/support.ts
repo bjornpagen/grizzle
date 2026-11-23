@@ -1003,20 +1003,18 @@ const directSql = (
 	})
 }
 
-/** Empties every table and loads the facts, as the owner, in one transaction, as a direct writer writes them. */
-const loadSql = (names: Names, facts: State): ReadonlyArray<string> => [
-	`TRUNCATE ${Arr.join(
-		Arr.map(loadOrder, (r) => tableOf(names, r)),
-		", "
-	)}`,
-	...directSql(
+/**
+ * The facts loaded as a direct writer writes them: what every table holds once the rig's reset (Rig replace) has
+ * emptied the installation and inserted them, as the owner, in one transaction.
+ */
+const loadSql = (names: Names, facts: State): ReadonlyArray<string> =>
+	directSql(
 		names,
 		Arr.flatMap(loadOrder, (r): ReadonlyArray<DirectStatement> => {
 			const rows = rowsIn(facts, r)
 			return rows.length === 0 ? [] : [{ kind: "insert", relation: r, facts: rows }]
 		})
 	)
-]
 
 /**
  * A relation's rows as text tuples, the written fields in declaration order, a closed id as its code: the form a
@@ -1636,7 +1634,7 @@ const runRace = (i: RaceInstall, race: Race, c: Case<RaceFeature>) =>
 					Effect.sync(() => {
 						seen.clear()
 					}),
-					i.rig.owner(loadSql(i.names, initial))
+					i.rig.replace(loadSql(i.names, initial))
 				),
 				state: { _tag: "Unread" },
 				model: (run) =>

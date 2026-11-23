@@ -1506,9 +1506,10 @@ export const loadMigrated = (
 
 /**
  * Replaces every stored relation's facts with its facts in `facts`, none where it names none, as the owner, in one
- * transaction that truncates every stored relation's table first (substrate/replace.ts installationGroup): the reset of
- * a case that reads and writes, which a reset reading the rows it deletes would make an SSI pivot under load. An
- * installation of closed relations alone stores nothing, and `facts` can name nothing of it.
+ * transaction after every stored relation's rows are deleted in a READ COMMITTED transaction of their own
+ * (substrate/replace.ts replaceRows, installationGroup): the reset of a case that reads and writes, which a
+ * SERIALIZABLE reset reading the rows it deletes would make an SSI pivot under load. An installation of closed
+ * relations alone stores nothing, and `facts` can name nothing of it.
  */
 export const replaceMigrated = (
 	installed: Installed,

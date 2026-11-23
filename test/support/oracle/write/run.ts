@@ -55,7 +55,7 @@ import type { SqlError } from "#test/support/pg.ts"
 import { openServedDb } from "#test/support/served-db.ts"
 import { type RoleSetupError, runEntry, servedRoleContext } from "#test/support/served-role.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
-import { replaceRows, rowsGroup } from "#test/support/substrate/replace.ts"
+import { replaceRows, tablesGroup } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** A refusal's witness as plain values: the violating fact's key, or why it names none. */
@@ -141,7 +141,7 @@ type TargetError = OpenError | ServedRefusal | CompileError | RoleSetupError
  * Every case of the run then
  *
  * 1. resets its group to the case's initial state as the owner, in one transaction: the installation's tables that
- *    hold a row emptied (test/support/substrate/replace.ts rowsGroup), the case's facts loaded as typed
+ *    hold a row emptied (test/support/substrate/replace.ts tablesGroup), the case's facts loaded as typed
  *    literals (oracle/install/load.ts), and, when
  *    the run keeps planner statistics, every relation of the group analyzed. A statement's plan follows the planner statistics, and a MERGE runs its actions
  *    in its plan's row order, so a realization can be right under one plan and wrong under another; a run draws
@@ -280,7 +280,7 @@ export const privilegeProblems = (
  * Resets the installation to `facts`, the group's (step 1 of the header): every stored relation's rows deleted in a
  * READ COMMITTED transaction of their own, then one transaction that loads the facts, which reads no version a
  * serializable transaction wrote: never an SSI pivot, whatever the cluster's load (test/support/substrate/replace.ts
- * rowsGroup). A deletion swaps no relation file, so a reset costs the rows the cases before it wrote, not every table
+ * tablesGroup). A deletion swaps no relation file, so a reset costs the rows the cases before it wrote, not every table
  * and index of the schema. The deleted versions it leaves until a vacuum change what a plan reads and never what a
  * statement answers, and the oracle's verdicts are plan-independent by construction: the run draws its statistics and
  * perturbs its plans (perturb.ts). Every other group is left empty until its own reset: a group's laws reach only its
@@ -305,7 +305,7 @@ export const resetGroup = (
 		}
 		yield* replaceRows(
 			s.admin,
-			rowsGroup(namesOf(t.installed).storedTables),
+			tablesGroup(namesOf(t.installed).storedTables),
 			Arr.map(statements, (sql) => ({ sql, params: [] }))
 		)
 	})

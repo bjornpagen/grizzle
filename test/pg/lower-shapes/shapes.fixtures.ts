@@ -19,7 +19,7 @@ import {
 import { statementOutput } from "#compiler/runtime/lower/tree.ts"
 import { templateNeedBudget } from "#test/support/budgets.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
-import { fixtureGroup, type ResetGroup } from "#test/support/substrate/replace.ts"
+import { tablesGroup, type ResetGroup } from "#test/support/substrate/replace.ts"
 import { installTemplate, Substrate } from "#test/support/substrate/substrate.ts"
 import { relations, Task } from "#test/unit/lower/conservative/fixtures.ts"
 import * as Cases from "#test/unit/lower/conservative/queries.ts"
@@ -105,7 +105,7 @@ export const factInserts = (schema: string, r: Relation): ReadonlyArray<string> 
 
 /** Every table the fixture creates in `schema`, which a reset truncates together (substrate/replace.ts). */
 export const fixtureTables = (schema: string): ResetGroup =>
-	fixtureGroup(Arr.map(relations, (r) => tableOf(schema, r)))
+	tablesGroup(Arr.map(relations, (r) => tableOf(schema, r)))
 
 const install = (schema: string): ReadonlyArray<string> => [
 	`CREATE DOMAIN ${rosterDomainSql(schema, "Kind")} AS smallint`,
