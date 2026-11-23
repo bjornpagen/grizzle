@@ -5,12 +5,6 @@ import { testExitWait } from "#test/support/limits.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import type { HeldConnection } from "#test/support/substrate/budget.ts"
 
-/**
- * How many back-to-back polls find a database's backends before a wait for them prints what it waits for: enough that a
- * closed session's exit, a few round trips, never prints.
- */
-export const quietPolls = 1_000
-
 /** A backend of a role whose session its test still held open when the role was released. */
 export interface HeldBackend {
 	readonly pid: number

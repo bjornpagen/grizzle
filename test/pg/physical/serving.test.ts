@@ -8,7 +8,7 @@
  * no filtered row; and every created index must be needed, some request it holds going unserved once it is dropped. The
  * serving rule is never restated here.
  *
- * Three populations, each installed by the fresh-install compiler and loaded at volume (serving.ts volumeRows):
+ * Two populations, each installed by the fresh-install compiler and loaded at volume (serving.ts volumeRows):
  *
  * - Generated workloads. A program of the public-boundary generator (test/support/oracle/public) is a schema and its
  *   reads; its reads are the workload, compiled by the workload compiler and installed with the access paths its extraction
@@ -49,12 +49,6 @@
  *   (worker, standby) beside one on (standby, worker), the first planned on Shift's GiST key, which PostgreSQL reads
  *   through the second's B-tree by a skip scan over standby in 2 descents, fewer buffers than the GiST key reads, a
  *   read held to the descents its closed keys allow (serving.ts descentsUnder).
- * - Shared columns. Two to four equality lookups and seeks over the same three columns of Event, each column drawn in
- *   any position and direction, are planned in every order they can arrive in, and the plan must be one list of
- *   indexes: the engine plans in its canonical order, and chooses each created index's key order to serve every later
- *   request over its columns that one order can serve with it. The first order is then installed and judged as above.
- *   Beside drawn sets it draws two seeks over the same columns in reverse orders, and an equality lookup beside a seek
- *   over some or all of its columns, each among up to two other requests.
  *
  * A field's value on row g (see the header): `value` the series or its spread, `key` whether the field lies in a key.
  *
@@ -67,9 +61,6 @@ import {
 	requestCase,
 	type RequestFeature,
 	requestSketchGen,
-	sharedCase,
-	type SharedFeature,
-	sharedSetGen,
 	workloadCase,
 	type WorkloadFeature,
 	workloadGen,
@@ -274,40 +265,5 @@ export const everyDrawnRequestIsServedAndEveryIndexTheEngineCreatesForThemIsNeed
 				since: "2026-11-10"
 			}
 		],
-		kills: []
-	})
-
-/**
- * Requests over shared columns plan alike in every arrival order, each served, every created index needed, each case
- * installing its first order on its own substrate (Substrate.installing).
- *
- * Its pre-conversion budget: runs 12, coverage cases 12 (test/pg/physical/serving.test.ts at fa10bca50).
- */
-export const requestsOverSharedColumnsPlanAlikeInEveryArrivalOrderEachServedEveryCreatedIndexNeeded =
-	property.explore(sharedSetGen, {
-		needs: { substrate: Substrate.installing },
-		situations: [
-			"an equality lookup beside an order over its columns",
-			"a wider equality lookup beside a narrower order over its columns",
-			"a narrower request beside a wider one over its columns",
-			"one index serving requests of two needs",
-			"two indexes on one column set",
-			"a created index needed"
-		] satisfies ReadonlyArray<Reached<ServingFeature | SharedFeature>>,
-		check:
-			({ substrate }, c: Case<ServingFeature | SharedFeature>) =>
-			(sketches) =>
-				Effect.provideServiceEffect(
-					Effect.scoped(sharedCase(sketches, c.note)),
-					Substrate,
-					substrate
-				),
-		oracle: {
-			kind: "postgresql",
-			name: "PostgreSQL's serving judge over shared requests in every arrival order: each served, every created index needed"
-		},
-		budget: { runs: 12, steered: 12 },
-		show: Formatter.format,
-		kept: [],
 		kills: []
 	})

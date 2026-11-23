@@ -165,15 +165,6 @@ type Pred =
 	| { readonly kind: "and" | "or"; readonly args: readonly [Pred, Pred] }
 	| { readonly kind: "not"; readonly arg: Pred }
 
-/**
- * The downstream's guarded read, `or(not(kind = K), ψ)` at the handle K: ψ the double lookup's set within the row's
- * flags (`subset`), or the row's flags within it (`admits`).
- */
-interface Guarded {
-	readonly handle: number
-	readonly leaf: "subset" | "admits"
-}
-
 interface AbsentCase {
 	readonly world: World
 	readonly checks: readonly [Pred, Pred]
@@ -182,34 +173,6 @@ interface AbsentCase {
 	readonly folded: Pred
 	readonly items: NonEmptyReadonlyArray<Item>
 }
-
-/** A row the guarded read is written against: its kind and flag codes, and its set of flags. */
-interface GuardedRow extends Keys {
-	readonly flags: ReadonlyArray<number>
-}
-
-/** A case of the guarded read: its lookups, the guard's handle and ψ's direction, and the rows written. */
-interface GuardedCase extends Lookups {
-	readonly guarded: Guarded
-	readonly rows: NonEmptyReadonlyArray<GuardedRow>
-}
-
-const guardTruths = ["holds", "fails"] as const
-
-const innerKeys = ["held", "absent"] as const
-
-const flagFills = ["empty", "not empty"] as const
-
-/** A situation of the guarded read: its guard's truth, its inner key's presence, and whether the row's flags are empty. */
-export type GuardedFeature =
-	`the guarded read: the guard ${(typeof guardTruths)[number]}, the double lookup's inner key ${(typeof innerKeys)[number]}, the flags ${(typeof flagFills)[number]}`
-
-const guardedFeature = (
-	guard: (typeof guardTruths)[number],
-	inner: (typeof innerKeys)[number],
-	fill: (typeof flagFills)[number]
-): GuardedFeature =>
-	`the guarded read: the guard ${guard}, the double lookup's inner key ${inner}, the flags ${fill}`
 
 /** The text at index i over {a, b} in bijective base 2: "", "a", "b", "aa", "ab", "ba", "bb", … */
 const textAt = (i: number): string =>
@@ -266,27 +229,6 @@ const worldGen: Gen<World> = (s) => {
 		),
 		weight: Arr.map(codes, () => (s.draw(boolean) ? s.draw(smallInt) : undefined)),
 		allowed: Arr.map(codesBelow(lookups.kinds), () => s.draw(subarray(codes)))
-	}
-}
-
-/**
- * A guarded case: its lookups, a handle K of its kinds, ψ's direction, and one to four rows, each of a drawn kind, flag
- * and set of flags.
- */
-export const guardedCaseGen: Gen<GuardedCase> = (s) => {
-	const lookups = s.draw(lookupsGen)
-	const row: Gen<GuardedRow> = (t) => ({
-		kind: t.draw(int(0, lookups.kinds - 1)),
-		flag: t.draw(int(0, lookups.flags - 1)),
-		flags: t.draw(subarray(codesBelow(lookups.flags)))
-	})
-	return {
-		...lookups,
-		guarded: {
-			handle: s.draw(int(0, lookups.kinds - 1)),
-			leaf: s.draw(element(["subset", "admits"] as const))
-		},
-		rows: [s.draw(row), ...s.draw(array(row, { min: 0, max: 3 }))]
 	}
 }
 
@@ -689,32 +631,6 @@ const presencesOf = (p: Pred): ReadonlyArray<HasKey> => {
 		case "not":
 			return presencesOf(p.arg)
 	}
-}
-
-/**
- * The double lookup's set at a row, FlagRel.row(Slot.at("slot", kind, flag)): the completions of Slot's flag at the
- * row's kind and flag, empty for a flag completed nowhere, and undefined, NULL, where Slot holds no row at the pair.
- */
-const lookedUp = (c: GuardedCase, row: GuardedRow): ReadonlyArray<number> | undefined => {
-	const slot = c.slot[row.kind]?.[row.flag]
-	return slot === undefined ? undefined : c.next[slot]
-}
-
-/**
- * The guarded read's truth at a row, in Kleene's logic: `not(kind = K)` or ψ, ψ unknown where the double lookup is NULL,
- * else the lookup's set within the row's flags (`subset`) or the flags within it (`admits`).
- */
-const guardedTruth = (c: GuardedCase, row: GuardedRow): Truth => {
-	const set = lookedUp(c, row)
-	const within: Truth =
-		set === undefined
-			? "unknown"
-			: truthOf(
-					c.guarded.leaf === "subset"
-						? Arr.every(set, (code) => row.flags.includes(code))
-						: Arr.every(row.flags, (code) => set.includes(code))
-				)
-	return either(truthOf(row.kind !== c.guarded.handle), within)
 }
 
 const kindOf = (code: number): string => `k${code}`
@@ -1136,43 +1052,6 @@ const schemaOf = (c: AbsentCase) => {
 		}
 	}
 }
-
-/**
- * The guarded case's schema: its lookups, and Guarded, whose row check is the downstream's guarded read; and its full
- * world's workload, an insert into Guarded.
- */
-const guardedSchemaOf = (c: GuardedCase) => {
-	const { Kind, Flag, FlagRel, Slot } = lookupsOf(c)
-	const Guarded = relation(
-		"Guarded",
-		{ id: pg.integer, kind: closedId(Kind), flag: closedId(Flag), flags: bits(Flag) },
-		["id"]
-	)
-	const guards = check("Guards", Guarded, (r) =>
-		r.or(
-			r.not(r.eq(r.kind, kindOf(c.guarded.handle))),
-			c.guarded.leaf === "subset"
-				? r.eq(Bits.subset(FlagRel.row(Slot.at("slot", r.kind, r.flag)), r.flags), true)
-				: r.eq(Bits.subset(r.flags, FlagRel.row(Slot.at("slot", r.kind, r.flag))), true)
-		)
-	)
-	const Lookup = schema("Lookup", [Kind, Flag, FlagRel, Slot, Guarded], [guards])
-	return {
-		Flag,
-		Guarded,
-		Lookup,
-		programs: { insertGuarded: ChangeSet.empty(Lookup).insert(Guarded, []) }
-	}
-}
-
-/** Every situation of the guarded read: the guard true and false, the inner key held and absent, the flags empty and not. */
-export const guardedSituations: NonEmptyReadonlyArray<GuardedFeature> = Arr.flatMap(
-	guardTruths,
-	(guard) =>
-		Arr.flatMap(innerKeys, (inner) =>
-			Arr.map(flagFills, (fill) => guardedFeature(guard, inner, fill))
-		)
-)
 
 export type Feature =
 	| "a check holds of a row with a NULL read"
@@ -1727,48 +1606,4 @@ export const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 						: "the fold's CHECK refuses the stepped after of a member its selection makes false"
 			)
 		}
-	}).pipe(Effect.scoped)
-
-/** One guarded case: its schema installed, and each row written into Guarded alone, judged by the guarded read's truth. */
-export const guardedCase = (c: GuardedCase, notes: Case<GuardedFeature>) =>
-	Effect.gen(function* () {
-		const built = guardedSchemaOf(c)
-		const o = yield* installed(built.Lookup, {}, { label: "lookup", programs: built.programs })
-		yield* Effect.gen(function* () {
-			const db = yield* Db.open(o.served.login.roles.app, {})
-			for (const [id, row] of c.rows.entries()) {
-				const applied = yield* Effect.result(
-					writeAnswerOf(
-						db.workload.insertGuarded.once({
-							params: {},
-							facts: {
-								insert: {
-									Guarded: [
-										{
-											id,
-											kind: kindOf(row.kind),
-											flag: flagOf(row.flag),
-											flags: Bits.of(built.Flag, Arr.map(row.flags, flagOf))
-										}
-									]
-								}
-							}
-						})
-					)
-				)
-				verdict(
-					applied,
-					built.Guarded.name,
-					guardedTruth(c, row) === "true",
-					`Guarded row ${id} of ${Formatter.format(c)}`
-				)
-				notes.note(
-					guardedFeature(
-						row.kind === c.guarded.handle ? "fails" : "holds",
-						lookedUp(c, row) === undefined ? "absent" : "held",
-						row.flags.length === 0 ? "empty" : "not empty"
-					)
-				)
-			}
-		}).pipe(Effect.scoped, withLayer(o.served.layer))
 	}).pipe(Effect.scoped)

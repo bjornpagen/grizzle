@@ -14,7 +14,7 @@ import type { RoleDefault } from "#test/support/substrate/substrate.ts"
 
 /**
  * The plan property of a workload read, as the plans suites judge every statement a read sends
- * (test/pg/e2e-platform/plans.test.ts, test/pg/e2e-work/plans.test.ts), and the doors they read the runtime and the
+ * (test/pg/e2e-work/plans.test.ts), and the doors they read the runtime and the
  * catalog through. The property is PostgreSQL's own judgment of the statement as the runtime sent it, served, over
  * relations it plans unanalyzed (unanalyzed): with sequential and index scans disabled (enable_indexscan disables
  * index-only scans too) and index-only scans never considered, every scan of a relation the statement restricts, by a

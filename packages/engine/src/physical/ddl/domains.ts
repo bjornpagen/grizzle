@@ -281,7 +281,7 @@ export interface DomainDefinition {
 }
 
 /** The digest of a domain's definition, which names it: its base, its collation and its CHECKs' predicates. */
-export const definitionDigest = (definition: DomainDefinition): DomainDigest =>
+const definitionDigest = (definition: DomainDefinition): DomainDigest =>
 	domainDigest(
 		{
 			base: definition.base,

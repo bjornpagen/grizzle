@@ -37,14 +37,10 @@ export const covers = (outer: SpanV, inner: SpanV): boolean =>
 	outer.start <= inner.start && inner.end <= outer.end
 
 export const overlaps = (a: SpanV, b: SpanV): boolean => a.start < b.end && b.start < a.end
-export const width = (s: SpanV): bigint => s.end - s.start
 const min = (a: bigint, b: bigint): bigint => (a < b ? a : b)
-const max = (a: bigint, b: bigint): bigint => (a > b ? a : b)
-export const overlapOf = (a: SpanV, b: SpanV): bigint =>
-	max(0n, min(a.end, b.end) - max(a.start, b.start))
 
 /** The token kinds in roster order, as the fixture declares them. */
-export const tokenKinds = [
+const tokenKinds = [
 	"input",
 	"output",
 	"cacheRead",
@@ -87,7 +83,7 @@ export interface CardM {
 	readonly tiers: ReadonlyArray<TierM>
 }
 
-export interface Piece {
+interface Piece {
 	readonly tier: SpanV
 	readonly tokens: bigint
 	readonly amount: bigint
@@ -96,7 +92,7 @@ export interface Piece {
 export const microsPerMillion = 1_000_000n
 
 /** The pieces a card's tiers price of `tokens`, in tier order. */
-export const piecesOf = (tiers: ReadonlyArray<TierM>, tokens: bigint): ReadonlyArray<Piece> =>
+const piecesOf = (tiers: ReadonlyArray<TierM>, tokens: bigint): ReadonlyArray<Piece> =>
 	Arr.map(
 		Arr.filter(
 			Arr.sort(
@@ -256,7 +252,3 @@ export const settle = (
 		debits
 	}
 }
-
-/** price * overlap / width rounded half away from zero; every operand is nonnegative and width positive. */
-export const prorated = (price: bigint, overlap: bigint, of: bigint): bigint =>
-	(2n * price * overlap + of) / (2n * of)

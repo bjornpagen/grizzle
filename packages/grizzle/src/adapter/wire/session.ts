@@ -1,72 +1,7 @@
 /**
  * Sessions over pg, a hot path: every query of every flight is written, and every cell of every row it answers is
  * checked, here, in native loops with no Option or closure per row.
- */
-import { Buffer } from "node:buffer"
-import { isIP } from "node:net"
-import { type ConnectionOptions, checkServerIdentity, connect as tlsConnect } from "node:tls"
-import * as Arr from "effect/Array"
-import * as Cause from "effect/Cause"
-import type * as Context from "effect/Context"
-import * as Data from "effect/Data"
-import * as Deferred from "effect/Deferred"
-import * as Effect from "effect/Effect"
-import * as Exit from "effect/Exit"
-import * as Formatter from "effect/Formatter"
-import * as Predicate from "effect/Predicate"
-import * as Redacted from "effect/Redacted"
-import * as Result from "effect/Result"
-import type * as Scope from "effect/Scope"
-import {
-	defect,
-	flightMaxBytes,
-	messageMaxBytes,
-	nominal,
-	type ReplicationCommand
-} from "#compiler/plan/runtime.ts"
-
-import type { ParsedConnection, ParsedTransport } from "#adapter/connection/config.ts"
-import {
-	type AcquireRefusal,
-	ConnectionClosed,
-	type ConnectRefusal,
-	CredentialError,
-	DriverFailure,
-	DriverRefused,
-	LayerReleased,
-	ConnectionLost,
-	NoCancelKey,
-	ReplicationEnded,
-	type ServerError,
-	SocketFailed,
-	StartupRefused,
-	TlsRefused,
-	UnreadableAnswer
-} from "#adapter/errors/failures.ts"
-import { ownServices } from "#adapter/services.ts"
-import type {
-	PgClient,
-	PgClientConfig,
-	PgDriver,
-	PgPool,
-	PgPoolClient,
-	PgQueryConfig,
-	PgSocket,
-	PgWireMode
-} from "#adapter/types/driver.ts"
-import type { ConnectionPool, PoolBounds } from "#adapter/types/layer.ts"
-import type {
-	BatchOutcome,
-	OneShotStatement,
-	PreparedStatement,
-	Transaction
-} from "#adapter/wire/batch.ts"
-import { type ServerAnswer, serverFailure } from "#adapter/wire/failure.ts"
-import { releasingPool } from "#adapter/wire/releasing-pool.ts"
-import type { EmittedText, Isolation, OutputRows } from "#compiler/plan/common.ts"
-import type { ServedSession } from "#compiler/plan/serve.ts"
-
-/**
+ *
  * Sessions: clients of the caller's node-postgres (DbConnection.driver, types/driver.ts PgDriver) in pipeline mode,
  * pooled by its own Pool, but the live leader's replication connection, which pg's pipeline mode cannot stream
  * (wireModeOf). grizzle imports nothing of pg itself.
@@ -147,10 +82,70 @@ import type { ServedSession } from "#compiler/plan/serve.ts"
  *   once the server has closed every other connection, which it does only once that session's backend has exited, its
  *   temporary relations dropped and the backend out of the database's (makePool), so the database can be dropped at
  *   once. That wait has no deadline: interrupting the release ends it, every connection still open destroyed.
- *
- * The password of a connection: a Redacted, or an Effect evaluated for each connection attempt (passwordOf).
  */
-export type Password = ParsedConnection["password"]
+import { Buffer } from "node:buffer"
+import { isIP } from "node:net"
+import { type ConnectionOptions, checkServerIdentity, connect as tlsConnect } from "node:tls"
+import * as Arr from "effect/Array"
+import * as Cause from "effect/Cause"
+import type * as Context from "effect/Context"
+import * as Data from "effect/Data"
+import * as Deferred from "effect/Deferred"
+import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
+import * as Formatter from "effect/Formatter"
+import * as Predicate from "effect/Predicate"
+import * as Redacted from "effect/Redacted"
+import * as Result from "effect/Result"
+import type * as Scope from "effect/Scope"
+import {
+	defect,
+	flightMaxBytes,
+	messageMaxBytes,
+	nominal,
+	type ReplicationCommand
+} from "#compiler/plan/runtime.ts"
+
+import type { ParsedConnection, ParsedTransport } from "#adapter/connection/config.ts"
+import {
+	type AcquireRefusal,
+	ConnectionClosed,
+	type ConnectRefusal,
+	CredentialError,
+	DriverFailure,
+	DriverRefused,
+	LayerReleased,
+	ConnectionLost,
+	NoCancelKey,
+	ReplicationEnded,
+	type ServerError,
+	SocketFailed,
+	StartupRefused,
+	TlsRefused,
+	UnreadableAnswer
+} from "#adapter/errors/failures.ts"
+import { ownServices } from "#adapter/services.ts"
+import type {
+	PgClient,
+	PgClientConfig,
+	PgDriver,
+	PgPool,
+	PgPoolClient,
+	PgQueryConfig,
+	PgSocket,
+	PgWireMode
+} from "#adapter/types/driver.ts"
+import type { ConnectionPool, PoolBounds } from "#adapter/types/layer.ts"
+import type {
+	BatchOutcome,
+	OneShotStatement,
+	PreparedStatement,
+	Transaction
+} from "#adapter/wire/batch.ts"
+import { type ServerAnswer, serverFailure } from "#adapter/wire/failure.ts"
+import { releasingPool } from "#adapter/wire/releasing-pool.ts"
+import type { EmittedText, Isolation, OutputRows } from "#compiler/plan/common.ts"
+import type { ServedSession } from "#compiler/plan/serve.ts"
 
 /**
  * What a session sends that no program states, each emitted where it was compiled (served/forms.ts ServedSession): a

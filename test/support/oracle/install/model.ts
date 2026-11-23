@@ -175,34 +175,3 @@ export interface InstallPlan {
 	/** The fill of the families' drawn values: none for the minimal installer, which refuses every drawn field. */
 	readonly fill: FamilyFill
 }
-
-export interface PlanOptions {
-	/**
-	 * What to do with a law or derived relation the minimal installer cannot install: refuse the schema or skip it and
-	 * record it in `skipped`.
-	 */
-	readonly unsupported: "refuse" | "skip"
-	/** The schema the vector extension lives in (vector_ext in the template database). */
-	readonly vectorSchema: string
-	/**
-	 * The codes the plan installs the rosters under: a fresh installation's, each handle's code its declared position,
-	 * or an installation's codes, holes included, which must hold every roster the schema declares.
-	 */
-	readonly codes:
-		| { readonly kind: "fresh" }
-		| { readonly kind: "installed"; readonly codes: Codebook }
-	/**
-	 * The existing schema btree_gist is created in, if the database has none yet, when a span key has a scalar
-	 * component: public, which every database has and no install drops, whereas an extension created inside one
-	 * installed schema would vanish, with every other install's GiST keys over it, when that schema is dropped.
-	 */
-	readonly extensionSchema: string
-}
-
-/** A declaration the installer cannot install refused, the template database's extension schemas. */
-export const defaultPlanOptions: PlanOptions = {
-	unsupported: "refuse",
-	vectorSchema: "vector_ext",
-	codes: { kind: "fresh" },
-	extensionSchema: "public"
-}

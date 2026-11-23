@@ -68,10 +68,10 @@ const variableTexts: Arr.NonEmptyReadonlyArray<string> = [
 ]
 
 /** A variable set to one of the texts. */
-export const variableTextGen: Gen<VariableValue> = map(
-	element(variableTexts),
-	(text): VariableValue => ({ kind: "text", text })
-)
+const variableTextGen: Gen<VariableValue> = map(element(variableTexts), (text): VariableValue => ({
+	kind: "text",
+	text
+}))
 
 /** A variable's value: absent, empty, or one of the texts, each with a nonzero weight. */
 export const variableGen: Gen<VariableValue> = weighted<VariableValue>([

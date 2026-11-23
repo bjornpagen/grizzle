@@ -5,8 +5,7 @@
  * (membershipOf's doc comment): an occurrence is rewritten exactly when every key field is read as a variable another
  * occurrence binds, a literal or a parameter, and no payload field is read. A rewritten occurrence of a sparse relation is
  * read from its installed key set, one of a roster is the tautology its domain makes it and reads nothing, and a kept one
- * is read from its facts. That the rewritten query delivers what the VALUES join delivers is
- * test/pg/closed/membership.test.ts's, on PostgreSQL. A roster's occurrence whose source another occurrence reads
+ * is read from its facts. A roster's occurrence whose source another occurrence reads
  * laterally, through a constant, stays in its region, its reader's reference in scope; one read by no other occurrence,
  * or beside a lateral read of another source, is its membership test. A Closed node the simplifier narrows holds the
  * rows its filter keeps, as a set.

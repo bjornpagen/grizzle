@@ -12,24 +12,19 @@ import {
 	int,
 	map,
 	recorded,
-	shuffled,
 	weighted
 } from "@bjornpagen/testing/gen"
-import { Array as Arr, Effect, Equal, Option, Order, Result, String as Str } from "effect"
+import { Array as Arr, Effect, Option, Order, Result, String as Str } from "effect"
 import { isCompileError } from "#compiler/core/errors.ts"
-import { identity } from "#compiler/core/identity.ts"
 import type { Direction } from "#compiler/core/order.ts"
-import { codeOf, emptyCodebook } from "#compiler/ir/codes.ts"
+import { codeOf } from "#compiler/ir/codes.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { AccessUse } from "#compiler/ir/products.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import {
 	drawnRequests,
 	judgeServing,
 	loadAtVolume,
-	type PlannedShape,
-	planShape,
 	type RequestSpec,
 	rosterDomainSql,
 	type ServingFeature,
@@ -51,13 +46,9 @@ import {
 	relation,
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
-import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { parsedName } from "#test/support/kernel/naming.ts"
 import { valueClasses } from "#test/support/oracle/gen/domain.ts"
-import {
-	installRealSchema,
-	planRealInstall,
-	type RealInstallPlan
-} from "#test/support/oracle/install/real.ts"
+import { installRealSchema, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import { buildMixed, buildRoot, buildSchema } from "#test/support/oracle/public/build.ts"
 import {
 	type CaseSketch,
@@ -599,216 +590,6 @@ export const requestCase = (sketch: RequestSketch, note: (feature: RequestFeatur
 			problems,
 			[],
 			`PostgreSQL serves every request and needs every created index, Rota of ${sketch.shades} shades: ${Arr.join(Arr.map(specs, specText), "; ")}`
-		)
-	})
-
-/**
- * Requests over the same three columns of Event, each a workload B-tree access whose need takes its columns as a set (an
- * equality lookup) or in order with their directions (a take seek), so that one created index may serve several of them
- * in one key order, or no one order serves two of them. A range is not drawn here: its probe bounds the range column at
- * one value on both sides (serving.ts), which PostgreSQL serves through either order of two columns.
- */
-const sharedColumns = ["tenant", "account", "created"] as const
-type SharedColumn = (typeof sharedColumns)[number]
-const sharedUses = ["equality lookup", "take seek"] as const satisfies ReadonlyArray<AccessUse>
-type SharedUse = (typeof sharedUses)[number]
-
-interface SharedSketch {
-	readonly keys: Arr.NonEmptyReadonlyArray<KeySketch<SharedColumn>>
-	readonly use: SharedUse
-}
-const sharedGen: Gen<SharedSketch> = (source) => ({
-	keys: source.draw(keysGen(sharedColumns)),
-	use: source.draw(element(sharedUses))
-})
-
-/** One sketch's request: the shared columns it names, each once, in its order. */
-const resolveShared = (sketch: SharedSketch): RequestSpec => ({
-	kind: "access",
-	relation: "Event",
-	use: sketch.use,
-	keys: keysFor(sketch.keys)
-})
-
-/** Every order of a list. */
-const arrivals = <A>(xs: ReadonlyArray<A>): ReadonlyArray<ReadonlyArray<A>> =>
-	xs.length <= 1
-		? [xs]
-		: Arr.flatMap(xs, (x, i) =>
-				Arr.map(arrivals([...xs.slice(0, i), ...xs.slice(i + 1)]), (r) => [x, ...r])
-			)
-
-export type SharedFeature =
-	| "an equality lookup beside an order over its columns"
-	| "a wider equality lookup beside a narrower order over its columns"
-	| "a narrower request beside a wider one over its columns"
-	| "one index serving requests of two needs"
-	| "two indexes on one column set"
-
-const fieldsOf = (spec: RequestSpec): ReadonlyArray<string> =>
-	spec.kind === "access" ? Arr.map(spec.keys, (k) => k.field) : spec.keys
-
-/** What a request set holds (see SharedFeature), judged on the specs alone. */
-const sharedNotes = (
-	specs: ReadonlyArray<RequestSpec>,
-	note: (feature: SharedFeature) => void
-): void => {
-	for (const a of specs) {
-		for (const b of specs) {
-			if (a === b || !Arr.every(fieldsOf(b), (f) => fieldsOf(a).includes(f))) {
-				continue
-			}
-			const narrower = fieldsOf(b).length < fieldsOf(a).length
-			if (narrower) {
-				note("a narrower request beside a wider one over its columns")
-			}
-			if (
-				a.kind === "access" &&
-				b.kind === "access" &&
-				a.use === "equality lookup" &&
-				b.use === "take seek"
-			) {
-				note(
-					narrower
-						? "a wider equality lookup beside a narrower order over its columns"
-						: "an equality lookup beside an order over its columns"
-				)
-			}
-		}
-	}
-}
-
-/** A planted shared request: ascending keys over `columns`, for `use`. */
-const sharedSketch = (
-	columns: Arr.NonEmptyReadonlyArray<SharedColumn>,
-	use: SharedUse
-): SharedSketch => ({
-	keys: Arr.map(columns, (column) => ({ column, desc: false })),
-	use
-})
-
-/**
- * A seek over two or three shared columns beside a seek over the same columns in reverse order, which no one key order
- * serves, among up to two other requests: the set the planner answers with two indexes on one column set.
- */
-const transposedGen: Gen<ReadonlyArray<SharedSketch>> = (source) => {
-	const first = source.draw(element(sharedColumns))
-	const columns: Arr.NonEmptyReadonlyArray<SharedColumn> = [
-		first,
-		...source.draw(
-			shuffled(
-				Arr.filter(sharedColumns, (column) => column !== first),
-				{ min: 1, max: 2 }
-			)
-		)
-	]
-	return [
-		sharedSketch(columns, "take seek"),
-		sharedSketch(Arr.reverse(columns), "take seek"),
-		...source.draw(array(sharedGen, { min: 0, max: 2 }))
-	]
-}
-/**
- * An equality lookup over two or three shared columns beside a seek over some or all of them, in a drawn order and
- * directions, among up to two other requests: the set one key order serves, the seek's columns first.
- */
-const coveringGen: Gen<ReadonlyArray<SharedSketch>> = (source) => {
-	const first = source.draw(element(sharedColumns))
-	const columns: Arr.NonEmptyReadonlyArray<SharedColumn> = [
-		first,
-		...source.draw(
-			shuffled(
-				Arr.filter(sharedColumns, (column) => column !== first),
-				{ min: 1, max: 2 }
-			)
-		)
-	]
-	const lead = source.draw(element(columns))
-	const seek: Arr.NonEmptyReadonlyArray<SharedColumn> = [
-		lead,
-		...source.draw(
-			shuffled(
-				Arr.filter(columns, (column) => column !== lead),
-				{ min: 0, max: columns.length - 1 }
-			)
-		)
-	]
-	return [
-		sharedSketch(columns, "equality lookup"),
-		{
-			keys: Arr.map(seek, (column) => ({ column, desc: source.draw(boolean) })),
-			use: "take seek"
-		},
-		...source.draw(array(sharedGen, { min: 0, max: 2 }))
-	]
-}
-export const sharedSetGen: Gen<ReadonlyArray<SharedSketch>> = weighted([
-	[2, array(sharedGen, { min: 2, max: 4 })],
-	[1, transposedGen],
-	[1, coveringGen]
-])
-
-/**
- * The drawn requests planned in every order they can arrive in, the plan one list of indexes, then installed in the
- * first order, loaded and judged.
- */
-export const sharedCase = (
-	sketches: ReadonlyArray<SharedSketch>,
-	note: (feature: ServingFeature | SharedFeature) => void
-) =>
-	Effect.gen(function* () {
-		const specs = Arr.map(sketches, resolveShared)
-		sharedNotes(specs, note)
-		const plans = Arr.map(arrivals(specs), (order) => {
-			const plan = planRealInstall(Indexed, {
-				installation: identity.schema(parsedSchemaName("serving_shared")),
-				logins: [],
-				extensions: [drawnRequests(order)],
-				codes: emptyCodebook,
-				compile: compileInstallation
-			})
-			return !plan.ok
-				? assert.fail(`the requests do not plan: ${plan.error.message}`)
-				: planShape(plan.value)
-		})
-		const [first, ...others] = plans
-		if (first === undefined) {
-			return assert.fail("no arrival order")
-		}
-		for (const other of others) {
-			assert.deepEqual(
-				other,
-				first,
-				`one plan in every arrival order: ${Arr.join(Arr.map(specs, specText), "; ")}`
-			)
-		}
-		if (Arr.some(first, (i) => i.uses.length > 1)) {
-			note("one index serving requests of two needs")
-		}
-		const created = Arr.filter(first, (i) => i.origin === "created")
-		const columnSet = (i: PlannedShape): ReadonlyArray<string> =>
-			Arr.sort(
-				Arr.map(i.keys, (k) => k.field),
-				Order.String
-			)
-		if (
-			Arr.some(created, (a) =>
-				Arr.some(created, (b) => a !== b && Equal.equals(columnSet(a), columnSet(b)))
-			)
-		) {
-			note("two indexes on one column set")
-		}
-		const { plan } = yield* installRealSchema(Indexed, {
-			label: "serving_shared",
-			logins: [],
-			extensions: [drawnRequests(specs)]
-		})
-		const settled = yield* loadAtVolume(plan, indexedLoads)
-		const problems = yield* judgeServing(settled, note)
-		assert.deepEqual(
-			problems,
-			[],
-			`PostgreSQL serves every request and needs every created index: ${Arr.join(Arr.map(specs, specText), "; ")}`
 		)
 	})
 

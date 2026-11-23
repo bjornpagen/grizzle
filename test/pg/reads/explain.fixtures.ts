@@ -1,42 +1,20 @@
-import { assert, defined, nonEmpty, unorderedEqual } from "@bjornpagen/testing/assert"
-import { aimed, array, boolean, element, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
-import { set } from "@bjornpagen/testing/oracle"
+import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
+import { array, element, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
 import { regex } from "arkregex"
-import { Array as Arr, Effect, Record as Rec, Option } from "effect"
-import { type MemberExplains } from "#adapter/db/handles.ts"
-import {
-	type ExecutedPlan,
-	type Plan,
-	type PlanTarget,
-	type StatementPlan
-} from "#adapter/types/db.ts"
+import { Array as Arr, Effect, Record as Rec } from "effect"
+import { type Plan, type PlanTarget, type StatementPlan } from "#adapter/types/db.ts"
 import { type Prologue } from "#adapter/wire/batch.ts"
-import { type Session, type SessionPool } from "#adapter/wire/session.ts"
 import { planNodes } from "#bench/harness/explain.ts"
-import { queryInput } from "#compiler/program/compile.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { bytes, drawn as drawnField, natural } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { fin, on, ordered, relation, schema } from "#compiler/public/schema.ts"
-import { queryUses } from "#compiler/schema/walk.ts"
+import { on } from "#compiler/public/schema.ts"
 import { defaultPool, poolFor, rowsOn } from "#test/pg/adapter/support.ts"
 import { Item, Seat, Shop, Stock } from "#test/pg/reads/shop.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
-import { exactValue, valueHash } from "#test/support/equivalence.ts"
-import * as W from "#test/support/fixtures/api/work.ts"
-import { a1, a2, t2, t4, tMissing } from "#test/support/fixtures/golden/work.ts"
-import { Id } from "#test/support/ids.ts"
-import { type Installed } from "#test/support/install-migrate.ts"
 import { testIdleTimeout } from "#test/support/limits.ts"
 import { type Credentials } from "#test/support/substrate/session.ts"
-import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { makeTap, type Tap, type WireWindow } from "#test/support/wire-tap.ts"
-
-/**
- * A schema no Db of the suite opens, holding Work's TaskNote: a ChangeSet over it is over no level of any role here.
- */
-export const Elsewhere = schema("Elsewhere", [W.TaskNote], [])
 
 /** The members a node's target holds by its kind, so a target holds exactly its kind's. */
 const targetKeys: { readonly [K in PlanTarget["kind"]]: ReadonlyArray<string> } = {
@@ -75,27 +53,6 @@ const planShape = (plan: Plan, keys: ReadonlyArray<string>, extra: ReadonlyArray
 export const estimateOnly = (plan: Plan): void => {
 	for (const node of planNodes(plan)) {
 		planShape(node, Rec.keys(node), [])
-	}
-}
-
-/** An executed plan: every node a Plan's fields and its actuals and buffers, each a finite number. */
-export const executedShape = (plan: ExecutedPlan): void => {
-	for (const node of planNodes(plan)) {
-		planShape({ ...node, children: [] }, Rec.keys(node), ["actual", "buffers"])
-		assert.deepEqual(
-			Arr.filter(
-				[
-					node.actual.startupMs,
-					node.actual.totalMs,
-					node.actual.rows,
-					node.actual.loops,
-					node.buffers.sharedHit,
-					node.buffers.sharedRead
-				],
-				(n) => !Number.isFinite(n)
-			),
-			[]
-		)
 	}
 }
 
@@ -142,16 +99,6 @@ export const readsWithin = (
 	}
 }
 
-/** The relations a read program names: its query's, through each of its attachments (schema/walk.ts queryUses). */
-export const footprintOf = (program: unknown): ReadonlySet<string> => {
-	const input = queryInput(program)
-	return input.ok ? queryUses(input.value.desc).relations : assert.fail("a read member's query")
-}
-
-/** A read member's explains: a read's two (types/db ReadExplain). */
-export const readExplains = (explains: MemberExplains) =>
-	explains.kind === "read" ? explains : assert.fail("a read member explains as a read")
-
 /**
  * Each plan is of the statement the call sent at its place, under that statement's name, and explain sent an EXPLAIN of
  * exactly that statement's served text.
@@ -192,9 +139,6 @@ export const tappedPool = (credentials: Credentials) =>
 
 /** The EXPLAIN of a served statement's text, as explain sends it: estimates alone, in JSON, naming each relation's schema. */
 export const estimating = (text: string): string => `EXPLAIN (FORMAT JSON, VERBOSE) ${text}`
-
-/** The EXPLAIN ANALYZE of a served statement's text, as explainAnalyze sends it. */
-export const analyzing = (text: string): string => `EXPLAIN (ANALYZE, FORMAT JSON, VERBOSE) ${text}`
 
 /** A statement a window executed: the name it was bound by, and its text. */
 interface Executed {
@@ -250,31 +194,6 @@ export const observe = <A, E, R>(tap: Tap, effect: Effect.Effect<A, E, R>) =>
 		const value = yield* effect
 		return { value, window: tap.since(mark) }
 	})
-
-export type QueryFeature =
-	| "a plain read"
-	| "a union"
-	| "fused attachments"
-	| "nested attachments"
-	| "a relation parameter"
-
-export const queryFeatures: Arr.NonEmptyReadonlyArray<QueryFeature> = [
-	"a plain read",
-	"a union",
-	"fused attachments",
-	"nested attachments",
-	"a relation parameter"
-]
-
-interface QueryCase {
-	readonly read: QueryFeature
-	readonly pick: number
-}
-
-export const queryCaseGen: Gen<QueryCase> = (source) => ({
-	read: source.draw(element(queryFeatures)),
-	pick: source.draw(int(0, 7))
-})
 
 export type ChangeFeature =
 	| "a seat inserted"
@@ -365,41 +284,6 @@ export const changeCaseGen: Gen<ChangeCase> = (source) => {
 }
 
 /**
- * A drawn ChangeSet of note inserts, up to four over three tasks and three texts, over Work or over a schema no role of
- * the Db holds.
- */
-interface RefusalCase {
-	readonly foreign: boolean
-	readonly notes: ReadonlyArray<{ readonly task: number; readonly text: number }>
-}
-
-export const refusalCaseGen: Gen<RefusalCase> = (source) => ({
-	foreign: source.draw(boolean),
-	notes: source.draw(
-		array((note) => ({ task: note.draw(int(0, 2)), text: note.draw(int(0, 2)) }), {
-			min: 1,
-			max: 4
-		})
-	)
-})
-
-export type RefusalFeature = "compile" | "encode" | "explained"
-
-/**
- * What explain makes of a refusal case: a ChangeSet over no level of the Db's role does not compile; one whose notes
- * share a task with different texts is a same-key pair host normalization refuses; any other is explained.
- */
-export const refusalOf = (c: RefusalCase): RefusalFeature =>
-	c.foreign
-		? "compile"
-		: Arr.some(c.notes, (a) => Arr.some(c.notes, (b) => a.task === b.task && a.text !== b.text))
-			? "encode"
-			: "explained"
-
-/** A box, the owner of an ordered family of parts whose bodies are bytes, as pantry's import nests its entries. */
-export const Box = relation("Box", { id: Id, parts: drawnField(natural) }, ["id"])
-const Part = relation("Part", { box: Id, at: drawnField(natural), body: bytes }, ["box", "at"])
-/**
  * A later stratum's members, each a query member over a relation parameter of the call, since a call's facts name one
  * array member per op and relation: the first stratum's.
  */
@@ -439,64 +323,6 @@ export const laterStratum = ChangeSet.empty(Shop)
 	.put(Stock, stockFrom("puts"))
 	.delete(Stock, stockFrom("deletes"))
 
-export const Boxes = schema(
-	"Boxes",
-	[Box, Part],
-	[ordered(on(Part, "box", "at"), fin(Box, "parts"))]
-)
-
-/** A pool whose sessions hold the message bound `limit`, as a server whose bound is below the protocol's does. */
-export const boundPool = (pool: SessionPool, limit: number): SessionPool => ({
-	...pool,
-	lease: Effect.map(pool.lease, (session): Session => ({ ...session, messageMaxBytes: limit }))
-})
-
-/** A part body's length as a share of the session's bound, in thousandths of `boundWhole`. */
-export const boundWhole = 1_000
-
-/**
- * Where a box's bodies stand against the session's bound: a body past it, which neither the application nor explain
- * sends; every body within it and all of them within it together; or every body within it and together past it, so the
- * application cuts the write into several executions, each under the bound.
- */
-export type BoundFeature =
-	| "a body past the bound"
-	| "bodies within the bound together"
-	| "bodies within the bound, together past it"
-
-/** The situation of a box whose bodies are `shares` of the bound (BoundFeature). */
-export const boundFeatureOf = (shares: ReadonlyArray<number>): BoundFeature =>
-	Arr.some(shares, (share) => share > boundWhole)
-		? "a body past the bound"
-		: Arr.reduce(shares, 0, (sum, share) => sum + share) > boundWhole
-			? "bodies within the bound, together past it"
-			: "bodies within the bound together"
-
-/** A box's parts, each body's length a share of the session's bound: within it, or past it by up to the bound again. */
-interface BoundCase {
-	readonly shares: Arr.NonEmptyReadonlyArray<number>
-}
-
-const boundCaseGen: Gen<BoundCase> = (source) => ({
-	shares: nonEmpty(
-		source.draw(array(int(1, 2 * boundWhole), { min: 1, max: 4 })),
-		"a box holds a part"
-	)
-})
-
-/** Two to four bodies each past half the bound and within it, so they are within it alone and past it together. */
-const togetherPastGen: Gen<BoundCase> = (source) => ({
-	shares: nonEmpty(
-		source.draw(array(int(boundWhole / 2 + 1, boundWhole), { min: 2, max: 4 })),
-		"a box holds a part"
-	)
-})
-
-/** The shares a case whose turn aims at bodies together past the bound draws (aimed): togetherPastGen's. */
-const boundAims: ReadonlyArray<readonly [BoundFeature, Gen<BoundCase>]> = [
-	["bodies within the bound, together past it", togetherPastGen]
-]
-
 /**
  * The Shop fixture with the later stratum's member in its workload, installed once per member as a read fixture
  * (reads/support.ts fixtureTemplate), where its search installed it before its cases.
@@ -504,79 +330,3 @@ const boundAims: ReadonlyArray<readonly [BoundFeature, Gen<BoundCase>]> = [
 export const explainShopInstall = { label: "real", programs: { later: laterStratum } } as const
 
 export const explainShopTemplate = fixtureTemplate(import.meta, Shop, explainShopInstall)
-
-/** The Boxes fixture, installed once per member as a read fixture, where its search installed it before its cases. */
-export const explainBoxesInstall = { label: "boxes", programs: {} } as const
-
-export const explainBoxesTemplate = fixtureTemplate(import.meta, Boxes, explainBoxesInstall)
-
-/** Bodies drawn as shares of the bound, each feature aimed at by the shares that reach it (aimed). */
-export const boundCases = aimed(boundCaseGen, boundAims)
-
-/** The Work read members a query case explains, each with the parameters its pick gives. */
-export const workReads = {
-	"a plain read": { member: "plainRead", params: (_pick: number) => ({}) },
-	"a union": { member: "union", params: (_pick: number) => ({}) },
-	"fused attachments": {
-		member: "fused",
-		params: (pick: number) => ({ account: pick % 2 === 0 ? a1 : a2 })
-	},
-	"nested attachments": {
-		member: "nested",
-		params: (pick: number) => ({ account: pick % 2 === 0 ? a1 : a2 })
-	},
-	"a relation parameter": {
-		member: "relationParameter",
-		params: (pick: number) => ({
-			ids: Arr.map([t2, t4, tMissing].slice(0, pick % 4), (id) => ({ id }))
-		})
-	}
-} as const
-
-/** An account's tasks, each with its note: the nested read of the query cases. */
-const accountTasks = query(W.Work)
-	.rule((r) => {
-		const { id, name } = v(W.Account, "account")
-		return r
-			.match(W.Account, { id, name })
-			.where(r.eq(id, r.param("account", Id)))
-			.find({ id, name })
-	})
-	.attach(
-		"tasks",
-		(a) =>
-			query(W.Work)
-				.rule((r) => {
-					const { id, kind } = v(W.Task, "task")
-					return r.match(W.Task, { id, account: a.id, kind }).find({ id, kind })
-				})
-				.attach(
-					"note",
-					(t) =>
-						query(W.Work).rule((r) => {
-							const { note } = v(W.TaskNote, "taskNote")
-							return r.match(W.TaskNote, { task: t.id, note }).find({ note })
-						}),
-					"option"
-				),
-		"array"
-	)
-
-/** The read programs the query cases serve, by member name. */
-export const workPrograms = {
-	plainRead: W.automaticBudget,
-	union: W.taskPayloads,
-	fused: W.taskCards,
-	nested: accountTasks,
-	relationParameter: W.tasksById
-} as const
-
-/** `effect` run over `installed`, Work's notes table left as it was before it. */
-export const notesUnchanged = <A, E, R>(installed: Installed, effect: Effect.Effect<A, E, R>) =>
-	Effect.gen(function* () {
-		const before = yield* tableState(installed, W.TaskNote)
-		const result = yield* effect
-		const after = yield* tableState(installed, W.TaskNote)
-		assert.deepEqual(set(valueHash, exactValue)(after, before), Option.none())
-		return result
-	})

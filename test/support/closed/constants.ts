@@ -63,19 +63,6 @@ export const liveConstantOf = (
 			oneConstant(rows, "bit varying", `the live-codes constant the CHECK of ${domain.name} reads`)
 	)
 
-/**
- * The names constant a view's decoded column calls, by pg_depend of the view's rule: the one function returning name[]
- * it depends on.
- */
-export const namesConstantOf = (session: RawSession, view: string) =>
-	Effect.map(
-		session.values(
-			`SELECT DISTINCT ${procFacts} FROM pg_catalog.pg_rewrite AS r JOIN pg_catalog.pg_depend AS d ON d.classid = 'pg_catalog.pg_rewrite'::regclass AND d.objid = r.oid AND d.refclassid = 'pg_catalog.pg_proc'::regclass JOIN pg_catalog.pg_proc AS p ON p.oid = d.refobjid JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace WHERE r.ev_class = $1::text::regclass AND p.prorettype = 'pg_catalog.name[]'::regtype`,
-			[view]
-		),
-		(rows) => oneConstant(rows, "name[]", `the names constant the view ${view} reads`)
-	)
-
 /** A live-codes constant's bits as their text, and the model's: a set of the live codes at a set's width (setText). */
 export const liveHeld = (session: RawSession, call: string) =>
 	Effect.map(session.values(`SELECT ${call}::text`, []), (rows) => String(defined(rows[0])[0]))

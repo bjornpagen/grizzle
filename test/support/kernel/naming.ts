@@ -43,7 +43,7 @@ import {
 	type StatementDesc
 } from "#compiler/ir/desc.ts"
 
-import { type Codebook, codeOf, emptyCodebook, firstCodebook } from "#compiler/ir/codes.ts"
+import { type Codebook, codeOf, firstCodebook } from "#compiler/ir/codes.ts"
 import { type NativeColumn, type NativeObject, type NativeOf } from "#compiler/ir/law.ts"
 import { installedSpellings } from "#compiler/ir/pattern.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
@@ -248,24 +248,6 @@ export const productionNames = (
 	}
 	return names
 }
-
-/**
- * The identifier of the domain of a contract productionNames knows without an installation (knownContracts: natural's,
- * which every schema holds, and the tests' Id's) in the schema `at` names, by its definition's digest, CHECK and all, as
- * the installation names it; none for any other contract, whose definition only an installation holds.
- */
-export const knownContractDomain = (
-	declaredSchema: string,
-	at: InstalledAt,
-	contract: string
-): Option.Option<string> =>
-	knownContracts.has(contract)
-		? Option.some(
-				productionNames(declaredSchema, at, localVectorSchema, emptyCodebook).contractDomain(
-					parsedName(contract)
-				).name
-			)
-		: Option.none()
 
 /**
  * A schema holding the contracts productionNames knows: natural, which every schema holds, and the tests' Id, which its

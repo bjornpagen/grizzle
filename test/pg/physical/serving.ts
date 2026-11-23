@@ -5,7 +5,6 @@ import {
 	Duration,
 	Effect,
 	Option,
-	Order,
 	Record as Rec,
 	Result,
 	Schedule
@@ -161,7 +160,7 @@ type KeyValues = { readonly kind: "closed"; readonly count: number } | { readonl
  * What the judgment reads of a planned index: its access method, its keys and what it searches each by, whether it is
  * unique, its pages, and its entries, a row each.
  */
-export interface IndexFacts {
+interface IndexFacts {
 	readonly method: PlannedIndex["method"]
 	readonly keys: ReadonlyArray<SearchedKey>
 	readonly unique: boolean
@@ -348,29 +347,6 @@ export const drawnRequests = (specs: ReadonlyArray<RequestSpec>): InstallExtensi
 	live: noLive,
 	fences: noFences
 })
-
-/**
- * What a plan states of one index, as two plans of one request set compare: its name, whether the engine created it or
- * another object installs it (a key's or an enforcement index), its access method, its keys in index order with their
- * directions, and the uses of the requests it serves, each once, sorted.
- */
-export interface PlannedShape {
-	readonly index: string
-	readonly origin: PlannedIndex["index"]["kind"]
-	readonly method: string
-	readonly keys: ReadonlyArray<{ readonly field: string; readonly dir: Direction }>
-	readonly uses: ReadonlyArray<string>
-}
-
-/** The plan's indexes, in plan order (see PlannedShape). */
-export const planShape = (installed: Judged): ReadonlyArray<PlannedShape> =>
-	Arr.map(installed.installation.indexes, (i) => ({
-		index: i.index.name,
-		origin: i.index.kind,
-		method: i.method,
-		keys: Arr.map(i.keys, (k) => ({ field: keyText(k), dir: k.dir })),
-		uses: Arr.sort(Arr.dedupe(Arr.map(i.requests, (r) => r.use)), Order.String)
-	}))
 
 /** A roster's domain, qualified and quoted, as a cast to a closed id's code names it. */
 export const rosterDomainSql = (installed: Judged, roster: string): string =>
@@ -564,23 +540,6 @@ const indexFacts = (
 		return facts
 	})
 
-/** Every index the installation planned, by name, with its facts (IndexFacts), each relation's table read once. */
-export const plannedFacts = (
-	installed: Judged
-): Effect.Effect<ReadonlyMap<string, IndexFacts>, SqlError, Substrate> =>
-	Effect.gen(function* () {
-		const indexes = installed.installation.indexes
-		const tables = new Map<string, Table>()
-		for (const r of new Set(Arr.map(indexes, (i) => i.relation))) {
-			const table = yield* tableOf(installed, r)
-			tables.set(r, table)
-		}
-		return yield* indexFacts(installed, indexes, (relation) => {
-			const t = tables.get(relation)
-			return t ?? assert.fail(`no table read for ${relation}`)
-		})
-	})
-
 /**
  * The rows the series of a load makes for each relation: enough that an index of a 16-byte key spans some 70 leaf
  * pages, so a lookup and a sweep of it differ by far more than the bound's slack.
@@ -756,29 +715,6 @@ const fillRows = (
 		if (Arr.isReadonlyArrayNonEmpty(fills)) {
 			yield* volumeFill(admin, fills)
 		}
-	})
-
-/**
- * Fills every relation (fillRows), then VACUUMs each table with FREEZE and ANALYZE, so its statistics and visibility
- * map are a settled table's: every page all-visible. A freezing VACUUM is aggressive, and freezes every row, so it waits
- * for each page's cleanup lock (vacuumlazy.c lazy_scan_noprune), where a plain one leaves a page another backend holds
- * pinned at that moment unpruned and not all-visible: one such page of 89, held by a cursor, left relallvisible at 88.
- * The planner charges a one-row index-only scan a heap page unless every page is all-visible (costsize.c cost_index,
- * ceil of the pages times 1 - allvisfrac), and then an index that leaves the heap a column to filter costs what the
- * request's own index-only scan does.
- */
-export const loadRows = (
-	installed: Judged,
-	loads: ReadonlyArray<VolumeLoad>,
-	rows: number
-): Effect.Effect<void, SqlError | VolumeFillRefused, Substrate> =>
-	Effect.gen(function* () {
-		const { admin } = yield* Substrate
-		yield* fillRows(installed, loads, rows)
-		yield* vacuumed(
-			admin,
-			Arr.map(loads, (l) => tableSql(installed, l.relation))
-		)
 	})
 
 /** A condition a probe states on a key: the field, the operator it applies, and the value's literal. */
@@ -1048,11 +984,10 @@ interface ScanReads {
 }
 
 /** The buffers a node touched, shared hit and read, PostgreSQL's own count, the nodes under it included. */
-export const touchedBy = (node: PlanNode): number =>
-	node.buffers.sharedHit + node.buffers.sharedRead
+const touchedBy = (node: PlanNode): number => node.buffers.sharedHit + node.buffers.sharedRead
 
 /** What a scan of an index of `scanned`'s facts read (ScanReads). */
-export const scanReads = (scan: PlanNode, scanned: IndexFacts): ScanReads => {
+const scanReads = (scan: PlanNode, scanned: IndexFacts): ScanReads => {
 	const loops = Math.max(1, scan.actualLoops)
 	const descents = descentsOf(scan)
 	const entries = (scan.actualRows + scan.rowsRemovedByFilter) * scan.actualLoops
@@ -1086,7 +1021,7 @@ const steppedThrough = (scanned: IndexFacts, stepped: ReadonlyArray<SearchedKey>
  * after a first key it fixes by equality (physical/indexes/engine.ts, a lookup's B-tree led by a column it fixes), one
  * otherwise; through an index PostgreSQL chose by its cost, its skip scan over every key before the last one the probe
  * conditions that the probe does not fix by equality, unbound or bounded by a range, PostgreSQL stepping through each
- * value the key holds within its bounds; one for a statement whose conditions the judgment does not state.
+ * value the key holds within its bounds.
  */
 const descentsUnder = (claim: Claim, scanned: IndexFacts): number => {
 	const before = (conditions: ReadonlyArray<KeyCondition>): ReadonlyArray<SearchedKey> => {
@@ -1114,8 +1049,6 @@ const descentsUnder = (claim: Claim, scanned: IndexFacts): number => {
 				scanned,
 				Arr.filter(before(claim.conditions), (k) => !fixes(claim.conditions, k))
 			)
-		case "unstated":
-			return 1
 	}
 }
 
@@ -1145,18 +1078,13 @@ const overBound = (scan: PlanNode, index: string, scanned: IndexFacts): Option.O
 
 /**
  * What the judgment holds a scan of a planned index to (see judgeServing): the engine's claim, over the conditions a
- * probe states on its keys (`stated`), or over a statement whose conditions the judgment states none of, a world
- * function's body (world-serving.ts, `unstated`); or, for an index PostgreSQL chose by its cost over the one the engine
- * planned, only what it read (`read`), over the conditions a probe states, none for a world function's statement. Each
- * bounds the scan's descents its own way (descentsUnder).
+ * probe states on its keys (`stated`); or, for an index PostgreSQL chose by its cost over the one the engine planned,
+ * only what it read (`read`), over the conditions a probe states. Each bounds the scan's descents its own way
+ * (descentsUnder).
  */
 type Claim =
 	| { readonly kind: "stated"; readonly conditions: ReadonlyArray<KeyCondition> }
-	| { readonly kind: "unstated" }
 	| { readonly kind: "read"; readonly conditions: ReadonlyArray<KeyCondition> }
-
-/** What bounds a scan's read: its own buffers (`scan`), or, when functions it calls read under it, the statement's. */
-type BoundedBy = "scan" | "statement"
 
 /**
  * The closed keys of a GiST index before its first key of many values that `conditions` leave unbound: its scan descends
@@ -1199,8 +1127,6 @@ const claimProblem = (
 	switch (claim.kind) {
 		case "read":
 			return Option.none()
-		case "unstated":
-			return removed()
 		case "stated": {
 			const unsearched = Arr.filter(
 				claim.conditions,
@@ -1232,19 +1158,17 @@ const claimProblem = (
 /**
  * The verdict on one scan of a stored relation (see judgeServing), `planned` the indexes the installation planned, by
  * name, `facts` every planned index's facts, `fixes` whether its statement fixes a column, so the scan needs an index
- * condition, `claimOf` what the scan of the index PostgreSQL chose is held to (Claim), which bounds its descents a loop
- * (descentsUnder), and `bounded` what bounds its read: a scan of a planned index, held to its claim, within its descents
- * per loop and, bounded by its own buffers, within the bound of its result; swept when it reads past them; or not
- * served, and why. Both judges read every scan through it: this file's probe of a request (verdictOf), and
- * world-serving.ts's every scan of a world function's statement.
+ * condition, and `claimOf` what the scan of the index PostgreSQL chose is held to (Claim), which bounds its descents a
+ * loop (descentsUnder): a scan of a planned index, held to its claim, within its descents per loop and, by its own
+ * buffers, within the bound of its result; swept when it reads past them; or not served, and why. A probe of a request
+ * reads its scan through it (verdictOf).
  */
-export const judgeScan = (
+const judgeScan = (
 	scan: PlanNode,
 	planned: ReadonlyMap<string, PlannedIndex>,
 	facts: ReadonlyMap<string, IndexFacts>,
 	fixes: boolean,
-	claimOf: (index: PlannedIndex) => Claim,
-	bounded: BoundedBy
+	claimOf: (index: PlannedIndex) => Claim
 ): Verdict => {
 	const read = plannedScan(scan, planned, fixes)
 	if (Result.isFailure(read)) {
@@ -1259,7 +1183,7 @@ export const judgeScan = (
 		return { kind: "unserved", why: problem.value }
 	}
 	const swept = Option.orElse(extraDescents(scan, index, descentsUnder(claim, scanned)), () =>
-		bounded === "scan" ? overBound(scan, index, scanned) : Option.none()
+		overBound(scan, index, scanned)
 	)
 	const touched = scanReads(scan, scanned).touched
 	return Option.isSome(swept)
@@ -1302,8 +1226,7 @@ const verdictOf = (
 		(index): Claim =>
 			claimed(index.index.name)
 				? { kind: "stated", conditions: probe.conditions }
-				: { kind: "read", conditions: probe.conditions },
-		"scan"
+				: { kind: "read", conditions: probe.conditions }
 	)
 	return verdict.kind !== "unserved" &&
 		orderedShape[probe.shape] &&
@@ -1355,7 +1278,7 @@ const planned = (probes: ReadonlyArray<Probe>, before: ReadonlyArray<string>) =>
  * constraint that owns it, so a statement run after them in a transaction rolled back reads the relation through `host`
  * alone.
  */
-export const withoutOthers = (
+const withoutOthers = (
 	installed: Judged,
 	host: PlannedIndex
 ): Effect.Effect<ReadonlyArray<string>, SqlError, Substrate> =>

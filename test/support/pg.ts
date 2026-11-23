@@ -818,7 +818,7 @@ export const clusterPool: PoolBounds = {
  * budget's permits while it lives (substrate/budget.ts ConnectionBudget transport): a DbLayer's pool stays lazy, and each
  * session it opens draws as it opens.
  */
-export const clusterTransport = (cluster: BudgetedCluster): Transport =>
+const clusterTransport = (cluster: BudgetedCluster): Transport =>
 	cluster.budget.transport({
 		kind: "sslRequest",
 		host: pgPin.host,

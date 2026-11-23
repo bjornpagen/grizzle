@@ -570,49 +570,6 @@ const invoiceRefunds = counted("Refund", ["invoice"], "Invoice", ["id"], "refund
 	end: "refunded"
 })
 
-const platformFamilies: ReadonlyArray<Counted> = [
-	eventCharges,
-	chargeDebits,
-	grantDebits,
-	limitCharges,
-	invoiceLines,
-	lineAllocations,
-	invoiceRefunds
-]
-
-/**
- * A state's facts with the fields grizzle draws and accumulates for each owner, as the host counts and sums them over
- * the owner's members: its count, how many facts its family holds, and its sum fold's end, the sum of their step
- * values, an empty family's zero. A read reads an owner's whole row, so a reference over the host's facts states them
- * too, and wherever a read delivers one the host's count or sum is a second implementation of grizzle's.
- */
-export const withDrawn = (s: State): ReadonlyMap<RelationName, ReadonlyArray<PlatformRow>> =>
-	new Map(
-		Arr.map(loadOrder, (relation): readonly [RelationName, ReadonlyArray<PlatformRow>] => {
-			const tallies = Arr.map(
-				Arr.filter(platformFamilies, (f) => f.owner === relation),
-				(f) => {
-					const counts = new TupleMap<ValueIdentity, bigint>()
-					for (const m of rowsIn(s, f.member)) {
-						const k = keyAtoms(m, f.group)
-						counts.set(k, (counts.get(k) ?? 0n) + 1n)
-					}
-					return { f, counts, sums: sumsOf(s, f, f.sum.step) }
-				}
-			)
-			return [
-				relation,
-				Arr.map(rowsIn(s, relation), (row) =>
-					Arr.reduce(tallies, row, (out: PlatformRow, { f, counts, sums }): PlatformRow => ({
-						...out,
-						[f.count]: counts.get(keyAtoms(row, f.key)) ?? 0n,
-						[f.sum.end]: sumAt(sums, f, row)
-					}))
-				)
-			]
-		})
-	)
-
 /** Every law the platform declares, in the order the fixture states them. */
 export const platformLaws: ReadonlyArray<HostLaw> = [
 	...Arr.map(loadOrder, (relation) => primaryKeyLaw(relation)),

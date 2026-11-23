@@ -255,22 +255,29 @@ const closedSearchPathConfig = "search_path=pg_catalog, pg_temp"
 
 /**
  * Each function an installation's constant objects create, as the kind the installer recorded it (`recordedKinds`): a
- * closed relation's constant (`closedClassifier`), a roster's names constant or live-codes constant, read by the
- * domain whose CHECK calls it (`domainOf`), or a row function or a library function of the shape its CREATE states,
- * with the tables whose CHECKs and generated columns call it. `rosters` says whether a roster's constants are listed,
- * which a description-built expectation (catalog/declared.ts) states otherwise. A constant the installer recorded no
- * kind of is grizzle's defect.
+ * closed relation's constant (`closedClassifier`), a roster's names constant, or its live-codes constant with the
+ * domains among the installation's whose CHECK calls it, or a row function or a library function of the shape its
+ * CREATE states, with the tables whose CHECKs and generated columns call it. The installation holds each constant's
+ * body, which its snapshot records by its header alone. A constant the installer recorded no kind of is grizzle's
+ * defect.
  */
-const installedConstants = (
-	installation: Installation,
-	rosters: (
-		name: string,
-		kind: "rosterConstant" | "rosterLive"
-	) => ReadonlyArray<readonly [string, InstalledFunction]>
+const constantsOf = (
+	installation: Installation
 ): ReadonlyArray<readonly [string, InstalledFunction]> => {
 	const kinds = recordedKinds(installation)
 	const closed = closedClassifier(installation)
 	const callers = tableCallers(installation.manifest)
+	const domains = Arr.flatMap(installation.manifest.objects, (o) =>
+		o.kind === "domain"
+			? Arr.flatMap(o.ddl, (s): ReadonlyArray<CreateDomain> =>
+					s.kind === "createDomain" ? [s] : []
+				)
+			: []
+	)
+	const checking = (fn: string): ReadonlyArray<string> =>
+		Arr.flatMap(domains, (d) =>
+			Arr.some(d.constraints, (c) => Arr.contains(callsOf(c.predicate), fn)) ? [d.name.name] : []
+		)
 	const kindOf = (name: string): ConstantKind =>
 		Option.getOrThrowWith(
 			Option.fromUndefinedOr(kinds.get(name)),
@@ -292,8 +299,9 @@ const installedConstants = (
 						case "closedConstant":
 							return [[name, closed(name)]]
 						case "rosterConstant":
+							return [[name, { kind: "names" }]]
 						case "rosterLive":
-							return rosters(name, kind)
+							return [[name, { kind: "live", domains: checking(name) }]]
 						case "rowFunction":
 						case "libraryFunction":
 							return [
@@ -310,67 +318,6 @@ const installedConstants = (
 				})
 			: []
 	)
-}
-
-/** Every closed constant, row function and library function an installation's manifest creates, as the installer
- * recorded it (`installedConstants`): what a description-built expectation (catalog/declared.ts), which names no
- * constant, holds of them; a roster's constants it states itself. */
-export const closedConstantsOf = (
-	installation: Installation
-): ReadonlyArray<readonly [string, InstalledFunction]> => installedConstants(installation, () => [])
-
-/** The law functions an installation's manifest creates, each a rule's capture on a table its rules read, which a
- * containment judged whole installs as a rule over a query does (laws/model/plan.ts containmentDischarge). */
-export const lawFunctionsOf = (
-	installation: Installation
-): ReadonlyArray<readonly [string, InstalledFunction]> =>
-	Arr.flatMap(installation.manifest.objects, (o) =>
-		o.kind === "lawFunction"
-			? Arr.flatMap(o.ddl, (s) =>
-					Arr.map(Option.toArray(functionOf(s)), (name) => [name, { kind: "rule" }] as const)
-				)
-			: []
-	)
-
-/** The law triggers an installation's manifest creates: each rule's constraint trigger and each capture on a table
- * its rules read, as a containment judged whole installs them as a rule over a query does. */
-export const lawTriggersOf = (
-	installation: Installation
-): ReadonlyArray<readonly [string, InstalledTrigger]> =>
-	Arr.flatMap(installation.manifest.objects, (o) =>
-		o.kind === "lawTrigger"
-			? Arr.flatMap(o.ddl, (s): ReadonlyArray<readonly [string, InstalledTrigger]> => [
-					...Arr.map(Option.toArray(ruleTriggerOf(s)), (name) => [name, "rule"] as const),
-					...Arr.map(Option.toArray(captureTriggerOf(s)), (name) => [name, "capture"] as const)
-				])
-			: []
-	)
-
-/**
- * The constants the installation's constant objects create, each as the installer recorded it (`installedConstants`):
- * a names constant and a live-codes constant each with the domain whose CHECK calls it among the installation's
- * domains. The installation holds each constant's body, which its snapshot records by its header alone.
- */
-const constantsOf = (
-	installation: Installation
-): ReadonlyArray<readonly [string, InstalledFunction]> => {
-	const domains = Arr.flatMap(installation.manifest.objects, (o) =>
-		o.kind === "domain"
-			? Arr.flatMap(o.ddl, (s): ReadonlyArray<CreateDomain> =>
-					s.kind === "createDomain" ? [s] : []
-				)
-			: []
-	)
-	const checking = (fn: string): ReadonlyArray<string> =>
-		Arr.flatMap(domains, (d) =>
-			Arr.some(d.constraints, (c) => Arr.contains(callsOf(c.predicate), fn)) ? [d.name.name] : []
-		)
-	return installedConstants(installation, (name, kind) => [
-		[
-			name,
-			kind === "rosterConstant" ? { kind: "names" } : { kind: "live", domains: checking(name) }
-		]
-	])
 }
 
 /**
@@ -776,7 +723,7 @@ const vectorSchemaOf = (catalog: Catalog, type: NamedType): Option.Option<string
  * pg_catalog and the session's temporary schema alone, a list PostgreSQL stores with its schemas bare. Nothing else:
  * jit and lc_messages are the database owner's.
  */
-export const fixedDefaults: ReadonlyArray<string> = [
+const fixedDefaults: ReadonlyArray<string> = [
 	"DateStyle=ISO, YMD",
 	"bytea_output=hex",
 	"extra_float_digits=1",
@@ -787,7 +734,7 @@ export const fixedDefaults: ReadonlyArray<string> = [
 ]
 
 /** The search setting grizzle pins, strict-order iterative scans, stored the same way. */
-export const searchDefaults: ReadonlyArray<string> = Arr.map(
+const searchDefaults: ReadonlyArray<string> = Arr.map(
 	searchPolicySettings,
 	(s) => `${s.parameter}=${s.value}`
 )

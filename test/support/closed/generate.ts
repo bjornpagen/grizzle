@@ -42,8 +42,6 @@ import { type DeclaredName, nameFaultText, parseDeclaredName } from "#compiler/c
 import type { CodeSlot, RosterCodes } from "#compiler/ir/cells.ts"
 import { type Codebook, rosterCodec, type RosterCodec } from "#compiler/ir/codes.ts"
 import { noSpellings } from "#compiler/ir/pattern.ts"
-import { Roster } from "#compiler/ir/scalar.ts"
-import { upTo } from "#test/support/up-to.ts"
 
 /** How a handle is spelled: a plain word, or a spelling an array literal, an identifier or a byte bound must keep. */
 const SPELLINGS = ["plain", "awkward"] as const
@@ -170,10 +168,6 @@ export const codesOf = (state: RosterState): RosterCodes =>
 	Arr.map(state.slots, (slot): CodeSlot =>
 		slot.kind === "live" ? { kind: "live", handle: slot.handle } : { kind: "hole" }
 	)
-
-/** The roster as a closed id's type holds it: its name and its live handles in code order. */
-export const rosterOf = (state: RosterState): Roster =>
-	Roster.of(state.closed, "ordered", liveOf(state))
 
 /** The codec of the model's codes, built by the engine's constructor, which only packages them. */
 export const codecFor = (state: RosterState): RosterCodec =>
@@ -506,48 +500,6 @@ export const patternGen =
 		return { closed, slots, spellings: { plain: 3 } }
 	}
 
-/** The pattern's history: install every code's name in code order, then remove each hole's, in code order. */
-export const patternHistory = (state: RosterState): RosterHistory => {
-	const named = Arr.map(state.slots, (slot) => (slot.kind === "live" ? slot.handle : slot.was))
-	if (!Arr.isReadonlyArrayNonEmpty(named)) {
-		throw new Error("a hole pattern has one code at least")
-	}
-	const installed: RosterState = {
-		...state,
-		slots: Arr.map(named, (handle): ModelSlot => ({ kind: "live", handle }))
-	}
-	const steps: Program<RosterParameters> = Arr.flatMap(state.slots, (slot) =>
-		slot.kind === "hole" ? [{ command: "remove", parameters: { handle: slot.was } } as const] : []
-	)
-	const states = replay(installed, steps)
-	return {
-		installed,
-		program: steps,
-		declarations: declarationsOf(installed, steps, states),
-		state: Arr.lastNonEmpty(states)
-	}
-}
-
-/** The alias the bar names: 400, as a mixed-radix digit read past its radix. */
-export const ALIAS_CODE = 400
-
-/**
- * What the roster's domain answers each code from −1 to `size`, then 400: the model "accepted exactly when live", the
- * handle it names when live. The small scope a direct writer's suite exhausts.
- */
-export const everyCode = (
-	state: RosterState
-): ReadonlyArray<{ readonly code: number; readonly live: string | undefined }> => [
-	...Arr.map(
-		upTo(sizeOf(state) + 2, (i) => i - 1),
-		(code) => {
-			const slot = state.slots[code]
-			return { code, live: slot?.kind === "live" ? slot.handle : undefined }
-		}
-	),
-	...(sizeOf(state) <= ALIAS_CODE ? [{ code: ALIAS_CODE, live: undefined }] : [])
-]
-
 /** Some of the roster's live handles, in code order: a bits value, the empty set included. */
 export const liveSubsetGen = (state: RosterState): Gen<ReadonlyArray<string>> => {
 	const live = liveOf(state)
@@ -566,7 +518,7 @@ export type RosterFeature =
 	| "literal shifted"
 
 /** How many holes `state` has, in three buckets. */
-export const holeFeature = (state: RosterState): RosterFeature => {
+const holeFeature = (state: RosterState): RosterFeature => {
 	const holes = holesOf(state).length
 	return holes === 0 ? "holes 0" : holes === 1 ? "holes 1" : "holes 2+"
 }

@@ -678,9 +678,9 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
 - **COMPUTE-03:** the compute, changeset and query agreements still pair the engine's prose by prefix, and the checker's
   binding sites still state prose ("a column the selected arms lack", "constants no arm delivers"); the agreements by
   roster.
-- **CLAIMS-03, the read-once face:** parked at ~/.cache/grizzle-release/CLAIMS/parked-CLAIMS-03.patch. Fifteen other
+- **CLAIMS-03, the read-once face:** parked at ~/.cache/grizzle-release/CLAIMS/parked-CLAIMS-03.patch. Fourteen other
   Cause.pretty renderers print a bare error name with no data: test/unit/adapter/layer.test.ts (three),
-  test/unit/adapter/flight-bound.test.ts, test/pg/oracle/public/run.ts (three), test/pg/reads/boundary.test.ts,
+  test/unit/adapter/flight-bound.test.ts, test/pg/oracle/public/run.ts (three),
   test/pg/substrate/stopped.test.ts, test/pg/migrate/support.ts, bench/harness/runner.ts (four) and
   packages/grizzle/src/cli/run.ts's internal error.
 - **REDTESTS-04, grizzleActor through the approved recordingDriver:** grizzleActor learns a Db session's backend from a

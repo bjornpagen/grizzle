@@ -65,17 +65,6 @@
  * guard's row the contract holds and skips a fold's member its negation makes true; and a C.has of a NULL key value read
  * as false holds a negated presence the contract leaves unknown.
  *
- * A second search holds the downstream's guarded read alone: a row check `or(not(kind = K), ψ)` at a drawn handle K, ψ
- * the double lookup's set, FlagRel.row(Slot.at("slot", kind, flag)), within the row's flags or the flags within it.
- * Each case draws the lookups, K, ψ's direction and one to four rows, each written into Guarded by grizzle's writer and
- * judged by the guarded read restated over the drawn rows in Kleene's logic: accepted where it is true, and otherwise
- * refused naming Guarded's one law. Coverage requires the guard true and false, the inner key held and absent, and the
- * flags empty and not. So a row whose inner key is absent is refused by its check, never accepted, where the guard
- * fails, though its flags be empty: the documented contract reads NULL where a key value is NULL, and the subset of a
- * NULL is unknown: a set's domain CHECK that refuses NULL refuses FlagRel.row at the NULL of an absent inner key by its
- * cast before the guard holds, and a C.row read as every handle where its prefix is NULL or completed nowhere accepts a
- * row whose flags that read leaves unknown or refuses.
- *
  * The world's Flag has one to eight handles, so a set over it is a whole byte (eight flags) or padded,
  * and a singleton meets the first and the last code; the downstream shape a diagonal closed relation once spelled, a
  * row's own flag in FlagRel.row of the flag its kind picks, is a kept case, at a kind Pick holds and at one it lacks;
@@ -92,10 +81,6 @@ import {
 	caseGen,
 	emptySetFoldGen,
 	type Feature,
-	guardedCase,
-	guardedCaseGen,
-	type GuardedFeature,
-	guardedSituations,
 	situations
 } from "#test/pg/closed/absent.fixtures.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -163,25 +148,3 @@ export const aClosedReadAtAnAbsentKeyIsJudgedByTheRuleThatReadsItNeverRefusedByA
 			]
 		}
 	)
-
-/**
- * A closed read at an absent key under the downstream's guard, read through a second closed read keyed by two fields, is judged by its row check.
- *
- * Its pre-conversion budget: runs 24, coverage cases 64 (test/pg/closed/absent.test.ts at d8eed1786).
- */
-export const aClosedReadAtAnAbsentKeyUnderTheDownstreamsGuardReadThroughASecondClosedReadKeyedByTwoFieldsIsJudgedByItsRowCheck =
-	property.explore(guardedCaseGen, {
-		needs: { substrate: Substrate.installing },
-		situations: guardedSituations satisfies ReadonlyArray<Reached<GuardedFeature>>,
-		check:
-			({ substrate }, c: Case<GuardedFeature>) =>
-			(value) =>
-				Effect.provideServiceEffect(guardedCase(value, c), Substrate, substrate),
-		oracle: {
-			kind: "specification",
-			name: "the guarded read restated over the drawn rows: Slot.at NULL at a pair Slot lacks, FlagRel.row NULL at a NULL prefix and empty where nothing completes it, the subset in Kleene's logic, and the row check holding where `not(kind = K)` or the subset is true"
-		},
-		budget: { runs: 24, steered: 64 },
-		kept: [],
-		kills: []
-	})

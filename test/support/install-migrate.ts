@@ -1504,37 +1504,6 @@ const generatedSeeded = <E>(
 	})
 
 /**
- * Installs an installation once more in another database of the cluster, through the same migration, since Db.open
- * admits a schema only where its ledger and catalog are the snapshot's. Login and world roles are cluster-wide and
- * already exist, so the reviewer deletes the statements that create them; every other statement, the memberships and
- * the login defaults included, runs as drafted, and the state reached is the snapshot's. It runs as the installation's
- * owner login, whose ambient defaults are the substrate database's alone, so another database's sessions start under
- * none.
- */
-export const installMigratedIn = (
-	database: string,
-	installed: Installed
-): Effect.Effect<void, never, Substrate> =>
-	applyFolders(
-		installed.ambientOwner,
-		database,
-		installed.snapshot,
-		Arr.map(installed.folders, (folder) => ({
-			...folder,
-			files: Arr.map(folder.files, (f) => ({
-				name: f.name,
-				text: Arr.join(
-					Arr.filter(
-						Str.split(f.text, "\n\n"),
-						(statement) => !pipe(Str.trimStart(statement), Str.startsWith("CREATE ROLE "))
-					),
-					"\n\n"
-				)
-			}))
-		}))
-	)
-
-/**
  * Stores `facts` (each relation's facts as field-to-host-value records) as typed literal INSERTs in one transaction, as
  * the owner.
  */

@@ -41,9 +41,6 @@ export const roleDefaults: Arr.NonEmptyReadonlyArray<RoleDefaultSetting> = roleD
 /** A default every login stores. */
 export type RoleDefaultSetting = (typeof roleDefaultSettings)[number]
 
-/** A parameter every login stores a default for. */
-export type RoleDefaultParameter = RoleDefaultSetting["parameter"]
-
 /**
  * Creates the login `<schema>__<name>` with a random password and the given role defaults (an installed login's by
  * default).

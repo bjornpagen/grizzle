@@ -44,9 +44,7 @@ interface RosterField {
 
 /** A field: one over a roster, the contract Count over integer, a plain integer, or the uuid a selected containment
  * refers by. */
-export type FieldSketch =
-	| RosterField
-	| { readonly name: string; readonly kind: "count" | "plain" | "ref" }
+type FieldSketch = RosterField | { readonly name: string; readonly kind: "count" | "plain" | "ref" }
 
 interface RelationSketch {
 	readonly name: RelationName
@@ -372,7 +370,7 @@ export const installedRole = (
 	)
 
 /** The constants an installation creates, by name: the functions of no argument a statement may call. */
-export const constantsOf = (i: Installation): ReadonlySet<string> =>
+const constantsOf = (i: Installation): ReadonlySet<string> =>
 	new Set(Arr.flatMap(i.statements, (s) => (s.kind === "createConstant" ? [s.name.name] : [])))
 
 /** The constants `role` is granted EXECUTE on. */
