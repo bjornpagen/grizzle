@@ -243,7 +243,6 @@ export type WriteOracleFeature =
 	| "a deletion described wider than its field"
 	| "outcome outside a domain"
 	| "outcome refused at bind"
-	| "put on an immutable relation"
 	| "a stated-one read-back with its parent present"
 	| "a stated-one read-back with its parent absent"
 	| "a stated-one read-back over a deferred containment that the write violates"
@@ -755,8 +754,7 @@ const refusalKind = (t: WriteTarget, group: WGroup, law: LawId): Option.Option<R
  *
  * A described member reading a relation its own stratum writes reads the state before the stratum's writes.
  *
- * A put on a relation of the pinned immutable default, which changes it only by whole facts added and removed. A
- * projection that reads a numeric of one typmod into another, so the value is rounded by the cast into the
+ * A projection that reads a numeric of one typmod into another, so the value is rounded by the cast into the
  * relation's type before the write compares it; and one that reads the wide text into the narrow text, whose domain
  * refuses a value outside it, a deletion's comparison among them.
  */
@@ -784,11 +782,6 @@ const noteShapes = (group: WGroup, c: WChangeSet, note: Case<WriteOracleFeature>
 		note(`read ${r.source}`)
 	}
 	const members = c.strata.flat()
-	for (const m of members) {
-		if (m.op === "put" && !relationIn(group, m.relation).mutable) {
-			note("put on an immutable relation")
-		}
-	}
 	/**
 	 * Each field a projecting member's head reads from a column, as it is or by a cast: the member's op and both
 	 * columns' kinds.

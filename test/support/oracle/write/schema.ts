@@ -1,3 +1,4 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { nonEmpty } from "@bjornpagen/testing/assert"
 import { array, type Gen, int, map } from "@bjornpagen/testing/gen"
 import { exact, set, structuralHash } from "@bjornpagen/testing/oracle"
@@ -13,7 +14,6 @@ import {
 	contained as containment,
 	key as keyStatement,
 	login,
-	mutable,
 	on,
 	type Relation,
 	role,
@@ -28,6 +28,7 @@ import type { ObjectName } from "#compiler/sql/ast.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { foreignKeyColumns, installationNamesOf } from "#test/support/kernel/naming.ts"
 import { nonEmptyArgumentsOf } from "#test/support/list.ts"
+import { opened } from "#test/support/open.ts"
 import type { OracleRelation, OracleSchema } from "#test/support/oracle/addwins.ts"
 import type { RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import { elementAt } from "#test/support/oracle/pick.ts"
@@ -102,7 +103,8 @@ export interface WGroup {
  *   keep their result types apart);
  * - its declared primary key, which a pure set makes its whole heading, and at most one candidate key beyond it,
  *   every key over keyable columns (domain.ts) and so representable;
- * - `mutable(R)` or the pinned immutable default;
+ * - open, `mutable(R)` in the unit over its primary key's first field (test/support/open.ts opened), which a ChangeSet
+ *   may put and delete, or closed, the default, which a ChangeSet only inserts into (changeset.ts memberOps);
  * - at most one containment of some of its fields into the primary key, or a candidate key, of an earlier relation of
  *   its group. Into a pure set it is a foreign key immediate by the compiler's deferral rule, judged at every
  *   statement; into a target with a field outside the referenced key, which every candidate key's target has, it is
@@ -401,7 +403,7 @@ const resolveGroup =
  *   relation, so a ChangeSet that adds or removes a parent and a child fact meets no law but that containment;
  * - `flagged(a int4, b int4, c bool)`, of which at most one fact whose c is true per value of b: a projected key, a
  *   UNIQUE over its selected side;
- * - the mutable `merged(a int4, b int4, c memo)`, whose payload b is a deletion's scope and c an unbounded text, so a
+ * - `merged(a int4, b int4, c memo)`, whose payload b is a deletion's scope and c an unbounded text, so a
  *   put on it beside a scoped deletion is a MERGE, an enumerated one alone an ON CONFLICT DO UPDATE, and a described
  *   one reading its own keys an UPDATE ... FROM;
  * - `wide(a int4, b text6)` and `narrow(a int4, b text, c text)`, a described member reading the wide text into both
@@ -413,6 +415,9 @@ const resolveGroup =
  * - the pure set `marked(a int4, c bool)`, of which at most one fact whose c is true per value of a, a projected key, so
  *   its facts meet at a unique object besides its key, which `marker(a int4, b int4, c bool)` references by its b and
  *   c, an immediate containment.
+ *
+ * The relations a planted arm puts or deletes are open, in the unit over their key a (parent, child, merged, narrow,
+ * keyed, pure, member, marked, marker); the rest, which the arms only insert into, are closed.
  */
 export interface Planted {
 	readonly parent: WRelation
@@ -475,13 +480,13 @@ const plantedGroup = (index: number): WGroup => {
 		keys,
 		mutable: isMutable
 	})
-	const parent = relationOf("parent", "int4", [b("int4")], [], false)
-	const child = relationOf("child", "int4", [b("int4")], [], false)
+	const parent = relationOf("parent", "int4", [b("int4")], [], true)
+	const child = relationOf("child", "int4", [b("int4")], [], true)
 	const flagged = relationOf("flagged", "int4", [b("int4"), { name: "c", kind: "bool" }], [], false)
 	const merged = relationOf("merged", "int4", [b("int4"), { name: "c", kind: "memo" }], [], true)
-	const keyed = relationOf("keyed", "int4", [b("int4")], [["b"]], false)
-	const pure = relationOf("pure", "int4", [], [], false)
-	const member = relationOf("member", "int4", [b("int4")], [], false)
+	const keyed = relationOf("keyed", "int4", [b("int4")], [["b"]], true)
+	const pure = relationOf("pure", "int4", [], [], true)
+	const member = relationOf("member", "int4", [b("int4")], [], true)
 	const referrer = relationOf("referrer", "int4", [b("int4")], [], false)
 	const marked: WRelation = {
 		name: nameOf("marked"),
@@ -491,9 +496,9 @@ const plantedGroup = (index: number): WGroup => {
 		],
 		primaryKey: ["a", "c"],
 		keys: [],
-		mutable: false
+		mutable: true
 	}
-	const marker = relationOf("marker", "int4", [b("int4"), { name: "c", kind: "bool" }], [], false)
+	const marker = relationOf("marker", "int4", [b("int4"), { name: "c", kind: "bool" }], [], true)
 	return {
 		index,
 		role: "planted",
@@ -503,7 +508,7 @@ const plantedGroup = (index: number): WGroup => {
 			flagged,
 			merged,
 			relationOf("wide", "int4", [b("text6")], [], false),
-			relationOf("narrow", "int4", [b("text"), { name: "c", kind: "text" }], [], false),
+			relationOf("narrow", "int4", [b("text"), { name: "c", kind: "text" }], [], true),
 			keyed,
 			referrer,
 			pure,
@@ -645,10 +650,8 @@ export const buildWSchema = (w: WSchema, name: string): WBuiltSchema => {
 				keyStatement(on(value, ...nonEmptyArgumentsOf(nonEmpty(k, `a key of ${r.name}`))))
 			)
 		}
-		if (r.mutable) {
-			statements.push(mutable(value))
-		}
 	}
+	appendAll(statements, opened(Arr.flatMap(all, (r) => (r.mutable ? [relationValue(r.name)] : []))))
 	for (const g of w.groups) {
 		for (const c of g.containments) {
 			statements.push(

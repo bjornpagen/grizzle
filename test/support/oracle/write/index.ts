@@ -91,7 +91,7 @@ export const resolveRun =
  * read-back source, every put target, refusals by every kind of law, each schema shape, TOAST-sized payloads, numeric
  * casts between typmods, a run that reads back, on one Db, relations sharing field names with other types, references
  * into candidate keys, Stream members, bound parameters, db.compile, a described member reading a wider text
- * into a narrower field (a deletion among them) refused by the domain, a put on an immutable relation,
+ * into a narrower field (a deletion among them) refused by the domain,
  * second readings over facts stored in another order and with a value respelled, a stratum whose writes the keys order
  * in a cycle refused as it compiles, a deletion where facts meet nowhere left unordered beside an addition, which
  * orders a stratum that would otherwise hold such a cycle, and an addition a later stratum removes, which the change's
@@ -150,7 +150,6 @@ export const writeSituations = [
 	"a deletion described wider than its field",
 	"outcome outside a domain",
 	"outcome refused at bind",
-	"put on an immutable relation",
 	"a stated-one read-back with its parent present",
 	"a stated-one read-back with its parent absent",
 	"a stated-one read-back over a deferred containment that the write violates",

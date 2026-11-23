@@ -148,7 +148,9 @@ export type WBinding = "passed" | "bound" | "bound as streams"
  * Generated ChangeSets of one group.
  *
  * A generated ChangeSet is one to three strata (more than one only through ChangeSet.sequence), each of
- * insert, delete and put members, and up to three read-backs. A member is one of:
+ * insert, delete and put members, and up to three read-backs. A put or a deletion is of an open relation of the group,
+ * mutable inside a unit (schema.ts), and an insert of any: a closed relation's facts are inserted, never changed or
+ * deleted. A member is one of:
  *
  * - an array of facts, the enumerated member that is a relation parameter. Its facts are biased toward
  *   the cases add-wins and the counts must get right: exact copies of stored facts,
@@ -1121,12 +1123,24 @@ export const resolveChangeSet =
 			}
 			return { kind: "project", from: from.name, filter, head }
 		}
+		/**
+		 * The group's open relations, the only ones a member puts or deletes (schema.ts WRelation `mutable`, a unit's
+		 * mutable relation): a put or a deletion the sketch draws is of an open relation, and where the group holds none
+		 * the member inserts into the relation it draws, as every member of a closed relation does.
+		 */
+		const open = Arr.filter(group.relations, (r) => r.mutable)
 		const strata: Arr.NonEmptyArray<Array<WMember>> = Arr.map(drawn, (members) => {
 			const out: Array<WMember> = []
 			for (const m of members) {
-				const relation = at(group.relations, m.relation)
-				const op = elementAt(ops, m.op, "the member ops")
-				if (m.source >= 9 && kept("reread")) {
+				const drawnOp = elementAt(ops, m.op, "the member ops")
+				const changed =
+					drawnOp === "insert" || !Arr.isReadonlyArrayNonEmpty(open)
+						? undefined
+						: pickFrom(open, m.relation)
+				const relation = changed ?? at(group.relations, m.relation)
+				const op: MemberOp = changed === undefined ? "insert" : drawnOp
+				if (m.source >= 9 && kept("reread") && Arr.isReadonlyArrayNonEmpty(open)) {
+					const relation = pickFrom(open, m.relation)
 					const facts = paramFacts(relation, m.facts)
 					remember(relation, facts)
 					const input = relationParam(facts)
@@ -1240,7 +1254,13 @@ export const resolveChangeSet =
 			 * violates the deferred containment.
 			 */
 			const lastStratum = Arr.lastNonEmpty(strata)
-			if (parent.kind === "one" && source === "removed" && r.parent.clear) {
+			if (
+				parent.kind === "one" &&
+				source === "removed" &&
+				r.parent.clear &&
+				relationIn(group, parent.containment.to.relation).mutable &&
+				relationIn(group, parent.containment.from.relation).mutable
+			) {
 				for (const cleared of [parent.containment.to.relation, parent.containment.from.relation]) {
 					const of = relationIn(group, cleared)
 					lastStratum.push({
