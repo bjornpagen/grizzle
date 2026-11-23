@@ -1,3 +1,4 @@
+import { ReplayToken } from "@bjornpagen/testing/property"
 import { crossing, writesRequired } from "#test/pg/world-model/isolation-writes.fixtures.ts"
 import { reachingPastRefused } from "#test/support/worlds/drive/acting.ts"
 import {
@@ -23,8 +24,24 @@ export const isolationWrites = programProperty({
 	realities: docsTenantRealities,
 	lead: leadsOf(directTransaction(writesRequired), dbSession(writesRequired)),
 	check: reachingPastRefused,
-	kept: [],
+	kept: [
+		{
+			token: ReplayToken(
+				"test/pg/world-model/isolation-writes.test.ts#isolationWrites:70085c15c6690073d0.33:1.0.0.0.0.1.1.0.1.1.0.0.0.1.0.0.0.0.1.0.0.1.1.0.1.1.1.1.1.0.0.0.0.0.1.1.0.1.1.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.1.0.1.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.1.0.0.0.0.0.0.0"
+			),
+			reason:
+				"an insert of {plan_via: 0} through View0, a query entry whose head names Org's plan plan_via, its Doc and Org matched at literal keys: the served member admitted its facts by the relation's key heads, read by Org's field names, which name none of the entry's, so the host refused every fact of it as factShape (main's red at 3e47c8f8a, from GENPK's 55fce798e; its token run on to the program's end past the refused apply)",
+			since: "2026-11-23"
+		}
+	],
 	kills: [
+		{
+			file: "packages/engine/src/write/frontend/compile.ts",
+			original:
+				'\t\t\t\t\t\t\tadmitted: target.kind === "whole" ? keyHeading(relation, admitted, facts) : admitted,\n',
+			replacement: "\t\t\t\t\t\t\tadmitted: keyHeading(relation, admitted, facts),\n",
+			why: "A query entry's facts are admitted by the key heads of the relation it writes, read by that relation's field names, so an entry whose head renames a field (View0's plan_via, Org's plan) admits its facts by an empty heading and the host refuses every one as factShape: the defect this property met at main's 3e47c8f8a, from GENPK's 55fce798e."
+		},
 		{
 			file: "packages/engine/src/runtime/write/normalize.ts",
 			original: "\trelation: facts.relation,\n",

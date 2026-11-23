@@ -799,7 +799,10 @@ const carriedColumn = (c: MemberColumn): HeadingColumn => ({
  * The heading a slot's members state of `heading`, its key heads (ir/law.ts keyHeads): each column but a key generation
  * (FieldWriting keyGenerated), which no member states and the host fills from its reads before the slot is encoded
  * (write/normalize), then each key generation's reads not already among them, at their columns in `facts`, the fields a
- * member of `relation` states: a tree's units named by root fields holding one state its reads.
+ * member of `relation` states: a tree's units named by root fields holding one state its reads. A slot written whole
+ * alone: its columns are `relation`'s fields by name. A query entry's columns are its head's fields, named as the
+ * entry names them, and an entry writes no relation whose key holds a key generation (WritabilityReason
+ * keyHoldsGeneration), so its members state its slot's heading as it is.
  */
 const keyHeading = (relation: RelationInfo, heading: Heading, facts: Heading): Heading =>
 	keyHeads(
@@ -2018,7 +2021,7 @@ const compile = (
 							act,
 							slot,
 							members: memberNames,
-							admitted: keyHeading(relation, admitted, facts),
+							admitted: target.kind === "whole" ? keyHeading(relation, admitted, facts) : admitted,
 							starts: Object.freeze(starts)
 						})
 					)
