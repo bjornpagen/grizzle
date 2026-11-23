@@ -52,7 +52,7 @@ import {
 	evidenceSchemaGen,
 	extra,
 	factsGen,
-	identityOf,
+	carrierOf,
 	idsNeed,
 	kt,
 	type LawName,
@@ -134,13 +134,14 @@ export const spanLawsRefusesAContainmentPairingMoreThanOneSpanFieldWhateverElseI
 	)
 
 /**
- * Field-compatibility classes admit a pairing of two fields exactly when their identities are one, keeping a typmod
- * and a refinement inside one class.
+ * Field-compatibility classes admit a containment's pairing of two fields exactly when their base carriers are one,
+ * keeping a contract, a typmod and a refinement inside one class: natural or a contract over pg.bigint pairs with
+ * pg.bigint, either side refining the other, and int4 never with int8, nor a closed id with another roster's.
  *
  * Budget: 300 runs and 1000 steered cases, what its suite stated before it became a property
  * (test/unit/analysis/logical/theory.test.ts:284 at 8cad5bce, its runs and its coverage's cases).
  */
-export const fieldCompatibilityClassesAdmitAPairingOfTwoFieldsExactlyWhenTheirIdentitiesAreOneKeepingATypmodAndARefinementInsideOneClass =
+export const fieldCompatibilityClassesAdmitAContainmentsPairingOfTwoFieldsExactlyWhenTheirBaseCarriersAreOneKeepingAContractATypmodAndARefinementInsideOneClass =
 	property.explore(
 		(source) => {
 			const a = sided(source.draw(declaredGen), "a")
@@ -150,11 +151,12 @@ export const fieldCompatibilityClassesAdmitAPairingOfTwoFieldsExactlyWhenTheirId
 			needs: {},
 			budget: { runs: 300, steered: 1000 },
 			situations: [
-				"one identity",
-				"another identity",
+				"one carrier",
+				"another carrier",
 				"a twin",
 				"another typmod or refinement",
 				"another roster",
+				"a contract over it or its base",
 				"drawn apart"
 			] satisfies ReadonlyArray<Reached<ClassFeature>>,
 			check:
@@ -175,8 +177,8 @@ export const fieldCompatibilityClassesAdmitAPairingOfTwoFieldsExactlyWhenTheirId
 							statements: [contained(on("A", ["x"]), on("B", ["y"]))],
 							bases: []
 						})
-						if (identityOf(a.desc) !== identityOf(b.desc)) {
-							c.note("another identity")
+						if (carrierOf(a.desc) !== carrierOf(b.desc)) {
+							c.note("another carrier")
 							const e = refused(result, "Refused")
 							assert.equal(
 								e.reason._tag === "Refused" ? e.reason.refusal : undefined,
@@ -184,7 +186,7 @@ export const fieldCompatibilityClassesAdmitAPairingOfTwoFieldsExactlyWhenTheirId
 							)
 							return
 						}
-						c.note("one identity")
+						c.note("one carrier")
 						const t = succeeded(result)
 						assert.deepEqual(
 							Option.map(
@@ -196,15 +198,23 @@ export const fieldCompatibilityClassesAdmitAPairingOfTwoFieldsExactlyWhenTheirId
 					}),
 			oracle: {
 				kind: "specification",
-				name: "a class keeps carrier, contract and roster identity, never a typmod or a refinement"
+				name: "a containment's class keeps a base carrier and roster identity, its contracts stripped, never a typmod or a refinement"
 			},
 			kept: [],
 			kills: [
 				{
-					file: "packages/engine/src/analysis/theory/classes.ts",
-					original: "\t\tif (!compatible(na.type, nb.type)) {",
-					replacement: "\t\tif (na.type.carrier !== nb.type.carrier) {",
-					why: "Two fields of one carrier paired whatever their contract or roster (analysis/theory/classes.ts); the classes property fails."
+					file: "packages/engine/src/analysis/theory/theory.ts",
+					original: "\t\t\t\t\t\tk.tracked,\n\t\t\t\t\t\tsameCarrier,\n",
+					replacement: "\t\t\t\t\t\tk.tracked,\n\t\t\t\t\t\tcompatible,\n",
+					why: "A containment pairs fields of one nominal identity, as a family does: natural or a contract over a type is refused against the type, where their base carrier is one; the classes property fails."
+				},
+				{
+					file: "packages/engine/src/scalar/compute/types.ts",
+					original:
+						"export const sameCarrier = (a: ScalarType, b: ScalarType): boolean => sameCore(baseOf(a), baseOf(b))",
+					replacement:
+						"export const sameCarrier = (a: ScalarType, b: ScalarType): boolean => baseOf(a).carrier === baseOf(b).carrier",
+					why: "A containment pairs two fields of one carrier whatever their roster: a closed id is paired with another roster's; the classes property fails."
 				}
 			]
 		}

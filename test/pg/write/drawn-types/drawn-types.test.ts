@@ -346,7 +346,7 @@ export const aFamilyDrawnOverAContractOverAnIntegerCountsAndIndexesByItsTypeAndI
 					'\tfieldEntries.set(value, { kind: "written", writing: { kind: "drawn" } })\n\tregisterWrittenField(value, type)\n',
 				replacement:
 					'\tfieldEntries.set(value, { kind: "written", writing: { kind: "drawn" } })\n\tregisterWrittenField(value, naturalDescriptor)\n',
-				why: "drawn(c) is installed as natural, an int8 column of natural's domain whatever c: a test of a contract's number is refused in a containment with the drawn numbers, the sides' field types differing, so the schema installs no template and no case runs."
+				why: "drawn(c) is installed as natural, an int8 column of natural's domain whatever c: a test of a number of a contract over smallint or integer is refused in a containment with the drawn numbers, natural's base carrier int8 against the contract's, the sides' field types differing, so the schema installs no template and no case runs."
 			},
 			{
 				file: "packages/engine/src/scalar/compute/literal.ts",

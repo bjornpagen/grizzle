@@ -59,8 +59,9 @@
  *      whose Writes lie outside it; RefreshListOf does the same for db.refresh;
  *    - orderBy: DeliveredKeys, the columns the query delivers; the retained key that completes the order is the
  *      compiler's;
- *    - mirrors and contained: SidesCompatible compares the two sides' fields position by position, by domain and
- *      PostgreSQL type, so contract and roster identity count, two text patterns join, and text never joins uuid.
+ *    - mirrors and contained: SidesCompatible compares the two sides' fields position by position, by base carrier
+ *      and PostgreSQL type, so roster identity counts, a contract refines its base, two text patterns join, and text
+ *      never joins uuid.
  *
  * 4. Query invariance. Query, Ordered and ChangeSet carry their schema as `schema: Invariant<S>`, a phantom
  *    `(s: S) => S` whose variance TypeScript measures reliably, so Query<Ext> is never a Query<Base> and a derived
@@ -834,6 +835,14 @@ type Undeclared<E> = [DeclaredKeys<E>] extends [never]
 	: E extends (infer U) & DeclaresAll<DeclaredKeys<E>>
 		? U
 		: E
+
+/**
+ * The brands a domain's roster gives it (RosterBrands), each a name that holds a space, which no contract's declared
+ * name does: what a domain's base carrier keeps beside its contracts stripped (BaseOf), as a containment pairs it
+ * (scalar/compute/types.ts sameCarrier), so a closed id of one roster never meets another's.
+ */
+export type RosterKeysOf<D> =
+	D extends Brand.Brand<infer K> ? Extract<K, `${string} ${string}`> : never
 
 /**
  * The parts of a term, read from its phantom bundle: its domain, TypeOfTerm. ParamsOfTerm reads the parameter map of

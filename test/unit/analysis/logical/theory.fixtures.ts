@@ -100,11 +100,11 @@ export const byText: Order.Order<ReadonlyArray<unknown>> = Order.mapInput(
 export type SpanFeature = "no span field" | "one span field" | "several span fields"
 
 /**
- * A field's identity, as a containment's pairing keeps it in one class: its carrier, a contract's name over its base's
- * identity, a closed id's or a set's roster, a span's endpoint, a vector's dimensions; never a numeric's typmod or a
- * text's refinement.
+ * A field's base carrier, as a containment's pairing keeps it in one class (scalar/compute/types.ts sameCarrier): its
+ * carrier with its contracts stripped at every level, natural's among them, a closed id's or a set's roster, a span's
+ * endpoint as declared, contract and all, a vector's dimensions; never a numeric's typmod or a text's refinement.
  */
-export const identityOf = (desc: FieldDesc): string => {
+export const carrierOf = (desc: FieldDesc): string => {
 	switch (desc.kind) {
 		case "pg":
 			return desc.type
@@ -118,18 +118,22 @@ export const identityOf = (desc: FieldDesc): string => {
 		case "pattern":
 			return desc.kind
 		case "contract":
-			return `contract ${desc.name} over ${identityOf(desc.base)}`
+			return carrierOf(desc.base)
 		case "closedId":
 		case "bits":
 			return `${desc.kind} of ${desc.roster}`
 		case "span":
-			return `span over ${identityOf(desc.endpoint)}`
+			return `span over ${endpointOf(desc.endpoint)}`
 		case "vector":
 			return `vector(${desc.dimensions})`
 		case "search":
 			return `search document under ${desc.configuration}`
 	}
 }
+
+/** A span's endpoint as its SQL type names it: a contract's name over its base, which a span over its base is not. */
+const endpointOf = (desc: FieldDesc): string =>
+	desc.kind === "contract" ? `contract ${desc.name} over ${endpointOf(desc.base)}` : carrierOf(desc)
 
 /**
  * A drawn type's names, each a side's own: a contract `C<side><depth>` but natural, the builtin, and a roster `R<side>`,
@@ -170,15 +174,43 @@ export const sided = (sketch: DeclaredSketch, side: string): DeclaredSketch => {
 }
 
 /** How the contained side's type is drawn against the containing side's. */
-type Pairing = "a twin" | "another typmod or refinement" | "another roster" | "drawn apart"
+type Pairing =
+	| "a twin"
+	| "another typmod or refinement"
+	| "another roster"
+	| "a contract over it or its base"
+	| "drawn apart"
+
+/**
+ * The type one contract level from `a`: a contract's base, or a contract `Cb` of its own over any other type a contract
+ * is over; undefined for a set, which no contract is over.
+ */
+const refinementOf = (a: DeclaredSketch): DeclaredSketch | undefined => {
+	if (a.desc.kind === "contract") {
+		return { desc: a.desc.base, rosters: a.rosters }
+	}
+	return a.desc.kind === "bits"
+		? undefined
+		: {
+				desc: { kind: "contract", name: "Cb", base: a.desc, predicate: undefined, facts: [] },
+				rosters: a.rosters
+			}
+}
 
 /**
  * The contained side's type: its twin; another typmod or refinement of it; its roster's handles under a roster of its
- * own; or a type drawn apart.
+ * own; a contract over it, or its base where it is a contract, natural's pg.bigint among them; or a type drawn apart.
  */
 export const pairedGen = (a: DeclaredSketch): Gen<readonly [Pairing, DeclaredSketch]> =>
 	weighted([
 		[1, constant(["a twin", a] as const)],
+		[
+			1,
+			(): readonly [Pairing, DeclaredSketch] => {
+				const refined = refinementOf(a)
+				return refined === undefined ? ["a twin", a] : ["a contract over it or its base", refined]
+			}
+		],
 		[
 			1,
 			(source): readonly [Pairing, DeclaredSketch] => {
@@ -208,7 +240,7 @@ export const pairedGen = (a: DeclaredSketch): Gen<readonly [Pairing, DeclaredSke
 		[2, map(declaredGen, (b): readonly [Pairing, DeclaredSketch] => ["drawn apart", sided(b, "b")])]
 	])
 
-export type ClassFeature = "one identity" | Pairing | "another identity"
+export type ClassFeature = "one carrier" | Pairing | "another carrier"
 
 export const t = theoryUnder(W.WorkDesc, noImmediate)
 

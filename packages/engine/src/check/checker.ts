@@ -172,6 +172,7 @@ import {
 	literalNumeric,
 	meetingType,
 	meets,
+	sameCarrier,
 	wildcardText,
 	widening
 } from "#compiler/scalar/compute/types.ts"
@@ -4676,10 +4677,12 @@ class RuleCheck {
 	}
 
 	/**
-	 * A negated column correlated with a region column of a compatible type, compared by `=` with no cast, as a stored
-	 * foreign key compares its columns: what compatible types may differ in refines their values and leaves PostgreSQL's
-	 * equality alone, a text's pattern and bounds (every text is of the deterministic collation pg_c_utf8), a numeric's
-	 * typmod, a span's width.
+	 * A negated column correlated with a region column of its base carrier (scalar/compute/types.ts sameCarrier),
+	 * compared by `=` with no cast, as a stored foreign key compares its columns: a negation tests the inclusion a
+	 * containment states, and what types of one base carrier may differ in refines their values and leaves PostgreSQL's
+	 * equality alone, a contract at any level, natural's and an instant's among them, a text's pattern and bounds (every
+	 * text is of the deterministic collation pg_c_utf8), a numeric's typmod, a span's width. So a containment's violation
+	 * query, an anti-join of its target bound to its source's terms, holds across refining types as its foreign key does.
 	 */
 	#correlatedBinding(
 		col: HeadingColumn,
@@ -4687,7 +4690,7 @@ class RuleCheck {
 		at: SourceLoc
 	): NegatedBinding {
 		const { region } = correlation
-		if (!compatible(region.type, col.type)) {
+		if (!sameCarrier(region.type, col.type)) {
 			fail(
 				"MalformedDescription",
 				at,

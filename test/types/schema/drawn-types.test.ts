@@ -5,8 +5,8 @@ import { boxAgreement } from "#test/types/batch/agreement.ts"
  * A drawn field of each type (test/types/schema/drawn-types.ts): `drawn(c)` takes natural or a contract over an integer,
  * smallint, integer or bigint, and refuses a contract over a numeric or a text and a plain integer; an ordered family's
  * index is of its count's type, a family whose index and count are of two types refused; and a field of the index's
- * contract is contained in the family's indexes and they in it, the containment's one identity rule pairing a drawn
- * field of a contract with any field of it, as metis's test number is. Each index type with each count type is a cell
+ * contract is contained in the family's indexes and they in it, the containment's one base carrier rule pairing a
+ * drawn field of a contract with any field of it, as metis's test number is. Each index type with each count type is a cell
  * of the box; a batch's cells are one program, checked disarmed. Oracle: the engine's rules for a drawn field and an
  * ordered family, stated apart from the types.
  */
@@ -25,7 +25,7 @@ export const drawnTypes = boxAgreement(finite(word(drawnTypesBox)), {
 	program: drawnTypesProgram,
 	oracle: {
 		kind: "specification",
-		name: "drawn(type) takes natural or a contract whose base is an integer; an ordered family's index is of its count's type; a containment pairs fields of one identity"
+		name: "drawn(type) takes natural or a contract whose base is an integer; an ordered family's index is of its count's type; a containment pairs fields of one base carrier"
 	},
 	kept: [],
 	kills: [
@@ -53,7 +53,7 @@ export const drawnTypes = boxAgreement(finite(word(drawnTypesBox)), {
 				'\t\tUnwrittenField,\n\t\tDomained<DomainOf<F>>,\n\t\tProving<FactsOf<F>>,\n\t\tLanguaged<LanguageOf<F>> {\n\treadonly writing: "drawn"',
 			replacement:
 				'\t\tUnwrittenField,\n\t\tDomained<DomainOf<NaturalField>>,\n\t\tProving<FactsOf<F>>,\n\t\tLanguaged<LanguageOf<F>> {\n\treadonly writing: "drawn"',
-			why: "A drawn field of a contract is of natural's domain, as every drawn field was: a field of the contract is refused in a containment with it, the sides' field types differing; the program fails."
+			why: "A drawn field of a contract is of natural's domain, as every drawn field was: a field of a contract over smallint or integer is refused in a containment with it, natural's base carrier int8 against the contract's, the sides' field types differing; the program fails."
 		}
 	]
 })

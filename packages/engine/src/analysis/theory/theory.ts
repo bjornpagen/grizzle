@@ -94,6 +94,7 @@ import { baseOf, type ContractInfo, Roster, type ScalarType, spanOf } from "#com
 import type { StoredUnit } from "#compiler/ir/unit.ts"
 import type { ContainmentFact } from "#compiler/logical/attach.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
+import { compatible, sameCarrier } from "#compiler/scalar/compute/types.ts"
 import { CompilePatterns, type PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import {
 	contractInfoOf,
@@ -107,8 +108,9 @@ import { textLookup } from "#compiler/text/refinement.ts"
 import type { StatedEntry } from "#compiler/types/changeset/changeset.ts"
 
 /**
- * What the statement a containment's law is from refuses two of its paired fields of other identities for: an
- * alternatives arm's key against its parent's, or the sides of a containment it states.
+ * What the statement a containment's law is from refuses two of its paired fields of other base carriers for
+ * (scalar/compute/types.ts sameCarrier): an alternatives arm's key against its parent's, or the sides of a containment
+ * it states.
  */
 const containmentPairing = (source: LawSource): Refused => {
 	switch (source.kind) {
@@ -772,8 +774,9 @@ class Builder {
 	}
 
 	/**
-	 * The field-compatibility classes: every field of every relation, each containment's pairs, and each family's
-	 * (Normalizer.familyPairings), so two fields one law compares are of one identity.
+	 * The field-compatibility classes: every field of every relation, each containment's pairs, of one base carrier, and
+	 * each family's (Normalizer.familyPairings), of one identity, so two fields one law compares are of one base carrier
+	 * and compare under its equality.
 	 */
 	#classes(
 		kept: ReadonlyArray<KeptLaw>,
@@ -786,8 +789,8 @@ class Builder {
 			}
 		}
 		/**
-		 * The field `f` of `a` paired with the field `g` of `b`, each at its column's type, by a statement that refuses
-		 * two of other identities for `refusal`, a rule the types name too.
+		 * The field `f` of `a` paired with the field `g` of `b`, each at its column's type, by a statement whose pairs
+		 * share what `meets` reads, which refuses two that do not for `refusal`, a rule the types name too.
 		 */
 		const pair = (
 			a: string,
@@ -795,13 +798,15 @@ class Builder {
 			b: string,
 			g: HeadingColumn,
 			loc: SourceLoc,
+			meets: (x: ScalarType, y: ScalarType) => boolean,
 			refusal: Refused
 		): void => {
-			const problem = classes.union(
+			const paired = classes.union(
 				{ field: FieldId(a, f.name), type: f.type },
-				{ field: FieldId(b, g.name), type: g.type }
+				{ field: FieldId(b, g.name), type: g.type },
+				meets
 			)
-			if (problem !== undefined) {
+			if (!paired) {
 				throw new Refusal(ruleRefused(loc, refusal))
 			}
 		}
@@ -816,13 +821,14 @@ class Builder {
 						detail.to.relation,
 						p.to.column,
 						k.tracked,
+						sameCarrier,
 						refusal
 					)
 				}
 			}
 		}
 		for (const p of families) {
-			pair(p.a, p.f, p.b, p.g, p.loc, p.refusal)
+			pair(p.a, p.f, p.b, p.g, p.loc, compatible, p.refusal)
 		}
 		return classes.classes()
 	}

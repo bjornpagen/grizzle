@@ -203,7 +203,12 @@ organization share a title.
 A containment says one set of values lies inside another. `contained(on(Comment, "org", "post"), on(Post, "org",
 "slug"))` reads "every comment's organization and post are some post's organization and slug": a foreign key, written
 as the inclusion it is. The same shape relates a
-selection of rows, a closed relation, or spans covered by spans ([Rules](#rules)).
+selection of rows, a closed relation, or spans covered by spans ([Rules](#rules)). Its sides pair field for field, each
+pair of one base carrier, one SQL type once contracts are stripped: `natural`, an `instant` and a contract over
+`pg.bigint` pair with `pg.bigint` and with each other, either side refining the other, since a refinement only narrows
+the values and the inclusion is one law under the base's equality, the one PostgreSQL's foreign key between a domain
+and its base type compares and the judge reads. `pg.integer` against `pg.bigint`, or a closed id against another
+roster's, is refused: the sides' field types differ.
 
 This is what `grizzle generate` installs for `Post` and that containment, abridged:
 

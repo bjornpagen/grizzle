@@ -4,12 +4,14 @@ import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { ScalarHelpers } from "#compiler/types/compute/compute.ts"
 import type { Scalar } from "#compiler/types/compute/scalar.ts"
 import type {
+	BaseOf,
 	DomainOf,
 	Headed,
 	LanguageOf,
 	Origin,
 	Refusal,
 	Repeats,
+	RosterKeysOf,
 	SqlOfCarrier,
 	Unordered
 } from "#compiler/types/core/phantom.ts"
@@ -729,15 +731,26 @@ export type TermOf<C> = Exclude<keyof C & string, StoredOnlyIn<C>> | Pred<Natura
  */
 type FieldTypeOf<C, K> = K extends keyof C ? readonly [DomainOf<C[K]>, SqlOfCarrier<C[K]>] : never
 
-/** What a term joins as: a field's own type, and pred of a field its field's, a count less one being a count. */
-type TermTypeOf<C, T> = T extends Pred<infer F> ? FieldTypeOf<C, F> : FieldTypeOf<C, T>
+/**
+ * What field K of the heading C pairs as in a containment's side: its domain's base carrier, its contracts stripped
+ * (BaseOf) and its roster's brands kept (RosterKeysOf), and its PostgreSQL type. natural, an instant and a contract over
+ * pg.bigint pair as pg.bigint does, since a refinement only narrows the values and the inclusion is one law under the
+ * base's equality.
+ */
+type PairedTypeOf<C, K> = K extends keyof C
+	? readonly [BaseOf<DomainOf<C[K]>>, RosterKeysOf<DomainOf<C[K]>>, SqlOfCarrier<C[K]>]
+	: never
 
-/** The join types of the terms T of a side over the heading C, in order. */
+/** What a term pairs as: a field's own type, and pred of a field its field's, a count less one being a count. */
+type TermTypeOf<C, T> = T extends Pred<infer F> ? PairedTypeOf<C, F> : PairedTypeOf<C, T>
+
+/** The paired types of the terms T of a side over the heading C, in order. */
 export type SideHosts<C, T> = { readonly [I in keyof T]: TermTypeOf<C, T[I]> }
 
 /**
- * Two sides are compatible when their terms' join types, L and R (SideHosts), agree position by position: contract
- * and closed-roster identity included, with no added cast (the mirrors and contained reader).
+ * Two sides are compatible when their terms' paired types, L and R (SideHosts), agree position by position: one base
+ * carrier, closed-roster identity included, either side's contracts refining it, with no added cast (the mirrors and
+ * contained reader).
  */
 export type SidesCompatible<L, R> = [L] extends [R]
 	? [R] extends [L]
@@ -787,7 +800,7 @@ type KeyHeadFields<H, F> = F extends string
 			: F
 	: never
 
-/** The join types of a KeyRef's key fields, in order. */
+/** The paired types of a KeyRef's key fields, in order. */
 type KeyHosts<K> = SideHosts<HeadingOf<RelationOfKey<K>>, KeyFieldsOf<K>>
 
 /** A Key over a side of a relation that shows N and C, whose terms are F: a parent in key position. */
@@ -815,8 +828,8 @@ export type DiscriminatorsOf<C, R> = {
 	string
 
 /**
- * The alternatives reader: every arm is a stored relation, whose rows a write draws, and its key has the parent key's
- * field types, P, in order.
+ * The alternatives reader: every arm is a stored relation, whose rows a write draws, and its key pairs with the parent
+ * key's fields, P, in order, as a containment's sides do (SideHosts).
  */
 export type ArmsCompatible<P, Arms> = {
 	readonly [H in keyof Arms]: RelationOfKey<Arms[H]> extends { readonly kind: "derived" }

@@ -228,6 +228,16 @@ export const compatible = (a: ScalarType, b: ScalarType): boolean => {
 		: ca.name === cb.name && compatible(ca.base, cb.base)
 }
 
+/**
+ * Whether two types are of one base carrier: one SQL type once their contracts are stripped at every level, natural's
+ * and an instant's among them (baseOf), so either may refine the other, or both one base. A containment pairs fields of
+ * one base carrier (analysis/theory/classes.ts): a refinement only narrows the values, so the inclusion is one law
+ * under the base's equality, the equality a foreign key between a domain and its base type compares natively and the
+ * law model's judge reads. int4 against int8, a closed id against another roster's, a span against one over another
+ * endpoint type or a vector against one of other dimensions are of two.
+ */
+export const sameCarrier = (a: ScalarType, b: ScalarType): boolean => sameCore(baseOf(a), baseOf(b))
+
 /** The identity two uncontracted operands share: one carrier, closed roster, vector dimension count and span endpoint. */
 const sameCore = (a: ScalarType, b: ScalarType): boolean =>
 	a.carrier === b.carrier &&

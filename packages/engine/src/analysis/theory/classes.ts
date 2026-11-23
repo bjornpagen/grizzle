@@ -2,8 +2,7 @@ import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { FieldId } from "#compiler/core/ids.ts"
 import { compareStrings, mapInput } from "#compiler/core/order.ts"
 import type { CompatibilityClass } from "#compiler/ir/products.ts"
-import { type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
-import { compatible } from "#compiler/scalar/compute/types.ts"
+import type { ScalarType } from "#compiler/ir/scalar.ts"
 
 export interface ClassMember {
 	readonly field: FieldId
@@ -11,8 +10,8 @@ export interface ClassMember {
 }
 
 /**
- * A compatibility class: its fields, sorted, a representative type, its first member's, whose identity every member
- * shares (scalar/compute/types.ts compatible), and each member's own type with its refinements.
+ * A compatibility class: its fields, sorted, a representative type, its first member's, whose base carrier every member
+ * shares (scalar/compute/types.ts sameCarrier), and each member's own type with its contracts and refinements.
  */
 export interface FieldClass extends CompatibilityClass {
 	readonly fields: ReadonlyArray<FieldId>
@@ -55,12 +54,14 @@ class FieldNode {
  * other side, a family's group with its owner's key, a fold's step value with its accumulators and ends, and a tree's
  * start with its end. The structure is near-linear, O((F + L) α(F)), with union by size and path halving.
  *
- * A class keeps the nominal identity its members share: carrier, contract identity, closed roster identity, vector
- * dimensions, and span endpoint identity (scalar/compute/types.ts compatible). Two fields of different
- * identity never pair: the compiler never adds a cast to make incompatible fields join, so such a pairing
- * is refused. Refinements stay per member and are not merged: two compatible text fields can admit different value
- * subsets, and a numeric typmod does not change identity. A key determines
- * values; it never merges classes by itself.
+ * Each pairing states what its two fields share (`meets`): a containment's their base carrier, one SQL type once their
+ * contracts are stripped (scalar/compute/types.ts sameCarrier), since a refinement only narrows the values and the
+ * inclusion is one law under the base's equality; a family's, a fold's and a tree's their nominal identity, contract
+ * and closed roster included (compatible). So every member of a class shares its base carrier. Two fields a pairing
+ * does not admit never pair: the compiler never adds a cast to make them join, so such a pairing is refused. Contracts
+ * and refinements stay per member and are not merged: natural and pg.bigint, or two text fields, can admit different
+ * value subsets, and a numeric typmod does not change identity. A key determines values; it never merges classes by
+ * itself.
  */
 export class FieldClasses {
 	readonly #nodes = new Map<FieldId, FieldNode>()
@@ -80,22 +81,21 @@ export class FieldClasses {
 		return node
 	}
 
-	/** Pairs two fields, each at its column's type, or says why they cannot be paired. */
-	union(a: ClassMember, b: ClassMember): string | undefined {
+	/** Pairs two fields, each at its column's type, where `meets` admits their types: whether they were paired. */
+	union(a: ClassMember, b: ClassMember, meets: (x: ScalarType, y: ScalarType) => boolean): boolean {
 		const na = this.#node(a)
 		const nb = this.#node(b)
-		if (!compatible(na.type, nb.type)) {
-			return `fields of one identity (carrier, contract and closed roster); ${typeLabel(na.type)} against ${typeLabel(nb.type)}`
+		if (!meets(na.type, nb.type)) {
+			return false
 		}
 		const ra = na.root()
 		const rb = nb.root()
-		if (ra === rb) {
-			return undefined
+		if (ra !== rb) {
+			const [big, small] = ra.size >= rb.size ? [ra, rb] : [rb, ra]
+			small.parent = big
+			big.size += small.size
 		}
-		const [big, small] = ra.size >= rb.size ? [ra, rb] : [rb, ra]
-		small.parent = big
-		big.size += small.size
-		return undefined
+		return true
 	}
 
 	/** Every class, each with its fields sorted, in order of its first field. */

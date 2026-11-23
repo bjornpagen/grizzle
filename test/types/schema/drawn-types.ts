@@ -12,7 +12,7 @@ import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/bat
  * The oracle is the rules the engine holds a drawn field and an ordered family to, stated here apart from the types:
  * drawn(type) takes natural or a contract whose base is an integer (scalar/natural.ts isDrawnType), an ordered family's
  * index is of its count's type (analysis/theory/families.ts indexOfCount), and a containment pairs fields of one
- * identity, which a field of the contract and a drawn field of it are.
+ * base carrier, which a field of the contract and a drawn field of it are.
  */
 
 /** A type a cell draws its index or its count of. */
