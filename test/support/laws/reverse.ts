@@ -240,19 +240,6 @@ const interleavedCaseGen: Gen<ReverseCase> = (source) => {
 	}
 }
 
-/**
- * A case of three referencing columns whose middle one is a text of no bound, between two of a fixed width: what a
- * search aims at while no case has put a free text between bounded columns (free text between), where a drawn case
- * holds one about one time in thirteen.
- */
-export const freeBetweenCaseGen: Gen<ReverseCase> = (source) => ({
-	types: [source.draw(manyTypeGen), { kind: "free" }, source.draw(manyTypeGen)],
-	covered: source.draw(boolean),
-	selected: source.draw(boolean),
-	superkey: source.draw(boolean),
-	interleaved: false
-})
-
 export const reverseCaseGen: Gen<ReverseCase> = weighted<ReverseCase>([
 	[3, anyCaseGen],
 	[1, interleavedCaseGen]
@@ -263,7 +250,7 @@ export const columnNames = (c: ReverseCase): Arr.NonEmptyReadonlyArray<string> =
 	Arr.map(c.types, (_, i) => `c${i}`)
 
 /** The positions of a case's columns of a type with no bound. */
-export const freePositions = (c: ReverseCase): ReadonlyArray<number> =>
+const freePositions = (c: ReverseCase): ReadonlyArray<number> =>
 	Arr.filter(indices(c.types.length), (i) => c.types[i]?.kind === "free")
 
 /** The positions of a case's bounded columns. */
@@ -271,7 +258,7 @@ const boundedPositions = (c: ReverseCase): ReadonlyArray<number> =>
 	Arr.filter(indices(c.types.length), (i) => c.types[i]?.kind !== "free")
 
 /** The positions of a case's set columns. */
-export const setPositions = (c: ReverseCase): ReadonlyArray<number> =>
+const setPositions = (c: ReverseCase): ReadonlyArray<number> =>
 	Arr.filter(indices(c.types.length), (i) => c.types[i]?.kind === "set")
 
 /**
@@ -434,7 +421,7 @@ const interleavedKey = (names: Arr.NonEmptyReadonlyArray<string>): ReadonlyArray
 ]
 
 /** The relation names of the case at a position: its source's and its target's. */
-export const relationsAt = (at: number): { readonly source: string; readonly target: string } => ({
+const relationsAt = (at: number): { readonly source: string; readonly target: string } => ({
 	source: `A${at}`,
 	target: `B${at}`
 })
@@ -447,7 +434,7 @@ export const relationsAt = (at: number): { readonly source: string; readonly tar
  * the containment of the one, or of its live rows, in the other; the declared key over the source's bounded columns
  * where the case declares one, and the interleaved key where it declares that.
  */
-export const reverseParts = (
+const reverseParts = (
 	cases: ReadonlyArray<ReverseCase>
 ): {
 	readonly relations: ReadonlyArray<readonly [string, AnyRelation | AnyClosed]>

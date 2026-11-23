@@ -255,21 +255,6 @@ export const isImmediate = (schema: HostSchema, law: HostLaw): boolean => {
 	}
 }
 
-/** A containment, the one law kind whose sides pair plain fields. */
-export type HostContainment = Extract<HostLaw, { readonly kind: "contained" }>
-
-/**
- * Whether a law is a containment or a coverage from a selected source: its source lowers to law columns, `CASE WHEN φ
- * THEN f END STORED`, read by a MATCH SIMPLE foreign key (fin.md §5.1), so a fact outside the selection is never
- * judged. The reverse direction of alternatives is one, per armed handle (§7).
- */
-export const fromSelected = (law: HostLaw): boolean =>
-	(law.kind === "contained" || law.kind === "covered") && law.source.selection.kind === "where"
-
-/** Whether a law is a containment from a selected source (fromSelected), narrowed to its arm. */
-export const isSelectedContainment = (law: HostLaw): law is HostContainment =>
-	law.kind === "contained" && law.source.selection.kind === "where"
-
 /** The relations a law reads: what its native constraint checks. */
 export const lawRelations = (law: HostLaw): ReadonlyArray<string> => {
 	switch (law.kind) {
@@ -738,64 +723,6 @@ export const sortedStateRows = (schema: HostSchema, state: HostState): StateRows
 /** Whether two states are one: every relation holds the same rows, in any order. */
 export const sameState = (schema: HostSchema, a: HostState, b: HostState): boolean =>
 	Option.isNone(rowsDifference(stateRows(schema, a), stateRows(schema, b)))
-
-/**
- * Whether a law is a coverage whose target names its fields apart from its source's: a span field of another name, or
- * a scalar paired with one of another name, so only the fields' positions in the two lists pair them.
- */
-export const isRenamedCoverage = (law: HostLaw): boolean =>
-	law.kind === "covered" &&
-	(law.span.source !== law.span.target ||
-		Arr.some(law.source.fields, (f, i) => f !== law.target.fields[i]))
-
-/**
- * Whether a law is a coverage into the target facts a selector picks: a tagged PERIOD foreign key, its source
- * unselected (a containment admits at most one selected side).
- */
-export const isSelectedTargetCoverage = (law: HostLaw): boolean =>
-	law.kind === "covered" && law.target.selection.kind === "where"
-
-/**
- * Whether a law is a candidate span key: a span key beside its relation's primary key, the UNIQUE ... WITHOUT OVERLAPS
- * form.
- */
-export const isCandidateSpanKey = (host: HostSchema, law: HostLaw): boolean => {
-	if (law.kind !== "spanKey") {
-		return false
-	}
-	const fields = [...law.scalars, law.span]
-	return Arr.some(
-		host.relations,
-		(r) =>
-			r.name === law.relation &&
-			(r.key.length !== fields.length || Arr.some(r.key, (f, i) => f !== fields[i]))
-	)
-}
-
-/**
- * Whether `state` holds two facts a span key law judges on unequal spans that overlap, and no two on equal ones: a
- * refusal only a candidate span key's WITHOUT OVERLAPS explains, which a plain UNIQUE over the same fields would admit.
- */
-export const overlapsUnequally = (state: HostState, law: HostLaw): boolean => {
-	if (law.kind !== "spanKey") {
-		return false
-	}
-	const facts = Arr.filter(factsIn(state, law.relation), (f) => selected(f, law.selection))
-	const pairs = Arr.flatMap(facts, (a, i) =>
-		Arr.flatMap(facts.slice(i + 1), (b) => {
-			const x = a[law.span]
-			const y = b[law.span]
-			if (x === undefined || y === undefined || !isSpan(x) || !isSpan(y)) {
-				return []
-			}
-			if (!Arr.every(law.scalars, (f) => sameValue(a[f], b[f]))) {
-				return []
-			}
-			return x.start < y.end && y.start < x.end ? [x.start === y.start && x.end === y.end] : []
-		})
-	)
-	return pairs.length > 0 && Arr.every(pairs, (equal) => !equal)
-}
 
 /**
  * A schema as a stratum's order reads it (stratum-order.ts): where each relation's facts meet, at its key where a field

@@ -33,8 +33,8 @@
  *   where none of its L2s is paceless and an L2 paceless where no block marks it: three negations deep, so a block
  *   deleted, under three, brings back the facts the check reads.
  *
- * - **Equivalence:** one search per shape, each with the budget of its own, so a shape added takes none of another's;
- *   each case draws a history of direct SQL transactions at SERIALIZABLE over keys 1 and 2
+ * - **Equivalence:** one search per shape whose rule reads a relation under negations of negations, standing, lifted
+ *   and budget (rule-seeding.fixtures.ts judgedShapes), each with the budget of its own; each case draws a history of direct SQL transactions at SERIALIZABLE over keys 1 and 2
  *   and ids 1 to 3: chains of three links, marks, blocks, deletes of one row or of a link and its children at once,
  *   and replacements of a link's parent or value, its row deleted and inserted again in one statement, since a link is
  *   immutable and its table refuses an UPDATE that changes a row. Each transaction, before its triggers run, runs the rule's whole violation
@@ -65,36 +65,27 @@
  *   or merge join, the plans a table of a few rows makes cheapest and an index-only scan's locks follow the visibility
  *   map; a probe that can read a key's rows by index then does, and one that cannot reads every row all the same.
  *
- * Two refusals are required of the equivalence search because a probe's delete semantics live in them: a transaction
- * of single-row deletes alone refused, so only a delete's probe can have found the break, its touched row gone at
- * COMMIT and read as OLD's values in its place; and one that deletes a link and its children at once, so one tuple
- * loses rows from several matches and the relaxation order decides which probe withdraws it. A drawn history reaches
- * either rarely, as it does a refusal by an inserted block, so each has a case constructed to reach it, which a witness
- * whose turn aims at the refusal draws (aimsOf): a lawful build, then the withdrawal, which leaves a source fact its
- * every target fact withdrawn (withdrawalsOf). A key is refused by single-row deletes
- * of a block alone, which adds the facts it held out, and never by an unwind or an inserted block, so key's and
- * tagged's searches require the first refusal only. standing's is refused by a block deleted alone and by a mark
- * inserted alone, the occurrence under two negations, and requires both, a constructed case reaching each; lifted's by a
- * block inserted and by a mark deleted alone, each so constructed.
+ * The refusals required of each equivalence search are those its withdrawals reach, which a drawn history reaches
+ * rarely, so each has a case constructed to reach it, which a witness whose turn aims at the refusal draws (aimsOf): a
+ * lawful build, then the withdrawal (withdrawalsOf). standing's key is refused by a block deleted alone and by a mark
+ * inserted alone, the occurrence under two negations, and requires both; lifted's containment by a block inserted and
+ * by a mark deleted alone; budget's check by a block deleted alone, under three negations.
  */
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
-import { family, property, type Case } from "@bjornpagen/testing/property"
+import { family, type Kill, property, type Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Record as Rec, String as Str } from "effect"
 import { cleared } from "#test/pg/fin/installed.ts"
 import {
 	aimsOf,
 	caseGen,
-	concurrentAims,
-	type ConcurrentFeature,
-	concurrentGen,
-	judgeConcurrent,
-	nestedShapes,
 	type EquivalenceFeature,
 	footprints,
 	installedIn,
 	judgeHistory,
+	judgedShapes,
+	type JudgedShape,
 	type LocalityFeature,
 	localityGen,
 	RELATIONS,
@@ -106,14 +97,52 @@ import {
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
+ * The kills of each judged shape's equivalence search: a relation under negations probed by no write that turns its
+ * polarity at each negation, so a write that brings back or withdraws facts through them is judged by no probe.
+ */
+const equivalenceKills: { readonly [S in JudgedShape]: ReadonlyArray<Kill> } = {
+	budget: [
+		{
+			file: "packages/engine/src/analysis/theory/query.ts",
+			original: "\t...movedCandidates(arms, direction, relation, side, depth, memo, loc)\n",
+			replacement: "",
+			why: "A relation under three negations probed by no deletion: a fact a negation now blocks is withdrawn by no candidate, so a block deleted, which makes its member paceless and its root no longer rate-paced, brings back a fact the check refuses, and it commits."
+		}
+	],
+	lifted: [
+		{
+			file: "packages/engine/src/analysis/theory/query.ts",
+			original: "\t\t\t\tturned(direction),\n",
+			replacement: "\t\t\t\tdirection,\n",
+			why: "A target's relation under two negations probed by no deletion: a mark deleted, which lets a block stand again and withdraws the target facts it holds out, is judged by no probe, so the containment it breaks commits."
+		}
+	],
+	standing: [
+		{
+			file: "packages/engine/src/analysis/theory/query.ts",
+			original: "\t\t\t\tturned(direction),\n",
+			replacement: "\t\t\t\tdirection,\n",
+			why: "A relation read under two negations probed by no write: a mark inserted, which lifts a standing block and brings back the facts it held out, is judged by no probe, so the key it breaks commits."
+		},
+		{
+			file: "packages/engine/src/analysis/theory/query.ts",
+			original:
+				'const flipped = (p: Polarity): Polarity => (p === "positive" ? "negative" : "positive")',
+			replacement: "const flipped = (p: Polarity): Polarity => p",
+			why: "A negation that does not flip its arm's polarity: the deltas a probe of a negated relation reads are never captured, so a block deleted commits the key it breaks."
+		}
+	]
+}
+
+/**
  * Commit exactly the transactions whose state the rule's whole check finds lawful, refusing the rest by the rule, one
- * property for each shape, each case on the worker's seat of its shape's schema.
+ * property for each judged shape, each case on the worker's seat of its shape's schema.
  *
  * Its pre-conversion budget: runs 80, coverage cases 200 each (test/pg/laws/rule-seeding.test.ts at eccd3c305).
  */
 export const commitExactlyTheTransactionsWhoseStateTheRulesWholeCheckFindsLawful = family(
 	Rec.fromEntries(
-		Arr.map(shapes, (shape) => [
+		Arr.map(judgedShapes, (shape) => [
 			shape,
 			property.explore(aimed(caseGen(shape), aimsOf(shape)), {
 				needs: { seated: Substrate.seat(seedTemplates[shape]) },
@@ -139,43 +168,7 @@ export const commitExactlyTheTransactionsWhoseStateTheRulesWholeCheckFindsLawful
 				show: Formatter.format,
 				budget: { runs: 80, steered: 200 },
 				kept: [],
-				kills:
-					shape === "budget"
-						? [
-								{
-									file: "packages/engine/src/analysis/theory/query.ts",
-									original:
-										"\t...movedCandidates(arms, direction, relation, side, depth, memo, loc)\n",
-									replacement: "",
-									why: "A relation under three negations probed by no deletion: a fact a negation now blocks is withdrawn by no candidate, so a block deleted, which makes its member paceless and its root no longer rate-paced, brings back a fact the check refuses, and it commits."
-								}
-							]
-						: shape === "lifted"
-							? [
-									{
-										file: "packages/engine/src/analysis/theory/query.ts",
-										original: "\t\t\t\tturned(direction),\n",
-										replacement: "\t\t\t\tdirection,\n",
-										why: "A target's relation under two negations probed by no deletion: a mark deleted, which lets a block stand again and withdraws the target facts it holds out, is judged by no probe, so the containment it breaks commits."
-									}
-								]
-							: shape === "standing"
-								? [
-										{
-											file: "packages/engine/src/analysis/theory/query.ts",
-											original: "\t\t\t\tturned(direction),\n",
-											replacement: "\t\t\t\tdirection,\n",
-											why: "A relation read under two negations probed by no write: a mark inserted, which lifts a standing block and brings back the facts it held out, is judged by no probe, so the key it breaks commits."
-										},
-										{
-											file: "packages/engine/src/analysis/theory/query.ts",
-											original:
-												'const flipped = (p: Polarity): Polarity => (p === "positive" ? "negative" : "positive")',
-											replacement: "const flipped = (p: Polarity): Polarity => p",
-											why: "A negation that does not flip its arm's polarity: the deltas a probe of a negated relation reads are never captured, so a block deleted commits the key it breaks."
-										}
-									]
-								: []
+				kills: equivalenceKills[shape]
 			})
 		])
 	)
@@ -273,49 +266,3 @@ export const readTheSameRowsAndTakeTheSameSireadLocksBesideHundredsMoreKeys = fa
 		])
 	)
 )
-
-/**
- * Commit no state that breaks a rule reading a relation under two negations, whichever of two concurrent writers
- * PostgreSQL refuses, one property for each such shape, each case on the worker's seat of its shape's schema: the
- * judge's reads at COMMIT are its SERIALIZABLE transaction's, so two transactions that each keep the rule and together
- * break it, two sittings of one student and form each made active, read each other's writes and one of them fails.
- *
- * Its budget is the runner's: a new property, with no suite before it to carry a count from.
- */
-export const commitNoStateThatBreaksARuleUnderTwoNegationsWhicheverConcurrentWriterIsRefused =
-	family(
-		Rec.fromEntries(
-			Arr.map(nestedShapes, (shape) => [
-				shape,
-				property.explore(aimed(concurrentGen(shape), concurrentAims(shape)), {
-					needs: { seated: Substrate.seat(seedTemplates[shape]) },
-					situations: [
-						"concurrent writers both committed",
-						"a concurrent writer refused by a serialization failure",
-						"a write skew refused"
-					] satisfies ReadonlyArray<Reached<ConcurrentFeature>>,
-					check:
-						({ seated }, k: Case<ConcurrentFeature>) =>
-						(c) =>
-							Effect.scoped(
-								Effect.flatMap(seated, (taken) =>
-									Effect.provideService(
-										Effect.flatMap(installedIn(taken, shape), (installed) =>
-											judgeConcurrent(installed, c, k.note)
-										),
-										Substrate,
-										taken.substrate
-									)
-								)
-							),
-					oracle: {
-						kind: "postgresql",
-						name: "the rule's whole violation query, read after both writers end: it finds nothing, whichever of them PostgreSQL refused"
-					},
-					show: Formatter.format,
-					kept: [],
-					kills: []
-				})
-			])
-		)
-	)

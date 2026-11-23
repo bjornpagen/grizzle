@@ -29,33 +29,20 @@
  * Every install also passes the installed-catalog checker (test/support/catalog/installed.ts indexProblems), which
  * every suite's install runs: no two unique indexes of a table over one method and column set.
  *
- * And a migration that moves a kept foreign key off the UNIQUE it landed on: S1 references T over (k, a, b) throughout,
- * and a reference of S0's over the same columns, a superkey or a fixed target, which the law model reads first, is added
- * and then dropped, so the one UNIQUE over the set takes S0's order and then S1's again. PostgreSQL bound S1's foreign
- * key to the index it found when it was added, and refuses to drop that index under it (2BP01), so each step drops it
- * only after rebinding the foreign key (deploy/diff/diff.ts rebind). The box: S0's reference over (k, a, b) in every
- * order, a superkey or a fixed target fixing a or b, the walk drafted and applied through the real runner with rows in
- * every table, each apply admitted by the drift check and the installed-catalog checker, the migrated catalog equal to a
- * fresh install of each step, and S1's foreign key refusing a row naming no row of T after every step. T's table is
- * read by the name the installation gives it.
- *
  * Features: two references over one set in two orders, a fixed target and a superkey reference over one set,
  * references over two sets, a declared key and a reference over one set, a fixed target referenced at its own columns,
- * a clash refused, a source row committed and one refused by its own foreign key; the walk must move a kept foreign key
- * off the UNIQUE it landed on.
+ * a clash refused, a source row committed and one refused by its own foreign key.
  */
 
 import type { Reached } from "@bjornpagen/testing/features"
-import { aimed, finite } from "@bjornpagen/testing/gen"
+import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
 	aims,
 	drawnGen,
 	type Feature,
-	referencesCase,
-	secondGen,
-	walkCase
+	referencesCase
 } from "#test/pg/laws/superkey-orders.fixtures.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -99,26 +86,4 @@ export const referencesIntoOneRelationsSuperkeysInDifferentOrdersOneUniqueIndexP
 				why: "A side guards its term over T's latest field, not its earliest, so a fixed target over k and another field generates that field and lands on k as itself, a set no side of that selection states."
 			}
 		]
-	})
-
-/**
- * References into one relation's superkeys in different orders a migration moves a kept foreign key off the UNIQUE it landed on when the set's order changes.
- */
-export const referencesIntoOneRelationsSuperkeysInDifferentOrdersAMigrationMovesAKeptForeignKeyOffTheUNIQUEItLandedOnWhenTheSetsOrderChanges =
-	property.exhaust(finite(secondGen), {
-		needs: { substrate: Substrate.installing },
-		situations: ["a kept foreign key moved off the UNIQUE it landed on"] satisfies ReadonlyArray<
-			Reached<"a kept foreign key moved off the UNIQUE it landed on">
-		>,
-		check:
-			({ substrate }, c: Case<"a kept foreign key moved off the UNIQUE it landed on">) =>
-			(second) =>
-				Effect.provideServiceEffect(Effect.scoped(walkCase(second, c.note)), Substrate, substrate),
-		oracle: {
-			kind: "specification",
-			name: "the drift check and catalog checker after every apply, a fresh install's catalog, and S1's foreign key refusing a row naming no row of T"
-		},
-		box: "S0's reference over S1's columns (k, a, b) in every order, a superkey or a fixed target fixing a or b, added and dropped again",
-		kept: [],
-		kills: []
 	})

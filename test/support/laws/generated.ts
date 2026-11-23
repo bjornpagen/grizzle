@@ -48,7 +48,6 @@ import {
 	type HostValue
 } from "#test/support/laws/model.ts"
 import { openWriter, servedApply, type LawSession } from "#test/support/laws/support.ts"
-import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -746,17 +745,3 @@ const boxOf = (
  * int8, a Decimal for numeric, a Money of whole units for money.
  */
 export const lawBox: Family<BoxParams> = boxOf("the law-family box", points)
-
-/**
- * The points a direct SQL writer's statements reach as the family's direct suite writes them (direct.ts): an integer
- * literal for every number and each column read back as text, so no money column.
- */
-export const directLawBox: Family<BoxParams> = boxOf(
-	"the law-family box, direct",
-	nonEmptyList(
-		Arr.filter(points, (point) =>
-			Arr.every(point.relations, (r) => Arr.every(Rec.values(r.encodings), (e) => e !== "money"))
-		),
-		"the direct law-family box"
-	)
-)

@@ -152,10 +152,6 @@ export type Mode = "immutable" | "mutable"
 export const modeOf = (host: HostSchema): Mode =>
 	Arr.some(host.relations, (r) => r.mutable) ? "mutable" : "immutable"
 
-/** The schemas of one population of a family's box, in box order. */
-export const variantsOf = <P>(family: Family<P>, mode: Mode): ReadonlyArray<P> =>
-	Arr.filter(family.variants, (p) => modeOf(family.host(p)) === mode)
-
 /** One population of a family's box: its mode and its schemas, in box order. */
 export interface Population<P> {
 	readonly mode: Mode
@@ -177,10 +173,10 @@ export const populationsOf = <P>(family: Family<P>): Arr.NonEmptyReadonlyArray<P
 
 const label = str.regex("^[a-z]{0,8}$")
 /** The traits of a family of a few fixed schemas. */
-export const noTraits = (): ReadonlyArray<string> => []
+const noTraits = (): ReadonlyArray<string> => []
 
 /** A relation as the host sees it: its table and columns named by the naming door (core/identity.ts). */
-export const hostRelation = (
+const hostRelation = (
 	name: string,
 	fields: ReadonlyArray<string>,
 	keyFields: ReadonlyArray<string>,
@@ -196,7 +192,7 @@ export const hostRelation = (
 	mutable
 })
 
-export const booleans: Arr.NonEmptyReadonlyArray<boolean> = [false, true]
+const booleans: Arr.NonEmptyReadonlyArray<boolean> = [false, true]
 
 /**
  * Which relations of a schema are declared `mutable`, by name: the mutability of each relation a family draws, which
@@ -252,7 +248,7 @@ export interface RunsParams {
 }
 
 /** The handle of a drawn roster at a position. */
-export const stageName = (i: number): string => `s${i}`
+const stageName = (i: number): string => `s${i}`
 
 /** The values of a drawn alternatives schema: its roster, parent and payload relations, and its statements. */
 const drawnRuns = (p: RunsParams) => {

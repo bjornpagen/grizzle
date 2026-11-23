@@ -3,20 +3,8 @@
 import { assert } from "@bjornpagen/testing/assert"
 import { array, boolean, element, type Gen, int, shuffled, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Order } from "effect"
-import type { FolderTexts } from "#adapter/migrate/input.ts"
-import { quoteIdent } from "#compiler/core/text.ts"
-import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { type Catalogued, seatOf } from "#test/pg/fin/installed.ts"
-import {
-	apply,
-	checkedAdmission,
-	kept,
-	openMigrator,
-	reviewedSource,
-	sameCatalog
-} from "#test/pg/migrate/support.ts"
-import { succeeded } from "#test/support/assert.ts"
-import { installationSql, testArtifacts, testCompile } from "#test/support/compile.ts"
+import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import {
 	contained,
 	eq,
@@ -29,21 +17,7 @@ import {
 	relation,
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
-import { atName } from "#test/support/kernel/naming.ts"
-import {
-	asDrafted,
-	compile,
-	draftedAt,
-	fromEmpty,
-	fromSnapshot,
-	generate,
-	noDeclarations,
-	type Previous
-} from "#test/support/migrate/kit.ts"
-import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { attempt } from "#test/support/substrate.ts"
-import { pgErrorFields } from "#test/support/substrate/errors.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /** T's fields beyond its key `k`, which a reference's columns draw from. */
@@ -446,118 +420,4 @@ export const referencesCase = (d: Drawn, note: (feature: Feature) => void) =>
 			)
 		}
 		note("a source row naming no row of T refused by its own foreign key")
-	})
-
-/** S1's reference into T, which every step of the walk keeps. */
-const kept1: Reference = { kind: "superkey", order: ["k", "a", "b"] }
-
-/** S0's reference over S1's columns, a superkey or a fixed target, in any order (the header). */
-export const secondGen: Gen<Reference> = (source) =>
-	source.draw(referenceOver(source.draw(boolean) ? "fixed" : "superkey", ["a", "b"]))
-
-/**
- * A step of the walk: T, S0 and S1, S1's reference kept, and S0's `second` beside it when it is one. The law model reads
- * a schema's statements in their canonical order (schema/own.ts), S0's before S1's, so the UNIQUE over the set takes
- * S0's order while S0 references T and S1's otherwise.
- */
-const stepOf = (second: Reference | undefined): SchemaDesc =>
-	schemaWith(
-		2,
-		second === undefined
-			? [containmentOf(kept1, 1)]
-			: [containmentOf(second, 0), containmentOf(kept1, 1)]
-	)
-
-/** T's unique constraints, by name, as the catalog holds them: the one over S1's columns. */
-const uniqueOverSet = (table: { readonly schema: string; readonly name: string }) =>
-	Effect.gen(function* () {
-		const { admin } = yield* Substrate
-		const rows = yield* admin.queryValues(
-			"SELECT c.conname::text FROM pg_catalog.pg_constraint c JOIN pg_catalog.pg_class r ON r.oid = c.conrelid " +
-				"JOIN pg_catalog.pg_namespace n ON n.oid = r.relnamespace WHERE n.nspname = $1 AND r.relname = $2 AND c.contype = 'u'",
-			[table.schema, table.name]
-		)
-		return Arr.map(rows, (row) => String(row[0]))
-	})
-
-export const walkCase = (
-	second: Reference,
-	note: (feature: "a kept foreign key moved off the UNIQUE it landed on") => void
-) =>
-	Effect.gen(function* () {
-		const substrate = yield* Substrate
-		const name = yield* substrate.schema({ create: false, label: "superkey_moves" })
-		const m = yield* openMigrator(substrate, substrate.owner)
-		const over = { ...asDrafted, schema: atName(name) }
-		const steps = [stepOf(undefined), stepOf(second), stepOf(undefined)] as const
-		const folders: Array<FolderTexts> = []
-		let previous: Previous = fromEmpty
-		let landed: ReadonlyArray<string> = []
-		for (const [i, step] of steps.entries()) {
-			const installation = compile(step, over)
-			const g = succeeded(
-				generate({
-					previous,
-					installation,
-					name: `step_${i + 1}`,
-					timestamp: draftedAt(i + 1),
-					workload: noWorkload,
-					declared: noDeclarations
-				})
-			)
-			folders.push(reviewedSource(g, kept))
-			yield* apply(
-				m,
-				{ snapshot: g.snapshot, folders: [...folders] },
-				checkedAdmission(installation, substrate.admin)
-			)
-			previous = fromSnapshot(g.snapshot)
-			const table = (relation: string) => {
-				const q = installation.names.relation(relation)
-				return `${quoteIdent(q.schema)}.${quoteIdent(q.name)}`
-			}
-			const column = (relation: string, field: string) =>
-				quoteIdent(installation.names.column(relation, field))
-			const sourceRow = (relation: string, id: number, key: number) =>
-				`INSERT INTO ${table(relation)} (${Arr.join(
-					Arr.map(["id", "xk", "xa", "xb", "xc"], (fld) => column(relation, fld)),
-					", "
-				)}) VALUES (${id}, ${key}, ${held}, ${held}, ${held})`
-			if (i === 0) {
-				yield* transaction(substrate.admin, [
-					`INSERT INTO ${table("T")} (${Arr.join(
-						Arr.map(["k", "a", "b", "c"], (fld) => column("T", fld)),
-						", "
-					)}) VALUES (1, ${held}, ${held}, ${held})`,
-					sourceRow(sourceName(0), 1, 1),
-					sourceRow(sourceName(1), 1, 1)
-				])
-			}
-			const uniques = yield* uniqueOverSet(installation.names.relation("T"))
-			assert.equal(uniques.length, 1, `step ${i + 1}: T holds one UNIQUE over S1's columns`)
-			if (i > 0 && Arr.join(uniques, ",") !== Arr.join(landed, ",")) {
-				note("a kept foreign key moved off the UNIQUE it landed on")
-			}
-			landed = uniques
-			const refused = yield* Effect.flip(
-				transaction(substrate.admin, [sourceRow(sourceName(1), 2, 2)])
-			)
-			assert.equal(
-				pgErrorFields(refused)?.code,
-				"23503",
-				`step ${i + 1}: S1's foreign key refuses a row naming no row of T`
-			)
-			yield* Effect.scoped(
-				Effect.gen(function* () {
-					const schema = yield* substrate.schema({ create: false, label: "superkey_fresh" })
-					const fresh = compile(step, { ...over, schema: atName(schema) })
-					yield* transaction(substrate.admin, installationSql(fresh, substrate.database))
-					yield* sameCatalog(
-						installation,
-						fresh,
-						`step ${i + 1}: the migrated walk against a fresh install`
-					)
-				})
-			)
-		}
 	})

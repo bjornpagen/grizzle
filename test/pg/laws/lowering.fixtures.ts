@@ -2,7 +2,7 @@
  * The containment lowering's box and its judgment (lowering.test.ts): the drawn histories, each shape's installations as
  * templates, what each shape's plan decides, and one case of a shape against the containment's triggers.
  */
-import { deepEquals, defined } from "@bjornpagen/testing/assert"
+import { assert, deepEquals, defined } from "@bjornpagen/testing/assert"
 import { aimed, array, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Data, Effect, Formatter, Layer, Option, Record as Rec } from "effect"
@@ -385,10 +385,9 @@ const caseGen: Gen<LoweringCase> = (s) => ({
 
 /**
  * A history aimed at a target row's write the rule refuses: a source built over an A row the shape's target holds, at
- * the kind its match fixes (lowering-support.ts fixedKinds, 1 where it fixes none) and group 0, then that row's delete.
+ * the kind its match fixes (lowering-support.ts fixedKinds) and group 0, then that row's delete.
  * A delete, since A is immutable and an update of the row is its immutability guard's to refuse before the rule
- * (physical/ddl/immutable.ts), so the drawn histories reach this write the more seldom: fixedTwo's, at kind 1 and group
- * 0 both, past its steered budget.
+ * (physical/ddl/immutable.ts), so the drawn histories reach this write the more seldom.
  */
 const targetRefusedGen =
 	(shape: Shape): Gen<LoweringCase> =>
@@ -400,7 +399,7 @@ const targetRefusedGen =
 					{
 						rel: "A",
 						kind: "insert",
-						row: { ...aRow(s), kind: Option.getOrElse(fixedKinds[shape], () => 1), grp: 0 }
+						row: { ...aRow(s), kind: fixedKinds[shape], grp: 0 }
 					},
 					{ rel: "B", kind: "insert", row: bRow(s) },
 					{ rel: "S", kind: "reference", sid: s.draw(int(0, 2)), pick: 0, via: { kind: "head" } }
@@ -860,15 +859,14 @@ const plannedCarried = (installation: Installation): boolean => {
 
 /**
  * What a search of a shape must reach: a committed source row, the rule refusing a source row's write and a target
- * row's, a served write accepted and refused by the rule; a shape whose matches fix a constant refusing a target outside
- * it; where the lowering adds a UNIQUE over a superkey of a primary key, a duplicate of that key beside it; and where it
+ * row's, a served write accepted and refused by the rule, and a target outside the constant its match fixes refused;
+ * where the lowering adds a UNIQUE over a superkey of a primary key, a duplicate of that key beside it; and where it
  * adds one over a superkey of a candidate key and no primary key, in every order the shape is installed in, a direct
  * and a served duplicate of the candidate key beside it, and one PostgreSQL refuses on that UNIQUE's index, which
  * keyChanged's history creates before the key's. Each UNIQUE is read off the shape's planned installation, the natives
  * its fresh install creates, whose decision every case holds each installed catalog to (pairIn).
  */
 const situationsOf = (
-	shape: Shape,
 	installation: Installation,
 	installed: ReadonlyArray<Order>
 ): ReadonlyArray<Feature> => {
@@ -885,9 +883,7 @@ const situationsOf = (
 		"refused by the rule, a target row's write",
 		"a served write accepted",
 		"a served write refused by the rule",
-		...(Option.isSome(fixedKinds[shape])
-			? ["refused by the rule on a target outside its constants" as const]
-			: []),
+		"refused by the rule on a target outside its constants",
 		...(holding(true) ? ["a primary key's duplicate refused beside its superkey" as const] : []),
 		...(holding(false)
 			? [
@@ -1273,31 +1269,23 @@ const plannedOf = (shape: Shape): Installation => {
 }
 
 /**
- * A shape of the box with what its plan decides: whether its rule is carried by a foreign key, and the situations its
- * search must reach (situationsOf), in every order a lowered shape is installed in, fresh and through each history.
+ * A shape of the box with the situations its search must reach (situationsOf), read off its plan, in every order it is
+ * installed in, fresh and through each history.
  */
 export interface PlannedShape {
 	readonly shape: Shape
-	readonly lowered: boolean
 	readonly situations: ReadonlyArray<Feature>
 }
 
-/** Every shape of the box, planned (plannedOf). */
-const plannedShapes: ReadonlyArray<PlannedShape> = Arr.map(shapes, (shape) => {
+/**
+ * Every shape of the box, planned (plannedOf): each one's plan carries its rule by a foreign key, the box's premise, so
+ * a shape whose plan does not fails where the box is read.
+ */
+export const loweredShapes: ReadonlyArray<PlannedShape> = Arr.map(shapes, (shape) => {
 	const installation = plannedOf(shape)
-	const lowered = plannedCarried(installation)
-	return {
-		shape,
-		lowered,
-		situations: situationsOf(shape, installation, lowered ? ["fresh", ...histories] : ["fresh"])
-	}
+	assert.ok(plannedCarried(installation), `${shape}'s plan carries its rule by a foreign key`)
+	return { shape, situations: situationsOf(installation, ["fresh", ...histories]) }
 })
-
-/** The shapes whose plan carries the rule by a foreign key: each installed again through every history. */
-export const loweredShapes = Arr.filter(plannedShapes, (p) => p.lowered)
-
-/** The shapes whose plan discharges the rule by its triggers: installed fresh alone beside the oracle. */
-export const unloweredShapes = Arr.filter(plannedShapes, (p) => !p.lowered)
 
 /** A lowered shape installed through `history`, its first version then its last, once per member. */
 const historyTemplate = (shape: Shape, history: History): SubstrateTemplate<Installed> =>
@@ -1318,8 +1306,8 @@ const historyTemplate = (shape: Shape, history: History): SubstrateTemplate<Inst
 
 /**
  * Each shape's installations once per member through their migrations (install-migrate.ts migratedTemplate), where each
- * search installed them before its cases: the lowered one fresh, through each history for a lowered shape, and the
- * oracle's, every one's tables emptied by its seat after a case.
+ * search installed them before its cases: the lowered one fresh and through each history, and the oracle's, every
+ * one's tables emptied by its seat after a case.
  */
 export const loweringTemplatesOf = (shape: Shape) => ({
 	fresh: migratedTemplate({
@@ -1383,9 +1371,9 @@ const loweredIn = (taken: SubstrateCase<Installed>, shape: Shape, order: Order) 
 	)
 
 /**
- * A shape's installations as a case reads them over its clones: the lowered one fresh, and through every history for a
- * lowered shape, and the oracle's; every lowered installation's catalog carrying the rule by a foreign key exactly
- * where its plan does (`planned`, plannedShapes), and the oracle's by none.
+ * A shape's installations as a case reads them over its clones: the lowered one fresh and through every history, and
+ * the oracle's; every lowered installation's catalog carrying the rule by a foreign key, as its plan does
+ * (loweredShapes), and the oracle's by none.
  */
 export const pairIn = (
 	planned: PlannedShape,
@@ -1402,9 +1390,9 @@ export const pairIn = (
 			lows.set(history, low)
 		}
 		for (const [order, low] of lows) {
-			if (carriedByForeignKey(low.seat) !== planned.lowered) {
+			if (!carriedByForeignKey(low.seat)) {
 				return yield* new Disagreed({
-					message: `${shape}, installed ${order}: the installed rule ${planned.lowered ? "carried by no" : "carried by a"} foreign key, where its plan carries it by ${planned.lowered ? "one" : "none"}`
+					message: `${shape}, installed ${order}: the installed rule carried by no foreign key, where its plan carries it by one`
 				})
 			}
 		}
@@ -1588,13 +1576,9 @@ const verdictText = (verdict: Attempted, refuser: Refuser | undefined): string =
 		? "committed"
 		: `refused ${momentText(verdict.moment)} by ${refusalText(verdict.fields)} (${refuserText(refuser)})`
 
-/** Whether an op writes an A row outside the constants of a lowered shape's match: a kind other than the one it fixes. */
+/** Whether an op writes an A row outside the constants of a shape's match: a kind other than the one it fixes. */
 const outsideConstants = (shape: Shape, op: Op): boolean =>
-	Option.exists(
-		fixedKinds[shape],
-		(kind) =>
-			op.rel === "A" &&
-			(op.kind === "insert"
-				? op.row.kind !== kind
-				: op.kind === "update" && op.field === "kind" && op.value !== kind)
-	)
+	op.rel === "A" &&
+	(op.kind === "insert"
+		? op.row.kind !== fixedKinds[shape]
+		: op.kind === "update" && op.field === "kind" && op.value !== fixedKinds[shape])

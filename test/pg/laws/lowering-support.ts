@@ -1,9 +1,10 @@
 /**
  * The schemas the lowering differential draws (lowering.test.ts): a containment of a stored source S into a derived
  * target D whose definition reads the stored A, and B where it joins, each D one shape of the definition the theory
- * judges (analysis/theory/laws.ts RuleLowering). Eight shapes are meant to meet every condition a containment into a
- * derived relation lowers to foreign keys under, and eleven to fail exactly one of the seven, each condition by one at
- * least; which of them lowers is the theory's to decide, judged in test/unit/laws/lowered-rules.test.ts.
+ * judges (analysis/theory/laws.ts RuleLowering). Both shapes meet every condition a containment into a derived relation
+ * lowers to foreign keys under, and each references a superkey of its target's candidate key, the superkey's UNIQUE
+ * serving the containment beside the key: candidatePair's A (grp, v, kind) over key (grp, kind), join's B (grp, tag)
+ * over key (grp). Which definitions lower is the theory's to decide, judged in test/unit/laws/lowered-rules.test.ts.
  *
  * A holds a primary key `id` and a candidate key (grp, kind), B a primary key `id` and a candidate key `grp`, and S a
  * primary key `sid`, its `x` and `y` the source terms. A and B are the root level's, D and S the level above's, so S's
@@ -11,9 +12,7 @@
  * earlier version (Order), so a declared key's index and a lowering's UNIQUE over a superkey of it are created in every
  * order a deployment creates them.
  */
-import { Option } from "effect"
 import type { SchemaDesc } from "#compiler/ir/desc.ts"
-import { Logic, Type } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, key, on, relation, schema } from "#compiler/public/schema.ts"
@@ -58,156 +57,41 @@ const overRootStatements = (desc: SchemaDesc, statements: SchemaDesc["statements
 		? { ...desc, statements }
 		: { ...desc, bases: [overRootStatements(desc.bases[0], statements)] }
 
-/** Every shape of D, those meant to lower first. */
-export const shapes = [
-	"key",
-	"fixed",
-	"fixedTwo",
-	"whereFixed",
-	"candidate",
-	"candidatePair",
-	"pair",
-	"join",
-	"union",
-	"negated",
-	"computed",
-	"repeated",
-	"compared",
-	"headFixed",
-	"existential",
-	"headless",
-	"doubled",
-	"unkeyed",
-	"unbounded"
-] as const
+/** Every shape of D. */
+export const shapes = ["candidatePair", "join"] as const
 
 export type Shape = (typeof shapes)[number]
 
 /** The fields of A a source row copies into S's `x` and `y`. */
 export interface Head {
 	readonly x: "id" | "grp"
-	readonly y: "id" | "grp" | "v"
+	readonly y: "grp" | "v"
 }
 
 /**
  * The fields of A whose values each shape's target terms take, in the order of the source terms S's `x` and `y`
- * reference them: what a source row copies from an A row to name a fact of D, where the row meets D's other
- * conditions; a shape of one term reads `x` alone.
+ * reference them: what a source row copies from an A row to name a fact of D, where the row meets D's other conditions.
  */
 export const heads: Readonly<Record<Shape, Head>> = {
-	key: { x: "id", y: "grp" },
-	fixed: { x: "id", y: "grp" },
-	fixedTwo: { x: "id", y: "grp" },
-	whereFixed: { x: "id", y: "grp" },
-	candidate: { x: "grp", y: "grp" },
 	candidatePair: { x: "grp", y: "v" },
-	pair: { x: "id", y: "grp" },
-	join: { x: "id", y: "grp" },
-	union: { x: "id", y: "grp" },
-	negated: { x: "id", y: "grp" },
-	computed: { x: "id", y: "grp" },
-	repeated: { x: "id", y: "id" },
-	compared: { x: "id", y: "grp" },
-	headFixed: { x: "id", y: "grp" },
-	existential: { x: "id", y: "grp" },
-	headless: { x: "id", y: "grp" },
-	doubled: { x: "id", y: "grp" },
-	unkeyed: { x: "grp", y: "grp" },
-	unbounded: { x: "id", y: "grp" }
+	join: { x: "id", y: "grp" }
 }
 
-/** The kind each lowered shape's match of A fixes, where it fixes one. */
-export const fixedKinds: Readonly<Record<Shape, Option.Option<number>>> = {
-	key: Option.none(),
-	fixed: Option.some(1),
-	fixedTwo: Option.some(1),
-	whereFixed: Option.some(1),
-	candidate: Option.some(2),
-	candidatePair: Option.some(2),
-	pair: Option.some(1),
-	join: Option.some(1),
-	union: Option.none(),
-	negated: Option.none(),
-	computed: Option.none(),
-	repeated: Option.none(),
-	compared: Option.none(),
-	headFixed: Option.none(),
-	existential: Option.none(),
-	headless: Option.none(),
-	doubled: Option.none(),
-	unkeyed: Option.none(),
-	unbounded: Option.none()
+/** The kind each shape's match of A fixes. */
+export const fixedKinds: Readonly<Record<Shape, number>> = {
+	candidatePair: 2,
+	join: 1
 }
 
 /** The level above the root under `name`: S and D, and the containment of S in D. */
 const above = (root: Root, name: string, shape: Shape) => {
 	switch (shape) {
-		case "key": {
-			const D = derived(
-				"D",
-				query(root).rule((r) => {
-					const { id } = v(A, "a")
-					return r.match(A, { id }).find({ id })
-				})
-			)
-			return schema.extend([root], name, [S, D], [contained(on(S, "x"), on(D, "id"))])
-		}
-		case "fixed": {
-			const D = derived(
-				"D",
-				query(root).rule((r) => {
-					const { id } = v(A, "a")
-					return r.match(A, { id, kind: 1 }).find({ id })
-				})
-			)
-			return schema.extend([root], name, [S, D], [contained(on(S, "x"), on(D, "id"))])
-		}
-		case "fixedTwo": {
-			const D = derived(
-				"D",
-				query(root).rule((r) => {
-					const { id } = v(A, "a")
-					return r.match(A, { id, kind: 1, grp: 0 }).find({ id })
-				})
-			)
-			return schema.extend([root], name, [S, D], [contained(on(S, "x"), on(D, "id"))])
-		}
-		case "whereFixed": {
-			const D = derived(
-				"D",
-				query(root).rule((r) => {
-					const { id, kind } = v(A, "a")
-					return r.match(A, { id, kind }).where(r.eq(kind, 1)).find({ id })
-				})
-			)
-			return schema.extend([root], name, [S, D], [contained(on(S, "x"), on(D, "id"))])
-		}
-		case "candidate": {
-			const D = derived(
-				"D",
-				query(root).rule((r) => {
-					const { grp } = v(A, "a")
-					return r.match(A, { grp, kind: 2 }).find({ id: grp })
-				})
-			)
-			return schema.extend([root], name, [S, D], [contained(on(S, "x"), on(D, "id"))])
-		}
 		case "candidatePair": {
 			const D = derived(
 				"D",
 				query(root).rule((r) => {
 					const { grp, v: w } = v(A, "a")
 					return r.match(A, { grp, v: w, kind: 2 }).find({ id: grp, g: w })
-				})
-			)
-			return schema.extend([root], name, [S, D], [contained(on(S, "x", "y"), on(D, "id", "g"))])
-		}
-		case "pair": {
-			const D = derived(
-				"D",
-				query(root).rule((r) => {
-					const { id, grp } = v(A, "a")
-					return r.match(A, { id, grp, kind: 1 }).find({ id, g: grp })
 				})
 			)
 			return schema.extend([root], name, [S, D], [contained(on(S, "x", "y"), on(D, "id", "g"))])
@@ -221,124 +105,6 @@ const above = (root: Root, name: string, shape: Shape) => {
 				})
 			)
 			return schema.extend([root], name, [S, D], [contained(on(S, "x", "y"), on(D, "id", "g"))])
-		}
-		case "union": {
-			const D = derived(
-				"D",
-				query(root)
-					.rule((r) => {
-						const { id } = v(A, "a")
-						return r.match(A, { id, kind: 1 }).find({ id })
-					})
-					.rule((r) => {
-						const { id } = v(A, "a")
-						return r.match(A, { id, kind: 2 }).find({ id })
-					})
-			)
-			return schema.extend([root], name, [S, D], [contained(on(S, "x"), on(D, "id"))])
-		}
-		case "negated": {
-			const D = derived(
-				"D",
-				query(root).rule((r) => {
-					const { id, grp } = v(A, "a")
-					return r.match(A, { id, grp, kind: 1 }).where(r.not(B, { grp })).find({ id })
-				})
-			)
-			return schema.extend([root], name, [S, D], [contained(on(S, "x"), on(D, "id"))])
-		}
-		case "computed": {
-			const D = derived(
-				"D",
-				query(root).rule((r) => {
-					const { id } = v(A, "a")
-					return r
-						.match(A, { id, kind: 1 })
-						.find({ id: Logic.greatest(id, Type.literal(pg.integer, 0)) })
-				})
-			)
-			return schema.extend([root], name, [S, D], [contained(on(S, "x"), on(D, "id"))])
-		}
-		case "repeated": {
-			const D = derived(
-				"D",
-				query(root).rule((r) => {
-					const { id } = v(A, "a")
-					return r.match(A, { id, kind: 1 }).find({ id, id2: id })
-				})
-			)
-			return schema.extend([root], name, [S, D], [contained(on(S, "x", "y"), on(D, "id", "id2"))])
-		}
-		case "compared": {
-			const D = derived(
-				"D",
-				query(root).rule((r) => {
-					const { id, v: w } = v(A, "a")
-					return r.match(A, { id, kind: 1, v: w }).where(r.gt(w, 0)).find({ id })
-				})
-			)
-			return schema.extend([root], name, [S, D], [contained(on(S, "x"), on(D, "id"))])
-		}
-		case "headFixed": {
-			const D = derived(
-				"D",
-				query(root).rule((r) => {
-					const { id } = v(A, "a")
-					return r.match(A, { id, kind: 1 }).where(r.eq(id, 1)).find({ id })
-				})
-			)
-			return schema.extend([root], name, [S, D], [contained(on(S, "x"), on(D, "id"))])
-		}
-		case "existential": {
-			const D = derived(
-				"D",
-				query(root).rule((r) => {
-					const { id, grp } = v(A, "a")
-					const { id: bid } = v(B, "b")
-					return r.match(A, { id, grp, kind: 1 }).match(B, { id: bid, grp }).find({ id, bid })
-				})
-			)
-			return schema.extend([root], name, [S, D], [contained(on(S, "x", "y"), on(D, "id", "bid"))])
-		}
-		case "headless": {
-			const D = derived(
-				"D",
-				query(root).rule((r) => {
-					const { id } = v(A, "a")
-					return r.match(A, { id, kind: 1 }).match(B, { id: 0 }).find({ id })
-				})
-			)
-			return schema.extend([root], name, [S, D], [contained(on(S, "x"), on(D, "id"))])
-		}
-		case "doubled": {
-			const D = derived(
-				"D",
-				query(root).rule((r) => {
-					const { id } = v(A, "a")
-					return r.match(A, { id, grp: id, kind: 1 }).find({ id })
-				})
-			)
-			return schema.extend([root], name, [S, D], [contained(on(S, "x"), on(D, "id"))])
-		}
-		case "unkeyed": {
-			const D = derived(
-				"D",
-				query(root).rule((r) => {
-					const { grp } = v(A, "a")
-					return r.match(A, { grp, v: 1 }).find({ id: grp })
-				})
-			)
-			return schema.extend([root], name, [S, D], [contained(on(S, "x"), on(D, "id"))])
-		}
-		case "unbounded": {
-			const D = derived(
-				"D",
-				query(root).rule((r) => {
-					const { id } = v(A, "a")
-					return r.match(A, { id, txt: "a" }).find({ id })
-				})
-			)
-			return schema.extend([root], name, [S, D], [contained(on(S, "x"), on(D, "id"))])
 		}
 	}
 }

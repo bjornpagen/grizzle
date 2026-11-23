@@ -1,11 +1,9 @@
-import { appendAll, indices } from "@bjornpagen/grizzle-text/base/array"
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { defined } from "@bjornpagen/testing/assert"
-import { array, type Gen, int, weighted } from "@bjornpagen/testing/gen"
-import { agree } from "@bjornpagen/testing/oracle"
-import type { Case } from "@bjornpagen/testing/property"
+import { array, type Gen } from "@bjornpagen/testing/gen"
 import type { Content } from "@bjornpagen/testing/resources"
-import { type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/swarm"
-import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result, type Scope } from "effect"
+import { type Swarm, swarmChoice } from "@bjornpagen/testing/swarm"
+import { Array as Arr, Effect, Option, Record as Rec, type Scope } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
 import { type ApplyError, OpenError } from "#adapter/errors/execution.ts"
 import type { ServedRefusal } from "#adapter/public/compile.ts"
@@ -35,337 +33,31 @@ import {
 } from "#test/support/install-migrate.ts"
 import { reportedLawId } from "#test/support/kernel/naming.ts"
 import {
-	type Expected,
-	emptyState,
-	expect,
 	type HostFact,
-	type HostLaw,
 	type HostRelation,
 	type HostSchema,
 	type HostState,
-	isCandidateSpanKey,
-	isRenamedCoverage,
-	type HostContainment,
-	isSelectedContainment,
-	isSelectedTargetCoverage,
 	needs,
 	type HostOp,
 	type OpKind,
-	overlapsUnequally,
 	pinned,
 	projection,
 	relationOf,
-	rowsDifference,
 	type HostSide,
 	type StateRows,
 	sameValue,
-	sameValues,
 	selected,
-	stateRows,
 	transition,
-	type HostValue,
-	violations
+	type HostValue
 } from "#test/support/laws/model.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
-import { CaseFailed } from "#test/support/oracle/write/harness.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { pickFrom, pickGen, pickOf, pickSpan } from "#test/support/pick.ts"
-import { refusedEntries } from "#test/support/refused.ts"
 import { applicationOf, openServedDb, type ServedOn } from "#test/support/served-db.ts"
-import { holdsCycle, printOrder } from "#test/support/stratum-order.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate, type SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 
-/**
- * What a family case notes: each step's op kinds and its outcome, what a refusal notes (refusalFeatures), the schema it
- * ran on and each of its traits (boxes.ts), and a member that states one fact twice or two facts at one key, which the
- * add-wins model takes as one fact, and, in an insert or a put, as the key's refusal; in a delete, two facts at one key
- * are no refusal, since a deletion names its fact exactly (model.ts relationAfter and expect).
- */
-export type FamilyFeature =
-	| "accepted"
-	| "accepted beside a source fact no selected containment selects"
-	| "no-change"
-	| RefusalFeature
-	| `op ${OpKind}`
-	| `schema ${string}`
-	| `trait ${string}`
-	| "a fact stated twice in one member"
-	| "two facts at one key in one member"
-	| "a stratum no order keeps refused"
-
-/** What one member's facts state more than once: a whole fact, or a primary key with another fact at it. */
-const memberRepeats = (host: HostSchema, op: HostOp): ReadonlyArray<FamilyFeature> => {
-	const relation = relationOf(host, op.relation)
-	const heading = Arr.map(relation.fields, (x) => x.name)
-	const distinct = new Map(Arr.map(op.facts, (f) => [projection(f, heading), f] as const))
-	const keys = new Set(Arr.map([...distinct.values()], (f) => projection(f, relation.key)))
-	return [
-		...(distinct.size < op.facts.length ? (["a fact stated twice in one member"] as const) : []),
-		...(relation.key.length > 0 && keys.size < distinct.size
-			? (["two facts at one key in one member"] as const)
-			: [])
-	]
-}
-
-/**
- * What a refusal notes: the kind of law that refused it and the law itself, whether the fact a witness names was
- * stored as it is before the step (its counterpart went, or moved away) or is new (it came without one), whether a fact
- * of the side its law needs meets it in part, and each shape of law it shows (lawShapes).
- */
-export type RefusalFeature =
-	| `refused by a ${HostLaw["kind"]}`
-	| `refused by a ${HostLaw["kind"]} of ${Witnessing}`
-	| `refused by a ${HostLaw["kind"]} beside a partial match`
-	| ShapeFeature
-	| `law ${string}`
-
-/** The feature of a shape of law a refusal shows (lawShapes). */
-export type ShapeFeature = (typeof lawShapes)[number]["feature"]
-
-/** Whether a witness names a fact stored as it was before the change, or one the change added. */
-export type Witnessing = "a stored fact" | "a new fact"
-
-/** A key a witness names a fact by: its relation and the values of the key's fields. */
-interface WitnessKey {
-	readonly relation: string
-	readonly values: Readonly<Record<string, unknown>>
-}
-
-/**
- * What a witness's key names, judged on the state before a change and after it: a stored fact when every fact it names
- * is in both, as it is; a new fact otherwise.
- */
-const witnessing = (
-	host: HostSchema,
-	before: HostState,
-	after: HostState,
-	key: WitnessKey
-): Witnessing => {
-	const named = (state: HostState) =>
-		Arr.filter(state.get(key.relation) ?? [], (f) =>
-			sameValues(Rec.fromEntries(Arr.map(Rec.keys(key.values), (k) => [k, f[k]])), key.values)
-		)
-	const full = (f: HostFact) =>
-		projection(
-			f,
-			Arr.map(relationOf(host, key.relation).fields, (x) => x.name)
-		)
-	const was = Arr.map(named(before), full)
-	const is = Arr.map(named(after), full)
-	return is.length > 0 && Arr.every(is, (f) => was.includes(f)) ? "a stored fact" : "a new fact"
-}
-
-/**
- * Whether a fact a witness names meets a fact of the side it needs on some of the paired fields and not all: a refusal a
- * law that compared fewer fields, or paired them out of order, would have let pass. Only a law that pairs several
- * fields can be met in part.
- */
-const partlyMet = (state: HostState, law: HostLaw, key: WitnessKey): boolean =>
-	Arr.some(
-		needs(law),
-		({ from, to }) =>
-			from.fields.length > 1 &&
-			Arr.some(
-				Arr.filter(
-					defined(state.get(from.relation), `the state's ${from.relation} facts`),
-					(f) =>
-						key.relation === from.relation &&
-						sameValues(Rec.fromEntries(Arr.map(Rec.keys(key.values), (x) => [x, f[x]])), key.values)
-				),
-				(f) =>
-					Arr.some(defined(state.get(to.relation), `the state's ${to.relation} facts`), (t) => {
-						if (!selected(t, to.selection)) {
-							return false
-						}
-						const equal = Arr.map(from.fields, (field, i) =>
-							sameValue(f[field], t[defined(to.fields[i], `the field ${field} pairs with`)])
-						)
-						return Arr.some(equal, (x) => x) && Arr.some(equal, (x) => !x)
-					})
-			)
-	)
-
-/**
- * A refusal, as a case met it or as the host model predicts it: the host laws its law states (one law may be stated
- * as several, a restated containment), the states before the step and after it, and the key its witness names, a key's
- * alone: every other law is a native constraint whose violation names no fact.
- */
-export interface HostRefusal {
-	readonly laws: Arr.NonEmptyReadonlyArray<HostLaw>
-	readonly before: HostState
-	readonly after: HostState
-	readonly witness: WitnessKey | undefined
-}
-
-/**
- * A shape of law a refusal may show beside its kind: the feature it notes, whether a law of a schema has the shape,
- * and whether a refusal by such a law shows it, by the states before and after the refused step.
- */
-export interface LawShape {
-	readonly feature: string
-	readonly declares: (law: HostLaw, host: HostSchema) => boolean
-	readonly shows: (r: HostRefusal, law: HostLaw, host: HostSchema) => boolean
-}
-
-const always = (): boolean => true
-
-/** Whether a step wrote a relation: its facts after differ from its facts before. */
-const wrote = (r: HostRefusal, relation: string): boolean => {
-	const before = r.before.get(relation) ?? []
-	const after = r.after.get(relation) ?? []
-	return (
-		before.length !== after.length ||
-		Arr.some(before, (f) => !Arr.some(after, (g) => sameValues(f, g)))
-	)
-}
-
-/** The side of a containment from a selected source, its source or its target, a refused step wrote alone. */
-const wroteAlone =
-	(side: "source" | "target") =>
-	(r: HostRefusal, law: HostLaw): boolean =>
-		isSelectedContainment(law) &&
-		(side === "source"
-			? wrote(r, law.source.relation) && !wrote(r, law.target.relation)
-			: wrote(r, law.target.relation) && !wrote(r, law.source.relation))
-
-/**
- * Whether a source fact the containment selects after the step stood under the same key outside its selection: its law
- * column went from NULL to its value.
- */
-const switchedIn = (r: HostRefusal, law: HostLaw, host: HostSchema): boolean => {
-	if (!isSelectedContainment(law)) {
-		return false
-	}
-	const key = relationOf(host, law.source.relation).key
-	return Arr.some(
-		r.after.get(law.source.relation) ?? [],
-		(a) =>
-			selected(a, law.source.selection) &&
-			Arr.some(
-				r.before.get(law.source.relation) ?? [],
-				(b) => projection(a, key) === projection(b, key) && !selected(b, law.source.selection)
-			)
-	)
-}
-
-/** Whether a target fact kept its key and moved: its fields the containment pairs changed. */
-const targetMoved = (r: HostRefusal, law: HostLaw, host: HostSchema): boolean => {
-	if (!isSelectedContainment(law)) {
-		return false
-	}
-	const key = relationOf(host, law.target.relation).key
-	return Arr.some(r.after.get(law.target.relation) ?? [], (a) =>
-		Arr.some(
-			r.before.get(law.target.relation) ?? [],
-			(b) =>
-				projection(a, key) === projection(b, key) &&
-				projection(a, law.target.fields) !== projection(b, law.target.fields)
-		)
-	)
-}
-
-/** Whether a containment's target fields are other than its relation's key, so a target can move. */
-const movable = (law: HostLaw, host: HostSchema): boolean =>
-	isSelectedContainment(law) &&
-	!sameFieldSet(relationOf(host, law.target.relation).key, law.target.fields)
-
-const sameFieldSet = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean =>
-	a.length === b.length && Arr.every(a, (f) => b.includes(f))
-
-/**
- * Every shape of law a refusal may show, each where grizzle's laws have broken: a coverage across renamed fields; a
- * coverage into a selected target; a candidate span key over two facts whose unequal spans overlap; and a containment
- * from a selected source, the reverse direction of alternatives among them, refused after a write of one side alone,
- * after a source fact switched into its selection, and after its target moved.
- */
-export const lawShapes = [
-	{
-		feature: "covered across renamed fields",
-		declares: isRenamedCoverage,
-		shows: always
-	},
-	{
-		feature: "covered into a selected target",
-		declares: isSelectedTargetCoverage,
-		shows: always
-	},
-	{
-		feature: "refused by a candidate span key over unequal spans",
-		declares: (law: HostLaw, host: HostSchema) => isCandidateSpanKey(host, law),
-		shows: (r: HostRefusal, law: HostLaw) => overlapsUnequally(r.after, law)
-	},
-	{
-		feature: "refused by a selected containment after a write of its sources alone",
-		declares: isSelectedContainment,
-		shows: wroteAlone("source")
-	},
-	{
-		feature: "refused by a selected containment after a write of its targets alone",
-		declares: isSelectedContainment,
-		shows: wroteAlone("target")
-	},
-	{
-		feature: "refused by a selected containment after a source switched into its selection",
-		declares: isSelectedContainment,
-		shows: switchedIn
-	},
-	{
-		feature: "refused by a selected containment after its target moved",
-		declares: movable,
-		shows: targetMoved
-	}
-] as const satisfies ReadonlyArray<LawShape>
-
-/** What a refusal notes: the one rule its case notes by and a planted case is found by (plantedRefusal). */
-export const refusalFeatures = (
-	host: HostSchema,
-	r: HostRefusal
-): ReadonlyArray<RefusalFeature> => {
-	const [law] = r.laws
-	const kind: RefusalFeature = `refused by a ${law.kind}`
-	const shown = Arr.map(
-		Arr.filter(lawShapes, (shape) =>
-			Arr.some(r.laws, (l) => shape.declares(l, host) && shape.shows(r, l, host))
-		),
-		(shape) => shape.feature
-	)
-	const witness = r.witness
-	if (witness === undefined) {
-		return [kind, `law ${law.law}`, ...shown]
-	}
-	const named: RefusalFeature = `refused by a ${law.kind} of ${witnessing(host, r.before, r.after, witness)}`
-	const partial: ReadonlyArray<RefusalFeature> = Arr.some(r.laws, (l) =>
-		partlyMet(r.after, l, witness)
-	)
-		? [`refused by a ${law.kind} beside a partial match`]
-		: []
-	return [kind, `law ${law.law}`, ...shown, named, ...partial]
-}
-
 /** The host laws a refusal's law states; a law the host does not know fails the case. */
-/**
- * The host laws a refusal's laws state, those its final state violates first: one constraint may report several laws,
- * the containments merged into one foreign key (fin.md §15 rule 3), and a law the host does not know fails the case.
- */
-const refusingLaws = (
-	host: HostSchema,
-	laws: Arr.NonEmptyReadonlyArray<LawId>,
-	violated: ReadonlyArray<LawId>
-): Result.Result<Arr.NonEmptyReadonlyArray<HostLaw>, string> => {
-	const unknown = Arr.filter(laws, (law) => !Arr.some(host.laws, (l) => l.law === law))
-	if (unknown.length > 0) {
-		return Result.fail(`refused by ${Arr.join(unknown, ", ")}, a law the host does not know`)
-	}
-	const named = Arr.filter(host.laws, (l) => laws.includes(l.law))
-	const [first, ...rest] = [
-		...Arr.filter(named, (l) => violated.includes(l.law)),
-		...Arr.filter(named, (l) => !violated.includes(l.law))
-	]
-	return first === undefined
-		? Result.fail(`refused by ${Arr.join(laws, ", ")}, which the host states no law of`)
-		: Result.succeed([first, ...rest])
-}
 
 /**
  * The writers of a family schema: `app`, the grizzle writer, in the login `server`, and `direct`, the role its direct SQL
@@ -490,7 +182,7 @@ export interface LawSession {
  * The owner's side of an installed family schema: emptying every table, the committed state in stateRows' form, and
  * the closed id each field holds, whose column stores its handle's code.
  */
-export interface OwnerView {
+interface OwnerView {
 	readonly table: (relation: HostRelation) => string
 	readonly closed: (relation: string, field: string) => ClosedField | undefined
 	readonly reset: Effect.Effect<void, SqlError>
@@ -498,7 +190,7 @@ export interface OwnerView {
 	readonly read: Effect.Effect<StateRows, SqlError>
 }
 
-export const ownerView = (
+const ownerView = (
 	host: HostSchema,
 	installed: Installed
 ): Effect.Effect<OwnerView, never, Substrate> =>
@@ -687,9 +379,6 @@ export const stepFeatures = [
 ] as const
 export type StepFeature = (typeof stepFeatures)[number]
 
-/** A case's step swarm, drawn before its steps, which draw their op kinds and fact modes under it. */
-export const stepSwarmGen: Gen<Swarm<StepFeature>> = swarm(stepFeatures)
-
 const opKinds = ["insert", "delete", "put"] as const
 const firstModes = ["drawn", "stored", "linked"] as const
 const laterModes = ["drawn", "stored", "linked", "sibling"] as const
@@ -794,71 +483,11 @@ const writeSketchGen =
 		rest: source.draw(array(factSketchGen(steps, laterModes), { min: 0, max: 2 }))
 	})
 
-const supportedSketchGen: Gen<MemberSketch> = (source) => ({
-	arm: "supported",
-	need: source.draw(pickGen),
-	values: source.draw(sixPicks)
-})
-
-const unselectedSketchGen: Gen<MemberSketch> = (source) => ({
-	arm: "unselected",
-	need: source.draw(pickGen),
-	index: source.draw(pickGen),
-	values: source.draw(sixPicks)
-})
-
-const unlinkSketchGen: Gen<MemberSketch> = (source) => ({
-	arm: "unlink",
-	index: source.draw(pickGen)
-})
-
-const nearSketchGen: Gen<MemberSketch> = (source) => ({
-	arm: "near",
-	need: source.draw(pickGen),
-	target: source.draw(pickGen),
-	miss: source.draw(pickGen),
-	other: source.draw(pickGen),
-	values: source.draw(sixPicks)
-})
-
 const caseSketchOf = (steps: number, member: Gen<MemberSketch>): Gen<CaseSketch> =>
 	array(array(member, { min: 1, max: 3 }), { min: 1, max: steps })
 /** A short case under a step swarm: a history's initial state, and each of its writers' lists (test/support/history). */
 export const caseSketchGen = (steps: Swarm<StepFeature>): Gen<CaseSketch> =>
 	caseSketchOf(4, writeSketchGen(steps))
-/**
- * A family case runs up to eight steps. Three members in ten are planted: one stores a lawful referring group (a
- * selected source and its target); one deletes a fact a stored fact needs, so a law refuses a fact stored before the
- * step as often as a new one; one inserts a fact meeting the fact it needs on all of a law's paired fields but one, so
- * a foreign key that pairs several fields meets a partial match, which drawn facts meet only where the domains happen
- * to line up.
- */
-const familyMemberGen = (steps: Swarm<StepFeature>): Gen<MemberSketch> =>
-	weighted([
-		[7, writeSketchGen(steps)],
-		[1, supportedSketchGen],
-		[1, unlinkSketchGen],
-		[1, nearSketchGen]
-	])
-/** One step of a family case's members, under a step swarm. */
-export const familyStepSketchGen = (steps: Swarm<StepFeature>): Gen<StepSketch> =>
-	array(familyMemberGen(steps), { min: 1, max: 3 })
-
-/**
- * The steps of a lawful state under a step swarm: half their members store a referring group, a quarter store a fact a
- * referring side's selection does not pick, which an UPDATE may then move into the selection, and a quarter draw their
- * facts.
- */
-export const lawfulStateSketchGen = (steps: Swarm<StepFeature>): Gen<CaseSketch> =>
-	caseSketchOf(
-		4,
-		weighted([
-			[1, writeSketchGen(steps)],
-			[2, supportedSketchGen],
-			[1, unselectedSketchGen]
-		])
-	)
-
 /** The element a pick selects from a list the family built. */
 const pickIn = <A>(list: ReadonlyArray<A>, pick: number, what: string): A => {
 	const [first, ...rest] = list
@@ -895,13 +524,8 @@ const linksOf = (host: HostSchema, relation: string): ReadonlyArray<Link> =>
 const admits = (side: HostSide, fact: HostFact): boolean => selected(fact, side.selection)
 
 /**
- * Planted sketches: a precondition the population reaches too rarely, named and resolved as drawn ones are.
- *
- * - valuePicks: the picks that draw `fact`'s values from its relation's domains, one per field in `fields`' order.
- * - plantedInsert, plantedDeletion: a write member inserting `fact` as drawn, or deleting the stored fact at `index` of
- *   the `count` the relation holds.
- * - plantedGroup: a supported member from a law's need, its referring fact the one `from` names: that fact and every
- *   fact it needs, transitively.
+ * A planted sketch, a precondition the population reaches too rarely, named and resolved as drawn ones are:
+ * plantedDeletion, a write member deleting the stored fact at `index` of the `count` the relation holds.
  */
 const relationPick = (host: HostSchema, relation: string): number => {
 	const index = Option.getOrThrowWith(
@@ -911,67 +535,8 @@ const relationPick = (host: HostSchema, relation: string): number => {
 	return pickOf(index, host.relations.length)
 }
 
-/** Six picks, the length every sketch's value picks have, each field's at its place in `fields`. */
-export const valuePicks = (
-	domains: Domains,
-	relation: string,
-	fields: ReadonlyArray<string>,
-	fact: Readonly<Record<string, HostValue>>
-): ReadonlyArray<number> => {
-	if (fields.length > 6) {
-		throw new Error(`${relation} has more fields than a sketch has picks`)
-	}
-	return Arr.map(indices(6), (i) => {
-		const field = fields[i]
-		if (field === undefined) {
-			return 0
-		}
-		const domain = defined(domains[relation]?.[field], `the domain of ${relation}.${field}`)
-		const index = Option.getOrThrowWith(
-			Arr.findFirstIndex(domain, (x) => sameValue(x, fact[field])),
-			() => new Error(`${relation}.${field}'s domain holds no ${Formatter.format(fact[field])}`)
-		)
-		return pickOf(index, domain.length)
-	})
-}
-
 const headingOf = (host: HostSchema, relation: string): ReadonlyArray<string> =>
 	Arr.map(relationOf(host, relation).fields, (f) => f.name)
-
-/** A write of `fact` drawn whole: an insertion, or a put, which a mutable relation takes as its key's new payload. */
-const plantedWrite = (
-	host: HostSchema,
-	domains: Domains,
-	relation: string,
-	fact: Readonly<Record<string, HostValue>>,
-	kind: "insert" | "put"
-): MemberSketch => ({
-	arm: "write",
-	relation: relationPick(host, relation),
-	kind,
-	first: {
-		mode: "drawn",
-		values: valuePicks(domains, relation, headingOf(host, relation), fact),
-		index: 0,
-		link: 0
-	},
-	rest: []
-})
-
-export const plantedInsert = (
-	host: HostSchema,
-	domains: Domains,
-	relation: string,
-	fact: Readonly<Record<string, HostValue>>
-): MemberSketch => plantedWrite(host, domains, relation, fact, "insert")
-
-/** A put of `fact` at its key: on a mutable relation the stored fact there takes its payload, else an insertion. */
-const plantedPut = (
-	host: HostSchema,
-	domains: Domains,
-	relation: string,
-	fact: Readonly<Record<string, HostValue>>
-): MemberSketch => plantedWrite(host, domains, relation, fact, "put")
 
 export const plantedDeletion = (
 	host: HostSchema,
@@ -990,24 +555,6 @@ export const plantedDeletion = (
 	},
 	rest: []
 })
-
-const plantedGroup = (
-	host: HostSchema,
-	domains: Domains,
-	law: HostLaw,
-	from: Readonly<Record<string, HostValue>>
-): MemberSketch => {
-	const [need] = needs(law)
-	if (need === undefined) {
-		throw new Error(`${law.law} needs nothing`)
-	}
-	const offset = Arr.flatMap(host.laws.slice(0, host.laws.indexOf(law)), needs).length
-	return {
-		arm: "supported",
-		need: pickOf(offset, Arr.flatMap(host.laws, needs).length),
-		values: valuePicks(domains, need.from.relation, headingOf(host, need.from.relation), from)
-	}
-}
 
 export const resolveStep = (
 	host: HostSchema,
@@ -1174,7 +721,7 @@ const pointedAt = (side: HostSide, fact: HostFact, at: ReadonlyArray<HostValue>)
 }
 
 /** A fact of a relation, as a member writes it. */
-export interface WrittenFact {
+interface WrittenFact {
 	readonly relation: string
 	readonly fact: HostFact
 }
@@ -1184,7 +731,7 @@ export interface WrittenFact {
  * neither `before` nor `written` holds: each drawn by `values` (a fact's place among the written as its pick) and
  * pointed at the fact that requires it.
  */
-export const withSupports = (
+const withSupports = (
 	host: HostSchema,
 	domains: Domains,
 	before: HostState,
@@ -1421,7 +968,7 @@ const resolveNear = (
  * The stride a supported or near member redraws its picks by: each pick strided by its place, so a redrawn fact's keys
  * and payloads move apart through their domains.
  */
-export const redrawStride = 40_503
+const redrawStride = 40_503
 /** The most facts a member's supports close over: a closure past it is a defect of a family's laws. */
 const supportBound = 32
 
@@ -1448,319 +995,6 @@ const domainFacts = function* (
 	}
 }
 
-/** A planted refusal's steps: those the host accepts, and the step it then refuses. */
-interface PlantedSteps {
-	readonly lawful: CaseSketch
-	readonly refused: StepSketch
-}
-
-/**
- * A planted refusal's case: its steps, and the refusal as the host predicts it, once for each violator its witness may
- * name (once naming none, for a native violation).
- */
-export interface PlantedCase extends PlantedSteps {
-	readonly refusals: Arr.NonEmptyReadonlyArray<HostRefusal>
-}
-
-/** Every ordered pair of the facts a law's source side may hold. */
-const pairsOf = function* (host: HostSchema, domains: Domains, law: HostLaw) {
-	for (const first of domainFacts(host, domains, fromOf(law))) {
-		for (const second of domainFacts(host, domains, fromOf(law))) {
-			yield [first, second] as const
-		}
-	}
-}
-
-const fromOf = (law: HostLaw): string => defined(needs(law)[0], `${law.law}'s need`).from.relation
-
-/**
- * The first case, in a fixed order, each of whose lawful steps the host accepts and whose refused step it refuses by
- * one law alone, a refusal `reaches` admits whichever violator its witness names; none when no candidate is. The
- * candidates:
- * - one fact inserted alone, over every fact its relation's domains draw;
- * - a lawful referring group from a law's need (plantedGroup), over every referring fact the domains draw, then a fact
- *   of the state deleted;
- * - a lawful fact, then a second fact of its relation inserted beside it, over every pair the domains draw, so the
- *   second may collide with the first under a key or a span key;
- * - two lawful groups of one need, then a fact deleted, so a fact the deletion leaves may meet the violator in part;
- * - each stored source fact switched into a selected containment's selection, and each of its stored targets moved;
- * - a lawful fact, then a fact of another relation inserted beside it;
- * - a source fact switched into its selection beside a lawful fact of another relation.
- */
-export const plantedRefusal = (
-	host: HostSchema,
-	domains: Domains,
-	reaches: (r: HostRefusal) => boolean
-): PlantedCase | undefined => {
-	const accepted = (steps: CaseSketch): HostState | undefined => {
-		let state = emptyState(host)
-		for (const step of steps) {
-			const e = expect(host, state, resolveStep(host, domains, state, step))
-			if (e.kind !== "accepted") {
-				return undefined
-			}
-			state = e.state
-		}
-		return state
-	}
-	const refusals = (
-		before: HostState,
-		step: StepSketch
-	): Arr.NonEmptyReadonlyArray<HostRefusal> | undefined => {
-		const ops = resolveStep(host, domains, before, step)
-		const e = expect(host, before, ops)
-		if (e.kind !== "invariant-rejected") {
-			return undefined
-		}
-		const [only, ...others] = e.violations
-		if (only === undefined || others.length > 0) {
-			return undefined
-		}
-		const laws = refusingLaws(host, [only.law], [only.law])
-		if (Result.isFailure(laws)) {
-			return undefined
-		}
-		const after = transition(host, before, ops)
-		const refusal = (witness: WitnessKey | undefined): HostRefusal => ({
-			laws: laws.success,
-			before,
-			after,
-			witness
-		})
-		const [named, ...rest] = only.violators
-		const each: Arr.NonEmptyReadonlyArray<HostRefusal> =
-			named === undefined ? [refusal(undefined)] : [refusal(named), ...Arr.map(rest, refusal)]
-		return Arr.every(each, reaches) ? each : undefined
-	}
-	const deletions = function* (lawful: CaseSketch): Generator<PlantedSteps> {
-		const state = accepted(lawful)
-		if (state === undefined) {
-			return
-		}
-		for (const r of host.relations) {
-			const facts = state.get(r.name) ?? []
-			for (const [i] of facts.entries()) {
-				yield { lawful, refused: [plantedDeletion(host, r.name, i, facts.length)] }
-			}
-		}
-	}
-	const besides = function* (
-		relation: string,
-		fact: Readonly<Record<string, HostValue>>
-	): Generator<PlantedSteps> {
-		const lawful: CaseSketch = [[plantedInsert(host, domains, relation, fact)]]
-		if (accepted(lawful) === undefined) {
-			return
-		}
-		for (const second of domainFacts(host, domains, relation)) {
-			yield { lawful, refused: [plantedInsert(host, domains, relation, second)] }
-		}
-	}
-	/**
-	 * A lawful fact, then a fact of another relation inserted beside it, over every pair the domains draw: a source
-	 * written alone into a state that holds what its other laws ask of it, a coverage's target beside a containment's.
-	 */
-	/**
-	 * A lawful fact, then a lawful fact of another relation beside it, over every pair the domains draw: a state that
-	 * holds what a source's other laws ask of it, a coverage's target, beside the source a switch rewrites.
-	 */
-	const acrossStates = function* (): Generator<CaseSketch> {
-		for (const r of host.relations) {
-			for (const fact of domainFacts(host, domains, r.name)) {
-				for (const other of host.relations) {
-					if (other.name === r.name) {
-						continue
-					}
-					for (const second of domainFacts(host, domains, other.name)) {
-						yield [
-							[plantedInsert(host, domains, r.name, fact)],
-							[plantedInsert(host, domains, other.name, second)]
-						]
-					}
-				}
-			}
-		}
-	}
-	const across = function* (): Generator<PlantedSteps> {
-		for (const r of host.relations) {
-			for (const fact of domainFacts(host, domains, r.name)) {
-				const lawful: CaseSketch = [[plantedInsert(host, domains, r.name, fact)]]
-				if (accepted(lawful) === undefined) {
-					continue
-				}
-				for (const other of host.relations) {
-					if (other.name === r.name) {
-						continue
-					}
-					for (const second of domainFacts(host, domains, other.name)) {
-						yield { lawful, refused: [plantedInsert(host, domains, other.name, second)] }
-					}
-				}
-			}
-		}
-	}
-	const grouped = Arr.filter(host.laws, (l) => needs(l).length > 0)
-	/** The lawful states a rewrite starts from: one fact alone, one referring group, two referring groups. */
-	const startingStates = function* (): Generator<CaseSketch> {
-		for (const r of host.relations) {
-			for (const fact of domainFacts(host, domains, r.name)) {
-				yield [[plantedInsert(host, domains, r.name, fact)]]
-			}
-		}
-		for (const law of grouped) {
-			for (const from of domainFacts(host, domains, fromOf(law))) {
-				yield [[plantedGroup(host, domains, law, from)]]
-			}
-		}
-		for (const law of grouped) {
-			for (const [first, second] of pairsOf(host, domains, law)) {
-				yield [
-					[plantedGroup(host, domains, law, first)],
-					[plantedGroup(host, domains, law, second)]
-				]
-			}
-		}
-	}
-	/**
-	 * The stored fact `at` of `relation` rewritten at its key into `next`: by a put, which a mutable relation takes as
-	 * the fact's new payload, or by its deletion and next's insertion in one step, which replaces it on any relation;
-	 * each also with one other stored fact deleted, a fact the old one's laws asked for or one the new one collides with.
-	 */
-	const rewrites = function* (
-		state: HostState,
-		relation: string,
-		at: number,
-		next: Readonly<Record<string, HostValue>>
-	): Generator<StepSketch> {
-		const stored = state.get(relation) ?? []
-		const forms: ReadonlyArray<StepSketch> = [
-			[plantedPut(host, domains, relation, next)],
-			[
-				plantedDeletion(host, relation, at, stored.length),
-				plantedInsert(host, domains, relation, next)
-			]
-		]
-		for (const form of forms) {
-			yield form
-			for (const r of host.relations) {
-				const facts = state.get(r.name) ?? []
-				for (const [i] of facts.entries()) {
-					if (r.name !== relation || i !== at) {
-						yield [...form, plantedDeletion(host, r.name, i, facts.length)]
-					}
-				}
-			}
-		}
-	}
-	/** Whether every value of `values` lies in its field's domain, so a planted member can pick it. */
-	const inDomain = (relation: string, values: Readonly<Record<string, HostValue>>): boolean =>
-		Arr.every(Rec.toEntries(values), ([field, value]) =>
-			Arr.some(domains[relation]?.[field] ?? [], (x) => sameValue(x, value))
-		)
-	/**
-	 * Each stored source fact outside a selected containment's selection switched into it at its key, its target not
-	 * added.
-	 */
-	const switches = function* (states: Iterable<CaseSketch>): Generator<PlantedSteps> {
-		for (const lawful of states) {
-			const state = accepted(lawful)
-			if (state === undefined) {
-				continue
-			}
-			for (const law of host.laws) {
-				if (
-					!isSelectedContainment(law) ||
-					!inDomain(law.source.relation, pinned(law.source.selection))
-				) {
-					continue
-				}
-				for (const [i, a] of (state.get(law.source.relation) ?? []).entries()) {
-					if (selected(a, law.source.selection)) {
-						continue
-					}
-					for (const refused of rewrites(state, law.source.relation, i, {
-						...a,
-						...pinned(law.source.selection)
-					})) {
-						yield { lawful, refused }
-					}
-				}
-			}
-		}
-	}
-	/** Each stored target of a selected containment moved at its key, its paired fields to other values. */
-	const moves = function* (): Generator<PlantedSteps> {
-		for (const lawful of startingStates()) {
-			const state = accepted(lawful)
-			if (state === undefined) {
-				continue
-			}
-			for (const law of host.laws) {
-				if (!isSelectedContainment(law)) {
-					continue
-				}
-				const target = law.target.relation
-				const key = relationOf(host, target).key
-				for (const [i, d] of (state.get(target) ?? []).entries()) {
-					for (const moved of domainFacts(host, domains, target)) {
-						if (
-							projection(moved, key) === projection(d, key) &&
-							projection(moved, law.target.fields) !== projection(d, law.target.fields)
-						) {
-							for (const refused of rewrites(state, target, i, moved)) {
-								yield { lawful, refused }
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-	const candidates = function* (): Generator<PlantedSteps> {
-		for (const r of host.relations) {
-			for (const fact of domainFacts(host, domains, r.name)) {
-				yield { lawful: [], refused: [plantedInsert(host, domains, r.name, fact)] }
-			}
-		}
-		for (const law of grouped) {
-			for (const from of domainFacts(host, domains, fromOf(law))) {
-				yield* deletions([[plantedGroup(host, domains, law, from)]])
-			}
-		}
-		for (const r of host.relations) {
-			for (const fact of domainFacts(host, domains, r.name)) {
-				yield* besides(r.name, fact)
-			}
-		}
-		for (const law of grouped) {
-			for (const [first, second] of pairsOf(host, domains, law)) {
-				yield* deletions([
-					[plantedGroup(host, domains, law, first)],
-					[plantedGroup(host, domains, law, second)]
-				])
-			}
-		}
-		yield* switches(startingStates())
-		yield* moves()
-		yield* across()
-		yield* switches(acrossStates())
-	}
-	for (const c of candidates()) {
-		const before = accepted(c.lawful)
-		const found = before === undefined ? undefined : refusals(before, c.refused)
-		if (found !== undefined) {
-			return { ...c, refusals: found }
-		}
-	}
-	return undefined
-}
-
-const showOps = (ops: ReadonlyArray<HostOp>): string =>
-	Arr.join(
-		Arr.map(ops, (o) => `${o.kind} ${o.relation} ${Formatter.format(o.facts)}`),
-		"; "
-	)
-
 /** A write of a stratum as an UnorderableStratum's cycle names it. */
 type CycleWrite = Extract<CompileReason, { readonly _tag: "UnorderableStratum" }>["cycle"][number]
 
@@ -1777,268 +1011,3 @@ export const unorderableCycle = (
 	const reason = failure.error.reason
 	return reason._tag === "UnorderableStratum" ? reason.cycle : undefined
 }
-
-/**
- * What a step's ChangeSet does: the outcome its apply answers, or, refused when it compiles, the cycle of its stratum's
- * writes UnorderableStratum names.
- */
-type StepOutcome =
-	| ApplyOutcome<unknown>
-	| { readonly kind: "unorderable"; readonly cycle: Arr.NonEmptyReadonlyArray<CycleWrite> }
-
-/** A step's apply as its outcome: an UnorderableStratum is the step's, any other failure a defect of the run. */
-const stepOutcome = (
-	applied: Effect.Effect<ApplyOutcome<unknown>, ApplyError | ServedRefusal>
-): Effect.Effect<StepOutcome> =>
-	Effect.catch(applied, (failure): Effect.Effect<StepOutcome> => {
-		const cycle = unorderableCycle(failure)
-		return cycle === undefined
-			? Effect.die(failure)
-			: Effect.succeed({ kind: "unorderable", cycle })
-	})
-
-const showWrites = (writes: ReadonlyArray<CycleWrite>): string =>
-	Arr.join(
-		Arr.map(writes, (w) => `${w.op} ${w.relation}`),
-		", then "
-	)
-
-/** The first way an outcome departs from the host's expectation, if any. */
-const mismatch = (
-	session: LawSession,
-	expected: Expected,
-	outcome: StepOutcome
-): string | undefined => {
-	if (expected.kind === "unorderable") {
-		if (outcome.kind !== "unorderable") {
-			return `expected UnorderableStratum, the stratum's writes ordered in a cycle by ${printOrder(expected.order)}, got ${Formatter.format(outcome)}`
-		}
-		return holdsCycle(expected.order, outcome.cycle)
-			? undefined
-			: `refused with UnorderableStratum naming the cycle ${showWrites(outcome.cycle)}, which the stratum's writes, ordered by ${printOrder(expected.order)}, do not hold`
-	}
-	if (outcome.kind === "unorderable") {
-		return `refused with UnorderableStratum (${showWrites(outcome.cycle)}), where some order of the stratum's writes keeps every immediate key; expected ${expected.kind}`
-	}
-	if (expected.kind !== "invariant-rejected") {
-		return outcome.kind === expected.kind
-			? undefined
-			: `expected ${expected.kind}, got ${Formatter.format(outcome)}`
-	}
-	if (outcome.kind !== "invariant-rejected") {
-		return `expected a refusal by one of ${Formatter.format(Arr.map(expected.violations, (v) => v.law))}, got ${Formatter.format(outcome)}`
-	}
-	const laws = Arr.map(refusedEntries(outcome.refused), session.reported)
-	const violation = Arr.findFirst(expected.violations, (v) => laws.includes(v.law))
-	if (Option.isNone(violation)) {
-		return `refused by ${Arr.join(laws, ", ")}, none of which the final state violates; violated: ${Formatter.format(expected.violations)}`
-	}
-	const witness = outcome.witness
-	if (violation.value.violators.length === 0) {
-		return witness.kind === "unreported"
-			? undefined
-			: `a native violation's witness is ${Formatter.format(witness)}, where PostgreSQL leaves its key unreported`
-	}
-	if (witness.kind !== "key") {
-		return undefined
-	}
-	return Arr.some(
-		violation.value.violators,
-		(v) => v.relation === witness.relation && sameValues(v.values, witness.values)
-	)
-		? undefined
-		: `the witness key ${Formatter.format(witness)} names no violating fact of ${Formatter.format(violation.value.violators)}`
-}
-
-/**
- * A family case: which of the family's schemas it runs on, by its index among them, and its steps, each member's op
- * kind and fact modes as the case's step swarm chose them.
- */
-export interface FamilyCase {
-	readonly variant: number
-	readonly steps: CaseSketch
-}
-
-/**
- * Family cases over `variants` schemas: the schema drawn evenly, so every schema of a family meets its share of the
- * cases, then the case's step swarm, then its steps under it.
- */
-export const familyCaseGen =
-	(variants: number): Gen<FamilyCase> =>
-	(source) => {
-		const variant = source.draw(int(0, variants - 1))
-		const steps = source.draw(stepSwarmGen)
-		return { variant, steps: source.draw(caseSketchOf(8, familyMemberGen(steps))) }
-	}
-
-/**
- * The features of an outcome: a refusal's, by the laws it names, an accepted or unchanged outcome's kind, or a stratum
- * refused when it compiles.
- */
-const outcomeFeatures = (
-	session: LawSession,
-	state: HostState,
-	ops: ReadonlyArray<HostOp>,
-	outcome: StepOutcome
-): Result.Result<ReadonlyArray<FamilyFeature>, string> => {
-	const host = session.host
-	switch (outcome.kind) {
-		case "unorderable":
-			return Result.succeed(["a stratum no order keeps refused"])
-		case "invariant-rejected": {
-			const after = transition(host, state, ops)
-			const violated = Arr.map(violations(host, after), (v) => v.law)
-			return Result.map(
-				refusingLaws(host, Arr.map(refusedEntries(outcome.refused), session.reported), violated),
-				(laws) =>
-					refusalFeatures(host, {
-						laws,
-						before: state,
-						after,
-						witness: outcome.witness.kind === "key" ? outcome.witness : undefined
-					})
-			)
-		}
-		case "outside-world":
-			return Result.succeed([])
-		case "accepted":
-			return Result.succeed([
-				"accepted",
-				...(exemptAnchors(host, transition(host, state, ops))
-					? (["accepted beside a source fact no selected containment selects"] as const)
-					: [])
-			])
-		case "no-change":
-			return Result.succeed([outcome.kind])
-	}
-}
-
-/**
- * Whether a state holds a fact of a selected containment's source relation that no selected containment of that
- * relation selects: a parent at a handle no arm carries, a line its selector leaves unflagged.
- */
-const exemptAnchors = (host: HostSchema, state: HostState): boolean => {
-	const sources = new Set(
-		Arr.flatMap(host.laws, (l) => (isSelectedContainment(l) ? [l.source.relation] : []))
-	)
-	return Arr.some([...sources], (relation) =>
-		Arr.some(
-			state.get(relation) ?? [],
-			(fact) =>
-				!Arr.some(
-					host.laws,
-					(l) =>
-						isSelectedContainment(l) &&
-						l.source.relation === relation &&
-						selected(fact, l.source.selection)
-				)
-		)
-	)
-}
-
-/**
- * Whether a family's schema can reach a source fact no selected containment selects: a selected containment's source
- * relation, some value of whose selector fields' domains no selected containment of that relation selects.
- */
-export const exemptReachable = (host: HostSchema, domains: Domains): boolean =>
-	Arr.some(host.laws, (l) => {
-		if (!isSelectedContainment(l)) {
-			return false
-		}
-		const relation = l.source.relation
-		const peers = Arr.filter(
-			host.laws,
-			(m): m is HostContainment => isSelectedContainment(m) && m.source.relation === relation
-		)
-		const at = pinned(l.source.selection)
-		return Arr.some(Rec.keys(at), (field) =>
-			Arr.some(domains[relation]?.[field] ?? [], (value) => {
-				const fact = { ...at, [field]: value }
-				return Arr.every(peers, (m) => !selected(fact, m.source.selection))
-			})
-		)
-	})
-
-/**
- * The harness of the law-bearing generated suites: over law-bearing generated schemas, an outcome is accepted iff the
- * brute-force evaluation of every violation query on the final state is empty.
- *
- * A family (boxes.ts) states a schema shape whose laws, bounds, selectors and mutability are drawn from a fixed
- * space, the same schema as the host sees it (model.ts), and the typed ChangeSet of a list of enumerated members. Each
- * drawn schema installs once per test, with its laws, under a fresh schema name, and each case opens a grizzle
- * writer on it through Db.open and a DbLayer of its own on the substrate's database. A case is a sequence
- * of up to eight ChangeSets applied from the empty state, each resolved against the state the host expects before it,
- * so later steps delete, replace and move the facts earlier steps stored, and add facts referring to them. Each step's
- * outcome must be the host's:
- *
- * - UnorderableStratum when the ChangeSet compiles, exactly when the order its stratum's writes require runs in a cycle
- *   (model.ts stratumOrder), naming a cycle each of whose orders they require, and the state left as it was;
- * - `accepted` or `no-change` exactly when the brute-force evaluation of every law's violation query on the final
- *   state is empty, and then the committed state is the host's final state;
- * - otherwise `invariant-rejected` with one of the violated laws (a key law when one is violated, since keys are
- *   immediate), a witness of that law whose keys name violating facts (none for a native violation), and the state
- *   left as it was.
- *
- * A case draws which of the family's schemas it runs on and its steps; it explores through the library's explore: the
- * floor stream its suite's label derives and the run's rotating stream, and a failing case shrinks to a minimal one.
- * What a case reached is noted through its own Case (FamilyFeature).
- *
- * Runs one case's steps against a session from the empty state; the first mismatch fails the case with its steps. Each step notes its members' op kinds and its outcome: `accepted`, `no-change`, or what its
- * refusal notes (refusalFeatures).
- *
- * A full role's write is never outside its world: no host outcome is, and mismatch reports it.
- */
-export const runSteps = (
-	session: LawSession,
-	domains: Domains,
-	sketch: CaseSketch,
-	note: Case<FamilyFeature>["note"]
-): Effect.Effect<void, CaseFailed> =>
-	Effect.gen(function* () {
-		yield* Effect.orDie(session.reset)
-		let state = emptyState(session.host)
-		const log: Array<string> = []
-		for (const step of sketch) {
-			const ops = resolveStep(session.host, domains, state, step)
-			for (const o of ops) {
-				note(`op ${o.kind}`)
-				for (const f of memberRepeats(session.host, o)) {
-					note(f)
-				}
-			}
-			const expected = expect(session.host, state, ops)
-			const outcome = yield* stepOutcome(session.apply(ops))
-			log.push(`${showOps(ops)}\n    expected ${expected.kind}, got ${Formatter.format(outcome)}`)
-			const features = outcomeFeatures(session, state, ops, outcome)
-			if (Result.isFailure(features)) {
-				return yield* new CaseFailed({
-					report: `${Arr.join(log, "\n  ")}\n  ${features.failure}`
-				})
-			}
-			for (const f of features.success) {
-				note(f)
-			}
-			const problem = mismatch(session, expected, outcome)
-			if (problem !== undefined) {
-				return yield* new CaseFailed({ report: `${Arr.join(log, "\n  ")}\n  ${problem}` })
-			}
-			if (expected.kind === "accepted" || expected.kind === "no-change") {
-				state = expected.state
-			}
-			const stored = yield* Effect.orDie(session.read)
-			const hosted = stateRows(session.host, state)
-			yield* Effect.mapError(
-				agree(
-					[
-						["postgresql", stored],
-						["host", hosted]
-					],
-					rowsDifference
-				),
-				(disagreement) =>
-					new CaseFailed({
-						report: `${Arr.join(log, "\n  ")}\n  ${disagreement.message}\n  postgresql: ${Formatter.format(stored)}\n  host: ${Formatter.format(hosted)}`
-					})
-			)
-		}
-	})

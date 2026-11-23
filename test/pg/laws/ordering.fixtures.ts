@@ -1,4 +1,4 @@
-/** What the properties of ordering.test.ts read: each shape's schema and template, its cases and aims, and its judge. */
+/** What the property of ordering.test.ts reads: its schema and template, its cases and aims, and its judge. */
 import { type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { assert } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
@@ -7,14 +7,7 @@ import { rowEvaluator } from "#adapter/public/host.ts"
 import { Range } from "#compiler/public/compute.ts"
 import { contract, pg, span } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import {
-	check,
-	constraintNamesOf,
-	derived,
-	mutable,
-	relation,
-	schema
-} from "#compiler/public/schema.ts"
+import { check, constraintNamesOf, derived, relation, schema } from "#compiler/public/schema.ts"
 import {
 	cleared,
 	type Seat,
@@ -44,31 +37,19 @@ const Visit = relation("Visit", { sitting: pg.integer, during: span(Seconds) }, 
 const RELATIONS = ["Began", "EndedAt", "Visit"] as const
 type Table = (typeof RELATIONS)[number]
 
-/**
- * The box of schemas: each orders a sitting's visits after its start and before its end, inclusively (a visit may
- * start at the start and end at the end) or strictly, its visits immutable, so the judge reads each sitting a
- * transaction wrote whole, or mutable, so it probes the rows it wrote.
- */
-export const shapes = ["inclusive", "strict", "inclusive mutable", "strict mutable"] as const
-export type Shape = (typeof shapes)[number]
-
-const strictOf = (shape: Shape): boolean => shape === "strict" || shape === "strict mutable"
-
-const mutableOf = (shape: Shape): boolean =>
-	shape === "inclusive mutable" || shape === "strict mutable"
-
-/** The checks of every shape, by name: a visit at or after its sitting's start, and at or before its end. */
+/** The checks, by name: a visit at or after its sitting's start, and at or before its end. */
 const CHECKS = ["VisitAfterStart", "VisitBeforeEnd"] as const
 type CheckName = (typeof CHECKS)[number]
 
 /**
- * A shape's schema under `name`: Began, EndedAt and Visit stored, and over them, a level above, the joins AfterStart
- * (each visit beside its sitting's start) and BeforeEnd (each visit beside its sitting's end), each with its row check:
- * the visit's lower end at or after the start, its upper end at or before the end, or strictly so. A sitting with no
- * end has no fact of BeforeEnd, so its end bound asks nothing of it: an open sitting is the absence of its end.
+ * The schema under `name`: Began, EndedAt and Visit stored, the visits immutable, so the judge reads each sitting a
+ * transaction wrote whole, and over them, a level above, the joins AfterStart (each visit beside its sitting's start)
+ * and BeforeEnd (each visit beside its sitting's end), each with its row check: the visit's lower end at or after the
+ * start, its upper end at or before the end. A sitting with no end has no fact of BeforeEnd, so its end bound asks
+ * nothing of it: an open sitting is the absence of its end.
  */
-const orderingOf = (shape: Shape, name: string) => {
-	const Base = schema(name, [Began, EndedAt, Visit], mutableOf(shape) ? [mutable(Visit)] : [])
+const orderingOf = (name: string) => {
+	const Base = schema(name, [Began, EndedAt, Visit], [])
 	const AfterStart = derived(
 		"AfterStart",
 		query(Base).rule((r) => {
@@ -91,42 +72,24 @@ const orderingOf = (shape: Shape, name: string) => {
 				.find({ sitting, during, at })
 		})
 	)
-	const strict = strictOf(shape)
 	const Ordered = schema.extend(
 		[Base],
 		`${name}_1`,
 		[AfterStart, BeforeEnd],
 		[
-			check("VisitAfterStart", AfterStart, (s) =>
-				strict
-					? s.gt(Range.lower(s.during, Seconds), s.at)
-					: s.ge(Range.lower(s.during, Seconds), s.at)
-			),
-			check("VisitBeforeEnd", BeforeEnd, (s) =>
-				strict
-					? s.lt(Range.upper(s.during, Seconds), s.at)
-					: s.le(Range.upper(s.during, Seconds), s.at)
-			)
+			check("VisitAfterStart", AfterStart, (s) => s.ge(Range.lower(s.during, Seconds), s.at)),
+			check("VisitBeforeEnd", BeforeEnd, (s) => s.le(Range.upper(s.during, Seconds), s.at))
 		]
 	)
 	return { Ordered, AfterStart, BeforeEnd }
 }
 
-/** Each shape's schema installed once per member, under the name its seat is read by. */
-export const orderingTemplates: { readonly [S in Shape]: SeatTemplate } = {
-	inclusive: seatTemplate(import.meta, orderingOf("inclusive", "Order_in").Ordered, "ordering_in"),
-	strict: seatTemplate(import.meta, orderingOf("strict", "Order_st").Ordered, "ordering_st"),
-	"inclusive mutable": seatTemplate(
-		import.meta,
-		orderingOf("inclusive mutable", "Order_im").Ordered,
-		"ordering_im"
-	),
-	"strict mutable": seatTemplate(
-		import.meta,
-		orderingOf("strict mutable", "Order_sm").Ordered,
-		"ordering_sm"
-	)
-}
+/** The schema installed once per member, under the name its seat is read by. */
+export const orderingTemplate: SeatTemplate = seatTemplate(
+	import.meta,
+	orderingOf("Order_in").Ordered,
+	"ordering_in"
+)
 
 /** A visit of a sitting, its span [start, end). */
 interface VisitSpan {
@@ -143,7 +106,7 @@ interface State {
 
 const emptyState: State = { began: new Map(), ended: new Map(), visits: [] }
 
-/** One write of a transaction, as drawn: the visit an `unvisit` or a `move` names is its sitting's visits' `pick`-th. */
+/** One write of a transaction, as drawn: the visit an `unvisit` names is its sitting's visits' `pick`-th. */
 export type Op =
 	| { readonly kind: "begin" | "end"; readonly sitting: number; readonly at: number }
 	| { readonly kind: "unbegin" | "unend"; readonly sitting: number }
@@ -154,17 +117,9 @@ export type Op =
 			readonly length: number
 	  }
 	| { readonly kind: "unvisit"; readonly sitting: number; readonly pick: number }
-	| {
-			readonly kind: "move"
-			readonly sitting: number
-			readonly pick: number
-			readonly start: number
-			readonly length: number
-	  }
 
-/** A history of one shape: transactions of a few writes each. */
+/** A history: transactions of a few writes each. */
 export interface Case {
-	readonly shape: Shape
 	readonly history: ReadonlyArray<ReadonlyArray<Op>>
 }
 
@@ -196,38 +151,18 @@ const unvisitOpGen: Gen<Op> = (s) => ({
 	pick: s.draw(int(0, 2))
 })
 
-const moveOpGen: Gen<Op> = (s) => ({
-	kind: "move",
-	sitting: s.draw(sittingGen),
-	pick: s.draw(int(0, 2)),
-	start: s.draw(pointGen),
-	length: s.draw(lengthGen)
+/** A write of a history: a point, a visit, or a deletion of either. */
+const opGen: Gen<Op> = weighted<Op>([
+	[5, pointOpGen],
+	[1, unpointOpGen],
+	[4, visitOpGen],
+	[1, unvisitOpGen]
+])
+
+/** A case: a history drawn. */
+export const caseGen: Gen<Case> = (s) => ({
+	history: s.draw(array(array(opGen, { min: 1, max: 3 }), { min: 2, max: 8 }))
 })
-
-/** A write of a shape's history: a point, a visit, or a deletion of either, and a visit moved where visits are mutable. */
-const opGen = (shape: Shape): Gen<Op> =>
-	mutableOf(shape)
-		? weighted<Op>([
-				[5, pointOpGen],
-				[1, unpointOpGen],
-				[4, visitOpGen],
-				[1, unvisitOpGen],
-				[2, moveOpGen]
-			])
-		: weighted<Op>([
-				[5, pointOpGen],
-				[1, unpointOpGen],
-				[4, visitOpGen],
-				[1, unvisitOpGen]
-			])
-
-/** A case of one shape: a history drawn for it. */
-export const caseGen =
-	(shape: Shape): Gen<Case> =>
-	(s) => ({
-		shape,
-		history: s.draw(array(array(opGen(shape), { min: 1, max: 3 }), { min: 2, max: 8 }))
-	})
 
 export type Feature =
 	| "committed"
@@ -237,42 +172,20 @@ export type Feature =
 	| "a start written after its visits refused"
 	| "an end written before a visit's end refused"
 	| "committed at a bound"
-	| "refused at a bound"
-	| "a visit moved out refused"
 
-/** A history of one transaction after a build, a case constructed to reach one situation. */
-const built = (shape: Shape, history: ReadonlyArray<ReadonlyArray<Op>>): Case => ({
-	shape,
-	history
-})
-
-/** A mutable shape's visit after its sitting's start, then moved to before it. */
-const movedOut = (shape: Shape): readonly [Feature, Gen<Case>] => [
-	"a visit moved out refused",
-	(s) => {
-		const sitting = s.draw(sittingGen)
-		const at = s.draw(int(2, 5))
-		return built(shape, [
-			[
-				{ kind: "begin", sitting, at },
-				{ kind: "visit", sitting, start: at + 1, length: 1 }
-			],
-			[{ kind: "move", sitting, pick: 0, start: at - 2, length: 1 }]
-		])
-	}
-]
-
-/** Each situation a shape's search must reach that a drawn history reaches rarely, with the case constructed to reach it. */
-export const aimsOf = (shape: Shape): ReadonlyArray<readonly [Feature, Gen<Case>]> => [
+/** Each situation the search must reach that a drawn history reaches rarely, with the case constructed to reach it. */
+export const aims: ReadonlyArray<readonly [Feature, Gen<Case>]> = [
 	[
 		"a start written after its visits refused",
 		(s) => {
 			const sitting = s.draw(sittingGen)
 			const start = s.draw(int(0, 4))
-			return built(shape, [
-				[{ kind: "visit", sitting, start, length: s.draw(lengthGen) }],
-				[{ kind: "begin", sitting, at: start + s.draw(int(1, 3)) }]
-			])
+			return {
+				history: [
+					[{ kind: "visit", sitting, start, length: s.draw(lengthGen) }],
+					[{ kind: "begin", sitting, at: start + s.draw(int(1, 3)) }]
+				]
+			}
 		}
 	],
 	[
@@ -281,13 +194,15 @@ export const aimsOf = (shape: Shape): ReadonlyArray<readonly [Feature, Gen<Case>
 			const sitting = s.draw(sittingGen)
 			const start = s.draw(int(1, 4))
 			const length = s.draw(int(2, 3))
-			return built(shape, [
-				[
-					{ kind: "begin", sitting, at: start - 1 },
-					{ kind: "visit", sitting, start, length }
-				],
-				[{ kind: "end", sitting, at: start + length - 1 }]
-			])
+			return {
+				history: [
+					[
+						{ kind: "begin", sitting, at: start - 1 },
+						{ kind: "visit", sitting, start, length }
+					],
+					[{ kind: "end", sitting, at: start + length - 1 }]
+				]
+			}
 		}
 	],
 	[
@@ -295,42 +210,44 @@ export const aimsOf = (shape: Shape): ReadonlyArray<readonly [Feature, Gen<Case>
 		(s) => {
 			const sitting = s.draw(sittingGen)
 			const at = s.draw(int(0, 4))
-			return built(shape, [
-				[
-					{ kind: "begin", sitting, at },
-					{ kind: "visit", sitting, start: at + 1, length: s.draw(lengthGen) }
+			return {
+				history: [
+					[
+						{ kind: "begin", sitting, at },
+						{ kind: "visit", sitting, start: at + 1, length: s.draw(lengthGen) }
+					]
 				]
-			])
+			}
 		}
 	],
 	[
-		strictOf(shape) ? "refused at a bound" : "committed at a bound",
+		"committed at a bound",
 		(s) => {
 			const sitting = s.draw(sittingGen)
 			const at = s.draw(int(0, 4))
 			const length = s.draw(lengthGen)
-			return built(shape, [
-				[
-					{ kind: "begin", sitting, at },
-					{ kind: "visit", sitting, start: at, length },
-					{ kind: "end", sitting, at: at + length }
+			return {
+				history: [
+					[
+						{ kind: "begin", sitting, at },
+						{ kind: "visit", sitting, start: at, length },
+						{ kind: "end", sitting, at: at + length }
+					]
 				]
-			])
+			}
 		}
-	],
-	...(mutableOf(shape) ? [movedOut(shape)] : [])
+	]
 ]
 
-/** The situations every shape's search must reach, and its strictness's bound and its mutability's move. */
-export const requiredOf = (shape: Shape): NonEmptyReadonlyArray<Feature> => [
+/** The situations the search must reach. */
+export const required: NonEmptyReadonlyArray<Feature> = [
 	"committed",
 	"an open sitting's visit committed",
 	"refused before its start",
 	"refused past its end",
 	"a start written after its visits refused",
 	"an end written before a visit's end refused",
-	strictOf(shape) ? "refused at a bound" : "committed at a bound",
-	...(mutableOf(shape) ? (["a visit moved out refused"] as const) : [])
+	"committed at a bound"
 ]
 
 /** Whether two spans of one sitting share a point. */
@@ -404,23 +321,6 @@ const resolve = (seat: Seat, s: State, op: Op): Resolved | undefined => {
 				next: { ...s, visits: Arr.filter(s.visits, (v) => v !== gone) }
 			}
 		}
-		case "move": {
-			const mine = visitsOf(s, op.sitting)
-			const moved = mine[op.pick % Math.max(mine.length, 1)]
-			const during = { start: op.start, end: op.start + op.length }
-			if (moved === undefined || Arr.some(mine, (v) => v !== moved && overlaps(v.during, during))) {
-				return undefined
-			}
-			return {
-				statements: [
-					`UPDATE ${t("Visit")} SET ${c("Visit", "during")} = ${range(during)} WHERE ${c("Visit", "sitting")} = ${op.sitting} AND ${c("Visit", "during")} = ${range(moved.during)}`
-				],
-				next: {
-					...s,
-					visits: Arr.map(s.visits, (v) => (v === moved ? { sitting: v.sitting, during } : v))
-				}
-			}
-		}
 	}
 }
 
@@ -444,32 +344,29 @@ const factsOf = (s: State): { readonly [C in CheckName]: ReadonlyArray<Joined> }
 	return { VisitAfterStart: beside(s.began), VisitBeforeEnd: beside(s.ended) }
 }
 
-/** The ordering restated: a visit's lower end at or after the start and its upper end at or before the end, or strictly. */
-const holds = (shape: Shape, check: CheckName, j: Joined): boolean => {
-	const strict = strictOf(shape)
+/** The ordering restated: a visit's lower end at or after the start and its upper end at or before the end. */
+const holds = (check: CheckName, j: Joined): boolean => {
 	switch (check) {
 		case "VisitAfterStart":
-			return strict ? j.during.start > j.at : j.during.start >= j.at
+			return j.during.start >= j.at
 		case "VisitBeforeEnd":
-			return strict ? j.during.end < j.at : j.during.end <= j.at
+			return j.during.end <= j.at
 	}
 }
 
 /** The checks `s` breaks, each at some fact of its relation. */
-const brokenOf = (shape: Shape, s: State): ReadonlyArray<CheckName> => {
+const brokenOf = (s: State): ReadonlyArray<CheckName> => {
 	const facts = factsOf(s)
-	return Arr.filter(CHECKS, (check) => Arr.some(facts[check], (j) => !holds(shape, check, j)))
+	return Arr.filter(CHECKS, (check) => Arr.some(facts[check], (j) => !holds(check, j)))
 }
 
-/** Whether a fact of `s` meets its point exactly, a visit starting at its start or ending at its end, and its check `holds` of it or not. */
-const atBound = (shape: Shape, s: State, held: boolean): boolean => {
+/** Whether a fact of `s` meets its point exactly: a visit starting at its start or ending at its end. */
+const atBound = (s: State): boolean => {
 	const facts = factsOf(s)
 	return Arr.some(CHECKS, (check) =>
 		Arr.some(
 			facts[check],
-			(j) =>
-				(check === "VisitAfterStart" ? j.during.start : j.during.end) === j.at &&
-				holds(shape, check, j) === held
+			(j) => (check === "VisitAfterStart" ? j.during.start : j.during.end) === j.at
 		)
 	)
 }
@@ -484,7 +381,7 @@ const intOf = (cell: unknown): number =>
 	typeof cell === "string" ? Number(cell) : assert.fail(`a cell of text, not ${String(cell)}`)
 
 /**
- * One shape's history on its seat: each transaction's writes resolved against the host's state, then each derived row
+ * A history on its seat: each transaction's writes resolved against the host's state, then each derived row
  * read from the tables as they stand mid-transaction and judged by the host (rowEvaluator, the one evaluation grizzle
  * judges a refused write's rows by), which must hold exactly the restated facts and verdicts; then SET CONSTRAINTS ALL
  * IMMEDIATE runs the judge, which refuses exactly when the restatement finds a check broken, by 23514 naming one of the
@@ -492,9 +389,9 @@ const intOf = (cell: unknown): number =>
  */
 export const judgeHistory = (taken: SeatCase, c: Case, note: (f: Feature) => void) =>
 	Effect.gen(function* () {
-		const seat = yield* seatIn(taken, RELATIONS, `ordering_${c.shape}`)
-		const { Ordered, AfterStart, BeforeEnd } = orderingOf(c.shape, "Order_host")
-		const evaluate = succeeded(rowEvaluator(Ordered), "the shape's schema compiles")
+		const seat = yield* seatIn(taken, RELATIONS, "ordering_inclusive")
+		const { Ordered, AfterStart, BeforeEnd } = orderingOf("Order_host")
+		const evaluate = succeeded(rowEvaluator(Ordered), "the schema compiles")
 		const nameOf = constraintNamesOf(Ordered)
 		const derivedOf = { VisitAfterStart: AfterStart, VisitBeforeEnd: BeforeEnd } as const
 		const pointOf = { VisitAfterStart: "Began", VisitBeforeEnd: "EndedAt" } as const
@@ -555,7 +452,7 @@ export const judgeHistory = (taken: SeatCase, c: Case, note: (f: Feature) => voi
 				const spec = Arr.sort(
 					Arr.map(
 						restated[check],
-						(j) => `${joinedText(j)} ${holds(c.shape, check, j) ? "holds" : "breaks"}`
+						(j) => `${joinedText(j)} ${holds(check, j) ? "holds" : "breaks"}`
 					),
 					Order.String
 				)
@@ -566,7 +463,7 @@ export const judgeHistory = (taken: SeatCase, c: Case, note: (f: Feature) => voi
 					})
 				}
 			}
-			const broken = brokenOf(c.shape, next)
+			const broken = brokenOf(next)
 			const refused = yield* refusalOf(session.query("SET CONSTRAINTS ALL IMMEDIATE", []))
 			if (Option.isNone(refused)) {
 				if (broken.length > 0) {
@@ -578,7 +475,7 @@ export const judgeHistory = (taken: SeatCase, c: Case, note: (f: Feature) => voi
 				yield* session.commit
 				state = next
 				note("committed")
-				if (atBound(c.shape, next, true)) {
+				if (atBound(next)) {
 					note("committed at a bound")
 				}
 				if (Arr.some(next.visits, (v) => next.began.has(v.sitting) && !next.ended.has(v.sitting))) {
@@ -607,12 +504,6 @@ export const judgeHistory = (taken: SeatCase, c: Case, note: (f: Feature) => voi
 			}
 			if (Arr.every(ops, (op) => op.kind === "end")) {
 				note("an end written before a visit's end refused")
-			}
-			if (atBound(c.shape, next, false)) {
-				note("refused at a bound")
-			}
-			if (Arr.some(ops, (op) => op.kind === "move")) {
-				note("a visit moved out refused")
 			}
 		}
 	})

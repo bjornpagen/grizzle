@@ -37,26 +37,24 @@ const mutables = <V extends AnyRelation>(
 	relations: Readonly<Record<string, V>>
 ): ReadonlyArray<Mutable<V>> => (declared ? Arr.map(Rec.values(relations), (r) => mutable(r)) : [])
 
-export const Worker = relation("Worker", { id: pg.integer, name: anyText }, ["id"])
-export const Assignment = relation(
+const Worker = relation("Worker", { id: pg.integer, name: anyText }, ["id"])
+const Assignment = relation(
 	"Assignment",
 	{ id: pg.integer, worker: pg.integer, active: pg.boolean },
 	["id"]
 )
 /** A desk is all key, so a badge's foreign key into it is immediate: no put replaces a desk in passing. */
-export const Desk = relation("Desk", { id: pg.integer }, ["id"])
-export const Badge = relation("Badge", { id: pg.integer, desk: pg.integer, issued: pg.boolean }, [
-	"id"
-])
-export const staffingRelations = Object.freeze({ Worker, Assignment, Desk, Badge })
+const Desk = relation("Desk", { id: pg.integer }, ["id"])
+const Badge = relation("Badge", { id: pg.integer, desk: pg.integer, issued: pg.boolean }, ["id"])
+const staffingRelations = Object.freeze({ Worker, Assignment, Desk, Badge })
 
-export interface StaffingParams {
+interface StaffingParams {
 	readonly mutable: boolean
 	/** The `active` value of the assignments, and the `issued` value of the badges, the two sides select. */
 	readonly selector: boolean
 }
 
-export const staffed = (selector: boolean) =>
+const staffed = (selector: boolean) =>
 	contained(
 		on(
 			select(Assignment, (a) => a.eq(a.active, selector)),
@@ -65,7 +63,7 @@ export const staffed = (selector: boolean) =>
 		on(Worker, "id")
 	)
 
-export const issued = (selector: boolean) =>
+const issued = (selector: boolean) =>
 	contained(
 		on(
 			select(Badge, (b) => b.eq(b.issued, selector)),
@@ -78,7 +76,7 @@ export const issued = (selector: boolean) =>
  * Staffing: `contained(on(select(Assignment, (a) => a.eq(a.active, sel)), "worker"), on(Worker, "id"))`, and a second,
  * independent law of the same shape into a relation that is all key, `Badge` into `Desk`.
  */
-export const staffingOf = (p: StaffingParams) => (name: string) =>
+const staffingOf = (p: StaffingParams) => (name: string) =>
 	schema(name, Rec.values(staffingRelations), [
 		staffed(p.selector),
 		issued(p.selector),
@@ -94,19 +92,19 @@ export const staffing = (options: { readonly mutable: boolean }) =>
  */
 const Week = str.regex("^[ -~]{1,40}$", "u")
 
-export const statuses = ["pending", "approved"] as const
-export type ShiftStatus = (typeof statuses)[number]
+const statuses = ["pending", "approved"] as const
+type ShiftStatus = (typeof statuses)[number]
 const Status = closed.ordered("Status", statuses)
-export const Sheet = relation("Sheet", { employee: Id, week: Week, ceiling: pg.integer }, [
+const Sheet = relation("Sheet", { employee: Id, week: Week, ceiling: pg.integer }, [
 	"employee",
 	"week"
 ])
 const Shift = relation("Shift", { id: Id, employee: Id, week: Week, status: closedId(Status) }, [
 	"id"
 ])
-export const rotaRelations = Object.freeze({ Sheet, Shift })
+const rotaRelations = Object.freeze({ Sheet, Shift })
 
-export interface RotaParams {
+interface RotaParams {
 	readonly mutable: boolean
 	/** The status of the shifts the side selects. */
 	readonly status: ShiftStatus
@@ -122,16 +120,16 @@ const shiftWeeks = (status: ShiftStatus) =>
 		"week"
 	)
 
-export const shiftSheet = (status: ShiftStatus) =>
+const shiftSheet = (status: ShiftStatus) =>
 	contained(shiftWeeks(status), on(Sheet, "employee", "week"))
-export const oneShift = (status: ShiftStatus) => key(shiftWeeks(status))
+const oneShift = (status: ShiftStatus) => key(shiftWeeks(status))
 
 /**
  * Rota: a composite text and uuid projection selected by a closed handle, `contained(on(select(Shift, (s) =>
  * s.eq(s.status, st)), "employee", "week"), on(Sheet, "employee", "week"))`, whose projection is no key of Shift but,
  * keyed, one of its selected shifts, which shares the containment's generated columns.
  */
-export const rotaOf = (p: RotaParams) => (name: string) =>
+const rotaOf = (p: RotaParams) => (name: string) =>
 	schema(
 		name,
 		[Status, ...Rec.values(rotaRelations)],
@@ -145,17 +143,15 @@ export const rotaOf = (p: RotaParams) => (name: string) =>
 export const rota = (options: { readonly mutable: boolean }) =>
 	rotaOf({ mutable: options.mutable, status: "approved", keyed: false })("Rota")
 
-export const Node = relation("Node", { id: pg.integer, parent: pg.integer, live: pg.boolean }, [
-	"id"
-])
+const Node = relation("Node", { id: pg.integer, parent: pg.integer, live: pg.boolean }, ["id"])
 
-export interface TreeParams {
+interface TreeParams {
 	readonly mutable: boolean
 	/** The `live` value of the nodes the side selects. */
 	readonly live: boolean
 }
 
-export const nodeParent = (live: boolean) =>
+const nodeParent = (live: boolean) =>
 	contained(
 		on(
 			select(Node, (n) => n.eq(n.live, live)),
@@ -165,37 +161,33 @@ export const nodeParent = (live: boolean) =>
 	)
 
 /** Tree: a selected source into its own relation, one table that is both source and target. */
-export const treeOf = (p: TreeParams) => (name: string) =>
+const treeOf = (p: TreeParams) => (name: string) =>
 	schema(name, [Node], [nodeParent(p.live), ...mutables(p.mutable, { Node })])
 
 export const tree = (options: { readonly mutable: boolean }) =>
 	treeOf({ mutable: options.mutable, live: true })("Tree")
 
-export const Line = relation("Line", { id: pg.integer, offCycle: pg.boolean, note: anyText }, [
-	"id"
-])
-export const Reason = relation("Reason", { id: pg.integer, line: pg.integer, text: anyText }, [
-	"id"
-])
-export const reasonsRelations = Object.freeze({ Line, Reason })
+const Line = relation("Line", { id: pg.integer, offCycle: pg.boolean, note: anyText }, ["id"])
+const Reason = relation("Reason", { id: pg.integer, line: pg.integer, text: anyText }, ["id"])
+const reasonsRelations = Object.freeze({ Line, Reason })
 
-export interface ReasonsParams {
+interface ReasonsParams {
 	readonly mutable: boolean
 	/** The `offCycle` value of the lines the side selects. */
 	readonly selector: boolean
 }
 
-export const offCycleLines = (selector: boolean) =>
+const offCycleLines = (selector: boolean) =>
 	on(
 		select(Line, (l) => l.eq(l.offCycle, selector)),
 		"id"
 	)
 /** A reason explains one line: the mirrors' child side is a candidate key of Reason, beside its id. */
-export const reasonLine = on(Reason, "line")
-export const reasonKey = key(reasonLine)
+const reasonLine = on(Reason, "line")
+const reasonKey = key(reasonLine)
 
 /** Reasons: `mirrors(on(select(Line, (l) => l.eq(l.offCycle, sel)), "id"), on(Reason, "line"))`. */
-export const reasonsOf = (p: ReasonsParams) => (name: string) =>
+const reasonsOf = (p: ReasonsParams) => (name: string) =>
 	schema(name, Rec.values(reasonsRelations), [
 		reasonKey,
 		mirrors(offCycleLines(p.selector), reasonLine),
@@ -210,34 +202,34 @@ export const reasons = (options: { readonly mutable: boolean }) =>
  * heading order, a candidate key of Note out of Note's own heading order: both pairs are integers, so only the
  * projection's order pairs Note.batch with Batch.id and Note.account with Batch.tenant.
  */
-export const Batch = relation("Batch", { tenant: pg.integer, id: pg.integer, urgent: pg.boolean }, [
+const Batch = relation("Batch", { tenant: pg.integer, id: pg.integer, urgent: pg.boolean }, [
 	"tenant",
 	"id"
 ])
-export const Note = relation(
+const Note = relation(
 	"Note",
 	{ id: pg.integer, account: pg.integer, batch: pg.integer, text: anyText },
 	["id"]
 )
-export const batchesRelations = Object.freeze({ Batch, Note })
+const batchesRelations = Object.freeze({ Batch, Note })
 
-export interface BatchesParams {
+interface BatchesParams {
 	readonly mutable: boolean
 	/** The `urgent` value of the batches the side selects. */
 	readonly selector: boolean
 }
 
-export const urgentBatches = (selector: boolean) =>
+const urgentBatches = (selector: boolean) =>
 	on(
 		select(Batch, (b) => b.eq(b.urgent, selector)),
 		"id",
 		"tenant"
 	)
-export const noteBatch = on(Note, "batch", "account")
-export const noteKey = key(noteBatch)
+const noteBatch = on(Note, "batch", "account")
+const noteKey = key(noteBatch)
 
 /** Batches: `mirrors(on(select(Batch, (b) => b.eq(b.urgent, sel)), "id", "tenant"), on(Note, "batch", "account"))`. */
-export const batchesOf = (p: BatchesParams) => (name: string) =>
+const batchesOf = (p: BatchesParams) => (name: string) =>
 	schema(name, Rec.values(batchesRelations), [
 		noteKey,
 		mirrors(urgentBatches(p.selector), noteBatch),
@@ -246,45 +238,45 @@ export const batchesOf = (p: BatchesParams) => (name: string) =>
 
 export const batches = () => batchesOf({ mutable: false, selector: true })("Batches")
 
-export const priorities = ["low", "high"] as const
+const priorities = ["low", "high"] as const
 const Priority = closed.ordered("Priority", priorities)
-export const Ticket = relation(
+const Ticket = relation(
 	"Ticket",
 	{ id: Id, level: pg.integer, lang: str.regex("^[a-z]{2}$", "u"), priority: closedId(Priority) },
 	["id"]
 )
 /** A ticket's follow-ups, each keyed by its ticket: three are all key, and a translation carries its text. */
-export const Escalation = relation("Escalation", { ticket: Id }, ["ticket"])
-export const Translation = relation("Translation", { ticket: Id, text: anyText }, ["ticket"])
-export const Page = relation("Page", { ticket: Id }, ["ticket"])
-export const Watch = relation("Watch", { ticket: Id }, ["ticket"])
-export const signalsRelations = Object.freeze({ Ticket, Escalation, Translation, Page, Watch })
+const Escalation = relation("Escalation", { ticket: Id }, ["ticket"])
+const Translation = relation("Translation", { ticket: Id, text: anyText }, ["ticket"])
+const Page = relation("Page", { ticket: Id }, ["ticket"])
+const Watch = relation("Watch", { ticket: Id }, ["ticket"])
+const signalsRelations = Object.freeze({ Ticket, Escalation, Translation, Page, Watch })
 
-export interface SignalsParams {
+interface SignalsParams {
 	readonly mutable: boolean
 }
 
 /** The tickets of level 3, of English, of high priority, and of level 2 or more but not of low priority. */
-export const levelTickets = on(
+const levelTickets = on(
 	select(Ticket, (t) => t.eq(t.level, 3)),
 	"id"
 )
-export const englishTickets = on(
+const englishTickets = on(
 	select(Ticket, (t) => t.eq(t.lang, "en")),
 	"id"
 )
-export const urgentTickets = on(
+const urgentTickets = on(
 	select(Ticket, (t) => t.eq(t.priority, "high")),
 	"id"
 )
-export const watchedTickets = on(
+const watchedTickets = on(
 	select(Ticket, (t) => t.and(t.ge(t.level, 2), t.ne(t.priority, "low"))),
 	"id"
 )
-export const escalationTicket = on(Escalation, "ticket")
-export const translationTicket = on(Translation, "ticket")
-export const pageTicket = on(Page, "ticket")
-export const watchTicket = on(Watch, "ticket")
+const escalationTicket = on(Escalation, "ticket")
+const translationTicket = on(Translation, "ticket")
+const pageTicket = on(Page, "ticket")
+const watchTicket = on(Watch, "ticket")
 
 /**
  * Signals: a ticket's mirrors with each of its follow-ups, selected by an integer, a refined text, a closed handle,
@@ -292,7 +284,7 @@ export const watchTicket = on(Watch, "ticket")
  * written with its selected side on the right. Each mirrors is a cycle of two foreign keys, so even the ones into a
  * relation that is all key are deferred.
  */
-export const signalsOf = (p: SignalsParams) => (name: string) =>
+const signalsOf = (p: SignalsParams) => (name: string) =>
 	schema(
 		name,
 		[Priority, ...Rec.values(signalsRelations)],

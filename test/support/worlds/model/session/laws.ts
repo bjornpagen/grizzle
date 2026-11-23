@@ -55,7 +55,7 @@ const onCycle = (
 	return false
 }
 
-export const meetingOf = (host: HostSchema, law: HostLaw): LawMeeting => {
+const meetingOf = (host: HostSchema, law: HostLaw): LawMeeting => {
 	switch (law.kind) {
 		case "key":
 			return { sqlstate: "23505", at: "statement" }
