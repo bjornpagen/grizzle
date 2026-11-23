@@ -35,4 +35,3 @@ export const slotsRead = (
 	})
 	return new Map(Arr.map([...own, ...carried], (s) => [s.slot, s] as const))
 }
-

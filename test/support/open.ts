@@ -67,9 +67,7 @@ const typeText = (desc: FieldDesc, at: string): string => {
 }
 
 /** The units `relations` sit in, one over each primary key's first field (leadingHeadings), as schema values. */
-const leadingUnits = (
-	relations: ReadonlyArray<Openable<FieldBase>>
-): ReadonlyArray<Statement> =>
+const leadingUnits = (relations: ReadonlyArray<Openable<FieldBase>>): ReadonlyArray<Statement> =>
 	Arr.map(
 		leadingHeadings(relations, (type, at) => typeText(describedDesc(type, at), at)),
 		(h) => unitBuilder(h.name, { [h.field]: h.type }, [])

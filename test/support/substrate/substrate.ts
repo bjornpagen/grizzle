@@ -1112,7 +1112,10 @@ const substrateOver = (
  * Database.fresh): its substrate and the template's value bound to it, the substrate's allocations released as the
  * case's scope closes, before its connections close and the clone is dropped.
  */
-const freshCases = <T>(form: string, template: SubstrateTemplate<T>): TemplateNeed<SubstrateCase<T>> => {
+const freshCases = <T>(
+	form: string,
+	template: SubstrateTemplate<T>
+): TemplateNeed<SubstrateCase<T>> => {
 	const database = Database.fresh(template.database)
 	return {
 		key: `grizzle ${form} ${database.key}`,
@@ -1347,7 +1350,10 @@ const caseStart: Arr.NonEmptyReadonlyArray<PgStatement> = [
  * The need of cases each in one owner transaction on the worker's own clone of `template`, held with its connection
  * across the worker's cases (HeldTransactions).
  */
-const rolledBackCases = <T>(form: string, template: SubstrateTemplate<T>): TemplateNeed<RolledBack<T>> => ({
+const rolledBackCases = <T>(
+	form: string,
+	template: SubstrateTemplate<T>
+): TemplateNeed<RolledBack<T>> => ({
 	key: `grizzle ${form} ${template.database.key}`,
 	template: template.database,
 	budget: template.database.budget,

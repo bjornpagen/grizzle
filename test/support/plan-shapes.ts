@@ -63,7 +63,10 @@ export const planShapeGen: Gen<PlanShape> = element(planShapeNames)
  * `shape`'s settings, each made the default of the role `role` in the case's database, which a session it opens reads:
  * a row of pg_db_role_setting, gone with the case's own database when it is dropped.
  */
-export const planShapeOn = (role: string, shape: PlanShape): Effect.Effect<void, never, Substrate> =>
+export const planShapeOn = (
+	role: string,
+	shape: PlanShape
+): Effect.Effect<void, never, Substrate> =>
 	Effect.flatMap(Substrate, (substrate) => {
 		const target = `ALTER ROLE ${quoteIdent(role)} IN DATABASE ${quoteIdent(substrate.database)}`
 		return Effect.forEach(
