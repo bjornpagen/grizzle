@@ -1,3 +1,4 @@
+import { databaseDropped } from "@bjornpagen/testing/resources"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Option, type Scope, String as Str } from "effect"
 import { Client } from "pg"
@@ -212,24 +213,15 @@ const running = (pid: number): boolean => {
 }
 
 /**
- * Drops `name` on `admin`, terminating its sessions, after the logical replication slots of its installations' live
- * sources, which PostgreSQL refuses to drop a database under (55006), each leader streaming from one terminated first. The sweep's alone: DROP DATABASE holds its transaction id while it
- * waits for the checkpoint it forces, which pins every SERIALIZABLE snapshot's xmin meanwhile and makes PostgreSQL
- * summarize the other files' committed transactions (test/support/pg.ts freshDatabase), so nothing drops a database
- * while a test file runs.
+ * Drops `name` on `admin` by the testing library's one drop of a database (resources databaseDropped): the replication
+ * slots of its installations' live sources first, which PostgreSQL refuses to drop a database under (55006), each
+ * leader streaming from one terminated and waited for, then the database, its sessions ended. The sweep's alone: DROP
+ * DATABASE holds its transaction id while it waits for the checkpoint it forces, which pins every SERIALIZABLE
+ * snapshot's xmin meanwhile and makes PostgreSQL summarize the other files' committed transactions (test/support/pg.ts
+ * freshDatabase), so nothing drops a database while a test file runs.
  */
 const dropDatabase = (admin: PgConnection, name: string): Effect.Effect<void, SqlError> =>
-	Effect.gen(function* () {
-		yield* admin.query(
-			"SELECT pg_catalog.pg_terminate_backend(active_pid) FROM pg_catalog.pg_replication_slots WHERE database = $1::name AND active_pid IS NOT NULL",
-			[name]
-		)
-		yield* admin.query(
-			"SELECT pg_catalog.pg_drop_replication_slot(slot_name) FROM pg_catalog.pg_replication_slots WHERE database = $1::name",
-			[name]
-		)
-		yield* admin.query(`DROP DATABASE IF EXISTS ${quoteIdent(name)} WITH (FORCE)`, [])
-	})
+	Effect.forEach(databaseDropped(name, "ended"), (sql) => admin.query(sql, []), { discard: true })
 
 /**
  * Whether every test file process `pid` ran has ended: it is this process, which calls the sweep only when no test file
