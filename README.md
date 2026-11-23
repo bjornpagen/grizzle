@@ -3893,12 +3893,13 @@ earliest start to the latest end, which displaces each window it grows from.
 ```ts
 const LearnerId = contract("LearnerId", pg.integer)
 const StageKey = contract("StageKey", pg.bigint)
-/** The call's reading of the database's clock in microseconds, below bigint's top, so a reading plus one is a bigint. */
-const Reading = contract("Reading", pg.bigint, (t) => Num.within(t, 0n, 2n ** 62n))
+/** Microseconds on the database's clock, a window's ends; a reading is one below the top, so it ends a window too. */
+const Moment = contract("Moment", pg.bigint, (t) => Num.within(t, 0n, 2n ** 62n))
+const Reading = contract("Reading", pg.bigint, (t) => Num.within(t, 0n, 2n ** 62n - 1n))
 
 export const Presence = relation(
 	"Presence",
-	{ child: LearnerId, stage: StageKey, during: span(pg.bigint) },
+	{ child: LearnerId, stage: StageKey, during: span(Moment) },
 	["child", "stage", "during"]
 )
 export const Attendance = schema(
@@ -3913,8 +3914,8 @@ const near = query(Attendance)
 		r.find({
 			child: r.param("child", LearnerId),
 			stage: r.param("stage", StageKey),
-			start: Type.base(r.param("now", Reading)),
-			end: Type.cast(Num.add(Type.base(r.param("now", Reading)), 1n), pg.bigint)
+			start: Type.cast(Type.base(r.param("now", Reading)), Moment),
+			end: Type.cast(Num.add(Type.base(r.param("now", Reading)), 1n), Moment)
 		})
 	)
 	.rule((r) => {
@@ -3925,15 +3926,10 @@ const near = query(Attendance)
 			.where(
 				r.eq(child, r.param("child", LearnerId)),
 				r.eq(stage, r.param("stage", StageKey)),
-				Logic.gt(Num.add(Range.upper(during, pg.bigint), 3_000_000n), now),
-				Logic.lt(Range.lower(during, pg.bigint), Num.add(now, 3_000_001n))
+				Logic.gt(Num.add(Type.base(Range.upper(during, Moment)), 3_000_000n), now),
+				Logic.lt(Type.base(Range.lower(during, Moment)), Num.add(now, 3_000_001n))
 			)
-			.find({
-				child,
-				stage,
-				start: Range.lower(during, pg.bigint),
-				end: Range.upper(during, pg.bigint)
-			})
+			.find({ child, stage, start: Range.lower(during, Moment), end: Range.upper(during, Moment) })
 	})
 
 /** One window over them all: the earliest start to the latest end. */
@@ -3966,8 +3962,8 @@ export const beacon = ChangeSet.empty(Attendance).put(
 ```
 
 `Presence` is `mutable` in its learner's unit, the one exception to insert-only rows, and the beacon is served
-`clocked(beacon, { now: "micros" })`: its reading is `Reading`'s, below bigint's top, so `now + 1` casts into a
-bigint unguarded. A reading within 3 s of the sitting's latest window extends it, and any other opens a new one. A
+`clocked(beacon, { now: "micros" })`: its reading is `Reading`'s, one below `Moment`'s top, so `now + 1` casts into
+`Moment` unguarded. A reading within 3 s of the sitting's latest window extends it, and any other opens a new one. A
 call reads the clock as its transaction begins, so a slower call may read an instant before the latest window began:
 its reading falls inside the windows it lies within 3 s of, or joins them, so no reading is lost and no two windows
 overlap, whatever order the calls commit in, and the windows are the 3 s stretches of the readings committed.

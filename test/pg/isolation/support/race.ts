@@ -1,4 +1,3 @@
-import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { utf8Text } from "@bjornpagen/grizzle-text/utf8"
 import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Option, Path, String as Str } from "effect"
@@ -10,7 +9,7 @@ import {
 	type LoadedRead,
 	loadServed
 } from "#adapter/served/load.ts"
-import { loginChangesOver } from "#adapter/served/login.ts"
+import { builtLogin, loginChangesOver } from "#adapter/served/login.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
@@ -20,20 +19,15 @@ import { silentPhases } from "#compiler/core/phase.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { transactionClock } from "#compiler/ir/clock.ts"
-import { noLive } from "#compiler/live/notify.ts"
+import { firstCodebook } from "#compiler/ir/codes.ts"
+import { servedWorkloadExtension } from "#compiler/physical/access/extension.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
-import {
-	type InstallExtension,
-	noCalls,
-	noCarriers,
-	noContribution,
-	noFences,
-	servesNoParams
-} from "#compiler/physical/install/extension.ts"
+import type { InstallExtension } from "#compiler/physical/install/extension.ts"
 import { servableRole } from "#compiler/program/workload/change.ts"
 import type { AnyLogin, AnyRole, AnySchema } from "#compiler/public/schema.ts"
 import { reachOf } from "#compiler/runtime/write/steps.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
+import { ownBuilt, rostersOf } from "#compiler/schema/own.ts"
 import { servedFile } from "#compiler/served/json.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import { defineConfig } from "#index.ts"
@@ -41,6 +35,7 @@ import { offlineOwner } from "#test/pg/cli/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { templateNeedBudget } from "#test/support/budgets.ts"
 import { jsonOf } from "#test/support/chunked.ts"
+import { compiledInstallation } from "#test/support/compiled-served.ts"
 import { paths, repoRoot } from "#test/support/files.ts"
 import {
 	appliedHistory,
@@ -165,20 +160,20 @@ const draftOf = (shape: Shape) =>
 	)
 
 /**
- * The installer extension that states `roles`' certificates and contributes nothing else, which the installation reads
- * as it reads the served workload's (physical/access/extension.ts servedWorkloadExtension): each table's guard follows
- * the certificates. The workload's access paths, the rest of that extension, are indexes, which decide no outcome a race
- * compares; its carrier roles are TEMPORARY grants, which the test cluster's PUBLIC already holds.
+ * The installer extension `grizzle generate` installs a shape with, the served workload's (physical/access/extension.ts
+ * servedWorkloadExtension), its certificates `roles`: the one installation path, so a race's installation holds what
+ * generate's does, the contracts a served program's parameters alone name and its carriers' grants among them, and only
+ * each table's guard follows the stated certificates. The plan is the shape's under its installed name, compiled as
+ * generate drafts it (test/support/compiled-served.ts compiledInstallation), since a workload is compiled against its
+ * installed schema.
  */
-const certifying = (roles: ReadonlyArray<RoleIsolation>): InstallExtension => ({
-	contribute: () => Result.ok(noContribution),
-	params: servesNoParams,
-	certifies: roles,
-	carriers: noCarriers,
-	fences: noFences,
-	calls: noCalls,
-	live: noLive
-})
+const certifying = (shape: Shape, roles: ReadonlyArray<RoleIsolation>) =>
+	Effect.gen(function* () {
+		const built = defined(builtLogin(shape.login), "a shape's login, built by login(...)")
+		const base = yield* fromEngine(ownBuilt(built.base))
+		const { plan } = yield* compiledInstallation(built, base, firstCodebook(rostersOf(base)))
+		return { ...servedWorkloadExtension(plan), certifies: roles } satisfies InstallExtension
+	})
 
 /** Each role's level among `roles`, by its name. */
 const levelsOf = (roles: ReadonlyArray<RoleIsolation>): ReadonlyMap<string, Isolation> =>
@@ -240,7 +235,7 @@ const certifiedPlan = (
 					)
 		const options = {
 			label: "iso",
-			extensions: [certifying(certified)],
+			extensions: [yield* certifying(build(name), certified)],
 			ambient: ordinarySession,
 			compile: compileInstallation,
 			review: noPlaceholders

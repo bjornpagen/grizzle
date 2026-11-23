@@ -36,23 +36,17 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 const LearnerId = contract("LearnerId", pg.integer)
-/** The call's reading of the database's clock in microseconds, below bigint's top, so a reading plus one is a bigint. */
-const Reading = contract("Reading", pg.bigint, (t) => Num.within(t, 0n, 2n ** 62n))
-
-/**
- * A relation that holds no row and types a field by Reading: the race's installation is planned with no served
- * workload's parameters (support/race.ts certifying), as generate plans it with them, so this is what installs Reading's
- * domain, which the served beacon casts each reading to.
- */
-const Readings = relation("Readings", { at: Reading }, ["at"])
+/** Microseconds on the database's clock, a window's ends; a reading is one below the top, so it ends a window too. */
+const Moment = contract("Moment", pg.bigint, (t) => Num.within(t, 0n, 2n ** 62n))
+const Reading = contract("Reading", pg.bigint, (t) => Num.within(t, 0n, 2n ** 62n - 1n))
 
 /** A learner's presence in a stage: one window per stretch of readings no more than 3 s apart (README "A window a put
  * extends"). */
-const Presence = relation(
-	"Presence",
-	{ child: LearnerId, stage: natural, during: span(pg.bigint) },
-	["child", "stage", "during"]
-)
+const Presence = relation("Presence", { child: LearnerId, stage: natural, during: span(Moment) }, [
+	"child",
+	"stage",
+	"during"
+])
 
 /** The most microseconds two readings of one stretch lie apart. */
 const stretch = 3_000_000n
@@ -64,19 +58,15 @@ const stretch = 3_000_000n
  * 3 s of it, served clocked in microseconds.
  */
 const presenceShape = (name: string) => {
-	const base = schema(
-		name,
-		[Presence, Readings],
-		[unit("Learner", { child: LearnerId }), mutable(Presence)]
-	)
+	const base = schema(name, [Presence], [unit("Learner", { child: LearnerId }), mutable(Presence)])
 	const learner = role(base, "learner", { Presence }, { write: ["Presence"] })
 	const near = query(learner)
 		.rule((r) =>
 			r.find({
 				child: r.param("child", LearnerId),
 				stage: r.param("stage", natural),
-				start: Type.base(r.param("now", Reading)),
-				end: Type.cast(Num.add(Type.base(r.param("now", Reading)), 1n), pg.bigint)
+				start: Type.cast(Type.base(r.param("now", Reading)), Moment),
+				end: Type.cast(Num.add(Type.base(r.param("now", Reading)), 1n), Moment)
 			})
 		)
 		.rule((r) => {
@@ -87,14 +77,14 @@ const presenceShape = (name: string) => {
 				.where(
 					r.eq(child, r.param("child", LearnerId)),
 					r.eq(stage, r.param("stage", natural)),
-					Logic.gt(Num.add(Range.upper(during, pg.bigint), stretch), now),
-					Logic.lt(Range.lower(during, pg.bigint), Num.add(now, stretch + 1n))
+					Logic.gt(Num.add(Type.base(Range.upper(during, Moment)), stretch), now),
+					Logic.lt(Type.base(Range.lower(during, Moment)), Num.add(now, stretch + 1n))
 				)
 				.find({
 					child,
 					stage,
-					start: Range.lower(during, pg.bigint),
-					end: Range.upper(during, pg.bigint)
+					start: Range.lower(during, Moment),
+					end: Range.upper(during, Moment)
 				})
 		})
 	const hull = query(learner).rule((r) => {
