@@ -13,7 +13,16 @@
 import { deepEquals, defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Data, Effect, Formatter, Option, type Scope } from "effect"
 import { drawn, natural, pg } from "#compiler/public/fields.ts"
-import { counted, fin, mutable, on, ordered, relation, schema } from "#compiler/public/schema.ts"
+import {
+	counted,
+	fin,
+	mutable,
+	on,
+	ordered,
+	relation,
+	schema,
+	unit
+} from "#compiler/public/schema.ts"
 import {
 	type Catalogued,
 	constraintText,
@@ -55,6 +64,12 @@ const OrderedMember = relation(
 
 const CountedMember = relation("Member", { member: pg.integer, g: pg.integer }, ["member"])
 
+/** The units the mutable Owner and Member sit in: each owner's row by its id, each member's by its own. */
+const units = [
+	unit("Holder", { id: pg.integer }),
+	unit("Membership", { member: pg.integer })
+] as const
+
 /**
  * The ordered family: each owner's members indexed by their drawn `at`. Owner and Member are declared mutable: the
  * families model's direct writer rewrites an owner's count and an ordered member's index in place (its `count` and
@@ -64,14 +79,24 @@ const CountedMember = relation("Member", { member: pg.integer, g: pg.integer }, 
 const OrderedFamily = schema(
 	"fin_ordered",
 	[Owner, OrderedMember],
-	[ordered(on(OrderedMember, "g", "at"), fin(Owner, "n")), mutable(Owner), mutable(OrderedMember)]
+	[
+		ordered(on(OrderedMember, "g", "at"), fin(Owner, "n")),
+		mutable(Owner),
+		mutable(OrderedMember),
+		...units
+	]
 )
 
 /** The counted family: each owner's members indexed by the hidden ‹i›, its relations mutable as the ordered one's. */
 const CountedFamily = schema(
 	"fin_counted",
 	[Owner, CountedMember],
-	[counted(on(CountedMember, "g"), fin(Owner, "n")), mutable(Owner), mutable(CountedMember)]
+	[
+		counted(on(CountedMember, "g"), fin(Owner, "n")),
+		mutable(Owner),
+		mutable(CountedMember),
+		...units
+	]
 )
 
 /**

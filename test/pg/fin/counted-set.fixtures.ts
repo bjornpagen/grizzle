@@ -21,7 +21,8 @@ import {
 	on,
 	relation,
 	schema,
-	select
+	select,
+	unit
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { int4, setOf, Tag } from "#test/pg/fin/folds.ts"
@@ -108,7 +109,8 @@ export const declaredSchema = (name: string) =>
 				on(Owner, "a", "b", "k", "positive")
 			),
 			mutable(Owner),
-			mutable(Attr)
+			mutable(Attr),
+			unit("Held", { a: Name, b: Name, k: pg.integer })
 		]
 	)
 

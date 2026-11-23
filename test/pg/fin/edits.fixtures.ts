@@ -13,7 +13,8 @@ import {
 	mutable,
 	on,
 	relation,
-	schema
+	schema,
+	unit
 } from "#compiler/public/schema.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import { type SpanKeyedOwner, spanOwnersGen } from "#test/support/families/generate.ts"
@@ -51,7 +52,9 @@ export const SpanEdited = schema(
 			on(SpanOwner, "id", "during", "end")
 		),
 		mutable(SpanOwner),
-		mutable(SpanMember)
+		mutable(SpanMember),
+		unit("Spanned", { id: pg.integer }),
+		unit("Counted", { member: pg.integer })
 	]
 )
 

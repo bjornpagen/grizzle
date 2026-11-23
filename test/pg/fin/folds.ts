@@ -33,7 +33,8 @@ import {
 	ordered,
 	relation,
 	schema,
-	select
+	select,
+	unit
 } from "#compiler/public/schema.ts"
 import type { AnyRelation, AnySchema } from "#compiler/public/schema.ts"
 import { columnIndex } from "#compiler/runtime/write/cells.ts"
@@ -99,9 +100,18 @@ const int4Min = -2_147_483_648
  */
 export type Standing = "immutable" | "mutable"
 
-/** The rules a standing adds: `mutable` of each relation, or none for the immutable default. */
+/**
+ * The rules a standing adds: `mutable` of each relation, inside the units its Owner and Member sit in (each owner's row
+ * by its id, each member's by its own), or none for the immutable default.
+ */
 const standingRules = (standing: Standing, relations: ReadonlyArray<AnyRelation>) =>
-	standing === "mutable" ? Arr.map(relations, (r) => mutable(r)) : []
+	standing === "mutable"
+		? [
+				...Arr.map(relations, (r) => mutable(r)),
+				unit("Holder", { id: pg.integer }),
+				unit("Membership", { member: pg.integer })
+			]
+		: []
 
 const countOrdered = (() => {
 	const Owner = relation(
