@@ -102,23 +102,21 @@ export const templateKey = (template: QueryTemplate): ServedKey => {
 
 /**
  * What wakes a read program's watch as its served read holds it (served/forms.ts ServedReadLive): constant where its
- * footprint holds no table and no view, a read of closed relations alone; otherwise routed by its footprint
- * (servedFootprint).
+ * footprint holds no table, a read of closed relations alone; otherwise routed by its footprint (servedFootprint).
  */
 export const servedReadLive = (footprint: Footprint, names: PhysicalNames): ServedReadLive =>
-	footprint.tables.size + footprint.views.size === 0
+	footprint.tables.size === 0
 		? { kind: "constant" }
 		: { kind: "routed", footprint: servedFootprint(footprint, names) }
 
 /**
  * A read program's footprint as its served read names it (served/forms.ts ServedFootprint): each stored relation's
- * table, by its installed identifier, with each routed field's installed column to its parameter's declared name, and
- * each materialized derived relation's view, by its installed identifier, routed by nothing, all under the
- * installation's names `names`, which the naming door derives.
+ * table, an authored or a stored derived relation's, by its installed identifier, with each routed field's installed
+ * column to its parameter's declared name, under the installation's names `names`, which the naming door derives.
  */
 const servedFootprint = (footprint: Footprint, names: PhysicalNames): ServedFootprint =>
-	Object.fromEntries([
-		...[...footprint.tables].map(
+	Object.fromEntries(
+		[...footprint.tables].map(
 			([relation, routes]) =>
 				[
 					names.relation(relation).name,
@@ -126,9 +124,8 @@ const servedFootprint = (footprint: Footprint, names: PhysicalNames): ServedFoot
 						[...routes].map(([field, param]) => [names.column(relation, field), param] as const)
 					)
 				] as const
-		),
-		...[...footprint.views].map((view) => [names.relation(view).name, {}] as const)
-	])
+		)
+	)
 
 /** The key a page's rows are delivered under: the fields of the completed order it pages by (served/forms.ts ServedPage). */
 export const pageKey = (page: ServedPage): ServedKey => ({
@@ -295,8 +292,6 @@ export const servedRosters = (roles: ReadonlyArray<ServedRoleForm>): ReadonlySet
 			switch (member.kind) {
 				case "change":
 					variantRosters(member.variants, out)
-					break
-				case "refresh":
 					break
 				case "read":
 				case "paged":

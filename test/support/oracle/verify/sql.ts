@@ -2407,7 +2407,7 @@ class StatementAuditor {
 			case "alterDomain":
 			case "createIndex":
 			case "dropIndex":
-			case "createMaterializedView":
+			case "createStoredTable":
 			case "drop":
 			case "createView":
 			case "createPolicy":
@@ -2684,7 +2684,7 @@ class StatementAuditor {
 			case "dropIndex":
 				this.objectName(statement.name, "index", "name")
 				return
-			case "createMaterializedView": {
+			case "createStoredTable": {
 				this.objectName(statement.name, "materialized view", "name")
 				this.at("columns", () => {
 					this.baseColumns(statement.columns, "view column")

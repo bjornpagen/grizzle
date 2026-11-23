@@ -34,7 +34,6 @@ const verbRank: Readonly<Record<ChangeVerb, number>> = { add: 0, drop: 1, change
 const kindRank: Readonly<Record<GraphIdent["kind"], number>> = {
 	schema: 0,
 	table: 1,
-	materializedView: 2,
 	domain: 3,
 	type: 3,
 	column: 4,
@@ -78,7 +77,6 @@ const nameOf = (ident: GraphIdent): string => {
 		case "domain":
 		case "type":
 		case "table":
-		case "materializedView":
 		case "view":
 		case "index":
 		case "statistics":
@@ -107,8 +105,6 @@ const commentTarget = (ident: GraphIdent): CommentTarget | undefined => {
 			return { kind: "ROLE", name: ident.name }
 		case "table":
 			return { kind: "TABLE", name: { schema: ident.schema, name: ident.name } }
-		case "materializedView":
-			return { kind: "MATERIALIZED VIEW", name: { schema: ident.schema, name: ident.name } }
 		case "view":
 			return { kind: "VIEW", name: { schema: ident.schema, name: ident.name } }
 		case "domain":

@@ -25,8 +25,9 @@ import {
 	type NameKey
 } from "#compiler/sql/ast.ts"
 
-/** The kinds of object that hold a name in the types' name space: a relation's row type, or a domain. */
-type Holding = "table" | "materializedView" | "domain"
+/** The kinds of object that hold a name in the types' name space: a table's row type (a stored derived relation's
+ * table's alike), or a domain. */
+type Holding = "table" | "domain"
 
 /** What a relation holder owns under a name of its own, read off its parts (objectParts), and the name it is renamed
  * to: a key, whose index takes the constraint's name and is renamed through it; a constraint with no index, a CHECK or
@@ -48,7 +49,7 @@ export type AsideCause =
  * aside with it. A type is only ever taken: a kept type's identity is its name. */
 export type Aside =
 	| {
-			readonly kind: "table" | "materializedView"
+			readonly kind: "table"
 			readonly name: ObjectName
 			readonly cause: AsideCause
 			readonly to: string
@@ -66,7 +67,7 @@ const heldName = (
 	ident: string
 ): { readonly kind: Holding; readonly name: ObjectName } | undefined => {
 	const parsed = parseIdent(ident)
-	if (parsed.kind !== "table" && parsed.kind !== "materializedView" && parsed.kind !== "domain") {
+	if (parsed.kind !== "table" && parsed.kind !== "domain") {
 		return undefined
 	}
 	return { kind: parsed.kind, name: { schema: parsed.schema, name: parsed.name } }
@@ -104,7 +105,7 @@ const ownedBy = (parts: Parts, temporaries: TemporaryCensus): ReadonlyArray<Asid
  * under its own aside name (ownedBy). */
 export const relationAside = (
 	previous: DeploySnapshot,
-	kind: "table" | "materializedView",
+	kind: "table",
 	name: ObjectName,
 	cause: AsideCause,
 	temporaries: TemporaryCensus
@@ -125,8 +126,8 @@ export const relationAside = (
  *
  * Names a migration frees before it takes them.
  *
- * PostgreSQL keeps one name space per schema for types, where each table's and materialized view's row type lives
- * beside the domains, and one for relations, tables and materialized views among them. The naming door gives tables,
+ * PostgreSQL keeps one name space per schema for types, where each table's row type lives
+ * beside the domains, and one for relations, tables among them. The naming door gives tables,
  * derived relations, rosters' domains and contracts' domains their declared names, one name space for all four, so a
  * migration may give a name to an object of another kind than the one holding it before:
  * - a roster's domain taking a removed table's name;
@@ -186,7 +187,6 @@ const takenAside = (
 ): Aside => {
 	switch (held.kind) {
 		case "table":
-		case "materializedView":
 			return { kind: held.kind, name: held.name, cause, to, owned: owned(held.name) }
 		case "domain":
 			return { kind: held.kind, name: held.name, cause, to }
@@ -211,8 +211,6 @@ const asideObject = (
 	switch (kind) {
 		case "table":
 			return "TABLE"
-		case "materializedView":
-			return "MATERIALIZED VIEW"
 		case "domain":
 			return "DOMAIN"
 	}
@@ -230,8 +228,7 @@ export const asideStatements = (a: Aside): NonEmptyReadonlyArray<SqlStatement> =
 	switch (a.kind) {
 		case "domain":
 			return [holder]
-		case "table":
-		case "materializedView": {
+		case "table": {
 			const at = (name: string): ObjectName => ({ ...a.name, name })
 			return [holder, ...a.owned.map((o) => ownedRename(at, a.to, o))]
 		}
@@ -249,9 +246,7 @@ export const setAside = (
 	if (asides.length === 0) {
 		return previous
 	}
-	const relationAsides = asides.flatMap((a) =>
-		a.kind === "table" || a.kind === "materializedView" ? [a] : []
-	)
+	const relationAsides = asides.flatMap((a) => (a.kind === "table" ? [a] : []))
 	const owned = (kinds: ReadonlyArray<AsidePart["kind"]>) =>
 		relationAsides.flatMap((a) =>
 			a.owned.filter((o) => kinds.includes(o.kind)).map((o) => [o.name, o.to] as const)
@@ -277,7 +272,7 @@ export const setAside = (
 }
 
 /** Renames of the names a snapshot's schema holds, each namespace's by the name it renames: its relations' in pg_class
- * (tables, materialized views, indexes and a key's index), its types', and each relation's own constraints', by the
+ * (tables, stored tables, indexes and a key's index), its types', and each relation's own constraints', by the
  * relation's name before the renames. */
 export interface Renamed {
 	readonly relations: ReadonlyMap<string, string>
@@ -302,7 +297,6 @@ export const withNames = (previous: DeploySnapshot, names: Renamed): DeploySnaps
 		const parsed = parseIdent(id)
 		switch (parsed.kind) {
 			case "table":
-			case "materializedView":
 			case "index":
 			case "rowSecurity":
 			case "replicaIdentity": {

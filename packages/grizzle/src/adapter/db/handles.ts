@@ -27,12 +27,7 @@ import { applyOutcome } from "#adapter/outcomes/index.ts"
 import { windowIntake, windowStatement } from "#adapter/page/execute.ts"
 import { windowCall } from "#adapter/page/window.ts"
 import type { ExecutionInputs } from "#adapter/reader/execution.ts"
-import {
-	hostParams,
-	readKeyValues,
-	readParams,
-	unreadableArguments
-} from "#adapter/reader/params.ts"
+import { hostParams, readKeyValues, unreadableArguments } from "#adapter/reader/params.ts"
 import { executionInputs } from "#adapter/reader/relations.ts"
 import { programStatement, readIntake } from "#adapter/reader/run.ts"
 import {
@@ -43,7 +38,6 @@ import {
 	type ShapeEvents,
 	setEvents
 } from "#adapter/reader/stream.ts"
-import { runRefresh } from "#adapter/refresh/run.ts"
 import { explainChange, explainRead, explainReadAnalyzed } from "#adapter/served/explain.ts"
 import type {
 	ChangeCall,
@@ -72,15 +66,14 @@ import {
 	opening,
 	type ReadShape,
 	type ReadState,
-	type Refreshed,
 	type SetEvent,
 	type ShapeFailure,
 	type WriteEvent,
 	type WriteOutcome
 } from "#compiler/live/index.ts"
 import type { EncodingFailure } from "#compiler/plan/common.ts"
-import { defect, encodeFailure, factPlace, type RouteKey } from "#compiler/plan/runtime.ts"
-import type { ServedReadLive, ServedRefresh, ServedTables } from "#compiler/plan/serve.ts"
+import { defect, type RouteKey } from "#compiler/plan/runtime.ts"
+import type { ServedReadLive, ServedTables } from "#compiler/plan/serve.ts"
 
 /**
  * A served Db's workload handles: each member its layer loaded for the Db's role (served/load.ts LoadedMember), run on
@@ -97,7 +90,6 @@ import type { ServedReadLive, ServedRefresh, ServedTables } from "#compiler/plan
  * - A change member writes: `once` is its outcome after its COMMIT, accepted with its counts and read-backs or
  *   unchanged, and every refusal is its CallError, the laws' rejection and a fact outside the world included; `watch`
  *   is that outcome, or that error, then end. Its facts are its array members' where its ChangeSet holds some, else `{}`.
- * - A refresh member writes too: its outcome is `refreshed`, after its one transaction's COMMIT (refresh/run.ts).
  *
  * Every failure is classified once (live/call-error.ts readCallError, applyCallError), so an answer's error event and
  * once's error are one CallError, of the kinds its answer ends with (live/events.ts ShapeFailure).
@@ -150,8 +142,8 @@ export type OnceCalls =
 			readonly once: (input: unknown) => Effect.Effect<WrittenOutcome, ShapeFailure<"write">>
 	  }
 
-/** What a write member's once answers: a ChangeSet's outcome over its read-backs, or a refresh's. */
-export type WrittenOutcome = WriteOutcome<unknown> | Refreshed
+/** What a write member's once answers: a ChangeSet's outcome over its read-backs. */
+export type WrittenOutcome = WriteOutcome<unknown>
 
 /**
  * A read member's call parsed from its input: its read call, and the execution inputs its statement binds, which its
@@ -410,7 +402,6 @@ export const liveRead = (
 		case "paged":
 			return live(member.read, parseWindow(member.read, member.page))
 		case "change":
-		case "refresh":
 			return Option.none()
 	}
 }
@@ -578,18 +569,6 @@ const writeCalls = (
 		)
 })
 
-/** A refresh member's write: its input read as a refresh's, then its one transaction, `refreshed` after its COMMIT. */
-const refreshWrite =
-	(ctx: ServedDbContext, refresh: ServedRefresh) =>
-	(input: unknown): Effect.Effect<WrittenOutcome, AnswerFailure<"refresh">> =>
-		Effect.mapError(
-			Effect.as(
-				Effect.flatMap(Effect.fromResult(refreshInput(input)), () => runRefresh(ctx, refresh)),
-				refreshed
-			),
-			applyCallError
-		)
-
 /** The host call of a change's input: its parameters, with its facts where its ChangeSet holds array members, else `{}`. */
 const hostCallOf = (
 	call: ChangeCall,
@@ -715,16 +694,6 @@ const changeWrite =
 			(outcome) => Effect.fromResult(writtenOf(outcome))
 		)
 
-const refreshed: Refreshed = { kind: "refreshed" }
-
-/** A refresh member's input: no parameters and no facts. */
-const refreshInput = (input: unknown): Result.Result<void, CallInputRefused | EncodingFailure> =>
-	Result.flatMap(callInput(input), (given) =>
-		Result.flatMap(readParams([], given.params, encodeFailure("factShape", factPlace)), () =>
-			noFacts(given.facts)
-		)
-	)
-
 /** The change a Db runs: the one compiled for the fill contexts its claims hold a fact of. */
 export const variantOf = (ctx: ServedDbContext, variants: LoadedVariants): LoadedChange => {
 	switch (variants.kind) {
@@ -751,7 +720,6 @@ export const readCallOf = (
 		case "paged":
 			return Option.some(parseWindow(member.read, member.page))
 		case "change":
-		case "refresh":
 			return Option.none()
 	}
 }
@@ -767,15 +735,12 @@ export const memberCalls = (ctx: ServedDbContext, member: LoadedMember): ServedC
 			return readMemberCalls(ctx, member.read, parseWindow(member.read, member.page))
 		case "change":
 			return writeCalls(changeWrite(ctx, variantOf(ctx, member.variants)))
-		case "refresh":
-			return writeCalls(refreshWrite(ctx, member.refresh))
 	}
 }
 
 /**
  * A served member's explains, by what it is: a read's, a key's and a paged member's estimate and analyze the statement
- * its once sends, of the call its input parses to; a change's estimates every statement its once sends; a refresh,
- * whose REFRESH has no plan, has none. Each is named by the login's served tables (served/explain.ts).
+ * its once sends, of the call its input parses to; a change's estimates every statement its once sends. Each is named by the login's served tables (served/explain.ts).
  */
 export type MemberExplains =
 	| {
@@ -789,7 +754,6 @@ export type MemberExplains =
 			readonly kind: "change"
 			readonly explain: (input: unknown) => Effect.Effect<ReadonlyArray<StatementPlan>, ReadError>
 	  }
-	| { readonly kind: "refresh" }
 
 /** A read member's explains, of the call its input parses to by `parse`. */
 const readExplains = (
@@ -831,8 +795,6 @@ export const memberExplains = (
 					)
 			}
 		}
-		case "refresh":
-			return { kind: "refresh" }
 	}
 }
 
@@ -852,8 +814,6 @@ const explainsOf = (explains: MemberExplains): object => {
 			return {
 				explain: (input: unknown) => Effect.mapError(explains.explain(input), readCallError)
 			}
-		case "refresh":
-			return {}
 	}
 }
 

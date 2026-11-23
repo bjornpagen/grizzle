@@ -178,8 +178,8 @@ export class ReplicationSilent extends Data.TaggedError("ReplicationSilent")<{
 /**
  * What a candidacy runs with: the decoder login's connection, its sessions' control texts, the installation's live
  * source, its slot in the connection's database (engine core/identity.ts liveSlotOf), the source's slot commands filled
- * with it once, where the layer names it (engine live/replication.ts slotCommand), its live tables, and its
- * materialized views, the only table keys an announcement may name (live/changes.ts).
+ * with it once, where the layer names it (engine live/replication.ts slotCommand), and its live tables, an authored or
+ * a stored derived relation's each (live/changes.ts).
  */
 export interface Candidacy {
 	readonly decoder: LoginConnection
@@ -189,7 +189,6 @@ export interface Candidacy {
 	readonly createSlot: ReplicationCommand
 	readonly start: ReplicationCommand
 	readonly tables: LiveTables
-	readonly views: ReadonlySet<string>
 }
 
 /** A served statement of the source's over `params`, its rows kept. */
@@ -521,12 +520,7 @@ const streamed = (
 	heard: () => void
 ): Effect.Effect<never, LeaderReason> => {
 	const { candidacy } = leading
-	const reader = transactionReader(
-		candidacy.tables,
-		candidacy.views,
-		candidacy.source.publication,
-		candidacy.source.ledger
-	)
+	const reader = transactionReader(candidacy.tables, candidacy.source.ledger)
 	return Effect.catchTag(
 		replication.stream(candidacy.start, receiver(delivered, reader, heard)),
 		"ServerError",

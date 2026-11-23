@@ -114,9 +114,9 @@ const created = (s: SqlStatement): ReadonlyArray<Created> => {
 					identifier: s.name
 				}
 			]
-		case "createMaterializedView":
+		case "createStoredTable":
 			return [
-				{ on: { kind: "MATERIALIZED VIEW", name: s.name }, identifier: s.name.name },
+				{ on: { kind: "TABLE", name: s.name }, identifier: s.name.name },
 				...s.columns.map((c): Created => ({
 					on: { kind: "COLUMN", relation: s.name, column: c },
 					identifier: c
@@ -208,7 +208,7 @@ const created = (s: SqlStatement): ReadonlyArray<Created> => {
 		case "commit":
 		case "rollback":
 		case "setConstraintsImmediate":
-		case "refresh":
+		case "fillStored":
 		case "comment":
 			return []
 	}
@@ -222,7 +222,6 @@ export const targetKey = (on: CommentTarget): string => {
 			return `${on.kind}\u0001${on.name}`
 		case "TABLE":
 		case "VIEW":
-		case "MATERIALIZED VIEW":
 		case "DOMAIN":
 		case "TYPE":
 		case "INDEX":
@@ -253,7 +252,6 @@ const targetName = (on: CommentTarget): string => {
 			return on.name
 		case "TABLE":
 		case "VIEW":
-		case "MATERIALIZED VIEW":
 		case "DOMAIN":
 		case "TYPE":
 		case "INDEX":
@@ -285,7 +283,6 @@ const renamedTo = (s: SqlStatement): ReadonlyArray<CommentTarget> => {
 				return [{ kind: "FUNCTION", name: { schema: s.name.schema, name: s.to, args: s.args } }]
 			case "TABLE":
 			case "INDEX":
-			case "MATERIALIZED VIEW":
 			case "DOMAIN":
 				return [{ kind: s.object, name: { schema: s.name.schema, name: s.to } }]
 		}

@@ -1,0 +1,503 @@
+/**
+ * What the properties of stored.test.ts read: their schemas, their writes, and the comparisons each COMMIT is held to,
+ * the stored rows against their definition's and the decoded changes against the stored rows'.
+ */
+
+import { array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Formatter, Order, Result, type Scope, String as Str } from "effect"
+import { transactionReader } from "#adapter/live/changes.ts"
+import { decodeMessage } from "#adapter/live/pgoutput.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
+import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
+import type { PhysicalNames } from "#compiler/ir/physical.ts"
+import { admittedIdentifier, notificationText } from "#compiler/plan/runtime.ts"
+import { Fn } from "#compiler/public/compute.ts"
+import { pg } from "#compiler/public/fields.ts"
+import { query, v } from "#compiler/public/query.ts"
+import { derived, fn, mutable, relation, rows, schema, unit } from "#compiler/public/schema.ts"
+import { installDerived, OracleFixtureFailed, snapshotOf } from "#test/pg/derived/oracle/harness.ts"
+import { bytesOfHex } from "#test/pg/live/source.fixtures.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
+import { compileTemplate, testCompile } from "#test/support/compile.ts"
+import { installGenerated } from "#test/support/install-migrate.ts"
+import { standUpJudge } from "#test/support/judge.ts"
+import { parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { transaction } from "#test/support/oracle/install/transaction.ts"
+import type { PgConnection, SqlError } from "#test/support/pg.ts"
+import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
+import { roleSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { fullWorld } from "#test/support/worlds.ts"
+
+/**
+ * A document's places, keyed by the document then the place, and a link out of a place, keyed alike: both sit in the
+ * unit of the document, which a stored relation over them stands in. Doc is closed, never updated, or open, written in
+ * place inside its unit.
+ */
+const Doc = relation("Doc", { doc: pg.integer, at: pg.integer, v: pg.integer }, ["doc", "at"])
+const Link = relation("Link", { doc: pg.integer, at: pg.integer, to: pg.integer }, ["doc", "at"])
+const Document = unit("Document", { doc: pg.integer })
+
+/** A place's codes, a set-returning immutable function of its document and place, two rows for a first place. */
+const codes = fn("codes", {
+	calls: [],
+	args: { d: pg.integer, p: pg.integer },
+	returns: rows({ code: pg.integer }),
+	volatility: "immutable",
+	nullInput: "strict",
+	language: "sql",
+	body: fn.body`SELECT d * 10 + p UNION ALL SELECT d WHERE p = 0`
+})
+
+/** Whether Doc is closed or open. */
+export type Openness = "closed" | "open"
+
+const baseOf = (openness: Openness, name: string) =>
+	schema(name, [Doc, Link, codes], openness === "open" ? [mutable(Doc), Document] : [Document])
+
+/**
+ * The stored relations, each over the document's unit: a projection, a count by document, a negation within it, and
+ * the rows of a function each place's document and place are passed to, which a restriction to the written units
+ * reads at the unit's channels (analysis/theory/unit.ts channelled).
+ */
+const storedNames = ["Placed", "Counted", "Unlinked", "Coded"] as const
+
+const topOf = (openness: Openness, name: string) => {
+	const base = baseOf(openness, name)
+	const Placed = derived.stored(
+		"Placed",
+		query(base).rule((r) => {
+			const { doc, at, v: x } = v(Doc, "d")
+			return r.match(Doc, { doc, at, v: x }).find({ doc, at, v: x })
+		})
+	)
+	const Counted = derived.stored(
+		"Counted",
+		query(base).rule((r) => {
+			const { doc, at } = v(Doc, "d")
+			return r.match(Doc, { doc, at }).find({ doc, places: r.count() })
+		})
+	)
+	const Unlinked = derived.stored(
+		"Unlinked",
+		query(base).rule((r) => {
+			const { doc, at } = v(Doc, "d")
+			return r.match(Doc, { doc, at }).where(r.not(Link, { doc, at })).find({ doc, at })
+		})
+	)
+	const Coded = derived.stored(
+		"Coded",
+		query(base).rule((r) => {
+			const { doc, at } = v(Doc, "d")
+			const run = Fn.rows(codes, { d: doc, p: at })
+			const { code } = v(run, "run")
+			return r.match(Doc, { doc, at }).match(run, { code }).find({ doc, at, code })
+		})
+	)
+	const top = schema.extend([base], `${name}_top`, [Placed, Counted, Unlinked, Coded], [])
+	/** Each stored relation read whole by a query over the top level, which reads its table. */
+	const reads: Readonly<Record<(typeof storedNames)[number], unknown>> = {
+		Placed: query(top).rule((r) => {
+			const s = v(Placed, "s")
+			return r.match(Placed, s).find(s)
+		}),
+		Counted: query(top).rule((r) => {
+			const s = v(Counted, "s")
+			return r.match(Counted, s).find(s)
+		}),
+		Unlinked: query(top).rule((r) => {
+			const s = v(Unlinked, "s")
+			return r.match(Unlinked, s).find(s)
+		}),
+		Coded: query(top).rule((r) => {
+			const s = v(Coded, "s")
+			return r.match(Coded, s).find(s)
+		})
+	}
+	return { top, Placed, Counted, Unlinked, reads }
+}
+
+/**
+ * One write of a transaction at document `doc` and place `at`: a place put or taken, a link put or taken, or, where Doc
+ * is open, a place's value changed in place.
+ */
+export type Write =
+	| { readonly kind: "place"; readonly doc: number; readonly at: number; readonly value: number }
+	| { readonly kind: "unplace"; readonly doc: number; readonly at: number }
+	| { readonly kind: "link"; readonly doc: number; readonly at: number }
+	| { readonly kind: "unlink"; readonly doc: number; readonly at: number }
+	| { readonly kind: "revalue"; readonly doc: number; readonly at: number; readonly value: number }
+
+export interface UpkeepCase {
+	readonly openness: Openness
+	/** The transactions, each its writes in order, each committed before the next begins. */
+	readonly transactions: ReadonlyArray<ReadonlyArray<Write>>
+}
+
+const writeGen =
+	(openness: Openness): Gen<Write> =>
+	(s) => {
+		const kinds =
+			openness === "open"
+				? (["place", "unplace", "link", "unlink", "revalue"] as const)
+				: (["place", "unplace", "link", "unlink"] as const)
+		const kind = s.draw(element(kinds))
+		const doc = s.draw(int(1, 2))
+		const at = s.draw(int(0, 2))
+		switch (kind) {
+			case "place":
+			case "revalue":
+				return { kind, doc, at, value: s.draw(int(0, 3)) }
+			case "unplace":
+			case "link":
+			case "unlink":
+				return { kind, doc, at }
+		}
+	}
+
+export const upkeepCase: Gen<UpkeepCase> = (s) => {
+	const openness: Openness = s.draw(boolean) ? "open" : "closed"
+	return {
+		openness,
+		transactions: s.draw(array(array(writeGen(openness), { min: 1, max: 4 }), { min: 1, max: 5 }))
+	}
+}
+
+/** What a case reached: each kind of write, a transaction that wrote two documents, and an open Doc. */
+export type UpkeepFeature =
+	| `wrote ${Write["kind"]}`
+	| "two documents in one transaction"
+	| "Doc open"
+
+/** One write as the owner's direct SQL, a writer outside grizzle's programs, which the captures see as any, over the
+ * installation's names `names`. */
+const sqlOf = (names: PhysicalNames, w: Write): string => {
+	const table = (relation: string) => {
+		const name = names.relation(relation)
+		return `${quoteIdent(name.schema)}.${quoteIdent(name.name)}`
+	}
+	const doc = table("Doc")
+	const link = table("Link")
+	const column = (relation: string, field: string) => quoteIdent(names.column(relation, field))
+	const at = (relation: string) =>
+		`${column(relation, "doc")} = ${w.doc} AND ${column(relation, "at")} = ${w.at}`
+	switch (w.kind) {
+		case "place":
+			return `INSERT INTO ${doc} (${column("Doc", "doc")}, ${column("Doc", "at")}, ${column("Doc", "v")}) VALUES (${w.doc}, ${w.at}, ${w.value}) ON CONFLICT DO NOTHING`
+		case "unplace":
+			return `DELETE FROM ${doc} WHERE ${at("Doc")}`
+		case "link":
+			return `INSERT INTO ${link} (${column("Link", "doc")}, ${column("Link", "at")}, ${column("Link", "to")}) VALUES (${w.doc}, ${w.at}, 0) ON CONFLICT DO NOTHING`
+		case "unlink":
+			return `DELETE FROM ${link} WHERE ${at("Link")}`
+		case "revalue":
+			return `UPDATE ${doc} SET ${column("Doc", "v")} = ${w.value} WHERE ${at("Doc")}`
+	}
+}
+
+/**
+ * The case on a fresh installation: each transaction committed in turn by the owner's direct SQL, and after each
+ * COMMIT, in one read-only snapshot, every stored relation's rows equal to its definition's rows there, the definition
+ * evaluated by the conservative lowering, which relies on no evidence (oracle/harness.ts snapshotOf).
+ */
+export const upkeepRun = (
+	c: UpkeepCase,
+	reached: Case<UpkeepFeature>
+): Effect.Effect<
+	void,
+	OracleFixtureFailed | CompileError | SqlError | TransactionRolledBack,
+	Substrate | Scope.Scope
+> =>
+	Effect.gen(function* () {
+		const s = yield* Substrate
+		const built = topOf(c.openness, "stored_upkeep")
+		const opened = yield* installDerived(built.top, {}, "upkeep", [])
+		yield* standUpJudge(s.admin, opened.installed.installation)
+		/** Each stored relation's read, compiled once for the installation as a query of its rows is (oracle/union-take
+		 * compiled), its one statement's text, which reads the relation's table, never its definition. */
+		const readSql = new Map(
+			Arr.map(storedNames, (name) => {
+				const compiled = compileTemplate(built.reads[name], undefined, {
+					...testCompile,
+					installation: identity.schema(parsedSchemaName(opened.installed.schema))
+				})
+				if (!compiled.ok) {
+					throw new Error(`a query of ${name}: ${compiled.error.message}`)
+				}
+				const sql = compiled.value.runs.optimized.statement.spec.sql
+				if (!Str.includes(opened.view(name))(sql)) {
+					throw new Error(
+						`a query of ${name} reads its definition, not its table ${opened.view(name)}: ${sql}`
+					)
+				}
+				return [name, sql] as const
+			})
+		)
+		if (c.openness === "open") {
+			reached.note("Doc open")
+		}
+		for (const [step, writes] of c.transactions.entries()) {
+			for (const w of writes) {
+				reached.note(`wrote ${w.kind}`)
+			}
+			if (new Set(Arr.map(writes, (w) => w.doc)).size > 1) {
+				reached.note("two documents in one transaction")
+			}
+			yield* transaction(
+				s.admin,
+				Arr.map(writes, (w) => sqlOf(opened.installed.names, w))
+			)
+			const snapshot = yield* snapshotOf(opened, storedNames, storedNames)
+			for (const name of storedNames) {
+				const stored = Arr.map(snapshot.stored.get(name) ?? [], (r) => r.value)
+				const defined = snapshot.defined.get(name) ?? []
+				if (Arr.join(stored, "\n") !== Arr.join(defined, "\n")) {
+					return yield* new OracleFixtureFailed({
+						message: `after transaction ${step}, ${name} holds [${Arr.join(stored, "; ")}] where its definition gives [${Arr.join(defined, "; ")}]`
+					})
+				}
+				const read = yield* s.admin.queryValues(
+					`SELECT ROW("q".*)::text FROM (${readSql.get(name) ?? ""}) AS "q"`,
+					[]
+				)
+				const queried = Arr.sort(
+					Arr.map(read, (row) => String(row[0])),
+					Order.String
+				)
+				const held = Arr.sort(
+					Arr.map(snapshot.stored.get(name) ?? [], (r) => r.text),
+					Order.String
+				)
+				if (Arr.join(queried, "\n") !== Arr.join(held, "\n")) {
+					return yield* new OracleFixtureFailed({
+						message: `after transaction ${step}, a query of ${name} reads [${Arr.join(queried, "; ")}] where its table holds [${Arr.join(held, "; ")}]`
+					})
+				}
+			}
+		}
+	})
+
+/**
+ * The stored relations' schema named `name` and its full world's login (test/support/worlds.ts fullWorld), whose
+ * workload watches each stored relation at one document, and Placed also at one value, a route outside its primary key
+ * (doc, at), so its table is published whole (physical/ddl/live.ts identityOf).
+ */
+const watchedOf = (openness: Openness, name: string) => {
+	const { top, Placed, Counted, Unlinked } = topOf(openness, name)
+	const programs: Record<string, unknown> = {
+		placedAt: query(top).rule((r) => {
+			const { at, v: x } = v(Placed, "p")
+			return r.match(Placed, { doc: r.param("doc", pg.integer), at, v: x }).find({ at, v: x })
+		}),
+		placedOf: query(top).rule((r) => {
+			const { doc, at } = v(Placed, "p")
+			return r.match(Placed, { doc, at, v: r.param("v", pg.integer) }).find({ doc, at })
+		}),
+		countedAt: query(top).rule((r) => {
+			const { places } = v(Counted, "c")
+			return r.match(Counted, { doc: r.param("doc", pg.integer), places }).find({ places })
+		}),
+		unlinkedAt: query(top).rule((r) => {
+			const { at } = v(Unlinked, "u")
+			return r.match(Unlinked, { doc: r.param("doc", pg.integer), at }).find({ at })
+		})
+	}
+	return { top, world: fullWorld(top, programs) }
+}
+
+/** What a case of the watch reached: a stored row's route keys decoded, a commit that changed no stored row, and a
+ * table published whole. */
+export type WatchFeature =
+	| "a stored row's change decoded"
+	| "a commit that changed no stored row"
+	| "a stored table published whole"
+	| "Doc open"
+
+/** A published stored table: its schema, and the columns its plan routes it by. */
+interface StoredTable {
+	readonly schema: string
+	readonly routes: ReadonlyArray<string>
+}
+
+/** A stored row as the host reads it: its routed columns' texts, in the plan's order, and its whole row's text. */
+interface StoredRow {
+	readonly routed: ReadonlyArray<string>
+	readonly whole: string
+}
+
+/** Each stored table's rows, by its installed identifier (StoredRow). */
+const storedRows = (
+	admin: PgConnection,
+	tables: ReadonlyMap<string, StoredTable>
+): Effect.Effect<ReadonlyMap<string, ReadonlyArray<StoredRow>>, SqlError> =>
+	Effect.map(
+		Effect.forEach([...tables], ([table, t]) =>
+			Effect.map(
+				admin.queryValues(
+					`SELECT ${Arr.join(
+						[...Arr.map(t.routes, (c) => `r.${quoteIdent(c)}::text`), "r::text"],
+						", "
+					)} FROM ${quoteIdent(t.schema)}.${quoteIdent(table)} AS r`,
+					[]
+				),
+				(rows) =>
+					[
+						table,
+						Arr.map(rows, (row): StoredRow => {
+							const texts = Arr.map(row, String)
+							return { routed: texts.slice(0, -1), whole: texts.at(-1) ?? "" }
+						})
+					] as const
+			)
+		),
+		(entries) => new Map(entries)
+	)
+
+/**
+ * The route keys a commit decodes to, from each stored table's rows before and after it: for each row one side holds
+ * and the other does not, each routed column's keyed key at the row's value, or the table's key for a table routed by
+ * none. The upkeep inserts and deletes and never updates, so a row it changed is a row one side alone holds.
+ */
+const keysOfChange = (
+	tables: ReadonlyMap<string, StoredTable>,
+	before: ReadonlyMap<string, ReadonlyArray<StoredRow>>,
+	after: ReadonlyMap<string, ReadonlyArray<StoredRow>>
+): ReadonlySet<string> => {
+	const keys = new Set<string>()
+	for (const [table, t] of tables) {
+		const was = before.get(table) ?? []
+		const now = after.get(table) ?? []
+		const wasTexts = new Set(Arr.map(was, (row) => row.whole))
+		const nowTexts = new Set(Arr.map(now, (row) => row.whole))
+		const changed = [
+			...Arr.filter(was, (row) => !nowTexts.has(row.whole)),
+			...Arr.filter(now, (row) => !wasTexts.has(row.whole))
+		]
+		const named = admittedIdentifier<"table">(table)
+		for (const row of changed) {
+			if (t.routes.length === 0) {
+				keys.add(notificationText({ kind: "table", table: named }))
+			}
+			for (const [i, column] of t.routes.entries()) {
+				keys.add(
+					notificationText({
+						kind: "keyed",
+						table: named,
+						column: admittedIdentifier<"column">(column),
+						value: row.routed[i] ?? ""
+					})
+				)
+			}
+		}
+	}
+	return keys
+}
+
+/**
+ * The live leg: the case's schema generated with a login watching the stored relations, installed with its live
+ * source, and a temporary pgoutput slot opened as the decoder login before the first transaction. After each COMMIT,
+ * the slot's changes read through the leader's own reader (adapter/live/pgoutput.ts decodeMessage,
+ * adapter/live/changes.ts transactionReader) are exactly one transaction holding the route keys of the stored rows the
+ * commit's upkeep changed, computed on the host from the stored rows before and after it, or nothing where it changed
+ * none: a watch of a stored relation is woken by the writing transaction itself.
+ */
+export const watchRun = (
+	c: UpkeepCase,
+	reached: Case<WatchFeature>
+): Effect.Effect<
+	void,
+	OracleFixtureFailed | CompileError | SqlError | TransactionRolledBack,
+	Substrate | Scope.Scope
+> =>
+	Effect.gen(function* () {
+		const s = yield* Substrate
+		const generated = yield* installGenerated(
+			(name) => {
+				const watched = watchedOf(c.openness, name)
+				return { schema: watched.top, logins: [watched.world.server] }
+			},
+			{ label: "upkeep_live", ambient: ordinarySession }
+		)
+		const { installed } = generated
+		yield* standUpJudge(s.admin, installed.installation)
+		if (c.openness === "open") {
+			reached.note("Doc open")
+		}
+		const plan = installed.installation.live
+		if (plan.kind === "none") {
+			return yield* new OracleFixtureFailed({
+				message: "a workload that watches holds no live plan"
+			})
+		}
+		const tables = new Map(
+			Arr.map(plan.tables, (t): readonly [string, StoredTable] => {
+				const name = installed.names.relation(t.relation)
+				return [
+					name.name,
+					{
+						schema: name.schema,
+						routes: Arr.map(t.routes, (f) => installed.names.column(t.relation, f))
+					}
+				]
+			})
+		)
+		if (Arr.some(plan.tables, (t) => t.routes.length > 1)) {
+			reached.note("a stored table published whole")
+		}
+		const publication = identifierOf(identity.liveSource(installed.schema))
+		const slot = `${installed.schema}_decoded`
+		const decoder = yield* s.session(roleSession(installed.decoder()))
+		yield* decoder.query(
+			"SELECT pg_catalog.pg_create_logical_replication_slot($1::name, 'pgoutput', true)",
+			[slot]
+		)
+		const reader = transactionReader(
+			new Map(Arr.map([...tables], ([table, t]) => [table, t.routes] as const)),
+			identifierOf(identity.ledger())
+		)
+		for (const [step, writes] of c.transactions.entries()) {
+			const before = yield* storedRows(s.admin, tables)
+			yield* transaction(
+				s.admin,
+				Arr.map(writes, (w) => sqlOf(installed.names, w))
+			)
+			const after = yield* storedRows(s.admin, tables)
+			const expected = keysOfChange(tables, before, after)
+			const rows = yield* decoder.values(
+				"SELECT pg_catalog.encode(data, 'hex') FROM pg_catalog.pg_logical_slot_get_binary_changes($1::name, NULL, NULL, 'proto_version', '1', 'publication_names', $2::text)",
+				[slot, `"${publication}"`]
+			)
+			const decoded: Array<ReadonlySet<string>> = []
+			for (const [hex] of rows) {
+				const message = decodeMessage(bytesOfHex(String(hex)))
+				if (Result.isFailure(message)) {
+					return yield* new OracleFixtureFailed({ message: Formatter.format(message.failure) })
+				}
+				const read = reader.read(message.success)
+				if (Result.isFailure(read)) {
+					return yield* new OracleFixtureFailed({ message: read.failure.message })
+				}
+				if (read.success !== undefined) {
+					decoded.push(new Set(Arr.map(read.success.notifications, notificationText)))
+				}
+			}
+			reached.note(
+				expected.size === 0
+					? "a commit that changed no stored row"
+					: "a stored row's change decoded"
+			)
+			const want = expected.size === 0 ? [] : [expected]
+			const same =
+				decoded.length === want.length &&
+				Arr.every(decoded, (keys, i) => {
+					const w = want[i] ?? new Set<string>()
+					return keys.size === w.size && Arr.every([...keys], (k) => w.has(k))
+				})
+			if (!same) {
+				return yield* new OracleFixtureFailed({
+					message: `after transaction ${step}, decoded ${Formatter.format(Arr.map(decoded, (k) => [...k]))} where its stored rows' changes give ${Formatter.format(Arr.map(want, (k) => [...k]))}`
+				})
+			}
+		}
+	})

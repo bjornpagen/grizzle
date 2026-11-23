@@ -7,7 +7,7 @@ import type { ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
  * cli/upgrade.ts), where an installation's committed snapshot is of another format: an object of the format before
  * that the format after names otherwise, or no longer installs. Each holds no stored data, which the reader refuses
  * before any departure is drafted: a function, a key or CHECK or foreign key, a trigger, a policy, an index, a
- * statistics object, a view, a materialized view (whose rows its definition computes again), a domain, a composite
+ * statistics object, a view, a stored table (whose rows its definition computes again), a domain, a composite
  * type, a generated column (a law column, which PostgreSQL computes from its row), a table's row security or replica
  * identity, a schema of views, the database default an installation of format 7 or before set,
  * default_transaction_isolation serializable, which grizzle no longer sets and which its departure resets, and a
@@ -22,7 +22,7 @@ export type Departure =
 			readonly name: string
 	  }
 	| {
-			readonly kind: "index" | "statistics" | "view" | "materializedView" | "domain" | "type"
+			readonly kind: "index" | "statistics" | "view" | "storedTable" | "domain" | "type"
 			readonly name: ObjectName
 	  }
 	| { readonly kind: "generatedColumn"; readonly table: ObjectName; readonly column: string }
@@ -52,8 +52,8 @@ export const departureDrop = (d: Departure): SqlStatement => {
 			return { kind: "drop", object: "STATISTICS", name: d.name, ifExists: false }
 		case "view":
 			return { kind: "drop", object: "VIEW", name: d.name, ifExists: false }
-		case "materializedView":
-			return { kind: "drop", object: "MATERIALIZED VIEW", name: d.name, ifExists: false }
+		case "storedTable":
+			return { kind: "drop", object: "TABLE", name: d.name, ifExists: false }
 		case "domain":
 			return { kind: "drop", object: "DOMAIN", name: d.name, ifExists: false }
 		case "type":

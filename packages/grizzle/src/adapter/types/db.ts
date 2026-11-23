@@ -24,8 +24,7 @@ import type {
 	Invariant,
 	Phantom,
 	ReadsAttested,
-	ReadsToken,
-	Refresh
+	ReadsToken
 } from "#compiler/plan/common.ts"
 
 /**
@@ -160,24 +159,23 @@ interface WatchCall<In, A, Ps, Key extends boolean, Ev> {
 
 /**
  * A served member's explains by its program's kind: a read's, a change's, a clocked member's by its program's, each
- * taking the member's own input, and a
- * refresh's none. The kind is told by the program's keys (live/program.ts ServedShape), never by a test of the program,
+ * taking the member's own input. The kind is told by the program's keys (live/program.ts ServedShape), never by a test
+ * of the program,
  * which holds its schema: a value typed `any` or `never`, whose keys are every symbol, is read structurally.
  */
 type ExplainOf<X> = symbol extends keyof X ? ExplainOfProgram<X> : ExplainByKey<X>
 type ExplainByKey<X> = X extends unknown
-	? "refresh" extends keyof X
-		? unknown
-		: "write" extends ServedShape<X>
-			? ChangeExplain<X>
-			: ReadExplain<X>
+	? "write" extends ServedShape<X>
+		? ChangeExplain<X>
+		: ReadExplain<X>
 	: never
-type ExplainOfProgram<X> =
-	X extends Refresh<unknown>
-		? unknown
-		: (X extends Clocked<infer P, unknown> ? P : X) extends AnyChangeSet
-			? ChangeExplain<X>
-			: ReadExplain<X>
+/** The explains of a program read structurally: none for a program typed `any`, which may be any program; a change's or a
+ * read's by what the program is. */
+type ExplainOfProgram<X> = 0 extends 1 & X
+	? unknown
+	: (X extends Clocked<infer P, unknown> ? P : X) extends AnyChangeSet
+		? ChangeExplain<X>
+		: ReadExplain<X>
 
 /**
  * A served read member's plans for a call's input, as its once takes it: the one statement its once sends, a paged
@@ -270,7 +268,7 @@ export interface PlanIndex {
 /**
  * What a plan node reads or writes, as the login's served file names the installation, never parsed back from
  * PostgreSQL's names:
- * - `relation`: a relation's table or a materialized derived relation's view, by the relation's declared name, read
+ * - `relation`: a relation's table, an authored or a stored derived relation's, by the relation's declared name, read
  *   whole or by a bitmap (Seq Scan, Bitmap Heap Scan), or written (Insert, Update, Delete, Merge);
  * - `index`: a relation read through one of its indexes (Index Scan, Index Only Scan, Bitmap Index Scan);
  * - `carrier`: a temporary table the explained ChangeSet itself created and filled for its statements, read whole, since

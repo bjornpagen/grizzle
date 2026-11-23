@@ -3,7 +3,12 @@ import { codeColumn, type DecoderForm, decoderOf, type RowDecoder } from "#compi
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isPlainRecord } from "#compiler/core/record.ts"
-import type { FieldDesc, QueryDesc, QueryStageDesc } from "#compiler/ir/desc.ts"
+import {
+	derivedHeld,
+	type FieldDesc,
+	type QueryDesc,
+	type QueryStageDesc
+} from "#compiler/ir/desc.ts"
 import type { BuilderScope, OpenRows, OpenSource } from "#compiler/ir/open.ts"
 import { Roster } from "#compiler/ir/scalar.ts"
 import {
@@ -209,13 +214,16 @@ export const stageHeading = (stage: QueryStageDesc, env: ScalarEnv): Heading => 
 
 /**
  * Where a source may be matched: anywhere; only in the rule whose interior stage it is; only in a recursive arm of its
- * own definition; or, a query or a bound import of one, in a rule over a level above the level it is written over.
+ * own definition; a query or a bound import of one, in a rule over a level above the level it is written over; or a
+ * live derived relation, whose definition the rule reads in its place, in a rule over a schema that declares it, the
+ * derived relation `name` of the definition `query`, as a held relation must be one of the rule's schema's.
  */
 type SourceScope =
 	| { readonly kind: "anywhere" }
 	| { readonly kind: "interior"; readonly ctx: RuleContext }
 	| { readonly kind: "self"; readonly token: object }
 	| { readonly kind: "written"; readonly over: Level }
+	| { readonly kind: "declared"; readonly name: string; readonly query: QueryDesc }
 
 const anywhere: SourceScope = Object.freeze({ kind: "anywhere" })
 
@@ -456,6 +464,11 @@ const relationKindOf = (value: Readonly<Record<string, unknown>>): OwnedKind | u
 const isOrdinaryOrClosed = (kind: OwnedKind | undefined): boolean =>
 	kind === "relation" || kind === "closed" || kind === "closedRelation"
 
+/**
+ * What a rule reads of `value` it matches or negates: a registered source's own; a query's, written over its schema; a
+ * derived relation no table holds, its definition, matched only in a rule over a schema that declares it (SourceScope
+ * `declared`); a held derived relation, a world entry or a stored relation, by its table.
+ */
 export const sourceInfo = (value: unknown, label: string, env: ScalarEnv): SourceInfo => {
 	if (!hasProperties(value)) {
 		throw malformed(label, "a source: a relation, a query, a bound query or a relation parameter")
@@ -484,13 +497,13 @@ export const sourceInfo = (value: unknown, label: string, env: ScalarEnv): Sourc
 		}
 	}
 	const derived = derivedDraftOf(value)
-	if (derived?.storage === "live") {
+	if (derived !== undefined && !derivedHeld(derived.storage)) {
 		return {
 			desc: { kind: "query", query: derived.query, bind: {} },
 			heading: derivedHeading(value, env, label),
 			carriers: derivedCarriers(value),
 			origin: noOrigin,
-			scope: anywhere,
+			scope: { kind: "declared", name: derived.name, query: derived.query },
 			label: derived.name
 		}
 	}

@@ -371,7 +371,7 @@ const run = (start: ReadonlySet<string>, statements: ReadonlyArray<SqlStatement>
 			drop(`SCHEMA ${s.name}`)
 		} else if (s.kind === "createTable") {
 			created.add(`TABLE ${s.table.schema}.${s.table.name}`)
-		} else if (s.kind === "createView" || s.kind === "createMaterializedView") {
+		} else if (s.kind === "createView" || s.kind === "createStoredTable") {
 			created.add(`TABLE ${s.name.schema}.${s.name.name}`)
 		} else if (s.kind === "createDomain") {
 			created.add(`DOMAIN ${s.name.schema}.${s.name.name}`)

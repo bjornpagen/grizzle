@@ -286,7 +286,7 @@ const theoryOf = (installation: Installation, checks: LawChecks): SnapshotTheory
 		attnums: defined(created.get(t.ident), "every stored relation is installed as a table")
 	})
 	/**
-	 * A materialized derived relation's or a roster's record, from its ownership; a stored relation's is its theory
+	 * A stored derived relation's or a roster's record, from its ownership; a stored relation's is its theory
 	 * handle's. A live derived relation installs nothing and holds no row, so the snapshot records none.
 	 */
 	const meanings = definitionMeanings(installation)
@@ -305,10 +305,7 @@ const theoryOf = (installation: Installation, checks: LawChecks): SnapshotTheory
 									ident: o.view.ident,
 									mutable: o.mutable,
 									level: o.desc.level,
-									meaning: defined(
-										meanings.get(o.name),
-										"every materialized derived relation's meaning"
-									)
+									meaning: defined(meanings.get(o.name), "every stored derived relation's meaning")
 								}
 							]
 						]
@@ -443,8 +440,8 @@ export const withAttnums = <S extends Pick<SnapshotContent, "theory" | "schemaNa
 }
 
 /**
- * The target state with each materialized view the migration keeps recorded as it was installed (MigrationPlan
- * keptViews): its CREATE MATERIALIZED VIEW the previous installation's, which reads, under the names it was installed
+ * The target state with each stored table the migration keeps recorded as it was installed (MigrationPlan
+ * keptViews): its CREATE TABLE AS the previous installation's, which reads, under the names it was installed
  * with, only what the target holds as it was (diff.ts viewDropsOf). So a snapshot records what is installed, a change of
  * how grizzle lowers a definition alone changes no snapshot, and the drift check replays each view as PostgreSQL holds
  * it.
@@ -719,8 +716,8 @@ const createdKeys = (create: CreateIndex): NonEmptyReadonlyArray<KeyAt> =>
 	})
 
 /**
- * Every table and materialized view the installation installs, as a plan names it (SnapshotTables): each stored
- * relation's table and each materialized derived relation's view, under its declared name, by the installation's names
+ * Every table the installation installs, as a plan names it (SnapshotTables): each stored
+ * relation's table, an authored or a derived one's, under its declared name, by the installation's names
  * (physical/ddl/names.ts InstallNames relation), and on each, every index its manifest installs, read through the one
  * view of a manifest object (objects.ts installed): a created index by its CREATE INDEX, a primary key's, a unique
  * key's and an exclusion constraint's by its constraint, as its table declares it or its own ALTER TABLE adds it. Each
@@ -783,9 +780,7 @@ const snapshotTablesOf = (installation: Installation): SnapshotTables => {
 	): void => {
 		const on = valueAt(schemas, table.schema, table.name)
 		if (on === undefined) {
-			throw defect(
-				`the index ${name} is on a relation's table or materialized view, not ${table.name}`
-			)
+			throw defect(`the index ${name} is on a relation's table, not ${table.name}`)
 		}
 		const columnOf = (k: KeyAt): IndexedColumn => {
 			const field = on.fields.get(k.column)
@@ -842,7 +837,7 @@ const snapshotTablesOf = (installation: Installation): SnapshotTables => {
 			case "table":
 			case "constant":
 			case "domain":
-			case "materializedView":
+			case "storedTable":
 			case "statistics":
 			case "isolationTrigger":
 			case "immutableTrigger":
@@ -887,7 +882,7 @@ const snapshotTablesOf = (installation: Installation): SnapshotTables => {
 
 /** The installation's derived runtime facts, which snapshot.json records beside the snapshot's content (SnapshotDerived):
  * each closed relation's constants as readers address them, the installation's plan's, the foreign key graph's
- * cycles, its law model's, which planned them from every law, every table and materialized view it installs with its
+ * cycles, its law model's, which planned them from every law, every table it installs with its
  * indexes (snapshotTablesOf), its live source, and the types its plan casts its served parameters to
  * (InstallPlan.installedParams). */
 export const derivedOf = (installation: Installation): SnapshotDerived => ({
@@ -904,8 +899,8 @@ export const derivedOf = (installation: Installation): SnapshotDerived => ({
 
 /**
  * The installation's live source in installed terms (live/notify.ts LiveSource): none where it serves no read;
- * otherwise each footprint table by its table's identifier, with the identifiers of the columns of the fields it
- * routes by, in code point order. A materialized view of the plan publishes nothing: its refresh announces itself.
+ * otherwise each footprint table, an authored or a stored derived relation's, by its table's identifier, with the
+ * identifiers of the columns of the fields it routes by, in code point order.
  */
 const liveSourceOf = (installation: Installation): LiveSource => {
 	const { live, names } = installation
@@ -921,8 +916,7 @@ const liveSourceOf = (installation: Installation): LiveSource => {
 								t.routes.map((field) => names.column(t.relation, field)).toSorted(compareStrings)
 							] as const
 					)
-				),
-				views: live.views.map((view) => names.relation(view).name).toSorted(compareStrings)
+				)
 			}
 }
 
@@ -1475,15 +1469,14 @@ export const snapshotSeal = (value: unknown): Result.Result<string, CompileError
 
 /**
  * The JSON form of a live plan: its kind, and for one that reads, each footprint table's relation and the fields it
- * routes by, and each view's name.
+ * routes by.
  */
 const liveForm = (plan: LivePlan): SnapshotForm =>
 	plan.kind === "none"
 		? { kind: plan.kind }
 		: {
 				kind: plan.kind,
-				tables: plan.tables.map((t): SnapshotForm => ({ relation: t.relation, routes: t.routes })),
-				views: plan.views
+				tables: plan.tables.map((t): SnapshotForm => ({ relation: t.relation, routes: t.routes }))
 			}
 
 /** snapshot.json's form: the members DbLayer.make reads (ServedSnapshot), its fingerprint, every level, the

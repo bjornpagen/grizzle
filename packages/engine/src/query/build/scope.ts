@@ -1,9 +1,9 @@
-import { CompileError } from "#compiler/core/errors.ts"
+import { CompileError, ruleRefused } from "#compiler/core/errors.ts"
 import { captureLoc } from "#compiler/core/loc.ts"
-import type { InteriorDesc } from "#compiler/ir/desc.ts"
+import type { InteriorDesc, QueryDesc } from "#compiler/ir/desc.ts"
 import type { VarRef } from "#compiler/ir/open.ts"
 import type { ScalarEnv } from "#compiler/scalar/registry.ts"
-import { isLevelOver, type Level } from "#compiler/schema/level.ts"
+import { isLevelOver, type Level, relationsOfLevel } from "#compiler/schema/level.ts"
 
 /**
  * Refuses a query written over `written` that a rule or query over `over` reads, where it is no level of `over`'s
@@ -17,6 +17,24 @@ export const requireLevel = (written: Level, over: Level, label: string): void =
 			written: written.desc.name,
 			over: over.desc.name
 		})
+	}
+}
+
+/**
+ * Refuses a live derived relation, the relation `name` of the definition `query`, that a rule over `over` matches or
+ * negates where `over`'s schema declares no such relation, as a held relation no level of the rule's schema declares is
+ * refused: the rule reads the definition in its place, whose relations the schema may hold though the derived relation
+ * stands at a level above it.
+ */
+export const requireDeclared = (
+	name: string,
+	query: QueryDesc,
+	over: Level,
+	label: string
+): void => {
+	const held = relationsOfLevel(over).get(name)
+	if (held?.kind !== "derived" || held.query !== query) {
+		throw ruleRefused(captureLoc(label, []), "the relation is not in this query's schema")
 	}
 }
 

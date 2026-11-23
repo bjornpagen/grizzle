@@ -771,7 +771,7 @@ export const reportable = (installation: Installation): ReadonlyArray<Identified
 			case "createRowType":
 			case "adoptRole":
 			case "endHolders":
-			case "createMaterializedView":
+			case "createStoredTable":
 			case "drop":
 			case "revoke":
 			case "declareStatistics":

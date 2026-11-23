@@ -552,7 +552,7 @@ const learn = (catalogOf: LockCatalog, s: SqlStatement | RecordedStatement): voi
 		case "createIndex":
 			member(catalogOf.indexes, relationKey(catalogOf, s.table)).add(s.name)
 			return
-		case "createMaterializedView": {
+		case "createStoredTable": {
 			const key = relationKey(catalogOf, s.name)
 			catalogOf.toasted.add(key)
 			catalogOf.views.set(key, queryNames(s.query))
@@ -611,7 +611,7 @@ const learn = (catalogOf: LockCatalog, s: SqlStatement | RecordedStatement): voi
 			)
 			return
 		case "rename":
-			if (s.object === "TABLE" || s.object === "MATERIALIZED VIEW") {
+			if (s.object === "TABLE") {
 				renamedRelation(catalogOf, s.name, { schema: s.name.schema, name: s.to })
 			} else if (s.object === "FUNCTION") {
 				const body = catalogOf.bodies.get(named(s.name))
@@ -674,7 +674,7 @@ const learn = (catalogOf: LockCatalog, s: SqlStatement | RecordedStatement): voi
 		case "recordedConstant":
 		case "recordedDeclaredFunction":
 		case "recordedFunction":
-		case "refresh":
+		case "fillStored":
 		case "revoke":
 		case "revokeRole":
 		case "select":
@@ -1365,7 +1365,6 @@ const lockStatement = (locks: Locks, s: SqlStatement | RecordedStatement): void 
 		case "rename":
 			switch (s.object) {
 				case "TABLE":
-				case "MATERIALIZED VIEW":
 					locks.add([relation(s.name)])
 					locks.renameRelation(s.name, { schema: s.name.schema, name: s.to })
 					return
@@ -1472,10 +1471,10 @@ const lockStatement = (locks: Locks, s: SqlStatement | RecordedStatement): void 
 		case "dropIndex":
 			locks.dropped([relation(s.name)])
 			return
-		case "createMaterializedView":
+		case "createStoredTable":
 		case "createView": {
 			const read = queryNames(s.query)
-			locks.created(s.name, s.kind === "createMaterializedView")
+			locks.created(s.name, s.kind === "createStoredTable")
 			locks.names(read, "stored")
 			locks.viewColumnTypes(read.reads, new Set())
 			locks.add(toastedCatalog("pg_rewrite"))
@@ -1494,7 +1493,6 @@ const lockStatement = (locks: Locks, s: SqlStatement | RecordedStatement): void 
 				case "TABLE":
 					locks.dropTable(s.name)
 					return
-				case "MATERIALIZED VIEW":
 				case "VIEW":
 					locks.dropTable(s.name)
 					return
@@ -1705,9 +1703,9 @@ const lockStatement = (locks: Locks, s: SqlStatement | RecordedStatement): void 
 			}
 			return
 		}
-		case "refresh":
-			locks.read(s.view)
-			locks.transient(`refresh of ${named(s.view)}`, true)
+		case "fillStored":
+			locks.names(queryNames(s.query), "run")
+			locks.write(s.table)
 			return
 		case "beginRead":
 		case "beginWrite":
@@ -1770,7 +1768,6 @@ const commentLocks = (
 			return
 		case "TABLE":
 		case "VIEW":
-		case "MATERIALIZED VIEW":
 		case "INDEX":
 			locks.add([relation(on.name)])
 			return

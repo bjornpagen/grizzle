@@ -134,7 +134,7 @@ const readReading = {
 >
 
 /**
- * Why a write or a refresh failed, by the reason of its transport's or its execution's failure, and by its class
+ * Why a write failed, by the reason of its transport's or its execution's failure, and by its class
  * otherwise, a session never had aside (connectCallError): its session broke before its COMMIT was sent, `transport`;
  * a relation input past its bound, or an input the host refused, `input`; a parameter's value PostgreSQL refused by its
  * pattern as it bound it, `paramRejected`, naming the parameter; a serialization failure or a concurrent writer's
@@ -523,7 +523,7 @@ export const readCallError = (error: ReadError): FailureOf<"read"> => {
 	}
 }
 
-/** The call error a write or a refresh fails with, its message the failure's. */
+/** The call error a write fails with, its message the failure's. */
 export const applyCallError = (error: ApplyError): FailureOf<"apply"> => {
 	switch (error._tag) {
 		case "TransportFailure": {

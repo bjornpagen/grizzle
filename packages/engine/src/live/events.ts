@@ -227,7 +227,7 @@ export const callError = <K extends CallErrorKind>(
  *   (OpenError), its verifier unavailable among them;
  * - `read`: a read's run, its input's parse included (ReadError);
  * - `watch`: a live read's subscription: its change source's refusal or loss, its layer's release, its token's expiry;
- * - `apply`: a write's or a refresh's run, its input's parse included (ApplyError);
+ * - `apply`: a write's run, its input's parse included (ApplyError);
  * - `outcome`: a ChangeSet's application that is a refusal: by the laws, or a fact outside the world relation.
  */
 export const failures = {
@@ -270,14 +270,13 @@ export type FailureOf<S extends FailureSource> = CallErrorIn<FailureKind<S>>
 
 /**
  * What a member's answer is, each with the sources of the failures its calls meet (failures): a live read's, its run's
- * and its subscription's; an answered read's, at its call's instant alone, its run's alone; a ChangeSet's, its run's and
- * its outcome's; and a refresh's, its run's alone.
+ * and its subscription's; an answered read's, at its call's instant alone, its run's alone; and a ChangeSet's, its run's
+ * and its outcome's.
  */
 export const answers = {
 	live: ["read", "watch"],
 	answered: ["read"],
-	change: ["apply", "outcome"],
-	refresh: ["apply"]
+	change: ["apply", "outcome"]
 } as const satisfies { readonly [answer: string]: NonEmptyReadonlyArray<FailureSource> }
 
 /** The kind of a member's answer (answers). */
@@ -348,14 +347,14 @@ export type Shape = keyof typeof events
 
 /**
  * The answers of each shape (answers): a set or ordered read's live, an answered one's answered at its call's instant
- * alone, and a write's a ChangeSet's or a refresh's.
+ * alone, and a write's a ChangeSet's.
  */
 export interface ShapeAnswers {
 	readonly set: "live"
 	readonly list: "live"
 	readonly answeredSet: "answered"
 	readonly answeredList: "answered"
-	readonly write: "change" | "refresh"
+	readonly write: "change"
 }
 
 /** The CallErrors an answer of shape S ends with: its answers' (AnswerFailure). */

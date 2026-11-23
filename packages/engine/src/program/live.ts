@@ -9,7 +9,6 @@ import {
 	advisoryKey,
 	and,
 	arrayParam,
-	bool,
 	catalogCall,
 	asText,
 	type CatalogExpr,
@@ -55,9 +54,8 @@ const slotPosition = (): CatalogSelect => {
 
 /**
  * What of a read's footprint `footprint` the installation's live source `source` does not decode (served/forms.ts
- * LiveGap): each table it reads that is neither a published table nor a view of the source, in code point order, then
- * each column of a published table the read routes it by that the source does not route it by, by table and column. A
- * view's footprint has no routes, since a refresh replaces its rows at once.
+ * LiveGap): each table it reads that is no published table of the source, in code point order, then each column of a
+ * published table the read routes it by that the source does not route it by, by table and column.
  */
 export const readGaps = (
 	source: Extract<LiveSource, { readonly kind: "source" }>,
@@ -66,9 +64,6 @@ export const readGaps = (
 	const tables: Array<LiveGap> = []
 	const columns: Array<LiveGap> = []
 	for (const table of Object.keys(footprint).toSorted(compareStrings)) {
-		if (source.views.includes(table)) {
-			continue
-		}
 		const published = source.tables[table]
 		if (published === undefined) {
 			tables.push({ kind: "table", table })
@@ -104,7 +99,6 @@ export const servedLiveOf = (root: string, source: LiveSource): ServedLive => {
 		ledger: identifierOf(identity.ledger()),
 		stem: publication,
 		tables: source.tables,
-		views: source.views,
 		listen: prepared(emitCatalog({ kind: "listen", channel: publication })),
 		secret: preparedRead(
 			query([catalogCall("encode", [secret.col("secret"), text("hex")])], [secret.item], undefined)
@@ -147,13 +141,6 @@ export const servedLiveOf = (root: string, source: LiveSource): ServedLive => {
 			query(
 				[catalogCall("pg_notify", [text(publication), payloads.col("p")])],
 				[payloads.item],
-				undefined
-			)
-		),
-		announce: preparedRead(
-			query(
-				[catalogCall("pg_logical_emit_message", [bool(true), text(publication), param(1, "text")])],
-				[],
 				undefined
 			)
 		)

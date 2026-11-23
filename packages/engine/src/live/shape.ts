@@ -146,15 +146,13 @@ export type WireWitness<L> = {
 
 /**
  * A write's outcome: a ChangeSet's, accepted with the counts of `relations`, the relations it writes, or unchanged,
- * each with its read-backs' record; or a refresh's.
+ * each with its read-backs' record.
  */
-export type WireOutcome<L> =
-	| {
-			readonly kind: "change"
-			readonly relations: ReadonlyArray<string>
-			readonly reads: WireRecord<L>
-	  }
-	| { readonly kind: "refresh" }
+export type WireOutcome<L> = {
+	readonly kind: "change"
+	readonly relations: ReadonlyArray<string>
+	readonly reads: WireRecord<L>
+}
 
 /**
  * A served program on the wire, over its leaf L: a read's shape (a set or a list), its key fields, its input, its
@@ -265,14 +263,11 @@ export const mapShape = <L, M>(member: MemberShape<L>, f: (leaf: L) => M): Membe
 		? {
 				shape: "write",
 				input: mapInput(member.input, f),
-				outcome:
-					member.outcome.kind === "change"
-						? {
-								kind: "change",
-								relations: member.outcome.relations,
-								reads: mapRecord(member.outcome.reads, f)
-							}
-						: member.outcome
+				outcome: {
+					kind: "change",
+					relations: member.outcome.relations,
+					reads: mapRecord(member.outcome.reads, f)
+				}
 			}
 		: {
 				shape: member.shape,
@@ -595,9 +590,6 @@ const countSchema: WireSchema = { type: "string", pattern: patternOf(naturals(0n
 
 /** The JSON Schema of a write's outcome. */
 const outcomeSchema = <L>(outcome: WireOutcome<L>, leaf: (l: L) => WireSchema): WireSchema => {
-	if (outcome.kind === "refresh") {
-		return closedObject([["kind", { const: "refreshed" }]])
-	}
 	const reads = recordSchema(outcome.reads, leaf)
 	const counts: WireSchema = {
 		type: "array",
@@ -696,8 +688,7 @@ const readAnswers: { readonly [S in Exclude<Shape, "write">]: ShapeAnswers[S] } 
 }
 
 /**
- * What a member's answer is (live/events.ts answers): a read's by its shape, a write's by its outcome, a ChangeSet's or
- * a refresh's.
+ * What a member's answer is (live/events.ts answers): a read's by its shape, a write's by its outcome, a ChangeSet's.
  */
 const answerOf = <L>(member: MemberShape<L>): AnswerKind =>
 	member.shape === "write" ? member.outcome.kind : readAnswers[member.shape]

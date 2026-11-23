@@ -72,7 +72,7 @@ export interface SnapshotField {
 
 interface SnapshotRelationOf<K extends "relation" | "closed" | "derived"> {
 	readonly kind: K
-	/** The table, roster domain or materialized view identifier. */
+	/** The table, roster domain or stored table identifier. */
 	readonly ident: RelationIdent
 	readonly mutable: boolean
 	/** The schema level that declares it, and a derived relation's level over what it reads. */
@@ -90,7 +90,7 @@ interface SnapshotHeading {
 
 /**
  * A relation of the snapshot's theory, by kind: a stored relation with its heading; a roster, by its domain, with its
- * codes; a derived relation, whose fields are its view's columns, which its materialized view object records, with
+ * codes; a derived relation, whose fields are its view's columns, which its stored table object records, with
  * its meaning (physical/derived/meaning.ts definitionMeanings), by which a draft creates its view again exactly when what it
  * means changes (deploy/diff/diff.ts viewDropsOf).
  *
@@ -181,7 +181,7 @@ interface SnapshotMembers<M> {
 	readonly accessPaths: ReadonlyArray<StoredIndexRequest>
 	/**
 	 * The installation's live plan (live/notify.ts LivePlan): every stored relation a login's read program reads, each with
-	 * every field some read program routes a change of it by, and every materialized derived relation one reads
+	 * every field some read program routes a change of it by, and every stored derived relation one reads
 	 * (program/workload/compile.ts WorkloadPlan live). snapshot.json holds it, under the fingerprint: what the
 	 * installation signals a change of is part of what it is.
 	 */
@@ -317,8 +317,8 @@ export interface SnapshotIndex {
 }
 
 /**
- * An installed table or materialized view as a plan names it: the declared name of the relation it stores, a stored
- * relation's or a materialized derived relation's, and each index PostgreSQL holds on it, by the index's name
+ * An installed table as a plan names it: the declared name of the relation it stores, a stored
+ * relation's or a stored derived relation's, and each index PostgreSQL holds on it, by the index's name
  * (SnapshotIndex). A primary key's, a unique key's and an exclusion constraint's index is named by its constraint,
  * which PostgreSQL names the index after, and a created index by its CREATE INDEX.
  */
@@ -328,7 +328,7 @@ export interface SnapshotTable {
 }
 
 /**
- * Tables and materialized views of an installation as EXPLAIN (VERBOSE) names them, by their PostgreSQL schema, then by
+ * Tables of an installation as EXPLAIN (VERBOSE) names them, by their PostgreSQL schema, then by
  * their own name (SnapshotTable).
  */
 export type SnapshotTables = Readonly<Record<string, Readonly<Record<string, SnapshotTable>>>>
@@ -338,7 +338,7 @@ export type SnapshotTables = Readonly<Record<string, Readonly<Record<string, Sna
  * compile and no part of the content its fingerprint digests, so they change no fingerprint and no database's ledger:
  * `grizzle generate` writes them from the compile it drafts from (build.ts derivedOf), and the served compile reads them
  * instead of compiling them again: the facts a level's artifacts compile under (CompileFacts), and every table and
- * materialized view the installation installs with its indexes (`tables`), which a login's served file cuts to its
+ * stored table the installation installs with its indexes (`tables`), which a login's served file cuts to its
  * own statements' (adapter/served/project.ts) and an explain names a plan's relations and indexes by, its live source
  * and its served parameters' types.
  */

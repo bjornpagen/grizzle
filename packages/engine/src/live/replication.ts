@@ -37,17 +37,18 @@ const protocolVersion = "1"
 
 /**
  * The pgoutput options every stream starts with besides its publication (startTemplate), closed: protocol version 1
- * and the transactional messages the installation announces. The type admits no other option, `streaming` among them,
- * on purpose: the leader's confirmation of a keepalive's position (adapter/live/leader.ts, (a) to (d)) rests on each
- * transaction being written whole while its COMMIT record is processed, which streaming transactions in progress (a
- * `streaming` option, protocol 2 and later) breaks, so an option added here meets that argument first.
+ * alone, so the stream carries no logical message, which any role of the database may emit, and every change it
+ * carries is a published table's. The type admits no other option, `messages` and `streaming` among them, on purpose:
+ * no installation's change is a message, and the leader's confirmation of a keepalive's position
+ * (adapter/live/leader.ts, (a) to (d)) rests on each transaction being written whole while its COMMIT record is
+ * processed, which streaming transactions in progress (a `streaming` option, protocol 2 and later) breaks, so an option
+ * added here meets that argument first.
  */
 interface StreamOptions {
 	readonly proto_version: typeof protocolVersion
-	readonly messages: "true"
 }
 
-const streamOptions: StreamOptions = { proto_version: protocolVersion, messages: "true" }
+const streamOptions: StreamOptions = { proto_version: protocolVersion }
 
 /**
  * CREATE_REPLICATION_SLOT <slot> LOGICAL pgoutput (SNAPSHOT 'nothing'): the installation's slot, permanent, of
@@ -60,12 +61,11 @@ export const createSlotTemplate: SlotText = {
 
 /**
  * START_REPLICATION SLOT <slot> LOGICAL 0/0 (...): the slot's decoded changes from the position it last confirmed, which
- * 0/0 asks for, over the publication `publication`, in pgoutput's protocol version 1 with the transactional messages
- * the installation announces.
+ * 0/0 asks for, over the publication `publication`, in pgoutput's protocol version 1 (streamOptions).
  */
 export const startTemplate = (publication: string): SlotText => ({
 	before: "START_REPLICATION SLOT ",
-	after: ` LOGICAL 0/0 (proto_version ${quoteString(streamOptions.proto_version)}, publication_names ${quoteString(quoteIdent(publication))}, messages ${quoteString(streamOptions.messages)})`
+	after: ` LOGICAL 0/0 (proto_version ${quoteString(streamOptions.proto_version)}, publication_names ${quoteString(quoteIdent(publication))})`
 })
 
 /** The served command `template` over the slot `slot` (served/forms.ts SlotCommand). */

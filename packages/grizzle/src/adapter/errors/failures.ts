@@ -938,15 +938,6 @@ export class UnseenOccupant extends Data.TaggedError("UnseenOccupant")<{
 	}
 }
 
-/** A refresh of the derived relation `relation`: another refresh of it committed after this transaction's snapshot. */
-export class ConcurrentRefresh extends Data.TaggedError("ConcurrentRefresh")<{
-	readonly relation: string
-}> {
-	override get message(): string {
-		return `another refresh of ${this.relation} committed after this transaction's snapshot`
-	}
-}
-
 /**
  * Why a TransientFailure's attempt was refused: a concurrent transaction's work met it. Each reason carries the facts
  * every occurrence of it has: the relation and the constraint involved.
@@ -957,7 +948,6 @@ export type TransientReason =
 	| PutTargetConflict
 	| SpanKeyChange
 	| UnseenOccupant
-	| ConcurrentRefresh
 
 /**
  * A migration holds the ledger's lock or waits for it (the lock's 55P03), or the ledger holds a folder unfinished, a run

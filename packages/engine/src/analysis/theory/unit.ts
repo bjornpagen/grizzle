@@ -84,6 +84,7 @@ import {
 	type InferredStage,
 	type LiteralDesc,
 	type Located,
+	mapBindTerms,
 	mapExprChildren,
 	type MatchDesc,
 	type QueryDesc,
@@ -708,14 +709,22 @@ const unitStep = (
 		r.loc
 	)
 
-/** A rule with its unit's variables `unit` read as the channels a step's bind map binds them to, position by position. */
+/**
+ * A rule with its unit's variables `unit` read as the channels a step's bind map binds them to, position by position,
+ * wherever the rule reads them: its matches' bindings, the terms its sources take in its scope (ir/desc.ts
+ * mapBindTerms: a call's arguments, a text's split, an import's bind map), its conditions and its head.
+ */
 const channelled = (r: InferredRule, unit: ReadonlyArray<string>): InferredRule => {
 	const channels = new Map(unit.map((v, j) => [v, unitParam(j)] as const))
 	const leaves: LeafRewrite = { var: (id) => channels.get(id), field: () => undefined }
 	return {
 		...r,
 		vars: r.vars.filter((v) => !channels.has(v.id)),
-		matches: r.matches.map((m) => ({ ...m, bindings: mapBindings(m.bindings, leaves) })),
+		matches: r.matches.map((m) => ({
+			...m,
+			source: mapBindTerms(m.source, (e) => mapLeaves(e, leaves)),
+			bindings: mapBindings(m.bindings, leaves)
+		})),
 		where: r.where.map((x) => mapLeaves(x, leaves)),
 		head: Object.fromEntries(
 			Object.entries(r.head).map(([field, h]): readonly [string, InferredHead] => [
@@ -1736,8 +1745,9 @@ const restrictToUnits = (
 	regions: ReadonlyArray<RegionRead>,
 	facts: RegionFacts,
 	relations: ReadonlyMap<string, TheoryRelation>,
-	loc: SourceLoc
-): Pick<WholeRule, "judged" | "replaced" | "definitionOf"> => {
+	loc: SourceLoc,
+	calls: CallAdmission
+): Pick<WholeRule, "judged" | "replaced" | "definitionOf"> & { readonly region: InferredQuery } => {
 	const region = regionOf(unit, regions, facts, relations, loc)
 	const definitions = new WeakMap<InferredQuery, InferredQuery>()
 	const read = walked(violation, top, {
@@ -1747,7 +1757,7 @@ const restrictToUnits = (
 		regions: [],
 		self: undefined,
 		definitions,
-		calls: "rule"
+		calls
 	})
 	if (read instanceof NotLocal) {
 		throw defect("a whole rule's violation query is unit-local at its unit")
@@ -1756,7 +1766,11 @@ const restrictToUnits = (
 		const walkedFrom = definitions.get(query)
 		return walkedFrom === undefined ? query : definitionOf(walkedFrom)
 	}
-	return { judged: read.query, replaced: region.replaced, definitionOf }
+	const units = region.source
+	if (units.kind !== "step") {
+		throw defect("a region read as a step of its unit keys")
+	}
+	return { judged: read.query, replaced: region.replaced, definitionOf, region: units.query }
 }
 
 /** What a query unit-local at a width reads (`unitAt`): its unit, every occurrence of a stored relation it reads, every
@@ -1887,12 +1901,23 @@ export const wholeRule = (
 			) {
 				return undefined
 			}
+			const { judged, replaced, definitionOf } = restrictToUnits(
+				violation,
+				found.unit,
+				found.regions,
+				facts,
+				relations,
+				loc,
+				"rule"
+			)
 			return Object.freeze({
 				kind: "whole",
 				law,
 				reads: found.reads,
 				unit: found.unit,
-				...restrictToUnits(violation, found.unit, found.regions, facts, relations, loc),
+				judged,
+				replaced,
+				definitionOf,
 				everyRow: violation
 			})
 		}
@@ -2024,6 +2049,58 @@ export const storedUnit = (
 		}
 	}
 	throw defect("a stored relation's definition decided at some width from its widest to one")
+}
+
+/**
+ * How grizzle keeps a stored derived relation equal to its definition at COMMIT (physical/ddl/rules.ts, the judge's
+ * phase A): the units a transaction wrote (`region`, a query of their keys under u0…u(k-1)), and its definition read at
+ * those units alone (`judged`), whose rows replace the stored rows there; each occurrence of a holder its definition
+ * reads, every one of them at both polarities, since a row a holder gains or loses at a unit changes the stored rows
+ * there whatever negation or aggregate reads it; and the definition each query `judged` reads was walked from
+ * (WholeRule `definitionOf`). Its region reads both sides of every occurrence and no witness narrows it (`witnessesOf`
+ * proves only a positive occurrence), where a rule's reads only the sides that can break it: a removal, which no
+ * positive occurrence of a rule reads, is a change of the stored rows.
+ */
+export interface StoredUpkeep {
+	readonly relation: string
+	readonly stored: StoredUnit
+	readonly region: InferredQuery
+	readonly judged: InferredQuery
+	readonly reads: NonEmptyReadonlyArray<RelationRead>
+	readonly definitionOf: (query: InferredQuery) => InferredQuery
+	/** The stored relation's declaration, which a refusal of its upkeep names. */
+	readonly loc: SourceLoc
+}
+
+/** The upkeep of stored relation `relation`, admitted at `stored` over `definition`, read live (`StoredUpkeep`). */
+export const storedUpkeep = (
+	relation: string,
+	definition: InferredQuery,
+	stored: StoredUnit,
+	relations: ReadonlyMap<string, TheoryRelation>,
+	facts: RegionFacts,
+	loc: SourceLoc
+): StoredUpkeep => {
+	const [first, ...rest] = storedReads(definition, relations)
+	if (first === undefined) {
+		throw defect("a stored relation's definition, which reads a stored relation")
+	}
+	const found = unitAt(definition, [first, ...rest], stored.unit.key.length, "stored")
+	if (found instanceof NotLocal) {
+		throw defect("a stored relation's definition unit-local at its admitted unit")
+	}
+	const every = found.regions.map((r): RegionRead => ({ ...r, polarity: "both" }))
+	const reads = mapNonEmpty(found.reads, (r): RelationRead => ({ ...r, polarity: "both" }))
+	const { judged, definitionOf, region } = restrictToUnits(
+		definition,
+		found.unit,
+		every,
+		facts,
+		relations,
+		loc,
+		"stored"
+	)
+	return Object.freeze({ relation, stored, region, judged, reads, definitionOf, loc })
 }
 
 /** The ordinary relations a query matches or filters by, at any depth, sorted by name, each once. */

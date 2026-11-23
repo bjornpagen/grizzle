@@ -63,7 +63,6 @@ export type {
 	InputOf,
 	KeyRead,
 	OutcomeOf,
-	Refreshed,
 	RelationCounts,
 	RowOf,
 	ServedArrays,

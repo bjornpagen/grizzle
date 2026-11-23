@@ -20,7 +20,7 @@ export type TemplateContext = (typeof templateContexts)[number]
 
 /**
  * The installed constraint families a premise can name: a key's, each immediate and validated; "uniqueIndex" is a
- * derived relation's inherited key, immediate on its materialized view. A containment's premise is its law, whatever
+ * derived relation's inherited key, immediate on its stored table. A containment's premise is its law, whatever
  * discharges it (`ExistenceConstraint`).
  */
 export const constraintKinds = ["primaryKey", "unique", "uniqueIndex"] as const

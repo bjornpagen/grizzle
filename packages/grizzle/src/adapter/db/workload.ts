@@ -1,8 +1,6 @@
 import type { ChangeForm } from "#adapter/apply/index.ts"
 import type { ReadForm, RowsForm } from "#adapter/reader/reader.ts"
 import type { ReadCalled } from "#compiler/plan/change.ts"
-import type { NonEmptyReadonlyArray } from "#compiler/plan/common.ts"
-import type { ServedRefreshTarget } from "#compiler/plan/serve.ts"
 
 /**
  * A ChangeSet of a role's workloads compiled for every set of the contexts its compilation depends on (fillContexts)
@@ -39,5 +37,4 @@ export type WorkloadForm = { readonly name: string } & (
 			  }
 	  ))
 	| { readonly kind: "change"; readonly variants: ChangeVariants }
-	| { readonly kind: "refresh"; readonly targets: NonEmptyReadonlyArray<ServedRefreshTarget> }
 )

@@ -437,7 +437,7 @@ export interface StoredBase<R extends RefKinds> extends BaseOf<R, "relation"> {
 }
 
 /**
- * A Base over a view: a derived relation's materialized view, or a role's world relation, a plain view. `view` holds
+ * A Base over a view: a stored derived relation's table, or a role's world relation, a plain view. `view` holds
  * the keys its definition proves, narrowest first, with what each rests on, which the checker stamps from the checked
  * schema's analysis of the view (analysis/schema.ts): a derived relation's inherited keys, resting on its view's unique
  * indexes, or a world relation's, resting on its definition's proof.

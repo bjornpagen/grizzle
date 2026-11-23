@@ -56,7 +56,7 @@
  *      declared keys (HeadKeys); a key's, a check's and a containment's side may read a derived relation, its terms
  *      typed by the definition's heading, and the statements that draw or put rows refuse one;
  *    - apply: WriteListOf<R> reads the opened role's write list, and db.apply and compile refuse a ChangeSet
- *      whose Writes lie outside it; RefreshListOf does the same for db.refresh;
+ *      whose Writes lie outside it;
  *    - orderBy: DeliveredKeys, the columns the query delivers; the retained key that completes the order is the
  *      compiler's;
  *    - mirrors and contained: SidesCompatible compares the two sides' fields position by position, by base carrier

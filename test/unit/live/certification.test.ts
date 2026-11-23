@@ -112,8 +112,8 @@ export const aRolesCertificateIsTheSameWithTheLiveSourceOfAnyReadsAsWithNoneForT
 			{
 				file: "packages/engine/src/program/workload/compile.ts",
 				original:
-					"\t\ttables: [...tables]\n\t\t\t.toSorted(([a], [b]) => compareStrings(a, b))\n\t\t\t.map(([relation, fields]) => ({ relation, routes: [...fields].toSorted(compareStrings) })),",
-				replacement: "\t\ttables: [],",
+					"\t\ttables: [...tables]\n\t\t\t.toSorted(([a], [b]) => compareStrings(a, b))\n\t\t\t.map(([relation, fields]) => ({ relation, routes: [...fields].toSorted(compareStrings) }))\n",
+				replacement: "\t\ttables: []\n",
 				why: "The live plan holds no footprint table whatever the reads (program/workload/compile.ts livePlanOf), so the drafts with and without reads install the same tables; the sitting shape's draft with reads fails the footprint property."
 			}
 		]

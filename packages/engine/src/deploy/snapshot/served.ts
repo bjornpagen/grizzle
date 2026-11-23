@@ -175,7 +175,7 @@ export const servedSnapshot = (
 
 /**
  * Each index the installation holds, its key columns and its reasons (SnapshotIndex), by the declared name of the
- * relation whose table or materialized view holds it, then by the index's name.
+ * relation whose table holds it, then by the index's name.
  */
 export type InstalledIndexes = ReadonlyMap<string, ReadonlyMap<string, SnapshotIndex>>
 

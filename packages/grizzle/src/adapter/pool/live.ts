@@ -113,8 +113,7 @@ const makeLiveSource = (
 						slot,
 						createSlot: slotCommand(source.createSlot, slot),
 						start: slotCommand(source.start, slot),
-						tables: new Map(Rec.toEntries(source.tables)),
-						views: new Set(source.views)
+						tables: new Map(Rec.toEntries(source.tables))
 					}
 				})
 				const subscriptions = yield* makeSubscriptions(fanout)

@@ -205,7 +205,7 @@ export const workloadIndexesOnADerivedRelationBuildALaterProgramsViewIndexConcur
 					)
 					const view = Arr.findFirstIndex(
 						steps,
-						(p) => p.statement.kind === "createMaterializedView"
+						(p) => p.statement.kind === "createStoredTable"
 					)
 					assert.equal(
 						Option.isSome(view),

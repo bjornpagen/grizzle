@@ -549,7 +549,11 @@ export interface LawIndexRequest {
 	readonly method: IndexMethod
 	readonly role: "lawMaintenance"
 	readonly use: string
-	readonly justification: { readonly kind: "law"; readonly law: LawId }
+	/** Why it is asked: a rule's law, or the upkeep of a stored derived relation, its enforcement (ir/products.ts
+	 * PhysicalReason), which the index it plans carries. */
+	readonly justification:
+		| { readonly kind: "law"; readonly law: LawId }
+		| { readonly kind: "enforcement"; readonly of: string }
 }
 
 /** The fields of native columns when every one is a field, which a declared key's columns are; undefined when one is

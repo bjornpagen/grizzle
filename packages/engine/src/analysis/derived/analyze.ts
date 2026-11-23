@@ -53,7 +53,7 @@ import type { OwnedRelation, OwnedView } from "#compiler/schema/own.ts"
 
 export interface DerivedRelationAnalysis {
 	readonly name: string
-	/** Its materialized view's identifier, ownership's. */
+	/** Its stored table's identifier, ownership's. */
 	readonly ident: RelationIdent
 	/** The derived level: 1 over base relations, n + 1 over a level-n derived relation. */
 	readonly level: number
@@ -107,10 +107,10 @@ const viewKeysOf = (relation: string, keys: ReadonlyArray<DerivedKey>): Readonly
 
 /** A derived relation as ownership resolved it. */
 type OwnedDerived = Extract<OwnedRelation, { readonly kind: "derived" }>
-/** A materialized derived relation's view, which its analysis names its rows by. */
-type MaterializedView = Extract<OwnedView, { readonly kind: "materialized" }>
+/** A stored derived relation's table, which its analysis names its rows by. */
+type StoredView = Extract<OwnedView, { readonly kind: "stored" }>
 
-/** What a materialized view's definition cannot have on its delivered rows. */
+/** What a stored table's definition cannot have on its delivered rows. */
 type Obstacle = "attachment" | "headingGroups"
 
 /**
@@ -122,10 +122,7 @@ const obstacleRefusals: {
 } = {
 	attachment: (at, relation) => derivedRefused(at, { kind: "attachment", relation }),
 	headingGroups: (at) =>
-		ruleRefused(
-			at,
-			"a derived definition has one heading: a materialized view stores one heading group"
-		)
+		ruleRefused(at, "a derived definition has one heading: a stored table holds one heading group")
 }
 
 /**
@@ -202,18 +199,25 @@ export interface AnalyzedDefinition {
 }
 
 /**
- * The definition `query` of the relation `relation` (a derived relation's or a world entry's, `label` naming it to the
- * checker), refused at `at` where its delivered rows carry an attachment or several heading groups (spineObstacle) or
- * its heading is empty: checked, analyzed under the evidence a view's keys give (queryEvidence), and its heading
- * declared (declaredHeading).
+ * The definition `query` of the relation `relation` (a derived relation's, live or stored, or a world entry's, `label`
+ * naming it to the checker), checked, and refused at `at` where its delivered rows carry an attachment or several
+ * heading groups (spineObstacle) or its heading is empty: the shape every derived definition has, as its type says
+ * (types/derived/derived.ts DefinitionShape), whether or not anything stores its rows.
  */
-export const analyzedDefinition = (
+export const shapedDefinition = (
 	schema: SchemaReading,
 	label: string,
 	query: QueryDesc,
 	relation: string,
 	at: SourceLoc
-): Result.Result<AnalyzedDefinition, CompileError> => {
+): Result.Result<
+	{
+		readonly checked: AdmittedQuery
+		readonly root: RelNode
+		readonly heading: NonEmptyReadonlyArray<HeadingColumn>
+	},
+	CompileError
+> => {
 	const checkedResult = checkDefinition(schema, label, query, new CheckSession())
 	if (!checkedResult.ok) {
 		return checkedResult
@@ -224,13 +228,32 @@ export const analyzedDefinition = (
 	if (obstacle !== undefined) {
 		return Result.err(obstacleRefusals[obstacle](at, relation))
 	}
-	const analyzed = analyzeLogical(checked.dag, queryEvidence, keptNodes([root]))
-	if (!analyzed.ok) {
-		return analyzed
-	}
 	const heading = root.heading
 	if (!isNonEmpty(heading)) {
 		return Result.err(ruleRefused(at, "a derived definition has at least one field"))
+	}
+	return Result.ok({ checked, root, heading })
+}
+
+/**
+ * The definition `query` of the relation `relation` shaped (`shapedDefinition`), analyzed under the evidence a view's
+ * keys give (queryEvidence), and its heading declared (declaredHeading).
+ */
+export const analyzedDefinition = (
+	schema: SchemaReading,
+	label: string,
+	query: QueryDesc,
+	relation: string,
+	at: SourceLoc
+): Result.Result<AnalyzedDefinition, CompileError> => {
+	const shaped = shapedDefinition(schema, label, query, relation, at)
+	if (!shaped.ok) {
+		return shaped
+	}
+	const { checked, root, heading } = shaped.value
+	const analyzed = analyzeLogical(checked.dag, queryEvidence, keptNodes([root]))
+	if (!analyzed.ok) {
+		return analyzed
 	}
 	return Result.map(declaredHeading(relation, heading, at), (declared) => ({
 		checked,
@@ -266,12 +289,12 @@ export const analyzedDefinition = (
  * It refuses, each at the derived relation's location:
  *
  * - an attachment on the definition's delivered rows (UnsupportedOperation, attachment): an attached relation is a
- *   nested set per fact, and a materialized view stores flat facts, so the heading the view would hold is not the
+ *   nested set per fact, and a stored table holds flat facts, so the heading the view would hold is not the
  *   query's;
  * - a union of several heading groups as the definition (Refused, as the types refuse it): a view has one heading,
  *   and a union of different headings is delivered one statement per group;
  * - a definition with an empty heading (Refused, as the types refuse it): its relation is the unit relation, true or
- *   false, and a unique index, which REFRESH MATERIALIZED VIEW CONCURRENTLY needs, has at least one column;
+ *   false, and its table's primary key has at least one column;
  * - a heading whose names are no declared names of one view (`declaredHeading`): a name the declared-name rule refuses
  *   (MalformedDescription), or two that convert to one column (IdentifierCollision), each at its field;
  * - an inherited key, or the full-heading fallback, whose unique index entry can exceed PostgreSQL's B-tree limit
@@ -291,7 +314,7 @@ export const analyzedDefinition = (
 export const analyzeDerivedRelation = (
 	schema: SchemaReading,
 	owned: OwnedDerived,
-	view: MaterializedView
+	view: StoredView
 ): Result.Result<DerivedRelationAnalysis, CompileError> => {
 	const { name, loc } = owned
 	const at = loc

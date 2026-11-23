@@ -361,13 +361,6 @@ const loadMember = (
 					variants
 				})
 			)
-		case "refresh":
-			return Result.succeed({
-				name: member.name,
-				wire: member.wire,
-				kind: "refresh",
-				refresh: member.refresh
-			})
 	}
 }
 

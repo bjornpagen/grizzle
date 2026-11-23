@@ -83,22 +83,18 @@ export type RuleReadOf<Q> = ArmsRefusals<Q> extends never ? true : ArmsRefusals<
 /** A derived relation a rule may read: one whose definition joins, selects and projects (RuleRead). */
 export type RuleReadDerived = AnyDerived & RuleRead<true>
 
-/** A derived relation PostgreSQL stores as a materialized view, which db.refresh refreshes. */
-export interface AnyMaterialized extends AnyDerived {
-	readonly storage: "materialized"
+/** A derived relation whose rows PostgreSQL holds in a table of its own, which grizzle keeps equal to its definition. */
+export interface AnyStored extends AnyDerived {
+	readonly storage: "stored"
 }
 
-/**
- * A derived relation PostgreSQL stores nothing of: a query matching it and a rule over it read its definition. A stored
- * one is among them until its table and upkeep land (ir/desc.ts DerivedStorage): until then it is read as its
- * definition, and a role reads it through the relations its definition reads.
- */
+/** A derived relation PostgreSQL stores nothing of: a query matching it and a rule over it read its definition. */
 export interface AnyLive extends AnyDerived {
-	readonly storage: "live" | "stored"
+	readonly storage: "live"
 }
 
 /**
- * Derived relations: named queries, stored as materialized views where materialized. The runtime constructor is
+ * Derived relations: named queries, kept in tables where stored. The runtime constructor is
  * packages/engine/src/schema's, bound to this signature by the public schema barrel.
  *
  * A derived relation's kind is "derived": a key's, a check's and a containment's side may read it (a rule over its
@@ -185,7 +181,7 @@ type AnyKeyOf<H> = H extends unknown ? keyof H : never
 
 /**
  * The refusal a view's definition carries: none for a parameterless query of one heading with at least one field. A
- * view stores one heading, since arms of different headings would be several heading groups; arms that differ only in
+ * stored table holds one heading, since arms of different headings would be several heading groups; arms that differ only in
  * a literal discriminant's value share their fields and are one heading. A role's query entry is checked by it too
  * (types/schema/world.ts).
  *
@@ -199,16 +195,16 @@ export type DefinitionShape<Q> =
 			? Refusal<"a derived definition has at least one field">
 			: AnyKeyOf<HeadOf<Q>> extends keyof HeadOf<Q>
 				? unknown
-				: Refusal<"a derived definition has one heading: a materialized view stores one heading group">
+				: Refusal<"a derived definition has one heading: a stored table holds one heading group">
 
 /**
- * The refusal a derived definition carries: a view's (DefinitionShape), and any context it reads, since a materialized
- * view holds no session. Its check is unboxed, as DefinitionShape's are.
+ * The refusal a derived definition carries: a view's (DefinitionShape), and any context it reads, since no session's
+ * claims stand at the COMMIT that keeps a stored relation. Its check is unboxed, as DefinitionShape's are.
  */
 export type DefinitionCheck<Q> =
 	ContextsOf<Q> extends never
 		? DefinitionShape<Q>
-		: Refusal<"a derived definition reads no context: a materialized view holds no session">
+		: Refusal<"a derived definition reads no context: no session's claims stand at the COMMIT that keeps it">
 
 /**
  * A definition Q as derived takes it, refused where DefinitionCheck refuses it. An alias of its own, so the checker reads a
@@ -220,11 +216,9 @@ export type CheckedDefinition<Q> = Q & DefinitionCheck<Q>
 /**
  * A derived relation is a named query: fields from the query's head, keys from its evidence. It is declared in an
  * extension of the schema its definition reads. `derived(name, q)` stores nothing: a query matching it and a rule over
- * it read its definition. `derived.materialized(name, q)` is the same relation stored as a materialized view, which a
- * query reads as of its last refresh; a rule over it still reads its definition. `derived.stored(name, q)` is the
- * relation grizzle keeps equal to its definition at every COMMIT, admitted where its definition is unit-local, which
- * only the schema's compile decides (analysis/theory/unit.ts storedUnit); what of it has landed, ir/desc.ts
- * DerivedStorage says.
+ * it read its definition. `derived.stored(name, q)` is the relation grizzle keeps equal to its definition at every
+ * COMMIT in a table of its own, admitted where its definition is unit-local, which only the schema's compile decides
+ * (analysis/theory/unit.ts storedUnit).
  */
 export type DerivedConstructor = (<const Name extends string, Q extends DefinitionQuery>(
 	name: RelationName<Name>,
@@ -234,14 +228,6 @@ export type DerivedConstructor = (<const Name extends string, Q extends Definiti
 	DefinitionView<Q["heading"], DefinitionKeys<Q>, RuleReadOf<Q>, DefinitionLevel<Q>>,
 	"live"
 >) & {
-	readonly materialized: <const Name extends string, Q extends DefinitionQuery>(
-		name: RelationName<Name>,
-		definition: CheckedDefinition<Q>
-	) => Derived<
-		Name,
-		DefinitionView<Q["heading"], DefinitionKeys<Q>, RuleReadOf<Q>, DefinitionLevel<Q>>,
-		"materialized"
-	>
 	readonly stored: <const Name extends string, Q extends DefinitionQuery>(
 		name: RelationName<Name>,
 		definition: CheckedDefinition<Q>

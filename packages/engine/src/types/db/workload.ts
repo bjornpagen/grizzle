@@ -1,4 +1,3 @@
-import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { ClockUnit } from "#compiler/core/clock.ts"
 import type { Phantom } from "#compiler/core/phantom.ts"
 import type {
@@ -8,7 +7,6 @@ import type {
 	RepeatedArraysOf
 } from "#compiler/types/changeset/changeset.ts"
 import type { MembersTyped, Refusal } from "#compiler/types/core/phantom.ts"
-import type { AnyMaterialized } from "#compiler/types/derived/derived.ts"
 import type {
 	ContextsOf,
 	OrderedAt,
@@ -21,12 +19,7 @@ import type {
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { AnySchema, LevelsOf, RelationOf } from "#compiler/types/schema/schema.ts"
 import type { Side } from "#compiler/types/schema/statements.ts"
-import type {
-	AnyRole,
-	RefreshListOf,
-	WithinRoleContexts,
-	WriteListOf
-} from "#compiler/types/schema/world.ts"
+import type { AnyRole, WithinRoleContexts, WriteListOf } from "#compiler/types/schema/world.ts"
 
 /** A stored or closed relation of L, which a key reads through. */
 type KeyedAt<L> = L extends unknown ? Extract<RelationOf<L>, AnyRelation | AnyClosed> : never
@@ -86,15 +79,6 @@ export interface Answered<X> {
 export type ReadOf<X> = X extends Answered<infer Y> ? Y : X
 
 /**
- * A workload member that refreshes the materialized derived relations of the nonempty list Rs: refresh(Rs), whose handle
- * refreshes them all in one transaction (`yield* db.workload.<name>.once({ params: {}, facts: {} })`), lower levels
- * first. It reads and writes nothing else.
- */
-export interface Refresh<Rs> {
-	readonly refresh: Rs
-}
-
-/**
  * A workload member that serves the program X, a query, an ordered query or a ChangeSet, with each parameter its binding
  * B names bound to the database's clock in that parameter's unit: clocked(X, B). The reading is the instant the call's
  * transaction began, transaction_timestamp(), one value in every statement of the call and at or before every snapshot
@@ -137,34 +121,24 @@ export type ClockedConstructor = <
 	binding: B & ClockBindingOf<X, B>
 ) => Clocked<X, B>
 
-/** The materialized derived relations of a level L, one level at a time. */
-type MaterializedAt<L> = L extends unknown ? Extract<RelationOf<L>, AnyMaterialized> : never
-
-/**
- * What a refresh member of a workload over S refreshes: over a role, only the relations its refresh list names, as a Db
- * of the role refreshes them; over a schema, any materialized derived relation of it or a level below it.
- */
-type RefreshableBy<S> = S extends AnyRole ? RefreshListOf<S> : MaterializedAt<LevelsOf<S>>
-
 /** A read of a workload over L: a query, an ordered query, an ordered query that pages, or a relation's key. */
 type ReadAt<L> = QueryAt<L> | OrderedAt<L> | Paged<OrderedAt<L>> | KeyAt<L>
 
 /**
- * A program of a workload over S, over S or a level below it, L: a read, live or answered (Answered), a ChangeSet, one
- * of a query, an ordered query or a ChangeSet with parameters bound to the database's clock (Clocked), or a refresh of
- * materialized derived relations S may refresh. A read's isolation is no part of it: generate infers it (core/isolation.ts
- * ReadIsolation). What a ChangeSet writes is each member's check (WritesWithin), so its refusal names the rule.
+ * A program of a workload over S, over S or a level below it, L: a read, live or answered (Answered), a ChangeSet, or
+ * one of a query, an ordered query or a ChangeSet with parameters bound to the database's clock (Clocked). A read's
+ * isolation is no part of it: generate infers it (core/isolation.ts ReadIsolation). What a ChangeSet writes is each
+ * member's check (WritesWithin), so its refusal names the rule.
  */
-type ProgramAt<S, L> =
+type ProgramAt<L> =
 	| ReadAt<L>
 	| Answered<ReadAt<L>>
 	| ChangeSetAt<L>
 	| Clocked<QueryAt<L> | OrderedAt<L> | ChangeSetAt<L>, unknown>
-	| Refresh<NonEmptyReadonlyArray<RefreshableBy<S>>>
 
 /**
  * The contexts a program of a workload matches: a query's or ordered query's, a paged one's, a clocked one's program's,
- * an answered one's read's, or a ChangeSet's, its members' and read-backs'; a key and a refresh match none.
+ * an answered one's read's, or a ChangeSet's, its members' and read-backs'; a key matches none.
  */
 type ProgramContexts<X> =
 	X extends Answered<infer Y>
@@ -259,7 +233,7 @@ type ReadContexts<X> = X extends unknown
  */
 export type WorkloadConstructor = <
 	S extends AnySchema | AnyRole,
-	const Programs extends Record<string, ProgramAt<S, LevelsOf<S>>>
+	const Programs extends Record<string, ProgramAt<LevelsOf<S>>>
 >(
 	schema: S,
 	programs: Programs & {
@@ -291,15 +265,11 @@ type PagedArgument<O> = O extends OrderedBase ? PageOf<O> : Refusal<"page needs 
 export type PagedConstructor = <const O>(ordered: O & PagedArgument<O>) => Paged<O>
 
 /**
- * What answered takes: a read, a query, an ordered query, a paged one or a relation's key; a ChangeSet, a clocked one, a
- * refresh and an answered member are refused with the Refusal that names what it takes. Which schema the read is over
- * is the workload's to judge (ProgramAt).
+ * What answered takes: a read, a query, an ordered query, a paged one or a relation's key; a ChangeSet, a clocked one
+ * and an answered member are refused with the Refusal that names what it takes. Which schema the read is over is the
+ * workload's to judge (ProgramAt).
  */
-type AnsweredArgument<X> = X extends
-	| Answered<unknown>
-	| Refresh<unknown>
-	| AnyChangeSet
-	| Clocked<unknown, unknown>
+type AnsweredArgument<X> = X extends Answered<unknown> | AnyChangeSet | Clocked<unknown, unknown>
 	? Refusal<"answered takes a read: a query, an ordered query, a paged one or a relation's key">
 	: unknown
 
@@ -307,11 +277,3 @@ type AnsweredArgument<X> = X extends
 export type AnsweredConstructor = <const X extends object>(
 	read: X & AnsweredArgument<X>
 ) => Answered<X>
-
-/**
- * refresh(relations): the workload member that refreshes the materialized derived relations of the nonempty list
- * `relations` (Refresh).
- */
-export type RefreshConstructor = <const Rs extends NonEmptyReadonlyArray<AnyMaterialized>>(
-	relations: Rs
-) => Refresh<Rs>

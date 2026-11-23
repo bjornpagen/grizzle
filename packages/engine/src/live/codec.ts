@@ -824,12 +824,6 @@ const encodeOutcome = (wire: MemberWire, value: unknown, options: WireOptions): 
 		throw defect("a read's answer holds no outcome")
 	}
 	const kind = ownMember(value, "kind")
-	if (wire.outcome.kind === "refresh") {
-		if (kind !== "refreshed") {
-			throw defect("a refresh's outcome")
-		}
-		return { kind }
-	}
 	const reads = encodeRecord(wire.outcome.reads, ownMember(value, "reads"), options)
 	if (kind === "unchanged") {
 		return { kind, reads }
@@ -867,9 +861,6 @@ const decodeOutcome = (wire: MemberWire, json: WireJson, options: WireOptions): 
 		throw defect("a read's answer holds no outcome")
 	}
 	const record = trustedRecord(json)
-	if (wire.outcome.kind === "refresh") {
-		return Object.freeze({ kind: "refreshed" })
-	}
 	const reads = decodeRecord(wire.outcome.reads, trustedMember(record, "reads"), options)
 	if (trustedMember(record, "kind") === "unchanged") {
 		return Object.freeze({ kind: "unchanged", reads })

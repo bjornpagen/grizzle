@@ -45,7 +45,6 @@ export type QualifiedKind =
 	| "domain"
 	| "type"
 	| "table"
-	| "materializedView"
 	| "view"
 	| "index"
 	| "statistics"
@@ -90,7 +89,6 @@ const qualifiedKinds: ReadonlyArray<QualifiedKind> = [
 	"domain",
 	"type",
 	"table",
-	"materializedView",
 	"view",
 	"index",
 	"statistics",
@@ -128,15 +126,14 @@ export const parseIdent = (ident: string): GraphIdent => {
 }
 
 /**
- * The namespaces a statement names an object of each qualified kind in (sql/transform.ts NameSpace): a table, a view
- * and a materialized view also as the row type PostgreSQL creates under its name. A row security, a replica identity and
- * a table's declared statistics, which hold no catalog object of their own, are named by no statement but their own.
+ * The namespaces a statement names an object of each qualified kind in (sql/transform.ts NameSpace): a table and a view
+ * also as the row type PostgreSQL creates under its name. A row security, a replica identity and a table's declared
+ * statistics, which hold no catalog object of their own, are named by no statement but their own.
  */
 const namedIn: Readonly<Record<QualifiedKind, ReadonlyArray<NameSpace>>> = {
 	domain: ["type"],
 	type: ["type"],
 	table: ["relation", "type"],
-	materializedView: ["relation", "type"],
 	view: ["relation", "type"],
 	index: ["relation"],
 	statistics: [],
@@ -164,7 +161,7 @@ interface Edge {
 /**
  * The edges of what each object of `of` names among `objects`: `from` each other object of `objects` a statement of
  * `to` names, as PostgreSQL resolves the statement when it runs it, by every name sql/transform.ts walks (an object's
- * name in its namespace, a table's, a view's or a materialized view's row type among them, a named type a column, a
+ * name in its namespace, a table's, a view's row type among them, a named type a column, a
  * cast or a literal names, a qualified function) and the schema of each, a PL/pgSQL function by its header alone.
  * PostgreSQL resolves each such name as it creates the object, so each named object is one it is created after,
  * whatever the object's addition states: a table whose CHECK casts a literal to a roster's bits domain, which no column
@@ -186,7 +183,6 @@ export const namedEdges = (
 			case "domain":
 			case "type":
 			case "table":
-			case "materializedView":
 			case "view":
 			case "index":
 			case "statistics":
@@ -284,7 +280,6 @@ export const identText = (ident: NodeIdent): string => {
 		case "domain":
 		case "type":
 		case "table":
-		case "materializedView":
 		case "view":
 		case "index":
 		case "statistics":
@@ -341,7 +336,6 @@ const keyOf = (ident: NodeIdent): ObjectKey => {
 		case "domain":
 		case "type":
 		case "table":
-		case "materializedView":
 		case "view":
 		case "index":
 		case "statistics":
@@ -507,7 +501,7 @@ const priority: Comparator<Node<DeployPhase>> = combineAll([
  * edges follow the phase order by construction. The install order is a topological order of the edges that is also
  * ordered by phase, Setup, Structure, Indexes, Validate, Publish, which refines the dependency order: namespaces;
  * constants, domains and helper types; tables, columns and identities; native references; the refusal function, law
- * functions and their triggers; materialized views; key, law and workload indexes; validation; grants and publication.
+ * functions and their triggers; stored tables; key, law and workload indexes; validation; grants and publication.
  * Ties are broken by a fixed kind rank and then by the objects' names, a hashed name by the identity it was minted
  * from, never by its digest, which is no order: equal inputs produce one order byte for byte, and two installations of
  * one schema one order.

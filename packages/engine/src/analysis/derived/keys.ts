@@ -27,8 +27,8 @@ interface KeyColumn {
  *
  * The representability of a derived relation's inherited keys.
  *
- * Each inherited key becomes one `CREATE UNIQUE INDEX` over plain columns with no predicate, the index `REFRESH
- * MATERIALIZED VIEW CONCURRENTLY` requires. That index is a B-tree whatever the key's types: a span field
+ * Each inherited key becomes one unique B-tree over plain columns with no predicate, the stored table's primary key or
+ * a `CREATE UNIQUE INDEX` (physical/derived/objects.ts). That index is a B-tree whatever the key's types: a span field
  * is one more ordered datum of an int4range or int8range B-tree, never a WITHOUT OVERLAPS constraint, since uniqueness
  * of a derived relation's facts is equality, not nonoverlap. So a key passes exactly the B-tree half of the check every
  * declared key passes (schema/representability.ts): at most INDEX_MAX_KEYS columns, and a possible entry, the 8-byte

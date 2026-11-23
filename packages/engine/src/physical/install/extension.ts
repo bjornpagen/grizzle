@@ -14,7 +14,7 @@ import { noServedTypes, type ServedTypes } from "#compiler/physical/ddl/domains.
  * extension spreads `noContribution` and states what it contributes. */
 export interface InstallContribution {
 	readonly indexRequests: ReadonlyArray<IndexRequest>
-	/** The derived relations whose materialized views it installs. */
+	/** The derived relations whose stored tables it installs. */
 	readonly derivedRelations: ReadonlyArray<string>
 }
 
@@ -23,7 +23,7 @@ export const noContribution: InstallContribution = {
 	derivedRelations: []
 }
 
-/** What another package installs, plugged into an installation: the materialized views of derived relations and the
+/** What another package installs, plugged into an installation: the tables of stored derived relations and the
  * workload access paths. Each extension runs with the builder after the native objects and the span CHECKs and before
  * the indexes, so its objects join the one obligation graph and order, and its index requests join the one index
  * engine; every table's declared statistics are planned once every index is (physical/statistics/declared.ts).

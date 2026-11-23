@@ -205,9 +205,8 @@ export const derivedReading = (
  *   compile-target catalog takes its whole-parent targets. A take correlated through `bind` is
  *   first restated with its correlation explicit, since that is the only way a
  *   correlated take reaches a definition, which admits no attachment;
- * - the `transaction` evidence context: the definition runs inside the refreshing transaction, and also inside an
- *   owner-run migration that repopulates a recreated view, where a deferred constraint may be
- *   temporarily false; so its rewrites rest on descriptor, immediate and query-local evidence only, which holds at
+ * - the `transaction` evidence context: the definition runs inside the owner-run migration that fills a created or
+ *   recreated stored table, where a deferred constraint may be temporarily false; so its rewrites rest on descriptor, immediate and query-local evidence only, which holds at
  *   every statement;
  * - a catalog of the schema's declared keys and containments and of every lower level's inherited keys, each the
  *   unique index of its view, so a definition over a lower derived relation relies on that relation's keys like any

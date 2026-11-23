@@ -317,7 +317,6 @@ const keysOf = (object: string): ReadonlyArray<string> => {
 			return [objectKey("function", ident.schema, ident.name)]
 		case "table":
 		case "view":
-		case "materializedView":
 			return [
 				objectKey("table", ident.schema, ident.name),
 				objectKey("column", ident.schema, ident.name)

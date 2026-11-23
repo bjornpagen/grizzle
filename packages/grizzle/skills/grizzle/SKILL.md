@@ -91,7 +91,7 @@ export default defineConfig({
   `{ kind: "above", level, law }`, beside every law of its own the host finds the stated row breaking (`refused.own`).
 - A login owns its workloads: `login(Blog, "web", [AnonBlog, MemberBlog], { workload: [anonReads, memberReads] })`.
   A workload, `workload(schemaOrRole, { name: program })`, is over the login's base, a level of it, or one of its
-  roles, and names queries, ordered queries, ChangeSets, relation keys and refreshes. Every member is called the same
+  roles, and names queries, ordered queries, ChangeSets and relation keys. Every member is called the same
   way: `once(input)`, its value (a read's keyed set or list, a write's outcome), and `watch(input)`, its events, live
   for a read; `input` is `{ params, facts }`, both always present, `{}` where the program takes none. An ordered query
   the application pages is the member `paged(query)`, whose input adds `window: { anchor, size }`, the anchor
@@ -135,9 +135,9 @@ export default defineConfig({
   key. A migration adding `place` to stored rows gives each place 0
   where the new key holds the old one, and is refused elsewhere; `place.by(field)`, beside a key within the group and
   the field, numbers the stored rows by the field (README "Places"). A read runs SERIALIZABLE READ ONLY, one statement:
-  it answers at once and may fail retryably. The member `refresh(tables)`, of a nonempty list,
-  refreshes materialized derived tables the role's `refresh` list names, all of them in one transaction, lower levels
-  first. Two programs of one name across a login's workloads are refused when the login is built. A ChangeSet member
+  it answers at once and may fail retryably. Nothing refreshes a stored derived relation: the rule judge keeps its table
+  equal to its definition at every COMMIT that writes what it reads. Two programs of one name across a login's workloads
+  are refused when the login is built. A ChangeSet member
   whose `insert`, `insertAll`, `delete` or `put` was given its facts as an array takes them as its input's `facts`:
   under each such member's op (`insert`, which `insertAll`'s members are too, `put` or `delete`) and then its
   relation's name one array, typed and checked as that member's own facts, as in
@@ -285,7 +285,8 @@ breaking change may briefly break older application instances that are still run
   SCHEMA`, `ALTER FUNCTION ... OWNER TO`, `REVOKE CREATE`). A changed body, volatility or null input is that same `CREATE OR
   REPLACE`; a changed signature or result drops the function first. Never edit a body here: change the schema's `fn`,
   since the drift check holds every installed body to the SHA-256 `manifest.json` records.
-- **structure**: tables, columns, constraints (`NOT VALID` on a table that may hold rows), materialized views. Each term
+- **structure**: tables, columns, constraints (`NOT VALID` on a table that may hold rows), stored derived relations'
+  tables, each filled by an `INSERT` of its definition's rows. Each term
   of a selected side, and each `pred` term, is a STORED generated column, `CASE WHEN φ THEN t END` (`__<field>_…`,
   `__pred_<field>_…`), and a rule's key over them is `UNIQUE NULLS DISTINCT` and its foreign key `MATCH SIMPLE`; a
   selected target's constant is a generated column too, `__tag_<field>_<value>_…`. A family's hidden columns, which
@@ -328,11 +329,11 @@ breaking change may briefly break older application instances that are still run
   field it types is converted to it by its cast, which refuses a stored value the new definition doesn't admit (23514).
   Every world object an existing role relies on (a view, a policy, a filter function, a
   key or unique probe) that changes, or that reads anything the migration changes or drops (a relation, a column, a
-  type, a materialized view, a function), is dropped at the start of this transaction and created again, with its
+  type, a stored derived relation's table, a function), is dropped at the start of this transaction and created again, with its
   grants, at its end, so no committed state lacks it.
 - **indexes**: `CREATE INDEX CONCURRENTLY` on tables that may hold rows, in a no-transaction file, so writes keep
   flowing. A table this migration creates gets an ordinary build. Each table's declared statistics are set here too,
-  on a table or a materialized view, where they are new or changed, or a column under them was converted: every
+  a stored derived relation's among them, where they are new or changed, or a column under them was converted: every
   column's statistics target set to 0 and its declared number of distinct values restored, each restore checked (README
   "Declared statistics"). No migration runs `ANALYZE`, and none is needed: ANALYZE samples nothing of a declared column.
 - **validate**: `VALIDATE CONSTRAINT`, and the rules over queries, in one transaction that takes no lock that blocks a
@@ -349,7 +350,8 @@ breaking change may briefly break older application instances that are still run
   that changes them, such as a lowered count a rule bounds stored rows by, checks the rule again. So does a migration
   that writes again a column the rule reads, which its triggers never see: a generated column re-expressed (by its
   expression, or by a closed row or roster its generation reads), converted, or dropped and added again, or a column a
-  family's backfill draws again; a materialized view above that column's table is created again. Its functions and its
+  family's backfill draws again; a stored derived relation's table above that column's table is created again and
+  filled. Its functions and its
   deferred constraint triggers, one on each table its query reads, are
   created or replaced here too, before the checks, so no write runs past them; a renamed table's trigger, which
   PostgreSQL drops under ACCESS EXCLUSIVE, is created again last, its table locked against writers before the checks.

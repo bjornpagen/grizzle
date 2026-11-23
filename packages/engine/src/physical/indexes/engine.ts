@@ -235,7 +235,11 @@ const requestColumns = (r: IndexRequest): ReadonlyArray<KeyTerm> =>
 	statedKeys(r).map((k) => k.column)
 
 const reasonOf = (r: IndexRequest): PhysicalReason =>
-	r.role === "lawMaintenance" ? { kind: "law", law: r.justification.law } : { kind: "access" }
+	r.role === "lawMaintenance" ? r.justification : { kind: "access" }
+
+/** A law-maintenance request's justification as one text: its law, or what it enforces. */
+const justificationText = (j: LawIndexRequest["justification"]): string =>
+	j.kind === "law" ? `law ${j.law}` : `enforcement ${j.of}`
 
 /**
  * The reverse lookup of every foreign key the law model installs, each of which carries its referencing-side index
@@ -968,7 +972,7 @@ const keyOrder: Comparator<IndexKey> = combineAll([
 const justificationOrder: Comparator<IndexRequest> = (a, b) => {
 	if (a.role === "lawMaintenance") {
 		return b.role === "lawMaintenance"
-			? compareStrings(a.justification.law, b.justification.law)
+			? compareStrings(justificationText(a.justification), justificationText(b.justification))
 			: -1
 	}
 	return b.role === "lawMaintenance" ? 1 : 0
@@ -1120,7 +1124,7 @@ const justificationOrder: Comparator<IndexRequest> = (a, b) => {
  * its reads apply beside the index; a column it orders by or matches a prefix of stays, and an entry those still
  * overfill is refused naming them (schema/representability.ts lookupEntry, KeyFault `orderedColumns`).
  *
- * A derived relation's materialized view takes indexes like a table: the derived relation
+ * A derived relation's stored table takes indexes like a table: the derived relation
  * extension registers the view's fields and inherited key indexes with the builder (`addIndexedView`),
  * the key indexes serve requests as a table's key indexes do, and an unserved request becomes an index of the view,
  * created after the view. A request on a derived relation no extension installs is deferred with the relation, which

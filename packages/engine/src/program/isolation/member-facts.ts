@@ -128,7 +128,7 @@ const inputFill = (
  * How the extractor reads a role's statements back (program/isolation/extract.ts ExtractNames), from the names its
  * artifacts give the installation's objects:
  *
- * - a stored relation's table and a materialized derived relation's view are that relation, a table the role reads
+ * - a stored relation's table and a stored derived relation's table are that relation, a table the role reads
  *   under a row policy of its own among them;
  * - the role's view of a whole entry is its relation; a view of a query entry is its definition (roleWorld);
  * - a column of a stored relation's table is its field, and none of a law column;

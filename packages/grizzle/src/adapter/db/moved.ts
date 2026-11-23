@@ -31,7 +31,7 @@ import { clockInstantName } from "#compiler/plan/runtime.ts"
  * answer and its explains alike. A read is clocked exactly when its program declares the instant among its parameters,
  * the one place a served file states its clock: an answered read that binds no parameter to the clock compiles under
  * the transaction's clock and declares none. Every other member (a live or answered read that reads no clock, a key, a
- * page, a refresh) is the served Db's own.
+ * page) is the served Db's own.
  */
 
 /**
@@ -120,15 +120,13 @@ const movedExplains = (
 			}
 		case "change":
 			return { kind: "change", explain: onceAt(instant, explains.explain) }
-		case "refresh":
-			return explains
 	}
 }
 
 /**
  * Whether a member's calls read the clock, and so state its instant: a change's, every one of which a moved file
  * declares it for (its stamps), and a read's whose program declares the clock's instant among its parameters (engine
- * check/clock.ts sourcedParams), a clocked read's; a refresh reads none.
+ * check/clock.ts sourcedParams), a clocked read's.
  */
 const readsClock = (member: LoadedMember): boolean => {
 	switch (member.kind) {
@@ -138,8 +136,6 @@ const readsClock = (member: LoadedMember): boolean => {
 		case "key":
 		case "paged":
 			return Arr.some(member.read.params, (param) => param.name === clockInstantName)
-		case "refresh":
-			return false
 	}
 }
 

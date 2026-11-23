@@ -59,7 +59,6 @@ export { lawsOfConstraint } from "#compiler/ir/products.ts"
 export { type CallError, callError, wireHeader, wireRefusals } from "#compiler/live/events.ts"
 export {
 	batchesOf,
-	batchNotifications,
 	type LiveBatch,
 	type LiveSecret,
 	type WalPosition,

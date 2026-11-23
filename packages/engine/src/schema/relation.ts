@@ -1112,11 +1112,10 @@ export const bitsOf = <C extends AnyRoster>(
 /** Each storage's constructor, as a refusal of its admission names it. */
 const derivedSpelling = {
 	live: "derived",
-	materialized: "derived.materialized",
 	stored: "derived.stored"
 } as const satisfies Record<DerivedStorage, string>
 
-/** The admission core of derived(...), derived.materialized(...) and derived.stored(...): the definition checked and
+/** The admission core of derived(...) and derived.stored(...): the definition checked and
  * recorded, as relation's is, with how the relation is held. A stored one's unit-locality is decided where its theory
  * is built (analysis/theory/theory.ts), over the relations its definition reads. */
 export const admitDerived = (
@@ -1147,7 +1146,7 @@ export const admitDerived = (
 	if (uses.contexts.size > 0) {
 		throw malformed(
 			label,
-			`a definition that matches no context, which a materialized view holds no session for; it matches ${[...uses.contexts.keys()].toSorted(compareStrings).join(", ")}`
+			`a definition that matches no context, which no session's claims stand for at the COMMIT that keeps it; it matches ${[...uses.contexts.keys()].toSorted(compareStrings).join(", ")}`
 		)
 	}
 	const draft: DerivedDraft = Object.freeze({
@@ -1193,12 +1192,11 @@ const derivedOf =
 /**
  * derived(name, definition): the value of the definition under its name, a live derived relation PostgreSQL stores
  * nothing for, owned with the draft its admission core records; its heading is the definition's, which v mints
- * variables over, and its `fact` the decoder of that heading. derived.materialized(name, definition) is the same
- * relation stored as a materialized view, and derived.stored(name, definition) the relation grizzle keeps equal to its
- * definition at every COMMIT (ir/desc.ts DerivedStorage, which says what of it has landed).
+ * variables over, and its `fact` the decoder of that heading. derived.stored(name, definition) is the same relation
+ * with its rows in a table of its own, which grizzle keeps equal to its definition at every COMMIT (ir/desc.ts
+ * DerivedStorage).
  */
 export const derivedBuilder = derivedOf("live")
-export const materializedDerived = derivedOf("materialized")
 export const storedDerived = derivedOf("stored")
 
 /**

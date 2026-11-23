@@ -28,7 +28,7 @@ export interface InheritedKey<C extends HeadingColumn> {
  *
  * The keys a derived relation inherits from its definition.
  *
- * A derived relation is a Base over its materialized view, and its keys are the ones its definition proves. The checker
+ * A derived relation is a Base over its stored table, and its keys are the ones its definition proves. The checker
  * types the Base by the definition's head, keys it by the whole heading under its own evidence, and stamps it with the
  * inherited keys (ir/rel.ts ViewBase view), which annotate (logical/annotate.ts) rewrites the Base to under evidence
  * that admits them. The checked schema computes them once, when it is built (analysis/derived/analyze.ts

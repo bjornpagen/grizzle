@@ -46,7 +46,7 @@ export type ManifestStatement =
 					| "stubConstant"
 					| "packConstant"
 					| "createIndex"
-					| "createMaterializedView"
+					| "createStoredTable"
 					| "createView"
 					| "createPolicy"
 					| "createFunction"
@@ -89,7 +89,7 @@ const manifestStatement = (s: SqlStatement): ManifestStatement => {
 		case "stubConstant":
 		case "packConstant":
 		case "createIndex":
-		case "createMaterializedView":
+		case "createStoredTable":
 		case "createView":
 		case "createPolicy":
 		case "createFunction":
@@ -152,7 +152,7 @@ const manifestStatement = (s: SqlStatement): ManifestStatement => {
 		case "commit":
 		case "rollback":
 		case "setConstraintsImmediate":
-		case "refresh":
+		case "fillStored":
 		case "createCarrier":
 		case "emptyCarrier":
 			return refuse(`a manifest of installation statements, not ${s.kind}`)

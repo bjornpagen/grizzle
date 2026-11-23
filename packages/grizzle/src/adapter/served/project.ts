@@ -2,7 +2,6 @@ import { Array as Arr, Order, Record as Rec, Result } from "effect"
 import type { ChangeVariants, WorkloadForm } from "#adapter/db/workload.ts"
 import { toResult } from "#adapter/engine.ts"
 import type { RowsForm } from "#adapter/reader/reader.ts"
-import { refreshPlan } from "#adapter/refresh/statements.ts"
 import type { LayerRole } from "#adapter/served/login.ts"
 import { refusalsOf as servedRefusals } from "#adapter/served/refusals.ts"
 import { type LawsAbove, lawsAbove } from "#adapter/witness/keylaw.ts"
@@ -89,7 +88,7 @@ export interface CompiledLogin {
 }
 
 /**
- * The installed tables and materialized views of the relations in `footprint` (deploy/snapshot/types.ts SnapshotTables),
+ * The installed tables of the relations in `footprint` (deploy/snapshot/types.ts SnapshotTables),
  * each with the name of every index PostgreSQL holds on it, in code-unit order, by schema and name (ServedTables): what
  * an explain of the login's members names a plan by. The planner may scan any of a footprint table's indexes, whatever
  * level's law or access asked for it, and no table outside the footprint: a relation the statements name, read through a
@@ -218,8 +217,6 @@ const memberOf = (
 				kind: "change",
 				variants
 			}))
-		case "refresh":
-			return Result.succeed({ name, kind: "refresh", refresh: refreshPlan(member.targets) })
 	}
 }
 
@@ -300,8 +297,7 @@ const refusalsOf = (role: LayerRole): ServedRefusals => {
 
 /**
  * The parameters a member declares that a call supplies, each of whose values PostgreSQL checks against its
- * refinement's domain as it binds it: a read's, a key's, a page's, and every variant's of a ChangeSet; a refresh
- * declares none.
+ * refinement's domain as it binds it: a read's, a key's, a page's, and every variant's of a ChangeSet.
  */
 const memberParams = (member: WorkloadForm): ReadonlyArray<CallerParamDecl> => {
 	switch (member.kind) {
@@ -315,8 +311,6 @@ const memberParams = (member: WorkloadForm): ReadonlyArray<CallerParamDecl> => {
 			]
 		case "change":
 			return Arr.flatMap(variantsWrites(member.variants), (write) => write.params)
-		case "refresh":
-			return []
 	}
 }
 
@@ -333,8 +327,6 @@ const memberClocked = (member: WorkloadForm): ReadonlyArray<ClockParamDecl> => {
 			return member.form.bound.compiled.compiled.template.clocked
 		case "change":
 			return Arr.flatMap(variantsWrites(member.variants), (write) => write.clocked)
-		case "refresh":
-			return []
 	}
 }
 
@@ -421,7 +413,6 @@ const readLiveOf = (member: ServedMemberForm): ServedReadLive | undefined => {
 		case "paged":
 			return member.read.live
 		case "change":
-		case "refresh":
 			return undefined
 	}
 }

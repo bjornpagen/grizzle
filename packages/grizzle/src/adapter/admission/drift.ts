@@ -418,8 +418,9 @@ const identOf = (kind: string, names: NonEmptyReadonlyArray<C.CatalogExpr>): C.C
 
 /**
  * The identity of the relation `r` as a column, a constraint, a trigger, a policy, a rule, an index or a statistics
- * object lies in it: a table's (a partitioned or foreign one's alike), a view's, a materialized view's, or a row type's
- * (a relation of kind c); none for any other kind, in which nothing lies.
+ * object lies in it: a table's (a partitioned or foreign one's alike, a stored derived relation's among them), a view's
+ * (a materialized view's alike, which no installation holds), or a row type's (a relation of kind c); none for any other
+ * kind, in which nothing lies.
  */
 const containerIdent = (r: C.CatalogSource): C.CatalogExpr => {
 	const named = (kind: string) => identOf(kind, [r.col("relname")])
@@ -430,7 +431,7 @@ const containerIdent = (r: C.CatalogSource): C.CatalogExpr => {
 			{ when: C.letter("p"), result: named("table") },
 			{ when: C.letter("f"), result: named("table") },
 			{ when: C.letter("v"), result: named("view") },
-			{ when: C.letter("m"), result: named("materializedView") },
+			{ when: C.letter("m"), result: named("view") },
 			{ when: C.letter("c"), result: named("type") }
 		],
 		undefined
@@ -1493,7 +1494,7 @@ const inScratch = (
 		case "createConstant":
 		case "stubConstant":
 		case "packConstant":
-		case "createMaterializedView":
+		case "createStoredTable":
 		case "createView":
 		case "createPolicy":
 		case "createFunction":
@@ -1885,7 +1886,6 @@ const describedKind: { readonly [K in GraphIdent["kind"]]: boolean } = {
 	domain: true,
 	type: true,
 	table: true,
-	materializedView: true,
 	view: true,
 	index: true,
 	statistics: true,

@@ -43,7 +43,7 @@ type Feature = "the first version" | `the second version: ${(typeof changes)[num
 const viewsOf = (snapshot: DeploySnapshot): ReadonlyArray<string> =>
 	Arr.flatMap(snapshot.manifest.objects, (o) => {
 		const [create] = o.ddl
-		return create?.kind === "createMaterializedView" ? [printObjectName(create.name)] : []
+		return create?.kind === "createStoredTable" ? [printObjectName(create.name)] : []
 	})
 
 /** After each migrate, every materialized view the target declares is populated. */

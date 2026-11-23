@@ -179,8 +179,8 @@ const modelObjects = new WeakMap<LawModel, ArtifactObjects>()
 /**
  * The objects an installation's own artifacts over `model` need beyond its stored fields', each of which it installs
  * (planTextDomains, outsideContracts, physical/ddl/library.ts addLibrary), one reachability walk for every kind of
- * object: `columns`, every materialized derived
- * relation's view column a pattern types, which its definition casts to that pattern's domain (a literal or a min of
+ * object: `columns`, every stored derived
+ * relation's column a pattern types, which its definition casts to that pattern's domain (a literal or a min of
  * refined text keeps its pattern); and, where no column is, the text refinements (`texts`, typeRefinements: a value's
  * own refinement, never a contract's base, whose pattern its contract's domain carries) and the contracts
  * (`contracts`, down each contract's chain) of a stored field's type; of each type of a persistent expression (physical/ddl/constants.ts

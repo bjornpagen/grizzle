@@ -10,7 +10,7 @@ import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, key, on, relation, schema } from "#compiler/public/schema.ts"
-import type { CreateMaterializedView, Expr } from "#compiler/sql/ast.ts"
+import type { CreateStoredTable, Expr } from "#compiler/sql/ast.ts"
 import { lit, types } from "#compiler/sql/build.ts"
 import { succeeded } from "#test/support/assert.ts"
 import {
@@ -99,11 +99,11 @@ const viewNamed = (snapshot: DeploySnapshot, name: string): View =>
 /** Each view's CREATE MATERIALIZED VIEW as `snapshot` records it. */
 export const recordedViews = (
 	snapshot: DeploySnapshot
-): ReadonlyMap<View, CreateMaterializedView> =>
+): ReadonlyMap<View, CreateStoredTable> =>
 	new Map(
 		Arr.flatMap(snapshot.manifest.objects, (o) => {
 			const [create] = o.ddl
-			return create?.kind === "createMaterializedView"
+			return create?.kind === "createStoredTable"
 				? [[viewNamed(snapshot, create.name.name), create] as const]
 				: []
 		})
@@ -141,7 +141,7 @@ const relowered = (snapshot: DeploySnapshot, relowering: Relowering): DeploySnap
 			...snapshot.manifest,
 			objects: Arr.map(snapshot.manifest.objects, (o) => {
 				const [create, ...rest] = o.ddl
-				return create?.kind === "createMaterializedView" && create.name.name === ident
+				return create?.kind === "createStoredTable" && create.name.name === ident
 					? {
 							...o,
 							ddl: [
@@ -183,7 +183,7 @@ const viewDraft = (
 	)
 	return {
 		created: Arr.flatMap(statements, ({ slot, statement }) =>
-			statement.kind === "createMaterializedView"
+			statement.kind === "createStoredTable"
 				? [{ view: viewNamed(snapshot, statement.name.name), slot }]
 				: []
 		),

@@ -40,7 +40,7 @@ export const schemaNameOf = (of: AnySchema | AnyRole): string => {
 
 /**
  * wholeSchemaNameOf(of): the PostgreSQL schema of the whole views of the relations a schema declares itself, `__` and
- * its schemaNameOf: each such relation a role holds whole, as a table or a materialized derived relation, has one view
+ * its schemaNameOf: each such relation a role holds whole, a stored relation or a stored derived one, has one view
  * there, under its table's name, every row and column of it, each closed id followed by its decoded `<field>_name`,
  * which every role holding it whole reads, and no other. Minted by the naming door as the installation mints it
  * (core/identity.ts identity.wholeSchema). It throws CompileError as schemaNameOf does, and IdentifierTooLong where

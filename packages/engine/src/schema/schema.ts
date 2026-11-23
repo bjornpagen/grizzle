@@ -21,6 +21,7 @@ import { type DeclaredEntries, mergedDeclared } from "#compiler/schema/declared-
 import { fragmentName, fragmentReach } from "#compiler/schema/fragment.ts"
 import { functionDescOf } from "#compiler/schema/function.ts"
 import { declaredEntriesOf } from "#compiler/schema/law-entries.ts"
+import { isLevelOver, type Level, levelOf } from "#compiler/schema/level.ts"
 import { levelContent, type SchemaContent } from "#compiler/schema/levels.ts"
 import type { CanonicalStatement } from "#compiler/schema/own.ts"
 import {
@@ -30,6 +31,7 @@ import {
 	malformed,
 	ownedDesc,
 	ownedEntry,
+	ownedEntryOf,
 	ownValue,
 	requireDeclaredName
 } from "#compiler/schema/protocol.ts"
@@ -78,6 +80,16 @@ const declarationOf = (value: unknown, label: string): Declaration => ({
  * A name declared twice differently: `later` refused, `earlier` the declaration it differs from, both where they were
  * written.
  */
+/**
+ * The level a derived relation's definition is written over (query/build/state.ts defineDesc's schema), none for a
+ * value no builder made: what its type reads its level from (types/schema/schema.ts DerivedAt), which a definition that
+ * imports a live derived relation of another schema as its definition leaves no read of to check.
+ */
+const definitionLevel = (value: unknown): Level | undefined => {
+	const entry = ownedEntryOf(hasProperties(value) ? value["definition"] : undefined)
+	return entry?.kind === "query" ? levelOf(entry.content.schema) : undefined
+}
+
 const declaredTwice = (later: Declaration, earlier: Declaration): CompileError =>
 	CompileError.make({
 		_tag: "DuplicateIdentity",
@@ -561,6 +573,12 @@ const admitExtend = (
 		"a list of relations, closed and derived relations"
 	)
 	const below = levelRelations(baseDesc)
+	const baseLevel: Level = {
+		kind: "schema",
+		value: baseEntry.value,
+		desc: baseDesc,
+		content: baseEntry.content
+	}
 	const lower = new Map(
 		Object.entries(baseEntry.value.relations).map(
 			([key, value]) => [key, declarationOf(value, `${label} base relation ${key}`)] as const
@@ -610,6 +628,13 @@ const admitExtend = (
 			if (lowerRead.kind === "derived") {
 				level = Math.max(level, lowerRead.level + 1)
 			}
+		}
+		const over = definitionLevel(value)
+		if (over !== undefined && !isLevelOver(over, baseLevel)) {
+			throw builderRefusal(
+				`${label} derived ${draft.name}`,
+				"a derived definition is a query over a level of the schema it extends"
+			)
 		}
 		descs.push(
 			builtNode({

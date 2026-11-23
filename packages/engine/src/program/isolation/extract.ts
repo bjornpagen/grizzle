@@ -1130,10 +1130,7 @@ export class Walk<Top extends Arrival> {
 		) {
 			return
 		}
-		this.#opaque(
-			s.kind === "refresh" ? `?refresh:${printObjectName(s.view)}` : `?statement:${s.kind}`,
-			top
-		)
+		this.#opaque(`?statement:${s.kind}`, top)
 	}
 
 	#opaque(relation: string, c: Context<Top>): void {
@@ -2411,7 +2408,7 @@ const probeAt = <Core extends SiteCore>(
  *   `?met:"schema"."name"`, which the certifier refuses.
  * - A carrier's read is the call's own, named `carrier:<name>`. A table no relation is read as `?"schema"."name"`, a
  *   schema function no names clear as `?function:"schema"."name"`, and a statement that is no DML, carrier, ANALYZE or
- *   transaction control as `?refresh:"schema"."name"` or `?statement:<kind>`: the certifier refuses each as a relation
+ *   transaction control as `?statement:<kind>`: the certifier refuses each as a relation
  *   it states no fact of. Each object is named as the printer quotes it (sql/print.ts printObjectName), so two names are
  *   one text only where they are one name, as `?every:schema.name` was for `"a.b"."c"` and `"a"."b.c"`, and the
  *   refusal shows it as SQL spells it.

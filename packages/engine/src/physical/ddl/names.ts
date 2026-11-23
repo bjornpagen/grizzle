@@ -57,7 +57,7 @@ export interface InstallNames extends PhysicalNames {
 	readonly types: TypeSchema
 	/**
 	 * The identity of each level's PostgreSQL schema, root first, as Owned.levels lists the levels: a level's schema
-	 * holds its relations' tables and materialized views, and its rosters' domains. A role's or a login's PostgreSQL role embeds its own level's.
+	 * holds its relations' tables, and its rosters' domains. A role's or a login's PostgreSQL role embeds its own level's.
 	 */
 	readonly levels: NonEmptyReadonlyArray<Identity<"schema">>
 	/** The identity of the PostgreSQL schema of the level that declares a relation, a roster among them. */
@@ -71,7 +71,7 @@ export interface InstallNames extends PhysicalNames {
 	/** The primary key constraint of a stored relation, which an insert into a span primary key names as its
 	 * arbiter. */
 	readonly primaryKey: (relation: string) => ConstraintName
-	/** The identity a relation's table, roster domain or materialized view is named by. */
+	/** The identity a relation's table, roster domain or stored table is named by. */
 	readonly relationNamed: (relation: string) => Identity<"table" | "rosterDomain" | "view">
 	/**
 	 * The identity of a contract's domain, by the contract's declared name: the digest of the domain's physical definition,
@@ -188,7 +188,7 @@ interface NamesInput {
  * The view a role reads one of its relations through: a whole entry's is its relation's whole view,
  * `<wholeSchema>.<relation>` in the whole views' schema of the relation's level, the one view of it every role holding
  * it whole reads (`whole`); a query entry's is its own, in the role's schema (`query`). The installation creates a whole
- * view for a stored relation and a materialized derived one alone: a roster's or a closed relation's whole entry is
+ * view for a stored relation and a stored derived one alone: a roster's or a closed relation's whole entry is
  * named so, but no statement reads it, every query reading a roster's handles as codes and a closed relation's rows
  * through its constants.
  */
@@ -360,7 +360,7 @@ export const worldNames = (named: NamedRole, names: InstallNames): WorldNames =>
 }
 
 /** What a role reads its relations through: every relation of it is its view (`world`, the role's names, worldNames), a
- * whole entry's its relation's whole view, whose columns are its table's (or its materialized view's), and a query
+ * whole entry's its relation's whole view, whose columns are its table's (or its stored table's), and a query
  * entry's its own in the role's schema, whose columns are its definition's head fields, each a field's column; domains, constants and the vector extension stay the base's. A view
  * holds its heading's columns and no law column (physical/ddl/roles.ts wholeView, worldView), so it holds no selection
  * key a read could probe. Each member is stated here, none carried from the installation's names, so none of what a

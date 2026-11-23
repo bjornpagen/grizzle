@@ -62,7 +62,3 @@ export const dbChangeFrame = (
 			? { kind: "lock", statement: preparedStatement(exclusion.text, []) }
 			: excludesNothing
 	)
-
-/** The frame of every refresh of the Db: read-write at SERIALIZABLE, whatever its role's changes begin at. */
-export const dbRefreshFrame = (ctx: Pick<ServedDbContext, "prologue">): Frame =>
-	writeFrame(ctx.prologue, "serializable", excludesNothing)

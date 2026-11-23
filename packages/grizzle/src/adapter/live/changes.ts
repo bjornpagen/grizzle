@@ -2,7 +2,6 @@ import { Array as Arr, Data, Option, Result } from "effect"
 import type { Column, Message, OldImage, Tuple } from "#adapter/live/pgoutput.ts"
 import {
 	admittedIdentifier,
-	batchNotifications,
 	type Notification,
 	notificationText,
 	type RouteColumn,
@@ -28,13 +27,10 @@ import {
  * its transaction's notification is `migrated` (engine live/notify.ts), whatever row it wrote, and every live read of
  * the installation ends `stale` once it is fanned out (live/listen.ts).
  *
- * A logical message under the installation's prefix is a refresh's announcement, its text a batch's plaintext
- * (engine live/notify.ts batchNotifications), and untrusted input: pg_logical_emit_message is PUBLIC, so any role of the
- * database can emit one under the prefix. Of a message the reader takes only the table keys of the installation's
- * materialized views, a refresh's whole vocabulary, and drops every other notification, a table's key or a keyed key of
- * a stored relation, `invalidated`, a view the installation does not hold, and a text that parts from the grammar. So a
- * forged announcement causes no more than a refresh's own does, a re-run of that view's reads that diffs empty: it
- * never changes a value, never routes a stored relation's change, and never ends a read.
+ * A stored derived relation's table is a live table like an authored relation's: the judge's upkeep writes its rows in
+ * the transaction whose writes change them, so its changes arrive with that transaction's. The stream carries no
+ * logical message (engine live/replication.ts streamOptions), so nothing any role of the database emits reaches a
+ * read.
  *
  * The routed columns of each installed table its live programs read, by its installed name (served/forms.ts ServedLive
  * tables): the publication holds these tables alone, so a Relation message's table is named by its name.
@@ -198,8 +194,7 @@ const changeKeys = (
 /**
  * Reads a replication stream's pgoutput messages, one at a time, in order, into its committed transactions (see the
  * header): each Relation message names a relation under `tables`, or the ledger, `ledger`, until another names it again,
- * a logical message under `prefix` is an announcement, of which only the table keys of `views` are taken, and each
- * Commit answers the transaction it ends.
+ * and each Commit answers the transaction it ends.
  */
 export interface TransactionReader {
 	readonly read: (
@@ -208,12 +203,7 @@ export interface TransactionReader {
 }
 
 /** A reader of one stream's messages (TransactionReader), from the stream's first message. */
-export const transactionReader = (
-	tables: LiveTables,
-	views: ReadonlySet<string>,
-	prefix: string,
-	ledger: string
-): TransactionReader => {
+export const transactionReader = (tables: LiveTables, ledger: string): TransactionReader => {
 	const relations = new Map<number, RelationRoutes>()
 	const stream: { open: { readonly xid: number; readonly keys: Keys } | undefined } = {
 		open: undefined
@@ -280,20 +270,6 @@ export const transactionReader = (
 						}
 					}
 					return Result.succeed(undefined)
-				case "message": {
-					if (message.prefix !== prefix) {
-						return Result.succeed(undefined)
-					}
-					const announced = batchNotifications(message.content)
-					if (announced.ok) {
-						for (const notification of announced.value) {
-							if (notification.kind === "table" && views.has(notification.table)) {
-								add(open.keys, notification)
-							}
-						}
-					}
-					return Result.succeed(undefined)
-				}
 			}
 		}
 	}

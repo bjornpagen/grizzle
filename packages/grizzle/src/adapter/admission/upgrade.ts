@@ -93,7 +93,6 @@ const departureOf = (ident: GraphIdent, facts: ReadonlyArray<Fact>): Option.Opti
 		case "index":
 		case "statistics":
 		case "view":
-		case "materializedView":
 		case "domain":
 		case "type":
 			return Option.some({ kind: ident.kind, name: { schema: ident.schema, name: ident.name } })
@@ -137,7 +136,7 @@ const departureRank: { readonly [K in Departure["kind"]]: number } = {
 	replicaIdentity: 4,
 	index: 5,
 	statistics: 6,
-	materializedView: 7,
+	storedTable: 7,
 	function: 8,
 	generatedColumn: 9,
 	domain: 10,

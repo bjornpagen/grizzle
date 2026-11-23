@@ -699,8 +699,8 @@ export const declaredAlike = (a: DeclaredName, b: DeclaredName): boolean =>
 	conversionOf(a) === conversionOf(b)
 
 /**
- * The columns PostgreSQL holds in every table and materialized view before any it declares, its system columns
- * (src/backend/catalog/heap.c, the SysAtt it reads by SystemAttributeByName): a table or materialized view that declares
+ * The columns PostgreSQL holds in every table before any it declares, its system columns
+ * (src/backend/catalog/heap.c, the SysAtt it reads by SystemAttributeByName): a table that declares
  * a column of one of their names is refused, 42701 "column name ... conflicts with a system column name". Every name
  * grizzle derives for a column of its own, a law column's or a hidden accumulator's, starts with `__` (hashedLead), so
  * none is one of them.
@@ -721,7 +721,7 @@ const noneHeld: ReadonlySet<string> = new Set()
  * One PostgreSQL namespace of declared names: the schema's relations, rosters and contracts; a table's, closed
  * relation's, derived relation's or role view's columns; a table's row checks; a role's views. It holds each conversion
  * taken, with the declaration that took it and where, beside the names PostgreSQL holds there before any declaration
- * (`held`): a relation's columns its system columns (`columns`), which every table and materialized view a relation may
+ * (`held`): a relation's columns its system columns (`columns`), which every table a relation may
  * install as holds, and no other namespace any. The door renders a declared name as its conversion, so two
  * declarations of one conversion would be one identifier: they are one name declared twice; and a declaration of a
  * conversion PostgreSQL holds would be an identifier it refuses.
@@ -1301,7 +1301,7 @@ export const identity = Object.freeze({
 	 */
 	rowFunction: (digest: ConstantDigest<"row-function">): Identity<"rowFunction"> =>
 		mint("rowFunction", [digest], ["row"], `row function ${digest}`, hashed),
-	/** A derived relation's materialized view. */
+	/** A derived relation's stored table. */
 	view: (relation: DeclaredName): Identity<"view"> =>
 		readableAs("view", relation, `derived relation ${relation}`),
 	/** A field's column, in whatever table or view holds it: its name alone, so renaming a relation renames no column. */
@@ -1893,6 +1893,18 @@ export const identity = Object.freeze({
 			[relation],
 			["stand", ...nameSegments(relation)],
 			`${standUpDisplayLead}${relation} needs`,
+			hashed
+		),
+	/**
+	 * The rule judge's block of stored derived relation `relation`'s upkeep (physical/ddl/rules.ts, phase A): the function
+	 * that makes its rows at the units a transaction wrote its definition's rows there.
+	 */
+	storedUpkeep: (relation: string): Identity<"storedUpkeep"> =>
+		mint(
+			"storedUpkeep",
+			[relation],
+			["upkeep", ...nameSegments(relation)],
+			`the rule judge's upkeep of stored relation ${relation}`,
 			hashed
 		),
 	/**

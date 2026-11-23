@@ -119,7 +119,8 @@ const deltaSource = <C extends Carriers>(
  * R is an ordinary
  * relation of some level of the schema (`WritableOf`), or of a ChangeSet over a role a whole ordinary entry or a query
  * entry, a source of the entry's heading (`deltaEntries` says which entries' deltas a write can deliver): a closed or
- * derived relation changes only through its declaration or db.refresh, never through a ChangeSet, so it has no delta.
+ * derived relation changes only through its declaration or the judge's upkeep, never through a ChangeSet, so it has no
+ * delta.
  * A read-back may name the delta of an ordinary relation the ChangeSet does not write, which is empty; the checker
  * admits it and the write program supplies the empty relation. A delta source is local to the read-back: it carries no
  * schema and no origin, so it is matched only through `v` and `match` inside the callback's rules, like a relation

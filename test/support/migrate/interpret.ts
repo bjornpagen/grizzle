@@ -3736,7 +3736,7 @@ class Model {
 				})
 				return
 			}
-			case "createMaterializedView":
+			case "createStoredTable":
 				if (!this.#ours(s.name)) {
 					return
 				}

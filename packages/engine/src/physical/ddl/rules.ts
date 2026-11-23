@@ -1,5 +1,5 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
-import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	appendNonEmpty,
 	headNonEmpty,
@@ -24,6 +24,7 @@ import {
 	touchedOn,
 	type WholeRule
 } from "#compiler/analysis/theory/query.ts"
+import type { StoredUpkeep } from "#compiler/analysis/theory/unit.ts"
 import { checkQuery } from "#compiler/check/index.ts"
 import { CheckSession } from "#compiler/check/session.ts"
 import { canonicalTextOf, Refusal, unwrap } from "#compiler/core/canonical.ts"
@@ -45,6 +46,7 @@ import {
 } from "#compiler/ir/law.ts"
 import type { IndexRequest, PhysicalReason } from "#compiler/ir/products.ts"
 import type { DeltaSide, RelNode } from "#compiler/ir/rel.ts"
+import type { Unit } from "#compiler/ir/unit.ts"
 import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import type { LawModel, RuleTable, RuleTrigger } from "#compiler/laws/model/model.ts"
 import { queryEvidence } from "#compiler/logical/annotate.ts"
@@ -94,6 +96,7 @@ import {
 	cast,
 	col,
 	core,
+	derived,
 	eq,
 	exists,
 	lit,
@@ -114,12 +117,98 @@ import {
 import { assignments, ungenerated } from "#compiler/sql/generation.ts"
 import { printTableName, sessionTablesStanding, stoodApart } from "#compiler/sql/print.ts"
 import { type StoredColumns, storedColumns } from "#compiler/sql/stored.ts"
+import { identityHooks, Transform } from "#compiler/sql/transform.ts"
 
-/** A compiled probe: the statement whose rows break the rule, its outputs unaliased, and its index requests. */
+/**
+ * A compiled judged query: its statement, its outputs unaliased, the names of the columns it delivers in their order,
+ * and its index requests.
+ */
 interface Compiled {
 	readonly statement: OperandSelect
+	readonly heading: ReadonlyArray<string>
 	readonly requests: ReadonlyArray<IndexRequest>
 }
+
+/** The n of a generated relation name r<n>, none for any other name. */
+const generatedNumber = (name: string): number | undefined => {
+	const digits = name.startsWith("r") ? name.slice(1) : ""
+	const n = Number(digits)
+	return digits !== "" && Number.isSafeInteger(n) && String(n) === digits ? n : undefined
+}
+
+/** The greatest n of a generated relation name r<n> `statement` defines, a CTE's or an alias's, 0 where it names none. */
+const lastNumbered = (statement: OperandSelect): number => {
+	let last = 0
+	const note = (name: string | undefined): void => {
+		const n = name === undefined ? undefined : generatedNumber(name)
+		if (n !== undefined) {
+			last = Math.max(last, n)
+		}
+	}
+	new Transform({
+		...identityHooks,
+		fromSource: (source) => {
+			note("alias" in source ? source.alias : undefined)
+			if (source.kind === "cte") {
+				note(source.name)
+			}
+			return source
+		},
+		select: (query) => {
+			for (const cte of query.with?.ctes ?? []) {
+				note(cte.name)
+			}
+			return query
+		}
+	}).select(statement)
+	return last
+}
+
+/**
+ * `statement` with every generated relation name r<n> it defines or reads, an alias, a CTE and a column's qualifier,
+ * shifted to r<n + by>: a judged query embedded in a statement of the judge's own, which names its relations from r1
+ * as every lowered statement does, so that no name is defined twice in the statement that holds it.
+ */
+const shifted = (statement: OperandSelect, by: number): OperandSelect => {
+	if (by === 0) {
+		return statement
+	}
+	const moved = (name: string): string => {
+		const n = generatedNumber(name)
+		return n === undefined ? name : `r${n + by}`
+	}
+	return new Transform({
+		...identityHooks,
+		expr: (e) =>
+			e.kind === "column" && e.table !== undefined ? { ...e, table: moved(e.table) } : e,
+		fromSource: (source) => {
+			const named = source.kind === "cte" ? { ...source, name: moved(source.name) } : source
+			return "alias" in named && named.alias !== undefined
+				? { ...named, alias: moved(named.alias) }
+				: named
+		},
+		select: (query) =>
+			query.with === undefined
+				? query
+				: {
+						...query,
+						with: {
+							...query.with,
+							ctes: mapNonEmpty(query.with.ctes, (cte) => ({ ...cte, name: moved(cte.name) }))
+						}
+					}
+	}).select(statement)
+}
+
+/** Why a block of `rule` stands: its law. */
+const lawReasonOf = (rule: RuleTrigger): NonEmptyReadonlyArray<PhysicalReason> => [
+	{ kind: "law", law: rule.law.id }
+]
+
+/** `reasons`, each once, in their first order. */
+const distinctReasons = (reasons: ReadonlyArray<PhysicalReason>): ReadonlyArray<PhysicalReason> => [
+	...new Map(reasons.map((r) => [canonicalTextOf(r), r] as const)).values()
+]
 
 /** The SQLSTATE condition a rule's kind raises under. */
 const conditionOf = (rule: RuleTrigger): string => conditionOfRule(rule.rule)
@@ -190,7 +279,7 @@ const compileProbe = (
 	judgedStatement(
 		b,
 		catalog,
-		rule,
+		(root) => requestsOf(b, ruleRequester(rule), root),
 		query,
 		b.columns,
 		`rule ${rule.law.named.display} on ${relation.name}`,
@@ -218,7 +307,7 @@ const compileProbe = (
 const judgedStatement = (
 	b: InstallBuilder,
 	catalog: ReturnType<typeof evidenceCatalog>,
-	rule: RuleTrigger,
+	requestsAt: (root: RelNode) => ReadonlyArray<IndexRequest>,
 	query: InferredQuery,
 	columns: QueryColumns,
 	label: string,
@@ -240,7 +329,7 @@ const judgedStatement = (
 			{ read: "region", label, clock: noClock, session: new CheckSession() }
 		)
 	)
-	const requests = requestsOf(b, rule, checked.dag.roots[0])
+	const requests = requestsAt(checked.dag.roots[0])
 	const lowered = unwrap(
 		Result.flatMap(optimizedInput(checked, queryEvidence), (annotated) =>
 			lowerOptimized(annotated, {
@@ -267,7 +356,11 @@ const judgedStatement = (
 		throw new Refusal(unsupported(loc, `${label}: a judged query that reads a parameter`))
 	}
 	const statement = main.ast
-	return { statement: headed({ ...statement, body: unaliased(statement.body) }, heads), requests }
+	return {
+		statement: headed({ ...statement, body: unaliased(statement.body) }, heads),
+		heading: main.heading.map((c) => c.name),
+		requests
+	}
 }
 
 /**
@@ -302,12 +395,30 @@ const suffixedBy = (b: InstallBuilder, requests: ReadonlyArray<IndexRequest>): S
  */
 const requestsOf = (
 	b: InstallBuilder,
-	rule: RuleTrigger,
+	by: Requester,
 	root: RelNode
 ): ReadonlyArray<IndexRequest> => {
 	const reads = extractJudgedReads([root], { pageable: [] })
-	return [...lookupRequestsOf(b, rule, reads), ...seekRequestsOf(b, rule, reads)]
+	return [...lookupRequestsOf(b, by, reads), ...seekRequestsOf(b, by, reads)]
 }
+
+/**
+ * Who asks a judged read's indexes (`requestsOf`): its justification, a rule's law or a stored relation's enforcement;
+ * the unit its reads stand in, a whole rule's or a stored relation's upkeep's, whose key leads each request's first
+ * block (`unitLead`), none for a probed rule; and how a refusal names it.
+ */
+interface Requester {
+	readonly justification: LawIndexRequest["justification"]
+	readonly unit: Unit | undefined
+	readonly display: string
+}
+
+/** A rule's requests' requester (`Requester`): its law, and its unit where it is whole. */
+const ruleRequester = (rule: RuleTrigger): Requester => ({
+	justification: { kind: "law", law: rule.law.id },
+	unit: rule.rule.kind === "whole" ? rule.rule.unit : undefined,
+	display: `the whole rule ${rule.law.named.display}`
+})
 
 /**
  * The requests of a judged query's suffix seeks (physical/access/extract.ts SuffixSeek): a B-tree whose first block is
@@ -316,7 +427,7 @@ const requestsOf = (
  */
 const seekRequestsOf = (
 	b: InstallBuilder,
-	rule: RuleTrigger,
+	by: Requester,
 	reads: JudgedReads
 ): ReadonlyArray<IndexRequest> =>
 	reads.seeks.flatMap((seek): ReadonlyArray<IndexRequest> => {
@@ -345,7 +456,7 @@ const seekRequestsOf = (
 				method: "btree",
 				role: "lawMaintenance",
 				use: "rule probe",
-				justification: { kind: "law", law: rule.law.id }
+				justification: by.justification
 			}
 		]
 	})
@@ -356,7 +467,7 @@ const seekRequestsOf = (
  */
 const lookupRequestsOf = (
 	b: InstallBuilder,
-	rule: RuleTrigger,
+	by: Requester,
 	reads: JudgedReads
 ): ReadonlyArray<IndexRequest> =>
 	reads.lookups.flatMap(({ path, binds }): ReadonlyArray<IndexRequest> => {
@@ -383,7 +494,7 @@ const lookupRequestsOf = (
 					: []
 			)
 		)
-		const lead = isNonEmpty(keys) ? unitLead(rule, target, keys, binds) : undefined
+		const lead = isNonEmpty(keys) ? unitLead(by, target, keys, binds) : undefined
 		return lead === undefined
 			? []
 			: [
@@ -393,7 +504,7 @@ const lookupRequestsOf = (
 						method: path.method,
 						role: "lawMaintenance",
 						use: "rule probe",
-						justification: { kind: "law", law: rule.law.id }
+						justification: by.justification
 					}
 				]
 	})
@@ -412,48 +523,43 @@ const lookupRequestsOf = (
  * read one migration makes.
  */
 const unitLead = (
-	rule: RuleTrigger,
+	by: Requester,
 	target: RelationInfo,
 	keys: NonEmptyReadonlyArray<LawIndexKey>,
 	binds: ReadonlyArray<ReadonlyArray<string>>
 ): Pick<LawIndexRequest, "blocks" | "reads"> | undefined => {
-	const r = rule.rule
-	const relation = target.name
-	switch (r.kind) {
-		case "contained":
-		case "key":
-		case "check":
-			return { blocks: [keys], reads: { kind: "rows" } }
-		case "whole": {
-			const holder = defined(
-				r.unit.holders.find((h) => h.relation === relation),
-				`${relation}, a relation the whole rule ${rule.law.named.display} reads, among its unit's holders`
-			)
-			const keyOf = (field: string): LawIndexKey | undefined =>
-				keys.find((k) => k.column.kind === "field" && k.column.field.name === field)
-			const bound: Array<LawIndexKey> = []
-			for (const field of holder.fields) {
-				const key = keyOf(field)
-				if (key === undefined) {
-					break
-				}
-				bound.push(key)
-			}
-			const rest = keys.filter((k) => !bound.includes(k))
-			const lookups = binds.map((columns): ReadonlyArray<NativeColumn> =>
-				target.fields.flatMap((field): ReadonlyArray<NativeColumn> =>
-					columns.includes(field.name) ? [{ kind: "field", field }] : []
-				)
-			)
-			const reads: LawLookup =
-				bound.length === holder.fields.length && isNonEmpty(lookups)
-					? { kind: "unit", lookups }
-					: { kind: "rows" }
-			return isNonEmpty(bound)
-				? { blocks: isNonEmpty(rest) ? [bound, rest] : [bound], reads }
-				: undefined
-		}
+	const unit = by.unit
+	if (unit === undefined) {
+		return { blocks: [keys], reads: { kind: "rows" } }
 	}
+	const relation = target.name
+	const holder = defined(
+		unit.holders.find((h) => h.relation === relation),
+		`${relation}, a relation ${by.display} reads, among its unit's holders`
+	)
+	const keyOf = (field: string): LawIndexKey | undefined =>
+		keys.find((k) => k.column.kind === "field" && k.column.field.name === field)
+	const bound: Array<LawIndexKey> = []
+	for (const field of holder.fields) {
+		const key = keyOf(field)
+		if (key === undefined) {
+			break
+		}
+		bound.push(key)
+	}
+	const rest = keys.filter((k) => !bound.includes(k))
+	const lookups = binds.map((columns): ReadonlyArray<NativeColumn> =>
+		target.fields.flatMap((field): ReadonlyArray<NativeColumn> =>
+			columns.includes(field.name) ? [{ kind: "field", field }] : []
+		)
+	)
+	const reads: LawLookup =
+		bound.length === holder.fields.length && isNonEmpty(lookups)
+			? { kind: "unit", lookups }
+			: { kind: "rows" }
+	return isNonEmpty(bound)
+		? { blocks: isNonEmpty(rest) ? [bound, rest] : [bound], reads }
+		: undefined
 }
 
 /**
@@ -465,18 +571,26 @@ const unitLead = (
  * (`addRules`).
  */
 interface Judged {
-	readonly rule: RuleTrigger
+	/** Why it stands: its rule's law, or its stored relation's enforcement. */
+	readonly reasons: NonEmptyReadonlyArray<PhysicalReason>
+	/** The relations its statements read, by name, which its function is created after. */
+	readonly relations: ReadonlyArray<string>
 	readonly order: string
-	/** The block's function (identity.ruleJudgeBlock), which runs `body` and which its part calls. */
-	readonly named: Identity<"ruleJudgeBlock">
+	/** The block's function (identity.ruleJudgeBlock, or identity.storedUpkeep for a stored relation's upkeep), which
+	 * runs `body` and which its part calls. */
+	readonly named: Identity<"ruleJudgeBlock" | "storedUpkeep">
 	readonly reads: NonEmptyReadonlyArray<SessionDelta>
 	readonly body: NonEmptyReadonlyArray<PlStatement>
 }
 
-/** A table the judge holds: its relation, the rules over queries that read it in trigger-name order, and its sides. */
+/**
+ * A table the judge holds: its relation, the rules over queries that read it in trigger-name order, the stored relations
+ * whose upkeep reads it, and its sides.
+ */
 interface JudgedTable {
 	readonly relation: RelationInfo
-	readonly rules: NonEmptyReadonlyArray<{ readonly rule: RuleTrigger; readonly table: RuleTable }>
+	readonly rules: ReadonlyArray<{ readonly rule: RuleTrigger; readonly table: RuleTable }>
+	readonly upkeeps: ReadonlyArray<StoredUpkeep>
 	readonly sides: NonEmptyReadonlyArray<JudgedSide>
 }
 
@@ -815,45 +929,78 @@ const raiseOf = (b: InstallBuilder, rule: RuleTrigger, relation: RelationInfo): 
 	}
 }
 
-/** Each table a rule over a query reads, with its rules in trigger-name order and the sides they read of it. */
+/**
+ * Each table a rule over a query or a stored relation's upkeep reads, with its rules in trigger-name order, its upkeeps
+ * in name order, and the sides they read of it: a rule's the sides its touches name, an upkeep's both, at every column
+ * its definition reads of it, since a row a holder gains or loses at a unit changes the stored rows there
+ * (analysis/theory/unit.ts StoredUpkeep).
+ */
 const judgedTables = (b: InstallBuilder): ReadonlyArray<JudgedTable> => {
 	const ordered = b.model.rules.toSorted((x, y) =>
 		compareStrings(identifierOf(x.named), identifierOf(y.named))
 	)
-	const byRelation = new Map<
-		string,
-		Array<{ readonly rule: RuleTrigger; readonly table: RuleTable }>
-	>()
+	interface Held {
+		readonly relation: RelationInfo
+		readonly rules: Array<{ readonly rule: RuleTrigger; readonly table: RuleTable }>
+		readonly upkeeps: Array<StoredUpkeep>
+		readonly read: { readonly added: Set<string>; readonly removed: Set<string> }
+	}
+	const byRelation = new Map<string, Held>()
+	const heldOf = (relation: RelationInfo): Held =>
+		byRelation.getOrInsertComputed(relation.name, () => ({
+			relation,
+			rules: [],
+			upkeeps: [],
+			read: { added: new Set(), removed: new Set() }
+		}))
 	for (const rule of ordered) {
 		for (const t of rule.tables) {
-			const held = byRelation.get(t.relation.name) ?? []
-			held.push({ rule, table: t })
-			byRelation.set(t.relation.name, held)
+			const held = heldOf(t.relation)
+			held.rules.push({ rule, table: t })
+			for (const side of ["added", "removed"] as const) {
+				for (const f of touchedOn(t.touches, side) ?? []) {
+					held.read[side].add(f)
+				}
+			}
+		}
+	}
+	for (const upkeep of b.model.theory.upkeeps) {
+		for (const r of upkeep.reads) {
+			const relation = defined(
+				b.model.relations.get(r.relation)?.relation,
+				`${r.relation}, a stored relation the upkeep of ${upkeep.relation} reads`
+			)
+			const held = heldOf(relation)
+			if (!held.upkeeps.includes(upkeep)) {
+				held.upkeeps.push(upkeep)
+			}
+			for (const f of r.columns) {
+				held.read.added.add(f)
+				held.read.removed.add(f)
+			}
 		}
 	}
 	return [...byRelation.values()].flatMap((held): ReadonlyArray<JudgedTable> => {
-		const [head, ...more] = held
-		if (head === undefined) {
-			return []
-		}
-		const relation = head.table.relation
+		const relation = held.relation
 		const sides = (["added", "removed"] as const).flatMap((side): ReadonlyArray<JudgedSide> => {
-			const read = held.flatMap(({ table: t }) => {
-				const f = touchedOn(t.touches, side)
-				return f === undefined ? [] : [f]
-			})
-			return read.length === 0
-				? []
-				: [
+			const read = [...held.read[side]]
+			const touched =
+				held.upkeeps.length > 0 ||
+				held.rules.some(({ table }) => touchedOn(table.touches, side) !== undefined)
+			return touched
+				? [
 						{
 							side,
 							delta: sessionDeltaOf(b, relation, side),
-							read: [...new Set(columnsOf(relation, read.flat()))]
+							read: [...new Set(columnsOf(relation, read))]
 						}
 					]
+				: []
 		})
 		const [s0, ...ss] = sides
-		return s0 === undefined ? [] : [{ relation, rules: [head, ...more], sides: [s0, ...ss] }]
+		return s0 === undefined
+			? []
+			: [{ relation, rules: held.rules, upkeeps: held.upkeeps, sides: [s0, ...ss] }]
 	})
 }
 
@@ -1271,7 +1418,8 @@ export const addRules = (
 				? []
 				: [
 						{
-							rule,
+							reasons: lawReasonOf(rule),
+							relations: rule.law.reads,
 							order: identifierOf(rule.named),
 							named: identity.ruleJudgeBlock(rule.named, rule.law.named, {
 								kind: "probe",
@@ -1300,7 +1448,7 @@ export const addRules = (
 		const lowered = judgedStatement(
 			b,
 			catalog,
-			rule,
+			(root) => requestsOf(b, ruleRequester(rule), root),
 			unit.judged,
 			(query) => b.columns(unit.definitionOf(query)),
 			label,
@@ -1321,7 +1469,8 @@ export const addRules = (
 			).sides.flatMap((s) => (touchedOn(rt.touches, s.side) === undefined ? [] : [s.delta]))
 		)
 		return {
-			rule,
+			reasons: lawReasonOf(rule),
+			relations: rule.law.reads,
 			order: identifierOf(rule.named),
 			named: identity.ruleJudgeBlock(rule.named, rule.law.named, { kind: "units" }),
 			reads: [
@@ -1329,6 +1478,149 @@ export const addRules = (
 				...rest
 			],
 			body: [whenFound(lowered.statement, [raiseOf(b, rule, holder.relation)])]
+		}
+	}
+	/**
+	 * The judge's block of a stored relation's upkeep, phase A of its part (analysis/theory/unit.ts StoredUpkeep): where
+	 * a delta of a holder it reads holds a row, its rows at the units the transaction wrote become its definition's rows
+	 * there, by their set difference, under the borrow every write of those units holds:
+	 *
+	 *   DELETE FROM <S> AS r1 USING (<the written units' keys>) AS r2 (u0, …)
+	 *     WHERE r1.<f0> = r2.u0 AND … AND NOT EXISTS (SELECT FROM (<its definition there>) AS r3 WHERE <r1 = r3>)
+	 *   INSERT INTO <S> (<columns>) SELECT r3.* FROM (<its definition there>) AS r3
+	 *     WHERE NOT EXISTS (SELECT FROM <S> AS r4 WHERE <r4 = r3>)
+	 *
+	 * So S's rows that stay are never touched: its indexes keep them, and its deltas, where a rule reads it, hold only
+	 * the rows it truly gains and loses. Two statements, since a data-modifying CTE orders no DELETE before the INSERT
+	 * beside it, and a changed row at one key is one row removed and another inserted there. Its key leads with the
+	 * unit, so rows of different units never meet, and the two are exact for every write: a whole unit's first write,
+	 * whose DELETE finds nothing; a removal, whose INSERT finds nothing; and any other. A
+	 * key or a check over S alone is S's own index or constraint, which the INSERT fires. Its reads ask the indexes a
+	 * whole rule's do (`requestsOf`), each led by the unit's key, under the stored relation's enforcement: a chain's
+	 * later steps look rows up by the columns the steps before them bound, which no primary key range serves.
+	 */
+	const upkeepBlock = (u: StoredUpkeep): Judged => {
+		const label = `stored relation ${u.relation} over the units a transaction wrote`
+		const deltas = (name: string, side: DeltaSide): DeltaRelation | undefined => {
+			const t = tableOf(name)
+			return t === undefined ? undefined : sessionDelta(t, side)
+		}
+		const requester: Requester = {
+			justification: { kind: "enforcement", of: `derived relation ${u.relation}` },
+			unit: u.stored.unit,
+			display: `the upkeep of stored relation ${u.relation}`
+		}
+		const units = judgedStatement(
+			b,
+			catalog,
+			(root) => requestsOf(b, requester, root),
+			u.region,
+			b.columns,
+			label,
+			u.loc,
+			deltas,
+			heads,
+			"units"
+		)
+		const rows = judgedStatement(
+			b,
+			catalog,
+			(root) => requestsOf(b, requester, root),
+			u.judged,
+			(query) => b.columns(u.definitionOf(query)),
+			label,
+			u.loc,
+			deltas,
+			heads,
+			"units"
+		)
+		appendAll(requests, units.requests)
+		appendAll(requests, rows.requests)
+		const table = b.names.relation(u.relation)
+		const columnOf = (field: string): string => b.names.column(u.relation, field)
+		const heading = rows.heading
+		if (!isNonEmpty(heading)) {
+			throw defect(`stored relation ${u.relation}'s definition, which delivers at least one field`)
+		}
+		/** The generated column a derived table of `n` columns names its i-th, c<i+1>. */
+		const columnsAt = (n: number): ReadonlyArray<string> =>
+			Array.from({ length: n }, (_, i) => `c${i + 1}`)
+		/** The rows of its definition at the written units under `alias`, every relation they name shifted past `past`. */
+		const fresh = (alias: string, past: number): FromSource =>
+			derived(shifted(rows.statement, past), alias, columnsAt(heading.length), false)
+		/** That the row `stored` of S and the row `found` of its definition agree at every field. */
+		const sameRow = (stored: string, found: string): Expr =>
+			and(
+				mapNonEmpty(heading, (field, i) =>
+					eq(col(stored, columnOf(field)), col(found, `c${i + 1}`))
+				)
+			)
+		const unitNames = lastNumbered(units.statement)
+		const rowNames = lastNumbered(rows.statement)
+		/** The DELETE's names: S r1, the region's own past it, the region r<u+2>, the definition's past that, then its
+		 * rows r<u+r+3>. */
+		const regionAlias = `r${unitNames + 2}`
+		const foundAlias = `r${unitNames + rowNames + 3}`
+		const atUnits = mapNonEmpty(u.stored.fields, (field, j) =>
+			eq(col("r1", columnOf(field)), col(regionAlias, `c${j + 1}`))
+		)
+		const removed: PlStatement = {
+			kind: "modify",
+			statement: {
+				kind: "delete",
+				with: undefined,
+				table,
+				alias: "r1",
+				using: [
+					derived(shifted(units.statement, 1), regionAlias, columnsAt(units.heading.length), false)
+				],
+				where: and([
+					...atUnits,
+					notExists(simpleSelect([], [fresh(foundAlias, unitNames + 2)], sameRow("r1", foundAlias)))
+				]),
+				returning: []
+			}
+		}
+		/** The INSERT's names: the definition's own, its rows r<r+1>, S r<r+2>. */
+		const rowsAlias = `r${rowNames + 1}`
+		const storedAlias = `r${rowNames + 2}`
+		const inserted: PlStatement = {
+			kind: "modify",
+			statement: {
+				kind: "insert",
+				with: undefined,
+				table,
+				alias: undefined,
+				onConflict: undefined,
+				returning: [],
+				columns: heading.map(columnOf),
+				source: {
+					kind: "query",
+					query: provedSelect(
+						"keyed",
+						heading.map((_, i) => ({ expr: col(rowsAlias, `c${i + 1}`), alias: undefined })),
+						[fresh(rowsAlias, 0)],
+						notExists(
+							simpleSelect(
+								[],
+								[{ kind: "table", table, alias: storedAlias }],
+								sameRow(storedAlias, rowsAlias)
+							)
+						)
+					)
+				}
+			}
+		}
+		const [first, ...rest] = [...new Set(u.reads.map((r) => r.relation))].flatMap(
+			(name) => tableOf(name)?.sides.map((s) => s.delta) ?? []
+		)
+		return {
+			reasons: [enforcement(`derived relation ${u.relation}`)],
+			relations: u.reads.map((r) => r.relation),
+			order: u.relation,
+			named: identity.storedUpkeep(u.relation),
+			reads: [defined(first, `a delta of a holder ${u.relation} reads`), ...rest],
+			body: [removed, inserted]
 		}
 	}
 	/**
@@ -1370,7 +1662,7 @@ export const addRules = (
 			judgedStatement(
 				b,
 				catalog,
-				rule,
+				(root) => requestsOf(b, ruleRequester(rule), root),
 				query,
 				b.columns,
 				label,
@@ -1404,9 +1696,13 @@ export const addRules = (
 				return [unitBlock(rule, r)]
 		}
 	}
-	const judged = b.model.rules
-		.flatMap(judgedBy)
-		.toSorted((x, y) => compareStrings(x.order, y.order))
+	/** Phase A, each stored relation's upkeep, then every rule's blocks in trigger-name order: a part runs its blocks in
+	 * this order (`partsOf`), so a key or a check over a stored relation, S's own index or constraint, holds before any
+	 * rule of the part runs. */
+	const judged = [
+		...b.model.theory.upkeeps.map(upkeepBlock),
+		...b.model.rules.flatMap(judgedBy).toSorted((x, y) => compareStrings(x.order, y.order))
+	]
 	/** Each judged table's side by its delta's name: the side a part nets, where it is a side of news. */
 	const sideOf = new Map(
 		tables.flatMap((t) => t.sides.map((s) => [s.delta.name, { t, s }] as const))
@@ -1416,10 +1712,11 @@ export const addRules = (
 		enforcement(`the rules over queries of schema ${b.owned.name}`),
 		...b.model.rules.map((rule) => ({ kind: "law" as const, law: rule.law.id }))
 	]
+	/** The tables of the stored relations among `names`, each once. */
+	const tablesNamed = (names: ReadonlyArray<string>) =>
+		[...new Set(names)].flatMap((name) => (b.model.relations.has(name) ? [b.table(name)] : []))
 	const tablesOf = (rules: ReadonlyArray<RuleTrigger>) =>
-		[...new Set(rules.flatMap((rule) => rule.law.reads))].flatMap((name) =>
-			b.model.relations.has(name) ? [b.table(name)] : []
-		)
+		tablesNamed(rules.flatMap((rule) => rule.law.reads))
 	const readers = addReaders(
 		b,
 		tables.flatMap((t) => t.sides.map((s) => ({ relation: t.relation, delta: s.delta }))),
@@ -1451,11 +1748,11 @@ export const addRules = (
 				kind: "lawFunction",
 				ident: b.qualified("function", j.named),
 				ddl,
-				reasons: [{ kind: "law" as const, law: j.rule.law.id }],
+				reasons: j.reasons,
 				phase: "validate"
 			},
 			[
-				...tablesOf([j.rule]),
+				...tablesNamed(j.relations),
 				...j.reads.map((d) =>
 					defined(readers.get(d.name), "a block's delta, a delta of a judged table")
 				)
@@ -1493,17 +1790,16 @@ export const addRules = (
 			},
 			revokeOf(fn, [namesType])
 		]
-		const rules = [...new Set(part.blocks.map((j) => j.rule))]
 		const node = b.add(
 			{
 				kind: "lawFunction",
 				ident: b.qualified("function", named),
 				ddl,
-				reasons: rules.map((rule) => ({ kind: "law" as const, law: rule.law.id })),
+				reasons: distinctReasons(part.blocks.flatMap((j) => j.reasons)),
 				phase: "validate"
 			},
 			[
-				...tablesOf(rules),
+				...tablesNamed(part.blocks.flatMap((j) => j.relations)),
 				...part.deltas.map((d) =>
 					defined(readers.get(d.name), "a part's delta, a delta of a judged table")
 				),
@@ -1832,7 +2128,10 @@ const addCapture = (
 	if (b0 === undefined) {
 		return
 	}
-	const reasons = t.rules.map(({ rule }) => ({ kind: "law" as const, law: rule.law.id }))
+	const reasons: ReadonlyArray<PhysicalReason> = [
+		...t.rules.map(({ rule }) => ({ kind: "law" as const, law: rule.law.id })),
+		...t.upkeeps.map((u) => enforcement(`derived relation ${u.relation}`))
+	]
 	const ddl: readonly [PlFunction, Revoke] = [
 		{
 			kind: "createFunction",

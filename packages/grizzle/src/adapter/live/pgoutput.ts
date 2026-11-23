@@ -5,7 +5,7 @@ import { Data, Result } from "effect"
  * A logical replication stream as the installation's leader reads it (live/leader.ts): each CopyData of the stream
  * START_REPLICATION opens is an XLogData, which carries one pgoutput message, or a keepalive (streamMessageOf), and the
  * leader answers with Standby Status Updates (standbyStatus), by the formats of PostgreSQL's "Streaming Replication
- * Protocol". Each pgoutput message (decodeMessage) is in protocol version 1 with logical messages and every column sent
+ * Protocol". Each pgoutput message (decodeMessage) is in protocol version 1, with no logical message, every column sent
  * as its text, the binary option never asked, by the formats of its "Logical Replication Message Formats". Each message
  * is read in one pass over its bytes, and what the leader does not read (an origin, a type, a column's type and
  * modifier, a timestamp) is stepped over.
@@ -55,7 +55,6 @@ export type Message =
 	  }
 	| { readonly kind: "delete"; readonly relation: number; readonly previous: OldImage }
 	| { readonly kind: "truncate"; readonly relations: ReadonlyArray<number> }
-	| { readonly kind: "message"; readonly prefix: string; readonly content: string }
 	| { readonly kind: "skipped" }
 
 /**
@@ -84,8 +83,7 @@ const width = { int8: 1, int16: 2, int32: 4, int64: 8 } as const
  * (https://www.postgresql.org/docs/19/protocol-logicalrep-message-formats.html): a Begin's final LSN and commit
  * timestamp (Int64 each); a Commit's flags (Int8) and commit LSN (Int64) before its end LSN, and its commit timestamp
  * (Int64) after it; a Relation's replica identity setting (Int8), and each of its columns' type OID and type modifier
- * (Int32 each); a Truncate's option bits (Int8); a logical Message's flags (Int8) and LSN (Int64); an Origin's commit
- * LSN (Int64); and a Type's OID (Int32).
+ * (Int32 each); a Truncate's option bits (Int8); an Origin's commit LSN (Int64); and a Type's OID (Int32).
  */
 const stepped = {
 	begin: width.int64 + width.int64,
@@ -94,7 +92,6 @@ const stepped = {
 	replicaIdentity: width.int8,
 	columnType: width.int32 + width.int32,
 	truncateOptions: width.int8,
-	messageHead: width.int8 + width.int64,
 	origin: width.int64,
 	type: width.int32
 } as const
@@ -102,7 +99,8 @@ const stepped = {
 /**
  * The tag byte of each pgoutput message, its first, by "Logical Replication Message Formats"
  * (https://www.postgresql.org/docs/19/protocol-logicalrep-message-formats.html): Byte1 'B', 'C', 'R', 'I', 'U', 'D',
- * 'T', 'M', 'O' and 'Y'.
+ * 'T', 'O' and 'Y'. A logical Message, 'M', is never asked for (engine live/replication.ts streamOptions), so its tag
+ * is unreadable.
  *
  * @formatConstant pgoutput's message tags, one ASCII letter each
  */
@@ -114,7 +112,6 @@ const messageTag = {
 	update: 0x55,
 	delete: 0x44,
 	truncate: 0x54,
-	message: 0x4d,
 	origin: 0x4f,
 	type: 0x59
 } as const
@@ -327,12 +324,6 @@ const messageOf = (reader: Reader): Message => {
 				relations.push(reader.uint32("a Truncate's OID"))
 			}
 			return { kind: "truncate", relations }
-		}
-		case messageTag.message: {
-			reader.skip(stepped.messageHead, "a Message's flags and LSN")
-			const prefix = reader.string("a Message's prefix")
-			const content = reader.text(reader.int32("a Message's length"), "a Message's content")
-			return { kind: "message", prefix, content }
 		}
 		case messageTag.origin: {
 			reader.skip(stepped.origin, "an Origin's commit LSN")

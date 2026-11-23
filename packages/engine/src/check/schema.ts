@@ -64,7 +64,7 @@ export type ClosedRelationDesc = Extract<
 >
 
 /**
- * A view a query reads: a derived relation's materialized view or a role query entry's view, by its analysis
+ * A view a query reads: a stored derived relation's table or a role query entry's view, by its analysis
  * (analysis/derived), whose `read` is what a Base over it reads, its heading and its keys.
  */
 interface ViewRelation<Kind extends "derived" | "world"> {

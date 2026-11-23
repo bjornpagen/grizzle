@@ -1130,7 +1130,7 @@ export const meaningDigestWithin = (
 
 /**
  * The digest of the rows the DAG `roots` reach within `context` yields (meaningDigestWithin, every scan's keys erased,
- * rowsFields): one materialized view's whatever lowers it and whatever keys the relations it reads declare, the
+ * rowsFields): one stored table's whatever lowers it and whatever keys the relations it reads declare, the
  * identity of a derived relation's view (physical/derived/meaning.ts definitionMeanings), whose keys are indexes of
  * their own.
  */

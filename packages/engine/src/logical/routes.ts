@@ -14,20 +14,19 @@ import { routable } from "#compiler/ir/scalar.ts"
 import type { Props } from "#compiler/logical/props.ts"
 
 /**
- * What a read program's answer depends on, by the installed relations it reads: each stored relation, with its routes,
- * and each materialized derived relation, whose rows a refresh replaces all at once. A change of any other relation
- * changes no answer of it, and a change of a stored relation's row whose routed fields all differ from the parameters
- * they route by changes no answer under that binding.
+ * What a read program's answer depends on, by the installed tables it reads: each stored relation's, an authored one's
+ * or a stored derived relation's, which the judge's upkeep writes in the writing transaction itself, with its routes. A
+ * change of any other relation changes no answer of it, and a change of a table's row whose routed fields all differ
+ * from the parameters they route by changes no answer under that binding.
  */
 export interface Footprint {
 	readonly tables: ReadonlyMap<string, Routes>
-	readonly views: ReadonlySet<string>
 }
 
 /**
- * The routes of a stored relation a read program reads: each field every read of the relation fixes to one declared
- * scalar parameter of a routable carrier (ir/scalar.ts routable), to that parameter's declared name, in code point order
- * of the fields. None routes every change of the relation to every binding.
+ * The routes of a table a read program reads: each field every read of its relation fixes to one declared scalar
+ * parameter of a routable carrier (ir/scalar.ts routable), to that parameter's declared name, in code point order of the
+ * fields. None routes every change of the table to every binding.
  */
 export type Routes = ReadonlyMap<string, string>
 
@@ -273,7 +272,8 @@ const reads = (node: RelNode, r: Restriction): ReadonlyArray<readonly [RelNode, 
  * What the answer depends on is read from the roots down: a root's every row; then each node's, what every consumer of
  * it reads of its rows (`common`), joined with the parameters its own fixed facts fix each column to and closed under
  * its classes; then what it reads of each input (`reads`). A Base reads its relation through its occurrence, so a field
- * of a stored relation routes by a parameter when every Base over the relation fixes it to that parameter; a field of a
+ * of a stored relation, authored or derived, routes by a parameter when every Base over the relation fixes it to that
+ * parameter; a field of a
  * carrier whose PostgreSQL text is not its codec's text routes nothing. A Base over a world relation is no node of a
  * base-level DAG.
  */
@@ -290,20 +290,17 @@ export const footprintOf = (
 		receive(root, unrestricted)
 	}
 	const scans = new Map<string, Array<{ readonly heading: Heading; readonly r: Restriction }>>()
-	const views = new Set<string>()
 	for (const node of topoOrder(dag).toReversed()) {
 		const held = defined(facts.get(node), "every node's route facts, read")
 		const r = closedUnder(held, joined(common(received.get(node.id) ?? []), held.fixed))
 		if (node.kind === "Base") {
 			switch (node.relationKind) {
 				case "relation":
+				case "derived":
 					scans.set(node.relation, [
 						...(scans.get(node.relation) ?? []),
 						{ heading: node.heading, r }
 					])
-					break
-				case "derived":
-					views.add(node.relation)
 					break
 				case "world":
 					throw defect(`a base-level program reads no world relation; it reads ${node.relation}`)
@@ -334,5 +331,5 @@ export const footprintOf = (
 		}
 		tables.set(relation, new Map(routes.toSorted(([a], [b]) => compareStrings(a, b))))
 	}
-	return { tables, views: new Set([...views].toSorted(compareStrings)) }
+	return { tables }
 }

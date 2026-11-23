@@ -1,37 +1,31 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { array, boolean, constant, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
-import { login } from "#compiler/program/workload/login.ts"
 import { Logic } from "#compiler/public/compute.ts"
 import { closedId, contract, natural, pg } from "#compiler/public/fields.ts"
-import type {
-	AnyRoster,
-	AnyDerived,
-	AnyLogin,
-	AnyLoginRole,
-	AnyRelation,
-	AnySchema
-} from "#compiler/public/schema.ts"
+import type { AnyRoster, AnyDerived, AnyRelation, AnySchema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { type QueryValue, queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import {
 	closedBuilder as closed,
-	materializedDerived,
+	derivedBuilder,
+	storedDerived,
 	relationBuilder as relation
 } from "#compiler/schema/relation.ts"
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
-import { roleBuilder as role } from "#compiler/schema/world.ts"
+import { unitBuilder } from "#compiler/schema/statements.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { Id } from "#test/support/ids.ts"
 import { argumentsOf } from "#test/support/list.ts"
 
 /** The choice-th item, modulo the items there are; a choice with nothing to choose from is a defect of the generator.
  *
- * Generated derived relations for the refresh oracle.
+ * Generated derived relations for the derived analysis's properties, each read through its definition, or stored
+ * where the case is unit-local and drew it so.
  *
- * A case is a base schema, one to three levels of derived relations over it, the base facts, and a sequence of steps.
+ * A case is a base schema and one to three levels of derived relations over it.
  * Everything is a sketch of small numbers built through the builders (relation, closed, contract, schema,
  * schema.extend, derived, query, v, match, where, not, find, the five aggregates, Logic.cond, orderBy, take), so the
  * Descriptions under test are the ones the builder records. Each choice is reduced modulo what is in scope and a
@@ -49,7 +43,11 @@ import { argumentsOf } from "#test/support/list.ts"
  *   filters, a relational negation, and a plain head or an aggregate head of group variables beside count, sum, mean,
  *   min, max and a conditional count sum(cond(p, 1, 0));
  * - one case in sixteen planted: a level-2 definition aggregating a level-1 aggregate's computed numeric result
- *   with sum, mean, min and max, which the drawn population reaches about once in 250 cases per function.
+ *   with sum, mean, min and max, which the drawn population reaches about once in 250 cases per function;
+ * - two in sixteen unit-local (unitLocalSketchGen): a unit of every base relation's first field, an int8 its key leads
+ *   with, and every definition one rule over the base, each match bound at the unit, its head delivering it, so a
+ *   definition drawn stored is stored there, admitted by construction (analysis/theory/unit.ts storedUnit); every
+ *   other definition, and every one of another case, a derived relation read through its definition.
  *
  * The kinds track what each derived column holds, so a higher level binds it to variables of the right kind:
  * count is natural, sum and mean take the native result types, min and max keep their input's kind,
@@ -307,6 +305,8 @@ export interface DefinitionSketch {
 	readonly form: number
 	readonly k: number
 	readonly desc: boolean
+	/** Whether it is drawn stored, which it is only in a case of a unit whose definitions are unit-local (CaseSketch). */
+	readonly stored: boolean
 }
 
 export interface LevelSketch {
@@ -315,29 +315,15 @@ export interface LevelSketch {
 	readonly naming: number
 }
 
-export interface FactSketch {
-	readonly values: ReadonlyArray<number>
-}
-
-export interface StepSketch {
-	/** 0, 1: a base change; 2: no change; 3: the same facts reloaded; 4: the same facts reloaded in another order. */
-	readonly change: number
-	readonly drops: ReadonlyArray<number>
-	readonly adds: ReadonlyArray<ReadonlyArray<FactSketch>>
-	/** Which derived relations the call names: a bit per relation in refresh order; nothing named means all. */
-	readonly names: number
-	/** How the call orders and repeats them. */
-	readonly shuffle: number
-	readonly repeat: boolean
-}
-
 export interface CaseSketch {
+	/**
+	 * Whether the case declares a unit of every base relation's first field, an int8 its every key leads with, and every
+	 * definition is unit-local in it (unitLocalSketchGen): only there is a definition drawn stored a stored relation,
+	 * and every other one a derived relation read through its definition.
+	 */
+	readonly unit: boolean
 	readonly relations: ReadonlyArray<RelationSketch>
 	readonly levels: ReadonlyArray<LevelSketch>
-	readonly facts: ReadonlyArray<ReadonlyArray<FactSketch>>
-	/** The first call names a downward-closed subset: a bit per relation in refresh order. */
-	readonly first: number
-	readonly steps: ReadonlyArray<StepSketch>
 }
 
 /** Mostly variables, so joins and heads have something to bind; literals sparingly, so definitions are rarely empty. */
@@ -398,26 +384,12 @@ const definitionGen: Gen<DefinitionSketch> = (source) => ({
 	rule: source.draw(ruleGen),
 	form: source.draw(int(0, 3)),
 	k: source.draw(int(1, 3)),
-	desc: source.draw(boolean)
-})
-
-/** A value choice per field of the widest base relation, and up to eight facts for each of up to three base relations. */
-const factGen: Gen<FactSketch> = (source) => ({
-	values: source.draw(array(int(0, 7), { min: 4, max: 4 }))
-})
-
-const factsGen = array(array(factGen, { min: 0, max: 8 }), { min: 3, max: 3 })
-
-const stepGen: Gen<StepSketch> = (source) => ({
-	change: source.draw(int(0, 4)),
-	drops: source.draw(array(int(0, 7), { min: 0, max: 3 })),
-	adds: source.draw(array(array(factGen, { min: 0, max: 3 }), { min: 3, max: 3 })),
-	names: source.draw(int(0, 255)),
-	shuffle: source.draw(int(0, 719)),
-	repeat: source.draw(boolean)
+	desc: source.draw(boolean),
+	stored: source.draw(boolean)
 })
 
 const drawnCaseSketchGen: Gen<CaseSketch> = (source) => ({
+	unit: false,
 	relations: source.draw(
 		array(
 			(relation): RelationSketch => ({
@@ -441,10 +413,7 @@ const drawnCaseSketchGen: Gen<CaseSketch> = (source) => ({
 			}),
 			{ min: 1, max: 3 }
 		)
-	),
-	facts: source.draw(factsGen),
-	first: source.draw(int(0, 255)),
-	steps: source.draw(array(stepGen, { min: 1, max: 4 }))
+	)
 })
 
 /** The planted population: a level-2 definition aggregating a level-1 aggregate's computed numeric result with
@@ -461,6 +430,7 @@ const aggregateOver = (
 	form: 0,
 	k: 1,
 	desc: false,
+	stored: false,
 	rule: {
 		matches: [{ source, binds: [fresh, fresh] }],
 		preds: [],
@@ -493,25 +463,73 @@ const plantedNumSketchGen: Gen<CaseSketch> = map(drawnCaseSketchGen, (s) => ({
 	]
 }))
 
+/** The unit's field: every base relation's first, an int8. */
+const unitKind = baseKinds.indexOf("int8")
+
+/** A shared variable of the unit's kind, the first one, which the first match's first field always mints. */
+const atUnit: BindSketch = { how: 1, share: 0, n: 0 }
+
 /**
- * A negation beside a conditional count, which the drawn population reaches about once a stream: R0(f0 natural key,
- * f1 boolean); L1a = R0 ungrouped with its conditional count of f1, `p`, an exact numeric, and its count `n`, a natural;
- * L2a = L1a's two columns, each a variable of its own, less the facts of R0 at its count (its sources: R0, the roster,
- * L1a). The negation's field, R0.f0, is a natural, which only `n` may bind: a generator that typed `p` a natural too
- * would bind it first.
+ * A drawn case made unit-local in a unit of its base relations' first field (CaseSketch `unit`): every base relation
+ * leads its fields and its key with an int8; every definition one rule over the base relations and the derived
+ * relations of the levels below, never the roster, each match binding its first field to the first match's, its head
+ * delivering that first, so a lower derived relation's first column is the unit too, and its negation, if any, of a
+ * base relation, whose first field it binds to it; each drawn stored or not as it was drawn. So a stored one is
+ * unit-local by construction: its every read of a holder, and of a lower level, bound at the unit, its aggregates
+ * grouped by it, and its negation correlated at it (analysis/theory/unit.ts storedUnit).
  */
-export const condNegationSketchGen: Gen<CaseSketch> = map(drawnCaseSketchGen, (s) => ({
+export const unitLocalSketchGen: Gen<CaseSketch> = map(drawnCaseSketchGen, (s) => {
+	const bases = s.relations.length
+	/** A source a level reads: a base relation, or, for an odd choice where the levels below hold one, a derived one. */
+	const sourceAt = (choice: number, lower: number): number =>
+		lower > 0 && choice % 2 === 1 ? bases + 1 + (choice % lower) : choice % bases
+	return {
+		...s,
+		unit: true,
+		relations: Arr.map(s.relations, (r) => ({
+			...r,
+			fields: [{ kind: unitKind }, ...r.fields.slice(1)]
+		})),
+		levels: Arr.map(s.levels, (level, li) => {
+			const lower = Arr.reduce(s.levels.slice(0, li), 0, (n, l) => n + l.definitions.length)
+			return {
+				...level,
+				definitions: Arr.map(level.definitions, (d) => ({
+					...d,
+					form: d.form % 2,
+					rule: {
+						...d.rule,
+						matches: Arr.map(d.rule.matches, (m, mi) => ({
+							source: sourceAt(m.source, lower),
+							binds: mi === 0 ? m.binds : [atUnit, ...m.binds.slice(1)]
+						})),
+						not: d.rule.not < 0 ? -1 : d.rule.not % bases,
+						head: [0, ...d.rule.head]
+					}
+				}))
+			}
+		})
+	}
+})
+
+/**
+ * A negation beside a conditional count, unit-local and stored, which the drawn population reaches rarely: R0(f0 int8
+ * unit, f1 boolean); L1a = R0 grouped by its unit with its conditional count of f1, `p`, an exact numeric, and its count
+ * `n`, a natural; L2a = L1a's unit, less the facts of R0 there, its negation bound at the unit beside the conditional
+ * count's variable.
+ */
+export const unitLocalCondNegationSketchGen: Gen<CaseSketch> = map(drawnCaseSketchGen, (s) => ({
 	...s,
-	relations: [
-		{ fields: [{ kind: baseKinds.indexOf("nat") }, { kind: baseKinds.indexOf("bool") }], key: 0 }
-	],
+	unit: true,
+	relations: [{ fields: [{ kind: unitKind }, { kind: baseKinds.indexOf("bool") }], key: 0 }],
 	levels: [
 		{
 			naming: 0,
 			definitions: [
 				{
-					...aggregateOver(0, [], []),
-					rule: { ...aggregateOver(0, [], []).rule, count: true, cond: true }
+					...aggregateOver(0, [0], []),
+					stored: true,
+					rule: { ...aggregateOver(0, [0], []).rule, count: true, cond: true }
 				}
 			]
 		},
@@ -522,11 +540,12 @@ export const condNegationSketchGen: Gen<CaseSketch> = map(drawnCaseSketchGen, (s
 					form: 0,
 					k: 1,
 					desc: false,
+					stored: true,
 					rule: {
-						matches: [{ source: 2, binds: [fresh, fresh] }],
+						matches: [{ source: 2, binds: [fresh, fresh, fresh] }],
 						preds: [],
 						not: 0,
-						head: [],
+						head: [0],
 						aggregate: false,
 						aggs: [],
 						count: false,
@@ -538,10 +557,14 @@ export const condNegationSketchGen: Gen<CaseSketch> = map(drawnCaseSketchGen, (s
 	]
 }))
 
-/** One case in sixteen is planted: about 15 per stream of 250, each reaching all four keys. */
+/**
+ * One case in sixteen is planted: about 15 per stream of 250, each reaching all four keys; two in sixteen are
+ * unit-local, where a definition drawn stored is stored.
+ */
 export const caseSketchGen: Gen<CaseSketch> = weighted([
-	[15, drawnCaseSketchGen],
-	[1, plantedNumSketchGen]
+	[13, drawnCaseSketchGen],
+	[1, plantedNumSketchGen],
+	[2, unitLocalSketchGen]
 ])
 
 export interface GenColumn {
@@ -581,23 +604,11 @@ export interface GenDerived extends GenSource {
 	readonly reads: ReadonlyArray<string>
 }
 
-/** Derived relations in refresh order: by level, then in declared order. */
-const refreshed: Order.Order<GenDerived> = Order.combine(
-	Order.mapInput(Order.Number, (d: GenDerived) => d.level),
-	Order.mapInput(Order.Number, (d: GenDerived) => d.declared)
-)
-
 export interface GenSchema {
 	readonly base: ReadonlyArray<GenBase>
 	readonly derived: ReadonlyArray<GenDerived>
 	/** The top-level schema: the last extension. */
 	readonly value: AnySchema
-	/** Every derived relation in refresh order: level, then declared order. */
-	readonly refreshOrder: ReadonlyArray<string>
-	/** The world a case refreshes in: the role `refresher` holding every relation whole and refreshing every derived
-	 * one, reached through its login `server`, which the installation's logins hold. */
-	readonly refresher: AnyLoginRole
-	readonly server: AnyLogin
 }
 
 /** The names of level n, in declared order, chosen so declared order is often not alphabetical order. */
@@ -878,7 +889,7 @@ export const buildSchema = (sketch: CaseSketch, options: BuildOptions): GenSchem
 	let current: AnySchema = schema(
 		options.name,
 		Rec.values(Rec.fromEntries(Arr.map(stored, (s) => [s.name, s.value]))),
-		[],
+		sketch.unit ? [unitBuilder("U", { f0: descriptor("int8") }, [])] : [],
 		[]
 	)
 	const derivedRelations: Array<GenDerived> = []
@@ -893,7 +904,10 @@ export const buildSchema = (sketch: CaseSketch, options: BuildOptions): GenSchem
 				level: li + 1,
 				declared: di,
 				columns: built.columns,
-				value: materializedDerived(name, built.query, []),
+				value:
+					sketch.unit && d.stored
+						? storedDerived(name, built.query, [])
+						: derivedBuilder(name, built.query, []),
 				form: built.form,
 				aggregates: built.aggregates,
 				negation: built.negation,
@@ -910,21 +924,9 @@ export const buildSchema = (sketch: CaseSketch, options: BuildOptions): GenSchem
 			[]
 		)
 	}
-	const refreshOrder = Arr.map(Arr.sort(derivedRelations, refreshed), (d) => d.name)
-	const whole: Readonly<Record<string, AnyRelation | AnyRoster | AnyDerived>> = Rec.fromEntries([
-		...Arr.map(stored, (st) => [st.name, st.value] as const),
-		...Arr.map(derivedRelations, (d) => [d.name, d.value] as const)
-	])
-	const refresher = role(current, "refresher", whole, {
-		refresh: Arr.map(derivedRelations, (d) => d.name)
-	})
-	const server = login(current, "server", [refresher])
 	return {
 		base,
 		derived: derivedRelations,
-		value: current,
-		refreshOrder,
-		refresher: server.roles.refresher,
-		server
+		value: current
 	}
 }

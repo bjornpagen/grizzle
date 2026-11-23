@@ -416,8 +416,7 @@ const eliminationPotential: Potential = (cx) => {
  * - compatible equality: each matched field is bound to one variable, compared under the variable's native equality,
  *   which is the constraint's;
  * - unchanged authorization and visibility: a reader's scope is whole relations and no policy hides a fact,
- *   and S is a stored relation, never a derived one, whose contents are its last refresh and which no law
- *   relates to its inputs.
+ *   and S is a stored relation, never a derived one, which no law relates to its inputs.
  *
  * The certificate carries the key's and the containment's constraint premises and the context the evidence requires.
  *

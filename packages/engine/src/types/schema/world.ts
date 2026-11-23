@@ -14,7 +14,7 @@ import type { AnyWorkload, Workload } from "#compiler/types/db/workload.ts"
 import type {
 	AnyDerived,
 	AnyLive,
-	AnyMaterialized,
+	AnyStored,
 	DefinitionQuery,
 	DefinitionShape
 } from "#compiler/types/derived/derived.ts"
@@ -117,8 +117,7 @@ export interface AnyWorld extends Built, Headed<Carriers> {
  *   as a derived relation's are. The role keeps the base's laws among its whole entries. A role holding every relation
  *   of its base whole is a full role: its base is among its levels (LevelsOf), so programs over the base run on it;
  *   its entries are wholeEntriesOf(base) (WholeEntriesOf). `write` names the role relations it may write, each once
- *   (DistinctWrites), every one it may write whole being writableNamesOf(base) (WritableNameOf), `refresh` the derived
- *   whole entries it may refresh.
+ *   (DistinctWrites), every one it may write whole being writableNamesOf(base) (WritableNameOf).
  * - A login is one credential and one pool for roles over one base. DbLayer.make takes one; Db.open opens a role of
  *   the layer's login.
  *
@@ -265,18 +264,6 @@ type WritableValue<V> = V extends AnyRelation
 			: true
 
 /**
- * The entries a role may refresh: whole materialized derived relations; a key whose entry may be one (scopedEntriesOf's,
- * whole or scoped) among them, a scoped one refused when the role is built (RoleRefused refreshKind).
- */
-export type RefreshableKeys<Rs> = {
-	[K in keyof Rs]-?: true extends RefreshableValue<Rs[K]> ? K : never
-}[keyof Rs] &
-	string
-
-/** Whether an entry value V is a whole materialized derived relation, each member of a union its own. */
-type RefreshableValue<V> = V extends AnyMaterialized ? true : false
-
-/**
  * The relations no role holds, since PostgreSQL holds none of their rows (desc.ts heldRelation): a closed relation,
  * whose rows are its constants and which every role reads, and a live derived relation, which stores nothing and which a
  * role reads through the relations its definition reads. The one definition a full role's entries (WholeEntries) and
@@ -312,7 +299,7 @@ export type WholeEntriesOf<Base extends AnySchema> = WholeEntries<Base["relation
 
 /**
  * The entries scopedEntriesOf(base, options) makes: every relation of every level of the base under its own name, as
- * WholeEntriesOf, each ordinary or materialized derived one whole or scoped (ScopedOrWhole), which of the two its
+ * WholeEntriesOf, each ordinary or stored derived one whole or scoped (ScopedOrWhole), which of the two its
  * options and the base's declared containments decide when it runs. A role holding them holds every relation of its
  * base, each whole or scoped, so its base is among its levels (FullBaseOf).
  */
@@ -321,14 +308,12 @@ export type ScopedEntriesOf<Base extends AnySchema> = ScopedEntries<Base["relati
 /** The record Rs at its held keys (HeldKeys), each relation whole or scoped (ScopedOrWhole). */
 export type ScopedEntries<Rs> = { readonly [P in HeldKeys<Rs> & string]: ScopedOrWhole<Rs[P]> }
 
-/** A relation R as scopedEntriesOf holds it: an ordinary or a materialized derived one whole or scoped, any other whole. */
-export type ScopedOrWhole<R> = R extends AnyRelation | AnyMaterialized ? R | Scoped<R> : R
+/** A relation R as scopedEntriesOf holds it: an ordinary or a stored derived one whole or scoped, any other whole. */
+export type ScopedOrWhole<R> = R extends AnyRelation | AnyStored ? R | Scoped<R> : R
 
-/** The relations of a schema scopedEntriesOf may root, by name: its ordinary and materialized derived ones. */
+/** The relations of a schema scopedEntriesOf may root, by name: its ordinary and stored derived ones. */
 export type ScopableNameOf<Base extends AnySchema> = {
-	[K in keyof Base["relations"]]-?: Base["relations"][K] extends AnyRelation | AnyMaterialized
-		? K
-		: never
+	[K in keyof Base["relations"]]-?: Base["relations"][K] extends AnyRelation | AnyStored ? K : never
 }[keyof Base["relations"]] &
 	string
 
@@ -461,7 +446,6 @@ export interface AnyRole extends Built {
 	readonly relations: Readonly<Record<string, AnyRelation | AnyClosed | AnyDerived | AnyWorld>>
 	readonly statements: ReadonlyArray<Statement>
 	readonly write: ReadonlyArray<string>
-	readonly refresh: ReadonlyArray<string>
 }
 
 /**
@@ -491,7 +475,7 @@ export interface RoleLeastStated<Least> {
 export type RoleLeastOf<W, Least> = [Least] extends [never] ? W : Least
 
 /**
- * A role over Base named Name: its relations, the base's laws it keeps, and its write and refresh lists, as written. A
+ * A role over Base named Name: its relations, the base's laws it keeps, and its write list, as written. A
  * full role extends its base, and a role holds every fragment of its base it holds whole (the phantoms LevelsOf reads);
  * `contexts` is the union of the names of the contexts it declares.
  */
@@ -500,7 +484,6 @@ export interface Role<
 	Name extends string,
 	Relations,
 	Write extends string,
-	Refresh extends string,
 	Contexts,
 	Declared = never
 > extends Phantom<{
@@ -515,7 +498,6 @@ export interface Role<
 	readonly relations: Relations
 	readonly statements: ReadonlyArray<KeptStatements<Base, Relations>>
 	readonly write: ReadonlyArray<Write>
-	readonly refresh: ReadonlyArray<Refresh>
 }
 
 /**
@@ -528,24 +510,22 @@ export type DistinctWrites<W> =
 
 /**
  * The arguments after a role's relations: none, or its options, `write` naming the role relations it may write, or
- * `insert` naming the ones it may only insert into, holding no DELETE or UPDATE on any of them, `refresh` the derived
- * whole entries it may refresh, and `contexts` the contexts it declares, the facts its Db's claims hold and the only ones its query entries and programs
+ * `insert` naming the ones it may only insert into, holding no DELETE or UPDATE on any of them, and `contexts` the
+ * contexts it declares, the facts its Db's claims hold and the only ones its query entries and programs
  * match, each empty when left out. A role states `write` or `insert`, never both.
  */
-export type RoleOptions<W, F, C = ReadonlyArray<AnyContext>> =
+export type RoleOptions<W, C = ReadonlyArray<AnyContext>> =
 	| readonly []
-	| readonly [options: RoleOptionRecord<W, F, C>]
-export type RoleOptionRecord<W, F, C = ReadonlyArray<AnyContext>> =
+	| readonly [options: RoleOptionRecord<W, C>]
+export type RoleOptionRecord<W, C = ReadonlyArray<AnyContext>> =
 	| {
 			readonly write?: W
 			readonly insert?: never
-			readonly refresh?: F
 			readonly contexts?: C
 	  }
 	| {
 			readonly insert: W
 			readonly write?: never
-			readonly refresh?: F
 			readonly contexts?: C
 	  }
 
@@ -657,14 +637,6 @@ type ContextsWithin<Cx, Read> = [Cx] extends [Read]
 /** The names of the relations a role may write: its write list. */
 export type WriteListOf<R> = R extends { readonly write: ReadonlyArray<infer W extends string> }
 	? W
-	: never
-
-/** The relations a role may refresh: the role relations its refresh list names. */
-export type RefreshListOf<R> = R extends {
-	readonly refresh: ReadonlyArray<infer F extends string>
-	readonly relations: infer Rs
-}
-	? UnderName<Rs, F>
 	: never
 
 /** Any login: the members every one has. Its roles are reached by name, each through the login (LoginRole). */

@@ -1,6 +1,12 @@
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
-import { heldRelation, type SchemaDesc } from "#compiler/ir/desc.ts"
-import { isLevelOf, type SchemaContent, sameLevel, sameRoleLevel } from "#compiler/schema/levels.ts"
+import { heldRelation, type RelationDesc, type SchemaDesc } from "#compiler/ir/desc.ts"
+import {
+	isLevelOf,
+	levelRelations,
+	type SchemaContent,
+	sameLevel,
+	sameRoleLevel
+} from "#compiler/schema/levels.ts"
 import { ownedEntryOf } from "#compiler/schema/protocol.ts"
 import type { FragmentDesc } from "#compiler/schema/schema.ts"
 import type { RoleLevel } from "#compiler/schema/world.ts"
@@ -38,6 +44,19 @@ export const unheldOf = (fragment: SchemaContent, role: RoleLevel): string | und
 		}
 	}
 	return undefined
+}
+
+/** Every relation a level declares or reads by name: a schema's of every level of it (levels.ts levelRelations), a
+ * fragment's own, a role's of every level of its base (RoleLevel relations). */
+export const relationsOfLevel = (level: Level): ReadonlyMap<string, RelationDesc> => {
+	switch (level.kind) {
+		case "schema":
+			return levelRelations(level.desc)
+		case "fragment":
+			return level.content.relations
+		case "role":
+			return level.relations
+	}
 }
 
 /** Whether `lower` is one of the levels of `higher`, compared by content.

@@ -2910,7 +2910,6 @@ export const printCommentTarget = (on: CommentTarget): string => {
 			return `ROLE ${printRole(on.name)}`
 		case "TABLE":
 		case "VIEW":
-		case "MATERIALIZED VIEW":
 		case "DOMAIN":
 		case "TYPE":
 		case "INDEX":
@@ -2993,7 +2992,6 @@ const writeCommand = (out: Lines, statement: SqlStatement): void => {
 					)
 				case "TABLE":
 				case "INDEX":
-				case "MATERIALIZED VIEW":
 				case "DOMAIN":
 					return out.line(
 						`ALTER ${statement.object} ${printObjectName(statement.name)} RENAME TO ${quoteIdent(statement.to)}`
@@ -3037,9 +3035,9 @@ const writeCommand = (out: Lines, statement: SqlStatement): void => {
 			return out.line(
 				`DROP INDEX ${statement.concurrently ? "CONCURRENTLY " : ""}${statement.ifExists ? "IF EXISTS " : ""}${printObjectName(statement.name)}`
 			)
-		case "createMaterializedView":
+		case "createStoredTable":
 			out.line(
-				`CREATE MATERIALIZED VIEW ${printObjectName(statement.name)} (${printIdentList(statement.columns)}) AS`
+				`CREATE TABLE ${printObjectName(statement.name)} (${printIdentList(statement.columns)}) AS`
 			)
 			selectBlock(out, statement.query)
 			return out.line("WITH NO DATA")
@@ -3205,10 +3203,11 @@ const writeCommand = (out: Lines, statement: SqlStatement): void => {
 			return out.line("ROLLBACK")
 		case "setConstraintsImmediate":
 			return out.line("SET CONSTRAINTS ALL IMMEDIATE")
-		case "refresh":
-			return out.line(
-				`REFRESH MATERIALIZED VIEW ${statement.concurrently ? "CONCURRENTLY " : ""}${printObjectName(statement.view)}`
+		case "fillStored":
+			out.line(
+				`INSERT INTO ${printObjectName(statement.table)} (${printIdentList(statement.columns)})`
 			)
+			return selectBlock(out, statement.query)
 	}
 }
 
@@ -3268,7 +3267,7 @@ export const commandsOf = (statement: SqlStatement): NonEmptyReadonlyArray<Comma
 		case "alterDomain":
 		case "createIndex":
 		case "dropIndex":
-		case "createMaterializedView":
+		case "createStoredTable":
 		case "createView":
 		case "createPolicy":
 		case "dropPolicy":
@@ -3302,7 +3301,7 @@ export const commandsOf = (statement: SqlStatement): NonEmptyReadonlyArray<Comma
 		case "commit":
 		case "rollback":
 		case "setConstraintsImmediate":
-		case "refresh":
+		case "fillStored":
 			return own(command)
 	}
 }
@@ -3525,11 +3524,7 @@ const executedText = (
 ): string => {
 	switch (command.kind) {
 		case "statement":
-			return quoteString(
-				command.statement.kind === "refresh"
-					? printStatement(command.statement)
-					: catalogSelectText(command.statement)
-			)
+			return quoteString(catalogSelectText(command.statement))
 		case "formatted":
 			return printExpr(command.text)
 	}

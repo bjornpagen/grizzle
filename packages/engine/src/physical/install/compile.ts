@@ -113,7 +113,7 @@ export interface Installation extends InstallPlan {
 	/** Every identity the installation named an object by, ownership's, the law model's and the installer's, each as
 	 * often as it was minted: the census its comments passed. */
 	readonly identities: ReadonlyArray<Identity<IdentityKind>>
-	/** What this installation leaves to other packages' extensions: its materialized derived relations no extension
+	/** What this installation leaves to other packages' extensions: its stored derived relations no extension
 	 * installs. */
 	readonly deferred: {
 		readonly derivedRelations: ReadonlyArray<string>
@@ -213,8 +213,7 @@ const certificationOf = (
 
 /**
  * The one live plan of `extensions`: none where none of them serves a read; otherwise each footprint table any of them
- * states, once, by relation in code point order, with every field any of them routes it by, once, in code point order,
- * and each materialized view any of them reads, once, in code point order.
+ * states, once, by relation in code point order, with every field any of them routes it by, once, in code point order.
  */
 const liveOf = (extensions: ReadonlyArray<InstallExtension>): LivePlan => {
 	const plans = extensions.flatMap((e) => (e.live.kind === "reads" ? [e.live] : []))
@@ -232,8 +231,7 @@ const liveOf = (extensions: ReadonlyArray<InstallExtension>): LivePlan => {
 		kind: "reads",
 		tables: [...routes]
 			.toSorted(([a], [b]) => compareStrings(a, b))
-			.map(([relation, fields]) => ({ relation, routes: [...fields].toSorted(compareStrings) })),
-		views: [...new Set(plans.flatMap((plan) => plan.views))].toSorted(compareStrings)
+			.map(([relation, fields]) => ({ relation, routes: [...fields].toSorted(compareStrings) }))
 	}
 }
 
@@ -539,7 +537,7 @@ const installationIn = (
 					...comments
 				]
 				const derived = Object.values(owned.relations)
-					.filter((r) => r.kind === "derived" && r.view.kind === "materialized")
+					.filter((r) => r.kind === "derived" && r.view.kind === "stored")
 					.map((r) => r.name)
 				return {
 					...plan,

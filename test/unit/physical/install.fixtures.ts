@@ -133,7 +133,7 @@ export const kindModel: { readonly [K in PhysicalKind]: KindModel } = {
 	isolationFunction: inSchema,
 	snapshotGuard: inSchema,
 	isolationTrigger: { after: ["schema", "table", "isolationFunction"], justified: "any reason" },
-	materializedView: onTable("any reason"),
+	storedTable: onTable("any reason"),
 	uniqueIndex: onTable("a law or a program"),
 	index: onTable("a law or a program"),
 	statistics: onTable("any reason"),

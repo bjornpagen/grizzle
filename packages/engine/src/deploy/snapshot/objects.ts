@@ -22,7 +22,7 @@ import {
 	type CreateGuardTrigger,
 	type CreateLiveSecret,
 	type CreateIndex,
-	type CreateMaterializedView,
+	type CreateStoredTable,
 	type CreatePolicy,
 	type CreatePublication,
 	type CreateRole,
@@ -109,9 +109,12 @@ export type Installed<O extends AnyObject = ManifestObject> =
 			readonly constraint: DomainConstraint | undefined
 	  }
 	| {
-			readonly kind: "materializedView"
+			/** A stored derived relation's table, one object (physical/derived/objects.ts): its CREATE TABLE AS, its primary
+			 * key's ALTER TABLE ... ADD CONSTRAINT, then its revoke. */
+			readonly kind: "storedTable"
 			readonly object: O
-			readonly create: CreateMaterializedView
+			readonly create: CreateStoredTable
+			readonly primaryKey: PrimaryKey
 	  }
 	| {
 			readonly kind: "index" | "uniqueIndex"
@@ -331,10 +334,19 @@ export const installed = <O extends AnyObject>(o: O): Installed<O> => {
 				? { kind: o.kind, object: o, create: s, constraint }
 				: malformed("a CREATE DOMAIN with at most one constraint")
 		}
-		case "materializedView":
-			return s?.kind === "createMaterializedView"
-				? { kind: o.kind, object: o, create: s }
-				: malformed("a materialized view")
+		case "storedTable": {
+			const [, keyed, ...revokes] = o.ddl
+			const [action, ...more] = keyed?.kind === "alterTable" ? keyed.actions : []
+			return s?.kind === "createStoredTable" &&
+				action?.kind === "addConstraint" &&
+				action.constraint.kind === "primaryKey" &&
+				more.length === 0 &&
+				revokes.every((r) => r.kind === "revoke")
+				? { kind: o.kind, object: o, create: s, primaryKey: action.constraint }
+				: malformed(
+						"a stored table's CREATE TABLE AS, its primary key's ALTER TABLE ... ADD CONSTRAINT, then its revokes"
+					)
+		}
 		case "index":
 		case "uniqueIndex":
 			return s?.kind === "createIndex"
@@ -527,7 +539,7 @@ export const installed = <O extends AnyObject>(o: O): Installed<O> => {
 	}
 }
 
-/** The table or materialized view an object belongs to, read off its view: a relation's own, the table an index, a
+/** The table an object belongs to, read off its view: a relation's own, the table an index, a
  * table's declared statistics, a law or isolation trigger, a constraint or a law column is on, and the ledger's. Every other kind
  * stands outside any table. */
 export const objectTable = (o: AnyObject): ObjectName | undefined => {
@@ -537,7 +549,7 @@ export const objectTable = (o: AnyObject): ObjectName | undefined => {
 		case "ledger":
 		case "head":
 			return v.create.table
-		case "materializedView":
+		case "storedTable":
 			return v.create.name
 		case "index":
 		case "uniqueIndex":
@@ -689,7 +701,7 @@ export const builtOver = <O extends AnyObject>(
 		case "table":
 		case "constant":
 		case "domain":
-		case "materializedView":
+		case "storedTable":
 		case "refusalFunction":
 		case "borrowFunction":
 		case "isolationFunction":
@@ -801,7 +813,7 @@ const objectParts = <O extends AnyObject>(
 		case "lawTrigger":
 		case "constant":
 		case "domain":
-		case "materializedView":
+		case "storedTable":
 		case "refusalFunction":
 		case "borrowFunction":
 		case "isolationFunction":

@@ -6,7 +6,7 @@ import type {
 	AlterTable,
 	AlterTableAction,
 	ColumnDef,
-	CreateMaterializedView,
+	CreateStoredTable,
 	ObjectName,
 	OperandSelect,
 	SqlStatement
@@ -54,8 +54,8 @@ export const noDeclarations: Declarations = Object.freeze({ renames: [], drops: 
  *
  * - setup.drop, setup: the holders set aside (`asidesOf`), then the checks of the laws over closed relations alone,
  *   then extensions, new constants and new domains;
- * - structure.drop, structure, structure.backfill, structure.refresh, structure.constraints, structure.worlds: the
- *   roles' views, world functions and policies the migration changes or removes, then recreated materialized views
+ * - structure.drop, structure, structure.backfill, structure.stored, structure.constraints, structure.worlds: the
+ *   roles' views, world functions and policies the migration changes or removes, then recreated stored tables
  *   dropped top-down and what is built over a column converted in place dropped before its conversion, then new
  *   tables, each table's one
  *   alteration (its new columns, conversions by cast, set-aside columns, identities and law columns, and a new table's
@@ -67,9 +67,9 @@ export const noDeclarations: Declarations = Object.freeze({ renames: [], drops: 
  *   each table's fill of its set-aside fields (Action fill), once every placeholder column of every table holds its
  *   value; then, once every table's fill has run, so every fill reads every old column it joins on, each table's
  *   set-aside fields settled (structure.settle: the old columns dropped, the set-aside ones renamed, their NOT NULL
- *   set); then new or recreated materialized views WITH NO DATA with their unique indexes, which
+ *   set); then new or recreated stored tables WITH NO DATA with their unique indexes, which
  *   read the fields as the fills leave them; then the backfill of the families new to stored rows (backfill.ts) and the
- *   DROP DEFAULT of each column it drew; then each of those views populated (structure.refresh), bottom-up in install
+ *   DROP DEFAULT of each column it drew; then each of those stored relations filled (structure.stored), bottom-up in install
  *   order, once every row it reads is written, so no committed state holds a view the target declares unpopulated;
  *   then each head this migration creates or changes (structure.heads; physical/ddl/stamps.ts), a changed one dropped
  *   first, its table created and filled from its relation as every data step leaves it, and its stamp function;
@@ -78,10 +78,10 @@ export const noDeclarations: Declarations = Object.freeze({ renames: [], drops: 
  *   created again as the previous installation created it; and last the roles' changed
  *   views, world functions and policies created again with their grants, each whose role stands before the migration:
  *   in the one transaction that dropped them, so no committed state lacks one an existing role relies on;
- * - indexes: ordinary CREATE INDEX on relations this migration creates, which hold no row but a new view's, which only
- *   a refresh writes and the build blocks no read of, and each table's declared statistics (physical/statistics),
- *   every column's statistics target set to 0 and its declared number of distinct values restored, which no ANALYZE
- *   replaces: a migration runs no ANALYZE;
+ * - indexes: ordinary CREATE INDEX on relations this migration creates, which hold no row but a new stored table's,
+ *   which only its fill writes and the build blocks no read of, and each table's declared statistics
+ *   (physical/statistics), every column's statistics target set to 0 and its declared number of distinct values
+ *   restored, which no ANALYZE replaces: a migration runs no ANALYZE;
  * - indexes.concurrent: CREATE INDEX CONCURRENTLY on relations that may hold rows, each after dropping an invalid
  *   index a failed build left;
  * - validate, validate.retrigger: VALIDATE CONSTRAINT of the constraints Structure added NOT VALID, the rule judge's
@@ -117,7 +117,7 @@ export const slots = [
 	"structure.settle",
 	"structure.views",
 	"structure.backfill",
-	"structure.refresh",
+	"structure.stored",
 	"structure.heads",
 	"structure.constraints",
 	"structure.worlds",
@@ -181,7 +181,7 @@ export const slotFile: { readonly [S in Slot]: SlotsFile } = {
 	"structure.settle": structureFile,
 	"structure.views": structureFile,
 	"structure.backfill": structureFile,
-	"structure.refresh": structureFile,
+	"structure.stored": structureFile,
 	"structure.heads": structureFile,
 	"structure.constraints": structureFile,
 	"structure.worlds": structureFile,
@@ -400,9 +400,9 @@ export interface MigrationPlan {
 	readonly keptViews: ReadonlyArray<KeptView>
 }
 
-/** A materialized view a migration keeps, by its object's identity, with the definition it was installed with
+/** A stored table a migration keeps, by its object's identity, with the definition it was installed with
  * (diff.ts keptViews). */
 export interface KeptView {
 	readonly ident: string
-	readonly create: CreateMaterializedView
+	readonly create: CreateStoredTable
 }

@@ -8,14 +8,13 @@ import type {
 	ObjectName,
 	PlDeclaration,
 	PlStatement,
-	Refresh,
 	Select
 } from "#compiler/sql/ast.ts"
 import { call as valueCall, lit, provedSelect, target, types } from "#compiler/sql/build.ts"
 
 /**
  * The catalog-read AST: the SQL grizzle's shell sends to read PostgreSQL's catalog (admission, drift, the ledger's
- * presence, the apply locks, the refresh's populated reads) and the DO blocks it runs, printed by the one printer
+ * presence, the apply locks) and the DO blocks it runs, printed by the one printer
  * (sql/print.ts printCatalogStatement) and emitted through sql/emit.ts emitCatalog.
  *
  * A catalog read is its own language beside grizzle's value SQL (sql/ast.ts Expr): its types are catalog types (name,
@@ -101,7 +100,6 @@ export const catalogFunctions = [
 	"pg_get_viewdef",
 	"pg_has_role",
 	"pg_input_is_valid",
-	"pg_logical_emit_message",
 	"pg_logical_slot_peek_binary_changes",
 	"pg_notify",
 	"pg_relation_filenode",
@@ -297,7 +295,7 @@ export interface SetClosedSearchPath {
 
 /** The command a DO block's EXECUTE runs: a statement printed and quoted, or a text it computes. */
 export type ExecutedCommand =
-	| { readonly kind: "statement"; readonly statement: Refresh | CatalogSelect }
+	| { readonly kind: "statement"; readonly statement: CatalogSelect }
 	| { readonly kind: "formatted"; readonly text: Expr }
 
 /**

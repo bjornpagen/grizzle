@@ -40,8 +40,6 @@ const memberPatterns = (member: ServedMember): ReadonlyArray<PatternSource> => {
 			return member.read.params.flatMap(paramPatterns)
 		case "change":
 			return variantPatterns(member.variants)
-		case "refresh":
-			return []
 	}
 }
 

@@ -221,7 +221,7 @@ export type Exclusion =
 	| { readonly kind: "none" }
 	| { readonly kind: "lock"; readonly statement: PreparedStatement }
 
-/** A transaction that locks nothing before its snapshot: every read's and refresh's, and an unfenced write's. */
+/** A transaction that locks nothing before its snapshot: every read's, and an unfenced write's. */
 export const excludesNothing: Exclusion = { kind: "none" }
 
 /** A Db's transaction: framed as a transaction is, and begun by the Db's prologue (see the header). */
@@ -1397,7 +1397,7 @@ export const readFrame = (prologue: Prologue): ReadFrame => ({
 
 /**
  * A write of a Db at `isolation`, behind its prologue and `exclusion`: a change at its role's level, locking what its
- * login fences of what it writes, a refresh at SERIALIZABLE, locking nothing.
+ * login fences of what it writes.
  */
 export const writeFrame = (
 	prologue: Prologue,

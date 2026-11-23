@@ -519,8 +519,8 @@ export default defineGate({
 			}
 			const [target] = targets.success
 			const created = Arr.flatMap(reports.installed.installation.manifest.objects, (o) =>
-				o.kind === "materializedView"
-					? Arr.flatMap(o.ddl, (s) => (s.kind === "createMaterializedView" ? [s] : []))
+				o.kind === "storedTable"
+					? Arr.flatMap(o.ddl, (s) => (s.kind === "createStoredTable" ? [s] : []))
 					: []
 			)
 			const view = Option.getOrThrowWith(

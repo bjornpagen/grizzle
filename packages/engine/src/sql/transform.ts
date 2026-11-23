@@ -93,7 +93,6 @@ const objectSpace = (
 	switch (object) {
 		case "TABLE":
 		case "INDEX":
-		case "MATERIALIZED VIEW":
 		case "VIEW":
 			return "relation"
 		case "DOMAIN":
@@ -1317,7 +1316,7 @@ export class Transform {
 			}
 			case "createIndex":
 				return this.createIndex(s)
-			case "createMaterializedView":
+			case "createStoredTable":
 			case "createView": {
 				const name = this.name(s.name, "relation")
 				const query = this.setQuery(s.query)
@@ -1432,7 +1431,6 @@ export class Transform {
 				return on
 			case "TABLE":
 			case "VIEW":
-			case "MATERIALIZED VIEW":
 			case "INDEX": {
 				const name = this.name(on.name, "relation")
 				return name === on.name ? on : { ...on, name }
@@ -1485,9 +1483,10 @@ export class Transform {
 			case "rollback":
 			case "setConstraintsImmediate":
 				return s
-			case "refresh": {
-				const view = this.name(s.view, "relation")
-				return view === s.view ? s : { ...s, view }
+			case "fillStored": {
+				const table = this.name(s.table, "relation")
+				const query = this.setQuery(s.query)
+				return table === s.table && query === s.query ? s : { ...s, table, query }
 			}
 			case "emptyCarrier":
 				return s
@@ -1519,7 +1518,7 @@ export class Transform {
 			case "dropPublication":
 			case "createLiveSecret":
 			case "createIndex":
-			case "createMaterializedView":
+			case "createStoredTable":
 			case "createPolicy":
 			case "createRole":
 			case "createSchema":

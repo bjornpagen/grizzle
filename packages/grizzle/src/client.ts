@@ -34,7 +34,6 @@ export {
 	type KeyedList,
 	type KeyedSet,
 	Money,
-	type Refreshed,
 	type RelationCounts,
 	type Retry,
 	RowKey,

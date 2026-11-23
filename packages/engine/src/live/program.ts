@@ -22,13 +22,13 @@ import type {
 	Refusal,
 	UnionToIntersection
 } from "#compiler/types/core/phantom.ts"
-import type { Answered, Clocked, Paged, ReadOf, Refresh } from "#compiler/types/db/workload.ts"
+import type { Answered, Clocked, Paged, ReadOf } from "#compiler/types/db/workload.ts"
 import type { OrderedBase, ParamsOf } from "#compiler/types/query/query.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { CandidateKey, KeyValues } from "#compiler/types/schema/statements.ts"
 
 /**
- * The facts of a call of a program that holds no array member, every read and refresh among them: the record of no op,
+ * The facts of a call of a program that holds no array member, every read among them: the record of no op,
  * which names no key, and which the runtime reads as a record with no own key (adapter db/input.ts noFacts).
  */
 export type NoFacts = FactsBy<unknown>
@@ -86,11 +86,6 @@ export type WriteOutcome<Reads> =
 	  }
 	| { readonly kind: "unchanged"; readonly reads: Reads }
 
-/** A refresh's outcome, sent after its COMMIT: every target refreshed. */
-export interface Refreshed {
-	readonly kind: "refreshed"
-}
-
 /** What a key member reads by: a relation's primary key, a closed relation's, or a candidate key. */
 type KeyTarget = AnyRelation | AnyClosed | CandidateKey<AnyRelation>
 
@@ -116,17 +111,15 @@ type AnsweredShapeOf<S> = S extends "set"
 type ShapeOfProgram<X> =
 	X extends Paged<unknown>
 		? "list"
-		: X extends Refresh<unknown>
-			? "write"
-			: X extends Clocked<infer P, unknown>
-				? P extends AnyChangeSet
-					? "write"
-					: ShapeOf<Answered<P>>
-				: X extends AnyChangeSet
-					? "write"
-					: X extends OrderedBase
-						? "list"
-						: "set"
+		: X extends Clocked<infer P, unknown>
+			? P extends AnyChangeSet
+				? "write"
+				: ShapeOf<Answered<P>>
+			: X extends AnyChangeSet
+				? "write"
+				: X extends OrderedBase
+					? "list"
+					: "set"
 
 /**
  * The program a served member runs: an answered member's read's, a paged member's ordered query, a clocked member's
@@ -147,8 +140,8 @@ type RecordsOf<X> = ProgramOf<X> extends Delivering<infer A> ? A : never
 /** A served read's rows, each a record of its head fields: its program's. */
 export type RowOf<X> = Extract<RecordsOf<X>, object>
 
-/** A served write's outcome: a refresh's, or a ChangeSet's over its read-backs. */
-export type OutcomeOf<X> = X extends Refresh<unknown> ? Refreshed : WriteOutcome<RecordsOf<X>>
+/** A served write's outcome: a ChangeSet's over its read-backs, each program of a union its own. */
+export type OutcomeOf<X> = X extends unknown ? WriteOutcome<RecordsOf<X>> : never
 
 /** A paged program's input: its ordered query's params, no facts, and the window it reads. */
 export interface WindowInput<P> extends Input<P, NoFacts> {
@@ -163,20 +156,19 @@ type ArraysTakenBy<X> = ArraysOf<ProgramOf<X>>
 
 /**
  * The parameter map a served program X's calls bind, its read's for an answered member (ParamsOf): a paged member's
- * ordered query's; a clocked member's program's but for the params its clock binds, which no call supplies; none,
- * unknown, for a refresh.
+ * ordered query's; a clocked member's program's but for the params its clock binds, which no call supplies.
  */
 type ParamsTakenBy<X> = ParamsOfProgram<ReadOf<X>>
 
-/** The parameter map a program's calls bind (ParamsTakenBy), its read unwrapped. */
-type ParamsOfProgram<X> =
-	X extends Paged<infer O>
+/** The parameter map a program's calls bind (ParamsTakenBy), its read unwrapped: unknown for a program typed `any`, which
+ * may bind any. */
+type ParamsOfProgram<X> = 0 extends 1 & X
+	? unknown
+	: X extends Paged<infer O>
 		? ParamsOf<O>
-		: X extends Refresh<unknown>
-			? unknown
-			: X extends Clocked<infer P, infer B>
-				? Omit<ParamsOf<P>, keyof B>
-				: ParamsOf<X>
+		: X extends Clocked<infer P, infer B>
+			? Omit<ParamsOf<P>, keyof B>
+			: ParamsOf<X>
 
 /**
  * The facts of the array members A (ArraysOf): a record holding under each op of its members a record of an array of
@@ -188,7 +180,7 @@ type FactsBy<A> = object & {
 
 /**
  * A served program's input: a key member's key values; a paged member's params and window; any other's params and
- * facts (ParamsTakenBy, ArraysTakenBy), a refresh's and a read's facts none; an answered member's its read's.
+ * facts (ParamsTakenBy, ArraysTakenBy), a read's facts none; an answered member's its read's.
  */
 export type InputOf<X> = InputOfProgram<ReadOf<X>>
 
@@ -243,10 +235,11 @@ type FactsIn<I> = I extends { readonly facts: infer F } ? F : unknown
  * its keys and its parts read by key (ReadByKey, ProgramByKey, the phantom's members), never by a test of it. A query
  * holds its schema, and a conditional the checker resolves instantiates its operands whole, every relation of the
  * schema with them, once for every query a Db serves. A program's keys tell its kind: an answered member's `answered`, a
- * paged one's `paged`, a clocked one's `clocked`, a refresh's `refresh`, a ChangeSet's `reads`, an
+ * paged one's `paged`, a clocked one's `clocked`, a ChangeSet's `reads`, an
  * ordered query's `take`, and a relation's, a closed relation's or a candidate key's `kind`; a query has none of them. A
  * value typed `any` or `never`, or one with a symbol index signature, whose keys are every symbol, is read by the
- * structural readers above (ByKeys). The structural readers stay what a type generic in its program reads (client
+ * structural readers above (ByKeys). One with a string index signature, a wide record's, whose keys are every string
+ * and so name no kind, is read as a write of rows no heading types, binding parameters no map types. The structural readers stay what a type generic in its program reads (client
  * Watched, ProgramClient): the checker measures a generic type's variance in its program through them, and a test of a
  * program's keys relates no two programs, which would make such a type invariant in it.
  */
@@ -278,7 +271,7 @@ type ShapeOfRead<X> = X extends unknown
 	? ByKeys<X> extends true
 		? "paged" extends keyof X
 			? "list"
-			: "refresh" extends keyof X
+			: string extends keyof X
 				? "write"
 				: "clocked" extends keyof X
 					? ClockedShapeOf<X["clocked" & keyof X]>
@@ -332,17 +325,17 @@ type DeliversKey = keyof Delivering<unknown>
 /** RowOf by the program's keys. */
 export type ServedRow<X> = Extract<RecordsByKey<X>, object>
 
-/** OutcomeOf by the program's keys. */
+/** OutcomeOf by the program's keys, a write's alone: a read has no outcome. */
 export type ServedOutcome<X> =
-	ByKeys<X> extends true
-		? X extends unknown
-			? "refresh" extends keyof X
-				? Refreshed
+	"write" extends ServedShape<X>
+		? ByKeys<X> extends true
+			? string extends keyof X
+				? WriteOutcome<unknown>
 				: WriteOutcome<RecordsByKey<X>>
-			: never
-		: OutcomeOf<X>
+			: OutcomeOf<X>
+		: never
 
-/** ArraysTakenBy by the program's keys: a query's, an ordered query's and a refresh's none, as ArraysOf reads them. */
+/** ArraysTakenBy by the program's keys: a query's and an ordered query's none, as ArraysOf reads them. */
 export type ServedArrays<X> =
 	ByKeys<X> extends true ? ArraysByKey<ProgramByKey<X>> : ArraysTakenBy<X>
 type ArraysByKey<P> = P extends unknown
@@ -363,7 +356,7 @@ type ParamsOfRead<X> = X extends unknown
 	? ByKeys<X> extends true
 		? "paged" extends keyof X
 			? ProgramParams<X["paged" & keyof X]>
-			: "refresh" extends keyof X
+			: string extends keyof X
 				? unknown
 				: "clocked" extends keyof X
 					? Omit<ProgramParams<X["clocked" & keyof X]>, keyof X["clock" & keyof X]>
@@ -439,14 +432,17 @@ type OnlyInputMembersOf<I, In> = [Exclude<keyof I, keyof In>] extends [never]
 	? unknown
 	: Refusal<"an input holds its params and facts, and a paged member's window, alone">
 
-/** ValueOf by the program's keys. */
-export type ServedValue<X> = {
-	readonly set: KeyedSet<ServedRow<X>>
-	readonly list: KeyedList<ServedRow<X>>
-	readonly answeredSet: KeyedSet<ServedRow<X>>
-	readonly answeredList: KeyedList<ServedRow<X>>
-	readonly write: ServedOutcome<X>
-}[ServedShape<X>]
+/** ValueOf by the program's keys: each shape's value, read only for the shape X's answer has (ServedShape). */
+export type ServedValue<X> = ServedValueOf<X, ServedShape<X>>
+
+/** The value of a program X whose answer has shape S, each shape's member read only where S is it. */
+type ServedValueOf<X, S> = S extends "set" | "answeredSet"
+	? KeyedSet<ServedRow<X>>
+	: S extends "list" | "answeredList"
+		? KeyedList<ServedRow<X>>
+		: S extends "write"
+			? ServedOutcome<X>
+			: never
 
 /**
  * A served program's value: a set read's keyed set, an ordered read's keyed list, at its call's instant or live alike,

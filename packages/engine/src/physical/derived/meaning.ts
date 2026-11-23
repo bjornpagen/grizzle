@@ -8,7 +8,7 @@ import { sourcePrunePass } from "#compiler/lower/optimize/prune/index.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 
 /**
- * A materialized derived relation is identified by what it means, never by its SQL: the digest of the rows its admitted
+ * A stored derived relation is identified by what it means, never by its SQL: the digest of the rows its admitted
  * definition's DAG yields of the rows it reads, as it reads them (ir/dag.ts rowsDigestWithin), the definition pruned
  * by the prune that narrows the sources (lower/optimize/prune sourcePrunePass), so it reads of each relation the columns
  * it binds and the relation's primary key, as a law's check is identified (snapshot/violation.ts checkOf), but with no

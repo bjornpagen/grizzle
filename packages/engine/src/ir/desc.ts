@@ -1689,7 +1689,7 @@ export const fieldTypes = <L>(
  * fingerprint over it, is its name and handles alone. A closed relation (closedRelation) relates existing values,
  * the closed ids of its key and its payload, by rows fixed when the schema compiles: its key is required, a set lists
  * every field, and no two rows share a key. A derived relation is a named query, its rows its definition's, which
- * PostgreSQL stores as a materialized view where it is materialized.
+ * PostgreSQL stores in a table the judge's upkeep keeps where it is stored.
  */
 export type RelationDesc<L = Located> = L &
 	(
@@ -1730,31 +1730,24 @@ export type RelationDesc<L = Located> = L &
 				readonly query: QueryDesc<L>
 				/** The derived level: 1 over base relations, n + 1 over a level-n derived relation. */
 				readonly level: number
-				/** Whether PostgreSQL stores its rows: never, every read and rule reading its definition; or as a
-				 * materialized view, which a read reads as of its last refresh. */
+				/** Whether PostgreSQL stores its rows: never, every read and rule reading its definition; or in a
+				 * table of its own, which grizzle keeps equal to its definition at every COMMIT. */
 				readonly storage: DerivedStorage
 		  }
 	)
 
 /**
  * How a derived relation is held: `live`, its definition alone, which every query matching it and every rule over it
- * reads; `materialized`, a materialized view of its rows besides, which a query reads as of its last refresh; or
- * `stored`, the rows grizzle keeps equal to its definition at every COMMIT, admitted only where its definition is
- * unit-local (analysis/theory/unit.ts storedUnit). A rule over any of them reads its definition.
- *
- * NOT DONE: `stored` is its declaration and admission alone. Its table, its fill and the judge's upkeep at COMMIT land
- * together in one later change (~/.cache/grizzle-release/plans/d11-design.md §7, step 2b), and `materialized` with its
- * refresh is deleted in that same change. Until then a stored relation is read as its definition, exactly as a live
- * one is (`derivedHeld`), so every row it reads is right and none is stored.
+ * reads; or `stored`, its rows in a table of its own, which grizzle keeps equal to its definition at every COMMIT, for
+ * every writer, admitted only where its definition is unit-local (analysis/theory/unit.ts storedUnit): the judge's
+ * phase A replaces its rows at the units a transaction wrote (physical/ddl/rules.ts), and the migration that creates it
+ * fills it (deploy/diff/diff.ts).
  */
-const derivedStorages = ["live", "materialized", "stored"] as const
+const derivedStorages = ["live", "stored"] as const
 export type DerivedStorage = (typeof derivedStorages)[number]
 
-/**
- * Whether PostgreSQL holds a derived relation's rows: a materialized view's. A stored relation is read as its
- * definition until its table and upkeep land (DerivedStorage), so neither it nor a live one is held.
- */
-export const derivedHeld = (storage: DerivedStorage): boolean => storage === "materialized"
+/** Whether PostgreSQL holds a derived relation's rows: a stored one's, in its table. */
+export const derivedHeld = (storage: DerivedStorage): boolean => storage === "stored"
 
 /** A closed relation's row: a value of each of its fields. */
 export type ClosedRow = Readonly<Record<string, LiteralDesc>>
@@ -1961,7 +1954,7 @@ export type UnadmittedSchemaDesc = Located & {
  * Worlds. A role is relations defined over its base, a schema: each entry is a whole relation of the base under its
  * own name; a world relation, a query over the base installed as a view; or a scoped relation, a relation of the base
  * under its own name held by its owner's rows, its query the row predicate scopedEntriesOf built (schema/scope.ts),
- * which ownership parses as a scope. `write` and `refresh` name role relations. A login is one credential and one pool
+ * which ownership parses as a scope. `write` names role relations. A login is one credential and one pool
  * for roles over one base.
  */
 export type RoleEntryDesc<L = Located> =
@@ -1982,7 +1975,6 @@ export type RoleDesc<L = Located> = L & {
 	readonly name: string
 	readonly base: SchemaDesc<L>
 	readonly relations: NonEmptyReadonlyArray<RoleEntryDesc<L>>
-	readonly refresh: ReadonlyArray<string>
 	/**
 	 * The contexts the role declares, each name once: the facts its Db's claims hold, decoded from the verified token,
 	 * and the only contexts its query entries and its programs match.
@@ -3974,7 +3966,6 @@ const roleRelations = S.nonEmptyUniqueArray(
 )
 const roleWrite = S.uniqueStrings("written relations", name)
 const roleInsert = S.nonEmptyUniqueStrings("inserted relations")
-const roleRefresh = S.uniqueStrings("refreshed relations", name)
 const roleContexts = S.uniqueArray(contextDescShape, (c) => c.name, "declared contexts")
 
 const roleDescShape: S.Shape<RoleDesc> = S.located(
@@ -3985,7 +3976,6 @@ const roleDescShape: S.Shape<RoleDesc> = S.located(
 				base: schemaDescShape,
 				relations: roleRelations,
 				write: roleWrite,
-				refresh: roleRefresh,
 				contexts: roleContexts
 			},
 			loc
@@ -3996,7 +3986,6 @@ const roleDescShape: S.Shape<RoleDesc> = S.located(
 				base: schemaDescShape,
 				relations: roleRelations,
 				insert: roleInsert,
-				refresh: roleRefresh,
 				contexts: roleContexts
 			},
 			loc
@@ -4008,19 +3997,16 @@ const roleDescShape: S.Shape<RoleDesc> = S.located(
 type RoleParts = Located & {
 	readonly name: string
 	readonly relations: NonEmptyReadonlyArray<RoleEntryDesc>
-	readonly refresh: ReadonlyArray<string>
 	readonly contexts: ReadonlyArray<ContextDesc>
 } & RoleWriting
 
 /**
- * A role's own parts as its builder holds them: its caller's name, entries, written and refreshed relations
  * and location, each query entry's query the Description the builder decoded where it took it (schema/protocol.ts
  * queryDescOf).
  */
 export type RoleInput = {
 	readonly name: string
 	readonly relations: ReadonlyArray<RoleEntryDesc>
-	readonly refresh: ReadonlyArray<string>
 	readonly contexts: ReadonlyArray<ContextDesc>
 	readonly loc: SourceLoc
 } & RoleWriting
@@ -4039,7 +4025,7 @@ const roleContextNames = S.uniqueArray(S.struct({ name }), (c) => c.name, "decla
 
 /**
  * What a decode of a whole role reads of the parts its caller wrote, each at its place in the role: its name, its
- * entries' kinds, names and locations, its written and refreshed relations, its declared contexts' names and its
+ * entries' kinds, names and locations, its written relations, its declared contexts' names and its
  * location; a query entry's query and a context's Description are no part of it, each decoded where it was taken.
  */
 const roleWrittenShape = S.located(
@@ -4049,7 +4035,6 @@ const roleWrittenShape = S.located(
 				name,
 				relations: S.nonEmptyUniqueArray(roleEntryPartShape, (e) => e.name, "role relation names"),
 				write: roleWrite,
-				refresh: roleRefresh,
 				contexts: roleContextNames
 			},
 			loc
@@ -4059,7 +4044,6 @@ const roleWrittenShape = S.located(
 				name,
 				relations: S.nonEmptyUniqueArray(roleEntryPartShape, (e) => e.name, "role relation names"),
 				insert: roleInsert,
-				refresh: roleRefresh,
 				contexts: roleContextNames
 			},
 			loc
@@ -4363,7 +4347,6 @@ const roleDescOver = (base: SchemaDesc, role: RoleParts): RoleDesc =>
 		...("insert" in role
 			? { insert: Object.freeze(role.insert) }
 			: { write: Object.freeze(role.write) }),
-		refresh: Object.freeze(role.refresh),
 		contexts: Object.freeze(role.contexts),
 		loc: role.loc
 	})
@@ -4393,7 +4376,6 @@ export const decodeRoleOver = (
 				name: written.name,
 				relations: deepFreeze([defined(first, "an entry of a role its decode admitted"), ...rest]),
 				...("insert" in written ? { insert: written.insert } : { write: written.write }),
-				refresh: written.refresh,
 				contexts: deepFreeze([...role.contexts]),
 				loc: written.loc
 			})

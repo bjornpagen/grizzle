@@ -53,8 +53,8 @@ export const workloadRequests = (
  * The workload compiler extracts each program's access paths and merges them across programs. This extension hands the
  * paths to the one index engine as IndexRequests with role `access`, beside the law-maintenance requests, so a request
  * lands on a key, enforcement or law index that serves it, adding the access reason to that object's reasons, or
- * becomes `<table>__ix__<cols>` justified by it. A path on a derived relation is planned on its materialized view like a
- * table's, where the derived relation extension installs the view, and deferred with the view where none does.
+ * becomes `<table>__ix__<cols>` justified by it. A path on a derived relation is planned on its stored table like a
+ * table's, where the derived relation extension installs the table, and deferred with the table where none does.
  *
  * The workload must have been compiled against this installation's schema: its schema fingerprint is checked, so a
  * workload never lends its paths to another schema's objects. */

@@ -88,8 +88,6 @@ export {
 	servedPath,
 	type ServedPrologue,
 	type ServedRead,
-	type ServedRefresh,
-	type ServedRefreshTarget,
 	type ServedRefusals,
 	type ServedRoleForm,
 	type ServedRoutes,

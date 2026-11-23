@@ -105,10 +105,11 @@ const declarationRefused = (
 }
 
 /**
- * Every table's and registered view's declared statistics (declared.ts), each one object of kind `statistics` built
- * after its relation and every law column of it, which it names, in Indexes: its shape read off the builder (the relation's columns, its unit's key, its keys, the
- * planned indexes and the bindings of every request each serves and of each key's probe), its declaration derived, and a
- * relation no declaration ranks refused (`declarationRefused`).
+ * Every table's declared statistics, a stored derived relation's registered table among them (declared.ts), each one
+ * object of kind `statistics` built after its relation and every law column of it, which it names, in Indexes: its
+ * shape read off the builder (the relation's columns, its unit's key, its keys, the planned indexes and the bindings of
+ * every request each serves and of each key's probe), its declaration derived, and a relation no declaration ranks
+ * refused (`declarationRefused`).
  */
 export const planDeclarations = (
 	b: InstallBuilder,
@@ -196,6 +197,7 @@ const shapeOf = (
 	const unit = b.owned.unitOf.get(relation)
 	const keys = [
 		...keyIndexes.filter((k) => k.relation === relation).map((k) => k.columns.map(nativeText)),
+		...(view === undefined ? [] : [[...view.primaryKey]]),
 		...(view?.uniqueIndexes ?? []).map((u) => [...u.columns])
 	]
 	const planned = indexes.filter((i) => i.relation === relation)

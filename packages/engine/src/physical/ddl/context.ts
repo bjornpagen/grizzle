@@ -86,12 +86,13 @@ export interface InstallSettings {
 	readonly logins: ReadonlyArray<OwnedLogin>
 }
 
-/** A materialized view an extension installs that takes indexes like a table (a derived relation's): its fields,
- * the graph object its indexes are created after, and its unique indexes, each in index column order, which serve
- * index requests as a table's key indexes do. */
+/** A stored table an extension installs that takes indexes like a table (a stored derived relation's): its fields,
+ * the graph object its indexes are created after, its primary key's fields, in key order, and its unique indexes, its
+ * primary key's among them, each in index column order, which serve index requests as a table's key indexes do. */
 interface IndexedView {
 	readonly relation: string
 	readonly object: Node<"structure">
+	readonly primaryKey: NonEmptyReadonlyArray<string>
 	readonly fields: ReadonlyMap<string, TargetField>
 	readonly uniqueIndexes: ReadonlyArray<{
 		readonly object: Node<"structure">
@@ -208,7 +209,7 @@ export type Capability = "btree_gist" | "vector"
 
 /**
  * The relation a statement of the installation creates or adds columns to, and the columns it gives it: a CREATE TABLE's,
- * a view's or a materialized view's own, an ALTER TABLE's ADD COLUMNs. Every other statement gives no relation a column
+ * a view's own, an ALTER TABLE's ADD COLUMNs. Every other statement gives no relation a column
  * (a carrier, which does, is a write program's, write/carriers/carriers.ts).
  */
 const widenedRelation = (
@@ -217,7 +218,7 @@ const widenedRelation = (
 	if (statement.kind === "createTable") {
 		return { relation: statement.table, columns: statement.columns.length }
 	}
-	if (statement.kind === "createView" || statement.kind === "createMaterializedView") {
+	if (statement.kind === "createView" || statement.kind === "createStoredTable") {
 		return { relation: statement.name, columns: statement.columns.length }
 	}
 	if (statement.kind === "alterTable") {
@@ -313,7 +314,7 @@ export class InstallBuilder {
 	/** The type of each column of each installed table the objects so far give it, by the table's qualified name and the
 	 * column's identifier: what a row function's parameter reading the column is typed by. */
 	readonly #columnTypes = new Map<string, Map<string, TypeRef>>()
-	/** The columns each table, view and materialized view the objects so far create holds, by its qualified name. */
+	/** The columns each table and view the objects so far create holds, by its qualified name. */
 	readonly #columns = new Map<string, number>()
 	/** The identifiers of the levels' schemas, where every table of the installation is. */
 
@@ -445,8 +446,8 @@ export class InstallBuilder {
 
 	/**
 	 * Adds an object, created after each of `after`. A table its statements would give more columns than PostgreSQL's
-	 * tableMaxColumns, the columns its CREATE TABLE and every ADD COLUMN after it give it together, or a view or
-	 * materialized view of more, is refused here as ResourceBound (tableColumns).
+	 * tableMaxColumns, the columns its CREATE TABLE and every ADD COLUMN after it give it together, or a view of more, is
+	 * refused here as ResourceBound (tableColumns).
 	 */
 	add<P extends DeployPhase>(
 		spec: ObjectSpec<P>,
@@ -721,7 +722,7 @@ export class InstallBuilder {
 	}
 
 	/** The object a read of `relation` waits for: its table, its roster's domain, or its derived relation's
-	 * materialized view; none for a relation the installation holds no object of (a derived relation no extension
+	 * stored table; none for a relation the installation holds no object of (a derived relation no extension
 	 * installs, a closed relation, which a read reads through the constants its statements call). */
 	readObject(relation: string): Node<"setup" | "structure"> | undefined {
 		const r = this.owned.relations[relation]
@@ -734,7 +735,7 @@ export class InstallBuilder {
 					missing(`physical: no domain of roster ${r.name}`)
 				)
 			case "derived":
-				return this.materializedView(relation)
+				return this.storedTable(relation)
 			case "closedRelation":
 			case undefined:
 				return undefined
@@ -773,12 +774,22 @@ export class InstallBuilder {
 		}
 	}
 
-	/** The materialized view of the derived relation `relation`; none when no extension installs it. */
-	materializedView(relation: string): Node<"structure"> | undefined {
+	/** The stored table of the derived relation `relation`; none when no extension installs it. */
+	storedTable(relation: string): Node<"structure"> | undefined {
 		return this.#views.get(relation)?.object
 	}
 
-	/** Registers a materialized view that takes indexes, before the indexes are planned. */
+	/** The fields of the primary key of the stored derived relation `relation`'s table, in key order, as its extension
+	 * registered it (addIndexedView). A relation of no registered stored table is refused as MalformedDescription. */
+	storedPrimaryKey(relation: string): NonEmptyReadonlyArray<string> {
+		const view = this.#views.get(relation)
+		if (view === undefined) {
+			missing(`physical: no stored table of derived relation ${relation}`)
+		}
+		return view.primaryKey
+	}
+
+	/** Registers a stored table that takes indexes, before the indexes are planned. */
 	addIndexedView(view: IndexedView): void {
 		this.#views.set(view.relation, view)
 	}

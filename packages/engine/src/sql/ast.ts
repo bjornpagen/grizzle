@@ -24,7 +24,7 @@ declare const storedColumnKeyBrand: unique symbol
  */
 export type NameKey = string & { readonly [nameKeyBrand]: true }
 
-/** A column of a table or a materialized view as one text: its relation's key (NameKey), a NUL, and its own name. */
+/** A column of a table as one text: its relation's key (NameKey), a NUL, and its own name. */
 export type StoredColumnKey = string & { readonly [storedColumnKeyBrand]: true }
 
 const mintNameKey = nominal<string, NameKey>()
@@ -1548,7 +1548,7 @@ export interface AlterTable {
 	readonly actions: NonEmptyReadonlyArray<AlterTableAction>
 }
 
-type RenamableObject = "TABLE" | "INDEX" | "MATERIALIZED VIEW" | "DOMAIN"
+type RenamableObject = "TABLE" | "INDEX" | "DOMAIN"
 
 /**
  * ALTER <object> <name> RENAME TO <to>: a schema object by its qualified name, or a role or a schema, which live in
@@ -1680,9 +1680,13 @@ export interface DropIndex {
 	readonly ifExists: boolean
 }
 
-/** Always WITH NO DATA; the migration that creates it populates it (deploy/diff/diff.ts view), and db.refresh after. */
-export interface CreateMaterializedView {
-	readonly kind: "createMaterializedView"
+/**
+ * CREATE TABLE <name> (<columns>) AS <query> WITH NO DATA: a stored derived relation's table, its columns of the types
+ * its definition delivers, as a view's are; the migration that creates it fills it (FillStored), and the judge's upkeep
+ * keeps it at every COMMIT after (physical/ddl/rules.ts).
+ */
+export interface CreateStoredTable {
+	readonly kind: "createStoredTable"
 	readonly name: ObjectName
 	readonly columns: NonEmptyReadonlyArray<string>
 	readonly query: Select
@@ -1736,14 +1740,7 @@ export type DropObject =
 			 * (deploy/diff/departed.ts). A function whose record states it is dropped by its signature (DropFunction).
 			 */
 			readonly kind: "drop"
-			readonly object:
-				| "TABLE"
-				| "MATERIALIZED VIEW"
-				| "VIEW"
-				| "DOMAIN"
-				| "STATISTICS"
-				| "TYPE"
-				| "FUNCTION"
+			readonly object: "TABLE" | "VIEW" | "DOMAIN" | "STATISTICS" | "TYPE" | "FUNCTION"
 			readonly name: ObjectName
 			readonly ifExists: boolean
 	  }
@@ -1855,7 +1852,7 @@ export interface PublishedTable {
  * installation's live source's publication, of every footprint table, every kind of change (publish's default, insert,
  * update, delete and truncate, stated by its omission, since a definition element takes a bare string constant and no
  * typed literal), and a stored generated column of a table published whole, as REPLICA IDENTITY FULL asks; none, a
- * publication of no table, where the live plan reads only materialized views.
+ * publication of no table, where the live plan reads only closed relations.
  */
 export interface CreatePublication {
 	readonly kind: "createPublication"
@@ -2541,11 +2538,15 @@ export type TransactionControl =
 	| { readonly kind: "rollback" }
 	| { readonly kind: "setConstraintsImmediate" }
 
-/** REFRESH MATERIALIZED VIEW [CONCURRENTLY]. */
-export interface Refresh {
-	readonly kind: "refresh"
-	readonly view: ObjectName
-	readonly concurrently: boolean
+/**
+ * INSERT INTO <table> (<columns>) <query>: a stored derived relation's fill, every row of its definition, in the
+ * migration that creates its table (deploy/diff/diff.ts view), after every row its definition reads is written.
+ */
+export interface FillStored {
+	readonly kind: "fillStored"
+	readonly table: ObjectName
+	readonly columns: NonEmptyReadonlyArray<string>
+	readonly query: Select
 }
 
 /**
@@ -2556,14 +2557,7 @@ export interface Refresh {
 export type CommentTarget =
 	| { readonly kind: "SCHEMA" | "ROLE"; readonly name: string }
 	| {
-			readonly kind:
-				| "TABLE"
-				| "VIEW"
-				| "MATERIALIZED VIEW"
-				| "DOMAIN"
-				| "TYPE"
-				| "INDEX"
-				| "STATISTICS"
+			readonly kind: "TABLE" | "VIEW" | "DOMAIN" | "TYPE" | "INDEX" | "STATISTICS"
 			readonly name: ObjectName
 	  }
 	| { readonly kind: "COLUMN"; readonly relation: ObjectName; readonly column: string }
@@ -2606,7 +2600,7 @@ export type Ddl =
 	| AlterDomain
 	| CreateIndex
 	| DropIndex
-	| CreateMaterializedView
+	| CreateStoredTable
 	| CreateView
 	| CreatePolicy
 	| DropPolicy
@@ -2643,7 +2637,13 @@ export type Ddl =
 	| LockTable
 	| Comment
 
-export type SqlStatement = Dml | Ddl | CreateCarrier | EmptyCarrier | TransactionControl | Refresh
+export type SqlStatement =
+	| Dml
+	| Ddl
+	| CreateCarrier
+	| EmptyCarrier
+	| TransactionControl
+	| FillStored
 
 /** SQL text printed from a statement's AST: emit (sql/emit.ts) spells it, and nothing else. */
 export type EmittedText = string & { readonly [emittedTextBrand]: true }

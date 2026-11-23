@@ -137,7 +137,7 @@ const budgetView: string = identifierOf(identity.view(parsedName("AccountBudget"
 
 export const onView = (statement: SqlStatement): boolean =>
 	(statement.kind === "createIndex" && statement.table.name === budgetView) ||
-	(statement.kind === "createMaterializedView" && statement.name.name === budgetView) ||
+	(statement.kind === "createStoredTable" && statement.name.name === budgetView) ||
 	(statement.kind === "drop" &&
 		statement.object !== "ROLE" &&
 		statement.object !== "SCHEMA" &&

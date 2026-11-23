@@ -195,13 +195,13 @@ const orderings = (
 export const installsNoOrder = (s: Sketch): void => {
 	const views = Arr.filter(
 		installed(s),
-		(st) => st.kind === "createMaterializedView" || st.kind === "createView"
+		(st) => st.kind === "createStoredTable" || st.kind === "createView"
 	)
 	for (const view of views) {
 		assert.equal(orderings(view).unlimited, 0, "a view SELECT that orders rows it does not limit")
 	}
-	const taking = (kind: "createMaterializedView" | "createView"): boolean =>
+	const taking = (kind: "createStoredTable" | "createView"): boolean =>
 		Arr.some(views, (st) => st.kind === kind && orderings(st).limited > 0)
-	assert.ok(taking("createMaterializedView"), "the derived relation's view holds its take")
+	assert.ok(taking("createStoredTable"), "the derived relation's view holds its take")
 	assert.ok(taking("createView"), "the query entry's view holds its take")
 }

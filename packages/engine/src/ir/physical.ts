@@ -57,7 +57,7 @@ export type LibraryFn = (typeof libraryFns)[number]
 
 /** How the declared names of one schema map to PostgreSQL objects, each qualified by its schema. */
 export interface PhysicalNames {
-	/** The table of a relation, or the materialized view of a derived relation. */
+	/** The table of a relation, or the table of a stored derived relation. */
 	readonly relation: (relation: string) => { readonly schema: string; readonly name: RelationIdent }
 	readonly column: (relation: string, field: string) => ColumnIdent
 	/**

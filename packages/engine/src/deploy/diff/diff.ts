@@ -118,7 +118,7 @@ import { rosterConstants } from "#compiler/physical/ddl/constants.ts"
 import { guardBracket } from "#compiler/physical/ddl/immutable.ts"
 import { headFill } from "#compiler/physical/ddl/stamps.ts"
 import { type InlineSubcommand, notInline, wholeTable } from "#compiler/physical/ddl/whole.ts"
-import { refreshStatement } from "#compiler/physical/derived/objects.ts"
+import { fillStatement } from "#compiler/physical/derived/objects.ts"
 import { targetKey, touchedTargets } from "#compiler/physical/install/comments.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { namedIdent, parseIdent, qualifiedIdent } from "#compiler/physical/obligations/graph.ts"
@@ -132,7 +132,7 @@ import {
 	type ColumnDef,
 	type CreateDomain,
 	type CreateIndex,
-	type CreateMaterializedView,
+	type CreateStoredTable,
 	type CreateTable,
 	type Expr,
 	type ForeignKey,
@@ -220,7 +220,7 @@ interface DiffInput {
  * change the diff drafts by its kind's rule, from the target's record alone, which names what the database holds
  * (functions replaced in place, keys swapped, CHECKs and foreign keys redefined NOT VALID and validated, indexes built
  * and swapped in, triggers replaced under their table's lock, generated columns dropped and added again, the roles'
- * objects and materialized views created again, domain constraints replaced, memberships and publications replaced);
+ * objects and stored tables created again, domain constraints replaced, memberships and publications replaced);
  * and none of a kind a draft never changes, or whose change the database holds in its rows (a table, the ledger), which
  * `grizzle upgrade` refuses before anything is drafted (the shell's adapter/admission/upgrade.ts).
  */
@@ -246,7 +246,7 @@ export const staleReplaced: { readonly [K in PhysicalKind]: boolean } = {
 	isolationFunction: true,
 	snapshotGuard: true,
 	isolationTrigger: false,
-	materializedView: true,
+	storedTable: true,
 	uniqueIndex: true,
 	index: true,
 	statistics: true,
@@ -272,7 +272,6 @@ export const staleReplaced: { readonly [K in PhysicalKind]: boolean } = {
 /** How a marker names a holder's kind. */
 const holdingText: { readonly [K in Aside["kind"]]: string } = {
 	table: "relation",
-	materializedView: "derived relation",
 	domain: "domain"
 }
 
@@ -288,7 +287,7 @@ const asideWhy = (a: Aside): string => {
 
 /** What a set-aside holder owns that goes aside with it: a relation's indexes; a type, none. */
 const ownedAside = (a: Aside): string =>
-	(a.kind === "table" || a.kind === "materializedView") && a.owned.length > 0
+	a.kind === "table" && a.owned.length > 0
 		? ", with each index it owns, whose names a relation of its old name would take, renamed aside too"
 		: ""
 
@@ -355,12 +354,12 @@ type Dropped =
 /** The one order in which a migration drops what it drops, by kind, each step that drops several sorting them by it
  * (dropWorlds, dropReplaced, publish.removed): the roles' policies before their views and the world functions they
  * call; the foreign keys before the keys they reference; the keys and CHECKs before the indexes, a row security
- * switched off beside them; then the roles and their schemas, the materialized views before
+ * switched off beside them; then the roles and their schemas, the stored tables before
  * what they read, the functions, the law
  * columns and columns, the tables over the domains they use, the domains and the declared functions' row types over the
  * constants their CHECKs read, and the constants and the function owner last, which RESTRICT refuses to drop while
  * anything still reads one and DROP ROLE while it owns a function. Within a kind, each step keeps its own
- * order: publish.removed the reverse install order, so a materialized view goes before the lower one it reads, a table
+ * order: publish.removed the reverse install order, so a stored table goes before the lower one it reads, a table
  * before one it references and a constant before the one its body reads; and a level's schema after everything in it. */
 const dropOrder: { readonly [K in Dropped]: number } = {
 	policy: 0,
@@ -379,7 +378,7 @@ const dropOrder: { readonly [K in Dropped]: number } = {
 	publication: 6,
 	viewSchema: 6,
 	statistics: 7,
-	materializedView: 9,
+	storedTable: 9,
 	lawTrigger: 3,
 	immutableTrigger: 3,
 	isolationTrigger: 3,
@@ -496,8 +495,6 @@ const stampedHeadsOf = (
 const relationLoc = (installation: Installation, relation: string): SourceLoc =>
 	defined(installation.laws.theory.relations[relation], `the theory holds the relation ${relation}`)
 		.loc
-const viewIdent = (name: ObjectName): string =>
-	qualifiedIdent("materializedView", name.schema, name.name)
 
 const statement = (s: SqlStatement): Action => ({ kind: "statement", statement: s })
 
@@ -575,18 +572,18 @@ interface Removal {
 	readonly draft: Draft
 }
 
-/** A materialized view the previous manifest installs that a migration drops at the start of Structure, by table key:
+/** A stored table the previous manifest installs that a migration drops at the start of Structure, by table key:
  * one whose definition changes, or that reads a relation this migration recreates or a table whose column it converts.
  * One the target keeps is created again; one it no longer has cannot outlive what it reads. */
 interface ViewDrop {
 	readonly key: NameKey
-	readonly view: Installed<RecordedObject> & { readonly kind: "materializedView" }
+	readonly view: Installed<RecordedObject> & { readonly kind: "storedTable" }
 	/** Created again when the target keeps it, dropped for good when it does not. */
 	readonly fate: "recreated" | "dropped"
 }
 
 /** What takes an object of the previous installation away in Structure, before the target's objects are visited: the
- * drop of the roles' views, world functions and policies (dropWorlds); the drop of a materialized view, which takes the
+ * drop of the roles' views, world functions and policies (dropWorlds); the drop of a stored table, which takes the
  * indexes and statistics objects on it along (dropViews); or the replacement of a column it is built over
  * (takenByReplacement), before which its own `drop` takes it away (dropReplaced). */
 type Taken =
@@ -915,9 +912,9 @@ class Differ {
 	/** Each table both installations hold, by identity, with the fate of each of its columns (KeptTable). */
 	readonly keptTables: ReadonlyMap<string, KeptTable>
 	/** The stored columns whose values this migration writes again (rewrittenColumns): a rule that reads one is checked
-	 * again, and a materialized view above its table is created again. */
+	 * again, and a stored table above its table is created again. */
 	readonly rewritten: ReadonlySet<StoredColumnKey>
-	/** The materialized views this migration drops at the start of Structure (viewDropsOf). */
+	/** The stored tables this migration drops at the start of Structure (viewDropsOf). */
 	readonly viewDrops: ReadonlyArray<ViewDrop>
 	/** What publish.removed drops, gathered while drafting and drafted in order once every removal is known
 	 * (draftRemovals). */
@@ -932,12 +929,9 @@ class Differ {
 	readonly replaced: ReadonlyMap<string, ReplacedKey>
 	/** Each table both installations hold as its visit drafts it, by identity (KeptPlan). */
 	readonly keptPlans: ReadonlyMap<string, KeptPlan>
-	/** Recreated materialized views, by table key: their privileges went with their drop. */
+	/** Recreated stored tables, by table key: none is kept as the previous installation ran it (keptViews). */
 	readonly recreatedViews: ReadonlySet<NameKey>
-	/** Relations this migration drops at the start of Structure and does not create again, by table key: a view the
-	 * target no longer has that reads a recreated relation. Their privileges went with them. */
-	readonly dropped: ReadonlySet<NameKey>
-	/** What each installed materialized view reads, by table key: the previous snapshot's edges, and the qualified
+	/** What each installed stored table reads, by table key: the previous snapshot's edges, and the qualified
 	 * names of every installed definition. */
 	readonly reads: ReadonlyMap<NameKey, ReadonlySet<NameKey>>
 	/** The names of the roles' views and world functions this migration drops at the start of Structure, by name key,
@@ -1016,9 +1010,8 @@ class Differ {
 		this.recreatedViews = new Set(
 			this.viewDrops.flatMap((d) => (d.fate === "recreated" ? [d.key] : []))
 		)
-		this.dropped = new Set(this.viewDrops.flatMap((d) => (d.fate === "dropped" ? [d.key] : [])))
 		/** What this migration takes away and builds again beneath the roles' objects without changing its DDL: each
-		 * materialized view it drops (recreated or not), each object it drops before replacing a column it is built
+		 * stored table it drops (recreated or not), each object it drops before replacing a column it is built
 		 * over, and each table a column of which it converts in place. */
 		const tableKeys = new Map(
 			[...previousObjects, ...targetObjects].flatMap((o) => {
@@ -1331,7 +1324,7 @@ class Differ {
 		)
 	}
 
-	/** The tables a column of which this migration writes again (Differ.rewritten), by table key: a materialized view
+	/** The tables a column of which this migration writes again (Differ.rewritten), by table key: a stored table
 	 * above one would keep the rows of the values it replaces, and PostgreSQL refuses a conversion or a drop under it. */
 	rewrittenTables(): ReadonlySet<NameKey> {
 		return new Set(
@@ -1490,10 +1483,16 @@ class Differ {
 		return swap
 	}
 
+	/** Whether the target's table `name` is a stored derived relation's, which structure.views creates (`view`), so an
+	 * object over it in Structure is created after it there. */
+	storedNext(name: ObjectName): boolean {
+		return this.next.get(tableIdent(name))?.kind === "storedTable"
+	}
+
 	/** Whether the target's relation `name` holds rows before this migration runs: it follows the previous one, which
-	 * stands; a new relation, and a materialized view dropped and created again, hold none. */
+	 * stands; a new relation, and a stored table dropped and created again, hold none. */
 	mayHoldRows(name: ObjectName): boolean {
-		const relation = this.next.get(tableIdent(name)) ?? this.next.get(viewIdent(name))
+		const relation = this.next.get(tableIdent(name))
 		return relation !== undefined && this.arrivalOf(relation).kind === "follows"
 	}
 
@@ -1646,10 +1645,11 @@ class Differ {
 		}
 	}
 
-	/** The materialized views this migration drops first, decided once from the two snapshots: each view whose meaning
+	/** The stored tables this migration drops first, decided once from the two snapshots: each one whose meaning
 	 * changes (physical/derived/meaning.ts definitionMeanings), never its SQL alone, so a change of how grizzle lowers a
-	 * definition keeps the view its earlier lowering installed, and a change of a field it reads, dropped or renamed, is
-	 * a change of its meaning; each one whose installed definition names what the target no longer holds (readsGone);
+	 * definition keeps the table its earlier lowering installed, and a change of a field it reads, dropped or renamed, is
+	 * a change of its meaning; each one whose primary key changes, a key its definition newly proves narrower, so its
+	 * key is the target's; each one whose installed definition names what the target no longer holds (readsGone);
 	 * and every installed view above one of them or above a table whose column this migration converts or rewrites in
 	 * place, which PostgreSQL refuses under a view that reads it. So a view the migration keeps reads, under the names it
 	 * was installed with, only what the target holds as it was, and the target's snapshot records it as installed
@@ -1670,14 +1670,15 @@ class Differ {
 		for (const o of this.input.target.manifest.objects) {
 			const v = installed(o)
 			const before = this.prev.get(o.ident)
-			if (v.kind !== "materializedView" || before === undefined) {
+			if (v.kind !== "storedTable" || before === undefined) {
 				continue
 			}
 			const ran = installed(before)
 			if (
-				ran.kind !== "materializedView" ||
+				ran.kind !== "storedTable" ||
 				this.input.stale.has(o.ident) ||
 				was.get(ran.create.name.name) !== now.get(v.create.name.name) ||
+				!canonicalEquals(ran.primaryKey, v.primaryKey) ||
 				this.readsGone(ran.create, held)
 			) {
 				seeds.add(relationKey(v))
@@ -1689,7 +1690,7 @@ class Differ {
 		])
 		return this.input.previous.manifest.objects.flatMap((o): ReadonlyArray<ViewDrop> => {
 			const v = installed(o)
-			if (v.kind !== "materializedView") {
+			if (v.kind !== "storedTable") {
 				return []
 			}
 			const key = relationKey(v)
@@ -1711,7 +1712,7 @@ class Differ {
 	 * migration renames, which PostgreSQL refuses to drop under the view, and which a replay of the definition as
 	 * installed would not find. A declared rename of a field the view reads changes its meaning (viewDropsOf).
 	 */
-	readsGone(create: CreateMaterializedView, held: ReadonlySet<NameKey>): boolean {
+	readsGone(create: CreateStoredTable, held: ReadonlySet<NameKey>): boolean {
 		return [
 			...qualifiedNames((hooks) => {
 				transformSelect(create.query, hooks)
@@ -1719,7 +1720,7 @@ class Differ {
 		].some((name) => !held.has(name))
 	}
 
-	/** The materialized views this migration keeps, each as it was installed: every view of the target the previous
+	/** The stored tables this migration keeps, each as it was installed: every view of the target the previous
 	 * installation holds and no view drop takes away (viewDropsOf), by the definition the previous installation
 	 * records, which the target's snapshot records in place of the target's own (render/generate.ts). */
 	keptViews(): ReadonlyArray<KeptView> {
@@ -1727,14 +1728,14 @@ class Differ {
 			const v = installed(o)
 			const before = this.prev.get(o.ident)
 			if (
-				v.kind !== "materializedView" ||
+				v.kind !== "storedTable" ||
 				before === undefined ||
 				this.recreatedViews.has(relationKey(v))
 			) {
 				return []
 			}
 			const ran = installed(before)
-			return ran.kind === "materializedView" ? [{ ident: o.ident, create: ran.create }] : []
+			return ran.kind === "storedTable" ? [{ ident: o.ident, create: ran.create }] : []
 		})
 	}
 
@@ -2097,7 +2098,7 @@ class Differ {
 			case "foreignKey":
 				this.foreignKey(v, before)
 				return
-			case "materializedView":
+			case "storedTable":
 				this.view(v, before)
 				return
 			case "uniqueIndex":
@@ -2217,9 +2218,13 @@ class Differ {
 				}
 				return
 			case "liveSecret":
-			case "replicaIdentity":
 				if (before === undefined) {
 					this.sql("structure", o.ddl)
+				}
+				return
+			case "replicaIdentity":
+				if (before === undefined) {
+					this.sql(this.storedNext(v.table) ? "structure.views" : "structure", o.ddl)
 				}
 				return
 			case "publication":
@@ -3005,7 +3010,7 @@ class Differ {
 		const c = keyOrCheckDefinition(v, this.next)
 		if (!this.mayHoldRows(t)) {
 			if (v.placement.kind === "own") {
-				this.sql("structure", o.ddl)
+				this.sql(this.storedNext(t) ? "structure.views" : "structure", o.ddl)
 			}
 			return
 		}
@@ -3280,19 +3285,16 @@ class Differ {
 		)
 	}
 
-	/** A materialized view, created WITH NO DATA when it follows no previous view (Arrival): new, or dropped at the start
+	/** A stored table, created WITH NO DATA when it follows no previous view (Arrival): new, or dropped at the start
 	 * of Structure (viewDropsOf). One that stands means what the target's definition means, since one whose meaning
 	 * changed is dropped. It is created in structure.views, after every table's fill, so it reads each set-aside field
-	 * under its name, as the fill leaves it, never the column the fill drops, and populated in structure.refresh, after
+	 * under its name, as the fill leaves it, never the column the fill drops, and filled in structure.stored, after
 	 * the backfill writes the last row it reads and after every view below it, which install order visits first, so the
 	 * migration that creates a view leaves it populated. */
-	view(
-		v: Installed & { readonly kind: "materializedView" },
-		before: RecordedObject | undefined
-	): void {
+	view(v: Installed & { readonly kind: "storedTable" }, before: RecordedObject | undefined): void {
 		if (before === undefined) {
 			this.sql("structure.views", v.object.ddl)
-			this.sql("structure.refresh", [refreshStatement(v.create.name, false)])
+			this.sql("structure.stored", [fillStatement(v.create)])
 		}
 	}
 
@@ -3308,7 +3310,7 @@ class Differ {
 		if (!this.mayHoldRows(t)) {
 			this.sql(
 				o.phase === "structure"
-					? this.next.has(viewIdent(t))
+					? this.storedNext(t)
 						? "structure.views"
 						: "structure"
 					: "indexes",
@@ -3445,7 +3447,7 @@ class Differ {
 			case "validation":
 				return
 			case "domain":
-			case "materializedView":
+			case "storedTable":
 				drop(v.kind, statement(dropObject(v)))
 				return
 			case "constant":
@@ -3604,7 +3606,7 @@ class Differ {
 	 * The privileges this migration changes, one privilege of one grantee on one object at a time (privileges.ts): every
 	 * privilege a previous `privileges` object states and no target one does is revoked, and every privilege a target
 	 * one states and no previous one does is granted; a privilege both state is neither, so an object a migration leaves
-	 * alone keeps its grants, whatever changes beside it. An object this migration creates again (a materialized view, a
+	 * alone keeps its grants, whatever changes beside it. An object this migration creates again (a stored table, a
 	 * role's view or world function) lost its privileges with its drop, so it is granted again
 	 * every privilege the target states on it, but those Structure granted again right after it (regrantWorld); and an
 	 * object it drops takes its privileges with it, so it revokes none on it, but from a grantee it drops too, which
@@ -3716,16 +3718,14 @@ class Differ {
 	}
 
 	/** The keys of the objects whose privileges Structure takes away before Publish grants (privileges.ts objectKey): each
-	 * materialized view it drops, recreated or not, each role's view and world function it drops at its start, and each
-	 * declared function it drops and creates again for a changed signature or result (recreatedFunctions). Publish
-	 * revokes nothing on one, and grants again every privilege the target states on one it holds. */
+	 * role's view and world function it drops at its start, and each declared function it drops and creates again for a
+	 * changed signature or result (recreatedFunctions). Publish revokes nothing on one, and grants again every privilege
+	 * the target states on one it holds. A stored table it drops is none of them: no role holds a privilege on one. */
 	resetObjects(): ReadonlySet<string> {
 		const reset = (x: GrantObject): boolean => {
 			switch (x.kind) {
-				case "TABLE": {
-					const key = nameKey(x.name)
-					return this.recreatedViews.has(key) || this.dropped.has(key) || this.worldGone.has(key)
-				}
+				case "TABLE":
+					return this.worldGone.has(nameKey(x.name))
 				case "FUNCTION": {
 					const key = nameKey(x.name)
 					return this.worldGone.has(key) || this.recreatedFunctions.has(key)
@@ -4393,7 +4393,7 @@ const revalues = (fate: ColumnFate): boolean => {
  * The stored columns whose values a migration writes again, of the tables both installations hold (`kept`): each column
  * whose fate gives it other values (revalues), and each field re-expressed in place, whose column is kept but whose
  * every row SET EXPRESSION computes again. The one reading of "this migration rewrites that column": a rule over a
- * query that reads one is checked again (heldBefore), and a materialized view above its table is created again
+ * query that reads one is checked again (heldBefore), and a stored table above its table is created again
  * (Differ.viewDropsOf), since a proof of the old values, and rows computed from them, no longer stand.
  */
 const rewrittenColumns = (kept: ReadonlyMap<string, KeptTable>): ReadonlySet<StoredColumnKey> =>
@@ -4462,13 +4462,13 @@ type InPlace =
 
 /** The drop of a domain or a relation, which must find it. */
 const dropObject = (
-	v: Installed<AnyObject> & { readonly kind: "domain" | "table" | "materializedView" }
+	v: Installed<AnyObject> & { readonly kind: "domain" | "table" | "storedTable" }
 ): SqlStatement => {
 	const [object, name] =
 		v.kind === "table"
 			? (["TABLE", v.create.table] as const)
-			: v.kind === "materializedView"
-				? (["MATERIALIZED VIEW", v.create.name] as const)
+			: v.kind === "storedTable"
+				? (["TABLE", v.create.name] as const)
 				: (["DOMAIN", v.create.name] as const)
 	return { kind: "drop", object, name, ifExists: false }
 }
@@ -4488,12 +4488,12 @@ const constantName = (c: ConstantHeader): FunctionName => ({
 	args: c.params.map((p) => p.type)
 })
 
-/** The key of a table or a materialized view: the name its definition creates. */
+/** The key of a table: the name its definition creates. */
 const relationKey = (
-	v: Installed<AnyObject> & { readonly kind: "table" | "materializedView" }
+	v: Installed<AnyObject> & { readonly kind: "table" | "storedTable" }
 ): NameKey => nameKey(v.kind === "table" ? v.create.table : v.create.name)
 
-/** Each materialized view's meaning a snapshot records, by the view's identifier (types.ts SnapshotRelation). */
+/** Each stored table's meaning a snapshot records, by the view's identifier (types.ts SnapshotRelation). */
 const viewMeanings = (snapshot: DeploySnapshot | SnapshotContent): ReadonlyMap<string, string> =>
 	new Map(
 		Object.values(snapshot.theory.relations).flatMap((r) =>
@@ -4534,7 +4534,7 @@ const qualifiedNames = (
 	return out
 }
 
-/** What each installed materialized view reads, by table key: the previous snapshot's edges, and the relations every
+/** What each installed stored table reads, by table key: the previous snapshot's edges, and the relations every
  * installed definition names. A view's query names schema relations only as what it reads, and relations, types and
  * sequences share one namespace, so a qualified name in it is a relation it reads, a type it casts to, or neither; only
  * relation keys are ever looked up. */
@@ -4550,19 +4550,19 @@ const installedReads = (
 		const set = out.getOrInsertComputed(view, () => new Set<NameKey>())
 		set.add(relation)
 	}
+	const storedTables = new Set(
+		previous.manifest.objects.flatMap((o) => (o.kind === "storedTable" ? [o.ident] : []))
+	)
 	for (const e of previous.manifest.edges) {
 		const from = parseIdent(e.from)
 		const to = parseIdent(e.to)
-		if (
-			to.kind === "materializedView" &&
-			(from.kind === "table" || from.kind === "materializedView")
-		) {
+		if (storedTables.has(e.to) && to.kind === "table" && from.kind === "table") {
 			add(nameKey(to), nameKey(from))
 		}
 	}
 	for (const o of previous.manifest.objects) {
 		const v = installed(o)
-		if (v.kind !== "materializedView") {
+		if (v.kind !== "storedTable") {
 			continue
 		}
 		const view = nameKey(v.create.name)
@@ -4646,7 +4646,7 @@ const grantOf = (r: Revoke): Grant => ({
 
 /**
  * The objects a GRANT may name that an installed object is (privileges.ts GrantObject): a table, the ledger, a role's
- * view and a materialized view as a TABLE; a domain; a declared function's row type as a TYPE; every function,
+ * view and a stored table as a TABLE; a domain; a declared function's row type as a TYPE; every function,
  * constant and declared function by its name and argument types; a level's schema and a role's; none for any other.
  */
 const grantObjectsOf = (v: Installed<AnyObject>): ReadonlyArray<GrantObject> => {
@@ -4660,7 +4660,7 @@ const grantObjectsOf = (v: Installed<AnyObject>): ReadonlyArray<GrantObject> => 
 				{ kind: "FUNCTION", name: functionNameOf(v.stamp) }
 			]
 		case "view":
-		case "materializedView":
+		case "storedTable":
 			return [{ kind: "TABLE", name: v.create.name }]
 		case "domain":
 			return [{ kind: "DOMAIN", name: v.create.name }]
@@ -4755,7 +4755,7 @@ const sameRead = (was: RecordedObject, now: ManifestObject): boolean => {
  * Structure or in Publish, Differ.visit): each the target holds whose DDL changes, or that waits for an object the
  * migration changes (one whose DDL changes what they read, sameRead, one the previous manifest lacks, one the target lacks, or one `beneath`
  * names, which the migration takes away and builds again without changing its DDL: a
- * materialized view it drops, an object it drops before replacing a column it is built over, a table it converts a
+ * stored table it drops, an object it drops before replacing a column it is built over, a table it converts a
  * column of), read off the target's edges in install order, a world object waiting for every relation, type and
  * function its statements read (`readsOf`); and each the target no longer holds. PostgreSQL refuses to convert, drop or
  * rename what a view, a policy or a function body reads beneath it, so dropping them first leaves every structural
@@ -4765,8 +4765,8 @@ const sameRead = (was: RecordedObject, now: ManifestObject): boolean => {
  * its compile relies on of what it reads, a key it proves uniqueness by or a containment it proves existence by, is in
  * its statement where it changes what the statement says, a DISTINCT dropped or a join left out, and a proof that prints
  * nothing changes nothing PostgreSQL holds (sameRead); and PostgreSQL records no dependency of a view, policy or function on a foreign key
- * or a unique index, so a foreign key added, changed or dropped, or a materialized view's key, takes nothing away
- * beneath it. A materialized view whose keys change means something else and is created again (viewDropsOf), which
+ * or a unique index, so a foreign key added, changed or dropped, or a stored table's key, takes nothing away
+ * beneath it. A stored table whose keys change means something else and is created again (viewDropsOf), which
  * `beneath` names. */
 const worldChangesOf = (
 	previous: RecordedManifest,
@@ -4841,7 +4841,7 @@ const worldChangesOf = (
  *   refuse the conversion under it, and is built again as the target declares it, as on a relation that may hold rows,
  *   but for a key, which is added again in the same Structure transaction right after the conversion, so it holds at
  *   every commit;
- *   the materialized views over the table are dropped and recreated.
+ *   the stored tables over the table are dropped and recreated.
  * - A generated field: its expression changed, SET EXPRESSION (structure), which recomputes every row; its writing
  *   changed between its caller and a generation, its type changed, or a field it reads converted in place, dropped
  *   (structure.drop, a loss the reviewer decides when its caller wrote it) and added again (structure).
@@ -4881,17 +4881,17 @@ const worldChangesOf = (
  *   are new or changed, as a pattern change changes the domain they cast to, or when a domain they cast to takes a new
  *   constraint, as a contract's predicate change does, so either validates the closed facts as well as the existing
  *   rows; removing them drops nothing.
- * - Adding a derived relation: its view WITH NO DATA and its unique indexes (structure), populated by a REFRESH once
- *   every row it reads is written (structure.refresh). Changing what a definition means drops and recreates the view
- *   and every view above it that reads it, directly or through another, WITH NO DATA, with their indexes and
- *   declared statistics, refreshes each bottom-up, and grants their privileges again. A view the target no longer has that reads a
- *   recreated one cannot outlive it, so it is dropped first, here.
+ * - Adding a stored derived relation: its table WITH NO DATA, its primary key and its unique indexes (structure.views),
+ *   filled by an INSERT of its definition's rows once every row it reads is written (structure.stored). Changing what a
+ *   definition means, or its primary key, drops and recreates the table and every stored table above it that reads it,
+ *   directly or through another, WITH NO DATA, with their indexes and declared statistics, and fills each bottom-up. A
+ *   stored table the target no longer has that reads a recreated one cannot outlive it, so it is dropped first, here.
  * - Workload changes add indexes and declare each table's statistics anew (indexes); an index no law or program
  *   justifies any longer is dropped.
  * - World changes: a login's or role's PostgreSQL role created, its grants replaced and its memberships granted or
  *   revoked, a removed one's revoked and its role dropped (publish). A whole view, a role's query views, world functions
  *   (filter functions and key probes) and policies hold no data, so each the migration changes, or that reads anything it changes or
- *   takes away and builds again (a table, a column converted in place, a materialized view it
+ *   takes away and builds again (a table, a column converted in place, a stored table it
  *   drops, a relation whose keys or foreign keys it changes, a type, a function, another world object), is dropped at
  *   the start of Structure,
  *   before anything they read is converted or dropped; one the target no longer has is dropped there too

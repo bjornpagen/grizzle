@@ -192,7 +192,7 @@ const draftedOf = (plan: Parameters<typeof planFiles>[0]): Drafted => {
 	return {
 		checked: Arr.flatMap(drafts, (d) => (d.kind === "violation" ? [lawOf(d.law)] : [])),
 		created: Arr.flatMap(drafts, (d) =>
-			d.kind === "statement" && d.statement.kind === "createMaterializedView"
+			d.kind === "statement" && d.statement.kind === "createStoredTable"
 				? [viewOf(d.statement.name.name)]
 				: []
 		)

@@ -63,8 +63,8 @@ export type RouteColumn = Identifier<"column">
  *
  * - `keyed`: the rows of `table` whose `column` holds `value`, PostgreSQL's output text of the column's value, among
  *   the rows the write touched, each by the image it had before the write and the one it left;
- * - `table`: every row of `table`, where no route narrows a change: a TRUNCATE, a refresh of a materialized view, a
- *   change whose routed value the reader of the changes cannot read, or a keyed key too long to seal alone.
+ * - `table`: every row of `table`, where no route narrows a change: a TRUNCATE, a change whose routed value the
+ *   reader of the changes cannot read, or a keyed key too long to seal alone.
  *
  * A program fixing `column` of `table` to `value` hears its keyed key and its table's; a program that reads `table`
  * by no route hears every key of `table`.
@@ -343,9 +343,9 @@ export const sealBatch = (secret: LiveSecret, nonce: SealNonce, batch: LiveBatch
 
 /**
  * The notifications a batch's text holds (batchesOf), its texts joined by NUL, each parsed (parseNotification), or the
- * first text that parts from the grammar: a sealed payload's opened text, or an announcement's plaintext.
+ * first text that parts from the grammar: a sealed payload's opened text.
  */
-export const batchNotifications = (
+const batchNotifications = (
 	text: string
 ): Result.Result<ReadonlyArray<Notification>, LiveTextRefused> =>
 	Result.each(text.split(separator), (part) => parseNotification(part))
@@ -375,9 +375,9 @@ export const openPayload = (
 }
 
 /**
- * A footprint table: a stored relation some served program reads, by its declared name, and the declared fields of it
- * some program fixes to a parameter and routes by, each once, in code point order; none where every change of it
- * routes by its table alone.
+ * A footprint table: a stored relation some served program reads, authored or derived, by its declared name, and the
+ * declared fields of it some program fixes to a parameter and routes by, each once, in code point order; none where
+ * every change of it routes by its table alone.
  */
 export interface LiveTable {
 	readonly relation: string
@@ -386,17 +386,16 @@ export interface LiveTable {
 
 /**
  * What an installation's served read programs read, which a committed change reaches them through: `none` for an
- * installation that serves no read; otherwise each stored relation as a footprint table, by relation in code point order
- * (LiveTable), and each materialized derived relation, by its declared name in code point order, which no change of a
- * row reaches: a refresh replaces its rows at once and says so itself. Both may be empty, for reads of closed relations
- * alone, whose watches still learn of each migration the installation applies (physical/ddl/live.ts).
+ * installation that serves no read; otherwise each stored relation, authored or derived, as a footprint table, by
+ * relation in code point order (LiveTable): a stored derived relation's rows change in the transaction whose writes
+ * change them, by the judge's upkeep at its COMMIT. They may be none, for reads of closed relations alone, whose
+ * watches still learn of each migration the installation applies (physical/ddl/live.ts).
  */
 export type LivePlan =
 	| { readonly kind: "none" }
 	| {
 			readonly kind: "reads"
 			readonly tables: ReadonlyArray<LiveTable>
-			readonly views: ReadonlyArray<string>
 	  }
 
 /** The plan of an installation that serves no read. */
@@ -405,15 +404,12 @@ export const noLive: LivePlan = { kind: "none" }
 /**
  * An installation's live change source in installed terms, which generate derives from its plan and its names: none
  * where it serves no read, so no publication, decoder login or secret is installed for it; otherwise each published
- * footprint table of a stored relation, by its installed identifier, with the identifiers of the columns it routes by in
- * code point order, which the reader of its changes keys each changed row by; and each materialized view of the plan,
- * by its installed identifier in code point order, the only relation whose table's key a transactional message may
- * announce, since no change of a row reaches one.
+ * footprint table of a stored relation, authored or derived, by its installed identifier, with the identifiers of the
+ * columns it routes by in code point order, which the reader of its changes keys each changed row by.
  */
 export type LiveSource =
 	| { readonly kind: "none" }
 	| {
 			readonly kind: "source"
 			readonly tables: Readonly<Record<string, ReadonlyArray<string>>>
-			readonly views: ReadonlyArray<string>
 	  }

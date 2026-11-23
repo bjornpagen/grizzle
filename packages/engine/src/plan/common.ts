@@ -253,7 +253,6 @@ export type {
 	Clocked,
 	Paged,
 	ReadOf,
-	Refresh,
 	Workload
 } from "#compiler/types/db/workload.ts"
 export type { Evidence } from "#compiler/types/evidence/evidence.ts"
@@ -285,7 +284,6 @@ export type {
 	ProgramsOf,
 	ReadsAttested,
 	ReadsToken,
-	RefreshListOf,
 	RolesOf,
 	WithinRoleContexts,
 	WriteListOf

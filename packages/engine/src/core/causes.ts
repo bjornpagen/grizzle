@@ -236,7 +236,7 @@ export interface UnitLocality {
 /**
  * Why derived analysis refused a derived relation (analysis/derived), the cause of a DerivedRefused CompileError
  * (core/errors.ts):
- * - `attachment`: the definition attaches a nested relation to its facts: a materialized view stores flat facts.
+ * - `attachment`: the definition attaches a nested relation to its facts: a stored table holds flat facts.
  * - `undeclaredContract`: a field whose type is a contract the schema declares nowhere.
  * - `inheritedKey`: an inherited key narrower than the heading whose unique index entry is unrepresentable.
  * - `wholeHeading`: the whole heading, the one key when no narrower key is proven, whose unique index entry is
@@ -286,7 +286,7 @@ export type WritabilityReason =
 	| { readonly kind: "keyHoldsFamily"; readonly field: string }
 	| { readonly kind: "keyHoldsGeneration"; readonly field: string }
 
-/** What a role relation a write or refresh list names is: an ordinary, closed or derived whole entry, or a query entry. */
+/** What a role relation a write list names is: an ordinary, closed or derived whole entry, or a query entry. */
 export type EntryKind = "relation" | "closed" | "derived" | "query"
 
 /**
@@ -302,12 +302,11 @@ export type EntryKind = "relation" | "closed" | "derived" | "query"
  *   its declared contexts alone.
  * - `entryScope`: a scoped entry whose query states no scope of its relation (schema/scope.ts entryScope), which only a
  *   Description written by hand holds: scopedEntriesOf builds each scoped entry's query.
- * - `writeOutside`, `refreshOutside`: a write or refresh list naming `name`, no relation of the role.
+ * - `writeOutside`: a write list naming `name`, no relation of the role.
  * - `writeKind`: a write list naming a closed or derived whole entry.
  * - `writeUnwritable`: a write list naming a query entry the writable-entry analysis refuses, for `why`.
  * - `writeTwice`: two write entries, `entries`, that both write the base relation `relation`.
  * - `writeAndInsert`: a role stating both a write list and an insert list, where it writes by one of them.
- * - `refreshKind`: a refresh list naming an entry that is no derived whole entry.
  */
 export type RoleRule =
 	| { readonly kind: "entryOrdered"; readonly entry: string }
@@ -326,12 +325,6 @@ export type RoleRule =
 			readonly entries: readonly [string, string]
 	  }
 	| { readonly kind: "writeAndInsert" }
-	| { readonly kind: "refreshOutside"; readonly name: string }
-	| {
-			readonly kind: "refreshKind"
-			readonly name: string
-			readonly entryKind: Exclude<EntryKind, "derived">
-	  }
 
 /**
  * A rule of a login a description breaks (schema/world.ts loginBuilder at the builder, schema/own.ts ownLogin at
@@ -358,8 +351,8 @@ export type LoginRule =
  *   variable; `source`, a match of something but a context or an ordinary relation, a term but a variable or a literal,
  *   a filter reading a relation, or an interior or an attachment; `noContext`, an arm reading no context;
  *   `undetermined`, a row no key bound to the contexts and the rows they determine fixes, or a head they do not fix.
- * - `rootRelation`: a root naming `relation`, which no role holds scoped: no ordinary or materialized derived relation
- *   of the schema under its own name.
+ * - `rootRelation`: a root naming `relation`, which no role holds scoped: no ordinary or stored derived relation of
+ *   the schema under its own name.
  * - `rootField`: a root naming `field`, no field of `relation`.
  * - `ambiguous`: `relation`, whose declared containments reach scoped relations' keys in two forms holding different
  *   rows, `through` naming two: its owner would be no one row's.
@@ -500,7 +493,7 @@ export const keyFaultText = (name: string, key: ReadonlyArray<string>, fault: Ke
 export const derivedRefusalText = (cause: DerivedRefusal): string => {
 	switch (cause.kind) {
 		case "attachment":
-			return `derived relation ${cause.relation} over a definition that attaches a nested relation to its facts: a materialized view stores flat facts`
+			return `derived relation ${cause.relation} over a definition that attaches a nested relation to its facts: a stored table holds flat facts`
 		case "notUnitLocal":
 			return `stored derived relation ${cause.relation} over a unit-local definition, every fact of it within one unit of the relations it reads; it lacks ${cause.lacks.condition}: ${cause.lacks.detail}`
 		case "undeclaredContract":
@@ -584,10 +577,6 @@ export const roleRuleText = (rule: RoleRule): string => {
 			return `one writable entry per base relation; ${rule.entries[0]} and ${rule.entries[1]} both write ${rule.relation}`
 		case "writeAndInsert":
 			return "a write list or an insert list; the role states both"
-		case "refreshOutside":
-			return `a refresh list of the role's relations; ${rule.name} is none of them`
-		case "refreshKind":
-			return `a refresh list of derived whole entries; ${rule.name} is ${entryKindText[rule.entryKind]}`
 	}
 }
 
@@ -790,7 +779,7 @@ export const scopeRuleText = (rule: ScopeRule): string => {
 		case "owner":
 			return `an owner of one field read from the role's contexts and the rows they determine by a key; ${ownerBreakText[rule.why]}`
 		case "rootRelation":
-			return `roots that name ordinary or materialized derived relations of the schema; ${rule.relation} is none`
+			return `roots that name ordinary or stored derived relations of the schema; ${rule.relation} is none`
 		case "rootField":
 			return `a root's field of its relation; ${rule.field} is no field of ${rule.relation}`
 		case "ambiguous":

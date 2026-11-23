@@ -101,7 +101,7 @@ export const isolationFunctionIdent = (schema: string): string =>
  * SERIALIZABLE read-write transactions cluster-wide). What makes it so:
  *
  * - Every BEGIN grizzle sends names its level: a served read's SERIALIZABLE READ ONLY, a served write's at its role's,
- *   a refresh's and a migration file's transaction SERIALIZABLE (the shell's adapter/migrate/session.ts
+ *   and a migration file's transaction SERIALIZABLE (the shell's adapter/migrate/session.ts
  *   fileTransaction), the ledger's records in a migration's transaction, the drift check's SERIALIZABLE and rolled
  *   back, and the live leader's fanout READ COMMITTED; `grizzle check` and `grizzle upgrade` open those same sessions.
  *   A statement grizzle sends outside a BEGIN runs on an owner's session, the migration identity's (a survey or catalog

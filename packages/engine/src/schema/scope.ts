@@ -122,15 +122,15 @@ const relationsOf = (schema: SchemaDesc): ReadonlyMap<string, RelationDesc> => {
 }
 
 /**
- * The fields of a relation of `schema` a role may scope, an ordinary one's declared fields or a materialized derived
- * one's definition's (ir/desc.ts definitionFields), at least one; none for any other relation, or one it lacks.
+ * The fields of a relation of `schema` a role may scope, an ordinary one's declared fields or a stored derived one's
+ * definition's (ir/desc.ts definitionFields), at least one; none for any other relation, or one it lacks.
  */
 export const scopableFields = (schema: SchemaDesc, relation: string): Columns | undefined => {
 	const desc = relationsOf(schema).get(relation)
 	const fields =
 		desc?.kind === "relation"
 			? Object.keys(desc.fields)
-			: desc?.kind === "derived" && desc.storage === "materialized"
+			: desc?.kind === "derived" && desc.storage === "stored"
 				? definitionFields(desc.query)
 				: []
 	return isNonEmpty(fields) ? fields : undefined

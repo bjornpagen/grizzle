@@ -339,7 +339,7 @@ export const blocksReads = (d: Step["draft"]): boolean => {
 		st.kind === "renameColumn" ||
 		st.kind === "renameConstraint" ||
 		st.kind === "createView" ||
-		st.kind === "createMaterializedView"
+		st.kind === "createStoredTable"
 	)
 }
 

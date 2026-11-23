@@ -91,8 +91,11 @@ export interface ErasureExpectation {
 	readonly tables: ReadonlySet<string>
 	/** The table names of the mutable relations: the only ones a non-owner role may UPDATE. */
 	readonly mutable: ReadonlySet<string>
-	/** The materialized views of the derived relations. */
-	readonly views: ReadonlySet<string>
+	/**
+	 * The stored derived relations' tables, which only the rule judge's upkeep writes and no world's role holds a
+	 * privilege on: its views read them as their owner.
+	 */
+	readonly storedTables: ReadonlySet<string>
 	/**
 	 * grizzle's bookkeeping tables (deploy/ledger/ledger.ts bookkeepingTables): the tables beside the authored ones,
 	 * each under the isolation guard, on which no login holds a privilege but the ledger's SELECT.
@@ -133,8 +136,6 @@ export interface ErasureExpectation {
 	readonly rowSecure: ReadonlySet<string>
 	/** Each login, by its PostgreSQL role. */
 	readonly logins: ReadonlyMap<string, ExpectedLogin>
-	/** Each world role's refreshed materialized views: the only MAINTAIN it holds. */
-	readonly refreshes: ReadonlyMap<string, ReadonlySet<string>>
 	/** The query entries' views, `<world schema>.<view>`: the only security_barrier views. */
 	readonly barrierViews: ReadonlySet<string>
 	/** The world roles holding a query entry: the only ones whose own schema stands, of their query entries' views. */
@@ -176,7 +177,7 @@ export interface ExpectedLogin {
 	readonly fenced: ReadonlySet<string>
 }
 
-/** An object of the installation a problem names: a relation is a table or a materialized view of the schema. */
+/** An object of the installation a problem names: a relation is a table of the schema. */
 export type CatalogObject =
 	| { readonly kind: "schema"; readonly name: string }
 	| { readonly kind: "relation"; readonly name: string }
@@ -221,9 +222,7 @@ export type ErasureProblem =
 	  }
 	| { readonly kind: "truncate"; readonly relation: string; readonly grantee: string }
 	| { readonly kind: "immutableUpdate"; readonly object: CatalogObject; readonly grantee: string }
-	| { readonly kind: "maintainBeyondRefresh"; readonly view: string; readonly grantee: string }
-	| { readonly kind: "maintainMissing"; readonly view: string; readonly role: string }
-	| { readonly kind: "undeclaredView"; readonly view: string }
+	| { readonly kind: "maintainBeyondFence"; readonly relation: string; readonly grantee: string }
 	| { readonly kind: "foreignRelation"; readonly relation: string; readonly relkind: string }
 	| { readonly kind: "unexpectedTable"; readonly table: string }
 	| { readonly kind: "unexpectedSequence"; readonly sequence: string }
@@ -390,7 +389,6 @@ const beforeOrInstead = 2 + 64
 
 const allowed = {
 	table: new Set(["SELECT", "INSERT", "DELETE", "UPDATE"]),
-	view: new Set(["SELECT", "MAINTAIN"]),
 	column: new Set(["SELECT", "INSERT", "UPDATE"]),
 	usage: new Set(["USAGE"]),
 	function: new Set(["EXECUTE"]),
@@ -539,19 +537,17 @@ const loginLacks = (
 	)
 
 /**
- * What one catalog relation is to the installation: the materialized view of a declared derived relation or of none, a
- * table it expects (an authored relation's or the migrations ledger, carrying exactly one isolation guard when it is
- * guarded and none otherwise) or one it does not, or a relation of a kind grizzle never installs.
+ * What one catalog relation is to the installation: a table it expects (an authored relation's, a stored derived
+ * relation's or the migrations ledger, carrying exactly one isolation guard when it is guarded and none otherwise) or
+ * one it does not, or a relation of a kind grizzle never installs, a materialized view among them.
  */
 const standingProblems = (j: Judging, t: Table): ReadonlyArray<ErasureProblem> => {
-	if (t.kind === "m") {
-		return unless(j.expect.views.has(t.name), { kind: "undeclaredView", view: t.name })
-	}
 	if (t.kind !== "r") {
 		return [{ kind: "foreignRelation", relation: t.name, relkind: t.kind }]
 	}
 	if (
 		!j.expect.tables.has(t.name) &&
+		!j.expect.storedTables.has(t.name) &&
 		!j.expect.bookkeeping.has(t.name) &&
 		!j.expect.heads.has(t.name) &&
 		!isSecret(j, t)
@@ -571,7 +567,7 @@ const standingProblems = (j: Judging, t: Table): ReadonlyArray<ErasureProblem> =
 
 /**
  * What a non-owner's grant on a relation or a column of it confers: no TRUNCATE, UPDATE only when mutable, MAINTAIN
- * only to a refresher of the view or a login fencing the table (fenceGrant).
+ * only to a login fencing the table (fenceGrant).
  */
 const conferredProblems = (j: Judging, t: Table, g: HeldGrant): ReadonlyArray<ErasureProblem> => {
 	if (g.grantee === j.owner) {
@@ -589,15 +585,11 @@ const conferredProblems = (j: Judging, t: Table, g: HeldGrant): ReadonlyArray<Er
 	}
 	if (g.privilege === "MAINTAIN") {
 		const login = j.expect.logins.get(g.grantee)
-		return unless(
-			j.expect.refreshes.get(g.grantee)?.has(t.name) === true ||
-				(login !== undefined && fenceGrant(login, g)),
-			{
-				kind: "maintainBeyondRefresh",
-				view: t.name,
-				grantee: g.grantee
-			}
-		)
+		return unless(login !== undefined && fenceGrant(login, g), {
+			kind: "maintainBeyondFence",
+			relation: t.name,
+			grantee: g.grantee
+		})
 	}
 	return []
 }
@@ -613,16 +605,25 @@ const decoderReads = (j: Judging, t: Table, g: HeldGrant): boolean =>
 	g.grantee === j.expect.liveSource.decoder &&
 	g.privilege === "SELECT"
 
-/** What a world role may hold on `t`: nothing on the secret or a clock's head's table, SELECT and DELETE on a place's
- * head's table, a materialized view's or a table's privileges otherwise. */
-const worldPrivileges = (j: Judging, t: Table): ReadonlySet<string> => {
+/** What a world role may hold on a table, and on a column of it. */
+interface WorldPrivileges {
+	readonly table: ReadonlySet<string>
+	readonly column: ReadonlySet<string>
+}
+
+/**
+ * What a world role may hold on `t`, the one reading of a world's grants on a relation: nothing on the secret, a
+ * clock's head's table or a stored derived relation's table, which only the judge's upkeep writes and the world's
+ * views read as their owner; SELECT and DELETE on a place's head's table; a table's privileges otherwise.
+ */
+const worldPrivileges = (j: Judging, t: Table): WorldPrivileges => {
 	if (j.expect.releasedHeads.has(t.name)) {
-		return allowed.releasedHead
+		return { table: allowed.releasedHead, column: allowed.column }
 	}
-	if (isSecret(j, t) || j.expect.heads.has(t.name)) {
-		return allowed.none
+	if (isSecret(j, t) || j.expect.heads.has(t.name) || j.expect.storedTables.has(t.name)) {
+		return { table: allowed.none, column: allowed.none }
 	}
-	return t.kind === "m" ? allowed.view : allowed.table
+	return { table: allowed.table, column: allowed.column }
 }
 
 const tableProblems = (j: Judging, t: Table): ReadonlyArray<ErasureProblem> => {
@@ -631,6 +632,7 @@ const tableProblems = (j: Judging, t: Table): ReadonlyArray<ErasureProblem> => {
 	const held = on(relation, t.grants)
 	const own = Arr.filter(held, (g) => !decoderReads(j, t, g))
 	const columns = columnGrants(t)
+	const world = worldPrivileges(j, t)
 	return [
 		...standingProblems(j, t),
 		...unless(t.owner === j.owner, { kind: "misowned", object: relation, owner: t.owner }),
@@ -641,8 +643,8 @@ const tableProblems = (j: Judging, t: Table): ReadonlyArray<ErasureProblem> => {
 				: { kind: "rowSecurityMissing", table: t.name }
 		),
 		...unless(!t.forceRowSecurity, { kind: "rowSecurityForced", table: t.name }),
-		...grantProblems(j, own, worldPrivileges(j, t), ledger ? allowed.ledger : allowed.none),
-		...grantProblems(j, columns, allowed.column, allowed.none),
+		...grantProblems(j, own, world.table, ledger ? allowed.ledger : allowed.none),
+		...grantProblems(j, columns, world.column, allowed.none),
 		...(ledger ? loginLacks(j, relation, t.grants, "SELECT") : []),
 		...unless(!isSecret(j, t) || Arr.some(held, (g) => decoderReads(j, t, g)), {
 			kind: "decoderLacks",
@@ -659,15 +661,15 @@ const isLedger = (j: Judging, p: CatalogPublishedTable): boolean =>
 
 /**
  * What the database's publications publish of the installation: only the live source's publication publishes a table
- * of it, and only an authored table or the ledger, never the secret; and where the ledger stands, that publication
- * publishes it, so every migration applied reaches the leader.
+ * of it, and only an authored table, a stored derived relation's or the ledger, never the secret; and where the ledger
+ * stands, that publication publishes it, so every migration applied reaches the leader.
  */
 const publicationProblems = (j: Judging): ReadonlyArray<ErasureProblem> => {
 	const source = j.expect.liveSource
 	const sourcePublishes = (p: CatalogPublishedTable): boolean =>
 		source.kind === "source" &&
 		p.publication === source.publication &&
-		(j.expect.tables.has(p.table) || isLedger(j, p))
+		(j.expect.tables.has(p.table) || j.expect.storedTables.has(p.table) || isLedger(j, p))
 	const stranger = Arr.flatMap(j.catalog.publishedTables, (p) =>
 		unless(sourcePublishes(p), {
 			kind: "strangerPublished",
@@ -712,24 +714,6 @@ const fenceProblems = (j: Judging): ReadonlyArray<ErasureProblem> =>
 					object: { kind: "relation", name: table },
 					login,
 					privilege: "MAINTAIN"
-				}
-			)
-		)
-	)
-
-/** Every refresher holds MAINTAIN on each materialized view it refreshes. */
-const refresherProblems = (j: Judging): ReadonlyArray<ErasureProblem> =>
-	Arr.flatMap([...j.expect.refreshes], ([role, views]) =>
-		Arr.flatMap([...views], (view) =>
-			Option.match(
-				Arr.findFirst(j.catalog.tables, (x) => x.kind === "m" && x.name === view),
-				{
-					onNone: () => [],
-					onSome: (t) =>
-						unless(
-							Arr.some(t.grants, (g) => g.grantee === role && g.privilege === "MAINTAIN"),
-							{ kind: "maintainMissing", view, role }
-						)
 				}
 			)
 		)
@@ -1433,9 +1417,9 @@ const defaultAclProblems = (j: Judging): ReadonlyArray<ErasureProblem> => [
  * (installed.ts installedScope, by the manifest's object kinds) or from the naming door (declared.ts), never from a list
  * of names here:
  *
- * - only authored tables, the migrations ledger and the live source's secret exist, plus the materialized views of
- *   declared derived relations; no plain view, foreign table, sequence (grizzle mints no ids, 10a0cd919), or other
- *   type beyond domains and row types, and no pg_enum row: a roster is a smallint domain;
+ * - only authored tables, the migrations ledger and the live source's secret exist, plus the tables of declared
+ *   stored derived relations; no materialized view, plain view, foreign table, sequence (grizzle mints no ids,
+ *   10a0cd919), or other type beyond domains and row types, and no pg_enum row: a roster is a smallint domain;
  * - the only functions are the refusal function, the isolation guard and the snapshot guard, owned by the owner,
  *   SECURITY DEFINER, VOLATILE, with `search_path = pg_catalog, pg_temp`; the
  *   worlds' functions (each writable query entry's filter function and key and unique probes), owned by the owner,
@@ -1461,8 +1445,9 @@ const defaultAclProblems = (j: Judging): ReadonlyArray<ErasureProblem> => [
  *   leader read; and every other grant is the owner's or a world's role's; no role but the owner holds UPDATE, of the
  *   table or of a column, on an immutable relation (immutable by default is pinned) or TRUNCATE on any relation
  *   (TRUNCATE fires no row trigger and would bypass the laws); a table grants only SELECT, INSERT, DELETE and UPDATE,
- *   a materialized view SELECT and MAINTAIN, the latter to exactly the roles that refresh it, a column SELECT, INSERT
- *   and UPDATE, the schema and a domain USAGE;
+ *   a column SELECT, INSERT and UPDATE, and a stored derived relation's table nothing to any world's role, since only
+ *   the judge's upkeep writes it and the world's views read it as their owner (worldPrivileges); the schema and a
+ *   domain grant USAGE;
  * - row security is enabled exactly on the tables some world's entry narrows, never forced, and only those tables carry
  *   policies: one per world role that writes the table, a permissive FOR ALL policy named after that role, whose USING
  *   and WITH CHECK are one predicate, `true` for a role whose entry holds every row; a table every world writes whole
@@ -1519,7 +1504,6 @@ export const verifyErasure = (
 		}),
 		...loginLacks(j, schema, catalog.schemaGrants, "USAGE"),
 		...Arr.flatMap(catalog.tables, (t) => tableProblems(j, t)),
-		...refresherProblems(j),
 		...publicationProblems(j),
 		...fenceProblems(j),
 		...Arr.map(catalog.sequences, (q): ErasureProblem => ({

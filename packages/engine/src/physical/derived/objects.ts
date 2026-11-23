@@ -1,5 +1,6 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
-import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { DerivedRelationAnalysis } from "#compiler/analysis/derived/analyze.ts"
 import type { CatalogKey } from "#compiler/analysis/physical/evidence.ts"
@@ -31,10 +32,11 @@ import {
 import { noLive } from "#compiler/live/notify.ts"
 import { enforcement, type Node } from "#compiler/physical/obligations/graph.ts"
 import type {
+	AlterTable,
 	CreateIndex,
-	CreateMaterializedView,
-	ObjectName,
-	Refresh,
+	CreateStoredTable,
+	FillStored,
+	PrimaryKey,
 	Revoke
 } from "#compiler/sql/ast.ts"
 import { columnKey } from "#compiler/sql/build.ts"
@@ -84,8 +86,26 @@ const premiseLaws = (
 	return [...laws].toSorted(([, a], [, b]) => compareIdentities(a, b)).map(([id]) => id)
 }
 
-/** The view and unique indexes of one derived relation. `lowerKeys` are the inherited keys of the lower levels, each
- * the unique index already planned for it. */
+/**
+ * The fields of a stored relation's primary key, its narrowest inherited key `fields`: the fields of it that carry the
+ * declared unit its rows sit under, in that unit's key order, then its others in key order, so a key holding the unit
+ * leads with it and the upkeep's reads of the stored rows at a unit are a range of the key's index; a key holding no
+ * such field stands as proven. None declares a unit where no write of a holder changes the stored rows.
+ */
+const unitFirst = (
+	fields: NonEmptyReadonlyArray<string>,
+	declared: ReadonlyArray<string>
+): NonEmptyReadonlyArray<string> => {
+	const lead = declared.filter((f) => fields.includes(f))
+	const [first, ...rest] = [...lead, ...fields.filter((f) => !lead.includes(f))]
+	if (first === undefined) {
+		throw defect("a key of at least one field")
+	}
+	return [first, ...rest]
+}
+
+/** The stored table, primary key and unique indexes of one derived relation. `lowerKeys` are the inherited keys of the
+ * lower levels, each the unique index already planned for it. */
 const viewObjects = (
 	b: InstallBuilder,
 	analysis: DerivedAnalysis,
@@ -112,11 +132,34 @@ const viewObjects = (
 			catalog
 		})
 	)
-	const create: CreateMaterializedView = {
-		kind: "createMaterializedView",
+	const create: CreateStoredTable = {
+		kind: "createStoredTable",
 		name: view,
 		columns,
 		query: lowered.query
+	}
+	const [primary, ...secondary] = a.keys
+	if (primary === undefined) {
+		throw defect(`the inherited keys of ${name}, its heading's at least`)
+	}
+	const keyFields = unitFirst(
+		primary.fields,
+		b.model.theory.upkeeps.find((u) => u.relation === name)?.stored.declared.fields ?? []
+	)
+	/** The one name every evidence catalog gives the view's key (`derivedKeyConstraints`), which the derived analysis
+	 * names (`primary.index`): its primary key's, whose index PostgreSQL names after it, minted at the naming door. */
+	const primaryKey: PrimaryKey = {
+		kind: "primaryKey",
+		name: b.name(identity.derivedKey(name, primary.fields)),
+		columns: mapNonEmpty(keyFields, (f) => ({
+			column: b.names.column(name, f),
+			withoutOverlaps: false
+		}))
+	}
+	const keyed: AlterTable = {
+		kind: "alterTable",
+		table: view,
+		actions: [{ kind: "addConstraint", constraint: primaryKey, notValid: false }]
 	}
 	const revoke: Revoke = {
 		kind: "revoke",
@@ -128,10 +171,13 @@ const viewObjects = (
 	columnDomains(b, a.heading, use)
 	const viewObject = b.add(
 		{
-			kind: "materializedView",
-			ident: b.qualifiedOf("materializedView", name, b.names.relationNamed(name)),
-			ddl: [create, revoke],
-			reasons: [enforcement(`derived relation ${name}`)],
+			kind: "storedTable",
+			ident: b.qualifiedOf("table", name, b.names.relationNamed(name)),
+			ddl: [create, keyed, revoke],
+			reasons: [
+				enforcement(`derived relation ${name}`),
+				{ kind: "proof", premises: premiseLaws(b.model.theory, analysis, primary.proof.premises) }
+			],
 			phase: "structure"
 		},
 		[
@@ -144,8 +190,25 @@ const viewObjects = (
 		]
 	)
 
-	const keys: Array<{ readonly key: CatalogKey; readonly object: Node<"structure"> }> = []
-	for (const k of a.keys) {
+	/** Each key with the object that installs its index and that index's columns, in their order. */
+	const keys: Array<{
+		readonly key: CatalogKey
+		readonly object: Node<"structure">
+		readonly columns: NonEmptyReadonlyArray<string>
+	}> = [
+		{
+			key: {
+				relation: name,
+				fields: primary.fields,
+				spans: [],
+				kind: "uniqueIndex",
+				constraint: primary.index
+			},
+			object: viewObject,
+			columns: keyFields
+		}
+	]
+	for (const k of secondary) {
 		/** The one name every evidence catalog gives the view's key (`derivedKeyConstraints`), which
 		 * the derived analysis names. */
 		const named = identity.derivedKey(name, k.fields)
@@ -175,17 +238,19 @@ const viewObjects = (
 		)
 		keys.push({
 			key: { relation: name, fields: k.fields, spans: [], kind: "uniqueIndex", constraint: index },
-			object
+			object,
+			columns: k.fields
 		})
 	}
 	b.addIndexedView({
 		relation: name,
 		object: viewObject,
+		primaryKey: keyFields,
 		fields: new Map(fields),
 		uniqueIndexes: keys.map((k) => ({
 			object: k.object,
 			name: k.key.constraint,
-			columns: k.key.fields
+			columns: k.columns
 		}))
 	})
 	return keys.map((k) => k.key)
@@ -198,29 +263,33 @@ const viewObjects = (
  * Each derived relation lowers to exactly these objects of the one obligation graph, through the installer's
  * extensions, so they share its install order, manifest and determinism with every native object:
  *
- * - the materialized view `materializedView:<schema>.<view>`, in Structure: `CREATE MATERIALIZED VIEW
- *   <schema>.<view> (<columns>) AS <definition> WITH NO DATA`, the definition being the compiler's ordinary lowering
- *   of the query (`lowerDefinition`), then `REVOKE ALL ON TABLE <view> FROM PUBLIC` at once, so PUBLIC never holds a
- *   privilege on it. It is created after the tables, roster domains, constants and lower views its definition reads
- *   and after the domains its columns are typed by; a lower view joins the graph with this extension's
- *   contribution. WITH NO DATA makes creation cost nothing; the migration
- *   that creates the view populates it in Structure, once every row it reads is written (deploy/diff/diff.ts view);
- * - one unique index per inherited key, in Structure beside its view: `CREATE UNIQUE INDEX <key> ON <schema>.<view>
- *   USING btree (<cols>)`, plain columns, no expression and no predicate, the index REFRESH MATERIALIZED VIEW
- *   CONCURRENTLY requires, over the full heading when no narrower key is proven, named at the naming door
- *   (identity.derivedKey), as every evidence catalog names the view's key; the unique index compares a key's spans as values. The keys and their
- *   representability are the derived analysis's;
- * - the workload's indexes on the view, in Indexes like any relation's: the view registers its fields and unique indexes with the builder (addIndexedView), and the one index engine
- *   plans the workload requests on it with every other request; its unique indexes serve a request as a table's key
- *   indexes do.
+ * - the stored table `storedTable:<schema>.<relation>`, in Structure: `CREATE TABLE <schema>.<relation> (<columns>)
+ *   AS <definition> WITH NO DATA`, the definition being the compiler's ordinary lowering of the query
+ *   (`lowerDefinition`), so each column has the type the definition delivers; then `ALTER TABLE <relation> ADD
+ *   CONSTRAINT <key> PRIMARY KEY (<cols>)` over its narrowest inherited key, the full heading when no narrower key is
+ *   proven, the fields carrying its declared unit first (`unitFirst`), which marks each of them NOT NULL, as no
+ *   derived column is NULL; then `REVOKE ALL ON TABLE <relation> FROM PUBLIC` at once, so PUBLIC never holds a
+ *   privilege on it. It is created after the tables, roster domains, constants and lower stored relations its
+ *   definition reads and after the domains its columns are typed by. WITH NO DATA makes creation cost nothing; the
+ *   migration that creates the table fills it in Structure, once every row it reads is written (deploy/diff/diff.ts
+ *   view, `fillStatement`), and the judge's upkeep keeps it equal to its definition at every COMMIT after
+ *   (physical/ddl/rules.ts). Its primary key is the replica identity a live source decodes its changes by, as any
+ *   table's is (physical/ddl/live.ts);
+ * - one unique index per other inherited key, in Structure beside its table: `CREATE UNIQUE INDEX <key> ON
+ *   <schema>.<relation> USING btree (<cols>)`, plain columns, no expression and no predicate. Every key, the primary
+ *   one's included, is named at the naming door (identity.derivedKey), as every evidence catalog names the relation's
+ *   key, and compares a key's spans as values. The keys and their representability are the derived analysis's;
+ * - the workload's indexes on the table, in Indexes like any relation's: the table registers its fields, its primary
+ *   key and its unique indexes with the builder (addIndexedView), and the one index engine plans the workload requests on it with every
+ *   other request, the upkeep's among them; its unique indexes serve a request as a table's key indexes do.
  *
- * A role reads a derived relation it holds whole through its own view of it and refreshes one with MAINTAIN on the
- * materialized view, both granted with the role's other privileges. No role holds INSERT,
- * UPDATE, DELETE or TRUNCATE on a materialized view, and PostgreSQL runs the definition with the view owner's
- * privileges.
+ * A role reads a stored relation it holds whole through its own view of it, granted with the role's other privileges.
+ * No role holds INSERT, UPDATE, DELETE or TRUNCATE on a stored table: only the judge's upkeep writes it, SECURITY
+ * DEFINER, as its owner.
  *
- * Each object's reason is the enforcement of its declaration: the derived relation or its inherited key. No law names
- * a derived relation, so none carries a law reason. */
+ * Each object's reason is the enforcement of its declaration, the derived relation, and the proof of the key its
+ * index rests on: the stored table's its primary key's, a unique index's its own. No law names a derived relation, so
+ * none carries a law reason. */
 const derivedRelationExtension = (): InstallExtension => {
 	const extension = (b: InstallBuilder): Result.Result<InstallContribution, CompileError> =>
 		catchRefusal(() => {
@@ -252,12 +321,10 @@ export const withDerivedRelations = (options: InstallOptions): InstallOptions =>
 	extensions: [...options.extensions, derivedRelationExtension()]
 })
 
-/** REFRESH MATERIALIZED VIEW, plain for a view's first population and CONCURRENTLY after it, because the concurrent
- * form needs a populated view; the runtime decides which from pg_class.relispopulated.
- * Which views a db.refresh call refreshes, and in which order, is the runtime's: level of
- * schema extension, then declared order, which the owned schema's canonical Description does not keep. */
-export const refreshStatement = (view: ObjectName, concurrently: boolean): Refresh => ({
-	kind: "refresh",
-	view,
-	concurrently
+/** A stored relation's fill: every row of its definition, into the table `create` makes (sql/ast.ts FillStored). */
+export const fillStatement = (create: CreateStoredTable): FillStored => ({
+	kind: "fillStored",
+	table: create.name,
+	columns: create.columns,
+	query: create.query
 })

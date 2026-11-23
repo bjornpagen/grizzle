@@ -2,7 +2,6 @@ import { Array as Arr, Data, Effect, Record as Rec, Result } from "effect"
 import { typedContext, type TypedContext } from "#adapter/db/claims.ts"
 import type { ChangeVariants, WorkloadForm } from "#adapter/db/workload.ts"
 import { fromEngine, rowOptions, toResult } from "#adapter/engine.ts"
-import { refreshTargets } from "#adapter/refresh/targets.ts"
 import {
 	boundChangeForm,
 	compileReadForm,
@@ -210,7 +209,7 @@ export const ownLoginOver = (
 
 /**
  * The slice of a login's workloads (schema/reach.ts sliceOf): every program of them over each role of the login it runs
- * on (programsOn), but its refreshes, which read no law. A role value no role(...) built, or a workload value no workload(...) built, is refused, as compiling
+ * on (programsOn). A role value no role(...) built, or a workload value no workload(...) built, is refused, as compiling
  * the login's roles refuses it.
  */
 export const workloadSlice = (
@@ -226,9 +225,7 @@ export const workloadSlice = (
 				roleRefused(name)
 			)
 			for (const program of running) {
-				if (program.kind !== "refresh") {
-					programs.push({ role: role.owned, program: program.desc })
-				}
+				programs.push({ role: role.owned, program: program.desc })
 			}
 		}
 		return sliceOf(owned.base, programs)
@@ -329,15 +326,6 @@ const programForm = (
 				variants
 			}))
 		}
-		case "refresh":
-			return Result.map(
-				refreshTargets(role.role, role.artifacts, program.relations),
-				(targets): WorkloadForm => ({
-					name: program.name,
-					kind: "refresh",
-					targets: Arr.map(targets, (t) => ({ relation: t.relation, view: t.view }))
-				})
-			)
 	}
 }
 

@@ -475,7 +475,7 @@ const viewColumns = <C extends HeadingColumn>(
 	return extendNonEmpty(columns[0], columns.slice(1).flat())
 }
 
-/** The view of a whole entry: every column of its table or materialized view, in heading order, each closed id with
+/** The view of a whole entry: every column of its table, in heading order, each closed id with
  * its decoded column after it. */
 const wholeView = (
 	b: InstallBuilder,
@@ -564,11 +564,11 @@ const worldView = (
 	}
 }
 
-/** A whole entry over a stored relation or a materialized derived relation: one a whole view reads. */
+/** A whole entry over a stored relation or a stored derived relation: one a whole view reads. */
 type ViewedWhole = Extract<RoleRelation, { readonly kind: "stored" | "derived" }>
 
-/** The whole view of a relation a whole entry holds, named `name`: its table's every row and column, or its materialized
- * view's. */
+/** The whole view of a relation a whole entry holds, named `name`: its table's every row and column, a stored derived
+ * relation's table's among them. */
 const wholeViewOf = (b: InstallBuilder, name: ObjectName, r: ViewedWhole): ViewPlan => {
 	switch (r.kind) {
 		case "stored":
@@ -594,7 +594,7 @@ interface WholeViewObject {
 }
 
 /**
- * The whole views of the installation, by their relations' declared names: one per stored or materialized derived
+ * The whole views of the installation, by their relations' declared names: one per stored relation or stored derived
  * relation some role of `roles` holds whole, named as that role's names name it (names.ts RoleViewName `whole`), the
  * relation's name in its level's schema of whole views, created once with that schema, owned by the owner. A whole view
  * is its relation's alone, the same view whichever role holds it: every role holding the relation is granted SELECT on
@@ -1637,14 +1637,6 @@ const addRole = (
 		columnDomains(b, carried.columns, use)
 	}
 
-	const refreshed = role.refresh.map((f) => b.names.relation(f))
-	for (const f of role.refresh) {
-		const view = b.materializedView(f)
-		if (view !== undefined) {
-			after.push(view)
-		}
-	}
-
 	const privileges: Array<SqlStatement> = [
 		grant(["USAGE"], {
 			kind: "SCHEMA",
@@ -1663,9 +1655,6 @@ const addRole = (
 	}
 	if (isNonEmpty(read)) {
 		privileges.push(grant(["SELECT"], { kind: "TABLE", names: read }))
-	}
-	if (isNonEmpty(refreshed)) {
-		privileges.push(grant(["MAINTAIN"], { kind: "TABLE", names: refreshed }))
 	}
 	appendAll(privileges, grants)
 	privileges.push(grant(["EXECUTE"], { kind: "FUNCTION", names: [refusalFunction(b.schema)] }))
@@ -1911,9 +1900,9 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
  *   statement that is not an ALTER ROLE: it installs nothing, and a migration runs it whenever it stores a default
  *   after it.
  *
- * Once for the installation (`addWholeViews`): for each stored or materialized derived relation some role holds whole,
+ * Once for the installation (`addWholeViews`): for each stored relation or stored derived relation some role holds whole,
  * its whole view, `__<level>.<relation>`, in its level's schema of whole views, `CREATE SCHEMA __<level>`, each owned
- * by the owner, so it reads reality as the owner: every row and column of its table (or its materialized view), which
+ * by the owner, so it reads reality as the owner: every row and column of its table, which
  * hides nothing, so it is a plain view, which PostgreSQL flattens into the reader's query, pushing its quals to the
  * table's indexes and keeping SSI's read locks to the rows read. A whole view is its relation's alone, the same view
  * whichever role holds it, so it is created once and granted to every role holding the relation whole.
@@ -1952,8 +1941,8 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
  *   vector column, and on the domains its relations' columns are typed by, down a contract's base chain, roster, bits
  *   and structural text domains alike, which a write's carriers name; SELECT on the whole view of each relation it
  *   holds whole and on each of its query entries' views, and on no other view: USAGE on a schema only resolves its
- *   names, and PostgreSQL checks SELECT on each view's own grants, so what a role reads is exactly what it holds; MAINTAIN on the materialized view of each derived relation it refreshes, which
- *   REFRESH MATERIALIZED VIEW checks. For each writable entry on T: a whole entry's table SELECT, INSERT and DELETE,
+ *   names, and PostgreSQL checks SELECT on each view's own grants, so what a role reads is exactly what it holds. For
+ *   each writable entry on T: a whole entry's table SELECT, INSERT and DELETE,
  *   and UPDATE when its relation is mutable, so an UPDATE of an immutable relation is refused by privilege (immutable by
  *   default is pinned); a query entry's column SELECT and INSERT on T's fields (the head's, the fixed ones and those
  *   T's family draws, which are all of them), column UPDATE on its mutable head fields that are neither fixed, nor in a

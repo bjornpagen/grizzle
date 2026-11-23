@@ -102,8 +102,8 @@ export const compileServedMoved = (
 	compiledJson("compileServedMoved", login, snapshot, workloads, snapshotMovedEntry)
 
 /**
- * indexesOf(snapshot): every index the installation holds, by the declared name of the relation whose table or
- * materialized view holds it, then by the index's name (a plan node's `on.relation` and `on.index.name`), read from
+ * indexesOf(snapshot): every index the installation holds, by the declared name of the relation whose table holds
+ * it, then by the index's name (a plan node's `on.relation` and `on.index.name`), read from
  * `snapshot`, the JSON value an import of the snapshot.json the login's served file was generated beside yields. Each
  * index is its key columns in key order and the reasons the snapshot's manifest records for it (SnapshotIndex): a
  * column is a field of the relation, by its declared name, or a law column, by what it holds (LawColumnHolds) and the

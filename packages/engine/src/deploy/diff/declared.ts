@@ -1749,7 +1749,7 @@ const columnRenames = (
  * columns and predicate, a table's declared statistics' columns, and a column privilege's grant. A column an
  * expression names without a relation is its table's, as every expression over one table's row names it. A
  * statement of any other kind names no column of a table it is built over; the roles' views, policies and functions,
- * and the materialized views, which read columns through a relation of their FROM, the diff builds again whenever
+ * and the stored tables, which read columns through a relation of their FROM, the diff builds again whenever
  * they read a column a migration changes.
  */
 const withColumns = (
@@ -1931,7 +1931,7 @@ const withColumns = (
 		case "createDomain":
 		case "alterDomain":
 		case "dropIndex":
-		case "createMaterializedView":
+		case "createStoredTable":
 		case "createView":
 		case "dropPolicy":
 		case "dropFunction":
@@ -1957,7 +1957,7 @@ const withColumns = (
 		case "commit":
 		case "rollback":
 		case "setConstraintsImmediate":
-		case "refresh":
+		case "fillStored":
 			return s
 		case "createConstraintTrigger": {
 			const into = renamed(s.table)
@@ -2022,7 +2022,7 @@ const withRoles = (s: WholeStatement, roles: ReadonlyMap<string, string>): Whole
 		case "alterDomain":
 		case "createIndex":
 		case "dropIndex":
-		case "createMaterializedView":
+		case "createStoredTable":
 		case "createView":
 		case "dropPolicy":
 		case "dropFunction":
@@ -2047,7 +2047,7 @@ const withRoles = (s: WholeStatement, roles: ReadonlyMap<string, string>): Whole
 		case "commit":
 		case "rollback":
 		case "setConstraintsImmediate":
-		case "refresh":
+		case "fillStored":
 			return s
 	}
 }

@@ -56,7 +56,13 @@ import {
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { type RegionFacts, regionFactsOf, storedUnit } from "#compiler/analysis/theory/unit.ts"
+import {
+	type RegionFacts,
+	regionFactsOf,
+	type StoredUpkeep,
+	storedUnit,
+	storedUpkeep
+} from "#compiler/analysis/theory/unit.ts"
 import { type ConstraintName, FieldId, type LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
@@ -265,6 +271,9 @@ export interface Theory extends CheckedTheory {
 	 * the one record the stored relation's upkeep and the isolation checker read which unit its rows stand in from.
 	 */
 	readonly stored: Readonly<Record<string, StoredUnit>>
+	/** Each stored derived relation's upkeep (analysis/theory/unit.ts StoredUpkeep), in name order: what the judge's
+	 * phase A writes at COMMIT (physical/ddl/rules.ts). */
+	readonly upkeeps: ReadonlyArray<StoredUpkeep>
 }
 
 /** A theory with the evidence its laws give queries (theoryEvidence), each containment's validity context the one law
@@ -598,7 +607,7 @@ class Builder {
 		const fill = unwrap(fillOrder(families, laws))
 		const relations = Object.freeze(Object.fromEntries(this.sides.relations))
 		const instants = unwrap(instantRoles(relations, laws))
-		const stored = this.#stored()
+		const { stored, upkeeps } = this.#stored()
 		return Object.freeze({
 			schema: this.owned.fingerprint,
 			name: this.owned.name,
@@ -613,7 +622,8 @@ class Builder {
 			fill,
 			regionFacts: this.regionFacts,
 			instants,
-			stored
+			stored,
+			upkeeps
 		})
 	}
 
@@ -625,7 +635,10 @@ class Builder {
 	 * grizzle never reads a body, so a function's declared volatility and its declared calls are the author's promise,
 	 * as PostgreSQL's IMMUTABLE is.
 	 */
-	#stored(): Readonly<Record<string, StoredUnit>> {
+	#stored(): {
+		readonly stored: Readonly<Record<string, StoredUnit>>
+		readonly upkeeps: ReadonlyArray<StoredUpkeep>
+	} {
 		const functions = this.owned.functions
 		const unfit = (fn: string): string | undefined => {
 			const seen = new Set<string>()
@@ -651,17 +664,16 @@ class Builder {
 			return undefined
 		}
 		const admitted: Array<readonly [string, StoredUnit]> = []
+		const upkeeps: Array<StoredUpkeep> = []
 		for (const r of Object.values(this.owned.relations).toSorted((a, b) =>
 			compareStrings(a.name, b.name)
 		)) {
 			if (r.desc.kind !== "derived" || r.desc.storage !== "stored") {
 				continue
 			}
-			const decided = storedUnit(
-				this.#live.query(r.desc.query),
-				this.sides.relations,
-				unfit,
-				(relation) => this.owned.unitOf.get(relation)
+			const definition = this.#live.query(r.desc.query)
+			const decided = storedUnit(definition, this.sides.relations, unfit, (relation) =>
+				this.owned.unitOf.get(relation)
 			)
 			if ("condition" in decided) {
 				throw new Refusal(
@@ -669,8 +681,18 @@ class Builder {
 				)
 			}
 			admitted.push([r.name, decided])
+			upkeeps.push(
+				storedUpkeep(
+					r.name,
+					definition,
+					decided,
+					this.sides.relations,
+					this.regionFacts,
+					r.desc.loc
+				)
+			)
 		}
-		return Object.freeze(Object.fromEntries(admitted))
+		return { stored: Object.freeze(Object.fromEntries(admitted)), upkeeps: Object.freeze(upkeeps) }
 	}
 
 	/**

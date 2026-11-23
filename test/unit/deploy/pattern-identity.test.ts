@@ -115,7 +115,7 @@ const worksOverRows = (st: SqlStatement): boolean =>
 	st.kind === "createTable" ||
 	st.kind === "createIndex" ||
 	st.kind === "dropIndex" ||
-	st.kind === "createMaterializedView" ||
+	st.kind === "createStoredTable" ||
 	st.kind === "refresh" ||
 	(st.kind === "alterTable" &&
 		Arr.some(

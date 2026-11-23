@@ -29,10 +29,10 @@ import {
  *   takes for its leader's;
  * - each footprint table's REPLICA IDENTITY (`identityOf`): its primary key's, PostgreSQL's default, where every field
  *   it routes by lies in the key, so an update's or a delete's record keeps every old routing value; FULL otherwise;
- * - its publication (identity.liveSource): every footprint table, every kind of change, a FULL table whole and a
- *   key-identity table by its key's columns (`publishedTables`), and the migrations ledger, which the snapshot adds
- *   with the ledger's other objects (deploy/ledger/ledger.ts ledgerPublished); a materialized view of the plan is no
- *   table of it, since its refresh announces itself;
+ * - its publication (identity.liveSource): every footprint table, an authored relation's or a stored derived
+ *   relation's, whose rows the judge's upkeep writes in the writing transaction itself, every kind of change, a FULL
+ *   table whole and a key-identity table by its key's columns (`publishedTables`), and the migrations ledger, which
+ *   the snapshot adds with the ledger's other objects (deploy/ledger/ledger.ts ledgerPublished);
  * - its decoder login (identity.liveSource, under the role space), LOGIN NOINHERIT, the replication right migrate
  *   grants it once the installation's files commit, and USAGE on the root's schema with SELECT on the secret, which
  *   its listeners and its leader read at runtime: every other statement they send needs only what PUBLIC holds (the
@@ -73,10 +73,14 @@ const addLiveSecret = (
 }
 
 /**
- * The columns of a footprint table's primary key, in key order, as its CREATE TABLE declares it: what its REPLICA
- * IDENTITY DEFAULT holds, which a column list of the publication must cover, a span key's law column among them.
+ * The columns of a footprint table's primary key, in key order, as its CREATE TABLE declares it, or a stored derived
+ * relation's as its extension registered it (InstallBuilder storedPrimaryKey): what its REPLICA IDENTITY DEFAULT
+ * holds, which a column list of the publication must cover, a span key's law column among them.
  */
 const keyColumns = (b: InstallBuilder, relation: string): NonEmptyReadonlyArray<string> => {
+	if (b.owned.relations[relation]?.kind === "derived") {
+		return mapNonEmpty(b.storedPrimaryKey(relation), (field) => b.names.column(relation, field))
+	}
 	const created = b.evaluatedOn(relation).find((s) => s.kind === "createTable")
 	if (created?.kind !== "createTable") {
 		throw defect(`the CREATE TABLE of the footprint table of ${relation}`)
@@ -93,6 +97,15 @@ const identityOf = (b: InstallBuilder, table: LiveTable): "key" | "full" => {
 	return table.routes.every((field) => key.has(b.names.column(table.relation, field)))
 		? "key"
 		: "full"
+}
+
+/** The object that creates a footprint table: an authored relation's table, or a stored derived relation's. */
+const footprintTable = (b: InstallBuilder, table: LiveTable): Node<"setup" | "structure"> => {
+	const node = b.readObject(table.relation)
+	if (node === undefined) {
+		throw defect(`the table of the footprint relation ${table.relation}`)
+	}
+	return node
 }
 
 /** The publication's footprint tables, each of `tables`: a FULL one whole, a key-identity one by its key's columns. */
@@ -138,7 +151,7 @@ export const addLiveSource = (b: InstallBuilder, plan: LivePlan): void => {
 							reasons: [why],
 							phase: "structure"
 						},
-						[b.table(table.relation)]
+						[footprintTable(b, table)]
 					)
 				]
 			: []
@@ -153,7 +166,7 @@ export const addLiveSource = (b: InstallBuilder, plan: LivePlan): void => {
 			reasons: [why],
 			phase: "publish"
 		},
-		[...plan.tables.map((table) => b.table(table.relation)), ...identities]
+		[...plan.tables.map((table) => footprintTable(b, table)), ...identities]
 	)
 	const decoder = b.add(
 		{

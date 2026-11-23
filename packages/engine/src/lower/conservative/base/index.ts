@@ -7,7 +7,7 @@ import {
 import { col, table, target, unitTargets } from "#compiler/sql/build.ts"
 
 /**
- * Base: a scan of a stored relation, or of a derived relation's materialized view.
+ * Base: a scan of a stored relation's table, an authored or a stored derived relation's.
  *
  *   SELECT DISTINCT r1.<column>, ... FROM <schema>.<table> AS r1
  *

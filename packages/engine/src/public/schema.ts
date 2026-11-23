@@ -1,9 +1,5 @@
 import { recordsBuilder, recordsFactsOver, recordsQueryOver } from "#compiler/program/records.ts"
-import {
-	derivedBuilder,
-	materializedDerived as materializedBuilder,
-	storedDerived as storedBuilder
-} from "#compiler/schema/relation.ts"
+import { derivedBuilder, storedDerived as storedBuilder } from "#compiler/schema/relation.ts"
 import type {
 	CheckedDefinition,
 	DefinitionQuery,
@@ -160,7 +156,6 @@ export type {
 	LoginRole,
 	ReadsAttested,
 	ReadsToken,
-	RefreshListOf,
 	Role,
 	RoleOver,
 	RolesOf,
@@ -216,9 +211,9 @@ export type {
  * precise signature is declared with the derived relation types (types/derived); the view here gives it to the one
  * builder of a derived relation's value (schema/relation.ts).
  *
- * derived(name, definition), derived.materialized(name, definition) and derived.stored(name, definition): views over
- * the builders of a derived relation's value (schema/relation.ts derivedBuilder, materializedDerived and
- * storedDerived), which narrow its definition to one DefinitionCheck admits.
+ * derived(name, definition) and derived.stored(name, definition): views over the builders of a derived relation's
+ * value (schema/relation.ts derivedBuilder and storedDerived), which narrow its definition to one DefinitionCheck
+ * admits.
  */
 export const derived: DerivedConstructor = Object.freeze(
 	Object.assign(
@@ -232,15 +227,6 @@ export const derived: DerivedConstructor = Object.freeze(
 			"live"
 		> => derivedBuilder<Name, Q>(name, definition, extra),
 		{
-			materialized: <const Name extends string, Q extends DefinitionQuery>(
-				name: RelationName<Name>,
-				definition: CheckedDefinition<Q>,
-				...extra: ReadonlyArray<unknown>
-			): Derived<
-				Name,
-				DefinitionView<Q["heading"], DefinitionKeys<Q>, RuleReadOf<Q>, DefinitionLevel<Q>>,
-				"materialized"
-			> => materializedBuilder<Name, Q>(name, definition, extra),
 			stored: <const Name extends string, Q extends DefinitionQuery>(
 				name: RelationName<Name>,
 				definition: CheckedDefinition<Q>,

@@ -43,7 +43,7 @@ sees a database differently:
 - **An enum is a closed relation:** rows the schema fixes, data that rules and queries read, not strings repeated
   through the code.
 - **A derived value is never written by hand.** A count or a running total is filled by grizzle on every write and
-  proved by PostgreSQL's constraints, and a rollup is a query PostgreSQL stores as a materialized view.
+  proved by PostgreSQL's constraints, and a rollup is a query read live, or stored and kept equal to it at every COMMIT.
 
 grizzle makes that model the API, and compiles it into PostgreSQL so that PostgreSQL enforces it for every writer, not
 only your app. A rule over tables becomes one of PostgreSQL's own constraints, and a rule over a query, a join no table
@@ -1246,22 +1246,21 @@ LIMIT 51;  -- one extra row tells you whether there is a next page
 
 CREATE INDEX call_by_workspace ON call (workspace_id, at DESC, id DESC);
 
-CREATE MATERIALIZED VIEW model_spend AS
-  SELECT workspace_id, model, count(*) AS calls, sum(cost) AS spend FROM call GROUP BY workspace_id, model;
-CREATE UNIQUE INDEX ON model_spend (workspace_id, model);  -- REFRESH ... CONCURRENTLY needs it
+SELECT count(*) AS calls, sum(cost) AS spend FROM call WHERE workspace_id = $1 AND model = $2;
+CREATE INDEX call_by_workspace_model ON call (workspace_id, model);
 ```
 
-Drizzle's `pgMaterializedView` declares the view and `refreshMaterializedView` refreshes it. The cursor format, the backward page and both indexes are yours, and an index that stops matching its query fails silently, as a slow page.
+The cursor format, the backward page and both indexes are yours, and an index that stops matching its query fails silently, as a slow page.
 
-**The reframe.** Each piece follows from something you declare anyway. A page is a window of an ordered set, and its anchor a row's place in that order; the order is total once it ends in a key, which grizzle knows, so a row's key is its place. A rollup is a derived relation, a query whose rows PostgreSQL stores, and its key follows from its query. An index serves the queries that need it, so the queries your app runs decide the indexes:
+**The reframe.** Each piece follows from something you declare anyway. A page is a window of an ordered set, and its anchor a row's place in that order; the order is total once it ends in a key, which grizzle knows, so a row's key is its place. A rollup is a derived relation, a query with a name, and its key follows from its query. An index serves the queries that need it, so the queries your app runs decide the indexes:
 
-- **`derived.materialized(name, query)`** stores a query's rows as a materialized view, uniquely indexed on the keys the query provably has. `schema.extend` declares it in a level of its own over the schema it reads, here `Reporting` over `Usage`, and a role's `refresh` list names what the role may refresh.
-- **`workload(role, programs)`** names the queries and writes your app runs on its hot paths. A login owns its workloads: `grizzle generate` compiles them into the login's served file and derives the indexes they need. An ordered query your app pages is the member `paged(query)`: its input holds a `window`, and generate compiles window templates for no other member. A read answered once and never watched is the member `answered(read)`, whose login needs no live source for it ([Reading](#reading)). A materialized table is refreshed by the member `refresh(tables)`, which takes a nonempty list.
+- **`derived(name, query)`** names a query as a relation. It stores nothing: a read of it reads its definition, here one workspace's calls of one model, a range of the index its read earns. `schema.extend` declares it in a level of its own over the schema it reads, here `Reporting` over `Usage`.
+- **`workload(role, programs)`** names the queries and writes your app runs on its hot paths. A login owns its workloads: `grizzle generate` compiles them into the login's served file and derives the indexes they need. An ordered query your app pages is the member `paged(query)`: its input holds a `window`, and generate compiles window templates for no other member. A read answered once and never watched is the member `answered(read)`, whose login needs no live source for it ([Reading](#reading)).
 
 **The declaration**, continuing the `Usage` schema of [case 2](#2-top-three-per-group-with-exact-types):
 
 ```ts
-import { derived, paged, refresh, wholeEntriesOf, workload } from "@bjornpagen/grizzle"
+import { derived, paged, wholeEntriesOf, workload } from "@bjornpagen/grizzle"
 
 /** A workspace's calls, newest first. */
 export const callLog = query(Usage)
@@ -1273,8 +1272,8 @@ export const callLog = query(Usage)
 	})
 	.orderBy(["at", "desc"])
 
-/** Calls and spend per workspace and model, stored, and refreshed when the job says so. */
-export const ModelSpend = derived.materialized(
+/** Calls and spend per workspace and model: a derived relation, which every read of it reads through its definition. */
+export const ModelSpend = derived(
 	"ModelSpend",
 	query(Usage).rule((r) => {
 		const { id, workspace, model, cost } = v(Call, "call")
@@ -1285,11 +1284,12 @@ export const ModelSpend = derived.materialized(
 )
 export const Reporting = schema.extend([Usage], "Reporting", [ModelSpend], [])
 
-export const Analyst = role(Reporting, "analyst", wholeEntriesOf(Reporting), {
-	refresh: ["ModelSpend"]
-})
+export const Analyst = role(Reporting, "analyst", wholeEntriesOf(Reporting))
 
-/** One workspace's spend on one model: at most one row, since the rollup's key is (workspace, model). */
+/**
+ * One workspace's spend on one model: at most one row, since the rollup's key is (workspace, model). As a member of
+ * the workload it is the index on Call's (workspace, model) that generate derives.
+ */
 export const modelSpend = query(Reporting).rule((r) => {
 	const { calls, spend } = v(ModelSpend, "modelSpend")
 	return r
@@ -1304,8 +1304,7 @@ export const modelSpend = query(Reporting).rule((r) => {
 
 export const usage = workload(Analyst, {
 	callLog: paged(callLog),
-	modelSpend,
-	nightly: refresh([ModelSpend])
+	modelSpend
 })
 export const UsageApi = login(Reporting, "usage_api", [Analyst], { workload: [usage] })
 ```
@@ -1330,22 +1329,17 @@ export const moreCalls = (db: AnalystDb, workspace: string, anchor: CallAnchor) 
 
 export const spendOn = (db: AnalystDb, workspace: string, model: string) =>
 	db.workload.modelSpend.once({ params: { workspace, model }, facts: {} })
-export const nightly = (db: AnalystDb) => db.workload.nightly.once({ params: {}, facts: {} })
 ```
 
 **What you get.**
 
 - **Windows.** `once` answers a `KeyedList` of rows, `{ id, model, at, cost }` with `at` and `cost` the branded `bigint`s of their contracts, in the query's order. Ties are broken by `id`, the row's key, which grizzle adds to the order, so `(at, id)` is each row's key: an entry's `key` is the anchor of the window after it, `{ kind: "after", key }`, and `{ kind: "end" }` and `{ kind: "before", key }` read backward. `{ kind: "at", position: 100 }` is the window after the order's first 100 calls, for a client that asks for page 3 of 50: its statement skips those 100 calls, so a key is the anchor to scroll by ([Reading](#reading)). A window is one statement of `size` rows: there are no cursors and no flags, and the window after the last row holding none is the end. `watch` keeps a window live: its rows change as writes change them.
-- **The rollup.** `ModelSpend`'s key, `(workspace, model)`, follows from its query, so `modelSpend` returns at most one row: `spendOn` gives a set of at most one `{ calls: bigint; spend: Decimal }`. `refresh([ModelSpend])` compiles only for a role whose `refresh` lists it, and `nightly`'s `once` refreshes the view in one transaction, answering `{ kind: "refreshed" }`.
-- **The indexes.** `grizzle generate` derives one from the workload's `callLog` and one from the rollup's key, and grants the refresh:
+- **The rollup.** `ModelSpend`'s key, `(workspace, model)`, follows from its query, so `modelSpend` returns at most one row: `spendOn` gives a set of at most one `{ calls: bigint; spend: Decimal }`. It is always current: it is the calls as they stand, read as one range of the index below, and no job keeps it.
+- **The indexes.** `grizzle generate` derives one from the workload's `callLog` and one from `modelSpend`, whose read of `ModelSpend` reads `Call` at one workspace and one model:
 
 ```sql
 CREATE INDEX "__call_ix_workspace_at_id_txjpwdbrfr" ON "usage"."call" USING btree ("workspace", "at", "id" DESC);
-
-CREATE MATERIALIZED VIEW "reporting"."model_spend" ("model", "workspace", "calls", "spend") AS … WITH NO DATA;
-CREATE UNIQUE INDEX "__model_spend_key_model_workspace_p5jkdouxat" ON "reporting"."model_spend" USING btree ("model", "workspace");
-
-GRANT MAINTAIN ON TABLE "reporting"."model_spend" TO "reporting__analyst";
+CREATE INDEX "__call_ix_model_workspace_54aly2la6z" ON "usage"."call" USING btree ("model", "workspace");
 ```
 
 Change `callLog` so that it needs another index, and `grizzle check` refuses until you run `grizzle generate` again.
@@ -1370,7 +1364,7 @@ For porting an app, each Drizzle construct and what takes its place:
 | `` check("some_seats", sql`...`) ``                    | `check("SomeSeats", Show, (s) => s.ge(s.seats, 1n))`                                               |
 | `index().on(...)`                                      | nothing: `grizzle generate` derives indexes from your rules and your `workload(...)` queries    |
 | `pgPolicy(...)`, and `set_config` around each request  | `context(...)` and `role(...)`                                                                  |
-| `pgMaterializedView(...)`                              | `derived.materialized(...)`                                                                     |
+| `pgMaterializedView(...)`                              | `derived.stored(...)`                                                                           |
 | `db.select().from(post).where(eq(post.id, id))`        | `query(Blog).rule((r) => r.match(Post, { ... }).where(r.eq(...)).find({ ... }))`                |
 | `.innerJoin(comment, eq(comment.postId, post.id))`     | one variable in two matches                                                                     |
 | `notExists(...)`                                       | `r.not(Comment, { org, post: slug })`                                                           |
@@ -1405,7 +1399,7 @@ The whole map, from what you declare to what PostgreSQL enforces for every write
 | `login(...)` | a LOGIN NOINHERIT role that can switch to its roles, holds no privilege on your tables, and pins the session settings grizzle's guarantees rest on |
 | `workload(...)` | the indexes its programs need, and the declared statistics that rank them; the programs compiled by `grizzle generate` into the login's served file |
 | `derived(...)` | nothing: every query that matches it and every rule over it reads its definition |
-| `derived.materialized(...)` | a materialized view, uniquely indexed on the keys it provably has |
+| `derived.stored(...)` | a table grizzle keeps equal to its definition at every COMMIT, uniquely indexed on the keys it provably has |
 | a query | SQL, usually one statement and one more per attachment, and a decoder for its exact row type |
 
 None of it is a trigger or a policy you keep in step by hand. Migrations are plain SQL files that `grizzle generate` drafts and you review, as with drizzle-kit.
@@ -2579,8 +2573,8 @@ definition too.
   UNIQUE grizzle may add, one over its columns refusing rows the schema admits: the judge holds it where it is
   unit-local as above, and it is refused (`UnsupportedLawFamily`) anywhere else. A migration that moves a containment
   from its foreign key to the judge checks no row: the foreign key held this very law on every write.
-- **Judged live.** A rule reads its query as the tables stand at commit, `derived.materialized(...)` included: never
-  its view's rows, and never as of a refresh.
+- **Judged live.** A rule reads its query as the tables stand at commit, a stored derived relation's definition
+  included.
 - **What PostgreSQL gets.** A rule that reads only tables is a constraint, as above. A rule that reads a query is
   judged once per transaction, over the rows it wrote: a unit-local rule over the units of those rows, any other over
   the rows themselves. On each table the query reads, an AFTER statement trigger for
@@ -2641,7 +2635,7 @@ definition too.
   rows. The proof is of the values the rule read, so a migration that writes again a column it reads checks it again
   too, whatever its identity: a generated column re-expressed (SET EXPRESSION, a closed row its generation reads among
   the causes), converted, or dropped and added again, and a column a family's backfill draws again, none of which the
-  rule's triggers see. A materialized view above such a column's table is created again and filled for the same reason.
+  rule's triggers see. A stored derived relation above such a column's table is created again and filled for the same reason.
 - **TRUNCATE** fires no capture, so a rule over a query does not judge a TRUNCATE of a table it reads, and judges
   the rows a transaction added to it before a TRUNCATE as if they stood. grizzle never truncates and no role may; a
   direct writer who truncates such a table answers for the rule itself.
@@ -2997,9 +2991,9 @@ Three declarations, all in the [example](#example):
   boolean, the integer types, contracts over them, and closed ids, whose claim is a handle's name. An absent claim
   object is no row, and a payload that is not an object has none; a context read from the top level refuses such a
   payload at stage `token`. No rule reads a context, and no ChangeSet writes one.
-- **`role(schema, name, entries, { write?, insert?, refresh?, contexts? })`**: what one kind of user sees. An
+- **`role(schema, name, entries, { write?, insert?, contexts? })`**: what one kind of user sees. An
   entry is a table of the schema, whole, a scoped entry of one ([Scoped entries](#scoped-entries)), or a query over it. `write` lists the entries it writes, each once (a name
-  listed twice is a type error), `refresh` the derived tables it refreshes, and `contexts` the contexts it declares
+  listed twice is a type error), and `contexts` the contexts it declares
   ([Contexts of a role](#contexts-of-a-role)). `insert` lists them in place of `write` for a role that only
   inserts: it holds INSERT and SELECT on what it writes and no UPDATE or DELETE, so a ChangeSet of it that deletes,
   puts, or adds a member to a mutable owner's family, which updates the owner's count, is `OutsideRole` (`insert`)
@@ -3040,8 +3034,7 @@ Roles:
 - **`RoleRefused`**, when you build the role, names the rule it breaks: a query entry reading a table the schema
   lacks, or with parameters, nested results, vector search or an `orderBy` without `take`; a `write` naming no entry of
   the role, a roster, a derived table or an unwritable query entry, or two entries over one table, and so for an
-  `insert`, which also names at least one entry; both a `write` and an `insert` (`writeAndInsert`); a `refresh` naming
-  anything but a derived table.
+  `insert`, which also names at least one entry; or both a `write` and an `insert` (`writeAndInsert`).
 
 **Installed names come from the values.** `roleNameOf(Web, connection)` is a login's PostgreSQL role in the
 installation `connection` names: the one its pool logs in as, a password is set on and `rds_iam` is granted to.
@@ -3139,9 +3132,9 @@ export const Student = role(
   whose key the contexts fix (`ClerkAccount`, keyed by `clerk`), and nothing else: no negation, aggregate, import or
   interior. Each of its rows is the session's own. Any other owner is `ScopeRefused` (`owner`).
 - **A root** is stated, never inferred: `Assignment: "student"` holds the assignments whose `student` the owner holds.
-  A root names an ordinary or materialized derived table of `S` and one of its fields; anything else is `ScopeRefused`
+  A root names an ordinary or stored derived table of `S` and one of its fields; anything else is `ScopeRefused`
   (`rootRelation`, `rootField`), and a name outside `S` or a field outside the table is a type error.
-- **A reached table** is every other ordinary or materialized derived table whose fields reach a scoped table's key
+- **A reached table** is every other ordinary or stored derived table whose fields reach a scoped table's key
   along declared containments, each step a `contained` into a key, unselected on both sides. `SittingEvent`, with
   `contained(on(SittingEvent, "number"), on(Assignment, "number"))`, holds the events of the owner's assignments. A chain
   is held in its shortest form: `EventAt`, contained in `SittingEvent`'s key `(number, step)`, reaches `Assignment` by
@@ -3653,7 +3646,7 @@ A Db runs its login's served workload and nothing else: every call is a member, 
 - **`watch(input)`** is a `Stream` of the member's events: `reset`, then an `upsert` of each row as PostgreSQL delivers it, then `ready` once the read's transaction has committed, then, live, an `upsert` or a `remove` of each row whose change alters the answer. An upsert before `ready` is provisional: an `error` before it voids the rows it delivered. `once` is `watch` folded until `ready`.
 - **Windows.** A member `paged(orderedQuery)` reads a window: `window: { anchor, size }`, its anchor `{ kind: "start" }`, `{ kind: "after", key }`, `{ kind: "end" }`, `{ kind: "before", key }` or `{ kind: "at", position }`. A key is a row's `RowKey`, the values of the query's completed order, which the row's entry in a value carries. A position is the count of rows of that order before the window, 0 for its first row, any safe integer of at least 0: page `n` of size `m`, counting pages from 1, is `window: { anchor: { kind: "at", position: (n - 1) * m }, size: m }`. A window is one statement of at most `size` rows, and a window that holds no rows is past the end. A size is any safe integer of at least 1, with no default and no largest.
 - **A key or a position.** A keyset window seeks past its key in the order, through the index the order is read by, so it costs its size's rows wherever it lies. A positioned window is PostgreSQL's own `OFFSET` over the same order: its statement reads and discards every row before its position, so its cost grows with its position, and the window at position 1,000,000 reads a million rows to deliver its own. The order is total, so a position names exactly one window of one snapshot, but each call is its own snapshot: a row written or deleted before a position between two calls moves every row after it, so pages read by position across calls can repeat a row or skip one. A positioned window's entries carry their keys as every window's do, so `{ kind: "after", key }` at its last entry continues it by keyset. Keyset anchors are the scalable and stable way through an order, and position anchors exist for an API whose callers name pages by number.
-- **`explain(input)`** returns PostgreSQL's plan of each statement the member sends for that input, in the order it sends them, as data: one `{ statement, plan }` per statement, `statement` the name it is prepared under on every session (`grizzle_…`, as `pg_prepared_statements` and `pg_stat_statements` show it). Each is planned by `EXPLAIN (FORMAT JSON, VERBOSE)` over the statement's served text with the call's values, which runs nothing, in one transaction of the Db's role that is rolled back, so explaining a ChangeSet member writes nothing: its session stands the write up first, as its apply's does (a session's first call of a write makes its carriers and its rule tables once), each carrier is emptied as its apply empties it, and every statement after it is planned against it. The plan is the one PostgreSQL makes for those values, which a session uses for a statement's first executions; a session that has run it many times may switch to a generic plan. A plan node holds its node type, its estimated startup and total cost, rows and width, its children, and `on`, what it reads, named by the login's served file and never parsed back from PostgreSQL's names: `{ kind: "relation", relation }` for a table, or a derived relation's materialized view, read whole or written; `{ kind: "index", relation, index: { name } }` for one read through an index; `{ kind: "carrier" }` for the ChangeSet's own temporary carrier, read whole through the session function every statement reads it by (so a statement's plan outlives the carrier's emptying), since it holds no index; and `{ kind: "none" }` for a join, a sort or any node that reads no relation. A key member takes its key's values as its params, and a paged member explains its window's statement. A refresh member has no explain: REFRESH has no plan. A plan that reads a table or index the served file does not name is refused as unreadable. A served file names each index alone, so no running process loads what an index is: `indexesOf(snapshot)`, from `@bjornpagen/grizzle/compile`, takes the JSON value of the snapshot.json the file was generated beside and returns a `Result` of a map that holds, under each relation and then each index name, `{ columns, reasons }`. `columns` are the index's key columns in key order, each `{ kind: "field", field }`, a field of the relation by its declared name, or `{ kind: "law", holds, laws }`, a column a law adds, by the field whose values it holds and the laws it is added for, and each with its `direction`, `"asc"` or `"desc"` in a B-tree and `"none"` in an index that orders nothing; so a test holds a plan's index to "leads with `document`, then `start`" in field names. `reasons` are why the installation holds it: each law it serves by its identity, the `id` a refusal names that law by; the workload's access; or a derived relation's key.
+- **`explain(input)`** returns PostgreSQL's plan of each statement the member sends for that input, in the order it sends them, as data: one `{ statement, plan }` per statement, `statement` the name it is prepared under on every session (`grizzle_…`, as `pg_prepared_statements` and `pg_stat_statements` show it). Each is planned by `EXPLAIN (FORMAT JSON, VERBOSE)` over the statement's served text with the call's values, which runs nothing, in one transaction of the Db's role that is rolled back, so explaining a ChangeSet member writes nothing: its session stands the write up first, as its apply's does (a session's first call of a write makes its carriers and its rule tables once), each carrier is emptied as its apply empties it, and every statement after it is planned against it. The plan is the one PostgreSQL makes for those values, which a session uses for a statement's first executions; a session that has run it many times may switch to a generic plan. A plan node holds its node type, its estimated startup and total cost, rows and width, its children, and `on`, what it reads, named by the login's served file and never parsed back from PostgreSQL's names: `{ kind: "relation", relation }` for a table, a stored derived relation's among them, read whole or written; `{ kind: "index", relation, index: { name } }` for one read through an index; `{ kind: "carrier" }` for the ChangeSet's own temporary carrier, read whole through the session function every statement reads it by (so a statement's plan outlives the carrier's emptying), since it holds no index; and `{ kind: "none" }` for a join, a sort or any node that reads no relation. A key member takes its key's values as its params, and a paged member explains its window's statement. A plan that reads a table or index the served file does not name is refused as unreadable. A served file names each index alone, so no running process loads what an index is: `indexesOf(snapshot)`, from `@bjornpagen/grizzle/compile`, takes the JSON value of the snapshot.json the file was generated beside and returns a `Result` of a map that holds, under each relation and then each index name, `{ columns, reasons }`. `columns` are the index's key columns in key order, each `{ kind: "field", field }`, a field of the relation by its declared name, or `{ kind: "law", holds, laws }`, a column a law adds, by the field whose values it holds and the laws it is added for, and each with its `direction`, `"asc"` or `"desc"` in a B-tree and `"none"` in an index that orders nothing; so a test holds a plan's index to "leads with `document`, then `start`" in field names. `reasons` are why the installation holds it: each law it serves by its identity, the `id` a refusal names that law by; the workload's access; or a derived relation's key.
 - **`explainAnalyze(input)`**, on a read member, runs its statement under `EXPLAIN (ANALYZE, FORMAT JSON, VERBOSE)` in the read's own transaction, rolled back, and returns each node's actual time to its first and last row, rows and loops, and the shared buffers it hit and read, beside its estimates, with the statement's planning and execution times. A ChangeSet member has none.
 
 ```text
@@ -3666,7 +3659,7 @@ yield* db.workload.postPage.explain({ params: { org, slug }, facts: {} })   // a
   reasons: [{ kind: "law", law: "__post_pk_org_slug_…" }, { kind: "access" }] }
 ```
 
-- **A member's calls** are exactly what its program allows: a read's `once`, `watch`, `explain` and `explainAnalyze`; an answered read's, a clocked one's among them, `once`, `explain` and `explainAnalyze`; a ChangeSet's `once`, `watch` and `explain`; a refresh's `once` and `watch`. A member `refresh(tables)`, of a nonempty list of tables, is a write that refreshes its materialized tables in one transaction, lower levels first, and answers `{ kind: "refreshed" }`. A ChangeSet member with array members, facts its `insert`, `insertAll`, `delete` or `put` was given as an array, takes them as its input's `facts`: under each such member's op, `insert` (an `insertAll`'s members are inserts), `put` or `delete`, and then under its relation's name, the rows that member takes, typed and checked as its own (an owner's insert's with their families nested), as in `once({ params: {}, facts: { put: { Blob: stated }, delete: { Blob: removed } } })`. An op or relation left out, a row that is no fact of its relation and a name that is no array member's op or relation are type errors, and two array members of one op and one relation in two strata are refused where the strata meet: merge them into one. Every other member's facts are `{}`.
+- **A member's calls** are exactly what its program allows: a read's `once`, `watch`, `explain` and `explainAnalyze`; an answered read's, a clocked one's among them, `once`, `explain` and `explainAnalyze`; a ChangeSet's `once`, `watch` and `explain`. A ChangeSet member with array members, facts its `insert`, `insertAll`, `delete` or `put` was given as an array, takes them as its input's `facts`: under each such member's op, `insert` (an `insertAll`'s members are inserts), `put` or `delete`, and then under its relation's name, the rows that member takes, typed and checked as its own (an owner's insert's with their families nested), as in `once({ params: {}, facts: { put: { Blob: stated }, delete: { Blob: removed } } })`. An op or relation left out, a row that is no fact of its relation and a name that is no array member's op or relation are type errors, and two array members of one op and one relation in two strata are refused where the strata meet: merge them into one. Every other member's facts are `{}`.
 - **No other program runs.** A Db holds only the members its served file holds, each prepared under the name generate gave its text. A program built at run time runs once a workload names it and generate serves it, so put every program your application runs in a workload.
 - **A session's first call of a write stands the write up.** Before a session's first call of a ChangeSet member, one
   transaction of its own, framed as the call is, makes in the session what the write's statements read and write: each
@@ -3698,7 +3691,7 @@ export const UsageClock = workload(Usage, { ranBefore: clocked(ranBefore, { now:
 - **A reading is an observation, not an order.** Calls that do not overlap read non-decreasing instants, unless the server's wall clock steps back, as an NTP step or a failover to another host can. Overlapping calls read in neither their commit order nor the serial order their isolation proves, so a stamp is no cursor over what is visible: a read at an instant can miss a row stamped before it that commits after the read's snapshot. Keys fence a write; the clock decides only when work is due.
 - **Never live.** Time passing is no change, so a clocked read is an answered one ([Reading](#reading)) with its clock: answered at its call's instant alone, its handle holds `once`, `explain` and `explainAnalyze`, and no `watch`, and over HTTP its answer is `reset`, its upserts, `ready`, then `end`. It needs no live source. To wake at an instant, watch a read of the due instants that reads no clock, and read the clocked one when an instant passes. A clocked ChangeSet is a ChangeSet member like any other, whose `watch` is its outcome, then the end.
 - **The reading is the parameter's value.** It stands wherever the parameter does, cast to the parameter's type, so a contract judges it as it judges a caller's value, `refused` on the contract. The member's input holds the program's other parameters alone. A law, a check, a contract, a generated field, a derived relation and a role's entry read no parameter, so none reads the clock: a law judged against the clock would turn false with no write. PostgreSQL accepts `now()` in a table's or a domain's CHECK and judges it only at write; grizzle emits none.
-- **What a binding binds.** A binding names at least one parameter of the program whose values are `bigint`s, each with its unit; any other name is a type error, a take's or a page's bound is refused, and a paged member, a key and a refresh are never clocked. A micros reading past the year 294,247 on the server's clock is out of bigint's range, and refuses the call.
+- **What a binding binds.** A binding names at least one parameter of the program whose values are `bigint`s, each with its unit; any other name is a type error, a take's or a page's bound is refused, and a paged member and a key are never clocked. A micros reading past the year 294,247 on the server's clock is out of bigint's range, and refuses the call.
 - **A host row's deadline is computed from the reading.** An insert's computed fields (`insertAllComputed`,
   [Writes](#writes)) read the reading as any parameter, so the rows a caller states, an owner's with its members nested among them, take a lease's
   end or a due instant from the call's own clock in the statement that writes them, never from the host's.
@@ -4271,8 +4264,10 @@ every query that matches it, and every rule over it ([Rules over queries](#rules
 and a role reads it through the tables its definition reads, never as a whole entry. The query takes no parameter,
 matches no context, has at least one field, and its rules share one set of columns.
 
-`derived.stored(name, query)` is the relation grizzle keeps equal to its definition at every COMMIT, for every writer.
-Its definition must be unit-local, as a rule judged whole is ([Rules over queries](#rules-over-queries)):
+`derived.stored(name, query)` is the same relation with its rows in a table of its own, which grizzle keeps equal to
+its definition at every COMMIT, for every writer: grizzle's programs, direct SQL and a migration's data steps alike.
+A query that matches it reads the table, a range of its key, never its definition; a role may hold it whole, and no
+role writes it. Its definition must be unit-local, as a rule judged whole is ([Rules over queries](#rules-over-queries)):
 - every relation it reads leads its primary key with the unit's fields and sits in one declared unit
   ([Units](#units)) whose key leads them, so every write of its rows, a mutable relation's updates and deletes among
   them, holds that unit, and grizzle writes the stored rows under the same borrow;
@@ -4283,21 +4278,25 @@ Its definition must be unit-local, as a rule judged whole is ([Rules over querie
 
 A definition that lacks a condition is refused when the schema compiles, `DerivedRefused` naming the condition and
 where it fails: `notUnitLocal`, with `inPlace`, `unitKey`, `split`, `negation`, `aggregate`, `recursion`, `shape`,
-`hidden`, `noUnit`, `call` or `borrow`. The declaration and its admission have landed; its table, its fill and its
-upkeep at COMMIT have not. Until they land, a stored relation is read as its definition, as `derived` is, so every row
-it reads is right and none is stored.
+`hidden`, `noUnit`, `call` or `borrow`.
 
-`derived.materialized(name, query)` also stores the query's rows as a materialized view, which a role may hold whole
-and refresh, and which a query matching it reads as of its last refresh. The keys a query provably has are a choice of
-one key in each of its independent parts, such as one of the two keys of each table it joins: the view gets a unique
-index on one key and on each key one choice away from it, so k such tables make k + 1 indexes, not 2^k, and every key
-of the product stands in a key member, a nested result or an order. A query of several rules, each finding a literal that
-tells its rows apart, is keyed the same way: its keys hold a key of every rule beside those literals. Columns the query
-makes equal count as one column of a key, so k equal pairs make one key, not 2^k: the index holds the first of them,
-and any of them stands for it. A materialized table changes only when a refresh refreshes it, on a role whose
-`refresh` list names it: a workload member `refresh(tables)`, whose `once` refreshes all its tables in one
-transaction, lower levels first. A refresh of no table is a type error: narrow a list built at run time with `Array.isReadonlyArrayNonEmpty`
-first. A rule over either kind reads its definition, never the view.
+- **When its rows are written.** At COMMIT, where the rule judge runs: for each unit whose rows a transaction wrote,
+  on either side of every relation its definition reads, the judge deletes the stored rows there its definition no
+  longer delivers and inserts the ones it delivers anew, two statements over the rows the transaction wrote, its work
+  the written units' and never the table's. A stored row that stays is never touched. After `SET CONSTRAINTS ALL
+  IMMEDIATE` the judge runs at the end of each statement, so the stored rows are current after each. A statement
+  earlier in the writing transaction reads them as the transaction found them, for the units it wrote.
+- **Its table.** `CREATE TABLE … AS <definition> WITH NO DATA`, each column of the type its definition delivers, its
+  primary key the narrowest key the query provably has, the unit's fields first, and a unique index on each other: a choice of one key in each of its independent parts, such as one
+  of the two keys of each table it joins, one index on one key and on each key one choice away from it, so k such
+  tables make k + 1 indexes, not 2^k, and every key of the product stands in a key member, a nested result or an
+  order. A query of several rules, each finding a literal that tells its rows apart, is keyed the same way: its keys
+  hold a key of every rule beside those literals. Columns the query makes equal count as one column of a key, so k
+  equal pairs make one key, not 2^k: the index holds the first of them, and any of them stands for it.
+- **Migrations.** The migration that creates the table fills it with its definition's every row, once every row it
+  reads is written. One that changes what the definition means, a function it calls among them, or writes again a
+  column it reads, creates it again and fills it.
+- **Rules over it** read its definition, as a rule over `derived` does.
 
 ## Records of a query
 
@@ -4666,7 +4665,7 @@ export const AuthorApp = login(Qti, "author_app", [QtiAuthor])
 ```
 
 - **Each level is a PostgreSQL schema.** `schemaNameOf(Qti)` is `qti` and `schemaNameOf(Ledger)` is `ledger`: a level's
-  tables, materialized views and rosters' domains live in its own schema. A login or role is named
+  tables, stored derived tables and rosters' domains live in its own schema. A login or role is named
   by the level it is over, `roleNameOf(LedgerApp, {})` is `ledger__app` and `roleNameOf(AuthorApp, {})` is `qti__author_app`.
   The root's schema also holds what belongs to the whole installation: the migrations ledger, the contract and text
   domains, the constants and grizzle's functions. Every reference across schemas is qualified.
@@ -4974,7 +4973,7 @@ deploy.
   one at a time, each privilege of one role on one object: the migration grants what the target holds and the
   previous installation did not, revokes what that held and the target does not, and touches no other grant, so a
   migration that changes one relation or one role leaves every other role's grants as they are. An object the
-  migration drops takes its grants with it, and one it creates again, a view or a materialized view, is granted
+  migration drops takes its grants with it, and one it creates again, a view, is granted
   again what the target states on it, to every role the target grants it to.
 - **No guessing.** grizzle never guesses a rename and drops nothing you didn't declare. Declare each with
   `--rename <old>=<new>` or `--drop <old>`, once per name, each side a relation (`Task`), a field (`Task.title`), a
@@ -5443,7 +5442,7 @@ fails with its `CallError`, by kind:
   other, and over HTTP the call's error is `unavailable`, reason `verifierUnavailable`, retried safely, so an outage of
   your verifier never reads as a refused token.
 - **`transient`**: its `reason` is `SerializationFailure` (40001), `Deadlock` (40P01), or a concurrent transaction's
-  work the statement met (`PutTargetConflict`, `SpanKeyChange`, `UnseenOccupant`, `ConcurrentRefresh`). grizzle never
+  work the statement met (`PutTargetConflict`, `SpanKeyChange`, `UnseenOccupant`). grizzle never
   runs a call again: running it again is the caller's (a den step runs again past one). Each refusal changed nothing
   and came of another transaction's committed work, and PostgreSQL's serializable implementation cancels an attempt
   only once a transaction it conflicts with has committed, "such that an immediate retry will not fail again on
@@ -5775,7 +5774,7 @@ check`, like any change to the workload. The served login reads it: `served<type
 is `readCommitted` or `serializable`, for every role of the login.
 
 **Reads stay SERIALIZABLE READ ONLY.** A query, a key and a window run SERIALIZABLE READ ONLY whatever the role's level,
-each one statement. A refresh is a write at SERIALIZABLE. A ChangeSet's read-backs run in its own transaction, at its
+each one statement. A ChangeSet's read-backs run in its own transaction, at its
 level.
 
 **compileServed serves every role SERIALIZABLE.** A file `compileServed` compiles from other programs than the
@@ -6205,7 +6204,7 @@ it is, read offline from the committed snapshot. PostgreSQL answers:
   entry, the vector extension's schema when a column it reads or writes is a vector, and exactly the domains its
   columns use: its rosters' and sets', and its contracts' and patterns', down each contract's base.
 - SELECT on the whole view of each table it holds whole and on each of its query entries' views, and on no other view
-  and no materialized view. USAGE on a schema only resolves its names: every view's own grants decide who reads it.
+  and no stored derived table. USAGE on a schema only resolves its names: every view's own grants decide who reads it.
 - On a table it writes through a whole-table entry: SELECT, INSERT and DELETE, and UPDATE when the table is mutable.
 - On a table it writes through a query entry: column SELECT and INSERT on every column, column UPDATE (when the table is
   mutable) on each of the entry's columns outside every key that no claim fixes directly, and DELETE; never table-level
@@ -6228,7 +6227,6 @@ it is, read offline from the committed snapshot. PostgreSQL answers:
     constant, a set's live constant), from the domains of its columns, from every CHECK, generated field, default and
     index of a table it writes, a cast into a domain inside them included, and from its policies and its views; and
     the closed constants its queries read.
-- MAINTAIN on the materialized view of each derived table its `refresh` names.
 - TEMPORARY on the database, when a ChangeSet its login serves it stands up a temporary table: a carrier of its own,
   the rows of a query two of its statements read, or one its nested rows past one Bind message travel through. A
   read-back never needs one. No login holds it.
@@ -6251,7 +6249,7 @@ grizzle fits applications that own their data end to end, with rules worth decla
 - **No PgBouncer, no LISTEN/NOTIFY and no browser connections.** A browser cannot reach PostgreSQL directly; a server runs `verify`.
 - **The login is the trust boundary.** Anyone with its password can act as any of its roles, with any claims.
 - **Relations are closed by default**: their facts are inserted, never changed or deleted. `mutable(T)` inside a unit opens one to puts and deletes.
-- **Derived tables are refreshed explicitly**, by a workload's `refresh(...)` member.
+- **Stored derived tables are kept at COMMIT**, by the rule judge, for every writer: no job refreshes them.
 - **Migrations are downtime.** No `Db` call runs while a migration is being applied.
 
 ### Values

@@ -417,7 +417,7 @@ type WorkloadIndexMethod = Exclude<IndexMethod, "hash">
 export interface AccessPath {
 	readonly relation: string
 	/**
-	 * A derived relation's materialized view takes workload indexes like any relation; the installer passes them on
+	 * A derived relation's stored table takes workload indexes like any relation; the installer passes them on
 	 * only where it installs the view.
 	 */
 	readonly derived: boolean
@@ -521,7 +521,7 @@ export const physicalKinds = [
 	"isolationFunction",
 	"snapshotGuard",
 	"isolationTrigger",
-	"materializedView",
+	"storedTable",
 	"uniqueIndex",
 	"index",
 	"statistics",

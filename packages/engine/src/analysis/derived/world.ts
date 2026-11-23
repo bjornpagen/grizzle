@@ -101,7 +101,7 @@ export const analyzeWorld = (
 		return Result.err(
 			ruleRefused(
 				entry.loc,
-				"a derived definition has one heading: a materialized view stores one heading group"
+				"a derived definition has one heading: a stored table holds one heading group"
 			)
 		)
 	}

@@ -551,12 +551,12 @@ export const admitRole = (
 	if (!isPlainRecord(options) && options !== undefined) {
 		throw malformed(
 			label,
-			"options { write?, insert?, refresh?, contexts? }: lists of role relation names, and of the contexts the role declares"
+			"options { write?, insert?, contexts? }: lists of role relation names, and of the contexts the role declares"
 		)
 	}
 	const opts = options ?? {}
 	for (const k of Object.keys(opts)) {
-		if (k !== "write" && k !== "insert" && k !== "refresh" && k !== "contexts") {
+		if (k !== "write" && k !== "insert" && k !== "contexts") {
 			throw malformed(label, `options without ${k}`)
 		}
 	}
@@ -594,7 +594,6 @@ export const admitRole = (
 		`${label} ${listed}`,
 		listed === "write" ? "a write list" : "an insert list"
 	)
-	const refresh = nameList(opts["refresh"], `${label} refresh`, "a refresh list")
 	const targets = new Map<string, string>()
 	const target = (relation: string, entry: string): void => {
 		const prior = targets.get(relation)
@@ -644,28 +643,13 @@ export const admitRole = (
 		}
 		target(analyzed.value.target, w)
 	}
-	for (const f of refresh) {
-		const kind = kinds.get(f)
-		if (kind !== "derived") {
-			throw roleRefused(
-				`${label} refresh`,
-				kind === undefined
-					? { kind: "refreshOutside", name: f }
-					: {
-							kind: "refreshKind",
-							name: f,
-							entryKind: kind === "world" ? "query" : kind === "closedRelation" ? "closed" : kind
-						}
-			)
-		}
-	}
+
 	const writing: RoleWriting = listed === "write" ? { write } : { insert: insertList(write, label) }
 	const desc = orThrow(
 		decodeRoleOver(baseDesc, {
 			name: roleName,
 			relations: entries,
 			...writing,
-			refresh,
 			contexts,
 			loc: builderLoc(label, [baseDesc.name, roleName])
 		})
@@ -730,8 +714,8 @@ const noNames: readonly [] = Object.freeze([] as const)
  *   name. `write` names role relations: a whole ordinary relation, a scoped one, or a query entry the writable-entry
  *   analysis (entry.ts) admits, at most one per base relation. `insert`, in place of `write`, names them as `write` does, and
  *   the role holds INSERT and SELECT on what they write, no DELETE or UPDATE, so a program of the role that deletes
- *   or updates there is refused (RoleAccess insert); a role stating both is refused (writeAndInsert). `refresh` names
- *   derived whole entries. `contexts` names the contexts
+ *   or updates there is refused (RoleAccess insert); a role stating both is refused (writeAndInsert). `contexts` names
+ *   the contexts
  *   the role declares, the facts its Db's claims hold: each query entry matches only those (entryContext), and so does
  *   each program on the role (check/checker.ts, OutsideRole context). The role keeps the base's statements whose every
  *   relation is a whole entry.
@@ -746,20 +730,19 @@ const noNames: readonly [] = Object.freeze([] as const)
  *
  * role(base, name, relations, options?). The value holds the base, the role relations (each query entry as its world
  * relation), the base's statements whose every relation is a whole entry, and frozen copies of the write (or insert)
- * and refresh lists, the insert list as `write`.
+ * list, the insert list as `write`.
  */
 export const roleBuilder = <
 	Base extends AnySchema,
 	const Name extends string,
 	const Rs extends Readonly<Record<string, EntryValue>>,
-	const W extends ReadonlyArray<string> = readonly [],
-	const F extends ReadonlyArray<string> = readonly []
+	const W extends ReadonlyArray<string> = readonly []
 >(
 	base: Base,
 	name: Name,
 	relations: Rs,
-	...rest: RoleOptions<W, F> | readonly [RoleOptionRecord<W, F>, unknown, ...ReadonlyArray<unknown>]
-): Role<Base, Name, RoleRelations<Rs>, W[number], F[number], never> => {
+	...rest: RoleOptions<W> | readonly [RoleOptionRecord<W>, unknown, ...ReadonlyArray<unknown>]
+): Role<Base, Name, RoleRelations<Rs>, W[number], never> => {
 	const [options, ...extra] = rest
 	const admitted = admitRole(base, name, relations, options, extra)
 	const drafts = new Map(
@@ -799,8 +782,7 @@ export const roleBuilder = <
 					? frozenTuple(options.insert)
 					: options?.write === undefined
 						? noNames
-						: frozenTuple(options.write),
-			refresh: options?.refresh === undefined ? noNames : frozenTuple(options.refresh)
+						: frozenTuple(options.write)
 		},
 		desc: admitted.desc,
 		content: admitted.level
@@ -852,7 +834,7 @@ export const wholeEntriesOf = <Base extends AnySchema>(base: Base): WholeEntries
  * it under its own name, as wholeEntriesOf's do, each relation of its owner scoped (schema/scope.ts): a query entry
  * under the relation's own name with its whole heading, holding its rows of the owner. `owner` is a query over a level
  * of the base of one field that reads the role's contexts and the rows they determine by a key (ownerOf), refused
- * otherwise (ScopeRefused owner). `roots` states each root, an ordinary or materialized derived relation by one of its
+ * otherwise (ScopeRefused owner). `roots` states each root, an ordinary or stored derived relation by one of its
  * fields: its rows whose field the owner holds. Every other such relation that a declared containment chain reaches a
  * scoped relation's key from is scoped through it, in its shortest form; one reaching scoped keys in two forms is
  * refused (ambiguous). Every other relation is whole. A role holding the entries holds every relation of its base, so

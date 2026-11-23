@@ -32,6 +32,7 @@ import {
 	noOrigin,
 	type RuleContext,
 	recordVariables,
+	requireDeclared,
 	requireLevel,
 	type SchemaInfo,
 	sharedVariable,
@@ -220,6 +221,9 @@ const checkScope = (info: SourceInfo, ctx: RuleContext, label: string): void => 
 			return
 		case "written":
 			requireLevel(info.scope.over, ctx.schema.over, label)
+			return
+		case "declared":
+			requireDeclared(info.scope.name, info.scope.query, ctx.schema.over, label)
 			return
 	}
 }

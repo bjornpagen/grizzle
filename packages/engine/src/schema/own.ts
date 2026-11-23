@@ -73,6 +73,7 @@ import {
 	type QueryDesc,
 	type DerivedStorage,
 	definitionFields,
+	derivedHeld,
 	heldRelation,
 	leadsWithHeading,
 	type RelationDesc,
@@ -182,7 +183,7 @@ interface Owning<K extends RelationDesc["kind"]> {
 }
 
 /**
- * What an installed relation is named by: `named` its table's, roster domain's or materialized view's identity at the
+ * What an installed relation is named by: `named` its table's, roster domain's or stored table's identity at the
  * naming door, and `ident` that identity's identifier. A closed relation and a live derived relation install no
  * relation of their own.
  */
@@ -224,14 +225,14 @@ export type OwnedRelation =
 			readonly keys: readonly []
 			readonly mutable: false
 			readonly reads: ReadonlyArray<string>
-			/** Its materialized view, where PostgreSQL stores its rows; a live one's are its definition's alone. */
+			/** Its stored table, where PostgreSQL stores its rows; a live one's are its definition's alone. */
 			readonly view: OwnedView
 	  })
 
-/** Where a derived relation's rows are: its definition's alone, or a materialized view of them too. */
+/** Where a derived relation's rows are: its definition's alone, or a stored table of them too. */
 export type OwnedView =
 	| { readonly kind: "live" }
-	| ({ readonly kind: "materialized" } & Installed<"view">)
+	| ({ readonly kind: "stored" } & Installed<"view">)
 
 /**
  * An owned contract: its declared name, its type-level brand, its descriptor, and its level, the lowest level of a
@@ -404,18 +405,14 @@ const installedIdentity = (r: OwnedRelation): ReadonlyArray<Identity<IdentityKin
 	}
 }
 
-/**
- * Where the derived relation `name`'s rows are, by its storage: a materialized one's view named at the naming door; a
- * stored one's are its definition's, read live, until its table and upkeep land (ir/desc.ts DerivedStorage).
- */
+/** Where the derived relation `name`'s rows are, by its storage: a stored one's table named at the naming door. */
 const ownedView = (name: DeclaredName, storage: DerivedStorage): OwnedView => {
 	switch (storage) {
 		case "live":
-		case "stored":
 			return { kind: "live" }
-		case "materialized": {
+		case "stored": {
 			const named = identity.view(name)
-			return { kind: "materialized", named, ident: identifierOf(named) }
+			return { kind: "stored", named, ident: identifierOf(named) }
 		}
 	}
 }
@@ -1385,7 +1382,8 @@ class Owner {
 	}
 
 	/**
-	 * Derived definitions read no parameter and no context: a materialized view holds no session, so no context fact
+	 * Derived definitions read no parameter and no context: no session's claims stand at the COMMIT that keeps a stored
+	 * relation, so no context fact
 	 * reaches a derived definition. Each reads a live derived relation through its definition, as the query builder
 	 * writes a match of one, never by its name, which no stored relation answers. Each is one level above the highest
 	 * derived level it reads.
@@ -1408,13 +1406,13 @@ class Owner {
 				fail(
 					"MalformedDescription",
 					entry.desc.loc,
-					`a definition for ${r.name} that matches no context, which a materialized view holds no session for; it matches ${[...uses.contexts.keys()].toSorted(compareStrings).join(", ")}`
+					`a definition for ${r.name} that matches no context, which no session's claims stand for at the COMMIT that keeps it; it matches ${[...uses.contexts.keys()].toSorted(compareStrings).join(", ")}`
 				)
 			}
 			let level = 1
 			for (const read of uses.relations) {
 				const lower = this.#relation(read, entry.desc.loc, `the definition of ${r.name}`)
-				if (lower.desc.kind === "derived" && lower.desc.storage === "live") {
+				if (lower.desc.kind === "derived" && !derivedHeld(lower.desc.storage)) {
 					fail(
 						"MalformedDescription",
 						entry.desc.loc,
@@ -2357,7 +2355,7 @@ class Owner {
 	}
 
 	/**
-	 * One relation's owned identifiers: its table, roster domain or materialized view, and what each kind owns besides.
+	 * One relation's owned identifiers: its table, roster domain or stored table, and what each kind owns besides.
 	 * A closed relation installs no relation of its own.
 	 */
 	#ownRelation(laws: RelationLaws, declared: string, entry: RelationEntry): OwnedRelation {
@@ -2716,7 +2714,7 @@ export const entryContextBreak = (
 /**
  * The owned role: its name, its base's Owned, its relations by name, its write list as admitted entries by name in name
  * order, the key that list was stated under (`insert`: the role holds INSERT and SELECT on what it writes, no DELETE
- * or UPDATE), its refresh list in name order, whether it holds every relation of its base whole (a full role, whose
+ * or UPDATE), whether it holds every relation of its base whole (a full role, whose
  * base is among its levels), and the contexts it declares, by name, in name order: the facts its Db's claims hold, and
  * the only contexts its query entries and programs match.
  */
@@ -2727,7 +2725,6 @@ export interface OwnedRole {
 	readonly relations: Readonly<Record<string, OwnedEntry>>
 	readonly writes: ReadonlyMap<string, OwnedWrite>
 	readonly writing: RoleWritingKey
-	readonly refresh: ReadonlyArray<string>
 	readonly full: boolean
 	readonly contexts: Readonly<Record<string, ContextDesc>>
 	/** Each scoped entry's scope (scope.ts Scope), by its relation's name, in name order: its query entry's query. */
@@ -2766,7 +2763,7 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 					refusal: "a whole entry is a relation of the base under its own name"
 				})
 			}
-			if (relation.kind === "derived" && relation.desc.storage === "live") {
+			if (relation.kind === "derived" && !derivedHeld(relation.desc.storage)) {
 				failWith({
 					_tag: "Refused",
 					at: e.loc,
@@ -2884,22 +2881,6 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 			loc: r.loc
 		})
 	}
-	for (const f of desc.refresh) {
-		const r = relations[f]
-		if (r === undefined) {
-			broken(desc.loc, { kind: "refreshOutside", name: f })
-		}
-		if (r.kind === "world") {
-			broken(desc.loc, { kind: "refreshKind", name: f, entryKind: "query" })
-		}
-		if (r.relation.kind !== "derived") {
-			broken(desc.loc, {
-				kind: "refreshKind",
-				name: f,
-				entryKind: r.relation.kind === "closedRelation" ? "closed" : r.relation.kind
-			})
-		}
-	}
 	const full = Object.values(base.relations).every(
 		(r) => !heldRelation(r.desc) || relations[r.name]?.kind === "whole"
 	)
@@ -2914,7 +2895,6 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 		relations,
 		writes: new Map([...admitted].toSorted(([a], [b]) => compareStrings(a, b))),
 		writing: "insert" in desc ? "insert" : "write",
-		refresh: [...desc.refresh].toSorted(compareStrings),
 		full,
 		contexts: ownedContexts,
 		scoped: new Map([...scoped].toSorted(([a], [b]) => compareStrings(a, b)))
@@ -2924,11 +2904,10 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 /**
  * Owns a role description, its base first.
  *
- * ownRole is ownership of a role: its base owned first, then every rule of a role's relations, write and refresh lists
- * checked against it, each a RoleRefused naming the rule it breaks (core/causes.ts RoleRule), or Refused for a rule the
+ * ownRole is ownership of a role: its base owned first, then every rule of a role's relations and write list checked
+ * against it, each a RoleRefused naming the rule it breaks (core/causes.ts RoleRule), or Refused for a rule the
  * types name too: a whole entry names a relation of the base under its own name; a query entry is a Query over the base that reads no parameter; a write entry is a whole ordinary
- * relation or a query entry the writable-entry analysis admits, at most one per base relation; a refresh entry is a
- * derived whole entry; and each context a query entry matches is one the role declares (entryContext), by the
+ * relation or a query entry the writable-entry analysis admits, at most one per base relation; and each context a query entry matches is one the role declares (entryContext), by the
  * declared descriptor (DuplicateIdentity). The relations' names are declared names of one namespace, the role's schema of views
  * (core/identity.ts DeclaredNamespace: MalformedDescription, or IdentifierCollision for two that convert alike). A
  * query entry's heading and types are the checker's, against the base (analysis/schema.ts checkedRoleOver), and its heading's
@@ -3006,8 +2985,7 @@ export const ownBuiltRole = (desc: RoleDesc, base: Owned): Result.Result<OwnedRo
 
 /**
  * The description of the full role `name` over a schema description: every relation of every level a role holds
- * whole (desc.ts heldRelation), writing its ordinary relations and refreshing its materialized derived ones, and
- * declaring no context.
+ * whole (desc.ts heldRelation), writing its ordinary relations, and declaring no context.
  */
 export const fullRoleDesc = (
 	base: SchemaDesc,
@@ -3030,7 +3008,6 @@ export const fullRoleDesc = (
 			name,
 			relations: [first, ...rest],
 			write: relations.filter((r) => r.kind === "relation").map((r) => r.name),
-			refresh: relations.filter((r) => r.kind === "derived").map((r) => r.name),
 			contexts: [],
 			loc
 		})

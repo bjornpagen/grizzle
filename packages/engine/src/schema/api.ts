@@ -172,7 +172,6 @@ import type {
 	DistinctWrites,
 	EntriesCheck,
 	EntryValue,
-	RefreshableKeys,
 	Role,
 	RoleOptionRecord,
 	RoleRelations,
@@ -895,7 +894,7 @@ export const attested = <
 
 /**
  * Relations defined over the base, a schema: whole relations of the base, each under its own name, and queries over
- * it. `write` names role relations, each once, `refresh` derived whole entries, and `contexts` the contexts the role
+ * it. `write` names role relations, each once, and `contexts` the contexts the role
  * declares: the facts its Db's claims hold, the only contexts its query entries and its programs match, a program over
  * the base among them. A repeat in the write list is read against the options object beside its `write`, as login
  * reads its workloads' shared names, so the call's diagnostic names the refusal. An entry, or a member of a list, typed
@@ -906,7 +905,6 @@ export const role = <
 	const Name extends string,
 	const Rs extends Readonly<Record<string, EntryValue>>,
 	const W extends ReadonlyArray<WritableKeys<Rs>> = readonly [],
-	const F extends ReadonlyArray<RefreshableKeys<Rs>> = readonly [],
 	const C extends ReadonlyArray<AnyContext> = readonly []
 >(
 	base: Base,
@@ -915,11 +913,7 @@ export const role = <
 	...options:
 		| readonly []
 		| readonly [
-				options: RoleOptionRecord<W, F, C> &
-					DistinctWrites<W> &
-					MembersTyped<W> &
-					MembersTyped<F> &
-					MembersTyped<C>
+				options: RoleOptionRecord<W, C> & DistinctWrites<W> & MembersTyped<W> & MembersTyped<C>
 		  ]
-): Role<Base, Name, RoleRelations<Rs>, W[number], F[number], DeclaredContexts<C>, C[number]> =>
-	roleBuilder<Base, Name, Rs, W, F>(base, name, relations, ...options)
+): Role<Base, Name, RoleRelations<Rs>, W[number], DeclaredContexts<C>, C[number]> =>
+	roleBuilder<Base, Name, Rs, W>(base, name, relations, ...options)

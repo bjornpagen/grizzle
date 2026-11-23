@@ -102,6 +102,7 @@ export type IdentityKind =
 	| "ruleJudge"
 	| "ruleJudgePart"
 	| "ruleJudgeBlock"
+	| "storedUpkeep"
 	| "ruleDelta"
 	| "ruleDeltaReader"
 	| "ruleDeltaRow"
@@ -141,7 +142,7 @@ export type LawId = Identifier<RaisedLawKind>
  */
 export type GeneratedLawId = Identifier<"generatedLaw">
 /**
- * The table of a stored relation, the domain of a roster, the materialized view of a derived relation, a relation's
+ * The table of a stored relation, the domain of a roster, the table of a stored derived relation, a relation's
  * whole view, which every role holding it whole reads it through, or a role's query entry's view.
  */
 export type RelationIdent = Identifier<"table" | "rosterDomain" | "view" | "wholeView" | "roleView">

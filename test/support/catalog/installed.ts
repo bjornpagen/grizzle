@@ -67,8 +67,8 @@ const created = (
 const tableOf = (s: SqlStatement | RecordedStatement): Option.Option<string> =>
 	s.kind === "createTable" ? Option.some(s.table.name) : Option.none()
 
-const viewOf = (s: SqlStatement | RecordedStatement): Option.Option<string> =>
-	s.kind === "createMaterializedView" ? Option.some(s.name.name) : Option.none()
+const storedTableOf = (s: SqlStatement | RecordedStatement): Option.Option<string> =>
+	s.kind === "createStoredTable" ? Option.some(s.name.name) : Option.none()
 
 const functionOf = (s: SqlStatement | RecordedStatement): Option.Option<string> =>
 	s.kind === "createFunction"
@@ -368,15 +368,6 @@ export const installedScope = (
 					? [installation.names.rosterDomain(parsedName(entry.name))]
 					: []
 			)
-			/** Each refreshed derived relation's materialized view, by the snapshot's theory. */
-			const refreshed = Arr.map(r.refresh, (name) =>
-				Option.getOrThrowWith(
-					Option.flatMap(Rec.get(snapshot.theory.relations, name), (relation) =>
-						relation.kind === "derived" ? Option.some(relation.ident) : Option.none()
-					),
-					() => new Error(`the snapshot holds no derived relation ${name}`)
-				)
-			)
 			/** Each query entry's view, by the naming door. */
 			const theory = roleIdentity(
 				defined(installation.names.levels[r.base.levels.length - 1], `the level of role ${r.name}`),
@@ -399,7 +390,6 @@ export const installedScope = (
 			})
 			return {
 				scope: { role: installedRole.role, closedTypes },
-				refreshes: [installedRole.role, new Set(refreshed)] as const,
 				barrierViews,
 				queryWorld: barrierViews.length > 0 ? [installedRole.role] : [],
 				wholeViews: Arr.map(wholeViews, (view) => [view, installedRole.role] as const)
@@ -412,7 +402,7 @@ export const installedScope = (
 			mutable: new Set(
 				Arr.flatMap(relations, (r) => (r.kind === "relation" && r.mutable ? [r.ident] : []))
 			),
-			views: created(snapshot, "materializedView", viewOf),
+			storedTables: created(snapshot, "storedTable", storedTableOf),
 			bookkeeping,
 			heads: created(snapshot, "head", tableOf),
 			releasedHeads: new Set(
@@ -480,7 +470,6 @@ export const installedScope = (
 						] as const
 				)
 			),
-			refreshes: new Map(Arr.map(scoped, (s) => s.refreshes)),
 			barrierViews: new Set(Arr.flatMap(scoped, (s) => s.barrierViews)),
 			queryWorlds: new Set(Arr.flatMap(scoped, (s) => s.queryWorld)),
 			wholeViews: new Map(
@@ -869,19 +858,20 @@ const vectorProblems = (catalog: Catalog, scope: InstalledScope): ReadonlyArray<
  * Rule: a suite that installs or migrates a schema reads its catalog (read.ts) and checks it against the scope its
  * installation and its snapshot declare; the checker must find nothing. It holds two kinds of rule:
  *
- * - the erasure ledger's shape rules (verify.ts): only the authored tables, the derived relations' materialized views,
+ * - the erasure ledger's shape rules (verify.ts): only the authored tables, the stored derived relations' tables,
  *   the refusal function, the isolation guard and each table's guard trigger, the snapshot guard every login executes,
  *   the law functions and law triggers, the worlds' functions, and PostgreSQL's
  *   internal foreign-key triggers; the worlds' schemas of their query entries' views, each security_barrier, and the
  *   levels' schemas of whole views, each plain and granted exactly to the roles holding its relation whole; row
  *   security and policies exactly where a world writes through a query entry; no UPDATE on an immutable relation, no
- *   TRUNCATE, no sequence, MAINTAIN only to a refresher or a login fencing the table, no PUBLIC grant,
+ *   TRUNCATE, no sequence, MAINTAIN only to a login fencing the table, nothing to a world on a stored derived
+ *   relation's table, no PUBLIC grant,
  *   nothing granted to a login beyond what admission and a Db transaction take as it, nothing inherited beyond a role's own privileges, no elevated
  *   or undeclared role; no index is invalid; and no table holds two unique indexes of one method over one column set
  *   and predicate, or two indexes of one definition (IndexProblem);
  * - least privilege on types, by a derivation of its own: a world's role may hold USAGE on an enum or a domain of the
  *   schema only when its own privileges or its whole closed relations need the type. The types it needs are the types
- *   of every column of every table or materialized view it holds a privilege on, of a column of one, and of every view
+ *   of every column of every table it holds a privilege on, of a column of one, and of every view
  *   it holds SELECT on, its world's and the whole views of what it holds whole, and, for each closed relation its world holds whole, the relation's enum and the types of its
  *   payload, each with the bases its domains rest on. The installer's grants are never consulted, so a grant beyond the
  *   scope is found however the installer derived it. The bound holds from below as well: a role holds USAGE on every
@@ -897,8 +887,7 @@ const vectorProblems = (catalog: Catalog, scope: InstalledScope): ReadonlyArray<
  *   at login and never on SET ROLE.
  *
  * The derivation reads the catalog's own grants and types; the declaration supplies only what the catalog cannot show:
- * which closed relations a world holds and which derived relations it refreshes, from the installation's owned logins
- * and closed templates. Which object is which is read from the manifest's object kinds.
+ * which closed relations a world holds, from the installation's owned logins and closed templates. Which object is which is read from the manifest's object kinds.
  *
  * Every way the installed catalog departs from its scope; none for a sound installation. An index that is not valid, as
  * a failed concurrent build leaves one, serves no query and supplies no constraint, so no installation holds one.

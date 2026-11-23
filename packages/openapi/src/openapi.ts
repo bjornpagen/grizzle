@@ -147,11 +147,11 @@ const streamRole = (
 
 /**
  * What a program does to its role's relations: reads them, writes the relations its ChangeSet writes (its outcome's
- * counts', live/shape.ts WireOutcome), or refreshes its targets.
+ * counts', live/shape.ts WireOutcome).
  */
 type Deed =
 	| { readonly kind: "reads" }
-	| { readonly kind: "writes" | "refreshes"; readonly relations: ReadonlyArray<string> }
+	| { readonly kind: "writes"; readonly relations: ReadonlyArray<string> }
 
 /**
  * One program's operation: its path; its operation object but for its parameters, its request body, its response and
@@ -244,13 +244,7 @@ const deedOf = (member: ServedMember, shape: MemberShape<ServedLeaf>): Deed => {
 		case "change":
 			return {
 				kind: "writes",
-				relations:
-					shape.shape === "write" && shape.outcome.kind === "change" ? shape.outcome.relations : []
-			}
-		case "refresh":
-			return {
-				kind: "refreshes",
-				relations: member.refresh.targets.map((target) => target.relation)
+				relations: shape.shape === "write" ? shape.outcome.relations : []
 			}
 	}
 }
@@ -262,7 +256,7 @@ const counted = (count: number, one: string, many: string): string =>
 /**
  * An operation's summary: what its program is, by its served form (served/forms.ts ServedMemberForm) alone, so it is
  * as short for a program of hundreds of relations as for one of one: a read of a set or an ordered one, by its key or
- * paged by window, live or answered at its call's instant alone (readSummary), a write or a refresh. What the program
+ * paged by window, live or answered at its call's instant alone (readSummary), or a write. What the program
  * names is its description's (descriptionOf).
  */
 const summaryOf = (member: ServedMember): string => {
@@ -278,8 +272,6 @@ const summaryOf = (member: ServedMember): string => {
 			return readSummary(member, "ordered read paged by window")
 		case "change":
 			return "A write"
-		case "refresh":
-			return "A refresh"
 	}
 }
 
@@ -306,7 +298,7 @@ const paramWords = (param: WireParam<ServedLeaf>): string =>
 
 /**
  * An operation's description: what its program names, each once, the one place the document lists it: the relations
- * its ChangeSet writes or its refresh refreshes, a key read's key fields, and the parameters its program declares.
+ * its ChangeSet writes, a key read's key fields, and the parameters its program declares.
  */
 const descriptionOf = (member: ServedMember, deed: Deed, input: WireInput<ServedLeaf>): string =>
 	[
@@ -447,8 +439,7 @@ const operationJson = (o: Operation, schemas: OperationSchemas, member: Json): J
 /** The words of each deed in a role's count of its programs. */
 const deedWords: { readonly [K in Deed["kind"]]: string } = {
 	reads: "reading",
-	writes: "writing",
-	refreshes: "refreshing"
+	writes: "writing"
 }
 
 /**
@@ -460,7 +451,7 @@ const roleDescription = (
 	role: ServedRoleForm,
 	programs: ReadonlyArray<Operation["program"]>
 ): string => {
-	const serves = (["reads", "writes", "refreshes"] as const).flatMap((kind) => {
+	const serves = (["reads", "writes"] as const).flatMap((kind) => {
 		const count = programs.filter((program) => program.deed.kind === kind).length
 		return count === 0 ? [] : [`${count} ${deedWords[kind]}`]
 	})

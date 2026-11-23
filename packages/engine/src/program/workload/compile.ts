@@ -116,7 +116,7 @@ export type ProgramFootprints = ReadonlyMap<string, Footprint>
 /**
  * Whether a login serves a live read, by its programs' footprints `footprints`: its workload plans a live query
  * program, as every live read member does, a query, an ordered query, a paged read and a key's lookup alike, while a
- * ChangeSet, a refresh and an answered read (a clocked one among them), answered at its call's instant and never
+ * ChangeSet and an answered read (a clocked one among them), answered at its call's instant and never
  * watched, plan none. A login that serves one watches, so its installation holds a live source (livePlanOf) and its
  * served file names it (adapter served/project.ts).
  */
@@ -632,15 +632,14 @@ const filterAccess = (
 
 /**
  * The live plan of an installation's logins (live/notify.ts LivePlan), the union of `footprints`: none where no login
- * serves a read (servesRead); otherwise every stored relation a footprint reads, each with every field some footprint
- * routes it by, and every materialized derived relation one reads, in code point order of relations and of fields.
+ * serves a read (servesRead); otherwise every stored relation a footprint reads, authored or derived, each with every
+ * field some footprint routes it by, in code point order of relations and of fields.
  */
 const livePlanOf = (footprints: WorkloadFootprints): LivePlan => {
 	if (![...footprints.values()].some(servesRead)) {
 		return { kind: "none" }
 	}
 	const tables = new Map<string, Set<string>>()
-	const views = new Set<string>()
 	for (const programs of footprints.values()) {
 		for (const footprint of programs.values()) {
 			for (const [relation, routes] of footprint.tables) {
@@ -649,17 +648,13 @@ const livePlanOf = (footprints: WorkloadFootprints): LivePlan => {
 					fields.add(field)
 				}
 			}
-			for (const view of footprint.views) {
-				views.add(view)
-			}
 		}
 	}
 	return {
 		kind: "reads",
 		tables: [...tables]
 			.toSorted(([a], [b]) => compareStrings(a, b))
-			.map(([relation, fields]) => ({ relation, routes: [...fields].toSorted(compareStrings) })),
-		views: [...views].toSorted(compareStrings)
+			.map(([relation, fields]) => ({ relation, routes: [...fields].toSorted(compareStrings) }))
 	}
 }
 
@@ -671,7 +666,7 @@ const livePlanOf = (footprints: WorkloadFootprints): LivePlan => {
  * footprint, whose union is the installation's live plan (livePlanOf). Equal paths of several programs
  * are one request, justified by the workload's access; which programs ask for it, the snapshot's record of each
  * program's access says, so a program edit that moves no index changes no object. A path on a derived relation is a
- * request like any other: the installation plans it on the relation's materialized view wherever it installs the view.
+ * request like any other: the installation plans it on the relation's stored table wherever it installs the table.
  *
  * The workload installs nothing and gates no execution: a program the checker refuses is refused here with its
  * CompileError, naming the program and its workload (WorkloadPlanRefused), so a broken workload never drafts a
@@ -845,7 +840,7 @@ const servedCarriers = (
  * The roles of `logins`, each with every declared function the programs of the login's workloads that run on it call
  * (ir/desc.ts callsOf), by its name, in login, role and function order: the roles whose statements call the function,
  * which PostgreSQL checks EXECUTE on against the role that runs them. A function a derived relation's or a query
- * entry's definition calls runs inside its materialized view or its view, as their owner, which holds it.
+ * entry's definition calls runs inside its stored table or its view, as their owner, which holds it.
  */
 const servedCalls = (
 	logins: ReadonlyArray<ServedLogin>

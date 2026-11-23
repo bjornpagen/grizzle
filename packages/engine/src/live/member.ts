@@ -715,12 +715,6 @@ export const memberShape = (
 				)
 			)
 		}
-		case "refresh":
-			return Result.ok({
-				shape: "write",
-				input: { kind: "call", params: [], facts: [] },
-				outcome: { kind: "refresh" }
-			})
 	}
 }
 

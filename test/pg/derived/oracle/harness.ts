@@ -18,7 +18,7 @@ import { checkedIn } from "#test/support/policy.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-/** The refresh oracle's harness.
+/** The stored relations' oracle harness.
  *
  * A derived schema is installed by the fresh-install compiler with the derived relation extension under a fresh schema
  * name, its facts loaded as the owner, and the schema rebuilt under the installed name so its login's served file names
@@ -28,7 +28,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * - each view's stored rows, as record text, with each row's tuple id and xmin: a row a refresh did not write keeps
  *   both, and the rows one transaction wrote share its xmin;
  * - each view's definition evaluated by the conservative lowering, the baseline that relies on no evidence,
- *   as record text over the same columns: "after db.refresh, each named view equals its definition
+ *   as record text over the same columns: "after each COMMIT, each stored relation equals its definition
  *   evaluated by the conservative lowering on the same snapshot".
  *
  * The conservative lowering of a definition reads a lower level's view under the installation's own names, so a
@@ -129,16 +129,7 @@ export const installDerived = (
 			const name = installed.names.relation(relation)
 			return `${quoteIdent(name.schema)}.${quoteIdent(name.name)}`
 		}
-		/** Every view emptied, as no refresh has read the facts: the migration that created each view populated it over
-		 * the empty tables it left (deploy/diff/diff.ts view). */
-		const emptied = Arr.flatMap(
-			Rec.toEntries(installed.snapshot.theory.relations),
-			([relation, r]) =>
-				r.kind === "derived"
-					? [`REFRESH MATERIALIZED VIEW ${qualified(relation)} WITH NO DATA`]
-					: []
-		)
-		yield* transaction(s.admin, [...statements.value, ...emptied])
+		yield* transaction(s.admin, statements.value)
 		/** A relation name the fixture does not declare is a defect of the test that names it. */
 		const heading = (relation: string) => {
 			const r = analysis.relations[relation]

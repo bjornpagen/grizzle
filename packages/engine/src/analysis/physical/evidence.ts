@@ -31,8 +31,8 @@ const constraintPremise = (constraint: ConstraintName, kind: ConstraintKind): Pr
  * with the premises it rests on and the context they hold in (Grounds). A key proves at most one match, never
  * existence, and a containment existence, never uniqueness, so each is asked only for its own proposition:
  *
- * - A PRIMARY KEY or UNIQUE, or a derived relation's unique index (immediate on its materialized view for every
- *   refreshed state), proves its key at every statement, in every execution context (keyEvidence): grizzle installs
+ * - A PRIMARY KEY or UNIQUE, or a stored derived relation's primary key or unique index (immediate on its table),
+ *   proves its key at every statement, in every execution context (keyEvidence): grizzle installs
  *   every key immediate and validated.
  * - A containment law proves existence in the context its discharge holds it in (containmentEvidence): at every
  *   statement where an immediate native holds it, and only at commit where a deferred or PERIOD foreign key or the rule

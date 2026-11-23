@@ -51,7 +51,7 @@ import { installationTypes } from "#compiler/sql/type-schemas.ts"
  *   their declared types exactly, so a contract's or a pattern's domain is a statement's to check where it reads the
  *   value, never the signature's.
  *
- * Every object is created in Setup, after its level's schema, so a law, a materialized view or a world that calls a
+ * Every object is created in Setup, after its level's schema, so a law, a stored table or a world that calls a
  * function finds it, each function after the functions its body calls (`calls`), so PostgreSQL validates an SQL body
  * against its callees as it creates it; no installation that declares no function holds any of them.
  */

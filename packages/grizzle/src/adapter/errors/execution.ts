@@ -4,7 +4,6 @@ import {
 	type AttestationRefused,
 	type ClaimRefused,
 	CommitLost,
-	ConcurrentRefresh,
 	ConnectionEnvironmentRefused,
 	ConnectionLost,
 	DbConfigRefused,
@@ -48,7 +47,7 @@ import type {
  * field, and each error's `message` renders a sentence from its reason.
  *
  * Db.open and DbLayer.make fail with OpenError; a read with ReadError (ReadFailure, TransientFailure or StaleSnapshot);
- * a write or refresh with ApplyError (the engine's EncodingFailure, TransientFailure, TransportFailure,
+ * a write with ApplyError (the engine's EncodingFailure, TransientFailure, TransportFailure,
  * ExecutionFailure, CommitUnknown or StaleSnapshot); compile with the engine's CompileError. `invariant-rejected` is an
  * outcome value, never an error, and a defect stays a defect. A served member's call reads each as its one CallError
  * (live/call-error.ts).
@@ -266,8 +265,6 @@ export const transientReason = (reason: EngineTransientReason): TransientReason 
 			return new SpanKeyChange({ relation: reason.relation })
 		case "UnseenOccupant":
 			return new UnseenOccupant({ relation: reason.relation, constraint: reason.constraint })
-		case "ConcurrentRefresh":
-			return new ConcurrentRefresh({ relation: reason.relation })
 	}
 }
 
@@ -325,7 +322,7 @@ export class StaleSnapshot extends Data.TaggedError("StaleSnapshot")<{
 export type ReadError = ReadFailure | TransientFailure | StaleSnapshot
 
 /**
- * Why a write or refresh changed nothing because its session could not be had or broke before COMMIT was sent: the
+ * Why a write changed nothing because its session could not be had or broke before COMMIT was sent: the
  * acquisition's refusal, its db.compile handle's ended Scope, or the connection lost or the driver failed.
  */
 export type TransportReason = AcquireRefusal | ConnectionLost | DriverFailure
@@ -333,7 +330,7 @@ export type TransportReason = AcquireRefusal | ConnectionLost | DriverFailure
 /** Where a write's transport failed. */
 export type TransportStage = "acquire" | "transport" | "driver"
 
-/** A write or refresh changed nothing for `reason`, at stage `acquire`, `transport` or `driver`. */
+/** A write changed nothing for `reason`, at stage `acquire`, `transport` or `driver`. */
 export class TransportFailure extends Data.TaggedError("TransportFailure")<{
 	readonly reason: TransportReason
 }> {
@@ -352,7 +349,7 @@ export class TransportFailure extends Data.TaggedError("TransportFailure")<{
 }
 
 /**
- * Why a write or refresh failed at execution, or was refused before any SQL: the server refused a statement
+ * Why a write failed at execution, or was refused before any SQL: the server refused a statement
  * (ServerError), or a parameter's value outside its declared pattern as it bound it (ParamRejected); the compiler
  * refused the program, which does not compile for this Db; a relation input is past the size limit; the server refused a temporary table the write creates to a role
  * without TEMPORARY on the database (TemporaryRefused); or a statement answered rows grizzle cannot read, with what
@@ -366,7 +363,7 @@ export type ExecutionReason =
 	| TemporaryRefused
 	| UnreadableAnswer
 
-/** A write or refresh failed at execution, or the host refused it before any SQL was sent, for `reason`. */
+/** A write failed at execution, or the host refused it before any SQL was sent, for `reason`. */
 export class ExecutionFailure extends Data.TaggedError("ExecutionFailure")<{
 	readonly reason: ExecutionReason
 }> {
@@ -385,7 +382,7 @@ export class CommitUnknown extends Data.TaggedError("CommitUnknown") {
 	}
 }
 
-/** The errors a write or refresh fails with. */
+/** The errors a write fails with. */
 export type ApplyError =
 	| CallInputRefused
 	| EncodingFailure

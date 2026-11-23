@@ -9,7 +9,8 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { type Closure, closureOf } from "#compiler/analysis/closure.ts"
 import {
 	analyzeDerivedRelation,
-	type DerivedRelationAnalysis
+	type DerivedRelationAnalysis,
+	shapedDefinition
 } from "#compiler/analysis/derived/analyze.ts"
 import { analyzeWorld, type WorldAnalysis } from "#compiler/analysis/derived/world.ts"
 import { closedReads, closedReadsAmong } from "#compiler/check/closed.ts"
@@ -428,7 +429,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	 * base's. */
 	readonly closure: Closure
 	/**
-	 * Every materialized derived relation's analysis in refresh order's levels, level then name: a role's are its
+	 * Every stored derived relation's analysis in creation order's levels, level then name: a role's are its
 	 * base's. A live derived relation is no relation a query reads: a query matching it reads its definition, which the
 	 * builder imports in its place (query/build/state.ts), and a rule over it reads its definition too
 	 * (analysis/theory/query.ts).
@@ -550,14 +551,16 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		}
 		const derived: Array<DerivedRelationAnalysis> = []
 		this.derived = derived
-		for (const { r, view } of ownedRelations
-			.flatMap((o) =>
-				o.kind === "derived" && o.view.kind === "materialized" ? [{ r: o, view: o.view }] : []
-			)
-			.toSorted(({ r: a }, { r: b }) =>
+		for (const r of ownedRelations
+			.flatMap((o) => (o.kind === "derived" ? [o] : []))
+			.toSorted((a, b) =>
 				a.desc.level === b.desc.level ? compareStrings(a.name, b.name) : a.desc.level - b.desc.level
 			)) {
-			const analysis = unwrap(analyzeDerivedRelation(this, r, view))
+			if (r.view.kind === "live") {
+				unwrap(shapedDefinition(this, `derived ${r.name}`, r.desc.query, r.name, r.loc))
+				continue
+			}
+			const analysis = unwrap(analyzeDerivedRelation(this, r, r.view))
 			derived.push(analysis)
 			hold({ kind: "derived", name: r.name, loc: r.loc, analysis }, true)
 		}
@@ -1201,15 +1204,16 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	}
 }
 
-/** The derived analysis of a checked schema, which analyzed each derived relation when it was built: the analyses by
- * name and in refresh order's levels, level then name. */
+/** The derived analysis of a checked schema, which analyzed each stored derived relation when it was built, and shaped
+ * each live one's definition, refusing one no derived relation may have (analyze.ts shapedDefinition): the analyses
+ * by name and in creation order's levels, level then name. */
 export interface DerivedAnalysis {
 	readonly schema: CheckedSchema
 	readonly relations: Readonly<Record<string, DerivedRelationAnalysis>>
 	readonly order: ReadonlyArray<DerivedRelationAnalysis>
 }
 
-/** The derived analysis of a checked schema: the analyses it holds, by name and in refresh order. */
+/** The derived analysis of a checked schema: the analyses it holds, by name and in creation order. */
 export const derivedAnalysis = (schema: CheckedSchema): DerivedAnalysis => ({
 	schema,
 	relations: Object.fromEntries(schema.derived.map((a) => [a.name, a] as const)),

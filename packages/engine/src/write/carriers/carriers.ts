@@ -70,14 +70,14 @@ import {
 
 /**
  * The most columns one table of PostgreSQL holds: a stored relation's table with the tag columns added to it, a view, a
- * materialized view and a write program's carrier, each refused as ResourceBound (tableColumns) where it is emitted,
+ * stored derived relation's table and a write program's carrier, each refused as ResourceBound (tableColumns) where it is emitted,
  * since PostgreSQL refuses the statement with 54011, "tables can have at most 1600 columns". A column the table once
  * held and dropped counts too, which a migration cannot see: PostgreSQL refuses such an ADD COLUMN itself.
  *
  * @limitKind published
  * @owner PostgreSQL 19.0
  * @unit columns
- * @scope one table, view or materialized view, its dropped columns included
+ * @scope one table or view, its dropped columns included
  * @constraint compile-time constant
  * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/access/htup_details.h#L48
  * @quote #define MaxHeapAttributeNumber 1600

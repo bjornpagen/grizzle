@@ -41,7 +41,6 @@ export type {
 	EventOf,
 	InputCheck,
 	InputOf,
-	Refreshed,
 	RelationCounts,
 	ShapeOf,
 	ValueOf,

@@ -166,7 +166,7 @@ const regexSpaceText = (measure: RegexSpaceMeasure): string => {
  * - `stringLengthAtLeast`: a text grizzle builds piece by piece, refused at the piece where it passes V8's longest
  *   string, `limit`, so its whole length, which no writer measures, is at least `atLeast` UTF-16 code units (a canonical
  *   text encode builds, core/canonical.ts boundCanonicalText; never one a digest only hashes);
- * - `tableColumns`: the table, view or materialized view `table` (a write program's carrier among them), of `needed`
+ * - `tableColumns`: the table or view `table` (a write program's carrier among them), of `needed`
  *   columns, past PostgreSQL's `limit` (tableMaxColumns);
  * - `selectList`: a select list of `needed` entries, past PostgreSQL's `limit` (selectMaxEntries);
  * - `statementBytes`: a statement `needed` UTF-8 bytes long, past PostgreSQL's longest protocol message, `limit`
@@ -342,7 +342,7 @@ const preconditionText = (kind: PreconditionKind, operand: string): string => {
 /**
  * A relation access a role does not hold, an OutsideRole's: a read of a relation of the role's base the role does not
  * hold (`base` naming the base); a write of a relation outside its write list; an UPDATE or DELETE of `relation` by a
- * role that writes by its insert list, which holds neither (`insert`); a refresh of one outside its refresh list; a
+ * role that writes by its insert list, which holds neither (`insert`); a
  * match of `context`, which the role does not declare,
  * so its Db's claims hold no fact of it; a program over the role's base, which is one only for a role holding every
  * relation of it whole or scoped; or a program over the base that reads `relation`, which the role holds scoped, other
@@ -357,7 +357,6 @@ export type RoleAccess =
 			readonly relation: string
 			readonly operation: "UPDATE" | "DELETE"
 	  }
-	| { readonly kind: "refresh"; readonly relation: string }
 	| { readonly kind: "context"; readonly context: string; readonly declared: ReadonlyArray<string> }
 	| { readonly kind: "wholeBase"; readonly base: string }
 	| { readonly kind: "crossOwner"; readonly relation: string; readonly read: CrossOwnerRead }
@@ -385,8 +384,6 @@ const accessText = (role: string, access: RoleAccess): string => {
 			return `a write in role ${role}'s write list; ${access.relation} is outside it`
 		case "insert":
 			return `an insert by role ${role}, which writes by its insert list; the program ${access.operation === "DELETE" ? "deletes from" : "updates"} ${access.relation}`
-		case "refresh":
-			return `a derived relation in role ${role}'s refresh list; ${access.relation} is outside it`
 		case "context":
 			return `a context role ${role} declares, whose facts its Db's claims hold (${access.declared.length === 0 ? "it declares none" : access.declared.join(", ")}); ${access.context} is none of them`
 		case "wholeBase":
@@ -1408,8 +1405,6 @@ export type CodecFault = ValueFault | "nullValue"
  * - `UnseenOccupant`: an insert into `relation` raised a unique violation on `constraint`, a unique object besides its
  *   primary key, from an occupant this transaction's snapshot did not see: a concurrent transaction's, committed or in
  *   flight.
- * - `ConcurrentRefresh`: a refresh of the derived relation `relation`: another refresh of it committed after this
- *   transaction's snapshot.
  */
 export type TransientReason =
 	| { readonly _tag: "SerializationFailure" }
@@ -1421,7 +1416,6 @@ export type TransientReason =
 			readonly relation: string
 			readonly constraint: ConstraintName
 	  }
-	| { readonly _tag: "ConcurrentRefresh"; readonly relation: string }
 export type TransientTag = TransientReason["_tag"]
 
 /** Each transient refusal's tag, under itself: the roster is complete by its type. */
@@ -1430,8 +1424,7 @@ const transientTagRoster: { readonly [T in TransientTag]: T } = {
 	Deadlock: "Deadlock",
 	PutTargetConflict: "PutTargetConflict",
 	SpanKeyChange: "SpanKeyChange",
-	UnseenOccupant: "UnseenOccupant",
-	ConcurrentRefresh: "ConcurrentRefresh"
+	UnseenOccupant: "UnseenOccupant"
 }
 
 /** Every transient refusal's tag: the closed vocabulary a transient CallError names (live/events.ts). */

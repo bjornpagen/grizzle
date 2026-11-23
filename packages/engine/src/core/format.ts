@@ -160,6 +160,26 @@
  * targets' translation and their plan memory at every level: every judge function's body, served statement and view
  * that held one moves, and its statements' digests with it; edullm's ledger's 04-validate.sql is 45.1 MB where it was
  * 56.9 MB, and its served statements 116 MB where they were 133 MB.
+ * A stored derived relation (`derived.stored`, which replaces `derived.materialized`) is a table, one manifest object of
+ * kind `storedTable`: `CREATE TABLE ... AS <definition> WITH NO DATA`, its primary key over its narrowest proven key,
+ * the fields carrying its declared unit first, added by its own ALTER TABLE in the same object, then its revoke
+ * (physical/derived/objects.ts), every other proven key a unique index as before; a migration that creates one fills
+ * it by `INSERT INTO ... <definition>` in the slot structure.stored (physical/derived/objects.ts fillStatement), drops
+ * and renames it as a TABLE, and drops and creates it again where its primary key changes, where format 7 created a
+ * materialized view, object kind `materializedView`, its keys every one a unique index, and filled it by REFRESH. The
+ * rule judge keeps it equal to its definition at every COMMIT: each table its definition reads carries the capture
+ * triggers of a judged table, both sides captured, and the judge's part runs one block per stored relation before its
+ * rules' blocks, identity.storedUpkeep (physical/ddl/rules.ts upkeepBlock, analysis/theory/unit.ts storedUpkeep), whose
+ * function deletes the stored rows at the units its holders' written rows reach that the definition no longer gives
+ * and inserts the definition's rows there that it lacks, each statement with the index requests of its reads, an index
+ * they earn justified as the enforcement of the derived relation (ir/law.ts LawIndexRequest justification), where
+ * format 7 kept no stored row but by a refresh. A read of a stored relation names its table in its footprint as an
+ * authored relation's, routed by the fields it fixes, and the live source publishes it under the replica identity its
+ * primary key gives, or FULL where a route lies outside the key (physical/ddl/live.ts), so the served file's live
+ * source, its snapshot's live plan and its live source lose their `views`, its live source its `announce` statement,
+ * and its stream's START_REPLICATION its `messages` option (live/replication.ts streamOptions), where format 7 read a
+ * stored relation's watch by a refresh's announcement alone. The served refresh member, a role's `refresh` list and its
+ * MAINTAIN grants go with the refresh, and every role's description loses its `refresh` list.
  *
  * Format 7 (pin+1): a session table, a rule judge's delta (physical/ddl/rules.ts
  * emptied) or a write program's carrier (sql/print.ts carrierEmptying), is emptied by DELETE, and by TRUNCATE only once

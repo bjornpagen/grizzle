@@ -59,16 +59,14 @@ export const programsOn = (
 			continue
 		}
 		for (const program of state.programs) {
-			if (program.kind !== "refresh") {
-				const held = programSchema(
-					over,
-					role,
-					program.desc,
-					SourceLoc(`login compile program ${program.name}`, ["programs", program.name])
-				)
-				if (!held.ok) {
-					return held
-				}
+			const held = programSchema(
+				over,
+				role,
+				program.desc,
+				SourceLoc(`login compile program ${program.name}`, ["programs", program.name])
+			)
+			if (!held.ok) {
+				return held
 			}
 			running.push(program)
 		}

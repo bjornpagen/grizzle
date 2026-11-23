@@ -7,7 +7,7 @@ import type { InstallExtension } from "#compiler/physical/install/extension.ts"
 import type { Owned, OwnedLogin } from "#compiler/schema/own.ts"
 
 /** The complete install options of a schema, as `grizzle generate` drafts it: every native, the caller's extensions
- * after them, the derived relations' materialized views last, and the worlds of `logins`, under `levels`, naming
+ * after them, the stored derived relations' tables last, and the worlds of `logins`, under `levels`, naming
  * no owner, for the installation that holds `codes`. Every reader of an installation's names compiles its
  * installation from these options, so no name is read from a partial installation, which would name the objects
  * production installs beside it as absent. */

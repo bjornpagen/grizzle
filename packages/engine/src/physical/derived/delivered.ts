@@ -17,8 +17,8 @@ import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
 
 /**
  * The PostgreSQL type of every installed column a definition's DAG reads: each column of an ordinary relation's table,
- * and of a lower derived relation's materialized view, at its field's column type (ir/physical.ts fieldColumnType). A table
- * column is created at that type, and a materialized view's column is closed to it by its own definition
+ * and of a lower derived relation's stored table, at its field's column type (ir/physical.ts fieldColumnType). A table
+ * column is created at that type, and a stored table's column is closed to it by its own definition
  * (definition.ts withColumnTypes).
  */
 const installedColumns = (

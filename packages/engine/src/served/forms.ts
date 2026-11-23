@@ -1,4 +1,3 @@
-import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { Patterns } from "@bjornpagen/grizzle-text/regex/parse"
 import type { DecoderForm } from "#compiler/core/decoder.ts"
 import type { DeclaredName, ParamPlace } from "#compiler/core/identity.ts"
@@ -13,7 +12,6 @@ import type {
 } from "#compiler/core/ids.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import type { Prepared } from "#compiler/core/prepared.ts"
-import type { ParamText } from "#compiler/core/wire.ts"
 import type { RosterCodes } from "#compiler/ir/cells.ts"
 import type { ContextFactSource } from "#compiler/ir/desc.ts"
 import type { CallerParamDecl, ConstraintLaws, PageFill } from "#compiler/ir/products.ts"
@@ -37,7 +35,7 @@ import type {
 	ServedSource,
 	ServedSpine
 } from "#compiler/served/read.ts"
-import type { EmittedText, ObjectName } from "#compiler/sql/ast.ts"
+import type { EmittedText } from "#compiler/sql/ast.ts"
 import type { AboveLaw, RecordedLaw } from "#compiler/types/changeset/changeset.ts"
 import type { ParamValue } from "#compiler/types/core/phantom.ts"
 import type { UnmatchedQuery } from "#compiler/write/unmatched.ts"
@@ -94,7 +92,7 @@ export type ServedFile = {
 	/** What the login's refusals may name of the levels above its base, which a refusal names by its level. */
 	readonly above: ServedAbove
 	/**
-	 * The installed tables and materialized views of the relations the login's statements read and write, its
+	 * The installed tables of the relations the login's statements read and write, its
 	 * footprint (adapter served/compile.ts), each with the name of every index PostgreSQL holds on it (ServedTables):
 	 * what an explain names a plan's relations and indexes by, cut by generate from the snapshot's, whose reasons for
 	 * each index stay in snapshot.json.
@@ -105,7 +103,7 @@ export type ServedFile = {
 }
 
 /**
- * An installed table or materialized view as a served file names it: the declared name of the relation it stores, and
+ * An installed table as a served file names it: the declared name of the relation it stores, and
  * the names of the indexes PostgreSQL holds on it, in code-unit order (deploy/snapshot/types.ts SnapshotTable, its
  * reasons left in snapshot.json).
  */
@@ -131,7 +129,7 @@ export interface ServedPrologue {
  * role's defaults (physical/ddl/roles.ts loginStartupOptions), the startup options of every owner's session beside it,
  * the live leader's and a listener's, generic plans alone (ownerStartupOptions), each transaction's BEGIN, and its
  * COMMIT and ROLLBACK. A read begins SERIALIZABLE READ ONLY; a write begins read write at its role's level
- * (ServedRoleForm isolation), or a refresh at SERIALIZABLE.
+ * (ServedRoleForm isolation).
  */
 export interface ServedSession {
 	readonly startup: string
@@ -189,16 +187,15 @@ export interface UncoveredRead {
  * `start`, waits until a `snapshot` sees each decoded transaction, and sends the round's sealed batches by `fanout`. A
  * listener reads `secret`, LISTENs by `listen`, and `check`s that the slot stands, each a named prepared statement.
  *
- * - `publication`: the publication's name, the fan-out channel and the prefix of every announced message;
+ * - `publication`: the publication's name and the fan-out channel;
  * - `ledger`: the migrations ledger's table in the root's schema, which the publication publishes whole, so a change of
  *   it is a migration applied, which the leader fans out as `:migrated` (live/notify.ts), after which every watch is
  *   stale;
  * - `stem`: the decoder login's stem, named in the cluster under the installation's role space (core/identity.ts
  *   roleInSpace), and the stem of its replication slot, named in the cluster by the stem and the database it decodes
  *   (core/identity.ts liveSlotOf), which every slot parameter (`$1::name`) is filled with;
- * - `tables`: each published table by its installed identifier, with the columns it routes by;
- * - `views`: each materialized view of the plan by its installed identifier, the only relation whose table's key an
- *   announced message may name; any other message's content is no installation's sender's;
+ * - `tables`: each published table by its installed identifier, an authored or a stored derived relation's, with the
+ *   columns it routes by;
  * - `secret`: the live secret's one cell, as hex (live/notify.ts parseLiveSecret);
  * - `lock`: the session-level advisory lock of the leadership, a simple query;
  * - `senderTimeout`: the replication session's wal_sender_timeout in milliseconds, one row where its unit is `ms`
@@ -211,10 +208,7 @@ export interface UncoveredRead {
  *   invalidation of the insert position, which names every slot that stood at or before it and none made since;
  * - `snapshot`: the statement's snapshot, pg_current_snapshot's text `xmin:xmax:xip,...` of 64-bit transaction ids,
  *   which the leader places each decoded transaction in (live/replication.ts placement);
- * - `fanout`: a notification on the channel for each payload of `$1::text[]`;
- * - `announce`: the text of a materialized view's table key, `$1::text` (live/notify.ts notificationText), emitted as
- *   a transactional message under the publication's prefix, which the leader decodes and sends on with the transaction
- *   that announced it, since PUBLIC may emit one.
+ * - `fanout`: a notification on the channel for each payload of `$1::text[]`.
  */
 export type ServedLive =
 	| { readonly kind: "none" }
@@ -224,7 +218,6 @@ export type ServedLive =
 			readonly ledger: string
 			readonly stem: string
 			readonly tables: Readonly<Record<string, ReadonlyArray<string>>>
-			readonly views: ReadonlyArray<string>
 			readonly listen: Prepared<EmittedText>
 			readonly lock: EmittedText
 			readonly senderTimeout: EmittedText
@@ -234,7 +227,6 @@ export type ServedLive =
 			readonly check: Prepared<EmittedText>
 			readonly snapshot: Prepared<EmittedText>
 			readonly fanout: Prepared<EmittedText>
-			readonly announce: Prepared<EmittedText>
 	  }
 
 /**
@@ -289,8 +281,7 @@ export interface ServedContext {
 /**
  * One program of a role's workload, by name, as its compile serves it: a query or ordered query read for its rows; an
  * ordered query that pages, with its page; a key, whose lookup reads by the key's values, each read live or answered
- * (ServedReadLive); a ChangeSet, compiled for each set of its fill contexts that may hold a fact; or a refresh of
- * materialized derived relations, its targets in refresh order.
+ * (ServedReadLive); or a ChangeSet, compiled for each set of its fill contexts that may hold a fact.
  */
 export type ServedMemberForm = MemberForm<{
 	readonly read: ServedRead
@@ -315,7 +306,6 @@ export type MemberForm<P extends MemberParts> = { readonly name: string } & (
 	| { readonly kind: "paged"; readonly read: P["read"]; readonly page: P["page"] }
 	| { readonly kind: "key"; readonly fields: ReadonlyArray<string>; readonly read: P["read"] }
 	| { readonly kind: "change"; readonly variants: P["variants"] }
-	| { readonly kind: "refresh"; readonly refresh: ServedRefresh }
 )
 
 /**
@@ -324,36 +314,6 @@ export type MemberForm<P extends MemberParts> = { readonly name: string } & (
  * layer, a client and the OpenAPI document read it and none derives it again.
  */
 export type ServedMember = ServedMemberForm & { readonly wire: ServedWire }
-
-/**
- * A materialized view one refresh call refreshes, in refresh order (lower levels first, then declared order): its
- * derived relation's declared name, which a refusal names, and the view's qualified name.
- */
-export interface ServedRefreshTarget {
-	readonly relation: string
-	readonly view: ObjectName
-}
-
-/**
- * One refresh call, served with every text it sends, printed once by generate (adapter refresh/statements.ts
- * refreshPlan): its targets in refresh order, each with its view's plain and CONCURRENTLY refresh statements, which the
- * call's report names; the catalog statement that reads which views of one PostgreSQL schema PostgreSQL holds
- * populated, run once per schema the targets' views live in, in their first target's order, with that schema's
- * parameters and its targets, each by its place in refresh order and its view's name; and the DO block that refreshes
- * every target, each plain or CONCURRENTLY as PostgreSQL holds it populated, in one statement. The catalog statement
- * and the block are sent, each named (core/prepared.ts); a target's two statements are only reported.
- */
-export interface ServedRefresh {
-	readonly targets: NonEmptyReadonlyArray<
-		ServedRefreshTarget & { readonly plain: EmittedText; readonly concurrently: EmittedText }
-	>
-	readonly populated: Prepared<EmittedText>
-	readonly schemas: NonEmptyReadonlyArray<{
-		readonly params: ReadonlyArray<ParamText>
-		readonly targets: NonEmptyReadonlyArray<{ readonly place: number; readonly view: string }>
-	}>
-	readonly block: Prepared<EmittedText>
-}
 
 /**
  * How a read is called: `answered`, at its call's instant alone and never live, a read its member declares answered(...)
@@ -404,9 +364,8 @@ export type ServedKey =
 export type ServedRoutes = Readonly<Record<string, string>>
 
 /**
- * What a read's answer depends on (logical/routes.ts Footprint): each stored relation's table and each materialized
- * derived relation's view it reads, by its installed identifier, with its routes, a view's none, since a refresh
- * replaces its rows at once.
+ * What a read's answer depends on (logical/routes.ts Footprint): each stored relation's table it reads, an authored or a
+ * stored derived relation's, by its installed identifier, with its routes.
  */
 export type ServedFootprint = Readonly<Record<string, ServedRoutes>>
 
