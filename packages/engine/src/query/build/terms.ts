@@ -6,7 +6,7 @@ import { isList } from "#compiler/core/record.ts"
 import { type CompareOp, connectiveExpr, type LiteralDesc } from "#compiler/ir/desc.ts"
 import { isInstantType } from "#compiler/ir/instant.ts"
 import type { OpenExpr, OpenHead } from "#compiler/ir/open.ts"
-import { spanCarrierOf, spanOf, typeLabel } from "#compiler/ir/scalar.ts"
+import { type ScalarType, spanCarrierOf, spanOf, typeLabel } from "#compiler/ir/scalar.ts"
 import { type AggregateName, aggregateOverload } from "#compiler/scalar/aggregate.ts"
 import { computeCore, scalarTerm } from "#compiler/scalar/compute/builders.ts"
 import {
@@ -38,7 +38,7 @@ import {
 	typed,
 	untyped
 } from "#compiler/scalar/compute/term.ts"
-import { compatible } from "#compiler/scalar/compute/types.ts"
+import { compatible, sameCarrier } from "#compiler/scalar/compute/types.ts"
 import { literalDescFor } from "#compiler/scalar/literal.ts"
 import { describeField, spanType, type SqlTag } from "#compiler/scalar/registry.ts"
 import { spanColumn } from "#compiler/scalar/span.ts"
@@ -233,18 +233,32 @@ const operand = (value: unknown, anchor: Typing, label: string): OpenExpr => {
 }
 
 /**
- * A match's or negation's binding at a field typed `field`: an operand opposite it (operand). A variable the builder
- * typed binds only a field compatible with its type (types.ts compatible), the rule each later column it binds meets
- * (check/checker.ts #compatibleBinding) and the identity a comparison's operands meet by, so a contract binds no field
- * of its bare base, nor a base one of the contract, exactly where Logic.eq of the two is refused.
+ * How a variable pairs with the field a binding binds it to: a match's of one identity (types.ts compatible), the rule
+ * each later column it binds meets (check/checker.ts #compatibleBinding) and the identity a comparison's operands meet
+ * by, so a match binds a contract to no field of its bare base, nor a base one to a field of the contract, exactly
+ * where Logic.eq of the two is refused; a negation's of one base carrier (types.ts sameCarrier), as the checker
+ * correlates it (#correlatedBinding): a negation tests the inclusion a containment states, a contract on either side
+ * refining the values.
  */
-export const fieldBinding = (value: unknown, field: Typing, label: string): OpenExpr => {
+export const matchPairing = compatible
+export const negationPairing = sameCarrier
+
+/**
+ * A match's or negation's binding at a field typed `field`: an operand opposite it (operand). A variable the builder
+ * typed binds only a field its type pairs with (`pairs`, matchPairing or negationPairing).
+ */
+export const fieldBinding = (
+	value: unknown,
+	field: Typing,
+	label: string,
+	pairs: (variable: ScalarType, field: ScalarType) => boolean
+): OpenExpr => {
 	const term = termOf(value)
 	if (
 		term?.expr.kind === "var" &&
 		term.typing.kind === "typed" &&
 		field.kind === "typed" &&
-		!compatible(term.typing.type, field.type)
+		!pairs(term.typing.type, field.type)
 	) {
 		throw malformed(
 			label,

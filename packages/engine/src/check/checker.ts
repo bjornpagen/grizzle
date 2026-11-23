@@ -4656,12 +4656,13 @@ class RuleCheck {
 			return { kind: "none" }
 		}
 		/**
-		 * Of its declared type, meeting the column, and bound as its base, as everywhere it is compared. A column of
-		 * another base, a regex refinement or a numeric typmod, is a variable of the negated region equated with the
-		 * parameter by a filter there, never a cast of the parameter, which for a typmod rounds.
+		 * Of its declared type, meeting the column or of its base carrier, as a negation's correlated column is
+		 * (#correlatedBinding), and bound as its base, as everywhere it is compared. A column of another base, a regex
+		 * refinement or a numeric typmod, is a variable of the negated region equated with the parameter by a filter
+		 * there, never a cast of the parameter, which for a typmod rounds.
 		 */
 		const declared = this.cx.paramType(e, at)
-		if (!meets(declared, col.type)) {
+		if (!meets(declared, col.type) && !sameCarrier(declared, col.type)) {
 			fail(
 				"MalformedDescription",
 				at,

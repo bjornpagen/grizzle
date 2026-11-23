@@ -6,6 +6,7 @@ import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { Money } from "#compiler/scalar/values/money.ts"
 import type {
+	BaseOf,
 	Carriers,
 	ConstantOrigin,
 	DomainOf,
@@ -21,12 +22,16 @@ import type {
 	Origin,
 	OriginOfTerm,
 	ParamNeeds,
+	ParamOrigin,
 	Refusal,
 	Retyped,
+	RosterKeysOf,
 	Source,
 	SourceOrigin,
 	SqlOfCarrier,
+	SqlOfTerm,
 	TermBase,
+	TypeOfTerm,
 	UnionToIntersection,
 	ValueOfTerm
 } from "#compiler/types/core/phantom.ts"
@@ -182,6 +187,50 @@ export type Bindings<Head, C> = { readonly [K in AnyKeyOf<Head>]: BindingAt<C, K
 type BindingAt<C, K> =
 	| (K extends keyof C ? LiteralOf<LanguageOf<C[K]>> : never)
 	| (K extends keyof C ? Meets<DomainOf<C[K]>, SqlOfCarrier<C[K]>> : never)
+
+/**
+ * What a negation may bind each field to: what a match may (Bindings), or a variable of the rule, a parent's or a
+ * parameter of the field's SQL type, which pairs with the field by base carrier (NegatedCarriers), as the engine
+ * correlates it, by `=` with no cast (check/checker.ts #correlatedBinding, #paramConstant): a negation tests the
+ * inclusion a containment states, and a contract on either side only refines the values. A computed term, a literal
+ * and a typed constant meet the field as a match's do.
+ */
+export type NegatedBindings<Head, C> = {
+	readonly [K in AnyKeyOf<Head>]: BindingAt<C, K> | StatedAt<C, K>
+}
+type StatedAt<C, K> = K extends keyof C
+	? TermBase &
+			Phantom<{ readonly origin: Origin | SourceOrigin | ParamOrigin }> & {
+				readonly sql: SqlOfCarrier<C[K]>
+			}
+	: never
+
+/**
+ * Refuses a negation's binding of a variable, a parent or a parameter (NegatedBindings) whose base carrier is not its
+ * field's: its domain's BaseOf, its roster's brands (RosterKeysOf) and its SQL type, as a containment's sides pair
+ * (types/schema/statements.ts SideHosts), each such field held to what a match binds it to (BindingAt).
+ */
+export type NegatedCarriers<B, C> = {
+	readonly [K in keyof B]: K extends keyof C
+		? B[K] extends StatedAt<C, K>
+			? OneCarrier<
+					TypeOfTerm<B[K]>,
+					SqlOfTerm<B[K]>,
+					DomainOf<C[K]>,
+					SqlOfCarrier<C[K]>
+				> extends true
+				? unknown
+				: BindingAt<C, K>
+			: unknown
+		: unknown
+}
+type OneCarrier<D, S, E, F> = [readonly [BaseOf<D>, RosterKeysOf<D>, S]] extends [
+	readonly [BaseOf<E>, RosterKeysOf<E>, F]
+]
+	? [readonly [BaseOf<E>, RosterKeysOf<E>, F]] extends [readonly [BaseOf<D>, RosterKeysOf<D>, S]]
+		? true
+		: false
+	: false
 /** The heading of carriers a source holds, whose types its bindings meet. */
 export type CarriersOf<R> = R extends Headed<infer C> ? C : never
 

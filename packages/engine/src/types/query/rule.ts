@@ -99,6 +99,8 @@ import type { ContextsOf, Finished, InteriorSource } from "#compiler/types/query
 import type {
 	Aggregate,
 	Bindings,
+	NegatedBindings,
+	NegatedCarriers,
 	DeadConstants,
 	HeadOrigins,
 	HeadTerm,
@@ -683,7 +685,7 @@ type RuleNot = <
 	PK,
 	BT,
 	const B extends Partial<
-		Bindings<
+		NegatedBindings<
 			ShownHeading<R, OrdinaryKind<K, BT>, ShownHeadingOf<HeadingIn<R>, C, EachInstanceOf<RN, C>>>,
 			ShownCarriers<R, OrdinaryKind<K, BT>, ShownHeadingOf<HeadingIn<R>, C, EachInstanceOf<RN, C>>>
 		>
@@ -695,6 +697,10 @@ type RuleNot = <
 		NoExcess<
 			B,
 			ShownHeading<R, OrdinaryKind<K, BT>, ShownHeadingOf<HeadingIn<R>, C, EachInstanceOf<RN, C>>>
+		> &
+		NegatedCarriers<
+			B,
+			ShownCarriers<R, OrdinaryKind<K, BT>, ShownHeadingOf<HeadingIn<R>, C, EachInstanceOf<RN, C>>>
 		> &
 		DeadConstants<
 			B,

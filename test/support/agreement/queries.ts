@@ -263,12 +263,14 @@ export type Fault = (typeof agreementFaults)[number]
 type Planted = "clean" | Fault
 
 /**
- * How spanEndpoints draws its two spans: as drawn, any of Slot's spans and its partner three times in four; or aimed at
- * a contract's span against its base's, a span over Cents opposite one over bigint, the subtle pair whose carriers agree
- * and whose brands do not, by an Allen predicate or a producer (endpointOf). The faulted space aims a case at it while
- * no witness has reached it (faultCases), a pair one spanEndpoints case in about ten draws of itself.
+ * What a case's drawing is aimed at: nothing (`drawn`); for spanEndpoints, a contract's span against its base's, a span
+ * over Cents opposite one over bigint, the subtle pair whose carriers agree and whose brands do not, by an Allen
+ * predicate or a producer (endpointOf), which the faulted space aims a case at while no witness has reached it
+ * (faultCases), a pair one spanEndpoints case in about ten draws of itself; or a negation across refining types, a
+ * variable of one contract over pg.bigint negated at a field of the other (negationOver), which the clean space aims a
+ * case at while no witness has reached it (evidenceSpace).
  */
-type EndpointAim = "drawn" | "contractAgainstBase"
+type EndpointAim = "drawn" | "contractAgainstBase" | "refiningNegation"
 
 /** What a drawn case reached: its constructs, and the engine's verdict on it. */
 export type AgreementNote =
@@ -277,6 +279,7 @@ export type AgreementNote =
 	| "many rows"
 	| "a key below the heading"
 	| "a variable two filters fix"
+	| "a negation across refining types"
 	| "a flag whose readings each prove more than both state"
 	| "a contract in the head"
 	| "an unordered page refused"
@@ -1891,19 +1894,44 @@ const flaggedOver = (d: Drawing, bound: ReadonlyArray<Var>): Flagged | undefined
 	return d.keep("flaggedSpread") ? { kind: "spread", p: fixing() } : undefined
 }
 
-/** A negation: no fact of a relation whose field holds a bound variable of its kind. */
+/**
+ * A kind's base carrier, as a negation pairs a variable with a field (scalar/compute/types.ts sameCarrier): Cents and
+ * natural, two contracts over pg.bigint, are pg.bigint's, int8, and every other kind its own.
+ */
+const carrierOf = (kind: Kind): string =>
+	kind === "cents" || kind === "nat" || kind === "big" ? "int8" : kind
+
+/**
+ * A negation: no fact of a relation whose field holds a bound variable of its base carrier (carrierOf), its own kind or
+ * a sibling's, Cents against natural, which the types and the engine both correlate.
+ */
 const negationOver = (d: Drawing, bound: ReadonlyArray<Var>): ReadonlyArray<Pred> => {
-	const pairs = Arr.flatMap(rels, (rel) =>
+	const all = Arr.flatMap(rels, (rel) =>
 		Arr.flatMap(fieldsOf[rel], (f) =>
-			Arr.flatMap(bound, (v) => (v.field.kind === f.kind ? [[rel, f.name, v] as const] : []))
+			Arr.flatMap(bound, (v) =>
+				carrierOf(v.field.kind) === carrierOf(f.kind) ? [[rel, f, v] as const] : []
+			)
 		)
 	)
-	if (!Arr.isReadonlyArrayNonEmpty(pairs) || !d.keep("negation")) {
+	const across = Arr.filter(all, ([, f, v]) => f.kind !== v.field.kind)
+	const aimed = d.aim === "refiningNegation" && Arr.isReadonlyArrayNonEmpty(across)
+	const pairs = aimed ? across : all
+	if (!Arr.isReadonlyArrayNonEmpty(pairs) || !(aimed || d.keep("negation"))) {
 		return []
 	}
 	const [rel, field, v] = d.from(pairs)
-	return [{ kind: "not", rel, field, t: varTerm(v) }]
+	return [{ kind: "not", rel, field: field.name, t: varTerm(v) }]
 }
+
+/** Whether a rule negates a relation at a field of another kind than the variable it binds there (negationOver). */
+const refiningNegation = (arm: RuleSpec): boolean =>
+	Arr.some(arm.filters, (p) => {
+		if (p.kind !== "not" || p.t.kind !== "var") {
+			return false
+		}
+		const kind = p.t.v.field.kind
+		return Arr.some(fieldsOf[p.rel], (f) => f.name === p.field && f.kind !== kind)
+	})
 
 /**
  * A conditional over a comparison, or a conjunction of two, whose branches are bound integers, constants or literals.
@@ -3889,6 +3917,9 @@ const caseOf = ({ spec, reached }: Drawn): AgreementCase => {
 	if (Arr.some(spec.arms, fixedTwice)) {
 		notes.add("a variable two filters fix")
 	}
+	if (Arr.some(spec.arms, refiningNegation)) {
+		notes.add("a negation across refining types")
+	}
 	const keyed = spec.keyed === undefined ? undefined : keyedOf(spec.keyed)
 	for (const note of keyed === undefined ? [] : keyedNotes(keyed)) {
 		notes.add(note)
@@ -4109,6 +4140,17 @@ const verdictText = (v: Verdict): string => {
 export const agreementCases: Gen<AgreementCase> = (source) =>
 	caseOf(drawnGen("clean", "drawn")(source))
 
+/**
+ * The clean space the evidence agreement draws: agreementCases, and while no witness has negated a field at a variable
+ * of another refining type, a case aimed at it (EndpointAim `refiningNegation`).
+ */
+export const evidenceSpace: Aimed<AgreementCase, AgreementNote> = aimed(agreementCases, [
+	[
+		"a negation across refining types",
+		(source) => caseOf(drawnGen("clean", "refiningNegation")(source))
+	]
+])
+
 /** One faulted case: a fault drawn among every fault, then a query planting it. */
 export const faultCases: Gen<AgreementCase> = (source) =>
 	caseOf(drawnGen(source.draw(element(agreementFaults)), "drawn")(source))
@@ -4149,6 +4191,7 @@ export const evidenceRequired: ReadonlyArray<Reached<AgreementNote>> = [
 	"many rows",
 	"a key below the heading",
 	"a variable two filters fix",
+	"a negation across refining types",
 	"a contract in the head",
 	"an unordered page refused",
 	"a span parameter opposite r.allen",

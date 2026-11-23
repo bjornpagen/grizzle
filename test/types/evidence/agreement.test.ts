@@ -50,6 +50,7 @@ import {
 	evidencePrelude,
 	evidenceProgram,
 	evidenceRequired,
+	evidenceSpace,
 	faultCases,
 	faultProgram,
 	faultSpace,
@@ -66,7 +67,7 @@ import { argumentBox, admissionBox } from "#test/types/evidence/agreement.dictio
  * old count's floor needing 200 steered cases where the default's needed 150
  * (~/.cache/grizzle-release/TESTSYS/GZ-TYPES/measure/budgets/r2/evidence.*.txt, 2026-11-16, load 470 to 670).
  */
-export const evidence = agreement(agreementCases, {
+export const evidence = agreement(evidenceSpace, {
 	situations: evidenceRequired,
 	notes: agreementReached,
 	checking: "disarmed",
@@ -125,6 +126,18 @@ export const evidence = agreement(agreementCases, {
 			original: "\tconst scored = zeroPeeled(out.expr).term\n",
 			replacement: "\tconst scored = out.expr\n",
 			why: "An approximate search's score is read without its canonical zero, which the merge completion puts on a float its head delivers (check/complete.ts), so the lowering refuses a cosine distance the checker admitted; a clean drawn query's nearest search dies."
+		},
+		{
+			file: "packages/engine/src/types/query/terms.ts",
+			original: "	readonly [K in AnyKeyOf<Head>]: BindingAt<C, K> | StatedAt<C, K>",
+			replacement: "	readonly [K in AnyKeyOf<Head>]: BindingAt<C, K>",
+			why: "A negation's binding meets its field as a match's does, of one identity: a Cents variable bound to a natural field in r.not is refused by the types, where the engine correlates the two by base carrier; the program of the witness of a negation across refining types fails."
+		},
+		{
+			file: "packages/engine/src/query/build/terms.ts",
+			original: "export const negationPairing = sameCarrier",
+			replacement: "export const negationPairing = compatible",
+			why: "The builder binds a negation's variable only to a field of its identity: a Cents variable in r.not of a natural field is refused when the rule is built, where the types admit it; the program of the witness of a negation across refining types fails."
 		}
 	]
 })

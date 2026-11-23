@@ -13,6 +13,7 @@ import type {
 	VarRef,
 	VarScope
 } from "#compiler/ir/open.ts"
+import type { ScalarType } from "#compiler/ir/scalar.ts"
 
 import {
 	attachedDecoders,
@@ -225,9 +226,14 @@ const checkScope = (info: SourceInfo, ctx: RuleContext, label: string): void => 
 
 /**
  * The bindings of a match or negation: fields of the source's scalar heading, each bound to a term, a parameter or a
- * JavaScript value of the field's base.
+ * JavaScript value of the field's base, a variable to a field its type `pairs` with (terms.ts fieldBinding).
  */
-const bindingsDesc = (bindings: unknown, source: Heading, label: string): OpenBindings => {
+const bindingsDesc = (
+	bindings: unknown,
+	source: Heading,
+	label: string,
+	pairs: (variable: ScalarType, field: ScalarType) => boolean
+): OpenBindings => {
 	if (!isPlainRecord(bindings)) {
 		throw malformed(
 			label,
@@ -252,7 +258,7 @@ const bindingsDesc = (bindings: unknown, source: Heading, label: string): OpenBi
 				`a binding for ${field}: a term, a parameter or a literal; leave a field unbound by omitting it`
 			)
 		}
-		out[field] = T.fieldBinding(value, typing, `${label} ${field}`)
+		out[field] = T.fieldBinding(value, typing, `${label} ${field}`, pairs)
 	}
 	return out
 }
@@ -460,7 +466,7 @@ const ruleValue = <S, Params, Sole, Facts, Cx>(
 			checkScope(info, ctx, label)
 			const match: OpenMatch = {
 				source: info.desc,
-				bindings: bindingsDesc(bindings, info.heading, label),
+				bindings: bindingsDesc(bindings, info.heading, label, T.matchPairing),
 				loc: captureLoc(label, [])
 			}
 			return ruleValue(ctx, [...matches, match], where, loc)
@@ -577,7 +583,7 @@ const ruleValue = <S, Params, Sole, Facts, Cx>(
 			return predicateValue({
 				kind: "absent",
 				source: info.desc,
-				bindings: bindingsDesc(bindings, info.heading, label)
+				bindings: bindingsDesc(bindings, info.heading, label, T.negationPairing)
 			})
 		},
 		allen: (left, mask, right) =>
