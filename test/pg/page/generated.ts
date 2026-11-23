@@ -1,5 +1,4 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
-import * as EngineResult from "@bjornpagen/grizzle-text/base/result"
 import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import {
@@ -30,7 +29,6 @@ import { serverFailure } from "#adapter/wire/failure.ts"
 import { arrayTexts } from "#compiler/codec/recordset.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { maxStringLength } from "#compiler/core/canonical.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
@@ -73,7 +71,6 @@ import { storedValue } from "#compiler/scalar/values/identity.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { refusalLoc } from "#test/support/assert.ts"
 import { admitGenerated, filledSql, programAsts } from "#test/support/compile.ts"
-import { conservativePage } from "#test/support/conservative.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import { sentSql } from "#test/support/flight/scripted.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -1117,7 +1114,6 @@ const checkAttachments = (label: string, w: Windowed, full: Full): void => {
  * children in D that the window did not deliver.
  */
 const checkRuntime = (
-	label: string,
 	read: ReturnType<typeof windowReader>,
 	full: Full,
 	note: Case<PageFeature>["note"],
@@ -1129,7 +1125,7 @@ const checkRuntime = (
 		for (const direction of ["forward", "backward"] as const) {
 			const size = sizes[direction]
 			const forward = direction === "forward"
-			const walk = `${label} ${direction} ${size}`
+			const walk = `${direction} ${size}`
 			let previous: Windowed | undefined
 			let current = yield* read(forward ? { kind: "start" } : { kind: "end" }, size)
 			let windows = 0
@@ -1161,7 +1157,7 @@ const checkRuntime = (
 					break
 				}
 				if (windows > total + 1) {
-					throw new PropertyFailed({ report: `${label}: a walk that does not end` })
+					throw new PropertyFailed({ report: `${walk}: a walk that does not end` })
 				}
 				previous = current
 				current = yield* read(
@@ -1175,7 +1171,7 @@ const checkRuntime = (
 			}
 			note(`window size ${size}`)
 		}
-		yield* checkPositions(label, read, full, note, sizes.forward, position)
+		yield* checkPositions(read, full, note, sizes.forward, position)
 	})
 
 /**
@@ -1187,7 +1183,6 @@ const checkRuntime = (
  * rows, as a keyset walk continues from a page.
  */
 const checkPositions = (
-	label: string,
 	read: ReturnType<typeof windowReader>,
 	full: Full,
 	note: Case<PageFeature>["note"],
@@ -1198,7 +1193,7 @@ const checkPositions = (
 		const total = full.rows.length
 		const judged = (at: number): Effect.Effect<Windowed, ReadError> =>
 			Effect.map(read({ kind: "at", position: at }, size), (w) => {
-				const where = `${label} at ${at} of ${size}`
+				const where = `at ${at} of ${size}`
 				assert.deepEqual(w.delivered, full.rows.slice(at, at + size), where)
 				checkAttachments(where, w, full)
 				return w
@@ -1206,7 +1201,7 @@ const checkPositions = (
 		const pages: Array<Row> = []
 		for (let page = 0; ; page++) {
 			if (page > total + 1) {
-				throw new PropertyFailed({ report: `${label}: pages by position that do not end` })
+				throw new PropertyFailed({ report: `pages by position of ${size} that do not end` })
 			}
 			const paged = yield* judged(page * size)
 			if (paged.delivered.length === 0) {
@@ -1223,7 +1218,7 @@ const checkPositions = (
 		assert.deepEqual(
 			concatenated,
 			full.rows,
-			`${label} pages by position: every row of D once, in order`
+			`pages by position of ${size}: every row of D once, in order`
 		)
 		const positioned = yield* judged(position)
 		if (Option.isNone(positioned.last)) {
@@ -1236,26 +1231,18 @@ const checkPositions = (
 		assert.deepEqual(
 			after.delivered,
 			full.rows.slice(next, next + size),
-			`${label} after the window at ${position} of ${size}`
+			`after the window at ${position} of ${size}`
 		)
 	})
 
-/** A case's page as the compiler built it, and the template a run pages through: the same one, or its artifact the page
- * oracle's baseline. */
-interface PagedTemplates {
-	readonly compiled: PageTemplate
-	readonly paged: PageTemplate
-}
-
 /**
  * What a case reached besides its skip and its relation parameters: its query's node kinds, the shapes of the template
- * it pages through, a per-execution form of the page the compiler built (`compiled`), which the conservative baseline
- * lowers in its one form, and its D. A distinct is read from the statements' ASTs, never their text.
+ * it pages through, among them a per-execution form, and its D. A distinct is read from the statements' ASTs, never
+ * their text.
  */
 const coverage = (
 	query: LogicalQuery,
 	template: PageTemplate,
-	compiled: PageTemplate,
 	full: Full,
 	note: Case<PageFeature>["note"]
 ): void => {
@@ -1287,7 +1274,7 @@ const coverage = (
 	if (correlatedChildUnderNestedAttachment(query.dag)) {
 		note("a correlated child under a nested attachment")
 	}
-	if (compiled.artifact.requests.first.program.statement.forms.kind === "chosen") {
+	if (template.artifact.requests.first.program.statement.forms.kind === "chosen") {
 		note("per-execution form")
 	}
 	if (template.heading.length === 0) {
@@ -1337,10 +1324,8 @@ const negativeZeroRelation = (o: OrderedCase): boolean =>
 	)
 
 /**
- * The suite over one artifact: test/pg/page/generated-optimized.test.ts and generated-conservative.test.ts each run it
- * as a CPU-bound job of its own, on the same cases.
- *
- * The page runtime on generated ordered queries.
+ * The page runtime on generated ordered queries, through the optimized artifact, which the page compiler builds and the
+ * runtime runs (test/pg/page/generated-optimized.test.ts).
  *
  * Each oracle case (test/support/oracle/gen: plain, attached and heterogeneous-union roots over matches,
  * filters, projections, semi- and anti-joins, unions, intersections, differences, groups, takes and recursive
@@ -1367,11 +1352,8 @@ const negativeZeroRelation = (o: OrderedCase): boolean =>
  *   heterogeneous union's positioned window delivers each group's rows of the window alone, so its merge keeps them
  *   all.
  *
- * Both artifacts run, each in a file of its own on the same cases: the optimized one, which the page compiler builds
- * and the runtime runs (generated-optimized.test.ts), and the conservative one, the page oracle's baseline
- * (generated-conservative.test.ts; lower/shapes/page/compile.ts conservativePage). A heterogeneous union whose common
- * columns hold no proved key is refused by the page compiler and skipped, as are the other rare skips
- * the lowering suite names. Every case notes what it reached (PageFeature), a skip its reason (PageSkip), and the
+ * A heterogeneous union whose common columns hold no proved key is refused by the page compiler and skipped, as are
+ * the other rare skips the lowering suite names. Every case notes what it reached (PageFeature), a skip its reason (PageSkip), and the
  * population must reach every required feature, among them a per-execution form, a relation parameter holding a
  * float -0, which the runtime passes as the caller's one zero, a walk of at least 200 windows, and a correlated
  * child under a nested attachment, the shape where a key within one parent must not stand for a key across parents
@@ -1380,8 +1362,6 @@ const negativeZeroRelation = (o: OrderedCase): boolean =>
  *
  * A case whose walks at its drawn sizes would read more windows than the request bound is skipped, noted as its skip.
  */
-/** The artifact a run of the suite pages through: the page compiler's, or the page oracle's baseline. */
-type PageArtifactName = "optimized" | "conservative"
 
 /**
  * The suite's escaped counterexample, recorded beside its space (gen.ts recorded), which no search of toolchain-test
@@ -1389,8 +1369,8 @@ type PageArtifactName = "optimized" | "conservative"
  * test/unit/lower/dedup/cases.ts withinOneParentCase), ordered by its one column and paged two rows at a time, so a
  * page delivers both parents whose children, a take of one row each, share the key a = 0 of the attachment nested below
  * them. The optimized artifact read that attachment's key set without DISTINCT, as if a key within one parent held
- * across parents, and its statement delivered each child of 0 twice, rows the reader refused. Each artifact's property
- * keeps it by its token, `:-:1` and the unperturbed, once-rotated conditions its case draws after it.
+ * across parents, and its statement delivered each child of 0 twice, rows the reader refused. The property keeps it by
+ * its token, `:-:1` and the unperturbed, once-rotated conditions its case draws after it.
  */
 const recordedPageCases: Arr.NonEmptyReadonlyArray<OrderedCase> = [
 	{
@@ -1404,19 +1384,13 @@ const recordedPageCases: Arr.NonEmptyReadonlyArray<OrderedCase> = [
 	}
 ]
 
-export const generatedProperty = (
-	artifact: PageArtifactName,
-	kept: ReadonlyArray<Kept>,
-	kills: ReadonlyArray<Kill>
-) => {
+export const generatedProperty = (kept: ReadonlyArray<Kept>, kills: ReadonlyArray<Kill>) => {
 	/**
 	 * The order refusal is located at the caller's orderBy, never at the node the order completes over.
 	 *
 	 * The case installs, loads and reads under one savepoint of its transaction (OracleSeat's reading), rolled back to
 	 * after it: a rollback that fails leaves the transaction unlike the case found it, a defect of the case, never
 	 * ignored.
-	 *
-	 * This file's artifact only: its sibling file runs the other on the same cases.
 	 *
 	 * Noted only once the case pages: a skipped case never read its -0.
 	 */
@@ -1499,19 +1473,7 @@ export const generatedProperty = (
 				names,
 				stated: { keys: ordered.stated, at: statedAt }
 			}
-			const page = EngineResult.flatMap(
-				compilePage(pageInput),
-				(compiled): EngineResult.Result<PagedTemplates, CompileError> =>
-					artifact === "optimized"
-						? EngineResult.ok({ compiled, paged: compiled })
-						: EngineResult.map(
-								conservativePage(pageInput, compiled),
-								(conservativeArtifact): PagedTemplates => ({
-									compiled,
-									paged: { ...compiled, artifact: conservativeArtifact }
-								})
-							)
-			)
+			const page = compilePage(pageInput)
 			if (
 				!page.ok &&
 				page.error.reason._tag === "UnsupportedOperation" &&
@@ -1525,7 +1487,7 @@ export const generatedProperty = (
 					report: `page compiler: ${page.error.message}\n${printCase(o)}`
 				})
 			}
-			const { compiled, paged: template } = page.value
+			const template = page.value
 			const runtime = compiledPageRuntime({
 				page: template,
 				params: callerParams(query.params),
@@ -1592,14 +1554,13 @@ export const generatedProperty = (
 						return
 					}
 					yield* checkRuntime(
-						artifact,
 						windowReader(runtime, session, params, codes),
 						full,
 						c.note,
 						sizes,
 						o.position
 					)
-					coverage(query, template, compiled, full, c.note)
+					coverage(query, template, full, c.note)
 					if (negativeZeroRelation(o)) {
 						c.note("float -0 in a relation parameter")
 					}

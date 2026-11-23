@@ -1,5 +1,6 @@
 /**
- * The page runtime on generated ordered queries, through the optimized artifact, which the page compiler builds and the runtime runs (generated.ts states the properties).
+ * The page runtime on generated ordered queries, through the optimized artifact, which the page compiler builds and the
+ * runtime runs (generated.ts states the property).
  *
  * Oracle: the conservative lowering's complete sorted distinct result D, which the windows of each walk cut, each
  * window's attachments D's children of its delivered rows.
@@ -17,7 +18,6 @@ import { generatedProperty } from "#test/pg/page/generated.ts"
  */
 export const thePageRuntimeCutsGeneratedOrderedQueriesIntoWindowsThroughTheOptimizedArtifact =
 	generatedProperty(
-		"optimized",
 		[
 			{
 				token: ReplayToken(

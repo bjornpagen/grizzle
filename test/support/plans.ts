@@ -304,7 +304,7 @@ const recordingSession = (
 })
 
 /** The Db context `ctx` with every session its pool leases recording what it sends into `counts` (Counts). */
-export const recordingContext = (
+const recordingContext = (
 	ctx: ServedDbContext
 ): { readonly ctx: ServedDbContext; readonly counts: Counts } => {
 	const counts: Counts = { flights: 0, statements: 0, sent: [] }

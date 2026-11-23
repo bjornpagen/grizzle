@@ -807,7 +807,6 @@ export default defineConfig(
 			{
 				files: [
 					"test/pg/allen/table.test.ts",
-					"test/pg/page/values.test.ts",
 					"test/pg/values/money.test.ts",
 					"test/pg/values/numeric.fixtures.ts",
 					"test/pg/values/numeric.test.ts",
