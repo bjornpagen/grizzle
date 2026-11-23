@@ -42,7 +42,9 @@
  *   every field they carry, an owner's counts and ends among them;
  * - every owner of it in the unit is kept, and for a member of a counted family, its group is the stratum's whole: every
  *   stored member of it is added again, and every added member of it is stored, so its hidden slots are one valid
- *   placement of the same set;
+ *   placement of the same set; and for a member of two counted families or more, no doomed row of any group of any of
+ *   them is removed, across the crossing they make (`wholeAcross`), since an insert again appends after a group's
+ *   greatest kept slot and would leave a removed member's slot empty;
  * - for a sequence's member, every member before it in its group is kept, and for a tree's node, every node on its path
  *   from its root and every node before one of those among its siblings, since the predecessor and owner axes are
  *   immediate between this statement and the inserts after it.
@@ -70,7 +72,7 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
-import { factEq, factFieldEq } from "#compiler/ir/compare.ts"
+import { factEq, factFieldEq, typedEq } from "#compiler/ir/compare.ts"
 import { type Family, isSequence, type TreeMembers } from "#compiler/ir/family.ts"
 import { type LawField, type RelationInfo, type ColumnKey, columnKeyOf } from "#compiler/ir/law.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
@@ -79,20 +81,29 @@ import type { StratumAt } from "#compiler/ir/stratum.ts"
 import { WriteParams } from "#compiler/lower/conservative/context.ts"
 import type { Cte, Expr, Select } from "#compiler/sql/ast.ts"
 import {
+	and,
 	asc,
 	call,
 	col,
 	conjunction,
+	core,
 	cte,
 	cteRefAs,
 	derived,
+	eq,
 	le,
+	lit,
 	not,
 	notExists,
+	operandSelect,
+	operandUnionAll,
 	provedCore,
 	select,
+	setOperation,
+	simpleSelect,
 	target,
 	targetAs,
+	types,
 	windowOf
 } from "#compiler/sql/build.ts"
 import { NameSupply } from "#compiler/sql/naming.ts"
@@ -132,6 +143,7 @@ import {
 	installed,
 	internal,
 	slotReader,
+	tableAs,
 	taggedRows
 } from "#compiler/write/family/written.ts"
 import type { MemberSlot } from "#compiler/write/frontend/compile.ts"
@@ -601,6 +613,135 @@ export const unitSql = (
 		)
 	}
 	/**
+	 * The rows of `kept`, kept rows of `relation`, a member of two counted families or more, `counted`, outside every group
+	 * of them a doomed row the stratum does not keep reaches, across the crossing its families make: a counted group is
+	 * the stratum's whole or none of it (see the header), and a row one family's group excludes takes each group of every
+	 * other family it is in, and those groups' rows take theirs, transitively, as far as doomed rows reach. Without it a
+	 * group a member left by another family's exclusion keeps its other members at their slots, and the stratum's insert
+	 * of the excluded member again appends it after the group's greatest kept slot, leaving the excluded member's slot
+	 * empty, which the family's predecessor key refuses at commit (CO-PG: qti-pie's crossing shape over mutable owners,
+	 * a test replaced identically beside a new test placing one of its assemblies).
+	 *
+	 * One recursive read over the doomed rows the stratum does not keep, each a tid, each step fetching its row at its tid
+	 * and reaching the doomed rows of each of its groups at their group, a keyed read of the member's table per family,
+	 * UNION keeping each row once:
+	 *
+	 *   WITH RECURSIVE "b"("t") AS (SELECT d.<tid> FROM <doomed> AS d WHERE NOT EXISTS (<kept at d's tid>)
+	 *     UNION SELECT s.t FROM "b" AS x JOIN <relation> AS r ON r.ctid = x.t
+	 *       JOIN LATERAL (SELECT m.ctid FROM <relation> AS m WHERE m.<g…> = r.<g…> UNION ALL …) AS s(t) ON true
+	 *       JOIN <doomed> AS e ON e.<tid> = s.t)
+	 *   SELECT k.<key…>, k.<tid> FROM <kept> AS k WHERE NOT EXISTS (SELECT 1 FROM "b" AS y WHERE y.t = k.<tid>)
+	 */
+	const wholeAcross = (
+		relation: RelationInfo,
+		counted: readonly [Family, Family, ...Array<Family>],
+		doomedKeys: RowKeyset,
+		kept: RowKeyset
+	): RowKeyset => {
+		const broken = supply.relation(internal(`broken ${relation.name}`))
+		const t = supply.column(internal("broken row"))
+		const reached = supply.column(internal("reached row"))
+		const d = supply.relation(internal(`unkept ${relation.name}`))
+		const k = supply.relation(internal(`kept ${relation.name}`))
+		const x = supply.relation(internal(`broken row of ${relation.name}`))
+		const r = supply.relation(internal(`broken stored ${relation.name}`))
+		const sr = supply.relation(internal(`grouped with broken ${relation.name}`))
+		const e = supply.relation(internal(`doomed grouped ${relation.name}`))
+		const y = supply.relation(internal(`broken kept ${relation.name}`))
+		const o = supply.relation(internal(`whole kept ${relation.name}`))
+		const keptAt = (alias: string, tid: Expr) =>
+			simpleSelect(
+				[target(lit.int(1, types.integer))],
+				[cteRefAs(kept.name, alias)],
+				eq(col(alias, kept.row), tid)
+			)
+		const seed = provedCore(
+			"keyed",
+			[targetAs(col(d, doomedKeys.row), t)],
+			[cteRefAs(doomedKeys.name, d)],
+			notExists(keptAt(k, col(d, doomedKeys.row)))
+		)
+		const grouped = mapNonEmpty(counted, (family) => {
+			const m = supply.relation(internal(`group member of ${relation.name}`))
+			return core(
+				[target(rowOf(m))],
+				[tableAs(w, relation.name, m)],
+				and(
+					mapNonEmpty(family.group, (g) =>
+						typedEq(
+							g.member.type,
+							stored(m, relation, g.member),
+							stored(r, relation, g.member),
+							w.names
+						)
+					)
+				)
+			)
+		})
+		const step = core(
+			[targetAs(col(sr, reached), t)],
+			[
+				{
+					kind: "joins",
+					first: cteRefAs(broken, x),
+					steps: [
+						{ kind: "on", source: tableAs(w, relation.name, r), on: eq(rowOf(r), col(x, t)) },
+						{
+							kind: "on",
+							source: derived(operandSelect(operandUnionAll(grouped)), sr, [reached], true),
+							on: lit.bool(true)
+						},
+						{
+							kind: "on",
+							source: cteRefAs(doomedKeys.name, e),
+							on: eq(col(e, doomedKeys.row), col(sr, reached))
+						}
+					]
+				}
+			],
+			undefined
+		)
+		const name = supply.relation(internal(`whole ${relation.name}`))
+		const columns = mapNonEmpty(kept.columns, () => supply.column(internal("whole key")))
+		const row = supply.column(internal("whole row"))
+		ctes.push({
+			...cte(name, [...columns, row], {
+				...select(
+					provedCore(
+						"keyed",
+						[
+							...mapNonEmpty(kept.columns, (c, i) =>
+								targetAs(col(o, c), defined(columns[i], "a whole key"))
+							),
+							targetAs(col(o, kept.row), row)
+						],
+						[cteRefAs(kept.name, o)],
+						notExists(
+							simpleSelect(
+								[target(lit.int(1, types.integer))],
+								[cteRefAs(broken, y)],
+								eq(col(y, t), col(o, kept.row))
+							)
+						)
+					)
+				),
+				with: {
+					recursive: true,
+					ctes: [
+						{
+							name: broken,
+							columns: [t],
+							materialized: undefined,
+							query: select(setOperation("UNION", [seed, step]))
+						}
+					]
+				}
+			}),
+			materialized: "MATERIALIZED"
+		})
+		return { name, access: kept.access, columns, row }
+	}
+	/**
 	 * The doomed rows of `relation`, the rows its arms reach (`reached`); and of them the ones the stratum removes, those
 	 * it does not keep (see the header), each a materialized row keyset. The kept rows are the doomed rows added again
 	 * unchanged outside every excluded group of a family whose member `relation` is (`excludedGroups`), less, for a tree's
@@ -634,12 +775,19 @@ export const unitSql = (
 		)
 		const sequence = families.find(isSequence)
 		const index = sequence?.shape.index
-		const kept =
+		const prefixed =
 			tree !== undefined
 				? treeKept(relation, tree, doomedKeys, base)
 				: sequence !== undefined && index?.kind === "field"
 					? orderedKept(relation, sequence, index.field, base)
 					: base
+		const [firstCounted, secondCounted, ...moreCounted] = families.filter(
+			(f) => f.shape.kind === "counted"
+		)
+		const kept =
+			firstCounted !== undefined && secondCounted !== undefined
+				? wholeAcross(relation, [firstCounted, secondCounted, ...moreCounted], doomedKeys, prefixed)
+				: prefixed
 		doomed.set(relation.name, {
 			doomed: doomedKeys,
 			removed: rowsWhere(supply, ctes, { all: [doomedKeys], none: [kept] }, "MATERIALIZED")
@@ -775,17 +923,20 @@ export const unitSql = (
 				using: [cteRefAs(found.removed.name, k)],
 				where: conjunction([rowAt(k, found.removed, t), rowsAmong(supply, found.removed, t)]),
 				returning: returned.map((x) => targetAs(stored(t, relation, x.field), x.alias))
-			}),
-			/** The heads of the place groups it removed, which go with them (write/insert/stamp.ts placeReleases). */
-			...placeReleases(w, supply, relation, {
-				cte: del,
-				column: (f) =>
-					defined(
-						returned.find((x) => x.field === f),
-						`the returned column of ${relation.name}.${f.name}`
-					).alias
 			})
 		)
+		/** The heads of the place groups it removed, which go with them (write/insert/stamp.ts placeReleases). */
+		const releases = placeReleases(w, supply, relation, {
+			cte: del,
+			column: (f) =>
+				defined(
+					returned.find((x) => x.field === f),
+					`the returned column of ${relation.name}.${f.name}`
+				).alias
+		})
+		for (const release of releases) {
+			ctes.push(release)
+		}
 		return {
 			cte: del,
 			columns: returned.map((x) => returnedColumn(col(del, x.alias), rowType(x.field), x.alias)),

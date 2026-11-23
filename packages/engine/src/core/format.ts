@@ -238,7 +238,9 @@
  * workload's read reads at a value of a key column is read inline at each (lower/optimize/cte-policy perKeyReads, rule
  * 5c), where format 8 made one MATERIALIZED CTE of the whole node, read beside. A restricted share's EXISTS reads the
  * union of its readers' partners (lower/shapes/share/statements.ts restrictedShares), where 96b46005e's read one
- * partner.
+ * partner. A unit delete of a relation that is a member of two counted families or more keeps none of a group of any of
+ * them a doomed row it removes reaches, across the crossing, by one recursive read over its removed rows
+ * (write/delete/unit.ts wholeAcross), where format 8 kept each family's groups by that family's own exclusions alone.
  */
 export const artifactFormat = 8
 

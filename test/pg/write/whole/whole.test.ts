@@ -1,7 +1,7 @@
 import { assert, unorderedEqual } from "@bjornpagen/testing/assert"
 import { type Real, refused, runProgram, took } from "@bjornpagen/testing/commands"
 import type { Reached } from "@bjornpagen/testing/features"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
 import { OpenError } from "#adapter/errors/execution.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
@@ -463,39 +463,9 @@ export const deletingAGroupWholeAndReplacingItOnPostgreSQL19EveryChangeSetStores
 													`a delete of ${name} alone is refused when it compiles`
 												)
 												if (Result.isFailure(loaded)) {
-													const tag = loaded.failure._tag
-													if (name === "Tok" || name === "Book") {
-														assert.equal(tag, "UnstatedKey", `a delete of ${name}`)
-														c.note("a sequence member named by a drawn key refused")
-														return refused("a sequence member named by a drawn key")
-													}
-													assert.equal(tag, "UnsupportedOperation", `a delete of ${name}`)
-													c.note("a fixed family's member deleted alone refused")
-													return refused("a fixed family's member deleted alone")
-												}
-												return took
-											})
-										),
-									"orphan append": (p) =>
-										Effect.orDie(
-											Effect.gen(function* () {
-												const loaded = yield* load(
-													ChangeSet.empty(world)
-														.delete(Shelf, [{ id: p.id, note: p.note }])
-														.insert(Tag, [{ shelf: p.id, label: p.label }])
-												)
-												assert.ok(
-													Result.isFailure(loaded),
-													"an append to a deleted owner is refused when it compiles"
-												)
-												if (Result.isFailure(loaded)) {
-													assert.equal(
-														loaded.failure._tag,
-														"UnsupportedOperation",
-														"an append to a deleted owner"
-													)
-													c.note("an append to an owner the stratum does not insert refused")
-													return refused("an append to an owner the stratum does not insert")
+													assert.equal(loaded.failure._tag, "UnstatedKey", `a delete of ${name}`)
+													c.note("a sequence member named by a drawn key refused")
+													return refused("a sequence member named by a drawn key")
 												}
 												return took
 											})
@@ -566,8 +536,23 @@ export const deletingAGroupWholeAndReplacingItOnPostgreSQL19EveryChangeSetStores
 			kind: "specification",
 			name: "a model of the relations as sets of units: the stored units less the deleted plus the inserted, each relation's rows rendered as the README draws them"
 		},
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/pg/write/whole/whole.test.ts#deletingAGroupWholeAndReplacingItOnPostgreSQL19EveryChangeSetStoresTheModelsRowsAndAnswersItsOutcomeCountsAndRefusals:-:0.0.0.0.0.1.2.0.0.2.0.1.1.1.0.0.0.0.0.0.0.0.2.0.0.0.0.0.2.0.0.0.0.0.2.0.0.0.0.0.2.0.2.0.0.0.2.0.0.1.1.0.0.0.2.0.1.0.1.0.0.0.0.0.0.2.0.1.0.0.0.0.0.0.3.0.0.2.0.2.0.0.1.0.0.0"
+				),
+				reason:
+					"CO-PG's conversion to open relations: test 2's root placing assemblies 1 and 2, then one stratum replacing test 2 and both assemblies identically and inserting test 1 placing assembly 1. Assembly 1's group grows, so its stored placement (2, 0, 1) goes, and test 2's root instance kept the other, (2, 0, 2), at its slot: the insert again appended (2, 0, 1) after it and left slot 0 empty, refused by Place's counted predecessor key of fin(Inst, places) where the model accepts",
+				since: "2026-11-23"
+			}
+		],
 		kills: [
+			{
+				file: "packages/engine/src/write/delete/unit.ts",
+				original: "\t\t\tfirstCounted !== undefined && secondCounted !== undefined\n",
+				replacement: "\t\t\tfalse\n",
+				why: "A member of two counted families keeps each family's groups by that family's own exclusions alone, so a group another family's exclusion leaves keeps its other members at their slots, and the insert again of the excluded member appends after them, leaving its slot empty: the kept case is refused by the instance's counted predecessor key where it is accepted."
+			},
 			{
 				file: "packages/engine/src/runtime/write/normalize.ts",
 				original: '\t\t\treturn act.names === "units" ? "units" : "delete"',

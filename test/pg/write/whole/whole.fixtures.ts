@@ -17,11 +17,13 @@ import {
 	fin,
 	fold,
 	Monoid,
+	mutable,
 	on,
 	ordered,
 	relation,
 	schema,
-	tree
+	tree,
+	unit
 } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { installedTemplate } from "#test/support/install-migrate.ts"
@@ -34,8 +36,10 @@ import { fullWorld } from "#test/support/worlds.ts"
  * counted family of Attr whose values sum into the node's `weight`, each Attr owning an ordered family of Tok; an owner
  * of two families, Shelf, its ordered Books summing their words into its `pages` with running values, and its counted
  * Tags; and qti-pie's crossing shape, a Test owning a counted family of Inst, a tree whose nodes are its members, each
- * Inst owning a counted family of Place, every Place also a member of an Asm's counted family. Every owner is
- * immutable, as qti-pie's content is, so a group changes only through its owner.
+ * Inst owning a counted family of Place, every Place also a member of an Asm's counted family. Every relation is open,
+ * mutable inside the unit its key leads with, as a content a package replaces must be: a tree's rows by its doc, a
+ * shelf's by its id and its members' by their shelf, a test's, its instances' and its placements' by its t, and an
+ * assembly's by its a.
  *
  * A program is ChangeSets over that world. Each `write` names, per key of a small pool, a unit (a tree by its root, a
  * shelf, a test or an assembly by its id) and what the ChangeSet does to it: deletes it; inserts it; or replaces it, a
@@ -44,17 +48,16 @@ import { fullWorld } from "#test/support/worlds.ts"
  * stored one again (a differing one there is the insert protocol's, drawn by test/pg/write G4's properties). Tests and
  * assemblies are drawn by the components their placements link, each left alone, deleted whole, replaced whole
  * identically or edited, or split, each of its units drawn on its own; a test is inserted only at a key no test holds
- * or after its delete, its placements naming only assemblies the ChangeSet inserts (an append to a stored immutable
- * owner is the insert protocol's), and a ChangeSet that deletes either deletes both relations, as qti-pie's replace
- * `delete(T, q1)`, `delete(A, q2)`, `insertAll(rows)` does, its deletes of one of them possibly naming no row. A test or
- * an assembly named by an array is named by its own fact, the one its insert states, so a replace that keeps its note
- * deletes and inserts one root fact: the unit goes whole all the same, but for the rows the stratum adds again unchanged,
- * never netted away as one fact both deleted and inserted would be. The named
- * invalid ChangeSets are refused before any SQL: a partial group (a member of an immutable owner's family deleted
- * alone, by a key that holds a drawn field or by its facts), a member appended to an owner the ChangeSet deletes and
- * does not insert again, a tree's node named by its key in place of its root value, and a delete of a test or an
- * assembly in a stratum that deletes no row of the other, whose placements' other groups it would leave partial. An
- * owner without its members is no ChangeSet at all: a delete of an owner takes its groups.
+ * or after its delete, its placements naming only assemblies the ChangeSet inserts (an append to a stored owner is the
+ * insert protocol's), and a ChangeSet that deletes either deletes both relations, as qti-pie's replace `delete(T, q1)`,
+ * `delete(A, q2)`, `insertAll(rows)` does, its deletes of one of them possibly naming no row. A test or an assembly
+ * named by an array is named by its own fact, the one its insert states, so a replace that keeps its note deletes and
+ * inserts one root fact: the unit goes whole all the same, but for the rows the stratum adds again unchanged, never
+ * netted away as one fact both deleted and inserted would be. The named invalid ChangeSets are refused before any SQL:
+ * a sequence's member deleted alone by a key that holds a drawn field, a tree's node named by its key in place of its
+ * root value, and a delete of a test or an assembly in a stratum that deletes no row of the other, whose placements'
+ * other groups it would leave partial. An owner without its members is no ChangeSet at all: a delete of an owner takes
+ * its groups.
  *
  * The model holds each unit as a value (a tree of labelled nodes, each with its attrs and their tokens; a shelf with its
  * books in order and its set of tags; a test with its tree of labelled instances, each with the set of assemblies it
@@ -212,7 +215,16 @@ const statements = [
 ] as const
 
 /** The world under `name`: the one schema every case's ChangeSets are over. */
-export const worldOf = (name: string) => schema(name, Rec.values(relations), statements)
+export const worldOf = (name: string) =>
+	schema(name, Rec.values(relations), [
+		...statements,
+		...Arr.map(Rec.values(relations), (r) => mutable(r)),
+		unit("Document", { doc: pg.bigint }),
+		unit("Shelved", { id: pg.bigint }),
+		unit("Racked", { shelf: pg.bigint }),
+		unit("Exam", { t: pg.bigint }),
+		unit("Assembly", { a: pg.bigint })
+	])
 
 export type RelationName = keyof typeof relations
 
@@ -468,18 +480,10 @@ interface Write {
 	readonly by: "array" | "query"
 }
 
-/** A member of an immutable owner's family deleted alone: an Attr, a Tag or a Place by its facts, a Tok or a Book by its
- * key. */
+/** A sequence's member deleted alone, a Tok or a Book, by its key, which holds a drawn field. */
 interface PartialGroup {
-	readonly relation: "Attr" | "Tag" | "Place" | "Tok" | "Book"
+	readonly relation: "Tok" | "Book"
 	readonly fact: Fact
-}
-
-/** A shelf deleted and a tag appended to it, the shelf not inserted again. */
-interface OrphanAppend {
-	readonly id: bigint
-	readonly note: bigint
-	readonly label: bigint
 }
 
 /** A tree's node named by its key, its root value and its start, in place of its root value. */
@@ -498,7 +502,6 @@ interface CrossingAlone {
 export interface Params {
 	readonly write: Write
 	readonly "partial group": PartialGroup
-	readonly "orphan append": OrphanAppend
 	readonly "node by key": NodeByKey
 	readonly "crossing alone": CrossingAlone
 }
@@ -506,9 +509,7 @@ export interface Params {
 export type Refusal =
 	| "a differing unit at a stored key"
 	| "a crossing group left partial"
-	| "a fixed family's member deleted alone"
 	| "a sequence member named by a drawn key"
-	| "an append to an owner the stratum does not insert"
 	| "a tree's node named by its key"
 	| "a crossing delete without the other relation's"
 
@@ -979,8 +980,7 @@ const judgeWrite = (m: Model, w: Write): Verdict<Model, Refusal> => {
 	})
 }
 
-/** The facts each stored member of an immutable owner's family is named by alone: an Attr's, a Tag's and a Place's, and
- * a Tok's and a Book's, which hold no drawn key field. */
+/** The facts each stored member of a sequence is named by alone, a Tok's and a Book's, which hold no drawn key field. */
 const memberFacts = (
 	m: Model
 ): { readonly [R in PartialGroup["relation"]]: ReadonlyArray<Fact> } => {
@@ -988,37 +988,24 @@ const memberFacts = (
 		Arr.flatMap(preOrder(root), (p) => Arr.map(p.node.attrs, (a) => ({ doc, start: p.start, a })))
 	)
 	return {
-		Attr: Arr.map(placedAttrs, ({ doc, start, a }) => ({ doc, start, name: a.name, v: a.v })),
 		Tok: Arr.flatMap(placedAttrs, ({ doc, start, a }) =>
 			Arr.map(a.toks, (t) => ({ doc, start, name: a.name, t }))
 		),
-		Tag: Arr.flatMap(m.shelves, ([shelf, s]) => Arr.map(s.tags, (label) => ({ shelf, label }))),
-		Book: Arr.flatMap(m.shelves, ([shelf, s]) => Arr.map(s.books, (words) => ({ shelf, words }))),
-		Place: Arr.map(placementsOf(m), placementRow)
+		Book: Arr.flatMap(m.shelves, ([shelf, s]) => Arr.map(s.books, (words) => ({ shelf, words })))
 	}
 }
 
 /** The fact of a member at a key no unit stores, of each relation. */
 const absentMember: { readonly [R in PartialGroup["relation"]]: Fact } = {
-	Attr: { doc: 1n, start: 0n, name: 0n, v: 0n },
 	Tok: { doc: 1n, start: 0n, name: 0n, t: 0n },
-	Tag: { shelf: 1n, label: 0n },
-	Book: { shelf: 1n, words: 0n },
-	Place: { t: 1n, start: 0n, a: 1n }
+	Book: { shelf: 1n, words: 0n }
 }
-
-/** The members a partial group names, by the refusal it meets: a fixed family's by its facts, or a sequence's by a key
- * that holds a drawn field, each refusal drawn as often. */
-const partialMembers = [
-	["Attr", "Tag", "Place"],
-	["Tok", "Book"]
-] as const
 
 /** A stored member to name, or one at a key no unit stores. */
 const partialGen =
 	(m: Model): Gen<PartialGroup> =>
 	(source) => {
-		const relationOf = source.draw(element(source.draw(element(partialMembers))))
+		const relationOf = source.draw(element(["Tok", "Book"] as const))
 		const stored = memberFacts(m)[relationOf]
 		return {
 			relation: relationOf,
@@ -1041,27 +1028,7 @@ export const machine: Machine<Model, Params, Refusal> = {
 			weight: 1,
 			applies: () => true,
 			parameters: partialGen,
-			judge: (_, p) =>
-				refused(
-					p.relation === "Tok" || p.relation === "Book"
-						? "a sequence member named by a drawn key"
-						: "a fixed family's member deleted alone"
-				)
-		},
-		"orphan append": {
-			weight: 1,
-			applies: () => true,
-			parameters: (m) => (source) => {
-				const shelf = Arr.isReadonlyArrayNonEmpty(m.shelves)
-					? source.draw(element(m.shelves))
-					: undefined
-				return {
-					id: shelf === undefined ? source.draw(element(ids)) : shelf[0],
-					note: shelf === undefined ? 0n : shelf[1].note,
-					label: source.draw(element(small))
-				}
-			},
-			judge: () => refused("an append to an owner the stratum does not insert")
+			judge: () => refused("a sequence member named by a drawn key")
 		},
 		"node by key": {
 			weight: 1,
@@ -1096,9 +1063,7 @@ export type Feature =
 	| "a unit added again unchanged left untouched"
 	| "an attr's tokens replaced"
 	| "units of both kinds replaced in one ChangeSet"
-	| "a fixed family's member deleted alone refused"
 	| "a sequence member named by a drawn key refused"
-	| "an append to an owner the stratum does not insert refused"
 	| "a tree's node named by its key refused"
 	| "crossing groups deleted whole by a test's and an assembly's deletes"
 	| "a crossing component replaced with other rows"
@@ -1121,9 +1086,7 @@ export const features: Arr.NonEmptyReadonlyArray<Feature> = [
 	"a unit added again unchanged left untouched",
 	"an attr's tokens replaced",
 	"units of both kinds replaced in one ChangeSet",
-	"a fixed family's member deleted alone refused",
 	"a sequence member named by a drawn key refused",
-	"an append to an owner the stratum does not insert refused",
 	"a tree's node named by its key refused",
 	"crossing groups deleted whole by a test's and an assembly's deletes",
 	"a crossing component replaced with other rows",
@@ -1138,7 +1101,6 @@ export const features: Arr.NonEmptyReadonlyArray<Feature> = [
 const commandNames: Arr.NonEmptyReadonlyArray<keyof Params> = [
 	"write",
 	"partial group",
-	"orphan append",
 	"node by key",
 	"crossing alone"
 ]
