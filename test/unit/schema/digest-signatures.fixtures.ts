@@ -10,6 +10,7 @@ import { type AnyFunction, fn, relation, row, rows, schema } from "#compiler/pub
 import { str } from "#compiler/public/text.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import type { SqlStatement, TypeRef } from "#compiler/sql/ast.ts"
+import { joined } from "#test/support/chunked.ts"
 import { asDrafted, compilation } from "#test/support/migrate/kit.ts"
 import { compiledLogin } from "#test/support/served-login.ts"
 import { fullWorld } from "#test/support/worlds.ts"
@@ -121,7 +122,7 @@ export const madeOf = (c: DigestCase): Effect.Effect<Made> =>
 		return {
 			kind: "owned",
 			statements: installation.value.statements,
-			served: compiled.entry.text
+			served: joined(compiled.entry.text)
 		}
 	})
 

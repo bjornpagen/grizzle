@@ -1,6 +1,7 @@
 /** What the properties of migrate.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import type { TextChunks } from "@bjornpagen/grizzle-text/chunks"
 import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	aimed,
@@ -29,6 +30,7 @@ import { emptySnapshot, noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { databaseLock } from "#compiler/sql/catalog.ts"
 import { placeholderToken, printStatement } from "#compiler/sql/print.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { chunked, joined } from "#test/support/chunked.ts"
 import { firstCodes } from "#test/support/compile.ts"
 import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
@@ -65,7 +67,10 @@ export const unedited = (file: FileText): string => file.text
 export const source = (folder: MigrationFolder, edit: (file: FileText) => string) => ({
 	name: folder.name,
 	metaText: folder.metaText,
-	files: Arr.map(folder.files, (f) => ({ name: f.name, text: edit(f) }))
+	files: Arr.map(folder.files, (f) => ({
+		name: f.name,
+		text: chunked(edit({ name: f.name, text: joined(f.text) }))
+	}))
 })
 
 /**
@@ -524,7 +529,7 @@ export const plantedFolders = (
 			}
 		case "malformedMeta":
 			return {
-				folders: replaced([{ ...folder, metaText: fault.text }]),
+				folders: replaced([{ ...folder, metaText: chunked(fault.text) }]),
 				refusal: refused("malformedMeta", folder.name)
 			}
 		case "foreignMeta": {
@@ -563,8 +568,8 @@ export const plantedFolders = (
 			const first = defined(folder.files[0], "a folder's first file")
 			const stray =
 				fault.name === "notes.txt"
-					? { name: "notes.txt", text: "" }
-					: { name: `${Str.slice(0, 2)(first.name)}-again.sql`, text: "SELECT 1;\n" }
+					? { name: "notes.txt", text: chunked("") }
+					: { name: `${Str.slice(0, 2)(first.name)}-again.sql`, text: chunked("SELECT 1;\n") }
 			return {
 				folders: replaced([{ ...folder, files: [...folder.files, stray] }]),
 				refusal: refused("fileNames", folder.name)
@@ -577,7 +582,7 @@ export const plantedFolders = (
 					{
 						...folder,
 						files: Arr.map(folder.files, (f, i) =>
-							i === target ? { ...f, text: `${f.text}\n${fault.control};\n` } : f
+							i === target ? { ...f, text: chunked(`${joined(f.text)}\n${fault.control};\n`) } : f
 						)
 					}
 				]),
@@ -785,8 +790,8 @@ const planCaseGen: Gen<PlanCase> = (source) => {
 const databaseLockText = printStatement(databaseLock)
 
 /** Whether one of `files` holds a database-wide statement, a statement of two commands behind the database lock. */
-export const holdsDatabaseWide = (files: ReadonlyArray<{ readonly text: string }>): boolean =>
-	Arr.some(files, (f) => Str.includes(databaseLockText)(f.text))
+export const holdsDatabaseWide = (files: ReadonlyArray<{ readonly text: TextChunks }>): boolean =>
+	Arr.some(files, (f) => Str.includes(databaseLockText)(joined(f.text)))
 
 /** A stop of the shop's chain: the folders the ledger records complete, and the files of the next that completed. */
 interface ShopStop {
@@ -797,7 +802,7 @@ interface ShopStop {
 /** The stops of the shop's chain whose partial folder's completed files, and the file it resumes at, `holds` holds. */
 const shopStops = (
 	what: string,
-	holds: (completed: ReadonlyArray<{ readonly text: string }>, next: DraftFile) => boolean
+	holds: (completed: ReadonlyArray<{ readonly text: TextChunks }>, next: DraftFile) => boolean
 ): Arr.NonEmptyReadonlyArray<ShopStop> =>
 	nonEmpty(
 		Arr.flatMap(shopChain, (g, complete) =>

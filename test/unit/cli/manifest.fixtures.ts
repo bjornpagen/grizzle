@@ -9,6 +9,7 @@ import { artifactFormat, formatKey, type RecordedFormat } from "#compiler/core/f
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import { joinedSnapshot, snapshotSeal } from "#compiler/deploy/snapshot/build.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { chunked } from "#test/support/chunked.ts"
 
 /**
  * What a case commits beside the first draft's other file: a snapshot.json that records no format, or that records the
@@ -58,8 +59,8 @@ export const formatted = (snapshot: string, recorded: RecordedFormat): string =>
 const joinedContent = (snapshot: string, manifest: string): Readonly<Record<string, unknown>> =>
 	succeeded(
 		joinedSnapshot(
-			succeeded(decode(snapshot, noRevivers), "snapshot.json decodes"),
-			succeeded(decode(manifest, noRevivers), "manifest.json decodes")
+			succeeded(decode(chunked(snapshot), noRevivers), "snapshot.json decodes"),
+			succeeded(decode(chunked(manifest), noRevivers), "manifest.json decodes")
 		),
 		"the pair joins"
 	).content

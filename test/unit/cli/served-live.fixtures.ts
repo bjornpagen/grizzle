@@ -6,7 +6,6 @@ import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
 import { silentPhases } from "#compiler/core/phase.ts"
 import { isRecord } from "#compiler/core/record.ts"
-import { trustedJson } from "#compiler/core/trusted.ts"
 import { emptySnapshot, writeRuntimeSnapshot } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type { LivePlan } from "#compiler/live/notify.ts"
@@ -14,6 +13,7 @@ import { servedFile } from "#compiler/served/json.ts"
 import { defineConfig } from "#index.ts"
 import { offlineOwner } from "#test/pg/cli/support.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { jsonOf } from "#test/support/chunked.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { type LawLevel } from "#test/support/oracle/public/laws.ts"
@@ -162,20 +162,18 @@ export const liveIsTheUnion = (
 			return
 		}
 		const footprints = Arr.flatMap(entries.success, (entry) =>
-			Arr.flatMap(
-				succeeded(servedFile(trustedJson<unknown>(entry.text)), "the served file").roles,
-				(role) =>
-					Arr.flatMap(role.members, (member) => {
-						switch (member.kind) {
-							case "read":
-							case "paged":
-							case "key":
-								return member.read.live.kind === "routed" ? [member.read.live.footprint] : []
-							case "change":
-							case "refresh":
-								return []
-						}
-					})
+			Arr.flatMap(succeeded(servedFile(jsonOf(entry.text)), "the served file").roles, (role) =>
+				Arr.flatMap(role.members, (member) => {
+					switch (member.kind) {
+						case "read":
+						case "paged":
+						case "key":
+							return member.read.live.kind === "routed" ? [member.read.live.footprint] : []
+						case "change":
+						case "refresh":
+							return []
+					}
+				})
 			)
 		)
 		const union = unionOf(footprints, installedOf(snapshot), note)
@@ -184,7 +182,7 @@ export const liveIsTheUnion = (
 			union,
 			`the drafted snapshot's live plan is the union of its served reads' footprints\n${printed()}`
 		)
-		const written = trustedJson<unknown>(
+		const written = jsonOf(
 			succeeded(writeRuntimeSnapshot(snapshot, draft.success.derived), "snapshot.json")
 		)
 		assert.deepEqual(

@@ -20,7 +20,7 @@ import { finite } from "@bjornpagen/testing/gen"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order } from "effect"
 import { parseSnapshot, readSnapshot } from "#adapter/boundary/snapshot.ts"
-import { trustedJson } from "#compiler/core/trusted.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import {
 	codebookOf,
 	derivedHolds,
@@ -33,6 +33,7 @@ import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { jsonOf } from "#test/support/chunked.ts"
 import { callCounts } from "#test/support/kernel/calls.ts"
 import { snapshotJson } from "#test/support/snapshot-json.ts"
 import {
@@ -78,9 +79,10 @@ export const snapshotJsonReadsBackAsTheSnapshotWrittenOfTheSameFingerprintWhatev
 					Arr.map([...book.rosters.values()], (codec) => [codec.roster, codec.codes])
 				assert.equal(read.fingerprint, snapshot.fingerprint)
 				assert.deepEqual(lawsOf(read.levels), lawsOf(snapshot.levels))
-				const { format: _format, ...unformatted } = trustedJson<{
+				const { format: _format, ...unformatted } = trusted<{
 					readonly [key: string]: unknown
-				}>(files.snapshot)
+				}>(jsonOf(files.snapshot))
+
 				assert.ok(
 					parseSnapshot(unformatted, 0)._tag === "Failure" &&
 						parseSnapshot({ ...unformatted, format: 0 }, 0)._tag === "Failure",

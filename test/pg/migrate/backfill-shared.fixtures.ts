@@ -8,6 +8,7 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
 import { counted, fin, on, relation, schema } from "#compiler/public/schema.ts"
+import { joined } from "#test/support/chunked.ts"
 import { migrated } from "#test/support/installed.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -199,7 +200,7 @@ export const sharedCase = (c: SharedCase, notes: Case<Feature>) =>
 				at === 1 ? Arr.filter(folder.files, (f) => Str.endsWith("-structure.sql")(f.name)) : []
 			)
 			const memberUpdates = Arr.flatMap(structure, (f) =>
-				Arr.filter(Str.split(f.text, "\n"), (line) =>
+				Arr.filter(Str.split(joined(f.text), "\n"), (line) =>
 					Str.startsWith(`UPDATE ${table("Member")} AS`)(line)
 				)
 			)

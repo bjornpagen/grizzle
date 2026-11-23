@@ -1,3 +1,4 @@
+import { ChunkView, type TextChunks } from "@bjornpagen/grizzle-text/chunks"
 import { Array as Arr, Data, pipe, Result, String as Str } from "effect"
 import { readMeta } from "#adapter/boundary/meta.ts"
 import {
@@ -20,6 +21,7 @@ import {
 } from "#compiler/deploy/render/markers.ts"
 import type { AlterTableAction, ColumnDef, ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
 import { placeholderToken } from "#compiler/sql/print.ts"
+import { chunked, joined } from "#test/support/chunked.ts"
 
 /**
  * A drafted action that needs a value from the reviewer.
@@ -290,7 +292,7 @@ const decideLines = (
 
 /** A reviewed folder: its files' text as the reviewer leaves them, and the reviewed plan they must spell. */
 export interface Reviewed {
-	readonly files: ReadonlyArray<{ readonly name: string; readonly text: string }>
+	readonly files: ReadonlyArray<{ readonly name: string; readonly text: TextChunks }>
 	readonly plan: ReadonlyArray<ReviewedFile>
 }
 
@@ -310,18 +312,20 @@ export const review = (g: GenerateResult, decisions: Decisions): Reviewed => {
 		if (reviewed === undefined || reviewed.draft.name !== f.name) {
 			throw new DraftTextDefect({ defect: `${f.name}: the folder's files are not the plan's` })
 		}
-		if (isNoTransaction(f.text) === reviewed.draft.transaction) {
+		if (isNoTransaction(new ChunkView(f.text)) === reviewed.draft.transaction) {
 			throw new DraftTextDefect({ defect: `${f.name}: its transaction mode is not the plan's` })
 		}
 		const text = decideLines(
 			f.name,
-			Str.split(f.text, "\n"),
+			Str.split(joined(f.text), "\n"),
 			markedIn(reviewed.draft.drafts),
 			decisions.losses
 		)
 		return {
 			name: f.name,
-			text: resolvePlaceholders(f.name, text, Arr.map(placeholdersOf(reviewed), decisions.value))
+			text: chunked(
+				resolvePlaceholders(f.name, text, Arr.map(placeholdersOf(reviewed), decisions.value))
+			)
 		}
 	})
 	return { files, plan }
@@ -339,7 +343,7 @@ export type ReadBackFault =
  */
 export const readsBack = (
 	g: GenerateResult,
-	files: ReadonlyArray<{ readonly name: string; readonly text: string }>
+	files: ReadonlyArray<{ readonly name: string; readonly text: TextChunks }>
 ): ReadonlyArray<ReadBackFault> => {
 	const meta = readMeta(g.folder.metaText)
 	if (Result.isFailure(meta)) {

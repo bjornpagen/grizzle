@@ -2,6 +2,7 @@
 
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
+import type { TextChunks } from "@bjornpagen/grizzle-text/chunks"
 import { assert } from "@bjornpagen/testing/assert"
 import { constant, element, type Gen, oneOf } from "@bjornpagen/testing/gen"
 import { agree, exact, set, structuralHash } from "@bjornpagen/testing/oracle"
@@ -35,6 +36,7 @@ import type { UnservedMember } from "#compiler/served/unserved.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import { offlineConnection } from "#test/pg/cli/support.ts"
 import { artifactRefusal, failed } from "#test/support/assert.ts"
+import { joined, jsonOf } from "#test/support/chunked.ts"
 import { Search, scoredDocuments } from "#test/support/fixtures/api/search.ts"
 import { offlineDecoders, servedSourcedLayer } from "#test/support/live-layer.ts"
 import type { LawLevel } from "#test/support/oracle/public/laws.ts"
@@ -244,11 +246,11 @@ const holdsMap = (value: unknown): boolean => {
  * case's own directory, and its bytes read and parsed; served, its roles named and its login's role read, and the layer
  * over it built with no database, which loads it.
  */
-const hostReads = (dir: ScratchDir, file: ServedFile, text: string, printed: () => string) =>
+const hostReads = (dir: ScratchDir, file: ServedFile, text: TextChunks, printed: () => string) =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const path = `${dir}/${file.login}.json`
-		yield* fs.writeFileString(path, text)
+		yield* fs.writeFileString(path, joined(text))
 		const bytes = yield* fs.readFileString(path)
 		const login = served(trustedJson<unknown>(bytes), file.login)
 		yield* agree(
@@ -284,7 +286,7 @@ const hostReads = (dir: ScratchDir, file: ServedFile, text: string, printed: () 
  */
 const staleNamed = (
 	file: ServedFile,
-	text: string,
+	text: TextChunks,
 	pick: number,
 	printed: () => string
 ): boolean => {
@@ -317,7 +319,7 @@ const staleNamed = (
 const readsBackWhole = (dir: ScratchDir, file: ServedFile, pick: number, printed: () => string) =>
 	Effect.gen(function* () {
 		const text = ok(servedText(file), "the served file's text", printed)
-		const json = trustedJson<unknown>(text)
+		const json = jsonOf(text)
 		const back = ok(servedFile(json), "the served file read back", printed)
 		const differs = runtimeDifference(file, back)
 		assert.equal(differs, undefined, `the file reads back otherwise at ${differs}\n${printed()}`)
@@ -443,7 +445,7 @@ export const loginTrip = (
 			note("a roster with a hole")
 		}
 		const text = servedText(file)
-		if (text.ok && Str.includes("~unorderedroster:")(text.value)) {
+		if (text.ok && Str.includes("~unorderedroster:")(joined(text.value))) {
 			note("an unordered roster served")
 		}
 		const reached = yield* readsBackWhole(dir, file, pick, printed)

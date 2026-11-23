@@ -4,7 +4,6 @@ import { defined } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Record as Rec } from "effect"
 import { isList, isRecord } from "#compiler/core/record.ts"
-import { trustedJson } from "#compiler/core/trusted.ts"
 import {
 	derivedOf,
 	finishSnapshot,
@@ -20,6 +19,7 @@ import { installationsOf } from "#compiler/schema/own.ts"
 import { ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { jsonOf } from "#test/support/chunked.ts"
 import {
 	alternatives,
 	and,
@@ -459,7 +459,6 @@ export const sizesOf = (installation: Installation) => {
 	const files = succeeded(writeSnapshot(snapshot, derivedOf(installation)))
 	return {
 		total: Arr.reduce(sizes, 0, (n, x) => n + x),
-		snapshot:
-			nodes(trustedJson<unknown>(files.snapshot)) + nodes(trustedJson<unknown>(files.manifest))
+		snapshot: nodes(jsonOf(files.snapshot)) + nodes(jsonOf(files.manifest))
 	}
 }

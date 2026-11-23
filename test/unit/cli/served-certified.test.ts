@@ -34,7 +34,6 @@ import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
 import { reasonsOf } from "#compiler/core/certificate.ts"
 import { silentPhases } from "#compiler/core/phase.ts"
-import { trustedJson } from "#compiler/core/trusted.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { isolationTrigger } from "#compiler/physical/ddl/isolation.ts"
 import { grantedPrivileges } from "#compiler/physical/ddl/roles.ts"
@@ -45,6 +44,7 @@ import { roleBuilder as role } from "#compiler/schema/world.ts"
 import { defineConfig } from "#index.ts"
 import { offlineOwner } from "#test/pg/cli/support.ts"
 import { Work } from "#test/support/agreement/changeset-schema.ts"
+import { jsonOf } from "#test/support/chunked.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { caseGen, type Feature, file, showCase } from "#test/unit/cli/served-certified.fixtures.ts"
 
@@ -134,7 +134,7 @@ export const aRolesIsolationLevelIsDecidedOnceFromTheStatementsItsWritesSendEver
 				const servedLogins = new Map(
 					Arr.map(
 						entries,
-						(e) => [e.login, servedLogin<AnyLogin>(trustedJson<unknown>(e.text), e.login)] as const
+						(e) => [e.login, servedLogin<AnyLogin>(jsonOf(e.text), e.login)] as const
 					)
 				)
 				const installation = draft.installation

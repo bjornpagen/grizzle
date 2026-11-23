@@ -89,7 +89,8 @@ export {
 	findMarkers,
 	isNoTransaction,
 	noTransactionMarker,
-	splitStatements
+	splitStatements,
+	textLines
 } from "#compiler/deploy/render/markers.ts"
 export {
 	derivedFacts,

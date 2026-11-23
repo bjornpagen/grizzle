@@ -5,7 +5,12 @@
  * components' names are, and the sharing that writes each repeated node once. The package's reader, which a browser
  * loads, reads the engine through plan/client.ts. The engine imports nothing of the package.
  */
-export { canonicalEquals, type Json, writeCanonicalJson } from "#compiler/core/canonical.ts"
+export {
+	canonicalEquals,
+	type Json,
+	writeArtifactJson,
+	writeCanonicalJson
+} from "#compiler/core/canonical.ts"
 export type { CompileError } from "#compiler/core/errors.ts"
 export { compareStrings } from "#compiler/core/order.ts"
 export { isList } from "#compiler/core/record.ts"

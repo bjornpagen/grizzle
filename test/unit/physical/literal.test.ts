@@ -50,6 +50,7 @@ import type { ObjectName, PackConstant } from "#compiler/sql/ast.ts"
 import { pack } from "#compiler/sql/constants.ts"
 import { printObjectName, printStatement, readLiteralPack } from "#compiler/sql/print.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { joined } from "#test/support/chunked.ts"
 import { hexOfText, installedText, setText, setWidth } from "#test/support/closed/bit-text.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { ownedInput, owning } from "#test/support/policy.ts"
@@ -131,7 +132,7 @@ export const aDraftedMigrationsBitStringsWritesEveryBitStringOfADraftedMigration
 				)
 				const domains = new Set(widths.keys())
 				for (const file of draft.folder.files) {
-					assert.deepEqual(fileViolations(file.text, domains), [], file.name)
+					assert.deepEqual(fileViolations(joined(file.text), domains), [], file.name)
 				}
 				assert.deepEqual(
 					snapshotViolations(draft.snapshot, widths, lives),

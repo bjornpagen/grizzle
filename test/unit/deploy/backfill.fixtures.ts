@@ -1,5 +1,6 @@
 /** What the properties of backfill.test.ts read: its spaces, models and helpers. */
 
+import { ChunkView } from "@bjornpagen/grizzle-text/chunks"
 import { assert, defined } from "@bjornpagen/testing/assert"
 import {
 	int as between,
@@ -2109,7 +2110,7 @@ const foldCaseOf = (family: Extract<Backfill, { readonly kind: "fold" }>["family
 const spelledAdds = (draft: GenerateResult): ReadonlyMap<string, number> => {
 	const out = new Map<string, number>()
 	for (const file of draft.folder.files) {
-		for (const statement of splitStatements(file.text)) {
+		for (const statement of splitStatements(new ChunkView(file.text))) {
 			const tokens = statementTokens(statement)
 			const [alter, table, , dot, name] = tokens
 			const word = (i: number, upper: string): boolean => {

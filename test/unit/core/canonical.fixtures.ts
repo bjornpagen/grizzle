@@ -41,6 +41,7 @@ import {
 import type { CompileError } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { chunked } from "#test/support/chunked.ts"
 import { isList } from "#test/support/list.ts"
 
 /** The spellings where a key order, a tagging scheme or the prototype accessor goes wrong. */
@@ -792,7 +793,7 @@ export const textOf = (
 				encode(v, everyProperty)
 			)
 		case "decode":
-			return Result.flatMap(decode(nestedText(depth, container), noRevivers), (v) =>
+			return Result.flatMap(decode(chunked(nestedText(depth, container)), noRevivers), (v) =>
 				encode(v, everyProperty)
 			)
 	}

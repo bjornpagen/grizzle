@@ -11,7 +11,6 @@ import { noLevelAbove } from "#adapter/witness/keylaw.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
 import { silentPhases } from "#compiler/core/phase.ts"
-import { trustedJson } from "#compiler/core/trusted.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { installBasis } from "#compiler/physical/install/plan.ts"
@@ -19,6 +18,7 @@ import { rostersOf } from "#compiler/schema/own.ts"
 import { selectMaxEntries } from "#compiler/sql/print.ts"
 import { defineConfig } from "#index.ts"
 import { offlineConnection, offlineOwner } from "#test/pg/cli/support.ts"
+import { jsonOf } from "#test/support/chunked.ts"
 import { offlineDecoders, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { clusterPool } from "#test/support/pg.ts"
@@ -113,7 +113,7 @@ export const generateAndDbLayerMakeCompileALoginsProgramsAlikeAtTheSelectListsBo
 								servedSourcedLayer(offlineDecoders, {
 									...offlineConnection,
 									pool: clusterPool,
-									login: served<typeof pairs.login>(trustedJson<unknown>(entry.text), "server")
+									login: served<typeof pairs.login>(jsonOf(entry.text), "server")
 								})
 							)
 						)

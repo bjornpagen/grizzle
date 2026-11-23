@@ -10,7 +10,6 @@ import {
 	snapshotCompiled
 } from "#adapter/served/compile.ts"
 import { builtLogin, type LayerRole, ownLoginOver } from "#adapter/served/login.ts"
-import { trustedJson } from "#compiler/core/trusted.ts"
 import { transactionClock } from "#compiler/ir/clock.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { contextFieldAdmits, type FieldDecl, type SchemaDesc } from "#compiler/ir/desc.ts"
@@ -30,6 +29,7 @@ import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import type { AnyContext, EntryValue } from "#compiler/types/schema/world.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { jsonOf } from "#test/support/chunked.ts"
 import { compiledSnapshot } from "#test/support/compiled-served.ts"
 import { type BuiltSchema, buildRoot, buildSchema } from "#test/support/oracle/public/build.ts"
 import {
@@ -596,7 +596,7 @@ export const compiledLogin = (
 		const snapshot = yield* compiledSnapshot(built, base, codes(base))
 		const compiled = yield* snapshotCompiled({ login: built, owned }, snapshot, transactionClock)
 		const entry = yield* servedEntryOf(compiled)
-		const json = trustedJson<unknown>(entry.text)
+		const json = jsonOf(entry.text)
 		return { compiled, entry, json, back: succeeded(servedFile(json), "the login's served file") }
 	})
 

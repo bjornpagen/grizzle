@@ -90,6 +90,7 @@ import {
 	workerFields,
 	workerName
 } from "#test/schedules/migrate/validate.fixtures.ts"
+import { chunked, joined } from "#test/support/chunked.ts"
 import { lawIdOf, lawNamesOf } from "#test/support/kernel/naming.ts"
 import { type GrizzleActor, openActors } from "#test/support/schedules/actors.ts"
 import {
@@ -177,7 +178,7 @@ export const aMigrationsValidatePhaseOverViolatingRowsEveryKindOfLawRefusesWithI
 							const drafted = x.drafted
 							const payloadFiles = Arr.filter(
 								drafted.files,
-								(file) => narrowedPayload(file.text) !== file.text
+								(file) => narrowedPayload(joined(file.text)) !== joined(file.text)
 							)
 							assert.equal(
 								payloadFiles.length,
@@ -258,7 +259,7 @@ export const aMigrationsValidatePhaseOverViolatingRowsEveryKindOfLawRefusesWithI
 											...f,
 											files: Arr.map(f.files, (file) => ({
 												...file,
-												text: narrowedPayload(file.text)
+												text: chunked(narrowedPayload(joined(file.text)))
 											}))
 										}
 									: f

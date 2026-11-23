@@ -1,3 +1,4 @@
+import { ChunkView, type TextChunks } from "@bjornpagen/grizzle-text/chunks"
 import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import { Array as Arr, Brand, Result } from "effect"
 import { readMeta } from "#adapter/boundary/meta.ts"
@@ -8,7 +9,7 @@ import {
 	stopped
 } from "#adapter/migrate/errors.ts"
 import type { MigrationText } from "#adapter/wire/batch.ts"
-import { type CompileError, sha256Hex, wellFormed } from "#compiler/plan/common.ts"
+import { type CompileError, sha256ChunksHex } from "#compiler/plan/common.ts"
 import {
 	type InstallationNames,
 	isFolderName,
@@ -49,15 +50,17 @@ import type { DeploySnapshot } from "#compiler/plan/serve.ts"
 export interface FolderTexts {
 	/** `<timestamp>_<name>`. */
 	readonly name: string
-	readonly metaText: string
+	/** meta.json's text, as its chunks (grizzle-text TextChunks), as every text of the folder is held. */
+	readonly metaText: TextChunks
 	/** Every `NN-<phase>.sql` file of the folder; meta.json is metaText. */
-	readonly files: ReadonlyArray<{ readonly name: string; readonly text: string }>
+	readonly files: ReadonlyArray<{ readonly name: string; readonly text: TextChunks }>
 }
 
-/** A file of a folder as it was read, its statements split once by the drafted files' own splitter. */
+/** A file of a folder as it was read, its statements split once by the drafted files' own splitter, its text read
+ * through a view of its chunks (grizzle-text ChunkView). */
 export interface SourceFile {
 	readonly name: string
-	readonly text: string
+	readonly text: TextChunks
 	readonly statements: ReadonlyArray<string>
 }
 
@@ -77,11 +80,11 @@ export interface FolderSource {
 export const folderSource = (folder: FolderTexts): FolderSource => ({
 	name: folder.name,
 	meta: readMeta(folder.metaText),
-	metaDigest: sha256Hex(wellFormed(folder.metaText)),
+	metaDigest: sha256ChunksHex(folder.metaText),
 	files: Arr.map(folder.files, (f) => ({
 		name: f.name,
 		text: f.text,
-		statements: splitStatements(f.text)
+		statements: splitStatements(new ChunkView(f.text))
 	}))
 })
 
@@ -97,7 +100,7 @@ const reviewed = Brand.nominal<MigrationText>()
 export interface ParsedFile {
 	readonly name: string
 	readonly ordinal: number
-	readonly text: string
+	readonly text: TextChunks
 	/** SHA-256 of the text, which the ledger records. */
 	readonly digest: string
 	readonly noTransaction: boolean
@@ -255,8 +258,8 @@ export const parseTarget = (
 				name,
 				ordinal,
 				text,
-				digest: sha256Hex(wellFormed(text)),
-				noTransaction: isNoTransaction(text),
+				digest: sha256ChunksHex(text),
+				noTransaction: isNoTransaction(new ChunkView(text)),
 				statements
 			})
 		}

@@ -16,6 +16,7 @@ import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import type { TextChunks } from "@bjornpagen/grizzle-text/chunks"
 import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
 import { toEcma } from "@bjornpagen/grizzle-text/regex/print"
 import type { WellFormedText } from "@bjornpagen/grizzle-text/utf8"
@@ -58,6 +59,7 @@ import {
 	wireRefusals,
 	wireScalarOf,
 	withGaps,
+	writeArtifactJson,
 	writeCanonicalJson
 } from "#compiler/plan/openapi.ts"
 import { referenceKey, wireExtension, wireReference } from "#openapi/document.ts"
@@ -780,7 +782,5 @@ const openApiDocument = (file: ServedFile): Result.Result<Json, CompileError> =>
 }
 
 /** The document's text: canonical JSON, keys in code-unit order, and a final newline, as a served file's. */
-export const openApiText = (file: ServedFile): Result.Result<string, CompileError> =>
-	Result.flatMap(openApiDocument(file), (document) =>
-		Result.map(writeCanonicalJson(document), (text) => `${text}\n`)
-	)
+export const openApiText = (file: ServedFile): Result.Result<TextChunks, CompileError> =>
+	Result.flatMap(openApiDocument(file), writeArtifactJson)

@@ -19,6 +19,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
 import { Effect, Record as Rec, String as Str } from "effect"
+import { joined } from "#test/support/chunked.ts"
 import {
 	caseGen,
 	compiled,
@@ -75,13 +76,14 @@ export const aMemberBoundToTheDatabasesClockCertifiesAsItsProgramWithTheCallsNow
 					)
 				}
 				assert.ok(
-					Str.includes("transaction_timestamp")(clocked.text) &&
-						!Str.includes("statement_timestamp")(clocked.text) &&
-						!Str.includes("clock_timestamp")(clocked.text),
+					Str.includes("transaction_timestamp")(joined(clocked.text)) &&
+						!Str.includes("statement_timestamp")(joined(clocked.text)) &&
+						!Str.includes("clock_timestamp")(joined(clocked.text)),
 					"the clocked file reads the clock by transaction_timestamp() alone"
 				)
 				assert.ok(
-					!Str.includes("transaction_timestamp")(plain.text),
+					!Str.includes("transaction_timestamp")(joined(plain.text)),
+
 					"the plain file reads no clock"
 				)
 				const members = membersOf(clocked.file)

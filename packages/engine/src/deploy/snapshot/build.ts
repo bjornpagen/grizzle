@@ -5,7 +5,8 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { maxStringLength, unwrap } from "#compiler/core/canonical.ts"
+import type { TextChunks } from "@bjornpagen/grizzle-text/chunks"
+import { unwrap } from "#compiler/core/canonical.ts"
 import {
 	canonicalEquals,
 	catchRefusal,
@@ -27,7 +28,7 @@ import { artifactFormat, formatKey, isArtifactFormat } from "#compiler/core/form
 import { type DeclaredName, declaredAlike, identifierOf } from "#compiler/core/identity.ts"
 import type { Identifier, LawId, SchemaFingerprint } from "#compiler/core/ids.ts"
 import { SchemaFingerprint as toSchemaFingerprint } from "#compiler/core/ids.ts"
-import { type Lines, textOf } from "#compiler/core/lines.ts"
+import { chunkedTextOf, type Lines } from "#compiler/core/lines.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { type Comparator, compareStrings, mapInput } from "#compiler/core/order.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
@@ -1509,21 +1510,16 @@ const jsonValue = (out: Lines, head: string, value: Json, tail: string): void =>
 		? out.line(`${head}${JSON.stringify(value)}${tail}`)
 		: nestedValue(out, head, value, tail, jsonValue)
 
-const jsonTextLoc = SourceLoc("JSON text", [])
-
-/** The reviewable text of a canonical value: its JSON form, keys in code point order, indented by tabs, ending in a
- * newline. Equal values are equal bytes. A text past V8's longest string is refused as ResourceBound (stringLength),
- * and a kernel Refusal its writer throws is its failure. */
-export const writeJsonText = (value: unknown): Result.Result<string, CompileError> =>
+/** The reviewable text of a canonical value, a file's: its JSON form, keys in code point order, indented by tabs, ending
+ * in a newline, as its chunks (core/lines.ts chunkedTextOf), never joined, so no length bounds it. Equal values are equal
+ * bytes. A kernel Refusal its writer throws is its failure. */
+export const writeJsonText = (value: unknown): Result.Result<TextChunks, CompileError> =>
 	Result.flatMap(toJson(value, everyProperty), (json) =>
-		Result.flatMap(
-			catchRefusal(() =>
-				textOf(maxStringLength, "\t", jsonTextLoc, (out) => {
-					jsonValue(out, "", json, "")
-					out.line("")
-				})
-			),
-			(text) => text
+		catchRefusal(() =>
+			chunkedTextOf("\t", (out) => {
+				jsonValue(out, "", json, "")
+				out.line("")
+			})
 		)
 	)
 
@@ -1545,14 +1541,13 @@ const formValue = (out: Lines, head: string, value: FormOf<CompactLine>, tail: s
 }
 
 /** A snapshot file's text of its form: written with object keys in code point order and indented by tabs for review,
- * each installed statement compact on a line of its own (formValue), ending in a newline. */
-const fileText = (form: RecordOf<CompactLine>): string =>
-	unwrap(
-		textOf(maxStringLength, "\t", jsonTextLoc, (out) => {
-			formValue(out, "", form, "")
-			out.line("")
-		})
-	)
+ * each installed statement compact on a line of its own (formValue), ending in a newline, as its chunks (core/lines.ts
+ * chunkedTextOf), never joined, so no length bounds it. */
+const fileText = (form: RecordOf<CompactLine>): TextChunks =>
+	chunkedTextOf("\t", (out) => {
+		formValue(out, "", form, "")
+		out.line("")
+	})
 
 /** The texts of a snapshot's two files in `migrations/<schema>/`: snapshot.json, what an application imports
  * (runtimeForm), and manifest.json, every other member (migrationForm), each member in one of them, and the seal of the
@@ -1579,7 +1574,7 @@ export const writeSnapshot = (
 export const writeRuntimeSnapshot = (
 	snapshot: DeploySnapshot,
 	derived: SnapshotDerived
-): Result.Result<string, CompileError> =>
+): Result.Result<TextChunks, CompileError> =>
 	catchRefusal(() => fileText(runtimeForm(snapshot, derived, asLines)))
 
 /**

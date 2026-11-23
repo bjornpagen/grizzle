@@ -1,3 +1,4 @@
+import type { TextView } from "@bjornpagen/grizzle-text/chunks"
 import { isAsciiDigit } from "@bjornpagen/grizzle-text/text"
 
 /**
@@ -168,12 +169,12 @@ type Step =
 	| { readonly kind: "identifier"; readonly word: Word; readonly end: number }
 	| { readonly kind: "unclosed"; readonly unclosed: Unclosed }
 
-const at = (text: string, k: number): number => text.charCodeAt(k)
+const at = (text: TextView, k: number): number => text.charCodeAt(k)
 const skip = (end: number): Step => ({ kind: "skip", end })
 const token = (read: Token, end: number): Step => ({ kind: "lexeme", lexeme: read, end })
 const identifier = (word: Word, end: number): Step => ({ kind: "identifier", word, end })
 /** The run of `text` from `start` to `end`, refused for `message`. */
-const refused = (text: string, start: number, end: number, message: string): Step => ({
+const refused = (text: TextView, start: number, end: number, message: string): Step => ({
 	kind: "lexeme",
 	lexeme: { kind: "refused", text: text.slice(start, end), message, start },
 	end
@@ -184,7 +185,7 @@ const unclosed = (opener: Opener, offset: number): Step => ({
 })
 
 /** The index after the line comment at `from`: its end of line, a line feed or a carriage return, or the text's end. */
-const lineEnd = (text: string, from: number): number => {
+const lineEnd = (text: TextView, from: number): number => {
 	let j = from + 2
 	while (j < text.length && !isNewline(at(text, j))) {
 		j += 1
@@ -196,13 +197,13 @@ const lineEnd = (text: string, from: number): number => {
  * -- comment to the end of its line, which a line feed or a carriage return ends (scan.l: comment is "--" and
  * non_newline, [^\n\r]), so a lone carriage return ends it as PostgreSQL does.
  */
-const lineComment = (text: string, i: number): Step => skip(lineEnd(text, i))
+const lineComment = (text: TextView, i: number): Step => skip(lineEnd(text, i))
 
-const commentStartsAt = (text: string, j: number): boolean =>
+const commentStartsAt = (text: TextView, j: number): boolean =>
 	at(text, j) === minus && at(text, j + 1) === minus
 
 /** A block comment, which nests. */
-const blockComment = (text: string, i: number): Step => {
+const blockComment = (text: TextView, i: number): Step => {
 	let depth = 1
 	let j = i + 2
 	while (j < text.length && depth > 0) {
@@ -224,7 +225,7 @@ const blockComment = (text: string, i: number): Step => {
  * when none does (scan.l quotecontinue): spaces and line comments on the closing quote's line, a newline, then spaces,
  * newlines and line comments each ended by a newline, then a quote.
  */
-const continuation = (text: string, from: number): number | undefined => {
+const continuation = (text: TextView, from: number): number | undefined => {
 	let j = from
 	for (;;) {
 		if (isNonNewlineSpace(at(text, j))) {
@@ -295,7 +296,7 @@ const bitQuoting: Quoting = {
  * time.
  */
 const quotedToken = (
-	text: string,
+	text: TextView,
 	open: number,
 	quoting: Quoting,
 	errorAt: number,
@@ -333,7 +334,7 @@ const quotedToken = (
 }
 
 /** A quoted identifier from its opening quote at `open`, read from `start`: PostgreSQL refuses an empty one. */
-const quotedIdent = (text: string, open: number, start: number): Step =>
+const quotedIdent = (text: TextView, open: number, start: number): Step =>
 	quotedToken(text, open, identifierQuoting, start, "quoted identifier", (content, end) =>
 		content === ""
 			? refused(text, start, end, "zero-length delimited identifier")
@@ -342,7 +343,7 @@ const quotedIdent = (text: string, open: number, start: number): Step =>
 
 /** A string constant from its opening quote at `open`, read from `start` with `prefix`. */
 const stringConstant = (
-	text: string,
+	text: TextView,
 	open: number,
 	start: number,
 	prefix: string | undefined,
@@ -354,7 +355,7 @@ const stringConstant = (
 	)
 
 /** The index after the run of identifier characters from `from`, digits and `$` among them; `from` when none is there. */
-const identContEnd = (text: string, from: number): number => {
+const identContEnd = (text: TextView, from: number): number => {
 	let j = from
 	while (isIdentCont(at(text, j))) {
 		j += 1
@@ -363,17 +364,17 @@ const identContEnd = (text: string, from: number): number => {
 }
 
 /** The index after the identifier at `from`, which an identifier character begins, or `from` when none does. */
-const identifierEnd = (text: string, from: number): number =>
+const identifierEnd = (text: TextView, from: number): number =>
 	isIdentStart(at(text, from)) ? identContEnd(text, from + 1) : from
 
 /** The `$` at `i`, refused alone: scan.l's dolqfailed gives back all but it, and {other} reads it. */
-const strayDollar = (text: string, i: number): Step => refused(text, i, i + 1, "stray '$'")
+const strayDollar = (text: TextView, i: number): Step => refused(text, i, i + 1, "stray '$'")
 
 /**
  * A positional parameter, $n, refused with the identifier that runs on from it; or a dollar quote, $tag$ ... $tag$; or
  * a stray `$`.
  */
-const dollar = (text: string, i: number): Step => {
+const dollar = (text: TextView, i: number): Step => {
 	if (isAsciiDigit(at(text, i + 1))) {
 		let j = i + 1
 		while (isAsciiDigit(at(text, j))) {
@@ -412,7 +413,7 @@ const dollar = (text: string, i: number): Step => {
  * NCHAR before a string, where its quote does. U& before neither quote is the word U, which psql's scanner reads as no
  * identifier (psqlscan.l xufailed); every other word is one.
  */
-const word = (text: string, i: number): Step => {
+const word = (text: TextView, i: number): Step => {
 	const j = identifierEnd(text, i)
 	const spelled = text.slice(i, j)
 	const upper = toUpperAscii(spelled)
@@ -445,7 +446,7 @@ const word = (text: string, i: number): Step => {
  * The index after the run of digits from `from` that `digit` admits, each group after the first joined by one
  * underscore; `from` when no digit is there.
  */
-const digitGroupsEnd = (text: string, from: number, digit: (c: number) => boolean): number => {
+const digitGroupsEnd = (text: TextView, from: number, digit: (c: number) => boolean): number => {
 	if (!digit(at(text, from))) {
 		return from
 	}
@@ -462,7 +463,7 @@ const digitGroupsEnd = (text: string, from: number, digit: (c: number) => boolea
 }
 
 /** A non-decimal integer's digits after its base letter, which an underscore may also precede (0x_1F). */
-const radixDigitsEnd = (text: string, from: number, digit: (c: number) => boolean): number =>
+const radixDigitsEnd = (text: TextView, from: number, digit: (c: number) => boolean): number =>
 	at(text, from) === underscore && digit(at(text, from + 1))
 		? digitGroupsEnd(text, from + 1, digit)
 		: digitGroupsEnd(text, from, digit)
@@ -488,7 +489,7 @@ const radixPrefixWidth = 2
  * The number from `i` refused with the identifier that runs on from it at `end`: the run reaches the end of the
  * identifier characters there, as scan.l's integer_junk, numeric_junk and real_junk do.
  */
-const junk = (text: string, i: number, end: number): Step =>
+const junk = (text: TextView, i: number, end: number): Step =>
 	refused(text, i, identContEnd(text, end), "trailing junk after numeric literal")
 
 /**
@@ -496,7 +497,7 @@ const junk = (text: string, i: number, end: number): Step =>
  * begins there, or one that begins inside the number's last run of identifier characters, at an underscore between its
  * digits, its exponent's e or its base's letter, and runs on past its end.
  */
-const runsOn = (text: string, i: number, end: number): boolean => {
+const runsOn = (text: TextView, i: number, end: number): boolean => {
 	if (isIdentStart(at(text, end))) {
 		return true
 	}
@@ -512,7 +513,7 @@ const runsOn = (text: string, i: number, end: number): boolean => {
 }
 
 /** The number token from `i` to `end`, refused when an identifier runs on from it. */
-const numberTo = (text: string, i: number, end: number): Step =>
+const numberTo = (text: TextView, i: number, end: number): Step =>
 	runsOn(text, i, end)
 		? junk(text, i, end)
 		: token({ kind: "number", text: text.slice(i, end), start: i }, end)
@@ -523,7 +524,7 @@ const numberTo = (text: string, i: number, end: number): Step =>
  * refused when an identifier runs on from it; an exponent marker that a sign ends and no digit follows is no exponent,
  * and the number ends before it.
  */
-const numberAt = (text: string, i: number): Step => {
+const numberAt = (text: TextView, i: number): Step => {
 	const radix = at(text, i) === zero ? radixDigits.get(at(text, i + 1)) : undefined
 	if (radix !== undefined) {
 		const digitsFrom = i + radixPrefixWidth
@@ -556,7 +557,7 @@ const numberAt = (text: string, i: number): Step => {
  * An operator: a run of operator characters that a comment start ends. Trailing + and - belong to the next token
  * unless the operator has a non-arithmetic character.
  */
-const operatorAt = (text: string, i: number): Step => {
+const operatorAt = (text: TextView, i: number): Step => {
 	let j = i
 	let arithmetic = true
 	while (
@@ -590,7 +591,7 @@ const pairPunctuation = (c: number, next: number): string | undefined =>
 				: undefined
 
 /** The scanner step at `i`, by the code unit there and the one after it. */
-const stepAt = (text: string, i: number): Step => {
+const stepAt = (text: TextView, i: number): Step => {
 	const c = at(text, i)
 	const next = at(text, i + 1)
 	if (isSpace(c)) {
@@ -728,7 +729,7 @@ const punctuated = (statement: Statement, t: Token | Refused): Read => {
  * The lexemes of `text`, scanned step by step from its start, up to a construct it never closes, each semicolon that
  * ends a statement read as its terminator.
  */
-export const lexemesOf = (text: string): Lexemes => {
+export const lexemesOf = (text: TextView): Lexemes => {
 	const lexemes: Array<Lexeme> = []
 	let statement = freshStatement
 	let i = 0

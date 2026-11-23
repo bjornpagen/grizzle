@@ -19,7 +19,6 @@ import type { RoleIsolation } from "#compiler/core/certificate.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { silentPhases } from "#compiler/core/phase.ts"
-import { trustedJson } from "#compiler/core/trusted.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { transactionClock } from "#compiler/ir/clock.ts"
@@ -45,6 +44,7 @@ import { defineConfig } from "#index.ts"
 import { offlineOwner } from "#test/pg/cli/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { templateNeedBudget } from "#test/support/budgets.ts"
+import { jsonOf } from "#test/support/chunked.ts"
 import { paths, repoRoot } from "#test/support/files.ts"
 import {
 	appliedHistory,
@@ -363,7 +363,7 @@ const certifiedPlan = (
 			Option.getOrUndefined(Arr.findFirst(entries, (e) => e.login === shape.login.name)),
 			`the served file of login ${shape.login.name}`
 		)
-		const file = yield* fromEngine(servedFile(trustedJson<unknown>(entry.text)))
+		const file = yield* fromEngine(servedFile(jsonOf(entry.text)))
 		const login = yield* Effect.fromResult(loadServed(file, shape.login.name))
 		return { history, options, shape, generated: levelsOf(generated), served: servedOf(login) }
 	})

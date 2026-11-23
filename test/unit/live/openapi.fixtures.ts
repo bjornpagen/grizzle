@@ -30,6 +30,7 @@ import {
 } from "#compiler/live/events.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import type { ServedFile, ServedMember } from "#compiler/served/forms.ts"
+import { joined } from "#test/support/chunked.ts"
 import { documentErrors } from "#test/support/openapi/validator.ts"
 import {
 	type CaseSketch,
@@ -701,7 +702,7 @@ export const documentHolds = (
 			return
 		}
 		const entry = compiled.success.entry
-		yield* holds(entry.file, entry.openapi, seen, notes.note, printed)
+		yield* holds(entry.file, joined(entry.openapi), seen, notes.note, printed)
 	}).pipe(Effect.scoped, Effect.orDie)
 
 /** A login drawn over `schema`, its first role refreshing or not, which `logins` then holds with its case as `sketch`'s. */

@@ -1,5 +1,6 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import type { TextView } from "@bjornpagen/grizzle-text/chunks"
 import { isAsciiDigit } from "@bjornpagen/grizzle-text/text"
 import { nominal } from "#compiler/core/brand.ts"
 import { everyProperty } from "#compiler/core/canonical.ts"
@@ -17,9 +18,18 @@ export const confirmMarker = "-- grizzle: confirm"
  * line is no marker `grizzle migrate` refuses: it may stay. */
 export const lossMarker = "-- grizzle: data loss"
 
-/** The lines of a text, a trailing carriage return dropped from each. */
-const textLines = (text: string): ReadonlyArray<string> =>
-	text.split("\n").map((l) => (l.endsWith("\r") ? l.slice(0, -1) : l))
+/** The lines of a text, a trailing carriage return dropped from each, each read from the text alone. */
+export const textLines = function* (text: TextView): Generator<string> {
+	for (let from = 0; ;) {
+		const end = text.indexOf("\n", from)
+		const line = text.slice(from, end === -1 ? text.length : end)
+		yield line.endsWith("\r") ? line.slice(0, -1) : line
+		if (end === -1) {
+			return
+		}
+		from = end + 1
+	}
+}
 
 /** Lowercase ASCII letters and digits in words joined by single `_` or `-`. */
 export const isWords = (text: string): boolean => {
@@ -43,12 +53,11 @@ interface FoundMarker {
 }
 
 /** The offsets of the placeholder token in `text` at or after `from`, in order, at most `limit` of them. */
-const tokenOffsets = (text: string, from: number, limit: number): ReadonlyArray<number> => {
+const tokenOffsets = (text: TextView, from: number, limit: number): ReadonlyArray<number> => {
 	const out: Array<number> = []
-	for (let at = from; at < text.length && out.length < limit; at++) {
-		if (text.startsWith(placeholderToken, at)) {
-			out.push(at)
-		}
+	for (let at = text.indexOf(placeholderToken, from); at !== -1 && out.length < limit;) {
+		out.push(at)
+		at = text.indexOf(placeholderToken, at + 1)
 	}
 	return out
 }
@@ -80,8 +89,8 @@ const lexemeText = (t: Lexeme): string => {
  * it refuses among them, never in a line or block comment. A lexeme's source begins at its start, so the placeholder
  * tokens its text holds are the first that many from there. Past a quote or block comment the text never closes
  * nothing is known to be a comment, so every placeholder token there counts. */
-const placeholderLines = (text: string): ReadonlySet<number> => {
-	if (!text.includes(placeholderToken)) {
+const placeholderLines = (text: TextView): ReadonlySet<number> => {
+	if (text.indexOf(placeholderToken, 0) === -1) {
 		return new Set()
 	}
 	const { lexemes, unclosed } = lexemesOf(text)
@@ -99,9 +108,14 @@ const placeholderLines = (text: string): ReadonlySet<number> => {
 	let line = 0
 	let scanned = 0
 	for (const at of offsets) {
-		for (; scanned < at; scanned++) {
-			line += text[scanned] === "\n" ? 1 : 0
+		for (
+			let feed = text.indexOf("\n", scanned);
+			feed !== -1 && feed < at;
+			feed = text.indexOf("\n", feed + 1)
+		) {
+			line += 1
 		}
+		scanned = Math.max(scanned, at)
 		lines.add(line)
 	}
 	return lines
@@ -128,10 +142,12 @@ const placeholderLines = (text: string): ReadonlySet<number> => {
  * statement of its folder runs (findMarkers). A reviewer resolves a marker by supplying the value or confirming the
  * statements, and then deletes the marker line. A token in a comment is no placeholder: a commented loss may hold one,
  * and it becomes SQL, with its placeholder line, only when the reviewer uncomments it. */
-export const findMarkers = (text: string): ReadonlyArray<FoundMarker> => {
+export const findMarkers = (text: TextView): ReadonlyArray<FoundMarker> => {
 	const out: Array<FoundMarker> = []
 	const placeholders = placeholderLines(text)
-	for (const [i, raw] of textLines(text).entries()) {
+	let i = -1
+	for (const raw of textLines(text)) {
+		i += 1
 		const line = raw.trimStart()
 		if (line.startsWith(placeholderMarker) || placeholders.has(i)) {
 			out.push({ kind: "placeholder", line: i + 1 })
@@ -144,10 +160,9 @@ export const findMarkers = (text: string): ReadonlyArray<FoundMarker> => {
 
 /** Whether a file runs statement by statement: its first line is exactly the no-transaction marker, trailing spaces
  * aside. */
-export const isNoTransaction = (text: string): boolean => {
-	const end = text.indexOf("\n")
-	const firstLine = end === -1 ? text : text.slice(0, end)
-	return firstLine.trimEnd() === noTransactionMarker
+export const isNoTransaction = (text: TextView): boolean => {
+	const end = text.indexOf("\n", 0)
+	return text.slice(0, end === -1 ? text.length : end).trimEnd() === noTransactionMarker
 }
 
 /** The statements of a file, for a no-transaction file that runs each alone: the text split at the terminators psql's
@@ -157,7 +172,7 @@ export const isNoTransaction = (text: string): boolean => {
  * `""`, is part of its statement, which PostgreSQL then refuses alone when it runs. A quote or comment the text opens
  * and never closes takes the rest of the text into the piece it starts, which PostgreSQL then refuses when it runs; a
  * block comment left open is no statement of its own. */
-export const splitStatements = (text: string): ReadonlyArray<string> => {
+export const splitStatements = (text: TextView): ReadonlyArray<string> => {
 	const { lexemes, unclosed } = lexemesOf(text)
 	const out: Array<string> = []
 	let start = 0
@@ -173,7 +188,7 @@ export const splitStatements = (text: string): ReadonlyArray<string> => {
 		substantive = !ends
 	}
 	if (substantive || (unclosed !== undefined && unclosed.opener !== "block comment")) {
-		out.push(text.slice(start).trim())
+		out.push(text.slice(start, text.length).trim())
 	}
 	return out
 }

@@ -6,7 +6,6 @@ import { atRole, planRefusal, type ServedRefusal } from "#adapter/served/compile
 import { artifactsOver, type BuiltLogin, builtLogin, ownLoginOver } from "#adapter/served/login.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { silentPhases } from "#compiler/core/phase.ts"
-import { trustedJson } from "#compiler/core/trusted.ts"
 import {
 	derivedOf,
 	finishSnapshot,
@@ -30,6 +29,7 @@ import { installationsOf, type Owned, ownBuilt, rostersOf } from "#compiler/sche
 import { everySlice } from "#compiler/schema/reach.ts"
 import type { AnyLogin } from "#compiler/types/schema/world.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { jsonOf } from "#test/support/chunked.ts"
 
 /**
  * The installation `grizzle generate` drafts for `owned`, `login`'s base, serving `login`, under the codes `codes`, with
@@ -140,7 +140,7 @@ export const compiledSnapshot = (
 			),
 			"the base's snapshot"
 		)
-		return trustedJson<unknown>(
+		return jsonOf(
 			succeeded(writeSnapshot(snapshot, derivedOf(installation)), "the base's snapshot files")
 				.snapshot
 		)

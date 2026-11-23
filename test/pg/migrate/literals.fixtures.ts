@@ -20,6 +20,7 @@ import {
 	reviewedSource
 } from "#test/pg/migrate/support.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { joined } from "#test/support/chunked.ts"
 import { atName } from "#test/support/kernel/naming.ts"
 import {
 	asDrafted,
@@ -386,7 +387,8 @@ export const runCase = (c: LiteralCase, note: (feature: LiteralFeature) => void)
 		)
 		for (const file of g.folder.files) {
 			assert.ok(
-				rewritten(file.text) === file.text,
+				rewritten(joined(file.text)) === joined(file.text),
+
 				`${file.name} holds no line boundary a text tool rewrites, so read and written back it is itself`
 			)
 		}

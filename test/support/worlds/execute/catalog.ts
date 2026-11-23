@@ -35,6 +35,7 @@ import { and, col, derived, lit, provedSelect, target } from "#compiler/sql/buil
 import { storedSettingValue } from "#compiler/sql/print.ts"
 import type { AmbientOwner } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { chunked, joined } from "#test/support/chunked.ts"
 import { filledStatements } from "#test/support/compile.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { draftedAt, fromSnapshot, generate, noDeclarations } from "#test/support/migrate/kit.ts"
@@ -1039,7 +1040,7 @@ export const draftedPhases = (
 /** A file with a line a person added by hand, after it was written. */
 const editedByHand = (file: FolderTexts["files"][number]): FolderTexts["files"][number] => ({
 	name: file.name,
-	text: `${file.text}\n-- edited by hand\n`
+	text: chunked(`${joined(file.text)}\n-- edited by hand\n`)
 })
 
 /** The folders of a migrations directory: the ones the ledger applied, oldest first, and the ones still pending. */

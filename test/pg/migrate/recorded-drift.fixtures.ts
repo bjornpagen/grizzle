@@ -1,5 +1,6 @@
 /** What the properties of recorded-drift.test.ts read: their space, their schema and the planted changes. */
 
+import { ChunkView } from "@bjornpagen/grizzle-text/chunks"
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, String as Str } from "effect"
@@ -179,7 +180,10 @@ export const definingStatement = (
 	const text = filed(printStatement(create))
 	for (const folder of Arr.reverse(folders)) {
 		for (const file of Arr.reverse(folder.files)) {
-			const at = Arr.findLastIndex(splitStatements(file.text), (s) => Str.includes(text)(s))
+			const at = Arr.findLastIndex(splitStatements(new ChunkView(file.text)), (s) =>
+				Str.includes(text)(s)
+			)
+
 			if (Option.isSome(at)) {
 				return { kind: "statement", folder: folder.name, file: file.name, statement: at.value + 1 }
 			}

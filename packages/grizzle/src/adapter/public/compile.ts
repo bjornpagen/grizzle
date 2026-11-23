@@ -1,3 +1,4 @@
+import { readJson } from "@bjornpagen/grizzle-text/chunks"
 import { Effect, type Result } from "effect"
 import { fromEngine, readHost, toResult } from "#adapter/engine.ts"
 import {
@@ -14,9 +15,9 @@ import {
 	type CompileError,
 	malformedArtifact,
 	malformedDescription,
+	defect,
 	ownBuilt,
-	SourceLoc,
-	trustedJson
+	SourceLoc
 } from "#compiler/plan/common.ts"
 import { type InstalledIndexes, snapshotIndexes } from "#compiler/plan/serve.ts"
 
@@ -56,7 +57,11 @@ const compiledJson = (
 		const base = yield* Effect.mapError(fromEngine(ownBuilt(built.base)), atLogin)
 		const owned = yield* Effect.mapError(fromEngine(ownLoginOver(built, base)), atLogin)
 		const compiled = yield* entry({ login: { ...built, workload: workloads }, owned }, snapshot)
-		return trustedJson<unknown>(compiled.text)
+		const read = readJson(compiled.text)
+		if (!read.ok) {
+			throw defect(`the compile's own served file reads as JSON: ${read.error.expected}`)
+		}
+		return read.value
 	})
 
 /**

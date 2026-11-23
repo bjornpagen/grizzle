@@ -11,7 +11,7 @@ import type { DbLayerOf } from "#adapter/types/layer.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { transactionClock } from "#compiler/ir/clock.ts"
-import { ownBuilt, trustedJson } from "#compiler/plan/common.ts"
+import { ownBuilt } from "#compiler/plan/common.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg, span } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -33,6 +33,7 @@ import type { DeltaSource } from "#compiler/types/changeset/changeset.ts"
 import type { ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import type { PutChoice } from "#compiler/write/put/choose.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { jsonOf } from "#test/support/chunked.ts"
 import { type Names, namesOf } from "#test/support/kernel/naming.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { openRig, type Rig } from "#test/support/schedules/rig.ts"
@@ -346,10 +347,7 @@ export const servedChanges = (
 		)
 		const entry = yield* servedEntryOf(compiled)
 		const loaded = yield* Effect.fromResult(
-			loadServed(
-				succeeded(servedFile(trustedJson<unknown>(entry.text)), "the served file"),
-				entry.login
-			)
+			loadServed(succeeded(servedFile(jsonOf(entry.text)), "the served file"), entry.login)
 		)
 		return {
 			changes: changesOf(roleNamed(loaded.roles, (r) => r.name, role).members),

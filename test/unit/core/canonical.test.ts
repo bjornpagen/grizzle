@@ -42,6 +42,7 @@
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
+import { chunksOf } from "@bjornpagen/grizzle-text/chunks"
 import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
@@ -201,7 +202,7 @@ export const theCanonicalTextRoundTripsTheJSONFormAndTheTextBigintsTaggedValuesA
 				const json = succeeded(toJson(v, everyProperty))
 				const parsed = trustedJson<unknown>(jsonText(json))
 				const viaJson = succeeded(fromJson(parsed, revivers))
-				const viaText = succeeded(decode(succeeded(encode(v, everyProperty)), revivers))
+				const viaText = succeeded(decode(chunksOf(succeeded(encode(v, everyProperty))), revivers))
 				assert.equal<string>(succeeded(encode(viaJson, everyProperty)), specified(v))
 				assert.equal<string>(succeeded(encode(viaText, everyProperty)), specified(v))
 				assert.deepEqual(viaText, decodedForm(v))
@@ -242,7 +243,11 @@ export const aValueOutsideTheModelIsRefusedAtItsPathInTheDirectionItArisesAndNev
 					const result =
 						plant.direction === "encode"
 							? encode(v, everyProperty)
-							: decode(jsonText(trusted<Json>(placed(path, plant.at, jsonForm(filler)))), revivers)
+							: decode(
+									chunksOf(jsonText(trusted<Json>(placed(path, plant.at, jsonForm(filler))))),
+									revivers
+								)
+
 					if (plant.direction === "encode") {
 						assert.deepEqual(refusalLoc(refused(result, "MalformedDescription")).path, [
 							...path,
@@ -314,7 +319,7 @@ export const aValueOutsideTheModelIsReadAndWrittenNestedToAnyDepthInEveryDirecti
 				file: "packages/engine/src/core/canonical.ts",
 				original: "\treturn fromJson(parsed.value, revivers)",
 				replacement:
-					'\tlet depth = 0\n\tlet deepest = 0\n\tfor (const unit of text) {\n\t\tdepth += unit === "[" || unit === "{" ? 1 : unit === "]" || unit === "}" ? -1 : 0\n\t\tdeepest = Math.max(deepest, depth)\n\t}\n\tif (deepest > 1000) {\n\t\treturn Result.err(malformedArtifact("canonical", [], "JSON text nested at most 1000 deep"))\n\t}\n\treturn fromJson(parsed.value, revivers)',
+					'\tlet depth = 0\n\tlet deepest = 0\n\tfor (const unit of text.join("")) {\n\t\tdepth += unit === "[" || unit === "{" ? 1 : unit === "]" || unit === "}" ? -1 : 0\n\t\tdeepest = Math.max(deepest, depth)\n\t}\n\tif (deepest > 1000) {\n\t\treturn Result.err(malformedArtifact("canonical", [], "JSON text nested at most 1000 deep"))\n\t}\n\treturn fromJson(parsed.value, revivers)',
 				why: "decode refuses a text nested more than a thousand brackets deep as a depth; the nesting property fails in its decode direction."
 			}
 		]
@@ -500,9 +505,9 @@ export const theOmittedMembersReadAValueAsItIsNowAChangedValueIsWrittenAsChanged
 			{
 				file: "packages/engine/src/core/canonical.ts",
 				original:
-					"\t\tconst sink = new TextSink()\n\t\tnew Walk(options, sink, canonicalOf, rootPath, nothingCarried).of(value)\n\t\treturn sink.text()\n\t})",
+					"\t\tconst out = new WellFormedWriter()\n\t\tnew Walk(options, new TextSink(out, builtText), canonicalOf, rootPath, nothingCarried).of(value)\n\t\treturn out.text()\n\t})",
 				replacement:
-					'\t\tconst remembered = typeof value === "object" && value !== null && Object.isFrozen(value)\n\t\tconst memo = remembered ? frozenTexts.get(value) : undefined\n\t\tif (memo !== undefined) {\n\t\t\treturn memo\n\t\t}\n\t\tconst sink = new TextSink()\n\t\tnew Walk(options, sink, canonicalOf, rootPath, nothingCarried).of(value)\n\t\tif (remembered) {\n\t\t\tfrozenTexts.set(value, sink.text())\n\t\t}\n\t\treturn sink.text()\n\t})\n\nconst frozenTexts = new WeakMap<object, string>()',
+					'\t\tconst remembered = typeof value === "object" && value !== null && Object.isFrozen(value)\n\t\tconst memo = remembered ? frozenTexts.get(value) : undefined\n\t\tif (memo !== undefined) {\n\t\t\treturn memo\n\t\t}\n\t\tconst out = new WellFormedWriter()\n\t\tnew Walk(options, new TextSink(out, builtText), canonicalOf, rootPath, nothingCarried).of(value)\n\t\tif (remembered) {\n\t\t\tfrozenTexts.set(value, out.text())\n\t\t}\n\t\treturn out.text()\n\t})\n\nconst frozenTexts = new WeakMap<object, string>()',
 				why: "a frozen value's text remembered, whatever it holds since and whatever the options; the now property fails."
 			}
 		]

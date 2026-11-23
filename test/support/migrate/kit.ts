@@ -50,6 +50,7 @@ import { installationsOf } from "#compiler/schema/own.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { chunked } from "#test/support/chunked.ts"
 import {
 	allocatedLevels,
 	type TestCodes,
@@ -180,7 +181,7 @@ export const customDataStep = (
 	return {
 		name: folder.name,
 		metaText: folder.metaText,
-		files: [{ name: "01-data.sql", text: Arr.join(statements, "\n") }]
+		files: [{ name: "01-data.sql", text: chunked(Arr.join(statements, "\n")) }]
 	}
 }
 

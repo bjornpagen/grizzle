@@ -22,7 +22,6 @@ import { snapshotServedEntry } from "#adapter/served/compile.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
 import { silentPhases } from "#compiler/core/phase.ts"
-import { trustedJson } from "#compiler/core/trusted.ts"
 import { emptySnapshot, writeRuntimeSnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { login } from "#compiler/public/schema.ts"
@@ -30,6 +29,7 @@ import { defineConfig } from "#index.ts"
 import { offlineOwner } from "#test/pg/cli/support.ts"
 import { Reports, Work } from "#test/support/agreement/changeset-schema.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { joined, jsonOf } from "#test/support/chunked.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import {
 	caseGen,
@@ -98,7 +98,7 @@ export const aLoginsServedFileIsTheSameTextFromTheDraftsWorkloadPlanAndFromTheCo
 					silentPhases
 				)
 				const entries = yield* servedFiles(compiled, draft, draft.served, silentPhases)
-				const snapshot = trustedJson<unknown>(
+				const snapshot = jsonOf(
 					succeeded(writeRuntimeSnapshot(draft.snapshot, draft.derived), "snapshot.json")
 				)
 				assert.equal(entries.length, compiled.logins.length, "a served file for each login")
@@ -107,8 +107,8 @@ export const aLoginsServedFileIsTheSameTextFromTheDraftsWorkloadPlanAndFromTheCo
 					const alone = yield* snapshotServedEntry(l, snapshot)
 					assert.equal(planned.login, alone.login)
 					assert.equal(
-						planned.text,
-						alone.text,
+						joined(planned.text),
+						joined(alone.text),
 						`login ${planned.login}: the plan's served file is the snapshot-only compile's`
 					)
 				}

@@ -1,3 +1,4 @@
+import type { TextChunks } from "@bjornpagen/grizzle-text/chunks"
 import { Result } from "effect"
 import { toResult } from "#adapter/engine.ts"
 import {
@@ -38,10 +39,10 @@ const sealedMeta = (file: unknown): Result.Result<MigrationMeta, CompileError> =
 
 /** A folder's meta.json as writeMeta writes it: its JSON parsed (`decode`), then its meta trusted once its seal holds.
  * A meta.json edited or corrupted outside grizzle is refused before anything reads its meta. */
-export const decodeMeta = (text: string): Result.Result<MigrationMeta, CompileError> =>
+export const decodeMeta = (text: TextChunks): Result.Result<MigrationMeta, CompileError> =>
 	Result.flatMap(toResult(decode(text, noRevivers)), sealedMeta)
 
 /** Reads a folder's meta.json: its meta trusted once (decodeMeta), then what the meta alone does not say (the engine's
  * readDecodedMeta). */
-export const readMeta = (text: string): Result.Result<ReadMeta, CompileError> =>
+export const readMeta = (text: TextChunks): Result.Result<ReadMeta, CompileError> =>
 	Result.flatMap(decodeMeta(text), (meta) => toResult(readDecodedMeta(meta)))

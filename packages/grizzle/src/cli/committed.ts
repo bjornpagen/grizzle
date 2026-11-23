@@ -1,3 +1,4 @@
+import type { TextChunks } from "@bjornpagen/grizzle-text/chunks"
 import { Array as Arr, Effect, Option, Result } from "effect"
 import { readMeta } from "#adapter/boundary/meta.ts"
 import { type CommittedSnapshot, readSnapshot } from "#adapter/boundary/snapshot.ts"
@@ -86,7 +87,7 @@ export const committedSnapshot = Effect.fn("committedSnapshot")(function* (
 interface CommittedFolder {
 	readonly name: string
 	readonly meta: ReadMeta
-	readonly files: ReadonlyArray<{ readonly name: string; readonly text: string }>
+	readonly files: ReadonlyArray<{ readonly name: string; readonly text: TextChunks }>
 }
 
 /**
@@ -116,7 +117,7 @@ interface ReadFolder<F extends FileText = FileText> {
 /** A file of a folder as the walk carries it: its name and text, and whatever its reader read of it besides. */
 interface FileText {
 	readonly name: string
-	readonly text: string
+	readonly text: TextChunks
 }
 
 /**

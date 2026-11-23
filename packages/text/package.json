@@ -16,6 +16,7 @@
 		"./text": "./src/text.ts",
 		"./uri": "./src/uri.ts",
 		"./utf8": "./src/utf8.ts",
+		"./chunks": "./src/chunks.ts",
 		"./base/*": "./src/base/*.ts",
 		"./regex/*": "./src/regex/*.ts",
 		"./package.json": "./package.json"

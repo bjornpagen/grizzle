@@ -1,4 +1,5 @@
 import { Array as Arr, Effect, FileSystem, Path, type PlatformError } from "effect"
+import { readText } from "#adapter/boundary/files.ts"
 import { readMeta } from "#adapter/boundary/meta.ts"
 import { readSnapshot } from "#adapter/boundary/snapshot.ts"
 import type { CompileError } from "#compiler/plan/common.ts"
@@ -19,14 +20,14 @@ const schemaLocks = Effect.fn("schemaLocks")(function* (
 	const snapshotPath = path.join(directory, snapshotFileName)
 	const replay: Array<number> = []
 	if (yield* fs.exists(snapshotPath)) {
-		const snapshot = yield* fs.readFileString(snapshotPath)
-		const manifest = yield* fs.readFileString(path.join(directory, manifestFileName))
+		const snapshot = yield* readText(snapshotPath)
+		const manifest = yield* readText(path.join(directory, manifestFileName))
 		const read = yield* Effect.fromResult(readSnapshot({ snapshot, manifest }))
 		replay.push(replayLocks(read.snapshot))
 	}
 	const files: Array<number> = []
 	for (const entry of Arr.filter(entries, isFolderName)) {
-		const text = yield* fs.readFileString(path.join(directory, entry, metaFileName))
+		const text = yield* readText(path.join(directory, entry, metaFileName))
 		const meta = yield* Effect.fromResult(readMeta(text))
 		if (meta.kind === "drafted") {
 			for (const f of meta.record.files) {

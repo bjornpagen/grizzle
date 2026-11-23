@@ -1,5 +1,6 @@
 import { inspect } from "node:util"
 import * as Engine from "@bjornpagen/grizzle-text/base/result"
+import { ChunkView, type TextChunks } from "@bjornpagen/grizzle-text/chunks"
 import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import type { Content } from "@bjornpagen/testing/resources"
 import {
@@ -26,7 +27,6 @@ import { draftSchema, servedFiles } from "#cli/generate.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { type Identity, identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
-import { trustedJson } from "#compiler/core/trusted.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { bookkeepingTables } from "#compiler/deploy/ledger/ledger.ts"
 import { filed } from "#compiler/deploy/render/filed.ts"
@@ -51,6 +51,7 @@ import {
 	templateAmbientOwner
 } from "#test/support/ambient.ts"
 import { checkInstallation } from "#test/support/catalog/installed.ts"
+import { chunked, joined, jsonOf } from "#test/support/chunked.ts"
 import { draftedSql, type FixtureSchema, filledSql, migratedSql } from "#test/support/compile.ts"
 import { paths, repoRoot } from "#test/support/files.ts"
 import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -343,7 +344,7 @@ export const runsInstallScript = (
 		filledSql(
 			{
 				statements: Arr.flatMap(folders, (folder) =>
-					Arr.flatMap(folder.files, (f) => splitStatements(f.text))
+					Arr.flatMap(folder.files, (f) => splitStatements(new ChunkView(f.text)))
 				)
 			},
 			database
@@ -754,8 +755,14 @@ const reviewValue = (review: Review): Decisions["value"] =>
 	review.kind === "noPlaceholders" ? noPlaceholder : review.value
 
 /** A reviewed file of version `version` as `review` writes it. */
-const reviewedText = (review: Review, version: number, file: ReviewedText): string =>
-	review.kind === "reviewed" ? review.edit(version, file) : file.text
+const reviewedText = (
+	review: Review,
+	version: number,
+	file: { readonly name: string; readonly text: TextChunks }
+): TextChunks =>
+	review.kind === "reviewed"
+		? chunked(review.edit(version, { name: file.name, text: joined(file.text) }))
+		: file.text
 
 /**
  * `version` as `grizzle generate` drafts it `at` its step, from 0, of a history: planned under the identity by
@@ -1243,7 +1250,7 @@ const generatedDraft = (
 			plan,
 			folder: { name: folderAt, metaText: draft.folder.metaText, files: reviewed.files },
 			snapshot: draft.snapshot,
-			served: new Map(Arr.map(entries, (e) => [e.login, trustedJson<unknown>(e.text)] as const))
+			served: new Map(Arr.map(entries, (e) => [e.login, jsonOf(e.text)] as const))
 		}
 	})
 

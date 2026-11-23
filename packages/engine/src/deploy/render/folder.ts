@@ -1,5 +1,6 @@
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { ChunkView, type TextChunks } from "@bjornpagen/grizzle-text/chunks"
 import { isAsciiDigit, isAsciiDigits } from "@bjornpagen/grizzle-text/text"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { nominal } from "#compiler/core/brand.ts"
@@ -346,12 +347,14 @@ export type LossDecided =
  * written as a loss's. */
 export const lossDecisions = (
 	record: DecisionRecord,
-	files: ReadonlyArray<{ readonly name: string; readonly text: string }>
+	files: ReadonlyArray<{ readonly name: string; readonly text: TextChunks }>
 ): ReadonlyArray<LossDecided> =>
 	record.files.flatMap((file) => {
 		const reviewed = files.find((f) => f.name === file.name)
 		const held =
-			reviewed === undefined ? [] : splitStatements(reviewed.text).map((x) => statementTokens(x))
+			reviewed === undefined
+				? []
+				: splitStatements(new ChunkView(reviewed.text)).map((x) => statementTokens(x))
 		return file.steps.flatMap((s): ReadonlyArray<LossDecided> => {
 			if (s.kind !== "loss") {
 				return []
@@ -405,7 +408,7 @@ const writtenAsRecorded = (
  */
 export const recordsAsWritten = (
 	meta: ReadMeta,
-	file: { readonly name: string; readonly text: string }
+	file: { readonly name: string; readonly text: TextChunks }
 ): boolean => {
 	if (meta.kind === "custom") {
 		return false
@@ -415,7 +418,7 @@ export const recordsAsWritten = (
 		return false
 	}
 	const drafted = recorded.steps.flatMap(stepStatements)
-	const written = splitStatements(file.text)
+	const written = splitStatements(new ChunkView(file.text))
 	return (
 		drafted.length === written.length &&
 		written.every((w, i) => {
@@ -433,7 +436,7 @@ export const recordsAsWritten = (
  */
 export const statedLocks = (
 	meta: ReadMeta,
-	file: { readonly name: string; readonly text: string }
+	file: { readonly name: string; readonly text: TextChunks }
 ): number | undefined =>
 	meta.kind === "drafted" && recordsAsWritten(meta, file)
 		? meta.record.files.find((f) => f.name === file.name)?.locks
@@ -448,9 +451,11 @@ export type ReadMeta =
 	  })
 	| CustomMeta
 
+/** A drafted file of a migration folder: its name, `NN-<phase>.sql`, and its text as its chunks (grizzle-text TextChunks),
+ * never joined, which generate writes a chunk at a time and reads its markers from (render/markers.ts findMarkers). */
 interface MigrationFile {
 	readonly name: string
-	readonly text: string
+	readonly text: TextChunks
 }
 
 /** A migration folder `migrations/<schema>/<timestamp>_<name>/` and its meta.json.
@@ -475,7 +480,8 @@ export interface MigrationFolder {
 	/** `<timestamp>_<name>`. */
 	readonly name: string
 	readonly meta: MigrationMeta
-	readonly metaText: string
+	/** meta.json's text, as its chunks (writeMeta). */
+	readonly metaText: TextChunks
 	readonly files: ReadonlyArray<MigrationFile>
 }
 
@@ -663,7 +669,7 @@ export const metaSeal = (meta: unknown): Result.Result<string, CompileError> =>
 
 /** The text of meta.json: `{ meta, seal }`, the meta sealed by its seal (metaSeal), so a meta.json edited or corrupted
  * outside grizzle is refused before its meta is read. */
-export const writeMeta = (meta: MigrationMeta): Result.Result<string, CompileError> =>
+export const writeMeta = (meta: MigrationMeta): Result.Result<TextChunks, CompileError> =>
 	Result.flatMap(metaSeal(meta), (seal) => writeJsonText({ meta, seal }))
 
 /** Reads a folder's meta: what its form alone does not say. The shell trusts meta.json's meta once its seal holds

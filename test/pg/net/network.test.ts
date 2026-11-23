@@ -29,7 +29,6 @@ import { HttpClient } from "effect/http"
 import { Db } from "#adapter/public/db.ts"
 import { clientCalls } from "#client/client.ts"
 import { handlerClient } from "#client/handler.ts"
-import { trustedJson } from "#compiler/core/trusted.ts"
 import { admitCidr, admitInet, type Cidr, type Inet } from "#compiler/scalar/values/net.ts"
 import { httpHandler } from "#http/index.ts"
 import {
@@ -43,6 +42,7 @@ import {
 } from "#test/pg/net/network.fixtures.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { rowsOf } from "#test/support/calls.ts"
+import { jsonOf } from "#test/support/chunked.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { servedGenerated } from "#test/support/served-db.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -420,7 +420,7 @@ export const netContainmentOfAContextsAddressItsDbReadsTheNetworksPostgreSQLsHol
 										"the login's OpenAPI document"
 									)
 									const roles = succeeded(
-										clientCalls(trustedJson<unknown>(document), "web", {
+										clientCalls(jsonOf(document), "web", {
 											url: new URL(origin),
 											token: Redacted.make(token)
 										}),

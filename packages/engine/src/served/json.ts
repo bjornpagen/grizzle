@@ -1,5 +1,6 @@
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import type { TextChunks } from "@bjornpagen/grizzle-text/chunks"
 import {
 	type CanonicalObject,
 	canonicalOf,
@@ -11,7 +12,7 @@ import {
 	type Path,
 	Refusal,
 	type TaggedValue,
-	writeCanonicalJson
+	writeArtifactJson
 } from "#compiler/core/canonical.ts"
 import {
 	type CompileError,
@@ -532,7 +533,7 @@ const membersRecord = (json: Json): JsonRecord => {
  * them its rosters in their own form (rosterWire) and its table, which a load reads first and by name (servedFile), so
  * the record's `~` lists only the members a load walks to a revived value.
  */
-export const servedText = (file: ServedFile): Result.Result<string, CompileError> =>
+export const servedText = (file: ServedFile): Result.Result<TextChunks, CompileError> =>
 	Result.flatMap(
 		catchRefusal(() => {
 			const { rosters, ...members } = file
@@ -548,7 +549,7 @@ export const servedText = (file: ServedFile): Result.Result<string, CompileError
 				[sharedKey]: written.table.map((entry) => entry.node)
 			}
 		}),
-		(json) => Result.map(writeCanonicalJson(json), (text) => `${text}\n`)
+		writeArtifactJson
 	)
 
 /**

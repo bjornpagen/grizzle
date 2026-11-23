@@ -1,3 +1,4 @@
+import { ChunkView, readJson, type TextChunks } from "@bjornpagen/grizzle-text/chunks"
 import {
 	Array as Arr,
 	type DateTime,
@@ -9,6 +10,7 @@ import {
 	type PlatformError,
 	Result
 } from "effect"
+import { matchesFile } from "#adapter/boundary/files.ts"
 import { fromEngine } from "#adapter/engine.ts"
 import { atRole, type ServedEntry, servedEntry } from "#adapter/served/compile.ts"
 import { artifactsOver, artifactsUnder } from "#adapter/served/login.ts"
@@ -28,13 +30,14 @@ import {
 	cliError,
 	RosterReordered,
 	SchemaChoiceRefused,
-	ServedRefused
+	ServedRefused,
+	TreeUnread
 } from "#cli/errors.ts"
 import {
 	type LoginFileKind,
 	loginFileKinds,
+	type LoginPaths,
 	type LoginText,
-	type LoginTexts,
 	readSchemaTree,
 	writeFolder,
 	writeLoginFiles,
@@ -60,7 +63,6 @@ import {
 	rostersOf,
 	sameLevel,
 	transactionClock,
-	trustedJson,
 	unrepresentableKeys
 } from "#compiler/plan/common.ts"
 import {
@@ -725,7 +727,11 @@ const servedEntries = Effect.fn("servedFiles")(function* (
 		fromEngine(writeRuntimeSnapshot(draft.snapshot, draft.derived)),
 		draftRefused(schema.configured.declared, "draft")
 	)
-	const snapshot = trustedJson<unknown>(text)
+	const read = readJson(text)
+	if (!read.ok) {
+		throw defect(`the snapshot.json a draft lays out reads as JSON: ${read.error.expected}`)
+	}
+	const snapshot = read.value
 	return yield* Effect.forEach(schema.logins, (login) => {
 		const planned = served.logins.get(login.owned.name)
 		if (planned === undefined) {
@@ -751,23 +757,43 @@ const servedEntries = Effect.fn("servedFiles")(function* (
 })
 
 /** The text of a login's file of `kind` its compile gives: its served file's, or its OpenAPI document's. */
-const loginText = (entry: ServedEntry, kind: LoginFileKind): string =>
+export const loginText = (entry: ServedEntry, kind: LoginFileKind): TextChunks =>
 	kind === "served" ? entry.text : entry.openapi
 
-/** What writing `served` does to directories holding `committed`, by kind and login (ServedWrites). */
+/**
+ * What writing `served` does to directories holding the committed files `committed`, by kind and login (ServedWrites):
+ * a login's file written where none is committed or the committed one's bytes part from its text, each committed file
+ * read a block at a time and held to the text as it is read (files.ts matchesFile), never read whole.
+ */
 export const servedWrites = (
+	schema: ConfiguredSchema,
 	served: ReadonlyArray<ServedEntry>,
-	committed: LoginTexts
-): ServedWrites => {
+	committed: LoginPaths
+): Effect.Effect<ServedWrites, CliError, FileSystem.FileSystem> => {
 	const listed = new Set(Arr.map(served, (f) => f.login))
-	const writes = (kind: LoginFileKind): LoginWrites => ({
-		write: Arr.flatMap(served, (f) => {
-			const text = loginText(f, kind)
-			return committed[kind].get(f.login) === text ? [] : [{ login: f.login, text }]
-		}),
-		remove: Arr.filter(Arr.fromIterable(committed[kind].keys()), (login) => !listed.has(login))
-	})
-	return { served: writes("served"), openapi: writes("openapi") }
+	const writes = (
+		kind: LoginFileKind
+	): Effect.Effect<LoginWrites, PlatformError.PlatformError, FileSystem.FileSystem> =>
+		Effect.map(
+			Effect.forEach(served, (f) => {
+				const text = loginText(f, kind)
+				const path = committed[kind].get(f.login)
+				return path === undefined
+					? Effect.succeed([{ login: f.login, text }])
+					: Effect.map(matchesFile(path, text), (parting) =>
+							parting.kind === "same" ? [] : [{ login: f.login, text }]
+						)
+			}),
+			(written) => ({
+				write: Arr.flatten(written),
+				remove: Arr.filter(Arr.fromIterable(committed[kind].keys()), (login) => !listed.has(login))
+			})
+		)
+	return Effect.mapError(
+		Effect.all({ served: writes("served"), openapi: writes("openapi") }),
+		(cause) =>
+			cliError(new TreeUnread({ schema: schema.declared, directory: schema.directory, cause }))
+	)
 }
 
 /** One schema's draft, computed without writing anything. */
@@ -810,7 +836,7 @@ const draftFor = Effect.fn("draftFor")(function* (
 		options.phases
 	)
 	const files = yield* servedFiles(compiled, generated, generated.served, options.phases)
-	const served = servedWrites(files, tree.logins)
+	const served = yield* servedWrites(schema, files, tree.logins)
 	const certification = generated.served.kind === "logins" ? generated.served.certification : []
 	const fences = generated.served.kind === "logins" ? generated.served.fences : []
 	if (generated.change === "none") {
@@ -949,7 +975,11 @@ const writeSchemaDraft = Effect.fn("writeSchemaDraft")(function* (
 		path: yield* writeFolder(schema.declared, schema.directory, folder),
 		files: Arr.map(folder.files, (f) => f.name),
 		markers: Arr.flatMap(folder.files, (f) =>
-			Arr.map(findMarkers(f.text), (m) => ({ file: f.name, kind: m.kind, line: m.line }))
+			Arr.map(findMarkers(new ChunkView(f.text)), (m) => ({
+				file: f.name,
+				kind: m.kind,
+				line: m.line
+			}))
 		),
 		losses:
 			folder.meta.kind === "drafted"

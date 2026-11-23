@@ -30,6 +30,7 @@ import { silentPhases } from "#compiler/core/phase.ts"
 import { manifestFileName, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
 import { cliOver, configName, resolvedConfig, workspace } from "#test/pg/cli/support.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { chunked } from "#test/support/chunked.ts"
 import { at, baseNeed, config, schemaDir } from "#test/unit/cli/derived.fixtures.ts"
 import {
 	type Commit,
@@ -85,7 +86,11 @@ export const aSnapshotOfAnotherFormatIsItsOwnFindingASealNamingNoFormatOrAHandEd
 					})()
 					yield* fs.writeFileString(snapshotFile, pair.snapshot)
 					yield* fs.writeFileString(manifestFile, pair.manifest)
-					const converted = readSnapshot(pair)
+					const converted = readSnapshot({
+						snapshot: chunked(pair.snapshot),
+						manifest: chunked(pair.manifest)
+					})
+
 					const [checked] = yield* check(resolved, ws, silentPhases)
 					const findings = defined(checked, "the schema's check").findings
 					const kinds = Arr.map(findings, (f) => f.kind)

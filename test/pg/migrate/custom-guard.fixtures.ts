@@ -14,6 +14,7 @@ import { printObjectName } from "#compiler/sql/print.ts"
 import { draftNext, installFirst, setsOf } from "#test/pg/closed/codes.fixtures.ts"
 import type { dataSteps } from "#test/pg/migrate/custom-guard.dictionary.ts"
 import { apply, noFurther, openMigrator } from "#test/pg/migrate/support.ts"
+import { chunked, joined } from "#test/support/chunked.ts"
 import { type RosterState } from "#test/support/closed/generate.ts"
 import { type Version } from "#test/support/installed.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
@@ -59,7 +60,10 @@ export const guardedInstall = (
 			step === "alone"
 				? {
 						...written,
-						files: Arr.map(written.files, (f) => ({ ...f, text: `${noTransaction}\n${f.text}` }))
+						files: Arr.map(written.files, (f) => ({
+							...f,
+							text: chunked(`${noTransaction}\n${joined(f.text)}`)
+						}))
 					}
 				: written
 		/** The set the row holds, as PostgreSQL's text. */
@@ -125,13 +129,15 @@ export const draftedSlot = Effect.gen(function* () {
 	)
 	const step = `UPDATE ${table} SET ${members} = X'00'::bit(8) WHERE ${id} = 1;`
 	const immediate = "SET CONSTRAINTS ALL IMMEDIATE;"
-	const slotted = Arr.findFirstIndex(next.folder.files, (f) => Str.includes(immediate)(f.text))
+	const slotted = Arr.findFirstIndex(next.folder.files, (f) =>
+		Str.includes(immediate)(joined(f.text))
+	)
 	assert.ok(Option.isSome(slotted), "the draft holds a data-step slot")
 	const folder: FolderTexts = {
 		...next.folder,
 		files: Arr.map(next.folder.files, (f) =>
-			Str.includes(immediate)(f.text)
-				? { ...f, text: Str.replace(immediate, `${immediate}\n${step}`)(f.text) }
+			Str.includes(immediate)(joined(f.text))
+				? { ...f, text: chunked(Str.replace(immediate, `${immediate}\n${step}`)(joined(f.text))) }
 				: f
 		)
 	}

@@ -2,6 +2,7 @@ import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { ChunkWriter, readJson, type TextChunks } from "@bjornpagen/grizzle-text/chunks"
 import {
 	jsonText,
 	Utf8Writer,
@@ -188,16 +189,6 @@ export const everyProperty: EncodeOptions = { omit: () => false }
 
 /** Every property but the SourceLocs: the text of the value's semantic identity. */
 export const withoutSourceLocs: EncodeOptions = { omit: omitSourceLocs }
-
-/** JSON text, admitted as an unknown value for the structural decode that follows; undefined for text that is not JSON. */
-const parseJsonText = (text: string): Result.Result<unknown, undefined> => {
-	try {
-		const parsed: unknown = JSON.parse(text)
-		return Result.ok(parsed)
-	} catch {
-		return Result.err(undefined)
-	}
-}
 
 /** What a protocol method returns, admitted: anyone can forge the registered symbol, so the result is checked. */
 const admitTaggedValue = (tagged: unknown): TaggedValue | undefined => {
@@ -1678,21 +1669,41 @@ export const writeTemplate = (
 const keptWriter = (): Utf8Writer => new Utf8Writer({ kind: "grow" })
 
 /**
- * The sink that writes the canonical text a caller reads as a string, appended to one string as it is read (grizzle-text
- * WellFormedWriter): JSON.stringify's scalars and keys (grizzle-text jsonText), its punctuation and the canonical texts
- * Walk.over writes as they are, each well-formed, so the text is a WellFormedText with no check of it. A text whose
- * bytes are hashed is written as them instead (ByteSink); one a caller reads is built as the string it is, its pieces
- * the platform's, with no bytes to decode. Past V8's longest string the traversal stops with ResourceBound
- * (stringLength), measured before the text is built past it.
+ * Where a TextSink writes its text (TextOut): one string it builds (grizzle-text WellFormedWriter), which V8's longest
+ * string bounds, so the traversal stops with ResourceBound (stringLength) before the text is built past it
+ * (`builtText`); or a text's chunks (grizzle-text ChunkWriter), never joined into one string, so no length bounds it
+ * (`chunkedText`): an artifact's, which is written to its file a chunk at a time.
+ */
+interface TextOut {
+	readonly length: number
+	append(piece: WellFormedText): void
+}
+
+/** What bounds a text a TextSink writes, measured before each piece is written: V8's longest string, for a text built. */
+type TextBound = (written: number) => void
+
+const builtText: TextBound = (written) => boundCanonicalText(written, maxStringLength)
+
+/** A text written as chunks is never built, so no length bounds it. */
+const chunkedText: TextBound = () => undefined
+
+/**
+ * The sink that writes the canonical text a caller reads, appended to its TextOut as it is read: JSON.stringify's
+ * scalars and keys (grizzle-text jsonText), its punctuation and the canonical texts Walk.over writes as they are, each
+ * well-formed, so the text is a WellFormedText with no check of it. A text whose bytes are hashed is written as them
+ * instead (ByteSink); one a caller reads is the platform's strings, with no bytes to decode. Its bound (TextBound) is
+ * its TextOut's: past V8's longest string a text it builds stops with ResourceBound (stringLength), measured before the
+ * text is built past it, and its chunks are never built.
  */
 class TextSink implements Sink {
-	readonly #text = new WellFormedWriter()
+	readonly #out: TextOut
+	readonly #bound: TextBound
 	/** Whether a value was written in the container being written, so the next item or member follows a comma. */
 	#after = false
 
-	/** The text written. */
-	text(): WellFormedText {
-		return this.#text.text()
+	constructor(out: TextOut, bound: TextBound) {
+		this.#out = out
+		this.#bound = bound
 	}
 
 	scalar(value: string | number | boolean): void {
@@ -1722,19 +1733,16 @@ class TextSink implements Sink {
 
 	/**
 	 * `piece` written, after a comma where `comma` says and before a colon where `colon` says, refused together where the
-	 * text they make passes V8's longest string, before it is built.
+	 * text they make passes its bound, before it is written.
 	 */
 	#write(comma: boolean, piece: WellFormedText, colon: boolean): void {
-		boundCanonicalText(
-			this.#text.length + (comma ? 1 : 0) + piece.length + (colon ? 1 : 0),
-			maxStringLength
-		)
+		this.#bound(this.#out.length + (comma ? 1 : 0) + piece.length + (colon ? 1 : 0))
 		if (comma) {
-			this.#text.append(punctuation.comma)
+			this.#out.append(punctuation.comma)
 		}
-		this.#text.append(piece)
+		this.#out.append(piece)
 		if (colon) {
-			this.#text.append(punctuation.colon)
+			this.#out.append(punctuation.colon)
 		}
 	}
 }
@@ -1837,9 +1845,8 @@ const writeJsonValue = (sink: TextSink, frames: Array<JsonFrame>, value: Json): 
 	}
 }
 
-/** The canonical text of a JSON form value, its containers opened onto a stack on the heap. */
-const writeJson = (value: Json): WellFormedText => {
-	const sink = new TextSink()
+/** The canonical text of a JSON form value written into `sink`, its containers opened onto a stack on the heap. */
+const writeJson = (sink: TextSink, value: Json): void => {
 	const frames: Array<JsonFrame> = []
 	writeJsonValue(sink, frames, value)
 	for (let top = frames.at(-1); top !== undefined; top = frames.at(-1)) {
@@ -1864,12 +1871,30 @@ const writeJson = (value: Json): WellFormedText => {
 			}
 		}
 	}
-	return sink.text()
 }
 
 /** The canonical text of a JSON form value; ResourceBound (stringLength) past V8's longest string. */
 export const writeCanonicalJson = (value: Json): Result.Result<WellFormedText, CompileError> =>
-	catchRefusal(() => writeJson(value))
+	catchRefusal(() => {
+		const out = new WellFormedWriter()
+		writeJson(new TextSink(out, builtText), value)
+		return out.text()
+	})
+
+const newline = wellFormed("\n")
+
+/**
+ * The text of a JSON artifact's file: the canonical text of its JSON form value (writeCanonicalJson's), then a newline,
+ * as its chunks (grizzle-text TextChunks), written as it is read and never joined into one string, so no length bounds
+ * it: a served file's (served/json.ts servedText) and an OpenAPI document's (packages/openapi openApiText).
+ */
+export const writeArtifactJson = (value: Json): Result.Result<TextChunks, CompileError> =>
+	catchRefusal(() => {
+		const out = new ChunkWriter()
+		writeJson(new TextSink(out, chunkedText), value)
+		out.append(newline)
+		return out.chunks()
+	})
 
 /** The canonical text of a value. */
 const encodeWalk = (
@@ -1880,9 +1905,9 @@ const encodeWalk = (
 		if (value === undefined) {
 			return refuseValue([], "a value, not undefined")
 		}
-		const sink = new TextSink()
-		new Walk(options, sink, canonicalOf, rootPath, nothingCarried).of(value)
-		return sink.text()
+		const out = new WellFormedWriter()
+		new Walk(options, new TextSink(out, builtText), canonicalOf, rootPath, nothingCarried).of(value)
+		return out.text()
 	})
 
 /**
@@ -1935,11 +1960,12 @@ export const encodeOver = (
 	written: ReadonlyMap<string, WellFormedText>
 ): Result.Result<WellFormedText, CompileError> =>
 	catchRefusal(() => {
-		const sink = new TextSink()
+		const out = new WellFormedWriter()
+		const sink = new TextSink(out, builtText)
 		new Walk(options, sink, canonicalOf, rootPath, nothingCarried).over(record, written, (text) =>
 			sink.written(text)
 		)
-		return sink.text()
+		return out.text()
 	})
 
 /**
@@ -2355,9 +2381,15 @@ export const fromJson = (
 	revivers: Revivers
 ): Result.Result<unknown, CompileError> => catchRefusal(() => new Revive(revivers).of(value))
 
-/** Parses canonical (or any JSON) text and restores tagged values. */
-export const decode = (text: string, revivers: Revivers): Result.Result<unknown, CompileError> => {
-	const parsed = parseJsonText(text)
+/**
+ * Parses canonical (or any JSON) text, a file's, held as its chunks and read as JSON.parse reads the text they make
+ * (grizzle-text readJson), and restores tagged values.
+ */
+export const decode = (
+	text: TextChunks,
+	revivers: Revivers
+): Result.Result<unknown, CompileError> => {
+	const parsed = readJson(text)
 	if (!parsed.ok) {
 		return Result.err(malformedArtifact("canonical", [], "JSON text"))
 	}

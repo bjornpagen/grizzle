@@ -130,7 +130,7 @@ const upgradeSchema = Effect.fn("upgradeSchema")(function* (
 	chain: WholeChain,
 	now: DateTime.Utc,
 	phases: Phases
-): Effect.fn.Return<SchemaDraft, CliError | MigrateError> {
+): Effect.fn.Return<SchemaDraft, CliError | MigrateError, FileSystem.FileSystem> {
 	const schema = compiled.configured
 	const ident = schema.ident
 	const levels = Arr.map(installationsOf(compiled.owned), identifierOf)
@@ -168,7 +168,7 @@ const upgradeSchema = Effect.fn("upgradeSchema")(function* (
 		draftRefused(schema.declared, "draft")
 	)
 	const files = yield* servedFiles(compiled, generated, judged.served, phases)
-	const served = servedWrites(files, tree.logins)
+	const served = yield* servedWrites(schema, files, tree.logins)
 	const certification = judged.served.kind === "logins" ? judged.served.certification : []
 	const fences = judged.served.kind === "logins" ? judged.served.fences : []
 	const snapshotFiles = yield* snapshotFilesOf(compiled, generated)

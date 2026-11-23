@@ -1,6 +1,8 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { ChunkWriter, type TextChunks } from "@bjornpagen/grizzle-text/chunks"
 import { type CompileError, resourceBound } from "#compiler/core/errors.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
+import { wellFormed } from "#compiler/core/text.ts"
 
 /**
  * The one representation of a multi-line text grizzle builds: SQL statements, drafted migration files, snapshot.json and
@@ -122,4 +124,54 @@ export const textOf = (
 	const out: Array<string> = []
 	write(new BlockLines(out, unit, ""))
 	return enclosedWithin(limit, at, "", out, "\n", "")
+}
+
+/** The line feed between two lines of a file. */
+const lineFeed = wellFormed("\n")
+
+/** A text's lines written into its chunks, each after a line feed but the first, each a text grizzle holds, well-formed
+ * (core/text.ts wellFormed). */
+class ChunkedLines {
+	readonly out = new ChunkWriter()
+	#lines = 0
+
+	line(text: string): void {
+		if (this.#lines > 0) {
+			this.out.append(lineFeed)
+		}
+		this.#lines += 1
+		this.out.append(wellFormed(text))
+	}
+}
+
+/** Lines on their own rows, each behind the view's indentation, `unit` deeper per level, written into a text's chunks. */
+class ChunkLines implements Lines {
+	readonly #out: ChunkedLines
+	readonly #unit: string
+	readonly #indent: string
+
+	constructor(out: ChunkedLines, unit: string, indent: string) {
+		this.#out = out
+		this.#unit = unit
+		this.#indent = indent
+	}
+
+	line(text: string): void {
+		this.#out.line(`${this.#indent}${text}`)
+	}
+
+	nested(): Lines {
+		return new ChunkLines(this.#out, this.#unit, `${this.#indent}${this.#unit}`)
+	}
+}
+
+/**
+ * The text `write` writes, its lines joined by line feeds, as its chunks (grizzle-text TextChunks), each line written
+ * into them as it is written and the text never joined into one string, so no length bounds it: a file's, which is
+ * written a chunk at a time (snapshot.json, manifest.json, meta.json, a migration's SQL). textOf's text, held as chunks.
+ */
+export const chunkedTextOf = (unit: string, write: (out: Lines) => void): TextChunks => {
+	const lines = new ChunkedLines()
+	write(new ChunkLines(lines, unit, ""))
+	return lines.out.chunks()
 }

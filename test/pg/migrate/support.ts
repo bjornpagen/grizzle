@@ -1,4 +1,5 @@
 import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import type { TextChunks } from "@bjornpagen/grizzle-text/chunks"
 import { assert } from "@bjornpagen/testing/assert"
 import type { Gen } from "@bjornpagen/testing/gen"
 import {
@@ -66,6 +67,7 @@ import {
 import { succeeded } from "#test/support/assert.ts"
 import { checkInstalled, installedScope } from "#test/support/catalog/installed.ts"
 import { type Catalog, readCatalog, readCatalogWith } from "#test/support/catalog/read.ts"
+import { chunked, joined } from "#test/support/chunked.ts"
 import { isBookkeepingObject, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
 	draftCodes,
@@ -163,7 +165,7 @@ export const reviewedSource = (g: GenerateResult, reviewer: Reviewer): FolderTex
 		metaText: g.folder.metaText,
 		files: Arr.map(reviewed.files, (f) => ({
 			name: f.name,
-			text: reviewer.edit(f)
+			text: chunked(reviewer.edit({ name: f.name, text: joined(f.text) }))
 		}))
 	}
 }
@@ -628,8 +630,9 @@ export const carried = (from: Traced, to: Traced, choose: boolean): Renames =>
 /** One drafted step: its snapshot, and its folder as the reviewer left it, none when the step changes nothing. */
 interface Step {
 	readonly generated: GenerateResult
-	readonly files: ReadonlyArray<{ readonly name: string; readonly text: string }>
+	readonly files: ReadonlyArray<{ readonly name: string; readonly text: TextChunks }>
 	/** The installation the step drafts, compiled as `grizzle generate` compiles it. */
+
 	readonly installation: Installation
 }
 

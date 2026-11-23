@@ -42,6 +42,7 @@ import {
 } from "#test/pg/cli/support.ts"
 import { failed, succeeded } from "#test/support/assert.ts"
 import { fixtureNeedBudget } from "#test/support/budgets.ts"
+import { chunked, joined } from "#test/support/chunked.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { migrationFolders } from "#test/support/migrate/kit.ts"
 
@@ -400,8 +401,11 @@ const tamper = (c: Case, dir: string, other: string) =>
 			}
 			case "meta.json of another schema": {
 				const text = yield* fs.readFileString(meta)
-				const read = succeeded(decodeMeta(text))
-				yield* fs.writeFileString(meta, succeeded(writeMeta({ ...read, schema: otherSchema })))
+				const read = succeeded(decodeMeta(chunked(text)))
+				yield* fs.writeFileString(
+					meta,
+					joined(succeeded(writeMeta({ ...read, schema: otherSchema })))
+				)
 				const tampered: Tampered = {
 					stage: "snapshot",
 					named: { tag: "ChainRefused", fault: "foreignMeta", folder: newest, schema: otherSchema },
@@ -411,8 +415,11 @@ const tamper = (c: Case, dir: string, other: string) =>
 			}
 			case "meta.json source edited": {
 				const text = yield* fs.readFileString(meta)
-				const read = succeeded(decodeMeta(text))
-				yield* fs.writeFileString(meta, succeeded(writeMeta({ ...read, source: read.target })))
+				const read = succeeded(decodeMeta(chunked(text)))
+				yield* fs.writeFileString(
+					meta,
+					joined(succeeded(writeMeta({ ...read, source: read.target })))
+				)
 				const tampered: Tampered = {
 					stage: "snapshot",
 					named: { tag: "ChainRefused", fault: "brokenChain", folder: newest },
@@ -634,7 +641,8 @@ export const metaEdited = (edit: MetaEdit, e: MetaEditCase, decided: string) =>
 			const drafted = yield* Effect.result(locks)
 			succeeded(drafted, "the lock report reads the drafted meta.json")
 			const text = yield* fs.readFileString(meta)
-			const original = succeeded(decodeMeta(text), "the drafted meta.json")
+			const original = succeeded(decodeMeta(chunked(text)), "the drafted meta.json")
+
 			const seal = succeeded(metaSeal(original), "the drafted meta's seal")
 			yield* fs.writeFileString(
 				meta,

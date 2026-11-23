@@ -10,6 +10,7 @@ import { generated, pg } from "#compiler/public/fields.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { apply, checkedAdmission, openMigrator } from "#test/pg/migrate/support.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
+import { joined } from "#test/support/chunked.ts"
 import {
 	type DraftedVersion,
 	draftVersion,
@@ -91,10 +92,13 @@ const deferredIn = (shape: ParentShape): boolean => shape === "a generated field
 /** The statements of a folder's files that name the constraint `name`, each with its file. */
 const naming = (draft: DraftedVersion, name: string) =>
 	Arr.flatMap(draft.folder.files, (f) =>
-		Arr.map(Arr.filter(Str.split(f.text, ";\n"), Str.includes(quoteIdent(name))), (statement) => ({
-			file: f.name,
-			statement: Str.trim(statement)
-		}))
+		Arr.map(
+			Arr.filter(Str.split(joined(f.text), ";\n"), Str.includes(quoteIdent(name))),
+			(statement) => ({
+				file: f.name,
+				statement: Str.trim(statement)
+			})
+		)
 	)
 
 export type Feature = "immediate then deferred" | "deferred then immediate" | "its deferral kept"

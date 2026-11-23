@@ -1,6 +1,7 @@
 /** What the properties of redraft.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { ChunkView } from "@bjornpagen/grizzle-text/chunks"
 import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import { boolean, constant, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
@@ -11,8 +12,8 @@ import type { FolderTexts } from "#adapter/migrate/input.ts"
 import { statementsFor } from "#adapter/migrate/ledger.ts"
 import type { MigrationSession } from "#adapter/migrate/session.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import { sha256Hex } from "#compiler/core/sha256.ts"
-import { quoteIdent, wellFormed } from "#compiler/core/text.ts"
+import { sha256ChunksHex } from "#compiler/core/sha256.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import type { AbandonedSchema, Declarations } from "#compiler/deploy/diff/plan.ts"
 import type { LedgerState } from "#compiler/deploy/ledger/ledger.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
@@ -31,6 +32,7 @@ import {
 } from "#test/pg/migrate/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { readCatalog } from "#test/support/catalog/read.ts"
+import { chunked, joined } from "#test/support/chunked.ts"
 import { firstCodes, installedCodes } from "#test/support/compile.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import {
@@ -276,7 +278,9 @@ const refusedFirst = (text: string): string =>
 /** `folder` with its file at `index` refused at its first statement, when it holds one there. */
 const refusedAt = (folder: FolderTexts, index: number): FolderTexts => ({
 	...folder,
-	files: Arr.map(folder.files, (f, i) => (i === index ? { ...f, text: refusedFirst(f.text) } : f))
+	files: Arr.map(folder.files, (f, i) =>
+		i === index ? { ...f, text: chunked(refusedFirst(joined(f.text))) } : f
+	)
 })
 
 /** `folder` with one file more after its own. */
@@ -286,7 +290,7 @@ const withAdded = (folder: FolderTexts): FolderTexts => ({
 		...folder.files,
 		{
 			name: `${Str.padStart(2, "0")(String(folder.files.length + 1))}-added.sql`,
-			text: "SELECT 1;\n"
+			text: chunked("SELECT 1;\n")
 		}
 	]
 })
@@ -363,7 +367,9 @@ const verdictOf = (
 		if (held === undefined || held.name !== f.name) {
 			return [{ folder: ran.name, file: f.name, kind: "missing" }]
 		}
-		return held.text === f.text ? [] : [{ folder: ran.name, file: f.name, kind: "edited" }]
+		return joined(held.text) === joined(f.text)
+			? []
+			: [{ folder: ran.name, file: f.name, kind: "edited" }]
 	})
 	if (Arr.isReadonlyArrayNonEmpty(edits)) {
 		return { kind: "edited", edits }
@@ -375,7 +381,9 @@ const verdictOf = (
 		return { kind: "count" }
 	}
 	const next = regeneration.files[completed]
-	return regeneration.metaText !== ran.metaText && next !== undefined && isNoTransaction(next.text)
+	return joined(regeneration.metaText) !== joined(ran.metaText) &&
+		next !== undefined &&
+		isNoTransaction(new ChunkView(next.text))
 		? { kind: "unverifiable", file: next.name }
 		: { kind: "resumes" }
 }
@@ -461,7 +469,7 @@ export const runCase = (c: RedraftCase, k: Case<Feature>) =>
 			Option.some({
 				folder: ran.name,
 				files: completed,
-				meta: sha256Hex(wellFormed(ran.metaText)),
+				meta: sha256ChunksHex(ran.metaText),
 				target: original.snapshot.fingerprint
 			}),
 			"the folder started under its own draft, its first files recorded"
@@ -521,7 +529,7 @@ export const runCase = (c: RedraftCase, k: Case<Feature>) =>
 				break
 		}
 		const next = defined(held.files[completed], "the regeneration's next file")
-		const redrafted = held.metaText !== ran.metaText
+		const redrafted = joined(held.metaText) !== joined(ran.metaText)
 		if (c.failNext) {
 			const e = yield* refusal(apply(m, directory(refusedAt(held, completed)), noFurther))
 			yield* unchanged(e, "statement")
@@ -553,11 +561,11 @@ export const runCase = (c: RedraftCase, k: Case<Feature>) =>
 					source: regeneration.g.folder.meta.source,
 					target,
 					files: held.files.length,
-					meta: sha256Hex(wellFormed(held.metaText)),
+					meta: sha256ChunksHex(held.metaText),
 					completed: Arr.map(held.files, (f, i) => ({
 						ordinal: i + 1,
 						file: f.name,
-						digest: sha256Hex(wellFormed(f.text))
+						digest: sha256ChunksHex(f.text)
 					}))
 				}
 			],
@@ -589,13 +597,18 @@ export const runCase = (c: RedraftCase, k: Case<Feature>) =>
 		)
 		if (redrafted) {
 			k.note("a regeneration resumed")
-			if (Arr.every(held.files, (f, i) => ran.files[i]?.text === f.text)) {
+			if (
+				Arr.every(held.files, (f, i) => {
+					const was = ran.files[i]
+					return was !== undefined && joined(was.text) === joined(f.text)
+				})
+			) {
 				k.note("a regeneration alike in files resumed")
 			}
 		} else {
 			k.note("the started draft resumed")
 		}
-		if (isNoTransaction(next.text)) {
+		if (isNoTransaction(new ChunkView(next.text))) {
 			k.note("a resume whose next file runs outside a transaction")
 		}
 	}).pipe(Effect.scoped)

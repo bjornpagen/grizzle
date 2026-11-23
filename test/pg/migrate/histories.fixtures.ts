@@ -1,6 +1,7 @@
 /** What the properties of histories.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import type { TextChunks } from "@bjornpagen/grizzle-text/chunks"
 import { assert, defined } from "@bjornpagen/testing/assert"
 import {
 	accepting,
@@ -1010,9 +1011,10 @@ interface History {
 	readonly owner: string
 	folders: Array<{
 		readonly name: string
-		readonly metaText: string
-		readonly files: ReadonlyArray<{ readonly name: string; readonly text: string }>
+		readonly metaText: TextChunks
+		readonly files: ReadonlyArray<{ readonly name: string; readonly text: TextChunks }>
 	}>
+
 	previous: Previous
 	plan: RealInstallPlan
 	rows: ValueFacts

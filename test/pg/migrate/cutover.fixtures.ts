@@ -1,5 +1,6 @@
 /** What the properties of cutover.test.ts read: its spaces, models and helpers. */
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { ChunkView, type TextChunks } from "@bjornpagen/grizzle-text/chunks"
 import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	accepted,
@@ -1235,12 +1236,15 @@ const dataStepOf = (h: History, m: Model): ReadonlyArray<string> => {
  * the transaction. */
 const fileFindings = (
 	g: GenerateResult,
-	files: ReadonlyArray<{ readonly name: string; readonly text: string }>
+	files: ReadonlyArray<{ readonly name: string; readonly text: TextChunks }>
 ): ReadonlyArray<string> => [
 	...Arr.map(readsBack(g, files), (fault) => Formatter.format(fault)),
 	...Arr.flatMap(files, (f) => [
-		...Arr.map(findMarkers(f.text), (marker) => `${f.name}:${marker.line}: ${marker.kind} left`),
-		...Arr.flatMap(splitStatements(f.text), (statement, i) =>
+		...Arr.map(
+			findMarkers(new ChunkView(f.text)),
+			(marker) => `${f.name}:${marker.line}: ${marker.kind} left`
+		),
+		...Arr.flatMap(splitStatements(new ChunkView(f.text)), (statement, i) =>
 			Option.match(Option.fromUndefinedOr(transactionControl(statement)), {
 				onNone: () => [],
 				onSome: (control) => [`${f.name}: statement ${i + 1} is ${control}`]

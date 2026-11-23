@@ -58,6 +58,7 @@ import {
 import { openMigrator } from "#test/pg/migrate/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { oneOf } from "#test/support/calls.ts"
+import { chunked, joined } from "#test/support/chunked.ts"
 import { Id, type IdValue } from "#test/support/ids.ts"
 import { type DecoderCredential, decodersIn, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { migrationFolders } from "#test/support/migrate/kit.ts"
@@ -283,9 +284,9 @@ const tampered = (kind: TamperKind, original: string): string => {
 		case "snapshot.json":
 			return "{ not json\n"
 		case "meta.json": {
-			const read = succeeded(decodeMeta(original))
+			const read = succeeded(decodeMeta(chunked(original)))
 			const elsewhere = SchemaFingerprint(Str.repeat(64)("0"))
-			return succeeded(writeMeta({ ...read, source: elsewhere, target: elsewhere }))
+			return joined(succeeded(writeMeta({ ...read, source: elsewhere, target: elsewhere })))
 		}
 	}
 }

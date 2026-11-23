@@ -1,3 +1,4 @@
+import { ChunkView } from "@bjornpagen/grizzle-text/chunks"
 import { Array as Arr, Option, Result } from "effect"
 import {
 	type AppliedEdit,
@@ -212,7 +213,7 @@ export const planApply = (
 	const markers: Array<UnresolvedMarker> = []
 	for (const r of runs) {
 		for (const f of runFiles(r)) {
-			for (const m of findMarkers(f.text)) {
+			for (const m of findMarkers(new ChunkView(f.text))) {
 				markers.push({ folder: r.folder.name, file: f.name, kind: m.kind, line: m.line })
 			}
 		}

@@ -1,4 +1,5 @@
 import { openApiText } from "@bjornpagen/grizzle-openapi/openapi"
+import type { TextChunks } from "@bjornpagen/grizzle-text/chunks"
 import { Array as Arr, Effect, Option } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
 import {
@@ -192,8 +193,9 @@ const compileServed = Effect.fn("compileServed")(function* (
 export interface ServedEntry {
 	readonly login: string
 	readonly file: ServedFile
-	readonly text: string
-	readonly openapi: string
+	/** The served file's text and the OpenAPI document's, each as its chunks (grizzle-text TextChunks), never joined. */
+	readonly text: TextChunks
+	readonly openapi: TextChunks
 }
 
 /** A refusal of the projection: an uncovered read's at its program, any other at the login. */

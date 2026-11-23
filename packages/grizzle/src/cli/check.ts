@@ -1,3 +1,4 @@
+import { ChunkView, type TextChunks } from "@bjornpagen/grizzle-text/chunks"
 import {
 	Array as Arr,
 	Effect,
@@ -5,10 +6,12 @@ import {
 	Option,
 	Order,
 	Path,
+	type PlatformError,
 	Record as Rec,
 	Result,
 	String as Str
 } from "effect"
+import { matchesFile, readText } from "#adapter/boundary/files.ts"
 import { folderSource, type MigrationTarget, transactionControl } from "#adapter/migrate/input.ts"
 import type { ServedEntry } from "#adapter/served/compile.ts"
 import { chainWhole, type Committed, committedChain, committedSnapshot } from "#cli/committed.ts"
@@ -18,16 +21,17 @@ import {
 	compileSchema,
 	type ResolvedConfig
 } from "#cli/config.ts"
-import type { CliError } from "#cli/errors.ts"
+import { type CliError, cliError, TreeUnread } from "#cli/errors.ts"
 import {
 	type LoginFileKind,
 	loginFileKinds,
 	loginFiles,
-	type LoginTexts,
+	type LoginPaths,
+	noLoginPaths,
 	readSchemaTree,
 	type SchemaTree
 } from "#cli/files.ts"
-import { keptSchemaDraft, servedFiles } from "#cli/generate.ts"
+import { keptSchemaDraft, loginText, servedFiles } from "#cli/generate.ts"
 import { phasedEffect } from "#cli/phases.ts"
 import { refusalText } from "#cli/refusals.ts"
 import {
@@ -52,7 +56,8 @@ import {
 	orderFolderFiles,
 	type PackFault,
 	servedDifference,
-	servedPartingText
+	servedPartingText,
+	textLines
 } from "#compiler/plan/migration.ts"
 import {
 	type DeploySnapshot,
@@ -173,8 +178,8 @@ interface CommittedCheck {
 	readonly target: Option.Option<MigrationTarget>
 	readonly folders: number
 	readonly packs: ReadonlyArray<PackStatement>
-	/** The committed served files' and OpenAPI documents' texts, by kind and login (files.ts SchemaTree). */
-	readonly logins: LoginTexts
+	/** The committed served files' and OpenAPI documents' paths, by kind and login (files.ts SchemaTree). */
+	readonly logins: LoginPaths
 }
 
 /** A finding of `kind` about `schema` at `where`, with its fix. */
@@ -210,7 +215,7 @@ const checkCommitted = Effect.fn("checkCommitted")(function* (
 			target: Option.none(),
 			folders: 0,
 			packs: [],
-			logins: { served: new Map(), openapi: new Map() }
+			logins: noLoginPaths
 		}
 	}
 	const tree: SchemaTree = read.success
@@ -284,8 +289,10 @@ const checkCommitted = Effect.fn("checkCommitted")(function* (
 					)
 				}
 			}
-			const lines = Str.split(file.text, "\n")
-			for (const [i, line] of lines.entries()) {
+			const text = new ChunkView(file.text)
+			let i = -1
+			for (const line of textLines(text)) {
+				i += 1
 				if (i > 0 && Str.trim(line) === noTransactionMarker) {
 					at(
 						"misplacedNoTransaction",
@@ -294,7 +301,7 @@ const checkCommitted = Effect.fn("checkCommitted")(function* (
 					)
 				}
 			}
-			for (const marker of findMarkers(file.text)) {
+			for (const marker of findMarkers(text)) {
 				at(marker.kind, `${where}:${marker.line}`, refusalText[marker.kind].problem)
 			}
 		}
@@ -343,34 +350,45 @@ const packFindings = (
 				]
 	})
 
-/** The findings of one kind of login file, each by the refusal it names, and how a stale file's problem is told. */
+/**
+ * The findings of one kind of login file, each by the refusal it names, and how a stale file's problem is told: a
+ * served file by where its values first part from the compile's (served/compile.ts servedDifference), the committed
+ * file read for it as its chunks (files.ts readText).
+ */
 const loginRules = {
 	served: {
 		missing: "servedMissing",
 		stale: "servedStale",
 		extra: "servedExtra",
-		parting: (expected: string, committed: string): string =>
-			`${servedPartingText(servedDifference(expected, committed))}: `
+		parting: (expected: TextChunks, path: string) =>
+			Effect.map(readText(path), (committed) =>
+				Option.some(servedPartingText(servedDifference(expected, committed)))
+			)
 	},
 	openapi: {
 		missing: "documentMissing",
 		stale: "documentStale",
 		extra: "documentExtra",
-		parting: (): string => ""
+		parting: () => Effect.succeed(Option.none<string>())
 	}
 } as const satisfies {
 	readonly [K in LoginFileKind]: {
 		readonly missing: PlainKind
 		readonly stale: PlainKind
 		readonly extra: PlainKind
-		readonly parting: (expected: string, committed: string) => string
+		readonly parting: (
+			expected: TextChunks,
+			path: string
+		) => Effect.Effect<Option.Option<string>, PlatformError.PlatformError, FileSystem.FileSystem>
 	}
 }
 
 /**
- * The findings of a schema's committed login files of `kind`, `committed` by login, against the ones generate writes
- * under the draft's snapshot, `served`, each where it lies relative to `cwd`: a login's file that is not its text, a
- * login with none, and a file of a login the configuration does not list.
+ * The findings of a schema's committed login files of `kind`, `committed` their paths by login, against the ones
+ * generate writes under the draft's snapshot, `served`, each where it lies relative to `cwd`: a login's file whose bytes
+ * part from its text, each read a block at a time and held to the text as it is read (files.ts matchesFile), a login
+ * with none, and a file of a login the configuration does not list. A file that cannot be read is a stray entry, as a
+ * directory that cannot be read is (checkCommitted).
  */
 const loginFindings = (
 	schema: ConfiguredSchema,
@@ -378,35 +396,52 @@ const loginFindings = (
 	served: ReadonlyArray<ServedEntry>,
 	committed: ReadonlyMap<string, string>,
 	where: (login: string) => string
-): ReadonlyArray<CheckFinding> => {
+): Effect.Effect<ReadonlyArray<CheckFinding>, never, FileSystem.FileSystem> => {
 	const rules = loginRules[kind]
 	const listed = new Set(Arr.map(served, (f) => f.login))
 	const extra = Arr.filter(Arr.fromIterable(committed.keys()), (login) => !listed.has(login))
-	return [
-		...Arr.flatMap(served, (file) => {
-			const text = committed.get(file.login)
-			const expected = kind === "served" ? file.text : file.openapi
-			if (text === undefined) {
-				return [
-					finding(
-						schema,
-						rules.missing,
-						where(file.login),
-						`login ${file.login}: ${refusalText[rules.missing].problem}`
-					)
-				]
-			}
-			return text === expected
-				? []
-				: [
+	const held = Effect.forEach(served, (file) => {
+		const path = committed.get(file.login)
+		const expected = loginText(file, kind)
+		if (path === undefined) {
+			return Effect.succeed([
+				finding(
+					schema,
+					rules.missing,
+					where(file.login),
+					`login ${file.login}: ${refusalText[rules.missing].problem}`
+				)
+			])
+		}
+		const stale = Effect.flatMap(matchesFile(path, expected), (parting) =>
+			parting.kind === "same"
+				? Effect.succeed([])
+				: Effect.map(rules.parting(expected, path), (part) => [
 						finding(
 							schema,
 							rules.stale,
 							where(file.login),
-							`login ${file.login}, ${rules.parting(expected, text)}${refusalText[rules.stale].problem}`
+							`login ${file.login}, ${Option.match(part, {
+								onNone: () => "",
+								onSome: (text) => `${text}: `
+							})}${refusalText[rules.stale].problem}`
 						)
-					]
-		}),
+					])
+		)
+		return Effect.catchTag(stale, "PlatformError", (cause) =>
+			Effect.succeed([
+				finding(
+					schema,
+					"strayEntry",
+					where(file.login),
+					cliError(new TreeUnread({ schema: schema.declared, directory: path, cause })).reason
+						.message
+				)
+			])
+		)
+	})
+	return Effect.map(held, (found) => [
+		...Arr.flatten(found),
 		...Arr.map(Arr.sort(extra, Order.String), (login) =>
 			finding(
 				schema,
@@ -415,7 +450,7 @@ const loginFindings = (
 				`login ${login}: ${refusalText[rules.extra].problem}`
 			)
 		)
-	]
+	])
 }
 
 /**
@@ -511,7 +546,7 @@ const checkSchema = Effect.fn("checkSchema")(function* (
 			} else {
 				const paths = yield* Path.Path
 				for (const kind of loginFileKinds) {
-					const stale = loginFindings(
+					const stale = yield* loginFindings(
 						schema,
 						kind,
 						served.success,

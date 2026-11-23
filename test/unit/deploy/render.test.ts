@@ -101,8 +101,10 @@ export const aMigrationFilesMarkersGeneratedAreFoundOnExactlyTheLinesTheModelRea
 		kills: [
 			{
 				file: "packages/engine/src/deploy/render/markers.ts",
-				original: "\treturn firstLine.trimEnd() === noTransactionMarker",
-				replacement: '\treturn firstLine.replace(/[ \\t]*$/, "") === noTransactionMarker',
+				original:
+					"\treturn text.slice(0, end === -1 ? text.length : end).trimEnd() === noTransactionMarker",
+				replacement:
+					'\treturn text.slice(0, end === -1 ? text.length : end).replace(/[ \\t]*$/, "") === noTransactionMarker',
 				why: "The no-transaction line's carriage return is kept, so a no-transaction marker line ending in CRLF reads as none; the no-transaction property fails."
 			}
 		]

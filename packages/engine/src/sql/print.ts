@@ -3,6 +3,7 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
+import type { TextChunks } from "@bjornpagen/grizzle-text/chunks"
 import { isAsciiDigits } from "@bjornpagen/grizzle-text/text"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { maxStringLength, unwrap } from "#compiler/core/canonical.ts"
@@ -10,7 +11,14 @@ import { Refusal } from "#compiler/core/canonical.ts"
 import type { ClockUnit } from "#compiler/core/clock.ts"
 import { resourceBound } from "#compiler/core/errors.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
-import { BlockLines, CommentedLines, inlineText, type Lines, textOf } from "#compiler/core/lines.ts"
+import {
+	BlockLines,
+	CommentedLines,
+	chunkedTextOf,
+	inlineText,
+	type Lines,
+	textOf
+} from "#compiler/core/lines.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { blockSize } from "#compiler/core/page.ts"
 import { temporarySchema } from "#compiler/core/temporary.ts"
@@ -3017,6 +3025,12 @@ const terminated = (out: Lines, write: (out: Lines) => void): void => {
 export const sqlText = (at: SourceLoc, write: (out: Lines) => void): string => {
 	return unwrap(textOf(maxStringLength, sqlUnit, at, write))
 }
+
+/**
+ * The SQL text `write` writes, a file's, as its chunks (core/lines.ts chunkedTextOf), never joined into one string, so
+ * no length bounds it: a drafted migration file (deploy/render/sql.ts renderFile), written a chunk at a time.
+ */
+export const sqlChunks = (write: (out: Lines) => void): TextChunks => chunkedTextOf(sqlUnit, write)
 
 /**
  * The text of one statement a driver sends, `write`'s (sqlText): refused (ResourceBound, statementBytes) when its UTF-8

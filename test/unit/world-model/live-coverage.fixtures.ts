@@ -8,7 +8,6 @@ import { compileServed } from "#adapter/public/compile.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
 import { silentPhases } from "#compiler/core/phase.ts"
-import { trustedJson } from "#compiler/core/trusted.ts"
 import { emptySnapshot, writeRuntimeSnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { login } from "#compiler/program/workload/login.ts"
 import { workload } from "#compiler/program/workload/value.ts"
@@ -19,6 +18,7 @@ import { servedFile } from "#compiler/served/json.ts"
 import { defineConfig } from "#index.ts"
 import { offlineOwner } from "#test/pg/cli/support.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { jsonOf } from "#test/support/chunked.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import {
@@ -208,7 +208,7 @@ export const coveredWhereMigrated = (install: InstallSpec, c: Case<Feature>) =>
 				`generate serves every login of an installation migrated with its workloads: ${Formatter.format(entries.failure.reason)}\n${printed}`
 			)
 		}
-		const snapshot = trustedJson<unknown>(
+		const snapshot = jsonOf(
 			succeeded(writeRuntimeSnapshot(draft.snapshot, draft.derived), "snapshot.json")
 		)
 		for (const value of logins) {
@@ -224,7 +224,7 @@ export const coveredWhereMigrated = (install: InstallSpec, c: Case<Feature>) =>
 			}
 			assert.deepEqual(
 				door.success,
-				trustedJson<unknown>(entry.text),
+				jsonOf(entry.text),
 				`the door's file of ${value.name} is generate's\n${printed}`
 			)
 			notedReads(succeeded(servedFile(door.success), "the door's served file"), c.note)

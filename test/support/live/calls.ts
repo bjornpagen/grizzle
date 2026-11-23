@@ -23,6 +23,7 @@ import {
 } from "#compiler/live/index.ts"
 import type { AnyLogin } from "#compiler/public/schema.ts"
 import { type HttpConfigRefused, type HttpHandler, httpHandler } from "#http/index.ts"
+import { jsonOf } from "#test/support/chunked.ts"
 import { readStream } from "#test/support/event-stream.ts"
 import { hangLimit } from "#test/support/limits.ts"
 import { commitDirectly, commitStatements } from "#test/support/live/direct.ts"
@@ -294,7 +295,7 @@ const httpCalls = (
 		throw new Error(`the OpenAPI document of login ${file.name}: ${text.error.message}`)
 	}
 	const client = handlerClient(handler)
-	const calls = clientCalls(trustedJson<unknown>(text.value), file.name, {
+	const calls = clientCalls(jsonOf(text.value), file.name, {
 		url: handlerUrl(),
 		token: Redacted.make(token)
 	})

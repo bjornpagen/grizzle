@@ -1,5 +1,6 @@
 /** What the properties of project.test.ts read: its spaces, models and helpers. */
 
+import { ChunkView, type TextChunks } from "@bjornpagen/grizzle-text/chunks"
 import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	accepted,
@@ -83,6 +84,7 @@ import {
 	resolvedConfig
 } from "#test/pg/cli/support.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { chunked, joined } from "#test/support/chunked.ts"
 import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -1015,6 +1017,12 @@ const foldersOnDisk = (r: Workspace, s: SchemaState) =>
 
 /** The texts of a schema's snapshot files, none where it holds none: generate writes snapshot.json and manifest.json
  * together. */
+/** A snapshot's two files as texts a test compares, whole. */
+const textsOf = (files: SnapshotFiles) => ({
+	snapshot: joined(files.snapshot),
+	manifest: joined(files.manifest)
+})
+
 const snapshotFilesOf = (r: Workspace, s: SchemaState) =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
@@ -1024,7 +1032,7 @@ const snapshotFilesOf = (r: Workspace, s: SchemaState) =>
 		}
 		const snapshot = yield* fs.readFileString(`${directory}/${snapshotFileName}`)
 		const manifest = yield* fs.readFileString(`${directory}/${manifestFileName}`)
-		return Option.some({ snapshot, manifest })
+		return Option.some({ snapshot: chunked(snapshot), manifest: chunked(manifest) })
 	})
 
 /** The SQL files of a folder of a schema, by name, with their texts. */
@@ -1185,8 +1193,8 @@ const oracleDraft = (
 const confirmFolder = (
 	dir: string,
 	expected: {
-		readonly metaText: string
-		readonly files: ReadonlyArray<{ readonly name: string; readonly text: string }>
+		readonly metaText: TextChunks
+		readonly files: ReadonlyArray<{ readonly name: string; readonly text: TextChunks }>
 	}
 ) =>
 	Effect.gen(function* () {
@@ -1197,10 +1205,10 @@ const confirmFolder = (
 			Arr.sort([metaFileName, ...Arr.map(expected.files, (f) => f.name)], Order.String)
 		)
 		const metaText = yield* fs.readFileString(`${dir}/${metaFileName}`)
-		assert.equal(metaText, expected.metaText)
+		assert.equal(metaText, joined(expected.metaText))
 		for (const f of expected.files) {
 			const text = yield* fs.readFileString(`${dir}/${f.name}`)
-			assert.equal(text, f.text, f.name)
+			assert.equal(text, joined(f.text), f.name)
 		}
 	})
 
@@ -1325,14 +1333,16 @@ const runGenerate = (
 			assert.equal(name, draft.folder.name)
 			yield* confirmFolder(dir, draft.folder)
 			assert.deepEqual(
-				text,
+				Option.map(text, textsOf),
 				Option.some(
-					succeeded(writeSnapshot(draft.snapshot, draft.derived), "the draft's snapshot files")
+					textsOf(
+						succeeded(writeSnapshot(draft.snapshot, draft.derived), "the draft's snapshot files")
+					)
 				),
 				"the snapshot's files are the draft's"
 			)
 			const placeholders = Arr.flatMap(draft.folder.files, (f) =>
-				Arr.filter(findMarkers(f.text), (m) => m.kind === "placeholder")
+				Arr.filter(findMarkers(new ChunkView(f.text)), (m) => m.kind === "placeholder")
 			).length
 			assert.equal(
 				placeholders,

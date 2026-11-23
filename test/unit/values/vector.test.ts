@@ -16,6 +16,7 @@
  * several components.
  */
 
+import { chunksOf } from "@bjornpagen/grizzle-text/chunks"
 import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array, element, map } from "@bjornpagen/testing/gen"
@@ -262,7 +263,8 @@ export const vectorInTheCanonicalSerializerRoundTripsEveryFloat32VectorBitForBit
 					encoded,
 					"a host vector's text is its canonical form's"
 				)
-				const back = vectorOf(succeeded(decode(encoded, { v: Vector.fromCanonical })))
+				const back = vectorOf(succeeded(decode(chunksOf(encoded), { v: Vector.fromCanonical })))
+
 				assert.deepEqual<Float32Array>(
 					back,
 					Float32Array.from(xs, (x) => (x === 0 ? 0 : x)),

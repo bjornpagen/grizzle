@@ -79,7 +79,7 @@ export const commandLineWorkflow = property.explore(
 		kills: [
 			{
 				file: "packages/grizzle/src/cli/check.ts",
-				original: `\t\t\tfor (const marker of findMarkers(file.text)) {\n\t\t\t\tat(marker.kind, \`\${where}:\${marker.line}\`, refusalText[marker.kind].problem)\n\t\t\t}\n`,
+				original: `\t\t\tfor (const marker of findMarkers(text)) {\n\t\t\t\tat(marker.kind, \`\${where}:\${marker.line}\`, refusalText[marker.kind].problem)\n\t\t\t}\n`,
 				replacement: "",
 				why: "`grizzle check` finds no unresolved marker, so check passes a committed file the model says it must refuse."
 			},

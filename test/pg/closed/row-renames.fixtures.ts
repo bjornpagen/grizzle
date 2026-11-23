@@ -17,6 +17,7 @@ import { type AnyRole, check, closed, relation, schema } from "#compiler/public/
 import { closedBuilder } from "#compiler/schema/relation.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
+import { joined } from "#test/support/chunked.ts"
 import { setText, setWidth } from "#test/support/closed/bit-text.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import type { Version } from "#test/support/installed.ts"
@@ -522,7 +523,7 @@ export const insertItem = (m: Installed, id: number, code: number, size: number)
 
 /** Whether a drafted folder validates a constraint: a statement of its files holding VALIDATE CONSTRAINT. */
 export const validates = (folder: FolderTexts): boolean =>
-	Arr.some(folder.files, (file) => Str.includes("VALIDATE CONSTRAINT")(file.text))
+	Arr.some(folder.files, (file) => Str.includes("VALIDATE CONSTRAINT")(joined(file.text)))
 
 /** Every caller, in its roster's order. */
 export const everyCaller: Arr.NonEmptyReadonlyArray<Caller> = callers

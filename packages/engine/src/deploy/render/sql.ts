@@ -6,6 +6,7 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
+import type { TextChunks } from "@bjornpagen/grizzle-text/chunks"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
@@ -49,6 +50,7 @@ import {
 	printObjectName,
 	printStatement,
 	printType,
+	sqlChunks,
 	sqlText,
 	statementText,
 	writeDoBlock
@@ -392,11 +394,11 @@ const renderDraft = (out: Lines, spelledDraft: SpelledDraft): void => {
  * - a confirm's marker and its statements;
  * - a loss's marker, saying what it loses and how to decide it, above its statement commented the same way.
  *
- * Statements end with `;` and are separated by a blank line. A no-transaction file's first line is the marker. A file
- * past V8's longest string is refused as ResourceBound (stringLength). */
-export const renderFile = (file: SpelledFile): Result.Result<string, CompileError> =>
+ * Statements end with `;` and are separated by a blank line. A no-transaction file's first line is the marker. The
+ * file's text is its chunks (sql/print.ts sqlChunks), never joined, so no length bounds it. */
+export const renderFile = (file: SpelledFile): Result.Result<TextChunks, CompileError> =>
 	catchRefusal(() =>
-		sqlText(SourceLoc("drafted file", [file.file.name]), (out) => {
+		sqlChunks((out) => {
 			if (!file.file.transaction) {
 				out.line(noTransactionMarker)
 				out.line("")

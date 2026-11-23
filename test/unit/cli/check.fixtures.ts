@@ -26,6 +26,7 @@ import { shopV1 } from "#test/pg/cli/fixture.ts"
 import { cliOver, configName, offlineOwner, workspace } from "#test/pg/cli/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { fixtureNeedBudget } from "#test/support/budgets.ts"
+import { chunked, joined } from "#test/support/chunked.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { besideFolders } from "#test/support/migrate/kit.ts"
 
@@ -171,12 +172,14 @@ export const plant = (ws: string, p: Planted, layout: Layout) =>
 					return fs.writeFileString(path, "{ not json\n")
 				case "off the chain":
 					return edit(path, (text) => {
-						const meta = succeeded(decodeMeta(text), "a committed meta.json")
-						return succeeded(
-							writeMeta(
-								meta.kind === "custom"
-									? { ...meta, source: stranger, target: stranger }
-									: { ...meta, source: stranger }
+						const meta = succeeded(decodeMeta(chunked(text)), "a committed meta.json")
+						return joined(
+							succeeded(
+								writeMeta(
+									meta.kind === "custom"
+										? { ...meta, source: stranger, target: stranger }
+										: { ...meta, source: stranger }
+								)
 							)
 						)
 					})

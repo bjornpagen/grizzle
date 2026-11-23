@@ -29,6 +29,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { manifestFileName, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
 import { cliOver, configName, resolvedConfig, workspace } from "#test/pg/cli/support.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { chunked } from "#test/support/chunked.ts"
 import { snapshotJson } from "#test/support/snapshot-json.ts"
 import {
 	at,
@@ -66,7 +67,7 @@ export const derivedRuntimeFactsCheckRefusesStaleDerivedFactsAndGenerateWritesSn
 					const file = `${ws}/${schemaDir}/${snapshotFileName}`
 					const stale = staled(snapshot, staling)
 					yield* fs.writeFileString(file, stale)
-					const served = parseSnapshot(snapshotJson(stale), 0)
+					const served = parseSnapshot(snapshotJson(chunked(stale)), 0)
 					if (recordsEvery(staling)) {
 						assert.ok(
 							Result.isSuccess(served),

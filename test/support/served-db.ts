@@ -14,7 +14,6 @@ import type { ApplyOutcome } from "#adapter/types/db.ts"
 import type { ServedLogin, ServedRole } from "#adapter/types/layer.ts"
 import type { Json } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { trustedJson } from "#compiler/core/trusted.ts"
 import { projectWrite } from "#compiler/plan/change.ts"
 import { defect } from "#compiler/plan/runtime.ts"
 import type { ServedTables } from "#compiler/plan/serve.ts"
@@ -32,6 +31,7 @@ import { servedFile, servedText } from "#compiler/served/json.ts"
 import type { UnservedMember } from "#compiler/served/unserved.ts"
 import type { AnyWorkload } from "#compiler/types/db/workload.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { jsonOf } from "#test/support/chunked.ts"
 import { conservativeChange } from "#test/support/conservative.ts"
 import type { Generated, Installed } from "#test/support/install-migrate.ts"
 import { type SourcedLayer, sourcedDbLayer } from "#test/support/live-layer.ts"
@@ -127,7 +127,7 @@ export const conservativeServedJson = (
 			roles.push({ ...form, members })
 		}
 		const text = yield* fromEngine(servedText({ ...file, roles }))
-		return trustedJson<unknown>(text)
+		return jsonOf(text)
 	})
 
 /**

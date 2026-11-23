@@ -6,7 +6,6 @@ import { Array as Arr, Effect, Record as Rec, Result, String as Str } from "effe
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
 import { silentPhases } from "#compiler/core/phase.ts"
-import { trustedJson } from "#compiler/core/trusted.ts"
 import { manifestStatements } from "#compiler/deploy/admission/manifest.ts"
 import { manifestRoles, roleExpectation } from "#compiler/deploy/admission/roles.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
@@ -23,6 +22,7 @@ import { servedFile } from "#compiler/served/json.ts"
 import { defineConfig } from "#index.ts"
 import { offlineOwner } from "#test/pg/cli/support.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { jsonOf } from "#test/support/chunked.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { interpret, type ModelFile, type State } from "#test/support/migrate/interpret.ts"
 import { draftActions } from "#test/support/migrate/review.ts"
@@ -183,7 +183,7 @@ export const drafted = (
 		assert.ok(served.kind === "logins", "a schema with a login plans its logins")
 		const entries = yield* servedFiles(compiled, draft, served, silentPhases)
 		const creates = Arr.flatMap(entries, (entry) => {
-			const file = succeeded(servedFile(trustedJson<unknown>(entry.text)), "the served file")
+			const file = succeeded(servedFile(jsonOf(entry.text)), "the served file")
 			const roles = Arr.map(file.roles, (r) => ({
 				key: `${entry.login}.${r.name}`,
 				carrier: Arr.some(textsIn(r.members), Str.includes("CREATE TEMPORARY TABLE "))

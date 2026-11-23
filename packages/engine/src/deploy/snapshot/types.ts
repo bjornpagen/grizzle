@@ -1,4 +1,5 @@
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import type { TextChunks } from "@bjornpagen/grizzle-text/chunks"
 import type { ColumnIdent, LawId, RelationIdent, SchemaFingerprint } from "#compiler/core/ids.ts"
 import type { RecordedManifest } from "#compiler/deploy/snapshot/recorded.ts"
 import type { RosterCodes } from "#compiler/ir/cells.ts"
@@ -32,13 +33,14 @@ export const snapshotFileName = "snapshot.json"
 export const manifestFileName = "manifest.json"
 
 /**
- * The texts of a snapshot's two files as `grizzle generate` writes them (build.ts writeSnapshot): snapshot.json and
- * manifest.json, which hold each member of the committed snapshot (DeploySnapshot) once between them, under the one
- * fingerprint snapshot.json records of its content and the one seal manifest.json carries over both.
+ * The texts of a snapshot's two files as `grizzle generate` writes them (build.ts writeSnapshot) and every reader reads
+ * them, each as its chunks (grizzle-text TextChunks): snapshot.json and manifest.json, which hold each member of the
+ * committed snapshot (DeploySnapshot) once between them, under the one fingerprint snapshot.json records of its content
+ * and the one seal manifest.json carries over both.
  */
 export interface SnapshotFiles {
-	readonly snapshot: string
-	readonly manifest: string
+	readonly snapshot: TextChunks
+	readonly manifest: TextChunks
 }
 
 /** How a stored relation's field is written, as the snapshot records it: by its caller; by its group's retirement

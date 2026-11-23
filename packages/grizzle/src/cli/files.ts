@@ -1,4 +1,5 @@
 import { openApiDirectory, openApiPath } from "@bjornpagen/grizzle-openapi/openapi"
+import { chunkBytes, type TextChunks } from "@bjornpagen/grizzle-text/chunks"
 import {
 	Array as Arr,
 	Effect,
@@ -9,6 +10,7 @@ import {
 	type PlatformError,
 	String as Str
 } from "effect"
+import { readText } from "#adapter/boundary/files.ts"
 import type { FolderTexts } from "#adapter/migrate/input.ts"
 import {
 	type CliError,
@@ -38,7 +40,10 @@ import {
  * login of the configuration over the schema (loginFiles): `served/`, the login's workload compiled under the snapshot
  * (adapter/served/compile.ts), which its application serves, and `openapi/`, the login's OpenAPI document, read off
  * its served file (packages/openapi/src/openapi.ts). The command line owns this filesystem work; the compiler and the
- * apply runner only ever see texts.
+ * apply runner only ever see texts, each as its chunks (grizzle-text TextChunks): a file is written a chunk at a time
+ * (writeText) and read a block at a time (adapter/boundary/files.ts readText), and a login's file is held to the text
+ * the compile gives by its bytes as they are read (matchesFile), never read whole, since one may be longer than any
+ * string V8 builds.
  *
  * Reading is strict, because a draft continues exactly the committed chain: a schema directory holds the snapshot's two
  * files, both or neither, and migration folders, a folder holds meta.json and its SQL files, and anything else is
@@ -59,10 +64,11 @@ export interface SchemaTree {
 	/** Every migration folder, in name order. */
 	readonly folders: ReadonlyArray<FolderTexts>
 	/**
-	 * The text of each login's file of each kind (loginFiles), by its login's declared name, the stem of its name; none
-	 * before generate wrote one.
+	 * The path of each login's file of each kind (loginFiles), by its login's declared name, the stem of its name; none
+	 * before generate wrote one. A file is read only where it is held to a text (adapter/boundary/files.ts matchesFile,
+	 * readText), never whole.
 	 */
-	readonly logins: LoginTexts
+	readonly logins: LoginPaths
 }
 
 /**
@@ -81,11 +87,11 @@ export type LoginFileKind = keyof typeof loginFiles
 /** The kinds of file generate writes per login, in the order it writes them. */
 export const loginFileKinds: ReadonlyArray<LoginFileKind> = ["served", "openapi"]
 
-/** Each kind's texts, by login (SchemaTree logins). */
-export type LoginTexts = { readonly [K in LoginFileKind]: ReadonlyMap<string, string> }
+/** Each kind's files' paths, by login (SchemaTree logins). */
+export type LoginPaths = { readonly [K in LoginFileKind]: ReadonlyMap<string, string> }
 
 /** A schema directory's per-login files before generate wrote any. */
-const noLoginTexts: LoginTexts = { served: new Map(), openapi: new Map() }
+export const noLoginPaths: LoginPaths = { served: new Map(), openapi: new Map() }
 
 /** The extension of a login's file, after its login's declared name (loginFiles). */
 const loginExtension = ".json"
@@ -122,23 +128,23 @@ const readFolder = Effect.fnUntraced(function* (schema: string, directory: strin
 	if (!metaPresent) {
 		return yield* strayIn(schema, { kind: "noMeta", folder: path })
 	}
-	const files: Array<{ readonly name: string; readonly text: string }> = []
+	const files: Array<{ readonly name: string; readonly text: TextChunks }> = []
 	for (const entry of Arr.filter(entries, (e) => e !== metaFileName)) {
 		if ((yield* entryType(fs, join(entry))) !== "File") {
 			return yield* strayIn(schema, { kind: "notAFile", folder: path, entry })
 		}
-		files.push({ name: entry, text: yield* fs.readFileString(join(entry)) })
+		files.push({ name: entry, text: yield* readText(join(entry)) })
 	}
 	const folder: FolderTexts = {
 		name,
-		metaText: yield* fs.readFileString(join(metaFileName)),
+		metaText: yield* readText(join(metaFileName)),
 		files
 	}
 	return folder
 })
 
 /**
- * Reads a schema's directory of one kind of login file (loginFiles): every entry a file named `<login>.json`, its text by
+ * Reads a schema's directory of one kind of login file (loginFiles): every entry a file named `<login>.json`, its path by
  * the login's declared name. Anything else is no file generate writes there, refused as the kind's stray fault.
  */
 const readLoginFiles = Effect.fnUntraced(function* (
@@ -148,7 +154,7 @@ const readLoginFiles = Effect.fnUntraced(function* (
 ) {
 	const fs = yield* FileSystem.FileSystem
 	const paths = yield* Path.Path
-	const texts = new Map<string, string>()
+	const files = new Map<string, string>()
 	for (const entry of yield* visibleEntries(fs, directory)) {
 		const file = paths.join(directory, entry)
 		const login = Str.endsWith(loginExtension)(entry)
@@ -157,10 +163,9 @@ const readLoginFiles = Effect.fnUntraced(function* (
 		if (login.length === 0 || (yield* entryType(fs, file)) !== "File") {
 			return yield* strayIn(schema, { kind: loginFiles[kind].stray, directory, entry })
 		}
-		const text = yield* fs.readFileString(file)
-		texts.set(login, text)
+		files.set(login, file)
 	}
-	return texts
+	return files
 })
 
 /** The kind of login file a schema directory's entry `entry` holds the directory of, none for any other entry. */
@@ -186,22 +191,22 @@ export const readSchemaTree = Effect.fn("readSchemaTree")(
 				directory,
 				folders: [],
 				snapshotFiles: Option.none(),
-				logins: noLoginTexts
+				logins: noLoginPaths
 			}
 			return empty
 		}
 		if ((yield* entryType(fs, directory)) !== "Directory") {
 			return yield* strayIn(schema, { kind: "notDirectory", directory })
 		}
-		const snapshotTexts = new Map<string, string>()
+		const snapshotTexts = new Map<string, TextChunks>()
 		const folders: Array<FolderTexts> = []
 		const logins: { -readonly [K in LoginFileKind]: ReadonlyMap<string, string> } = {
-			...noLoginTexts
+			...noLoginPaths
 		}
 		for (const entry of yield* visibleEntries(fs, directory)) {
 			const type = yield* entryType(fs, path.join(directory, entry))
 			if ((entry === snapshotFileName || entry === manifestFileName) && type === "File") {
-				const text = yield* fs.readFileString(path.join(directory, entry))
+				const text = yield* readText(path.join(directory, entry))
 				snapshotTexts.set(entry, text)
 				continue
 			}
@@ -254,56 +259,21 @@ export const readSchemaTree = Effect.fn("readSchemaTree")(
 )
 
 /**
- * The runs of `text` writeText encodes and writes one at a time, in order: each of at most `units` UTF-16 code units,
- * one longer where it would end between the two halves of a surrogate pair, so the runs' UTF-8 encodings together are
- * exactly the text's.
- */
-export const textRuns = function* (text: string, units: number): Generator<string> {
-	let at = 0
-	while (at < text.length) {
-		let end = Math.min(text.length, at + units)
-		const last = Option.getOrElse(Str.charCodeAt(text, end - 1), () => 0)
-		if (end < text.length && last >= 0xd800 && last <= 0xdbff) {
-			end += 1
-		}
-		yield Str.slice(at, end)(text)
-		at = end
-	}
-}
-
-/**
- * How many UTF-16 code units of a file's text writeText encodes and writes at once: Node's default high-water mark of a
- * byte stream, the run a file stream of Node's own writes at, so a run's encoding is at most three times it.
- *
- * @limitKind published
- * @owner Node.js 26.13.0 stream
- * @unit UTF-16 code units of a run (writeText)
- * @scope each run of a generated file's text encoded and written alone
- * @constraint documented default
- * @source https://nodejs.org/docs/v26.13.0/api/stream.html#streamgetdefaulthighwatermarkobjectmode
- * @quote Returns the default highWaterMark used by streams. Defaults to `65536` (64 KiB), or `16` for `objectMode`.
- * @verified 2026-11-22
- */
-export const textRunUnits = 65_536
-
-const utf8 = new TextEncoder()
-
-/**
- * `text` written to `path` a run at a time (textRuns), each run of textRunUnits code units, encoded alone and written
- * before the next is encoded, so the file's bytes are
- * exactly the text's UTF-8 and no encoding of the whole text is ever held beside it: a file of a hundred megabytes
- * encoded whole, its UTF-8 copy beside its text, is what edullm's qti generate ran out of heap on as it wrote.
+ * `text` written to `path` a chunk at a time, each chunk UTF-8 encoded alone and written before the next is encoded
+ * (grizzle-text chunkBytes), so the file's bytes are exactly the text's UTF-8 and no encoding of the whole text, nor the
+ * text as one string, is ever built: a served file's rope flattened as it was written whole is what edullm's qti
+ * generate ran out of heap on.
  */
 export const writeText = (
 	path: string,
-	text: string
+	text: TextChunks
 ): Effect.Effect<void, PlatformError.PlatformError, FileSystem.FileSystem> =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const fs = yield* FileSystem.FileSystem
 			const file = yield* fs.open(path, { flag: "w" })
-			for (const run of textRuns(text, textRunUnits)) {
-				yield* file.writeAll(utf8.encode(run))
+			for (const bytes of chunkBytes(text)) {
+				yield* file.writeAll(bytes)
 			}
 		})
 	)
@@ -398,10 +368,10 @@ export const writeSnapshotFiles = Effect.fn("writeSnapshotFiles")(
 		)
 )
 
-/** A login's file as generate writes it: its login's declared name and its text. */
+/** A login's file as generate writes it: its login's declared name and its text, as its chunks. */
 export interface LoginText {
 	readonly login: string
-	readonly text: string
+	readonly text: TextChunks
 }
 
 /**

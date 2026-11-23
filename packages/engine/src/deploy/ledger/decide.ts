@@ -1,3 +1,4 @@
+import type { TextChunks } from "@bjornpagen/grizzle-text/chunks"
 import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import {
@@ -9,7 +10,7 @@ import { type ReadMeta, recordsAsWritten } from "#compiler/deploy/render/folder.
 
 /**
  * A pending folder as `grizzle migrate` read it, decided before any statement runs: its name, its meta.json as read and
- * the SHA-256 of its text, and its SQL files in ordinal order, each with its text and whether it runs statement by
+ * the SHA-256 of its text, and its SQL files in ordinal order, each with its text, as its chunks, and whether it runs statement by
  * statement (`-- grizzle: no-transaction`).
  */
 export interface FolderToApply {
@@ -19,7 +20,7 @@ export interface FolderToApply {
 	readonly files: ReadonlyArray<{
 		readonly ordinal: number
 		readonly name: string
-		readonly text: string
+		readonly text: TextChunks
 		readonly noTransaction: boolean
 	}>
 }

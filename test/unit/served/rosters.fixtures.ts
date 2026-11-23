@@ -1,5 +1,6 @@
 /** What the properties of rosters.test.ts read: its spaces, models and helpers. */
 
+import type { TextChunks } from "@bjornpagen/grizzle-text/chunks"
 import { assert, defined } from "@bjornpagen/testing/assert"
 import {
 	type Gen,
@@ -13,13 +14,14 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Formatter, Order, Record as Rec, String as Str } from "effect"
 import type { DeclaredName } from "#compiler/core/identity.ts"
-import { jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
+import { jsonText, trusted } from "#compiler/core/trusted.ts"
 import type { CodeSlot, RosterCodes } from "#compiler/ir/cells.ts"
 import { rosterCodebook } from "#compiler/ir/codes.ts"
 import { handleMaxBytes } from "#compiler/schema/own.ts"
 import type { ServedFile } from "#compiler/served/forms.ts"
 import { rosterCodesOf, rosterWire, servedFile, servedText } from "#compiler/served/json.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { jsonOf } from "#test/support/chunked.ts"
 import { dictionaryNameGen } from "#test/support/kernel/dict.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { runtimeDifference } from "#test/support/served.ts"
@@ -102,8 +104,9 @@ const fileOf = (rosters: ReadonlyArray<readonly [DeclaredName, RosterCodes]>): S
 	trusted<ServedFile>({ rosters: new Map(rosters) })
 
 /** The JSON value of a served file's text, the roster `turned`'s live codes all turned to holes. */
-const holesOnly = (text: string, turned: DeclaredName): unknown => {
-	const json = trustedJson<Readonly<Record<string, unknown>>>(text)
+const holesOnly = (text: TextChunks, turned: DeclaredName): unknown => {
+	const json = trusted<Readonly<Record<string, unknown>>>(jsonOf(text))
+
 	const rosters = trusted<Readonly<Record<string, ReadonlyArray<string | false>>>>(json["rosters"])
 	return {
 		...json,
@@ -131,7 +134,7 @@ export const roundTrip = (
 		}
 	}
 	const text = succeeded(servedText(fileOf(rosters)), "the file's text")
-	const back = succeeded(servedFile(trustedJson<unknown>(text)), "the file read back")
+	const back = succeeded(servedFile(jsonOf(text)), "the file read back")
 	const written = rosterCodebook(rosters)
 	const read = rosterCodebook(back.rosters)
 	assert.deepEqual(

@@ -39,6 +39,7 @@ import type { LedgerState, RecordedFolder } from "#compiler/deploy/ledger/ledger
 import { emptyFingerprint } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { failed, succeeded } from "#test/support/assert.ts"
+import { chunked, joined } from "#test/support/chunked.ts"
 import { draftFiles } from "#test/support/migrate/review.ts"
 import {
 	chainOf,
@@ -272,7 +273,7 @@ export const thePlanSkipResumeRunOrRefuseBeforeAnyStatementRunsExactlyTheFolders
 						onSome: (at) => ({
 							...reviewed,
 							files: Arr.map(reviewed.files, (f, j) =>
-								j === at ? { ...f, text: `${f.text}${unrecordedStatement}` } : f
+								j === at ? { ...f, text: chunked(`${joined(f.text)}${unrecordedStatement}`) } : f
 							)
 						})
 					})
@@ -346,14 +347,14 @@ export const thePlanSkipResumeRunOrRefuseBeforeAnyStatementRunsExactlyTheFolders
 					files: [
 						...Arr.map(folder.files, (f) =>
 							edited !== undefined && edited.folder === folder.name && edited.file === f.name
-								? { ...f, text: `${f.text}\n-- edited after it ran\n` }
+								? { ...f, text: chunked(`${joined(f.text)}\n-- edited after it ran\n`) }
 								: f
 						),
 						...(added === folder.name
 							? [
 									{
 										name: `${Str.padStart(2, "0")(String(folder.files.length + 1))}-added.sql`,
-										text: "SELECT 1;\n"
+										text: chunked("SELECT 1;\n")
 									}
 								]
 							: [])
@@ -454,7 +455,7 @@ export const thePlanSkipResumeRunOrRefuseBeforeAnyStatementRunsExactlyTheFolders
 						Arr.flatMap(defined(ran[index]).files, (f) =>
 							Arr.contains(run.ordinals, f.ordinal) ? [f.text] : []
 						)
-					if (Arr.some(runs, (run) => Arr.some(runText(run), marked))) {
+					if (Arr.some(runs, (run) => Arr.some(runText(run), (text) => marked(joined(text))))) {
 						return { kind: "refused", reason: "MarkersUnresolved" }
 					}
 					if (

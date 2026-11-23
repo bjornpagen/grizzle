@@ -1,6 +1,7 @@
 /** What the properties of backfill-cost.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { ChunkView } from "@bjornpagen/grizzle-text/chunks"
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
@@ -150,7 +151,8 @@ export const costAt = (shape: Shape, size: number) =>
 				losses: "written",
 				value: treePlaceholder
 			})
-			const statements = Arr.flatMap(reviewed.files, (f) => splitStatements(f.text))
+			const statements = Arr.flatMap(reviewed.files, (f) => splitStatements(new ChunkView(f.text)))
+
 			const last = Arr.findLastIndex(statements, (s) => backfill.has(normalized(s)))
 			const through = Option.getOrThrowWith(
 				last,

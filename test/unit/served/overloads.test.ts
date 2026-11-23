@@ -14,11 +14,11 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, String as Str } from "effect"
-import { trustedJson } from "#compiler/core/trusted.ts"
 import { rangeOp } from "#compiler/ir/expr.ts"
 import { spanCarriers } from "#compiler/ir/scalar.ts"
 import { servedFile, servedText } from "#compiler/served/json.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { joined, jsonOf } from "#test/support/chunked.ts"
 import {
 	type Feature,
 	fileHolding,
@@ -40,12 +40,13 @@ export const aRangeOverloadInAServedFileReadsBackAsItsOneInstanceWhichTheRegistr
 					const op = rangeOp(code, carrier)
 					const tag = `~op:${code}:${carrier}`
 					const text = succeeded(servedText(fileHolding(op)), "the file's text")
-					assert.ok(Str.includes(`"${tag}"`)(text), `the overload writes as ${tag}`)
-					const read = succeeded(servedFile(trustedJson<unknown>(text)), "the file read back")
+					assert.ok(Str.includes(`"${tag}"`)(joined(text)), `the overload writes as ${tag}`)
+
+					const read = succeeded(servedFile(jsonOf(text)), "the file read back")
 					assert.ok(probeOf(read) === op, `${tag} reads back as the overload's one instance`)
 					assert.equal(
-						succeeded(servedText(read), "the file read back, written again"),
-						text,
+						joined(succeeded(servedText(read), "the file read back, written again")),
+						joined(text),
 						`the file holding ${tag}, read back, writes as itself again`
 					)
 					c.note(`over ${carrier}`)

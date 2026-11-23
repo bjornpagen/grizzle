@@ -4,6 +4,7 @@
  * the one module of the engine that imports a node builtin.
  */
 import { createHash, type Hash, hash as hashOnce } from "node:crypto"
+import type { TextChunks } from "@bjornpagen/grizzle-text/chunks"
 import { Utf8Writer, type WellFormedText } from "@bjornpagen/grizzle-text/utf8"
 import { sha256Octets } from "#compiler/core/digest.ts"
 
@@ -82,6 +83,19 @@ export const sha256Digest = (input: Uint8Array | WellFormedText): Uint8Array<Arr
 /** The SHA-256 digest of a message, as lowercase hex: bytes, or a well-formed text hashed as its UTF-8 (sha256Digest). */
 export const sha256Hex = (input: Uint8Array | WellFormedText): string =>
 	hashOnce("sha256", input, "hex")
+
+/**
+ * The SHA-256 digest of a text held as its chunks (grizzle-text TextChunks), as lowercase hex: its UTF-8 hashed a chunk at
+ * a time, each chunk passed to the hash as it is (sha256Digest), so the text is never joined; sha256Hex's digest of the
+ * text they make.
+ */
+export const sha256ChunksHex = (chunks: TextChunks): string => {
+	const hash = createHash("sha256")
+	for (const chunk of chunks) {
+		hash.update(chunk)
+	}
+	return hash.digest("hex")
+}
 
 /** RFC 4648's base32 alphabet, lowercase. */
 const base32 = "abcdefghijklmnopqrstuvwxyz234567"

@@ -25,6 +25,7 @@ import { shopV1 } from "#test/pg/cli/fixture.ts"
 import { cliOver, configName, offlineOwner, workspace } from "#test/pg/cli/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { fixtureNeedBudget } from "#test/support/budgets.ts"
+import { joined } from "#test/support/chunked.ts"
 import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
 import { admittedNames, dictionaryNameGenOtherThan } from "#test/support/kernel/dict.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -180,7 +181,7 @@ export const editedText = (
 			})
 		)
 	)
-	return succeeded(servedText(edited), "the edited served file's text")
+	return joined(succeeded(servedText(edited), "the edited served file's text"))
 }
 
 /**

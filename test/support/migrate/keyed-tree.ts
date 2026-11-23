@@ -31,6 +31,7 @@ import {
 	treeBuilder
 } from "#compiler/schema/statements.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { chunked, joined } from "#test/support/chunked.ts"
 import { type KeyedRow, numbered, treeOfParents } from "#test/support/families/tree.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import {
@@ -425,17 +426,19 @@ export const withDataStep = (g: GenerateResult, step: ReadonlyArray<string>): Ge
 	const at = (text: string): Option.Option<number> =>
 		Arr.findFirstIndex(Str.split(text, "\n"), (l) => Str.trim(l) === immediate)
 	assert.ok(
-		Arr.some(g.folder.files, (f) => Option.isSome(at(f.text))),
+		Arr.some(g.folder.files, (f) => Option.isSome(at(joined(f.text)))),
 		`the draft ${g.folder.name} drafts no ${immediate} for its data step to follow`
 	)
 	const files = Arr.map(g.folder.files, (f) =>
-		Option.match(at(f.text), {
+		Option.match(at(joined(f.text)), {
 			onNone: () => f,
 			onSome: (end) => {
-				const lines = Str.split(f.text, "\n")
+				const lines = Str.split(joined(f.text), "\n")
 				return {
 					...f,
-					text: Arr.join([...lines.slice(0, end + 1), "", ...step, ...lines.slice(end + 1)], "\n")
+					text: chunked(
+						Arr.join([...lines.slice(0, end + 1), "", ...step, ...lines.slice(end + 1)], "\n")
+					)
 				}
 			}
 		})

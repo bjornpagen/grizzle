@@ -25,6 +25,7 @@
  * derived-name searches name them.
  */
 
+import { ChunkView } from "@bjornpagen/grizzle-text/chunks"
 import { assert, assertVariant, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -55,6 +56,7 @@ import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { placeholderToken } from "#compiler/sql/print.ts"
 import { failed, succeeded } from "#test/support/assert.ts"
 import { secondOfDigits } from "#test/support/calendar.ts"
+import { chunked, joined } from "#test/support/chunked.ts"
 import {
 	asDrafted,
 	compile,
@@ -342,7 +344,10 @@ export const metaJsonGeneratedReadsBackExactlyWhatItWritesByteForByteItsDeclarat
 					Effect.sync(() => {
 						const written = succeeded(writeMeta(meta))
 						if (fault.kind === "none") {
-							assert.equal(decodeMeta(written).pipe(succeeded, writeMeta, succeeded), written)
+							assert.equal(
+								joined(decodeMeta(written).pipe(succeeded, writeMeta, succeeded)),
+								joined(written)
+							)
 							const read = succeeded(readMeta(written))
 							if (meta.kind === "custom") {
 								assertVariant(read, "kind", "custom", "a custom meta reads back custom")
@@ -378,7 +383,7 @@ export const metaJsonGeneratedReadsBackExactlyWhatItWritesByteForByteItsDeclarat
 						const text =
 							fault.kind === "custom with two snapshots"
 								? succeeded(writeMeta(twoSnapshots(meta)), "a sealed custom meta of two snapshots")
-								: handEdited(meta, faultedMeta(meta, fault))
+								: chunked(handEdited(meta, faultedMeta(meta, fault)))
 						const read = readMeta(text)
 						if (Result.isSuccess(read)) {
 							assert.fail(`${Formatter.format(fault)} is read`)
@@ -452,7 +457,7 @@ export const generateProvesADraftsRecordRefusingADecisionWrittenAsAnotherStateme
 						"a drafted meta read"
 					)
 					for (const f of files) {
-						const written = { name: f.name, text: writtenText(f) }
+						const written = { name: f.name, text: chunked(writtenText(f)) }
 						assert.ok(recordsAsWritten(read, written), `${f.name} is recorded as written`)
 						assert.equal(statedLocks(read, written), f.locks, `${f.name}'s locks`)
 					}
@@ -520,8 +525,8 @@ export const aDraftDraftedAgainRecordsAlikeByteForByteAndItsMetaJsonHoldsEveryFi
 				for (const [i, again] of redrafted.entries()) {
 					const first = defined(drafted[i], "the first draft of the redraft's folder")
 					assert.equal(
-						again.folder.metaText,
-						first.folder.metaText,
+						joined(again.folder.metaText),
+						joined(first.folder.metaText),
 						`${again.folder.name}'s meta.json`
 					)
 					assertVariant(first.folder.meta, "kind", "drafted", "a drafted folder's meta")
@@ -530,9 +535,11 @@ export const aDraftDraftedAgainRecordsAlikeByteForByteAndItsMetaJsonHoldsEveryFi
 						const locks = Arr.findFirst(first.folder.meta.files, (f) => f.name === file.name)
 						const laidOut = {
 							name: file.name,
-							text: Arr.join(
-								Arr.map(splitStatements(file.text), (x) => `${x};`),
-								"\n\n-- reviewed\n"
+							text: chunked(
+								Arr.join(
+									Arr.map(splitStatements(new ChunkView(file.text)), (x) => `${x};`),
+									"\n\n-- reviewed\n"
+								)
 							)
 						}
 						for (const written of [file, laidOut]) {

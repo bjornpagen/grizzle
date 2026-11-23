@@ -111,7 +111,7 @@ export { codecTextOver, rowTextOver, type TextedField } from "#compiler/program/
 export type { Isolation } from "#compiler/core/isolation.ts"
 export type { Decoders, HeadOf } from "#compiler/types/query/query.ts"
 export type { Result } from "@bjornpagen/grizzle-text/base/result"
-export { sha256Hex } from "#compiler/core/sha256.ts"
+export { sha256ChunksHex, sha256Hex } from "#compiler/core/sha256.ts"
 export { wellFormed } from "#compiler/core/text.ts"
 export { catalogDeparted, Sqlstate, sqlstateClass, sqlstates } from "#compiler/core/sqlstate.ts"
 export { jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"

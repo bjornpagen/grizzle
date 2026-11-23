@@ -11,6 +11,7 @@ import { fn, relation, row, rows, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import { printStatement } from "#compiler/sql/print.ts"
+import { joined } from "#test/support/chunked.ts"
 import { inOrder, orderOf } from "#test/support/key-order.ts"
 import { asDrafted, compile } from "#test/support/migrate/kit.ts"
 import { compiledLogin } from "#test/support/served-login.ts"
@@ -213,7 +214,7 @@ export const madeIn = (o: KeyOrders): Effect.Effect<Made> =>
 		)
 		return {
 			statements: Arr.map(installation.statements, printStatement),
-			served: compiled.entry.text,
+			served: joined(compiled.entry.text),
 			installedNames: Arr.flatMap(installation.statements, (s) =>
 				s.kind === "createRowType"
 					? [Arr.map(s.attributes, (a) => a.name)]

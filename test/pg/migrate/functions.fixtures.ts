@@ -22,6 +22,7 @@ import {
 	wholeEntriesOf,
 	writableNamesOf
 } from "#compiler/public/schema.ts"
+import { joined } from "#test/support/chunked.ts"
 import {
 	bodyParts,
 	bodyText,
@@ -393,7 +394,7 @@ export const fatesIn = (
 	knew: ReadonlySet<string>
 ): ReadonlyMap<string, Fate> => {
 	const lines = Arr.flatMap(Option.toArray(folder), (f) =>
-		Arr.flatMap(f.files, (file) => Str.split(file.text, "\n"))
+		Arr.flatMap(f.files, (file) => Str.split(joined(file.text), "\n"))
 	)
 	const named = (statement: string): ReadonlyArray<string> =>
 		Arr.flatMap(lines, (line) => {

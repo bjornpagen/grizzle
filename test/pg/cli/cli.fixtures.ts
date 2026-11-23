@@ -12,6 +12,7 @@ import { bin, cli, cliClock, harnessCaVariable, servedFromFile } from "#test/pg/
 import { openMigrator } from "#test/pg/migrate/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { writeAnswerOf, oneOf as oneRowOf } from "#test/support/calls.ts"
+import { chunked } from "#test/support/chunked.ts"
 import { Id, type IdValue } from "#test/support/ids.ts"
 import { migrationFolders } from "#test/support/migrate/kit.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -93,7 +94,7 @@ export const snapshotFilesOf = (dir: string, schema: string) =>
 		const fs = yield* FileSystem.FileSystem
 		const snapshot = yield* fs.readFileString(`${dir}/migrations/${schema}/snapshot.json`)
 		const manifest = yield* fs.readFileString(`${dir}/migrations/${schema}/manifest.json`)
-		return { snapshot, manifest }
+		return { snapshot: chunked(snapshot), manifest: chunked(manifest) }
 	})
 
 export const foldersOf = (dir: string, schema: string) =>

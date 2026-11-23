@@ -7,7 +7,6 @@ import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
 import { type ReasonAt, reasonsOf, type RoleCertificate } from "#compiler/core/certificate.ts"
 import { silentPhases } from "#compiler/core/phase.ts"
-import { trustedJson } from "#compiler/core/trusted.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { clockedMember, workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -28,6 +27,7 @@ import { servedFile } from "#compiler/served/json.ts"
 import { defineConfig } from "#index.ts"
 import { offlineOwner } from "#test/pg/cli/support.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { jsonOf } from "#test/support/chunked.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 
@@ -255,7 +255,7 @@ export const compiled = (c: Case, clocked: boolean) =>
 				Arr.map(served.certification, (i) => [i.role, certified(i.certificate)] as const)
 			),
 			text: entry.text,
-			file: succeeded(servedFile(trustedJson<unknown>(entry.text)), "the served file"),
+			file: succeeded(servedFile(jsonOf(entry.text)), "the served file"),
 			live: new Set(
 				draft.snapshot.live.kind === "reads"
 					? Arr.map(draft.snapshot.live.tables, (t) => t.relation)

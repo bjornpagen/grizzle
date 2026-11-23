@@ -6,7 +6,6 @@ import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effe
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
 import { silentPhases } from "#compiler/core/phase.ts"
-import { trustedJson } from "#compiler/core/trusted.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -27,6 +26,7 @@ import { lex } from "#compiler/sql/lexer.ts"
 import { defineConfig } from "#index.ts"
 import { offlineOwner } from "#test/pg/cli/support.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { jsonOf } from "#test/support/chunked.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 
@@ -263,7 +263,7 @@ export const servedRoles = (c: Case) =>
 			Arr.filter(qualifiedCalls(text), (name) => functions.has(name))
 		const writers = new Map(Arr.map(c.roles, (r, i) => [roleName(i), r.writes] as const))
 		return Arr.flatMap(entries, (entry): ReadonlyArray<ServedRole> => {
-			const parsed = succeeded(servedFile(trustedJson<unknown>(entry.text)), "the served file")
+			const parsed = succeeded(servedFile(jsonOf(entry.text)), "the served file")
 			return Arr.map(parsed.roles, (r) => ({
 				name: r.name,
 				writes: defined(writers.get(r.name), `the case's role ${r.name}`),

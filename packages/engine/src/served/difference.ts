@@ -1,9 +1,10 @@
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { catchSignal } from "@bjornpagen/grizzle-text/base/result"
+import { readJson, type TextChunks } from "@bjornpagen/grizzle-text/chunks"
 import { collectedEquals } from "#compiler/core/canonical.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
-import { trusted, trustedJson } from "#compiler/core/trusted.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import type { ServedFile } from "#compiler/served/forms.ts"
 import { servedFile } from "#compiler/served/json.ts"
 
@@ -54,14 +55,17 @@ const isObject = (value: unknown): value is Readonly<Record<string, unknown>> =>
 	isRecord(value) && !isList(value) && !(value instanceof Map) && !(value instanceof Set)
 
 /**
- * A served file's text read through the one reader of its JSON form (served/json.ts servedFile), every value JSON
- * cannot hold rebuilt; undefined for text that is no JSON, or that the reader refuses. The committed text is anyone's to
- * have edited, so whatever it holds is read as values of any shape.
+ * A served file's text, held as its chunks, read as JSON (grizzle-text readJson) through the one reader of its JSON
+ * form (served/json.ts servedFile), every value JSON cannot hold rebuilt; undefined for text that is no JSON, or that the
+ * reader refuses. The committed text is anyone's to have edited, so whatever it holds is read as values of any shape.
  */
-const revived = (text: string): Readonly<Record<string, unknown>> | undefined => {
+const revived = (text: TextChunks): Readonly<Record<string, unknown>> | undefined => {
+	const json = readJson(text)
+	if (!json.ok) {
+		return undefined
+	}
 	const read = catchSignal(Error, (): ServedFile | undefined => {
-		const json: unknown = JSON.parse(text)
-		const file = servedFile(json)
+		const file = servedFile(json.value)
 		return file.ok ? file.value : undefined
 	})
 	return read.ok ? read.value : undefined
@@ -116,16 +120,15 @@ const firstParted = (
  * so a changed type parts the files at the first program that names it and nothing of the files' JSON form is read
  * here; the committed text is anyone's to have edited, and one no served file's reader reads is `unread`.
  */
-export const servedDifference = (ours: string, committed: string): ServedParting => {
+export const servedDifference = (ours: TextChunks, committed: TextChunks): ServedParting => {
 	const theirs = revived(committed)
 	if (theirs === undefined) {
 		return { kind: "unread" }
 	}
-	const ownRead = servedFile(trustedJson<unknown>(ours))
-	if (!ownRead.ok) {
-		throw defect(`the compile's own served file reads back: ${ownRead.error.message}`)
+	const own = revived(ours)
+	if (own === undefined) {
+		throw defect("the compile's own served file reads back")
 	}
-	const own: Readonly<Record<string, unknown>> = ownRead.value
 	const keys = [...new Set([...Object.keys(own), ...Object.keys(theirs)])].toSorted(compareStrings)
 	for (const key of keys) {
 		const found =

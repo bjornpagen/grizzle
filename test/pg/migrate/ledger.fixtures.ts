@@ -1,6 +1,7 @@
 /** What the properties of ledger.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { ChunkView } from "@bjornpagen/grizzle-text/chunks"
 import { assert, defined, nonEmpty, unorderedEqual } from "@bjornpagen/testing/assert"
 import {
 	accepting,
@@ -61,6 +62,7 @@ import {
 } from "#test/pg/migrate/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { readCatalog } from "#test/support/catalog/read.ts"
+import { chunked, joined } from "#test/support/chunked.ts"
 import { firstCodes } from "#test/support/compile.ts"
 import { atName, parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
@@ -307,14 +309,17 @@ type Point =
 const pointsOf = (folder: FolderTexts): ReadonlyArray<Point> =>
 	Arr.flatMap(folder.files, (f, i): ReadonlyArray<Point> => {
 		const ordinal = i + 1
-		if (!isNoTransaction(f.text)) {
+		if (!isNoTransaction(new ChunkView(f.text))) {
 			return [{ at: "before", ordinal }]
 		}
-		const within = Arr.map(indices(splitStatements(f.text).length - 1), (k): Point => ({
-			at: "within",
-			ordinal,
-			statement: k + 1
-		}))
+		const within = Arr.map(
+			indices(splitStatements(new ChunkView(f.text)).length - 1),
+			(k): Point => ({
+				at: "within",
+				ordinal,
+				statement: k + 1
+			})
+		)
 		return [{ at: "before", ordinal }, ...within, { at: "after", ordinal }]
 	})
 
@@ -356,7 +361,7 @@ const inPlaceOrder = (places: ReadonlyArray<Place>): ReadonlyArray<Place> =>
  * commented, so unreviewed every one is unresolved. */
 const unreviewedOf = (g: GenerateResult) => ({
 	markers: Arr.flatMap(g.folder.files, (f) =>
-		Arr.map(findMarkers(f.text), (mk) => ({
+		Arr.map(findMarkers(new ChunkView(f.text)), (mk) => ({
 			folder: g.folder.name,
 			file: f.name,
 			kind: mk.kind,
@@ -396,7 +401,7 @@ const shapeOf = (
 			losses: unreviewed.losses.length > 0,
 			points: nonEmpty(pointsOf(folder), `the points of ${folder.name}`),
 			files: folder.files.length,
-			noTransaction: Arr.map(folder.files, (f) => isNoTransaction(f.text))
+			noTransaction: Arr.map(folder.files, (f) => isNoTransaction(new ChunkView(f.text)))
 		}
 	})
 
@@ -778,7 +783,7 @@ const realOf = (
 						? {
 								...f,
 								files: Arr.map(f.files, (x) =>
-									x.name === file.name ? { ...x, text: inject(x.text, point) } : x
+									x.name === file.name ? { ...x, text: chunked(inject(joined(x.text), point)) } : x
 								)
 							}
 						: f
@@ -813,7 +818,7 @@ const realOf = (
 							return {
 								...f,
 								files: Arr.map(f.files, (x) =>
-									x === target ? { ...x, text: `-- tuned\n${x.text}` } : x
+									x === target ? { ...x, text: chunked(`-- tuned\n${joined(x.text)}`) } : x
 								)
 							}
 						case "missing":
@@ -824,9 +829,12 @@ const realOf = (
 								files: Arr.map(f.files, (x) => (x === target ? { ...x, name: renamed } : x))
 							}
 						case "added":
-							return { ...f, files: [...f.files, { name: "99-later.sql", text: "SELECT 1;\n" }] }
+							return {
+								...f,
+								files: [...f.files, { name: "99-later.sql", text: chunked("SELECT 1;\n") }]
+							}
 						case "meta edited":
-							return { ...f, metaText: `${f.metaText}\n` }
+							return { ...f, metaText: chunked(`${joined(f.metaText)}\n`) }
 						case "folder missing":
 							return undefined
 					}
@@ -909,7 +917,7 @@ const realOf = (
 					Option.getOrUndefined(
 						Arr.findFirst(
 							next.files,
-							(f, i) => i + 1 > partialFiles(model) && !isNoTransaction(f.text)
+							(f, i) => i + 1 > partialFiles(model) && !isNoTransaction(new ChunkView(f.text))
 						)
 					),
 					"a transactional file not yet recorded"
@@ -925,7 +933,7 @@ const realOf = (
 								? {
 										...f,
 										files: Arr.map(f.files, (x) =>
-											x === file ? { ...x, text: `${x.text}\nCOMMIT;\n` } : x
+											x === file ? { ...x, text: chunked(`${joined(x.text)}\nCOMMIT;\n`) } : x
 										)
 									}
 								: f
@@ -979,14 +987,15 @@ const realOf = (
 					files: [
 						{
 							name: "01-data.sql",
-							text:
+							text: chunked(
 								insertOf(snapshot, r.schema, "Account", { id: account, name: "'alpha'" }) +
-								insertOf(snapshot, r.schema, "Task", {
-									id: `'${id(11)}'`,
-									account,
-									kind: `${automatic}::smallint`,
-									weight: "1"
-								})
+									insertOf(snapshot, r.schema, "Task", {
+										id: `'${id(11)}'`,
+										account,
+										kind: `${automatic}::smallint`,
+										weight: "1"
+									})
+							)
 						}
 					]
 				}
