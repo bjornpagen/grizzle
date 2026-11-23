@@ -2,7 +2,11 @@
 
 import { array, boolean, type Gen, int, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option } from "effect"
-import type { ColumnValues, RelationShape } from "#compiler/physical/statistics/declared.ts"
+import type {
+	ColumnValues,
+	DeclaredDependency,
+	RelationShape
+} from "#compiler/physical/statistics/declared.ts"
 import type { DeclaredDistinct } from "#compiler/sql/ast.ts"
 
 export type DeclaredFeature =
@@ -13,6 +17,8 @@ export type DeclaredFeature =
 	| "a roster column"
 	| "a crossing"
 	| "a column beyond its values"
+	| "a pair a dependency ties"
+	| "an index led by a column of many values"
 
 /** A sequence of distinct columns of `columns`, `min` to `max` of them. */
 const sequenceGen =
@@ -133,28 +139,42 @@ export const boundPrefix = (
 	)
 
 /**
- * PostgreSQL's estimate of the rows a set of columns binds, in powers of two, under declared numbers of distinct values,
- * at a size of the table past every anchor's rows: the independence product of each column's selectivity. A set of
- * exactly one anchor binds 2^(y − Σ x); one of two anchors or more binds less than one row; one of none, a number of
- * rows growing with the table (`growing`).
+ * PostgreSQL's estimate of the rows a set of columns binds, in powers of two, under declared numbers of distinct values
+ * and declared dependencies, at a size of the table past every anchor's rows: the independence product of each column's
+ * selectivity, but for a pair a dependency ties, P(determinant) · (d + (1 − d) · P(dependent)), 2^(y − exponent) rows at
+ * any size (dependencies.c dependencies_clauselist_selectivity). A set of exactly one anchor, or of exactly a declared
+ * pair, binds 2^(y − Σ x); one of two anchors or more otherwise binds less than one row; one of none, a number of rows
+ * growing with the table (`growing`).
  */
 export const estimate = (
 	declared: ReadonlyMap<string, DeclaredDistinct>,
+	dependencies: ReadonlyArray<DeclaredDependency>,
 	set: ReadonlyArray<string>
 ): { readonly kind: "rows"; readonly log2: number } | { readonly kind: "growing" | "belowOne" } => {
 	const relative = Arr.filter(set, (c) => declared.get(c)?.kind === "relative")
-	const [anchor, ...more] = relative
-	if (anchor === undefined) {
-		return { kind: "growing" }
-	}
-	if (more.length > 0) {
-		return { kind: "belowOne" }
-	}
 	const absolute = Arr.reduce(set, 0, (s, c) => {
 		const d = declared.get(c)
 		return d?.kind === "absolute" ? s + d.exponent : s
 	})
-	return { kind: "rows", log2: (declared.get(anchor)?.exponent ?? 0) - absolute }
+	const [anchor, ...more] = relative
+	if (anchor === undefined) {
+		return { kind: "growing" }
+	}
+	if (more.length === 0) {
+		return { kind: "rows", log2: (declared.get(anchor)?.exponent ?? 0) - absolute }
+	}
+	const pair = Arr.findFirst(
+		dependencies,
+		(d) =>
+			relative.length === 2 && relative.includes(d.determinant) && relative.includes(d.dependent)
+	)
+	return Option.match(pair, {
+		onNone: () => ({ kind: "belowOne" }) as const,
+		onSome: (d) => ({
+			kind: "rows",
+			log2: (declared.get(d.determinant)?.exponent ?? 0) - d.exponent - absolute
+		})
+	})
 }
 
 /** The fields of the unit's key after its first of many values, on which the unit's count of rows sits. */

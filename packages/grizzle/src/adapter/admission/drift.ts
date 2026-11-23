@@ -724,6 +724,57 @@ const descriptionSelect = (): C.CatalogSelect => {
 			)
 		)
 	}
+	/** The name of the table a statistics object is on. */
+	const statisticsRelation = (): C.CatalogExpr => {
+		const r = C.from("pg_class", "r")
+		return C.scalar(C.query([r.col("relname")], [r.item], C.eq(r.col("oid"), x.col("stxrelid"))))
+	}
+	/**
+	 * A statistics object's restored functional dependency, its first, as pg_stats_ext holds it, its attributes named by
+	 * their columns, never their numbers, which a table of dropped columns numbers otherwise than the snapshot's replay:
+	 * its determinant, its dependent and its degree; none where it holds none.
+	 */
+	const statisticsDependencies = (): C.CatalogExpr => {
+		const e = C.from("pg_stats_ext", "e")
+		const value = (...path: NonEmptyReadonlyArray<string>): C.CatalogExpr =>
+			C.catalogCall("jsonb_extract_path_text", [
+				C.cast(C.asText(e.col("dependencies")), "jsonb"),
+				...Arr.map(path, C.text)
+			])
+		const column = (attnum: C.CatalogExpr): C.CatalogExpr => {
+			const da = C.from("pg_attribute", "da")
+			return C.scalar(
+				C.query(
+					[quoted(da.col("attname"))],
+					[da.item],
+					C.and([
+						C.eq(da.col("attrelid"), x.col("stxrelid")),
+						C.eq(da.col("attnum"), C.cast(attnum, "smallint"))
+					])
+				)
+			)
+		}
+		return C.scalar(
+			C.query(
+				[
+					C.concat([
+						C.text("dependency of "),
+						column(value("0", "dependency")),
+						C.text(" on "),
+						column(value("0", "attributes", "0")),
+						C.text(" degree "),
+						value("0", "degree")
+					])
+				],
+				[e.item],
+				C.and([
+					C.eq(e.col("statistics_schemaname"), n.col("nspname")),
+					C.eq(e.col("statistics_name"), x.col("stxname")),
+					C.not(e.col("inherited"))
+				])
+			)
+		)
+	}
 	const policyRoles = (): C.CatalogExpr => {
 		const o = C.fromFunction(
 			C.catalogCall("unnest", [policy.col("polroles")]),
@@ -1058,7 +1109,15 @@ const descriptionSelect = (): C.CatalogSelect => {
 		C.catalogCore(
 			[
 				keyOf("statistics", [x.col("stxname")]),
-				identOf("statistics", [x.col("stxname")]),
+				C.caseWhen(
+					[
+						{
+							when: C.eq(C.asText(x.col("stxkind")), C.text("{f}")),
+							result: identOf("statistics", [statisticsRelation()])
+						}
+					],
+					identOf("statistics", [x.col("stxname")])
+				),
 				containerOf(x.col("stxrelid")),
 				parts([
 					owner(x.col("stxowner")),
@@ -1068,7 +1127,9 @@ const descriptionSelect = (): C.CatalogSelect => {
 						"expressions ",
 						C.asText(C.catalogCall("pg_get_statisticsobjdef_expressions", [x.col("oid")]))
 					),
-					statisticsTable()
+					statisticsTable(),
+					labelled("statistics target ", C.asText(x.col("stxstattarget"))),
+					statisticsDependencies()
 				])
 			],
 			[C.inNamespace(x.item, n, x.col("stxnamespace"))],

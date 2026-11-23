@@ -6284,21 +6284,27 @@ statistics from the schema's facts, so the estimate is grizzle's proof order at 
   sets the table's `autovacuum_analyze_threshold` and `autovacuum_analyze_scale_factor` to their maxima, 2,147,483,647
   and 100, so autovacuum never analyzes it, sets every column's statistics target to 0
   (`ALTER TABLE ... ALTER COLUMN ... SET STATISTICS 0`) and restores its declared number of distinct values
-  (`pg_restore_attribute_stats`), each restore checked. An ANALYZE you run samples nothing of any column and keeps the
-  declaration (analyze.c); it and VACUUM rewrite the table's size and invalidate the plans built on the size before.
-  grizzle runs no ANALYZE and sets no planner option; autovacuum stays on and vacuums every table, which keeps its size
-  current. grizzle's own tables, the migrations ledger and the drift check's proofs, are declared alike.
+  (`pg_restore_attribute_stats`), each restore checked. An ANALYZE you run keeps every column's declaration (analyze.c),
+  but counts the table's size from its least sample, a hundred rows of a hundred blocks: over a table whose live rows
+  sit among dead pages it can count none, and PostgreSQL then prices every read of the table at one row until its next
+  VACUUM. VACUUM counts the whole table. Run VACUUM, never ANALYZE, after a load, a restore or an upgrade (not `vacuumdb
+  --analyze-in-stages`). grizzle runs no ANALYZE and sets no planner option; autovacuum stays on and vacuums every table,
+  which keeps its size current. grizzle's own tables, the migrations ledger and the drift check's proofs, are declared
+  alike.
 - **What is declared.** PostgreSQL prices a set of equalities as independent: the table's rows times each column's
   selectivity. So a unit's key's first field of many values, and the first column of many values of each other key and
-  index where that crosses nothing, holds 2^y rows a value at any size (`-1/2^y`); a later field of the unit's key holds
-  one value; every other column 2^x values, x ≥ 1, at most its roster's handles, a boolean's 2. A column of few values
-  is never priced by the table's size. The exponents are the least integers under which every key binds one row and
-  every set an index's equalities stop at short of a statement's binding binds two rows or more, so the index a
-  statement asks for is priced below every index binding less of it, and a key's index wins every tie. A unit's key
-  alone is no key: a unit holds more than one row.
+  index, is an anchor: it holds 2^y rows a value at any size (`-1/2^y`). Where two anchors stand in one set an index's
+  equalities stop at, a functional dependency of the one on the other (`CREATE STATISTICS ... (dependencies)`, its
+  degree restored by `pg_restore_extended_stats` and its statistics target 0) prices the two at two rows, where
+  PostgreSQL would multiply them below one; an anchor may be in several. So an equality on a column of many values that
+  leads an index binds a number of rows the table's size does not move. A later field of the unit's key holds one value; every other column 2^x values, x ≥ 1, at most its roster's
+  handles, a boolean's 2. A column of few values is never priced by the table's size. The exponents are the least
+  integers under which every key binds one row and every set an index's equalities stop at short of a statement's
+  binding binds two rows or more, so the index a statement asks for is priced below every index binding less of it, and
+  a key's index wins every tie. A unit's key alone is no key: a unit holds more than one row.
 - **The declaration is the installation's.** `manifest.json` records each table's declaration, `grizzle drift` compares
-  every column's statistics target and pg_stats, and the table's storage parameters, with it, so a column whose
-  statistics an ANALYZE sampled after its target was raised is drift. A relation whose keys and indexes cross so that no
+  every column's statistics target and pg_stats, each dependency's degree, and the table's storage parameters, with it,
+  so a column whose statistics an ANALYZE sampled after its target was raised is drift. A relation whose keys and indexes cross so that no
   number of distinct values per column ranks its statements (two keys each covered by sets apart of the other's
   columns) is refused when it compiles, naming the keys and the sets.
 - **An empty table is priced as PostgreSQL prices one.** On a table no VACUUM has seen PostgreSQL plans ten pages, and a

@@ -606,6 +606,7 @@ const valueOf = (value: string, type: TypeRef): SqlValue => {
 		case "regconfig":
 		case "char":
 		case "interval":
+		case "pg_dependencies":
 			return unevaluable(`a ${type.name} literal`)
 	}
 }

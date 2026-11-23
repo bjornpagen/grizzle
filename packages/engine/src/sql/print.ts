@@ -1903,9 +1903,14 @@ export const sessionTableEmptied = (name: string): PlStatement => ({
  * The most changed rows autovacuum_analyze_threshold admits, reloptions.c's maximum, which a table's declared
  * statistics set as its storage parameter beside autovacuumAnalyzeScaleMax: autovacuum then analyzes the table only past
  * 2^31 − 1 changed rows beside 100 times its rows, never in practice. PostgreSQL has no switch that stops automatic
- * ANALYZE alone, and an ANALYZE of a table whose every column is declared samples nothing: it only rewrites the table's
- * size in pg_class (vacuum.c vac_update_relstats), whose invalidation makes every session plan each statement over the
- * table again (plancache.c PlanCacheRelCallback). VACUUM, automatic or not, keeps the size current.
+ * ANALYZE alone. An ANALYZE of a table whose every column is declared leaves every column's statistics as declared, but
+ * samples analyze.c's least sample, a hundred rows from a hundred of its blocks, and rewrites the table's size in pg_class
+ * from them (vacuum.c vac_update_relstats), whose invalidation makes every session plan each statement over the table
+ * again (plancache.c PlanCacheRelCallback): over a table whose live rows sit among pages of dead ones it can count none,
+ * and every estimate of the table is then one row (measured, test/support/substrate/fill.ts countedAsVacuumed). VACUUM,
+ * automatic or not, counts the table whole and keeps the size current; an operator's ANALYZE, a vacuumdb
+ * --analyze-in-stages after an upgrade or a provider's maintenance is the hazard the plan-shape law's state after ANALYZE
+ * holds every plan against (test/pg/physical/plan-shape.test.ts).
  *
  * @limitKind published
  * @owner PostgreSQL 19.0's storage parameters (reloptions.c intRelOpts)
@@ -2037,7 +2042,130 @@ export const declaredStatisticsSteps = (
 			else: []
 		}
 	]
-	return extendNonEmpty(steps(first), rest.flatMap(steps))
+	return extendNonEmpty(steps(first), [
+		...rest.flatMap(steps),
+		...d.dependencies.flatMap((dependency) => dependencySteps(d.table, schema, dependency))
+	])
+}
+
+/**
+ * The number pg_attribute holds of `column` of `table`, its schema `schema`'s name: a declared dependency's attribute,
+ * which a statistics value names by its column's number, read where the steps run.
+ */
+const attributeOf = (table: ObjectName, schema: Expr, column: string): Expr => ({
+	kind: "subquery",
+	query: {
+		kind: "select",
+		with: undefined,
+		body: operandCore(
+			[{ expr: col("a", "attnum"), alias: undefined }],
+			[
+				{ kind: "table", table: { schema: "pg_catalog", name: "pg_attribute" }, alias: "a" },
+				{ kind: "table", table: { schema: "pg_catalog", name: "pg_class" }, alias: "c" },
+				{ kind: "table", table: { schema: "pg_catalog", name: "pg_namespace" }, alias: "n" }
+			],
+			and([
+				eq(col("a", "attrelid"), col("c", "oid")),
+				eq(col("c", "relnamespace"), col("n", "oid")),
+				eq(col("n", "nspname"), schema),
+				eq(col("c", "relname"), lit.text(table.name, types.text)),
+				eq(col("a", "attname"), lit.text(column, types.text))
+			])
+		),
+		orderBy: [],
+		limit: undefined,
+		offset: undefined
+	}
+})
+
+/** The exact decimal of 1/2^exponent, a declared dependency's degree. */
+const degreeValue = (exponent: number): string =>
+	exponent === 0 ? "1" : `0.${(5n ** BigInt(exponent)).toString().padStart(exponent, "0")}`
+
+/**
+ * A declared dependency's steps among its table's (declaredStatisticsSteps), its statistics object in the table's schema,
+ * `schema`'s name: PERFORM pg_catalog.pg_clear_extended_stats, then IF NOT
+ * pg_catalog.pg_restore_extended_stats(..., 'dependencies', <its one dependency, its attributes the columns' numbers>)
+ * THEN RAISE: a restore answers false, with a WARNING, for a value it cannot use (extended_stats_funcs.c), so the block
+ * fails instead, naming the table and the statistics object.
+ */
+const dependencySteps = (
+	table: ObjectName,
+	schema: Expr,
+	d: DeclareStatistics["dependencies"][number]
+): ReadonlyArray<PlStatement> => {
+	const text = (v: string): Expr => lit.text(v, types.text)
+	return [
+		{
+			kind: "perform",
+			query: {
+				body: operandCore(
+					[
+						{
+							expr: qualifiedCall("pg_catalog", "pg_clear_extended_stats", [
+								schema,
+								text(table.name),
+								schema,
+								text(d.name.name),
+								lit.bool(false)
+							]),
+							alias: undefined
+						}
+					],
+					[],
+					undefined
+				),
+				orderBy: [],
+				limit: undefined,
+				offset: undefined
+			}
+		},
+		{
+			kind: "if",
+			branches: [
+				{
+					condition: not(
+						qualifiedCall("pg_catalog", "pg_restore_extended_stats", [
+							text("schemaname"),
+							schema,
+							text("relname"),
+							text(table.name),
+							text("statistics_schemaname"),
+							schema,
+							text("statistics_name"),
+							text(d.name.name),
+							text("inherited"),
+							lit.bool(false),
+							text("dependencies"),
+							cast(
+								qualifiedCall("pg_catalog", "format", [
+									text(
+										`[{"attributes": [%s], "dependency": %s, "degree": ${degreeValue(d.exponent)}}]`
+									),
+									attributeOf(table, schema, d.determinant),
+									attributeOf(table, schema, d.dependent)
+								]),
+								types.dependencies
+							)
+						])
+					),
+					body: [
+						{
+							kind: "raise",
+							message: "a declared dependency was not restored",
+							using: [
+								{ option: "ERRCODE", value: text("internal_error") },
+								{ option: "SCHEMA", value: schema },
+								{ option: "TABLE", value: text(table.name) },
+								{ option: "CONSTRAINT", value: text(d.name.name) }
+							]
+						}
+					]
+				}
+			],
+			else: []
+		}
+	]
 }
 
 /**
@@ -2731,6 +2859,7 @@ export const printCommentTarget = (on: CommentTarget): string => {
 		case "DOMAIN":
 		case "TYPE":
 		case "INDEX":
+		case "STATISTICS":
 			return `${on.kind} ${printObjectName(on.name)}`
 		case "COLUMN":
 			return `COLUMN ${printObjectName(on.relation)}.${quoteIdent(on.column)}`
@@ -3057,6 +3186,13 @@ export const commandsOf = (statement: SqlStatement): NonEmptyReadonlyArray<Comma
 						...statement.columns.map((c) => `ALTER COLUMN ${quoteIdent(c.column)} SET STATISTICS 0`)
 					])
 				},
+				...statement.dependencies.flatMap((d): ReadonlyArray<Command> => [
+					(out) =>
+						out.line(
+							`CREATE STATISTICS IF NOT EXISTS ${printObjectName(d.name)} (dependencies) ON ${quoteIdent(d.determinant)}, ${quoteIdent(d.dependent)} FROM ${printObjectName(statement.table)}`
+						),
+					(out) => out.line(`ALTER STATISTICS ${printObjectName(d.name)} SET STATISTICS 0`)
+				]),
 				command
 			]
 		case "select":

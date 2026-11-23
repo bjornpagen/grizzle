@@ -385,6 +385,7 @@ export interface LockCatalog {
 	readonly domainConstraints: Map<string, Set<string>>
 	readonly policies: Map<string, Set<string>>
 	readonly defaults: Map<string, Set<string>>
+	readonly statistics: Map<string, Set<string>>
 	readonly publications: Map<string, Set<string>>
 	readonly names: Map<string, ObjectName>
 }
@@ -404,6 +405,7 @@ const emptyCatalog = (): LockCatalog => ({
 	domainConstraints: new Map(),
 	policies: new Map(),
 	defaults: new Map(),
+	statistics: new Map(),
 	publications: new Map(),
 	names: new Map()
 })
@@ -597,6 +599,11 @@ const learn = (catalogOf: LockCatalog, s: SqlStatement | RecordedStatement): voi
 		case "createPolicy":
 			member(catalogOf.policies, relationKey(catalogOf, s.table)).add(s.name)
 			return
+		case "declareStatistics":
+			for (const d of s.dependencies) {
+				member(catalogOf.statistics, relationKey(catalogOf, s.table)).add(named(d.name))
+			}
+			return
 		case "createPublication":
 			catalogOf.publications.set(
 				s.name,
@@ -645,7 +652,6 @@ const learn = (catalogOf: LockCatalog, s: SqlStatement | RecordedStatement): voi
 		case "alterDefaultPrivileges":
 		case "alterRole":
 		case "comment":
-		case "declareStatistics":
 		case "createCarrier":
 		case "emptyCarrier":
 		case "createDeclaredFunction":
@@ -709,6 +715,7 @@ const renamedRelation = (catalogOf: LockCatalog, from: ObjectName, to: ObjectNam
 	copy(catalogOf.constraints, (v) => new Map(v))
 	copy(catalogOf.policies, (v) => new Set(v))
 	copy(catalogOf.defaults, (v) => new Set(v))
+	copy(catalogOf.statistics, (v) => new Set(v))
 	if (catalogOf.toasted.has(was)) {
 		catalogOf.toasted.add(now)
 	}
@@ -1033,6 +1040,9 @@ class Locks {
 		}
 		for (const d of this.#catalog.defaults.get(key) ?? []) {
 			this.dropped([target("columnDefault", key, d)])
+		}
+		for (const d of this.#catalog.statistics.get(key) ?? []) {
+			this.dropped([target("statistics", d)])
 		}
 	}
 
@@ -1662,7 +1672,13 @@ const lockStatement = (locks: Locks, s: SqlStatement | RecordedStatement): void 
 			locks.add([
 				relation(s.table),
 				target("language", "plpgsql"),
-				...(locks.toasted(s.table) ? [target("toast", named(s.table))] : [])
+				...(locks.toasted(s.table) ? [target("toast", named(s.table))] : []),
+				...s.dependencies.flatMap((d) => [
+					namespace(d.name.schema),
+					owner,
+					relfilenodeIndex,
+					target("statistics", named(d.name))
+				])
 			])
 			return
 		case "lockTable":
@@ -1761,6 +1777,9 @@ const commentLocks = (
 		case "DOMAIN":
 		case "TYPE":
 			locks.add([typeOf(on.name)])
+			return
+		case "STATISTICS":
+			locks.add([target("statistics", named(on.name))])
 			return
 		case "COLUMN":
 			locks.add([relation(on.relation)])

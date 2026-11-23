@@ -1405,7 +1405,13 @@ export class Transform {
 				return this.#extension(s)
 			case "declareStatistics": {
 				const table = this.name(s.table, "relation")
-				return table === s.table ? s : { ...s, table }
+				const dependencies = s.dependencies.map((d) => {
+					const name = this.name(d.name, "statistics")
+					return name === d.name ? d : { ...d, name }
+				})
+				return table === s.table && dependencies.every((d, i) => d === s.dependencies[i])
+					? s
+					: { ...s, table, dependencies }
 			}
 			case "lockTable": {
 				const tables = this.names(s.tables, "relation")
@@ -1434,6 +1440,10 @@ export class Transform {
 			case "DOMAIN":
 			case "TYPE": {
 				const name = this.name(on.name, "type")
+				return name === on.name ? on : { ...on, name }
+			}
+			case "STATISTICS": {
+				const name = this.name(on.name, "statistics")
 				return name === on.name ? on : { ...on, name }
 			}
 			case "COLUMN": {

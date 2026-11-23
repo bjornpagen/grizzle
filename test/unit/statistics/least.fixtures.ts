@@ -1,8 +1,8 @@
 /** What the properties of least.test.ts read: their space and the brute-force model of the least exponents. */
 
-import { array, boolean, type Gen, int, subset } from "@bjornpagen/testing/gen"
+import { array, boolean, type Gen, int, subset, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
-import type { Bound, ExponentSystem } from "#compiler/physical/statistics/least.ts"
+import type { Bound, ExponentSystem, Over } from "#compiler/physical/statistics/least.ts"
 
 export type LeastFeature =
 	| "a system with a least solution"
@@ -10,16 +10,22 @@ export type LeastFeature =
 	| "an anchor above 1"
 	| "a column above 1"
 	| "two anchors"
+	| "a bound over a pair"
 
 /** A small system: one or two anchors, one to four columns, one to six bounds over them, each bound of its kind, its
- * anchor and a subset of the columns. */
+ * anchor, or one time in four a pair of anchors a dependency ties, and a subset of the columns. */
 export const systemGen: Gen<ExponentSystem> = (source) => {
 	const anchors = source.draw(int(1, 2))
 	const columns = source.draw(int(1, 4))
 	const indexes = Array.from({ length: columns }, (_, c) => c)
 	const bound: Gen<Bound> = (s) => ({
 		kind: s.draw(boolean) ? "key" : "apart",
-		anchor: s.draw(int(0, anchors - 1)),
+		over: s.draw(
+			weighted<Over>([
+				[3, (t) => ({ kind: "anchor", at: t.draw(int(0, anchors - 1)) })],
+				[1, () => ({ kind: "pair" })]
+			])
+		),
 		columns: s.draw(subset(indexes, { min: 0, max: columns }))
 	})
 	return { anchors, columns, bounds: source.draw(array(bound, { min: 1, max: 6 })) }
@@ -35,7 +41,7 @@ export const meets = (
 	Arr.every(columns, (x) => x >= 1) &&
 	Arr.every(system.bounds, (b) => {
 		const sum = Arr.reduce(b.columns, 0, (s, c) => s + (columns[c] ?? 0))
-		const y = anchors[b.anchor] ?? 0
+		const y = b.over.kind === "pair" ? 1 : (anchors[b.over.at] ?? 0)
 		return b.kind === "key" ? sum >= y : sum <= y - 1
 	})
 

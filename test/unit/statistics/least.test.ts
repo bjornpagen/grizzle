@@ -2,7 +2,8 @@
  * The least exponents of a relation's declared statistics (physical/statistics/least.ts): an exact search over integer
  * exponents, the least largest anchor exponent, then the columns' least in column order, then each anchor's least.
  *
- * Property: over small systems (one or two anchors, one to four columns, one to six key and apart bounds), a least
+ * Property: over small systems (one or two anchors, one to four columns, one to six key and apart bounds, each over an
+ * anchor or a pair of anchors a dependency ties, which binds two rows), a least
  * solution meets every bound, and no solution of the box its own largest exponent spans is less: none of a smaller
  * largest anchor exponent, none of the same with lexicographically smaller columns, and its anchors each at their least;
  * a crossing is a set of the system's bounds the box of exponents up to twice the bounds' count holds no solution of,
@@ -32,12 +33,16 @@ export const theLeastExponentsMeetEveryBoundAndAreLeastAgainstBruteForce = prope
 			"a crossing",
 			"an anchor above 1",
 			"a column above 1",
-			"two anchors"
+			"two anchors",
+			"a bound over a pair"
 		] satisfies ReadonlyArray<Reached<LeastFeature>>,
 		check: (_, c: Case<LeastFeature>) => (system) =>
 			Effect.sync(() => {
 				if (system.anchors > 1) {
 					c.note("two anchors")
+				}
+				if (Arr.some(system.bounds, (b) => b.over.kind === "pair")) {
+					c.note("a bound over a pair")
 				}
 				const least = leastExponents(system)
 				if (least.kind === "crossing") {

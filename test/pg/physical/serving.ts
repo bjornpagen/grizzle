@@ -45,12 +45,12 @@ import {
 	servesNoParams
 } from "#compiler/physical/install/extension.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
+import { copyIndexes, fillCopy, originalOf, standCopy } from "#test/pg/physical/copies.ts"
 import { parsedName, wild } from "#test/support/kernel/naming.ts"
 import { backendWaitStep, caseHang } from "#test/support/limits.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import {
 	countedAsVacuumed,
-	insertOf,
 	type VolumeFill,
 	type VolumeFillRefused,
 	type VolumeTable,
@@ -1374,15 +1374,11 @@ const withoutOthers = (
 		return statements
 	})
 
-/** The name of the copy a law's state stands up of a probed relation's table, in the table's schema (standCopy). */
-const copyName = "__judged_copy"
-
 /**
- * A copy of a relation's table as a law's state holds it (standCopy): its quoted name, its own name as EXPLAIN reports
- * its scans, the rows it holds, and each of its indexes by name with the table's index of the same definition and its
- * own pages.
+ * A relation's table as a law's state plans it (stoodUp): a copy of it (copies.ts), or the loaded table itself; the rows
+ * it holds; and each of its indexes by name with the table's index of the same definition and its own pages.
  */
-interface Copy {
+interface Stood {
 	readonly quoted: string
 	readonly name: string
 	readonly rows: number
@@ -1396,60 +1392,29 @@ interface Copy {
 type LawState = { readonly kind: "empty" } | { readonly kind: "filled"; readonly rows: number }
 
 /**
- * Stands up, in the transaction open on the admin session, a copy of `table` in `state` (LawState): its columns,
- * defaults, constraints and indexes (CREATE TABLE ... (LIKE ... INCLUDING ALL)) and its declared statistics, each
- * column's number of distinct values restored from the table's own; filled, the load's own rows over the series 0 to
- * `rows` - 1, each a key already holds skipped, and its pages all-visible, as the VACUUM of a filled table leaves them
- * (pg_restore_relation_stats). PostgreSQL reads a relation's size off its blocks (tableam.c
- * table_block_relation_estimate_size, plancat.c get_relation_info), so the state holds its rows, and the table itself is
- * never grown: the transaction's rollback drops the copy whole. Each index of the copy is mapped to the table's of the
- * same definition.
+ * Stands up, in the transaction open on the admin session, a copy of `table` in `state` (LawState, copies.ts standCopy):
+ * filled, the load's own rows over the series 0 to `rows` - 1, each a key already holds skipped, and its pages
+ * all-visible, as the VACUUM of a filled table leaves them (pg_restore_relation_stats), VACUUM running in no
+ * transaction. The transaction's rollback drops the copy whole.
  */
-const standCopy = (installed: Judged, table: Table, load: VolumeLoad, state: LawState) =>
+const stoodUp = (installed: Judged, table: Table, load: VolumeLoad, state: LawState) =>
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
-		const quoted = `${quoteIdent(table.schema)}.${quoteIdent(copyName)}`
-		yield* admin.query(`CREATE TABLE ${quoted} (LIKE ${table.quoted} INCLUDING ALL)`, [])
-		yield* admin.queryValues(
-			"SELECT pg_catalog.pg_restore_attribute_stats('schemaname', $1::text, 'relname', $2::text, " +
-				"'attname', s.attname::text, 'inherited', false, 'n_distinct', s.n_distinct) " +
-				"FROM pg_catalog.pg_stats AS s WHERE s.schemaname = $1::text AND s.tablename = $3::text AND NOT s.inherited",
-			[table.schema, copyName, table.name]
-		)
+		const copy = yield* standCopy(installed.installation, table)
 		const rows =
 			state.kind === "empty"
 				? 0
-				: yield* Effect.andThen(
-						admin.query(
-							insertOf(volumeTable(installed, load, quoted), "skipped", 0, state.rows - 1),
-							[]
-						),
-						countOf(admin, `SELECT count(*)::text FROM ${quoted}`)
+				: yield* fillCopy(
+						copy,
+						volumeTable(installed, load, copy.quoted).columns,
+						0,
+						state.rows - 1
 					)
 		if (state.kind === "filled") {
-			yield* admin.queryValues(countedAsVacuumed(quoted), [])
+			yield* admin.queryValues(countedAsVacuumed(copy.quoted), [])
 		}
-		const mapped = yield* Effect.map(
-			admin.queryValues(
-				"SELECT c.relname::text, o.relname::text, " +
-					"(pg_catalog.pg_relation_size(c.oid) / pg_catalog.current_setting('block_size')::bigint)::text " +
-					"FROM pg_catalog.pg_index AS xc JOIN pg_catalog.pg_class AS c ON c.oid = xc.indexrelid " +
-					"JOIN pg_catalog.pg_index AS xo ON xo.indrelid = $1::text::pg_catalog.regclass " +
-					"JOIN pg_catalog.pg_class AS o ON o.oid = xo.indexrelid " +
-					"WHERE xc.indrelid = $2::text::pg_catalog.regclass " +
-					"AND pg_catalog.substring(pg_catalog.pg_get_indexdef(xc.indexrelid), ' USING .*$') = " +
-					"pg_catalog.substring(pg_catalog.pg_get_indexdef(xo.indexrelid), ' USING .*$') ORDER BY 1, 2",
-				[table.quoted, quoted]
-			),
-			textsOf
-		)
-		const indexes = new Map<string, { readonly original: string; readonly pages: number }>()
-		for (const [name, original, pages] of mapped) {
-			if (name !== undefined && original !== undefined && !indexes.has(name)) {
-				indexes.set(name, { original, pages: Number(pages) })
-			}
-		}
-		return { quoted, name: copyName, rows, indexes } satisfies Copy
+		const indexes = yield* copyIndexes(table, copy)
+		return { ...copy, rows, indexes } satisfies Stood
 	})
 
 /**
@@ -1637,7 +1602,7 @@ const residueFeature = (residue: Residue): ServingFeature => {
  *
  * PostgreSQL chooses a probe's index in the states of the plan-shape law, never at the load's one size: each state is a
  * copy of the relation's table, its indexes and its declared statistics, stood up in a transaction rolled back
- * (standCopy), so the table the probes run on is never grown.
+ * (copies.ts standCopy, stoodUp), so the table the probes run on is never grown.
  * - Empty as installed, a table no VACUUM has seen, which PostgreSQL plans at ten pages: each probe binding a key by
  *   equality reads through a key's index it binds whole. Nothing else is judged empty, where a read of several rows may
  *   scan the table.
@@ -1819,10 +1784,8 @@ export const judgeServing = (
 			const bound = boundBy(probe)
 			return f !== undefined && f.unique && Arr.every(f.keys, (k) => bound.has(k.field))
 		}
-		const originalIn =
-			(copy: Copy) =>
-			(index: string): Option.Option<string> =>
-				Option.fromUndefinedOr(copy.indexes.get(index)?.original)
+		const originalIn = (copy: Stood): ((index: string) => Option.Option<string>) =>
+			originalOf(copy.indexes)
 		for (const relation of judgedRelations) {
 			const lookups = Arr.filter(probesOn(relation), (p) =>
 				Arr.some(judged, (i) => i.relation === relation && keyOf(i.index.name, p))
@@ -1832,7 +1795,7 @@ export const judgeServing = (
 			}
 			const chosen = yield* rolledBack(
 				Effect.gen(function* () {
-					const copy = yield* standCopy(installed, tableFor(relation), loadOf(relation), {
+					const copy = yield* stoodUp(installed, tableFor(relation), loadOf(relation), {
 						kind: "empty"
 					})
 					return yield* Effect.forEach(lookups, (p) =>
@@ -1906,12 +1869,12 @@ export const judgeServing = (
 		 * table itself where no probe of it grows; each probe's choice there; and each created index's probes' without it.
 		 */
 		interface Filled {
-			readonly copy: Copy
+			readonly copy: Stood
 			readonly choices: ReadonlyMap<Probe, Choice>
 			readonly without: ReadonlyMap<string, ReadonlyMap<Probe, Choice>>
 		}
 		/** The loaded table as its own filled state: each planned index its own. */
-		const loaded = (relation: string): Copy => {
+		const loaded = (relation: string): Stood => {
 			const table = tableFor(relation)
 			return {
 				quoted: table.quoted,
@@ -1939,7 +1902,7 @@ export const judgeServing = (
 				Effect.gen(function* () {
 					const table = tableFor(relation)
 					const copy = Option.isSome(size)
-						? yield* standCopy(installed, table, loadOf(relation), {
+						? yield* stoodUp(installed, table, loadOf(relation), {
 								kind: "filled",
 								rows: size.value
 							})

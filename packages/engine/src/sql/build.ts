@@ -140,6 +140,9 @@ export const types = {
 	/** A span of time, which a zone's wall clock reads an instant's milliseconds into (physical/ddl/library.ts). */
 	interval: builtinType("interval"),
 	jsonb: builtinType("jsonb"),
+	/** A statistics object's functional dependencies, the value a declared dependency restores (sql/ast.ts
+	 * DeclareStatistics). */
+	dependencies: builtinType("pg_dependencies"),
 	money: builtinType("money"),
 	int4range: builtinType("int4range"),
 	int8range: builtinType("int8range"),

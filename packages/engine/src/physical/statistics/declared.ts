@@ -28,6 +28,9 @@ import type { CreateTable, DeclaredDistinct, DeclareStatistics } from "#compiler
  *   holds more than one row); then the first column of many values of the primary key, of each other key and of each
  *   index, each where no set apart would hold two anchors, whose product PostgreSQL prices below one row at any size
  *   worth planning. A key of one column is an anchor of exponent 0, unique;
+ * - a pair of anchors one set apart holds together, alone or beside columns of one value: a dependency of the later on
+ *   the earlier is declared (DeclaredDependency), so PostgreSQL prices the pair at two rows at any size of the table, where
+ *   two independent anchors multiply below one row;
  * - a column of one value: a field of a unit's key after its anchor, the unit's count of rows sitting on the anchor,
  *   since PostgreSQL multiplies the fields as independent, and a roster's of one handle. A set holds a key where it
  *   holds every column of one but these;
@@ -94,6 +97,7 @@ export type Declaration =
 				readonly column: string
 				readonly distinct: DeclaredDistinct
 			}>
+			readonly dependencies: ReadonlyArray<DeclaredDependency>
 	  }
 	| { readonly kind: "crossing"; readonly bounds: NonEmptyReadonlyArray<CrossingBound> }
 	| {
@@ -102,6 +106,18 @@ export type Declaration =
 			readonly exponent: number
 			readonly handles: number
 	  }
+
+/**
+ * A dependency declared between two anchors a set apart holds together (`anchorsOf`): the determinant `determinant`
+ * functionally determines `dependent` to the degree 1/2^`exponent`, so PostgreSQL prices a set holding both at
+ * P(determinant) · (d + (1 − d) · P(dependent)) (dependencies.c dependencies_clauselist_selectivity), 2^y · 2^(1−y)
+ * = 2 rows at any size of the table, y the determinant's exponent: the exponent is y − 1.
+ */
+export interface DeclaredDependency {
+	readonly determinant: string
+	readonly dependent: string
+	readonly exponent: number
+}
 
 /** The leading run of an index's columns a binding holds: the columns its equalities bind of it. */
 const boundPrefix = (
@@ -134,20 +150,31 @@ const apartSets = (
 	})
 
 /**
- * The anchors of a relation: its unit's anchor, then the first column of many values of its primary key, of each other
- * key and of each index, in that order, each taken where no set apart then holds two of them, so every set apart holds
- * one anchor at most and its rows stand at any size of the table. A column of few values is never one: it holds no more
- * values than its handles at any size. A key holding none is priced at one row by its own unique index alone; a set
- * apart holding none binds the more rows the larger the table.
+ * The anchors of a relation, and the pairs of them a dependency ties: its unit's anchor, then the first column of many
+ * values of its primary key, of each other key and of each index, in that order, each taken where every set apart
+ * holding it holds no anchor taken before, or holds exactly one, `a`, and nothing else but columns of one value: then
+ * the two are a pair (DeclaredDependency), which binds two rows at any size, as two independent anchors could not
+ * (PostgreSQL would multiply them below one row). So every set apart holds one anchor or one pair, and its rows stand at
+ * any size of the table: metis's assignment, whose `user` leads four indexes beside the anchor `child` of its key, is
+ * priced at two rows a user where e2abf18f2, pairing none, priced it at half the table. An anchor may be in several
+ * pairs, and no set apart holds two of them: PostgreSQL applies a dependency only to a set holding all its columns
+ * (dependencies.c dependency_is_compatible_clause), so one dependency at most applies to any set. A column of few values is never one: it holds no more values than its handles at any size. A key
+ * holding none is priced at one row by its own unique index alone; a set apart holding none binds the more rows the
+ * larger the table. PostgreSQL applies a dependency to a set of one relation's columns alone (clausesel.c
+ * find_single_rel_for_clauses), so a join's probe of a pair multiplies them.
  */
 const anchorsOf = (
 	shape: RelationShape,
 	apart: ReadonlyArray<{ readonly columns: ReadonlyArray<string> }>,
 	single: ReadonlySet<string>,
 	unitAnchor: string | undefined
-): ReadonlyArray<string> => {
+): {
+	readonly anchors: ReadonlyArray<string>
+	readonly pairs: ReadonlyArray<readonly [string, string]>
+} => {
 	const many = new Set(shape.columns.flatMap((c) => (c.values.kind === "many" ? [c.column] : [])))
 	const taken: Array<string> = []
+	const pairs: Array<readonly [string, string]> = []
 	const candidates = [
 		...(unitAnchor === undefined ? [] : [unitAnchor]),
 		...[...shape.keys, ...shape.indexes].flatMap((cols) => {
@@ -159,16 +186,29 @@ const anchorsOf = (
 		if (taken.includes(c)) {
 			continue
 		}
+		const sharers = new Set<string>()
 		const admitted =
 			c === unitAnchor ||
-			apart.every(
-				(p) => !p.columns.includes(c) || p.columns.every((other) => !taken.includes(other))
-			)
-		if (admitted) {
+			apart.every((p) => {
+				if (!p.columns.includes(c)) {
+					return true
+				}
+				const others = p.columns.filter((o) => taken.includes(o))
+				const [only, ...more] = others
+				if (only === undefined) {
+					return true
+				}
+				sharers.add(only)
+				return more.length === 0 && p.columns.every((o) => o === c || o === only || single.has(o))
+			})
+		if (admitted && sharers.size <= 1) {
 			taken.push(c)
+			for (const a of sharers) {
+				pairs.push([a, c])
+			}
 		}
 	}
-	return taken
+	return { anchors: taken, pairs }
 }
 
 /** The declaration of a relation of `shape` (see the module's doc). */
@@ -190,7 +230,10 @@ export const declarationOf = (shape: RelationShape): Declaration => {
 		return shape.keys.some((k) => k.every((c) => held.has(c) || single.has(c)))
 	}
 	const apart = apartSets(shape, isKey)
-	const anchors = anchorsOf(shape, apart, single, unitAnchor)
+	const { anchors, pairs } = anchorsOf(shape, apart, single, unitAnchor)
+	/** The pair a set's anchors are, where they are exactly one. */
+	const pairOf = (held: ReadonlyArray<string>): boolean =>
+		held.length === 2 && pairs.some(([a, b]) => held.includes(a) && held.includes(b))
 	const free = shape.columns
 		.map((c) => c.column)
 		.filter((c) => !anchors.includes(c) && !single.has(c))
@@ -200,15 +243,19 @@ export const declarationOf = (shape: RelationShape): Declaration => {
 
 	const bounds: Array<Bound> = []
 	const meaning: Array<CrossingBound> = []
+	/** A bound over `cols`, held by one anchor or by a pair. */
 	const place = (
 		kind: Bound["kind"],
 		cols: ReadonlyArray<string>,
-		anchor: string,
+		by: { readonly kind: "anchor"; readonly anchor: string } | { readonly kind: "pair" },
 		said: CrossingBound
 	): void => {
 		bounds.push({
 			kind,
-			anchor: defined(anchorOf.get(anchor), "an anchor's place"),
+			over:
+				by.kind === "pair"
+					? { kind: "pair" }
+					: { kind: "anchor", at: defined(anchorOf.get(by.anchor), "an anchor's place") },
 			columns: cols.flatMap((c) => {
 				const at = freeOf.get(c)
 				return at === undefined ? [] : [at]
@@ -218,25 +265,46 @@ export const declarationOf = (shape: RelationShape): Declaration => {
 	}
 	for (const anchor of anchors) {
 		if (isKey([anchor])) {
-			place("key", [], anchor, { kind: "key", columns: [anchor] })
+			place("key", [], { kind: "anchor", anchor }, { kind: "key", columns: [anchor] })
 		} else {
-			place("apart", [], anchor, {
-				kind: "apart",
-				columns: [anchor],
-				binding: { columns: [anchor], by: `${anchor} alone, which is no key` }
-			})
+			place(
+				"apart",
+				[],
+				{ kind: "anchor", anchor },
+				{
+					kind: "apart",
+					columns: [anchor],
+					binding: { columns: [anchor], by: `${anchor} alone, which is no key` }
+				}
+			)
 		}
 	}
 	for (const key of shape.keys) {
-		const [only, ...more] = key.filter((c) => anchors.includes(c))
+		const held = key.filter((c) => anchors.includes(c))
+		const [only, ...more] = held
 		if (only !== undefined && more.length === 0) {
-			place("key", key, only, { kind: "key", columns: key })
+			place("key", key, { kind: "anchor", anchor: only }, { kind: "key", columns: key })
+		} else if (pairOf(held)) {
+			place("key", key, { kind: "pair" }, { kind: "key", columns: key })
 		}
 	}
 	for (const p of apart) {
-		const [only, ...more] = p.columns.filter((c) => anchors.includes(c))
+		const held = p.columns.filter((c) => anchors.includes(c))
+		const [only, ...more] = held
 		if (only !== undefined && more.length === 0) {
-			place("apart", p.columns, only, { kind: "apart", columns: p.columns, binding: p.binding })
+			place(
+				"apart",
+				p.columns,
+				{ kind: "anchor", anchor: only },
+				{ kind: "apart", columns: p.columns, binding: p.binding }
+			)
+		} else if (pairOf(held)) {
+			place(
+				"apart",
+				p.columns,
+				{ kind: "pair" },
+				{ kind: "apart", columns: p.columns, binding: p.binding }
+			)
 		}
 	}
 
@@ -255,6 +323,15 @@ export const declarationOf = (shape: RelationShape): Declaration => {
 	}
 	return {
 		kind: "declared",
+		dependencies: pairs.map(([determinant, dependent]) => ({
+			determinant,
+			dependent,
+			exponent:
+				defined(
+					least.anchors[defined(anchorOf.get(determinant), "a determinant's place")],
+					"its exponent"
+				) - 1
+		})),
 		columns: shape.columns.map(({ column }) => {
 			const anchor = anchorOf.get(column)
 			if (anchor !== undefined) {
@@ -281,7 +358,8 @@ export const declarationOf = (shape: RelationShape): Declaration => {
 /**
  * The declared statistics of one of grizzle's bookkeeping tables (deploy/ledger/ledger.ts bookkeepingTables), which no
  * schema declares, as every table grizzle installs holds them: its columns, each of many values, its primary key its
- * one key and index, and the key's probe its one binding. One key crosses nothing, so it is always declared.
+ * one key and index, and the key's probe its one binding. One key crosses nothing and sets nothing apart, so it is
+ * always declared, with no dependency.
  */
 export const bookkeepingDeclaration = (create: CreateTable): DeclareStatistics => {
 	const key = create.primaryKey.columns.map((c) => c.column)
@@ -293,8 +371,10 @@ export const bookkeepingDeclaration = (create: CreateTable): DeclareStatistics =
 		indexes: [key],
 		bindings: [{ columns: key, by: `the probe of key (${key.join(", ")})` }]
 	})
-	if (declaration.kind !== "declared") {
-		throw defect(`a bookkeeping table of one key, ${create.table.name}, is declared`)
+	if (declaration.kind !== "declared" || declaration.dependencies.length > 0) {
+		throw defect(
+			`a bookkeeping table of one key, ${create.table.name}, is declared with no dependency`
+		)
 	}
 	const distinct = new Map(declaration.columns.map((c) => [c.column, c.distinct] as const))
 	return {
@@ -303,6 +383,7 @@ export const bookkeepingDeclaration = (create: CreateTable): DeclareStatistics =
 		columns: mapNonEmpty(create.columns, (c) => ({
 			column: c.name,
 			distinct: defined(distinct.get(c.name), `the declared statistics of ${c.name}`)
-		}))
+		})),
+		dependencies: []
 	}
 }

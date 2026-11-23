@@ -54,6 +54,7 @@ export const catalogRelations = [
 	"pg_settings",
 	"pg_statistic_ext",
 	"pg_stats",
+	"pg_stats_ext",
 	"pg_trigger",
 	"pg_type"
 ] as const
@@ -78,6 +79,7 @@ export const catalogFunctions = [
 	"has_sequence_privilege",
 	"has_table_privilege",
 	"has_type_privilege",
+	"jsonb_extract_path_text",
 	"left",
 	"length",
 	"pg_advisory_lock",

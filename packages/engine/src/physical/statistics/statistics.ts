@@ -1,6 +1,7 @@
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { isNonEmpty, mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { refuse } from "#compiler/analysis/theory/build.ts"
+import { identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { NativeColumn } from "#compiler/ir/law.ts"
@@ -139,10 +140,22 @@ export const planDeclarations = (
 		if (!isNonEmpty(columns)) {
 			continue
 		}
+		const table = b.names.relation(relation)
+		const installedColumn = (c: string): string =>
+			defined(shape.installed.get(c), `the installed column of ${c}`)
 		const ddl: DeclareStatistics = {
 			kind: "declareStatistics",
-			table: b.names.relation(relation),
-			columns: mapNonEmpty(columns, (c) => c)
+			table,
+			columns: mapNonEmpty(columns, (c) => c),
+			dependencies: declaration.dependencies.map((d) => ({
+				name: {
+					schema: table.schema,
+					name: b.name(identity.dependencies(relation, d.determinant, d.dependent))
+				},
+				determinant: installedColumn(d.determinant),
+				dependent: installedColumn(d.dependent),
+				exponent: d.exponent
+			}))
 		}
 		b.add(
 			{

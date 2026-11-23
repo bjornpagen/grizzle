@@ -123,6 +123,9 @@ interface NodeKeys {
 	readonly recheckCond: Option.Option<string>
 	readonly filter: Option.Option<string>
 	readonly joinFilter: JoinFilter
+	/** A hash join's condition its hash table is probed by, and a merge join's its inputs are merged by. */
+	readonly hashCond: Option.Option<string>
+	readonly mergeCond: Option.Option<string>
 	readonly orderBy: Option.Option<string>
 	readonly sortKey: Option.Option<ReadonlyArray<string>>
 	/**
@@ -366,6 +369,8 @@ const nodeKeys = (o: Json): NodeKeys => ({
 	recheckCond: optStr(o, "Recheck Cond"),
 	filter: optStr(o, "Filter"),
 	joinFilter: joinFilterOf(optStr(o, "Join Filter")),
+	hashCond: optStr(o, "Hash Cond"),
+	mergeCond: optStr(o, "Merge Cond"),
 	orderBy: optStr(o, "Order By"),
 	sortKey: optStrings(o, "Sort Key"),
 	parallelAware: o["Parallel Aware"] === true

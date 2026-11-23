@@ -6,16 +6,19 @@
  * none, keys, indexes and the bindings of keys, index prefixes and drawn sets, half of them holding a crossed pair of
  * keys and sets apart besides), a declaration gives every column one number of distinct values, its anchors relative and
  * every other column absolute; a column of few values is never relative and holds no more values than its roster's
- * handles; the unit's key's fields after its first of many values, and a roster of one handle, hold exactly one; every
- * key holding one anchor binds at most one row; every set an index's equalities stop at short of a binding, holding no
- * key, holds at most one anchor, and where it holds one binds two rows or more; and a relation refused is refused as a
- * crossing of its own keys and sets, or for a column asked beyond its values.
+ * handles; the unit's key's fields after its first of many values, and a roster of one handle, hold exactly one; a
+ * declared dependency ties two anchors at two rows; every key holding one anchor, or one pair, binds at most one row;
+ * every set an index's equalities stop at short of a binding, holding no key, holds at most one anchor or one pair, and
+ * where it holds one binds two rows or more, as PostgreSQL prices a pair under its dependency; every column of many values
+ * that leads an index, but a unit's later field, is an anchor, alone or in a pair, so an equality on it alone is priced
+ * at a number of rows the table's size does not move (metis's hold gate, the kept case); and a relation refused is
+ * refused as a crossing of its own keys and sets, or for a column asked beyond its values.
  *
  * Oracle: specification, PostgreSQL's estimate over the declared values (declared.fixtures.ts estimate).
  */
 import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
 import { declarationOf } from "#compiler/physical/statistics/declared.ts"
 import {
@@ -38,7 +41,9 @@ export const declaredStatisticsBindOneRowAtAKeyAndTwoOrMoreAtEverySetApartAsPost
 			"a set apart bound",
 			"a roster column",
 			"a crossing",
-			"a column beyond its values"
+			"a column beyond its values",
+			"a pair a dependency ties",
+			"an index led by a column of many values"
 		] satisfies ReadonlyArray<Reached<DeclaredFeature>>,
 		check: (_, c: Case<DeclaredFeature>) => (shape) =>
 			Effect.sync(() => {
@@ -79,6 +84,18 @@ export const declaredStatisticsBindOneRowAtAKeyAndTwoOrMoreAtEverySetApartAsPost
 					"one declared number of distinct values per column, in column order"
 				)
 				const declared = new Map(Arr.map(d.columns, (col) => [col.column, col.distinct] as const))
+				if (Arr.isReadonlyArrayNonEmpty(d.dependencies)) {
+					c.note("a pair a dependency ties")
+				}
+				for (const dep of d.dependencies) {
+					const y = declared.get(dep.determinant)
+					assert.ok(
+						y?.kind === "relative" &&
+							declared.get(dep.dependent)?.kind === "relative" &&
+							dep.exponent === y.exponent - 1,
+						`the dependency of ${dep.dependent} on ${dep.determinant} ties two anchors at two rows`
+					)
+				}
 				for (const col of shape.columns) {
 					const distinct = declared.get(col.column)
 					if (col.values.kind === "few") {
@@ -96,10 +113,25 @@ export const declaredStatisticsBindOneRowAtAKeyAndTwoOrMoreAtEverySetApartAsPost
 					}
 				}
 				for (const key of shape.keys) {
-					const e = estimate(declared, key)
+					const e = estimate(declared, d.dependencies, key)
 					if (e.kind === "rows") {
 						c.note("a key bound")
 						assert.ok(e.log2 <= 0, `key (${Arr.join(key, ", ")}) binds at most one row`)
+					}
+				}
+				for (const index of shape.indexes) {
+					const [lead] = index
+					if (
+						lead !== undefined &&
+						!unitTail(shape).includes(lead) &&
+						Arr.some(shape.columns, (x) => x.column === lead && x.values.kind === "many")
+					) {
+						c.note("an index led by a column of many values")
+						assert.equal(
+							declared.get(lead)?.kind,
+							"relative",
+							`${lead}, leading index (${Arr.join(index, ", ")}) with many values, is an anchor, alone or in a pair`
+						)
 					}
 				}
 				for (const binding of shape.bindings) {
@@ -113,11 +145,11 @@ export const declaredStatisticsBindOneRowAtAKeyAndTwoOrMoreAtEverySetApartAsPost
 						) {
 							continue
 						}
-						const e = estimate(declared, prefix)
+						const e = estimate(declared, d.dependencies, prefix)
 						assert.notEqual(
 							e.kind,
 							"belowOne",
-							`(${Arr.join(prefix, ", ")}) holds at most one anchor`
+							`(${Arr.join(prefix, ", ")}) holds at most one anchor, or one pair a dependency ties`
 						)
 						if (e.kind === "rows") {
 							c.note("a set apart bound")
@@ -133,6 +165,22 @@ export const declaredStatisticsBindOneRowAtAKeyAndTwoOrMoreAtEverySetApartAsPost
 			kind: "specification",
 			name: "PostgreSQL's independence estimate over the declared numbers of distinct values (declared.fixtures.ts estimate)"
 		},
-		kept: [],
-		kills: []
+		kept: [
+			{
+				token: ReplayToken(
+					"test/unit/statistics/declared.test.ts#declaredStatisticsBindOneRowAtAKeyAndTwoOrMoreAtEverySetApartAsPostgresqlEstimatesThem:1ff.4:1.0.0.0.0.1.0.0.0.0.1.0.0.1.0.1.0.0.0.0.0.0.0.0.0.0"
+				),
+				reason:
+					"c1 leads index (c1, c2) beside the unit's anchor c0, the two in the sets the key (c0, c1, c2)'s other indexes stop at: e2abf18f2's declarations, pairing no anchors, left c1 absolute, so an equality on it alone was priced at a share of the table, as metis's assignment.user, leading four indexes beside the anchor child, was priced at half of 100,000 rows and its hold gate sorted a five-arm union whole (1.9 ms at 9653f3d5c, 409 ms at 2635639dd); c1 and c0 are a pair now",
+				since: "2026-11-23"
+			}
+		],
+		kills: [
+			{
+				file: "packages/engine/src/physical/statistics/declared.ts",
+				original: "\t\tif (admitted && sharers.size <= 1) {",
+				replacement: "\t\tif (admitted && sharers.size === 0) {",
+				why: "No two anchors paired, as e2abf18f2 declared: a column leading an index beside an anchor in a set apart is left absolute, and an equality on it alone is priced at a share of the table (the kept case, metis's hold gate)."
+			}
+		]
 	})

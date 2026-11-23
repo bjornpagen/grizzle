@@ -89,7 +89,8 @@ export const builtinTypeNames = [
 	"tsvector",
 	"regconfig",
 	"char",
-	"interval"
+	"interval",
+	"pg_dependencies"
 ] as const
 export type BuiltinTypeName = (typeof builtinTypeNames)[number]
 
@@ -158,7 +159,8 @@ export const catalogSpelling: { readonly [T in CatalogTypeName]: CatalogSpelling
 	regtype: "qualified",
 	regprocedure: "qualified",
 	pg_lsn: "qualified",
-	interval: "keyword"
+	interval: "keyword",
+	pg_dependencies: "qualified"
 }
 
 /**
@@ -2087,9 +2089,12 @@ export type DeclaredDistinct =
  * A table's declared statistics, two commands (print.ts commandsOf): ALTER TABLE ... SET (autovacuum_analyze_threshold,
  * autovacuum_analyze_scale_factor) at their maxima, so autovacuum analyzes the table never in practice, and ALTER COLUMN
  * ... SET STATISTICS 0 of every column, so an ANALYZE, a consumer's included, samples nothing of them and keeps what is
- * declared (analyze.c attribute_is_analyzable); then one DO block (print.ts declaredStatisticsBlock) that, for each column, clears its
+ * declared (analyze.c attribute_is_analyzable); each declared dependency's CREATE STATISTICS IF NOT EXISTS ...
+ * (dependencies) and ALTER STATISTICS ... SET STATISTICS 0; then one DO block (print.ts declaredStatisticsBlock) that, for each column, clears its
  * statistics and restores its declared number of distinct values (pg_clear_attribute_stats,
- * pg_restore_attribute_stats), a restore answering false raising, so every one is restored or the statement fails. Its
+ * pg_restore_attribute_stats), and each dependency's (pg_clear_extended_stats, pg_restore_extended_stats, its
+ * attributes the columns' numbers read from pg_attribute), a restore answering false raising, so every one is restored
+ * or the statement fails. Its
  * null fraction and average width are the restore's own defaults, 0 and unknown, so the planner reads a column of no
  * declared width by its type.
  */
@@ -2099,6 +2104,17 @@ export interface DeclareStatistics {
 	readonly columns: NonEmptyReadonlyArray<{
 		readonly column: string
 		readonly distinct: DeclaredDistinct
+	}>
+	/**
+	 * Each declared dependency of one anchor on another (physical/statistics/declared.ts DeclaredDependency): a
+	 * statistics object of the dependencies kind in the table's schema, its statistics target 0, so no ANALYZE samples
+	 * it, its degree 1/2^exponent restored.
+	 */
+	readonly dependencies: ReadonlyArray<{
+		readonly name: ObjectName
+		readonly determinant: string
+		readonly dependent: string
+		readonly exponent: number
 	}>
 }
 
@@ -2538,7 +2554,14 @@ export interface Refresh {
 export type CommentTarget =
 	| { readonly kind: "SCHEMA" | "ROLE"; readonly name: string }
 	| {
-			readonly kind: "TABLE" | "VIEW" | "MATERIALIZED VIEW" | "DOMAIN" | "TYPE" | "INDEX"
+			readonly kind:
+				| "TABLE"
+				| "VIEW"
+				| "MATERIALIZED VIEW"
+				| "DOMAIN"
+				| "TYPE"
+				| "INDEX"
+				| "STATISTICS"
 			readonly name: ObjectName
 	  }
 	| { readonly kind: "COLUMN"; readonly relation: ObjectName; readonly column: string }

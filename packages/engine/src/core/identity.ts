@@ -67,7 +67,7 @@ export const maxIdentifierBytes = namedatalen - 1
  *   views when it does not fit with its lead (physical/ddl/names.ts).
  * - Hashed: `__`, a readable stem cut to `stemBudget` bytes at a segment boundary, `_` and a digest of the identity's
  *   canonical encoding, the first `5 * digestChars` bits of its SHA-256 as `digestChars` characters of lowercase RFC
- *   4648 base32: keys, foreign keys, span, norm and law checks, indexes, contract and
+ *   4648 base32: keys, foreign keys, span, norm and law checks, indexes, declared dependencies, contract and
  *   text-pattern domains, named by their definitions, constants, sets' domains, law and arm tag columns, laws and their functions and triggers, filter functions, key and unique probes,
  *   a migration's temporaries, and a write program's carriers, named by their declarations too.
  *   Every name grizzle derives starts with `__`, so no declared name meets
@@ -1578,6 +1578,20 @@ export const identity = Object.freeze({
 			[relation, method, keys.map((k) => [k.field, k.dir, k.opclass]), filtered],
 			[...nameSegments(relation), "ix", ...keys.flatMap((k) => nameSegments(k.field))],
 			`${method} index ${relation}(${keys.map((k) => `${k.field}${k.dir === "desc" ? " desc" : ""}${k.opclass === "default" ? "" : ` ${k.opclass}`}`).join(", ")})${filtered.length === 0 ? "" : `, ${filtered.join(", ")} filtered beside it, not indexed: no byte bound fits the entry`}`,
+			hashed
+		),
+	/** The declared dependency of one anchor of a relation on another (physical/statistics/declared.ts
+	 * DeclaredDependency), a statistics object of the dependencies kind. */
+	dependencies: (
+		relation: string,
+		determinant: string,
+		dependent: string
+	): Identity<"dependencies"> =>
+		mint(
+			"dependencies",
+			[relation, [determinant, dependent]],
+			[...nameSegments(relation), "dep", ...nameSegments(determinant), ...nameSegments(dependent)],
+			`dependencies ${fieldsOf(relation, [determinant, dependent])}`,
 			hashed
 		),
 	/** A derived relation's unique index on a key its definition proves. */

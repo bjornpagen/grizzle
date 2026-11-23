@@ -11,6 +11,7 @@ import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonemp
  * - a key binds at most one row: Σ x_c ≥ y_a;
  * - a set apart, which holds no key, binds two rows or more: Σ x_c ≤ y_a − 1 (an anchor that is no key alone is a set
  *   apart with no other column, y_a ≥ 1; one that is a key alone a key with none, y_a = 0).
+ * A bound over a pair of anchors a declared dependency ties is the same with 1 in y_a's place: the pair binds two rows.
  * The unknowns are integers, y_a ≥ 0 and x_c ≥ 1: PostgreSQL rounds a declared absolute number of distinct values to an
  * integer (selfuncs.c get_variable_numdistinct, clamp_row_est), and every column at least halves the rows it binds.
  *
@@ -30,10 +31,16 @@ import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonemp
  *   box.
  */
 
-/** One bound of a system, over an anchor by its position and other columns by theirs (see the module's doc). */
+/**
+ * What a bound's set holds of the relation's anchors: one anchor, by its position, whose exponent is the bound's; or a
+ * pair of anchors a declared dependency ties (declared.ts), which binds two rows at any size, an exponent of 1.
+ */
+export type Over = { readonly kind: "anchor"; readonly at: number } | { readonly kind: "pair" }
+
+/** One bound of a system, over an anchor or a pair and other columns by their positions (see the module's doc). */
 export interface Bound {
 	readonly kind: "key" | "apart"
-	readonly anchor: number
+	readonly over: Over
 	readonly columns: ReadonlyArray<number>
 }
 
@@ -91,7 +98,7 @@ const less = (a: Fraction, b: Fraction): boolean => a.n * b.d < b.n * a.d
 /**
  * The bounds as rows over the rational unknowns z ≥ 0, each `Σ coefficients·z ≤ limit`: z holds each anchor's exponent
  * first, then each column's exponent less 1, so z ≥ 0 states x ≥ 1. A key's row is y_a − Σ (x_c − 1) ≤ |columns|, a set
- * apart's Σ (x_c − 1) − y_a ≤ −1 − |columns|.
+ * apart's Σ (x_c − 1) − y_a ≤ −1 − |columns|; over a pair, −Σ (x_c − 1) ≤ |columns| − 1 and Σ (x_c − 1) ≤ −|columns|.
  */
 const rowsOf = (
 	system: ExponentSystem,
@@ -100,13 +107,16 @@ const rowsOf = (
 	bounds.map((b) => {
 		const coefficients = Array.from({ length: system.anchors + system.columns }, () => 0n)
 		const sense = b.kind === "key" ? -1n : 1n
-		coefficients[b.anchor] = -sense
+		if (b.over.kind === "anchor") {
+			coefficients[b.over.at] = -sense
+		}
 		for (const c of b.columns) {
 			coefficients[system.anchors + c] =
 				defined(coefficients[system.anchors + c], "a column") + sense
 		}
 		const width = BigInt(b.columns.length)
-		return { coefficients, limit: b.kind === "key" ? width : -1n - width }
+		const fixed = b.over.kind === "pair" ? 1n : 0n
+		return { coefficients, limit: b.kind === "key" ? width - fixed : fixed - 1n - width }
 	})
 
 /**
@@ -204,7 +214,7 @@ const feasible = (
 
 /** Two bounds are one where they hold one kind, one anchor and one set of columns. */
 const boundKey = (b: Bound): string =>
-	`${b.kind}\u0000${b.anchor}\u0000${[...new Set(b.columns)].toSorted((x, y) => x - y).join(",")}`
+	`${b.kind}\u0000${b.over.kind === "anchor" ? b.over.at : "pair"}\u0000${[...new Set(b.columns)].toSorted((x, y) => x - y).join(",")}`
 
 /**
  * The largest anchor exponent of an integer solution: the rational point (x, y) scaled by its denominators' least common
@@ -223,15 +233,19 @@ const ceiling = (system: ExponentSystem, point: ReadonlyArray<Fraction>): number
 interface Indexed {
 	readonly apart: ReadonlyArray<ReadonlyArray<Bound>>
 	readonly key: ReadonlyArray<ReadonlyArray<Bound>>
+	readonly pairApart: ReadonlyArray<Bound>
+	readonly pairKey: ReadonlyArray<Bound>
 }
 
 const indexed = (system: ExponentSystem, bounds: ReadonlyArray<Bound>): Indexed => ({
 	apart: Array.from({ length: system.anchors }, (_, a) =>
-		bounds.filter((b) => b.kind === "apart" && b.anchor === a)
+		bounds.filter((b) => b.kind === "apart" && b.over.kind === "anchor" && b.over.at === a)
 	),
 	key: Array.from({ length: system.anchors }, (_, a) =>
-		bounds.filter((b) => b.kind === "key" && b.anchor === a)
-	)
+		bounds.filter((b) => b.kind === "key" && b.over.kind === "anchor" && b.over.at === a)
+	),
+	pairApart: bounds.filter((b) => b.kind === "apart" && b.over.kind === "pair"),
+	pairKey: bounds.filter((b) => b.kind === "key" && b.over.kind === "pair")
 })
 
 /**
@@ -247,8 +261,8 @@ const anchorFloor = (ix: Indexed, anchor: number, low: (c: number) => number): n
 /**
  * Whether a partial assignment of the columns' exponents may complete under the largest anchor exponent `Y`: each
  * anchor's least exponent, every unassigned column at 1, at most the least of `Y` and each of its keys' sums, every
- * unassigned column at the most a set apart it is in leaves it (`Y` − 1 less the rest of the set at their least) or
- * the greater of `Y` and 1. At a full assignment it is exact.
+ * unassigned column at the most a set apart it is in leaves it (`Y` − 1 less the rest of the set at their least, 0 over
+ * a pair) or the greater of `Y` and 1; and each key over a pair at least 1. At a full assignment it is exact.
  */
 const atMost = (
 	ix: Indexed,
@@ -263,15 +277,21 @@ const atMost = (
 			return v
 		}
 		let most = Math.max(1, Y)
-		for (const sets of ix.apart) {
-			for (const b of sets) {
+		for (const [family, top] of [
+			...ix.apart.map((apart) => [apart, Y - 1] as const),
+			[ix.pairApart, 0] as const
+		]) {
+			for (const b of family) {
 				if (b.columns.includes(c)) {
 					const rest = b.columns.reduce((s, other) => (other === c ? s : s + low(other)), 0)
-					most = Math.min(most, Y - 1 - rest)
+					most = Math.min(most, top - rest)
 				}
 			}
 		}
 		return most
+	}
+	if (ix.pairKey.some((b) => b.columns.reduce((s, c) => s + high(c), 0) < 1)) {
+		return false
 	}
 	for (let a = 0; a < anchors; a++) {
 		const floor = anchorFloor(ix, a, low)

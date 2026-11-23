@@ -62,7 +62,8 @@ export const runDeclared = (
 		const declared: DeclareStatistics = {
 			kind: "declareStatistics",
 			table: { schema: "pg_temp", name: tableName },
-			columns: [first, ...rest]
+			columns: [first, ...rest],
+			dependencies: []
 		}
 		const definer: PlFunction = {
 			kind: "createFunction",

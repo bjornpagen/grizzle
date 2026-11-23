@@ -3334,6 +3334,11 @@ class Differ {
 		])
 	}
 
+	/**
+	 * A table's declared statistics, declared again where they changed: first each declared dependency of the
+	 * declaration before that this one no longer holds dropped, a statistics object of its own, then the declaration
+	 * whole, whose dependencies stand where they stood (CREATE STATISTICS IF NOT EXISTS) and are restored.
+	 */
 	statistics(
 		v: Installed & { readonly kind: "statistics" },
 		before: RecordedObject | undefined
@@ -3342,7 +3347,19 @@ class Differ {
 		if (before !== undefined && this.unchanged(before, o)) {
 			return
 		}
-		this.sql("indexes", [create])
+		const kept = new Set(create.dependencies.map((d) => nameKey(d.name)))
+		const departed = (before?.ddl ?? []).flatMap((s) =>
+			s.kind === "declareStatistics" ? s.dependencies.filter((d) => !kept.has(nameKey(d.name))) : []
+		)
+		this.sql("indexes", [
+			...departed.map((d): SqlStatement => ({
+				kind: "drop",
+				object: "STATISTICS",
+				name: d.name,
+				ifExists: true
+			})),
+			create
+		])
 	}
 
 	/** An object the target no longer has and no step takes away first (Fate removed), dropped in place by a statement
@@ -3526,6 +3543,12 @@ class Differ {
 				return
 			}
 			case "statistics":
+				for (const d of v.create.dependencies) {
+					drop(
+						v.kind,
+						statement({ kind: "drop", object: "STATISTICS", name: d.name, ifExists: true })
+					)
+				}
 				return
 			case "role":
 			case "decoder":
@@ -4070,8 +4093,9 @@ type Replacement = "converted" | "redefined"
  * drop, which dropReplaced drafts before the replacement. */
 interface Replaced {
 	readonly how: Replacement
-	/** Its drops: one statement for an object the catalog holds, none for a table's declared statistics, which hold no
-	 * catalog object and are declared again whole where the target keeps them. */
+	/** Its drops: one statement for an object the catalog holds, none for a table's declared statistics, whose
+	 * dependencies PostgreSQL rebuilds over a converted column and which are declared again whole where the target keeps
+	 * them. */
 	readonly drops: ReadonlyArray<Drop>
 }
 
