@@ -52,7 +52,7 @@ import {
 	recordedNullCases,
 	type NullCase
 } from "#test/pg/null/positions.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * NULL in every position is judged by PostgreSQL's three-valued logic in every rule and query, by the host evaluator and the writer alike.
@@ -84,12 +84,16 @@ export const nULLInEveryPositionIsJudgedByPostgreSQLsThreeValuedLogicInEveryRule
 	property.explore(
 		steered<NullCase, Feature>((steering) => recorded(steeredCases(steering), recordedNullCases)),
 		{
-			needs: { substrate: Substrate.fresh },
+			needs: { substrate: Substrate.fresh(baseSubstrate) },
 			situations: situations satisfies ReadonlyArray<Reached<Feature>>,
 			check:
 				({ substrate }, c: Case<Feature>) =>
 				(value) =>
-					Effect.provideServiceEffect(nullCase(value, c), Substrate, substrate),
+					Effect.provideServiceEffect(
+						nullCase(value, c),
+						Substrate,
+						Effect.map(substrate, (taken) => taken.substrate)
+					),
 			oracle: {
 				kind: "postgresql",
 				name: "each expression written in plain SQL from its meaning alone and evaluated by one SELECT at every row it is judged at, with the model of language.ts agreeing; grizzle's host evaluator, writer and reader held to its values"

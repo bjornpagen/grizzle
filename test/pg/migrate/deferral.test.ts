@@ -20,13 +20,13 @@ import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { caseGen, type Feature, walk } from "#test/pg/migrate/deferral.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** A foreign key whose deferral alone changes is altered in place in Publish, the migrated catalog a fresh install's. */
 export const aForeignKeyWhoseDeferralAloneChangesIsAlteredInPlaceInPublish = property.exhaust(
 	finite(caseGen),
 	{
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: [
 			"immediate then deferred",
 			"deferred then immediate",
@@ -35,7 +35,11 @@ export const aForeignKeyWhoseDeferralAloneChangesIsAlteredInPlaceInPublish = pro
 		check:
 			({ substrate }, cx: Case<Feature>) =>
 			(c) =>
-				Effect.provideServiceEffect(Effect.scoped(walk(c, cx.note)), Substrate, substrate),
+				Effect.provideServiceEffect(
+					Effect.scoped(walk(c, cx.note)),
+					Substrate,
+					Effect.map(substrate, (taken) => taken.substrate)
+				),
 		oracle: {
 			kind: "specification",
 			name: "the folder's one statement naming the foreign key, its ALTER CONSTRAINT in Publish, and PostgreSQL's catalog of the migrated against a fresh installation"

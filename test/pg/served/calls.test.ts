@@ -50,7 +50,7 @@ const features = [
 
 /** A served program's calls of declared functions answer PostgreSQL's own rows of those calls, a NULL row refused. */
 export const aServedProgramsCallsAnswerPostgresqlsOwnRowsOfThem = property.explore(caseGen, {
-	needs: Substrate.oneOf(callsTemplates, Substrate.freshOf),
+	needs: Substrate.oneOf(callsTemplates, Substrate.fresh),
 	situations: features,
 	budget: { runs: 16, steered: features.length },
 	check: (templates, notes: Case<CallsFeature>) => (c) =>

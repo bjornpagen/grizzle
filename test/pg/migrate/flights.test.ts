@@ -47,12 +47,12 @@ import { succeeded } from "#test/support/assert.ts"
 import { firstCodes } from "#test/support/compile.ts"
 import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { draftChain, fromEmpty } from "#test/support/migrate/kit.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { tappedSession } from "#test/support/wire-tap.ts"
 
 /** Every step of grizzle migrate is one flight an apply sends one flight per step, and the drift check after it exactly two. */
 export const flights = property.exhaust(finite(historyGen), {
-	needs: { caseSubstrate: Substrate.fresh },
+	needs: { caseSubstrate: Substrate.fresh(baseSubstrate) },
 	situations: [
 		"an absent ledger admitted",
 		"every folder in one apply",
@@ -125,7 +125,7 @@ export const flights = property.exhaust(finite(historyGen), {
 					yield* appliedIn(tapped, m, whole, "installed", c)
 				}),
 				Substrate,
-				caseSubstrate
+				Effect.map(caseSubstrate, (taken) => taken.substrate)
 			),
 	oracle: {
 		kind: "specification",

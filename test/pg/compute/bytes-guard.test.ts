@@ -36,7 +36,7 @@ import { probe } from "#test/pg/physical/checks.ts"
 import { installationSql } from "#test/support/compile.ts"
 import { installationNamesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { ownedInput } from "#test/support/policy.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * A guard of a text's bytes on PostgreSQL 19 admits a cast into str.bytes exactly when the guard's bound is within the target's, and stores what the host computes.
@@ -49,7 +49,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aGuardOfATextsBytesOnPostgreSQL19AdmitsACastIntoStrBytesExactlyWhenTheGuardsBoundIsWithinTheTargetsAndStoresWhatTheHostComputes =
 	property.explore(caseGen, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: [
 			"a cast under no guard",
 			"refused, naming the bound",

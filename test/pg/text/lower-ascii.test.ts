@@ -45,7 +45,7 @@ import {
 	reproFeatures,
 	textBatch
 } from "#test/pg/text/lower-ascii.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Text.lowerAscii's one SQL, in a query and in a check, is translate's by the ASCII capitals and the host's ASCII case fold over every byte class, long texts included, and is collated pg_c_utf8.
@@ -75,7 +75,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const lowerAsciisOneSqlInAQueryAndInACheckIsTranslatesByTheAsciiCapitalsAndTheHostsAsciiCaseFoldOverEveryByteClassLongTextsIncludedAndIsCollatedPgCUtf8 =
 	property.explore(textBatch, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: foldFeatures,
 		check:
 			({ tx }, k: Case<FoldFeature>) =>
@@ -179,7 +179,7 @@ export const lowerAsciisOneSqlInAQueryAndInACheckIsTranslatesByTheAsciiCapitalsA
  */
 export const lowerAsciisOneSqlInAQueryAndInACheckFoldsATextPastEveryOperandTranslateReadsWholeWhereTranslateRefusesIt =
 	property.explore(pastCase, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: [],
 		/** Each case allocates about a gigabyte on its backend: the text, its fold, its fold's own repeat and lower's copy. */
 		budget: { runs: 1, steered: 0 },
@@ -265,7 +265,7 @@ export const lowerAsciisOneSqlInAQueryAndInACheckFoldsATextPastEveryOperandTrans
  */
 export const theReproCompilesAndHoldsAQueryFoldsEachAttributesUnboundedTextAsTheHostDoesAndTheRuleOverFoldedAcceptsExactlyTheTagsTheHostFoldsFromTheirAttributes =
 	property.explore(foldCase, {
-		needs: { fold: Substrate.freshOf(foldTemplate) },
+		needs: { fold: Substrate.fresh(foldTemplate) },
 		situations: reproFeatures,
 		check: (resources, c: Case<ReproFeature>) => (k: FoldCase) => reproCase(resources)(k, c),
 		oracle: {

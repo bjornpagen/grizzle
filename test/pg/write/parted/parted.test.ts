@@ -66,7 +66,7 @@ const unheadered = (value: unknown): string =>
 export const aSingleStatementsShapesWriteJudgeAndCaptureAsItsWholeStatementDoesAndAnEmptyPartFiresNothing =
 	property.exhaust(finite(boxGen), {
 		box: "H, three sidecars from p1, p2 and p3, G over p1 and p2, each judged into H at COMMIT, each parameter none to two facts, a rider of S1's added facts or none, p2's facts naming another header or not",
-		needs: { lab: Substrate.freshOf(labTemplate) },
+		needs: { lab: Substrate.fresh(labTemplate) },
 		situations: [
 			"a part left out",
 			"every part sent",

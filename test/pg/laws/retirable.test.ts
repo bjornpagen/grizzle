@@ -52,7 +52,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aRetirableUnitInstalledOnPostgreSQL19AdmitsRowsOnlyIntoOpenGroupsHoldsOnlyOpenGroupsAndRetiresAGroupWholeKeepingItsHeaderForGood =
 	property.explore(lifeGen, {
-		needs: { fresh: Substrate.freshOf(unitsTemplate) },
+		needs: { fresh: Substrate.fresh(unitsTemplate) },
 		situations: [
 			"a header keyed by one field",
 			"a header keyed by two fields",

@@ -44,7 +44,7 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aRuleOverAQueryJudgesTheTransactionsNetWriteAsTheRulesWholeCheckJudgesItsState =
 	property.explore(netSpace, {
-		needs: { net: Substrate.freshOf(netWriteTemplate) },
+		needs: { net: Substrate.fresh(netWriteTemplate) },
 		situations: netFeatures,
 		check:
 			({ net }, c) =>

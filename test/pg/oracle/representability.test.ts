@@ -36,11 +36,11 @@ import {
 	widestValue
 } from "#test/pg/oracle/representability.fixtures.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** The widest fact of every generated key the compiler accepts is one PostgreSQL's B-tree accepts. */
 export const acceptsTheWidestFact = property.explore(keyGen, {
-	needs: { tx: Substrate.transaction },
+	needs: { tx: Substrate.rolledBack(baseSubstrate) },
 	/**
 	 * Its search budget: the fewest runs at which each kill it declares still fails a witness, the cull rule's measure
 	 * (grizzle main, 2026-11-23).

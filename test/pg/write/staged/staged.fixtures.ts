@@ -268,7 +268,7 @@ const stagedInstall = { label: "stagedrows", programs: {} } as const
 
 /**
  * Staged installed once per member (reads/support.ts fixtureTemplate), where its search installed it before its cases;
- * a case takes a clone of its own (Substrate.freshOf), since a case may revoke TEMPORARY on the database and grant it
+ * a case takes a clone of its own (Substrate.fresh), since a case may revoke TEMPORARY on the database and grant it
  * back, which leaves its ACL unlike the template's.
  */
 export const stagedTemplate = fixtureTemplate(import.meta, Staged, stagedInstall)

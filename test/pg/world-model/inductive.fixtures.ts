@@ -19,7 +19,7 @@ import { Array as Arr, Effect, Option, Record as Rec, type Scope, String as Str 
 import { ordinarySession } from "#test/support/ambient.ts"
 import { templateNeedBudget } from "#test/support/budgets.ts"
 import type { SqlError } from "#test/support/pg.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import {
 	aimsAt,
 	docsAtBoundRealities,
@@ -135,12 +135,12 @@ const inductiveTemplates = Rec.map(fixedInstalls, (install, key) =>
 )
 
 /**
- * The needs of the inductive property: each fixed installation's clone (Substrate.freshOf over its template), by its
+ * The needs of the inductive property: each fixed installation's clone (Substrate.fresh over its template), by its
  * key, and a substrate of its own (Substrate.fresh) for a case that installs its world itself.
  */
 export const inductiveNeeds = {
-	...Substrate.oneOf(inductiveTemplates, Substrate.freshOf),
-	own: Substrate.fresh
+	...Substrate.oneOf(inductiveTemplates, Substrate.fresh),
+	own: Substrate.fresh(baseSubstrate)
 } as const
 
 /**
@@ -159,7 +159,7 @@ export const inductiveWorld = (
 		: Effect.provideServiceEffect(
 				realizeRace(specOf(ic.install), ordinarySession, poolSize),
 				Substrate,
-				resources.own
+				Effect.map(resources.own, (taken) => taken.substrate)
 			)
 
 /** The installation a case's world is (specOf). */

@@ -46,11 +46,11 @@ import {
 	situationOf,
 	smallest
 } from "#test/pg/migrate/backfill-cost.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** The cost of a tree's backfill over a chain and a star of n, 2n and 4n nodes, every row moved before it, the keyed tree's backfill draws the reference's rows, and the rows it touches grow by no more from 2n to 4n than twice what they grow by from n to 2n. */
 export const backfillCost = property.exhaust(finite(shapeGen), {
-	needs: { substrate: Substrate.fresh },
+	needs: { substrate: Substrate.fresh(baseSubstrate) },
 	situations: nonEmpty(
 		Arr.flatMap(shapes, (shape) => Arr.map(scales, (scale) => situationOf({ shape, scale }))),
 		"the box's situations"
@@ -69,7 +69,7 @@ export const backfillCost = property.exhaust(finite(shapeGen), {
 					linear(shape, costs)
 				}),
 				Substrate,
-				substrate
+				Effect.map(substrate, (taken) => taken.substrate)
 			),
 	oracle: {
 		kind: "specification",

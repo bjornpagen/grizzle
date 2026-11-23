@@ -43,7 +43,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const commitExactlyTheTransactionsWhoseVisitsLieWithinTheirSittingsStartAndEnd =
 	property.explore(aimed(caseGen, aims), {
-		needs: { fresh: Substrate.freshOf(orderingTemplate) },
+		needs: { fresh: Substrate.fresh(orderingTemplate) },
 		situations: required satisfies ReadonlyArray<Reached<Feature>>,
 		check:
 			({ fresh }, k: Case<Feature>) =>

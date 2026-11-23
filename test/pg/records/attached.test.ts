@@ -18,7 +18,7 @@ import {
 	attachedCase,
 	attachedCaseGen
 } from "#test/pg/records/attached.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** What a case stores: each delivery below the books with a child, a third level's, an order of several. */
 type RecordsFeature =
@@ -80,7 +80,7 @@ const reached = (c: AttachedCase): ReadonlyArray<RecordsFeature> => {
 export const aQuerysRecordsReadBackExactlyTheRowsTheQueryDelivered = property.explore(
 	attachedCaseGen,
 	{
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: [
 			"an option stored",
 			"one child stored",
@@ -102,7 +102,7 @@ export const aQuerysRecordsReadBackExactlyTheRowsTheQueryDelivered = property.ex
 						})
 					),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "second-implementation",

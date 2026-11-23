@@ -14,13 +14,13 @@ import { finite } from "@bjornpagen/testing/gen"
 import { property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { dataStepGen, runDataStep } from "#test/pg/laws/rule-data-step.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** A migration's data step that breaks a rule over a query is refused at its statement, and one that keeps it applies. */
 export const aMigrationsDataStepThatBreaksARuleOverAQueryIsRefusedAtItsStatement = property.exhaust(
 	finite(dataStepGen),
 	{
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: [
 			"a data step that keeps the rule applied",
 			"a data step that breaks the rule refused at it"
@@ -28,7 +28,11 @@ export const aMigrationsDataStepThatBreaksARuleOverAQueryIsRefusedAtItsStatement
 		check:
 			({ substrate }, c) =>
 			(d) =>
-				Effect.provideServiceEffect(runDataStep(d, c), Substrate, substrate),
+				Effect.provideServiceEffect(
+					runDataStep(d, c),
+					Substrate,
+					Effect.map(substrate, (taken) => taken.substrate)
+				),
 		oracle: {
 			kind: "postgresql",
 			name: "the migration's outcome over the data step's value: applied under 10, refused at the data step's statement of the Structure file by check_violation and Small's law at 99"

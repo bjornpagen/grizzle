@@ -103,7 +103,7 @@ import {
 	type Txn
 } from "#test/support/schedules/interleave.ts"
 import { beginSerializableAction } from "#test/support/schedules/types.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * A migration's Validate phase over violating rows every kind of law refuses with its identity and leaves the rows intact.
@@ -112,7 +112,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aMigrationsValidatePhaseOverViolatingRowsEveryKindOfLawRefusesWithItsIdentityAndLeavesTheRowsIntact =
 	property.explore(violationsGen, {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: [],
 		check:
 			({ substrate }) =>
@@ -328,7 +328,7 @@ export const aMigrationsValidatePhaseOverViolatingRowsEveryKindOfLawRefusesWithI
 						})
 					),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "specification",
@@ -344,7 +344,7 @@ export const aMigrationsValidatePhaseOverViolatingRowsEveryKindOfLawRefusesWithI
  */
 export const aMigrationsValidatePhaseAWriterRacingTheMigrationCannotSlipAViolationPastASelectedSidesForeignKey =
 	property.exhaust(finite(racingGen), {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: [
 			"the migration succeeded",
 			"the migration refused by the law",
@@ -457,7 +457,7 @@ export const aMigrationsValidatePhaseAWriterRacingTheMigrationCannotSlipAViolati
 						})
 					),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "specification",

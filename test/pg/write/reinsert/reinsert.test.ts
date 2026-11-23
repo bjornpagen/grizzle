@@ -37,7 +37,7 @@ import { installMigrated } from "#test/support/install-migrate.ts"
 import { lawNamesOf, namesOf } from "#test/support/kernel/naming.ts"
 import { oneFlight } from "#test/support/one-flight.ts"
 import { applicationOf, member, openServedDb } from "#test/support/served-db.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 
 /**
@@ -45,7 +45,7 @@ import { fullWorld } from "#test/support/worlds.ts"
  */
 export const aStoredInstanceInsertedAgainAnswersNoChangeWhereEveryStatedRowIsStoredAsStatedAcceptedWhereItAddsRowsAndInvariantRejectedOnTheKeyOfAStatedRowThatDiffersWitnessedByThatRowsKey =
 	property.explore(steered(reinsertCases), {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: situations satisfies ReadonlyArray<Reached<Situation>>,
 		check:
 			({ substrate }, c: Case<Situation>) =>
@@ -238,7 +238,7 @@ export const aStoredInstanceInsertedAgainAnswersNoChangeWhereEveryStatedRowIsSto
 						}).pipe(Effect.scoped)
 					}).pipe(Effect.scoped),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "specification",

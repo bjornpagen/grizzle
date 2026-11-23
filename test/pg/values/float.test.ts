@@ -34,7 +34,7 @@ import {
 	ordersAs
 } from "#test/pg/values/float.fixtures.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Float agreement with PostgreSQL rounds every binary64 value to the real PostgreSQL's float8-to-float4 cast stores.
@@ -64,7 +64,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const floatAgreementWithPostgreSQLRoundsEveryBinary64ValueToTheRealPostgreSQLsFloat8ToFloat4CastStores =
 	property.explore(batchOf(doubles, 10_000), {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: ["admitted"] satisfies ReadonlyArray<Reached<FloatFeature>>,
 		budget: { runs: 1, steered: 2 },
 		check:
@@ -138,7 +138,7 @@ export const floatAgreementWithPostgreSQLRefusesExactlyTheOverflowsAndUnderflows
 			8
 		),
 		{
-			needs: { tx: Substrate.transaction },
+			needs: { tx: Substrate.rolledBack(baseSubstrate) },
 			situations: ["admitted", "overflow", "underflow"] satisfies ReadonlyArray<
 				Reached<FloatFeature>
 			>,

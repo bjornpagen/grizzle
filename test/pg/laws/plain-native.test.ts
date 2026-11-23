@@ -38,7 +38,7 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aPlainContainmentIntoATargetAKeyHoldsIsItsForeignKeyWhichRefusesExactlyTheStatesThatBreakIt =
 	property.explore(space, {
-		needs: { plain: Substrate.freshOf(plainTemplate) },
+		needs: { plain: Substrate.fresh(plainTemplate) },
 		situations: [
 			"committed",
 			"refused by a containment into a primary key",

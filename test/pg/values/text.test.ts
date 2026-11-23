@@ -24,7 +24,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { source, text } from "#test/pg/values/text.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { orderOf } from "#test/unit/values/support.ts"
 
 /**
@@ -55,7 +55,7 @@ import { orderOf } from "#test/unit/values/support.ts"
  */
 export const textAgreementWithPostgreSQLOrdersByCodePointExactlyAsORDERBYCOLLATEPgCatalogPgCUtf8Does =
 	property.explore(array(text, { min: 1, max: 4000 }), {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: ["JavaScript's order differs"] satisfies ReadonlyArray<
 			Reached<"JavaScript's order differs">
 		>,

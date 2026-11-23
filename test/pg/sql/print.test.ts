@@ -72,7 +72,12 @@ import {
 } from "#test/pg/sql/print.fixtures.ts"
 import { testTypeSchema } from "#test/support/sql.ts"
 import { expectSqlstate } from "#test/support/substrate/expect.ts"
-import { freshSchema, roleSession, Substrate } from "#test/support/substrate/substrate.ts"
+import {
+	freshSchema,
+	roleSession,
+	Substrate,
+	baseSubstrate
+} from "#test/support/substrate/substrate.ts"
 
 /**
  * Printed SQL on PostgreSQL 19 reads a catalog read of several arms as the set union of their rows, a row two arms share once.
@@ -102,7 +107,7 @@ import { freshSchema, roleSession, Substrate } from "#test/support/substrate/sub
  */
 export const printedSQLOnPostgreSQL19ReadsACatalogReadOfSeveralArmsAsTheSetUnionOfTheirRowsARowTwoArmsShareOnce =
 	property.explore(catalogArmsGen, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: ["a row two arms share", "arms apart"] satisfies ReadonlyArray<
 			Reached<"a row two arms share" | "arms apart">
 		>,
@@ -173,7 +178,7 @@ export const printedSQLOnPostgreSQL19ReadsACatalogReadOfSeveralArmsAsTheSetUnion
  */
 export const printedSQLOnPostgreSQL19EvaluatesGeneratedCROSSJOINsINAndNOTINOverASubqueryAndWindowsOverDrawnROWSFramesAsTheHostDoes =
 	property.explore(relationalSketchGen, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: [
 			"cross join",
 			"in",
@@ -227,7 +232,7 @@ export const printedSQLOnPostgreSQL19ResetsPUBLICsDefaultsOnFunctionsAndTypesOnl
 			(source) => [source.draw(element(resetScopes)), source.draw(element(publicDefaults))] as const
 		),
 		{
-			needs: { substrate: Substrate.fresh },
+			needs: { substrate: Substrate.fresh(baseSubstrate) },
 			situations: [
 				"PUBLIC kept by a schema's reset",
 				"PUBLIC revoked by the global reset"
@@ -296,7 +301,7 @@ export const printedSQLOnPostgreSQL19ResetsPUBLICsDefaultsOnFunctionsAndTypesOnl
 							)
 						}),
 						Substrate,
-						substrate
+						Effect.map(substrate, (taken) => taken.substrate)
 					),
 			oracle: {
 				kind: "postgresql",
@@ -343,7 +348,7 @@ export const printedSQLOnPostgreSQL19ResetsPUBLICsDefaultsOnFunctionsAndTypesOnl
  */
 export const printedSQLOnPostgreSQL19EvaluatesGeneratedExpressionsAsTheHostDoesSoThePrintersParenthesesArePostgreSQLs =
 	property.explore(array(evaluatedGen, { min: 1, max: 40 }), {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: ["int", "bool", "text", "collated between bound"] satisfies ReadonlyArray<
 			Reached<Evaluated["type"] | "collated between bound">
 		>,
@@ -417,7 +422,7 @@ export const printedSQLOnPostgreSQL19EvaluatesGeneratedExpressionsAsTheHostDoesS
  */
 export const printedSQLOnPostgreSQL19EvaluatesGeneratedSetOperationTreesAsSQLsSetSemanticsDoLevelsNestedAndParenthesized =
 	property.explore(setCaseGen, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: [],
 		budget: { runs: 9, steered: 0 },
 		check:
@@ -478,7 +483,7 @@ export const printedSQLOnPostgreSQL19EvaluatesGeneratedSetOperationTreesAsSQLsSe
  */
 export const printedSQLOnPostgreSQL19EvaluatesGeneratedAggregatesWithDISTINCTTheirOwnORDERBYAndFILTERGroupByGroup =
 	property.explore(aggregateCaseGen, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: [],
 		budget: { runs: 17, steered: 0 },
 		check:
@@ -537,7 +542,7 @@ export const printedSQLOnPostgreSQL19EvaluatesGeneratedAggregatesWithDISTINCTThe
  */
 export const printedSQLOnPostgreSQL19RaisesEveryGeneratedRAISEWithTheSQLSTATEMessageAndDETAILItsUSINGOptionsGive =
 	property.explore(raiseGen, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: [],
 		budget: { runs: 1, steered: 0 },
 		check:
@@ -632,7 +637,7 @@ export const printedSQLOnPostgreSQL19RaisesEveryGeneratedRAISEWithTheSQLSTATEMes
 export const printedSQLOnPostgreSQL19DeliversEveryTypedLiteralExactly = property.explore(
 	literalsGen,
 	{
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: ["an integer type's bound"] satisfies ReadonlyArray<
 			Reached<"an integer type's bound">
 		>,

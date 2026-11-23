@@ -40,7 +40,7 @@ export class OracleSeat extends Context.Service<OracleSeat, OracleSeatShape>()(
 	"grizzle-workspace/test/support/oracle/seat/OracleSeat"
 ) {
 	/**
-	 * An oracle case in the case's one rolled-back transaction on the worker's own clone (Substrate.transaction,
+	 * An oracle case in the case's one rolled-back transaction on the worker's own clone (Substrate.rolledBack,
 	 * Substrate.rolledBack): an installation lasts the case, each statement its own savepoint; a reading runs on the
 	 * transaction's connection itself under a savepoint of its own, rolled back to after it; a schema name is the
 	 * transaction's to allocate. Nothing a case installs or reads outlives it.

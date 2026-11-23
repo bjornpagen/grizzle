@@ -53,7 +53,7 @@ import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
  */
 export const carriesEveryTextAWritesSlotsOrAReadsRelationParameterHoldToPostgreSQLAsTheTextTheHostHolds =
 	property.explore(textCases, {
-		needs: { fresh: Substrate.freshOf(textsTemplate) },
+		needs: { fresh: Substrate.fresh(textsTemplate) },
 		situations: features satisfies ReadonlyArray<Reached<TextFeature>>,
 		check:
 			({ fresh }, c: Case<TextFeature>) =>

@@ -46,13 +46,13 @@ import {
 	typmodGen,
 	unspanned
 } from "#test/pg/scalar/registry.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { spelled } from "#test/unit/scalar/support.ts"
 
 /** Descriptors against the PostgreSQL 19 catalog names the type PostgreSQL stores with every spelling of the pg namespace. */
 export const descriptorsAgainstThePostgreSQL19CatalogNamesTheTypePostgreSQLStoresWithEverySpellingOfThePgNamespace =
 	property.exhaust(finite(word(spellingWords)), {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: ["a type"] satisfies ReadonlyArray<Reached<"a type">>,
 		check:
 			({ tx }, c: Case<"a type">) =>
@@ -110,7 +110,7 @@ export const descriptorsAgainstThePostgreSQL19CatalogNamesTheTypePostgreSQLStore
  */
 export const descriptorsAgainstThePostgreSQL19CatalogAcceptsExactlyTheNumericTypmodsNumerictypmodinAccepts =
 	property.explore(array(typmodGen, { min: 1, max: 400 }), {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: ["admitted", "refused"] satisfies ReadonlyArray<Reached<"admitted" | "refused">>,
 		budget: { runs: 1, steered: 2 },
 		check:
@@ -156,7 +156,7 @@ export const descriptorsAgainstThePostgreSQL19CatalogAcceptsExactlyTheVectorDime
 	property.exhaust(
 		finite(oneOf([int(-2, 3), int(vectorMaxDimensions - 2, vectorMaxDimensions + 2)])),
 		{
-			needs: { tx: Substrate.transaction },
+			needs: { tx: Substrate.rolledBack(baseSubstrate) },
 			situations: ["refused below", "admitted", "refused above"] satisfies ReadonlyArray<
 				Reached<DimensionsFeature>
 			>,
@@ -200,7 +200,7 @@ export const descriptorsAgainstThePostgreSQL19CatalogAcceptsExactlyTheVectorDime
 /** Descriptors against the PostgreSQL 19 catalog claims only native capabilities, leaves out only the documented exclusions, and has span endpoints exactly where a built-in discrete range exists or its limit is named. */
 export const descriptorsAgainstThePostgreSQL19CatalogClaimsOnlyNativeCapabilitiesLeavesOutOnlyTheDocumentedExclusionsAndHasSpanEndpointsExactlyWhereABuiltInDiscreteRangeExistsOrItsLimitIsNamed =
 	property.exhaust(finite(word(carrierWords)), {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: [
 			"a native capability excluded",
 			"a spannable carrier",

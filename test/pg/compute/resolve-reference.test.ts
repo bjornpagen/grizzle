@@ -24,7 +24,7 @@ import {
 } from "#test/pg/compute/resolve-reference.fixtures.ts"
 import { inInstallation, textCell } from "#test/pg/compute/support.ts"
 import { resolvedReference } from "#test/support/oracle/evaluate/uri.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import type { UriFeature } from "#test/unit/text/uri.fixtures.ts"
 
 const situations = [
@@ -67,7 +67,7 @@ const situations = [
  */
 export const computeResolveReferenceOnPostgreSQL19TheLibraryFunctionsTargetOfEveryReferenceAgainstEveryBaseIsTheHostsAndRFC3986s =
 	property.explore(pairsBatch, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations,
 		check:
 			({ tx }, k: Case<UriFeature>) =>

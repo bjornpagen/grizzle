@@ -43,11 +43,11 @@ import {
 	noDeclarations
 } from "#test/support/migrate/kit.ts"
 import { refusalOf } from "#test/support/substrate.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** A table's attribute numbers through grizzle's migrations on PostgreSQL 19 a table migrated near 1600 attribute numbers holds them, and grizzle's draft refuses exactly the additions PostgreSQL refuses. */
 export const attnums = property.exhaust(finite(int(1, slack + past)), {
-	needs: { substrate: Substrate.fresh },
+	needs: { substrate: Substrate.fresh(baseSubstrate) },
 	situations: [
 		"below the bound",
 		"on the bound",
@@ -133,7 +133,7 @@ export const attnums = property.exhaust(finite(int(1, slack + past)), {
 					)
 				}),
 				Substrate,
-				substrate
+				Effect.map(substrate, (taken) => taken.substrate)
 			),
 	oracle: {
 		kind: "postgresql",

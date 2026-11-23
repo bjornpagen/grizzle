@@ -96,7 +96,7 @@ const byId = <R extends { readonly id: number }>(rows: ReadonlyArray<R>): Readon
 /** pg.inet and pg.cidr on PostgreSQL 19, grizzle reads every text as PostgreSQL does and stores and reads back each value as its one text. */
 export const pgInetAndPgCidrOnPostgreSQL19GrizzleReadsEveryTextAsPostgreSQLDoesAndStoresAndReadsBackEachValueAsItsOneText =
 	property.explore(spellings, {
-		needs: { campus: Substrate.freshOf(campusTemplate) },
+		needs: { campus: Substrate.fresh(campusTemplate) },
 		situations: [
 			"an IPv4 inet stored",
 			"an IPv6 inet stored",
@@ -279,7 +279,7 @@ const gistSql = (names: ReturnType<typeof namesOf>) =>
 /** Network containment of a context's address, its Db reads the networks PostgreSQL's `<<=` holds of the address its token claims or its server attests, and a token reaches no attested context. */
 export const netContainmentOfAContextsAddressItsDbReadsTheNetworksPostgreSQLsHoldsOfTheAddressItsTokenClaimsOrItsServerAttestsAndATokenReachesNoAttestedContext =
 	property.explore(contextsCases, {
-		needs: { campus: Substrate.freshOf(campusTemplate) },
+		needs: { campus: Substrate.fresh(campusTemplate) },
 		situations: [
 			"a token's address within a network",
 			"an attested address within a network",

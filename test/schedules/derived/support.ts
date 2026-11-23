@@ -60,7 +60,7 @@ import {
 import { beginSerializableAction } from "#test/support/schedules/types.ts"
 import { servedFixture } from "#test/support/served-db.ts"
 import type { PsqlProcessError, TransactionRolledBack } from "#test/support/substrate/errors.ts"
-import { Substrate, type TextRows } from "#test/support/substrate/substrate.ts"
+import { Substrate, type TextRows, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 const derivedNames = ["StudentWeekly", "StudentTotal", "WeekBusy"] as const
 export type DerivedName = (typeof derivedNames)[number]
@@ -728,12 +728,16 @@ export const derivedRaceSuite = (spec: {
 	readonly required: Situations<DerivedFeature>
 }) =>
 	property.explore(spec.space, {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: spec.required,
 		check:
 			({ substrate }, c: Case<DerivedFeature>) =>
 			(race) =>
-				Effect.provideServiceEffect(Effect.scoped(runDerivedRace(race, c)), Substrate, substrate),
+				Effect.provideServiceEffect(
+					Effect.scoped(runDerivedRace(race, c)),
+					Substrate,
+					Effect.map(substrate, (taken) => taken.substrate)
+				),
 		oracle: {
 			kind: "specification",
 			name: "the race's serial reference (test/support/schedules/serial.ts): each transaction run alone, in an order that respects real time, shows what the run showed and leaves its state"

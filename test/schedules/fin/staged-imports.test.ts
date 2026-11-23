@@ -36,7 +36,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 export const bothCommitInEveryInterleavingOneWaitingOnTheOthersCommitInSome = property.exhaust(
 	everyInterleaving,
 	{
-		needs: { rigged: Substrate.freshOf(importsRig) },
+		needs: { rigged: Substrate.fresh(importsRig) },
 		situations: [],
 		check:
 			({ rigged }) =>

@@ -65,7 +65,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const leavesThroughItsCarriersWhatItLeavesInlineAndRefusesARowAFlightOrACarrierNoTransportCarries =
 	property.explore(stagedCases, {
-		needs: { staged: Substrate.freshOf(stagedTemplate) },
+		needs: { staged: Substrate.fresh(stagedTemplate) },
 		situations: [
 			"inline under the planted bound",
 			"staged in several fills",

@@ -36,7 +36,7 @@ import {
 	runCurriculum,
 	standingsSpace
 } from "#test/pg/laws/curriculum.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * The curriculum level accepts exactly the calls whose state keeps every law, refusing the rest naming laws they break.
@@ -46,7 +46,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 export const curriculumHistories = property.batched(aimed(curriculumCaseGen, curriculumAims), {
 	window: 16,
 	batches: 1,
-	needs: { fresh: Substrate.freshOf(curriculumTemplate) },
+	needs: { fresh: Substrate.fresh(curriculumTemplate) },
 	situations: [
 		"a publish's second stratum writes a membership",
 		"a state breaking the key over the derived union refused",
@@ -78,7 +78,7 @@ export const curriculumHistories = property.batched(aimed(curriculumCaseGen, cur
 
 /** A later migration adding a stored relation's containment in a derived one fails exactly where a stored package has no home. */
 export const homesThroughALaterMigration = property.exhaust(finite(standingsSpace), {
-	needs: { substrate: Substrate.fresh },
+	needs: { substrate: Substrate.fresh(baseSubstrate) },
 	situations: [
 		"a later containment the stored rows break refused",
 		"a later containment the stored rows keep applied",
@@ -102,5 +102,9 @@ export const homesThroughALaterMigration = property.exhaust(finite(standingsSpac
 	check:
 		({ substrate }, c) =>
 		(stood) =>
-			Effect.provideServiceEffect(migrationCase(stood, c), Substrate, substrate)
+			Effect.provideServiceEffect(
+				migrationCase(stood, c),
+				Substrate,
+				Effect.map(substrate, (taken) => taken.substrate)
+			)
 })

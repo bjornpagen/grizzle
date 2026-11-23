@@ -87,7 +87,7 @@ const movedWithin = (
 /** A Db over a moved clock reads every reading and stamp of a call at the call's instant moved by its offset, so a lease is judged at the instant its test states. */
 export const aDbOverAMovedClockReadsEveryReadingAndStampOfACallAtItsInstantMovedByTheCallsOffset =
 	property.explore(movingGen, {
-		needs: { fixture: Substrate.freshOf(movedTemplate) },
+		needs: { fixture: Substrate.fresh(movedTemplate) },
 		situations,
 		check:
 			({ fixture }, k: Case<MovingFeature>) =>

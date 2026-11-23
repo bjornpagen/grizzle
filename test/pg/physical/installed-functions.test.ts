@@ -32,7 +32,7 @@ import {
 } from "#test/pg/physical/installed-functions.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
-import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { ownerSession, Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 type KindFeature =
 	| "a closed relation's constant"
@@ -57,7 +57,7 @@ const functionsSql =
 /** Every function an installation emits, of every kind the installer names a constant by, passes the installed-catalog checker, judged by the kind the installer recorded. */
 export const everyFunctionAnInstallationEmitsOfEveryConstantKindPassesTheInstalledCatalogChecker =
 	property.explore(functionCaseGen, {
-		needs: { substrate2: Substrate.fresh },
+		needs: { substrate2: Substrate.fresh(baseSubstrate) },
 		budget: { runs: 16, steered: 16 },
 		situations: [
 			"a closed relation's constant",
@@ -126,7 +126,7 @@ export const everyFunctionAnInstallationEmitsOfEveryConstantKindPassesTheInstall
 						)
 					}),
 					Substrate,
-					substrate2
+					Effect.map(substrate2, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "specification",

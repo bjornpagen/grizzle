@@ -32,11 +32,11 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { spaceCase, type SpaceFeature, spacesGen } from "#test/pg/cli/role-prefix.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** Two installations of one generated output on one cluster, each under its own role space install one output into two databases under disjoint role spaces, each working against its own database only, and uninstall exactly one of them, refused whole while a role is held elsewhere. */
 export const rolePrefix = property.explore(spacesGen, {
-	needs: { substrate: Substrate.fresh },
+	needs: { substrate: Substrate.fresh(baseSubstrate) },
 	situations: [
 		"the second under another prefix",
 		"the second under no prefix",
@@ -47,7 +47,11 @@ export const rolePrefix = property.explore(spacesGen, {
 	check:
 		({ substrate }, c: Case<SpaceFeature>) =>
 		(value) =>
-			Effect.provideServiceEffect(spaceCase(value, c), Substrate, substrate),
+			Effect.provideServiceEffect(
+				spaceCase(value, c),
+				Substrate,
+				Effect.map(substrate, (taken) => taken.substrate)
+			),
 	oracle: {
 		kind: "specification",
 		name: "roleNameOf under each installation's role space, and PostgreSQL's own roles and grants"

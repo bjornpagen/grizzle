@@ -39,7 +39,7 @@ import {
 	postgresOrder
 } from "#test/pg/values/order.fixtures.ts"
 import { at } from "#test/support/oracle/pick.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { orderOf } from "#test/unit/values/support.ts"
 
 /**
@@ -73,7 +73,7 @@ import { orderOf } from "#test/unit/values/support.ts"
  */
 export const theHostsComparisonOfValuesOrdersEveryCarriersValuesAsPostgreSQLsOrderByDoesByACodecsCodesAndByTheEvaluatorsDeclaredOrderAlike =
 	property.explore(batchGen, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: Arr.map(
 			orderCases,
 			(c): OrderFeature => `orders ${c.label}`

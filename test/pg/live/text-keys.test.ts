@@ -49,7 +49,7 @@ import { standingOn } from "#test/support/live/standing.ts"
 import { printKeyed, sameKeyed } from "#test/support/live/values.ts"
 import { probeAtMember } from "#test/support/live/world.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
-import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
+import { Substrate, worldSession, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { testVerify, tokenOf } from "#test/support/worlds.ts"
 
@@ -58,7 +58,7 @@ import { testVerify, tokenOf } from "#test/support/worlds.ts"
  */
 export const aStoredTextsLiveReadersHearTheCommitThatWritesItByteForByteALeadingUFEFFAmongItsCharactersOverCasesDrawnSetsOfTexts =
 	property.explore(caseGen, {
-		needs: { substrate2: Substrate.fresh },
+		needs: { substrate2: Substrate.fresh(baseSubstrate) },
 		situations: [
 			"a text that begins with U+FEFF",
 			"a text holding U+FEFF after its start",
@@ -164,7 +164,7 @@ export const aStoredTextsLiveReadersHearTheCommitThatWritesItByteForByteALeading
 						}).pipe(withLayer(layerOf))
 					}).pipe(Effect.scoped),
 					Substrate,
-					substrate2
+					Effect.map(substrate2, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "specification",

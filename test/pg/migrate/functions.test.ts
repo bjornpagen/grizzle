@@ -76,7 +76,7 @@ import { refusal, sameCatalog } from "#test/pg/migrate/support.ts"
 import { migrated, noObservation } from "#test/support/installed.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { attempt } from "#test/support/substrate.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** What a drift check's mismatch names of each plant: the source of the function created again, the function made
  * STRICT, the privilege granted, the attribute added. */
@@ -89,7 +89,7 @@ const plantNamed = {
 
 /** Declared functions migrate, drift and grant as the snapshot says, their source byte for byte, and read no table. */
 export const declaredFunctions = property.explore(functionCaseSpace, {
-	needs: { caseSubstrate: Substrate.fresh },
+	needs: { caseSubstrate: Substrate.fresh(baseSubstrate) },
 	situations: features satisfies ReadonlyArray<Reached<FunctionFeature>>,
 	budget: { runs: 24, steered: features.length },
 	check:
@@ -202,7 +202,7 @@ export const declaredFunctions = property.explore(functionCaseSpace, {
 					})
 				),
 				Substrate,
-				caseSubstrate
+				Effect.map(caseSubstrate, (taken) => taken.substrate)
 			),
 	oracle: {
 		kind: "postgresql",

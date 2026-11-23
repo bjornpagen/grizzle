@@ -67,13 +67,13 @@ import { firstCodes } from "#test/support/compile.ts"
 import { sentSql } from "#test/support/flight/scripted.ts"
 import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { draftChain, fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { tappedSession } from "#test/support/wire-tap.ts"
 import { shopV1, shopV2 } from "#test/unit/deploy/schemas.ts"
 
 /** A migration that runs out of the server's lock table is refused by name at its place, with the server's report and lock-table settings, and commits nothing. */
 export const lockTable = property.explore(aimed(caseGen, [["the ledger's lock", ledgerLockGen]]), {
-	needs: { caseSubstrate: Substrate.fresh },
+	needs: { caseSubstrate: Substrate.fresh(baseSubstrate) },
 	situations: places satisfies ReadonlyArray<Reached<LockPlace>>,
 	/** Its pre-conversion budget: runs 12, coverage cases 32 (lock-table.test.ts at bf4f43bb). */
 	budget: { runs: 12, steered: 32 },
@@ -213,7 +213,7 @@ export const lockTable = property.explore(aimed(caseGen, [["the ledger's lock", 
 					)
 				}),
 				Substrate,
-				caseSubstrate
+				Effect.map(caseSubstrate, (taken) => taken.substrate)
 			),
 	oracle: {
 		kind: "specification",
@@ -238,7 +238,7 @@ export const lockTable = property.explore(aimed(caseGen, [["the ledger's lock", 
  * lock and the settings; one the table holds at exactly its demand applies.
  */
 export const lockTablePreflight = property.explore(preflightGen, {
-	needs: { caseSubstrate: Substrate.fresh },
+	needs: { caseSubstrate: Substrate.fresh(baseSubstrate) },
 	situations: ["the demand", "one below"] satisfies ReadonlyArray<
 		Reached<"the demand" | "one below">
 	>,
@@ -307,7 +307,7 @@ export const lockTablePreflight = property.explore(preflightGen, {
 					})
 				),
 				Substrate,
-				caseSubstrate
+				Effect.map(caseSubstrate, (taken) => taken.substrate)
 			),
 	oracle: {
 		kind: "specification",

@@ -62,11 +62,11 @@ import {
 import { liveOf } from "#test/support/closed/generate.ts"
 import { migrated, noObservation } from "#test/support/installed.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
-import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
+import { Substrate, worldSession, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** Roster migrations on PostgreSQL 19 every migration of a roster's history leaves the installation the model's, and VALIDATE and the closed-only law refuse exactly what the model refuses. */
 export const rosterMigrations = property.explore(steered(runGen), {
-	needs: { caseSubstrate: Substrate.fresh },
+	needs: { caseSubstrate: Substrate.fresh(baseSubstrate) },
 	situations: [
 		"a handle grown",
 		"a handle removed",
@@ -130,7 +130,7 @@ export const rosterMigrations = property.explore(steered(runGen), {
 					})
 				),
 				Substrate,
-				caseSubstrate
+				Effect.map(caseSubstrate, (taken) => taken.substrate)
 			),
 	oracle: {
 		kind: "postgresql",

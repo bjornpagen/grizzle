@@ -70,12 +70,12 @@ import { firstCodes } from "#test/support/compile.ts"
 import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { draftChain, fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
 import { specifiedReplay } from "#test/support/migrate/proofs.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { type SetChange, setChanges, setsSchema } from "#test/unit/deploy/schemas.ts"
 
 /** The drift check replays what no proof proves, and holds every proven object to its stored description. */
 export const driftProofs = property.explore(caseGen, {
-	needs: { caseSubstrate: Substrate.fresh },
+	needs: { caseSubstrate: Substrate.fresh(baseSubstrate) },
 	situations: [
 		"the first version",
 		"a version over another",
@@ -154,7 +154,7 @@ export const driftProofs = property.explore(caseGen, {
 					)
 				}),
 				Substrate,
-				caseSubstrate
+				Effect.map(caseSubstrate, (taken) => taken.substrate)
 			),
 	oracle: {
 		kind: "specification",
@@ -184,7 +184,7 @@ export const driftReplaysTheDomainAnUnprovenTablesCastNames = property.exhaust(
 		defined(setChanges[source.draw(int(0, setChanges.length - 1))], "a change")
 	),
 	{
-		needs: { caseSubstrate: Substrate.fresh },
+		needs: { caseSubstrate: Substrate.fresh(baseSubstrate) },
 		situations: setChanges satisfies ReadonlyArray<Reached<SetChange>>,
 		check:
 			({ caseSubstrate }, c: Case<SetChange>) =>
@@ -243,7 +243,7 @@ export const driftReplaysTheDomainAnUnprovenTablesCastNames = property.exhaust(
 						)
 					}),
 					Substrate,
-					caseSubstrate
+					Effect.map(caseSubstrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "specification",

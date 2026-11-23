@@ -53,12 +53,12 @@ import {
 	required,
 	rowEvaluatorCase
 } from "#test/pg/laws/row-evaluator.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** The host evaluates a row as PostgreSQL does: its domains' refusal, its generated value, each check's verdict and its selection. */
 export const theHostEvaluatesARowAsPostgreSQLDoesItsDomainsRefusalItsGeneratedValueEachChecksVerdictAndItsSelection =
 	property.explore(caseGen, {
-		needs: { caseSubstrate: Substrate.fresh },
+		needs: { caseSubstrate: Substrate.fresh(baseSubstrate) },
 		situations: required satisfies ReadonlyArray<Reached<Feature>>,
 		check:
 			({ caseSubstrate }, k: Case<Feature>) =>
@@ -66,7 +66,7 @@ export const theHostEvaluatesARowAsPostgreSQLDoesItsDomainsRefusalItsGeneratedVa
 				Effect.provideServiceEffect(
 					rowEvaluatorCase(ec, k).pipe(Effect.scoped),
 					Substrate,
-					caseSubstrate
+					Effect.map(caseSubstrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "second-implementation",

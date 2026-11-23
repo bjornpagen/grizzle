@@ -41,11 +41,11 @@ import {
 } from "#test/support/oracle/perturb.ts"
 import { CaseFailed, type WriteOracleFeature } from "#test/support/oracle/write/harness.ts"
 import { perturbedRunGen, runWrite, writeSituations } from "#test/support/oracle/write/index.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** Generated write runs agree three ways: db.apply, add-wins and the conservative realization. */
 export const writeOracle = property.explore(perturbedRunGen, {
-	needs: { substrate: Substrate.fresh },
+	needs: { substrate: Substrate.fresh(baseSubstrate) },
 	caseDeadline: writeRunDeadline,
 	situations: writeSituations,
 	check:
@@ -65,7 +65,7 @@ export const writeOracle = property.explore(perturbedRunGen, {
 					)
 				),
 				Substrate,
-				substrate
+				Effect.map(substrate, (taken) => taken.substrate)
 			),
 	oracle: {
 		kind: "second-implementation",

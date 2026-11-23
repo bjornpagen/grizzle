@@ -236,7 +236,7 @@ export const modelVerdict = (schema: string, statements: ReadonlyArray<SqlStatem
 
 /**
  * PostgreSQL's verdict on the case's statements in order, inside the case's one transaction, each statement its own
- * savepoint (Substrate.transaction): implemented, or refused at the first statement PostgreSQL refuses, with 42804.
+ * savepoint (Substrate.rolledBack): implemented, or refused at the first statement PostgreSQL refuses, with 42804.
  */
 export const pgVerdict = (connection: PgConnection, statements: ReadonlyArray<SqlStatement>) =>
 	Effect.gen(function* () {

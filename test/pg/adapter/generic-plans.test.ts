@@ -22,18 +22,22 @@ import {
 	runGenericPlans,
 	sessionKinds
 } from "#test/pg/adapter/generic-plans.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** Every session grizzle opens, a login's and an owner's, starts under plan_cache_mode at force_generic_plan. */
 export const everySessionGrizzleOpensALoginsAndAnOwnersStartsUnderGenericPlans = property.exhaust(
 	finite(sessionKinds),
 	{
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: genericPlansFeatures,
 		check:
 			({ substrate }, c) =>
 			(kind: GenericPlansFeature) =>
-				Effect.provideServiceEffect(Effect.scoped(runGenericPlans(kind, c)), Substrate, substrate),
+				Effect.provideServiceEffect(
+					Effect.scoped(runGenericPlans(kind, c)),
+					Substrate,
+					Effect.map(substrate, (taken) => taken.substrate)
+				),
 		oracle: {
 			kind: "specification",
 			name: "PostgreSQL 19's SHOW plan_cache_mode and pg_settings' source, read on the session itself"

@@ -24,7 +24,7 @@ import {
 	checkBatch,
 	requiredFeatures
 } from "#test/pg/text/bytes.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Str.bytes, generated stores exactly the texts of its pattern of at most N bytes, as the analysis bounds and judges them.
@@ -54,13 +54,17 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const strBytesGeneratedStoresExactlyTheTextsOfItsPatternOfAtMostNBytesAsTheAnalysisBoundsAndJudgesThem =
 	property.explore(array(caseGen, { min: cases, max: cases }), {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: requiredFeatures satisfies ReadonlyArray<Reached<BytesFeature>>,
 		budget: { runs: 1, steered: 1 },
 		check:
 			({ substrate }, c: CaseOf<BytesFeature>) =>
 			(b) =>
-				Effect.provideServiceEffect(checkBatch(b, c.noteAll), Substrate, substrate),
+				Effect.provideServiceEffect(
+					checkBatch(b, c.noteAll),
+					Substrate,
+					Effect.map(substrate, (taken) => taken.substrate)
+				),
 		oracle: {
 			kind: "specification",
 			name: "ECMAScript membership of the pattern and TextEncoder's byte length: stored exactly when both hold"

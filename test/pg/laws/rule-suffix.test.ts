@@ -43,7 +43,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aForbiddenSuffixIsJudgedByASeekOfItsReferencesBesideAnyNumberOfOthersAndLocksNoWholeRelation =
 	property.explore(localityGen, {
-		needs: { fresh: Substrate.freshOf(suffixTemplate) },
+		needs: { fresh: Substrate.fresh(suffixTemplate) },
 		situations: ["measured"] satisfies ReadonlyArray<Reached<"measured">>,
 		check:
 			({ fresh }, c: Case<"measured">) =>
@@ -104,7 +104,7 @@ export const aForbiddenSuffixIsJudgedByASeekOfItsReferencesBesideAnyNumberOfOthe
  */
 export const aSuffixKeysRangeFindsExactlyTheReferencesTheSuffixTestFindsThroughTheBTreeOnTheKey =
 	property.explore(seekGen, {
-		needs: { fresh: Substrate.freshOf(suffixTemplate) },
+		needs: { fresh: Substrate.fresh(suffixTemplate) },
 		situations: [
 			"a suffix some target ends with",
 			"a suffix no target ends with",

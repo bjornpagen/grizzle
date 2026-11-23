@@ -46,11 +46,11 @@ import {
 import { refusal } from "#test/pg/migrate/support.ts"
 import { migrated, noObservation } from "#test/support/installed.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** The drift check of a recorded snapshot admits a migrated database whose every source digests to its record, and finds a planted source and a planted constant. */
 export const recordedDrift = property.exhaust(caseSpace, {
-	needs: { caseSubstrate: Substrate.fresh },
+	needs: { caseSubstrate: Substrate.fresh(baseSubstrate) },
 	situations: [
 		...plants,
 		...Arr.map(editedKinds, (kind) => `a source edited: ${kind}` as const),
@@ -194,7 +194,7 @@ export const recordedDrift = property.exhaust(caseSpace, {
 					})
 				),
 				Substrate,
-				caseSubstrate
+				Effect.map(caseSubstrate, (taken) => taken.substrate)
 			),
 	oracle: {
 		kind: "postgresql",

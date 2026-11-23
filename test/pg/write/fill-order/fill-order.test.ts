@@ -20,15 +20,19 @@ import {
 	type ClusterCase,
 	recordedFirstInserts
 } from "#test/pg/write/fill-order/fill-order.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 export const theFillOrderOnTheClusterAnAdmittedSchemaWhoseGeneratedFieldsReadFieldsGrizzleDrawsOrAccumulatesStoresEachAsTheReferenceWriterRowEvaluatorAndInsertPreviewGiveItThroughEveryWrite =
 	property.explore(steered(steeredBy(generationAims, generationCaseGen)), {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: generationSituations satisfies ReadonlyArray<Reached<ClusterSituation>>,
 		check:
 			({ substrate }, c: Case<ClusterSituation>) =>
 			(value) =>
-				Effect.provideServiceEffect(checkCase(value, c), Substrate, substrate),
+				Effect.provideServiceEffect(
+					checkCase(value, c),
+					Substrate,
+					Effect.map(substrate, (taken) => taken.substrate)
+				),
 		oracle: {
 			kind: "second-implementation",
 			name: "the reference writer (test/support/families/fill.ts writtenRows), rowEvaluator and insertPreview"
@@ -66,12 +70,16 @@ export const theFillOrderOnTheClusterAnAdmittedSchemaInstallsAndItsInstancesFirs
 			recorded(steeredBy(aims, caseGen)(steering), recordedFirstInserts)
 		),
 		{
-			needs: { substrate: Substrate.fresh },
+			needs: { substrate: Substrate.fresh(baseSubstrate) },
 			situations: situations satisfies ReadonlyArray<Reached<ClusterSituation>>,
 			check:
 				({ substrate }, c: Case<ClusterSituation>) =>
 				(value) =>
-					Effect.provideServiceEffect(checkCase(value, c), Substrate, substrate),
+					Effect.provideServiceEffect(
+						checkCase(value, c),
+						Substrate,
+						Effect.map(substrate, (taken) => taken.substrate)
+					),
 			oracle: {
 				kind: "second-implementation",
 				name: "the reference writer (test/support/families/fill.ts writtenRows)"

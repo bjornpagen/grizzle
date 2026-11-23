@@ -48,7 +48,7 @@ import {
 	runHistory,
 	runLocality
 } from "#test/pg/laws/rule-aggregate.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * A rule over an aggregating derived relation commits exactly the writes whose state keeps every law, recomputed over
@@ -58,7 +58,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aRuleOverAnAggregatingDerivedRelationCommitsExactlyTheWritesWhoseStateKeepsEveryLawRecomputedOverTheWholeState =
 	property.explore(aimed(recorded(caseGen, keptCases), aims), {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: [
 			"accepted",
 			"refused by a key",
@@ -77,7 +77,11 @@ export const aRuleOverAnAggregatingDerivedRelationCommitsExactlyTheWritesWhoseSt
 		check:
 			({ substrate }, c: Case<Feature>) =>
 			(drawn) =>
-				Effect.provideServiceEffect(Effect.scoped(runHistory(drawn, c.note)), Substrate, substrate),
+				Effect.provideServiceEffect(
+					Effect.scoped(runHistory(drawn, c.note)),
+					Substrate,
+					Effect.map(substrate, (taken) => taken.substrate)
+				),
 		oracle: {
 			kind: "specification",
 			name: "every aggregate recomputed over the whole state and each law restated over the derived relation's facts: a write is accepted exactly when the state it leaves keeps every law, and refused naming only laws it breaks"
@@ -133,7 +137,7 @@ export const aRuleOverAnAggregatingDerivedRelationCommitsExactlyTheWritesWhoseSt
  */
 export const aProbeOfTheGroupsAWriteTouchedReadsThoseGroupsAloneHoweverManyGroupsStandBesideThem =
 	property.explore(recorded(localityGen, keptLocality), {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: ["measured"] satisfies ReadonlyArray<Reached<"measured">>,
 		check:
 			({ substrate }, c: Case<"measured">) =>
@@ -141,7 +145,7 @@ export const aProbeOfTheGroupsAWriteTouchedReadsThoseGroupsAloneHoweverManyGroup
 				Effect.provideServiceEffect(
 					Effect.scoped(runLocality(drawn, c.note)),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "universal",

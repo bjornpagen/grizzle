@@ -23,7 +23,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 /** A member bound to the database's clock reads the instant its call's transaction began once per call, in its unit, and answers at that instant alone. */
 export const aMemberBoundToTheDatabasesClockReadsTheInstantItsCallsTransactionBeganOncePerCallInItsUnitAndAnswersAtThatInstantAlone =
 	property.explore(caseGen, {
-		needs: Substrate.oneOf(clockTemplates, Substrate.freshOf),
+		needs: Substrate.oneOf(clockTemplates, Substrate.fresh),
 		situations: [
 			"micros",
 			"millis",

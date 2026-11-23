@@ -75,7 +75,7 @@ import {
 	features,
 	history
 } from "#test/pg/migrate/cutover.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * The migrator under the identity cutover's deltas every migration of a cutover history rewrites each table at most once, reaches a fresh install's catalog, keeps every fact through the model's key mapping and leaves nothing to generate, and a key past BTMaxItemSize is refused by the draft.
@@ -84,7 +84,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const theMigratorUnderTheIdentityCutoversDeltasEveryMigrationOfACutoverHistoryRewritesEachTableAtMostOnceReachesAFreshInstallsCatalogKeepsEveryFactThroughTheModelsKeyMappingAndLeavesNothingToGenerateAndAKeyPastBTMaxItemSizeIsRefusedByTheDraft =
 	property.explore(steered(cutoverSteered), {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: features satisfies ReadonlyArray<Reached<Feature>>,
 		check:
 			({ substrate }, c: Case<Feature>) =>
@@ -92,7 +92,7 @@ export const theMigratorUnderTheIdentityCutoversDeltasEveryMigrationOfACutoverHi
 				Effect.provideServiceEffect(
 					history(cutover, (f) => c.note(f)),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "second-implementation",

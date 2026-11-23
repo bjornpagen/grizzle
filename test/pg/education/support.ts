@@ -18,7 +18,7 @@ import {
 } from "#test/support/fixtures/education/index.ts"
 import type { ValueIdentity } from "#test/support/kernel/identity.ts"
 import { sameValue } from "#test/support/laws/model.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import {
 	reachingPastRefused,
 	sessionOf,
@@ -1353,7 +1353,7 @@ type EducationSuite = Realization & {
 /**
  * The education fixture's world as a template (execute/template.ts worldTemplate), under the cluster's own ambient: what
  * a suite realized once realized per test, made once per member, each case realizing it over a fresh clone of its own
- * (Substrate.freshOf), as each case reset the one world the suite's cases shared: a case's reset refreshes the
+ * (Substrate.fresh), as each case reset the one world the suite's cases shared: a case's reset refreshes the
  * fixture's derived relation sectionPoints (execute/index.ts RealWorld reset), a materialized view whose rows no seat's
  * reset empties, so a seat would hold the clone unlike its template after the first case that stages a section's
  * points, and refuse the next case's take.
@@ -1432,7 +1432,7 @@ const educationProperty = (spec: EducationSuite) => {
 		case "once":
 			return property.explore(space, {
 				...stated,
-				needs: { world: Substrate.freshOf(educationWorld) },
+				needs: { world: Substrate.fresh(educationWorld) },
 				check:
 					({ world }, c: Case<Feature>) =>
 					(pc) =>
@@ -1446,7 +1446,7 @@ const educationProperty = (spec: EducationSuite) => {
 		case "per-case":
 			return property.explore(space, {
 				...stated,
-				needs: { own: Substrate.fresh },
+				needs: { own: Substrate.fresh(baseSubstrate) },
 				check:
 					({ own }, c: Case<Feature>) =>
 					(pc) =>
@@ -1455,7 +1455,7 @@ const educationProperty = (spec: EducationSuite) => {
 							c,
 							pc,
 							Effect.tap(
-								Effect.flatMap(own, (substrate) => ownWorld(substrate, pc)),
+								Effect.flatMap(own, (taken) => ownWorld(taken.substrate, pc)),
 								() =>
 									Effect.sync(() => {
 										noteNaming(pc, c)

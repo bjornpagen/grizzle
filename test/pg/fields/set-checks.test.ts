@@ -38,7 +38,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 export const aRowCheckOverASetAndASetValueHoldsARowExactlyWhenItsFlagsAreDisjointFromAndASubsetOfTheSetValuesAndARefusalNamesEveryCheckTheyBreakAllThreeAtOnceIncludedForEverySetOverTheRoster =
 	property.exhaust(allSets, {
 		box: "every set over the roster's three handles",
-		needs: { sets: Substrate.freshOf(setsTemplate) },
+		needs: { sets: Substrate.fresh(setsTemplate) },
 		situations: [
 			"accepted",
 			"refused by Apart",

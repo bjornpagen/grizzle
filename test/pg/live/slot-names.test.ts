@@ -30,7 +30,7 @@ export const eachDatabaseOfOneInstallationHoldsTheSlotOfItsOwnLeader = property.
 	finite(boolean),
 	{
 		box: "either clone's leader started first, the other's while it runs",
-		needs: { first: Substrate.freshOf(campusTemplate), second: Substrate.freshOf(campusTemplate) },
+		needs: { first: Substrate.fresh(campusTemplate), second: Substrate.fresh(campusTemplate) },
 		situations: [],
 		check:
 			({ first, second }) =>

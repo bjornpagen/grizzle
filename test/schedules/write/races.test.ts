@@ -54,7 +54,7 @@ import {
 	runs,
 	situations
 } from "#test/schedules/write/races.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Write races, judged by a serial model ${inserterRuns} cases of certified READ COMMITTED inserters racing at Badge: every run serial, every call answered on its one try, and independent calls never waiting on each other.
@@ -63,7 +63,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const writeRacesJudgedByASerialModelInserterRunsCasesOfCertifiedREADCOMMITTEDInsertersRacingAtBadgeEveryRunSerialEveryCallAnsweredOnItsOneTryAndIndependentCallsNeverWaitingOnEachOther =
 	property.explore(inserterCaseGen, {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: [
 			"inserter accepted",
 			"inserter refused",
@@ -84,7 +84,7 @@ export const writeRacesJudgedByASerialModelInserterRunsCasesOfCertifiedREADCOMMI
 						)
 					),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "second-implementation",
@@ -102,7 +102,7 @@ export const writeRacesJudgedByASerialModelInserterRunsCasesOfCertifiedREADCOMMI
  */
 export const writeRacesJudgedByASerialModelInserterRunsCasesOfCertifiedREADCOMMITTEDClaimersRacingAtClaimAndSeatEveryRunSerialWithARacedTablesHeldKeyMetEveryCallAnsweredOnItsOneTryEachRacedTableWonOrMetAsItsReadBacksShow =
 	property.explore(claimerCaseGen, {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: [
 			"claimer accepted",
 			"claimer unchanged",
@@ -124,7 +124,7 @@ export const writeRacesJudgedByASerialModelInserterRunsCasesOfCertifiedREADCOMMI
 						)
 					),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "second-implementation",
@@ -142,7 +142,7 @@ export const writeRacesJudgedByASerialModelInserterRunsCasesOfCertifiedREADCOMMI
  */
 export const writeRacesJudgedByASerialModelInserterRunsCasesOfAnInserterCallAloneOneFlightBegunREADCOMMITTEDAsGenerateCertifiedTheRoleAnsweredAsTheSerialModelSays =
 	property.explore(inserterAloneGen, {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: ["alone accepted", "alone refused"] satisfies ReadonlyArray<Reached<AloneFeature>>,
 		check:
 			({ substrate }, c: Case<AloneFeature>) =>
@@ -154,7 +154,7 @@ export const writeRacesJudgedByASerialModelInserterRunsCasesOfAnInserterCallAlon
 						)
 					),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "second-implementation",
@@ -172,7 +172,7 @@ export const writeRacesJudgedByASerialModelInserterRunsCasesOfAnInserterCallAlon
  */
 export const writeRacesJudgedByASerialModelRunsCasesOfPlantedAndDrawnRacesEveryRunIsExplainedByASerialOrder =
 	property.explore(raceCaseGen, {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: situations satisfies ReadonlyArray<Reached<RaceFeature>>,
 		check:
 			({ substrate }, c: Case<RaceFeature>) =>
@@ -184,7 +184,7 @@ export const writeRacesJudgedByASerialModelRunsCasesOfPlantedAndDrawnRacesEveryR
 						)
 					),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "second-implementation",

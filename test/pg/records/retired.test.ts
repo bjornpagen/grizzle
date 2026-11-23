@@ -20,7 +20,7 @@ import {
 	retiredCase,
 	retiredCaseGen
 } from "#test/pg/records/retired.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * What a case retires: rows below the root, a carried run renamed, a run second in the owner's key, no book; or
@@ -58,7 +58,7 @@ const reached = (
 /** Retiring a run removes every row of it from every relation of its records, and nothing of another run. */
 export const aRunRetiredRemovesItsRowsFromEveryRelationOfItsRecordsAndNothingOfAnother =
 	property.explore(retiredCaseGen, {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: [
 			"rows below the root retired",
 			"a carried run renamed",
@@ -78,7 +78,7 @@ export const aRunRetiredRemovesItsRowsFromEveryRelationOfItsRecordsAndNothingOfA
 						})
 					),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "second-implementation",

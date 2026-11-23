@@ -41,7 +41,7 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 export const theRuleJudgeRunsExactlyTheRulesOverTheRelationsATransactionWrote = property.explore(
 	writesGen,
 	{
-		needs: { dispatch: Substrate.freshOf(dispatchTemplate) },
+		needs: { dispatch: Substrate.fresh(dispatchTemplate) },
 		situations: [
 			"a statement over two deltas run by a write of one of them alone",
 			"a statement run by a side of olds alone",

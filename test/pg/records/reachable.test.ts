@@ -27,7 +27,7 @@ import {
 	reachableCase,
 	reachableCaseGen
 } from "#test/pg/records/reachable.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * A retirement keeps the records of every key some holder row still names, and releases the records of every key it
@@ -39,7 +39,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aRetirementKeepsTheRecordsOfEveryKeyAHolderStillNamesAndReleasesEveryOtherKeyItTookTheLastHolderOfFromEveryRelationOfTheRecords =
 	property.explore(reachableCaseGen, {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		budget: { runs: 40, steered: 120 },
 		situations: [
 			"kept by a holder of its retired holder's own relation",
@@ -66,7 +66,7 @@ export const aRetirementKeepsTheRecordsOfEveryKeyAHolderStillNamesAndReleasesEve
 						})
 					),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "specification",

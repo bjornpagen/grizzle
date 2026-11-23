@@ -86,12 +86,17 @@ import { succeeded } from "#test/support/assert.ts"
 import { type Declaration, holesOf } from "#test/support/closed/generate.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { draftCodes, fromEmpty, fromSnapshot, noDeclarations } from "#test/support/migrate/kit.ts"
-import { ownerSession, Substrate, worldSession } from "#test/support/substrate/substrate.ts"
+import {
+	ownerSession,
+	Substrate,
+	worldSession,
+	baseSubstrate
+} from "#test/support/substrate/substrate.ts"
 
 /** Generated fields on PostgreSQL 19 every generated column holds what the host evaluator computes from its row, PostgreSQL refuses a writer's value for one and an absent key, and a changed expression migrates in place. */
 export const generatedFieldsOnPostgreSQL19EveryGeneratedColumnHoldsWhatTheHostEvaluatorComputesFromItsRowPostgreSQLRefusesAWritersValueForOneAndAnAbsentKeyAndAChangedExpressionMigratesInPlace =
 	property.explore(aimed(runGen, runAims), {
-		needs: { substrate2: Substrate.fresh },
+		needs: { substrate2: Substrate.fresh(baseSubstrate) },
 		situations: [
 			"a roster with a hole",
 			"a row written",
@@ -204,7 +209,7 @@ export const generatedFieldsOnPostgreSQL19EveryGeneratedColumnHoldsWhatTheHostEv
 						})
 					),
 					Substrate,
-					substrate2
+					Effect.map(substrate2, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "second-implementation",

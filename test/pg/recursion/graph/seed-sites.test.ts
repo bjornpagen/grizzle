@@ -18,12 +18,12 @@ import {
 	runLabelledOracle
 } from "#test/support/oracle/runner.ts"
 import { OracleSeat } from "#test/support/oracle/seat.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** Graph.seedPushdown at the constant and region sites against the reference each site's certificate fires and its artifact agrees with the reference and the conservative lowering. */
 export const graphSeedPushdownAtTheConstantAndRegionSitesAgainstTheReferenceEachSitesCertificateFiresAndItsArtifactAgreesWithTheReferenceAndTheConservativeLowering =
 	property.explore(sketchGen, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: Arr.map(
 			shapes,
 			(shape): SiteFeature => `${shape} agreed with rows`

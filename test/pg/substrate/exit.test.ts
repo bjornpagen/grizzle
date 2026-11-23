@@ -24,12 +24,12 @@ import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import { caseGen, childModule, type Feature, leaked } from "#test/pg/substrate/exit.fixtures.ts"
 import { testPoolMax } from "#test/support/substrate/connections.ts"
 import { lend } from "#test/support/substrate/shared.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { exitedCleanly } from "#test/unit/dev/consumer.ts"
 
 /** No socket, connection or timer is left once the substrate and every Db are released, and the process exits. */
 export const exitsOnceItsScopesClose = property.exhaust(finite(caseGen), {
-	needs: { checkout: Checkout.dir, substrate: Substrate.fresh },
+	needs: { checkout: Checkout.dir, substrate: Substrate.fresh(baseSubstrate) },
 	situations: ["0 Dbs", "1 Dbs", "1 Dbs, read", "2 Dbs", "2 Dbs, read"] satisfies ReadonlyArray<
 		Reached<Feature>
 	>,
@@ -39,7 +39,7 @@ export const exitsOnceItsScopesClose = property.exhaust(finite(caseGen), {
 			Effect.scoped(
 				Effect.gen(function* () {
 					const root = yield* checkout
-					const s = yield* substrate
+					const { substrate: s } = yield* substrate
 					const lent = yield* lend(s, testPoolMax)
 					const path = yield* Path.Path
 					const child = yield* ChildProcess.make(

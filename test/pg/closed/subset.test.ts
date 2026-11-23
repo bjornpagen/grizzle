@@ -32,7 +32,7 @@ import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 /** A closed id column of a subset stores a direct writer's code exactly when its subset holds the handle, and refuses every other by its subset CHECK. */
 export const aClosedIdColumnOfASubsetStoresADirectWritersCodeExactlyWhenItsSubsetHoldsTheHandleAndRefusesEveryOtherByItsSubsetCHECK =
 	property.exhaust(finite(writes), {
-		needs: { fresh: Substrate.freshOf(subsetsTemplate) },
+		needs: { fresh: Substrate.fresh(subsetsTemplate) },
 		situations: ["stored", "refused by the subset CHECK"] satisfies ReadonlyArray<Reached<Feature>>,
 		check:
 			({ fresh }, c: Case<Feature>) =>

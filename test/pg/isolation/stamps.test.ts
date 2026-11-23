@@ -42,8 +42,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 export const callsThatAppendAtOneChildTakeTurnsAndStampAsTheirSerialRunInCommitOrderDoesWhileCallsAtDifferentChildrenNeverWaitOnEachOther =
 	property.explore(steered(aimedStampRaces), {
 		needs: {
-			readCommitted: Substrate.freshOf(readCommittedShape),
-			serializable: Substrate.freshOf(serializableShape)
+			readCommitted: Substrate.fresh(readCommittedShape),
+			serializable: Substrate.fresh(serializableShape)
 		},
 		situations: [
 			"a waiter whose holder committed",

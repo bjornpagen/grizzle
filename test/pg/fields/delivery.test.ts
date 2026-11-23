@@ -45,7 +45,7 @@ import { outputRows } from "#test/support/wire.ts"
 /** A delivery at chunk boundaries reads back every row stored, in the statement's order, its chunks strictly its delivery's. */
 export const aDeliveryAtChunkBoundariesReadsBackEveryRowStoredInTheStatementsOrderItsChunksStrictlyItsDeliverys =
 	property.explore(deliveryCases, {
-		needs: { blobs: Substrate.freshOf(blobsTemplate) },
+		needs: { blobs: Substrate.fresh(blobsTemplate) },
 		situations: [
 			"an answer of no row",
 			"an empty value",

@@ -32,7 +32,7 @@ import {
 	quotientSql,
 	type ZeroQuotientFeature
 } from "#test/pg/compute/zero-quotient.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Num.div of floats on PostgreSQL 19 a quotient by either zero is one value, the host's and the rule's.
@@ -62,7 +62,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const numDivOfFloatsOnPostgreSQL19AQuotientByEitherZeroIsOneValueTheHostsAndTheRules =
 	property.explore(batchGen, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: [
 			"a positive dividend",
 			"a negative dividend",

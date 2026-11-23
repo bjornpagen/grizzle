@@ -40,7 +40,7 @@ import { accepts } from "#test/support/fixtures/ir/scalar.ts"
 import { pickGen } from "#test/support/pick.ts"
 import { jsMatcher } from "#test/support/regex.ts"
 import type { CaseSession } from "#test/support/substrate/session.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 import {
 	type Family,
@@ -378,7 +378,7 @@ interface FamilyCase {
 }
 
 /**
- * The family's agreement on one drawn case, in the case's transaction of `db` (Substrate.transaction), which the case's
+ * The family's agreement on one drawn case, in the case's transaction of `db` (Substrate.rolledBack), which the case's
  * domains are created in and which is rolled back when the case ends.
  */
 const agreeOn = (
@@ -608,7 +608,7 @@ const agreementOf = (fi: number, family: Family) => {
 		]
 	})
 	return property.explore(familySketch, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: [
 			"domain enforced",
 			"generated pattern admitted",

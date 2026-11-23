@@ -32,17 +32,21 @@ import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { aims, caseGen, dropCase, type Feature, features } from "#test/pg/migrate/drops.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** Column steps in dependency order migrate a second version that drops generated fields with the fields they read, converts or rewrites what they read, and drops what else reads them, over stored rows. */
 export const drops = property.explore(aimed(caseGen, aims), {
-	needs: { substrate: Substrate.fresh },
+	needs: { substrate: Substrate.fresh(baseSubstrate) },
 	situations: features satisfies ReadonlyArray<Reached<Feature>>,
 	budget: { runs: 24, steered: 2 * features.length },
 	check:
 		({ substrate }, cx: Case<Feature>) =>
 		(c) =>
-			Effect.provideServiceEffect(dropCase(c, cx.note), Substrate, substrate),
+			Effect.provideServiceEffect(
+				dropCase(c, cx.note),
+				Substrate,
+				Effect.map(substrate, (taken) => taken.substrate)
+			),
 	oracle: {
 		kind: "postgresql",
 		name: "PostgreSQL's acceptance of the drafted folder over stored rows, and its catalog of the migrated and of a fresh installation"

@@ -64,7 +64,7 @@ import { outputRows } from "#test/support/wire.ts"
  */
 export const aParameterRelationsFactsAreStoredWithTheBitsTheyWereWrittenWithByBothArtifactsWhereverAWriteReadsItAndTwoFactsAtOneKeyAreRefused =
 	property.explore(sketchSpace, {
-		needs: { fixture: Substrate.freshOf(factsTemplate) },
+		needs: { fixture: Substrate.fresh(factsTemplate) },
 		situations: features satisfies ReadonlyArray<Reached<Feature>>,
 		check:
 			({ fixture }, c: Case<Feature>) =>
@@ -272,7 +272,7 @@ export const aParameterRelationsFactsAreStoredWithTheBitsTheyWereWrittenWithByBo
  */
 export const aReadOfAParameterRelationDeliversEachOfItsFactsByBothLoweringsAndAProjectionThatDropsAFieldTheCanonicalZero =
 	property.explore(readSketchSpace, {
-		needs: { fixture: Substrate.freshOf(factsTemplate) },
+		needs: { fixture: Substrate.fresh(factsTemplate) },
 		situations: readFeatures satisfies ReadonlyArray<Reached<ReadFeature>>,
 		check:
 			({ fixture }, c: Case<ReadFeature>) =>

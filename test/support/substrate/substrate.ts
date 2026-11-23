@@ -92,7 +92,7 @@ import {
 	templatePassword
 } from "#test/support/substrate/templates.ts"
 
-import { type Check, leftoversCheck, superuserClient } from "#test/support/substrate/shared.ts"
+import { superuserClient } from "#test/support/substrate/shared.ts"
 
 export interface SchemaOptions {
 	/** Run CREATE SCHEMA as the owner. Off when the code under test creates the schema itself (a migration). */
@@ -555,7 +555,7 @@ const build = Effect.fnUntraced(function* (
 	/**
 	 * The barriers' observer connection (awaitLockWait, awaitBlockedBy), opened the first time a barrier polls through it,
 	 * in the substrate's scope, and held for the rest of it: a substrate whose barriers never poll opens none, and a case
-	 * substrate (Substrate.fresh, freshOf) opened one for every case, though few cases wait on a lock.
+	 * substrate (Substrate.fresh) opened one for every case, though few cases wait on a lock.
 	 */
 	const opened = Scope.provide(
 		Effect.tap(connect(cluster, { database, credentials: owner, label: "observer" }), (made) =>
@@ -855,10 +855,10 @@ export interface SubstrateTemplate<T> {
 }
 
 /**
- * The base template (templates.ts baseTemplate) as a substrate template, whose cases read no value and write no table
- * of its: what a case makes in it, it makes under its own allocations, which its scope drops.
+ * The base template (templates.ts baseTemplate) as a substrate template, whose cases read no value: what a case makes
+ * in it, it makes under its own allocations, which its scope drops.
  */
-const base: SubstrateTemplate<void> = {
+export const baseSubstrate: SubstrateTemplate<void> = {
 	database: baseTemplate,
 	bound: Effect.succeed(Function.constVoid)
 }
@@ -1005,7 +1005,7 @@ const builtThenEnded = <A, E, R, E2, R2>(
 /**
  * A template of an installation over the base template (InstallSpec): its database is built by planning under the
  * template's schema name and installing the plan on a substrate over the template database, each worker plans it once
- * to bind its cases, and its cases clone it by either form (Substrate.freshOf, rolledBack). Its identity is the
+ * to bind its cases, and its cases clone it by either form (Substrate.fresh, rolledBack). Its identity is the
  * toolchain's: the declaring module's import closure, the name and the content, so an install that changes is a new
  * template, under new names. Its build first gives its database the test database settings (pg.ts configureDatabase),
  * as the base template's build does, since a derived template is made from its origin with no database setting of the
@@ -1294,16 +1294,14 @@ const firstText = (answer: RawAnswer): Option.Option<string> =>
 
 /**
  * After a case on a held connection, in one exchange: whether the case ended its transaction (the connection's
- * transaction began after `began`, the case's, transactionBegan), the transaction rolled back, every sequence put back, the session discarded (DISCARD ALL:
- * settings, prepared statements, advisory locks, temporary tables, listens), and `clean`'s report of the clone. A case
- * that ended its transaction, or after which the clone is not clean or could not be reset, fails, and its clone is
- * replaced.
+ * transaction began after `began`, the case's, transactionBegan), the transaction rolled back, every sequence put back,
+ * and the session discarded (DISCARD ALL: settings, prepared statements, advisory locks, temporary tables, listens). A
+ * case that ended its transaction, or after which the clone could not be reset, fails, and its clone is replaced.
  */
 const endedTransaction = (
 	held: HeldTransactions,
 	began: string,
-	holding: Ref.Ref<Option.Option<HeldTransactions>>,
-	clean: Option.Option<Check>
+	holding: Ref.Ref<Option.Option<HeldTransactions>>
 ): Effect.Effect<void> =>
 	Effect.gen(function* () {
 		const settled = yield* Effect.result(
@@ -1312,21 +1310,13 @@ const endedTransaction = (
 					caseEnd.began,
 					caseEnd.rolledBack,
 					...Option.toArray(Option.map(held.sequences, bare)),
-					caseEnd.discarded,
-					...Option.toArray(Option.map(clean, (check) => check.statement))
+					caseEnd.discarded
 				])
 				const answered = yield* Effect.forEach(answers, Effect.fromResult)
-				const still = Option.getOrUndefined(firstText(Arr.headNonEmpty(answered)))
-				const left = Option.match(clean, {
-					onNone: () => [],
-					onSome: (check) => check.read(Arr.lastNonEmpty(answered).rows)
-				})
-				return still === began
-					? left
-					: [`the case ended its transaction, begun at ${began}`, ...left]
+				return Option.getOrUndefined(firstText(Arr.headNonEmpty(answered)))
 			})
 		)
-		if (Result.isSuccess(settled) && settled.success.length === 0) {
+		if (Result.isSuccess(settled) && settled.success === began) {
 			return
 		}
 		yield* Scope.close(held.scope, Exit.void)
@@ -1337,8 +1327,8 @@ const endedTransaction = (
 				message: Result.match(settled, {
 					onFailure: (error) =>
 						`${held.database} could not be reset after the case: ${error.message}`,
-					onSuccess: (what) =>
-						`${Arr.join(what, ", ")}: ${held.database} is dropped, and the next case gets a new clone`
+					onSuccess: () =>
+						`the case ended its transaction, begun at ${began}: ${held.database} is dropped, and the next case gets a new clone`
 				})
 			})
 		)
@@ -1355,13 +1345,9 @@ const caseStart: Arr.NonEmptyReadonlyArray<PgStatement> = [
 
 /**
  * The need of cases each in one owner transaction on the worker's own clone of `template`, held with its connection
- * across the worker's cases (HeldTransactions), `clean` reporting after every case what of the clone is not as cloned.
+ * across the worker's cases (HeldTransactions).
  */
-const rolledBackCases = <T>(
-	form: string,
-	template: SubstrateTemplate<T>,
-	clean: Option.Option<Check>
-): TemplateNeed<RolledBack<T>> => ({
+const rolledBackCases = <T>(form: string, template: SubstrateTemplate<T>): TemplateNeed<RolledBack<T>> => ({
 	key: `grizzle ${form} ${template.database.key}`,
 	template: template.database,
 	budget: template.database.budget,
@@ -1390,7 +1376,7 @@ const rolledBackCases = <T>(
 					failed
 				)
 				const began = Option.getOrElse(firstText(Arr.lastNonEmpty(begun)), () => "")
-				yield* Effect.addFinalizer(() => endedTransaction(held, began, holding, clean))
+				yield* Effect.addFinalizer(() => endedTransaction(held, began, holding))
 				const allocations = yield* Ref.make(0)
 				const binding = { cluster: held.cluster, database: held.database }
 				const connection = exchanging(held.connection.processId, undoneAlone(held.connection))
@@ -1421,8 +1407,8 @@ const rolledBackCases = <T>(
 /**
  * The per-file PostgreSQL substrate: a database, unique schemas and roles, sessions, psql writers, a barrier.
  *
- A property's case takes its substrate through a need (Substrate.fresh, freshOf, rolledBack, transaction), each over
- * a clone of a template, and because logins and world roles are cluster-wide, each case uses
+ A property's case takes its substrate through a need (Substrate.rolledBack, or Substrate.fresh for a case that
+ * commits), each over a clone of a template, and because logins and world roles are cluster-wide, each case uses
  * unique schema and role names; schemas, roles, sessions and psql writers are allocated in the case's own scope and
  * released when it closes. A bench builds Substrate.isolatedLayer, a database of its own.
  *
@@ -1443,40 +1429,22 @@ export class Substrate extends Context.Service<Substrate, SubstrateShape>()(
 	"grizzle-workspace/test/support/substrate/substrate"
 ) {
 	/**
-	 * A case's own substrate, in a database of its own cloned from the base template (substrate/templates.ts
-	 * baseTemplate) for the case and dropped after it: what a property's needs name, its check providing it as the
-	 * Substrate service to what it runs (`Effect.provideServiceEffect(effect, Substrate, substrate)`).
+	 * A case's own substrate over a clone of `template` made for the case and dropped after it, and the template's value
+	 * bound to it: for a case about commits, schema changes or concurrency, which no rolled-back transaction holds. A
+	 * case over the base template (baseSubstrate) reads no value; its check provides the substrate as the Substrate
+	 * service to what it runs (`Effect.flatMap(need, (taken) => Effect.provideService(effect, Substrate,
+	 * taken.substrate))`).
 	 */
-	static readonly fresh: TemplateNeed<SubstrateShape> = {
-		key: "grizzle Substrate.fresh",
-		template: baseTemplate,
-		budget: baseTemplate.budget,
-		runNeeds: [],
-		open: Effect.map(
-			freshCases("Substrate.fresh", base).open,
-			(take) => Effect.map(take, (taken) => taken.substrate)
-		)
-	}
-	/** A case's own substrate over a clone of `template`, made for the case and dropped after it, and its value. */
-	static readonly freshOf = <T>(template: SubstrateTemplate<T>): TemplateNeed<SubstrateCase<T>> =>
-		freshCases("Substrate.freshOf", template)
+	static readonly fresh = <T>(template: SubstrateTemplate<T>): TemplateNeed<SubstrateCase<T>> =>
+		freshCases("Substrate.fresh", template)
 	/**
 	 * One case's owner transaction on the worker's own clone of `template` (RolledBack), held with its connection across
 	 * the worker's cases and rolled back when the case ends, its sequences put back and its session discarded: nothing the
-	 * case does outlives it. A case that ends its transaction anyway fails, and the clone is replaced.
+	 * case does outlives it. A case that ends its transaction anyway fails, and the clone is replaced. The default form:
+	 * a case commits only where it is about commits (Substrate.fresh).
 	 */
 	static readonly rolledBack = <T>(template: SubstrateTemplate<T>): TemplateNeed<RolledBack<T>> =>
-		rolledBackCases("Substrate.rolledBack", template, Option.none())
-	/**
-	 * One case's owner transaction on the worker's own clone of the base template, as Substrate.rolledBack, and after
-	 * every case the clone judged clean by the substrate's own definition (shared.ts leftoversCheck), a cheap assertion of
-	 * what the rollback already guarantees: for the cases that read and evaluate on one owner session and commit nothing.
-	 */
-	static readonly transaction: TemplateNeed<RolledBack<void>> = rolledBackCases(
-		"Substrate.transaction",
-		base,
-		Option.some(leftoversCheck)
-	)
+		rolledBackCases("Substrate.rolledBack", template)
 	/**
 	 * A case's choice among a closed set of templates, each under `form`: one need per key, to spread into a property's
 	 * needs, of which a case takes only the one it draws (`yield* resources[key]`), each opened on a worker the first time

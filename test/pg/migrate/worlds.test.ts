@@ -67,7 +67,7 @@ import { parsedName } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { withServedDb } from "#test/support/served-db.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * The tables and materialized views a PostgreSQL role can read, by schema and name: each it holds a table or column
@@ -93,7 +93,7 @@ WHERE c.relkind IN ('r', 'p', 'm')`
 
 /** Worlds across migrations every history of the changes a world rests on migrates with its roles kept and its catalog admitted. */
 export const worlds = property.explore(aimed(historyGen, aims), {
-	needs: { caseSubstrate: Substrate.fresh },
+	needs: { caseSubstrate: Substrate.fresh(baseSubstrate) },
 	situations: [
 		"a read query entry's head changes",
 		"a written entry's policy filter stops reading another relation",
@@ -219,7 +219,7 @@ export const worlds = property.explore(aimed(historyGen, aims), {
 					}
 				}),
 				Substrate,
-				caseSubstrate
+				Effect.map(caseSubstrate, (taken) => taken.substrate)
 			),
 	oracle: {
 		kind: "postgresql",

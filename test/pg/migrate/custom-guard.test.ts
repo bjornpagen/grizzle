@@ -36,12 +36,12 @@ import {
 	shrinkAfterDataStep
 } from "#test/pg/migrate/custom-guard.fixtures.ts"
 import { expectSqlstate } from "#test/support/substrate/expect.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** A custom data step writes a guarded table inside its transaction's bracket, its guard enabled again after it or after its failure, and a no-transaction one is refused saying why. */
 export const aCustomDataStepWritesAGuardedTableInsideItsTransactionsBracketItsGuardEnabledAgainAfterItOrItsFailureAndANoTransactionOneIsRefusedSayingWhy =
 	property.exhaust(finite(word(dataSteps)), {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: dataSteps satisfies ReadonlyArray<Reached<DataStep>>,
 		check:
 			({ substrate }, c: Case<DataStep>) =>
@@ -114,7 +114,7 @@ export const aCustomDataStepWritesAGuardedTableInsideItsTransactionsBracketItsGu
 						})
 					),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "specification",

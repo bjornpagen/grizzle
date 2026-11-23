@@ -338,7 +338,7 @@ const verdict = (c: EvalCase, pg: PgAnswer): "value" | "declined" | "typed" | "b
 }
 
 /**
- * Installs `sql` and runs `body` under a savepoint of the case's rolled-back transaction (Substrate.transaction's
+ * Installs `sql` and runs `body` under a savepoint of the case's rolled-back transaction (Substrate.rolledBack's
  * `bare` connection), then rolls back to it and releases it: each call's installation is its own, a refused statement
  * leaves the case's transaction open for the next call, and the case's rollback undoes whatever is left.
  */

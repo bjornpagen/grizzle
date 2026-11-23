@@ -14,7 +14,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { runUses, type SessionTableFeature, usesGen } from "#test/pg/sql/session-tables.fixtures.ts"
-import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { ownerSession, Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * A session table's emptying keeps its file while it holds its one page and gives the file back once it holds more.
@@ -46,7 +46,7 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aSessionTablesEmptyingKeepsItsFileWhileItHoldsItsOnePageAndGivesTheFileBackOnceItHoldsMore =
 	property.explore(usesGen, {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: [
 			"kept its file",
 			"gave its file back",
@@ -66,7 +66,7 @@ export const aSessionTablesEmptyingKeepsItsFileWhileItHoldsItsOnePageAndGivesThe
 						})
 					),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "postgresql",

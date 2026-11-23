@@ -20,12 +20,12 @@ import {
 	runLabelledOracle
 } from "#test/support/oracle/runner.ts"
 import { OracleSeat } from "#test/support/oracle/seat.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** Endpoint existence during deferred violations the transaction artifact of each query agrees with the reference over a violated deferred law. */
 export const endpointExistenceDuringDeferredViolationsTheTransactionArtifactOfEachQueryAgreesWithTheReferenceOverAViolatedDeferredLaw =
 	property.explore(sketchGen, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: Arr.map(
 			queryNames,
 			(q): AgreedFeature => `${q} agreed over a dangling edge`

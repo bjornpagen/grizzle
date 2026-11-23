@@ -32,18 +32,22 @@ import {
 	features,
 	rewriteCase
 } from "#test/pg/migrate/rewrites.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** One rewrite per table on PostgreSQL a migration over a populated installation rewrites each table at most once, and its catalog is a fresh installation's. */
 export const rewrites = property.explore(steered(caseSteered), {
-	needs: { substrate: Substrate.fresh },
+	needs: { substrate: Substrate.fresh(baseSubstrate) },
 	situations: features satisfies ReadonlyArray<Reached<Feature>>,
 	/** Its pre-conversion budget: runs 6, coverage cases 2 * features.length (rewrites.test.ts at bf4f43bb). */
 	budget: { runs: 6, steered: 2 * features.length },
 	check:
 		({ substrate }, notes: Case<Feature>) =>
 		(c) =>
-			Effect.provideServiceEffect(rewriteCase(c, notes), Substrate, substrate),
+			Effect.provideServiceEffect(
+				rewriteCase(c, notes),
+				Substrate,
+				Effect.map(substrate, (taken) => taken.substrate)
+			),
 	oracle: {
 		kind: "postgresql",
 		name: "PostgreSQL's table_rewrite events during the migration, and its catalog of the migrated and of a fresh installation"

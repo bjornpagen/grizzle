@@ -26,7 +26,7 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aRuleJudgesDeltaHoldsItsValuesInItsRowWhereItsRelationsWidestRowFitsOneHeapTupleAndOutOfLineWhereItMayNot =
 	property.exhaust(finite(writesGen), {
-		needs: { judged: Substrate.freshOf(storageTemplate) },
+		needs: { judged: Substrate.fresh(storageTemplate) },
 		situations: ["a body past a page", "a label at its bound"] satisfies ReadonlyArray<
 			Reached<StorageFeature>
 		>,

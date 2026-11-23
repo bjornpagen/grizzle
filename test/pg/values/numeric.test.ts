@@ -39,7 +39,7 @@ import {
 	value
 } from "#test/pg/values/numeric.fixtures.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Numeric agreement with PostgreSQL parses every literal to the value numeric_in gives it, in its one form.
@@ -69,7 +69,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const numericAgreementWithPostgreSQLParsesEveryLiteralToTheValueNumericInGivesItInItsOneForm =
 	property.explore(caseBatch, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: [],
 		budget: { runs: 1, steered: 0 },
 		check:
@@ -128,7 +128,7 @@ export const numericAgreementWithPostgreSQLParsesEveryLiteralToTheValueNumericIn
  */
 export const numericAgreementWithPostgreSQLNormalizesLiteralsToNumericPSExactlyAsBothPostgreSQLCoercionPathsDoAndTheCodecParsesExactly =
 	property.explore(caseBatch, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: [
 			"overflow by rounding",
 			"negative scale",
@@ -246,7 +246,7 @@ export const numericAgreementWithPostgreSQLNormalizesLiteralsToNumericPSExactlyA
  */
 export const numericAgreementWithPostgreSQLOrdersEquatesAndDeduplicatesNumericsAsPostgreSQLDoesNaNLast =
 	property.explore(array(value, { min: 1, max: 3000 }), {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: [],
 		budget: { runs: 1, steered: 0 },
 		check:

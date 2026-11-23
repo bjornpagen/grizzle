@@ -30,14 +30,14 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { readOnce, writeOnce } from "#test/support/calls.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { Item } from "#test/unit/program/records.fixtures.ts"
 
 /** Each row a query found, inserted into its records and read back at its owner, is the row the query found. */
 export const aRowAQueryFoundReadsBackFromItsRecordsExactlyAsTheQueryFoundIt = property.explore(
 	recordsCaseGen,
 	{
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: recordsSituations satisfies ReadonlyArray<Reached<RecordsFeature>>,
 		check:
 			({ substrate }, c: Case<RecordsFeature>) =>
@@ -110,7 +110,7 @@ export const aRowAQueryFoundReadsBackFromItsRecordsExactlyAsTheQueryFoundIt = pr
 						})
 					),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: { kind: "second-implementation", name: "the query's own read of Item" },
 		show: Formatter.format,

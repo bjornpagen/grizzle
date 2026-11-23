@@ -92,7 +92,7 @@ const modelById = (
 export const aCallOfANumericOfNoTypmodPassesItsValueAsItIsThroughReadsAndWrites = property.explore(
 	caseGen,
 	{
-		needs: Substrate.oneOf({ numeric: numericTemplate }, Substrate.freshOf),
+		needs: Substrate.oneOf({ numeric: numericTemplate }, Substrate.fresh),
 		situations: features,
 		budget: { runs: 16, steered: features.length },
 		check: (templates, notes: Case<Feature>) => (c) =>

@@ -1,6 +1,6 @@
 /**
  * The forms a grizzle case's database takes (test/support/substrate/substrate.ts): a clone of an installed template a
- * case (Substrate.freshOf), and one owner transaction a case on the worker's own clone (Substrate.rolledBack). Each case
+ * case (Substrate.fresh), and one owner transaction a case on the worker's own clone (Substrate.rolledBack). Each case
  * writes into what it was given and requires to find what its form promises: the template's installation and no row an
  * earlier case wrote, every login of the installation logging in with the credentials the case derives from the
  * member's owner password.
@@ -26,7 +26,7 @@ import { withLayer } from "#test/support/with-layer.ts"
 
 /** A case's own clone of an installed template holds its installation, no earlier case's rows, and its logins. */
 export const freshInstalled = property.exhaust(finite(int(1, 4)), {
-	needs: { work: Substrate.freshOf(workTemplate) },
+	needs: { work: Substrate.fresh(workTemplate) },
 	situations: [],
 	check:
 		({ work }) =>
@@ -101,7 +101,7 @@ export const rolledBack = property.exhaust(finite(int(1, 4)), {
  * with the password its template derives, and its workload reads what the case wrote.
  */
 export const served = property.exhaust(finite(int(1, 4)), {
-	needs: { work: Served.of(servedWorld(Work).server, Substrate.freshOf(servedTemplate)) },
+	needs: { work: Served.of(servedWorld(Work).server, Substrate.fresh(servedTemplate)) },
 	situations: [],
 	check:
 		({ work }) =>
@@ -137,7 +137,7 @@ export const served = property.exhaust(finite(int(1, 4)), {
  * only the one it draws, holding that template's installation and no row of another case's.
  */
 export const oneOfTemplates = property.exhaust(finite(oneOfCase), {
-	needs: Substrate.oneOf({ first: workTemplate, second: secondWorkTemplate }, Substrate.freshOf),
+	needs: Substrate.oneOf({ first: workTemplate, second: secondWorkTemplate }, Substrate.fresh),
 	situations: [],
 	check:
 		(work) =>

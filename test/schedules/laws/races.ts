@@ -1496,7 +1496,7 @@ const modeRaces = <P>(h: HistoryFamily<P>, population: Population<P>) => {
  * schema and so its population, every feature a race notes is paired with its population's mode, and each population
  * must reach, in its own races, everything a family requires, its write skew included when it makes one. Each
  * population's window starts name its schemas past those of the populations before it. A case runs on its own clone
- * of its schema's template (history/families.ts HistoryFamily templates, Substrate.oneOf with Substrate.freshOf),
+ * of its schema's template (history/families.ts HistoryFamily templates, Substrate.oneOf with Substrate.fresh),
  * whose installation is checked to enforce the host's laws as the host states them (enforcementProblem), where the
  * search installed each schema before its first case. `declaredIn` is the module that states the suite.
  *
@@ -1518,7 +1518,7 @@ export const raceSuite = <P>(declaredIn: ImportMeta, h: HistoryFamily<P>) => {
 		Arr.map(q.reach, (f) => [q.mode, f] as const)
 	)
 	return property.explore(raceCaseGen(variants.length, windows, skewStartsOf(h, variants)), {
-		needs: Substrate.oneOf(h.templates(declaredIn), Substrate.freshOf),
+		needs: Substrate.oneOf(h.templates(declaredIn), Substrate.fresh),
 		situations: reach,
 		check: (clones, c: Case<RaceFeature>) => (rc) =>
 			Effect.scoped(

@@ -53,7 +53,7 @@ import { commitStatements } from "#test/support/live/direct.ts"
 import { installLive } from "#test/support/live/harness.ts"
 import { type LiveCase, liveCaseGen, statesOf, writesOf } from "#test/support/live/world.ts"
 import { clusterPool } from "#test/support/pg.ts"
-import { roleSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { roleSession, Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
 /**
@@ -61,7 +61,7 @@ import { withLayer } from "#test/support/with-layer.ts"
  */
 export const theLiveSourceDecodesEachCommitsTransactionToExactlyItsRowsRouteKeysAndARollbackToNothingOverCasesGeneratedHistories =
 	property.explore(liveCaseGen(bounds), {
-		needs: { substrate2: Substrate.fresh },
+		needs: { substrate2: Substrate.fresh(baseSubstrate) },
 		situations: [
 			"an insert",
 			"a delete",
@@ -198,7 +198,7 @@ export const theLiveSourceDecodesEachCommitsTransactionToExactlyItsRowsRouteKeys
 						}
 					}).pipe(Effect.scoped),
 					Substrate,
-					substrate2
+					Effect.map(substrate2, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "specification",

@@ -37,7 +37,7 @@ import { withLayer } from "#test/support/with-layer.ts"
 /** A point read by a digest key's texts finds at most the one reference at them, and a use's reference attached by them is an Option of it. */
 export const aPointReadByTheTextsOfADigestKeyFindsAtMostTheOneReferenceAtThemAndAUsesReferenceIsAnOptionOfIt =
 	property.explore(sketchGen, {
-		needs: { fixture: Substrate.freshOf(digestsTemplate) },
+		needs: { fixture: Substrate.fresh(digestsTemplate) },
 		situations: [
 			"a point read finding its reference",
 			"a point read finding none",

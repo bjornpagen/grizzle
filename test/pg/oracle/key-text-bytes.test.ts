@@ -56,14 +56,14 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
-import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { ownerSession, Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * A key's text bounded by keyTextBytes against PostgreSQL's B-tree item limit: a text of exactly keyTextBytes bytes in a
  * key beside its companions is inserted, and one byte more is refused by its domain.
  */
 export const exactlyKeyTextBytes = property.explore(caseSpace, {
-	needs: { substrate: Substrate.fresh },
+	needs: { substrate: Substrate.fresh(baseSubstrate) },
 	/**
 	 * Its search budget: the fewest runs at which each kill it declares still fails a witness, the cull rule's measure
 	 * (grizzle main, 2026-11-23).
@@ -227,7 +227,7 @@ export const exactlyKeyTextBytes = property.explore(caseSpace, {
 					)
 				}),
 				Substrate,
-				substrate
+				Effect.map(substrate, (taken) => taken.substrate)
 			),
 	oracle: {
 		kind: "postgresql",

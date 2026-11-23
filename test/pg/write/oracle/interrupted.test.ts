@@ -33,7 +33,7 @@ import { CurrentPerturbation } from "#test/support/oracle/perturb.ts"
 import type { WriteOracleFeature } from "#test/support/oracle/write/harness.ts"
 import { installRun, resolveRun, runCases } from "#test/support/oracle/write/index.ts"
 import { withTarget } from "#test/support/oracle/write/run.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * An interrupted write run a write run interrupted mid-case leaves no session of its writer open.
@@ -44,7 +44,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const anInterruptedWriteRunAWriteRunInterruptedMidCaseLeavesNoSessionOfItsWriterOpen =
 	property.explore(runGen, {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: ["interrupted after a commit"] satisfies ReadonlyArray<Reached<InterruptFeature>>,
 		check:
 			({ substrate }, c: Case<InterruptFeature>) =>
@@ -92,7 +92,7 @@ export const anInterruptedWriteRunAWriteRunInterruptedMidCaseLeavesNoSessionOfIt
 						)
 					}),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "specification",

@@ -60,7 +60,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aWriteMeetsAKeyOverGeneratedFieldsAtTheValuesPostgreSQLStoresInsideItAndAgainstEveryStoredRow =
 	property.explore(keyCases, {
-		needs: { keys: Substrate.freshOf(keysTemplate) },
+		needs: { keys: Substrate.fresh(keysTemplate) },
 		situations: [
 			"typed key refused against a stored row",
 			"typed key refused within the write",

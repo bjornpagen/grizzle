@@ -214,7 +214,7 @@ export type SeatCase = SubstrateCase<Installed>
 /**
  * seatOf's installation as a template (install-migrate.ts installedTemplate): `schema` migrated through its first
  * migration once per member, under `label`, which names the template among its declaring module's. A case takes a
- * clone of its own (Substrate.freshOf), dropped after it, and reads its seat there (seatIn).
+ * clone of its own (Substrate.fresh), dropped after it, and reads its seat there (seatIn).
  */
 export const seatTemplate = (
 	declaredIn: ImportMeta,

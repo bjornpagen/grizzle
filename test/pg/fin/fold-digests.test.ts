@@ -84,7 +84,7 @@ const dueOf = (
  */
 export const concatFoldsCarriedByTheirDigestsStoreTheREADMEsFoldOfTextsPastTheBTreeEntryAndPostgreSQLRefusesEveryJunkRunningTextByTheFoldsAxesOrPins =
 	property.explore(sketchGen, {
-		needs: { digests: Substrate.freshOf(digestsTemplate) },
+		needs: { digests: Substrate.fresh(digestsTemplate) },
 		situations: [
 			"a running text past the B-tree entry",
 			"an owner's end past the B-tree entry",

@@ -135,7 +135,11 @@ import { checkedStatements } from "#test/support/oracle/verify/index.ts"
 import type { PgConnection, PipelineRefused, SqlError } from "#test/support/pg.ts"
 import type { WorkerBudgets } from "#test/support/runner.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
-import { Substrate, type SubstrateTemplate } from "#test/support/substrate/substrate.ts"
+import {
+	Substrate,
+	type SubstrateTemplate,
+	baseSubstrate
+} from "#test/support/substrate/substrate.ts"
 import { outputRows } from "#test/support/wire.ts"
 
 /** A hand-built case with the name its suite reports it by (runLabelledOracle). */
@@ -1260,7 +1264,7 @@ const perturbations = (perturb: Perturb): Gen<Perturbation> => {
  * ("all": the facts repeated and planner settings; "planner": the settings alone; "none"), the oracle it is checked
  * against, its kept tokens and kills, how a case prints (its value alone, as the old suites' literal printed it), and
  * the check of one case, which runs in the case's one rolled-back transaction on the worker's own clone
- * (Substrate.transaction, provided as the OracleSeat service, which runOracle and every helper read).
+ * (Substrate.rolledBack, provided as the OracleSeat service, which runOracle and every helper read).
  */
 export interface OracleSpec<S, F extends string, E> {
 	readonly situations: ReadonlyArray<Reached<F>>
@@ -1309,7 +1313,7 @@ const conditionedSpace = <S, F extends string>(
 /**
  * An oracle property (the runner's, replacing oracleCheck): `space`'s values, each drawn with its plan perturbation and
  * its second reading's restorage (they shrink together), each case checked in its one rolled-back transaction on the
- * worker's own clone of the base template (Substrate.transaction, OracleSeat.rolledBack)
+ * worker's own clone of the base template (Substrate.rolledBack, OracleSeat.rolledBack)
  * under its perturbation (underPerturbation), a failure's report the perturbation appended.
  */
 export const oracleProperty = <S, const F extends string, E>(
@@ -1317,7 +1321,7 @@ export const oracleProperty = <S, const F extends string, E>(
 	spec: OracleSpec<S, F, E>
 ) =>
 	property.explore(conditionedSpace(space, spec.perturb), {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: spec.situations,
 		check:
 			({ tx }, c: PropertyCase<F>) =>
@@ -1353,7 +1357,7 @@ export interface SeatedOracleSpec<S, T, F extends string, E> extends Omit<
 
 /**
  * An oracle property (oracleProperty) whose case runs on its own clone of the one of `templates` its value names
- * (`seatOf`; Substrate.oneOf with Substrate.freshOf, so a worker builds only the templates its cases drew), provided as
+ * (`seatOf`; Substrate.oneOf with Substrate.fresh, so a worker builds only the templates its cases drew), provided as
  * the Substrate service, with the template's value bound to its clone, under its perturbation.
  */
 export const seatedOracleProperty = <K extends string, T, S, const F extends string, E>(
@@ -1363,7 +1367,7 @@ export const seatedOracleProperty = <K extends string, T, S, const F extends str
 	spec: SeatedOracleSpec<S, T, F, E>
 ) =>
 	property.explore(conditionedSpace(space, spec.perturb), {
-		needs: Substrate.oneOf(templates, Substrate.freshOf),
+		needs: Substrate.oneOf(templates, Substrate.fresh),
 		situations: spec.situations,
 		check:
 			(seats, c: PropertyCase<F>) =>

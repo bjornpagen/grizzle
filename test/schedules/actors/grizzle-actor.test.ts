@@ -42,7 +42,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const grizzleActorsAGrizzleActorIsTheBackendItsDbsCallsRunOnWhateverSessionsOfItsLoginStandBesideIt =
 	property.explore(caseGen, {
-		needs: { fresh: Substrate.freshOf(timekeepingTemplate) },
+		needs: { fresh: Substrate.fresh(timekeepingTemplate) },
 		situations: [
 			"a writer named alone",
 			"a writer named beside an earlier writer",

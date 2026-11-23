@@ -33,7 +33,7 @@ import { observationsOf, plannedBySql, runScripted } from "#test/support/flight/
 import { runAlone } from "#test/support/pg.ts"
 import { testSql } from "#test/support/sql.ts"
 import { clearRows, tablesGroup } from "#test/support/substrate/replace.ts"
-import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
+import { freshSchema, Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { backendCount, queriesSent, tappedSession } from "#test/support/wire-tap.ts"
 
 /**
@@ -43,7 +43,7 @@ import { backendCount, queriesSent, tappedSession } from "#test/support/wire-tap
  */
 export const theScriptedSessionAgainstPostgreSQLObservesWhatTheServerObservesForEveryFlightAndInterruptionPointTheServerCanBeMadeToShow =
 	property.explore(aimed(caseGen(space), flightAims), {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: situations satisfies ReadonlyArray<Reached<ScriptedFeature>>,
 		check:
 			({ substrate }, cx: Case<ScriptedFeature>) =>
@@ -242,7 +242,7 @@ export const theScriptedSessionAgainstPostgreSQLObservesWhatTheServerObservesFor
 						}
 					}),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "postgresql",

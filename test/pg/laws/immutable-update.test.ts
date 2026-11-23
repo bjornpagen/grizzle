@@ -25,7 +25,7 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 export const anUpdateOfAnImmutableRelationThatChangesARowIsRefusedToTheOwnerToo = property.explore(
 	rewriteGen,
 	{
-		needs: Substrate.oneOf(judgeTemplates, Substrate.freshOf),
+		needs: Substrate.oneOf(judgeTemplates, Substrate.fresh),
 		situations: [
 			"an UPDATE of a field beside the key refused",
 			"an UPDATE of a key field refused",

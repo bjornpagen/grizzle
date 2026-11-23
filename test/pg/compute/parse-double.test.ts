@@ -34,7 +34,7 @@ import {
 } from "#test/pg/compute/parse-double.fixtures.ts"
 import { doubleTextGen } from "#test/support/lexical.ts"
 import { referenceConversion, sameDouble } from "#test/support/oracle/evaluate/double-text.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Text.parseDouble on PostgreSQL 19 a stored parse, the host evaluator and IEEE 754's conversion agree to the bit on every double's text.
@@ -64,7 +64,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const computeParseDoubleOnPostgreSQL19AStoredParseTheHostEvaluatorAndIEEE754sConversionAgreeToTheBitOnEveryDoublesText =
 	property.explore(recorded(array(doubleTextGen, { min: 1, max: 48 }), mapKeyDoubles), {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: features satisfies ReadonlyArray<Reached<Feature>>,
 		check:
 			({ tx }, c: Case<Feature>) =>

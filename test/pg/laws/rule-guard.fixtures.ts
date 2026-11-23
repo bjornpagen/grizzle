@@ -464,7 +464,7 @@ export type RaceFeature =
 const serializationFailure = "40001"
 
 /**
- * One race on a fresh database of guardSchema's installation (Substrate.freshOf guardTemplate), its tables empty: item 2
+ * One race on a fresh database of guardSchema's installation (Substrate.fresh guardTemplate), its tables empty: item 2
  * of package 1, and a standing session where the case has one, committed; then the publish and the learner's write on two sessions at SERIALIZABLE, each taking its
  * snapshot before either writes, each writing, then each committing, `first` first, a writer meeting the other's row lock
  * giving up at once. Whichever PostgreSQL refuses, by the rule at COMMIT (23503) or by a serialization failure (40001),

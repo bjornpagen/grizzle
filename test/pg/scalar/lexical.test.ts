@@ -37,7 +37,7 @@ import {
 	targetKey
 } from "#test/pg/scalar/lexical.fixtures.ts"
 import { type Candidate, candidateGen, type Shape, shapes } from "#test/support/lexical.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Lexical parse: the host and PostgreSQL 19 agree on every candidate's membership in its form and on the value its parse reads, under a foreign DateStyle.
@@ -67,7 +67,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const lexicalParseTheHostAndPostgreSQL19AgreeOnEveryCandidatesMembershipInItsFormAndOnTheValueItsParseReadsUnderAForeignDateStyle =
 	property.explore(array(candidateGen, { min: 1, max: 160 }), {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: shapes satisfies ReadonlyArray<Reached<Shape>>,
 		budget: { runs: 1, steered: 300 },
 		check:

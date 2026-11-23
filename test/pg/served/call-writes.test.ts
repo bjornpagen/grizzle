@@ -48,7 +48,7 @@ const features = [
  * guarded rows alone. */
 export const writesFromACallGuardedByADerivedRelationCallItOnceAndWriteTheGuardedRows =
 	property.explore(steered(steeredGrading), {
-		needs: Substrate.oneOf({ grading: gradingTemplate }, Substrate.freshOf),
+		needs: Substrate.oneOf({ grading: gradingTemplate }, Substrate.fresh),
 		situations: features,
 		budget: { runs: 16, steered: features.length },
 		check: (templates, notes: Case<GradingFeature>) => (c) =>

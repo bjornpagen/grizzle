@@ -91,7 +91,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const collidingAdditionsOfACertifiedREADCOMMITTEDRoleAnswerAsTheSerialOrderDoes =
 	property.explore(aimed(collisionGen, [...aims, ...doubleStartAims]), {
-		needs: { rigged: Substrate.freshOf(collisionsRig) },
+		needs: { rigged: Substrate.fresh(collisionsRig) },
 		situations: [
 			"an exact repeat of a row in flight, after waiting",
 			"a differing row at the arbiter key in flight, refused after waiting",

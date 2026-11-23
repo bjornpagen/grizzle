@@ -60,7 +60,7 @@ import { installMigrated } from "#test/support/install-migrate.ts"
 import { oneFlight } from "#test/support/one-flight.ts"
 import { refusedEntries } from "#test/support/refused.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 
 /** A call's facts: under each op of a change member's array members, the rows of each, under its relation's name. */
@@ -190,7 +190,7 @@ const repeatOf = (k: FreshCase): Option.Option<{ readonly appended: InstanceRow 
 /** A fresh group drawn by the host is stored as the family's scan draws it, and a stored group goes on being scanned. */
 export const aFreshCountedGroupDrawnByTheHostIsStoredAsTheFamilysScanDrawsItAndAStoredGroupIsStillScanned =
 	property.explore(freshCaseGen, {
-		needs: { caseSubstrate: Substrate.fresh },
+		needs: { caseSubstrate: Substrate.fresh(baseSubstrate) },
 		situations: features satisfies ReadonlyArray<Reached<Feature>>,
 		budget: { runs: 32, steered: 32 },
 		check:
@@ -296,7 +296,7 @@ export const aFreshCountedGroupDrawnByTheHostIsStoredAsTheFamilysScanDrawsItAndA
 						c.note("an exact repeat of a stored immutable owner beside an append, refused")
 					}).pipe(Effect.scoped),
 					Substrate,
-					caseSubstrate
+					Effect.map(caseSubstrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "postgresql",

@@ -122,7 +122,7 @@ const fieldsOf: Readonly<Record<string, ReadonlyArray<string>>> = {
 /** Every row an insert computes a field of holds the call's one value of it, its owner and every member alike, at every depth. */
 export const everyRowOfACallHoldsItsOneValueOfEachComputedFieldTheOwnerAndEveryMemberAlikeAtEveryDepth =
 	property.explore(computingGen, {
-		needs: { fixture: Substrate.freshOf(computedTemplate) },
+		needs: { fixture: Substrate.fresh(computedTemplate) },
 		situations,
 		check:
 			({ fixture }, k: Case<ComputedFeature>) =>
@@ -243,7 +243,7 @@ const bySlotKey = Order.combineAll([
 /** An insert that computes a field of its relation's primary key is judged at the key as the table holds its rows. */
 export const anInsertComputingAKeyFieldIsJudgedAtTheKeyAsTheTableHoldsTheRowsItWrites =
 	property.explore(slottingGen, {
-		needs: { fixture: Substrate.freshOf(computedTemplate) },
+		needs: { fixture: Substrate.fresh(computedTemplate) },
 		situations: slotSituations,
 		check:
 			({ fixture }, k: Case<SlotFeature>) =>

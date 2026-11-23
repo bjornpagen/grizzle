@@ -46,7 +46,7 @@ import {
 } from "#test/pg/values/carriers.fixtures.ts"
 import { exactVectorText, vectorInVerdict } from "#test/pg/vector/support.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { orderOf } from "#test/unit/values/support.ts"
 
 /**
@@ -78,7 +78,7 @@ import { orderOf } from "#test/unit/values/support.ts"
 export const spanAndVectorAgreementWithPostgreSQLOrdersSpansAsRangeCmpDoes = property.explore(
 	batchOf(span, 600),
 	{
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: [],
 		budget: { runs: 1, steered: 0 },
 		check:
@@ -139,7 +139,7 @@ export const spanAndVectorAgreementWithPostgreSQLOrdersSpansAsRangeCmpDoes = pro
  */
 export const spanAndVectorAgreementWithPostgreSQLRoundsBinary64ComponentsAsPostgreSQLsFloat8ToRealCastDoesAndPgvectorReadsTheCodecTextExactly =
 	property.explore(batchOf(components, 1000), {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: [],
 		budget: { runs: 1, steered: 0 },
 		check:
@@ -226,7 +226,7 @@ export const spanAndVectorAgreementWithPostgreSQLRoundsBinary64ComponentsAsPostg
  */
 export const spanAndVectorAgreementWithPostgreSQLRefusesWhatPgvectorRefusesByTextAndThroughRealReadsEveryAdmittedComponentAsItsBinary32RoundingAndTheHostRefusesAlike =
 	property.explore(inputGen, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: [
 			"admitted",
 			"at the storage limit",
@@ -342,7 +342,7 @@ export const spanAndVectorAgreementWithPostgreSQLRefusesWhatPgvectorRefusesByTex
 export const spanAndVectorAgreementWithPostgreSQLOrdersVectorsAsVectorCmpDoes = property.explore(
 	batchOf(vector, 400),
 	{
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: [],
 		budget: { runs: 1, steered: 0 },
 		check:

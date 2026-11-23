@@ -57,7 +57,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * and narrowed by kind.
  */
 export const boundedUnion = property.explore(aimed(caseGen, aims), {
-	needs: { unions: Substrate.freshOf(unionsTemplate) },
+	needs: { unions: Substrate.fresh(unionsTemplate) },
 	/**
 	 * Its search budget: the fewest runs at which each kill it declares still fails a witness, the cull rule's measure
 	 * (grizzle main, 2026-11-23).

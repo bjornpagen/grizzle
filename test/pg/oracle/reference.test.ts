@@ -38,11 +38,11 @@ import {
 	runOracle
 } from "#test/support/oracle/runner.ts"
 import { OracleSeat } from "#test/support/oracle/seat.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** The comparison reports exactly the structure a lowering drops, renames or narrows, planted in a generated case's program. */
 export const structure = property.explore(structureSpace, {
-	needs: { tx: Substrate.transaction },
+	needs: { tx: Substrate.rolledBack(baseSubstrate) },
 	situations: plantFeatures satisfies ReadonlyArray<Reached<PlantFeature>>,
 	/**
 	 * Its search budget: the fewest runs at which each kill it declares still fails a witness, the cull rule's measure

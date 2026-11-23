@@ -417,7 +417,7 @@ export const recordset = (
 	)
 
 /**
- * A case's session made ready, in the case's transaction (Substrate.transaction): the money context set, a schema of the
+ * A case's session made ready, in the case's transaction (Substrate.rolledBack): the money context set, a schema of the
  * case's own under a name `allocate` gives, and the cents domain in it.
  */
 export const setupIn = (db: CaseSession, allocate: (label: string) => Effect.Effect<string>) =>

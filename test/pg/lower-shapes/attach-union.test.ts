@@ -48,7 +48,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const anAttachmentOverAUnionOfRulesReadsEachArmByItsParentsKeysSoItsWorkIsTheParentsRowsNotTheCorpus =
 	property.explore(corpusGen, {
-		needs: { ledger: Substrate.freshOf(attachUnionTemplate) },
+		needs: { ledger: Substrate.fresh(attachUnionTemplate) },
 		situations: [
 			"a file both rules name",
 			"no file both rules name"

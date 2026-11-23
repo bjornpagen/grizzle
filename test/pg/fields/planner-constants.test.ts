@@ -27,7 +27,7 @@ import {
 	plannerCaseGen,
 	runPlanner
 } from "#test/pg/fields/planner-constants.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * A generation expression whose subterms PostgreSQL's planner folds installs, and stores what the host computes.
@@ -36,7 +36,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aGenerationExpressionThePlannerFoldsInstallsEverySubtermItFoldsFoldedOnTheHostAndStoresWhatTheHostComputes =
 	property.explore(plannerCaseGen, {
-		needs: { caseSubstrate: Substrate.fresh },
+		needs: { caseSubstrate: Substrate.fresh(baseSubstrate) },
 		situations: [
 			"a CASE whose condition folds",
 			"a CASE a connective's operand decides, beside a literal in GREATEST or LEAST",
@@ -48,7 +48,7 @@ export const aGenerationExpressionThePlannerFoldsInstallsEverySubtermItFoldsFold
 				Effect.provideServiceEffect(
 					runPlanner(drawn, c).pipe(Effect.scoped),
 					Substrate,
-					caseSubstrate
+					Effect.map(caseSubstrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "second-implementation",

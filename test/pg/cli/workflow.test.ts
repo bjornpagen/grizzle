@@ -57,20 +57,24 @@ import {
 	runCommands,
 	workflow
 } from "#test/pg/cli/workflow.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** The migration workflow through the command line workflows of the rotating stream, steered until every step is reached: every step's exit code, folders and ledger are the model's, and no password is printed. */
 export const commandLineWorkflow = property.explore(
 	program(workflow, { min: 0, max: 14 }, fullSwarm(Struct.keys(workflow.commands))),
 	{
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: commandKinds satisfies ReadonlyArray<Reached<CommandKind>>,
 		/** Its pre-conversion budget: runs 3, coverage cases 30 (workflow.test.ts at bf4f43bb). */
 		budget: { runs: 3, steered: 30 },
 		check:
 			({ substrate }, c: Case<CommandKind>) =>
 			(steps) =>
-				Effect.provideServiceEffect(runCommands(c, steps), Substrate, substrate),
+				Effect.provideServiceEffect(
+					runCommands(c, steps),
+					Substrate,
+					Effect.map(substrate, (taken) => taken.substrate)
+				),
 		oracle: {
 			kind: "second-implementation",
 			name: "the documented loop as a state machine: exit codes, folders on disk and the ledger"

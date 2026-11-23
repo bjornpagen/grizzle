@@ -24,7 +24,7 @@ import {
 	judgeDictionary
 } from "#test/pg/compute/text.fixtures.ts"
 import { installationSql } from "#test/support/compile.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Text's terms on PostgreSQL an installed CHECK over a closed dictionary of patterns admits exactly each domain's matches.
@@ -54,7 +54,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const computesTextTermsOnPostgreSQLAnInstalledCHECKOverAClosedDictionaryOfPatternsAdmitsExactlyEachDomainsMatches =
 	property.explore(dictionary, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: [
 			"dictionary admits",
 			"dictionary refuses",

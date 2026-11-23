@@ -48,11 +48,11 @@ import {
 	historySteered,
 	migrates
 } from "#test/pg/migrate/fixtures.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** The worked examples migrate version by version every history: every apply admitted and checked, the history the fresh install and the installer agree, the ledger complete and Db.open admits every role. */
 export const workedExamples = property.explore(steered(historySteered), {
-	needs: { substrate: Substrate.fresh },
+	needs: { substrate: Substrate.fresh(baseSubstrate) },
 	situations: [
 		...Arr.map(families, (f) => f.label),
 		"an extension added",
@@ -70,7 +70,7 @@ export const workedExamples = property.explore(steered(historySteered), {
 					return migrates(history)
 				}),
 				Substrate,
-				substrate
+				Effect.map(substrate, (taken) => taken.substrate)
 			),
 	oracle: {
 		kind: "second-implementation",

@@ -39,8 +39,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 export const retirementsOfAKeysLastReferencesRacingAKeepOfTheSameKeyEndAsEverySerialOrderOfThemEnds =
 	property.explore(raceGen, {
 		needs: {
-			flat: Substrate.freshOf(raceTemplates.flat),
-			deep: Substrate.freshOf(raceTemplates.deep)
+			flat: Substrate.fresh(raceTemplates.flat),
+			deep: Substrate.fresh(raceTemplates.deep)
 		},
 		budget: { runs: 24, steered: 96 },
 		situations: [

@@ -36,7 +36,7 @@ import {
 	runLabelledOracle
 } from "#test/support/oracle/runner.ts"
 import { OracleSeat } from "#test/support/oracle/seat.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Every composition of the catalog agrees with its native rewrite, which applies exactly the rules its shape admits,
@@ -46,7 +46,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const everyCompositionOfTheCatalogAgreesWithItsNativeRewriteWhichAppliesExactlyTheRulesItsShapeAdmits =
 	property.explore(agreementSpace, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: [
 			...Arr.map(entryKinds, (kind): AgreementFeature => `entry ${kind}`),
 			"applied R26",

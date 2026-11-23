@@ -60,11 +60,11 @@ import {
 } from "#test/pg/cli/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { readCatalog } from "#test/support/catalog/read.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** Grizzle generate, check and migrate over drawn configurations every declared schema keeps its own directory, snapshot and ledger, is admitted and round-trips, by every executor and connection. */
 export const configurations = property.explore(aimed(configGen, refusalAims), {
-	needs: { caseSubstrate: Substrate.fresh },
+	needs: { caseSubstrate: Substrate.fresh(baseSubstrate) },
 	situations: [
 		"run by the bin",
 		"run by in process",
@@ -191,7 +191,7 @@ export const configurations = property.explore(aimed(configGen, refusalAims), {
 					})
 				),
 				Substrate,
-				caseSubstrate
+				Effect.map(caseSubstrate, (taken) => taken.substrate)
 			),
 	oracle: {
 		kind: "second-implementation",

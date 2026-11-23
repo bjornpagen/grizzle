@@ -29,7 +29,7 @@ import {
 	splitTemplate,
 	writtenGen
 } from "#test/pg/compute/concat-equation.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import {
 	type EquationFeature,
 	loweredEquationGen
@@ -66,7 +66,7 @@ import {
  */
 export const anEquationWithAConcatenationOfAnyNumberOfPartsIsOnPostgreSQLTheWholeAgainstThePartsInOrderInAQueryAndACheck =
 	property.explore(loweredEquationGen, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: [
 			"two parts",
 			"three parts",

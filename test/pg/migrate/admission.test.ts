@@ -41,12 +41,12 @@ import {
 	reviewerOf
 } from "#test/pg/migrate/admission.fixtures.ts"
 import { openMigrator } from "#test/pg/migrate/support.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { shopV1, shopV2 } from "#test/unit/deploy/schemas.ts"
 
 /** Post-apply admission refuses drift a hand edit may change how the state is reached, never the state. */
 export const admission = property.explore(steered(editGen), {
-	needs: { caseSubstrate: Substrate.fresh },
+	needs: { caseSubstrate: Substrate.fresh(baseSubstrate) },
 	situations: Arr.map(editKinds, featureOf) satisfies ReadonlyArray<Reached<EditFeature>>,
 	/** Its pre-conversion budget: runs 6, coverage cases 120 (admission.test.ts at bf4f43bb). */
 	budget: { runs: 6, steered: 120 },
@@ -72,7 +72,7 @@ export const admission = property.explore(steered(editGen), {
 					)
 				}),
 				Substrate,
-				caseSubstrate
+				Effect.map(caseSubstrate, (taken) => taken.substrate)
 			),
 	oracle: {
 		kind: "specification",

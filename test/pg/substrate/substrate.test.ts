@@ -28,11 +28,11 @@ import {
 } from "#test/pg/substrate/substrate.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { installGenerated } from "#test/support/install-migrate.ts"
-import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
+import { freshSchema, Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** A schema's release drops every role under its prefix, the ones an installation created among them. */
 export const releasesEveryRoleUnderItsPrefix = property.explore(aimed(releasingGen, releaseAims), {
-	needs: { substrate: Substrate.fresh },
+	needs: { substrate: Substrate.fresh(baseSubstrate) },
 	/**
 	 * Its search budget: one case of each stream, the least the runner runs, and three steered cases, one for each
 	 * situation its floor case leaves pending, each aimed at it (releaseAims).
@@ -98,7 +98,7 @@ export const releasesEveryRoleUnderItsPrefix = property.explore(aimed(releasingG
 				}
 			}),
 			Substrate,
-			resources.substrate
+			Effect.map(resources.substrate, (taken) => taken.substrate)
 		),
 	oracle: {
 		kind: "specification",

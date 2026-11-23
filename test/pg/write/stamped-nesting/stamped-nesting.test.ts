@@ -37,7 +37,7 @@ import { installMigrated } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { oneFlight } from "#test/support/one-flight.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 import {
 	featuresOf,
@@ -97,7 +97,7 @@ const sorted = (rows: ReadonlyArray<ReadonlyArray<string>>) =>
 /** Every member of a nested write under a stamped owner stores exactly its owner's stamp, call after call. */
 export const everyMemberOfANestedWriteUnderAStampedOwnerStoresExactlyItsOwnersStamp =
 	property.exhaust(finite(writtenGen), {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: [
 			"owners one",
 			"owners two groups",
@@ -192,7 +192,7 @@ export const everyMemberOfANestedWriteUnderAStampedOwnerStoresExactlyItsOwnersSt
 						)
 					}),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "specification",

@@ -47,7 +47,7 @@ import { type RosterState, codeAt, sizeOf } from "#test/support/closed/generate.
 import { roleNamesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { expectConstraint, inTransaction } from "#test/support/substrate/expect.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { outputText } from "#test/support/wire.ts"
 
 /**
@@ -59,7 +59,7 @@ import { outputText } from "#test/support/wire.ts"
  */
 export const aSetRoundTripsThroughItsBitColumnDecodesUnchangedAfterGrowthAndARemovedBitFailsValidateUntilTheDataStep =
 	property.explore(bitsHistories, {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: [
 			"a growth past a byte",
 			"a growth within a byte",
@@ -244,7 +244,7 @@ export const aSetRoundTripsThroughItsBitColumnDecodesUnchangedAfterGrowthAndARem
 						})
 					),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "second-implementation",

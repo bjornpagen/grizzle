@@ -44,7 +44,7 @@ import { upTo } from "#test/support/up-to.ts"
 /** Bytes written and read back whole stores every drawn value exactly, single or batched, and reads each back as a fresh array of its bytes. */
 export const bytesWrittenAndReadBackWholeStoresEveryDrawnValueExactlySingleOrBatchedAndReadsEachBackAsAFreshArrayOfItsBytes =
 	property.explore(space, {
-		needs: { fixture: Substrate.freshOf(blobsTemplate) },
+		needs: { fixture: Substrate.fresh(blobsTemplate) },
 		situations: [
 			"the empty value",
 			"every byte value",

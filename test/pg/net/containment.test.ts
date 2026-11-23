@@ -33,7 +33,7 @@ import {
 } from "#test/pg/net/containment.fixtures.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { netHolds } from "#test/support/oracle/reference/net.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** A drawn text as grizzle holds the value it spells: the one text inet_out or cidr_out prints of it. */
 const heldText = (type: NetType, text: string): string =>
@@ -42,7 +42,7 @@ const heldText = (type: NetType, text: string): string =>
 /** Network containment on PostgreSQL 19, PostgreSQL's, the host's and a second implementation's values of within, strictly within and overlap are one value for every pair, false across the address families. */
 export const netContainmentOnPostgreSQL19PostgreSQLsTheHostsAndASecondImplementationsValuesOfWithinStrictlyWithinAndOverlapAreOneValueForEveryPairFalseAcrossTheAddressFamilies =
 	property.explore(cases, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: [
 			"inet and inet",
 			"inet and cidr",

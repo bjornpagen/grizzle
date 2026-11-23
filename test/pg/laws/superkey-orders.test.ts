@@ -44,7 +44,7 @@ import {
 	type Feature,
 	referencesCase
 } from "#test/pg/laws/superkey-orders.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * References into one relation's superkeys in different orders one unique index per column set, every reference's foreign key landing on it and holding.
@@ -53,7 +53,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const referencesIntoOneRelationsSuperkeysInDifferentOrdersOneUniqueIndexPerColumnSetEveryReferencesForeignKeyLandingOnItAndHolding =
 	property.explore(aimed(drawnGen, aims), {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: [
 			"two references over one set in two orders",
 			"a fixed target and a superkey reference over one set",
@@ -70,7 +70,7 @@ export const referencesIntoOneRelationsSuperkeysInDifferentOrdersOneUniqueIndexP
 				Effect.provideServiceEffect(
 					Effect.scoped(referencesCase(d, cx.note)),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "specification",

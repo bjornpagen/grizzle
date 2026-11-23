@@ -45,8 +45,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 export const theInsertProtocolsArbitrationsWritersOfDisjointKeysCommitEveryCallButAnUnsettledInvoiceAndSIReadLockInvoicesIndexesAloneDocsNone =
 	property.explore(steered(aimedDisjoint), {
 		needs: {
-			readCommitted: Substrate.freshOf(readCommittedShape),
-			serializable: Substrate.freshOf(serializableShape)
+			readCommitted: Substrate.fresh(readCommittedShape),
+			serializable: Substrate.fresh(serializableShape)
 		},
 		situations: [
 			"docs only",

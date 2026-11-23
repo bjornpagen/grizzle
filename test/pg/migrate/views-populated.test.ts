@@ -31,7 +31,7 @@ import {
 import { firstCodes } from "#test/support/compile.ts"
 import { atName } from "#test/support/kernel/naming.ts"
 import { draftChain, fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { type Change, schemaOf } from "#test/unit/deploy/view-identity.fixtures.ts"
 
 /** What the second version changes: nothing, or one view's definition. */
@@ -50,7 +50,7 @@ const viewsOf = (snapshot: DeploySnapshot): ReadonlyArray<string> =>
 export const everyViewIsPopulatedAfterMigrate = property.exhaust(
 	finite((s) => s.draw(element(changes))),
 	{
-		needs: { caseSubstrate: Substrate.fresh },
+		needs: { caseSubstrate: Substrate.fresh(baseSubstrate) },
 		situations: [
 			"the first version",
 			...Arr.map(changes, (change) => `the second version: ${change}` as const)
@@ -105,7 +105,7 @@ export const everyViewIsPopulatedAfterMigrate = property.exhaust(
 						)
 					}),
 					Substrate,
-					caseSubstrate
+					Effect.map(caseSubstrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "specification",

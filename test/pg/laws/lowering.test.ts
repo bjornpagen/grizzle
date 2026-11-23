@@ -111,11 +111,11 @@ export const aLoweredShapeCommitsAndRefusesEveryHistoryExactlyAsTheContainmentsT
 				planned.shape,
 				property.explore(loweringSpaceOf(planned.shape), {
 					needs: {
-						fresh: Substrate.freshOf(t.fresh),
-						aboveLater: Substrate.freshOf(t.histories.aboveLater),
-						keysLater: Substrate.freshOf(t.histories.keysLater),
-						keyChanged: Substrate.freshOf(t.histories.keyChanged),
-						oracle: Substrate.freshOf(t.oracle)
+						fresh: Substrate.fresh(t.fresh),
+						aboveLater: Substrate.fresh(t.histories.aboveLater),
+						keysLater: Substrate.fresh(t.histories.keysLater),
+						keyChanged: Substrate.fresh(t.histories.keyChanged),
+						oracle: Substrate.fresh(t.oracle)
 					},
 					situations: planned.situations satisfies ReadonlyArray<Reached<Feature>>,
 					check:

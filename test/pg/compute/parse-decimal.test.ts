@@ -41,7 +41,7 @@ import {
 	ariaRanges
 } from "#test/pg/compute/parse-decimal.fixtures.ts"
 import { canonicalDecimal, decimalOrder } from "#test/support/oracle/evaluate/decimal-text.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Text.parseDecimal on PostgreSQL 19 the parse's SQL, a stored range, the host evaluator and XML Schema's decimal mapping agree exactly on every decimal text.
@@ -71,7 +71,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const computeParseDecimalOnPostgreSQL19TheParsesSQLAStoredRangeTheHostEvaluatorAndXMLSchemasDecimalMappingAgreeExactlyOnEveryDecimalText =
 	property.explore(recorded(array(pairGen, { min: 1, max: 24 }), ariaRanges), {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: features satisfies ReadonlyArray<Reached<Feature>>,
 		check:
 			({ tx }, c: Case<Feature>) =>

@@ -27,7 +27,7 @@ import {
 import { installed } from "#test/pg/reads/support.ts"
 import { readStream } from "#test/support/event-stream.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { testVerify } from "#test/support/worlds.ts"
 
@@ -39,7 +39,7 @@ import { testVerify } from "#test/support/worlds.ts"
  */
 export const anAnsweredLoginIsServedOverHTTPWithNoLiveSourceEachReadAnsweredOnceThenEnded =
 	property.explore(aimed(caseGen, aims), {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: [
 			"a set read",
 			"an ordered read from its start",
@@ -133,7 +133,7 @@ export const anAnsweredLoginIsServedOverHTTPWithNoLiveSourceEachReadAnsweredOnce
 						}).pipe(withLayer(layer))
 					}).pipe(Effect.scoped, Effect.orDie),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "second-implementation",

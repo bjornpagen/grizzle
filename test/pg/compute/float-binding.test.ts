@@ -46,11 +46,11 @@ import {
 	runLabelledOracle
 } from "#test/support/oracle/runner.ts"
 import { OracleSeat } from "#test/support/oracle/seat.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Guarded float forms on PostgreSQL 19 bind their operands once per row and compute the reference's values, over
- * generated terms: each case one owner transaction, rolled back after it (Substrate.transaction), its oracle seat over
+ * generated terms: each case one owner transaction, rolled back after it (Substrate.rolledBack), its oracle seat over
  * that transaction (OracleSeat.rolledBack), where its EXPLAIN ANALYZE reads the case's own schema.
  *
  * Its budget, measured (fastcycle's cull):
@@ -78,7 +78,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const guardedFloatFormsBindTheirOperandsOncePerRowAndComputeTheReferencesValues =
 	property.explore(aimedCaseGen, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: [
 			"width:float8",
 			"width:float4",

@@ -53,14 +53,14 @@ import {
 	features,
 	sketchGen
 } from "#test/pg/write/replace-cost/replace-cost.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * The cost of replacing a stored unit the rows it reads at most double with each doubling of the unit.
  */
 export const theCostOfReplacingAStoredUnitTheRowsItReadsAtMostDoubleWithEachDoublingOfTheUnit =
 	property.exhaust(finite(sketchGen), {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: features satisfies ReadonlyArray<Reached<Feature>>,
 		check:
 			({ substrate }, c: Case<Feature>) =>
@@ -92,7 +92,7 @@ export const theCostOfReplacingAStoredUnitTheRowsItReadsAtMostDoubleWithEachDoub
 						)
 					}),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "specification",

@@ -253,7 +253,7 @@ interface ServedCase<L> {
 }
 
 /**
- * The served forms of a property's needs. `Served.of(login, cases)`: each case of `cases` (Substrate.freshOf over a
+ * The served forms of a property's needs. `Served.of(login, cases)`: each case of `cases` (Substrate.fresh over a
  * generated template, install-migrate.ts generatedTemplate) with `login` serving the file `grizzle generate` wrote for
  * it over the case's installation (servedGenerated): the file is the template's plan's, the same in every case and
  * worker, and each case's layer connects to its own clone with the password its template derives. A login generate

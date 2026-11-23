@@ -74,8 +74,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 export const aRuleOverAQueryWhoseProbesReadAPatternTypedFieldOnPostgreSQL19CommitsExactlyTheWritesThatLeaveEveryItemsTagOpensRefusingTheRestBy23503ItsProbesCastingEachTagToItsColumnsOwnType =
 	property.explore(sketchGen, {
 		needs: {
-			immutable: Substrate.freshOf(ruleProbePatternTemplates.immutable),
-			mutable: Substrate.freshOf(ruleProbePatternTemplates.mutable)
+			immutable: Substrate.fresh(ruleProbePatternTemplates.immutable),
+			mutable: Substrate.fresh(ruleProbePatternTemplates.mutable)
 		},
 		situations: FEATURES satisfies ReadonlyArray<Reached<Feature>>,
 		check: (seats, c: Case<Feature>) => (s) =>

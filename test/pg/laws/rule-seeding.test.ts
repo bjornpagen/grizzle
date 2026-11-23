@@ -143,7 +143,7 @@ export const commitExactlyTheTransactionsWhoseStateTheRulesWholeCheckFindsLawful
 		Arr.map(judgedShapes, (shape) => [
 			shape,
 			property.explore(aimed(caseGen(shape), aimsOf(shape)), {
-				needs: { fresh: Substrate.freshOf(seedTemplates[shape]) },
+				needs: { fresh: Substrate.fresh(seedTemplates[shape]) },
 				situations: requiredOf(shape) satisfies ReadonlyArray<Reached<EquivalenceFeature>>,
 				check:
 					({ fresh }, k: Case<EquivalenceFeature>) =>
@@ -215,7 +215,7 @@ export const readTheSameRowsAndTakeTheSameSireadLocksBesideHundredsMoreKeys = fa
 		Arr.map(shapes, (shape) => [
 			shape,
 			property.explore(localityGen(shape), {
-				needs: { fresh: Substrate.freshOf(seedTemplates[shape]) },
+				needs: { fresh: Substrate.fresh(seedTemplates[shape]) },
 				situations: [`${shape} measured`] satisfies ReadonlyArray<Reached<LocalityFeature>>,
 				check:
 					({ fresh }, search: Case<LocalityFeature>) =>

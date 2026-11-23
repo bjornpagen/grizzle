@@ -45,7 +45,7 @@ import { steered } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { type Feature, history, stepsSteered } from "#test/pg/migrate/histories.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Rename histories on PostgreSQL every step of a rename history migrates to a fresh install's catalog, its worlds included, every login and role keeps its PostgreSQL role, and the rows follow the model's identity map.
@@ -54,7 +54,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const renameHistoriesOnPostgreSQLEveryStepOfARenameHistoryMigratesToAFreshInstallsCatalogItsWorldsIncludedEveryLoginAndRoleKeepsItsPostgreSQLRoleAndTheRowsFollowTheModelsIdentityMap =
 	property.explore(steered(stepsSteered), {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: [
 			"a relation renamed",
 			"two relations' names swapped",
@@ -82,7 +82,7 @@ export const renameHistoriesOnPostgreSQLEveryStepOfARenameHistoryMigratesToAFres
 				Effect.provideServiceEffect(
 					history(steps, (f) => c.note(f)),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "second-implementation",

@@ -38,7 +38,7 @@ import {
 	scales,
 	smallest
 } from "#test/pg/migrate/generated-fill-memory.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** The box's one case: Member, its sizes the case's own. */
 const memberGen: Gen<"Member"> = (source) => source.draw(element(["Member"] as const))
@@ -48,7 +48,7 @@ type Situation = `${Scale}n members`
 
 /** A fold's backfill UPDATE of a table of 49 stored generated columns, none of which reads the accumulators it draws, holds ExecutorState flat from n to 2n and 4n rows, and assigns the cheapest reader's column to itself. */
 export const generatedFillMemory = property.exhaust(finite(memberGen), {
-	needs: { substrate: Substrate.fresh },
+	needs: { substrate: Substrate.fresh(baseSubstrate) },
 	situations: Arr.map(scales, (scale): Situation => `${scale}n members`) satisfies ReadonlyArray<
 		Reached<Situation>
 	>,
@@ -79,7 +79,7 @@ export const generatedFillMemory = property.exhaust(finite(memberGen), {
 					}
 				}),
 				Substrate,
-				substrate
+				Effect.map(substrate, (taken) => taken.substrate)
 			),
 	oracle: {
 		kind: "specification",

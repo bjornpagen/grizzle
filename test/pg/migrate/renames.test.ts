@@ -35,11 +35,11 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { planGen, type RenameFeature, renamesCase } from "#test/pg/migrate/renames.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** Declared renames through grizzle's migrations on PostgreSQL 19 a declared rename keeps the table, the column and the code it renames, with every stored value, and a declared drop leaves exactly the fields that stand. */
 export const renames = property.explore(planGen, {
-	needs: { substrate: Substrate.fresh },
+	needs: { substrate: Substrate.fresh(baseSubstrate) },
 	situations: [
 		"a relation renamed",
 		"a field renamed",
@@ -56,7 +56,11 @@ export const renames = property.explore(planGen, {
 	check:
 		({ substrate }, c: Case<RenameFeature>) =>
 		(value) =>
-			Effect.provideServiceEffect(renamesCase(value, c), Substrate, substrate),
+			Effect.provideServiceEffect(
+				renamesCase(value, c),
+				Substrate,
+				Effect.map(substrate, (taken) => taken.substrate)
+			),
 	oracle: {
 		kind: "postgresql",
 		name: "a model of declared identities, judged by PostgreSQL's OIDs, attribute numbers and stored values"

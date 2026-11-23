@@ -11,7 +11,7 @@
  *   setup, reach one verdict: both implement the key, or both refuse it with 42804 at the same statement. The model's
  *   verdict is its typed refusal (InterpretFailure `refusal`), never its words.
  * - **Oracle:** PostgreSQL itself, each case, its setup included, in one owner transaction on the worker's own clone,
- *   rolled back after it (Substrate.transaction).
+ *   rolled back after it (Substrate.rolledBack).
  * - **Space, sampled:** an ordered pair of column types drawn from the types a column can have (each builtin with an
  *   index, two rosters' domains over smallint, as two rosters' closed ids are, and a domain over bigint), and a key from
  *   a column of the first to a key of the second made one of three ways: with the two tables; over the second type with
@@ -38,11 +38,11 @@ import {
 	statementsOf,
 	ways
 } from "#test/pg/migrate/foreign-key-types.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** The migration model's foreign key types a key between two column types, created or converted on either side, is refused by PostgreSQL exactly when by the model. */
 export const foreignKeyTypes = property.explore(keyCaseGen, {
-	needs: { transaction: Substrate.transaction },
+	needs: { transaction: Substrate.rolledBack(baseSubstrate) },
 	situations: Arr.flatMap(ways, (way) => [
 		`${way}: implemented` as const,
 		`${way}: refused` as const

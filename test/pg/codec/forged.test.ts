@@ -23,7 +23,7 @@ import { type BatchFeature, judged, sqlOf } from "#test/pg/codec/forged.fixtures
 import { arraysEncoder } from "#test/support/arrays.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { forgedCases } from "#test/support/forged.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Forged carrier inputs against PostgreSQL send PostgreSQL a set: the arrays hold as many distinct values as facts, and as the inputs stand for.
@@ -53,7 +53,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const forgedCarrierInputsAgainstPostgreSQLSendPostgreSQLASetTheArraysHoldAsManyDistinctValuesAsFactsAndAsTheInputsStandFor =
 	property.explore(forgedCases(judged), {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: [
 			"a batch holding one value twice",
 			"two values",

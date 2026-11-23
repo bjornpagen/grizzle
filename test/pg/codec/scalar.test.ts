@@ -53,7 +53,7 @@ import {
 } from "#test/pg/codec/scalar.fixtures.ts"
 import { fieldOf, storedTextOut, textRows, wireSql } from "#test/pg/codec/support.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { codecOf } from "#test/unit/codec/support.ts"
 
 /**
@@ -85,7 +85,7 @@ import { codecOf } from "#test/unit/codec/support.ts"
  */
 export const exactScalarCodecsAgainstPostgreSQLRoundTripsEveryCarrierExactlyThroughTheRecordsetAndACastParameter =
 	property.explore(roundTripGen, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: Arr.map(
 			cases,
 			(c): RoundTripFeature => `round-trips ${c.label}`
@@ -150,7 +150,7 @@ export const exactScalarCodecsAgainstPostgreSQLRoundTripsEveryCarrierExactlyThro
  */
 export const exactScalarCodecsAgainstPostgreSQLStoresFactsThroughTheirArraysAndDecodesTheStoredRowsPositionally =
 	property.explore(uniqueArray(anyUuid, factOf, { min: 1, max: 100 }), {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: [],
 		budget: { runs: 1, steered: 0 },
 		check:
@@ -240,7 +240,7 @@ export const exactScalarCodecsAgainstPostgreSQLStoresFactsThroughTheirArraysAndD
  */
 export const exactScalarCodecsAgainstPostgreSQLWritesARoutableCarriersValueAsPostgreSQLsTextOfItWhateverTheWritersSessionSettings =
 	property.explore(routableGen, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: Arr.map(
 			routableCases,
 			(c): RoutableFeature => `routes ${c.label}`

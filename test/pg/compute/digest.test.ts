@@ -27,7 +27,7 @@ import {
 	type Value
 } from "#test/pg/compute/digest.fixtures.ts"
 import { textCell } from "#test/pg/compute/support.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Crypto.sha256 on PostgreSQL the host's digest of any bytes is PostgreSQL's sha256(v), its 32 bytes, as a check and a query lower it.
@@ -57,7 +57,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const computeSha256OnPostgreSQLTheHostsDigestOfAnyBytesIsPostgreSQLsSha256VAsACheckAndAQueryLowerIt =
 	property.explore(batch, {
-		needs: { tx: Substrate.transaction, checkNeed },
+		needs: { tx: Substrate.rolledBack(baseSubstrate), checkNeed },
 		situations: [
 			"the empty value",
 			"one byte",

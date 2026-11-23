@@ -65,11 +65,11 @@ import {
 	workspace
 } from "#test/pg/cli/support.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** Grizzle drift over a world's objects passes on a fresh installation, refuses any set of hand changes to a world's objects naming each, and passes once they are undone. */
 export const drift = property.explore(steered(aimedPlantsGen), {
-	needs: { caseSubstrate: Substrate.fresh },
+	needs: { caseSubstrate: Substrate.fresh(baseSubstrate) },
 	situations: [
 		"a view's security barrier",
 		"row security disabled",
@@ -174,7 +174,7 @@ export const drift = property.explore(steered(aimedPlantsGen), {
 					assert.equal(undone.code, 0, `undone: ${undone.stderr}`)
 				}).pipe(Effect.scoped),
 				Substrate,
-				caseSubstrate
+				Effect.map(caseSubstrate, (taken) => taken.substrate)
 			),
 	oracle: {
 		kind: "postgresql",

@@ -104,8 +104,8 @@ export const countedSwapWithLast = family(
 				spec.label,
 				property.explore(sketchGen, {
 					needs: {
-						mutable: Substrate.freshOf(seats.mutable),
-						immutable: Substrate.freshOf(seats.immutable)
+						mutable: Substrate.fresh(seats.mutable),
+						immutable: Substrate.fresh(seats.immutable)
 					},
 					situations: [
 						"a case ended by COMMIT",

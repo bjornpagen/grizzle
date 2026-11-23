@@ -65,7 +65,7 @@ const features = [
  * the cast where it does not. Each case clones one of four installations and reads once, so its budget is the
  * runner's. */
 export const aReadOfAFunctionsRefinedResultIsCheckedAtItsCast = property.explore(caseGen, {
-	needs: Substrate.oneOf(refinementsTemplates, Substrate.freshOf),
+	needs: Substrate.oneOf(refinementsTemplates, Substrate.fresh),
 	situations: features,
 	check: (templates, notes: Case<RefinementsFeature>) => (c) =>
 		Effect.scoped(

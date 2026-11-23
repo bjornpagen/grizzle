@@ -16,12 +16,12 @@ import {
 	runLabelledOracle
 } from "#test/support/oracle/runner.ts"
 import { OracleSeat } from "#test/support/oracle/seat.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** Admitted recursions on PostgreSQL 19 agree with the reference evaluator as raw text sets, with no repeated row. */
 export const admittedRecursionsOnPostgreSQL19AgreeWithTheReferenceEvaluatorAsRawTextSetsWithNoRepeatedRow =
 	property.explore(sketchGen, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: Arr.map(
 			recursions,
 			(r): AgreedFeature => `${r} agreed with rows`

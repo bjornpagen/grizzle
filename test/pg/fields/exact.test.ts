@@ -64,7 +64,7 @@ const expectedRow = (row: Row): readonly [number, string, string, string] => [
 /** An exact field stores and reads back every drawn value bit-exactly, its exact sums among them, and refuses every other. */
 export const anExactFieldStoresAndReadsBackEveryDrawnValueBitExactlyItsExactSumsAmongThemAndRefusesEveryOther =
 	property.explore(ledgersGen, {
-		needs: { fixture: Substrate.freshOf(exactTemplate) },
+		needs: { fixture: Substrate.fresh(exactTemplate) },
 		situations: [
 			"a value within a signed 64-bit count",
 			"a value past a signed 64-bit count",

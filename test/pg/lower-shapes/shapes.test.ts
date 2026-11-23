@@ -72,7 +72,7 @@ import { shapedFacts, shapedProgram, testOptions } from "#test/unit/lower/shapes
  */
 export const theLoweringShapesOnPostgreSQL19R24TheConditionalCountAndSumAgreeWithTheCompositionOnGeneratedGroupsNoneSomeOrAllOfWhoseBindingsQualify =
 	property.explore(conditionalCaseGen, {
-		needs: { shapes: Substrate.freshOf(shapesTemplate) },
+		needs: { shapes: Substrate.fresh(shapesTemplate) },
 		situations: ["none qualify", "some qualify", "all qualify"] satisfies ReadonlyArray<
 			Reached<Qualifying>
 		>,

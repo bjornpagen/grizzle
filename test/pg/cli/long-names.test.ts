@@ -27,11 +27,11 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { limitCase, type LimitFeature, namesGen } from "#test/pg/cli/long-names.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** Logins and roles at the identifier limit, through the command line install roles of exactly 63 bytes, each the one roleNameOf names and admitted by Db.open, and refuse a schema name one byte longer, for drawn logins, roles and schema spellings. */
 export const longNames = property.explore(namesGen, {
-	needs: { substrate: Substrate.fresh },
+	needs: { substrate: Substrate.fresh(baseSubstrate) },
 	situations: [
 		"the login's role the longest",
 		"a role's role the longest",
@@ -45,7 +45,11 @@ export const longNames = property.explore(namesGen, {
 	check:
 		({ substrate }, c: Case<LimitFeature>) =>
 		(value) =>
-			Effect.provideServiceEffect(limitCase(value, c), Substrate, substrate),
+			Effect.provideServiceEffect(
+				limitCase(value, c),
+				Substrate,
+				Effect.map(substrate, (taken) => taken.substrate)
+			),
 	oracle: {
 		kind: "specification",
 		name: "the 63-byte rule for <schema>__<name>, and PostgreSQL's own roles and schemas"

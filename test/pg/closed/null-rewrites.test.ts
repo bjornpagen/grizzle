@@ -39,7 +39,7 @@ import {
 	rewriteCase,
 	situations
 } from "#test/pg/closed/null-rewrites.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * A comparison's rewrite over a NULL operand is three-valued as its plain meaning is, in every position.
@@ -48,12 +48,16 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aComparisonsRewriteOverANULLOperandIsThreeValuedAsItsPlainMeaningIsInEveryPosition =
 	property.explore(steered(aimedCaseGen), {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: situations satisfies ReadonlyArray<Reached<Feature>>,
 		check:
 			({ substrate }, c2: Case<Feature>) =>
 			(value) =>
-				Effect.provideServiceEffect(rewriteCase(value, c2), Substrate, substrate),
+				Effect.provideServiceEffect(
+					rewriteCase(value, c2),
+					Substrate,
+					Effect.map(substrate, (taken) => taken.substrate)
+				),
 		oracle: {
 			kind: "specification",
 			name: "each comparison's plain meaning over the drawn values: strict operations NULL at a NULL operand, Kleene's AND, OR and NOT, and IEEE 754's division and order"

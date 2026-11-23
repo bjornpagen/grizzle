@@ -31,12 +31,12 @@ import {
 	situations,
 	sketchGen
 } from "#test/pg/write/session-carriers/session-carriers.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** A session's writes stand on its first write's carriers, each holding one write's rows. */
 export const aSessionsWritesStandOnItsFirstWritesCarriersEachHoldingOneWritesRows =
 	property.exhaust(finite(sketchGen), {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: situations satisfies ReadonlyArray<Reached<Situation>>,
 		check:
 			({ substrate }, c: Case<Situation>) =>
@@ -72,7 +72,7 @@ export const aSessionsWritesStandOnItsFirstWritesCarriersEachHoldingOneWritesRow
 						}
 					}),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "postgresql",

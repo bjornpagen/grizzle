@@ -58,7 +58,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 export const aStrictFunctionsCallAtANullArgumentIsNullWithoutRunningItsBody = property.exhaust(
 	finite(caseGen),
 	{
-		needs: Substrate.oneOf({ strict: strictTemplate }, Substrate.freshOf),
+		needs: Substrate.oneOf({ strict: strictTemplate }, Substrate.fresh),
 		situations: features satisfies ReadonlyArray<Reached<StrictFeature>>,
 		check: (templates, notes: Case<StrictFeature>) => (c) =>
 			Effect.scoped(

@@ -88,7 +88,7 @@ const foldBudget = { runs: 13, steered: 80 } as const
  */
 export const foldsThroughGrizzlesLoweringCommitTheReferenceFoldAndRefuseEverySingleJunkAccumulator =
 	property.explore(sketchGen(SPEC.planes.length), {
-		needs: { fold: Substrate.freshOf(foldSeat) },
+		needs: { fold: Substrate.fresh(foldSeat) },
 		situations: [
 			"a case ended by COMMIT",
 			"a case ended by SET CONSTRAINTS and ROLLBACK",

@@ -8,7 +8,7 @@
 import { property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { runDelete, storedGen } from "#test/pg/write/unit-delete-cost/unit-delete-cost.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * The unit delete of a package reads one node for each node it deletes, however many packages stand beside it, with
@@ -18,12 +18,16 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aUnitDeleteMeetsEachRowItDeletesOnceThroughWhateverIndexPostgreSQLTakes =
 	property.explore(storedGen, {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: ["deleted with no statistics", "deleted analyzed"],
 		check:
 			({ substrate }, c) =>
 			(stored) =>
-				Effect.provideServiceEffect(runDelete(stored, c), Substrate, substrate),
+				Effect.provideServiceEffect(
+					runDelete(stored, c),
+					Substrate,
+					Effect.map(substrate, (taken) => taken.substrate)
+				),
 		oracle: {
 			kind: "universal",
 			name: "bound: the rows of the deleted table its DELETE reads, its scans' outputs and their filters' removals over every loop, are at most the rows it deletes"

@@ -45,7 +45,7 @@ const zerosText = (xs: ReadonlyArray<number>): string =>
 /** A float's two zeros are one value to every merge, which delivers +0 for either, and IEEE 754-2019's to every aggregate, on PostgreSQL 19 under every plan shape: a keyed read delivers each fact's own zero. */
 export const aFloatsTwoZerosAreOneValueToEveryMergeWhichDeliversPlus0ForEitherAndIEEE7542019sToEveryAggregateUnderEveryPlanShape =
 	property.exhaust(finite(sketchGen), {
-		needs: { fixture: Substrate.freshOf(mergesTemplate) },
+		needs: { fixture: Substrate.fresh(mergesTemplate) },
 		situations: features satisfies ReadonlyArray<Reached<Feature>>,
 		check:
 			({ fixture }, c: Case<Feature>) =>

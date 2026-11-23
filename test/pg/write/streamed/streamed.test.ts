@@ -14,7 +14,7 @@ import {
 	type StreamedFeature,
 	streamedGen
 } from "#test/pg/write/streamed/streamed.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * A call drawn in shares answers what one execution of every fact answers.
@@ -24,7 +24,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 export const aCallDrawnInSharesAnswersWhatOneExecutionOfEveryFactAnswers = property.explore(
 	streamedGen,
 	{
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: [
 			"every fact once",
 			"a fact repeated across shares",
@@ -34,7 +34,11 @@ export const aCallDrawnInSharesAnswersWhatOneExecutionOfEveryFactAnswers = prope
 		check:
 			({ substrate }, c) =>
 			(drawn) =>
-				Effect.provideServiceEffect(runStreamed(drawn, c), Substrate, substrate),
+				Effect.provideServiceEffect(
+					runStreamed(drawn, c),
+					Substrate,
+					Effect.map(substrate, (taken) => taken.substrate)
+				),
 		oracle: {
 			kind: "universal",
 			name: "accepted with every distinct fact added and stored once and every area's members counted, or a pair across shares refused storing nothing"

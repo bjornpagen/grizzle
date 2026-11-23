@@ -64,11 +64,11 @@ import {
 	renameCaseGen,
 	type RenameFeature
 } from "#test/pg/migrate/family-renames.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** A family over stored rows renamed or refilled through grizzle's migrations on PostgreSQL 19 a declared rename of a family's relations, the owner's fields, a roster and its handles, swaps and chains among them, renames every law column, drawn field, constraint and index in place: no table rewritten, no row updated, nothing built or validated again. */
 export const declaredRenames = property.explore(renameCaseGen, {
-	needs: { substrate: Substrate.fresh },
+	needs: { substrate: Substrate.fresh(baseSubstrate) },
 	situations: [
 		...kinds,
 		"fold none",
@@ -96,7 +96,11 @@ export const declaredRenames = property.explore(renameCaseGen, {
 	check:
 		({ substrate }, c: Case<RenameFeature>) =>
 		(value) =>
-			Effect.provideServiceEffect(renameCase(value, c), Substrate, substrate),
+			Effect.provideServiceEffect(
+				renameCase(value, c),
+				Substrate,
+				Effect.map(substrate, (taken) => taken.substrate)
+			),
 	oracle: {
 		kind: "postgresql",
 		name: "a rename changes no stored byte and builds nothing: relfilenodes, xmins, attribute numbers, values and constraint and index OIDs, judged by PostgreSQL's catalog"
@@ -161,7 +165,7 @@ export const declaredRenames = property.explore(renameCaseGen, {
 
 /** A family over stored rows renamed or refilled through grizzle's migrations on PostgreSQL 19 a fold's step, an axis copy's target or a counted family's group changed over stored rows, or a fold added, trees included, is drawn again, and an ordered family's group change keeps every stored index or is refused naming its law, unless the index is declared dropped: the migration commits with every law validated. */
 export const changedFills = property.explore(aimed(changeCaseGen, changeAims), {
-	needs: { substrate: Substrate.fresh },
+	needs: { substrate: Substrate.fresh(baseSubstrate) },
 	situations: [
 		...kinds,
 		"fold hidden",
@@ -187,7 +191,11 @@ export const changedFills = property.explore(aimed(changeCaseGen, changeAims), {
 	check:
 		({ substrate }, c: Case<ChangeFeature>) =>
 		(value) =>
-			Effect.provideServiceEffect(changeCase(value, c), Substrate, substrate),
+			Effect.provideServiceEffect(
+				changeCase(value, c),
+				Substrate,
+				Effect.map(substrate, (taken) => taken.substrate)
+			),
 	oracle: {
 		kind: "postgresql",
 		name: "PostgreSQL validates every constraint the migration adds over the values it draws again, and refuses a regroup that breaks an ordered family's sequences, naming its law"
@@ -221,7 +229,7 @@ export const changedFills = property.explore(aimed(changeCaseGen, changeAims), {
 
 /** A family over stored rows renamed or refilled through grizzle's migrations on PostgreSQL 19 a fold's step, an axis copy's target or a counted family's group changed over stored rows, a fold added, or the closed relation of weights a fold's selection by weight reads given other rows, is drawn again in place and writes exactly the rows whose values it changes: none where the new filler draws every row as the old one did, k where it moves k rows' values, every law validated over what it leaves, and builds again no constraint the target holds as it is that no state of the backfill can break. */
 export const redrawWrites = property.explore(aimed(redrawCaseGen, redrawAims), {
-	needs: { substrate: Substrate.fresh },
+	needs: { substrate: Substrate.fresh(baseSubstrate) },
 	situations: [
 		...kinds,
 		"fold step",
@@ -240,7 +248,11 @@ export const redrawWrites = property.explore(aimed(redrawCaseGen, redrawAims), {
 	check:
 		({ substrate }, c: Case<RedrawFeature>) =>
 		(value) =>
-			Effect.provideServiceEffect(redrawCase(value, c), Substrate, substrate),
+			Effect.provideServiceEffect(
+				redrawCase(value, c),
+				Substrate,
+				Effect.map(substrate, (taken) => taken.substrate)
+			),
 	oracle: {
 		kind: "postgresql",
 		name: "PostgreSQL validates every constraint the migration builds over the values it draws again, and each row's xmin moves exactly where one of its stored values changes, on every table the migration does not rewrite"

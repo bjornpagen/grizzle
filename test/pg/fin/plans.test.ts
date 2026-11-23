@@ -89,7 +89,7 @@ const plansBudget = { runs: 29, steered: 32 } as const
  */
 export const familyAndTreeReadsGoThroughGrizzlesInstalledIndexesWithNoSortSequentialScanOrRecursion =
 	property.explore(probes, {
-		needs: { tree: Substrate.freshOf(plansTree), family: Substrate.freshOf(plansFamily) },
+		needs: { tree: Substrate.fresh(plansTree), family: Substrate.fresh(plansFamily) },
 		situations: planSituations,
 		check:
 			({ tree, family: familyNeed }, cx: Case<PlanFeature>) =>

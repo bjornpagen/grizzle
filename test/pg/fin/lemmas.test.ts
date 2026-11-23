@@ -95,8 +95,8 @@ const statesBudget = { runs: 13, steered: 16 } as const
  */
 export const commitExactlyTheStatesOfTheBoxTheFamiliesTheoremHoldsOf = property.explore(stateGen, {
 	needs: {
-		ordered: Substrate.freshOf(lemmaFamilies.ordered),
-		counted: Substrate.freshOf(lemmaFamilies.counted)
+		ordered: Substrate.fresh(lemmaFamilies.ordered),
+		counted: Substrate.fresh(lemmaFamilies.counted)
 	},
 	situations: [
 		"a case ended by COMMIT",
@@ -196,8 +196,8 @@ export const commitExactlyTheStatesOfTheBoxTheFamiliesTheoremHoldsOf = property.
 export const refuseExactlyTheStepsOfRandomProgramsTheModelRefusesAndCommitTheRest =
 	property.explore(programs, {
 		needs: {
-			ordered: Substrate.freshOf(lemmaFamilies.ordered),
-			counted: Substrate.freshOf(lemmaFamilies.counted)
+			ordered: Substrate.fresh(lemmaFamilies.ordered),
+			counted: Substrate.fresh(lemmaFamilies.counted)
 		},
 		situations: programSituations,
 		check: (families, c: Case<ProgramFeature>) => (p) =>

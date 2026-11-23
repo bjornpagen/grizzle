@@ -20,7 +20,8 @@ const ResetGroup = Brand.nominal<ResetGroup>()
  * for one installed from its compiled script): its rows are the state a case writes whole. An installation of closed
  * relations alone stores nothing, and its group empties nothing.
  */
-export const installationGroup = (names: Names): ResetGroup => ResetGroup({ tables: names.storedTables })
+export const installationGroup = (names: Names): ResetGroup =>
+	ResetGroup({ tables: names.storedTables })
 
 /**
  * Every table of `tables`, which a test creates by hand rather than installs, or an installation's stored tables
@@ -44,7 +45,7 @@ export const headFills = (installation: Installation): ReadonlyArray<string> =>
  * so no trigger fires, neither a law's nor a foreign key's (each table of the group is emptied, so no reference among
  * them is left dangling), and no SERIALIZABLE transaction after it counts a conflict with what it deleted (replaceRows);
  * nothing for a group of no table. A case that commits nothing takes a rollback instead (Substrate.rolledBack,
- * Substrate.transaction).
+ * Substrate.rolledBack).
  */
 const emptied = (
 	connection: Pick<PgConnection, "query">,

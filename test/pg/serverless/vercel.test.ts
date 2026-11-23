@@ -46,7 +46,7 @@ import { isNativePool } from "#test/support/worlds/execute/pool.ts"
  */
 export const handsVercelAReleasesIdleWaitExactlyWhenBothVercelUrlAndVercelRegionAreSet =
 	property.exhaust(finite(envGen), {
-		needs: { login: Substrate.freshOf(vercelLogin) },
+		needs: { login: Substrate.fresh(vercelLogin) },
 		situations: ["url and region", "url only", "region only", "neither"] satisfies ReadonlyArray<
 			Reached<VercelEnvFeature>
 		>,
@@ -115,7 +115,7 @@ export const handsVercelAReleasesIdleWaitExactlyWhenBothVercelUrlAndVercelRegion
  */
 export const attachesPgsOwnPoolOnceAndKeepsTheInstanceAlivePastTheIdleTimeoutAfterEachRelease =
 	property.explore(poolCaseGen, {
-		needs: { login: Substrate.freshOf(vercelLogin) },
+		needs: { login: Substrate.fresh(vercelLogin) },
 		situations: [
 			"a burst the pool holds at once",
 			"several bursts",

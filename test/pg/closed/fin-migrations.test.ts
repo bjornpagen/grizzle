@@ -33,13 +33,13 @@ import {
 	historyGen,
 	renamedHistoryGen
 } from "#test/pg/closed/fin-migrations.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** Dependent keys through grizzle's migrations on PostgreSQL 19 a changed count replaces its counts' and its rows' constants, a kept constant keeps its body, a rename or a grown slot roster replaces none of it, and every probe is admitted exactly into Last's rows. */
 export const finMigrations = property.explore(
 	aimed(historyGen, [["a position renamed", renamedHistoryGen]]),
 	{
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: [
 			"a count grows",
 			"Last gains a row",
@@ -54,7 +54,11 @@ export const finMigrations = property.explore(
 		check:
 			({ substrate }, c: Case<FinFeature>) =>
 			(value) =>
-				Effect.provideServiceEffect(finCase(value, c), Substrate, substrate),
+				Effect.provideServiceEffect(
+					finCase(value, c),
+					Substrate,
+					Effect.map(substrate, (taken) => taken.substrate)
+				),
 		oracle: {
 			kind: "postgresql",
 			name: "content addressing of constants and the codes a rename keeps, against PostgreSQL's catalog and verdicts"

@@ -40,7 +40,7 @@ import {
 	runs,
 	raceAims
 } from "#test/schedules/queue/queue.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * The work queue's races every race of two workers' claims and settlements is serializable.
@@ -49,14 +49,18 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const theWorkQueuesRacesEveryRaceOfTwoWorkersClaimsAndSettlementsIsSerializable =
 	property.explore(aimed(raceGen, raceAims), {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: ["a write waited", "a write refused"] satisfies ReadonlyArray<
 			Reached<QueueFeature>
 		>,
 		check:
 			({ substrate }, c: Case<QueueFeature>) =>
 			(race) =>
-				Effect.provideServiceEffect(Effect.scoped(runRace(race, c)), Substrate, substrate),
+				Effect.provideServiceEffect(
+					Effect.scoped(runRace(race, c)),
+					Substrate,
+					Effect.map(substrate, (taken) => taken.substrate)
+				),
 		oracle: {
 			kind: "specification",
 			name: "serializability: the race's writes run alone in a real-time order answer and leave what the run did"

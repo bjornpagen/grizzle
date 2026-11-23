@@ -37,7 +37,7 @@ import {
 	searchFeatures,
 	staffTemplate
 } from "#test/pg/text/contains.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { values } from "#test/unit/compute/text.fixtures.ts"
 
 /**
@@ -68,7 +68,7 @@ import { values } from "#test/unit/compute/text.fixtures.ts"
  */
 export const textContainsSqlInAQueryAndInACheckIsTheHostsVerdictAndTheReferencesOverEveryKindOfNeedleTheEmptyOneALongerOneAndLikesSpecialCharactersAmongThem =
 	property.explore(pairBatch, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: pairFeatures,
 		check:
 			({ tx }, k: Case<PairFeature>) =>
@@ -148,7 +148,7 @@ export const textContainsSqlInAQueryAndInACheckIsTheHostsVerdictAndTheReferences
  */
 export const aStaffSearchWhoseTermIsAQueryParameterFindsExactlyTheMembersWhoseNameHoldsItAsciisCaseFoldedOnBothSidesOrAsItStands =
 	property.explore(searchCase, {
-		needs: { staff: Substrate.freshOf(staffTemplate) },
+		needs: { staff: Substrate.fresh(staffTemplate) },
 		situations: searchFeatures,
 		check: (resources, c: Case<SearchFeature>) => (k: SearchCase) => searchCaseRun(resources)(k, c),
 		oracle: {

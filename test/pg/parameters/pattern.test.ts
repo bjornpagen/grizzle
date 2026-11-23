@@ -69,7 +69,7 @@ import { withLayer } from "#test/support/with-layer.ts"
  */
 export const aParametersPatternNoStoredFieldDeclaresAgainstPostgreSQL19AParameterOfAnyPatternIsDeliveredAsItIsBoundItsValuesCheckedAtBind =
 	property.explore(caseGen, {
-		needs: { fixture: Substrate.freshOf(patternsTemplate) },
+		needs: { fixture: Substrate.fresh(patternsTemplate) },
 		situations: [
 			"relation delivered",
 			"relation refused at bind",

@@ -41,7 +41,7 @@ import {
 } from "#test/pg/values/codec-text.fixtures.ts"
 import { orderSetup } from "#test/pg/values/order.fixtures.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * A value's text is one per value as PostgreSQL holds its values, and PostgreSQL reads it back as the value, or, for a
@@ -78,7 +78,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 export const aValuesTextIsOnePerValueAndReadsBackInEveryInstallation = property.explore(
 	textBatchGen,
 	{
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: textSituations satisfies ReadonlyArray<Reached<TextFeature>>,
 		budget: { runs: 109, steered: roundTripRuns * textSituations.length },
 		check:

@@ -39,7 +39,7 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 export const aProbeACoveringContainmentPrunesBreaksNoVerdictOfItsRule = property.explore(
 	coverSpace,
 	{
-		needs: { cover: Substrate.freshOf(coverTemplate) },
+		needs: { cover: Substrate.fresh(coverTemplate) },
 		situations: coverFeatures,
 		check:
 			({ cover }, c) =>

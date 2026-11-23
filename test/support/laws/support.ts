@@ -178,7 +178,7 @@ export interface LawSession {
 
 /**
  * The owner's side of an installed family schema: the committed state in stateRows' form, and the closed id each field
- * holds, whose column stores its handle's code. A case starts from its own clone's empty tables (Substrate.freshOf), so
+ * holds, whose column stores its handle's code. A case starts from its own clone's empty tables (Substrate.fresh), so
  * the view empties nothing.
  */
 interface OwnerView {

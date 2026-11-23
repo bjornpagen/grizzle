@@ -12,7 +12,7 @@ import {
 	type WorldRace,
 	type WorldRaceFeature
 } from "#test/support/schedules/worlds.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import type {
 	Action,
 	ContextFacts,
@@ -151,7 +151,7 @@ export const worldRaceSuite = <C>(spec: {
 	readonly kept: ReadonlyArray<Kept>
 }) =>
 	property.explore(spec.space, {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: spec.required,
 		check:
 			({ substrate }, k: Case<WorldRaceFeature>) =>
@@ -159,7 +159,7 @@ export const worldRaceSuite = <C>(spec: {
 				Effect.provideServiceEffect(
 					Effect.scoped(runWorldRace({ race: spec.race(c, k), note: k.note })),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "second-implementation",

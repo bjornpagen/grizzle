@@ -26,7 +26,7 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const everyWriteIsJudgedInItsTransactionAtItsStatementAfterSetConstraintsAllImmediate =
 	property.explore(immediateGen, {
-		needs: Substrate.oneOf(judgeTemplates, Substrate.freshOf),
+		needs: Substrate.oneOf(judgeTemplates, Substrate.fresh),
 		situations: [
 			"a lawful write committed",
 			"a breaking insert refused at COMMIT",

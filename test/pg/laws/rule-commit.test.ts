@@ -34,7 +34,7 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aJudgedCommitLeavesEverySessionTableItWroteEmptyEachDeltaOfThemWithinItsPageAndItsFileAndItsSentinelsPage =
 	property.explore(commitsGen, {
-		needs: Substrate.oneOf(judgeTemplates, Substrate.freshOf),
+		needs: Substrate.oneOf(judgeTemplates, Substrate.fresh),
 		situations: ["a whole judge's deltas", "a probed judge's deltas"],
 		check: (judges, c) => (k) =>
 			Effect.gen(function* () {

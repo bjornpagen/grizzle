@@ -45,11 +45,11 @@ import { mutants } from "#test/support/oracle/mutants/mutants.ts"
 import { printOracleCase } from "#test/support/oracle/runner.ts"
 import { OracleSeat } from "#test/support/oracle/seat.ts"
 import { workerCluster } from "#test/support/runner.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** Each invalid mutant is killed by its witnesses with its listed counterexample, and the reference tells I1 apart. */
 export const invalid = property.exhaust(finite(word(killSearches)), {
-	needs: { tx: Substrate.transaction, cluster: workerCluster },
+	needs: { tx: Substrate.rolledBack(baseSubstrate), cluster: workerCluster },
 	situations: Arr.map(killSearches, killedFeature) satisfies ReadonlyArray<Reached<KilledFeature>>,
 	check:
 		({ tx, cluster }, c: Case<KilledFeature>) =>

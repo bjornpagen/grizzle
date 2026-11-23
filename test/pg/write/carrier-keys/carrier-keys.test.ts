@@ -33,12 +33,12 @@ import {
 	situations,
 	sketchGen
 } from "#test/pg/write/carrier-keys/carrier-keys.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** A write statement reaches every stored relation it joins to a never-analyzed carrier by the key's index. */
 export const aWriteStatementReachesEveryStoredRelationItJoinsToANeverAnalyzedCarrierByTheKeysIndex =
 	property.exhaust(finite(sketchGen), {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: situations satisfies ReadonlyArray<Reached<Situation>>,
 		check:
 			({ substrate }, c: Case<Situation>) =>
@@ -58,7 +58,7 @@ export const aWriteStatementReachesEveryStoredRelationItJoinsToANeverAnalyzedCar
 						)
 					}),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "postgresql",

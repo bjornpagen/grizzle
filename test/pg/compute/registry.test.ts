@@ -16,7 +16,7 @@ import { Array as Arr, Effect } from "effect"
 import { describeOp } from "#compiler/ir/expr.ts"
 import { nativeOps, operandCarriers } from "#compiler/scalar/compute/registry.ts"
 import { type EntryKind, entryProblems, sameOperands } from "#test/pg/compute/registry.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * The scalar registry against pg_operator, pg_proc and pg_cast names the catalog's operator, function or cast for every entry, with its result type and volatility, once per node and operands.
@@ -30,7 +30,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const theComputeRegistryAgainstPgOperatorPgProcAndPgCastNamesTheCatalogsOperatorFunctionOrCastForEveryEntryWithItsResultTypeAndVolatilityOncePerNodeAndOperands =
 	property.exhaust(finite(int(0, nativeOps.length - 1)), {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: ["operator", "function", "cast", "input", "construct"] satisfies ReadonlyArray<
 			Reached<EntryKind>
 		>,

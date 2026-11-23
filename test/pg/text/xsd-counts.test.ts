@@ -36,7 +36,7 @@ import { truth } from "#test/pg/text/differential.fixtures.ts"
 import { type CountsFeature, countsCaseGen, showCounts } from "#test/pg/text/xsd-counts.fixtures.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { expectSqlstate } from "#test/support/substrate/expect.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** PostgreSQL's `~` of `are` over every text of a batch, `$1` their JSON array, in their order. */
 const matchedSql = `SELECT (t.v COLLATE pg_catalog.pg_c_utf8 ~ $2::text)::text FROM jsonb_array_elements_text($1::text::jsonb) WITH ORDINALITY AS t(v, ord) ORDER BY t.ord`
@@ -69,7 +69,7 @@ const matchedSql = `SELECT (t.v COLLATE pg_catalog.pg_c_utf8 ~ $2::text)::text F
  */
 export const anXmlSchemaPatternOfACountPast255TheHostsAutomatonAndPostgreSQLsAREOfItsIRAndOfItsAdmittedPatternAgreeOnEveryTextAndPostgreSQLRefusesTheCountWrittenAsOne =
 	property.explore(countsCaseGen, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: [
 			"a least count past 255",
 			"a greatest count past 255",

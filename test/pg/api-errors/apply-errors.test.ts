@@ -62,7 +62,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const applyErrorThroughThePublicAPIAValueItsCodecRefusesIsRefusedAsInputNamingItsFaultAndSlotBeforeAnySQLOneItAdmitsIsAnswered =
 	property.explore(aimed(encodingCaseGen, encodingAims), {
-		needs: { fixture: Substrate.freshOf(applyTemplate) },
+		needs: { fixture: Substrate.fresh(applyTemplate) },
 		situations: [
 			...Arr.map(plantedPairs, ({ field, form }): EncodingFeature => `refused ${field} as ${form}`),
 			"wild admitted",

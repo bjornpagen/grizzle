@@ -33,7 +33,7 @@ import {
 	type XsdPatternFeature
 } from "#test/pg/compute/xsd-pattern.fixtures.ts"
 import { truth } from "#test/pg/text/differential.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Xml.isPattern on PostgreSQL 19: the library function's verdict on every text is the reader's and the host's.
@@ -64,7 +64,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const computeIsXsdPatternOnPostgreSQL19TheLibraryFunctionsVerdictOnEveryTextIsTheReadersAndTheHosts =
 	property.explore(batchGen, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: [
 			"a pattern of every construct",
 			"a construct outside the grammar",

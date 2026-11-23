@@ -103,7 +103,7 @@ const tookOf = (c: BoundCase) => {
 /** A relation parameter bound to a higher level's query reads its rows in the lower level's one statement. */
 export const aRelationParameterBoundToAHigherLevelsQueryReadsItsRowsInTheLowerLevelsOneStatement =
 	property.explore(boundCaseGen, {
-		needs: Substrate.oneOf({ bound: boundRowsTemplate }, Substrate.freshOf),
+		needs: Substrate.oneOf({ bound: boundRowsTemplate }, Substrate.fresh),
 		situations: features,
 		budget: { runs: 16, steered: features.length },
 		check: (templates, notes: Case<BoundFeature>) => (c) =>

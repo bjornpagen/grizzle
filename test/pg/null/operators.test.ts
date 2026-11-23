@@ -33,7 +33,7 @@ import {
 	operatorCase,
 	roundingPositions
 } from "#test/pg/null/operators.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Each operation over NULL is evaluated by the host as PostgreSQL evaluates it, at every slot NULL or a value.
@@ -47,7 +47,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const eachOperationOverNULLIsEvaluatedByTheHostAsPostgreSQLEvaluatesItAtEverySlotNULLOrAValue =
 	property.exhaust(finite(caseGen), {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: [
 			"compare",
 			"between",

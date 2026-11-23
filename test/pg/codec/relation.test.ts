@@ -45,7 +45,7 @@ import {
 } from "#test/pg/codec/relation.fixtures.ts"
 import { arraysEncoder } from "#test/support/arrays.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Relation inputs against PostgreSQL partitions generated cases exactly as PostgreSQL's DISTINCT equality does, a
@@ -77,7 +77,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const relationInputsAgainstPostgreSQLPartitionsGeneratedCasesExactlyAsPostgreSQLsDISTINCTEqualityDoes =
 	property.explore(array(collidingFactsGen(8), { min: 1, max: 100 }), {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: ["equal facts spelled apart"] satisfies ReadonlyArray<
 			Reached<"equal facts spelled apart">
 		>,
@@ -192,7 +192,7 @@ export const relationInputsAgainstPostgreSQLPartitionsGeneratedCasesExactlyAsPos
  */
 export const relationInputsAgainstPostgreSQLSendsPostgreSQLASetTheEncodersArraysHoldRowsDistinctUnderPostgreSQLsEquality =
 	property.explore(collidingFactsGen(40), {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: ["deduplicated"] satisfies ReadonlyArray<Reached<"deduplicated">>,
 		budget: { runs: 5, steered: 200 },
 		check:

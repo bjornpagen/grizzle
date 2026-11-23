@@ -30,7 +30,7 @@ import {
 	uncalledNodes
 } from "#test/pg/compute/library-nulls.fixtures.ts"
 import { inInstallation } from "#test/pg/compute/support.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** The cell of a row PostgreSQL returned, the call's value in its own type. */
 const cell = (row: ReadonlyArray<unknown>): LibraryValue => libraryValue(row[0], "PostgreSQL")
@@ -63,7 +63,7 @@ const cell = (row: ReadonlyArray<unknown>): LibraryValue => libraryValue(row[0],
  */
 export const grizzlesLibraryOnPostgreSQL19EveryLibraryFunctionsValueOverEverySetOfNullArgumentsIsTheHosts =
 	property.explore(batchGen, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: [
 			"isXsdPattern with no argument NULL",
 			"isXsdPattern with every argument NULL",

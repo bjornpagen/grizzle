@@ -50,7 +50,7 @@ import { succeeded } from "#test/support/assert.ts"
 import { installedStatements } from "#test/support/migrate/kit.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { tappedSession } from "#test/support/wire-tap.ts"
 
 type Feature = "a fresh install" | "a migration" | "a migration over rows"
@@ -65,7 +65,7 @@ const tightness = 2
 
 /** The locks a drafted migration states bound what PostgreSQL holds while each of its files runs, within twice. */
 export const statedLocksBoundTheHeld = property.explore(renamedDrawGen, {
-	needs: { substrate: Substrate.fresh },
+	needs: { substrate: Substrate.fresh(baseSubstrate) },
 	situations: ["a fresh install", "a migration over rows"] satisfies ReadonlyArray<
 		Reached<Feature>
 	>,
@@ -163,7 +163,7 @@ export const statedLocksBoundTheHeld = property.explore(renamedDrawGen, {
 					})
 				),
 				Substrate,
-				substrate
+				Effect.map(substrate, (taken) => taken.substrate)
 			),
 	oracle: {
 		kind: "specification",

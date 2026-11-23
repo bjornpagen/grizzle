@@ -36,7 +36,7 @@ import {
 	sameHost
 } from "#test/pg/input/exactness.fixtures.ts"
 import { strictReader } from "#test/support/kernel/strict.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * The input boundary against PostgreSQL 19 stores exactly the value parsed, or refuses it before any SQL: never a silently altered value.
@@ -67,7 +67,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const theInputBoundaryAgainstPostgreSQL19StoresExactlyTheValueParsedOrRefusesItBeforeAnySQLNeverASilentlyAlteredValue =
 	property.explore(caseGen, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: nonEmpty(
 			[
 				...Arr.flatMap(columns, (c): ReadonlyArray<ExactFeature> => [

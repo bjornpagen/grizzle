@@ -38,14 +38,14 @@ import {
 } from "#test/pg/adapter/support.ts"
 import { testIdleTimeout } from "#test/support/limits.ts"
 import { superuserClient } from "#test/support/substrate/shared.ts"
-import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
+import { freshSchema, Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Adapter session pool's release waits for an idle session's backend to exit, until the release is interrupted.
  */
 export const adapterSessionPoolsReleaseWaitsForAnIdleSessionsBackendToExitUntilTheReleaseIsInterrupted =
 	property.exhaust(finite(waitEnds), {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: ["released idle, closed", "released idle, interrupted"] satisfies ReadonlyArray<
 			Reached<WaitFeature>
 		>,
@@ -111,7 +111,7 @@ export const adapterSessionPoolsReleaseWaitsForAnIdleSessionsBackendToExitUntilT
 						c.note(`released idle, ${end}`)
 					}),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "specification",
@@ -134,7 +134,7 @@ export const adapterSessionPoolsReleaseWaitsForAnIdleSessionsBackendToExitUntilT
  */
 export const adapterSessionPoolsReleaseReturnsOnceNoBackendOfItsIdleSessionsIsLeftTheirTemporaryTablesDropped =
 	property.exhaust(finite(exits), {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: [
 			"one session",
 			"several sessions",
@@ -189,7 +189,7 @@ export const adapterSessionPoolsReleaseReturnsOnceNoBackendOfItsIdleSessionsIsLe
 						c.note(k.tables === 0 ? "no temporary table" : "temporary tables")
 					}),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "specification",

@@ -28,7 +28,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 /** A served ChangeSet's array members write exactly the facts each call supplies, and a handle that loses some is caught. */
 export const aServedChangeSetsArrayMembersWriteExactlyTheFactsEachCallSuppliesAndAHandleThatLosesSomeIsCaught =
 	property.explore((source) => [source.draw(caseGen), source.draw(plantGen)] as const, {
-		needs: { labelled: Substrate.freshOf(labelsTemplate) },
+		needs: { labelled: Substrate.fresh(labelsTemplate) },
 		situations: [
 			"no plant",
 			"a member's facts emptied",

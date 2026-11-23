@@ -1695,7 +1695,7 @@ export const raceSuite = <S>(suite: {
 	readonly required: Situations<RaceFeature>
 }) =>
 	property.explore(suite.sketch, {
-		needs: { rigged: Substrate.freshOf(racesRig) },
+		needs: { rigged: Substrate.fresh(racesRig) },
 		situations: suite.required,
 		check:
 			({ rigged }, c: Case<RaceFeature>) =>

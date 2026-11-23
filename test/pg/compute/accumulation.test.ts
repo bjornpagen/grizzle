@@ -42,11 +42,11 @@ import {
 import { CurrentPerturbation } from "#test/support/oracle/perturb.ts"
 import { conservative } from "#test/support/oracle/runner.ts"
 import { OracleSeat } from "#test/support/oracle/seat.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Every float and money sum and mean is delivered as the exact reference states it, in any order and plan, each case in
- * its own rolled-back transaction on the worker's clone (Substrate.transaction, OracleSeat.rolledBack).
+ * its own rolled-back transaction on the worker's clone (Substrate.rolledBack, OracleSeat.rolledBack).
  *
  * Its budget, measured (fastcycle's cull):
  *
@@ -73,7 +73,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const deliversEveryFloatAndMoneySumAndMeanAsTheExactReferenceStatesItInAnyOrderAndPlan =
 	property.explore(accumulationCases, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: [
 			"float sum whose IEEE orders disagree",
 			"float mean whose IEEE orders disagree",

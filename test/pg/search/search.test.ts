@@ -87,7 +87,7 @@ type MatchFeature =
  */
 export const aMatchAndItsRanksAreWhatPostgreSQLsOwnParseOfTheStoredTextsAnswersItsTakeThatSetBestFirstAndEveryStoredDocumentTheTextPostgreSQLsParsePrints =
 	property.explore(searchCaseGen, {
-		needs: { fixture: Substrate.freshOf(searchTemplate) },
+		needs: { fixture: Substrate.fresh(searchTemplate) },
 		situations: [
 			"a query some lessons match",
 			"a query no lesson matches",
@@ -229,7 +229,7 @@ export const aMatchAndItsRanksAreWhatPostgreSQLsOwnParseOfTheStoredTextsAnswersI
  */
 export const atScaleAMatchOfAMarkerWordFewLessonsHoldReadsLessonThroughTheGINIndexWithNoSequentialScanAndTouchesBuffersInProportionToItsMatches =
 	property.explore(scaledGen, {
-		needs: { fixture: Substrate.freshOf(searchTemplate) },
+		needs: { fixture: Substrate.fresh(searchTemplate) },
 		situations: ["a match at scale served by the GIN index"] satisfies ReadonlyArray<
 			Reached<"a match at scale served by the GIN index">
 		>,

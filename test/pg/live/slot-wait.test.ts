@@ -23,18 +23,22 @@ import {
 	type SlotWaitFeature,
 	slotWaitGen
 } from "#test/pg/live/slot-wait.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** A read registered before its slot stands waits for the leader's `stands`, checking the slot once before and once after. */
 export const slotWait = property.explore(slotWaitGen, {
-	needs: { substrate: Substrate.fresh },
+	needs: { substrate: Substrate.fresh(baseSubstrate) },
 	situations: ["a read in process", "a read over HTTP"] satisfies ReadonlyArray<
 		Reached<SlotWaitFeature>
 	>,
 	check:
 		({ substrate }, c: Case<SlotWaitFeature>) =>
 		(value) =>
-			Effect.provideServiceEffect(slotWaitCase(value, c), Substrate, substrate),
+			Effect.provideServiceEffect(
+				slotWaitCase(value, c),
+				Substrate,
+				Effect.map(substrate, (taken) => taken.substrate)
+			),
 	oracle: {
 		kind: "specification",
 		name: "the listener's and the leader's slot protocol, counted on the wire"

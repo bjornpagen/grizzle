@@ -42,11 +42,11 @@ import {
 import { apply, noFurther, openMigrator } from "#test/pg/migrate/support.ts"
 import { ambientFeatures } from "#test/support/ambient.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** Objects named like PostgreSQL's own types every catalog type's name on every object, under every path: migrate and drift match, and a second migrate applies nothing. */
 export const catalogNames = property.exhaust(finite(caseGen), {
-	needs: { caseSubstrate: Substrate.fresh },
+	needs: { caseSubstrate: Substrate.fresh(baseSubstrate) },
 	situations: required satisfies ReadonlyArray<Reached<Feature>>,
 	check:
 		({ caseSubstrate }, k: Case<Feature>) =>
@@ -80,7 +80,7 @@ export const catalogNames = property.exhaust(finite(caseGen), {
 					assert.deepEqual(again.applied, [], "a second migrate applies nothing")
 				}).pipe(Effect.scoped),
 				Substrate,
-				caseSubstrate
+				Effect.map(caseSubstrate, (taken) => taken.substrate)
 			),
 	oracle: {
 		kind: "postgresql",

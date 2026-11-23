@@ -61,7 +61,7 @@ import { ambientFeatures } from "#test/support/ambient.ts"
 import { writeAnswerOf, oneOf, rowsOf } from "#test/support/calls.ts"
 import { installedSchemas, replaceMigrated } from "#test/support/install-migrate.ts"
 import { pickFrom } from "#test/support/pick.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
 /**
@@ -71,7 +71,7 @@ import { withLayer } from "#test/support/with-layer.ts"
  */
 export const aLoginUnderHostileDatabaseDefaultsAnswersExactlyAsUnderTheDatabasesOwnDefaultsWithEveryPinOrWithoutOneOfThem =
 	property.explore(steered(aimedCaseGen), {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: situations satisfies ReadonlyArray<Reached<Feature>>,
 		check:
 			({ substrate }, cx: Case<Feature>) =>
@@ -232,7 +232,7 @@ export const aLoginUnderHostileDatabaseDefaultsAnswersExactlyAsUnderTheDatabases
 						}
 					}).pipe(Effect.scoped),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "universal",

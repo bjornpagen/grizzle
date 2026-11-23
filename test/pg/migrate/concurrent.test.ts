@@ -37,11 +37,11 @@ import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { aims, caseGen, type Feature, walk } from "#test/pg/migrate/concurrent.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** Installations migrating into one database at once every installation sent at once, by either door, installs whole, and the rows they share hold what each wrote. */
 export const concurrent = property.explore(aimed(caseGen, aims), {
-	needs: { substrate: Substrate.fresh },
+	needs: { substrate: Substrate.fresh(baseSubstrate) },
 	situations: [
 		"two installations waiting on the gate at once, each inside its publish statements",
 		"two installations granting USAGE on the vector extension's schema at once",
@@ -53,7 +53,11 @@ export const concurrent = property.explore(aimed(caseGen, aims), {
 	check:
 		({ substrate }, cx: Case<Feature>) =>
 		(c) =>
-			Effect.provideServiceEffect(Effect.scoped(walk(c, cx.note)), Substrate, substrate),
+			Effect.provideServiceEffect(
+				Effect.scoped(walk(c, cx.note)),
+				Substrate,
+				Effect.map(substrate, (taken) => taken.substrate)
+			),
 	oracle: {
 		kind: "specification",
 		name: "PostgreSQL: every installation sent whole, each at its fresh install's catalog and posture, and the owner's global defaults and the vector schema's grants as each installation wrote them"

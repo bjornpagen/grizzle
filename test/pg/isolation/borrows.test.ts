@@ -38,7 +38,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 /** A call takes its locks in the order of their ids, each once at the strongest mode it borrows it at, equal keys of any spelling sharing one lock, so a waiter holds only the locks below the one it waits for and no calls deadlock. */
 export const aCallTakesItsLocksInTheOrderOfTheirIdsEachOnceAtTheStrongestModeItBorrowsItAtEqualKeysOfAnySpellingSharingOneLockSoAWaiterHoldsOnlyTheLocksBelowTheOneItWaitsForAndNoCallsDeadlock =
 	property.explore(steered(aimedBorrowRaces), {
-		needs: { fresh: Substrate.freshOf(borrowsTemplate) },
+		needs: { fresh: Substrate.fresh(borrowsTemplate) },
 		situations: [
 			"a call waiting while it holds the locks below the one it waits on",
 			"a shared borrow beside a shared holder",

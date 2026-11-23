@@ -68,7 +68,7 @@ const readFeatures = [
 export const aReadOfTheFieldsOfAFunctionsRowAnswersTheReferencesRowsOfItsModel = property.explore(
 	readCaseGen,
 	{
-		needs: Substrate.oneOf({ fields: fieldsTemplate }, Substrate.freshOf),
+		needs: Substrate.oneOf({ fields: fieldsTemplate }, Substrate.fresh),
 		situations: readFeatures,
 		budget: { runs: 32, steered: readFeatures.length },
 		check: (templates, notes: Case<FieldsFeature<ReadProgram>>) => (c) =>
@@ -184,7 +184,7 @@ const onceFeatures = [
 export const aStatementThatReadsSeveralFieldsOfOneCallCallsItOnce = property.explore(
 	sharingCaseGen,
 	{
-		needs: Substrate.oneOf({ fields: fieldsTemplate }, Substrate.freshOf),
+		needs: Substrate.oneOf({ fields: fieldsTemplate }, Substrate.fresh),
 		situations: onceFeatures,
 		budget: { runs: 16, steered: onceFeatures.length },
 		check: (templates, notes: Case<FieldsFeature<SharingProgram>>) => (c) =>
@@ -302,7 +302,7 @@ const attachedFeatures = [
  */
 export const aReadWhoseAttachmentsReadOneCallAtTheirParentsKeyAnswersWhatEachFieldsReadAnswersInOneCall =
 	property.explore(attachedCaseGen, {
-		needs: Substrate.oneOf({ fields: fieldsTemplate }, Substrate.freshOf),
+		needs: Substrate.oneOf({ fields: fieldsTemplate }, Substrate.fresh),
 		situations: attachedFeatures,
 		budget: { runs: 16, steered: attachedFeatures.length },
 		check: (templates, notes: Case<AttachedFeature>) => (c) =>

@@ -22,7 +22,7 @@ import { installMigrated } from "#test/support/install-migrate.ts"
 import { lawIdOf, namesOf } from "#test/support/kernel/naming.ts"
 import { refusedLaws, refusedEntries } from "#test/support/refused.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 
 /**
@@ -32,7 +32,7 @@ import { fullWorld } from "#test/support/worlds.ts"
  */
 export const aLawsKeyOnACycleWithAFamilysOwnerAxisIsDeferredSoEveryLawfulWriteOfOwnersAndMembersIsAcceptedAndEveryOtherRefusedByItsLaw =
 	property.explore(caseGen, {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: situations satisfies ReadonlyArray<Reached<Situation>>,
 		check:
 			({ substrate }, n: CaseOf<Situation>) =>
@@ -211,7 +211,7 @@ export const aLawsKeyOnACycleWithAFamilysOwnerAxisIsDeferredSoEveryLawfulWriteOf
 						).pipe(Effect.scoped)
 					}).pipe(Effect.scoped),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "second-implementation",

@@ -84,7 +84,7 @@ import { withLayer } from "#test/support/with-layer.ts"
  */
 export const aWritesParametersAdmittedBeforeItsStatementsAgainstPostgreSQL19AParameterOutsideItsTypeIsRefusedAsItsTypeRefusesItWhateverAStatementBeforeItsFirstReaderDoes =
 	property.explore(caseGen, {
-		needs: { fixture: Substrate.freshOf(admitTemplate) },
+		needs: { fixture: Substrate.fresh(admitTemplate) },
 		situations: [
 			"a scalar parameter read only by a statement after one that fails",
 			"a relation parameter's field read only by a statement after one that fails",

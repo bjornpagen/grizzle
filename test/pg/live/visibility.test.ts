@@ -36,7 +36,12 @@ import {
 	scheduleGen
 } from "#test/pg/live/visibility.fixtures.ts"
 import { qualified } from "#test/support/substrate.ts"
-import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import {
+	freshSchema,
+	ownerSession,
+	Substrate,
+	baseSubstrate
+} from "#test/support/substrate/substrate.ts"
 
 /**
  * The live leader's visibility judgment holds a commit seen exactly where a snapshot reads its row, over generated schedules.
@@ -50,7 +55,7 @@ export const theLiveLeadersVisibilityJudgmentHoldsACommitSeenExactlyWhereASnapsh
 			]
 		]),
 		{
-			needs: { substrate2: Substrate.fresh },
+			needs: { substrate2: Substrate.fresh(baseSubstrate) },
 			situations: [
 				"a commit before the snapshot",
 				"a writer running across the snapshot below a later commit before it",
@@ -126,7 +131,7 @@ export const theLiveLeadersVisibilityJudgmentHoldsACommitSeenExactlyWhereASnapsh
 							}
 						}).pipe(Effect.scoped),
 						Substrate,
-						substrate2
+						Effect.map(substrate2, (taken) => taken.substrate)
 					),
 			oracle: {
 				kind: "postgresql",

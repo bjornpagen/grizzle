@@ -26,7 +26,7 @@ import {
 	loweredInQuery,
 	withinBound
 } from "#test/pg/text/bounded.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { values } from "#test/unit/compute/text.fixtures.ts"
 
 /** The text PostgreSQL prints a boolean as. */
@@ -60,7 +60,7 @@ const printed = (value: unknown): string => (value === true ? "true" : "false")
  */
 export const inAQueryAMatchOfATextWhoseTypeBoundsNoBytesGuardedByABoundOnItsOctetLengthIsAdmittedAndPostgreSqlAnswersEachRowAsTheHostEvaluatorAndTheReferenceDo =
 	property.explore(boundedCase, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: boundedFeatures,
 		check:
 			({ tx }, k: Case<BoundedFeature>) =>

@@ -67,7 +67,7 @@ import {
 	workloadSpace
 } from "#test/pg/physical/serving.fixtures.ts"
 import type { ServingFeature } from "#test/pg/physical/serving.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Every request a generated workload plans is served, and every index it creates is needed, each case installing its
@@ -77,7 +77,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIsNeeded =
 	property.explore(workloadSpace, {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: [
 			"a workload installed",
 			"equality probe served",
@@ -89,7 +89,7 @@ export const everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIs
 				Effect.provideServiceEffect(
 					Effect.scoped(workloadCase(c.draw(workloadGen(sketch)), c.note)),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "postgresql",
@@ -150,7 +150,7 @@ export const everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIs
  */
 export const everyDrawnRequestIsServedAndEveryIndexTheEngineCreatesForThemIsNeeded =
 	property.explore(requestSketchGen, {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: [
 			"equality probe served",
 			"range probe served",
@@ -168,7 +168,7 @@ export const everyDrawnRequestIsServedAndEveryIndexTheEngineCreatesForThemIsNeed
 				Effect.provideServiceEffect(
 					Effect.scoped(requestCase(sketch, c.note)),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "postgresql",

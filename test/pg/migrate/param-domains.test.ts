@@ -71,11 +71,11 @@ import {
 	noDeclarations
 } from "#test/support/migrate/kit.ts"
 import { firstStored, versionOf } from "#test/support/migrate/param-domains.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** Parameters' pattern domains as the stored fields that share their patterns come and go the first version migrates to every target: no domain refused or altered, every parameter domain over its text domain, the catalog a fresh install's. */
 export const paramDomains = property.exhaust(finite(caseGen), {
-	needs: { caseSubstrate: Substrate.fresh },
+	needs: { caseSubstrate: Substrate.fresh(baseSubstrate) },
 	situations: required satisfies ReadonlyArray<Reached<Feature>>,
 	check:
 		({ caseSubstrate }, k: Case<Feature>) =>
@@ -223,7 +223,7 @@ export const paramDomains = property.exhaust(finite(caseGen), {
 					yield* sameCatalog(installation, freshInstallation, "the target")
 				}).pipe(Effect.scoped),
 				Substrate,
-				caseSubstrate
+				Effect.map(caseSubstrate, (taken) => taken.substrate)
 			),
 	oracle: {
 		kind: "postgresql",

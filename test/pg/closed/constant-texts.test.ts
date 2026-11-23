@@ -39,7 +39,7 @@ import {
 	type Feature,
 	situations
 } from "#test/pg/closed/constant-texts.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * A comparison of texts that read no row installs, and judges each row by its value, in every position.
@@ -48,12 +48,16 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aComparisonOfTextsThatReadNoRowInstallsAndJudgesEachRowByItsValueInEveryPosition =
 	property.explore(caseGen, {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: situations satisfies ReadonlyArray<Reached<Feature>>,
 		check:
 			({ substrate }, c: Case<Feature>) =>
 			(value) =>
-				Effect.provideServiceEffect(constantCase(value, c), Substrate, substrate),
+				Effect.provideServiceEffect(
+					constantCase(value, c),
+					Substrate,
+					Effect.map(substrate, (taken) => taken.substrate)
+				),
 		oracle: {
 			kind: "specification",
 			name: "SQL's three-valued logic over the drawn texts ordered by code point, a closed read at an absent key NULL, a list value longer than a concatenation of literals ContractLiteral, and a schema that compiles installs"

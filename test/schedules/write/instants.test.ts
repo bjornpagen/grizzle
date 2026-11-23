@@ -78,7 +78,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const twoWritersStampingOneClockStampEachChildsInstantsInTheOrderItsCallsCommit =
 	property.explore(aimed(stampingGen, aims), {
-		needs: { rigged: Substrate.freshOf(clocksRig) },
+		needs: { rigged: Substrate.fresh(clocksRig) },
 		situations: [
 			"a child over no head",
 			"a child over a past head",

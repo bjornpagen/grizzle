@@ -38,7 +38,7 @@ import { withLayer } from "#test/support/with-layer.ts"
  */
 export const countedPutAndDeleteThroughGrizzlesApplyOnPostgreSQL19PutASpanKeyedOwnerInPlaceLeavingEveryOwnersLabelCountAndFoldEndAndEveryMemberAsTheFamiliesModelStatesThem =
 	property.explore(spanSketchGen, {
-		needs: { fixture: Substrate.freshOf(spannedTemplate) },
+		needs: { fixture: Substrate.fresh(spannedTemplate) },
 		situations: [
 			"a span-keyed owner put in place",
 			"a span-keyed owner put in place over its family's members",

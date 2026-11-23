@@ -37,7 +37,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aRefusedWriteNamesOneLawItsAccountsBreakAndTheKeyOfAnAccountThatBreaksIt =
 	property.explore(accountCases, {
-		needs: { accounts: Substrate.freshOf(accountsTemplate) },
+		needs: { accounts: Substrate.fresh(accountsTemplate) },
 		situations: [
 			"refused by rate",
 			"refused by units",
@@ -114,7 +114,7 @@ export const aRefusedWriteNamesOneLawItsAccountsBreakAndTheKeyOfAnAccountThatBre
  */
 export const statementTimeNativeViolationsAreRaisedUnderTheirLawsConstraintAndAServedWriteReportsTheLaw =
 	property.explore(recorded(nativeCaseGen, recordedNatives), {
-		needs: { clubs: Substrate.freshOf(clubsTemplate) },
+		needs: { clubs: Substrate.fresh(clubsTemplate) },
 		situations: [
 			"refused by a candidate key",
 			"refused by a selected side's UNIQUE",
@@ -175,8 +175,8 @@ export const statementTimeNativeViolationsAreRaisedUnderTheirLawsConstraintAndAS
 export const aCellBreakingOneToThreeRulesIsRefusedNamingEveryRuleItBreaksUnderAnyNamingOfItsChecks =
 	property.explore(everyCases, {
 		needs: {
-			forward: Substrate.freshOf(forwardTemplate),
-			backward: Substrate.freshOf(backwardTemplate)
+			forward: Substrate.fresh(forwardTemplate),
+			backward: Substrate.fresh(backwardTemplate)
 		},
 		situations: [
 			"accepted",

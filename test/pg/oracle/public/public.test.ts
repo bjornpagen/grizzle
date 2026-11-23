@@ -18,7 +18,7 @@ import {
 	publicCases,
 	publicSituations
 } from "#test/pg/oracle/public/suite.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Agrees with the reference on generated programs, read through every public form, each case installing its program's
@@ -33,12 +33,16 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 export const agreesWithTheReferenceOnGeneratedProgramsReadThroughEveryPublicForm = property.explore(
 	publicCases,
 	{
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: publicSituations satisfies ReadonlyArray<Reached<PublicFeature>>,
 		check:
 			({ substrate }, c: Case<PublicFeature>) =>
 			(sketch) =>
-				Effect.provideServiceEffect(Effect.scoped(publicCase(sketch, c)), Substrate, substrate),
+				Effect.provideServiceEffect(
+					Effect.scoped(publicCase(sketch, c)),
+					Substrate,
+					Effect.map(substrate, (taken) => taken.substrate)
+				),
 		oracle: {
 			kind: "second-implementation",
 			name: "the reference evaluator's per-parent delivery, and the read itself under another storage"

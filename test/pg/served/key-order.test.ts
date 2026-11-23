@@ -37,7 +37,7 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { readOnce } from "#test/support/calls.ts"
 import { installGenerated, loadMigrated } from "#test/support/install-migrate.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 const features = [
 	"a heading written out of its names' order",
@@ -50,7 +50,7 @@ const features = [
 /** A declared call receives each argument by its name, and a row each value by its field's, under every key order. */
 export const aDeclaredCallReceivesEachArgumentByItsNameAndARowEachValueByItsFieldsUnderEveryKeyOrder =
 	property.explore(caseGen, {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: features,
 		budget: { runs: 8, steered: features.length },
 		check:
@@ -91,7 +91,7 @@ export const aDeclaredCallReceivesEachArgumentByItsNameAndARowEachValueByItsFiel
 						)
 					}).pipe(Effect.scoped),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "specification",

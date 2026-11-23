@@ -27,12 +27,12 @@ import { installedCatalog } from "#test/support/evidence.ts"
 import { everyRow } from "#test/support/oracle/install/capture.ts"
 import { runProgram, sentConservative, type SentProgram } from "#test/support/oracle/runner.ts"
 import { OracleSeat } from "#test/support/oracle/seat.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** R37: a recursive attachment seeded once from the parent keys reads only the edges of the delivered parents' chains, in one Recursive Union for the page. */
 export const r37ARecursiveAttachmentSeededOnceFromTheParentKeysReadsOnlyTheEdgesOfTheDeliveredParentsChainsInOneRecursiveUnionForThePage =
 	property.explore(forestGen, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: [
 			"a page of one root",
 			"a page of several roots",

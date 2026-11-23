@@ -30,13 +30,13 @@ import {
 	type LoweredFeature,
 	opExpr
 } from "#test/pg/lower-conservative/vocabulary.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { temporaryLibrary } from "#test/unit/compute/support.ts"
 
 /** The conservative vocabulary on PostgreSQL 19 names a builtin operator for every operator form. */
 export const theConservativeVocabularyOnPostgreSQL19NamesABuiltinOperatorForEveryOperatorForm =
 	property.exhaust(finite(word(operatorForms)), {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: ["binary", "negation"] satisfies ReadonlyArray<Reached<FormFeature>>,
 		check:
 			({ tx }, c: Case<FormFeature>) =>
@@ -76,7 +76,7 @@ export const theConservativeVocabularyOnPostgreSQL19NamesABuiltinOperatorForEver
 /** The conservative vocabulary on PostgreSQL 19 lowers every function by its regprocedure signature to a call of that function. */
 export const theConservativeVocabularyOnPostgreSQL19LowersEveryFunctionByItsRegprocedureSignatureToACallOfThatFunction =
 	property.exhaust(finite(int(0, nativeOps.length - 1)), {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: ["lowered to its function"] satisfies ReadonlyArray<Reached<LoweredFeature>>,
 		check:
 			({ tx }, c: Case<LoweredFeature>) =>

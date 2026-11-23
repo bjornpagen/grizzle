@@ -19,7 +19,7 @@ import { jsonText, trusted } from "#compiler/core/trusted.ts"
 import { compareFloat, floatText, toReal } from "#compiler/scalar/values/float.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import type { CaseSession } from "#test/support/substrate/session.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { orderOf } from "#test/unit/values/support.ts"
 
 /** One row of one column, trusted from what PostgreSQL answers. */
@@ -130,7 +130,7 @@ export const ordersAs = (type: "float8" | "real") => {
 	const cast = type === "real" ? "c.v::float8::real" : "c.v::float8"
 	const source = "jsonb_to_recordset($1::text::jsonb) AS c(ord int4, v text)"
 	return property.explore(batchOf(orderValue, 3000), {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: ["NaN", "signed zero"] satisfies ReadonlyArray<Reached<FloatFeature>>,
 		/**
 		 * Its budget, measured (fastcycle's cull):

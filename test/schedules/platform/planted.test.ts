@@ -45,7 +45,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 export const everyWriteBelowSerializableIsRefusedBeforeItWritesARow = property.exhaust(
 	finite(plantedCases),
 	{
-		needs: { rigged: Substrate.freshOf(racesRig) },
+		needs: { rigged: Substrate.fresh(racesRig) },
 		situations: plantedFeatures satisfies ReadonlyArray<Reached<PlantedFeature>>,
 		check:
 			({ rigged }, c: Case<PlantedFeature>) =>

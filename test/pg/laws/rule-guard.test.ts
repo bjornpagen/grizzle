@@ -102,7 +102,7 @@ export const aProbeOfTheContentRunsOnlyWhereALearnersRowStandsAtItsUnit = proper
  */
 export const aGuardedPublishRacingALearnersWriteAtItsUnitNeverCommitsBesideItIntoABrokenState =
 	property.explore(raceGen, {
-		needs: { fresh: Substrate.freshOf(guardTemplate) },
+		needs: { fresh: Substrate.fresh(guardTemplate) },
 		situations: [
 			"the publish refused beside a standing session",
 			"the publish refused by its own later session",

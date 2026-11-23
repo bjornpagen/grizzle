@@ -29,7 +29,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const inEveryInterleavingTheGrizzleWriteIsAcceptedAndBothAppendsAreStoredAtDistinctSlotsInCommitOrder =
 	property.exhaust(everyInterleaving, {
-		needs: { rigged: Substrate.freshOf(contendedRig) },
+		needs: { rigged: Substrate.fresh(contendedRig) },
 		situations: [],
 		check:
 			({ rigged }) =>

@@ -37,11 +37,11 @@ import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { aims, caseGen, type Feature, walk } from "#test/pg/migrate/lowering.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** Rules held by foreign keys or by triggers, migrated with stored rows migrate between a rule's foreign keys and its triggers exactly when the stored rows keep it, naming its law when they do not. */
 export const lowering = property.explore(aimed(caseGen, aims), {
-	needs: { substrate: Substrate.fresh },
+	needs: { substrate: Substrate.fresh(baseSubstrate) },
 	situations: [
 		"triggers to foreign keys applied over stored rows",
 		"foreign keys to triggers applied over stored rows",
@@ -61,7 +61,11 @@ export const lowering = property.explore(aimed(caseGen, aims), {
 	check:
 		({ substrate }, cx: Case<Feature>) =>
 		(c) =>
-			Effect.provideServiceEffect(Effect.scoped(walk(c, cx.note)), Substrate, substrate),
+			Effect.provideServiceEffect(
+				Effect.scoped(walk(c, cx.note)),
+				Substrate,
+				Effect.map(substrate, (taken) => taken.substrate)
+			),
 	oracle: {
 		kind: "specification",
 		name: "the rule restated over the stored rows: a migration applies exactly when they keep every rule it reaches, and a refused one names the rule's law"

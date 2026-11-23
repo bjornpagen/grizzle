@@ -13,7 +13,7 @@ import {
 	batchedGen,
 	runBatched
 } from "#test/pg/write/batched/batched.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * An insert of thousands of wide facts writes no temporary block in any of its executions, inserts every fact once,
@@ -23,7 +23,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const anInsertOfManyFactsRunsInSharesWithinWorkMemSoItsTemporaryFilesAreNoneWhateverItsFacts =
 	property.explore(batchedGen, {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: [
 			"every fact inserted",
 			"a pair across executions refused",
@@ -32,7 +32,11 @@ export const anInsertOfManyFactsRunsInSharesWithinWorkMemSoItsTemporaryFilesAreN
 		check:
 			({ substrate }, c) =>
 			(drawn) =>
-				Effect.provideServiceEffect(runBatched(drawn, c), Substrate, substrate),
+				Effect.provideServiceEffect(
+					runBatched(drawn, c),
+					Substrate,
+					Effect.map(substrate, (taken) => taken.substrate)
+				),
 		oracle: {
 			kind: "universal",
 			name: "bound: several executions, none writing a temporary block; the host's count of facts added and stored once each, a note written before them stored with them; a pair at the second key refused, storing nothing"

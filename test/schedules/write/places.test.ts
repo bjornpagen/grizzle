@@ -91,7 +91,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 /** Two writers stamping one group's place stamp its places gapless from its head in the order their calls commit, each mark carrying its session's place, taking turns at the group's head. */
 export const twoWritersStampingOneGroupsPlaceStampItsPlacesGaplessFromItsHeadInTheOrderTheirCallsCommitEachMarkCarryingItsSessionsPlace =
 	property.explore(aimed(placingGen, aims), {
-		needs: { rigged: Substrate.freshOf(placesRig) },
+		needs: { rigged: Substrate.fresh(placesRig) },
 		situations: [
 			"an item over no place",
 			"an item over one place",

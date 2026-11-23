@@ -70,13 +70,13 @@ import {
 } from "#test/pg/closed/row-renames.fixtures.ts"
 import { sameCatalog } from "#test/pg/migrate/support.ts"
 import { attempt } from "#test/support/substrate.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** A roster's declared rename renames in place exactly the functions whose content it leaves, and everything calling
  * them stands: no CHECK added or validated again, no table rewritten, every grant and value the target's. */
 export const aFunctionNamedByItsContentStandsAcrossARosterChangeExactlyWhenItsContentDoesAndSoDoesEverythingCallingIt =
 	property.explore(rowCaseGen, {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: [
 			"roster renamed",
 			"handles renamed",
@@ -251,7 +251,7 @@ export const aFunctionNamedByItsContentStandsAcrossARosterChangeExactlyWhenItsCo
 						})
 					),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "postgresql",

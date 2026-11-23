@@ -49,7 +49,7 @@ import {
 	stored
 } from "#test/pg/write/merged-reads/merged-reads.fixtures.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** A delivered row of standing as the property compares it, "id | n", or a failure naming what it is. */
 const rowText = (row: unknown): string =>
@@ -63,7 +63,7 @@ const sameFacts = Arr.makeEquivalence<string>((x, y) => x === y)
 /** Two read-backs of one name over one query are one, read after the whole ChangeSet: its rows the state after its last stratum. */
 export const twoReadBacksOfOneNameOverOneQueryAreOneReadAfterTheWholeChangeSetItsRowsTheStateAfterItsLastStratum =
 	property.exhaust(finite(mergedReadGen), {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: situations satisfies ReadonlyArray<Reached<Situation>>,
 		check:
 			({ substrate }, k: Case<Situation>) =>
@@ -135,7 +135,7 @@ export const twoReadBacksOfOneNameOverOneQueryAreOneReadAfterTheWholeChangeSetIt
 						})
 					),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "specification",

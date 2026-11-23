@@ -70,7 +70,7 @@ const linkFeature = {
  */
 export const aChainOfAttachmentsWhoseLinksImportALookupAtTheirParentsIdReadsTheRowsTheIdSelectsAtEveryLink =
 	property.explore(factsGen, {
-		needs: { fixture: Substrate.freshOf(chainTemplate) },
+		needs: { fixture: Substrate.fresh(chainTemplate) },
 		situations: [
 			"one link",
 			"two links",

@@ -43,7 +43,7 @@ import { fullWorld } from "#test/support/worlds.ts"
  */
 export const everyFoldsEndThroughGrizzlesApplyOnPostgreSQL19StoresExactlyTheREADMEsFoldOfEveryMembersStepEveryEndAndRunningValueAfterEveryWriteOfEveryFamilyKind =
 	property.explore(caseGen, {
-		needs: { ...Substrate.oneOf(endsTemplates, Substrate.freshOf), compiles: endsCompiles },
+		needs: { ...Substrate.oneOf(endsTemplates, Substrate.fresh), compiles: endsCompiles },
 		situations: situations satisfies ReadonlyArray<Reached<Situation>>,
 		check: (ends, c: Case<Situation>) => (sketch) =>
 			Effect.scoped(

@@ -69,7 +69,7 @@ import { tokenOf } from "#test/support/worlds.ts"
  */
 export const aQueryEntrysInsertionRacingACommitAtItsKeyFailsAtAnOccupantPastItsSnapshotAndItsRetryAnswersSerially =
 	property.exhaust(finite(raceGen), {
-		needs: { rigged: Substrate.freshOf(seatsRig) },
+		needs: { rigged: Substrate.fresh(seatsRig) },
 		situations: [
 			"an outside seat committed past the snapshot: 40001, then refused on the key's law",
 			"an own seat committed past the snapshot: 40001, then met as an exact repeat",

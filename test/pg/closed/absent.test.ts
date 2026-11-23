@@ -83,7 +83,7 @@ import {
 	type Feature,
 	situations
 } from "#test/pg/closed/absent.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * A closed read at an absent key is judged by the rule that reads it, never refused by a domain's cast.
@@ -99,12 +99,16 @@ export const aClosedReadAtAnAbsentKeyIsJudgedByTheRuleThatReadsItNeverRefusedByA
 			]
 		]),
 		{
-			needs: { substrate: Substrate.fresh },
+			needs: { substrate: Substrate.fresh(baseSubstrate) },
 			situations: situations satisfies ReadonlyArray<Reached<Feature>>,
 			check:
 				({ substrate }, c: Case<Feature>) =>
 				(value2) =>
-					Effect.provideServiceEffect(absentCase(value2, c), Substrate, substrate),
+					Effect.provideServiceEffect(
+						absentCase(value2, c),
+						Substrate,
+						Effect.map(substrate, (taken) => taken.substrate)
+					),
 			oracle: {
 				kind: "specification",
 				name: "the documented contract over the world's rows: C.at NULL at an absent key, C.row empty where nothing completes its prefix and NULL at a NULL prefix, C.has false at an absent key and NULL at a NULL key value, Kleene's three-valued logic, a selection holding where it is true, and a generated field's NULL refused by its NOT NULL"

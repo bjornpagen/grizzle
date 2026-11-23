@@ -27,12 +27,12 @@ import {
 	runLabelledOracle
 } from "#test/support/oracle/runner.ts"
 import { OracleSeat } from "#test/support/oracle/seat.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** The Walks example through the optimized lowering each walk's plan has one Recursive Union and no other deduplication (V6). */
 export const theWalksExampleThroughTheOptimizedLoweringEachWalksPlanHasOneRecursiveUnionAndNoOtherDeduplicationV6 =
 	property.explore(walkGen, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: [],
 		/**
 		 * Its search budget: 1 run of its rotating stream, so a floor of 1 (a quarter of the runs, rounded up), and no
@@ -118,7 +118,7 @@ export const theWalksExampleThroughTheOptimizedLoweringEachWalksPlanHasOneRecurs
 /** The Walks example through the optimized lowering dropping the hop count deduplicates once, outside the recursion, and agrees with the reference. */
 export const theWalksExampleThroughTheOptimizedLoweringDroppingTheHopCountDeduplicatesOnceOutsideTheRecursionAndAgreesWithTheReference =
 	property.explore(walkGen, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: ["reached people", "reached nobody"] satisfies ReadonlyArray<
 			Reached<ReachedFeature>
 		>,
@@ -214,7 +214,7 @@ export const theWalksExampleThroughTheOptimizedLoweringDroppingTheHopCountDedupl
 /** Counter shapes through the optimized lowering each lowers to the recursive CTE and agrees with the reference and the conservative lowering. */
 export const counterShapesThroughTheOptimizedLoweringEachLowersToTheRecursiveCTEAndAgreesWithTheReferenceAndTheConservativeLowering =
 	property.explore(counterGen, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: [
 			"counting up",
 			"counting down",

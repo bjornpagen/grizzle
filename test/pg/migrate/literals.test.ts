@@ -39,12 +39,12 @@ import {
 	literalFeatures,
 	runCase
 } from "#test/pg/migrate/literals.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** A drafted folder read and written back by a text tool applies, passes the drift check and installs the constants drafted, every control character and long constant among them. */
 export const aDraftedFolderReadAndWrittenBackByATextToolAppliesPassesTheDriftCheckAndInstallsTheConstantsDrafted =
 	property.explore(aimed(caseGen, aims), {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: literalFeatures,
 		check:
 			({ substrate }, c: Case<LiteralFeature>) =>
@@ -52,7 +52,7 @@ export const aDraftedFolderReadAndWrittenBackByATextToolAppliesPassesTheDriftChe
 				Effect.provideServiceEffect(
 					runCase(value, (feature) => c.note(feature)),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "postgresql",

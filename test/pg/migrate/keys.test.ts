@@ -28,11 +28,11 @@ import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { aims, caseGen, type Feature, walk } from "#test/pg/migrate/keys.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** A primary key moved over stored rows migrate a primary key to another field exactly when the stored rows keep it, naming its law when they do not. */
 export const movedKeys = property.explore(aimed(caseGen, aims), {
-	needs: { substrate: Substrate.fresh },
+	needs: { substrate: Substrate.fresh(baseSubstrate) },
 	situations: [
 		"a primary key moved over rows that keep it",
 		"a primary key moved over rows that repeat it, refused naming its law",
@@ -43,7 +43,11 @@ export const movedKeys = property.explore(aimed(caseGen, aims), {
 	check:
 		({ substrate }, cx: Case<Feature>) =>
 		(c) =>
-			Effect.provideServiceEffect(Effect.scoped(walk(c, cx.note)), Substrate, substrate),
+			Effect.provideServiceEffect(
+				Effect.scoped(walk(c, cx.note)),
+				Substrate,
+				Effect.map(substrate, (taken) => taken.substrate)
+			),
 	oracle: {
 		kind: "specification",
 		name: "the key restated over the stored rows: a migration applies exactly when no two rows share the key of any version it reaches, and a refused one names that version's key law"

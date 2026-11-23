@@ -30,7 +30,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { type FenceFeature, raceGen, runRace, runs } from "#test/schedules/fence/fence.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * G3's fence through the adapter, a publisher's replace beside a READ COMMITTED learner every race of a fenced replace, its learner and a blocker is serializable, the learner's deferred check waiting on the fence the adapter sends.
@@ -39,7 +39,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const g3sFenceThroughTheAdapterAPublishersReplaceBesideAREADCOMMITTEDLearnerEveryRaceOfAFencedReplaceItsLearnerAndABlockerIsSerializableTheLearnersDeferredCheckWaitingOnTheFenceTheAdapterSends =
 	property.explore(raceGen, {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: [
 			"generate certifies the learner READ COMMITTED",
 			"the login holds MAINTAIN on Pub, as migrate granted it",
@@ -50,7 +50,11 @@ export const g3sFenceThroughTheAdapterAPublishersReplaceBesideAREADCOMMITTEDLear
 		check:
 			({ substrate }, c: Case<FenceFeature>) =>
 			(race) =>
-				Effect.provideServiceEffect(Effect.scoped(runRace(race, c)), Substrate, substrate),
+				Effect.provideServiceEffect(
+					Effect.scoped(runRace(race, c)),
+					Substrate,
+					Effect.map(substrate, (taken) => taken.substrate)
+				),
 		oracle: {
 			kind: "specification",
 			name: "serializability: the calls and the blocker's transaction run alone in a real-time order answer, show and leave what the run did"

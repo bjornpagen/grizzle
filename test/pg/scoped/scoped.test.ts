@@ -58,7 +58,7 @@ const sorted = (rows: ReadonlyArray<string>): ReadonlyArray<string> => Arr.sort(
 /** A role holding scoped entries reads and writes the schema's programs over its owner's rows, every law over every row. */
 export const aRoleHoldingScopedEntriesReadsAndWritesTheSchemasProgramsOverItsOwnersRowsEveryLawOverEveryRow =
 	property.explore(scopedCaseGen, {
-		needs: { scoped: Substrate.freshOf(scopedTemplate) },
+		needs: { scoped: Substrate.fresh(scopedTemplate) },
 		situations: [
 			"a read of the owner's rows",
 			"an assignment refused at another owner's key",

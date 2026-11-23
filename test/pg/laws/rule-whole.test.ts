@@ -59,7 +59,7 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aUnitLocalRuleIsJudgedWholeOverTheUnitsATransactionWroteAsItsWholeCheckAndItsProbesJudgeIt =
 	property.explore(wholeSpace, {
-		needs: Substrate.oneOf(judgeTemplates, Substrate.freshOf),
+		needs: Substrate.oneOf(judgeTemplates, Substrate.fresh),
 		situations: wholeFeatures,
 		check: (judges, c) => (schedule) =>
 			Effect.gen(function* () {
@@ -193,7 +193,7 @@ export const aWholeRulesStatementReadsTheUnitsATransactionWroteAloneBesideAnyNum
  */
 export const twoTransactionsEachWritingAUnitOfItsOwnBothCommitAndNeithersJudgeLocksARelationTheOtherWrites =
 	property.explore(commuteGen, {
-		needs: Substrate.oneOf(judgeTemplates, Substrate.freshOf),
+		needs: Substrate.oneOf(judgeTemplates, Substrate.fresh),
 		situations: ["two units written at once, both committed"],
 		check: (judges, c) => (drawn) =>
 			Effect.gen(function* () {

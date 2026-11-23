@@ -18,21 +18,25 @@ import {
 	runEnding,
 	type SessionEndFeature
 } from "#test/pg/adapter/session-end.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * A session outside any pool ends once its server has closed it, its backend gone, until its close is interrupted.
  */
 export const aSessionOutsideAnyPoolEndsOnceItsServerHasClosedItItsBackendGoneUntilItsCloseIsInterrupted =
 	property.exhaust(finite(endings), {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: ["unheld", "held, let go", "held, interrupted"] satisfies ReadonlyArray<
 			Reached<SessionEndFeature>
 		>,
 		check:
 			({ substrate }, c) =>
 			(ending) =>
-				Effect.provideServiceEffect(Effect.scoped(runEnding(ending, c)), Substrate, substrate),
+				Effect.provideServiceEffect(
+					Effect.scoped(runEnding(ending, c)),
+					Substrate,
+					Effect.map(substrate, (taken) => taken.substrate)
+				),
 		oracle: {
 			kind: "specification",
 			name: "PostgreSQL closes a backend's connection only once the backend has exited (REL_19_0 src/backend/libpq/pqcomm.c socket_close), and an interrupted close ends at once"

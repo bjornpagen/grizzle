@@ -37,12 +37,12 @@ import { installed } from "#test/pg/reads/support.ts"
 import { writeAnswerOf, rowsOf } from "#test/support/calls.ts"
 import { setText, setWidth } from "#test/support/closed/bit-text.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
-import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { ownerSession, Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** The set algebra over a drafted bits domain computes every set with its padding bits 0, accepted by the domain and read back as the model's. */
 export const theSetAlgebraOverADraftedBitsDomainComputesEverySetWithItsPaddingBits0AcceptedByTheDomainAndReadBackAsTheModels =
 	property.explore(space, {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: [
 			"one pad bit",
 			"two pad bits",
@@ -161,7 +161,7 @@ export const theSetAlgebraOverADraftedBitsDomainComputesEverySetWithItsPaddingBi
 						})
 					),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "second-implementation",

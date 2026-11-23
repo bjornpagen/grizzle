@@ -21,7 +21,7 @@ import { Array as Arr, Effect, Option, Predicate, Record, type Scope, String as 
 import { type AmbientSession, ambientFeatures, ambientSessionGen } from "#test/support/ambient.ts"
 import { isImmediate, relationOf, sameValue, valueText } from "#test/support/laws/model.ts"
 import type { SqlError } from "#test/support/pg.ts"
-import { type SubstrateShape, Substrate } from "#test/support/substrate/substrate.ts"
+import { type SubstrateShape, Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import {
 	checkStart,
 	type ModelMismatch,
@@ -1591,14 +1591,14 @@ export const ownWorld = (
  */
 export const programProperty = (spec: ProgramSuite): Property =>
 	property.explore(programDraw(spec.installs, worldDraws(spec), spec.steps, spec.required), {
-		needs: { own: Substrate.fresh },
+		needs: { own: Substrate.fresh(baseSubstrate) },
 		situations: spec.required,
 		check:
 			({ own }, c: Case<WorldFeature>) =>
 			(pc) =>
 				Effect.scoped(
 					Effect.gen(function* () {
-						const substrate = yield* own
+						const { substrate } = yield* own
 						const world = yield* ownWorld(substrate, pc)
 						noteNaming(pc, c)
 						const staged = yield* stage(world, pc.install, c.draw, spec.realities)

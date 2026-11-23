@@ -34,7 +34,7 @@ import { tokenOf } from "#test/support/worlds.ts"
 /** A full role's declared contexts are what its served Db decodes from the token, so a program over the schema matching them writes exactly as the token's claims say. */
 export const aFullRolesDeclaredContextsAreWhatItsServedDbDecodesFromTheTokenSoAProgramOverTheSchemaMatchingThemWritesExactlyAsTheTokensClaimsSay =
 	property.explore(contextsCases, {
-		needs: { sittings: Substrate.freshOf(sittingsTemplate) },
+		needs: { sittings: Substrate.fresh(sittingsTemplate) },
 		situations: [
 			"the student's own sitting started",
 			"another student's sitting unchanged",

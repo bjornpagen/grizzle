@@ -33,7 +33,7 @@ import { aimed, constant } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { aims, caseGen, type Feature, runCase } from "#test/pg/migrate/redraft.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** A partial folder resumed under a regeneration cases of the rotating stream, steered until every feature is reached: the regeneration resumes exactly when it keeps the folder's source, file count and completed files, its re-record rides its next file, and the result is a fresh install's. */
 export const redraft = property.explore(
@@ -42,7 +42,7 @@ export const redraft = property.explore(
 		Arr.map(aims, ([feature, c]) => [feature, constant(c)] as const)
 	),
 	{
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: [
 			"a regeneration resumed",
 			"a regeneration alike in files resumed",
@@ -59,7 +59,11 @@ export const redraft = property.explore(
 		check:
 			({ substrate }, c2: Case<Feature>) =>
 			(value) =>
-				Effect.provideServiceEffect(runCase(value, c2), Substrate, substrate),
+				Effect.provideServiceEffect(
+					runCase(value, c2),
+					Substrate,
+					Effect.map(substrate, (taken) => taken.substrate)
+				),
 		oracle: {
 			kind: "specification",
 			name: "the resume's documented contract, restated over the drafts' texts, against the database read back and a fresh install"

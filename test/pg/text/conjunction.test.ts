@@ -37,7 +37,7 @@ import {
 	truth
 } from "#test/pg/text/conjunction.fixtures.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { textInfo } from "#test/support/text.ts"
 
 /**
@@ -68,7 +68,7 @@ import { textInfo } from "#test/support/text.ts"
  */
 export const aConjunctionOfPatternsECMAScriptHostProductDFAAndPostgreSQLsCHECKAgreeOnDrawnPairsAndTriplesOfEveryFamilysPatterns =
 	property.explore(caseGen, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: [
 			"a pair",
 			"a triple",

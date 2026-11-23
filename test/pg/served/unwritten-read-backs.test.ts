@@ -44,7 +44,7 @@ import { withLayer } from "#test/support/with-layer.ts"
 /** A role that writes nothing runs the read-backs its login serves, each delivering exactly the rows the model states. */
 export const aRoleThatWritesNothingRunsTheReadBacksItsLoginServesEachDeliveringExactlyTheRowsTheModelStates =
 	property.explore(caseGen, {
-		needs: { family: Served.of(readerApp(Family), Substrate.freshOf(familyTemplate)) },
+		needs: { family: Served.of(readerApp(Family), Substrate.fresh(familyTemplate)) },
 		situations: [
 			"no parent",
 			"a parent with a tag and a badge",

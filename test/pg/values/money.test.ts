@@ -36,7 +36,7 @@ import {
 	units
 } from "#test/pg/values/money.fixtures.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { orderOf } from "#test/unit/values/support.ts"
 
 /**
@@ -67,7 +67,7 @@ import { orderOf } from "#test/unit/values/support.ts"
  */
 export const moneyAgreementWithPostgreSQLRoundTripsEveryInt64MinorUnitCountThroughTheNumericWireForm =
 	property.explore(batchOf(units, 5000), {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: [],
 		budget: { runs: 1, steered: 0 },
 		check:
@@ -146,7 +146,7 @@ export const moneyAgreementWithPostgreSQLRoundsEveryAmountTheHostAdmitsToMoneyAs
 			4000
 		),
 		{
-			needs: { tx: Substrate.transaction },
+			needs: { tx: Substrate.rolledBack(baseSubstrate) },
 			situations: [],
 			budget: { runs: 1, steered: 0 },
 			check:
@@ -216,7 +216,7 @@ export const moneyAgreementWithPostgreSQLRefusesExactlyTheAmountsPostgreSQLRefus
 			8
 		),
 		{
-			needs: { tx: Substrate.transaction },
+			needs: { tx: Substrate.rolledBack(baseSubstrate) },
 			situations: ["out of range", "admitted at the edge"] satisfies ReadonlyArray<
 				Reached<EdgeFeature>
 			>,
@@ -279,7 +279,7 @@ export const moneyAgreementWithPostgreSQLRefusesExactlyTheAmountsPostgreSQLRefus
  */
 export const moneyAgreementWithPostgreSQLOrdersAndDeduplicatesMoneyByItsMinorUnits =
 	property.explore(batchOf(bigint(-50n, 50n), 500), {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: [],
 		budget: { runs: 1, steered: 0 },
 		check:

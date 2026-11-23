@@ -65,7 +65,7 @@ const countedSetBudget = { runs: 1, steered: 16 } as const
  */
 export const aCountedSetKeyedByThreeFieldsAndANameStoresEachOwnersCountAndFoldsOfExactlyTheModelsMembersAfterEveryInsertDeleteMoveAndRefill =
 	property.explore(aimed(caseGen, aims), {
-		needs: { counted: Substrate.freshOf(countedSetTemplate) },
+		needs: { counted: Substrate.fresh(countedSetTemplate) },
 		situations: situations satisfies ReadonlyArray<Reached<Situation>>,
 		check:
 			({ counted }, c: Case<Situation>) =>

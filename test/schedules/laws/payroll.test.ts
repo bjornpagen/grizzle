@@ -37,7 +37,7 @@ import {
 	runs,
 	leaveAims
 } from "#test/schedules/laws/payroll.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * The payroll example's races at a span primary key every race of a Leave insert and a direct writer's Leave is serializable.
@@ -46,14 +46,18 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const thePayrollExamplesRacesAtASpanPrimaryKeyEveryRaceOfALeaveInsertAndADirectWritersLeaveIsSerializable =
 	property.explore(aimed(raceGen, leaveAims), {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: ["the insert waited", "the insert refused"] satisfies ReadonlyArray<
 			Reached<LeaveFeature>
 		>,
 		check:
 			({ substrate }, c: Case<LeaveFeature>) =>
 			(race) =>
-				Effect.provideServiceEffect(Effect.scoped(runRace(race, c)), Substrate, substrate),
+				Effect.provideServiceEffect(
+					Effect.scoped(runRace(race, c)),
+					Substrate,
+					Effect.map(substrate, (taken) => taken.substrate)
+				),
 		oracle: {
 			kind: "specification",
 			name: "a serial order of the insert and the direct writer's transaction, each run alone from stateA, explains every run"

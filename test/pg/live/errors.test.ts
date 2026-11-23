@@ -60,7 +60,7 @@ import { sourcedDbLayer } from "#test/support/live-layer.ts"
 import { liveSurfaces, wireOf } from "#test/support/live/calls.ts"
 import { commitDirectly, insertRow, updateRow } from "#test/support/live/direct.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
-import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
+import { Substrate, worldSession, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { testVerify, tokenOf } from "#test/support/worlds.ts"
 
@@ -69,7 +69,7 @@ import { testVerify, tokenOf } from "#test/support/worlds.ts"
  */
 export const aFailingLiveCallEndsWithItsClasssCallErrorWhoseRetryHoldsWhenTheCallIsSentAgainOverCasesDrawnFailures =
 	property.explore(provokedGen, {
-		needs: { substrate2: Substrate.fresh },
+		needs: { substrate2: Substrate.fresh(baseSubstrate) },
 		situations: [
 			"route",
 			"input",
@@ -290,7 +290,7 @@ export const aFailingLiveCallEndsWithItsClasssCallErrorWhoseRetryHoldsWhenTheCal
 						}).pipe(withLayer(layerOf))
 					}).pipe(Effect.scoped),
 					Substrate,
-					substrate2
+					Effect.map(substrate2, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "specification",

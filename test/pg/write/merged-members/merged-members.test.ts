@@ -60,12 +60,12 @@ import {
 } from "#test/pg/write/merged-members/merged-members.fixtures.ts"
 import { lawNamesOf, namesOf } from "#test/support/kernel/naming.ts"
 import { refusedEntries } from "#test/support/refused.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** A stratum's sources of one operation on one relation are one action, so a stratum that stamps a clock is one statement, writing its sources' union at one instant. */
 export const aStratumsSourcesOfOneOperationOnOneRelationAreOneActionSoAStratumThatStampsAClockIsOneStatementWritingTheirUnionAtOneInstant =
 	property.exhaust(finite(mergedGen), {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: situations satisfies ReadonlyArray<Reached<Situation>>,
 		check:
 			({ substrate }, k: Case<Situation>) =>
@@ -212,7 +212,7 @@ export const aStratumsSourcesOfOneOperationOnOneRelationAreOneActionSoAStratumTh
 						})
 					),
 					Substrate,
-					substrate
+					Effect.map(substrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "specification",

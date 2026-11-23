@@ -79,7 +79,7 @@ export interface RawSession {
 
 /**
  * A session's statements and nothing that begins or ends a transaction (RawSession without begin, commit, rollback):
- * what a case on a rolled-back transaction (substrate.ts Substrate.transaction) gets, whose one transaction the case
+ * what a case on a rolled-back transaction (substrate.ts Substrate.rolledBack) gets, whose one transaction the case
  * cannot end, and what a helper that only runs statements takes, so a raw session serves it too.
  */
 export type CaseSession = Omit<RawSession, "begin" | "beginBelow" | "commit" | "rollback">

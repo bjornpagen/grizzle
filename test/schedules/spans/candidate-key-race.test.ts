@@ -43,7 +43,7 @@ import {
 	runs,
 	raceAims
 } from "#test/schedules/spans/candidate-key-race.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Races at a span candidate key, an apply beside direct writers every race of an apply and direct writers at a span candidate key is serializable.
@@ -52,14 +52,18 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const racesAtASpanCandidateKeyAnApplyBesideDirectWritersEveryRaceOfAnApplyAndDirectWritersAtASpanCandidateKeyIsSerializable =
 	property.explore(aimed(bookingRaceGen, raceAims), {
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: ["the apply waited", "the apply refused"] satisfies ReadonlyArray<
 			Reached<BookingFeature>
 		>,
 		check:
 			({ substrate }, c: Case<BookingFeature>) =>
 			(races) =>
-				Effect.provideServiceEffect(Effect.scoped(runRaces(races, c)), Substrate, substrate),
+				Effect.provideServiceEffect(
+					Effect.scoped(runRaces(races, c)),
+					Substrate,
+					Effect.map(substrate, (taken) => taken.substrate)
+				),
 		oracle: {
 			kind: "specification",
 			name: "serializability: the apply and the direct transactions run alone in a real-time order show and leave what the run did"

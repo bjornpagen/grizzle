@@ -43,7 +43,7 @@ import {
 	showGrowth,
 	truth
 } from "#test/pg/text/differential.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { nestedPattern } from "#test/unit/text/generators.ts"
 
 /** Regex membership: ECMAScript, the host NFA, PostgreSQL ARE and the installed domain agree on batches of randomized strings per family. */
@@ -79,7 +79,7 @@ export const regexMembershipAgreeOnBatchesOfRandomizedStringsPerFamily = family(
  */
 export const regexMembershipCompilesTheLargestPatternTheLimitsAdmitAlongADrawnShapeAtEachLimitsEdge =
 	property.explore(growthSpace, {
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: edgeLimits satisfies ReadonlyArray<Reached<EdgeFeature>>,
 		/**
 		 * Its steered cap, the steered cases its witnesses need: its floor and 3 steered cases reach every limit's edge, 2 do
@@ -159,7 +159,7 @@ export const regexMembershipCompilesTheLargestPatternTheLimitsAdmitAlongADrawnSh
 export const regexMembershipCompilesGeneratedAdmittedNestedQuantifierPatterns = property.explore(
 	nestedPattern,
 	{
-		needs: { tx: Substrate.transaction },
+		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: ["a large pattern"] satisfies ReadonlyArray<Reached<NestedFeature>>,
 		budget: { runs: 1061, steered: nestedRuns },
 		check:

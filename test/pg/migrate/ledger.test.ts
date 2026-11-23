@@ -51,7 +51,7 @@ import {
 	machineOf,
 	runOn
 } from "#test/pg/migrate/ledger.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** The apply runner's ledger as a state machine programs of the rotating stream, steered until every command is reached: each command leaves the ledger the model claims, and a refusal runs nothing. */
 export const ledgerMachine = property.explore(
@@ -61,7 +61,7 @@ export const ledgerMachine = property.explore(
 		fullSwarm(Struct.keys(machineOf(ledgerShape).commands))
 	),
 	{
-		needs: { substrate: Substrate.fresh },
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: commandKinds satisfies ReadonlyArray<Reached<Feature>>,
 		/**
 		 * Its pre-conversion budget: runs 3, coverage cases 240 (ledger.test.ts at bf4f43bb: eighty times the rotating
@@ -72,7 +72,11 @@ export const ledgerMachine = property.explore(
 		check:
 			({ substrate }, c: Case<Feature>) =>
 			(value) =>
-				Effect.provideServiceEffect(runOn(ledgerShape)(value, c), Substrate, substrate),
+				Effect.provideServiceEffect(
+					runOn(ledgerShape)(value, c),
+					Substrate,
+					Effect.map(substrate, (taken) => taken.substrate)
+				),
 		oracle: {
 			kind: "second-implementation",
 			name: "the ledger model, the documented contract as a state machine, against the database read back"

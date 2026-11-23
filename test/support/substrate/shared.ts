@@ -13,73 +13,10 @@ import {
 	devSession,
 	type PgConnection,
 	type SqlError,
-	sqlErrorOf,
-	type PgStatement,
-	testDatabaseSettings
+	sqlErrorOf
 } from "#test/support/pg.ts"
 import { type BudgetedCluster, budgeted, connectionBudget } from "#test/support/substrate/budget.ts"
 import { allocatingPid } from "#test/support/substrate/names.ts"
-
-/**
- * What a clean test database does not contain, one line per object. The template holds the system schemas, `public`
- * (empty, with its default privileges), and the `vector` extension in `vector_ext` (The cluster); plpgsql is
- * built in; and the database holds exactly the test database settings (test/support/pg.ts testDatabaseSettings).
- * Anything else in the database, or another database-level setting, privilege or option, was left by a test.
- */
-const leftoversQuery = `
-SELECT l.what FROM (
-	SELECT 'schema ' || n.nspname::text AS what FROM pg_catalog.pg_namespace AS n
-	WHERE n.nspname::text NOT IN ('pg_catalog', 'pg_toast', 'information_schema', 'public', 'vector_ext')
-		AND n.nspname::text !~ '^pg_(toast_)?temp_[0-9]+$'
-	UNION ALL SELECT 'missing schema ' || s.name FROM unnest(ARRAY['public', 'vector_ext']) AS s(name)
-	WHERE pg_catalog.to_regnamespace(s.name) IS NULL
-	UNION ALL SELECT 'extension ' || e.extname::text FROM pg_catalog.pg_extension AS e
-	WHERE e.extname::text NOT IN ('plpgsql', 'vector')
-	UNION ALL SELECT 'missing extension vector' WHERE NOT EXISTS (
-		SELECT FROM pg_catalog.pg_extension AS e WHERE e.extname = 'vector'::name
-			AND e.extnamespace = pg_catalog.to_regnamespace('vector_ext'))
-	UNION ALL SELECT 'relation public.' || c.relname::text FROM pg_catalog.pg_class AS c
-	WHERE c.relnamespace = pg_catalog.to_regnamespace('public')
-	UNION ALL SELECT 'routine public.' || p.proname::text FROM pg_catalog.pg_proc AS p
-	WHERE p.pronamespace = pg_catalog.to_regnamespace('public')
-	UNION ALL SELECT 'type public.' || t.typname::text FROM pg_catalog.pg_type AS t
-	WHERE t.typnamespace = pg_catalog.to_regnamespace('public') AND t.typrelid = 0::oid AND t.typcategory <> 'A'
-	UNION ALL SELECT 'privileges on schema public' FROM pg_catalog.pg_namespace AS n
-	WHERE n.nspname = 'public'::name
-		AND n.nspacl::text IS DISTINCT FROM '{pg_database_owner=UC/pg_database_owner,=U/pg_database_owner}'
-	UNION ALL SELECT 'database setting ' || pg_catalog.array_to_string(s.setconfig, ', ')
-	FROM pg_catalog.pg_db_role_setting AS s JOIN pg_catalog.pg_database AS d ON d.oid = s.setdatabase
-	WHERE d.datname = pg_catalog.current_database()
-		AND (s.setrole <> 0::oid OR NOT (s.setconfig @> $1::text[] AND s.setconfig <@ $1::text[]))
-	UNION ALL SELECT 'missing test database settings' WHERE NOT EXISTS (
-		SELECT FROM pg_catalog.pg_db_role_setting AS s JOIN pg_catalog.pg_database AS d ON d.oid = s.setdatabase
-		WHERE d.datname = pg_catalog.current_database() AND s.setrole = 0::oid)
-	UNION ALL SELECT 'database privileges or options' FROM pg_catalog.pg_database AS d
-	WHERE d.datname = pg_catalog.current_database() AND (
-		d.datistemplate OR NOT d.datallowconn OR d.datconnlimit <> -1
-		OR (d.datacl IS NOT NULL AND NOT (
-			d.datacl @> pg_catalog.acldefault('d', d.datdba) AND d.datacl <@ pg_catalog.acldefault('d', d.datdba))))
-	UNION ALL SELECT 'default privileges of ' || a.defaclrole::regrole::text FROM pg_catalog.pg_default_acl AS a
-	WHERE a.defaclnamespace = 0::oid
-) AS l ORDER BY 1`
-
-/**
- * A check of a database: the statement that reads what is wrong with it, and the reading of its rows, one line for each
- * thing wrong, none when the database is as it should be.
- */
-export interface Check {
-	readonly statement: PgStatement
-	readonly read: (rows: ReadonlyArray<ReadonlyArray<unknown>>) => ReadonlyArray<string>
-}
-
-/** What a test left in a database: everything a clean test database does not contain (leftoversQuery). */
-export const leftoversCheck: Check = {
-	statement: {
-		sql: leftoversQuery,
-		params: [Arr.map(testDatabaseSettings, ([setting, value]) => `${setting}=${value}`)]
-	},
-	read: (rows) => Arr.map(rows, ([what]) => String(what))
-}
 
 /** A column's text as pg hands it over, unparsed. */
 const asText = (text: string): string => text

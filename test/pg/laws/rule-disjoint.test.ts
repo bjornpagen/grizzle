@@ -45,7 +45,7 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const transactionsWritingSpacedUnitsUnderWholeRulesAllCommitUnderSERIALIZABLEAndNoJudgeLocksARelation =
 	property.explore(concurrentGen, {
-		needs: { disjoint: Substrate.freshOf(disjointTemplate) },
+		needs: { disjoint: Substrate.fresh(disjointTemplate) },
 		situations: [
 			"two units at once",
 			"three or four units at once",

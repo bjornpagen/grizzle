@@ -48,12 +48,12 @@ import {
 	previewCase,
 	previewFeatures
 } from "#test/pg/write/preview/preview.fixtures.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** The rows a preview gives are the rows the same insertAll stores, fresh and migrated, and its refusals are the write's. */
 export const thePreviewsRowsAreTheRowsTheSameInsertAllStoresFreshAndMigratedAndItsRefusalsAreTheWrites =
 	property.explore(caseGen, {
-		needs: { caseSubstrate: Substrate.fresh },
+		needs: { caseSubstrate: Substrate.fresh(baseSubstrate) },
 		situations: previewFeatures satisfies ReadonlyArray<Reached<PreviewFeature>>,
 		budget: { runs: 32, steered: 32 },
 		check:
@@ -62,7 +62,7 @@ export const thePreviewsRowsAreTheRowsTheSameInsertAllStoresFreshAndMigratedAndI
 				Effect.provideServiceEffect(
 					previewCase(k, c).pipe(Effect.scoped),
 					Substrate,
-					caseSubstrate
+					Effect.map(caseSubstrate, (taken) => taken.substrate)
 				),
 		oracle: {
 			kind: "postgresql",

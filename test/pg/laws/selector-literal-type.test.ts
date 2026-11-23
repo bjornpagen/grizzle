@@ -50,7 +50,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aContainmentIntoASideALiteralSelectsBareAtItsFieldsTypeOrAtAnotherOnPostgreSQL19CommitExactlyTheStatesWhoseEverySourceRowsBRowHoldsAnXTheLiteralEqualsAsTheSelectionComparesThemRefusingTheRestBy23503 =
 	property.explore(aimed(sketchGen, aims), {
-		needs: { fresh: Substrate.freshOf(selectorLiteralTemplate) },
+		needs: { fresh: Substrate.fresh(selectorLiteralTemplate) },
 		situations: FEATURES satisfies ReadonlyArray<Reached<Feature>>,
 		check:
 			({ fresh }, c: Case<Feature>) =>
