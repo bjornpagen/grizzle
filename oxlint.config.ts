@@ -52,6 +52,7 @@ const DICTIONARY_MINTS = [
 	"test/types/compute/bound-arguments.dictionary.ts",
 	"test/types/compute/hosted.dictionary.ts",
 	"test/types/compute/finite.dictionary.ts",
+	"test/types/compute/casts.dictionary.ts",
 	"test/types/evidence/agreement.dictionary.ts",
 	"test/types/evidence/closed-keys.dictionary.ts",
 	"test/types/evidence/explicit.dictionary.ts",

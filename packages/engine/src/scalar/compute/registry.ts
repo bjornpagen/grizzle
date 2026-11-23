@@ -36,6 +36,7 @@ import {
 	textCast
 } from "#compiler/scalar/compute/cast.ts"
 import type { ResultCarrier } from "#compiler/scalar/compute/types.ts"
+import type { carrierSql } from "#compiler/scalar/registry.ts"
 
 /**
  * Why a host computation has no value: the precondition of the operation its operands fail, or a numeric result past
@@ -2466,6 +2467,15 @@ export const castOf = (source: Carrier, target: Carrier): CastOp | undefined =>
 /** A source carrier of a registered cast, and the targets it has one to. */
 type CastSource = keyof typeof castOverloads
 type CastTarget<S extends CastSource> = keyof (typeof castOverloads)[S]
+
+/**
+ * The SQL types each SQL type has a registered cast into, castOverloads read through carrierSql, a text's its parses:
+ * what Type.cast's types admit between two SQL types (types/compute/scalar.ts CastAdmitted), so this table is the one
+ * statement of which casts there are, for the types as for compilation (castOf).
+ */
+export type CastTargetsBySql = {
+	readonly [S in CastSource as (typeof carrierSql)[S]]: (typeof carrierSql)[CastTarget<S> & Carrier]
+}
 
 /** The registered cast between two carriers the table lists a cast between. */
 export const registeredCast = <S extends CastSource, T extends CastTarget<S>>(

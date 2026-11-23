@@ -2,6 +2,7 @@ import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { unrepresentableKeys, unsupported } from "#compiler/core/errors.ts"
 import { captureLoc, childLoc } from "#compiler/core/loc.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
+import type { CastTargetsBySql } from "#compiler/scalar/compute/registry.ts"
 import { formSource, type LexicalTarget, lexicalTargetOf } from "#compiler/scalar/lexical.ts"
 import { Pattern } from "#compiler/scalar/regex/pattern.ts"
 import { describeDeclared } from "#compiler/schema/relation.ts"
@@ -36,15 +37,8 @@ export { regexMaxRepeat } from "@bjornpagen/grizzle-text/regex/parse"
 export { regexDfaLimits } from "@bjornpagen/grizzle-text/regex/limits"
 export { type JoinedHost, type RegexText, str } from "#compiler/text/field.ts"
 
-/** The SQL types a text parses into, those with a lexical form (scalar/lexical.ts). */
-type ParseSql =
-	| "smallint"
-	| "integer"
-	| "bigint"
-	| "numeric"
-	| "double precision"
-	| "boolean"
-	| "date"
+/** The SQL types a text parses into, those with a lexical form (scalar/lexical.ts): the engine's parses. */
+type ParseSql = CastTargetsBySql["text"]
 
 /**
  * lexicalForm(T): the pattern of T's lexical form, XML Schema's lexical space of T's datatype cut to the values T holds

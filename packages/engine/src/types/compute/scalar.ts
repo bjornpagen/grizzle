@@ -1,4 +1,5 @@
 import type { Refused } from "#compiler/core/refusals.ts"
+import type { CastTargetsBySql } from "#compiler/scalar/compute/registry.ts"
 import type { guarded } from "#compiler/scalar/compute/term.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -485,61 +486,27 @@ export type IsSpan<A> =
 	TypeOfTerm<A> extends { readonly start: unknown; readonly end: unknown } ? true : false
 
 /**
- * Type.cast, following the registry's cast table, over the source's domain X and SQL type S and the target's
- * domain D and SQL type F: smallint, integer, bigint, numeric, real and double precision convert among themselves in every
- * direction; money is a target only from integer, bigint, numeric and an exact integer (PostgreSQL has no smallint,
- * real or double precision cast to money), and a source only to numeric; an exact integer narrows into the numeric
- * family and money, exact money into money and numeric; a text parses into a type with a lexical form (ParseSql), a
- * contract over one included; and any other base casts only into a contract or refinement over its own SQL type, a
- * span only over its own endpoint type, contract included (SameValues), since a span over a contract and a span over
- * its base are two types no cast converts between. Whether the text's refinement proves the form is compilation's
- * (scalar/compute/typing.ts parse), since no type here holds a pattern's language.
+ * Type.cast, over the source's domain X and SQL type S and the target's domain D and SQL type F, admits exactly the
+ * casts compilation does (scalar/compute/typing.ts castTo): between two SQL types, the registered casts, read off the
+ * engine's table itself (scalar/compute/registry.ts CastTargetsBySql), a text's parses into the types with a lexical
+ * form among them; within one SQL type, a cast into a type over the same base, a contract or refinement over it
+ * included, a span only over its own endpoint type, contract included (SameValues), since a span over a contract and a
+ * span over its base are two types no cast converts between. Whether a parse's target has a lexical form at its typmod,
+ * and whether the text's refinement proves it, is compilation's (typing.ts parse), since no type here holds a typmod's
+ * form or a pattern's language.
  */
-type NumericFamilySql = "smallint" | "integer" | "bigint" | "numeric" | "real" | "double precision"
-/** The SQL types a text parses into: those with a lexical form (scalar/lexical.ts). */
-type ParseSql =
-	| "smallint"
-	| "integer"
-	| "bigint"
-	| "numeric"
-	| "double precision"
-	| "boolean"
-	| "date"
-export type CastAdmitted<X, S extends SqlTag, D, F extends SqlTag> = [S] extends [NumericFamilySql]
-	? [F] extends [NumericFamilySql]
-		? true
-		: [F] extends ["money"]
-			? [S] extends ["integer" | "bigint" | "numeric"]
-				? true
-				: false
-			: false
-	: [S] extends ["exact integer"]
-		? [F] extends [NumericFamilySql | "money"]
+export type CastAdmitted<X, S extends SqlTag, D, F extends SqlTag> = [S] extends [F]
+	? [S] extends ["range"]
+		? SameValues<BaseOf<X>, BaseOf<D>>
+		: [BaseOf<X>] extends [BaseOf<D>]
 			? true
 			: false
-		: [S] extends ["money" | "exact money"]
-			? [F] extends ["numeric" | "money"]
-				? true
-				: false
-			: [S] extends ["text"]
-				? [F] extends [ParseSql]
-					? true
-					: [BaseOf<X>] extends [BaseOf<D>]
-						? [F] extends [S]
-							? true
-							: false
-						: false
-				: [S] extends ["range"]
-					? SameValues<BaseOf<X>, BaseOf<D>> extends true
-						? [F] extends [S]
-							? true
-							: false
-						: false
-					: [BaseOf<X>] extends [BaseOf<D>]
-						? [F] extends [S]
-							? true
-							: false
-						: false
+	: [F] extends [RegisteredCastTarget<S>]
+		? true
+		: false
+
+/** The SQL types a registered cast takes a value of SQL type S into (CastTargetsBySql): none where S has none. */
+type RegisteredCastTarget<S> = S extends keyof CastTargetsBySql ? CastTargetsBySql[S] : never
 
 /** Whether two types hold one another's values: one type, a brand inside it included. */
 type SameValues<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
