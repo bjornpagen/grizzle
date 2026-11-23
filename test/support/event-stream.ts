@@ -92,7 +92,7 @@ class StreamParser {
 class StreamUnread extends Data.TaggedError("StreamUnread")<{ readonly cause: unknown }> {}
 
 /** A body being read: each `until` reads on from where the last stopped, until `enough` holds or the body ends. */
-export interface OpenStream {
+interface OpenStream {
 	readonly until: (enough: (read: StreamRead) => boolean) => Effect.Effect<StreamRead, StreamUnread>
 }
 
@@ -101,7 +101,7 @@ export interface OpenStream {
  * client that goes away does: a reader that stops at a read's `ready` leaves a live stream behind it, which the cancel
  * ends.
  */
-export const openStream = (
+const openStream = (
 	body: ReadableStream<Uint8Array>
 ): Effect.Effect<OpenStream, never, Scope.Scope> =>
 	Effect.map(
@@ -141,9 +141,3 @@ export const readStream = (
 	enough: (read: StreamRead) => boolean
 ): Effect.Effect<StreamRead, StreamUnread> =>
 	Effect.scoped(Effect.flatMap(openStream(body), (open) => open.until(enough)))
-
-/** Whether a read holds at least `count` events of type `event`. */
-export const holdsCount =
-	(event: string, count: number) =>
-	(read: StreamRead): boolean =>
-		Arr.filter(read.events, (e) => e.event === event).length >= count

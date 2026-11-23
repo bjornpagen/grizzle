@@ -19,7 +19,7 @@ import type { ParamId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import { noClock, transactionClock } from "#compiler/ir/clock.ts"
-import { type Codebook, emptyCodebook, firstCodebook } from "#compiler/ir/codes.ts"
+import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import type { SchemaDesc as EngineSchemaDesc } from "#compiler/ir/desc.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import type { LogicalQuery, ParamDecl, StatementSpec } from "#compiler/ir/products.ts"
@@ -625,12 +625,6 @@ export const declaredOf = (
 	}
 	return { params: template.params, codes: codes.value }
 }
-
-/**
- * The declarations of a statement whose template declares no relation parameter, only scalar ones: paramTexts then
- * refuses a relation placeholder loudly, never encoding it under a guessed heading or codebook.
- */
-export const scalarsOnly: TemplateDeclarations = { params: [], codes: emptyCodebook }
 
 /** Whether a value is iterated by the runtime iteration protocol: an object with an iterator method. */
 const isIterable = (value: unknown): value is Iterable<unknown> =>

@@ -74,7 +74,7 @@ test tiers at once under the seed the release gates on before grizzle main pushe
   `src/cli/bin.ts`. A package's `tsconfig.json` extends only the repository's own `tsconfig.base.json`, by relative
   path, because a consumer's Vite reads the nearest tsconfig of every module it transforms, and a consumer installs
   none of the repository's dev tools. test/unit/dev/package.test.ts typechecks the README's programs as such a
-  consumer's, and test/pg/package/consumer.test.ts runs one against the cluster. Never add a bundler or a build.
+  consumer's. Never add a bundler or a build.
 - **Dependencies** are plain: no patch, no vendored fork. The runtime's one driver is node-postgres (`pg`) in pipeline
   mode, a peer dependency of the shell that the application passes in as each connection's `driver`, and
   `pnpm install --frozen-lockfile` installs everything.
@@ -132,8 +132,6 @@ test tiers at once under the seed the release gates on before grizzle main pushe
 - **`packages/pg`** (`@bjornpagen/grizzle-pg`) is the TypeScript `pnpm pg:build` runs (the postmasters that run from
   the installed build) and the pin as a typed value, a workspace member so a consumer's
   install, never one inside its submodule, gives it its dependencies; its `grizzle-pg` bin runs `build` and `source`.
-  test/pg/package/consumer.test.ts imports the pin and runs a migrate through a consumer's links in each install
-  layout.
 
 Every TCP connection to the cluster, the tests' included, is verify-full TLS. The bootstrap superuser, the account's
 own user, alone connects over the local socket, which trusts it: `pnpm pg admin` and the tests' superuser sessions

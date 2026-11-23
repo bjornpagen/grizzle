@@ -10,7 +10,7 @@ import {
 } from "#compiler/ir/expr.ts"
 import type { AggregateFn } from "#compiler/ir/rel.ts"
 import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
-import { type AggregateLowering, unaryOverload } from "#compiler/scalar/aggregate.ts"
+import { unaryOverload } from "#compiler/scalar/aggregate.ts"
 import {
 	binaryCoercion,
 	castOf,
@@ -201,9 +201,6 @@ const overloadOf = (fn: Exclude<GenAggregate, "count">, type: ScalarType | undef
 	return overload.value
 }
 
-/** count's lowering: the native call. */
-const nativeLowering: AggregateLowering = { kind: "native" }
-
 /**
  * The result type the checker gives the aggregate (scalar/aggregate.ts unaryOverload): count is natural; sum is bigint
  * over smallint and integer, numeric over bigint and numeric, the argument's type over the floats and exact money over
@@ -212,15 +209,6 @@ const nativeLowering: AggregateLowering = { kind: "native" }
  */
 export const aggregateResult = (fn: GenAggregate, type: ScalarType | undefined): ScalarType =>
 	fn === "count" ? naturalType : overloadOf(fn, type).result
-
-/**
- * How the conservative lowering calls the aggregate (scalar/aggregate.ts AggregateLowering): natively, or over each
- * argument's exact numeric value, as a money sum, whose total stays exact money, is the sum of the amounts as numeric.
- */
-export const aggregateLowering = (
-	fn: GenAggregate,
-	type: ScalarType | undefined
-): AggregateLowering => (fn === "count" ? nativeLowering : overloadOf(fn, type).lowering)
 
 export const aggregateOpId = (fn: GenAggregate, type: ScalarType | undefined): CatalogOpId => {
 	if (fn === "count") {

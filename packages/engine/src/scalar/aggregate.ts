@@ -72,7 +72,7 @@ export type ExactCarrier = "float4" | "float8" | "money"
  *   -0 < +0, as JavaScript's Math.min and Math.max: a least zero is -0 when any argument is -0, a greatest zero +0
  *   when any is +0, where the native min and max keep whichever zero reaches them last, an order no plan fixes.
  */
-export type AggregateLowering =
+type AggregateLowering =
 	| { readonly kind: "native" }
 	| { readonly kind: "widened" }
 	| { readonly kind: "scaleFree" }

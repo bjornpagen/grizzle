@@ -1,6 +1,4 @@
-/** What the properties of agreement.test.ts read: the catalog's entries, their spaces and aims, and the fraction model. */
-
-import { indices } from "@bjornpagen/grizzle-text/base/array"
+/** What the property of agreement.test.ts reads: the catalog's entries, their space and its aims. */
 
 import { nonEmpty } from "@bjornpagen/testing/assert"
 import type { Pending, Reached } from "@bjornpagen/testing/features"
@@ -11,32 +9,21 @@ import {
 	element,
 	type Gen,
 	int,
-	map,
 	oneOf,
 	steered,
 	weighted
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order } from "effect"
-import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { Direction } from "#compiler/core/order.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
-import type { PhysicalNames } from "#compiler/ir/physical.ts"
-import type { RelNode, ValidDag } from "#compiler/ir/rel.ts"
-import { LowerContext } from "#compiler/lower/conservative/context.ts"
-import { ConservativeDelivery } from "#compiler/lower/conservative/deliver.ts"
 import type { CatalogOptions } from "#compiler/lower/shapes/catalog/context.ts"
 import { type CatalogResult } from "#compiler/lower/shapes/catalog/rewrite.ts"
 import * as Q from "#test/pg/catalog/queries.ts"
 import { type Facts, factsGen, labFacts, labOptions } from "#test/pg/catalog/support.ts"
 import { aimedSteered } from "#test/support/aims.ts"
-import { catalogDispatch } from "#test/support/compile.ts"
 import type { QueryDesc } from "#test/support/fixtures/ir/desc.ts"
 import * as D from "#test/unit/check/dsl.ts"
-
-/** The drawn lab facts each search explores: the rotating stream's cases, and a quarter as many in the floor's. */
-
-export const agreementRuns = 12
 
 /** The facts with a price of the first sitting's student, below 105, on the sitting's day and on the day before. */
 const withPricedSitting = (f: Facts, amount: number): Facts => {
@@ -101,6 +88,9 @@ type Entry =
 const directionGen: Gen<Direction> = element(["asc", "desc"] as const)
 const neighborGen: Gen<"next" | "previous"> = element(["next", "previous"] as const)
 const pathGen: Gen<Path> = element(["ordered", "lateral"] as const)
+
+/** The largest denominator 2^j of a dyadic fraction the discrete rewrite admits (percentile.ts maxDyadicExponent). */
+const admittedDenominator = 2 ** 7
 
 /** A dyadic fraction in (0, 1] whose denominator the discrete rewrite admits: m / 2^j, j up to its largest. */
 const admittedFraction: Gen<number> = (source) => {
@@ -526,106 +516,6 @@ const agreementCaseOf =
 		}
 	}
 
-/**
- * A discrete percentile's case: its fraction, drawn as a dyadic m / 2^j, j up to one past the largest the rewrite
- * admits, or as a decimal k / 100; and up to three students' groups of sittings, each of a drawn size whose scores
- * rise by one every `tie` sittings, so ties come up.
- */
-interface FractionCase {
-	readonly p: number
-	readonly groups: ReadonlyArray<{ readonly size: number; readonly tie: number }>
-}
-
-/** The largest denominator 2^j of a dyadic fraction the discrete rewrite admits (percentile.ts maxDyadicExponent). */
-const admittedDenominator = 2 ** 7
-
-const groupGen: Gen<FractionCase["groups"][number]> = (source) => ({
-	size: source.draw(int(1, 100)),
-	tie: source.draw(int(1, 3))
-})
-
-const fractionCaseGen: Gen<FractionCase> = (source) => ({
-	p: source.draw(
-		weighted<number>([
-			[
-				1,
-				(fraction) => {
-					const j = fraction.draw(int(0, Math.log2(admittedDenominator) + 1))
-					return fraction.draw(int(0, 2 ** j)) / 2 ** j
-				}
-			],
-			[1, map(int(0, 100), (k) => k / 100)]
-		])
-	),
-	groups: source.draw(array(groupGen, { min: 1, max: 3 }))
-})
-
-/** The facts of a case: student g + 1's sittings, ids apart, on days 1 to its size, its scores rising per tie. */
-export const fractionFacts = (c: FractionCase): Facts => ({
-	sittings: Arr.flatMap(c.groups, (group, g) =>
-		Arr.map(
-			indices(group.size),
-			(k) => [g * 1000 + k + 1, g + 1, k + 1, Math.floor(k / group.tie) + 1] as const
-		)
-	),
-	prices: [],
-	points: []
-})
-
-/**
- * Whether the native form selects what the composition selects in a group of `size` sittings: PostgreSQL computes
- * x = p · n in double precision, the native percentile_disc takes the value at ceil(x), and at least the first, while the
- * composition casts x to numeric, keeping 15 significant digits, and takes the value at its ceil, none at 0. The two
- * agree where those positions hold the same score.
- */
-export const groupAgrees = (p: number, group: FractionCase["groups"][number]): boolean => {
-	const x = p * group.size
-	const composed = Math.ceil(Number(x.toPrecision(15)))
-	const native = Math.max(1, Math.ceil(x))
-	const score = (position: number) => Math.floor((position - 1) / group.tie) + 1
-	return composed >= 1 && score(composed) === score(native)
-}
-
-/** The rewrite admits a fraction in (0, 1] whose denominator is at most admittedDenominator. */
-export const admitted = (p: number): boolean =>
-	p > 0 && p <= 1 && Number.isInteger(p * admittedDenominator)
-
-export type FractionFeature =
-	| "admitted"
-	| "kept at p = 0"
-	| "kept, the native form rounding apart"
-	| "kept, the native form agreeing"
-
-/** The decimal fractions and group sizes whose product the composition's numeric cast rounds below the native ceil. */
-const roundingApart: ReadonlyArray<readonly [k: number, size: number]> = Arr.flatMap(
-	Arr.range(1, 100),
-	(k) =>
-		Arr.flatMap(Arr.range(1, 100), (size): ReadonlyArray<readonly [number, number]> =>
-			groupAgrees(k / 100, { size, tie: 1 }) ? [] : [[k, size]]
-		)
-)
-
-/**
- * A fraction case as the generator draws it, aimed at a rounding apart while no witness has met one (Steered): half its
- * cases, by a draw of their own, take a decimal fraction and a first group's size whose product the model rounds apart,
- * that group's scores each its own; a rotating case is drawn unaimed.
- */
-const aimedFractionCaseOf =
-	(steering: Option.Option<Pending<FractionFeature>>): Gen<FractionCase> =>
-	(source) => {
-		const drawnCase = source.draw(fractionCaseGen)
-		if (
-			Option.exists(steering, (pending) => pending.has("kept, the native form rounding apart")) &&
-			source.draw(boolean)
-		) {
-			const [k, size] = source.draw(
-				element(nonEmpty(roundingApart, "a fraction the forms round apart"))
-			)
-			return { p: k / 100, groups: [{ size, tie: 1 }, ...Arr.drop(drawnCase.groups, 1)] }
-		}
-		return drawnCase
-	}
-
 /** The native targets a rewrite names: its windows' and ordered-set aggregates' overloads. */
 export const nativeTargets = (rewritten: CatalogResult): ReadonlyArray<string> =>
 	Arr.flatMap(topoOrder(rewritten.dag), (n): ReadonlyArray<string> =>
@@ -634,21 +524,3 @@ export const nativeTargets = (rewritten: CatalogResult): ReadonlyArray<string> =
 
 /** The catalog's cases, aimed at each entry kind its kept compositions reach and at a delivered row. */
 export const agreementSpace = aimedSteered(steered(agreementCaseOf), keptAims)
-
-/** The fraction cases, aimed at a rounding apart. */
-export const fractionSpace = steered(aimedFractionCaseOf)
-
-export const lowerNative = (dag: ValidDag, root: RelNode, names: PhysicalNames) =>
-	catchRefusal(() =>
-		new ConservativeDelivery(
-			new LowerContext(
-				dag,
-				{
-					names,
-					params: [],
-					subject: { kind: "query" }
-				},
-				catalogDispatch
-			)
-		).program(root)
-	)

@@ -1,4 +1,3 @@
-import { element, type Gen, map } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
 import {
 	type AllenFormula,
@@ -32,12 +31,6 @@ const rangeTypeOf: Readonly<Record<(typeof integerSpanCarriers)[number], RangeTy
 /** The range type of every span carrier over integer endpoints the engine declares, in its order. */
 export const rangeTypes: Arr.NonEmptyReadonlyArray<RangeType> = Arr.map(
 	integerSpanCarriers,
-	(carrier) => rangeTypeOf[carrier]
-)
-
-/** A range type drawn from the engine's roster of span carriers over integer endpoints, in its order, as rangeTypes lists them. */
-export const rangeTypeGen: Gen<RangeType> = map(
-	element(integerSpanCarriers),
 	(carrier) => rangeTypeOf[carrier]
 )
 
@@ -102,7 +95,7 @@ export const relationsHolding = (a: HalfOpen, b: HalfOpen): ReadonlyArray<AllenR
 
 /**
  * The Allen oracle: a brute-force classifier, PostgreSQL's range operators evaluated from bounds, and the
- * verification universe that test/unit/allen and test/pg/allen check over.
+ * verification universe that test/unit/allen checks over.
  *
  * Three independent pieces, none of which reads the compiler's atom sets:
  *
@@ -113,7 +106,7 @@ export const relationsHolding = (a: HalfOpen, b: HalfOpen): ReadonlyArray<AllenR
  *   (range_eq, range_contains, range_before, range_overleft, range_overlaps, range_adjacent, ...) over range bounds
  *   compared with range_cmp_bounds, so the result follows PostgreSQL's definitions rather than an atom table.
  * - `canonicalize` reads a range literal the way range_in, range_serialize and int4range_canonical /
- *   int8range_canonical do, so a spelling such as '(a, b]' is checked on the value PostgreSQL stores.
+ *   int8range_canonical do, so a spelling such as '(a, b]' enters the universe as the value PostgreSQL stores.
  *
  * The universe: every span with endpoints in [-3, 8]; spans at the int4 and int8 limits, including a
  * start at the type's minimum and an exclusive end at its maximum; and every span supplied in the spellings [a, b],
@@ -238,18 +231,18 @@ const atomTruth = (a: HalfOpen, b: HalfOpen): number => {
 }
 
 /** A range literal with explicit bound forms, '[' or '(' then lower, upper, then ']' or ')'. */
-export interface RangeSpelling {
+interface RangeSpelling {
 	readonly lowerInc: boolean
 	readonly lo: bigint
 	readonly hi: bigint
 	readonly upperInc: boolean
 }
 
-export const spellingText = (s: RangeSpelling): string =>
+const spellingText = (s: RangeSpelling): string =>
 	`${s.lowerInc ? "[" : "("}${s.lo},${s.hi}${s.upperInc ? "]" : ")"}`
 
 /** What PostgreSQL makes of a literal: the stored span, the empty range, or the SQLSTATE it raises. */
-export type Canonical =
+type Canonical =
 	| { readonly kind: "span"; readonly span: HalfOpen }
 	| { readonly kind: "empty" }
 	| { readonly kind: "error"; readonly sqlstate: "22000" | "22003" }
@@ -259,7 +252,7 @@ export type Canonical =
  * int4range_canonical / int8range_canonical then make the lower bound inclusive and the upper exclusive, raising
  * 22003 when the adjustment leaves the type, and serialize again, which can yield the empty range.
  */
-export const canonicalize = (type: RangeType, s: RangeSpelling): Canonical => {
+const canonicalize = (type: RangeType, s: RangeSpelling): Canonical => {
 	const { min, max } = rangeLimits[type]
 	if (s.lo < min || s.lo > max || s.hi < min || s.hi > max) {
 		return { kind: "error", sqlstate: "22003" }
@@ -353,7 +346,7 @@ const compareSpans = (a: HalfOpen, b: HalfOpen): -1 | 0 | 1 =>
  * The spellings the universe is read from: every span of the window and the type's limits (and, for int8range, the
  * int4 limits too, which are ordinary int8 values) in each of its spellings.
  */
-export const universeSpellings = (type: RangeType): ReadonlyArray<RangeSpelling> => {
+const universeSpellings = (type: RangeType): ReadonlyArray<RangeSpelling> => {
 	const spans = [
 		...windowSpans(),
 		...limitSpans("int4range"),
@@ -373,36 +366,6 @@ export const universe = (type: RangeType): ReadonlyArray<HalfOpen> => {
 		byText.set(spanText(stored.span), stored.span)
 	}
 	return Arr.sort(byText.values(), compareSpans)
-}
-
-/**
- * Literals around the window, valid or not, for checking the host's canonicalization against PostgreSQL's: every
- * bound form over a pair of endpoints in [-4, 9], and the limit spellings that overflow or empty.
- */
-export const canonicalizationSurvey = (type: RangeType): ReadonlyArray<RangeSpelling> => {
-	const { min, max } = rangeLimits[type]
-	const out: Array<RangeSpelling> = []
-	const forms = [
-		[true, false],
-		[true, true],
-		[false, true],
-		[false, false]
-	] as const
-	for (let lo = windowLow - 1n; lo <= windowHigh + 1n; lo++) {
-		for (let hi = windowLow - 1n; hi <= windowHigh + 1n; hi++) {
-			for (const [lowerInc, upperInc] of forms) {
-				out.push({ lowerInc, lo, hi, upperInc })
-			}
-		}
-	}
-	for (const [lowerInc, upperInc] of forms) {
-		out.push({ lowerInc, lo: min, hi: max, upperInc })
-		out.push({ lowerInc, lo: max - 1n, hi: max, upperInc })
-		out.push({ lowerInc, lo: max, hi: max, upperInc })
-		out.push({ lowerInc, lo: min, hi: min, upperInc })
-		out.push({ lowerInc, lo: min, hi: min + 1n, upperInc })
-	}
-	return out
 }
 
 export interface PairFacts {
@@ -453,7 +416,7 @@ export const everyDisjunctIndexable = (formula: AllenFormula): boolean =>
 	)
 
 /** The formula as text: `A && B AND NOT A @> B OR ...`. A negated equality is written `A <> B`. */
-export const formulaText = (formula: AllenFormula): string =>
+const formulaText = (formula: AllenFormula): string =>
 	Arr.join(
 		Arr.map(formula, (conjunction) =>
 			Arr.join(

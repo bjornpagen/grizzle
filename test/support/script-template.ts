@@ -1,10 +1,10 @@
-import { Effect, type Scope } from "effect"
+import { Effect } from "effect"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { templateNeedBudget } from "#test/support/budgets.ts"
 import { installationSql } from "#test/support/compile.ts"
 import { installationNamesOf } from "#test/support/kernel/naming.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
-import { installationGroup, noTables, type ResetGroup } from "#test/support/substrate/replace.ts"
+import { installationGroup } from "#test/support/substrate/replace.ts"
 import type { SubstrateWorld } from "#test/support/substrate/session.ts"
 import {
 	installTemplate,
@@ -41,31 +41,6 @@ interface ScriptSpec {
  * reset emptying every table of the installation.
  */
 export const scriptTemplate = (spec: ScriptSpec): SubstrateTemplate<ScriptInstall> =>
-	scriptSeeded(spec, {
-		seed: () => Effect.void,
-		reset: (installed) => installationGroup(installationNamesOf(installed.installation))
-	})
-
-/**
- * scriptTemplate's installation with rows every case reads written once per member right after the script (`fill`, a
- * volume fill and its VACUUM), where a suite wrote them once before its cases: every case over a seat of it commits
- * nothing to them, the seat's reset emptying no table.
- */
-export const filledScriptTemplate = <E>(
-	spec: ScriptSpec & {
-		readonly fill: (installed: ScriptInstall) => Effect.Effect<void, E, Substrate | Scope.Scope>
-	}
-): SubstrateTemplate<ScriptInstall> =>
-	scriptSeeded(spec, { seed: spec.fill, reset: () => noTables })
-
-/** scriptTemplate's and filledScriptTemplate's one template, its build seeding and its seat resetting as `seeding` says. */
-const scriptSeeded = <E>(
-	spec: ScriptSpec,
-	seeding: {
-		readonly seed: (installed: ScriptInstall) => Effect.Effect<void, E, Substrate | Scope.Scope>
-		readonly reset: (installed: ScriptInstall) => ResetGroup
-	}
-): SubstrateTemplate<ScriptInstall> =>
 	installTemplate({
 		budget: templateNeedBudget,
 		declaredIn: spec.declaredIn,
@@ -76,17 +51,16 @@ const scriptSeeded = <E>(
 				schema: names.schema,
 				installation: spec.compile(names.schema)
 			})),
-		install: ({ schema, installation }) =>
+		install: ({ installation }) =>
 			Effect.gen(function* () {
 				const s = yield* Substrate
 				yield* transaction(s.admin, installationSql(installation, s.database))
-				const world = yield* oracleWorld(installation)
-				yield* seeding.seed({ schema, installation, world })
+				yield* oracleWorld(installation)
 			}),
 		bind: ({ schema, installation }, binding) => ({
 			schema,
 			installation,
 			world: templateOracleWorld(installation, binding)
 		}),
-		reset: seeding.reset
+		reset: (installed) => installationGroup(installationNamesOf(installed.installation))
 	})

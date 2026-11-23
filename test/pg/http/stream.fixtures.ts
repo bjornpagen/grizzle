@@ -1,10 +1,10 @@
-/** What the properties of stream.test.ts read: its spaces, models and helpers. */
+/** What the property of stream.test.ts reads: its space, model and helpers. */
 
 import { jsonText } from "@bjornpagen/grizzle-text/utf8"
 import { timerMaxMs, timerMinMs } from "@bjornpagen/grizzle/runtime"
 import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import { constant, element, type Gen, int, oneOf, shuffled } from "@bjornpagen/testing/gen"
-import { Array as Arr, Option, Result, Stream } from "effect"
+import { Array as Arr, Option, Stream } from "effect"
 import type { ServedCalls } from "#adapter/db/handles.ts"
 import type { LoadedMember } from "#adapter/served/load.ts"
 import type { Json } from "#compiler/core/canonical.ts"
@@ -27,7 +27,7 @@ export const Items = schema("Items", [Item], [mutable(Item)])
 type ItemFact = Readonly<{ id: number; score: number }>
 
 /** The login's members: a set read by a floor, an ordered read by its windows, a key, and a put. */
-export const programs = Object.freeze({
+const programs = Object.freeze({
 	atLeast: query(Items).rule((r) => {
 		const { id, score } = v(Item, "item")
 		return r
@@ -74,14 +74,10 @@ type Call =
 	| { readonly member: "item"; readonly input: { readonly params: { readonly id: number } } }
 	| { readonly member: "put"; readonly input: { readonly put: ReadonlyArray<ItemFact> } }
 
-/**
- * A case: the stored items, one call, the write committed while a read is live, and the heartbeat's interval its
- * handler is built with.
- */
+/** A case: the stored items, one call, and the heartbeat's interval its handler is built with. */
 interface StreamCase {
 	readonly stored: ReadonlyArray<ItemFact>
 	readonly call: Call
-	readonly write: ReadonlyArray<ItemFact>
 	readonly heartbeatMs: number
 }
 
@@ -92,8 +88,6 @@ export type Feature =
 	| "a key"
 	| "a write accepted"
 	| "a write unchanged"
-	| "a live change reaching both answers"
-	| "a disconnect while live"
 
 const ids = Object.freeze(Arr.range(1, 12))
 
@@ -152,7 +146,6 @@ export const caseGen: Gen<StreamCase> = (source) => {
 	return {
 		stored,
 		call: source.draw(callGen(stored)),
-		write: source.draw(itemsGen(1, 3)),
 		heartbeatMs: source.draw(heartbeatGen)
 	}
 }
@@ -224,7 +217,6 @@ export const aims: ReadonlyArray<readonly [Feature, Gen<StreamCase>]> = Arr.map(
 			return {
 				stored,
 				call: source.draw(callOf(stored)),
-				write: source.draw(itemsGen(1, 3)),
 				heartbeatMs: source.draw(heartbeatGen)
 			}
 		}
@@ -270,18 +262,6 @@ export const inProcess = (
 	}
 }
 
-/** The events from `from` through the `count`th `ready` at or after it: one batch of an answer. */
-export const batch = (
-	events: ReadonlyArray<StreamEvent>,
-	from: number,
-	count: number
-): ReadonlyArray<StreamEvent> => {
-	const readies = Arr.filterMap(events, (e, place) =>
-		e.event === "ready" && place >= from ? Result.succeed(place) : Result.failVoid
-	)
-	return events.slice(from, defined(readies[count - 1], `ready ${count}`) + 1)
-}
-
 /** That two batches are one: a set read's in any order, an ordered read's in order. */
 export const sameBatch = (
 	shape: "set" | "list",
@@ -293,36 +273,6 @@ export const sameBatch = (
 /** Whether `stored` holds every item `put` states, as it states it. */
 export const holdsAll = (stored: ReadonlyArray<ItemFact>, put: ReadonlyArray<ItemFact>): boolean =>
 	Arr.every(put, (item) => Arr.some(stored, (s) => s.id === item.id && s.score === item.score))
-
-/** An id no drawn item takes. */
-const sentinelId = 13
-
-/**
- * The item a live read's next batch must show, beside the case's drawn write: a set read's new item above every floor,
- * a key's own item rescored past every drawn score, an ordered read's new item first in its order from the start and
- * last from the end. Every drawn item of the key's id is left out of the write, which puts each key once.
- */
-export const visibleWrite = (
-	call: Call,
-	write: ReadonlyArray<ItemFact>
-): ReadonlyArray<ItemFact> => {
-	switch (call.member) {
-		case "atLeast":
-			return [...write, { id: sentinelId, score: 3 }]
-		case "item":
-			return [
-				...Arr.filter(write, (item) => item.id !== call.input.params.id),
-				{ id: call.input.params.id, score: 4 }
-			]
-		case "ranked":
-			return [
-				...write,
-				{ id: sentinelId, score: call.input.window.anchor.kind === "start" ? 4 : -4 }
-			]
-		case "put":
-			return write
-	}
-}
 
 /** The feature a read's call exercises. */
 export const readFeature = (call: Exclude<Call, { readonly member: "put" }>): Feature => {

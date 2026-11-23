@@ -5,8 +5,6 @@
  * own: no project references and no paths. A refusal the README states by `@ts-expect-error` would leave its directive
  * unused were a type `any`.
  *
- * That the linked package opens a role against the cluster and reads is test/pg/package/consumer.test.ts's.
- *
  * Oracle: TypeScript's own checker. Box: each mirrored program, SKILL.md's with the README's it imports.
  */
 import { assert } from "@bjornpagen/testing/assert"
