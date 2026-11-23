@@ -43,7 +43,7 @@ import { backendCount, queriesSent, tappedSession } from "#test/support/wire-tap
  */
 export const theScriptedSessionAgainstPostgreSQLObservesWhatTheServerObservesForEveryFlightAndInterruptionPointTheServerCanBeMadeToShow =
 	property.explore(aimed(caseGen(space), flightAims), {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: situations satisfies ReadonlyArray<Reached<ScriptedFeature>>,
 		check:
 			({ substrate }, cx: Case<ScriptedFeature>) =>

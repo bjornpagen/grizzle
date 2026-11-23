@@ -71,13 +71,13 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Every request a generated workload plans is served, and every index it creates is needed, each case installing its
- * workload on its own substrate (Substrate.installing).
+ * workload on its own substrate (Substrate.fresh).
  *
  * Its pre-conversion budget: runs 10, coverage cases 10 (test/pg/physical/serving.test.ts at fa10bca50).
  */
 export const everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIsNeeded =
 	property.explore(workloadSpace, {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: [
 			"a workload installed",
 			"equality probe served",
@@ -144,13 +144,13 @@ export const everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIs
 
 /**
  * Every drawn request is served, and every index the engine creates for them is needed, each case installing the
- * drawn suite's schema with its requests on its own substrate (Substrate.installing).
+ * drawn suite's schema with its requests on its own substrate (Substrate.fresh).
  *
  * Its pre-conversion budget: runs 16, coverage cases 16 (test/pg/physical/serving.test.ts at fa10bca50).
  */
 export const everyDrawnRequestIsServedAndEveryIndexTheEngineCreatesForThemIsNeeded =
 	property.explore(requestSketchGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: [
 			"equality probe served",
 			"range probe served",

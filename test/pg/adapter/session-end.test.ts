@@ -25,7 +25,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aSessionOutsideAnyPoolEndsOnceItsServerHasClosedItItsBackendGoneUntilItsCloseIsInterrupted =
 	property.exhaust(finite(endings), {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: ["unheld", "held, let go", "held, interrupted"] satisfies ReadonlyArray<
 			Reached<SessionEndFeature>
 		>,

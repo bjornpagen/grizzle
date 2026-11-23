@@ -45,7 +45,7 @@ import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const adapterSessionPoolsReleaseWaitsForAnIdleSessionsBackendToExitUntilTheReleaseIsInterrupted =
 	property.exhaust(finite(waitEnds), {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: ["released idle, closed", "released idle, interrupted"] satisfies ReadonlyArray<
 			Reached<WaitFeature>
 		>,
@@ -134,7 +134,7 @@ export const adapterSessionPoolsReleaseWaitsForAnIdleSessionsBackendToExitUntilT
  */
 export const adapterSessionPoolsReleaseReturnsOnceNoBackendOfItsIdleSessionsIsLeftTheirTemporaryTablesDropped =
 	property.exhaust(finite(exits), {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: [
 			"one session",
 			"several sessions",

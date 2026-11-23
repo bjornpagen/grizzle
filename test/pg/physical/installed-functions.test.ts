@@ -57,7 +57,7 @@ const functionsSql =
 /** Every function an installation emits, of every kind the installer names a constant by, passes the installed-catalog checker, judged by the kind the installer recorded. */
 export const everyFunctionAnInstallationEmitsOfEveryConstantKindPassesTheInstalledCatalogChecker =
 	property.explore(functionCaseGen, {
-		needs: { substrate2: Substrate.installing },
+		needs: { substrate2: Substrate.fresh },
 		budget: { runs: 16, steered: 16 },
 		situations: [
 			"a closed relation's constant",
