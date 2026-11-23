@@ -48,7 +48,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aComparisonOfTextsThatReadNoRowInstallsAndJudgesEachRowByItsValueInEveryPosition =
 	property.explore(caseGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: situations satisfies ReadonlyArray<Reached<Feature>>,
 		check:
 			({ substrate }, c: Case<Feature>) =>

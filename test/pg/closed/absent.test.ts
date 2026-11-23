@@ -99,7 +99,7 @@ export const aClosedReadAtAnAbsentKeyIsJudgedByTheRuleThatReadsItNeverRefusedByA
 			]
 		]),
 		{
-			needs: { substrate: Substrate.installing },
+			needs: { substrate: Substrate.fresh },
 			situations: situations satisfies ReadonlyArray<Reached<Feature>>,
 			check:
 				({ substrate }, c: Case<Feature>) =>

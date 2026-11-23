@@ -32,13 +32,13 @@ import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 /** A closed id column of a subset stores a direct writer's code exactly when its subset holds the handle, and refuses every other by its subset CHECK. */
 export const aClosedIdColumnOfASubsetStoresADirectWritersCodeExactlyWhenItsSubsetHoldsTheHandleAndRefusesEveryOtherByItsSubsetCHECK =
 	property.exhaust(finite(writes), {
-		needs: { seated: Substrate.seat(subsetsTemplate) },
+		needs: { fresh: Substrate.freshOf(subsetsTemplate) },
 		situations: ["stored", "refused by the subset CHECK"] satisfies ReadonlyArray<Reached<Feature>>,
 		check:
-			({ seated }, c: Case<Feature>) =>
+			({ fresh }, c: Case<Feature>) =>
 			({ held, handle }) =>
 				Effect.gen(function* () {
-					const { substrate: s, value: installed } = yield* seated
+					const { substrate: s, value: installed } = yield* fresh
 					const names = namesOf(installed)
 					const writer = yield* s.session({
 						...worldSession(installed.world(world.app)),

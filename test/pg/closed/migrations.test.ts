@@ -66,7 +66,7 @@ import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 
 /** Roster migrations on PostgreSQL 19 every migration of a roster's history leaves the installation the model's, and VALIDATE and the closed-only law refuse exactly what the model refuses. */
 export const rosterMigrations = property.explore(steered(runGen), {
-	needs: { caseSubstrate: Substrate.installing },
+	needs: { caseSubstrate: Substrate.fresh },
 	situations: [
 		"a handle grown",
 		"a handle removed",

@@ -52,14 +52,14 @@ import { outputText } from "#test/support/wire.ts"
 
 /**
  * A set round-trips through its bit(n) column, decodes unchanged after its roster grows, and a removed handle's bit
- * fails VALIDATE until the data step clears it, each case installing its own history on the worker's clone, as each
+ * fails VALIDATE until the data step clears it, each case installing its own history on a clone of its own, as each
  * case of the search did.
  *
  * Its pre-conversion budget: runs 4, coverage cases 12 (test/pg/closed/codes.test.ts at 5124bea5d).
  */
 export const aSetRoundTripsThroughItsBitColumnDecodesUnchangedAfterGrowthAndARemovedBitFailsValidateUntilTheDataStep =
 	property.explore(bitsHistories, {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: [
 			"a growth past a byte",
 			"a growth within a byte",

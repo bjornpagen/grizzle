@@ -48,7 +48,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aComparisonsRewriteOverANULLOperandIsThreeValuedAsItsPlainMeaningIsInEveryPosition =
 	property.explore(steered(aimedCaseGen), {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: situations satisfies ReadonlyArray<Reached<Feature>>,
 		check:
 			({ substrate }, c2: Case<Feature>) =>

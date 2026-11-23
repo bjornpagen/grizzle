@@ -39,7 +39,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 export const finMigrations = property.explore(
 	aimed(historyGen, [["a position renamed", renamedHistoryGen]]),
 	{
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: [
 			"a count grows",
 			"Last gains a row",

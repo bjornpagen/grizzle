@@ -76,7 +76,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * them stands: no CHECK added or validated again, no table rewritten, every grant and value the target's. */
 export const aFunctionNamedByItsContentStandsAcrossARosterChangeExactlyWhenItsContentDoesAndSoDoesEverythingCallingIt =
 	property.explore(rowCaseGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: [
 			"roster renamed",
 			"handles renamed",
