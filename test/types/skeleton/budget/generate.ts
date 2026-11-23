@@ -58,18 +58,22 @@ export const ${ns}run${i} = (db: DbOf<typeof ${ns}Writer, typeof ${ns}w${i}.prog
 /**
  * The statements over the relations `declared`, under the prefix `ns`: a candidate key on every fifth relation, a
  * containment from each relation into the one before it where both are declared, each relation's kind contained in the
- * Kind roster, and every seventh relation mutable.
+ * Kind roster, and every seventh relation mutable, inside the unit of a row's id, which every relation, keyed by its id,
+ * sits in.
  */
 const statements = (ns: string, declared: ReadonlyArray<number>): string =>
 	Arr.join(
-		Arr.flatMap(declared, (i) => [
-			...(i % 5 === 0 ? [`\tkey(on(${ns}R${i}, "label"))`] : []),
-			...(i > 0 && Arr.contains(declared, i - 1)
-				? [`\tcontained(on(${ns}R${i}, "parent"), on(${ns}R${i - 1}, "id"))`]
-				: []),
-			`\tcontained(on(${ns}R${i}, "kind"), on(${ns}Kind, "id"))`,
-			...(i % 7 === 0 ? [`\tmutable(${ns}R${i})`] : [])
-		]),
+		[
+			`\tunit("Row", { id: Id })`,
+			...Arr.flatMap(declared, (i) => [
+				...(i % 5 === 0 ? [`\tkey(on(${ns}R${i}, "label"))`] : []),
+				...(i > 0 && Arr.contains(declared, i - 1)
+					? [`\tcontained(on(${ns}R${i}, "parent"), on(${ns}R${i - 1}, "id"))`]
+					: []),
+				`\tcontained(on(${ns}R${i}, "kind"), on(${ns}Kind, "id"))`,
+				...(i % 7 === 0 ? [`\tmutable(${ns}R${i})`] : [])
+			])
+		],
 		",\n"
 	)
 
