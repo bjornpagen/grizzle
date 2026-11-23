@@ -3,6 +3,7 @@ import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { Array as Arr } from "effect"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
+import type { ParamId } from "#compiler/core/ids.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { DagTemplates } from "#compiler/ir/dag-digest.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
@@ -13,7 +14,12 @@ import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import { generations, reality } from "#compiler/laws/model/generation.ts"
 import { dispatchNode } from "#compiler/lower/conservative/dispatch.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
-import type { ConservativeProgram, DeltaRelation } from "#compiler/lower/conservative/types.ts"
+import type {
+	BoundCarrier,
+	BoundCarrierOf,
+	ConservativeProgram,
+	DeltaRelation
+} from "#compiler/lower/conservative/types.ts"
 import { roleUpdates } from "#compiler/physical/ddl/roles.ts"
 
 import type { CarrierCasts } from "#compiler/runtime/write/steps.ts"
@@ -22,6 +28,7 @@ import {
 	buildEmptyCarrier,
 	buildFillCarrier,
 	carrierField,
+	carrierRows,
 	type WriteCarrier,
 	CarrierSupply,
 	relationCarrier
@@ -138,6 +145,12 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 		Arr.some(frontend.laws.families, (f) => f.owner.name === relation)
 	/** The templates of the realization's keys and digests, its write's and its read-backs', as a compile's. */
 	const templates = new DagTemplates()
+	/** The carrier of each carried bound input, by its parameter, filled before the first stratum: step 0, each one's
+	 * one evaluation, in the call's starting state, before anything else, which every member and read-back that reads
+	 * the parameter reads (ir/write.ts BoundInput). The supply types carriers through this lowering, so they are held
+	 * here once made, before any statement reads one. */
+	const bound = new Map<ParamId, BoundCarrier>()
+	const boundRows: BoundCarrierOf = (param) => bound.get(param)
 	const w: WriteContext = writeContext(ir.dag, {
 		templates,
 		level: options.level,
@@ -147,7 +160,8 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 		/** The conservative realization lowers every described member by the conservative baseline. */
 		dispatch: dispatchNode,
 		share: options.share,
-		generation: generations(frontend.laws, updaterOf(frontend))
+		generation: generations(frontend.laws, updaterOf(frontend)),
+		bound: boundRows
 	})
 	const supply = new CarrierSupply((t) => w.cx.typeRef(t), options.carrierScope)
 	const steps: Array<ConservativeStep> = []
@@ -173,6 +187,15 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 				casts
 			})
 		)
+	}
+
+	for (const input of ir.bound) {
+		const carrier = supply.next(
+			Arr.map(input.node.heading, (c) => ({ name: c.name, type: c.type })),
+			undefined
+		)
+		carry(carrier, { kind: "member", node: input.node }, undefined, castsNothing)
+		bound.set(input.param, carrierRows(carrier))
 	}
 
 	/** 1. The state snapshots of the relations whose deltas a read-back names, each read as the role reads it: through
@@ -387,7 +410,8 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 					deltas: deltaSource,
 					breach: breachGuard(options.names.schema),
 					start: freshNames,
-					templates
+					templates,
+					bound: boundRows
 				}
 			}
 		)
@@ -414,6 +438,9 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
  * Every statement is sequential, one per physical step, so each sees the writes before it and nothing relies on
  * sibling CTEs sharing a snapshot:
  *
+ * 0. Each relation parameter the ChangeSet binds to a query that a later stratum or a read-back reads, evaluated once
+ *    into a carrier before anything else, in the call's starting state, which every reader of it reads (ir/write.ts
+ *    BoundInput); one only the first stratum's members read is a part of their queries, as the optimized artifact's.
  * 1. A state snapshot of every relation a read-back's delta names, each copied into a carrier before the first
  *    stratum. A relation the ChangeSet does not write has an empty delta the same way.
  * 2. For each stratum in order, every described member is evaluated against the state before the stratum's writes and

@@ -17,7 +17,7 @@ import {
 	WriteParams
 } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr, lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
-import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
+import type { BoundCarrierOf, WriteParamSlot } from "#compiler/lower/conservative/types.ts"
 import {
 	type TextDelivered,
 	textDelivered,
@@ -247,6 +247,8 @@ interface WriteContextOptions {
 	readonly generation: (relation: string) => TableGeneration
 	/** The templates of the write's compile (lower/conservative/types.ts WriteLowering). */
 	readonly templates: DagTemplates
+	/** Where its InputSets of the relation parameters its ChangeSet binds to queries read (WriteLowering `bound`). */
+	readonly bound: BoundCarrierOf
 }
 
 export const writeContext = (dag: ValidDag, options: WriteContextOptions): WriteContext => {
@@ -255,7 +257,7 @@ export const writeContext = (dag: ValidDag, options: WriteContextOptions): Write
 		{
 			names: options.reads,
 			params: options.params,
-			subject: { kind: "write", templates: options.templates }
+			subject: { kind: "write", templates: options.templates, bound: options.bound }
 		},
 		options.dispatch
 	)

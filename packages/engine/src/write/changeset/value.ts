@@ -1,6 +1,5 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
-import { defined } from "@bjornpagen/grizzle-text/base/invariant"
-import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { Stream } from "effect"
 import {
@@ -37,14 +36,15 @@ import {
 	type QueryDesc,
 	queryParamNames,
 	type ReadBackDesc,
-	type RelationDesc,
-	type RelationParamSourceDesc,
+	boundRowsLoc,
+	boundRowsQuery,
 	type RowsDesc,
-	bindRelationParams,
-	identityQuery,
 	passedThrough,
 	renameEqualParams,
 	renameQueryParams,
+	renameRowsParams,
+	rowsParamNames,
+	scalarParamNames,
 	type WriteOp
 } from "#compiler/ir/desc.ts"
 import * as S from "#compiler/ir/shape.ts"
@@ -66,7 +66,6 @@ import { termExpr } from "#compiler/scalar/compute/term.ts"
 import { bareEnv } from "#compiler/scalar/registry.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { highestLevel, isLevelOver, type Level } from "#compiler/schema/level.ts"
-import type { SchemaContent } from "#compiler/schema/levels.ts"
 import { untypedLiteral } from "#compiler/schema/literal.ts"
 import { builderRefusal, malformed, orThrow, requireName } from "#compiler/schema/protocol.ts"
 import { recordOf } from "#compiler/schema/record.ts"
@@ -175,12 +174,20 @@ type BoundKey =
 	  }
 	| { readonly kind: "opaque" }
 
-/** A parameter bind closed: the name it had when bound, its value, and the value's key. */
-interface BoundParam {
-	readonly origin: string
-	readonly value: ParamValue
-	readonly key: BoundKey
-}
+/**
+ * A parameter bind closed, by the name it had when bound (`origin`): to a value, with the value's key; or, a relation
+ * parameter, to the rows of a query or a bound query (RowsDesc), its bind map read in the ChangeSet's namespace, an
+ * input of the call evaluated once before its first stratum (ChangeSetDesc `boundRows`), whose key the canonical
+ * naming reads from the scope (`rowsKeys`), since the parameters its bind map reads may be bound in turn.
+ */
+type BoundParam =
+	| {
+			readonly kind: "value"
+			readonly origin: string
+			readonly value: ParamValue
+			readonly key: BoundKey
+	  }
+	| { readonly kind: "rows"; readonly origin: string; readonly rows: RowsDesc }
 
 /** The key of a bound value (`BoundKey`). */
 const boundKey = (value: ParamValue): BoundKey => {
@@ -190,14 +197,31 @@ const boundKey = (value: ParamValue): BoundKey => {
 		: { kind: "opaque" }
 }
 
+/**
+ * What tells two private parameters of one origin apart where the canonical naming reads them (`canonicalBindings`): a
+ * value's key (`BoundKey`), or the identity of bound rows (`rowsKeys`).
+ */
+type PrivateKey = BoundKey | { readonly kind: "rows"; readonly id: IdentityDigest }
+
+/** A private key's rank among the kinds: values with a canonical text, then bound rows, then opaque values. */
+const keyRank = (key: PrivateKey): number =>
+	key.kind === "tokens" ? 0 : key.kind === "rows" ? 1 : 2
+
 /** Private parameters by origin, then by key: every canonical text in code-unit order (compareCanonicalTokens), then
- * the opaque ones as the sort found them. */
-const boundOrder: Order.Comparator<BoundParam> = Order.combineAll([
-	Order.mapInput(Order.compareStrings, (p: BoundParam) => p.origin),
-	(a: BoundParam, b: BoundParam) =>
+ * bound rows by their identity, then the opaque ones as the sort found them. */
+interface Keyed {
+	readonly origin: string
+	readonly key: PrivateKey
+}
+
+const boundOrder: Order.Comparator<Keyed> = Order.combineAll([
+	Order.mapInput(Order.compareStrings, (p: Keyed) => p.origin),
+	(a: Keyed, b: Keyed) =>
 		a.key.kind === "tokens" && b.key.kind === "tokens"
 			? compareCanonicalTokens(a.key.tokens, b.key.tokens)
-			: Order.compareNumbers(a.key.kind === "tokens" ? 0 : 1, b.key.kind === "tokens" ? 0 : 1)
+			: a.key.kind === "rows" && b.key.kind === "rows"
+				? Order.compareStrings(a.key.id, b.key.id)
+				: Order.compareNumbers(keyRank(a.key), keyRank(b.key))
 ])
 
 interface ChangeSetState {
@@ -265,19 +289,20 @@ export type MemberInput = ReadonlyArray<unknown> | Stream.Stream<unknown> | Quer
  *   outcome's record of read-backs, built from the set alone: one record, in name order, under each name an attachment
  *   of the read-back query's immediate decoder delivering every row (`record` over named parts), so it never follows
  *   the order the read-backs were added or combined in.
- * - Parameters. A ChangeSet's free parameters are one namespace, the union of its members' and read-backs'
- *   parameters. bind closes the ones it names, hygienically, as Query.bind closes an import's, and leaves the rest
- *   free: a bound parameter leaves the namespace. A relation parameter bound to a query or a bound query is bound in
- *   every member and read-back that uses it, in the one form an import's bind map writes (ir/desc.ts
- *   bindRelationParams), the query's own parameters joining the namespace; any other is bound to a value, whose
- *   uses keep a name of their own, private to the ChangeSet, which the Description lists under `bindings` and by which
- *   its value travels beside the Description. A member or read-back added later, or a ChangeSet combined with this one, whose parameter has the
+ * - Parameters. A ChangeSet's free parameters are one namespace, the union of its members', read-backs' and bound
+ *   rows' parameters. bind closes the ones it names, hygienically, as Query.bind closes an import's, and leaves the
+ *   rest free: a bound parameter leaves the namespace, its uses keeping a name of their own, private to the ChangeSet.
+ *   One bound to a value is listed under the Description's `bindings`, its value travelling beside the Description;
+ *   a relation parameter bound to a query or a bound query is listed under its `boundRows` with those rows, an input of
+ *   the call evaluated once before its first stratum, which every member and read-back that uses it reads by its name
+ *   (ir/write.ts BoundInput), the query's own parameters joining the namespace. A member or read-back added later, or a ChangeSet combined with this one, whose parameter has the
  *   bound name needs a separate, free parameter, so the private names are renamed out of its way first (release), and
- *   two ChangeSets that bind one name to different values combine into two private parameters. Private parameters of
- *   one name bound to equal values are one parameter, and a private name is canonical (canonicalBindings): named in
- *   the order of the names they were bound under and then of their values' canonical texts, each its own name when no
- *   free parameter and no private one named before it has it, otherwise that name, `#` and the least index that is
- *   free. So the names, and with them the Description, follow from the values and never from the order the members
+ *   two ChangeSets that bind one name to different values or queries combine into two private parameters. Private
+ *   parameters of one name bound to equal values, or to one query reading equal parameters, are one parameter, and a
+ *   private name is canonical (canonicalBindings): those bound to values first, then those bound to rows, each named
+ *   in the order of the names they were bound under and then of their values' canonical texts or their rows' identity,
+ *   its own name when no free parameter and no private one named before it has it, otherwise that name, `#` and the
+ *   least index that is free. So the names, and with them the Description, follow from the values and never from the order the members
  *   were built or combined in, but for values bound under one name that have no canonical text, Streams, which are
  *   named in the order the ChangeSet holds them.
  *
@@ -591,14 +616,23 @@ const describe = (
 			inputs.set(m.slot, Object.freeze({ kind: "stream", stream: m.stream }))
 		}
 	}
+	const names = [...bound.keys()].toSorted(Order.compareStrings)
 	const desc: ChangeSetDesc = Object.freeze({
 		strata: Object.freeze(
 			strata.map((members) => Object.freeze({ members: Object.freeze(members.map((m) => m.desc)) }))
 		),
 		reads: Object.freeze(reads.map((r) => r.desc)),
-		bindings: Object.freeze([...bound.keys()].toSorted(Order.compareStrings))
+		bindings: Object.freeze(names.filter((name) => bound.get(name)?.kind === "value")),
+		boundRows: Object.freeze(
+			Object.fromEntries(
+				names.flatMap((name) => {
+					const param = bound.get(name)
+					return param?.kind === "rows" ? [[name, param.rows] as const] : []
+				})
+			)
+		)
 	})
-	if ([...usedParams({ strata, reads })].some(inReservedSpace)) {
+	if ([...usedParams({ strata, reads, bound })].some(inReservedSpace)) {
 		orThrow(decodeDesc("changeSet", desc))
 	}
 	return { desc, inputs }
@@ -614,8 +648,9 @@ const scopeOf = (state: ChangeSetState): Scope => ({
 	bound: state.bound
 })
 
-/** Every parameter name the members and read-backs use, free or private, in canonical walk order. */
-const usedParams = (scope: Pick<Scope, "strata" | "reads">): ReadonlySet<string> => {
+/** Every parameter name the members, read-backs and bound rows use, free or private, in canonical walk order: a bound
+ * query's own parameters join the namespace, read by its rows' bind map (rowsParamNames). */
+const usedParams = (scope: Scope): ReadonlySet<string> => {
 	const out = new Set<string>()
 	for (const p of scope.strata.flatMap((stratum) =>
 		stratum.flatMap((m) => (isDescribed(m) ? [...m.params] : []))
@@ -625,6 +660,13 @@ const usedParams = (scope: Pick<Scope, "strata" | "reads">): ReadonlySet<string>
 	for (const r of scope.reads) {
 		for (const p of r.params) {
 			out.add(p)
+		}
+	}
+	for (const param of scope.bound.values()) {
+		if (param.kind === "rows") {
+			for (const p of rowsParamNames(param.rows)) {
+				out.add(p)
+			}
 		}
 	}
 	return out
@@ -703,7 +745,10 @@ const renameScope = (scope: Scope, rename: ReadonlyMap<string, string>): Scope =
 	}
 	const bound = new Map<string, BoundParam>()
 	for (const [name, param] of scope.bound) {
-		bound.set(rename.get(name) ?? name, param)
+		bound.set(
+			rename.get(name) ?? name,
+			param.kind === "rows" ? { ...param, rows: renameRowsParams(param.rows, rename) } : param
+		)
 	}
 	return {
 		strata: scope.strata.map((stratum) => {
@@ -745,48 +790,130 @@ const combine = (
 }
 
 /**
- * The canonical private names of a scope (see `ChangeSetValue`): private parameters of one origin and one key merged
- * (`BoundKey`), then each named in turn in the order of their origins and keys (`boundOrder`), its origin when no free
- * parameter and no private one named before it has that name, otherwise the origin, `#` and the least index that is
- * free. The names follow from the free parameters and the bound values alone, never from the order the members were
- * built or combined in; only private parameters of one origin bound to opaque values keep the order the scope holds
- * them in.
+ * The keys of a scope's private parameters bound to rows (`canonicalBindings`): the identity digest of the rows with each
+ * private parameter bound to a value that their bind map reads spelled by its canonical name (`valueImage`), and each
+ * one bound to rows spelled by that parameter's own key, so two bindings of one query read equal parameters exactly
+ * when their keys are one, whatever names the rows-bound ones have before the canonical naming chooses theirs. A rows
+ * binding reads only parameters bound after it (release moves a private name out of the way of the parameters a later
+ * binding's query brings), so the keys are well founded.
+ */
+const rowsKeys = (
+	bound: ReadonlyMap<string, BoundParam>,
+	valueImage: ReadonlyMap<string, string>
+): ((name: string) => IdentityDigest) => {
+	const keys = new Map<string, IdentityDigest>()
+	const keyOf = (name: string): IdentityDigest => {
+		const known = keys.get(name)
+		if (known !== undefined) {
+			return known
+		}
+		const param = bound.get(name)
+		if (param?.kind !== "rows") {
+			throw defect(`a private parameter bound to rows, not ${name}`)
+		}
+		const spelled = new Map(
+			[...rowsParamNames(param.rows)].flatMap((p): ReadonlyArray<readonly [string, string]> => {
+				const value = valueImage.get(p)
+				if (value !== undefined) {
+					return [[p, value]]
+				}
+				return bound.get(p)?.kind === "rows" ? [[p, `\u0000${keyOf(p)}`]] : []
+			})
+		)
+		const key = orThrow(descIdentity(renameRowsParams(param.rows, spelled)))
+		keys.set(name, key)
+		return key
+	}
+	return keyOf
+}
+
+/**
+ * Private parameters of one kind merged and named (`canonicalBindings`): those of one origin and one key are one, the
+ * first kept; each kept one is named in turn in the order of their origins and keys (`boundOrder`), its origin when no
+ * name `taken` holds has it, otherwise the origin, `#` and the least index that is free, which `taken` then holds. The
+ * image of every one, a merged one's its kept one's.
+ */
+const namedPrivates = (
+	privates: ReadonlyArray<{
+		readonly name: string
+		readonly origin: string
+		readonly key: PrivateKey
+	}>,
+	taken: Set<string>
+): { readonly kept: ReadonlySet<string>; readonly image: ReadonlyMap<string, string> } => {
+	const keptOf = new Map<string, string>()
+	const kept: Array<{ readonly name: string; readonly origin: string; readonly key: PrivateKey }> =
+		[]
+	/** The kept private parameter of each origin and key, by name. */
+	const values = new Map<string, TextsMap<string>>()
+	const rows = new Map<string, Map<IdentityDigest, string>>()
+	for (const p of privates) {
+		const { key } = p
+		if (key.kind === "opaque") {
+			kept.push(p)
+			continue
+		}
+		const same =
+			key.kind === "tokens"
+				? values.getOrInsertComputed(p.origin, () => new TextsMap<string>()).get(key.id)
+				: rows.getOrInsertComputed(p.origin, () => new Map<IdentityDigest, string>()).get(key.id)
+		if (same !== undefined) {
+			keptOf.set(p.name, same)
+			continue
+		}
+		kept.push(p)
+		if (key.kind === "tokens") {
+			values.getOrInsertComputed(p.origin, () => new TextsMap<string>()).set(key.id, p.name)
+		} else {
+			rows
+				.getOrInsertComputed(p.origin, () => new Map<IdentityDigest, string>())
+				.set(key.id, p.name)
+		}
+	}
+	const image = new Map<string, string>()
+	for (const p of kept.toSorted(boundOrder)) {
+		const named = freshName(p.origin, taken)
+		taken.add(named)
+		image.set(p.name, named)
+	}
+	for (const [name, same] of keptOf) {
+		image.set(name, defined(image.get(same), "a merged private parameter's kept one, named"))
+	}
+	return { kept: new Set(kept.map((p) => p.name)), image }
+}
+
+/**
+ * The canonical private names of a scope (see `ChangeSetValue`): its private parameters bound to values merged and
+ * named first (`namedPrivates`), by their values' keys (`BoundKey`), then those bound to rows, by keys that read the
+ * values' canonical names (`rowsKeys`), every name chosen past the free parameters' and the ones chosen before it, and
+ * every rename made at once, so no chosen name meets a name it replaces. The names follow from the free parameters, the
+ * bound values and the bound rows alone, never from the order the members were built or combined in; only private
+ * parameters of one origin bound to opaque values keep the order the scope holds them in.
  */
 const canonicalBindings = (scope: Scope): Scope => {
 	if (scope.bound.size === 0) {
 		return scope
 	}
-	const merges = new Map<string, string>()
-	const kept = new Map<string, BoundParam>()
-	/** The kept private parameter of each origin and key, by name. */
-	const keyed = new Map<string, TextsMap<string>>()
-	for (const [name, param] of scope.bound) {
-		if (param.key.kind === "opaque") {
-			kept.set(name, param)
-			continue
-		}
-		const keys = keyed.getOrInsertComputed(param.origin, () => new TextsMap<string>())
-		const same = keys.get(param.key.id)
-		if (same === undefined) {
-			keys.set(param.key.id, name)
-			kept.set(name, param)
-		} else {
-			merges.set(name, same)
-		}
-	}
-	const merged = renameScope({ strata: scope.strata, reads: scope.reads, bound: kept }, merges)
-	const taken = new Set(freeParams(merged))
-	const canonical = new Map<string, string>()
-	for (const [name, param] of [...merged.bound].toSorted(
-		Order.mapInput(boundOrder, ([, p]: readonly [string, BoundParam]) => p)
-	)) {
-		const image = freshName(param.origin, taken)
-		taken.add(image)
-		if (image !== name) {
-			canonical.set(name, image)
-		}
-	}
-	return renameScope(merged, canonical)
+	const taken = new Set(freeParams(scope))
+	const entries = [...scope.bound]
+	const values = namedPrivates(
+		entries.flatMap(([name, param]) =>
+			param.kind === "value" ? [{ name, origin: param.origin, key: param.key }] : []
+		),
+		taken
+	)
+	const rowsKey = rowsKeys(scope.bound, values.image)
+	const rows = namedPrivates(
+		entries.flatMap(([name, param]) =>
+			param.kind === "rows"
+				? [{ name, origin: param.origin, key: { kind: "rows", id: rowsKey(name) } as const }]
+				: []
+		),
+		taken
+	)
+	const rename = new Map([...values.image, ...rows.image].filter(([name, image]) => name !== image))
+	const kept = new Map(entries.filter(([name]) => values.kept.has(name) || rows.kept.has(name)))
+	return renameScope({ strata: scope.strata, reads: scope.reads, bound: kept }, rename)
 }
 
 /** Read-backs by name. */
@@ -852,9 +979,15 @@ const make = <S, P, W extends string, Rd, Done extends Strata, Last extends Stra
 		strata: canonical,
 		reads,
 		bound,
-		values: new Map([...bound].map(([name, param]) => [name, param.value])),
+		values: new Map(
+			[...bound].flatMap(([name, param]) =>
+				param.kind === "value" ? [[name, param.value] as const] : []
+			)
+		),
 		opaque: [...bound]
-			.flatMap(([name, param]) => (param.key.kind === "opaque" ? [name] : []))
+			.flatMap(([name, param]) =>
+				param.kind === "value" && param.key.kind === "opaque" ? [name] : []
+			)
 			.toSorted(Order.compareStrings),
 		desc,
 		inputs
@@ -1332,8 +1465,11 @@ type BindEntry =
  *
  * bind closes the parameters it names; the others stay free, the ChangeSet's to take where it runs. A free name is no
  * private one, so a parameter bound to a value keeps its name until make() makes it canonical. A relation parameter
- * bound to a query or a bound query is bound in every member and read-back that uses it (bindRows), so it leaves the
- * namespace, the query's own parameters joining it. */
+ * bound to a query or a bound query is closed the same way, a private parameter of the call bound to that query's rows
+ * (BoundParam `rows`), every member and read-back that reads it reading it by name, so its rows are one input of the
+ * call, evaluated once before its first stratum (ChangeSetDesc `boundRows`); the query's own parameters join the
+ * namespace, each private name in their way moved out of it first (release). One the members or read-backs use as a
+ * scalar is refused, as a scalar takes one value and rows are any number. */
 const bindParams = <S, P, W extends string, Rd, Done extends Strata, Last extends Stratum, A>(
 	state: ChangeSetState,
 	params: Readonly<Record<string, ParamValue | Built>>
@@ -1357,8 +1493,8 @@ const bindParams = <S, P, W extends string, Rd, Done extends Strata, Last extend
 		throw read.error
 	}
 	const free = freeParams(scopeOf(state))
-	const bound = new Map(state.bound)
-	const rows = new Map<string, RowsDesc>()
+	const scalars = scalarParams(state)
+	const closed = new Map<string, BoundParam>()
 	const levels: [Level, ...Array<Level>] = [state.over]
 	for (const [name, entry] of read.value) {
 		if (!free.has(name)) {
@@ -1374,17 +1510,25 @@ const bindParams = <S, P, W extends string, Rd, Done extends Strata, Last extend
 					"a parameter's value, or a query or a bound query of a relation parameter's rows"
 				)
 			}
+			if (scalars.has(name)) {
+				throw builderRefusal(
+					`${label} ${name}`,
+					"a query binds a relation parameter, whose rows are any number; a scalar parameter takes one value"
+				)
+			}
 			const query = boundRows(entry.value, `${label} ${name}`)
-			rows.set(name, query.rows)
+			closed.set(name, { kind: "rows", origin: name, rows: query.rows })
 			levels.push(query.over)
 		} else if (absent(entry.value)) {
 			throw malformed(label, `a value for ${name}: grizzle has no NULL`)
 		} else {
-			bound.set(name, { origin: name, value: entry.value, key: boundKey(entry.value) })
+			closed.set(name, {
+				kind: "value",
+				origin: name,
+				value: entry.value,
+				key: boundKey(entry.value)
+			})
 		}
-	}
-	if (rows.size === 0) {
-		return make(label, state.over, state.strata, state.reads, bound)
 	}
 	const top = highestLevel(levels)
 	if (top === undefined) {
@@ -1393,7 +1537,17 @@ const bindParams = <S, P, W extends string, Rd, Done extends Strata, Last extend
 			"a relation parameter binds a query over a level of the schema it is bound in, or over a schema that schema is a level of"
 		)
 	}
-	const scope = bindRows(state, rows, label)
+	/** The parameters the bound queries bring join the namespace: one of the name of a private parameter bound to a
+	 * value is that parameter; a private parameter bound to rows moves out of their way, so a parameter a later query
+	 * brings is never an earlier input, and the inputs read one another only forward (`rowsKeys`). */
+	const brought = new Set(
+		[...closed.values()].flatMap((param) =>
+			param.kind === "rows"
+				? [...rowsParamNames(param.rows)].filter((p) => state.bound.get(p)?.kind === "rows")
+				: []
+		)
+	)
+	const scope = release(scopeOf(state), brought)
 	return make(
 		label,
 		top === state.over
@@ -1401,8 +1555,35 @@ const bindParams = <S, P, W extends string, Rd, Done extends Strata, Last extend
 			: defined(builtOverOf(top.value), "a query is written over a schema or a role"),
 		scope.strata,
 		scope.reads,
-		bound
+		new Map([...scope.bound, ...closed])
 	)
+}
+
+/** The parameters a ChangeSet's members, read-backs and bound rows use as scalars (scalarParamNames), which no query
+ * binds. */
+const scalarParams = (state: ChangeSetState): ReadonlySet<string> => {
+	const out = new Set<string>()
+	const add = (names: ReadonlySet<string>) => {
+		for (const name of names) {
+			out.add(name)
+		}
+	}
+	for (const m of state.strata.flat()) {
+		if (m.kind === "query" || m.kind === "computed") {
+			add(scalarParamNames(m.query))
+		} else if (m.kind === "equal") {
+			add(m.params)
+		}
+	}
+	for (const r of state.reads) {
+		add(scalarParamNames(r.query))
+	}
+	for (const [name, param] of state.bound) {
+		if (param.kind === "rows") {
+			add(scalarParamNames(boundRowsQuery(name, param.rows, boundRowsLoc(name))))
+		}
+	}
+	return out
 }
 
 /**
@@ -1436,81 +1617,6 @@ const boundRows = (
 		)
 	}
 	return { rows: { kind: "rows", query: rows.query, bind: through.bind }, over: info.scope.over }
-}
-
-/**
- * Each member and read-back of a ChangeSet with its uses of the relation parameters `rows` names bound to their rows
- * (ir/desc.ts bindRelationParams), so none of them uses one: a parameter bound so that a member still uses is used as
- * a scalar there, which no query binds, and is refused. A match of a relation parameter reads an import of its identity
- * query (identityQuery), one for every match of one source.
- */
-const bindRows = (
-	state: ChangeSetState,
-	rows: ReadonlyMap<string, RowsDesc>,
-	label: string
-): Pick<Scope, "strata" | "reads"> => {
-	const identityQueries = new Map<IdentityDigest, QueryDesc>()
-	const identity = (source: RelationParamSourceDesc): QueryDesc => {
-		const key = orThrow(descIdentity(source))
-		const known = identityQueries.get(key)
-		if (known !== undefined) {
-			return known
-		}
-		const fields =
-			source.kind === "param"
-				? Object.keys(source.heading)
-				: relationFields(state.over, source.relation)
-		if (!isNonEmpty(fields)) {
-			throw malformed(
-				label,
-				`relation parameter ${source.name} over a heading of at least one field`
-			)
-		}
-		const query = orThrow(decodeDesc("query", identityQuery(source, fields, captureLoc(label, []))))
-		identityQueries.set(key, query)
-		return query
-	}
-	/** Built only around parts a builder or a decode made, so every member that reads one binding reads one value of it,
-	 * by which the checks of its compile key it (check/checker.ts importedKey): a closed import read by several members
-	 * is one node of the write's DAG. */
-	const bind = (query: QueryDesc): QueryDesc => bindRelationParams(query, rows, identity)
-	const uses = (params: ReadonlySet<string>): boolean =>
-		[...rows.keys()].some((name) => params.has(name))
-	const strata = state.strata.map((stratum) => {
-		const bound = stratum.map((m) =>
-			(m.kind === "query" || m.kind === "computed") && uses(m.params)
-				? withMemberQuery(m, bind(m.query))
-				: m
-		)
-		return bound.every((m, i) => m === stratum[i]) ? stratum : canonicalStratum(bound)
-	})
-	const reads = state.reads.map((r) => (uses(r.params) ? withReadQuery(r, bind(r.query)) : r))
-	const still = [...rows.keys()].find((name) => usedParams({ strata, reads }).has(name))
-	if (still !== undefined) {
-		throw builderRefusal(
-			`${label} ${still}`,
-			"a query binds a relation parameter, whose rows are any number; a scalar parameter takes one value"
-		)
-	}
-	return { strata, reads }
-}
-
-/** The fields of the ordinary relation `name` of a ChangeSet's levels, which a relation parameter over its heading
- * (Rule.relation) delivers; none for a name that is none. */
-const relationFields = (over: BuiltOver, name: string): ReadonlyArray<string> => {
-	const found = over.kind === "role" ? contentRelation(over.base, name) : over.relations.get(name)
-	return found?.kind === "relation" ? Object.keys(found.fields) : []
-}
-
-/** The relation `name` of a level or of a level below it. */
-const contentRelation = (content: SchemaContent, name: string): RelationDesc | undefined => {
-	for (let at: SchemaContent | undefined = content; at !== undefined; at = at.below) {
-		const found = at.relations.get(name)
-		if (found !== undefined) {
-			return found
-		}
-	}
-	return undefined
 }
 
 const stateOf = (value: unknown, label: string): ChangeSetState => {

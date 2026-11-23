@@ -3,7 +3,7 @@ import type { ResolvedQuery } from "#compiler/check/params.ts"
 import type { SchemaReading } from "#compiler/check/schema.ts"
 import { makeIdSupply } from "#compiler/core/ids.ts"
 import type { Inferred, InferredQuery, Located, QueryDesc } from "#compiler/ir/desc.ts"
-import type { RelNode } from "#compiler/ir/rel.ts"
+import type { Heading, RelNode } from "#compiler/ir/rel.ts"
 import { checkerEvidence, SharedAnalyses } from "#compiler/logical/annotate.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 
@@ -66,6 +66,13 @@ export class CheckSession {
 	}
 	/** The compile's one label space, every check's. */
 	readonly ids = makeIdSupply()
+	/**
+	 * The relation parameters a write's ChangeSet binds to queries whose readers read one evaluation of each, carried
+	 * before its first stratum (write/frontend/compile.ts, ChangeSetDesc `boundRows`), by name, each with the heading
+	 * that evaluation delivers: a use of one, in any check of the compile, reads it as the InputSet of that evaluation
+	 * (Checker `#paramSource`, ir/rel.ts InputSetInput `bound`). Its compile records each before it checks a reader.
+	 */
+	readonly bound = new Map<string, Heading>()
 	readonly #places = new WeakMap<object, number>()
 	#placed = 0
 	readonly #closed = new WeakMap<RelNode, string>()

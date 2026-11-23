@@ -1,5 +1,5 @@
 import { nominal } from "#compiler/core/brand.ts"
-import { type ProgramDesc, unclocked } from "#compiler/ir/desc.ts"
+import { boundRowsLoc, boundRowsQuery, type ProgramDesc, unclocked } from "#compiler/ir/desc.ts"
 import type { Owned, OwnedRole, OwnedWrite } from "#compiler/schema/own.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
 
@@ -144,6 +144,11 @@ export const sliceOf = (base: Owned, programs: ReadonlyArray<RoleProgram>): Slic
 		for (const read of program.changeSet.reads) {
 			const uses = queryUses(read.query)
 			for (const r of [...uses.relations, ...uses.deltas]) {
+				name(role, r)
+			}
+		}
+		for (const [bound, rows] of Object.entries(program.changeSet.boundRows)) {
+			for (const r of queryUses(boundRowsQuery(bound, rows, boundRowsLoc(bound))).relations) {
 				name(role, r)
 			}
 		}

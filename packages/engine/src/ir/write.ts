@@ -70,9 +70,26 @@ export interface ReadBack {
  * names are structural: the front end derives them from the DAG (write/frontend/dag.ts deltaSources).
  */
 export interface WriteIR<Info> {
-	/** The described members' and the read-backs' queries. */
+	/** The described members', the read-backs' and the carried bound rows' queries. */
 	readonly dag: ValidDag
 	readonly strata: ReadonlyArray<Stratum<Info>>
 	readonly reads: ReadonlyArray<ReadBack>
 	readonly params: ReadonlyArray<ParamId>
+	/** The relation parameters its ChangeSet binds to queries whose one evaluation is carried (`BoundInput`). */
+	readonly bound: ReadonlyArray<BoundInput>
+}
+
+/**
+ * A relation parameter a ChangeSet binds to a query (ChangeSetDesc `boundRows`), an input of the call: one value for the
+ * whole call, evaluated once in the state before its first stratum, which every member and read-back that reads it
+ * reads. Where only members of its first stratum read it, each is a query over the state before that stratum, the
+ * call's starting state, so the parameter's query is a part of theirs, as any import's is (write/frontend/compile.ts),
+ * and no BoundInput names it. Where a later stratum or a read-back reads it, it is carried: `node`, its query, is
+ * evaluated once before the first stratum into a carrier (write/schedule/plan.ts, step `bound`), and every reader's
+ * InputSet of it (ir/rel.ts InputSetInput `bound`) reads that carrier. The two realize one meaning, the parameter's rows
+ * in the call's starting state, as a CTE inlined or held does one query.
+ */
+export interface BoundInput {
+	readonly param: ParamId
+	readonly node: RelNode
 }

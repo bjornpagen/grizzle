@@ -94,7 +94,9 @@ const decodedChangeSet = (
 	members: ReadonlyArray<MemberDesc>,
 	reads: ReadonlyArray<ReadBackDesc>
 ): ChangeSetOf =>
-	decodedOrThrow(decodeDesc("changeSet", { strata: [{ members }], reads, bindings: [] }))
+	decodedOrThrow(
+		decodeDesc("changeSet", { strata: [{ members }], reads, bindings: [], boundRows: {} })
+	)
 
 export const decodedMember = (member: MemberDesc): MemberOf => {
 	const [decoded] = decodedChangeSet([member], []).strata[0]?.members ?? []

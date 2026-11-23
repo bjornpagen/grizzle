@@ -12,7 +12,7 @@ import type { Delivered, DeltaSide, RelNode } from "#compiler/ir/rel.ts"
 import type { ReadBack } from "#compiler/ir/write.ts"
 import { type CatalogSchema, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
-import type { DeltaRelation } from "#compiler/lower/conservative/types.ts"
+import type { BoundCarrierOf, DeltaRelation } from "#compiler/lower/conservative/types.ts"
 import { lowerOptimized } from "#compiler/lower/optimize/pipeline.ts"
 import type { OptimizedDeliveryProgram, RelationChoice } from "#compiler/lower/shapes/index.ts"
 import type { NameSupplyStart } from "#compiler/sql/naming.ts"
@@ -32,6 +32,8 @@ interface ReadBackOptions {
 	readonly entries: ReadonlyMap<string, CheckedEntry>
 	/** The templates of the write's compile, which a read-back's digest and lowering read (ReadBackLowering `templates`). */
 	readonly templates: DagTemplates
+	/** Where its InputSets of the relation parameters its ChangeSet binds to queries read (ReadBackLowering `bound`). */
+	readonly bound: BoundCarrierOf
 }
 
 /** Where a read-back's Delta nodes read each delta it names, by the relation the Delta names and its side. */
@@ -184,10 +186,11 @@ class QueryDigest {
 }
 
 /** What a read-back's surroundings carry of a node of its query (`surroundings`): a Delta's source, an Attach's judged
- * type, or a kind. */
+ * type, the carrier a bound relation parameter's InputSet reads, or a kind. */
 type Carried =
 	| { readonly source: readonly [string, DeltaSide] | readonly [string, DeltaSide, DeltaRelation] }
 	| { readonly judged: Delivered }
+	| { readonly bound: string }
 	| RelNode["kind"]
 
 /** The delta source a Delta node of `relation`'s `side` reads, as a read-back's surroundings carry it: its relation and
@@ -226,7 +229,9 @@ const surroundings = (
 					? [n.kind, { source: deltaSource(n.relation, n.side, deltas) }]
 					: n.kind === "Attach"
 						? [n.kind, { judged: n.judged }]
-						: [n.kind]
+						: n.kind === "InputSet" && n.input.kind === "bound"
+							? [n.kind, { bound: options.bound(n.input.param)?.carrier ?? "" }]
+							: [n.kind]
 			),
 			options.params,
 			start.relationStart,
@@ -260,7 +265,8 @@ const loweredAfresh = (
 				deltas,
 				breach: breachGuard(options.names.schema),
 				start,
-				templates: options.templates
+				templates: options.templates,
+				bound: options.bound
 			},
 			/** A read-back runs in its write's transaction and records no constraint premise. */
 			catalog: evidenceCatalog(options.schema),

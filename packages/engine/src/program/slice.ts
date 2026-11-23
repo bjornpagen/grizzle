@@ -4,6 +4,8 @@ import type { CrossOwnerRead } from "#compiler/core/errors.ts"
 import {
 	type BindingsDesc,
 	type BindMapDesc,
+	boundRowsLoc,
+	boundRowsQuery,
 	type ChangeSetDesc,
 	type ExprDesc,
 	exprChildren,
@@ -514,14 +516,18 @@ const combined = (parts: ReadonlyArray<Rows>): Rows => {
 	return { holds, needs: parts.flatMap((r) => r.needs) }
 }
 
-/** The queries a ChangeSet reads: each member's query and computed fields, and each read-back. */
+/** The queries a ChangeSet reads: each member's query and computed fields, each read-back, and the query each relation
+ * parameter it binds to rows holds (ChangeSetDesc `boundRows`). */
 const changeSetQueries = (changeSet: ChangeSetDesc): ReadonlyArray<QueryDesc> => [
 	...changeSet.strata.flatMap((s) =>
 		s.members.flatMap((m) =>
 			m.member.kind === "query" || m.member.kind === "computed" ? [m.member.query] : []
 		)
 	),
-	...changeSet.reads.map((r) => r.query)
+	...changeSet.reads.map((r) => r.query),
+	...Object.entries(changeSet.boundRows).map(([name, rows]) =>
+		boundRowsQuery(name, rows, boundRowsLoc(name))
+	)
 ]
 
 /** The queries a program reads: a read's own, live or answered, or a ChangeSet's (changeSetQueries). */

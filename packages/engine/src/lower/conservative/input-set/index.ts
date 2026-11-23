@@ -3,6 +3,7 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
+import type { ParamId } from "#compiler/core/ids.ts"
 import { inputSetPlaceholder, type NodeOf, type PlaceholderInput } from "#compiler/ir/rel.ts"
 import {
 	arraysSource,
@@ -81,7 +82,31 @@ const rowCell = (value: Expr, column: RelationColumn): Expr => {
  */
 export const inputSetSource = (node: NodeOf<"InputSet">, cx: LowerContext): InputSource => {
 	const input = node.input
-	return input.kind === "row" ? rowSource(node, cx) : arraysOf(node, input, cx)
+	switch (input.kind) {
+		case "row":
+			return rowSource(node, cx)
+		case "bound":
+			return boundSource(node, input.param, cx)
+		case "declared":
+		case "member":
+			return arraysOf(node, input, cx)
+	}
+}
+
+/**
+ * The carrier of a relation parameter its ChangeSet binds to a query, under a fresh alias (InputSet `bound`): the rows
+ * its call evaluated once before its first stratum, a set of facts by their fill (write/carriers memberRows), each field
+ * in the column the write program's carrier holds it in (LowerContext.boundRows):
+ *
+ *   SELECT r2.c1 FROM "pg_temp"."__carrier_1_<digest>" AS r2
+ */
+const boundSource = (node: NodeOf<"InputSet">, param: ParamId, cx: LowerContext): InputSource => {
+	const rows = cx.boundRows(param, nodeLabel(node))
+	const alias = cx.relationAlias({ kind: "node", node: node.id })
+	return {
+		item: rows.scan(alias),
+		map: new Map(node.heading.map((c) => [c.name, col(alias, rows.column(c.name))]))
+	}
 }
 
 /** The FROM item of an InputSet and its columns by heading name. */

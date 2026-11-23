@@ -32,13 +32,15 @@ import { commonType, compatible } from "#compiler/scalar/compute/types.ts"
 import { searchedOnly, storedOnly } from "#compiler/scalar/registry.ts"
 
 /**
- * A parameter is of one kind once a use types it: a scalar of the type its uses declare, or a relation of the heading
- * every use declares. Until its first use is checked it is untyped.
+ * A parameter is of one kind once a use types it: a scalar of the type its uses declare, a relation of the heading
+ * every use declares, or a relation parameter its ChangeSet binds to a query whose one evaluation its uses read
+ * (`bound`, CheckSession `bound`), which its caller never passes. Until its first use is checked it is untyped.
  */
 type Entry =
 	| { readonly kind: "untyped" }
 	| { readonly kind: "scalar"; readonly type: ScalarType }
 	| { readonly kind: "relation"; readonly heading: Heading }
+	| { readonly kind: "bound" }
 
 const untyped: Entry = { kind: "untyped" }
 
@@ -95,6 +97,7 @@ export class ParamCell {
 		const prior = this.#entry
 		switch (prior.kind) {
 			case "relation":
+			case "bound":
 				return fail(
 					"MalformedDescription",
 					loc,
@@ -137,6 +140,12 @@ export class ParamCell {
 					loc,
 					`parameter ${this.name} as one kind: it is also a scalar parameter`
 				)
+			case "bound":
+				return fail(
+					"MalformedDescription",
+					loc,
+					`relation parameter ${this.name} as one kind: its ChangeSet binds it to a query`
+				)
 			case "untyped":
 				this.#entry = { kind: "relation", heading }
 				return this.id
@@ -152,14 +161,43 @@ export class ParamCell {
 		}
 	}
 
-	/** The parameter's declaration, refused at `loc` when no use typed it. */
-	decl(loc: SourceLoc): ParamDecl {
+	/**
+	 * Records a use of the parameter as a relation parameter its ChangeSet binds to a query, whose one evaluation the use
+	 * reads (CheckSession `bound`): it is never passed, so it declares nothing (`decl`). A scalar use of it is refused
+	 * (`use`), and every use of its name reads it so, so none declares it a relation of the caller's.
+	 */
+	boundUse(loc: SourceLoc): ParamId {
+		const prior = this.#entry
+		switch (prior.kind) {
+			case "scalar":
+				return fail(
+					"MalformedDescription",
+					loc,
+					`parameter ${this.name} as one kind: it is also a scalar parameter`
+				)
+			case "relation":
+				return fail(
+					"MalformedDescription",
+					loc,
+					`relation parameter ${this.name} as one kind: its ChangeSet binds it to a query`
+				)
+			case "untyped":
+			case "bound":
+				this.#entry = { kind: "bound" }
+				return this.id
+		}
+	}
+
+	/** The parameter's declaration, none for one its ChangeSet binds to a query, refused at `loc` when no use typed it. */
+	decl(loc: SourceLoc): ReadonlyArray<ParamDecl> {
 		const e = this.#entry
 		switch (e.kind) {
 			case "scalar":
-				return { id: this.id, name: this.name, kind: "scalar", type: e.type }
+				return [{ id: this.id, name: this.name, kind: "scalar", type: e.type }]
 			case "relation":
-				return { id: this.id, name: this.name, kind: "relation", heading: e.heading }
+				return [{ id: this.id, name: this.name, kind: "relation", heading: e.heading }]
+			case "bound":
+				return []
 			case "untyped":
 				return fail(
 					"MalformedDescription",
@@ -225,7 +263,7 @@ export class ParamTable {
 
 	/** The declared parameters, in name order, refused at `loc` for a parameter no checked use typed. */
 	decls(loc: SourceLoc): ReadonlyArray<ParamDecl> {
-		return this.#cells.map((c) => c.decl(loc))
+		return this.#cells.flatMap((c) => c.decl(loc))
 	}
 }
 

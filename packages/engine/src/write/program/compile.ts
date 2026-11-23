@@ -32,6 +32,7 @@ import {
 import {
 	type DeltaSide,
 	edgesOf,
+	inputsOf,
 	type NodeOf,
 	type RelDag,
 	type RelNode
@@ -43,7 +44,12 @@ import type { LawModel } from "#compiler/laws/model/model.ts"
 import type { UniqueObject } from "#compiler/laws/model/uniques.ts"
 import { evaluationWidth, readsOnlyParameters } from "#compiler/lower/conservative/call/index.ts"
 import { type LowerContext, WriteParams } from "#compiler/lower/conservative/context.ts"
-import type { DeclaredParamSlot, WriteParamSlot } from "#compiler/lower/conservative/types.ts"
+import type {
+	BoundCarrier,
+	BoundCarrierOf,
+	DeclaredParamSlot,
+	WriteParamSlot
+} from "#compiler/lower/conservative/types.ts"
 import { isPlainQuery } from "#compiler/lower/delivery.ts"
 import { emptyCtePlan } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { placeDeduplication } from "#compiler/lower/optimize/dedup/place.ts"
@@ -86,6 +92,7 @@ import {
 	buildFillCarrier,
 	type WriteCarrier,
 	carrierColumns,
+	carrierRows,
 	memberRows
 } from "#compiler/write/carriers/carriers.ts"
 import { relationUniques } from "#compiler/write/insert/unique.ts"
@@ -322,6 +329,38 @@ const inputReads = (inputs: ReadonlyArray<WriteInput>): ReadonlyArray<string> =>
 				? input.node.meta.reads.map((r) => `relation:${r}`)
 				: []
 	)
+
+/**
+ * The carriers of the bound relation parameters a statement rooted at `roots` reads (ir/rel.ts InputSetInput `bound`):
+ * the carrier `bound` holds each in, filled before the first stratum (write/schedule/plan.ts step `bound`); none where
+ * the write carries none, as almost every write does.
+ */
+const boundReads = (
+	bound: ReadonlyMap<ParamId, WriteCarrier>,
+	roots: ReadonlyArray<RelNode>
+): ReadonlyArray<string> => {
+	if (bound.size === 0) {
+		return []
+	}
+	const out = new Set<string>()
+	const seen = new Set<RelNode>()
+	const queue = [...roots]
+	for (const node of queue) {
+		if (seen.has(node)) {
+			continue
+		}
+		seen.add(node)
+		if (node.kind === "InputSet" && node.input.kind === "bound") {
+			out.add(
+				`carrier:${defined(bound.get(node.input.param), "a carried bound input's carrier").name}`
+			)
+		}
+		for (const input of inputsOf(node)) {
+			queue.push(input)
+		}
+	}
+	return [...out]
+}
 
 /** The nodes a planned write lowers: its described input, its exception's, and the region a deletion is anchored on. */
 const plannedNodes = (planned: PlannedWrite): ReadonlyArray<RelNode> => {
@@ -1066,6 +1105,8 @@ interface Lowering {
 	readonly state: ShapeState<RelationInput>
 	readonly sharing: StatementSharing
 	readonly w: WriteContext
+	/** The carrier each carried bound input's InputSets read, the read-backs' as the members' (WriteLowering `bound`). */
+	readonly bound: BoundCarrierOf
 }
 
 /** The optimized artifact: the scheduled statements, each lowered in the small per-execution mode and, when its
@@ -1143,7 +1184,8 @@ const optimizedPlacement = (
 		entries: frontend.deltaEntries,
 		params: frontend.params,
 		schema: frontend,
-		templates: w.cx.templates
+		templates: w.cx.templates,
+		bound: lowering.bound
 	}
 	/** The statement `build` builds in its forms, placed after `dependsOn` with the step `step` gives of it. */
 	const placed = <S extends WriteStatement | PutStatement>(
@@ -1169,9 +1211,16 @@ const optimizedPlacement = (
 	const record = (action: PlanAction, position: number) => {
 		recorded.push({ action, position })
 	}
-	/** The shared carriers a described member's statement reads. */
-	const sharedReads = (node: RelNode): ReadonlyArray<string> =>
-		sharing.carriersRead(node).map((carrier) => `carrier:${carrier}`)
+	/** The shared carriers a described member's statement reads, and the carriers of the bound inputs it reads. */
+	const sharedReads = (node: RelNode): ReadonlyArray<string> => [
+		...sharing.carriersRead(node).map((carrier) => `carrier:${carrier}`),
+		...boundReads(plan.bound, [node])
+	]
+	/** What a read-back's statement reads: the relations its query reads and the bound inputs' carriers. */
+	const readBackReads = (read: ReadBack): ReadonlyArray<string> => [
+		...read.node.meta.reads.map((r) => `relation:${r}`),
+		...boundReads(plan.bound, [read.node])
+	]
 	const describedReads = (inputs: ReadonlyArray<WriteInput>): ReadonlyArray<string> =>
 		inputs.flatMap((input) => (input.kind === "described" ? sharedReads(input.node) : []))
 	/** The statements an action's next statement follows: its own so far and those of the actions it depends on. */
@@ -1214,11 +1263,46 @@ const optimizedPlacement = (
 		readBacks: ReadonlyArray<ReadBack>
 	): ReadonlyArray<number> => {
 		const relations = placementRelations(placement).map((r) => `relation:${r}`)
-		const read = readBacks.flatMap((x) => x.node.meta.reads.map((r) => `relation:${r}`))
+		const read = readBacks.flatMap(readBackReads)
 		return tracker.add([...relations, ...read], relations)
 	}
 	for (const step of plan.steps) {
 		switch (step.kind) {
+			case "bound": {
+				/** A carried bound input's one evaluation, before the first stratum: its carrier, which the session's
+				 * stand-up of the write made, emptied, then filled from its query in the call's starting state, which every
+				 * statement after it reads (ir/write.ts BoundInput). */
+				const { input, carrier } = step
+				placed(
+					() => buildEmptyCarrier(w, carrier),
+					tracker.add([], [`carrier:${carrier.name}`]),
+					() => ({
+						kind: "carrier",
+						carrier: carrier.name,
+						step: "empty",
+						stratum: undefined,
+						casts: castsNothing
+					})
+				)
+				placed(
+					() => buildFillCarrier(w, carrier, { kind: "member", node: input.node }),
+					tracker.add(
+						[
+							...input.node.meta.reads.map((r) => `relation:${r}`),
+							...boundReads(plan.bound, [input.node])
+						],
+						[`carrier:${carrier.name}`]
+					),
+					() => ({
+						kind: "carrier",
+						carrier: carrier.name,
+						step: "fill",
+						stratum: undefined,
+						casts: castsNothing
+					})
+				)
+				break
+			}
 			case "family":
 				placeFamily(
 					b,
@@ -1276,7 +1360,10 @@ const optimizedPlacement = (
 			}
 			case "fillShare": {
 				const { share } = step
-				const reads = share.node.meta.reads.map((r) => `relation:${r}`)
+				const reads = [
+					...share.node.meta.reads.map((r) => `relation:${r}`),
+					...boundReads(plan.bound, [share.node])
+				]
 				const deps = tracker.add(reads, [`carrier:${step.carrier.name}`])
 				/** A shared sub-query's fill lowers its own copies rather than reading the carrier it fills. */
 				const fill = { ...w, cx: w.cx.withDispatch(sharing.filling(share)) }
@@ -1385,10 +1472,7 @@ const optimizedPlacement = (
 				 * read-backs read. */
 				const accesses = mapNonEmpty(step.writes, (planned) => writeAccess(planned))
 				const deps = tracker.addAfter(
-					[
-						...accesses.flatMap((x) => x[0]),
-						...step.readBacks.flatMap((read) => read.node.meta.reads.map((r) => `relation:${r}`))
-					],
+					[...accesses.flatMap((x) => x[0]), ...step.readBacks.flatMap(readBackReads)],
 					accesses.flatMap((x) => x[1]),
 					step.writes.flatMap((x) => actionDeps(x.action))
 				)
@@ -1445,8 +1529,7 @@ const optimizedPlacement = (
 						emptyDelta(plan.made, target, side)
 					)
 				const program = lowerReadBack(step.read, deltas, startNames, readBackOptions)
-				const reads = step.read.node.meta.reads.map((r) => `relation:${r}`)
-				placeReadBack(b, step.read, program, tracker.add(reads, []))
+				placeReadBack(b, step.read, program, tracker.add(readBackReads(step.read), []))
 				break
 			}
 		}
@@ -1945,6 +2028,12 @@ const compileAt = (
 	 * node's written once for the compile.
 	 */
 	const templates = new DagTemplates()
+	/**
+	 * The carrier of each carried bound input, by its parameter, which every lowering below reads its InputSets through
+	 * (BoundCarrierOf): the plan's, which the plan's carriers' typing reads this lowering to make, so it is held here once
+	 * the plan is made, before any statement is lowered.
+	 */
+	const bound = new Map<ParamId, BoundCarrier>()
 	const sharing = new StatementSharing(
 		new ShareIndex(restated.ir.dag, templates),
 		optimizedDispatch(placed.facts, state),
@@ -1957,6 +2046,7 @@ const compileAt = (
 	const lowering: Lowering = {
 		state,
 		sharing,
+		bound: (param) => bound.get(param),
 		w: writeContext(restated.ir.dag, {
 			names: options.names,
 			reads: options.reads,
@@ -1965,7 +2055,8 @@ const compileAt = (
 			share,
 			level: options.level,
 			generation: generations(options.laws, options.world),
-			templates
+			templates,
+			bound: (param) => bound.get(param)
 		})
 	}
 	const plan = planWrite(restated, chosenIn(chosen, frontend.restate), {
@@ -1987,6 +2078,9 @@ const compileAt = (
 		carrierTyping: (t) => lowering.w.cx.typeRef(t),
 		carrierScope: options.carrierScope
 	})
+	for (const [param, carrier] of plan.bound) {
+		bound.set(param, carrierRows(carrier))
+	}
 	const admission = buildAdmission(lowering.w, callerParams(frontend.params))
 	const optimized = optimizedArtifact(restated, plan, lowering, admission, options)
 	unwrap(insertOnly(schema, optimized.statements, options.names, options.laws))

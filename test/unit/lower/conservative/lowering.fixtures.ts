@@ -95,7 +95,8 @@ export const optionsFor = (
 					}),
 					breach: breachGuard("Ledger"),
 					start: freshNames,
-					templates: new DagTemplates()
+					templates: new DagTemplates(),
+					bound: () => undefined
 				}
 })
 

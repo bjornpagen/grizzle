@@ -15,10 +15,17 @@ import { navigateQuery, Navigation } from "#compiler/analysis/theory/navigate.ts
 import { editedBy } from "#compiler/analysis/theory/refill.ts"
 import { immediateEvidence } from "#compiler/analysis/theory/theory.ts"
 import { clockParams, sourcedParams } from "#compiler/check/clock.ts"
-import { CheckSession, checkFill, checkMember, checkReadBack } from "#compiler/check/index.ts"
+import {
+	CheckSession,
+	checkFill,
+	checkMember,
+	checkQuery,
+	checkReadBack
+} from "#compiler/check/index.ts"
 import type { MemberColumn, MemberRelation } from "#compiler/check/schema.ts"
 import { catchRefusal, Refusal, unwrap } from "#compiler/core/canonical.ts"
 import { CompileError, type ProseTag, prose, ruleRefused } from "#compiler/core/errors.ts"
+import type { IdentityDigest } from "#compiler/core/fingerprint.ts"
 import { type EntryName, type LawId, ParamId, type StoredRelationName } from "#compiler/core/ids.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import * as Order from "#compiler/core/order.ts"
@@ -27,11 +34,22 @@ import type { ClockBinding, ClockSource } from "#compiler/ir/clock.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { rooted } from "#compiler/ir/dag.ts"
 import {
+	bindRelationParams,
+	boundRowsLoc,
+	boundRowsQuery,
 	type ChangeSetDesc,
+	decodeDesc,
+	descIdentity,
 	enumeratedMember,
+	identityQuery,
+	memberParamNames,
 	type PlannedChangeSetDesc,
 	type PlannedMemberDesc,
 	type FactsMemberDesc,
+	type QueryDesc,
+	queryParamNames,
+	type RelationParamSourceDesc,
+	rowsParamNames,
 	type WriteOp
 } from "#compiler/ir/desc.ts"
 import { fieldReads } from "#compiler/ir/expr.ts"
@@ -44,6 +62,7 @@ import {
 	columnKeyOf,
 	familyKey,
 	generationOf,
+	headingColumns,
 	keyHeads,
 	type LawField,
 	type NativeColumn,
@@ -59,6 +78,7 @@ import type {
 	ActionCore,
 	ActionOp,
 	ActionSource,
+	BoundInput,
 	ReadBack,
 	Stratum,
 	WriteIR
@@ -511,6 +531,7 @@ interface Drafted {
 	readonly strata: ReadonlyArray<WriteStratum>
 	readonly reads: ReadonlyArray<ReadBack>
 	readonly params: ReadonlyArray<ParamId>
+	readonly bound: ReadonlyArray<BoundInput>
 }
 
 /** The queries over `dag`, every node they name read through `at`, its counterpart in `dag`. */
@@ -537,7 +558,8 @@ const queriesIn = (drafted: Drafted, dag: ValidDag, at: Counterpart): WriteQueri
 				)
 			),
 			reads: Object.freeze(drafted.reads.map((r) => Object.freeze({ ...r, node: at(r.node) }))),
-			params: drafted.params
+			params: drafted.params,
+			bound: Object.freeze(drafted.bound.map((b) => Object.freeze({ ...b, node: at(b.node) })))
 		})
 	})
 
@@ -1082,6 +1104,110 @@ const compile = (
 	const navigation = new Navigation(laws.theory.regionFacts)
 	const merger = new QueryMerger(session)
 	const params = new Map<string, ParamDecl>()
+	/**
+	 * 0. The call's bound rows (ChangeSetDesc `boundRows`): each relation parameter ChangeSet.bind closed with a query is
+	 * one input of the call, its rows in the state before the first stratum (ir/write.ts BoundInput). One read only by
+	 * members of the first stratum that has any, each a query over that state, and by other inputs, is a part of their
+	 * queries, as any import of a query is (`inlined`). One read by a later stratum or a read-back is carried (`later`):
+	 * checked once, after the carried inputs its own rows read, its query a root of the write DAG evaluated before the
+	 * first stratum (write/schedule/plan.ts), every reader's use of it read as its InputSet (CheckSession `bound`). Its
+	 * query's own parameters join the ChangeSet's.
+	 */
+	const firstStratum = desc.strata.findIndex((stratum) => stratum.members.length > 0)
+	const later = new Set(
+		Object.keys(desc.boundRows).filter(
+			(name) =>
+				desc.reads.some((r) => queryParamNames(r.query).has(name)) ||
+				desc.strata.some(
+					(stratum, s) =>
+						s !== firstStratum && stratum.members.some((m) => memberParamNames(m.member).has(name))
+				)
+		)
+	)
+	const inlined = new Map(Object.entries(desc.boundRows).filter(([name]) => !later.has(name)))
+	/** The identity query of each relation parameter source an inlined binding reads (bindRelationParams), one for
+	 * every source of one identity, so the members that read one binding read one import of it, one node of the DAG. */
+	const identities = new Map<IdentityDigest, QueryDesc>()
+	const identity = (source: RelationParamSourceDesc): QueryDesc => {
+		const key = unwrap(descIdentity(source))
+		const known = identities.get(key)
+		if (known !== undefined) {
+			return known
+		}
+		const loc = boundRowsLoc(source.name)
+		const typedBy = source.kind === "paramOf" ? checked.relation(source.relation, loc) : undefined
+		const fields =
+			source.kind === "param"
+				? Object.keys(source.heading)
+				: typedBy?.kind === "relation"
+					? headingColumns(typedBy.heading).map((c) => c.name)
+					: []
+		if (!isNonEmpty(fields)) {
+			return refuse(
+				"MalformedDescription",
+				loc,
+				`relation parameter ${source.name} over a heading of at least one field`
+			)
+		}
+		const query = unwrap(decodeDesc("query", identityQuery(source, fields, loc)))
+		identities.set(key, query)
+		return query
+	}
+	/**
+	 * A query evaluated in the call's starting state, a first stratum's member's or an input's, with each inlined binding
+	 * a part of it, and each inlined binding its rows read in turn: the rows a binding writes in are its own namespace's
+	 * and are not bound again by the pass that writes them (ir/desc.ts RelationBinding), so each pass binds what the one
+	 * before it wrote, until none reads an inlined binding, a pass for each binding at most.
+	 */
+	const inlinedIn = (query: QueryDesc): QueryDesc => {
+		let bound = query
+		for (let pass = 0; pass <= inlined.size; pass += 1) {
+			const used = queryParamNames(bound)
+			if (![...inlined.keys()].some((name) => used.has(name))) {
+				return bound
+			}
+			bound = bindRelationParams(bound, inlined, identity)
+		}
+		throw defect("a binding's rows that read it again, which ChangeSet.bind admits none of")
+	}
+	const boundInputs: Array<BoundInput> = []
+	const carrying = new Set<string>()
+	/** The input `name` carried (`later`), after each carried input its rows read. */
+	const carry = (name: string): void => {
+		if (carrying.has(name)) {
+			return
+		}
+		carrying.add(name)
+		const rows = defined(desc.boundRows[name], "a binding of the ChangeSet's bound rows")
+		for (const read of rowsParamNames(rows)) {
+			if (later.has(read)) {
+				carry(read)
+			}
+		}
+		const loc = boundRowsLoc(name)
+		const query = unwrap(
+			checkQuery(
+				checked,
+				navigateQuery(
+					inlinedIn(boundRowsQuery(name, rows, loc)),
+					loc,
+					columns,
+					{ kind: "perRead" },
+					navigation
+				),
+				{ read: "rows", label: `bind ${name}`, clock, session }
+			)
+		)
+		for (const p of query.params) {
+			merge(params, p, loc)
+		}
+		const node = merger.add(query)
+		session.bound.set(name, node.heading)
+		boundInputs.push(Object.freeze({ param: ParamId(name), node }))
+	}
+	for (const name of later) {
+		carry(name)
+	}
 	/** Each ordinary relation of the base the ChangeSet writes, as a member writes it (`writtenOf`), built where the
 	 * compile first reads it, so a compile reads of the base only the relations its ChangeSet writes. */
 	const writable = new Map<string, WrittenRelation>()
@@ -1525,7 +1651,13 @@ const compile = (
 					{
 						op: "insert",
 						relation: computedHeading,
-						query: navigateQuery(m.member.query, loc, columns, { kind: "perRead" }, navigation),
+						query: navigateQuery(
+							inlinedIn(m.member.query),
+							loc,
+							columns,
+							{ kind: "perRead" },
+							navigation
+						),
 						loc
 					},
 					{ label: `insert ${relation.name}'s computed fields`, clock, session }
@@ -1722,7 +1854,7 @@ const compile = (
 				}
 			}
 			const describedQuery =
-				source.kind === "query" ? source.query : equalQuery(written, source.fields, loc)
+				source.kind === "query" ? inlinedIn(source.query) : equalQuery(written, source.fields, loc)
 			const query = unwrap(
 				checkMember(
 					checked,
@@ -2471,7 +2603,9 @@ const compile = (
 		)
 	]
 	/** A ChangeSet of enumerated members alone and no read-back has no query: its DAG has no root. */
-	const structural = glue.build([...new Set([...sourceRoots, ...readBacks.map((r) => r.root)])])
+	const structural = glue.build([
+		...new Set([...sourceRoots, ...readBacks.map((r) => r.root), ...boundInputs.map((b) => b.node)])
+	])
 	const references: ReadonlyArray<ImmediateReference> = laws.natives.flatMap((n) =>
 		n.object.kind === "ForeignKey" && !n.object.deferrable
 			? [
@@ -3414,7 +3548,8 @@ const compile = (
 	const drafted: Drafted = {
 		strata,
 		reads,
-		params: Object.freeze([...userParams.map((p) => p.id), ...slotParams])
+		params: Object.freeze([...userParams.map((p) => p.id), ...slotParams]),
+		bound: boundInputs
 	}
 	/** The queries over the analyzed DAG, each node the frontend built read as its annotated counterpart. */
 	const { dag, queries } = analyzedQueries(drafted, structural, analyzed)
@@ -3438,7 +3573,8 @@ const compile = (
 		const named: Drafted = {
 			strata: queries.ir.strata,
 			reads: queries.ir.reads,
-			params: queries.ir.params
+			params: queries.ir.params,
+			bound: queries.ir.bound
 		}
 		if (takes.query === input) {
 			return restatedIn(named, dag, (node) => node)
@@ -3462,7 +3598,8 @@ const compile = (
 				)
 			),
 			reads: desc.reads,
-			bindings: desc.bindings
+			bindings: desc.bindings,
+			boundRows: desc.boundRows
 		}),
 		schema: checked,
 		laws,

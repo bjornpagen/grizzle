@@ -236,6 +236,8 @@ const printBody = (n: RelNode, printer: ExprPrinter): string => {
 					return `InputSet member $${n.input.slot} of ${n.input.relation}`
 				case "row":
 					return "InputSet row"
+				case "bound":
+					return `InputSet bound $${n.input.param}`
 			}
 		case "Delta":
 			return `Delta ${n.side}(${n.relation})`

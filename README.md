@@ -3801,12 +3801,23 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
   .put(PostViews, rows)             after the change, the row at each key is the one given
   .read("name", (delta) => query)   a query over the result, delivered in the outcome
   .bind({ org, sittings: mine })    the parameters it names, ahead of apply: a value, rows, or a query of a relation
-                                    parameter's rows; the rest stay the program's
+                                    parameter's rows, read once before the first stratum; the rest stay the program's
 ```
 
 - **Rows** are an array, an Effect `Stream` or a query, in any number; each column travels as one array. A query reads
   the state before its stratum, in the same transaction. There are no interactive transactions: a write that depends
   on a read states the read as its query.
+- **A relation parameter bound to a query is an input of the call**, not a member's query: `.bind({ sittings: mine })`
+  gives it one value for the whole call, `mine` evaluated once in the state before the first stratum, and every member
+  of every stratum and every read-back that reads `sittings` reads that one evaluation. A bind on a part that is later
+  sequenced or unioned binds an input of the whole call, evaluated before the combined ChangeSet's first stratum, so
+  `ChangeSet.sequence(decide, take.bind({ taken: mine }))` takes the sittings `mine` held before `decide` wrote. Contrast
+  a member's own query, which reads the state before *its* stratum, and a read-back's, which reads the tables after the
+  change: a bound parameter is neither, and no stratum or read-back reads it again. Read only by members of the first
+  stratum, which read the call's starting state already, its query is a part of theirs, as an import's is; read by a
+  later stratum or a read-back, it is filled into a carrier before the first stratum, every reader reading the carrier.
+  The two realize one meaning, as a CTE inlined or held does one query; a read-back over such a parameter reads no
+  table the change writes, so it rides the statement making the delta it reads.
 - **`insertAll`**'s rows at each key are what `insert` takes for that relation, typed and checked as that insert and
   refused at their key. Its keys are required, and their order means nothing. `insertableNamesOf(schema)` names, in the
   schema's order, every table a ChangeSet over it inserts at the top level: all that `writableNamesOf` names but an
@@ -4692,15 +4703,18 @@ export const AuthorApp = login(Qti, "author_app", [QtiAuthor])
   own.
 - **A relation parameter takes a query of a level above.** A lower level's program that names the rows it acts on as a
   relation parameter, `r.relation("sittings", heading)`, is bound to a query of a level above it, so the higher level's
-  guard runs inside the lower level's statement, with no read before it. In a rule over the higher level,
+  guard runs inside the lower level's write, in its transaction, with no read by the host before it. In a rule over the
+  higher level,
   `openVisit.bind({ sittings: appSittings.bind({ child: r.param("child", LearnerId) }) })` binds an import's parameter
   to a bound query, which is bound first as a match's is; and `suspendTest.bind({ sittings: appSittings })` binds a
-  ChangeSet's, once for every member and read-back that uses it, `appSittings`' own parameter `child` joining the
-  ChangeSet's as one parameter of one type, the other parameters staying the program's. Either is then over the higher
+  ChangeSet's, an input of the call read once before its first stratum by every member and read-back that uses it
+  ([Writes](#writes)), `appSittings`' own parameter `child` joining the ChangeSet's as one parameter of one type, the
+  other parameters staying the program's. Either is then over the higher
   of the two levels and reads the query's contexts. A query over a level apart is refused, `Refusal<"a relation
   parameter binds a query over a level of the schema it is bound in, or over a schema that schema is a level of">`, as
   is one that delivers other fields than the parameter's heading; a scalar parameter takes no query, whose rows are
-  any number. Every member that reads one bound query reads one evaluation of it, in one statement.
+  any number. Every member that reads one bound query reads one evaluation of it: an import's in the statement of the
+  query that imports it, a ChangeSet's before its first stratum.
 - **A level over whatever base it is given.** A package's level over the base its installation hands it is a function
   of that base, bounded by the least level it reads: `export const ledgerOf = <Base extends SchemaOver<typeof Qti>>(base:
   Base) => schema.extend([base], "Ledger", [Sitting], [contained(on(Sitting, "item"), on(Item, "id"))])`. The call checks

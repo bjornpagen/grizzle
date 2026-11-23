@@ -43,6 +43,7 @@ import { DagIndex } from "#compiler/lower/conservative/dag-index.ts"
 import type {
 	ArrayPart,
 	ArraySlot,
+	BoundCarrier,
 	ConservativeOptions,
 	ConservativeParamSlot,
 	DeclaredParamSlot,
@@ -903,6 +904,37 @@ export class LowerContext {
 					"UnsupportedOperation",
 					at,
 					`the nested rows of ${relation} in stratum ${stratum} outside a write statement that fills them`
+				)
+		}
+	}
+
+	/**
+	 * The carrier of the relation parameter `param` its ChangeSet binds to a query (InputSet `bound`), which its write
+	 * program fills once before its first stratum: a write statement's or a read-back's, whose subject names it. Outside
+	 * a write program, or for a parameter its program holds in no carrier, it is UnsupportedOperation, as a Delta outside
+	 * a write program is.
+	 */
+	boundRows(param: ParamId, at: string): BoundCarrier {
+		const subject = this.options.subject
+		switch (subject.kind) {
+			case "write":
+			case "readBack":
+				return (
+					subject.bound(param) ??
+					refuse(
+						"UnsupportedOperation",
+						at,
+						`relation parameter ${param} bound to a query outside a write program that holds its rows`
+					)
+				)
+			case "query":
+			case "membership":
+			case "ruleRegion":
+			case "violationProbe":
+				return refuse(
+					"UnsupportedOperation",
+					at,
+					`relation parameter ${param} bound to a query outside a write program that holds its rows`
 				)
 		}
 	}

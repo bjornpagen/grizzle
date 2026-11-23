@@ -372,16 +372,33 @@ export const headingOrder = (heading: Heading): CompletedOrder => ({
 
 /**
  * What fills an InputSet: a relation parameter the query declares and its caller binds, or an enumerated member slot of
- * a write, filled from the normalized facts the write puts into `relation`, each a placeholder of the statement; or the
+ * a write, filled from the normalized facts the write puts into `relation`, each a placeholder of the statement; the
  * row a write filter's membership is asked at, exactly one fact, whose values the membership's caller names
- * (ir/desc.ts RowSourceDesc), which no placeholder carries.
+ * (ir/desc.ts RowSourceDesc), which no placeholder carries; or a relation parameter its ChangeSet binds to a query
+ * (ChangeSetDesc `boundRows`), an input of the call evaluated once before its first stratum into the carrier every
+ * statement that reads it reads (`bound`), which no placeholder carries either.
  */
-export type InputSetInput = PlaceholderInput | { readonly kind: "row" }
+export type InputSetInput =
+	| PlaceholderInput
+	| { readonly kind: "row" }
+	| { readonly kind: "bound"; readonly param: ParamId }
 
 /** An InputSet input a placeholder of the statement carries: a declared relation parameter or a write's member slot. */
 export type PlaceholderInput =
 	| { readonly kind: "declared"; readonly param: ParamId }
 	| { readonly kind: "member"; readonly slot: ParamId; readonly relation: string }
+
+/** The placeholders an InputSet's input reads: a placeholder input's one, none for a row or a bound relation parameter. */
+export const inputPlaceholders = (input: InputSetInput): ReadonlyArray<ParamId> => {
+	switch (input.kind) {
+		case "declared":
+		case "member":
+			return [inputSetPlaceholder(input)]
+		case "row":
+		case "bound":
+			return []
+	}
+}
 
 /**
  * The placeholder id a placeholder input reads: its declared parameter or its member slot. For readers that name the
@@ -1508,7 +1525,7 @@ export const scopeLabels = <E extends { readonly deps: { readonly nodes: Readonl
 export const fieldParams = (n: NodeOver<RefKinds>): ReadonlyArray<ParamId> => {
 	switch (n.kind) {
 		case "InputSet":
-			return n.input.kind === "row" ? [] : [inputSetPlaceholder(n.input)]
+			return inputPlaceholders(n.input)
 		case "Take":
 			return n.bound.kind === "param" ? [n.bound.param] : []
 		case "ApproximateNearest":

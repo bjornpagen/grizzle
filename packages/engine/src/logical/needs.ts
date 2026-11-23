@@ -43,6 +43,7 @@ export const needsOf = (node: RelNode): Needs => {
 					case "member":
 						return needing({ kind: "member", slot: n.input.slot })
 					case "row":
+					case "bound":
 						return always
 				}
 			case "Base":

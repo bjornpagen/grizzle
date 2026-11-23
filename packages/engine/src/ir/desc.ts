@@ -2125,8 +2125,15 @@ export interface ChangeSetDesc<L = Located> {
 	/** One stratum unless built with ChangeSet.sequence. */
 	readonly strata: ReadonlyArray<{ readonly members: ReadonlyArray<MemberDesc<L>> }>
 	readonly reads: ReadonlyArray<ReadBackDesc<L>>
-	/** The parameters ChangeSet.bind closed; their values travel with the ChangeSet value. */
+	/** The parameters ChangeSet.bind closed with a value; their values travel with the ChangeSet value. */
 	readonly bindings: ReadonlyArray<string>
+	/**
+	 * The relation parameters ChangeSet.bind closed with a query or a bound query, each one's rows (RowsDesc), its bind
+	 * map read in the ChangeSet's namespace: an input of the call, one value for the whole call, evaluated once in the
+	 * state before its first stratum, which every member and read-back that reads the parameter reads. Its members and
+	 * read-backs read the parameter by its name, as they read one bound to a value, never a copy of its query.
+	 */
+	readonly boundRows: Readonly<Record<string, RowsDesc<L>>>
 }
 
 /** A ChangeSet's Description as the planner reads it: every member a PlannedMemberDesc (write/frontend/compile.ts). */
@@ -2134,6 +2141,7 @@ export interface PlannedChangeSetDesc<L = Located> {
 	readonly strata: ReadonlyArray<{ readonly members: ReadonlyArray<PlannedMemberDesc<L>> }>
 	readonly reads: ReadonlyArray<ReadBackDesc<L>>
 	readonly bindings: ReadonlyArray<string>
+	readonly boundRows: Readonly<Record<string, RowsDesc<L>>>
 }
 
 /**
@@ -2640,11 +2648,75 @@ export const renameQueryParams = (q: QueryDesc, rename: ReadonlyMap<string, stri
 				)
 			)
 
+/**
+ * The parameters the rows a relation parameter is bound to read in the namespace that binds them: its bind map's terms'
+ * (ParamReads bindMap), the bound query's own being its own namespace's. A ChangeSet's bound rows (ChangeSetDesc
+ * `boundRows`) read the ChangeSet's.
+ */
+export const rowsParamNames = (rows: RowsDesc): ReadonlySet<string> => {
+	const names = new Set<string>()
+	new ParamReads<FieldDesc>((name) => names.add(name)).bindMap(rows.bind)
+	return names
+}
+
+/** The rows with each parameter of the binding namespace their bind map reads whose name `rename` maps spelled by its
+ * image (renameQueryParams' reading of a bind map), frozen as a decoded Description is. */
+export const renameRowsParams = (rows: RowsDesc, rename: ReadonlyMap<string, string>): RowsDesc =>
+	rename.size === 0
+		? rows
+		: deepFreeze(
+				new ParamWalk<Spelled["param"], FieldDesc>(
+					{ param: (name) => ({ name: rename.get(name) ?? name }), imported: () => spelledAsIs },
+					new Map()
+				).rows(rows)
+			)
+
 /** A relation parameter as a source a rule matches: over a declared heading, or over a relation's (Rule.relation). */
 export type RelationParamSourceDesc<L = Located, R extends Refs = Spelled> = Extract<
 	SourceDesc<L, R>,
 	{ readonly kind: "param" | "paramOf" }
 >
+
+/** Where a ChangeSet's binding of relation parameter `name` to rows stands (ChangeSetDesc `boundRows`). */
+export const boundRowsLoc = (name: string): SourceLoc => SourceLoc("ChangeSet", ["boundRows", name])
+
+/**
+ * The query that delivers the rows a relation parameter `name` is bound to as they are (ChangeSetDesc `boundRows`): one
+ * rule matching an import of the rows' query under their bind map, each field it delivers (definitionFields) bound to a
+ * variable of its own scope, the parameter's name, and delivered under its own name, its parameters the bind map's, read
+ * in the namespace that binds them. A write evaluates it once before its first stratum where a later stratum or a
+ * read-back reads the parameter (write/frontend/compile.ts).
+ */
+export const boundRowsQuery = (name: string, rows: RowsDesc, loc: SourceLoc): QueryDesc => {
+	const fields = definitionFields(rows.query)
+	const vars = fields.map((field): VarDesc => ({ id: `${name}.${field}`, origin: undefined, loc }))
+	const terms: Readonly<Record<string, ExprDesc>> = Object.fromEntries(
+		fields.map((field): readonly [string, ExprDesc] => [
+			field,
+			{ kind: "var", var: `${name}.${field}` }
+		])
+	)
+	const query: QueryDesc = {
+		stage: {
+			kind: "rules",
+			loc,
+			arms: [
+				{
+					loc,
+					vars,
+					matches: [
+						{ loc, source: { kind: "query", query: rows.query, bind: rows.bind }, bindings: terms }
+					],
+					where: [],
+					head: terms,
+					interiors: [],
+					attach: []
+				}
+			]
+		}
+	}
+	return deepFreeze(query)
+}
 
 /**
  * The query that delivers a relation parameter's rows as they are: one rule matching `source`, each of the parameter's
@@ -2742,8 +2814,9 @@ class RelationBinding extends ParamWalk<Spelled["param"], FieldDesc> {
 }
 
 /**
- * The query with each of its own uses of the relation parameters `rows` names bound to their rows (ChangeSet.bind), in
- * the one binding form an import's bind map writes (RelationTermDesc): a bind term of one is its rows, and a match of
+ * The query with each of its own uses of the relation parameters `rows` names bound to their rows (a ChangeSet's bound
+ * rows its first stratum's members alone read, write/frontend/compile.ts `inlined`), in the one binding form an
+ * import's bind map writes (RelationTermDesc): a bind term of one is its rows, and a match of
  * one a match of an import of its identity query (identityQuery, built by `identity`), the parameter bound to its
  * rows. An imported query keeps its own parameters, and only the terms of its bind map are bound. Frozen throughout, as
  * renameQueryParams' query is.
@@ -2799,6 +2872,42 @@ class ParamUses extends ParamWalk<Spelled["param"], FieldDesc> {
 		}
 		return super.expr(e)
 	}
+}
+
+/**
+ * A walk that reads the parameters a query's own namespace uses as scalars: a parameter term, and a take bound to a
+ * parameter (scalarParamNames).
+ */
+class ScalarUses extends ParamWalk<Spelled["param"], FieldDesc> {
+	readonly names = new Set<string>()
+
+	constructor() {
+		super(spelledAsIs, unwalkedImports)
+	}
+
+	override stage(s: QueryStageDesc): QueryStageDesc {
+		if (s.kind === "take" && s.take.kind === "param") {
+			this.names.add(s.take.name)
+		}
+		return super.stage(s)
+	}
+
+	override expr(e: ExprDesc): ExprDesc {
+		if (e.kind === "param") {
+			this.names.add(e.name)
+		}
+		return super.expr(e)
+	}
+}
+
+/**
+ * The parameters a query's own namespace uses as scalars, each taking one value, which no query's rows bind
+ * (ChangeSet.bind refuses one): its parameter terms and a take bound to a parameter, never a relation parameter's use.
+ */
+export const scalarParamNames = (q: QueryDesc): ReadonlySet<string> => {
+	const uses = new ScalarUses()
+	uses.query(q)
+	return uses.names
 }
 
 /**
@@ -4017,18 +4126,31 @@ const changeSetDescShape: S.Shape<ChangeSetDesc> = S.audited(
 			(r) => r.name,
 			"read-back names"
 		),
-		bindings: S.uniqueStrings("bound parameters", S.nonEmptyString)
+		bindings: S.uniqueStrings("bound parameters", S.nonEmptyString),
+		boundRows: S.recordShape(S.tagged("kind", { rows: importDescShape }), name)
 	}),
 	(changeSet, refuseAt) => {
-		const used = new Set([
+		const read = new Set([
 			...changeSet.strata.flatMap((s) => s.members.flatMap((m) => [...memberParamNames(m.member)])),
 			...changeSet.reads.flatMap((r) => [...queryParamNames(r.query)])
+		])
+		const used = new Set([
+			...read,
+			...Object.values(changeSet.boundRows).flatMap((rows) => [...rowsParamNames(rows)])
 		])
 		for (const [at, bound] of changeSet.bindings.entries()) {
 			if (!used.has(bound)) {
 				refuseAt(
 					["bindings", at],
 					`a binding of a parameter the ChangeSet declares; ${bound} is none of its members' or read-backs' parameters`
+				)
+			}
+		}
+		for (const bound of Object.keys(changeSet.boundRows)) {
+			if (!read.has(bound) || changeSet.bindings.includes(bound)) {
+				refuseAt(
+					["boundRows", bound],
+					`a binding of a relation parameter its members or read-backs read, bound once; ${bound} is none, or is bound to a value too`
 				)
 			}
 		}

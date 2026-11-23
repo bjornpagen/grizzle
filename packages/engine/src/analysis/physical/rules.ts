@@ -446,6 +446,23 @@ type DraftDedup =
 
 const placed: DraftDedup = { kind: "placed" }
 
+/**
+ * Why an InputSet's rows are a set of facts, where a placeholder's codec forms them by their identity (`factSet`): a
+ * declared relation parameter's or a member slot's; none for a row, one fact, or a bound relation parameter's carrier,
+ * whose set its fill forms and no premise of the statement's states.
+ */
+const placeholderFacts = (node: NodeOf<"InputSet">): Justification | undefined => {
+	const input = node.input
+	switch (input.kind) {
+		case "declared":
+		case "member":
+			return factSet(node, input)
+		case "row":
+		case "bound":
+			return undefined
+	}
+}
+
 /** Why a relation parameter's facts are a set: its placeholder's codec, which forms them by their identity. */
 const factSet = (node: NodeOf<"InputSet">, input: PlaceholderInput): Justification =>
 	withReason(
@@ -548,7 +565,7 @@ const finish = (node: RelNode, cx: RuleContext, draft: Draft): PhysicalProps => 
 const factsOf = (node: RelNode, cx: RuleContext): Justification | undefined => {
 	switch (node.kind) {
 		case "InputSet":
-			return node.input.kind === "row" ? undefined : factSet(node, node.input)
+			return placeholderFacts(node)
 		case "Filter":
 		case "Take":
 		case "Step":
@@ -1011,8 +1028,9 @@ export const physicalPropsOf = (node: RelNode, cx: RuleContext): PhysicalProps =
 			 * where it holds no float.
 			 */
 			const apart = node.heading.some((c) => floatCarrierOf(c.type) !== undefined)
-			if (!apart) {
-				fds.identify(columns, factSet(node, input))
+			const facts = placeholderFacts(node)
+			if (!apart && facts !== undefined) {
+				fds.identify(columns, facts)
 			}
 			return finish(node, cx, {
 				fds,

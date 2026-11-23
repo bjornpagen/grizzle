@@ -8,13 +8,13 @@ import {
 import type { CheckedEntry } from "#compiler/analysis/schema.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, type NamedSide, type ReadBackCrossing } from "#compiler/core/errors.ts"
-import type { EntryName, StoredRelationName } from "#compiler/core/ids.ts"
+import type { EntryName, ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { headStamped, type Stamped } from "#compiler/ir/instant.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
 import { type DeltaSide, inputsOf, type RelNode } from "#compiler/ir/rel.ts"
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
-import type { ReadBack } from "#compiler/ir/write.ts"
+import type { BoundInput, ReadBack } from "#compiler/ir/write.ts"
 import type { CarriedShare } from "#compiler/lower/shapes/share/statements.ts"
 import type { CarrierScope } from "#compiler/sql/naming.ts"
 import {
@@ -120,6 +120,9 @@ export type PlannedWrite = {
 } & WriteOpStep
 
 /** One step of a write plan:
+ * - `bound`, a relation parameter the ChangeSet binds to a query that a later stratum or a read-back reads (ir/write.ts
+ *   BoundInput): its carrier, which the session's stand-up of the write made, emptied and filled from its query before
+ *   the first stratum, every reader's InputSet of it reading that carrier;
  * - `emptyCarrier`, a carrier emptied at the start of its stratum, a member's or a shared sub-query's, which the
  *   session's stand-up of the write made (runtime/write/flight.ts StandUp);
  * - `fillMember`, a member's carrier, filled from its node: the facts its action writes into `relation`, cast into its
@@ -134,6 +137,7 @@ export type PlannedWrite = {
  * - `family`, a family statement of the stratum (frontend/schedule.ts FamilyNode), where its schedule runs it among
  *   the stratum's writes. */
 export type PlanStep =
+	| { readonly kind: "bound"; readonly input: BoundInput; readonly carrier: WriteCarrier }
 	| {
 			readonly kind: "emptyCarrier"
 			readonly carrier: WriteCarrier
@@ -180,6 +184,8 @@ export type PlanStep =
 
 export interface WritePlan {
 	readonly steps: ReadonlyArray<PlanStep>
+	/** The carrier of each carried bound input (step `bound`), by its parameter, which every reader of it reads. */
+	readonly bound: ReadonlyMap<ParamId, WriteCarrier>
 	readonly carriers: ReadonlyArray<WriteCarrier>
 	/** Whose session tables its carriers are (PlanEvidence `carrierScope`), every later carrier of its program's too. */
 	readonly carrierScope: CarrierScope
@@ -695,6 +701,7 @@ const stepWrites = (step: PlanStep): ReadonlyArray<string> => {
 			return step.writes.map((w) => w.relation.name)
 		case "family":
 			return familyNodeRelations(step.node)
+		case "bound":
 		case "emptyCarrier":
 		case "fillMember":
 		case "fillShare":
@@ -822,6 +829,7 @@ const stepSides = (step: PlanStep): ReadonlyArray<SideWrite> => {
 					stratum: step.stratum
 				}))
 			)
+		case "bound":
 		case "emptyCarrier":
 		case "fillMember":
 		case "fillShare":
@@ -1042,6 +1050,11 @@ const placeReadBacks = (
  * source at the start of its stratum, before any of the stratum's writes, where its source reads the stratum's
  * starting state.
  *
+ * A relation parameter the ChangeSet binds to a query that a later stratum or a read-back reads (ir/write.ts BoundInput)
+ * is evaluated before the first stratum, into a carrier every statement after it reads (step `bound`), so no stratum's
+ * statement and no read-back evaluates it over the state it reads; one only the first stratum's members read is a part
+ * of their queries, which read the first stratum's starting state, the call's.
+ *
  * Read-backs are placed by what they read (`placeReadBacks`): a read-back whose deltas one statement makes whole, and
  * whose state reads that statement and every later one leave alone, rides that statement, evaluated in it over its
  * RETURNING; one that reads no delta a statement makes comes last, after the last stratum; any other is refused
@@ -1061,8 +1074,21 @@ export const planWrite = (
 	evidence: PlanEvidence
 ): WritePlan => {
 	const supply = new CarrierSupply(evidence.carrierTyping, evidence.carrierScope)
+	/** Each carried bound input's evaluation, before the first stratum, in the call's starting state (ir/write.ts
+	 * BoundInput): its carrier made and filled first, which every statement after it reads in its place. */
+	const bound = frontend.ir.bound.map((input) => ({
+		input,
+		carrier: supply.next(
+			input.node.heading.map((c) => ({ name: c.name, type: c.type })),
+			undefined
+		)
+	}))
 	/** The strata's statements, the read-backs placed among them below. */
-	const strata: Array<PlanStep> = []
+	const strata: Array<PlanStep> = bound.map(({ input, carrier }) => ({
+		kind: "bound",
+		input,
+		carrier
+	}))
 	/** The nodes each stratum's members reach: a carrier holds its stratum's starting state, so a node another
 	 * stratum's member also reaches is never carried across statements; a single statement's parts are its own CTEs,
 	 * which no later statement reads (write/program/compile.ts uncarries them), so it holds such a node too. */
@@ -1166,6 +1192,7 @@ export const planWrite = (
 	}
 	return Object.freeze({
 		steps: Object.freeze(steps),
+		bound: new Map(bound.map(({ input, carrier }) => [input.param, carrier] as const)),
 		carriers: Object.freeze(supply.all()),
 		carrierScope: evidence.carrierScope,
 		made: placement.made

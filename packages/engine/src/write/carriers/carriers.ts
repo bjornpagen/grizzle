@@ -15,6 +15,7 @@ import type { CarrierDecl } from "#compiler/ir/products.ts"
 import type { Heading, HeadingColumn, RelNode } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { columnIn, emptyEnv } from "#compiler/lower/conservative/context.ts"
+import type { BoundCarrier } from "#compiler/lower/conservative/types.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
 import type { StandUp } from "#compiler/runtime/write/flight.ts"
 import {
@@ -23,6 +24,7 @@ import {
 	type EmittedText,
 	type EmptyCarrier,
 	type FromItem,
+	type FromSource,
 	type Insert,
 	isSetQuery,
 	type Select,
@@ -200,10 +202,20 @@ export const carrierField = (carrier: WriteCarrier, field: string): CarrierColum
 		`the field ${field} in carrier ${carrier.name}`
 	)
 
-export const carrierScan = (carrier: WriteCarrier, alias: string): FromItem => ({
+export const carrierScan = (carrier: WriteCarrier, alias: string): FromSource => ({
 	kind: "table",
 	table: carrier.name,
 	alias
+})
+
+/**
+ * A carrier as a lowering reads the rows of a relation parameter its ChangeSet binds to a query (lower/conservative
+ * BoundCarrier, ir/rel.ts InputSetInput `bound`): scanned as every carrier is (`carrierScan`), each field in its column.
+ */
+export const carrierRows = (carrier: WriteCarrier): BoundCarrier => ({
+	carrier: carrier.name,
+	scan: (alias) => carrierScan(carrier, alias),
+	column: (field) => carrierField(carrier, field).column
 })
 
 /**

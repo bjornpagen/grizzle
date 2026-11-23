@@ -5,7 +5,7 @@ import { fieldReads, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { Fold } from "#compiler/ir/fold.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
 import {
-	inputSetPlaceholder,
+	inputPlaceholders,
 	keptRowsOf,
 	type NodeOf,
 	type RelNode,
@@ -410,14 +410,16 @@ const noKeySet: KeySetStep = { kind: "found", identity: undefined }
 /** A node's step: an InputSet ends the walk, a projection or a one-occurrence region reads its input's columns. */
 const keySetStep = (node: RelNode, columns: ReadonlyArray<string>): KeySetStep => {
 	switch (node.kind) {
-		case "InputSet":
+		case "InputSet": {
+			const [param] = inputPlaceholders(node.input)
 			return {
 				kind: "found",
 				identity:
-					node.input.kind !== "row" && columns.every((c) => node.heading.some((h) => h.name === c))
-						? { param: inputSetPlaceholder(node.input), columns }
+					param !== undefined && columns.every((c) => node.heading.some((h) => h.name === c))
+						? { param, columns }
 						: undefined
 			}
+		}
 		case "ProjectSet": {
 			const next: Array<string> = []
 			for (const c of columns) {

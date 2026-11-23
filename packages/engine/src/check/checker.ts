@@ -1033,6 +1033,7 @@ type ParamUse =
 			readonly heading: Heading
 			readonly loc: SourceLoc
 	  }
+	| { readonly kind: "bound"; readonly name: string; readonly loc: SourceLoc }
 
 /**
  * A closed import checked once for its compile (check/session.ts closedImports, Checker `#closedImport`): its root, its
@@ -1174,6 +1175,20 @@ export class Checker {
 		if (this.#params.owns(cell)) {
 			for (const journal of this.#uses) {
 				journal.push({ kind: "relation", name: cell.name, heading, loc })
+			}
+		}
+		return id
+	}
+
+	/**
+	 * Records a use of `cell` as a relation parameter its ChangeSet binds to a query (ParamCell `boundUse`), journaled as
+	 * `useParam` journals.
+	 */
+	useBoundParam(cell: ParamCell, loc: SourceLoc): ParamId {
+		const id = cell.boundUse(loc)
+		if (this.#params.owns(cell)) {
+			for (const journal of this.#uses) {
+				journal.push({ kind: "bound", name: cell.name, loc })
 			}
 		}
 		return id
@@ -2959,10 +2974,16 @@ export class Checker {
 				this.#params.cell(use.name),
 				"a parameter of the reader's own that an import of its key is bound to by name"
 			)
-			if (use.kind === "scalar") {
-				this.useParam(cell, use.type, use.loc)
-			} else {
-				this.useRelationParam(cell, use.heading, use.loc)
+			switch (use.kind) {
+				case "scalar":
+					this.useParam(cell, use.type, use.loc)
+					break
+				case "relation":
+					this.useRelationParam(cell, use.heading, use.loc)
+					break
+				case "bound":
+					this.useBoundParam(cell, use.loc)
+					break
 			}
 		}
 	}
@@ -3024,7 +3045,9 @@ export class Checker {
 
 	/**
 	 * A relation parameter's rows: in the query's own scope, or bound to one of the importer's relation parameters, the
-	 * caller's rows of its declared heading; bound to the rows of a query, that query imported here, at this use, under
+	 * caller's rows of its declared heading, or, where its compile's ChangeSet binds it to a query whose one evaluation
+	 * it carries (CheckSession `bound`), that evaluation's InputSet, of the heading it delivers, which must be the
+	 * declared one's fields at types that meet them (#deliversHeading); bound to the rows of a query, that query imported here, at this use, under
 	 * its own bind map read in the scope that wrote it (BindValue `rows`), delivering exactly the declared heading's
 	 * columns, each at a type that meets the field's (compatible), so the import reads the query's rows where it read
 	 * the caller's.
@@ -3041,6 +3064,17 @@ export class Checker {
 		const resolved = this.#bound(src.cell, scope, loc)
 		switch (resolved.kind) {
 			case "param": {
+				const evaluation = this.#params.owns(resolved.cell)
+					? this.options.session.bound.get(resolved.cell.name)
+					: undefined
+				if (evaluation !== undefined) {
+					this.#deliversHeading(src.cell.name, heading, evaluation, loc)
+					const param = this.useBoundParam(resolved.cell, loc)
+					return this.node(
+						{ kind: "InputSet", input: { kind: "bound", param }, heading: evaluation },
+						loc
+					)
+				}
 				const param = this.useRelationParam(resolved.cell, heading, loc)
 				return this.node({ kind: "InputSet", input: { kind: "declared", param }, heading }, loc)
 			}
@@ -3069,9 +3103,24 @@ export class Checker {
 			loc,
 			importedKey(this.options.session, bound.query, bound.values)
 		)
-		const stray = rows.heading.filter((c) => columnOf(heading, c.name) === undefined)
+		this.#deliversHeading(name, heading, rows.heading, loc)
+		return rows
+	}
+
+	/**
+	 * Refuses rows of the heading `delivered` for relation parameter `name` of the declared `heading` unless they deliver
+	 * exactly its fields, each at a type that meets the field's (compatible): a query it is bound to, at a use
+	 * (#boundRows), or the one evaluation its ChangeSet carries (#paramSource).
+	 */
+	#deliversHeading(
+		name: string,
+		heading: Heading,
+		deliveredHeading: Heading,
+		loc: SourceLoc
+	): void {
+		const stray = deliveredHeading.filter((c) => columnOf(heading, c.name) === undefined)
 		for (const f of heading) {
-			const delivered = columnOf(rows.heading, f.name)
+			const delivered = columnOf(deliveredHeading, f.name)
 			if (delivered === undefined) {
 				failWith({
 					_tag: "Refused",
@@ -3094,7 +3143,6 @@ export class Checker {
 				refusal: "a relation parameter binds a query that delivers exactly its heading's fields"
 			})
 		}
-		return rows
 	}
 
 	/**

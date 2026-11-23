@@ -15,10 +15,12 @@
  * applies the ChangeSet once.
  *
  * Property, per case: the ChangeSet's Description holds the one read-back `standing`; the call is accepted; standing's
- * rows are the model's state after the whole ChangeSet (merged-reads.fixtures.ts modelOf: each stratum's meaning over
- * the state before it, S' = (S \ D) ∪ A), each fact once, and so is the stored state after the call. Oracle:
- * specification, the model. Kill: the read-backs' statements sent before the writes in the applying transaction
- * (adapter/apply/run.ts), so standing reads the stored state.
+ * rows over Item are the model's state after the whole ChangeSet (merged-reads.fixtures.ts modelOf: each stratum's
+ * meaning over the state before it, S' = (S \ D) ∪ A), each fact once, and over the bound relation parameter Item's
+ * facts in the call's starting state, the stored ones: a relation parameter bound to a query is an input of the whole
+ * call, evaluated once before its first stratum, whichever of the combined ChangeSets bound it (README "Writes");
+ * the stored state after the call is the model's. Oracle: specification, the model. Kill: the read-backs' statements
+ * sent before the writes in the applying transaction (adapter/apply/run.ts), so standing reads the stored state.
  *
  * Features: each composition, each insert and delete, each standing.
  */
@@ -103,6 +105,12 @@ export const twoReadBacksOfOneNameOverOneQueryAreOneReadAfterTheWholeChangeSetIt
 							const applied = yield* observed.apply({})
 							const outcome = applied.value
 							const model = modelOf(c)
+							/** Standing over Item reads the state after the change; over the bound parameter, its one
+							 * evaluation, in the call's starting state. */
+							const standing =
+								c.standing === "the state"
+									? model
+									: Arr.sort(Arr.map(stored, factText), Order.String)
 							const reads =
 								outcome.kind === "accepted" || outcome.kind === "no-change"
 									? outcome.reads
@@ -117,8 +125,8 @@ export const twoReadBacksOfOneNameOverOneQueryAreOneReadAfterTheWholeChangeSetIt
 									Arr.map(defined(reads["standing"], "standing's rows"), rowText),
 									Order.String
 								),
-								model,
-								"standing's rows are the state after the whole ChangeSet, each fact once"
+								standing,
+								"standing's rows are Item's after the whole ChangeSet, or the bound parameter's before it, each fact once"
 							)
 							const after = yield* s.admin.queryValues(
 								`SELECT ${column("id")}::text, ${column("n")}::text FROM ${names.table(Item)}`,

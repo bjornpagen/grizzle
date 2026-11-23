@@ -685,7 +685,8 @@ export const programOf = (
 				first === undefined
 					? []
 					: [{ name: "back", query: queryOver(c, [first, ...more], u.casts) }],
-			bindings: []
+			bindings: [],
+			boundRows: {}
 		}),
 		"the use's ChangeSet"
 	)

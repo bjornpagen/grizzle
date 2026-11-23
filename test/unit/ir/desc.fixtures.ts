@@ -600,7 +600,8 @@ const changeSet: ChangeSetDesc = {
 			})
 		}
 	],
-	bindings: ["now"]
+	bindings: ["now"],
+	boundRows: {}
 }
 
 /** A workload of every program kind. */

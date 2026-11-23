@@ -21,6 +21,7 @@ import type {
 	EmittedSql,
 	Expr,
 	FromItem,
+	FromSource,
 	ObjectName,
 	Select,
 	TypeRef,
@@ -94,6 +95,8 @@ export type BreachGuard = (
 export interface ReadBackLowering {
 	readonly kind: "readBack"
 	readonly deltas: (relation: string, side: DeltaSide) => DeltaRelation | undefined
+	/** Where its InputSets of the relation parameters its ChangeSet binds to queries read their rows (BoundCarrier). */
+	readonly bound: BoundCarrierOf
 	readonly breach: BreachGuard
 	/**
 	 * Where its first statement's names start: r1 and c1 for a statement of its own (sql/naming.ts freshNames), and past
@@ -113,7 +116,24 @@ export interface ReadBackLowering {
 interface WriteLowering {
 	readonly kind: "write"
 	readonly templates: DagTemplates
+	/** Where its InputSets of the relation parameters its ChangeSet binds to queries read their rows (BoundCarrier). */
+	readonly bound: BoundCarrierOf
 }
+
+/**
+ * Where an InputSet of a relation parameter its ChangeSet binds to a query (ir/rel.ts InputSetInput `bound`) reads its
+ * rows: the write program's carrier its call fills once before its first stratum, scanned under an alias by the
+ * carrier's own reading (write/carriers carrierScan), and the carrier's column of each field of the parameter's heading.
+ */
+export interface BoundCarrier {
+	/** The carrier's name, which a read-back's kept lowering keys its surroundings by. */
+	readonly carrier: CarrierName
+	readonly scan: (alias: string) => FromSource
+	readonly column: (field: string) => string
+}
+
+/** The carrier of each relation parameter a write's ChangeSet binds to a query, by the parameter, none for another. */
+export type BoundCarrierOf = (param: ParamId) => BoundCarrier | undefined
 
 /**
  * What lowering a rule probe over its region adds to lowering a query (analysis/theory/query.ts regionProbe): the
