@@ -571,7 +571,7 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
     key proofs per input), types/schema/budget/families (armed and disarmed both run full checks). Not profiled yet:
     types/schema/budget/scaling, types/query/budget/scaling.
 - **World-model, education, tree, page and derived suites (CULLWM), each a proposal, built only on the owner's go:**
-  - Delete test/pg/substrate/tree.test.ts's five boxes, which duplicate fin/tree's generators and oracle (fin uses
+  - Delete test/pg/substrate/tree.test.ts's four boxes, which duplicate fin/tree's generators and oracle (fin uses
     substrate's predicted), keeping tree.ts's model and generators; delete ddlOf when fallow flags it; carry "T3 without
     its check" and "without T6" into fin/tree as first-child and interval mutants; the fallback is judging by
     attemptChecked.
@@ -678,11 +678,10 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
 - **COMPUTE-03:** the compute, changeset and query agreements still pair the engine's prose by prefix, and the checker's
   binding sites still state prose ("a column the selected arms lack", "constants no arm delivers"); the agreements by
   roster.
-- **CLAIMS-03, the read-once face:** parked at ~/.cache/grizzle-release/CLAIMS/parked-CLAIMS-03.patch. Fourteen other
+- **CLAIMS-03, the read-once face:** parked at ~/.cache/grizzle-release/CLAIMS/parked-CLAIMS-03.patch. Thirteen other
   Cause.pretty renderers print a bare error name with no data: test/unit/adapter/layer.test.ts (three),
-  test/unit/adapter/flight-bound.test.ts, test/pg/oracle/public/run.ts (three),
-  test/pg/substrate/stopped.test.ts, test/pg/migrate/support.ts, bench/harness/runner.ts (four) and
-  packages/grizzle/src/cli/run.ts's internal error.
+  test/unit/adapter/flight-bound.test.ts, test/pg/oracle/public/run.ts (three), test/pg/migrate/support.ts,
+  bench/harness/runner.ts (four) and packages/grizzle/src/cli/run.ts's internal error.
 - **REDTESTS-04, grizzleActor through the approved recordingDriver:** grizzleActor learns a Db session's backend from a
   recording driver (BackendKeyData), per layer build. Parked at
   ~/.cache/grizzle-release/REDTESTS/parked/REDTESTS-04.patch (with its .msg), applying over 4dfbdba9 with REDTESTS-01 to 03, typechecked only. It owes the lint gate, payroll,

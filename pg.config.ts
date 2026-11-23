@@ -122,7 +122,7 @@ const workerDatabaseBytes = 38_916_935
  * @revalidate a 53300 refusal in a run; a network tier whose cases install larger schemas; a change of shared_buffers
  *   (workerDatabaseBytes, workersPerMember); a PostgreSQL repin; another machine
  */
-export const busyBackendBytes = 102_005_760
+const busyBackendBytes = 102_005_760
 
 /**
  * How grizzle's clients reach the cluster's members: over verify-full TLS at localhost, member i on 5442 + i, the one

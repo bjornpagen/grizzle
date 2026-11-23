@@ -81,12 +81,6 @@ export const leftoversCheck: Check = {
 	read: (rows) => Arr.map(rows, ([what]) => String(what))
 }
 
-export const leftovers = (admin: PgConnection): Effect.Effect<ReadonlyArray<string>, SqlError> =>
-	Effect.map(
-		admin.queryValues(leftoversCheck.statement.sql, leftoversCheck.statement.params),
-		leftoversCheck.read
-	)
-
 /**
  * Two effects of installing a schema reach past it, by design, and outlive the file's schemas:
  * - btree_gist is created outside the installed schema, because it must outlive every installed schema
@@ -95,7 +89,7 @@ export const leftovers = (admin: PgConnection): Effect.Effect<ReadonlyArray<stri
  *   per-schema default cannot.
  * Once the file's schemas are gone the release undoes both: it drops every extension the template does not carry,
  * with the extension's schema when that is not the template's and is left empty, and grants the owner's global
- * defaults back to PUBLIC. `leftovers` then judges what remains.
+ * defaults back to PUBLIC. `leftoversCheck` then judges what remains.
  */
 export const undoInstallEffects = (admin: PgConnection): Effect.Effect<void> =>
 	Effect.gen(function* () {

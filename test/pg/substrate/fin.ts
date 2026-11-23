@@ -1,6 +1,7 @@
 /**
- * The fin lemmas of fin.md §5.2 as hand-written DDL, the statements a writer sends, and the model of what PostgreSQL
- * does with each transaction of them: the substrate proof's own reference (fin.test.ts), never grizzle's lowering.
+ * The model of fin.md §5.2's lemmas, never grizzle's lowering: what PostgreSQL does with each transaction of statements
+ * on a family relation lowered for a direction, which test/pg/fin's lemma and family suites read (lemmas.fixtures.ts,
+ * family.ts).
  *
  * An owner relation `owner (id, n)` counts the slots of its family relation `fam (member, g, at)`, grouped by `g`. The
  * lowering adds three columns grizzle draws and the constraints of the direction stated (§5.2's table):
@@ -13,12 +14,10 @@
  *   ‹p› reads the copy, so the copy's foreign key comes too;
  * - `mirrors`: all of them.
  *
- * `natural` is a domain over int8, `CHECK (VALUE >= 0)`, typing the declared count and index; the columns grizzle
- * generates or copies are int8, its base type, as grizzle's law columns are. The model is the families theorem's
- * (test/support/families/theorem.ts) with the moment each constraint is checked a parameter of the lowering, so one
- * model judges the RFC's deferral and its alternatives.
+ * The model is the families theorem's (test/support/families/theorem.ts) with the moment each constraint is checked a
+ * parameter of the lowering.
  */
-import { Array as Arr, Option, Order } from "effect"
+import { Array as Arr, Order } from "effect"
 import {
 	applied,
 	type Moment,
@@ -26,14 +25,12 @@ import {
 	type Timing
 } from "#test/support/families/mutate.ts"
 import {
-	CONSTRAINTS,
 	type Constraint,
 	type FamilyRow,
 	type Stored,
 	type FamilyViolation,
 	familyViolations
 } from "#test/support/families/theorem.ts"
-import { qualified, tuple } from "#test/support/substrate.ts"
 
 /** Which half of the bijection a lowering states, or both. */
 export type Direction = "within" | "covers" | "mirrors"
@@ -52,7 +49,7 @@ export interface Lowering {
 }
 
 /** The constraints a direction installs beside the owner's own keys. */
-export const constraintsOf: Readonly<Record<Direction, ReadonlyArray<Constraint>>> = {
+const constraintsOf: Readonly<Record<Direction, ReadonlyArray<Constraint>>> = {
 	within: ["identity", "copy", "bound"],
 	covers: ["identity", "key", "copy", "last", "closure"],
 	mirrors: ["identity", "key", "bound", "copy", "last", "closure"]
@@ -74,16 +71,6 @@ const timingOf = (lowering: Lowering, constraint: Constraint): Timing => {
 	}
 }
 
-/** Each constraint's name in the DDL, which PostgreSQL reports a violation by. */
-const constraintName: Readonly<Record<Constraint, string>> = {
-	identity: "fam_identity",
-	key: "fam_key",
-	bound: "fam_bound",
-	copy: "fam_copy",
-	last: "owner_last",
-	closure: "fam_closure"
-}
-
 /** The SQLSTATE PostgreSQL raises a constraint's violation with: 23505 for a key, 23514 for a check, 23503 for an FK. */
 export const sqlstateOf: Readonly<Record<Constraint, string>> = {
 	identity: "23505",
@@ -92,54 +79,6 @@ export const sqlstateOf: Readonly<Record<Constraint, string>> = {
 	copy: "23503",
 	last: "23503",
 	closure: "23503"
-}
-
-/** The constraint a reported name is, or none for a name no lowering installs. */
-export const constraintNamed = (name: string | undefined): Option.Option<Constraint> =>
-	Arr.findFirst(CONSTRAINTS, (c) => constraintName[c] === name)
-
-const deferral = (timing: Timing): string =>
-	timing === "commit" ? "DEFERRABLE INITIALLY DEFERRED" : "NOT DEFERRABLE"
-
-/** The DDL of a lowering in `schema`, in order: the natural domain, the owner, the family, and the last slot. */
-export const ddlOf = (schema: string, lowering: Lowering): ReadonlyArray<string> => {
-	const owner = qualified(schema, "owner")
-	const fam = qualified(schema, "fam")
-	const natural = qualified(schema, "natural")
-	const present = new Set(constraintsOf[lowering.direction])
-	const covering = present.has("closure")
-	const p =
-		lowering.restriction === "restricted"
-			? "CASE WHEN at > 0 AND at < copy THEN at - 1 END"
-			: "CASE WHEN at > 0 THEN at - 1 END"
-	const famParts = [
-		"member int4 NOT NULL",
-		"g int4 NOT NULL",
-		`at ${natural} NOT NULL`,
-		"copy int8 NOT NULL",
-		...(covering ? [`p int8 GENERATED ALWAYS AS (${p}) STORED`] : []),
-		`CONSTRAINT fam_identity PRIMARY KEY (member)`,
-		...(present.has("key") ? ["CONSTRAINT fam_key UNIQUE NULLS DISTINCT (g, at)"] : []),
-		...(present.has("bound") ? ["CONSTRAINT fam_bound CHECK (at < copy)"] : []),
-		`CONSTRAINT fam_copy FOREIGN KEY (g, copy) REFERENCES ${owner} (id, n) MATCH SIMPLE ON UPDATE CASCADE ${deferral(lowering.copy)}`,
-		...(covering
-			? [
-					`CONSTRAINT fam_closure FOREIGN KEY (g, p) REFERENCES ${fam} (g, at) MATCH SIMPLE ${deferral(lowering.closure)}`
-				]
-			: [])
-	]
-	return [
-		`CREATE DOMAIN ${natural} AS int8 CONSTRAINT natural_nonnegative CHECK (VALUE >= 0)`,
-		`CREATE TABLE ${owner} (id int4 NOT NULL, n ${natural} NOT NULL${
-			covering ? ", last int8 GENERATED ALWAYS AS (CASE WHEN n > 0 THEN n - 1 END) STORED" : ""
-		}, CONSTRAINT owner_pk PRIMARY KEY (id), CONSTRAINT owner_slots UNIQUE NULLS DISTINCT (id, n))`,
-		`CREATE TABLE ${fam} (${Arr.join(famParts, ", ")})`,
-		...(covering
-			? [
-					`ALTER TABLE ${owner} ADD CONSTRAINT owner_last FOREIGN KEY (id, last) REFERENCES ${fam} (g, at) MATCH SIMPLE ${deferral(lowering.last)}`
-				]
-			: [])
-	]
 }
 
 /**
@@ -155,7 +94,7 @@ export type Mutation =
 	| { readonly kind: "recopy"; readonly member: number; readonly copy: number }
 
 /** The state a mutation leaves, before any constraint is checked: what its SQL does to the rows it matches. */
-export const appliedTo = (stored: Stored, mutation: Mutation): Stored => {
+const appliedTo = (stored: Stored, mutation: Mutation): Stored => {
 	switch (mutation.kind) {
 		case "regroup":
 			return {
@@ -178,33 +117,6 @@ export const appliedTo = (stored: Stored, mutation: Mutation): Stored => {
 		case "delete":
 		case "move":
 			return applied(stored, mutation)
-	}
-}
-
-/** A mutation's SQL in `schema`. An insert lists its rows in the order the mutation states. */
-export const sqlOf = (schema: string, mutation: Mutation): string => {
-	const owner = qualified(schema, "owner")
-	const fam = qualified(schema, "fam")
-	switch (mutation.kind) {
-		case "create":
-			return `INSERT INTO ${owner} (id, n) VALUES (${mutation.owner}, ${mutation.count})`
-		case "drop":
-			return `DELETE FROM ${owner} WHERE id = ${mutation.owner}`
-		case "count":
-			return `UPDATE ${owner} SET n = ${mutation.count} WHERE id = ${mutation.owner}`
-		case "insert":
-			return `INSERT INTO ${fam} (member, g, at, copy) VALUES ${Arr.join(
-				Arr.map(mutation.rows, (r) => tuple([r.member, r.group, r.at, r.copy])),
-				", "
-			)}`
-		case "delete":
-			return `DELETE FROM ${fam} WHERE member IN ${tuple(mutation.members)}`
-		case "move":
-			return `UPDATE ${fam} SET at = ${mutation.at} WHERE member = ${mutation.member}`
-		case "regroup":
-			return `UPDATE ${fam} SET g = ${mutation.group} WHERE member = ${mutation.member}`
-		case "recopy":
-			return `UPDATE ${fam} SET copy = ${mutation.copy} WHERE member = ${mutation.member}`
 	}
 }
 
@@ -293,42 +205,3 @@ export const canonical = (
 		Order.mapInput(Order.Number, (r: FamilyRow) => r.member)
 	)
 })
-
-/** The read of a lowering's stored state, owners then rows, every value an int4. */
-export const readSql = (schema: string): string =>
-	`SELECT 0, id::int4, n::int4, 0, 0 FROM ${qualified(schema, "owner")} UNION ALL SELECT 1, member, g, at::int4, copy::int4 FROM ${qualified(schema, "fam")}`
-
-/** The stored state the read returns. */
-export const storedOfRows = (rows: ReadonlyArray<ReadonlyArray<unknown>>): Stored => {
-	const owners = new Map<number, number>()
-	const famRows: Array<FamilyRow> = []
-	for (const [table, a, b, c, d] of rows) {
-		if (Number(table) === 0) {
-			owners.set(Number(a), Number(b))
-		} else {
-			famRows.push({ member: Number(a), group: Number(b), at: Number(c), copy: Number(d) })
-		}
-	}
-	return { owners, rows: famRows }
-}
-
-/**
- * The statements that write a stored state from no state, as one transaction: each owner created with its count, in
- * order of key, then one insert of every row, successor first, so a row never arrives after the row it references.
- */
-export const writeOf = (stored: Stored): ReadonlyArray<Mutation> => {
-	const descending = Arr.sort(
-		stored.rows,
-		Order.mapInput(Order.flip(Order.Number), (r: FamilyRow) => r.at)
-	)
-	return [
-		...Arr.map(canonical(stored).owners, ([owner, count]): Mutation => ({
-			kind: "create",
-			owner,
-			count
-		})),
-		...(Arr.isReadonlyArrayNonEmpty(descending)
-			? [{ kind: "insert", rows: descending } satisfies Mutation]
-			: [])
-	]
-}

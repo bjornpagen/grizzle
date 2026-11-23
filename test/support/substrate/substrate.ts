@@ -460,7 +460,7 @@ const asSuperuserRead = <A, E>(
  * budget's permits before psql is spawned, given back once its backend has ended or psql has failed to start
  * (budget.ts ConnectionBudget opened), and dies with ConnectionBudgetExhausted when none is free.
  */
-export const psqlWriter = (
+const psqlWriter = (
 	cluster: BudgetedCluster,
 	database: string,
 	admin: PgConnection,
@@ -997,7 +997,7 @@ const formerBuildDropped = (
  * client's close, and CREATE DATABASE ... TEMPLATE refuses a template another backend is in (55006) once its few seconds
  * of waiting pass, so a build returns only when none is left.
  */
-export const backendsEnded = (cluster: BudgetedCluster, name: string): Effect.Effect<void> =>
+const backendsEnded = (cluster: BudgetedCluster, name: string): Effect.Effect<void> =>
 	asSuperuser(cluster, pgCluster.owner, [
 		`SELECT pg_catalog.pg_terminate_backend(a.pid, ${testExitWait}) FROM pg_catalog.pg_stat_activity AS a WHERE a.datname = ${quoteString(name)}::name AND a.pid <> pg_catalog.pg_backend_pid()`
 	])
@@ -1009,7 +1009,7 @@ export const backendsEnded = (cluster: BudgetedCluster, name: string): Effect.Ef
  * build's own sessions while it still held them, and each closing statement they sent met 57P01 (TOOLCHAIN6,
  * 2026-11-21: 49 terminations in 15 minutes, every one a template build database's).
  */
-export const builtThenEnded = <A, E, R, E2, R2>(
+const builtThenEnded = <A, E, R, E2, R2>(
 	build: Effect.Effect<A, E, R>,
 	ended: Effect.Effect<void, E2, R2>
 ): Effect.Effect<void, E | E2, Exclude<R, Scope.Scope> | R2> =>
@@ -1532,7 +1532,7 @@ export class Substrate extends Context.Service<Substrate, SubstrateShape>()(
 		rolledBackCases("Substrate.rolledBack", template, Option.none())
 	/**
 	 * One case's owner transaction on the worker's own clone of the base template, as Substrate.rolledBack, and after
-	 * every case the clone judged clean by the substrate's own definition (shared.ts leftovers), a cheap assertion of
+	 * every case the clone judged clean by the substrate's own definition (shared.ts leftoversCheck), a cheap assertion of
 	 * what the rollback already guarantees: for the cases that read and evaluate on one owner session and commit nothing.
 	 */
 	static readonly transaction: TemplateNeed<RolledBack<void>> = rolledBackCases(

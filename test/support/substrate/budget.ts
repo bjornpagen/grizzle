@@ -12,7 +12,7 @@ import type { TlsMember } from "#test/support/cluster.ts"
  * (packages/grizzle/src/adapter/wire/session.ts attemptFor, connectOne, cancelRequest), and the Effect openers die with
  * it alike, so a test reads one refusal however it opened the connection.
  */
-export class ConnectionBudgetExhausted extends Data.TaggedError("ConnectionBudgetExhausted")<{
+class ConnectionBudgetExhausted extends Data.TaggedError("ConnectionBudgetExhausted")<{
 	readonly width: number
 }> {
 	override get message(): string {
@@ -89,8 +89,8 @@ export const connectionBudget = (width: number): ConnectionBudget => {
 	/**
 	 * `count` permits, drawn at once or refused at once, given back when their scope closes. The draw is synchronous, so
 	 * its acquisition is interruptible at no cost: only a wait for a permit, which a budget never makes, could be
-	 * interrupted, and a defect's wait so ends with whatever bounds its caller (test/pg/substrate/budget.test.ts
-	 * barrierWait) where it held its case until the case's hang.
+	 * interrupted, and a defect's wait so ends with whatever bounds its caller, where it held its case until the case's
+	 * hang.
 	 */
 	const permits = (count: number): Effect.Effect<void, never, Scope.Scope> =>
 		Effect.acquireRelease(

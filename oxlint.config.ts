@@ -25,7 +25,6 @@ const { active, lintConfig } = standard(toolchain)
  */
 const DICTIONARY_MINTS = [
 	"test/types/schema/closed-subset.dictionary.ts",
-	"test/pg/substrate/transaction.dictionary.ts",
 	"test/pg/lower-conservative/vocabulary.dictionary.ts",
 	"test/pg/scalar/registry.dictionary.ts",
 	"test/pg/oracle/mutants/invalid.dictionary.ts",

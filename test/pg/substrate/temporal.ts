@@ -1,8 +1,8 @@
 /**
- * Coverage's model (fin.md §7), the specification turned into a checker, shared by the substrate's proof of the
- * lowering (temporal.test.ts) and grizzle's lowering's (test/pg/laws/coverage.test.ts): spans are half-open integer
- * intervals over the box's points, a target key refuses an empty span and two spans of one key that overlap, and a
- * source row is covered when its span is NULL, or non-empty and inside the union of its key's target spans.
+ * Coverage's model (fin.md §7), the specification turned into a checker that the proof of grizzle's lowering reads
+ * (test/pg/laws/coverage.test.ts): spans are half-open integer intervals over the box's points, a target key refuses an
+ * empty span and two spans of one key that overlap, and a source row is covered when its span is NULL, or non-empty and
+ * inside the union of its key's target spans.
  */
 import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { nonEmpty } from "@bjornpagen/testing/assert"
@@ -17,7 +17,7 @@ export type Span =
 const points = [0, 1, 2, 3] as const
 
 /** Every non-empty interval over the box's points. */
-export const INTERVALS: Arr.NonEmptyReadonlyArray<Span> = nonEmpty(
+const INTERVALS: Arr.NonEmptyReadonlyArray<Span> = nonEmpty(
 	Arr.flatMap(points, (lo) =>
 		Arr.map(
 			Arr.filter(points, (hi) => hi > lo),
@@ -35,7 +35,7 @@ export const SPANS: Arr.NonEmptyReadonlyArray<Span> = [
 
 export const isEmpty = (s: Span): boolean => s.kind === "span" && s.lo === s.hi
 
-export const overlaps = (a: Span, b: Span): boolean =>
+const overlaps = (a: Span, b: Span): boolean =>
 	a.kind === "span" && b.kind === "span" && a.lo < b.hi && b.lo < a.hi && !isEmpty(a) && !isEmpty(b)
 
 /** A row of either table: its key and its span. */

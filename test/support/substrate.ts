@@ -178,38 +178,6 @@ export const attemptChecked = <A>(
 ): Effect.Effect<Checked<A>, SqlError> =>
 	checkedIn({ on: session, open: beginSerializable, undo: session.rollback }, statements, read)
 
-/** The savepoint a checked transaction runs under inside a case's own transaction. */
-const checkedSavepoint = "grizzle_checked"
-
-/**
- * One transaction of `statements` checked as its COMMIT would check it (checkedIn), under a savepoint of the case's one
- * transaction on `connection` (Substrate.rolledBack's bare connection, already inside it), rolled back to and released,
- * so the case's transaction goes on as it was: a case pays no connection, no reset and no fingerprint of its clone, and
- * the case's own rollback undoes whatever a failure leaves.
- */
-export const attemptCheckedInCase = <A>(
-	connection: PgConnection,
-	statements: ReadonlyArray<string>,
-	read: Effect.Effect<A, SqlError>
-): Effect.Effect<Checked<A>, SqlError> =>
-	checkedIn(
-		{
-			on: connection,
-			open: `SAVEPOINT ${checkedSavepoint}`,
-			undo: Effect.asVoid(
-				Effect.mapError(
-					connection.pipeline([
-						`ROLLBACK TO SAVEPOINT ${checkedSavepoint}`,
-						`RELEASE SAVEPOINT ${checkedSavepoint}`
-					]),
-					(refused) => refused.error
-				)
-			)
-		},
-		statements,
-		read
-	)
-
 /** A moment as a report reads it. */
 export const momentText = (moment: Moment): string =>
 	moment.kind === "commit" ? "at commit" : `at statement ${moment.index}`
@@ -228,10 +196,3 @@ export const refusalText = (fields: PgErrorFields): string =>
 /** An identifier of a proof's own schema, quoted, joined to a name in it. */
 export const qualified = (schema: string, name: string): string =>
 	`${quoteIdent(schema)}.${quoteIdent(name)}`
-
-/** The SQL text of an int8 list, `(a, b, …)`, for an IN list or a VALUES row. */
-export const tuple = (values: ReadonlyArray<number | bigint | string>): string =>
-	`(${Arr.join(
-		Arr.map(values, (v) => String(v)),
-		", "
-	)})`

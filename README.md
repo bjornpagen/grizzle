@@ -6079,7 +6079,7 @@ pnpm types                        # after every edit: the typecheck, which the h
 pnpm check                        # before a release (turbo, cached): typecheck, workspace gate, oxlint, format, fallow, dedupe
 ```
 
-Every script and test reaches one local cluster, `pg.config.ts`, whose members are the workbench's PostgreSQL units `postgres@grizzle-test-<i>`, member i on port 5442 + i: `pnpm pg settle` (`toolchain-pg settle`, run as the unit `grizzle-test-settle`) starts them and gives them the spec, its members spread over a run's workers, each admitting as many connections as the machine's memory holds of busy backends. A run only reads them: a member not as the spec states is refused, naming `pnpm pg settle`, and nothing admits or queues a run's connections. PostgreSQL's SERIALIZABLE bookkeeping is per cluster, so a case that needs a cluster's own state takes one of its own (`test/support/private-cluster.ts`), settled for the case and removed after it.
+Every script and test reaches one local cluster, `pg.config.ts`, whose members are the workbench's PostgreSQL units `postgres@grizzle-test-<i>`, member i on port 5442 + i: `pnpm pg settle` (`toolchain-pg settle`, run as the unit `grizzle-test-settle`) starts them and gives them the spec, its members spread over a run's workers, each admitting as many connections as the machine's memory holds of busy backends. A run only reads them: a member not as the spec states is refused, naming `pnpm pg settle`, and nothing admits or queues a run's connections.
 
 `pnpm pg:build` builds the PostgreSQL the machine's units run (the workbench's `machine/parts/postgresql` installs it); stop the units that run it (`systemctl --user stop 'postgres@*'`) before an exchange, and start them after.
 

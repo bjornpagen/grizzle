@@ -908,7 +908,7 @@ export const runAlone = (
  * load then keeps an unset visibility map, and the planner costs an index-only scan of it as a plain index scan, the
  * heap fetched for every row (costsize.c cost_index), so the plans the serving judges read (test/pg/physical/serving.ts
  * loadRows) would turn on the WAL writer's timing.
- * substrate/shared.ts `leftovers` treats exactly these, and nothing else, as a test database's own settings.
+ * substrate/shared.ts `leftoversCheck` treats exactly these, and nothing else, as a test database's own settings.
  */
 export const testDatabaseSettings: ReadonlyArray<readonly [name: string, value: string]> = [
 	["deadlock_timeout", "10ms"],

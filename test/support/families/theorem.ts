@@ -182,7 +182,7 @@ export const theorem = (
  * - `last`: the foreign key of the owner's last slot, (key, count − 1) where the count is positive, into (group, at);
  * - `closure`: the foreign key of (group, at − 1), where the index is positive and below the copy, into (group, at).
  */
-export const CONSTRAINTS = ["identity", "key", "bound", "copy", "last", "closure"] as const
+const CONSTRAINTS = ["identity", "key", "bound", "copy", "last", "closure"] as const
 
 export type Constraint = (typeof CONSTRAINTS)[number]
 

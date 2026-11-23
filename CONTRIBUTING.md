@@ -128,9 +128,7 @@ test tiers at once under the seed the release gates on before grizzle main pushe
       map (`test/support/pg.ts` `testDatabaseSettings`).
 - **`pnpm pg <command>`** runs the testing library's `toolchain-pg` on it: `settle`; `check`, which reads every member
   as a run does and writes nothing; `psql`, verify-full as `grizzle_dev`; `admin`, as the bootstrap superuser over the
-  socket; and `env`. A case that needs a cluster of its own, its settings fresh from their declaration
-  (test/pg/substrate/orphan.test.ts), takes `test/support/private-cluster.ts` `privateCluster`: the unit
-  `postgres@grizzle-private-<worker>-0`, settled for the case and removed after it.
+  socket; and `env`.
 - **`packages/pg`** (`@bjornpagen/grizzle-pg`) is the TypeScript `pnpm pg:build` runs (the postmasters that run from
   the installed build) and the pin as a typed value, a workspace member so a consumer's
   install, never one inside its submodule, gives it its dependencies; its `grizzle-pg` bin runs `build` and `source`.
@@ -674,9 +672,6 @@ text match. A type agreement's requirements are its property's situations, which
   verify-full TLS with the tap's own CA (`test/support/memory-tls.ts`), and the tap carries the plaintext over its own
   verified TLS to the cluster. The scripted-session suite (`test/pg/adapter/flight.test.ts`) holds what a flight's
   session observes, interrupted anywhere, to what the server observed.
-- **Stopped searches** (`test/pg/substrate/stopped.test.ts`): a search whose cases allocate drawn schemas, roles and
-  sessions is stopped by its deadline's cut, its hang guard or an interruption, wherever its cases stand. Once it
-  returns, the shared database holds nothing a clean one does not, and no role a case set out to create exists.
 - **Startup work** (`test/unit/startup`): the calls a schema's build, `grizzle generate`, `check`, `migrate`, `drift`
   and DbLayer.make make to the schema's encoding and compilation, read off V8's call counts
   (`test/support/kernel/calls.ts`) and never timed. Each whole-schema pass runs once, migrate and drift compile nothing
