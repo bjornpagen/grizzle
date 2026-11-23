@@ -16,6 +16,7 @@
  *
  * Features: the situations below, every operator kind among them, and each decline of the reference, rated.
  */
+import { ReplayToken } from "@bjornpagen/testing/property"
 import { conservativeAgreement } from "#test/pg/oracle/conservative.fixtures.ts"
 import { denseQueryCaseGen } from "#test/pg/oracle/support.ts"
 import { defaultGenConfig, queryCaseGen } from "#test/support/oracle/gen/case.ts"
@@ -26,6 +27,16 @@ import { defaultGenConfig, queryCaseGen } from "#test/support/oracle/gen/case.ts
  */
 export const generated = conservativeAgreement(
 	queryCaseGen(defaultGenConfig),
+	[
+		{
+			token: ReplayToken(
+				"test/pg/oracle/conservative.test.ts#generated:-:1.7.0.1.1.0.0.0.0.0.0.0.0.0.0.0.0.1.1.0.1.2.1.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.b.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0"
+			),
+			reason:
+				"f1bf91a2f's gate, rotating 0x45dc0b3e, case 710: a relation parameter's facts (0) and ('-0') matched whole, two rows the conservative lowering delivered and the reference evaluator held as one (c7da3c9b1)",
+			since: "2026-11-22"
+		}
+	],
 	[
 		{
 			file: "packages/engine/src/lower/conservative/anti-join/index.ts",
@@ -48,6 +59,7 @@ export const generated = conservativeAgreement(
 /** The same agreement on generated cases with dense facts, so fewer results are empty. */
 export const dense = conservativeAgreement(
 	denseQueryCaseGen(defaultGenConfig),
+	[],
 	[
 		{
 			file: "test/support/oracle/gen/ops.ts",

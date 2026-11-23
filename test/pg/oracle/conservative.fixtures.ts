@@ -1,5 +1,5 @@
 import type { Gen } from "@bjornpagen/testing/gen"
-import type { Budget, Case, Kill } from "@bjornpagen/testing/property"
+import type { Budget, Case, Kept, Kill } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { type ConservativeFeature, caseFeatures, operatorKinds } from "#test/pg/oracle/support.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
@@ -48,10 +48,11 @@ const situations = [
 
 /**
  * The conservative lowering against the reference evaluator over `gen`'s cases, each in its own database under its
- * own schema, under a plan perturbation (runner.ts oracleProperty), with `kills`.
+ * own schema, under a plan perturbation (runner.ts oracleProperty), with `kept` and `kills`.
  */
 export const conservativeAgreement = (
 	gen: Gen<QueryCase>,
+	kept: ReadonlyArray<Kept>,
 	kills: ReadonlyArray<Kill>,
 	budget: Budget
 ) =>
@@ -59,7 +60,7 @@ export const conservativeAgreement = (
 		situations,
 		perturb: "all",
 		oracle: { kind: "second-implementation", name: "the brute-force reference evaluator" },
-		kept: [],
+		kept,
 		kills,
 		budget,
 		show: Formatter.format,
