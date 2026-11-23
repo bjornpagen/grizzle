@@ -26,7 +26,7 @@ import type { CliError } from "#cli/errors.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { type Identity, identity } from "#compiler/core/identity.ts"
-import { quoteIdent } from "#compiler/core/text.ts"
+import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { bookkeepingTables } from "#compiler/deploy/ledger/ledger.ts"
 import { filed } from "#compiler/deploy/render/filed.ts"
@@ -267,7 +267,8 @@ const body = (statement: string): string =>
 /**
  * A statement a first migration runs beyond the fresh-install script that leaves no object but grizzle's bookkeeping
  * tables beside it (deploy/ledger/ledger.ts bookkeepingTables, kernel/naming.ts isBookkeepingObject): a table's own DDL,
- * guard trigger and grants, the LOCK opening a residual law's Validate file, the DO block running the law's full
+ * guard trigger, grants and declared statistics (its ALTER TABLE, and the DO block restoring them, which names the table
+ * by its name as a literal), the LOCK opening a residual law's Validate file, the DO block running the law's full
  * violation query there, which reads and raises only, the DO block reading a zone roster's handles as time zones in
  * Setup, which reads and raises only too, and the REFRESH that populates a materialized view the migration
  * creates (7e449b6ef), which writes its rows and makes no object. The snapshot guard's function names the
@@ -288,7 +289,9 @@ const leavesNoObject = (statement: string, schema: string): boolean => {
 		Str.startsWith("REFRESH MATERIALIZED VIEW ")(text) ||
 		(Str.startsWith("DO ")(text) &&
 			(Str.includes("-- The full violation query of law ")(statement) ||
-				Str.includes("-- The time zones of roster ")(statement)))
+				Str.includes("-- The time zones of roster ")(statement) ||
+				(Str.includes('"pg_catalog"."pg_restore_attribute_stats"(')(text) &&
+					Arr.some(bookkeepingTables, (b) => pipe(text, Str.includes(quoteString(b.name)))))))
 	)
 }
 

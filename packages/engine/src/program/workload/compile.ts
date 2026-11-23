@@ -26,7 +26,6 @@ import type {
 	AccessPath,
 	ParamDecl,
 	ProgramAccess,
-	StatisticsShape,
 	WorkloadAccess
 } from "#compiler/ir/products.ts"
 import type { RelNode, Rooted, RootedDag } from "#compiler/ir/rel.ts"
@@ -52,11 +51,6 @@ import { type ServedTypes, servedTypesOf } from "#compiler/physical/ddl/domains.
 import { namedRole, worldNames } from "#compiler/physical/ddl/names.ts"
 import type { RoleCall, RoleCarriers } from "#compiler/physical/install/extension.ts"
 import type { ParamSource } from "#compiler/physical/install/plan.ts"
-import {
-	mergeStatistics,
-	type StatisticsRequest,
-	statisticsKinds
-} from "#compiler/physical/statistics/statistics.ts"
 
 import type { SchemaInput } from "#compiler/program/input.ts"
 import { certification } from "#compiler/program/isolation/certification.ts"
@@ -398,13 +392,10 @@ const changeSetIr = (
 	)
 }
 
-/** The access paths and statistics of a program's checked IR. */
+/** The access paths of a program's checked IR. */
 const irAccess = (ir: ProgramIr): ProgramAccess => {
 	const extraction = extractAccess(ir.roots, { pageable: ir.pageable })
-	return {
-		paths: uniquePaths([...extraction.paths, ...ir.targets]),
-		statistics: extraction.statistics
-	}
+	return { paths: uniquePaths([...extraction.paths, ...ir.targets]) }
 }
 
 /**
@@ -673,15 +664,14 @@ const livePlanOf = (footprints: WorkloadFootprints): LivePlan => {
 }
 
 /**
- * The workload compiler: every login's programs' access paths and statistics, merged as physical requests.
+ * The workload compiler: every login's programs' access paths, merged as physical requests.
  *
  * compileWorkload reads the schema and the logins' workloads together, as the migration generator does: each login's
  * programs' plans (loginPlans), their access, which the snapshot records by login and program, and each query's
  * footprint, whose union is the installation's live plan (livePlanOf). Equal paths of several programs
- * are one request and equal statistics column sets one object, each justified by the workload's access; which programs
- * ask for them, the snapshot's record of each program's access says, so a program edit that moves no index changes no
- * object. A path or statistics request on a derived relation is a request like any other: the installation plans it
- * on the relation's materialized view wherever it installs the view.
+ * are one request, justified by the workload's access; which programs ask for it, the snapshot's record of each
+ * program's access says, so a program edit that moves no index changes no object. A path on a derived relation is a
+ * request like any other: the installation plans it on the relation's materialized view wherever it installs the view.
  *
  * The workload installs nothing and gates no execution: a program the checker refuses is refused here with its
  * CompileError, naming the program and its workload (WorkloadPlanRefused), so a broken workload never drafts a
@@ -778,21 +768,10 @@ const workloadPlanned = (
 		}
 		appendAll(planned, filters.value)
 	}
-	const statistics = mergeStatistics(
-		planned.flatMap((p) =>
-			p.statistics.map((s: StatisticsShape): StatisticsRequest => ({
-				relation: s.relation,
-				columns: s.columns,
-				kinds: statisticsKinds,
-				uses: [s.use]
-			}))
-		)
-	)
 	const paths: ReadonlyArray<AccessPath> = uniquePaths(planned.flatMap((p) => p.paths))
 	const physical: WorkloadPhysical = {
 		schema: artifacts.fingerprint,
 		paths,
-		statistics,
 		params: {
 			domains: served.flatMap((p) => p.domains),
 			contracts: served.flatMap((p) => p.contracts),
@@ -948,7 +927,7 @@ export const servedWorkload = <S extends ParamSource>(
 
 /**
  * How one program of a login's workloads differs from what the snapshot records for the login: a program the snapshot
- * does not record, one it records that the workloads no longer hold, or one whose access paths or statistics moved.
+ * does not record, one it records that the workloads no longer hold, or one whose access paths moved.
  */
 export type AccessDrift = { readonly program: string } & (
 	| { readonly kind: "unrecorded" }
@@ -976,15 +955,12 @@ const samePath = (a: AccessPath, b: AccessPath): boolean =>
 	a.fixed === b.fixed &&
 	sameList(a.keys, b.keys, (x, y) => x.field === y.field && x.dir === y.dir)
 
-const sameStatistics = (a: StatisticsShape, b: StatisticsShape): boolean =>
-	a.relation === b.relation && a.use === b.use && sameList(a.columns, b.columns, (x, y) => x === y)
-
 const sameAccess = (a: ProgramAccess, b: ProgramAccess): boolean =>
-	sameList(a.paths, b.paths, samePath) && sameList(a.statistics, b.statistics, sameStatistics)
+	sameList(a.paths, b.paths, samePath)
 
 /**
- * Every program whose access differs from the record, in program name order: the workload's access paths and
- * statistics (loginAccess) against those the snapshot recorded for the login, none when the login is no key of it.
+ * Every program whose access differs from the record, in program name order: the workload's access paths (loginAccess)
+ * against those the snapshot recorded for the login, none when the login is no key of it.
  * `grizzle check` reports each, naming the program and saying to run `grizzle generate`.
  */
 export const accessDrift = (
@@ -1019,6 +995,6 @@ export const accessDriftText = (login: string, drift: AccessDrift): string => {
 		case "gone":
 			return `snapshot.json records ${program}, which no workload of the login holds`
 		case "moved":
-			return `${program} reads through other access paths or statistics than snapshot.json records`
+			return `${program} reads through other access paths than snapshot.json records`
 	}
 }

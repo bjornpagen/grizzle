@@ -110,12 +110,14 @@ export const renamedPaths = property.explore(steered(renamedCaseSteered), {
 		},
 		{
 			token: ReplayToken("test/pg/migrate/paths.test.ts#renamedPaths:-:2.5.0.0.0.0.0.0"),
-			reason: "M51: statistics over a retyped field",
+			reason:
+				"M51: statistics over a retyped field, now its table's declared statistics, which the conversion clears, declared again",
 			since: "2026-10-29"
 		},
 		{
 			token: ReplayToken("test/pg/migrate/paths.test.ts#renamedPaths:-:2.6.0.0.0.0.0.0"),
-			reason: "M51: statistics of a renamed relation",
+			reason:
+				"M51: statistics of a renamed relation, now its declared statistics beside a new relation of its old name",
 			since: "2026-10-29"
 		},
 		{
@@ -126,10 +128,10 @@ export const renamedPaths = property.explore(steered(renamedCaseSteered), {
 		},
 		{
 			token: ReplayToken(
-				"test/pg/migrate/paths.test.ts#renamedPaths:-:0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.2.1.3.1.1.2.2.3.2.3.3.1.3.0.1.2.1.2.6.0.2.1.0.0.0.0.0.0.0.1.3.0.0.0.0.0.0.1.0.0.1.1.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.1.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.pa8.0.0.0.0.0.1.b.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0"
+				"test/pg/migrate/paths.test.ts#renamedPaths:-:0.l.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.1.1.3.1.1.2.2.3.2.3.3.1.3.0.1.2.1.2.6.0.2.1.0.0.0.0.0.0.0.1.3.0.0.0.0.0.0.1.0.0.1.1.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.1.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.pa8.0.0.0.0.0.1.b.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0"
 			),
 			reason:
-				"FULLSUITE3, kept again: a roster's re-pointed domain over a column of a relation the same step drops, the column holding a code the step removes: the domain's VALIDATE drafted before the drop refused the dropped table's row, 23514 (engine fix 695fe292; the case of 2026-11-16 drew stale, so a fuzz under its kill found this one, red at 04-validate.sql statement 1)",
+				"FULLSUITE3, kept again: a roster's re-pointed domain over a column of a relation the same step drops, the column holding a code the step removes: the domain's VALIDATE drafted before the drop refused the dropped table's row, 23514 (engine fix 695fe292; the case of 2026-11-16 drew stale, so a fuzz under its kill found this one, red at 04-validate.sql statement 1; its token taken again from its value when the paths' extras lost their extended statistics, DECLSTATS)",
 			since: "2026-11-21"
 		}
 	],

@@ -22,7 +22,6 @@ import {
 	noCalls,
 	type RoleCall
 } from "#compiler/physical/install/extension.ts"
-import type { StatisticsRequest } from "#compiler/physical/statistics/statistics.ts"
 
 /** What the installation needs of a compiled workload. */
 export interface WorkloadPhysical {
@@ -30,7 +29,6 @@ export interface WorkloadPhysical {
 	readonly schema: SchemaFingerprint
 	/** Each distinct path of the workload's programs and the roles' write filters, once, in canonical order. */
 	readonly paths: ReadonlyArray<AccessPath>
-	readonly statistics: ReadonlyArray<StatisticsRequest>
 	/**
 	 * The types its programs name (physical/ddl/domains.ts ServedTypes): each pattern parameter's own pattern domain,
 	 * each contract a parameter is typed by and each text refinement its programs type a value by, so installing the
@@ -49,16 +47,14 @@ export const workloadRequests = (
 ): ReadonlyArray<AccessIndexRequest> =>
 	workload.paths.map((path) => pathRequest(path, vectorSchema))
 
-/** The workload in the installation: access-path index requests and statistics through the installer's extensions,
- * and the types its programs' parameters are cast to (InstallExtension.params), which the installation plans and
- * installs, so no installation of a workload lacks a domain its statements cast a parameter to.
- * The workload compiler extracts each program's access paths and statistics and merges them across programs. This
- * extension hands the paths to the one index engine as IndexRequests with role `access`, beside the law-maintenance
- * requests, so a request lands on a key, enforcement or law index that serves it, adding the access reason to that
- * object's reasons, or becomes `<table>__ix__<cols>` justified by it, and hands the statistics to the installer, which
- * plans them once every extension has run. A path or statistics object on a derived relation is planned
- * on its materialized view like a table's, where the derived relation extension installs the view, and deferred with
- * the view where none does.
+/** The workload in the installation: access-path index requests through the installer's extensions, and the types its
+ * programs' parameters are cast to (InstallExtension.params), which the installation plans and installs, so no
+ * installation of a workload lacks a domain its statements cast a parameter to.
+ * The workload compiler extracts each program's access paths and merges them across programs. This extension hands the
+ * paths to the one index engine as IndexRequests with role `access`, beside the law-maintenance requests, so a request
+ * lands on a key, enforcement or law index that serves it, adding the access reason to that object's reasons, or
+ * becomes `<table>__ix__<cols>` justified by it. A path on a derived relation is planned on its materialized view like a
+ * table's, where the derived relation extension installs the view, and deferred with the view where none does.
  *
  * The workload must have been compiled against this installation's schema: its schema fingerprint is checked, so a
  * workload never lends its paths to another schema's objects. */
@@ -84,8 +80,7 @@ export const workloadExtension = (workload: WorkloadPhysical): InstallExtension 
 		}
 		const contribution: InstallContribution = {
 			...noContribution,
-			indexRequests: workloadRequests(workload, b.settings.vectorSchema),
-			statisticsRequests: workload.statistics
+			indexRequests: workloadRequests(workload, b.settings.vectorSchema)
 		}
 		return Result.ok(contribution)
 	},

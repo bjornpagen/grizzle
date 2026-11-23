@@ -1533,7 +1533,7 @@ export interface AlterTable {
 	readonly actions: NonEmptyReadonlyArray<AlterTableAction>
 }
 
-type RenamableObject = "TABLE" | "INDEX" | "MATERIALIZED VIEW" | "DOMAIN" | "STATISTICS"
+type RenamableObject = "TABLE" | "INDEX" | "MATERIALIZED VIEW" | "DOMAIN"
 
 /**
  * ALTER <object> <name> RENAME TO <to>: a schema object by its qualified name, or a role or a schema, which live in
@@ -2062,13 +2062,31 @@ export interface CreateExtension {
 	readonly schema: string
 }
 
-/** Extended statistics over at least two columns, as PostgreSQL requires; an empty kind list is every kind. */
-export interface CreateStatistics {
-	readonly kind: "createStatistics"
-	readonly name: ObjectName
-	readonly statistics: ReadonlyArray<"ndistinct" | "dependencies" | "mcv">
-	readonly columns: readonly [string, string, ...Array<string>]
+/**
+ * A column's declared number of distinct values (physical/statistics/declared.ts): -1/2^exponent, each value 2^exponent
+ * of the table's rows at any size of it (`relative`), or 2^exponent values (`absolute`), each exact in a float4.
+ */
+export type DeclaredDistinct =
+	| { readonly kind: "relative"; readonly exponent: number }
+	| { readonly kind: "absolute"; readonly exponent: number }
+
+/**
+ * A table's declared statistics, two commands (print.ts commandsOf): ALTER TABLE ... SET (autovacuum_analyze_threshold,
+ * autovacuum_analyze_scale_factor) at their maxima, so autovacuum analyzes the table never in practice, and ALTER COLUMN
+ * ... SET STATISTICS 0 of every column, so an ANALYZE, a consumer's included, samples nothing of them and keeps what is
+ * declared (analyze.c attribute_is_analyzable); then one DO block (print.ts declaredStatisticsBlock) that, for each column, clears its
+ * statistics and restores its declared number of distinct values (pg_clear_attribute_stats,
+ * pg_restore_attribute_stats), a restore answering false raising, so every one is restored or the statement fails. Its
+ * null fraction and average width are the restore's own defaults, 0 and unknown, so the planner reads a column of no
+ * declared width by its type.
+ */
+export interface DeclareStatistics {
+	readonly kind: "declareStatistics"
 	readonly table: ObjectName
+	readonly columns: NonEmptyReadonlyArray<{
+		readonly column: string
+		readonly distinct: DeclaredDistinct
+	}>
 }
 
 type LockMode = "ACCESS SHARE" | "SHARE" | "SHARE ROW EXCLUSIVE" | "EXCLUSIVE" | "ACCESS EXCLUSIVE"
@@ -2489,14 +2507,7 @@ export interface Refresh {
 export type CommentTarget =
 	| { readonly kind: "SCHEMA" | "ROLE"; readonly name: string }
 	| {
-			readonly kind:
-				| "TABLE"
-				| "VIEW"
-				| "MATERIALIZED VIEW"
-				| "DOMAIN"
-				| "TYPE"
-				| "INDEX"
-				| "STATISTICS"
+			readonly kind: "TABLE" | "VIEW" | "MATERIALIZED VIEW" | "DOMAIN" | "TYPE" | "INDEX"
 			readonly name: ObjectName
 	  }
 	| { readonly kind: "COLUMN"; readonly relation: ObjectName; readonly column: string }
@@ -2571,7 +2582,7 @@ export type Ddl =
 	| GrantColumns
 	| AlterDefaultPrivileges
 	| CreateExtension
-	| CreateStatistics
+	| DeclareStatistics
 	| LockTable
 	| Comment
 

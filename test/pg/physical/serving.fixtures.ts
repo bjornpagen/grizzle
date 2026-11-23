@@ -14,13 +14,15 @@ import {
 	recorded,
 	weighted
 } from "@bjornpagen/testing/gen"
-import { Array as Arr, Effect, Option, Order, Result, String as Str } from "effect"
+import { Array as Arr, Effect, Option, Order, Result } from "effect"
 import { isCompileError } from "#compiler/core/errors.ts"
 import type { Direction } from "#compiler/core/order.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { AccessUse } from "#compiler/ir/products.ts"
 import { workload } from "#compiler/program/workload/value.ts"
+import type { DeclaredDistinct } from "#compiler/sql/ast.ts"
+import { autovacuumAnalyzeScaleMax, autovacuumAnalyzeThresholdMax } from "#compiler/sql/print.ts"
 import {
 	drawnRequests,
 	judgeServing,
@@ -119,67 +121,82 @@ const fieldSql = (
 export type WorkloadFeature =
 	| "a workload installed"
 	| "a workload refused for an unrepresentable key"
-	| "a workload's statistics installed as requested"
+	| "every table's declared statistics installed as declared"
 
-/** The letter pg_statistic_ext.stxkind holds for each kind a statistics object states. */
-const kindLetter = { ndistinct: "d", dependencies: "f", mcv: "m" } as const
+/** A declared number of distinct values as pg_stats reads it back: -1/2^exponent or 2^exponent, exact in a float4. */
+const declaredValue = (d: DeclaredDistinct): number =>
+	d.kind === "relative" ? -1 / 2 ** d.exponent : 2 ** d.exponent
 
 /**
- * The installation's extended statistics as the catalog holds them are those its manifest creates, each over its
- * columns with every kind it states, and every index and statistics object the manifest creates stands on a law or
- * the workload's access: whether each is planned is test/unit/workload's, that it is installed as planned is here.
+ * Every table's declared statistics as the catalog holds them are those its manifest declares: each column's statistics
+ * target 0, so no ANALYZE samples it, its declared number of distinct values, and no sampled statistic beside it; and
+ * every index the manifest creates stands on a law or the workload's access. What each declares is
+ * test/unit/statistics's; that it is installed as declared is here.
  */
-const statisticsAsPlanned = (
+const declarationsAsPlanned = (
 	plan: RealInstallPlan,
 	note: (feature: ServingFeature | WorkloadFeature) => void
 ) =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
-		const created = Arr.filter(
-			plan.installation.manifest.objects,
-			(o) => o.kind === "index" || o.kind === "statistics"
-		)
-		for (const o of created) {
-			assert.ok(
-				Arr.some(o.reasons, (r) => r.kind === "law" || r.kind === "access"),
-				`${o.ident} stands on a law or the workload's access`
-			)
+		for (const o of plan.installation.manifest.objects) {
+			if (o.kind === "index") {
+				assert.ok(
+					Arr.some(o.reasons, (r) => r.kind === "law" || r.kind === "access"),
+					`${o.ident} stands on a law or the workload's access`
+				)
+			}
 		}
-		const sorted = (items: ReadonlyArray<string>) => Arr.join(Arr.sort(items, Order.String), ",")
-		const planned = Arr.flatMap(created, (o) =>
+		const planned = Arr.flatMap(plan.installation.manifest.objects, (o) =>
 			Arr.flatMap(o.ddl, (st) =>
-				st.kind === "createStatistics"
-					? [
-							[
-								st.name.name,
-								sorted(Arr.map(st.statistics, (k) => kindLetter[k])),
-								sorted(st.columns)
-							] as const
-						]
+				st.kind === "declareStatistics"
+					? Arr.map(
+							st.columns,
+							(c) => `${st.table.name}.${c.column} 0 ${declaredValue(c.distinct)}` as const
+						)
 					: []
 			)
 		)
-		/** Each statistics object: its name, its kinds and its columns' names, each list joined by U+0001. */
+		/** Each column of the schema's tables: its table and name, its statistics target and pg_stats' n_distinct, and
+		 * whether it holds a sampled statistic. */
 		const installed = yield* substrate.admin.queryValues(
-			`SELECT s.stxname::text, pg_catalog.array_to_string(s.stxkind, chr(1)), (SELECT pg_catalog.string_agg(a.attname::text, chr(1)) FROM pg_catalog.pg_attribute AS a WHERE a.attrelid = s.stxrelid AND a.attnum = ANY (s.stxkeys)) FROM pg_catalog.pg_statistic_ext AS s JOIN pg_catalog.pg_namespace AS n ON n.oid = s.stxnamespace WHERE n.nspname = $1::text`,
+			`SELECT c.relname::text || '.' || a.attname::text || ' ' || coalesce(a.attstattarget::text, '-') || ' ' || coalesce(st.n_distinct::text, '-') || coalesce(CASE WHEN st.most_common_vals IS NOT NULL OR st.histogram_bounds IS NOT NULL OR st.correlation IS NOT NULL THEN ' sampled' END, '') FROM pg_catalog.pg_attribute AS a JOIN pg_catalog.pg_class AS c ON c.oid = a.attrelid JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace LEFT JOIN pg_catalog.pg_stats AS st ON st.schemaname = n.nspname AND st.tablename = c.relname AND st.attname = a.attname AND NOT st.inherited WHERE n.nspname = $1::text AND c.relkind IN ('r', 'p') AND a.attnum > 0 AND NOT a.attisdropped`,
 			[plan.schema]
 		)
-		const listed = (cell: unknown): string => sorted(Str.split(String(cell), "\u0001"))
 		assert.deepEqual(
 			Arr.sort(
-				Arr.map(installed, (row) =>
-					Arr.join([String(row[0]), listed(row[1]), listed(row[2])], " ")
+				Arr.map(installed, (row) => String(row[0])),
+				Order.String
+			),
+			Arr.sort(planned, Order.String),
+			"every column of every table holds its declared statistics, its target 0 and nothing sampled"
+		)
+		const declaredTables = Arr.flatMap(plan.installation.manifest.objects, (o) =>
+			Arr.flatMap(o.ddl, (st) => (st.kind === "declareStatistics" ? [st.table.name] : []))
+		)
+		/** Each table's storage parameters, which its declaration sets: its automatic ANALYZE's thresholds at their
+		 * maxima. */
+		const options = yield* substrate.admin.queryValues(
+			`SELECT c.relname::text, pg_catalog.array_to_string(c.reloptions, ',') FROM pg_catalog.pg_class AS c JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace WHERE n.nspname = $1::text AND c.relkind IN ('r', 'p')`,
+			[plan.schema]
+		)
+		assert.deepEqual(
+			Arr.sort(
+				Arr.map(options, (row) => `${String(row[0])} ${String(row[1])}`),
+				Order.String
+			),
+			Arr.sort(
+				Arr.map(
+					declaredTables,
+					(t) =>
+						`${t} autovacuum_analyze_threshold=${autovacuumAnalyzeThresholdMax},autovacuum_analyze_scale_factor=${autovacuumAnalyzeScaleMax}`
 				),
 				Order.String
 			),
-			Arr.sort(
-				Arr.map(planned, (row) => Arr.join(row, " ")),
-				Order.String
-			),
-			"the installed statistics are the planned ones, each over its columns with each of its kinds"
+			"every table's automatic ANALYZE waits past its thresholds' maxima"
 		)
 		if (planned.length > 0) {
-			note("a workload's statistics installed as requested")
+			note("every table's declared statistics installed as declared")
 		}
 	})
 
@@ -223,7 +240,7 @@ export const workloadCase = (
 		}
 		note("a workload installed")
 		const judged = installed.success.plan
-		yield* statisticsAsPlanned(judged, note)
+		yield* declarationsAsPlanned(judged, note)
 		const domain = rosterDomainSql(judged, c.schema.roster.name)
 		const codec = defined(
 			judged.installation.names.codes.rosters.get(parsedName(c.schema.roster.name)),
@@ -9659,7 +9676,7 @@ const statisticsCaseGen =
  */
 const workloadAims: ReadonlyArray<readonly [WorkloadFeature, Gen<WorkloadSketch>]> = [
 	[
-		"a workload's statistics installed as requested",
+		"every table's declared statistics installed as declared",
 		map(caseSketchGen, (program): WorkloadSketch => ({ program, reads: "a correlated selection" }))
 	]
 ]

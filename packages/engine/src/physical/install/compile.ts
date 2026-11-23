@@ -65,7 +65,7 @@ import {
 } from "#compiler/physical/install/plan.ts"
 import { refinedConstantsExtension } from "#compiler/physical/refined/constants.ts"
 import { addSpanStorage } from "#compiler/physical/span/storage.ts"
-import { planStatistics, type StatisticsRequest } from "#compiler/physical/statistics/statistics.ts"
+import { planDeclarations } from "#compiler/physical/statistics/statistics.ts"
 import { type Owned, ownedIdentities, rostersOf } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import type { OperandSelect, SqlStatement } from "#compiler/sql/ast.ts"
@@ -480,7 +480,7 @@ const installationIn = (
 					...addOutsideContractDomains(b, plan.outsideContracts)
 				]
 				const declared = addFunctions(b)
-				const { keyIndexes, tables } = addTables(b)
+				const { keyIndexes, lawColumns, tables } = addTables(b)
 				const stamps = addStamps(b)
 				const rules = phased(phases, { name: "judge", of: [] }, () => addRules(b))
 				addImmutableGuards(b)
@@ -488,12 +488,10 @@ const installationIn = (
 
 				const claimedDerived = new Set<string>()
 				const extensionRequests: Array<IndexRequest> = []
-				const statisticsRequests: Array<StatisticsRequest> = []
 				for (const extension of new Set([refinedConstantsExtension, ...options.extensions])) {
 					const contribution = unwrap(extension.contribute(b))
 					const c = contribution
 					appendAll(extensionRequests, c.indexRequests)
-					appendAll(statisticsRequests, c.statisticsRequests)
 					for (const d of c.derivedRelations) {
 						claimedDerived.add(d)
 					}
@@ -504,7 +502,7 @@ const installationIn = (
 				const indexes = phased(phases, { name: "indexes", of: [] }, () =>
 					unwrap(planIndexes(b, keyIndexes, requests))
 				)
-				planStatistics(b, statisticsRequests)
+				planDeclarations(b, keyIndexes, lawColumns, indexes)
 
 				const live = liveOf(options.extensions)
 				const worlds = addWorlds(

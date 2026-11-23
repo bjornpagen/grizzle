@@ -1,153 +1,203 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { isNonEmpty, mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { refuse } from "#compiler/analysis/theory/build.ts"
-import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import type { PhysicalReason } from "#compiler/ir/products.ts"
-import { statisticsMaxColumns } from "#compiler/physical/access/extract.ts"
-import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
-import type { CreateStatistics } from "#compiler/sql/ast.ts"
+import type { NativeColumn } from "#compiler/ir/law.ts"
+import type { IndexRequest } from "#compiler/ir/products.ts"
+import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import type { BuiltTarget, IndexColumn, InstallBuilder } from "#compiler/physical/ddl/context.ts"
+import type { KeyIndex } from "#compiler/physical/ddl/tables.ts"
+import { type IndexKey, keyTermText, type PlannedIndex } from "#compiler/physical/indexes/engine.ts"
+import type { Node } from "#compiler/physical/obligations/graph.ts"
+import { enforcement } from "#compiler/physical/obligations/graph.ts"
+import {
+	type Binding,
+	type ColumnValues,
+	type CrossingBound,
+	type Declaration,
+	declarationOf,
+	type RelationShape
+} from "#compiler/physical/statistics/declared.ts"
+import type { DeclareStatistics } from "#compiler/sql/ast.ts"
 
-export const statisticsKinds = ["ndistinct", "dependencies", "mcv"] as const
-type StatisticsKind = (typeof statisticsKinds)[number]
-
-export type StatisticsUse = "correlated selection" | "grouping"
-
-export interface StatisticsRequest {
-	readonly relation: string
-	/** In code point order, at least two and at most statisticsMaxColumns. */
-	readonly columns: ReadonlyArray<string>
-	readonly kinds: ReadonlyArray<StatisticsKind>
-	readonly uses: ReadonlyArray<StatisticsUse>
+/** How many values a column of `type` may hold: a closed id one of its subset's or its roster's live handles, a boolean
+ * one of two, any other type any number. */
+const valuesOf = (type: ScalarType): ColumnValues => {
+	const base = baseOf(type)
+	if (base.carrier === "code") {
+		return { kind: "few", handles: (base.only ?? base.roster.handles).length }
+	}
+	return base.carrier === "bool" ? { kind: "few", handles: 2 } : { kind: "many" }
 }
 
-/** The identity of a request's column set: the relation and its columns joined by NUL and \u0001, which no name holds. */
-const statisticsKey = (s: Pick<StatisticsRequest, "relation" | "columns">): string =>
-	`${s.relation}\u0000${s.columns.join("\u0001")}`
+/** A native column's text, as an index's key names it (physical/indexes/engine.ts keyTermText). */
+const nativeText = (c: NativeColumn): string => (c.kind === "field" ? c.field.name : c.column)
 
-/** The canonical order of requests: by relation, then column list, strings by code unit, and of two column lists one
- * of which begins the other, the longer first. */
-const compareRequests = (a: StatisticsRequest, b: StatisticsRequest): number => {
-	const relation = compareStrings(a.relation, b.relation)
-	if (relation !== 0) {
-		return relation
+/** The columns a request binds by equality: a workload path's fixed keys; a law's lookups of a unit, each; or every key
+ * of a law's other request but a suffix key, which its seek matches a prefix of. */
+const requestBindings = (r: IndexRequest): ReadonlyArray<Binding> => {
+	if (r.role === "access") {
+		return [
+			{
+				columns: r.keys
+					.slice(0, r.fixed)
+					.flatMap((k) => (typeof k.expr === "string" ? [k.expr] : [])),
+				by: `${r.use} of ${r.relation}`
+			}
+		]
 	}
-	for (const [i, x] of a.columns.entries()) {
-		const y = b.columns[i]
-		if (y === undefined) {
+	if (r.reads.kind === "unit") {
+		return r.reads.lookups.map((lookup) => ({
+			columns: lookup.map(nativeText),
+			by: `${r.use} of ${r.relation}`
+		}))
+	}
+	return [
+		{
+			columns: r.blocks
+				.flat()
+				.flatMap((k) => (k.column.kind === "suffix" ? [] : [nativeText(k.column)])),
+			by: `${r.use} of ${r.relation}`
+		}
+	]
+}
+
+/** The columns an index's equalities may bind, in key order: its keys up to the first a suffix seek reads. */
+const equalityKeys = (keys: ReadonlyArray<IndexKey>): ReadonlyArray<string> => {
+	const out: Array<string> = []
+	for (const k of keys) {
+		if (k.column.kind === "suffix") {
 			break
 		}
-		const order = compareStrings(x, y)
-		if (order !== 0) {
-			return order
-		}
+		out.push(keyTermText(k.column))
 	}
-	return b.columns.length - a.columns.length
+	return out
 }
 
-/** One request per column set, with the union of the uses of the requests over it, in canonical order. */
-export const mergeStatistics = (
-	requests: ReadonlyArray<StatisticsRequest>
-): ReadonlyArray<StatisticsRequest> => {
-	const merged = new Map<string, StatisticsRequest>()
-	for (const r of requests) {
-		const key = statisticsKey(r)
-		const prior = merged.get(key)
-		if (prior === undefined) {
-			merged.set(key, r)
-			continue
-		}
-		merged.set(key, {
-			relation: r.relation,
-			columns: r.columns,
-			kinds: statisticsKinds.filter((k) => prior.kinds.includes(k) || r.kinds.includes(k)),
-			uses: [...new Set([...prior.uses, ...r.uses])].toSorted(compareStrings)
-		})
-	}
-	return [...merged.values()].toSorted(compareRequests)
-}
+/** A crossing's bound as a refusal names it. */
+const boundText = (b: CrossingBound): string =>
+	b.kind === "key"
+		? `key (${b.columns.join(", ")}) binds one row`
+		: `(${b.columns.join(", ")}), where ${b.binding.by} stops on an index short of (${b.binding.columns.join(", ")}), binds two rows or more`
 
-/** The statistics objects of the requests, merged, each added to the graph after the table or view it is built on.
- *
- * Extended statistics as a compilation product. CREATE STATISTICS follows the same route as an index: each statistics
- * object is requested by the workload's access, its justification, and the snapshot records which programs ask for it
- * (ProgramAccess). The fixed policy requests one object per column set that a program's correlated equality selections
- * or group key cover on one relation, with all three kinds PostgreSQL 19 builds from columns: `ndistinct`,
- * `dependencies` and `mcv`. Requests over one column set merge, uniting their uses. Statistics are estimates, never
- * evidence: no law and no rewrite certificate reads them.
- *
- * The object is `CREATE STATISTICS <schema>.<statistics> (ndistinct, dependencies, mcv) ON <cols> FROM
- * <schema>.<relation>`, columns in code point order, named at the naming door for its relation and columns
- * (identity.statistics). It is built in the Indexes phase with the indexes, after its relation. The
- * relation is a stored relation's table or a derived relation's materialized view, which PostgreSQL 19 takes extended
- * statistics on as it does a table: the statistics are planned once every installer extension has run, on the
- * relation as the builder knows it then (`InstallBuilder.target`), so a derived relation's statistics
- * follow its view, created after it, and a request on a derived relation no extension installs is deferred with the
- * relation, as its index requests are.
- *
- * Statistics need ANALYZE to become useful: on a fresh installation autovacuum's ANALYZE builds them as rows arrive,
- * and a migration that adds one to a table or view that may hold rows runs ANALYZE of it after it, which is the
- * migration renderer's. */
-export const planStatistics = (
-	b: InstallBuilder,
-	requests: ReadonlyArray<StatisticsRequest>
-): void => {
-	for (const r of mergeStatistics(requests)) {
-		const label = `statistics (${r.columns.join(", ")}) of ${r.relation}`
-		const o = b.target(r.relation)
-		if (o.kind === "deferred") {
-			continue
-		}
-		if (o.kind === "none") {
-			refuse(
-				"MalformedDescription",
-				SourceLoc(label, []),
-				`statistics on a stored or derived relation; ${r.relation} is none`
-			)
-		}
-		const [first, second, ...more] = r.columns
-		if (
-			first === undefined ||
-			second === undefined ||
-			r.columns.length > statisticsMaxColumns ||
-			new Set(r.columns).size !== r.columns.length
-		) {
+/** The refusal of a relation whose statements no declared statistics rank. */
+const declarationRefused = (
+	relation: string,
+	d: Exclude<Declaration, { readonly kind: "declared" }>
+): never => {
+	const label = `declared statistics of ${relation}`
+	switch (d.kind) {
+		case "crossing":
 			return refuse(
-				"MalformedDescription",
+				"UnsupportedOperation",
 				SourceLoc(label, []),
-				`two to ${statisticsMaxColumns} distinct statistics columns`
+				`declared statistics that rank every statement's access path of ${relation}; no number of distinct values per column meets these together, since PostgreSQL multiplies columns as independent:\n${d.bounds.map((b) => `  = ${boundText(b)}`).join("\n")}\n  = help: give one of the crossed keys a column the other sets do not hold, or ask the index of one set for the other's columns too`
 			)
-		}
-		const unknown = r.columns.find((field) => o.field({ kind: "field", field }) === undefined)
-		if (unknown !== undefined) {
-			refuse(
-				"MalformedDescription",
+		case "beyondValues":
+			return refuse(
+				"UnsupportedOperation",
 				SourceLoc(label, []),
-				`a field of ${r.relation}; ${unknown} is none`
+				`declared statistics that rank every statement's access path of ${relation}; they ask ${d.column} for 2^${d.exponent} values, and its type holds ${d.handles}\n  = help: key the relation by a column of more values in ${d.column}'s place`
 			)
+	}
+}
+
+/**
+ * Every table's and registered view's declared statistics (declared.ts), each one object of kind `statistics` built
+ * after its relation and every law column of it, which it names, in Indexes: its shape read off the builder (the relation's columns, its unit's key, its keys, the
+ * planned indexes and the bindings of every request each serves and of each key's probe), its declaration derived, and a
+ * relation no declaration ranks refused (`declarationRefused`).
+ */
+export const planDeclarations = (
+	b: InstallBuilder,
+	keyIndexes: ReadonlyArray<KeyIndex>,
+	lawColumns: ReadonlyMap<string, ReadonlyArray<Node<"structure">>>,
+	indexes: ReadonlyArray<PlannedIndex>
+): void => {
+	const relations = [
+		...Object.values(b.model.theory.relations).flatMap((r) =>
+			r.kind === "relation" ? [r.name] : []
+		),
+		...b.indexedViews().map((v) => v.relation)
+	].toSorted(compareStrings)
+	for (const relation of relations) {
+		const target = b.target(relation)
+		if (target.kind !== "built") {
+			continue
 		}
-		const named = identity.statistics(r.relation, r.columns)
-		const name = b.name(named)
-		const ddl: CreateStatistics = {
-			kind: "createStatistics",
-			name: { schema: identifierOf(b.names.levelOf(r.relation)), name },
-			statistics: r.kinds,
-			columns: [
-				b.names.column(r.relation, first),
-				b.names.column(r.relation, second),
-				...more.map((f) => b.names.column(r.relation, f))
-			],
-			table: b.names.relation(r.relation)
+		const shape = shapeOf(b, relation, target, keyIndexes, indexes)
+		const declaration = declarationOf(shape.shape)
+		if (declaration.kind !== "declared") {
+			declarationRefused(relation, declaration)
+			continue
 		}
-		const reasons: ReadonlyArray<PhysicalReason> = [{ kind: "access" }]
+		const columns = declaration.columns.map((c) => ({
+			column: defined(shape.installed.get(c.column), `the installed column of ${c.column}`),
+			distinct: c.distinct
+		}))
+		if (!isNonEmpty(columns)) {
+			continue
+		}
+		const ddl: DeclareStatistics = {
+			kind: "declareStatistics",
+			table: b.names.relation(relation),
+			columns: mapNonEmpty(columns, (c) => c)
+		}
 		b.add(
 			{
 				kind: "statistics",
-				ident: b.qualifiedOf("statistics", r.relation, named),
+				ident: b.qualifiedOf("statistics", relation, b.names.relationNamed(relation)),
 				ddl: [ddl],
-				reasons,
+				reasons: [enforcement(`the declared statistics of ${relation}`)],
 				phase: "indexes"
 			},
-			[o.object]
+			[target.object, ...(lawColumns.get(relation) ?? [])]
 		)
+	}
+}
+
+/** A relation's shape (declared.ts RelationShape) and each of its columns' installed names by their texts. */
+const shapeOf = (
+	b: InstallBuilder,
+	relation: string,
+	target: BuiltTarget,
+	keyIndexes: ReadonlyArray<KeyIndex>,
+	indexes: ReadonlyArray<PlannedIndex>
+): { readonly shape: RelationShape; readonly installed: ReadonlyMap<string, string> } => {
+	const stored = b.model.theory.relations[relation]
+	const view = b.indexedViews().find((v) => v.relation === relation)
+	const fields: ReadonlyArray<readonly [IndexColumn, ScalarType]> =
+		view === undefined
+			? [
+					...(stored?.kind === "relation" ? stored.fields : []).map(
+						(f) => [{ kind: "field", field: f.name }, f.type] as const
+					),
+					...b.model.natives.flatMap((n) =>
+						n.namespace === "column" && n.object.relation.name === relation
+							? [[{ kind: "law", column: n.object.column }, n.object.field.type] as const]
+							: []
+					)
+				]
+			: [...view.fields.entries()].map(([field, f]) => [{ kind: "field", field }, f.type] as const)
+	const unit = b.owned.unitOf.get(relation)
+	const keys = [
+		...keyIndexes.filter((k) => k.relation === relation).map((k) => k.columns.map(nativeText)),
+		...(view?.uniqueIndexes ?? []).map((u) => [...u.columns])
+	]
+	const planned = indexes.filter((i) => i.relation === relation)
+	return {
+		shape: {
+			relation,
+			columns: fields.map(([c, type]) => ({ column: keyTermText(c), values: valuesOf(type) })),
+			unit: unit === undefined ? [] : unit.fields,
+			keys,
+			indexes: planned.map((i) => equalityKeys(i.keys)),
+			bindings: [
+				...keys.map((k) => ({ columns: k, by: `the probe of key (${k.join(", ")})` })),
+				...planned.flatMap((i) => i.requests.flatMap(requestBindings))
+			]
+		},
+		installed: new Map(fields.map(([c]) => [keyTermText(c), target.column(c)] as const))
 	}
 }

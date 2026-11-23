@@ -28,7 +28,7 @@ import {
 	type CreateRole,
 	type CreateRowType,
 	type CreateSchema,
-	type CreateStatistics,
+	type DeclareStatistics,
 	type CreateTable,
 	type CreateView,
 	type DomainConstraint,
@@ -120,7 +120,7 @@ export type Installed<O extends AnyObject = ManifestObject> =
 	| {
 			readonly kind: "statistics"
 			readonly object: O
-			readonly create: CreateStatistics
+			readonly create: DeclareStatistics
 	  }
 	| {
 			readonly kind: "isolationTrigger"
@@ -340,9 +340,9 @@ export const installed = <O extends AnyObject>(o: O): Installed<O> => {
 				? { kind: o.kind, object: o, create: s }
 				: malformed("a CREATE INDEX")
 		case "statistics":
-			return s?.kind === "createStatistics"
+			return o.ddl.length === 1 && s?.kind === "declareStatistics"
 				? { kind: o.kind, object: o, create: s }
-				: malformed("a CREATE STATISTICS")
+				: malformed("a table's declared statistics")
 		case "isolationTrigger":
 			return s?.kind === "createGuardTrigger"
 				? { kind: o.kind, object: o, create: s }
@@ -527,7 +527,7 @@ export const installed = <O extends AnyObject>(o: O): Installed<O> => {
 }
 
 /** The table or materialized view an object belongs to, read off its view: a relation's own, the table an index, a
- * statistics object, a law or isolation trigger, a constraint or a law column is on, and the ledger's. Every other kind
+ * table's declared statistics, a law or isolation trigger, a constraint or a law column is on, and the ledger's. Every other kind
  * stands outside any table. */
 export const objectTable = (o: AnyObject): ObjectName | undefined => {
 	const v = installed(o)
@@ -652,7 +652,7 @@ export interface BuiltOver<O extends AnyObject = ManifestObject> {
 
 /** What an object is built over, read for every installed kind in this one place, so every rule asking what a change of
  * a column reaches (a column converted in place by a type change, dropped and added again, or renamed by a declared
- * rename) asks it here: an index reads its keys, INCLUDE columns and predicate; a statistics object its columns; a
+ * rename) asks it here: an index reads its keys, INCLUDE columns and predicate; a table's declared statistics every column they declare; a
  * constraint its own, `constraint` giving the definition of one declared inside its table's CREATE TABLE; a law column
  * the columns its generation reads, a partial term
  * those of its selection and its term, an alternatives parent's arm tag its discriminator and a constant none. Nothing
@@ -667,7 +667,7 @@ export const builtOver = <O extends AnyObject>(
 		case "uniqueIndex":
 			return { part: v, table: v.create.table, columns: indexColumns(v.create) }
 		case "statistics":
-			return { part: v, table: v.create.table, columns: v.create.columns }
+			return { part: v, table: v.create.table, columns: v.create.columns.map((c) => c.column) }
 		case "primaryKey":
 		case "unique":
 		case "check":
@@ -723,11 +723,10 @@ export const builtOver = <O extends AnyObject>(
 }
 
 /** The kinds of part a relation owns under a name of its own, in the order a relation's rename takes them: its
- * constraints, its indexes, its extended statistics objects, and the columns it holds beside its declared fields (a law
- * column's). A constraint's and a column's name lies in its table's namespace; an index's in its schema's relations and
- * a statistics object's in its schema's statistics objects, but each is built over one table and stands or goes with
- * it. */
-const partKinds = ["constraint", "index", "statistics", "column"] as const
+ * constraints, its indexes, and the columns it holds beside its declared fields (a law column's). A constraint's and a
+ * column's name lies in its table's namespace; an index's in its schema's relations, but it is built over one table and
+ * stands or goes with it. A table's declared statistics hold no name of their own. */
+const partKinds = ["constraint", "index", "column"] as const
 export type PartKind = (typeof partKinds)[number]
 
 /** A part of a relation: its kind, the table it belongs to, its name, and its definition. A constraint declared inside
@@ -747,12 +746,6 @@ export type Part =
 			readonly create: CreateIndex
 	  }
 	| {
-			readonly kind: "statistics"
-			readonly table: ObjectName
-			readonly name: string
-			readonly create: CreateStatistics
-	  }
-	| {
 			readonly kind: "column"
 			readonly table: ObjectName
 			readonly name: string
@@ -764,8 +757,8 @@ export type PartOf<K extends PartKind> = Extract<Part, { readonly kind: K }>
 /** The parts of a relation an object is, read for every installed kind in this one place, so every rule that carries a
  * relation's parts across a rename, or takes away what one leaves behind, reads one list and no kind of part can be
  * left out of one of them: a key, check or foreign key, by its name, `constraint` giving the definition of one declared
- * inside its table's CREATE TABLE; an index; a statistics object; and a law column. Nothing else is a part: the table
- * itself is the relation, and every other kind stands outside any table. */
+ * inside its table's CREATE TABLE; an index; and a law column. Nothing else is a part: the table itself is the relation,
+ * its declared statistics hold no name, and every other kind stands outside any table. */
 const objectParts = <O extends AnyObject>(
 	v: Installed<O>,
 	constraint: (c: KeyOrCheckView<O>) => KeyOrCheck
@@ -798,18 +791,10 @@ const objectParts = <O extends AnyObject>(
 		case "index":
 		case "uniqueIndex":
 			return [{ kind: "index", table: v.create.table, name: v.create.name, create: v.create }]
-		case "statistics":
-			return [
-				{
-					kind: "statistics",
-					table: v.create.table,
-					name: v.create.name.name,
-					create: v.create
-				}
-			]
 		case "lawColumn":
 			return [{ kind: "column", table: v.table, name: v.column, definition: v.definition }]
 		case "table":
+		case "statistics":
 		case "isolationTrigger":
 		case "immutableTrigger":
 		case "lawTrigger":
@@ -854,7 +839,6 @@ export type Parts = { readonly [K in PartKind]: ReadonlyMap<string, PartOf<K>> }
 const noParts: Parts = {
 	constraint: new Map(),
 	index: new Map(),
-	statistics: new Map(),
 	column: new Map()
 }
 
@@ -874,7 +858,6 @@ export const partsByTable = (
 		{
 			readonly constraint: Map<string, PartOf<"constraint">>
 			readonly index: Map<string, PartOf<"index">>
-			readonly statistics: Map<string, PartOf<"statistics">>
 			readonly column: Map<string, PartOf<"column">>
 		}
 	>()
@@ -885,7 +868,6 @@ export const partsByTable = (
 			const parts = known ?? {
 				constraint: new Map<string, PartOf<"constraint">>(),
 				index: new Map<string, PartOf<"index">>(),
-				statistics: new Map<string, PartOf<"statistics">>(),
 				column: new Map<string, PartOf<"column">>()
 			}
 			if (known === undefined) {
@@ -898,9 +880,6 @@ export const partsByTable = (
 				case "index":
 					parts.index.set(part.name, part)
 					continue
-				case "statistics":
-					parts.statistics.set(part.name, part)
-					continue
 				case "column":
 					parts.column.set(part.name, part)
 					continue
@@ -911,9 +890,9 @@ export const partsByTable = (
 }
 
 /** Renames of schema-qualified names of one catalog namespace (`NameSpace`): a relation's, with its indexes', all in
- * pg_class, a type's, or an extended statistics object's. */
+ * pg_class, or a type's. */
 export interface QualifiedNames {
-	readonly namespace: "relation" | "type" | "statistics"
+	readonly namespace: "relation" | "type"
 	readonly names: ReadonlyMap<string, string>
 }
 
@@ -934,11 +913,6 @@ export const inRelations = (names: ReadonlyMap<string, string>): QualifiedNames 
 
 export const inTypes = (names: ReadonlyMap<string, string>): QualifiedNames => ({
 	namespace: "type",
-	names
-})
-
-export const inStatistics = (names: ReadonlyMap<string, string>): QualifiedNames => ({
-	namespace: "statistics",
 	names
 })
 
@@ -963,8 +937,7 @@ const renameHooks = (schema: string, renames: QualifiedRenames): AstHooks => {
 			}
 		}
 		case "relation":
-		case "type":
-		case "statistics": {
+		case "type": {
 			const { namespace, names } = renames
 			const renamed = <Q extends ObjectName>(q: Q): Q => {
 				if (q.schema !== schema) {

@@ -165,8 +165,6 @@ const created = (s: SqlStatement): ReadonlyArray<Created> => {
 					identifier: s.name.name
 				}
 			]
-		case "createStatistics":
-			return [{ on: { kind: "STATISTICS", name: s.name }, identifier: s.name.name }]
 		case "createLiveSecret":
 			return [{ on: { kind: "TABLE", name: s.table }, identifier: s.table.name }]
 		case "createPublication":
@@ -196,6 +194,7 @@ const created = (s: SqlStatement): ReadonlyArray<Created> => {
 		case "grantColumns":
 		case "alterDefaultPrivileges":
 		case "createExtension":
+		case "declareStatistics":
 		case "lockTable":
 		case "createCarrier":
 		case "beginRead":
@@ -221,7 +220,6 @@ export const targetKey = (on: CommentTarget): string => {
 		case "DOMAIN":
 		case "TYPE":
 		case "INDEX":
-		case "STATISTICS":
 			return `${on.kind}\u0001${nameKey(on.name)}`
 		case "COLUMN":
 			return `${on.kind}\u0001${storedColumnKey(nameKey(on.relation), on.column)}`
@@ -252,7 +250,6 @@ const targetName = (on: CommentTarget): string => {
 		case "DOMAIN":
 		case "TYPE":
 		case "INDEX":
-		case "STATISTICS":
 		case "FUNCTION":
 			return on.name.name
 		case "COLUMN":
@@ -282,7 +279,6 @@ const renamedTo = (s: SqlStatement): ReadonlyArray<CommentTarget> => {
 			case "INDEX":
 			case "MATERIALIZED VIEW":
 			case "DOMAIN":
-			case "STATISTICS":
 				return [{ kind: s.object, name: { schema: s.name.schema, name: s.to } }]
 		}
 	}

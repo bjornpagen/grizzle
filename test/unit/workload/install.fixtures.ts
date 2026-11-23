@@ -48,9 +48,9 @@ export const installWith = (
 	return compileInstallation(owned, withWorkload(installOptions(owned), physical))
 }
 
-/** The installed objects a reason must justify: its indexes and statistics. */
+/** The installed objects a law or the workload's access must justify: its indexes. */
 export const justified = (i: Installation) =>
-	Arr.filter(i.manifest.objects, (o) => o.kind === "index" || o.kind === "statistics")
+	Arr.filter(i.manifest.objects, (o) => o.kind === "index")
 
 /** Whether an object stands on a law. */
 export const hasLaw = (reasons: ReadonlyArray<PhysicalReason>): boolean =>

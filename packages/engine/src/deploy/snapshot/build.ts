@@ -952,7 +952,7 @@ export const derivedFacts = (
 /** The target snapshot's content, built from the compiled installation of the current schema and workload, with the
  * bookkeeping tables' objects added to its manifest (deploy/ledger/ledger.ts bookkeepingTables): each table and its
  * SERIALIZABLE guard trigger in Setup, after the guard's function, the migrations ledger first, then the drift check's
- * proofs; every login's SELECT on the ledger in Publish, and the ledger among the tables of the live source's
+ * proofs, and each one's declared statistics in Indexes; every login's SELECT on the ledger in Publish, and the ledger among the tables of the live source's
  * publication (ledgerPublished), where the installation holds one. */
 export const targetState = (input: TargetInput): Result.Result<SnapshotContent, CompileError> =>
 	catchRefusal(() => {
@@ -963,7 +963,8 @@ export const targetState = (input: TargetInput): Result.Result<SnapshotContent, 
 		 * creates the function before them. */
 		const bookkeeping = mapNonEmpty(bookkeepingTables, (b) => ({
 			object: b.object(schema),
-			guard: b.guard(schema)
+			guard: b.guard(schema),
+			statistics: b.statistics(schema)
 		}))
 		const [ledger] = bookkeeping
 		/** The objects this adds to the installation's or rewrites, whose named edges it adds (`edges`). */
@@ -978,8 +979,8 @@ export const targetState = (input: TargetInput): Result.Result<SnapshotContent, 
 			}
 			if (o.kind === "isolationFunction") {
 				for (const b of bookkeeping) {
-					objects.push(b.object, b.guard)
-					added.push(b.object, b.guard)
+					objects.push(b.object, b.guard, b.statistics)
+					added.push(b.object, b.guard, b.statistics)
 				}
 			}
 		}
@@ -997,7 +998,8 @@ export const targetState = (input: TargetInput): Result.Result<SnapshotContent, 
 			...bookkeeping.flatMap((b) => [
 				{ from: namedIdent("schema", schema), to: b.object.ident },
 				{ from: isolationFunctionIdent(schema), to: b.guard.ident },
-				{ from: b.object.ident, to: b.guard.ident }
+				{ from: b.object.ident, to: b.guard.ident },
+				{ from: b.object.ident, to: b.statistics.ident }
 			]),
 			...installation.manifest.objects.flatMap((o) =>
 				o.kind === "publication" ? [{ from: ledger.object.ident, to: o.ident }] : []
@@ -1291,7 +1293,7 @@ const requestForm = (r: StoredIndexRequest): SnapshotForm => ({
 	use: r.use
 })
 
-/** The JSON form of a program's access: its paths and statistics, each in its canonical order. */
+/** The JSON form of a program's access: its paths, in their canonical order. */
 const accessForm = (a: ProgramAccess): SnapshotForm => ({
 	paths: a.paths.map((p): SnapshotForm => ({
 		relation: p.relation,
@@ -1300,11 +1302,6 @@ const accessForm = (a: ProgramAccess): SnapshotForm => ({
 		keys: p.keys.map((k): SnapshotForm => ({ field: k.field, dir: k.dir })),
 		fixed: p.fixed,
 		use: p.use
-	})),
-	statistics: a.statistics.map((st): SnapshotForm => ({
-		relation: st.relation,
-		columns: st.columns,
-		use: st.use
 	}))
 })
 

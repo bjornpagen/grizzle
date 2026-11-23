@@ -96,8 +96,9 @@ const nameOf = (ident: GraphIdent): string => {
 	}
 }
 
-/** What a COMMENT names for an object identity: its object's target, or none for an identity no comment names (an
- * extension, a membership, a role's privileges, row security, a replica identity, a publication, a validation). */
+/** What a COMMENT names for an object identity: its object's target, or none for an identity no comment names (a
+ * table's declared statistics, an extension, a membership, a role's privileges, row security, a replica identity, a
+ * publication, a validation). */
 const commentTarget = (ident: GraphIdent): CommentTarget | undefined => {
 	switch (ident.kind) {
 		case "schema":
@@ -116,8 +117,6 @@ const commentTarget = (ident: GraphIdent): CommentTarget | undefined => {
 			return { kind: "TYPE", name: { schema: ident.schema, name: ident.name } }
 		case "index":
 			return { kind: "INDEX", name: { schema: ident.schema, name: ident.name } }
-		case "statistics":
-			return { kind: "STATISTICS", name: { schema: ident.schema, name: ident.name } }
 		case "function":
 			return { kind: "FUNCTION", name: { schema: ident.schema, name: ident.name, args: [] } }
 		case "column":
@@ -139,6 +138,7 @@ const commentTarget = (ident: GraphIdent): CommentTarget | undefined => {
 				name: ident.name,
 				on: { schema: ident.schema, name: ident.relation }
 			}
+		case "statistics":
 		case "extension":
 		case "membership":
 		case "privileges":

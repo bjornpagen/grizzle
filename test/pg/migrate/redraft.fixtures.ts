@@ -230,7 +230,8 @@ export type Feature =
  * declaration more or less, and every file of v2 alike with AutomaticTask's budget a contract of another name, where
  * without Task's mutable declaration the alternatives' containments are judged whole and its files differ, and with
  * Account declared mutable too its immutability guard is dropped; v2 drafted toward from v1 declared mutable holds v2's
- * files). The features noted are still the outcome's, so a note never claims what the case
+ * files; v2's seven files are Setup, Structure, Indexes in a transaction, the tables' declared statistics, Indexes
+ * outside one, Validate, Publish and Validate again, so its fourth runs outside a transaction). The features noted are still the outcome's, so a note never claims what the case
  * did not reach.
  */
 export const aims: ReadonlyArray<readonly [Feature, RedraftCase]> = [
@@ -240,7 +241,7 @@ export const aims: ReadonlyArray<readonly [Feature, RedraftCase]> = [
 	],
 	[
 		"a regeneration alike in files resumed",
-		{ folder: 1, regeneration: 8, completed: 2, added: false, failNext: false }
+		{ folder: 1, regeneration: 8, completed: 3, added: false, failNext: false }
 	],
 	[
 		"the started draft resumed",
@@ -248,7 +249,7 @@ export const aims: ReadonlyArray<readonly [Feature, RedraftCase]> = [
 	],
 	[
 		"a resume whose next file runs outside a transaction",
-		{ folder: 1, regeneration: 0, completed: 1, added: false, failNext: false }
+		{ folder: 1, regeneration: 0, completed: 2, added: false, failNext: false }
 	],
 	[
 		"a regeneration's next file refused, its re-record rolled back",
@@ -268,7 +269,7 @@ export const aims: ReadonlyArray<readonly [Feature, RedraftCase]> = [
 	],
 	[
 		"a regeneration resuming at a no-transaction file refused",
-		{ folder: 1, regeneration: 8, completed: 1, added: false, failNext: false }
+		{ folder: 1, regeneration: 8, completed: 2, added: false, failNext: false }
 	]
 ]
 

@@ -79,8 +79,9 @@ export const noDeclarations: Declarations = Object.freeze({ renames: [], drops: 
  *   views, world functions and policies created again with their grants, each whose role stands before the migration:
  *   in the one transaction that dropped them, so no committed state lacks one an existing role relies on;
  * - indexes: ordinary CREATE INDEX on relations this migration creates, which hold no row but a new view's, which only
- *   a refresh writes and the build blocks no read of, and CREATE STATISTICS, which no ANALYZE follows: a migration
- *   runs no ANALYZE, which the operator's runbook runs after a first package;
+ *   a refresh writes and the build blocks no read of, and each table's declared statistics (physical/statistics),
+ *   every column's statistics target set to 0 and its declared number of distinct values restored, which no ANALYZE
+ *   replaces: a migration runs no ANALYZE;
  * - indexes.concurrent: CREATE INDEX CONCURRENTLY on relations that may hold rows, each after dropping an invalid
  *   index a failed build left;
  * - validate, validate.retrigger: VALIDATE CONSTRAINT of the constraints Structure added NOT VALID, the rule judge's

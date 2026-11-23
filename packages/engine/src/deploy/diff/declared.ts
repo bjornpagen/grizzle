@@ -1518,7 +1518,7 @@ const pairBy = <P extends { readonly name: string }>(
 
 /** The names a part holds, each in the namespace PostgreSQL holds it in: a key its constraint's name in its relation's
  * own namespace and its index's in pg_class; another constraint its name in its relation's namespace alone; an index
- * its own in pg_class; a statistics object its own among the statistics objects. */
+ * its own in pg_class. */
 const heldNames = (kind: AsidePart["kind"], name: string): ReadonlyArray<string> => {
 	switch (kind) {
 		case "key":
@@ -1527,8 +1527,6 @@ const heldNames = (kind: AsidePart["kind"], name: string): ReadonlyArray<string>
 			return [`constraint ${name}`]
 		case "index":
 			return [`relation ${name}`]
-		case "statistics":
-			return [`statistics ${name}`]
 	}
 }
 
@@ -1538,7 +1536,7 @@ const isKey = (c: TableConstraint): boolean =>
 
 /**
  * The parts of each table `tables` carried to the names the target gives them, and the previous snapshot as it stands
- * after: each constraint, a key's renaming its index, each other index and each extended statistics object, paired
+ * after: each constraint, a key's renaming its index, and each other index, paired
  * with the target's part of the same definition once every declared rename of the relations,
  * the fields and the law columns has run, so each definition reads its columns and the relations it references under
  * their new names (pairBy). A paired part the target names otherwise is renamed, so the migration neither builds nor
@@ -1563,7 +1561,6 @@ const pairedParts = (
 		[]
 	const back: Array<{ readonly table: ObjectName; readonly owned: ReadonlyArray<AsidePart> }> = []
 	const relations = new Map<string, string>()
-	const statistics = new Map<string, string>()
 	const keys = new Map<string, ReadonlyMap<string, string>>()
 	const wasParts = partsByTable(previous.manifest.objects, wasIdent)
 	const nowParts = partsByTable(target.manifest.objects, nowIdent)
@@ -1579,16 +1576,6 @@ const pairedParts = (
 				was.index,
 				now.index,
 				(a, b) => canonicalEquals({ ...a.create, name: "" }, { ...b.create, name: "" })
-			),
-			...pairBy(
-				() => "statistics",
-				was.statistics,
-				now.statistics,
-				(a, b) =>
-					canonicalEquals(
-						{ ...a.create, name: { ...a.create.name, name: "" } },
-						{ ...b.create, name: { ...b.create.name, name: "" } }
-					)
 			)
 		]
 		const moves = pairs.filter((p) => p.name !== p.to)
@@ -1600,8 +1587,7 @@ const pairedParts = (
 				name: c.name,
 				to: c.name
 			})),
-			...[...was.index.keys()].map((name) => ({ kind: "index" as const, name, to: name })),
-			...[...was.statistics.keys()].map((name) => ({ kind: "statistics" as const, name, to: name }))
+			...[...was.index.keys()].map((name) => ({ kind: "index" as const, name, to: name }))
 		]
 		const holders = standing.filter((h) => {
 			const names = heldNames(h.kind, h.name)
@@ -1630,9 +1616,7 @@ const pairedParts = (
 		})
 		const final: ReadonlyArray<AsidePart> = [...moves, ...vacated]
 		for (const p of final) {
-			if (p.kind === "statistics") {
-				statistics.set(p.name, p.to)
-			} else if (p.kind !== "constraint") {
+			if (p.kind !== "constraint") {
 				relations.set(p.name, p.to)
 			}
 		}
@@ -1653,7 +1637,7 @@ const pairedParts = (
 			...outward.flatMap((a) => partRenames(a.table, a.owned)),
 			...back.flatMap((a) => partRenames(a.table, a.owned))
 		],
-		previous: withNames(previous, { relations, types: new Map(), statistics, keys })
+		previous: withNames(previous, { relations, types: new Map(), keys })
 	}
 }
 
@@ -1762,7 +1746,7 @@ const columnRenames = (
  * rename, which it does by the column's attribute number into everything built over it: a table's columns and what its
  * CREATE TABLE declares over them (its keys, its CHECKs, a generated column's expression), a constraint or a column an
  * ALTER TABLE adds to it, a foreign key's columns on it and its referenced columns there, an index's keys, INCLUDE
- * columns and predicate, an extended statistics object's columns, and a column privilege's grant. A column an
+ * columns and predicate, a table's declared statistics' columns, and a column privilege's grant. A column an
  * expression names without a relation is its table's, as every expression over one table's row names it. A
  * statement of any other kind names no column of a table it is built over; the roles' views, policies and functions,
  * and the materialized views, which read columns through a relation of their FROM, the diff builds again whenever
@@ -1896,16 +1880,14 @@ const withColumns = (
 						where: s.where === undefined ? undefined : exprIn(into, s.where)
 					}
 		}
-		case "createStatistics": {
+		case "declareStatistics": {
 			const into = renamed(s.table)
-			if (into === undefined) {
-				return s
-			}
-			const [first, second, ...rest] = s.columns
-			return {
-				...s,
-				columns: [nameIn(into)(first), nameIn(into)(second), ...rest.map(nameIn(into))]
-			}
+			return into === undefined
+				? s
+				: {
+						...s,
+						columns: mapNonEmpty(s.columns, (c) => ({ ...c, column: nameIn(into)(c.column) }))
+					}
 		}
 		case "grantColumns": {
 			const into = renamed(s.table)
@@ -2052,7 +2034,7 @@ const withRoles = (s: WholeStatement, roles: ReadonlyMap<string, string>): Whole
 		case "createTransitionTrigger":
 		case "resetDatabaseDefault":
 		case "createExtension":
-		case "createStatistics":
+		case "declareStatistics":
 		case "lockTable":
 		case "createCarrier":
 		case "beginRead":

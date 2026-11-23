@@ -289,6 +289,16 @@
  * unit whose key leads its own (analysis/theory/unit.ts wholeRule), and a containment between selected sides of such
  * relations is discharged whole (laws/model/plan.ts containmentDischarge), where format 8 probed the one and made the
  * other native, its law columns, their UNIQUE and their index.
+ * Every table's statistics are declared from the schema's facts (physical/statistics/declared.ts): the manifest holds,
+ * for each table and indexed view and each of grizzle's bookkeeping tables, one object of kind `statistics`,
+ * `statistics:<schema>.<table>`, whose one statement sets the table's autovacuum_analyze_threshold and
+ * autovacuum_analyze_scale_factor to their maxima and every column's statistics target to 0, and restores each column's
+ * declared number of distinct values, each restore checked (sql/ast.ts DeclareStatistics), and the drift check compares
+ * each column's statistics target and pg_stats, and the table's storage parameters, with it, where format 8 created the
+ * extended statistics (CREATE STATISTICS of ndistinct, dependencies and mcv) a workload program's correlated selections
+ * and groupings asked for, named by their columns, and recorded each program's `statistics` in snapshot.json's workload
+ * access, which holds its paths alone; a live installation's extended statistics objects are departures its upgrade
+ * drops.
  */
 export const artifactFormat = 8
 

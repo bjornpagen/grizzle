@@ -773,7 +773,7 @@ export const reportable = (installation: Installation): ReadonlyArray<Identified
 			case "createMaterializedView":
 			case "drop":
 			case "revoke":
-			case "createStatistics":
+			case "declareStatistics":
 			case "dropIndex":
 			case "createFunction":
 			case "createConstant":

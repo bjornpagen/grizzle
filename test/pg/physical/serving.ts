@@ -11,9 +11,11 @@ import {
 } from "effect"
 import {
 	descentsOf,
+	type EstimatedNode,
 	explainStatementWith,
 	type PlanNode,
 	parsePlan,
+	parsePlanTree,
 	planNodes
 } from "#bench/harness/explain.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
@@ -47,8 +49,10 @@ import { parsedName, wild } from "#test/support/kernel/naming.ts"
 import { backendWaitStep, caseHang } from "#test/support/limits.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import {
+	insertOf,
 	type VolumeFill,
 	type VolumeFillRefused,
+	type VolumeTable,
 	volumeFill
 } from "#test/support/substrate/fill.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -560,7 +564,10 @@ export interface VolumeLoad {
  * read of one row costs what a GiST index's read of it through the heap does, and gistcostestimate's cheaper descent
  * (upstream/gist-costestimate-column-position) chooses the GiST index. Built only by loadAtVolume.
  */
-export type Settled = { readonly installed: Judged } & Brand.Brand<"Settled">
+export type Settled = {
+	readonly installed: Judged
+	readonly loads: ReadonlyArray<VolumeLoad>
+} & Brand.Brand<"Settled">
 const Settled = Brand.nominal<Settled>()
 
 /**
@@ -658,7 +665,7 @@ export const loadAtVolume = (
 		yield* vacuumed(admin, tables)
 		const unsettled = yield* unsettledOf(admin, tables)
 		if (!Arr.isReadonlyArrayNonEmpty(unsettled)) {
-			return Settled({ installed })
+			return Settled({ installed, loads })
 		}
 		const passed = yield* Effect.timeoutOption(
 			Effect.repeat(holdersBefore(admin, filled), {
@@ -672,7 +679,7 @@ export const loadAtVolume = (
 		}
 		const left = yield* unsettledOf(admin, tables)
 		if (!Arr.isReadonlyArrayNonEmpty(left)) {
-			return Settled({ installed })
+			return Settled({ installed, loads })
 		}
 		const holders = yield* holdersBefore(admin, filled)
 		return yield* new HeapUnsettled({
@@ -681,6 +688,16 @@ export const loadAtVolume = (
 			message: `the load's VACUUM left pages not all-visible, a cost state the judgment does not judge: ${Arr.join(left, "; ")}; the horizon's holders: ${Arr.isReadonlyArrayNonEmpty(holders) ? Arr.join(holders, "; ") : "none"}`
 		})
 	})
+
+/** A relation's load as the fill of the table `into` names (fill.ts VolumeTable): each field's column and its SQL. */
+const volumeTable = (installed: Judged, load: VolumeLoad, into: string): VolumeTable => ({
+	table: into,
+	columns: Arr.map(
+		load.fields,
+		([field, sql]) =>
+			[quoteIdent(installed.installation.names.column(load.relation, field)), sql] as const
+	)
+})
 
 /**
  * Fills every relation in order over the series 0 to `rows` - 1 as the owner, each a volume fill (substrate/fill.ts:
@@ -697,16 +714,7 @@ const fillRows = (
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
 		const fills = Arr.map(loads, (l): VolumeFill => ({
-			tables: [
-				{
-					table: tableSql(installed, l.relation),
-					columns: Arr.map(
-						l.fields,
-						([field, sql]) =>
-							[quoteIdent(installed.installation.names.column(l.relation, field)), sql] as const
-					)
-				}
-			],
+			tables: [volumeTable(installed, l, tableSql(installed, l.relation))],
 			rows,
 			conflicts: "skipped"
 		}))
@@ -722,11 +730,18 @@ interface KeyCondition {
 	readonly value: string
 }
 
-/** A probe's statement: the conditions it states on its keys, and what follows its WHERE clause. */
+/** A probe's statement: the conditions it states on its keys, and what follows its WHERE clause, its values parameters
+ * numbered from the one after the conditions' (`text`), each value's literal in order. */
 interface Statement {
 	readonly conditions: ReadonlyArray<KeyCondition>
-	readonly tail: string
+	readonly tail: {
+		readonly text: (first: number) => string
+		readonly values: ReadonlyArray<string>
+	}
 }
+
+/** A tail of no value. */
+const plainTail = (text: string): Statement["tail"] => ({ text: () => text, values: [] })
 
 /**
  * One request's probe: the statement, its shape, its relation's table, what the report calls it, and the conditions it
@@ -736,7 +751,12 @@ interface Probe {
 	readonly label: string
 	readonly shape: Shape
 	readonly table: Table
+	/** The statement, each value a parameter, `$1` the first. */
 	readonly sql: string
+	/** The statement over another table of the relation's columns and indexes, a copy the law's states stand up. */
+	readonly on: (from: string) => string
+	/** Each parameter's literal, in order. */
+	readonly values: ReadonlyArray<string>
 	readonly conditions: ReadonlyArray<KeyCondition>
 }
 
@@ -841,7 +861,7 @@ const probeOf = (installed: Judged, table: Table, request: IndexRequest) =>
 		const statement = yield* Effect.suspend((): Effect.Effect<Statement, SqlError> => {
 			switch (shape) {
 				case "equality":
-					return Effect.succeed({ conditions: equal(keys.length), tail: "" })
+					return Effect.succeed({ conditions: equal(keys.length), tail: plainTail("") })
 				case "range": {
 					const last = keys.length - 1
 					const bounded = keys[last]
@@ -857,7 +877,7 @@ const probeOf = (installed: Judged, table: Table, request: IndexRequest) =>
 								{ field: bounded.field, operator: ">=", value: lo },
 								{ field: bounded.field, operator: "<=", value: hi }
 							],
-							tail: ""
+							tail: plainTail("")
 						})
 					)
 				}
@@ -872,15 +892,17 @@ const probeOf = (installed: Judged, table: Table, request: IndexRequest) =>
 								: "=",
 							value: value(at)
 						})),
-						tail: ""
+						tail: plainTail("")
 					})
 				case "ordered":
 					return Effect.succeed({
 						conditions: [],
-						tail: ` ORDER BY ${Arr.join(
-							Arr.map(keys, (k) => `${column(k.field)} ${k.dir === "desc" ? "DESC" : "ASC"}`),
-							", "
-						)} LIMIT 10`
+						tail: plainTail(
+							` ORDER BY ${Arr.join(
+								Arr.map(keys, (k) => `${column(k.field)} ${k.dir === "desc" ? "DESC" : "ASC"}`),
+								", "
+							)} LIMIT 10`
+						)
 					})
 				case "nearest": {
 					const first = keys[0]
@@ -890,7 +912,11 @@ const probeOf = (installed: Judged, table: Table, request: IndexRequest) =>
 					const operator = first.opclass.kind === "default" ? "<->" : "<=>"
 					return Effect.succeed({
 						conditions: [],
-						tail: ` ORDER BY ${column(first.field)} OPERATOR(${quoteIdent(installed.installation.names.vectorSchema)}.${operator}) ${value(0)} LIMIT 10`
+						tail: {
+							text: (at) =>
+								` ORDER BY ${column(first.field)} OPERATOR(${quoteIdent(installed.installation.names.vectorSchema)}.${operator}) $${at} LIMIT 10`,
+							values: [value(0)]
+						}
 					})
 				}
 				case "match":
@@ -906,10 +932,19 @@ const probeOf = (installed: Judged, table: Table, request: IndexRequest) =>
 		const { conditions } = statement
 		const stated = Arr.map(
 			conditions,
-			(k) => `${column(k.field)} ${operator(k.field, k.operator)} ${k.value}`
+			(k, at) => `${column(k.field)} ${operator(k.field, k.operator)} $${at + 1}`
 		)
-		const sql = `SELECT 1 FROM ${table.quoted}${where(stated)}${statement.tail}`
-		return { label, shape, table, sql, conditions } satisfies Probe
+		const on = (from: string): string =>
+			`SELECT 1 FROM ${from}${where(stated)}${statement.tail.text(conditions.length + 1)}`
+		return {
+			label,
+			shape,
+			table,
+			sql: on(table.quoted),
+			on,
+			values: [...Arr.map(conditions, (k) => k.value), ...statement.tail.values],
+			conditions
+		} satisfies Probe
 	})
 
 /** How a served scan descended into its index: once a loop, or by a skip scan within its descents (descentsUnder). */
@@ -1236,40 +1271,70 @@ const verdictOf = (
 const analyzed = { serialize: { kind: "off" }, wal: false } as const
 
 /**
- * Each probe with its plan, run in one transaction rolled back, with sequential and bitmap scans disabled and `before`
- * run first. Each probe runs twice and its second run is judged: a first execution reads the catalog rows its scan's
- * operator classes need, which PostgreSQL counts in the scan's buffers.
+ * Runs `use` in a transaction rolled back after it, with sequential and bitmap scans disabled and generic plans, as
+ * every probe runs, and deallocates what it prepared: the test session's statements are unnamed, so none but these.
  */
-const planned = (probes: ReadonlyArray<Probe>, before: ReadonlyArray<string>) =>
+const rolledBack = <A, E>(
+	use: Effect.Effect<A, E, Substrate>
+): Effect.Effect<A, E | SqlError, Substrate> =>
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
 		return yield* Effect.acquireUseRelease(
 			admin.query("BEGIN", []),
 			() =>
-				Effect.gen(function* () {
-					for (const s of [
-						"SET LOCAL enable_seqscan = off",
-						"SET LOCAL enable_bitmapscan = off",
-						...before
-					]) {
-						yield* admin.query(s, [])
-					}
-					const plans: Array<readonly [Probe, PlanNode]> = []
-					for (const probe of probes) {
-						const explain = explainStatementWith(probe.sql, analyzed)
-						yield* admin.queryValues(explain, [])
-						const rows = yield* admin.queryValues(explain, [])
-						const plan = parsePlan(rows[0]?.[0])
-						if (Result.isFailure(plan)) {
-							return assert.fail(`${probe.label}: no plan: ${plan.failure.message}`)
-						}
-						plans.push([probe, plan.success.plan])
-					}
-					return plans
-				}),
-			() => Effect.ignore(admin.query("ROLLBACK", []))
+				Effect.andThen(
+					Effect.forEach(
+						[
+							"SET LOCAL enable_seqscan = off",
+							"SET LOCAL enable_bitmapscan = off",
+							"SET LOCAL plan_cache_mode = force_generic_plan"
+						],
+						(statement) => admin.query(statement, []),
+						{ discard: true }
+					),
+					use
+				),
+			() =>
+				Effect.andThen(
+					Effect.ignore(admin.query("ROLLBACK", [])),
+					Effect.ignore(admin.query("DEALLOCATE ALL", []))
+				)
 		)
 	})
+
+/**
+ * Each probe with its plan, run in one transaction rolled back, with sequential and bitmap scans disabled and `before`
+ * run first. Each probe runs twice and its second run is judged: a first execution reads the catalog rows its scan's
+ * operator classes need, which PostgreSQL counts in the scan's buffers.
+ */
+const planned = (probes: ReadonlyArray<Probe>, before: ReadonlyArray<string>) =>
+	rolledBack(
+		Effect.gen(function* () {
+			const { admin } = yield* Substrate
+			for (const s of before) {
+				yield* admin.query(s, [])
+			}
+			const plans: Array<readonly [Probe, PlanNode]> = []
+			for (const [at, probe] of probes.entries()) {
+				const name = `judged_probe_${at}`
+				yield* admin.query(`PREPARE ${name} AS ${probe.sql}`, [])
+				const explain = explainStatementWith(
+					probe.values.length === 0
+						? `EXECUTE ${name}`
+						: `EXECUTE ${name}(${Arr.join(probe.values, ", ")})`,
+					analyzed
+				)
+				yield* admin.queryValues(explain, [])
+				const rows = yield* admin.queryValues(explain, [])
+				const plan = parsePlan(rows[0]?.[0])
+				if (Result.isFailure(plan)) {
+					return assert.fail(`${probe.label}: no plan: ${plan.failure.message}`)
+				}
+				plans.push([probe, plan.success.plan])
+			}
+			return plans
+		})
+	)
 
 /**
  * The statements that drop every planned index of `host`'s relation but `host`, each with the key or exclusion
@@ -1308,6 +1373,220 @@ const withoutOthers = (
 		return statements
 	})
 
+/** The name of the copy a law's state stands up of a probed relation's table, in the table's schema (standCopy). */
+const copyName = "__judged_copy"
+
+/**
+ * A copy of a relation's table as a law's state holds it (standCopy): its quoted name, its own name as EXPLAIN reports
+ * its scans, the rows it holds, and each of its indexes by name with the table's index of the same definition and its
+ * own pages.
+ */
+interface Copy {
+	readonly quoted: string
+	readonly name: string
+	readonly rows: number
+	readonly indexes: ReadonlyMap<string, { readonly original: string; readonly pages: number }>
+}
+
+/**
+ * A state of the law (see judgeServing): `empty`, as installed, a table no VACUUM has seen, which PostgreSQL plans at
+ * ten pages; or `filled` at `rows`, vacuumed, every page all-visible.
+ */
+type LawState = { readonly kind: "empty" } | { readonly kind: "filled"; readonly rows: number }
+
+/**
+ * Stands up, in the transaction open on the admin session, a copy of `table` in `state` (LawState): its columns,
+ * defaults, constraints and indexes (CREATE TABLE ... (LIKE ... INCLUDING ALL)) and its declared statistics, each
+ * column's number of distinct values restored from the table's own; filled, the load's own rows over the series 0 to
+ * `rows` - 1, each a key already holds skipped, and its pages all-visible, as the VACUUM of a filled table leaves them
+ * (pg_restore_relation_stats). PostgreSQL reads a relation's size off its blocks (tableam.c
+ * table_block_relation_estimate_size, plancat.c get_relation_info), so the state holds its rows, and the table itself is
+ * never grown: the transaction's rollback drops the copy whole. Each index of the copy is mapped to the table's of the
+ * same definition.
+ */
+const standCopy = (installed: Judged, table: Table, load: VolumeLoad, state: LawState) =>
+	Effect.gen(function* () {
+		const { admin } = yield* Substrate
+		const quoted = `${quoteIdent(table.schema)}.${quoteIdent(copyName)}`
+		yield* admin.query(`CREATE TABLE ${quoted} (LIKE ${table.quoted} INCLUDING ALL)`, [])
+		yield* admin.queryValues(
+			"SELECT pg_catalog.pg_restore_attribute_stats('schemaname', $1::text, 'relname', $2::text, " +
+				"'attname', s.attname::text, 'inherited', false, 'n_distinct', s.n_distinct) " +
+				"FROM pg_catalog.pg_stats AS s WHERE s.schemaname = $1::text AND s.tablename = $3::text AND NOT s.inherited",
+			[table.schema, copyName, table.name]
+		)
+		const rows =
+			state.kind === "empty"
+				? 0
+				: yield* Effect.andThen(
+						admin.query(
+							insertOf(volumeTable(installed, load, quoted), "skipped", 0, state.rows - 1),
+							[]
+						),
+						countOf(admin, `SELECT count(*)::text FROM ${quoted}`)
+					)
+		if (state.kind === "filled") {
+			yield* admin.queryValues(
+				"SELECT pg_catalog.pg_restore_relation_stats('schemaname', $1::text, 'relname', $2::text, " +
+					"'relpages', p.pages, 'reltuples', $3::text::real, 'relallvisible', p.pages) " +
+					"FROM (SELECT (pg_catalog.pg_relation_size($4::text::pg_catalog.regclass) / " +
+					"pg_catalog.current_setting('block_size')::bigint)::integer AS pages) AS p",
+				[table.schema, copyName, String(rows), quoted]
+			)
+		}
+		const mapped = yield* Effect.map(
+			admin.queryValues(
+				"SELECT c.relname::text, o.relname::text, " +
+					"(pg_catalog.pg_relation_size(c.oid) / pg_catalog.current_setting('block_size')::bigint)::text " +
+					"FROM pg_catalog.pg_index AS xc JOIN pg_catalog.pg_class AS c ON c.oid = xc.indexrelid " +
+					"JOIN pg_catalog.pg_index AS xo ON xo.indrelid = $1::text::pg_catalog.regclass " +
+					"JOIN pg_catalog.pg_class AS o ON o.oid = xo.indexrelid " +
+					"WHERE xc.indrelid = $2::text::pg_catalog.regclass " +
+					"AND pg_catalog.substring(pg_catalog.pg_get_indexdef(xc.indexrelid), ' USING .*$') = " +
+					"pg_catalog.substring(pg_catalog.pg_get_indexdef(xo.indexrelid), ' USING .*$') ORDER BY 1, 2",
+				[table.quoted, quoted]
+			),
+			textsOf
+		)
+		const indexes = new Map<string, { readonly original: string; readonly pages: number }>()
+		for (const [name, original, pages] of mapped) {
+			if (name !== undefined && original !== undefined && !indexes.has(name)) {
+				indexes.set(name, { original, pages: Number(pages) })
+			}
+		}
+		return { quoted, name: copyName, rows, indexes } satisfies Copy
+	})
+
+/**
+ * What PostgreSQL's generic plan of a probe reads its relation through (EXPLAIN (GENERIC_PLAN), as every login's role
+ * plans each statement it prepares): an index, by the name of the table's index of the same definition, with the rows
+ * it estimates the scan returns; or none, and why.
+ */
+type Choice =
+	| { readonly kind: "index"; readonly index: string; readonly rows: number }
+	| { readonly kind: "none"; readonly why: string; readonly rows: number }
+
+/** The generic plan's choice for `sql` at `values` (Choice), prepared and planned under force_generic_plan, whose scans
+ * of the relation EXPLAIN reports as `relation`, each index of its scan named by `original`. */
+const choiceOf = (
+	sql: string,
+	values: ReadonlyArray<string>,
+	relation: string,
+	original: (index: string) => Option.Option<string>
+) =>
+	Effect.gen(function* () {
+		const { admin } = yield* Substrate
+		yield* admin.query(`PREPARE judged_choice AS ${sql}`, [])
+		const rows = yield* admin.queryValues(
+			`EXPLAIN (FORMAT JSON) EXECUTE judged_choice${values.length === 0 ? "" : `(${Arr.join(values, ", ")})`}`,
+			[]
+		)
+		yield* admin.query("DEALLOCATE judged_choice", [])
+		const plan = parsePlanTree(rows[0]?.[0])
+		if (Result.isFailure(plan)) {
+			return assert.fail(`no generic plan of ${sql}: ${plan.failure.message}`)
+		}
+		const scans = Arr.filter(
+			[...planNodes<EstimatedNode>(plan.success)],
+			(n) => Option.isSome(n.relation) && n.relation.value === relation
+		)
+		const [scan, ...more] = scans
+		if (scan === undefined || more.length > 0) {
+			return {
+				kind: "none",
+				why: `${scans.length} scans of the relation`,
+				rows: 0
+			} satisfies Choice
+		}
+		if (scan.nodeType !== "Index Scan" && scan.nodeType !== "Index Only Scan") {
+			return { kind: "none", why: `a ${scan.nodeType}`, rows: scan.planRows } satisfies Choice
+		}
+		const index = Option.flatMap(scan.index, original)
+		return Option.match(index, {
+			onNone: () =>
+				({
+					kind: "none",
+					why: "a scan of an index the installation did not plan",
+					rows: scan.planRows
+				}) satisfies Choice,
+			onSome: (name) => ({ kind: "index", index: name, rows: scan.planRows }) satisfies Choice
+		})
+	})
+
+/**
+ * The most rows a case's filled state may hold (filledRowsOf): a case whose derived size passes it fails, naming its size
+ * and the probe and index that ask for it, a finding to look at (a probe PostgreSQL estimates near no row of a large
+ * table), never clamped.
+ *
+ * @limitKind provisional
+ * @owner the serving judgment (serving.ts judgeServing's filled state)
+ * @unit rows
+ * @scope the copy of each probed relation one case's filled state stands up, in one rolled-back transaction
+ * @guards a derived size past consumer scale would have each case insert millions of rows into every probed relation's
+ *   copy, a judgment that runs for minutes a case and says nothing a smaller derivation would not
+ * @measure the consumer-sized kept cases of the plan-shape law (LC-WRITERS' probes, pantry's giant lookup, the ledger's
+ *   judge statement at 575k and 2M rows) state the sizes grizzle's plans are judged at; when they land, set this to the
+ *   largest size one of them needs, or measure serving's wall time at 2^18, 2^20 and 2^22 rows a copy
+ * @origin main's ruling of 2026-11-23 on DECLSTATS's filled state: fail past 2^20 rather than clamp
+ * @recorded 2026-11-23
+ */
+const filledRowsMost = 2 ** 20
+
+/**
+ * A probe whose estimate grows with its table, with what it estimates at the load and, of the indexes that could read
+ * it (every index holding a key one of its conditions searches, searchedBy), the one of the most pages an entry at the
+ * load: its densest-paged reader.
+ */
+interface Growing {
+	readonly relation: string
+	readonly probe: Probe
+	readonly selectivity: number
+	readonly densest: string
+}
+
+/** The rows an index of `facts` holds a leaf page at the load: its entries over its pages but the metapage. */
+const rowsAPage = (facts: IndexFacts): number => facts.entries / Math.max(1, facts.pages - 1)
+
+/**
+ * The least rows of a relation's filled state (see judgeServing).
+ *
+ * @limitKind derived
+ * @owner the serving judgment (serving.ts judgeServing's filled state), over PostgreSQL 19rc1's index cost estimates
+ * @unit rows
+ * @scope each relation of each case judgeServing judges whose probes hold one whose estimate grows with its table: the
+ *   copy its filled state stands up
+ * @derivation PostgreSQL prices an index read at ceil(estimated entries × (pages - 1) / tuples) pages, the metapage
+ *   aside (selfuncs.c genericcostestimate,
+ *   https://github.com/postgres/postgres/blob/REL_19_RC1/src/backend/utils/adt/selfuncs.c#L7523-L7527, "ceil(numIndexTuples
+ *   * (index->pages - costs->numNonLeafPages) / index->tuples)", verified 2026-11-23), its pages off the index's blocks
+ *   and its tuples the table's (plancat.c get_relation_info,
+ *   https://github.com/postgres/postgres/blob/REL_19_RC1/src/backend/optimizer/util/plancat.c#L479-L480). While every
+ *   index that could read a probe is priced at one page, only the descent charges tell them apart, ceil(log2 N)
+ *   comparisons for a B-tree against ceil(ln N) for a GiST index (btcostestimate, gistcostestimate, #L8145 and #L8268),
+ *   whatever each reads. Once the reader of the most pages an entry passes one page, pages tell every pair apart, and a
+ *   reader still at one page is strictly cheaper. A probe whose estimate grows with its table, s × N rows (s its
+ *   estimated rows over the table's at the load), passes one page of an index of e entries over p pages at the load
+ *   once s × N × (p - 1) / e > 1. So a relation's filled size is the greatest floor(e / (s × (p - 1))) + 1 over its
+ *   growing probes, each at its densest-paged reader; a relation with none is planned at the load itself. A probe
+ *   binding an anchor by equality, a column whose declared number of distinct values is relative, estimates the same
+ *   rows at every size, which the declaration ranks. Measured on PostgreSQL 19rc1 at the load's 20,000 rows: Shift's
+ *   range on (standby, worker), 50 rows estimated, read densest by its GiST primary key of 66.2 rows a page, about
+ *   26,500 rows; DatetimePl's range on (JsonbInsert, fixed0), 50 rows, by its GiST index of about 101, about 40,400.
+ * @from the load's own estimates and pages, read in the case (Growing, IndexFacts)
+ */
+const filledRowsOf = (
+	growing: ReadonlyArray<Growing>,
+	facts: ReadonlyMap<string, IndexFacts>
+): number =>
+	Arr.reduce(growing, 0, (most, g) =>
+		Math.max(
+			most,
+			Math.floor(
+				rowsAPage(defined(facts.get(g.densest), `the facts of ${g.densest}`)) / g.selectivity
+			) + 1
+		)
+	)
+
 /** The upstream notes (upstream/<name>) a residue awaits: each a PostgreSQL behaviour a patch there changes. */
 const upstreamNotes = ["gist-costestimate-column-position"] as const
 type UpstreamNote = (typeof upstreamNotes)[number]
@@ -1324,6 +1603,7 @@ type Residue =
 
 /** What the judgment noted of one request or one created index. */
 export type ServingFeature =
+	| "a key lookup read through its key, empty as installed"
 	| `${Shape} probe served`
 	| "served by a key or enforcement index"
 	| "served by a created index"
@@ -1352,12 +1632,29 @@ const residueFeature = (residue: Residue): ServingFeature => {
  *
  * The engine plans every request onto an index it claims serves it. Nothing here restates which index serves which
  * request. Each request becomes a probe, the statement its use asks of its relation (shapeOf, from what each use means,
- * ir/products.ts accessUses), its values those of a row the relation holds, and PostgreSQL plans and runs it under
- * EXPLAIN (ANALYZE, BUFFERS) with sequential and bitmap scans disabled, so it reads through an index whenever one can
- * apply the probe at all. The probe is served when PostgreSQL ran it through one Index Scan or Index Only Scan of the
- * request's relation, on an index the installation planned (the request's own or another PostgreSQL finds cheaper);
- * when it is another, the probe runs again through the request's own alone, every other index of the relation dropped
- * in a transaction rolled back, and must be served there too, so the engine's claim is judged on the index it names:
+ * ir/products.ts accessUses), its values those of a row the relation holds, each a parameter, and PostgreSQL prepares
+ * it, plans it generically, as every login's role plans each statement it prepares (plan_cache_mode at
+ * force_generic_plan, physical/ddl/roles.ts), and runs it under EXPLAIN (ANALYZE, BUFFERS) EXECUTE with sequential and
+ * bitmap scans disabled, so it reads through an index whenever one can apply the probe at all. A literal in its place
+ * would be planned at its value under statistics the installation declares and never samples, which hold no
+ * histogram: PostgreSQL prices each bound of a range at half the rows and the pair at none (selfuncs.c scalarineqsel,
+ * clausesel.c addRangeClause), a plan no statement of the installation is given.
+ *
+ * PostgreSQL chooses a probe's index in the states of the plan-shape law, never at the load's one size: each state is a
+ * copy of the relation's table, its indexes and its declared statistics, stood up in a transaction rolled back
+ * (standCopy), so the table the probes run on is never grown.
+ * - Empty as installed, a table no VACUUM has seen, which PostgreSQL plans at ten pages: each probe binding a key by
+ *   equality reads through a key's index it binds whole. Nothing else is judged empty, where a read of several rows may
+ *   scan the table.
+ * - Filled, each relation at its derived size (filledRowsOf), the least past PostgreSQL's one-page degeneracy, where
+ *   indexes that read one page each are told apart only by their descent charges, and a relation no probe of which
+ *   grows with its table at the load itself: PostgreSQL's choice there is the index each probe reads through, and a created index is needed where, filled without it, PostgreSQL's choice for
+ *   some request of it does not serve the request's probe.
+ * The probe then runs at the load through the filled state's choice alone, every other index of the relation dropped in
+ * a transaction rolled back. It is served when that read is one Index Scan or Index Only Scan of the request's
+ * relation, on an index the installation planned (the request's own or another PostgreSQL finds cheaper); when it is
+ * another, the probe runs again through the request's own alone, and must be served there too, so the engine's claim
+ * is judged on the index it names:
  *
  * - with an index condition, when the probe fixes a column (every shape but an order and the nearest vectors);
  * - in one descent of the index (Index Searches at most 1), so a B-tree skip scan over a leading column the request
@@ -1469,6 +1766,7 @@ export const judgeServing = (
 	note: (feature: ServingFeature) => void
 ): Effect.Effect<ReadonlyArray<string>, SqlError, Substrate> =>
 	Effect.gen(function* () {
+		const { admin } = yield* Substrate
 		const { installed } = settled
 		const indexes = installed.installation.indexes
 		const relations = [...new Set(Arr.map(indexes, (i) => i.relation))]
@@ -1508,6 +1806,265 @@ export const judgeServing = (
 			const p = probes.get(r)
 			return p ?? assert.fail("a request with no probe")
 		}
+		const problems: Array<string> = []
+		const judgedRelations = [...new Set(Arr.map(judged, (i) => i.relation))]
+		const loadOf = (relation: string): VolumeLoad =>
+			Option.getOrElse(
+				Arr.findFirst(settled.loads, (l) => l.relation === relation),
+				() => assert.fail(`no load of ${relation}`)
+			)
+		const probesOn = (relation: string): ReadonlyArray<Probe> =>
+			Arr.filter([...probes.values()], (p) => p.table === tableFor(relation))
+		/** The fields a probe binds by equality. */
+		const boundBy = (probe: Probe): ReadonlySet<string> =>
+			new Set(Arr.flatMap(probe.conditions, (c) => (c.operator === "=" ? [c.field] : [])))
+		/** Whether `index` is a key's, unique, whose every field `probe` binds by equality. */
+		const keyOf = (index: string, probe: Probe): boolean => {
+			const f = facts.get(index)
+			const bound = boundBy(probe)
+			return f !== undefined && f.unique && Arr.every(f.keys, (k) => bound.has(k.field))
+		}
+		const originalIn =
+			(copy: Copy) =>
+			(index: string): Option.Option<string> =>
+				Option.fromUndefinedOr(copy.indexes.get(index)?.original)
+		for (const relation of judgedRelations) {
+			const lookups = Arr.filter(probesOn(relation), (p) =>
+				Arr.some(judged, (i) => i.relation === relation && keyOf(i.index.name, p))
+			)
+			if (!Arr.isReadonlyArrayNonEmpty(lookups)) {
+				continue
+			}
+			const chosen = yield* rolledBack(
+				Effect.gen(function* () {
+					const copy = yield* standCopy(installed, tableFor(relation), loadOf(relation), {
+						kind: "empty"
+					})
+					return yield* Effect.forEach(lookups, (p) =>
+						Effect.map(
+							choiceOf(p.on(copy.quoted), p.values, copy.name, originalIn(copy)),
+							(c) => [p, c] as const
+						)
+					)
+				})
+			)
+			for (const [p, c] of chosen) {
+				if (c.kind === "none") {
+					problems.push(`${p.label}, empty as installed: ${c.why}`)
+				} else if (keyOf(c.index, p)) {
+					note("a key lookup read through its key, empty as installed")
+				} else {
+					problems.push(
+						`${p.label}, empty as installed: read through ${c.index}, no key's index the probe binds whole`
+					)
+				}
+			}
+		}
+		/**
+		 * The probes whose estimate grows with their table (Growing): each conditioning a column and binding no anchor by
+		 * equality, a column whose declared number of distinct values is relative, with what it estimates at the load.
+		 */
+		const growing: Array<Growing> = []
+		for (const relation of judgedRelations) {
+			const table = tableFor(relation)
+			const relative = yield* admin.queryValues(
+				"SELECT s.attname::text FROM pg_catalog.pg_stats AS s WHERE s.schemaname = $1::text " +
+					"AND s.tablename = $2::text AND NOT s.inherited AND s.n_distinct < 0",
+				[table.schema, table.name]
+			)
+			const anchors = new Set(Arr.flatMap(textsOf(relative), (row) => row.slice(0, 1)))
+			for (const p of probesOn(relation)) {
+				if (
+					!Arr.isReadonlyArrayNonEmpty(p.conditions) ||
+					Arr.some([...boundBy(p)], (field) =>
+						anchors.has(installed.installation.names.column(relation, field))
+					)
+				) {
+					continue
+				}
+				const readers = Arr.flatMap(judged, (i) => {
+					if (i.relation !== relation) {
+						return []
+					}
+					const f = defined(facts.get(i.index.name), `the facts of ${i.index.name}`)
+					return Arr.some(f.keys, (k) => Arr.some(p.conditions, (c) => searchedBy(k, c)))
+						? [[i.index.name, rowsAPage(f)] as const]
+						: []
+				})
+				const densest = Arr.reduce(readers, Option.none<readonly [string, number]>(), (best, r) =>
+					Option.isSome(best) && best.value[1] <= r[1] ? best : Option.some(r)
+				)
+				if (Option.isNone(densest)) {
+					continue
+				}
+				const estimate = yield* rolledBack(choiceOf(p.sql, p.values, table.name, Option.some))
+				growing.push({
+					relation,
+					probe: p,
+					selectivity: Math.max(1, estimate.rows) / table.rows,
+					densest: densest.value[0]
+				})
+			}
+		}
+		/**
+		 * A relation's filled state: the table its probes are planned on there, a copy at its filled size or the loaded
+		 * table itself where no probe of it grows; each probe's choice there; and each created index's probes' without it.
+		 */
+		interface Filled {
+			readonly copy: Copy
+			readonly choices: ReadonlyMap<Probe, Choice>
+			readonly without: ReadonlyMap<string, ReadonlyMap<Probe, Choice>>
+		}
+		/** The loaded table as its own filled state: each planned index its own. */
+		const loaded = (relation: string): Copy => {
+			const table = tableFor(relation)
+			return {
+				quoted: table.quoted,
+				name: table.name,
+				rows: table.rows,
+				indexes: new Map(
+					Arr.flatMap(judged, (i) =>
+						i.relation === relation
+							? [
+									[
+										i.index.name,
+										{
+											original: i.index.name,
+											pages: defined(facts.get(i.index.name), `the facts of ${i.index.name}`).pages
+										}
+									] as const
+								]
+							: []
+					)
+				)
+			}
+		}
+		const filledOf = (relation: string, size: Option.Option<number>) =>
+			rolledBack(
+				Effect.gen(function* () {
+					const table = tableFor(relation)
+					const copy = Option.isSome(size)
+						? yield* standCopy(installed, table, loadOf(relation), {
+								kind: "filled",
+								rows: size.value
+							})
+						: loaded(relation)
+					const original = originalIn(copy)
+					const choices = new Map<Probe, Choice>()
+					for (const p of probesOn(relation)) {
+						const choice = yield* choiceOf(p.on(copy.quoted), p.values, copy.name, original)
+						choices.set(p, choice)
+					}
+					const without = new Map<string, ReadonlyMap<Probe, Choice>>()
+					for (const i of Arr.filter(
+						judged,
+						(i) => i.relation === relation && i.index.kind === "created"
+					)) {
+						const counterpart = Option.getOrElse(
+							Arr.findFirst([...copy.indexes], ([, c]) => c.original === i.index.name),
+							() => assert.fail(`no copy of ${i.index.name}`)
+						)[0]
+						yield* admin.query("SAVEPOINT without_one", [])
+						yield* admin.query(
+							`DROP INDEX ${quoteIdent(table.schema)}.${quoteIdent(counterpart)}`,
+							[]
+						)
+						const left = new Map<Probe, Choice>()
+						for (const r of i.requests) {
+							const p = probeFor(r)
+							const choice = yield* choiceOf(p.on(copy.quoted), p.values, copy.name, original)
+							left.set(p, choice)
+						}
+						yield* admin.query("ROLLBACK TO SAVEPOINT without_one", [])
+						without.set(i.index.name, left)
+					}
+					return { copy, choices, without } satisfies Filled
+				})
+			)
+		/**
+		 * Each growing probe of `relation` whose estimate in its filled `state` passes no more than one page of its
+		 * densest-paged reader (filledRowsOf), with how many pages it spans.
+		 */
+		const shortOf = (relation: string, state: Filled) =>
+			Arr.flatMap(growing, (g) => {
+				if (g.relation !== relation) {
+					return []
+				}
+				const choice = defined(state.choices.get(g.probe), `the filled choice of ${g.probe.label}`)
+				const { pages } = Option.getOrElse(
+					Arr.findFirst([...state.copy.indexes.values()], (c) => c.original === g.densest),
+					() => assert.fail(`no copy of ${g.densest}`)
+				)
+				const spans =
+					(Math.max(1, choice.rows) * Math.max(0, pages - 1)) / Math.max(1, state.copy.rows)
+				return spans > 1 ? [] : [{ growing: g, spans }]
+			})
+		const shortText = (
+			short: ReadonlyArray<{ readonly growing: Growing; readonly spans: number }>
+		) =>
+			Arr.join(
+				Arr.map(
+					short,
+					(x) =>
+						`${x.growing.probe.label} spans ${x.spans.toFixed(3)} pages of ${x.growing.densest}`
+				),
+				"; "
+			)
+		/**
+		 * The filled state of `relation` at `rows`, its least size past PostgreSQL's one-page degeneracy (filledRowsOf),
+		 * stood up again at the size its copy's own pages ask where the load's proportions fell short of it; or, past
+		 * filledRowsMost or where more rows move nothing, why it is not judged filled.
+		 */
+		const filledAt = (
+			relation: string,
+			rows: number,
+			asked: string
+		): Effect.Effect<Result.Result<Filled, string>, SqlError, Substrate> =>
+			Effect.gen(function* () {
+				if (rows > filledRowsMost) {
+					return Result.fail(
+						`${relation}'s filled size, ${rows} rows, passes ${filledRowsMost}, the most a filled state holds: ${asked}`
+					)
+				}
+				const state = yield* filledOf(relation, Option.some(rows))
+				const short = shortOf(relation, state)
+				if (!Arr.isReadonlyArrayNonEmpty(short)) {
+					return Result.succeed(state)
+				}
+				const next = Arr.reduce(short, rows, (most, x) =>
+					x.spans > 0 ? Math.max(most, Math.floor(rows / x.spans) + 1) : Number.POSITIVE_INFINITY
+				)
+				if (!Number.isFinite(next)) {
+					return Result.fail(
+						`${relation} filled at ${rows} rows: ${shortText(short)}, and more rows move nothing`
+					)
+				}
+				return yield* filledAt(relation, next, `filled at ${rows} rows, ${shortText(short)}`)
+			})
+		const states = new Map<string, Filled>()
+		for (const relation of judgedRelations) {
+			const asking = Arr.filter(growing, (g) => g.relation === relation)
+			if (!Arr.isReadonlyArrayNonEmpty(asking)) {
+				const state = yield* filledOf(relation, Option.none())
+				states.set(relation, state)
+				continue
+			}
+			const asked = Arr.join(
+				Arr.map(asking, (g) => {
+					const f = defined(facts.get(g.densest), `the facts of ${g.densest}`)
+					return `${g.probe.label} estimates ${Math.round(g.selectivity * volumeRows)} of ${volumeRows} rows, ${g.densest} holds ${rowsAPage(f).toFixed(1)} a page`
+				}),
+				"; "
+			)
+			const state = yield* filledAt(relation, filledRowsOf(asking, facts), asked)
+			if (Result.isFailure(state)) {
+				problems.push(`not judged filled: ${state.failure}`)
+				return problems
+			}
+			states.set(relation, state.success)
+		}
+		const stateOf = (relation: string): Filled =>
+			defined(states.get(relation), `the filled state of ${relation}`)
 		/** What each column of `relation` holds, by its type as the catalog holds it (Table): the engine's Holds. */
 		const holdsIn =
 			(relation: string) =>
@@ -1618,15 +2175,60 @@ export const judgeServing = (
 				const residue = residueOf(verdict.through, request, verdict.touched, claim.touched)
 				return Option.isSome(residue) ? Result.succeed(residue) : problem(verdict.why)
 			})
-		const problems: Array<string> = []
-		/** Every request is served (readOf). */
+		/**
+		 * The probe's read at the load through `choice`, the filled state's: its plan as PostgreSQL makes it at the load
+		 * where that reads through the choice, or else its plan with every other index of the relation dropped
+		 * (withoutOthers); or why there is none.
+		 */
+		const readThrough = (probe: Probe, relation: string, choice: Choice) =>
+			Effect.gen(function* () {
+				if (choice.kind === "none") {
+					return Result.fail(`filled, ${choice.why}`)
+				}
+				const chosen = plannedOn(relation).get(choice.index)
+				if (chosen === undefined) {
+					return Result.fail(
+						`filled, a scan of ${choice.index}, which the installation did not plan`
+					)
+				}
+				const [asIs] = yield* planned([probe], [])
+				const through = (plan: PlanNode): boolean =>
+					Arr.some(
+						[...planNodes(plan)],
+						(n) =>
+							Option.isSome(n.relation) &&
+							n.relation.value === probe.table.name &&
+							Option.getOrUndefined(n.index) === choice.index
+					)
+				if (asIs !== undefined && through(asIs[1])) {
+					return Result.succeed(asIs[1])
+				}
+				const isolated = yield* withoutOthers(installed, chosen)
+				const [read] = yield* planned([probe], isolated)
+				return read === undefined
+					? assert.fail(`${probe.label}: no plan through ${choice.index}`)
+					: Result.succeed(read[1])
+			})
+		/** Every request is served (readOf), read through the index its probe's filled state chose. */
 		const served = (host: PlannedIndex) =>
 			Effect.gen(function* () {
-				const plans = yield* planned(Arr.map(host.requests, probeFor), [])
-				for (const [request, [probe, plan]] of Arr.zip(host.requests, plans)) {
+				for (const request of host.requests) {
+					const probe = probeFor(request)
+					const plan = yield* readThrough(
+						probe,
+						host.relation,
+						defined(
+							stateOf(host.relation).choices.get(probe),
+							`the filled choice of ${probe.label}`
+						)
+					)
+					if (Result.isFailure(plan)) {
+						problems.push(`${probe.label}, planned on ${host.index.name}: ${plan.failure}`)
+						continue
+					}
 					const verdict = verdictOf(
 						probe,
-						plan,
+						plan.success,
 						plannedOn(host.relation),
 						facts,
 						(index) => index === host.index.name
@@ -1673,17 +2275,28 @@ export const judgeServing = (
 			if (i.index.kind !== "created") {
 				continue
 			}
-			const q = installed.installation.names.relation(i.relation)
-			const plans = yield* planned(Arr.map(i.requests, probeFor), [
-				`DROP INDEX ${quoteIdent(q.schema)}.${quoteIdent(i.index.name)}`
-			])
+			const left = defined(
+				stateOf(i.relation).without.get(i.index.name),
+				`the filled state without ${i.index.name}`
+			)
 			const without = new Map(
 				Arr.filter([...plannedOn(i.relation)], ([name]) => name !== i.index.name)
 			)
-			const verdicts = Arr.map(
-				plans,
-				([probe, plan]) => [probe, verdictOf(probe, plan, without, facts, () => true)] as const
-			)
+			const verdicts: Array<readonly [Probe, Verdict]> = []
+			for (const request of i.requests) {
+				const probe = probeFor(request)
+				const plan = yield* readThrough(
+					probe,
+					i.relation,
+					defined(left.get(probe), `the filled choice of ${probe.label} without ${i.index.name}`)
+				)
+				verdicts.push([
+					probe,
+					Result.isFailure(plan)
+						? { kind: "unserved", why: plan.failure }
+						: verdictOf(probe, plan.success, without, facts, () => true)
+				])
+			}
 			if (Arr.some(verdicts, ([, v]) => v.kind !== "served")) {
 				note("a created index needed")
 				continue

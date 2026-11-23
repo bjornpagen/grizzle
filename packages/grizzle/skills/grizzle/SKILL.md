@@ -210,8 +210,8 @@ export default defineConfig({
      there, and the last value may be followed by the `FROM` and `WHERE` it joins). Write the value, or an UPDATE right
      after the file's `SET CONSTRAINTS ALL IMMEDIATE`, where every data step goes, then delete the marker line.
    - **Confirm** (`-- grizzle: confirm:` and the instruction line below it): a holder set aside, a relation or roster
-     whose name a declared rename takes or that moves to another kind, renamed aside with every index and statistics
-     object it owns, so a declared rename takes it from there or the end of the migration
+     whose name a declared rename takes or that moves to another kind, renamed aside with every index it owns, so a
+     declared rename takes it from there or the end of the migration
      drops it, as declared. Keep every statement as drafted and delete the two marker lines; `check` refuses a group
      kept in part.
    - **Data loss** (`-- grizzle: data loss:` above a commented `CREATE SCHEMA`): a schema's first migration beside a
@@ -311,7 +311,8 @@ breaking change may briefly break older application instances that are still run
   new type, and once every placeholder column holds its value the table's fill sets it to the value you write at its
   placeholder (a `USING` reads its own row alone, so it could not join a re-pointed reference's target), drops the old
   column and renames the set-aside one into the field's name. Either way it runs after the
-  constraints, indexes and statistics over it are dropped; they are built again as on any table with rows, but a key
+  constraints and indexes over it are dropped; they are built again as on any table with rows, and its table's
+  declared statistics declared again, which the conversion clears, but a key
   over it, which is added again right after the conversion in the same transaction, so it holds throughout. A domain is
   named by its whole definition, so a contract's changed predicate, like a changed pattern, is another domain: each
   field it types is converted to it by its cast, which refuses a stored value the new definition doesn't admit (23514).
@@ -320,8 +321,10 @@ breaking change may briefly break older application instances that are still run
   type, a materialized view, a function), is dropped at the start of this transaction and created again, with its
   grants, at its end, so no committed state lacks it.
 - **indexes**: `CREATE INDEX CONCURRENTLY` on tables that may hold rows, in a no-transaction file, so writes keep
-  flowing. A table this migration creates gets an ordinary build. The extended statistics a workload program earns are
-  created here too, on a table or a materialized view, each followed by an `ANALYZE` of a relation that may hold rows.
+  flowing. A table this migration creates gets an ordinary build. Each table's declared statistics are set here too,
+  on a table or a materialized view, where they are new or changed, or a column under them was converted: every
+  column's statistics target set to 0 and its declared number of distinct values restored, each restore checked (README
+  "Declared statistics"). No migration runs `ANALYZE`, and none is needed: ANALYZE samples nothing of a declared column.
 - **validate**: `VALIDATE CONSTRAINT`, and the rules over queries, in one transaction that takes no lock that blocks a
   read, so the application reads every table while its checks read every row; writes to the tables a rule reads wait
   for it. A roster domain's VALIDATE refuses every row that still holds a removed handle's code, naming the table and
@@ -350,7 +353,7 @@ breaking change may briefly break older application instances that are still run
   views (a security-barrier view for a query entry, a plain one for a whole entry, each closed id followed by its
   decoded `<field>_name`), its grants (EXECUTE on each constant its statements call among them, and on each declared function its served
   programs call, `Fn.call`, `Fn.rows` and `Fn.row`, and no other), row-security policies
-  and filter functions; and last every object the schema no longer has, dropped: indexes, roles, statistics, views,
+  and filter functions; and last every object the schema no longer has, dropped: indexes, roles, views,
   functions (a constant by `DROP FUNCTION ... RESTRICT`, so PostgreSQL refuses a migration that left a reader of it
   standing), columns, tables, then types. A declared drop of a stored relation or field is drafted live. A world object
   holds no data, so a changed world needs no marker; a role the migration creates gets its views, policies and
@@ -392,7 +395,7 @@ What a declaration drafts:
   constraints, so its rows stay where they are, and a swap (`A=B` and `B=A`) or a chain (`A=B` and `B=C`) is free of the
   names it moves into. A name a rename takes ends its previous holder, which is dropped as declared.
 - **A field renamed** is renamed in place, through its own aside name. PostgreSQL carries the rename into what is built
-  over it, and each key, index, statistics object, CHECK and foreign key over it, or on a renamed relation, or
+  over it, and each key, index, CHECK and foreign key over it, or on a renamed relation, or
   referencing one, that the schema declares by the same definition is renamed to the name the schema gives it
   (`RENAME CONSTRAINT`, `ALTER INDEX ... RENAME TO`), never built or validated again; what the schema declares otherwise
   is built again. A new field of a table with rows takes a placeholder, and a field whose type changed is converted or
@@ -425,8 +428,8 @@ What a declaration drafts:
 - **A relation or field dropped** is dropped with its rows or values, a live statement in Publish: the declaration is
   the decision.
 - **A name moving to an object of another kind** (a relation taking a removed roster's name, or two of them swapping
-  names) sets the old holder aside first, in Setup, under its aside name, with every index and statistics object it
-  owns, under one confirm marker. A declared rename takes it from there; otherwise the end of the
+  names) sets the old holder aside first, in Setup, under its aside name, with every index it owns, under one confirm
+  marker. A declared rename takes it from there; otherwise the end of the
   migration drops it there, as declared.
 - **The schema's name names its PostgreSQL schema.** A schema renamed in code is a new, empty schema. When the
   migrations directory holds a schema the config no longer lists, the new schema's first migration drafts its `CREATE

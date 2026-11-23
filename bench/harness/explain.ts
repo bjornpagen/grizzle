@@ -137,6 +137,8 @@ interface NodeKeys {
  * actual figure, buffer or WAL counter.
  */
 export interface EstimatedNode extends NodeKeys {
+	/** The rows PostgreSQL estimates the node returns. */
+	readonly planRows: number
 	readonly children: ReadonlyArray<EstimatedNode>
 }
 
@@ -419,6 +421,7 @@ const parseNode = (o: Json, walCapture: boolean): PlanNode => {
 
 const parseEstimated = (o: Json): EstimatedNode => ({
 	...nodeKeys(o),
+	planRows: num(o, "Plan Rows"),
 	children: Arr.map(children(o), parseEstimated)
 })
 

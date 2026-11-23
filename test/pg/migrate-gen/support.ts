@@ -45,21 +45,7 @@ import {
 	type ScalarType,
 	sameScalarType
 } from "#compiler/ir/scalar.ts"
-import { workloadExtension } from "#compiler/physical/access/extension.ts"
-import { noServedTypes } from "#compiler/physical/ddl/domains.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
-import {
-	type InstallExtension,
-	noCarriers,
-	noCertificates,
-	noFences,
-	noCalls,
-	servesNoParams
-} from "#compiler/physical/install/extension.ts"
-import {
-	type StatisticsRequest,
-	statisticsKinds
-} from "#compiler/physical/statistics/statistics.ts"
 import { admitSchemaDesc } from "#compiler/schema/admit.ts"
 import type { ColumnDef } from "#compiler/sql/ast.ts"
 import { printType } from "#compiler/sql/print.ts"
@@ -87,7 +73,6 @@ import {
 } from "#test/support/oracle/gen/domain.ts"
 
 import { noSpellings } from "#compiler/ir/pattern.ts"
-import { noLive } from "#compiler/live/notify.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
 	type FactsSketch,
@@ -118,7 +103,7 @@ import {
 import { planRealInstall, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { inputText } from "#test/support/oracle/runner.ts"
-import { pickGen, pickIndex, pickOf } from "#test/support/pick.ts"
+import { pickGen, pickIndex } from "#test/support/pick.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /** The kinds a path may draw, each a swarm feature: the edits a successor applies to its predecessor's sketch, the
@@ -136,9 +121,8 @@ import { upTo } from "#test/support/up-to.ts"
  * to the primary key with the next relation's containment into it, and a relation given back A's declaration of it,
  * which declares again the fields an earlier edit removed, with their keys and containment. Beside the oracle schema each
  * version carries what the oracle schema has no form for, each by pick into its relations and fields so renames carry
- * it along: bound checks on integer fields (a law family a successor adds to, changes and removes), extended
- * statistics over two fields (a workload of synthetic requests, which grizzle installs as it does a program's), and
- * relations the role `reader` does not hold (a successor drops or adds them, its view going or coming). Every sketch resolves to a valid schema, and so does every edited one.
+ * it along: bound checks on integer fields (a law family a successor adds to, changes and removes), and relations the
+ * role `reader` does not hold (a successor drops or adds them, its view going or coming). Every sketch resolves to a valid schema, and so does every edited one.
  *
  * A renamed path (renamedDrawGen) also makes a few renames in B, and maybe in C, as a user renames: relations and
  * fields, a field of a key a containment references, a field with its type changed, a relation with the type of one of
@@ -184,15 +168,7 @@ const editKinds = [
 ] as const
 type EditKind = (typeof editKinds)[number]
 
-const extraKinds = [
-	"addCheck",
-	"changeCheck",
-	"removeChecks",
-	"addStatistics",
-	"dropStatistics",
-	"toggleRead",
-	"addCoded"
-] as const
+const extraKinds = ["addCheck", "changeCheck", "removeChecks", "toggleRead", "addCoded"] as const
 type ExtraKind = (typeof extraKinds)[number]
 
 const renameKinds = [
@@ -459,12 +435,6 @@ export interface Extras {
 		readonly column: number
 		readonly lower: boolean
 	}>
-	/** Extended statistics over two fields of a relation. */
-	readonly statistics: ReadonlyArray<{
-		readonly relation: number
-		readonly first: number
-		readonly second: number
-	}>
 	/** The relations the reader does not read, by position. */
 	readonly unread: ReadonlyArray<number>
 	/** The coded pair, when the path draws it. */
@@ -477,7 +447,6 @@ export type Coded = { readonly kind: "absent" } | { readonly kind: "present" }
 
 export const noExtras: Extras = {
 	checks: [],
-	statistics: [],
 	unread: [],
 	coded: { kind: "absent" }
 }
@@ -507,9 +476,6 @@ export const codedFacts: Readonly<
 	)
 }
 
-const without = <A>(xs: ReadonlyArray<A>, pick: number): ReadonlyArray<A> =>
-	xs.length === 0 ? xs : Arr.remove(xs, pickIndex(pick, xs.length))
-
 const applyExtraEdit = (x: Extras, { kind, picks }: ExtraEdit): Extras => {
 	switch (kind) {
 		case "addCheck":
@@ -526,16 +492,6 @@ const applyExtraEdit = (x: Extras, { kind, picks }: ExtraEdit): Extras => {
 		}
 		case "removeChecks":
 			return { ...x, checks: [] }
-		case "addStatistics":
-			return {
-				...x,
-				statistics: [
-					...x.statistics,
-					{ relation: picks.first, first: picks.second, second: picks.third }
-				]
-			}
-		case "dropStatistics":
-			return { ...x, statistics: without(x.statistics, picks.first) }
 		case "toggleRead": {
 			const relation = pickIndex(picks.first, pathLimits.maxRelations)
 			return {
@@ -556,13 +512,11 @@ const pathLimits: SchemaLimits = { ...defaultSchemaLimits, maxRelations: 3, maxC
 /** The extras A starts with, before the swarm turns some kinds off. */
 interface ExtrasSketch {
 	readonly checks: ReadonlyArray<Picks>
-	readonly statistics: ReadonlyArray<Picks>
 	readonly unread: ReadonlyArray<number>
 }
 
 const extrasSketchGen: Gen<ExtrasSketch> = (source) => ({
 	checks: source.draw(array(picksGen, { min: 0, max: 2 })),
-	statistics: source.draw(array(picksGen, { min: 0, max: 2 })),
 	unread: source.draw(array(pickGen, { min: 0, max: 1 }))
 })
 
@@ -816,52 +770,6 @@ export const versionOf = (schema: GenSchema, extras: Extras): Version => ({
 export const versionLogins = (v: Version): ReadonlyArray<LoginDesc> =>
 	worldsOf(v.schema, v.extras, v.desc)
 
-/** The statistics a version requests, synthetic requests: two distinct fields of a relation each, in code point order. */
-const statisticsRequests = (v: Version): ReadonlyArray<StatisticsRequest> =>
-	Arr.flatMap(v.extras.statistics, (x) => {
-		const r = at(v.schema.relations, x.relation)
-		const a = r === undefined ? undefined : at(r.columns, x.first)
-		const b = r === undefined ? undefined : at(r.columns, x.second)
-		if (r === undefined || a === undefined || b === undefined || a.name === b.name) {
-			return []
-		}
-		return [
-			{
-				relation: r.name,
-				columns: Arr.sort([a.name, b.name], Order.String),
-				kinds: statisticsKinds,
-				uses: ["correlated selection" as const]
-			}
-		]
-	})
-
-/**
- * The installer extensions a version needs: its statistics, if it requests any, as a workload of the schema the
- * installation installs, whatever names its levels are installed under.
- */
-export const extensionsOf = (v: Version): ReadonlyArray<InstallExtension> => {
-	const statistics = statisticsRequests(v)
-	return statistics.length === 0
-		? []
-		: [
-				{
-					contribute: (b) =>
-						workloadExtension({
-							schema: b.owned.fingerprint,
-							paths: [],
-							statistics,
-							params: noServedTypes
-						}).contribute(b),
-					params: servesNoParams,
-					certifies: noCertificates,
-					carriers: noCarriers,
-					calls: noCalls,
-					live: noLive,
-					fences: noFences
-				}
-			]
-}
-
 /** Whether the path's swarm leaves a kind on. */
 const kindOn = (drawn: Swarm<PathKind>, kind: PathKind): boolean => weightOf(drawn, kind) > 0
 
@@ -869,9 +777,6 @@ const kindOn = (drawn: Swarm<PathKind>, kind: PathKind): boolean => weightOf(dra
 const initialExtras = (drawn: Swarm<PathKind>, sketch: ExtrasSketch): Extras => ({
 	checks: kindOn(drawn, "addCheck")
 		? Arr.map(sketch.checks, (p) => ({ relation: p.first, column: p.second, lower: p.flag }))
-		: [],
-	statistics: kindOn(drawn, "addStatistics")
-		? Arr.map(sketch.statistics, (p) => ({ relation: p.first, first: p.second, second: p.third }))
 		: [],
 	unread: kindOn(drawn, "toggleRead")
 		? Arr.map(sketch.unread, (p) => pickIndex(p, pathLimits.maxRelations))
@@ -2682,7 +2587,7 @@ export const planOf = (v: Version, schema: string): RealInstallPlan => {
 	const planned = planRealInstall(v.desc, {
 		installation: identity.schema(parsedSchemaName(schema)),
 		logins: versionLogins(v),
-		extensions: extensionsOf(v),
+		extensions: [],
 		codes: versionCodes(v),
 		compile: compileInstallation
 	})
@@ -2715,31 +2620,12 @@ export const rowsSql = (
 		return [[r.name, `SELECT ${cols} FROM ${from}`] as const]
 	})
 
-/** Extras requesting extended statistics over two fields of a relation each, by position: the relation `relation` of a
- * version's `relations`, over its fields `first` and `second` of `fields`. */
-interface StatisticsAt {
-	readonly relation: number
-	readonly relations: number
-	readonly first: number
-	readonly second: number
-	readonly fields: number
-}
-
-const statisticsAt = (requests: ReadonlyArray<StatisticsAt>): Extras => ({
-	...noExtras,
-	statistics: Arr.map(requests, (r) => ({
-		relation: pickOf(r.relation, r.relations),
-		first: pickOf(r.first, r.fields),
-		second: pickOf(r.second, r.fields)
-	}))
-})
 const textField = scalarOfSpec({ carrier: "text" })
 const fieldsOfR0 = (fields: ReadonlyArray<string>): Origins =>
 	statedOrigins(
 		[["R0", "R0"]],
 		Arr.map(fields, (f) => [`R0.${f}`, `R0.${f}`] as const)
 	)
-const overAB = statisticsAt([{ relation: 0, relations: 1, first: 0, second: 1, fields: 2 }])
 const retypedB = statedRelation(
 	"R0",
 	[
@@ -2750,24 +2636,25 @@ const retypedB = statedRelation(
 	false
 )
 
-/** B retypes R0's field b and no longer requests the statistics over a and b; C requests them again (statistics
- * over a retyped column created again over the wrong column, or lost). The generated paths found it with B swapping two fields of
- * two types, each retyped. */
+/** B retypes R0's field b, whose statistics the conversion clears (tablecmds.c RemoveStatistics), so its table's
+ * declared statistics are declared again (a declaration over a retyped column lost, or declared over the wrong column).
+ * The generated paths found the kin of it, for the extended statistics before them, with B swapping two fields of two
+ * types, each retyped. */
 const statisticsOverRetyped: StatedRenamedPath = plantedRenameWith(
 	{
 		a: statedSchema([ints("R0", ["a", "b"], ["a"])], []),
 		b: statedSchema([retypedB], []),
 		c: statedSchema([retypedB], [])
 	},
-	{ a: overAB, b: noExtras, c: overAB },
+	{ a: noExtras, b: noExtras, c: noExtras },
 	{ R0: [two(1n, 2n)] },
 	{ a: fieldsOfR0(["a", "b"]), b: fieldsOfR0(["a", "b"]), c: fieldsOfR0(["a", "b"]) },
 	false,
 	{ toB: [], toC: [] }
 )
 
-/** B renames R0, with statistics over a and b and over a and c, to P0, chosen, which requests the first alone; C declares
- * a new R0 with both (statistics created again on the wrong table, or not at all). */
+/** B renames R0 to P0, chosen; C declares a new R0 beside it (a table's declared statistics declared on the wrong table,
+ * or not at all). */
 const renamedRelationOrigins = (relations: ReadonlyArray<string>) =>
 	statedOrigins(
 		Arr.map(relations, (r) => [r, "R0"] as const),
@@ -2776,25 +2663,13 @@ const renamedRelationOrigins = (relations: ReadonlyArray<string>) =>
 		)
 	)
 
-const overABandAC = (relation: number, relations: number): ReadonlyArray<StatisticsAt> => [
-	{ relation, relations, first: 0, second: 1, fields: 3 },
-	{ relation, relations, first: 0, second: 2, fields: 3 }
-]
-
 const statisticsOfRenamedRelation: StatedRenamedPath = plantedRenameWith(
 	{
 		a: statedSchema([ints("R0", ["a", "b", "c"], ["a"])], []),
 		b: statedSchema([ints("P0", ["a", "b", "c"], ["a"])], []),
 		c: statedSchema([ints("P0", ["a", "b", "c"], ["a"]), ints("R0", ["a", "b", "c"], ["a"])], [])
 	},
-	{
-		a: statisticsAt(overABandAC(0, 1)),
-		b: statisticsAt([{ relation: 0, relations: 1, first: 0, second: 1, fields: 3 }]),
-		c: statisticsAt([
-			{ relation: 0, relations: 2, first: 0, second: 1, fields: 3 },
-			...overABandAC(1, 2)
-		])
-	},
+	{ a: noExtras, b: noExtras, c: noExtras },
 	{ R0: [[...one(1n), ...two(2n, 3n)]] },
 	{
 		a: renamedRelationOrigins(["R0"]),
@@ -2844,7 +2719,7 @@ const payloadRostersRenamed: StatedRenamedPath = plantedRename(
  *
  * The base A holds one of each hazard: the roster K0 of six handles; R0 keyed by k, with a handle a of K0 and an
  * integer b under a bound check; and R1 keyed by id, whose r is contained in R0's key (a foreign key on a key) and whose
- * c sits beside r under extended statistics over (r, c). B applies one intent or more to A, and C
+ * c sits beside r under the declared statistics of every table. B applies one intent or more to A, and C
  * one intent or none to B. An intent names its target by origin (Origins), never by name, so intents compose: each
  * renames whatever name its target has by then, and every name an intent gives is fresh (its step's prefix and its
  * position), so no intent is a silent no-op. The legal intents:
@@ -2852,7 +2727,7 @@ const payloadRostersRenamed: StatedRenamedPath = plantedRename(
  * - renameReferenced, renameReferencing: R0, which R1's containment references, or R1, renamed;
  * - swapRelations: R0 and R1 exchange names; chainRelations: R1 renamed afresh and R0 renamed to R1's old name;
  * - renameKeyField: R0's key field k, which the containment references, renamed;
- * - swapFields: R1's contained r and its c, under statistics, exchange names;
+ * - swapFields: R1's contained r and its c, under their table's declared statistics, exchange names;
  * - retypeKey: R0's key k and R1's r, the two sides of the containment, widened to int8 (a key over retyped columns);
  * - renameRetyped: R1's c renamed with its type widened; relationAndField: R1 renamed and its c renamed with it;
  * - renameRoster: K0 renamed, which no step declares, so it drafts K0's drop and a new roster (installedVersions);
@@ -2982,11 +2857,10 @@ const hazardBase: GenSchema = {
 	containments: [containedIn("R1", "r", "R0", "k")]
 }
 
-/** A bound check on R0's b, and statistics over R1's r and c. */
+/** A bound check on R0's b. */
 const hazardExtras: Extras = {
 	...noExtras,
-	checks: [{ relation: 0, column: 2, lower: true }],
-	statistics: [{ relation: 1, first: 1, second: 2 }]
+	checks: [{ relation: 0, column: 2, lower: true }]
 }
 
 const hazardFacts: ValueFacts = {
@@ -3234,7 +3108,7 @@ const legalIntentPath = (
 						)
 					}
 				},
-				extras: { ...b.extras, statistics: [] }
+				extras: b.extras
 			}
 		: b
 	const c = applyIntents(bDropped, sketch.toC, "p", sketch.freshRelations)

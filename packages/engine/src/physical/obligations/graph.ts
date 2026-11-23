@@ -129,8 +129,8 @@ export const parseIdent = (ident: string): GraphIdent => {
 
 /**
  * The namespaces a statement names an object of each qualified kind in (sql/transform.ts NameSpace): a table, a view
- * and a materialized view also as the row type PostgreSQL creates under its name. A row security and a replica identity
- * are named by no statement but their own.
+ * and a materialized view also as the row type PostgreSQL creates under its name. A row security, a replica identity and
+ * a table's declared statistics, which hold no catalog object of their own, are named by no statement but their own.
  */
 const namedIn: Readonly<Record<QualifiedKind, ReadonlyArray<NameSpace>>> = {
 	domain: ["type"],
@@ -139,7 +139,7 @@ const namedIn: Readonly<Record<QualifiedKind, ReadonlyArray<NameSpace>>> = {
 	materializedView: ["relation", "type"],
 	view: ["relation", "type"],
 	index: ["relation"],
-	statistics: ["statistics"],
+	statistics: [],
 	function: ["function"],
 	rowSecurity: [],
 	replicaIdentity: []

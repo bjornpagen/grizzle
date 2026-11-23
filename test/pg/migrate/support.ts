@@ -54,7 +54,6 @@ import {
 	chosenRenames,
 	codedFacts,
 	declarationsAlong,
-	extensionsOf,
 	noRenames,
 	type Origins,
 	planOf,
@@ -653,7 +652,7 @@ const installationOf = (
 				owned,
 				[identity.schema(parsedSchemaName(schema))],
 				logins,
-				extensionsOf(version),
+				[],
 				succeeded(draftCodes(version.desc, previous, declared))
 			)
 		)

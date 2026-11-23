@@ -44,9 +44,9 @@ export const printedNames = (
 				case "materializedView":
 				case "view":
 				case "index":
-				case "statistics":
 				case "function":
 					return [[o.ident, `${quoteIdent(ident.schema)}.${quoteIdent(ident.name)}`]]
+				case "statistics":
 				case "rowSecurity":
 				case "replicaIdentity":
 				case "extension":

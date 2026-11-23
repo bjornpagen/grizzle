@@ -52,6 +52,7 @@ export const catalogRelations = [
 	"pg_sequence",
 	"pg_settings",
 	"pg_statistic_ext",
+	"pg_stats",
 	"pg_trigger",
 	"pg_type"
 ] as const

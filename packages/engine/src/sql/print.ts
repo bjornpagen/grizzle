@@ -1,4 +1,5 @@
 import {
+	extendNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
@@ -37,6 +38,8 @@ import {
 	type ColumnDef,
 	type ColumnDefinition,
 	type CreateCarrier,
+	type DeclareStatistics,
+	type DeclaredDistinct,
 	type FromSource,
 	type StoredGeneration,
 	type CommentTarget,
@@ -107,6 +110,7 @@ import {
 	cast,
 	col,
 	conjunction,
+	core as operandCore,
 	cUtf8Collation,
 	eq,
 	exists,
@@ -117,6 +121,7 @@ import {
 	objectName,
 	or,
 	provedCore,
+	qualifiedCall,
 	select as selectOf,
 	simpleSelect,
 	types
@@ -1679,6 +1684,132 @@ export const sessionTableEmptied = (name: string): PlStatement => ({
  * sends no invalidation, and gives the file back once it holds more: a session's carriers hold at most one use's rows
  * and a page.
  */
+/**
+ * The most changed rows autovacuum_analyze_threshold admits, reloptions.c's maximum, which a table's declared
+ * statistics set as its storage parameter beside autovacuumAnalyzeScaleMax: autovacuum then analyzes the table only past
+ * 2^31 − 1 changed rows beside 100 times its rows, never in practice. PostgreSQL has no switch that stops automatic
+ * ANALYZE alone, and an ANALYZE of a table whose every column is declared samples nothing: it only rewrites the table's
+ * size in pg_class (vacuum.c vac_update_relstats), whose invalidation makes every session plan each statement over the
+ * table again (plancache.c PlanCacheRelCallback). VACUUM, automatic or not, keeps the size current.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19.0's storage parameters (reloptions.c intRelOpts)
+ * @unit changed rows
+ * @scope one table's autovacuum_analyze_threshold, where its declared statistics set it
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/backend/access/common/reloptions.c#L282
+ * @quote -1, 0, INT_MAX
+ * @verified 2026-11-23
+ */
+export const autovacuumAnalyzeThresholdMax = 2 ** 31 - 1
+
+/**
+ * The largest fraction of a table's rows autovacuum_analyze_scale_factor admits, reloptions.c's maximum, which a table's
+ * declared statistics set beside autovacuumAnalyzeThresholdMax (see it).
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19.0's storage parameters (reloptions.c realRelOpts)
+ * @unit tables' rows
+ * @scope one table's autovacuum_analyze_scale_factor, where its declared statistics set it
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/backend/access/common/reloptions.c#L457
+ * @quote -1, 0.0, 100.0
+ * @verified 2026-11-23
+ */
+export const autovacuumAnalyzeScaleMax = 100.0
+
+/**
+ * The exact decimal spelling of a declared number of distinct values (sql/ast.ts DeclaredDistinct): 2^exponent, or
+ * -1/2^exponent, whose decimal expansion is exactly 5^exponent shifted right by `exponent` places, so the float4 it is
+ * cast to holds it exactly.
+ */
+const distinctValue = (d: DeclaredDistinct): string => {
+	const e = BigInt(d.exponent)
+	if (d.kind === "absolute") {
+		return (2n ** e).toString()
+	}
+	if (e === 0n) {
+		return "-1"
+	}
+	const digits = (5n ** e).toString().padStart(d.exponent, "0")
+	return `-0.${digits}`
+}
+
+/**
+ * A table's declared statistics as the DO block that installs them: for each column, PERFORM
+ * pg_catalog.pg_clear_attribute_stats, so no statistic an earlier ANALYZE sampled stands beside the declaration, then
+ * IF NOT pg_catalog.pg_restore_attribute_stats(...) THEN RAISE: a restore answers false, with a WARNING, for an argument
+ * it cannot use rather than failing (attribute_stats.c), so the block fails instead, naming the table and column.
+ */
+const declaredStatisticsBlock = (d: DeclareStatistics): PlBlock => {
+	const text = (v: string): Expr => lit.text(v, types.text)
+	const [first, ...rest] = d.columns
+	const steps = (c: (typeof d.columns)[number]): NonEmptyReadonlyArray<PlStatement> => [
+		{
+			kind: "perform",
+			query: {
+				body: operandCore(
+					[
+						{
+							expr: qualifiedCall("pg_catalog", "pg_clear_attribute_stats", [
+								text(d.table.schema),
+								text(d.table.name),
+								text(c.column),
+								lit.bool(false)
+							]),
+							alias: undefined
+						}
+					],
+					[],
+					undefined
+				),
+				orderBy: [],
+				limit: undefined,
+				offset: undefined
+			}
+		},
+		{
+			kind: "if",
+			branches: [
+				{
+					condition: not(
+						qualifiedCall("pg_catalog", "pg_restore_attribute_stats", [
+							text("schemaname"),
+							text(d.table.schema),
+							text("relname"),
+							text(d.table.name),
+							text("attname"),
+							text(c.column),
+							text("inherited"),
+							lit.bool(false),
+							text("n_distinct"),
+							{
+								kind: "cast",
+								expr: lit.text(distinctValue(c.distinct), types.text),
+								type: types.real
+							}
+						])
+					),
+					body: [
+						{
+							kind: "raise",
+							message: "a declared statistic was not restored",
+							using: [
+								{ option: "ERRCODE", value: text("internal_error") },
+								{ option: "SCHEMA", value: text(d.table.schema) },
+								{ option: "TABLE", value: text(d.table.name) },
+								{ option: "COLUMN", value: text(c.column) }
+							]
+						}
+					]
+				}
+			],
+			else: []
+		}
+	]
+	return { declare: [], body: extendNonEmpty(steps(first), rest.flatMap(steps)) }
+}
+
 const carrierStandUp = (carrier: CreateCarrier): PlBlock => ({
 	declare: [],
 	body: [
@@ -2357,7 +2488,6 @@ export const printCommentTarget = (on: CommentTarget): string => {
 		case "DOMAIN":
 		case "TYPE":
 		case "INDEX":
-		case "STATISTICS":
 			return `${on.kind} ${printObjectName(on.name)}`
 		case "COLUMN":
 			return `COLUMN ${printObjectName(on.relation)}.${quoteIdent(on.column)}`
@@ -2436,7 +2566,6 @@ const writeCommand = (out: Lines, statement: SqlStatement): void => {
 				case "INDEX":
 				case "MATERIALIZED VIEW":
 				case "DOMAIN":
-				case "STATISTICS":
 					return out.line(
 						`ALTER ${statement.object} ${printObjectName(statement.name)} RENAME TO ${quoteIdent(statement.to)}`
 					)
@@ -2625,12 +2754,8 @@ const writeCommand = (out: Lines, statement: SqlStatement): void => {
 			return out.line(
 				`CREATE EXTENSION IF NOT EXISTS ${quoteIdent(statement.name)} SCHEMA ${quoteIdent(statement.schema)}`
 			)
-		case "createStatistics": {
-			const kinds = statement.statistics.length === 0 ? "" : ` (${statement.statistics.join(", ")})`
-			return out.line(
-				`CREATE STATISTICS ${printObjectName(statement.name)}${kinds} ON ${printIdentList(statement.columns)} FROM ${printObjectName(statement.table)}`
-			)
-		}
+		case "declareStatistics":
+			return writeDoBlock(out, declaredStatisticsBlock(statement))
 		case "comment":
 			return out.line(
 				`COMMENT ON ${printCommentTarget(statement.on)} IS ${quoteString(statement.text)}`
@@ -2676,6 +2801,17 @@ export const commandsOf = (statement: SqlStatement): NonEmptyReadonlyArray<Comma
 			return grantEmitter[statement.on.kind](command)
 		case "handOverFunction":
 			return handedOver(statement, command)
+		case "declareStatistics":
+			return [
+				(out) => {
+					out.line(`ALTER TABLE ${printObjectName(statement.table)}`)
+					listed(out.nested(), [
+						`SET (autovacuum_analyze_threshold = ${autovacuumAnalyzeThresholdMax}, autovacuum_analyze_scale_factor = ${autovacuumAnalyzeScaleMax})`,
+						...statement.columns.map((c) => `ALTER COLUMN ${quoteIdent(c.column)} SET STATISTICS 0`)
+					])
+				},
+				command
+			]
 		case "select":
 		case "insert":
 		case "update":
@@ -2719,7 +2855,6 @@ export const commandsOf = (statement: SqlStatement): NonEmptyReadonlyArray<Comma
 		case "revokeRole":
 		case "alterRole":
 		case "grantColumns":
-		case "createStatistics":
 		case "comment":
 		case "lockTable":
 		case "beginRead":

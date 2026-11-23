@@ -5,24 +5,16 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import {
-	combineAll,
 	type Comparator,
 	compareBooleans,
 	compareNumbers,
 	compareStrings,
 	flip,
-	listOrder,
 	mapInput,
 	thenBy
 } from "#compiler/core/order.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
-import type {
-	AccessKey,
-	AccessPath,
-	AccessUse,
-	ProgramAccess,
-	StatisticsShape
-} from "#compiler/ir/products.ts"
+import type { AccessKey, AccessPath, AccessUse, ProgramAccess } from "#compiler/ir/products.ts"
 import {
 	type CompletedOrder,
 	type Heading,
@@ -44,20 +36,6 @@ import {
 } from "#compiler/physical/access/atoms.ts"
 import { type Lookup, uniqueLookups, uniquePaths } from "#compiler/physical/access/paths.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
-
-/**
- * The most columns one extended statistics object covers, STATS_MAX_DIMENSIONS.
- *
- * @limitKind published
- * @owner PostgreSQL 19.0
- * @unit columns
- * @scope one extended statistics object: a request's and an access path's
- * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/statistics/statistics.h#L19
- * @quote #define STATS_MAX_DIMENSIONS 8 /* max number of attributes *\/
- * @verified 2026-11-20
- */
-export const statisticsMaxColumns = 8
 
 interface ExtractOptions {
 	/** The roots that are a paged ordered program: a workload program whose root is an ordered result. */
@@ -115,13 +93,6 @@ const pushedKey = (p: Pushed): string =>
 			.toSorted(compareStrings)
 			.join("\u0001")
 	].join("\u0000")
-
-/** The order of the statistics shapes: by relation, then column list, then use. */
-const statisticsOrder: Comparator<StatisticsShape> = combineAll([
-	mapInput(compareStrings, (s: StatisticsShape) => s.relation),
-	mapInput(listOrder(compareStrings), (s: StatisticsShape) => s.columns),
-	mapInput(compareStrings, (s: StatisticsShape) => s.use)
-])
 
 /** Whether every member of a list is defined: the list of them. */
 const everyDefined = <T>(
@@ -746,7 +717,6 @@ class Extractor {
 	readonly lookups: Array<Lookup> = []
 	/** Every suffix seek a probe context asks for (`SuffixSeek`). */
 	readonly seeks: Array<SuffixSeek> = []
-	readonly statistics = new Map<string, StatisticsShape>()
 	/** The pushed facts each node was visited under, by their key: the walk's seen-set. */
 	readonly #visited = new Map<RelNode, Set<string>>()
 	readonly #pageable: ReadonlySet<RelNode>
@@ -821,7 +791,6 @@ class Extractor {
 				}
 				return this.visit(n.input, pushed)
 			case "Group":
-				this.groupStatistics(n.input, n.keys)
 				return this.visit(n.input, restrict(pushed, n.keys))
 			case "Union":
 				return all(
@@ -1056,7 +1025,7 @@ class Extractor {
 			: out
 	}
 
-	/** The access paths and correlated-selection statistics of an occurrence of a stored relation, one path family per
+	/** The access paths of an occurrence of a stored relation, one path family per
 	 * probe context under the fixed form policy. Handle columns alone are no access path: equal to a parameter or a
 	 * partner as to a literal, they select a roster's share of the rows at best, and a range over them is no more than
 	 * an equality. A world relation is a view: its program is planned through its definition, inlined before
@@ -1161,24 +1130,6 @@ class Extractor {
 				}
 			}
 		}
-		/** Correlated selections. */
-		const selected = sorted([...o.eq.keys()].filter((c) => !isVectorColumn(heading, c)))
-		if (
-			selected.length >= 2 &&
-			selected.length <= statisticsMaxColumns &&
-			this.keyWithin(base, new Set(selected)) === undefined
-		) {
-			this.addStatistics({
-				relation: base.relation,
-				columns: selected,
-				use: "correlated selection"
-			})
-		}
-	}
-
-	addStatistics(s: StatisticsShape): void {
-		const key = `${s.relation}\u0000${s.columns.join("\u0001")}\u0000${s.use}`
-		this.statistics.getOrInsert(key, s)
 	}
 
 	/** Resolves requested heading columns of `n` to one stored occurrence under the facts pushed on `n`: the
@@ -1529,31 +1480,9 @@ class Extractor {
 			}
 		}
 	}
-
-	/** Extended statistics on a group key of two or more stored columns of one occurrence. */
-	groupStatistics(input: RelNode, keys: ReadonlyArray<string>): void {
-		if (keys.length < 2) {
-			return
-		}
-		for (const r of this.resolve(input, columnRequests(keys), nothing)) {
-			const heading = r.base.heading
-			const columns = sorted(
-				r.columns.flatMap(({ resolved: c }) =>
-					c.kind === "stored" && !isVectorColumn(heading, c.column) ? [c.column] : []
-				)
-			)
-			if (columns.length < 2 || columns.length > statisticsMaxColumns) {
-				continue
-			}
-			if (this.keyWithin(r.base, new Set(columns)) !== undefined) {
-				continue
-			}
-			this.addStatistics({ relation: r.base.relation, columns, use: "grouping" })
-		}
-	}
 }
 
-/** The access paths and statistics a program's IR justifies, from its roots: the index requests one program's checked
+/** The access paths a program's IR justifies, from its roots: the index requests one program's checked
  * IR justifies, a query's filters in their Allen normal form (`allenNormalDag`), under the fixed form policy below.
  *
  * The walk visits every node reachable from the program's roots once per distinct set of facts its consumers fix about
@@ -1610,18 +1539,13 @@ class Extractor {
  * every child row is read anyway, so only the correlation's equality path is requested. ApproximateNearest over a
  * cosine distance of a stored vector column and a fixed vector requests HNSW with the cosine operator class.
  *
- * Extended statistics follow the same route: equality
- * selections on two to eight columns of one occurrence, literal ones included, and a group key of two to eight stored
- * columns of one occurrence, each unless a declared key lies among the columns, where estimates are already exact. */
+ * No program asks for statistics: every table's are declared from the schema's facts (physical/statistics/declared.ts). */
 export const extractAccess = (
 	roots: ReadonlyArray<RelNode>,
 	options: ExtractOptions
 ): ProgramAccess => {
 	const x = extracted(roots, options)
-	return {
-		paths: uniquePaths(x.lookups.map((l) => l.path)),
-		statistics: [...x.statistics.values()].toSorted(statisticsOrder)
-	}
+	return { paths: uniquePaths(x.lookups.map((l) => l.path)) }
 }
 
 /**

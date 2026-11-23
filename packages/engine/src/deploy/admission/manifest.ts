@@ -67,7 +67,7 @@ export type ManifestStatement =
 					| "revoke"
 					| "alterDefaultPrivileges"
 					| "createExtension"
-					| "createStatistics"
+					| "declareStatistics"
 					| "comment"
 					| "select"
 			}
@@ -110,7 +110,7 @@ const manifestStatement = (s: SqlStatement): ManifestStatement => {
 		case "revoke":
 		case "alterDefaultPrivileges":
 		case "createExtension":
-		case "createStatistics":
+		case "declareStatistics":
 		case "comment":
 		case "select":
 			return s

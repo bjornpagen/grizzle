@@ -56,6 +56,12 @@ export interface CatalogColumn {
 	/** `schema.name` of the column's collation, none when the type is not collatable. */
 	readonly collation: Option.Option<string>
 	readonly generation: CatalogGeneration
+	/**
+	 * Its statistics as the planner reads them (physical/statistics/declared.ts): its statistics target and pg_stats'
+	 * number of distinct values, and `sampled` where it holds a statistic an ANALYZE sampled; none for a column of no
+	 * table.
+	 */
+	readonly statistics: Option.Option<string>
 }
 
 interface CatalogConstraint {
@@ -363,7 +369,8 @@ const queries = {
 			'name', a.attname::text, 'type', ${typeJson("a.atttypid", "a.atttypmod")}, 'notNull', a.attnotnull,
 			'collation', ${collationText("a.attcollation")}, 'identity', a.attidentity::text, 'generated', a.attgenerated::text,
 			'expression', (SELECT pg_catalog.pg_get_expr(d.adbin, d.adrelid) FROM pg_catalog.pg_attrdef d WHERE d.adrelid = a.attrelid AND d.adnum = a.attnum),
-			'sequence', (SELECT sn.nspname::text || '.' || s.relname::text FROM pg_catalog.pg_depend dep JOIN pg_catalog.pg_class s ON s.oid = dep.objid JOIN pg_catalog.pg_namespace sn ON sn.oid = s.relnamespace WHERE dep.refobjid = c.oid AND dep.refobjsubid = a.attnum AND dep.classid = 'pg_catalog.pg_class'::regclass AND s.relkind = 'S' AND dep.deptype = 'i')
+			'sequence', (SELECT sn.nspname::text || '.' || s.relname::text FROM pg_catalog.pg_depend dep JOIN pg_catalog.pg_class s ON s.oid = dep.objid JOIN pg_catalog.pg_namespace sn ON sn.oid = s.relnamespace WHERE dep.refobjid = c.oid AND dep.refobjsubid = a.attnum AND dep.classid = 'pg_catalog.pg_class'::regclass AND s.relkind = 'S' AND dep.deptype = 'i'),
+			'statistics', CASE WHEN c.relkind IN ('r', 'p', 'm') THEN pg_catalog.concat_ws(' ', 'target', COALESCE(a.attstattarget::text, '-'), 'distinct', COALESCE((SELECT st.n_distinct::text FROM pg_catalog.pg_stats st WHERE st.schemaname = n.nspname AND st.tablename = c.relname AND st.attname = a.attname AND NOT st.inherited), '-'), (SELECT 'sampled' FROM pg_catalog.pg_stats st WHERE st.schemaname = n.nspname AND st.tablename = c.relname AND st.attname = a.attname AND NOT st.inherited AND (st.most_common_vals IS NOT NULL OR st.histogram_bounds IS NOT NULL OR st.correlation IS NOT NULL))) END
 		) ORDER BY a.attnum), '[]'::json) FROM pg_catalog.pg_attribute a WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped),
 		'constraints', (SELECT COALESCE(json_agg(json_build_object(
 			'name', k.conname::text, 'type', k.contype::text,
@@ -506,6 +513,7 @@ interface ColumnDocument {
 	readonly generated: "" | "s" | "v"
 	readonly expression: string | null
 	readonly sequence: string | null
+	readonly statistics: string | null
 }
 
 /** A column's generation; an identity column owning no sequence, or a generated one no expression, is a defect. */
@@ -538,7 +546,8 @@ const columnOf = (raw: ColumnDocument): CatalogColumn => ({
 	type: raw.type,
 	notNull: raw.notNull,
 	collation: Option.fromNullOr(raw.collation),
-	generation: generationOf(raw)
+	generation: generationOf(raw),
+	statistics: Option.fromNullOr(raw.statistics)
 })
 
 const constraintOf = (raw: Document<CatalogConstraint>): CatalogConstraint => ({

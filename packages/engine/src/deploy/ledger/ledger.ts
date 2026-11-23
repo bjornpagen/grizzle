@@ -22,6 +22,7 @@ import {
 } from "#compiler/physical/ddl/ledger.ts"
 import { installedTypes } from "#compiler/physical/ddl/type-schemas.ts"
 import { namedIdent, qualifiedIdent } from "#compiler/physical/obligations/graph.ts"
+import { bookkeepingDeclaration } from "#compiler/physical/statistics/declared.ts"
 import type {
 	ColumnDef,
 	CreateTable,
@@ -337,26 +338,52 @@ const proofsGuardObject = (schema: string): PhysicalObject<SqlStatement> => ({
 
 /**
  * One of grizzle's bookkeeping tables: its table's name, in whatever schema the installation is, and in a schema its
- * CREATE TABLE, with its key, its object of a snapshot manifest (the table and its PUBLIC revoke) and its SERIALIZABLE
- * guard trigger's.
+ * CREATE TABLE, with its key, its object of a snapshot manifest (the table and its PUBLIC revoke), its SERIALIZABLE
+ * guard trigger's and its declared statistics' (`bookkeepingStatistics`).
  */
 export interface BookkeepingTable {
 	readonly name: string
 	readonly table: (schema: string) => CreateTable
 	readonly object: (schema: string) => PhysicalObject<SqlStatement>
 	readonly guard: (schema: string) => PhysicalObject<SqlStatement>
+	readonly statistics: (schema: string) => PhysicalObject<SqlStatement>
 }
+
+/** A bookkeeping table's declared statistics as an object of a snapshot manifest, `statistics:<schema>.<table>`,
+ * declared in Indexes as every table's are (physical/statistics/declared.ts bookkeepingDeclaration). */
+const bookkeepingStatistics =
+	(name: string, created: (schema: string) => CreateTable) =>
+	(schema: string): PhysicalObject<SqlStatement> => ({
+		kind: "statistics",
+		ident: qualifiedIdent("statistics", schema, name),
+		ddl: [bookkeepingDeclaration(created(schema))],
+		reasons: [{ kind: "enforcement", of: `the declared statistics of ${name}` }],
+		state: "needed",
+		phase: "indexes"
+	})
 
 /**
  * grizzle's bookkeeping tables, the deployment's own beside an installation's tables, which no schema declares and only
  * a migration makes: the migrations ledger, then the drift check's proofs, each created in Setup right after the
- * isolation function, under its guard. The one roster of them: the snapshot creates each (snapshot/build.ts
+ * isolation function, under its guard, its statistics declared in Indexes. The one roster of them: the snapshot creates each (snapshot/build.ts
  * targetState), and whatever reads an installation's catalog sets each aside by it, so a bookkeeping table is one
  * entry here. What the ledger alone is (every login reads it, the live source publishes it) is the ledger's.
  */
 export const bookkeepingTables: NonEmptyReadonlyArray<BookkeepingTable> = [
-	{ name: ledgerTableName, table: ledgerTable, object: ledgerObject, guard: ledgerGuardObject },
-	{ name: proofsTableName, table: proofsTable, object: proofsObject, guard: proofsGuardObject }
+	{
+		name: ledgerTableName,
+		table: ledgerTable,
+		object: ledgerObject,
+		guard: ledgerGuardObject,
+		statistics: bookkeepingStatistics(ledgerTableName, ledgerTable)
+	},
+	{
+		name: proofsTableName,
+		table: proofsTable,
+		object: proofsObject,
+		guard: proofsGuardObject,
+		statistics: bookkeepingStatistics(proofsTableName, proofsTable)
+	}
 ]
 
 /** SELECT on the ledger for every login's role, in Publish, the grantees in the order given (login name order); none

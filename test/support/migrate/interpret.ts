@@ -45,8 +45,7 @@ import { upTo } from "#test/support/up-to.ts"
  *
  * - Namespaces. Tables, materialized views and indexes share one relation namespace (pg_class); domains and the row
  *   type of every table and view share the type namespace (pg_type), an index taking none (heap.c
- *   heap_create_with_catalog); extended
- *   statistics have their own; a table's constraints share one per table, and its triggers another. A name taken in
+ *   heap_create_with_catalog); a table's constraints share one per table, and its triggers another. A name taken in
  *   its namespace is refused (42P07 for a relation, 42710 otherwise); a key's or an exclusion's index takes its
  *   constraint's name in the relation namespace.
  * - Existence. A statement naming an object that is not there is refused (42P01, 42703, 42704, 42883), an IF EXISTS
@@ -64,11 +63,11 @@ import { upTo } from "#test/support/up-to.ts"
  *   generated column, a view, another function's body or a trigger calls it, it is refused naming that dependent
  *   (2BP01), as PostgreSQL's pg_depend records each (recordDependencyOnExpr). Every foreign key's columns compare (42804, see comparable) at the end of each statement, as PostgreSQL adds
  *   every key over a converted column again.
- * - What goes along. A dropped column takes the constraints, indexes and statistics objects over it; a dropped table
- *   its constraints, indexes, triggers and statistics; a dropped view its indexes. A rename is followed by everything
- *   that names the object: a table's constraints, indexes, triggers, statistics and the foreign keys and views that
- *   reference it; a column's every constraint, index, statistics
- *   object, trigger column and view column; an index's constraint and a constraint's index, which PostgreSQL renames
+ * - What goes along. A dropped column takes the constraints and indexes over it and its declared statistics, which a
+ *   type change or a SET EXPRESSION clears too; a dropped table its constraints, indexes, triggers and declared
+ *   statistics; a dropped view its indexes. A rename is followed by everything
+ *   that names the object: a table's constraints, indexes, triggers, declared statistics and the foreign keys and
+ *   views that reference it; a column's every constraint, index, declared statistics, trigger column and view column; an index's constraint and a constraint's index, which PostgreSQL renames
  *   together; a type's columns and domains.
  * - Rows. A NOT NULL column added to a table with rows needs a value (23502); a column converted by its cast to a type
  *   of its base, the domains of both read through, keeps each row's value; a set column converted to a wider bits
@@ -191,10 +190,17 @@ export interface Index {
 	readonly order: number
 }
 
+/** A column's declared statistics: its table, its column, and its declared number of distinct values as the restore's
+ * argument spells it. ALTER COLUMN ... TYPE and SET EXPRESSION clear it (tablecmds.c RemoveStatistics), a dropped column
+ * or table takes it, and a rename carries it. */
 export interface Statistics {
 	readonly table: string
-	readonly columns: ReadonlyArray<string>
+	readonly column: string
+	readonly distinct: string
 }
+
+/** A column's declared statistics' key in the model. */
+const statisticsKey = (table: string, column: string): string => `${table}\u0000${column}`
 
 /** A trigger of a table: its function, the columns its UPDATE OF names and its WHEN reads, and the types its WHEN casts
  * to, which it pins as a column of the type does. */
@@ -1727,11 +1733,7 @@ class Model {
 				this.#dropIndex(name, by)
 			}
 		}
-		for (const [name, s] of Arr.fromIterable(this.#statistics)) {
-			if (s.table === table.name && s.columns.includes(column)) {
-				this.#statistics.delete(name)
-			}
-		}
+		this.#statistics.delete(statisticsKey(table.name, column))
 		t.columns.splice(at, 1)
 		for (const row of t.rows) {
 			row.delete(column)
@@ -1984,10 +1986,10 @@ class Model {
 				this.#indexes.set(name, { ...x, keys: swap(x.keys), reads: swap(x.reads) })
 			}
 		}
-		for (const [name, s] of this.#statistics) {
-			if (s.table === table) {
-				this.#statistics.set(name, { ...s, columns: swap(s.columns) })
-			}
+		const declared = this.#statistics.get(statisticsKey(table, from))
+		if (declared !== undefined) {
+			this.#statistics.delete(statisticsKey(table, from))
+			this.#statistics.set(statisticsKey(table, to), { ...declared, column: to })
 		}
 		for (const [name, t] of this.#triggers.get(table) ?? new Map<string, Trigger>()) {
 			this.#triggersOf(table).set(name, { ...t, columns: swap(t.columns) })
@@ -2035,9 +2037,10 @@ class Model {
 				this.#indexes.set(name, { ...x, on: to })
 			}
 		}
-		for (const [name, s] of this.#statistics) {
+		for (const [name, s] of Arr.fromIterable(this.#statistics)) {
 			if (s.table === from) {
-				this.#statistics.set(name, { ...s, table: to })
+				this.#statistics.delete(name)
+				this.#statistics.set(statisticsKey(to, s.column), { ...s, table: to })
 			}
 		}
 		for (const [name, v] of this.#views) {
@@ -3080,6 +3083,7 @@ class Model {
 						)
 					}
 					this.#typeExists(a.type)
+					this.#statistics.delete(statisticsKey(s.table.name, a.column))
 					const widened = this.#bitsWidening(a.column, using.expr, a.type)
 					if (widened !== undefined) {
 						this.#widenBits(s.table, a.column, a.type, widened)
@@ -3169,6 +3173,7 @@ class Model {
 									calls: callsOf([a.generation.when, a.generation.expr], this.#schema)
 								}
 					this.#callable(generation.calls, `the generated column ${a.column}`)
+					this.#statistics.delete(statisticsKey(s.table.name, a.column))
 					t.columns[at] = { ...c, generation }
 					break
 				}
@@ -3246,18 +3251,6 @@ class Model {
 			case "INDEX":
 				this.#renameIndex(s.name.name, s.to)
 				return
-			case "STATISTICS": {
-				const x = this.#statistics.get(s.name.name)
-				if (x === undefined) {
-					refuse("42704", `the statistics object ${printObjectName(s.name)} does not exist`)
-				}
-				if (this.#statistics.has(s.to)) {
-					refuse("42710", `the statistics object ${s.to} already exists`)
-				}
-				this.#statistics.delete(s.name.name)
-				this.#statistics.set(s.to, x)
-				return
-			}
 			case "FUNCTION":
 				this.#renameFunction(s.name, s.to)
 				return
@@ -3415,7 +3408,7 @@ class Model {
 				}
 				return
 			case "STATISTICS":
-				if (!this.#statistics.delete(name) && !s.ifExists) {
+				if (!s.ifExists) {
 					refuse("42704", `the statistics object ${printObjectName(s.name)} does not exist`)
 				}
 				return
@@ -3457,7 +3450,7 @@ class Model {
 		}
 	}
 
-	/** What goes with a dropped relation: its indexes and statistics. */
+	/** What goes with a dropped relation: its indexes and its columns' declared statistics. */
 	#dropOwned(relation: string): void {
 		for (const [name, x] of Arr.fromIterable(this.#indexes)) {
 			if (x.on === relation) {
@@ -3761,18 +3754,19 @@ class Model {
 			case "revoke":
 				this.#privilegesOn(s)
 				return
-			case "createStatistics": {
-				if (!this.#ours(s.name)) {
+			case "declareStatistics": {
+				if (!this.#ours(s.table)) {
 					return
 				}
 				const t = this.#table(s.table)
 				for (const c of s.columns) {
-					this.#column(t, s.table, c)
+					this.#column(t, s.table, c.column)
+					this.#statistics.set(statisticsKey(s.table.name, c.column), {
+						table: s.table.name,
+						column: c.column,
+						distinct: `${c.distinct.kind} ${c.distinct.exponent}`
+					})
 				}
-				if (this.#statistics.has(s.name.name)) {
-					refuse("42710", `the statistics object ${s.name.name} already exists`)
-				}
-				this.#statistics.set(s.name.name, { table: s.table.name, columns: s.columns })
 				return
 			}
 			case "dropIndex": {
@@ -4221,7 +4215,7 @@ const constraintText = (c: Constraint): string => {
 
 /** The catalog a state holds, as the facts admission would compare, one line each, sorted: every table's columns by
  * name with their types and what generates them; every constraint with its columns and
- * validity; every index with what it is over; every statistics object, trigger, view,
+ * validity; every index with what it is over; every column's declared statistics; every trigger, view,
  * domain with its base and constraints, and function. Column order, the rows, and
  * which index a foreign key bound are no facts: a fresh installation and a migrated one may differ in them, and
  * PostgreSQL's own description does not show them. */
@@ -4244,8 +4238,8 @@ export const catalogOf = (state: State): ReadonlyArray<string> =>
 					`index ${name} on ${x.on} ${x.method}${x.unique ? " unique" : ""} (${list(x.keys)}) reading (${sortedList(new Set(x.reads))})${x.owner.kind === "constraint" ? ` of ${x.owner.name}` : ""}`
 			),
 			...Arr.map(
-				[...state.statistics],
-				([name, s]) => `statistics ${name} on ${s.table} (${sortedList(s.columns)})`
+				[...state.statistics.values()],
+				(s) => `declared statistics ${s.table}.${s.column} ${s.distinct}`
 			),
 			...Arr.flatMap([...state.triggers], ([table, of]) =>
 				Arr.map(

@@ -82,7 +82,7 @@ const flushedWal = (session: PgConnection): Effect.Effect<number, SqlError> =>
 	)
 
 /** One table's rows from index `from` to `to`, both included, as one INSERT. */
-const insertOf = (
+export const insertOf = (
 	table: VolumeTable,
 	conflicts: VolumeFill["conflicts"],
 	from: number,

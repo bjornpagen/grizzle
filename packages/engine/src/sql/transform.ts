@@ -1402,10 +1402,9 @@ export class Transform {
 			}
 			case "createExtension":
 				return this.#extension(s)
-			case "createStatistics": {
-				const name = this.name(s.name, "statistics")
+			case "declareStatistics": {
 				const table = this.name(s.table, "relation")
-				return name === s.name && table === s.table ? s : { ...s, name, table }
+				return table === s.table ? s : { ...s, table }
 			}
 			case "lockTable": {
 				const tables = this.names(s.tables, "relation")
@@ -1434,10 +1433,6 @@ export class Transform {
 			case "DOMAIN":
 			case "TYPE": {
 				const name = this.name(on.name, "type")
-				return name === on.name ? on : { ...on, name }
-			}
-			case "STATISTICS": {
-				const name = this.name(on.name, "statistics")
 				return name === on.name ? on : { ...on, name }
 			}
 			case "COLUMN": {
@@ -1514,7 +1509,7 @@ export class Transform {
 			case "createPolicy":
 			case "createRole":
 			case "createSchema":
-			case "createStatistics":
+			case "declareStatistics":
 			case "createTable":
 			case "createView":
 			case "drop":

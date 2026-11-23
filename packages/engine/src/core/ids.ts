@@ -70,7 +70,6 @@ export type IdentityKind =
 	| "domainCheck"
 	| "foreignKey"
 	| "accessIndex"
-	| "statistics"
 	| "derivedKey"
 	| "law"
 	| "patternLaw"

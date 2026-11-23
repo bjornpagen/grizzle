@@ -155,7 +155,7 @@ export interface SnapshotLogin {
  * relations, their fields and mutability, its rosters' codes, and its laws), the installation manifest with every
  * object's DDL and justification (a law identity, the workload's access, or the enforcement of a declaration), the
  * constraint-to-law map, each login by its declared name with its PostgreSQL role, each login's workload programs'
- * access (ProgramAccess: the paths and statistics each program reads through, by login and program name) and the access
+ * access (ProgramAccess: the paths each program reads through, by login and program name) and the access
  * requests they make. The next migration is drafted from the committed one, the current schema and the current
  * workloads, never from the live catalog, and DbLayer.make and `grizzle check` compare the workloads' access with it,
  * naming a program whose access moved. A program edit that moves no path leaves it unchanged. Its history is each

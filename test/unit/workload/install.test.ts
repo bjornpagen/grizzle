@@ -212,8 +212,8 @@ export const aWorkloadThatCannotInstallIsRefusedWithItsReasonAnotherSchemasAPath
 		kills: [
 			{
 				file: "packages/engine/src/program/workload/compile.ts",
-				original: "\t\tpaths: uniquePaths([...extraction.paths, ...ir.targets]),",
-				replacement: "\t\tpaths: uniquePaths([...ir.targets]),",
+				original: "\treturn { paths: uniquePaths([...extraction.paths, ...ir.targets]) }",
+				replacement: "\treturn { paths: uniquePaths([...ir.targets]) }",
 				why: "Operator mutant (element) at packages/engine/src/program/workload/compile.ts:355 in irAccess: `[...extraction.paths, ...ir.targets]` becomes `[...ir.targets]`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]

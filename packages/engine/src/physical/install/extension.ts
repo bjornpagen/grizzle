@@ -9,28 +9,24 @@ import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import type { LivePlan } from "#compiler/live/notify.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { noServedTypes, type ServedTypes } from "#compiler/physical/ddl/domains.ts"
-import type { StatisticsRequest } from "#compiler/physical/statistics/statistics.ts"
 
 /** What an extension contributes to the installation it runs in beyond the objects it adds to the builder: an
  * extension spreads `noContribution` and states what it contributes. */
 export interface InstallContribution {
 	readonly indexRequests: ReadonlyArray<IndexRequest>
-	readonly statisticsRequests: ReadonlyArray<StatisticsRequest>
 	/** The derived relations whose materialized views it installs. */
 	readonly derivedRelations: ReadonlyArray<string>
 }
 
 export const noContribution: InstallContribution = {
 	indexRequests: [],
-	statisticsRequests: [],
 	derivedRelations: []
 }
 
-/** What another package installs, plugged into an installation: the materialized views of derived relations, the
- * workload access paths and statistics. Each extension runs with the builder
- * after the native objects and the span CHECKs and before the indexes, so its objects join the one obligation graph and
- * order, its index requests join the one index engine, and its statistics requests are planned with the workload's once
- * every extension has run.
+/** What another package installs, plugged into an installation: the materialized views of derived relations and the
+ * workload access paths. Each extension runs with the builder after the native objects and the span CHECKs and before
+ * the indexes, so its objects join the one obligation graph and order, and its index requests join the one index
+ * engine; every table's declared statistics are planned once every index is (physical/statistics/declared.ts).
  *
  * `contribute` adds the extension's objects to the builder once the native objects exist, each after the objects it
  * reads, named by their handles. */

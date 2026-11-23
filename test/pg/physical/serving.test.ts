@@ -81,7 +81,7 @@ export const everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIs
 		situations: [
 			"a workload installed",
 			"equality probe served",
-			"a workload's statistics installed as requested"
+			"every table's declared statistics installed as declared"
 		] satisfies ReadonlyArray<Reached<ServingFeature | WorkloadFeature>>,
 		check:
 			({ substrate }, c: Case<ServingFeature | WorkloadFeature>) =>
@@ -111,7 +111,7 @@ export const everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIs
 					"test/pg/physical/serving.test.ts#everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIsNeeded:-:2.0.0.0.2.2.1.1.1.1.0.1.2.2.2.1.1.0.1.1.1.0.0.2.2.2.1.0.0.1.1.0.2.1.1.0.3.0.0.0.2.0.2.0.2.1.1.0.1.1.1.0.2.1.2.0.2.0.2.2.3.3.2.0.1.0.1.0.1.1.0.0.1.2.1.3.2.1.1.0.1.1.0.2.0.0.1.1.3.1.0.1.1.1"
 				),
 				reason:
-					"a range on Overlaps' JsonbPretty, a closed handle, by equality and its fixed0, a numeric of many values, by a range, beside span predicates whose GiST index holds both: GiST places its entries by fixed0, so its scan would read the range across every handle, and the range is planned on a B-tree of its own",
+					"a range on Overlaps' JsonbPretty, a closed handle, by equality and its fixed0, a numeric of many values, by a range, beside span predicates whose GiST index holds both: GiST places its entries by fixed0, so its scan would read the range across every handle, and the range is planned on a B-tree of its own. Planned generically at the load's 20,000 rows, the B-tree (5.41) ties the GiST index (5.40): each is priced at one page of the 50 rows the default range selectivity estimates, and gistcostestimate charges its descent ceil(ln N) comparisons against btcostestimate's ceil(log2 N), 0.0125 less, so PostgreSQL takes the GiST index, which read 75 of its 149 pages, its whole size the most such a read touches. Filled at its derived 51,613 rows, past one page of the GiST index (129.0 rows a page at the load), PostgreSQL takes the B-tree (measured 2026-11-23)",
 				since: "2026-11-10"
 			},
 			{
@@ -182,7 +182,7 @@ export const everyDrawnRequestIsServedAndEveryIndexTheEngineCreatesForThemIsNeed
 					"test/pg/physical/serving.test.ts#everyDrawnRequestIsServedAndEveryIndexTheEngineCreatesForThemIsNeeded:-:0.2.0.2.0.0.1.1.0.4.0.2.1.0.1.0.0.4"
 				),
 				reason:
-					"a range on Shift's worker then standby, planned on Shift's GiST key, beside a range on standby then worker, through whose B-tree PostgreSQL reads the first by a skip scan over standby, a boolean, in 2 descents and fewer buffers than the GiST key alone reads: an index PostgreSQL chose by its cost is held to the descents its closed keys allow, not to the engine's claim (serving.ts descentsUnder)",
+					"a range on Shift's worker then standby, planned on Shift's GiST key, beside a range on standby then worker, through whose B-tree PostgreSQL reads the first by a skip scan over standby, a boolean, in 2 descents and fewer buffers than the GiST key alone reads: an index PostgreSQL chose by its cost is held to the descents its closed keys allow, not to the engine's claim (serving.ts descentsUnder). Filled at its derived 26,491 rows (the GiST key 66.2 rows a page at the load), PostgreSQL reads the first through the GiST key and the second through its own B-tree (measured 2026-11-23)",
 				since: "2026-11-14"
 			},
 			{
@@ -205,7 +205,7 @@ export const everyDrawnRequestIsServedAndEveryIndexTheEngineCreatesForThemIsNeed
 					"test/pg/physical/serving.test.ts#everyDrawnRequestIsServedAndEveryIndexTheEngineCreatesForThemIsNeeded:-:0.2.1.2.0.0.0.0.2.0.0.0.4"
 				),
 				reason:
-					"a law probe and a range on Shift's standby alone, a boolean, which Shift's GiST index leads with and places by worker, so that its scan reads every entry, and a B-tree serves both",
+					"a law probe and a range on Shift's standby alone, a boolean, which Shift's GiST index leads with and places by worker, so that its scan reads every entry, and a B-tree serves both. Filled at 13,246 rows, derived from the GiST key's 66.2 rows a page at the load, the range spans 0.93 of a page of it and still reads the key; stood up again at 14,217 it takes the B-tree on standby (measured 2026-11-23)",
 				since: "2026-11-10"
 			},
 			{

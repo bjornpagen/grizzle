@@ -517,6 +517,57 @@ const relationWithin = (c: C.CatalogSource): C.CatalogExpr => {
 }
 
 /**
+ * A column's statistics as pg_stats shows them, the planner's whole input of the column (physical/statistics/declared.ts):
+ * its null fraction, average width and number of distinct values, and each sampled statistic it holds, its most common
+ * values, histogram and correlation, which a declared column holds none of; none where it holds no statistics. A
+ * column's statistics, its statistics target beside these (`columnStatistics`), are a fact of its relation's declared
+ * statistics (`statistics:<s>.<t>`) wherever PostgreSQL holds either, and so are a table's storage parameters, which the
+ * declaration sets (its automatic ANALYZE's thresholds at their maxima), never the relation's own description: a column
+ * whose statistics an ANALYZE sampled, or whose statistics target a consumer set, differs from the snapshot's replay,
+ * which restores the declaration, and the declaration, never the column, is what differs, which a migration or an
+ * upgrade declares again whole; a column added by hand, of neither, is its own fact alone.
+ */
+const declaredStatistics = (
+	n: C.CatalogSource,
+	c: C.CatalogSource,
+	a: C.CatalogSource
+): C.CatalogExpr => {
+	const st = C.from("pg_stats", "st")
+	return C.scalar(
+		C.query(
+			[
+				parts([
+					labelled("null fraction ", C.asText(st.col("null_frac"))),
+					labelled("width ", C.asText(st.col("avg_width"))),
+					labelled("distinct ", C.asText(st.col("n_distinct"))),
+					labelled("common values ", C.asText(st.col("most_common_vals"))),
+					labelled("histogram ", C.asText(st.col("histogram_bounds"))),
+					labelled("correlation ", C.asText(st.col("correlation")))
+				])
+			],
+			[st.item],
+			C.and([
+				C.eq(st.col("schemaname"), n.col("nspname")),
+				C.eq(st.col("tablename"), c.col("relname")),
+				C.eq(st.col("attname"), a.col("attname")),
+				C.not(st.col("inherited"))
+			])
+		)
+	)
+}
+
+/** A column's statistics target and statistics (`declaredStatistics`), empty where PostgreSQL holds neither. */
+const columnStatistics = (
+	n: C.CatalogSource,
+	c: C.CatalogSource,
+	a: C.CatalogSource
+): C.CatalogExpr =>
+	parts([
+		labelled("statistics target ", C.asText(a.col("attstattarget"))),
+		declaredStatistics(n, c, a)
+	])
+
+/**
  * Each fact of a schema's description, four text columns: its key, the identity of the object it describes and of the
  * relation it lies in (the object's own for an object that lies in none), and its description; $1 the schema read, $2
  * the schema the keys and the identities spell. The two identities are the manifest's spellings
@@ -739,7 +790,10 @@ const descriptionSelect = (): C.CatalogSelect => {
 						],
 						undefined
 					),
-					labelled("options ", C.asText(c.col("reloptions"))),
+					when(
+						C.not(C.inList(c.col("relkind"), C.letters(["r", "p", "m"]))),
+						labelled("options ", C.asText(c.col("reloptions")))
+					),
 					C.caseWhen(
 						[
 							{
@@ -834,6 +888,43 @@ const descriptionSelect = (): C.CatalogSelect => {
 				C.inList(c.col("relkind"), C.letters(["r", "p", "f", "c"])),
 				C.gt(a.col("attnum"), C.literal(0n, "smallint")),
 				C.not(a.col("attisdropped")),
+				notExtensionMember("pg_class", c.col("oid"))
+			])
+		),
+		C.catalogCore(
+			[
+				keyOf("storage parameters", [c.col("relname")]),
+				identOf("statistics", [c.col("relname")]),
+				containerIdent(c),
+				parts([labelled("options ", C.asText(c.col("reloptions")))])
+			],
+			[C.inNamespace(c.item, n, c.col("relnamespace"))],
+			C.and([
+				inSchema(n),
+				C.inList(c.col("relkind"), C.letters(["r", "p", "m"])),
+				notExtensionMember("pg_class", c.col("oid"))
+			])
+		),
+		C.catalogCore(
+			[
+				keyOf("column statistics", [c.col("relname"), a.col("attname")]),
+				identOf("statistics", [c.col("relname")]),
+				containerIdent(c),
+				columnStatistics(n, c, a)
+			],
+			[
+				C.inNamespace(
+					C.join(a.item, c.item, C.eq(c.col("oid"), a.col("attrelid"))),
+					n,
+					c.col("relnamespace")
+				)
+			],
+			C.and([
+				inSchema(n),
+				C.inList(c.col("relkind"), C.letters(["r", "p", "m"])),
+				C.gt(a.col("attnum"), C.literal(0n, "smallint")),
+				C.not(a.col("attisdropped")),
+				C.ne(columnStatistics(n, c, a), C.text("")),
 				notExtensionMember("pg_class", c.col("oid"))
 			])
 		),
@@ -1349,7 +1440,7 @@ const inScratch = (
 		case "createUpdateGuardTrigger":
 		case "createConstraintTrigger":
 		case "createTransitionTrigger":
-		case "createStatistics":
+		case "declareStatistics":
 		case "createLiveSecret":
 			return [transformStatement(s, hooks)]
 		case "createPublication":

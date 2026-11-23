@@ -433,22 +433,13 @@ export interface AccessPath {
 	readonly use: AccessUse
 }
 
-/** The extended statistics a workload program's filters and groupings ask for: one relation's columns, together. */
-export interface StatisticsShape {
-	readonly relation: string
-	/** In code point order. */
-	readonly columns: ReadonlyArray<string>
-	readonly use: "correlated selection" | "grouping"
-}
-
 /**
- * A workload program's access: the paths its reads and writes go through, each once in canonical order, and the
- * statistics it asks for. The snapshot records each program's, and DbLayer.make and `grizzle check` compare a
- * workload's with the snapshot's, so a program whose access moved is named before it runs.
+ * A workload program's access: the paths its reads and writes go through, each once in canonical order. The snapshot
+ * records each program's, and DbLayer.make and `grizzle check` compare a workload's with the snapshot's, so a program
+ * whose access moved is named before it runs.
  */
 export interface ProgramAccess {
 	readonly paths: ReadonlyArray<AccessPath>
-	readonly statistics: ReadonlyArray<StatisticsShape>
 }
 
 /** Each login's workload programs' access, by login name, then by program name. */

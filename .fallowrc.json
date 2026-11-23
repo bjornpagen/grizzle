@@ -172,7 +172,7 @@
 					"packages/engine/src/physical/install/comments.ts",
 					"packages/engine/src/physical/install/compile.ts",
 					"packages/engine/src/physical/refined/constants.ts",
-					"packages/engine/src/physical/statistics/**",
+					"packages/engine/src/physical/statistics/statistics.ts",
 					"packages/engine/src/program/workload/compile.ts",
 					"packages/engine/src/program/workload/world.ts"
 				]

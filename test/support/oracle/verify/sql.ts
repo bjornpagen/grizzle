@@ -2437,7 +2437,7 @@ class StatementAuditor {
 			case "revoke":
 			case "alterDefaultPrivileges":
 			case "createExtension":
-			case "createStatistics":
+			case "declareStatistics":
 			case "lockTable":
 			case "comment":
 				this.withoutParams(() => {
@@ -2460,7 +2460,6 @@ class StatementAuditor {
 			case "DOMAIN":
 			case "TYPE":
 			case "INDEX":
-			case "STATISTICS":
 			case "FUNCTION":
 				this.objectName(on.name, Str.toLowerCase(on.kind), "on")
 				return
@@ -2916,11 +2915,13 @@ class StatementAuditor {
 			case "comment":
 				this.commentTarget(statement.on)
 				return
-			case "createStatistics":
-				this.objectName(statement.name, "statistics", "name")
+			case "declareStatistics":
 				this.objectName(statement.table, "table", "table")
 				this.at("columns", () => {
-					this.baseColumns(statement.columns, "statistics column")
+					this.baseColumns(
+						Arr.map(statement.columns, (c) => c.column),
+						"declared statistics column"
+					)
 				})
 				return
 			case "lockTable":
