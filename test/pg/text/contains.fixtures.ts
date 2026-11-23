@@ -20,10 +20,8 @@ import { asciiFolded } from "#test/pg/text/lower-ascii.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { rowsOf, writeAnswerOf } from "#test/support/calls.ts"
 import { type Generated, generatedTemplate } from "#test/support/install-migrate.ts"
-import { namesOf } from "#test/support/kernel/naming.ts"
 import { codeInfix } from "#test/support/oracle/evaluate/catalog.ts"
 import { servedGenerated } from "#test/support/served-db.ts"
-import { clearRows, installationGroup } from "#test/support/substrate/replace.ts"
 import type { SubstrateCase, TemplateNeed } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 import {
@@ -276,13 +274,11 @@ export const searchCaseRun =
 	(k: SearchCase, c: Case<SearchFeature>) =>
 		Effect.scoped(
 			Effect.gen(function* () {
-				const { substrate, value: generated } = yield* resources.seat
+				const { value: generated } = yield* resources.seat
 				const { world } = staffWorld(generated.installed.declared)
 				const served = servedGenerated(generated, world.server)
 				const context = yield* Layer.build(served.layer)
 				const db = yield* Db.open(served.login.roles.app, {}).pipe(Effect.provideContext(context))
-				const names = namesOf(generated.installed)
-				yield* clearRows(substrate.admin, installationGroup(names))
 				const written = yield* writeAnswerOf(
 					db.workload.write.once({
 						params: {},

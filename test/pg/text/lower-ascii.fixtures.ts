@@ -33,7 +33,6 @@ import { type Generated, generatedTemplate } from "#test/support/install-migrate
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { servedGenerated } from "#test/support/served-db.ts"
-import { clearRows, installationGroup } from "#test/support/substrate/replace.ts"
 import type { SubstrateCase, TemplateNeed } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 import {
@@ -341,13 +340,12 @@ export const reproCase =
 	(k: FoldCase, c: Case<ReproFeature>) =>
 		Effect.scoped(
 			Effect.gen(function* () {
-				const { substrate, value: generated } = yield* resources.seat
+				const { value: generated } = yield* resources.seat
 				const { rule, world } = foldWorld(generated.installed.declared)
 				const served = servedGenerated(generated, world.server)
 				const context = yield* Layer.build(served.layer)
 				const db = yield* Db.open(served.login.roles.app, {}).pipe(Effect.provideContext(context))
 				const names = namesOf(generated.installed)
-				yield* clearRows(substrate.admin, installationGroup(names))
 				const attributes = Arr.flatMap(k.rows, (row, at) =>
 					Option.isSome(row.tag) && row.tag.value === "no attribute"
 						? []
