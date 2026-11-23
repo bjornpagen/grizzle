@@ -2453,7 +2453,10 @@ definition too.
   and a rule over a recursion as `Refused`, naming the unit-locality it lacks. `orderBy(...).take(k)`, `attach` or an
   approximate search, in the query or in a query it negates, are refused the same way (`Refused` over a derived
   relation, its refusal the type error's words), and a type error where the query does it itself. A family and a fold
-  read tables only.
+  read tables only. Every value a rule reads is immutable: a stable function's call (`Fn.call`,
+  [Calling a function](#calling-a-function)) or a conversion that reads a setting of its session, as int4's to money
+  reads `lc_monetary`, can turn the rule's verdict with nothing written, which no judge sees, so a rule whose violation
+  reads one is refused (`UnsupportedOperation`, naming the rule), judged whole or by its probes alike.
 - **A probe reads each relation with the polarity of the negations above it.** A rule that is not unit-local is judged
   from the rows a transaction wrote (below): a row a relation gains under no negation, or under two, can add facts of
   the side that reads it, and a row it loses under one negation can, and the judge probes exactly those, a target's the

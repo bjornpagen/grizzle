@@ -38,7 +38,12 @@ import {
 import { checkQuery } from "#compiler/check/index.ts"
 import { CheckSession } from "#compiler/check/session.ts"
 import { catchRefusal, Refusal, unwrap } from "#compiler/core/canonical.ts"
-import { type CompileError, malformedDescription, ruleRefused } from "#compiler/core/errors.ts"
+import {
+	type CompileError,
+	malformedDescription,
+	ruleRefused,
+	unsupported
+} from "#compiler/core/errors.ts"
 import {
 	type Identity,
 	identifierOf,
@@ -55,7 +60,7 @@ import { type ConstraintName, FieldId, type LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
-import { type LabelledDag, LabelSupply } from "#compiler/ir/dag.ts"
+import { type LabelledDag, LabelSupply, topoOrder } from "#compiler/ir/dag.ts"
 import {
 	type FieldDesc,
 	fieldTermsOf,
@@ -77,7 +82,13 @@ import {
 	type TheoryRelation
 } from "#compiler/ir/law.ts"
 import type { CheckedTheory } from "#compiler/ir/products.ts"
-import type { HeadingColumn, KeySet, RelNode, ValidDag } from "#compiler/ir/rel.ts"
+import {
+	exprsOf,
+	type HeadingColumn,
+	type KeySet,
+	type RelNode,
+	type ValidDag
+} from "#compiler/ir/rel.ts"
 import { baseOf, type ContractInfo, Roster, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
 import type { ContainmentFact } from "#compiler/logical/attach.ts"
 import { derivedStatement, mergedEntry, type StatedEntry } from "#compiler/runtime/law-entry.ts"
@@ -818,24 +829,43 @@ export const buildTheory = (checked: CheckedSchema): Result.Result<Theory, Compi
 /**
  * A rule over a query's violation query, as normalization wrote it (`violation`), checked against the checked schema
  * its theory was built over: what the violation queries' writer reads (laws/model/violations.ts), its one reader, so
- * no theory checks a rule's query no installation's snapshot writes.
+ * no theory checks a rule's query no installation's snapshot writes. A rule whose violation reads a stable value
+ * (`readsStable`) is refused: its verdict can change with no write, as a setting of the session it reads changes, so
+ * neither its judge, which reads the units or the deltas a transaction wrote, nor the migration's check over its rows
+ * holds it of every state.
  */
 export const ruleViolation = (
 	checked: CheckedSchema,
-	law: Pick<TheoryLaw, "named">,
+	law: Pick<TheoryLaw, "named" | "loc">,
 	violation: InferredQuery
 ): Result.Result<{ readonly dag: ValidDag; readonly root: RelNode }, CompileError> =>
-	Result.map(
+	Result.flatMap(
 		checkQuery(checked, violation, {
 			read: "rows",
 			label: `rule ${law.named.display}`,
 			clock: noClock,
 			session: new CheckSession()
 		}),
-		(admitted) => ({
-			dag: admitted.dag,
-			root: admitted.dag.roots[0]
-		})
+		(admitted) =>
+			readsStable(admitted.dag)
+				? Result.err(
+						unsupported(
+							law.loc,
+							`a rule whose violation reads its rows alone, every value immutable; rule ${law.named.display} reads a stable one, a declared function's or a conversion's that reads a setting of its session, which can change its verdict with no write`
+						)
+					)
+				: Result.ok({ dag: admitted.dag, root: admitted.dag.roots[0] })
+	)
+
+/**
+ * Whether `dag` reads a stable value: an expression that is (ir/expr.ts exprEffects, which makes a stable argument's
+ * reader stable), or a call of a declared function's rows that is not immutable.
+ */
+const readsStable = (dag: ValidDag): boolean =>
+	topoOrder(dag).some(
+		(n) =>
+			(n.kind === "Call" && n.function.kind !== "split" && n.function.volatility !== "immutable") ||
+			exprsOf(n).some((e) => e.volatility === "stable")
 	)
 
 /**
