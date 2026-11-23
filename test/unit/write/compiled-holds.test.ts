@@ -27,6 +27,11 @@
  * the reading rule, which the restatement restates (shared-imports.fixtures.ts boundTakeWriteOf). Kill: the first
  * analysis made by the compile and handed to the helper, so the compile's scope holds it while the second is made.
  *
+ * Both properties read the heap over a compile run on cold code (onColdCode), its frames the interpreter's: what a
+ * frame keeps of a value it no longer reads is the engine's to decide where an optimizing compiler built the frame, so
+ * a warm worker kept the first analysis's folds alive at the restatement's start once (the unit tier on 0be68193,
+ * 0 then 2 against an analysis's 2), where cold the count is the compile's own.
+ *
  * Features: one member, several members.
  */
 
@@ -48,6 +53,7 @@ import {
 	testCompile
 } from "#test/support/compile.ts"
 import { Work } from "#test/support/fixtures/api/work.ts"
+import { callCounts } from "#test/support/kernel/calls.ts"
 import { checking } from "#test/support/policy.ts"
 import { descOf, switchToManual } from "#test/unit/write/changeset/fixtures.ts"
 import {
@@ -92,6 +98,17 @@ const writtenOf = (shape: Shape): Written => {
 /** The folds alive, counted by V8 after a full collection. */
 const foldsAlive = (): number => queryObjects(Fold, { format: "count" })
 
+/**
+ * `measure`, run on cold code: the call counter's restart (test/support/kernel/calls.ts callCounts) deoptimizes every
+ * function and clears its invocation counts first, and nothing is counted, so a case's folds are read over a compile
+ * whose frames are the interpreter's whatever the worker ran before it. A fold a frame no longer reads is otherwise kept
+ * or dropped as the worker's optimizing compilers left the frames that held it: the unit tier on 0be68193 read one
+ * analysis's two folds alive at the restatement's start (0 then 2, an analysis 2) where a worker that had run nothing
+ * else read 0 then 1.
+ */
+const onColdCode = <A>(measure: () => A): Effect.Effect<A> =>
+	Effect.map(callCounts(Effect.sync(measure), {}), ([measured]) => measured)
+
 /** A compiled write holds none of its compile's folds: those alive while it is held are those alive before its compile. */
 export const aCompiledWriteHoldsNoneOfItsCompilesFoldsThoseAliveWhileItIsHeldAreThoseAliveBeforeItsCompile =
 	property.exhaust(
@@ -110,14 +127,17 @@ export const aCompiledWriteHoldsNoneOfItsCompilesFoldsThoseAliveWhileItIsHeldAre
 			needs: {},
 			situations: ["one member", "several members"],
 			check: (_, k: Case<Feature>) => (shape) =>
-				Effect.sync(() => {
+				Effect.gen(function* () {
 					const written = writtenOf(shape)
 					k.note(written.members === 1 ? "one member" : "several members")
 					const reality = realityWrite(succeeded(testArtifacts(written.schema, testCompile)))
 					const desc = descOf(written.change)
-					const before = foldsAlive()
-					const program = succeeded(compileWrite(checking(written.schema), desc, reality))
-					assert.equal(foldsAlive(), before, `${shape}: the compiled write holds no fold`)
+					const { before, after, program } = yield* onColdCode(() => {
+						const counted = foldsAlive()
+						const compiled = succeeded(compileWrite(checking(written.schema), desc, reality))
+						return { before: counted, after: foldsAlive(), program: compiled }
+					})
+					assert.equal(after, before, `${shape}: the compiled write holds no fold`)
 					assert.ok(program.frontend.restate.size > 0, `${shape}: the write names nodes`)
 				}),
 			oracle: { kind: "specification", name: "a compile's folds are its own" },
@@ -178,11 +198,11 @@ export const aWritesCompileHoldsOneAnalysisAtATimeTheFoldsAliveWhenItsRestatemen
 			needs: {},
 			situations: ["one member", "several members"],
 			check: (_, k: Case<Feature>) => (members) =>
-				Effect.sync(() => {
+				Effect.gen(function* () {
 					const shape = `${members} reader(s) of a bound take`
 					const written: Written = { schema: Shared, change: boundTakeWriteOf(members), members }
 					k.note(written.members === 1 ? "one member" : "several members")
-					const { counts, held } = foldsAtAnalyses(written)
+					const { counts, held } = yield* onColdCode(() => foldsAtAnalyses(written))
 					const [first, second, ...rest] = counts
 					assert.equal(rest.length, 0, `${shape}: two analyses, the first and the restatement's`)
 					assert.ok(held > 0, `${shape}: an analysis holds folds`)
