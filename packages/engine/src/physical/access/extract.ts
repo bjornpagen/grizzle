@@ -4,6 +4,8 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
+import { traceApproximate } from "#compiler/check/approximate/trace.ts"
+import { searchedOccurrence } from "#compiler/check/search/fence.ts"
 import {
 	type Comparator,
 	compareBooleans,
@@ -720,6 +722,13 @@ class Extractor {
 	/** The pushed facts each node was visited under, by their key: the walk's seen-set. */
 	readonly #visited = new Map<RelNode, Set<string>>()
 	readonly #pageable: ReadonlySet<RelNode>
+	/**
+	 * The searched occurrences of approximate reads and of text searches, each read through its fence alone
+	 * (lower/shapes/vector fenceOf, lower/shapes/search searchFenced), which no path of their region's filters, matches
+	 * or negations reaches: a B-tree a filter asked of one would serve no plan of the read and would only price its
+	 * search, so none is asked (`basePaths`).
+	 */
+	readonly #streamed = new Set<NodeOf<"Base">>()
 
 	constructor(options: ExtractOptions) {
 		this.options = options
@@ -774,10 +783,15 @@ class Extractor {
 					alone
 				)
 				return
-			case "Filter":
+			case "Filter": {
+				const searched = searchedOccurrence(n)
+				if (searched !== undefined) {
+					this.#streamed.add(searched.base)
+				}
 				this.textSearch(n.input, n.pred)
 				this.netContainment(n.input, n.pred)
 				return this.visit(n.input, withAtoms(pushed, this.atomsOf(n)))
+			}
 			case "ProjectSet":
 				return this.visit(n.input, mapPushed(pushed, this.projection(n)))
 			case "Take": {
@@ -826,9 +840,14 @@ class Extractor {
 					[n.base, nothing],
 					[n.step, nothing]
 				])
-			case "ApproximateNearest":
+			case "ApproximateNearest": {
 				this.nearest(n.source, n.score)
+				const traced = traceApproximate(n.source, n.score)
+				if (traced.ok) {
+					this.#streamed.add(traced.value.base)
+				}
 				return this.visit(n.source, nothing)
+			}
 			case "Produce":
 				return this.visit(n.input, restrict(pushed, n.carried))
 			case "Window":
@@ -1031,7 +1050,7 @@ class Extractor {
 	 * an equality. A world relation is a view: its program is planned through its definition, inlined before
 	 * extraction, so its own name never reaches an index. */
 	basePaths(base: NodeOf<"Base">, o: OccurrenceFacts, keyDriven: ReadonlySet<number>): void {
-		if (base.relationKind === "world") {
+		if (base.relationKind === "world" || this.#streamed.has(base)) {
 			return
 		}
 		const heading = base.heading

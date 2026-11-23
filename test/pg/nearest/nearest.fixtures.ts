@@ -16,6 +16,7 @@ import { dimensions, generator, unitVector, vectorText } from "#test/pg/vector/a
 import type { Installed } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import type { FactSet } from "#test/support/oracle/install/load.ts"
+import { countedAsVacuumed } from "#test/support/substrate/fill.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -164,7 +165,7 @@ export interface NearestCase {
 
 /**
  * The most lessons a case holds: enough that PostgreSQL's planner prefers the HNSW index for a catalog's nearest ten
- * over a scan and a sort once the table is analyzed, as it does from about 1,500 rows of eight dimensions over three
+ * over a scan and a sort once the table's size is counted, as it does from about 1,500 rows of eight dimensions over three
  * catalogs (measured on PostgreSQL 19 with pgvector 0.8.7), and few enough that a case loads in a moment.
  */
 const mostLessons = 2400
@@ -237,13 +238,17 @@ export const populationFacts = (p: Population): FactSet => {
 	}
 }
 
-/** Analyzes the population's tables, so the planner reads their sizes, as a deployment's autovacuum would. */
+/** Counts the population's tables' sizes as autovacuum's VACUUM does (fill.ts countedAsVacuumed), so the planner reads
+ * them. */
 export const analyzed = (installed: Installed) =>
 	Effect.flatMap(Substrate, (s) =>
 		Effect.forEach(
 			["Lesson", "Item", "Seen"],
 			(r) =>
-				s.admin.query(`ANALYZE ${printObjectName(installed.installation.names.relation(r))}`, []),
+				s.admin.query(
+					countedAsVacuumed(printObjectName(installed.installation.names.relation(r))),
+					[]
+				),
 			{ discard: true }
 		)
 	)

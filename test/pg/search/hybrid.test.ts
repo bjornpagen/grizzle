@@ -258,7 +258,13 @@ export const aHybridSearchFusesItsArmsByReciprocalRankInOneStatementEachArmTheRo
 				file: "packages/engine/src/check/approximate/policy.ts",
 				original: '\titerativeScan: "strict_order"',
 				replacement: '\titerativeScan: "off"',
-				why: "The login's searches scan no further than hnsw.ef_search's candidates, which the route's filters then cut, so a nearest arm the HNSW index serves underfills its bound though the route admits more lessons (hybrid.fixtures.ts mostLessons: 66 of 173 such routes, measured)."
+				why: "The login's searches scan no further than hnsw.ef_search's candidates, which the route's filters then cut, so a nearest arm the HNSW index serves underfills its bound though the route admits more lessons (hybrid.fixtures.ts mostLessons: off underfilled 113 of 40,000 routes, measured)."
+			},
+			{
+				file: "packages/engine/src/lower/shapes/vector/index.ts",
+				original: "\t\torderBy: [asc(distance)],\n\t\tlimit: streamBound()",
+				replacement: "\t\torderBy: [],\n\t\tlimit: undefined",
+				why: "The approximate read unfenced: its stream a plain scan PostgreSQL pulls up, so the route's filters, priced by the declared statistics, choose the read, and no nearest arm of a large case is served by the HNSW index."
 			}
 		]
 	})

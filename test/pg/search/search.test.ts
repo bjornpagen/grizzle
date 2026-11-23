@@ -277,6 +277,12 @@ export const atScaleAMatchOfAMarkerWordFewLessonsHoldReadsLessonThroughTheGINInd
 				original: "\t\t\t\tthis.textSearch(n.input, n.pred)\n",
 				replacement: "",
 				why: "A match requests no GIN index, so none is installed and PostgreSQL reads Lesson sequentially; the plan check fails."
+			},
+			{
+				file: "packages/engine/src/lower/shapes/index.ts",
+				original: "\tFilter: realized(facts, searchFenced(conservativeLowerers.Filter)),",
+				replacement: "\tFilter: realized(facts, conservativeLowerers.Filter),",
+				why: "The text search unfenced: its match a filter beside the subject's and the grade's, so the declared statistics of those choose the read, and Lesson is read through another index than its GIN."
 			}
 		]
 	})

@@ -21,6 +21,7 @@ import {
 import type { Installed } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import type { FactSet } from "#test/support/oracle/install/load.ts"
+import { countedAsVacuumed } from "#test/support/substrate/fill.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -194,8 +195,27 @@ const hybrid = query(Catalog)
  */
 const step = query(Catalog).reads({ nearest: nearestArm, text: textArm, hybrid })
 
-/** The programs the fixture's login serves: the record, and the hybrid alone. */
-const programs = { step, hybrid } as const
+/**
+ * A route's lessons by their keys, the read a catalog serves beside its searches: an equality on the route's app and
+ * subject, whose B-tree the read earns, so the route's filters have an index of their own, which the arms' fenced
+ * streams never read (lower/shapes/vector fenceOf, lower/shapes/search searchFenced), and the declared statistics price
+ * the app and the subject as the anchors that index leads with.
+ */
+const route = query(Catalog).rule((r) => {
+	const { lesson, subject, app } = v(Lesson, "lesson")
+	return r
+		.match(Lesson, { lesson, subject, app })
+		.where(
+			r.and(
+				r.eq(app, r.param("app", Lesson.fields.app)),
+				r.eq(subject, r.param("subject", Lesson.fields.subject))
+			)
+		)
+		.find({ lesson })
+})
+
+/** The programs the fixture's login serves: the record, the hybrid alone, and a route's lessons. */
+const programs = { step, hybrid, route } as const
 
 export const hybridInstall = { label: "hybrid", programs } as const
 
@@ -274,19 +294,16 @@ export interface HybridCase {
 }
 
 /**
- * The most lessons a case holds, and how many subjects and apps they span: enough that PostgreSQL's planner serves some
- * routes' nearest from the HNSW index, so the route's filters meet the index's iterative scan, and few enough that a
- * case loads in a moment. The planner serves a route from the HNSW index only where the btree the arms earn on (app,
- * subject, grade) would read a large part of the catalog, and from that btree, exactly, otherwise: measured on
- * PostgreSQL 19 with pgvector 0.8.7 over this population analyzed (lane FTSG2, 2026-11-21). On this fixture's own
- * installation, 2,400 lessons of one subject and one app had every route of grade 4 or more served by the HNSW index,
- * of one subject and two apps every route of grade 10 or more and some of 7 or more, of two subjects and two apps none.
- * Over a table of the route's columns and the embedding alone, routes drawn uniformly, catalogs of one or two subjects
- * and one or two apps had 173 of 4,000 routes served by the HNSW index, each admitting 184 lessons or more, one of
- * them of two subjects and two apps, where catalogs of two subjects and two apps had 17 of 6,400. Of those 173,
- * hnsw.iterative_scan = off underfilled 66, the route's filters cutting hnsw.ef_search's 40 candidates below the bound,
- * and strict_order none; with the HNSW index forced, strict_order filled min(12, the lessons the route admits) in all
- * of 40,000 routes, off in 113.
+ * The most lessons a small case holds, and how many subjects and apps they span: few enough that a case loads in a
+ * moment. A small case's nearest arm reads its relation whole and sorted, exactly, its route's filters above the ordered
+ * stream (lower/shapes/vector fenceOf); a large case's, of 2^16 lessons and more (`hybridCaseGen`), reads the stream
+ * from the HNSW index, so the route's filters meet the index's iterative scan: PostgreSQL drives the stream from the
+ * index once the relation holds more rows than the index scan costs over a sorted read of all, on PostgreSQL 19 with
+ * pgvector 0.8.7 over eight dimensions a sorted read up to 40,000 rows and the index from 50,000
+ * (~/.cache/grizzle/DECLSTATS-work/fence/run5.log, 2026-11-23). Measured before the stream was fenced, over 40,000 routes
+ * with the HNSW index forced, strict_order filled min(12, the lessons the route admits) in all, hnsw.iterative_scan =
+ * off underfilled 113, the route's filters cutting hnsw.ef_search's 40 candidates below the bound (lane FTSG2,
+ * 2026-11-21).
  */
 const mostLessons = 2400
 
@@ -294,7 +311,8 @@ export const hybridCaseGen: Gen<HybridCase> = (s) => {
 	const lessons = s.draw(
 		weighted<number>([
 			[3, int(1600, mostLessons)],
-			[1, int(0, 80)]
+			[1, int(0, 80)],
+			[1, int(2 ** 16, 2 ** 16 + 2 ** 12)]
 		])
 	)
 	const subjects = s.draw(int(1, 2))
@@ -338,9 +356,11 @@ export const hybridFacts = (c: HybridCase): FactSet => {
 	}
 }
 
-/** Analyzes Lesson, so the planner reads its size, as a deployment's autovacuum would. */
+/** Counts Lesson's size as autovacuum's VACUUM does (fill.ts countedAsVacuumed), so the planner reads it. */
 export const analyzed = (installed: Installed) =>
-	Effect.flatMap(Substrate, (s) => s.admin.query(`ANALYZE ${namesOf(installed).table(Lesson)}`, []))
+	Effect.flatMap(Substrate, (s) =>
+		s.admin.query(countedAsVacuumed(namesOf(installed).table(Lesson)), [])
+	)
 
 /** Whether a member's executed statements read Lesson through the HNSW index its nearest arm requested. */
 export const servedByHnsw = (

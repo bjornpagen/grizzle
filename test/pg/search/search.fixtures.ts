@@ -98,7 +98,26 @@ const documents = query(Catalog).rule((r) => {
 	return r.match(Lesson, { lesson, search }).find({ lesson, search })
 })
 
-const programs = { matching, ranked, plainNotes, documents } as const
+/**
+ * A subject's lessons up to a grade, the read a catalog serves beside its searches: an equality on the subject and a
+ * range of grades, whose B-tree the read earns, so the searches' filters have an index of their own, which a search's
+ * fenced match never reads (lower/shapes/search searchFenced), and the declared statistics price the subject as the
+ * anchor that index leads with.
+ */
+const ofSubject = query(Catalog).rule((r) => {
+	const { lesson, subject, grade } = v(Lesson, "lesson")
+	return r
+		.match(Lesson, { lesson, subject, grade })
+		.where(
+			r.and(
+				r.eq(subject, r.param("subject", Lesson.fields.subject)),
+				r.le(grade, r.param("grade", Lesson.fields.grade))
+			)
+		)
+		.find({ lesson })
+})
+
+const programs = { matching, ranked, plainNotes, documents, ofSubject } as const
 
 export const searchInstall = { label: "search", programs } as const
 

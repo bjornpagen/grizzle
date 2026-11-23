@@ -83,6 +83,7 @@ import { recursionLowerer } from "#compiler/lower/shapes/recursion/index.ts"
 import { refineDelivered } from "#compiler/lower/shapes/refined/index.ts"
 import { regionLowerer } from "#compiler/lower/shapes/region/index.ts"
 import { inputSetLowerer } from "#compiler/lower/shapes/relparam/index.ts"
+import { searchFenced } from "#compiler/lower/shapes/search/index.ts"
 import { shareKey } from "#compiler/lower/shapes/share/index.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import { producerLowerer } from "#compiler/lower/shapes/spans/index.ts"
@@ -743,7 +744,7 @@ const optimizedLowerers = <I extends ChoiceInput>(
 			(n) => state.strategy(n) !== undefined
 		)
 	),
-	Filter: realized(facts, conservativeLowerers.Filter),
+	Filter: realized(facts, searchFenced(conservativeLowerers.Filter)),
 	ProjectSet: realized(facts, conservativeLowerers.ProjectSet),
 	SemiJoin: semiJoinShape(facts),
 	AntiJoin: realized(facts, conservativeLowerers.AntiJoin),

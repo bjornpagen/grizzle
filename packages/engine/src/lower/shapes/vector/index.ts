@@ -1,4 +1,5 @@
 import {
+	extendNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
@@ -23,17 +24,29 @@ import {
 	columnIn,
 	type Env,
 	extendEnv,
+	type InputSource,
 	type LowerContext,
 	type NodeLowerer,
 	nodeLabel,
 	refuse
 } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
+import { fencedScan } from "#compiler/lower/shapes/share/fence.ts"
 import type { ShapeFacts, Unique } from "#compiler/lower/shapes/share/physical.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
-import type { Expr, FromSource, OrderItem } from "#compiler/sql/ast.ts"
+import type {
+	Expr,
+	FromItem,
+	FromSource,
+	OperandSelect,
+	OrderItem,
+	Target
+} from "#compiler/sql/ast.ts"
 import {
 	asc,
+	call,
+	cast,
+	col,
 	conjunction,
 	distinctCore,
 	exists,
@@ -46,6 +59,7 @@ import {
 	types,
 	unitTargets
 } from "#compiler/sql/build.ts"
+import type { NameOrigin } from "#compiler/sql/naming.ts"
 
 /** Which form the shape chose: the direct indexed shape, or the one that deduplicates before the bound. */
 type ApproximateShape = "indexed" | "deduplicated"
@@ -135,6 +149,134 @@ const certify = (
 }
 
 /**
+ * The bound of the ordered stream an approximate read's filters see: pgvector's own `hnsw.max_scan_tuples`, read where
+ * the statement runs, which every login holds as its default beside the iterative scan (policy.ts hnswPolicy,
+ * physical/ddl/roles.ts searchPolicySettings), so the stream stops exactly where the scan's iterative search does and a
+ * filtered read fills its bound as far as the index would. No number of grizzle's stands here: the bound is the
+ * library's own setting. PostgreSQL drives the stream from the HNSW index once its relation holds more rows than the
+ * index scan costs over a sorted read of all, and reads a smaller relation whole and sorted, exactly: on PostgreSQL 19
+ * with pgvector 0.8.7, over vectors of eight dimensions under a filter and a negation, a sorted read up to 40,000 rows and
+ * the index from 50,000, whether the bound is read or written as its 20,000
+ * (~/.cache/grizzle/DECLSTATS-work/fence/run5.log, 2026-11-23).
+ */
+const streamBound = (): Expr =>
+	cast(
+		call("current_setting", [lit.text(hnswPolicy.maxScanTuples.setting, types.text)]),
+		types.integer
+	)
+
+/**
+ * The searched occurrence's stored relation read as the approximate read's ordered stream, its fence: the scan's
+ * columns as the region reads them, then the distance of its vector from the query vector by `<=>`, ordered by that
+ * distance and bounded by `streamBound`. A subquery with a LIMIT is neither pulled up nor given a filter from outside
+ * (PostgreSQL 19 allpaths.c subquery_is_pushdown_safe), so the region's filters, its other matches and the rule's
+ * negations read the stream above it, and no statistic of theirs prices the search: the shape is the program's. Its
+ * rows are a set, as the scan's are.
+ */
+const fenceOf = (
+	cx: LowerContext,
+	env: Env,
+	trace: ApproximateTrace,
+	vector: () => Expr,
+	at: string
+): OperandSelect => {
+	const { scan, body, alias } = fencedScan(
+		cx,
+		trace.base,
+		env,
+		at,
+		`approximateNearest: the searched relation ${trace.relation} read by one plain scan its ordered stream can bound`
+	)
+	const distance: Expr = {
+		kind: "binary",
+		op: hnswPolicy.operator,
+		left: col(alias, cx.names.column(trace.relation, trace.field)),
+		right: vector(),
+		schema: cx.names.vectorSchema
+	}
+	return {
+		...scan,
+		body: { ...body, targets: [...body.targets, target(distance)] },
+		orderBy: [asc(distance)],
+		limit: streamBound()
+	}
+}
+
+/** A core's targets with `added` last, at least one under DISTINCT as before. */
+const withTarget = <B extends OperandSelect["body"] & { readonly kind: "core" }>(
+	body: B,
+	added: Target
+): B =>
+	body.distinct === false
+		? { ...body, targets: [...body.targets, added] }
+		: { ...body, targets: extendNonEmpty(body.targets, [added]) }
+
+/**
+ * `query` with the last column of its derived source `fence`, wherever beneath it stands in a FROM, carried to its own
+ * targets, last: each derived table from the fence up widened by a column named from `origin`, each core on the way by
+ * a target reading it, so the read above the region orders by the stream's own distance and PostgreSQL reads the
+ * stream's order as its own (a sort key it must otherwise compute anew over the stream sorts the whole stream). None
+ * where the fence stands nowhere in the FROM lists beneath.
+ */
+const carried = (
+	cx: LowerContext,
+	query: OperandSelect,
+	fence: OperandSelect,
+	origin: NameOrigin
+): OperandSelect | undefined => {
+	const body = query.body
+	if (body.kind !== "core") {
+		return undefined
+	}
+	const throughSource = (
+		source: FromSource
+	): { readonly source: FromSource; readonly value: Expr } | undefined => {
+		if (source.kind !== "derived") {
+			return undefined
+		}
+		const inner = source.query === fence ? fence : carried(cx, source.query, fence, origin)
+		if (inner === undefined) {
+			return undefined
+		}
+		const column = cx.supply.column(origin)
+		return {
+			source: { ...source, query: inner, columns: [...source.columns, column] },
+			value: col(source.alias, column)
+		}
+	}
+	const throughItem = (
+		item: FromItem
+	): { readonly item: FromItem; readonly value: Expr } | undefined => {
+		if (item.kind !== "joins") {
+			const found = throughSource(item)
+			return found === undefined ? undefined : { item: found.source, value: found.value }
+		}
+		const first = throughSource(item.first)
+		if (first !== undefined) {
+			return { item: { ...item, first: first.source }, value: first.value }
+		}
+		for (const [at, step] of item.steps.entries()) {
+			const found = throughSource(step.source)
+			if (found !== undefined) {
+				const steps = mapNonEmpty(item.steps, (s, i) =>
+					i === at ? { ...s, source: found.source } : s
+				)
+				return { item: { ...item, steps }, value: found.value }
+			}
+		}
+		return undefined
+	}
+	for (const [at, item] of body.from.entries()) {
+		const found = throughItem(item)
+		if (found !== undefined) {
+			const from = body.from.map((f, i) => (i === at ? found.item : f))
+			return { ...query, body: withTarget({ ...body, from }, target(found.value)) }
+		}
+	}
+	return undefined
+}
+
+/**
  * Approximate nearest candidates in the optimized lowering: the indexed HNSW shape.
  *
  * An ApproximateNearest node over a source the checker admitted (check/approximate/trace.ts) lowers to the one shape
@@ -203,19 +345,28 @@ export const approximateLowerer =
 				)
 			}
 		}
-		const input = cx.source(projection.input, env)
+		const queried = queryVectorSql(cx, env, trace.projection.input.id, trace.query, env)
+		const fence = fenceOf(cx, env, trace, queried.vector, at)
+		const region = cx.withLowering(trace.base, () => fence).source(projection.input, env)
+		const origin: NameOrigin = { kind: "node", node: trace.base.id }
+		const widened =
+			region.item.kind === "derived" ? carried(cx, region.item.query, fence, origin) : undefined
+		if (widened === undefined || region.item.kind !== "derived") {
+			return refuse(
+				"UnsupportedOperation",
+				at,
+				`approximateNearest: the searched relation ${trace.relation} read through its ordered stream alone`
+			)
+		}
+		const distanceColumn = cx.supply.column(origin)
+		const input: InputSource = {
+			...region,
+			item: { ...region.item, query: widened, columns: [...region.item.columns, distanceColumn] },
+			columns: [...region.columns, distanceColumn]
+		}
 		const scope = extendEnv(env, [[projection.input.id, input.map]])
-		/** The traced column is the score's column reference, a column of the projection's input (valid DAG). */
-		const column = columnIn(input.map, trace.column)
-		const queried = queryVectorSql(cx, env, trace.projection.input.id, trace.query, scope)
-		/** The distance where it stands, a target and the order's first item, each its own tree (queryVectorSql). */
-		const distanceAt = (): Expr => ({
-			kind: "binary",
-			op: hnswPolicy.operator,
-			left: column,
-			right: queried.vector(),
-			schema: cx.names.vectorSchema
-		})
+		/** The stream's distance as the read above it holds it: a target and the order's first item. */
+		const distanceAt = (): Expr => col(input.alias, distanceColumn)
 		/**
 		 * The projected terms by name: the heading of the search, of its source and of every filter and negation the
 		 * trace passes is the projection's (valid DAG).

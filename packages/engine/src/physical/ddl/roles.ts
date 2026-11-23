@@ -206,11 +206,13 @@ export const loginStartupOptions: string = printStartupOptions(roleDefaultSettin
 export const ownerStartupOptions: string = printStartupOptions([genericPlans])
 
 /**
- * The search setting as a login default, for a login one of whose roles can name the vector type: pgvector's
- * strict-order iterative scan (check/approximate/policy.ts hnswPolicy), the one search setting grizzle pins.
+ * The search settings as login defaults, for a login one of whose roles can name the vector type: pgvector's
+ * strict-order iterative scan and its scan bound (check/approximate/policy.ts hnswPolicy), the two search settings
+ * grizzle pins.
  */
 export const searchPolicySettings: NonEmptyReadonlyArray<TextSetting> = [
-	{ parameter: "hnsw.iterative_scan", value: hnswPolicy.iterativeScan }
+	{ parameter: "hnsw.iterative_scan", value: hnswPolicy.iterativeScan },
+	{ parameter: hnswPolicy.maxScanTuples.setting, value: String(hnswPolicy.maxScanTuples.value) }
 ]
 
 /** The statement that loads the vector library in the migration session, so its `hnsw.*` parameters are known when the

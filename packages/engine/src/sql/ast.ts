@@ -1908,8 +1908,9 @@ export interface ResetDatabaseDefault {
  * extra_float_digits, under which float text is shortest round-trip; DateStyle, under which date_out writes ISO 8601's
  * YYYY-MM-DD, a date's host text; bytea_output, under which byteaout writes `\x` and two hex digits a byte, a bytes
  * value's text; lc_monetary, lc_numeric and lc_time, the locale categories a value's text can depend
- * on, money's two fractional digits among them; and pgvector's strict-order
- * iterative scan, on which an approximate read's order and its cursors rest (check/approximate/policy.ts); and
+ * on, money's two fractional digits among them; pgvector's strict-order
+ * iterative scan, on which an approximate read's order and its cursors rest, and its scan bound, at which the scan and
+ * an approximate read's ordered stream both stop (check/approximate/policy.ts); and
  * plan_cache_mode, at force_generic_plan, under which a session plans each statement it prepares once, generically, and
  * keeps that plan, where PostgreSQL's auto mode plans its first five calls with their values and may go on doing so for
  * good (physical/ddl/roles.ts genericPlans). An `hnsw.*` name is a placeholder until the vector library is loaded in the
@@ -1923,7 +1924,8 @@ const textParameters = [
 	"lc_monetary",
 	"lc_numeric",
 	"lc_time",
-	"hnsw.iterative_scan"
+	"hnsw.iterative_scan",
+	"hnsw.max_scan_tuples"
 ] as const
 export type TextParameter = (typeof textParameters)[number]
 
