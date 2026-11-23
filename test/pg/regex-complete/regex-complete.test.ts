@@ -81,10 +81,9 @@ import {
 } from "#test/pg/regex-complete/regex-complete.fixtures.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { paramTexts } from "#test/support/compile.ts"
-import { installationNamesOf } from "#test/support/kernel/naming.ts"
 import { owning } from "#test/support/policy.ts"
 import { expectConstraint, expectSqlstate, inTransaction } from "#test/support/substrate/expect.ts"
-import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
+import { inserted } from "#test/support/substrate/replace.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { outputRows } from "#test/support/wire.ts"
 
@@ -361,9 +360,8 @@ export const anAttachmentsAndAUnionArmsEmittedParameterIsRefusedOutsideItsPatter
 					Effect.flatMap(content, (seat) =>
 						Effect.provideService(
 							Effect.gen(function* () {
-								const { schema: name, installation } = seat.value
+								const { schema: name } = seat.value
 								const s = yield* Substrate
-								const tables = installationGroup(installationNamesOf(installation))
 								const session = yield* readerSession
 								/**
 								 * An attachment over exact parents is a part of its own of the read's one statement (lower/shapes/index.ts
@@ -408,7 +406,7 @@ export const anAttachmentsAndAUnionArmsEmittedParameterIsRefusedOutsideItsPatter
 									return
 								}
 								const facts = Arr.map(comments, (comment, i) => ({ ...comment, id: id(50 + i) }))
-								yield* replaceRows(s.admin, tables, [
+								yield* inserted(s.admin, [
 									{ sql: articlesSql(name, articles(3)), params: [] },
 									...Arr.map(facts, (fact) => ({
 										sql: `INSERT INTO ${quoteIdent(name)}."comment" ("id", "article", "slug") VALUES ('${fact.id}', '${id(fact.article)}', ${literal(fact.slug)})`,
