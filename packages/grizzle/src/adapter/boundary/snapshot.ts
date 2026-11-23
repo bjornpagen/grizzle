@@ -20,9 +20,9 @@ import {
 
 /**
  * The committed snapshot a revived JSON value of both files joined is: the value itself, trusted as the record it seals
- * once the seal manifest.json carries is the digest of the whole (build.ts snapshotSeal), which is total over any value,
- * then read as this grizzle's snapshot (build.ts recordedSnapshot), each object of a kind it no longer installs set apart
- * as that kind's departure. The generator writes snapshot.json and manifest.json as exactly the record it seals, laid
+ * once the seal manifest.json carries is the digest of the whole (build.ts snapshotSeal), which is total over any
+ * value, then read as this grizzle's snapshot (build.ts recordedSnapshot), which refuses an object of a kind this
+ * grizzle does not install. The generator writes snapshot.json and manifest.json as exactly the record it seals, laid
  * out over the two, so a value whose seal holds is a record a generator wrote, and one whose seal does not (either file
  * hand-edited, corrupted or merged, or one from another snapshot than the other) is refused before anything reads it as
  * a snapshot.

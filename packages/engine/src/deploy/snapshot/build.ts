@@ -33,7 +33,6 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { type Comparator, compareStrings, mapInput } from "#compiler/core/order.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import { trusted } from "#compiler/core/trusted.ts"
-import type { Departure } from "#compiler/deploy/diff/departed.ts"
 import type { Declarations, MigrationPlan } from "#compiler/deploy/diff/plan.ts"
 import {
 	bookkeepingTables,
@@ -155,14 +154,7 @@ export const emptySnapshot = (input: {
 	schema: input.schema,
 	levels: [],
 	theory: { schema: emptyFingerprint(input.schema), relations: {}, laws: {}, spellings: {} },
-	manifest: {
-		objects: [],
-		departed: [],
-		edges: [],
-		roleDefaults: [],
-		publicRevokes: [],
-		comments: []
-	},
+	manifest: { objects: [], edges: [], roleDefaults: [], publicRevokes: [], comments: [] },
 	constraintToLaw: { tables: {}, domains: {} },
 	logins: {},
 	workload: {},
@@ -1225,10 +1217,7 @@ const recordedObjectForm = <S>(o: RecordedObject, units: Units<S>): RecordOf<S> 
 
 /** The members a manifest holds besides its objects: the dependencies, the logins' defaults, the PUBLIC revokes and
  * the comments, the compile's and the record's alike. */
-const manifestRest = <S>(
-	m: Omit<RecordedManifest, "objects" | "departed">,
-	units: Units<S>
-): RecordOf<S> => ({
+const manifestRest = <S>(m: Omit<RecordedManifest, "objects">, units: Units<S>): RecordOf<S> => ({
 	edges: m.edges.map((e) => ({ from: e.from, to: e.to })),
 	roleDefaults: m.roleDefaults.map(units.statement),
 	publicRevokes: m.publicRevokes.map(units.statement),
@@ -1683,24 +1672,13 @@ export const joinedSnapshot = (
 
 /**
  * A committed snapshot's record as its seal holds it (the shell's boundary/snapshot.ts): each member as this grizzle's
- * snapshot holds it, but each manifest object of whatever kind the grizzle that wrote it installed, and no `departed`,
- * which no record holds (recordedSnapshot).
+ * snapshot holds it, but each manifest object of whatever kind the grizzle that wrote it installed (recordedSnapshot).
  */
 export type SealedRecord = Omit<DeploySnapshot, "manifest"> & {
-	readonly manifest: Omit<RecordedManifest, "objects" | "departed"> & {
+	readonly manifest: Omit<RecordedManifest, "objects"> & {
 		readonly objects: ReadonlyArray<Omit<RecordedObject, "kind"> & { readonly kind: string }>
 	}
 }
-
-/**
- * The departure each object kind a grizzle before this one installed and this one does not reads as (RecordedManifest
- * departed), by the kind: the database default format 7 set, default_transaction_isolation SERIALIZABLE, which a draft
- * resets (deploy/diff/departed.ts). An installation since the reset of 2026-11-20 holds no other: a kind removed before
- * it, as advanceFunction was on 2026-11-19, is refused (recordedSnapshot).
- */
-const departedKinds: ReadonlyMap<string, Departure> = new Map([
-	["databaseDefault", { kind: "databaseDefault" }]
-])
 
 const installedKinds: ReadonlySet<string> = new Set(physicalKinds)
 
@@ -1708,36 +1686,27 @@ const installedKinds: ReadonlySet<string> = new Set(physicalKinds)
 const isInstalledKind = (kind: string): kind is PhysicalKind => installedKinds.has(kind)
 
 /**
- * The snapshot a sealed record is (SealedRecord): each manifest object of a kind this grizzle installs as recorded, and
- * each of a kind it no longer installs as its departure (departedKinds), set apart in `departed` with every edge that
- * names it, so no reader of the snapshot meets an object of a kind it has no reading of, and a draft over the record
- * drops it. An object of any other
- * kind is no record a grizzle this one reads wrote, and is refused as MalformedArtifact at its place.
+ * The snapshot a sealed record is (SealedRecord), each manifest object of a kind this grizzle installs: so no reader of
+ * it meets an object it has no reading of. A record of this format holds no other, since a kind's removal is a change
+ * of the format (core/format.ts), and a record of another is refused before its objects are read (joinedSnapshot); one
+ * that holds another anyway, a kind removed without the format's change, is no record this grizzle reads, refused as
+ * MalformedArtifact at the object's place.
  */
 export const recordedSnapshot = (
 	record: SealedRecord
 ): Result.Result<DeploySnapshot, CompileError> => {
 	const objects: Array<RecordedObject> = []
-	const departed: Array<Departure> = []
-	const gone = new Set<string>()
 	for (const [at, o] of record.manifest.objects.entries()) {
-		if (isInstalledKind(o.kind)) {
-			objects.push({ ...o, kind: o.kind })
-			continue
-		}
-		const departure = departedKinds.get(o.kind)
-		if (departure === undefined) {
+		if (!isInstalledKind(o.kind)) {
 			return Result.err(
 				malformedArtifact(
 					"snapshot",
 					["manifest", "objects", String(at), "kind"],
-					`an object of a kind this grizzle installs, or one it reads as departed (${[...departedKinds.keys()].join(", ")}), not ${o.kind}`
+					`an object of a kind this grizzle installs, not ${o.kind}`
 				)
 			)
 		}
-		departed.push(departure)
-		gone.add(o.ident)
+		objects.push({ ...o, kind: o.kind })
 	}
-	const edges = record.manifest.edges.filter((e) => !gone.has(e.from) && !gone.has(e.to))
-	return Result.ok({ ...record, manifest: { ...record.manifest, objects, edges, departed } })
+	return Result.ok({ ...record, manifest: { ...record.manifest, objects } })
 }

@@ -2,7 +2,6 @@ import { nominal } from "#compiler/core/brand.ts"
 import { canonicalEquals } from "#compiler/core/canonical.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import { wellFormed } from "#compiler/core/text.ts"
-import type { Departure } from "#compiler/deploy/diff/departed.ts"
 import type { InstallationManifest, PhysicalKind, PhysicalObject } from "#compiler/ir/products.ts"
 import type {
 	CreateConstant,
@@ -127,13 +126,6 @@ export interface RecordedObject {
  */
 export interface RecordedManifest {
 	readonly objects: ReadonlyArray<RecordedObject>
-	/**
-	 * What the record holds of a kind this grizzle no longer installs, each object the departure that removes it
-	 * (deploy/diff/departed.ts Departure), read off a committed snapshot a grizzle before the kind's removal wrote
-	 * (deploy/snapshot/build.ts recordedSnapshot): none in a manifest this grizzle compiles, and never written, since a
-	 * draft over the record drops each (deploy/render/generate.ts draftMigration).
-	 */
-	readonly departed: ReadonlyArray<Departure>
 	readonly edges: InstallationManifest<SqlStatement>["edges"]
 	readonly roleDefaults: ReadonlyArray<SqlStatement>
 	readonly publicRevokes: ReadonlyArray<SqlStatement>
@@ -287,7 +279,6 @@ export const samePrinted = (was: RecordedObject, now: PhysicalObject<SqlStatemen
 /** An installation's manifest as its snapshot records it. */
 export const recordedManifest = (m: InstallationManifest<SqlStatement>): RecordedManifest => ({
 	objects: m.objects.map(recordedObject),
-	departed: [],
 	edges: m.edges,
 	roleDefaults: m.roleDefaults,
 	publicRevokes: m.publicRevokes,

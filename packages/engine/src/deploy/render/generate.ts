@@ -152,16 +152,10 @@ const folderLaws = (snapshot: DeploySnapshot, swaps: ReadonlyArray<Swap>): Folde
  * A schema whose target equals its previous snapshot drafts nothing: the change is none, the snapshot is the previous
  * one and the folder holds no file, so the CLI can report that there is nothing to generate. */
 export const draftMigration = (input: DraftInput): Result.Result<MigrationDraft, CompileError> =>
-	draftOver(input, () => ({
-		previous: input.previous,
-		stale: noStale,
-		departures: input.previous.manifest.departed
-	}))
+	draftOver(input, () => ({ previous: input.previous, stale: noStale, departures: [] }))
 
-/** What a draft diffs the target against: the previous installation, the objects the database holds otherwise than its
- * record, none for a committed snapshot's draft, and the objects the database holds that no object of the target is: a
- * committed snapshot's draft's, each it records of a kind this grizzle no longer installs (RecordedManifest departed),
- * an upgrade's, each the live catalog holds (deploy/diff/diff.ts DiffInput stale, departures). */
+/** What a draft diffs the target against: the previous installation, and the objects the database holds of it beyond
+ * its record, none for a committed snapshot's draft (deploy/diff/diff.ts DiffInput stale, departures). */
 interface DraftedFrom {
 	readonly previous: DeploySnapshot
 	readonly stale: ReadonlySet<string>

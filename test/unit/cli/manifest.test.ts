@@ -14,11 +14,10 @@ import { artifactFormat } from "#compiler/core/format.ts"
  * that names no format, and one edited by hand under its seal, read as no snapshot, check's unreadableSnapshot
  * finding alone, which generate refuses at the stage snapshot; a sealed record that is not the one the schemas
  * compile to is check's manifestRecord finding, which generate writes back as the record, drafting no folder and
- * leaving snapshot.json as it was; a record holding the database default a grizzle before e1eb4f524 installed reads,
- * the default set apart as its departure (deploy/snapshot/build.ts recordedSnapshot), and is check's ungenerated
- * finding, whose draft generate writes, one folder resetting the default and manifest.json the draft's again, which
- * check then passes; and a record holding an object of a kind no grizzle this one reads installed reads as no snapshot,
- * as a hand edit does.
+ * leaving snapshot.json as it was; and a record of this format holding an object of a kind this grizzle does not
+ * install, the database default a grizzle before e1eb4f524 installed or an advanceFunction, reads as no snapshot, as a
+ * hand edit does (deploy/snapshot/build.ts recordedSnapshot): a kind's removal is a change of the format, so no record
+ * of this one holds it.
  *
  * A case takes the committed directory of one schema's first draft (derived.fixtures.ts baseNeed) and commits one file
  * beside the other: snapshot.json of no format, of the format before this grizzle's or after it; both files as a draft of
@@ -136,54 +135,6 @@ export const aSnapshotOfAnotherFormatIsItsOwnFindingASealNamingNoFormatOrAHandEd
 						assert.equal(manifestLeft, pair.manifest, "nothing writes manifest.json")
 						return
 					}
-					if (commit === "a former database default") {
-						const read = succeeded(converted, "the record holding a former default reads")
-						assert.deepEqual(
-							read.snapshot.manifest.departed,
-							[{ kind: "databaseDefault" }],
-							"the former default reads as its departure"
-						)
-						assert.ok(
-							Arr.every(
-								read.snapshot.manifest.objects,
-								(o) => o.ident !== "databaseDefault:default_transaction_isolation"
-							),
-							"no object of the snapshot is the former default"
-						)
-						assert.deepEqual(
-							kinds,
-							["ungenerated"],
-							"check finds the draft that resets it ungenerated"
-						)
-						const drafted = yield* cliOver(ws, config, ["generate", configName], at(2))
-						assert.equal(drafted.code, 0, drafted.stderr)
-						const listed = yield* fs.readDirectory(`${ws}/${schemaDir}`)
-						const after = Arr.sort(listed, Order.String)
-						const folders = Arr.filter(after, (name) => !entries.includes(name))
-						assert.equal(
-							folders.length,
-							1,
-							`generate drafts one folder: ${Formatter.format(after)}`
-						)
-						const folder = `${ws}/${schemaDir}/${defined(folders[0], "the drafted folder")}`
-						const names = yield* fs.readDirectory(folder)
-						const texts = yield* Effect.forEach(names, (name) =>
-							fs.readFileString(`${folder}/${name}`)
-						)
-						assert.ok(
-							Arr.some(texts, Str.includes("RESET default_transaction_isolation")),
-							"the folder resets the former default"
-						)
-						const rewritten = yield* fs.readFileString(manifestFile)
-						assert.equal(
-							rewritten,
-							manifest,
-							"manifest.json is the draft's again, holding no former default"
-						)
-						const passed = yield* cliOver(ws, config, ["check", configName], at(3))
-						assert.equal(passed.code, 0, passed.stderr)
-						return
-					}
 					if (commit !== "a record not the compile's") {
 						assert.ok(converted._tag === "Failure", `${commit} reads as no snapshot`)
 						assert.deepEqual(kinds, ["unreadableSnapshot"], Formatter.format(commit))
@@ -220,15 +171,9 @@ export const aSnapshotOfAnotherFormatIsItsOwnFindingASealNamingNoFormatOrAHandEd
 		kills: [
 			{
 				file: "packages/engine/src/deploy/snapshot/build.ts",
-				original: "\tconst departure = departedKinds.get(o.kind)",
-				replacement: "\tconst departure = undefined",
-				why: "A record holding the database default a grizzle before e1eb4f524 installed is refused as no snapshot, so check and generate stop at every schema whose history predates the cut, as qti-pie's pantry does."
-			},
-			{
-				file: "packages/engine/src/deploy/render/generate.ts",
-				original: "\t\tdepartures: input.previous.manifest.departed",
-				replacement: "\t\tdepartures: []",
-				why: "A committed record's former database default is set apart and forgotten: generate drafts a folder that resets nothing, and the database keeps SERIALIZABLE as its default."
+				original: "\t\tif (!isInstalledKind(o.kind)) {",
+				replacement: "\t\tif (false) {",
+				why: "A record holding an object of a kind this grizzle does not install is read as its snapshot, so a reader that switches on the kind meets undefined, as check over qti-pie's pantry met its database default (TypeError: Cannot read properties of undefined (reading 'kind'))."
 			},
 			{
 				file: "packages/engine/src/core/format.ts",
