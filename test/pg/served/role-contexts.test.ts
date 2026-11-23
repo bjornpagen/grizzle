@@ -27,7 +27,6 @@ import {
 import { writeAnswerOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { servedFixture } from "#test/support/served-db.ts"
-import { clearRows, installationGroup } from "#test/support/substrate/replace.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { tokenOf } from "#test/support/worlds.ts"
@@ -57,7 +56,6 @@ export const aFullRolesDeclaredContextsAreWhatItsServedDbDecodesFromTheTokenSoAP
 								const s = yield* Substrate
 								const owner = yield* s.session({ ...ownerSession(), label: "sittings owner" })
 								const names = namesOf(m)
-								yield* clearRows(owner, installationGroup(names))
 								yield* owner.query(
 									`INSERT INTO ${names.table(Account)} (${names.column(Account, "clerk")}, ${names.column(Account, "person")}) VALUES ${Arr.join(
 										Arr.map(accounts, (a) => `('${a.clerk}', '${a.person}')`),
