@@ -13,7 +13,7 @@ import {
 	steered,
 	weighted
 } from "@bjornpagen/testing/gen"
-import { type Case, type Kept, type Kill } from "@bjornpagen/testing/property"
+import { type Budget, type Case, type Kept, type Kill } from "@bjornpagen/testing/property"
 import { Array as Arr, Data, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
 import { DatabaseError } from "pg"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
@@ -1384,7 +1384,11 @@ const recordedPageCases: Arr.NonEmptyReadonlyArray<OrderedCase> = [
 	}
 ]
 
-export const generatedProperty = (kept: ReadonlyArray<Kept>, kills: ReadonlyArray<Kill>) => {
+export const generatedProperty = (
+	kept: ReadonlyArray<Kept>,
+	kills: ReadonlyArray<Kill>,
+	budget: Budget
+) => {
 	/**
 	 * The order refusal is located at the caller's orderBy, never at the node the order completes over.
 	 *
@@ -1588,7 +1592,7 @@ export const generatedProperty = (kept: ReadonlyArray<Kept>, kills: ReadonlyArra
 			kind: "second-implementation",
 			name: "the baseline lowering's ordered answer, cut into windows by the window contract"
 		},
-		budget: { runs: 2_000, steered: 2_000 },
+		budget,
 		kept,
 		kills,
 		show: Formatter.format,

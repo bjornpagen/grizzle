@@ -47,8 +47,42 @@ export const conservativeAgainstReference = recursiveEquivalence(
 		},
 		situations: equivalenceSituations satisfies ReadonlyArray<Reached<RecursionOracleFeature>>,
 		perturb: "all",
-		/** Its pre-conversion budget: runs 2 * cases, coverage cases 2 * cases, cases = 1600 (equivalence.test.ts at 4fbc3e95). */
-		budget: { runs: 3200, steered: 3200 },
+		/**
+		 * Its search budget: 61 runs of its rotating stream, so a floor of 16 (a quarter of the runs, rounded up), and at
+		 * most 32 steered cases, the phase that runs only while a required situation is unreached. Its witnesses, the floor
+		 * and the steered phase, are fixed by its identity, so every run seed reaches its situations and judges its kills
+		 * alike.
+		 *
+		 * @limitKind measured
+		 * @owner test/pg/recursion/oracle/equivalence.test.ts's property, its search
+		 * @unit cases: the rotating stream's runs, and the steered phase's most
+		 * @scope one run of the property, on any run seed: its kept cases, its floor, its steered phase and its rotating
+		 *   stream
+		 * @evidence ~/.cache/grizzle/CULL-PAGEREC-notes: kills0.log, `toolchain-test kills test/pg/recursion
+		 *   test/pg/page/generated-optimized.test.ts` at the pre-conversion budgets, each kill's first red witness printed by
+		 *   a local line in the kills command's report, never committed; m1run.log and m2run.log with their run records
+		 *   m1run.json and m2run.json, `toolchain-test run` of the module at the budgets in @workload, every kill judged
+		 *   after its search and none answered by a cached verdict; final1.log and final1.json, the same at this budget under
+		 *   a verdict cache of its own; each run under TEST_SEED=2219874524, its budget rewritten for the run
+		 * @observed 2026-11-23 03:27 to 04:39 UTC
+		 * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB, shared with other lanes' runs (1-minute
+		 *   load 390 to 550); PostgreSQL 19.0, the in-memory family grizzle-m-cull-pagerec, two members settled by
+		 *   toolchain-pg settle; grizzle f87b2aaab with test/pg/page's cull; vendor/toolchain 2cc4817; Node 26.13.1
+		 * @workload this property at { runs, steered } of { 3200, 3200 }, its pre-conversion budget (equivalence.test.ts at
+		 *   4fbc3e95, twice its 1,600 cases), then { 1, 2000 }, { 61, 2000 }
+		 * @result At { 3200, 3200 }, 4000 cases at f1bf91a2f's gate, its kill went red on floor case 0. Green, every required
+		 *   situation reached by a witness, and every kill killed at { 1, 2000 } (210 cases, 208 steered); { 61, 2000 } (109
+		 *   cases, 32 steered); and at { 61, 32 } again under a verdict cache of its own (final1). Worker CPU is a loaded
+		 *   machine's and not compared
+		 * @decision runs 61 and steered 32, the fewest cases measured: from a floor of 16 the steered phase reaches every
+		 *   situation in 32 cases, from a floor of 1 in 208; its kill is red on floor case 0 at every budget measured. The
+		 *   steered phase stops once every situation is reached, so its cap costs no case beyond those it runs. No headroom:
+		 *   a run that reaches fewer situations says which
+		 * @revalidate a red naming an unreached situation; a kill added or changed; an edit to the property's identity (its
+		 *   file or name), its generator or its situations; the runner's floor and steering (the toolchain's
+		 *   runner/search.ts, random.ts and limits.ts)
+		 */
+		budget: { runs: 61, steered: 32 },
 		kills: [
 			{
 				file: "packages/engine/src/lower/conservative/recursive/index.ts",
