@@ -20,6 +20,9 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import {
 	createdDomains,
+	endpointCaseGen,
+	endpointDomain,
+	endpointInstallationOf,
 	featuresOf,
 	grantedDomains,
 	installationOf,
@@ -80,6 +83,46 @@ export const everyDomainAnInstallationCreatesIsNamedBySomethingAndEveryDomainARo
 				original: "\t\trestingDomains(b, contract.base, use)\n",
 				replacement: "\t\ttypeDomains(b, contract.base, use)\n",
 				why: "A role reading a contract's column is granted every domain its base's type names (typeDomains down the contract's base), a refined base's text domain among them, which nothing rests on and the installation does not create."
+			}
+		]
+	})
+
+/**
+ * A role holds USAGE on a span's endpoint contract only where a column it reads or writes is typed by that contract
+ * itself: a span column is its range, a builtin, and a value cast to the contract needs no USAGE, so the span alone
+ * grants none (physical/ddl/domains.ts typeDomains). Over Item(id, during: a span over C), with and without a field
+ * typed by C itself, in an installation of one login whose full role reads and writes Item; the oracle is the
+ * specification, read off the installation's grants. The box: 2 cases, exhausted.
+ */
+export const aRoleHoldsUsageOnASpansEndpointContractOnlyWhereAColumnItHoldsIsTypedByIt =
+	property.exhaust(finite(endpointCaseGen), {
+		needs: {},
+		situations: [],
+		check: () => (k) =>
+			Effect.sync(() => {
+				const i = endpointInstallationOf(k)
+				const c = endpointDomain(i)
+				assert.equal(
+					Arr.some(grantedDomains(i), (g) => g.schema === c.schema && g.name === c.name),
+					k.typed,
+					k.typed
+						? "the role holds USAGE on C, which a column it holds is typed by"
+						: "the role holds no USAGE on C, which only a span's endpoints are"
+				)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "USAGE on a domain only where a column the role holds is typed by it; a span column is its builtin range"
+		},
+		box: "a span over a contract C on Item, with and without a field typed by C",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/physical/ddl/domains.ts",
+				original: "\tcarrierDomains(b, t, use)\n",
+				replacement:
+					'\tcarrierDomains(b, t, use)\n\tif ("span" in t) {\n\t\ttypeDomains(b, t.span.endpoint, use)\n\t}\n',
+				why: "A role reading or writing a span column is granted USAGE on its endpoint contract's domain, which no column of it is typed by: excess privilege."
 			}
 		]
 	})

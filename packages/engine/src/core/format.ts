@@ -97,7 +97,10 @@
  * the key's scalars and by `&&` at its span and compares the span beside the payload (write/delete/exact.ts
  * collidingAtKey, write/put/choose.ts differingOf), a pure set's put included, where format 7 deleted only an occupant
  * at an equal span, a pure set's none, and refused every other on the key, so each served span-keyed put's deletion
- * moves and a span-keyed pure set's put gains one.
+ * moves and a span-keyed pure set's put gains one. A role holds USAGE on a span's endpoint contract only where a column
+ * it holds is typed by the contract itself (physical/ddl/domains.ts typeDomains), where format 7 granted it to every role
+ * that read or wrote a span over the contract, whose column is its builtin range and which no value cast needs, so such
+ * a role's GRANT USAGE ON DOMAIN loses the endpoint's domain.
  * A served binding's fresh stratum names the columns its fresh fills leave to the statements writing their rows, their
  * stamps' and the generated fields over them (runtime/write/binding.ts FreshStratum `left`), and a counted family's
  * fresh layout leaves out its members' key and group fields a stamp fills, the call's one value of each, which its

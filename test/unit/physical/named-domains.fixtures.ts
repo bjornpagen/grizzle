@@ -152,3 +152,52 @@ export const grantedDomains = (
 			? s.on.names
 			: []
 	)
+
+/** A span case: whether a field of Item is typed by the span's endpoint contract C itself, beside the span over C. */
+export interface EndpointCase {
+	readonly typed: boolean
+}
+
+export const endpointCaseGen: Gen<EndpointCase> = (source) => ({ typed: source.draw(boolean) })
+
+/** The installation of a span case: Item(id, during: a span over C, a contract over an integer, and c: C where
+ * `typed`), with one login whose one full role reads and writes Item. */
+export const endpointInstallationOf = (c: EndpointCase): Installation => {
+	const endpoint = f.contract("C", f.integer, undefined)
+	const owned = owning(
+		decodedSchema({
+			name: "Named",
+			relations: [
+				relation(
+					"Item",
+					{ id: f.uuid, during: f.span(endpoint, undefined), ...(c.typed ? { c: endpoint } : {}) },
+					["id"]
+				)
+			],
+			statements: [],
+			bases: []
+		})
+	)
+	const app = succeeded(fullRoleDesc(owned.desc, "app", loc))
+	const login = succeeded(
+		Result.flatMap(admitLoginRoles(owned.desc, { name: "desk", roles: [app], loc }), ownLogin)
+	)
+	return succeeded(
+		compileInstallation(
+			owned,
+			completeInstallOptions(
+				owned,
+				installationsOf(owned),
+				[login],
+				[],
+				firstCodebook(rostersOf(owned))
+			)
+		)
+	)
+}
+
+/** C's domain in an installation, by its declared name. */
+export const endpointDomain = (
+	i: Installation
+): { readonly schema: string; readonly name: string } =>
+	i.names.contractDomain(succeeded(parseDeclaredName("C")))

@@ -42,8 +42,7 @@ import {
 	patternsText,
 	regexOf,
 	type RegexRef,
-	type ScalarType,
-	spanOf
+	type ScalarType
 } from "#compiler/ir/scalar.ts"
 import { domainCheck, type LawModel } from "#compiler/laws/model/model.ts"
 import { type InstallBuilder, isVectorRef } from "#compiler/physical/ddl/context.ts"
@@ -92,7 +91,9 @@ export interface TypeUse {
 export const emptyUse = (): TypeUse => ({ domains: new Map(), vector: false })
 
 /** The domains a column of type `t` names: a contract's and the domains its domain rests on (restingDomains), a text
- * refinement's, a closed id's roster domain, a set's bits domain and a digest's domain, and a span endpoint's. */
+ * refinement's, a closed id's roster domain, a set's bits domain and a digest's domain. A span column names none: it is
+ * its range, a builtin, whatever contract its endpoints are of, and a value cast to that contract needs no USAGE, so a
+ * role holds USAGE on an endpoint contract only where a column of its own is typed by the contract itself. */
 const typeDomains = (b: InstallBuilder, t: ScalarType, use: TypeUse): void => {
 	const { contract } = t
 	if (contract !== undefined) {
@@ -106,10 +107,6 @@ const typeDomains = (b: InstallBuilder, t: ScalarType, use: TypeUse): void => {
 		return
 	}
 	carrierDomains(b, t, use)
-	const span = spanOf(t)
-	if (span !== undefined) {
-		typeDomains(b, span.endpoint, use)
-	}
 	const regex = structuralRegex(t)
 	if (regex !== undefined) {
 		const name = b.names.textDomain(regex)
