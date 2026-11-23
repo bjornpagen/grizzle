@@ -65,7 +65,7 @@ const tightness = 2
 
 /** The locks a drafted migration states bound what PostgreSQL holds while each of its files runs, within twice. */
 export const statedLocksBoundTheHeld = property.explore(renamedDrawGen, {
-	needs: { substrate: Substrate.installing },
+	needs: { substrate: Substrate.fresh },
 	situations: ["a fresh install", "a migration over rows"] satisfies ReadonlyArray<
 		Reached<Feature>
 	>,

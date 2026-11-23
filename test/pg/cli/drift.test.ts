@@ -69,7 +69,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** Grizzle drift over a world's objects passes on a fresh installation, refuses any set of hand changes to a world's objects naming each, and passes once they are undone. */
 export const drift = property.explore(steered(aimedPlantsGen), {
-	needs: { caseSubstrate: Substrate.installing },
+	needs: { caseSubstrate: Substrate.fresh },
 	situations: [
 		"a view's security barrier",
 		"row security disabled",

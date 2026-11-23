@@ -56,7 +56,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 /** An upgrade rebases a live installation of any roster history onto this grizzle's compile, its snapshot and served files generate's own, a folder only where the database holds the compile otherwise, and every stored code kept. */
 export const anUpgradeRebasesALiveInstallationOfAnyRosterHistoryOntoThisGrizzlesCompileItsSnapshotAndServedFilesGeneratesOwnAFolderOnlyWhereTheDatabaseHoldsTheCompileOtherwiseAndEveryStoredCodeKept =
 	property.exhaust(finite(caseGen), {
-		needs: { caseSubstrate: Substrate.installing },
+		needs: { caseSubstrate: Substrate.fresh },
 		box: "the roster's whole history, a hole, a renamed handle and a swap, under each subset of the four shifts, the empty one included",
 		situations: [
 			"a function renamed",

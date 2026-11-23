@@ -42,7 +42,7 @@ export const redraft = property.explore(
 		Arr.map(aims, ([feature, c]) => [feature, constant(c)] as const)
 	),
 	{
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: [
 			"a regeneration resumed",
 			"a regeneration alike in files resumed",

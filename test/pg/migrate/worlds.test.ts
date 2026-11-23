@@ -93,7 +93,7 @@ WHERE c.relkind IN ('r', 'p', 'm')`
 
 /** Worlds across migrations every history of the changes a world rests on migrates with its roles kept and its catalog admitted. */
 export const worlds = property.explore(aimed(historyGen, aims), {
-	needs: { caseSubstrate: Substrate.installing },
+	needs: { caseSubstrate: Substrate.fresh },
 	situations: [
 		"a read query entry's head changes",
 		"a written entry's policy filter stops reading another relation",

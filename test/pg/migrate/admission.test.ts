@@ -46,7 +46,7 @@ import { shopV1, shopV2 } from "#test/unit/deploy/schemas.ts"
 
 /** Post-apply admission refuses drift a hand edit may change how the state is reached, never the state. */
 export const admission = property.explore(steered(editGen), {
-	needs: { caseSubstrate: Substrate.installing },
+	needs: { caseSubstrate: Substrate.fresh },
 	situations: Arr.map(editKinds, featureOf) satisfies ReadonlyArray<Reached<EditFeature>>,
 	/** Its pre-conversion budget: runs 6, coverage cases 120 (admission.test.ts at bf4f43bb). */
 	budget: { runs: 6, steered: 120 },

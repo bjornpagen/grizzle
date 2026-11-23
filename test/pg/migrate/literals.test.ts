@@ -44,7 +44,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 /** A drafted folder read and written back by a text tool applies, passes the drift check and installs the constants drafted, every control character and long constant among them. */
 export const aDraftedFolderReadAndWrittenBackByATextToolAppliesPassesTheDriftCheckAndInstallsTheConstantsDrafted =
 	property.explore(aimed(caseGen, aims), {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: literalFeatures,
 		check:
 			({ substrate }, c: Case<LiteralFeature>) =>

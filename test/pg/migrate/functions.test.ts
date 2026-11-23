@@ -89,7 +89,7 @@ const plantNamed = {
 
 /** Declared functions migrate, drift and grant as the snapshot says, their source byte for byte, and read no table. */
 export const declaredFunctions = property.explore(functionCaseSpace, {
-	needs: { caseSubstrate: Substrate.installing },
+	needs: { caseSubstrate: Substrate.fresh },
 	situations: features satisfies ReadonlyArray<Reached<FunctionFeature>>,
 	budget: { runs: 24, steered: features.length },
 	check:

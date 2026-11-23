@@ -31,7 +31,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** Logins and roles at the identifier limit, through the command line install roles of exactly 63 bytes, each the one roleNameOf names and admitted by Db.open, and refuse a schema name one byte longer, for drawn logins, roles and schema spellings. */
 export const longNames = property.explore(namesGen, {
-	needs: { substrate: Substrate.installing },
+	needs: { substrate: Substrate.fresh },
 	situations: [
 		"the login's role the longest",
 		"a role's role the longest",

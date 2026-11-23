@@ -54,7 +54,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const renameHistoriesOnPostgreSQLEveryStepOfARenameHistoryMigratesToAFreshInstallsCatalogItsWorldsIncludedEveryLoginAndRoleKeepsItsPostgreSQLRoleAndTheRowsFollowTheModelsIdentityMap =
 	property.explore(steered(stepsSteered), {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: [
 			"a relation renamed",
 			"two relations' names swapped",

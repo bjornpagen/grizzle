@@ -73,7 +73,7 @@ import { shopV1, shopV2 } from "#test/unit/deploy/schemas.ts"
 
 /** A migration that runs out of the server's lock table is refused by name at its place, with the server's report and lock-table settings, and commits nothing. */
 export const lockTable = property.explore(aimed(caseGen, [["the ledger's lock", ledgerLockGen]]), {
-	needs: { caseSubstrate: Substrate.installing },
+	needs: { caseSubstrate: Substrate.fresh },
 	situations: places satisfies ReadonlyArray<Reached<LockPlace>>,
 	/** Its pre-conversion budget: runs 12, coverage cases 32 (lock-table.test.ts at bf4f43bb). */
 	budget: { runs: 12, steered: 32 },
@@ -238,7 +238,7 @@ export const lockTable = property.explore(aimed(caseGen, [["the ledger's lock", 
  * lock and the settings; one the table holds at exactly its demand applies.
  */
 export const lockTablePreflight = property.explore(preflightGen, {
-	needs: { caseSubstrate: Substrate.installing },
+	needs: { caseSubstrate: Substrate.fresh },
 	situations: ["the demand", "one below"] satisfies ReadonlyArray<
 		Reached<"the demand" | "one below">
 	>,

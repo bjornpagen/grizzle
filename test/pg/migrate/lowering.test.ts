@@ -41,7 +41,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** Rules held by foreign keys or by triggers, migrated with stored rows migrate between a rule's foreign keys and its triggers exactly when the stored rows keep it, naming its law when they do not. */
 export const lowering = property.explore(aimed(caseGen, aims), {
-	needs: { substrate: Substrate.installing },
+	needs: { substrate: Substrate.fresh },
 	situations: [
 		"triggers to foreign keys applied over stored rows",
 		"foreign keys to triggers applied over stored rows",

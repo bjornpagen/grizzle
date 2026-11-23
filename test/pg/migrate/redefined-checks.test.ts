@@ -42,7 +42,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** A CHECK the target defines otherwise over a column the backfill draws again is dropped before the backfill, so the migration applies over every row its previous definition held and leaves the drawn values. */
 export const redefinedChecksOverRedrawnColumns = property.explore(aimed(storedGen, aims), {
-	needs: { substrate: Substrate.installing },
+	needs: { substrate: Substrate.fresh },
 	situations: [
 		"an owner the second fold takes past the first CHECK",
 		"an owner the second fold keeps within the first CHECK",

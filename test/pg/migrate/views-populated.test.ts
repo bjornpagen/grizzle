@@ -50,7 +50,7 @@ const viewsOf = (snapshot: DeploySnapshot): ReadonlyArray<string> =>
 export const everyViewIsPopulatedAfterMigrate = property.exhaust(
 	finite((s) => s.draw(element(changes))),
 	{
-		needs: { caseSubstrate: Substrate.installing },
+		needs: { caseSubstrate: Substrate.fresh },
 		situations: [
 			"the first version",
 			...Arr.map(changes, (change) => `the second version: ${change}` as const)

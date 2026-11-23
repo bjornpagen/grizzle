@@ -46,7 +46,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** Objects named like PostgreSQL's own types every catalog type's name on every object, under every path: migrate and drift match, and a second migrate applies nothing. */
 export const catalogNames = property.exhaust(finite(caseGen), {
-	needs: { caseSubstrate: Substrate.installing },
+	needs: { caseSubstrate: Substrate.fresh },
 	situations: required satisfies ReadonlyArray<Reached<Feature>>,
 	check:
 		({ caseSubstrate }, k: Case<Feature>) =>

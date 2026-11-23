@@ -38,7 +38,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** A CHECK the target defines otherwise over a generated field re-expressed in place is dropped before the SET EXPRESSION, so the migration applies over every row its previous definition held and leaves the new values. */
 export const redefinedChecksOverReexpressedFields = property.explore(aimed(storedGen, aims), {
-	needs: { substrate: Substrate.installing },
+	needs: { substrate: Substrate.fresh },
 	situations: [
 		"a row the new expression takes past the first CHECK",
 		"a row the new expression keeps within the first CHECK"

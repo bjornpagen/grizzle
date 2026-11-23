@@ -26,7 +26,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 export const aForeignKeyWhoseDeferralAloneChangesIsAlteredInPlaceInPublish = property.exhaust(
 	finite(caseGen),
 	{
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: [
 			"immediate then deferred",
 			"deferred then immediate",

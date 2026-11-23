@@ -39,7 +39,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** Declared renames through grizzle's migrations on PostgreSQL 19 a declared rename keeps the table, the column and the code it renames, with every stored value, and a declared drop leaves exactly the fields that stand. */
 export const renames = property.explore(planGen, {
-	needs: { substrate: Substrate.installing },
+	needs: { substrate: Substrate.fresh },
 	situations: [
 		"a relation renamed",
 		"a field renamed",

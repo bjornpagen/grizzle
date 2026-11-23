@@ -36,7 +36,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** Column steps in dependency order migrate a second version that drops generated fields with the fields they read, converts or rewrites what they read, and drops what else reads them, over stored rows. */
 export const drops = property.explore(aimed(caseGen, aims), {
-	needs: { substrate: Substrate.installing },
+	needs: { substrate: Substrate.fresh },
 	situations: features satisfies ReadonlyArray<Reached<Feature>>,
 	budget: { runs: 24, steered: 2 * features.length },
 	check:

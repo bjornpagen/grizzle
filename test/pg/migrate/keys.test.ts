@@ -32,7 +32,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** A primary key moved over stored rows migrate a primary key to another field exactly when the stored rows keep it, naming its law when they do not. */
 export const movedKeys = property.explore(aimed(caseGen, aims), {
-	needs: { substrate: Substrate.installing },
+	needs: { substrate: Substrate.fresh },
 	situations: [
 		"a primary key moved over rows that keep it",
 		"a primary key moved over rows that repeat it, refused naming its law",

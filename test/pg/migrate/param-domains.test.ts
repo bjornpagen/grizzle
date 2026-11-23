@@ -75,7 +75,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** Parameters' pattern domains as the stored fields that share their patterns come and go the first version migrates to every target: no domain refused or altered, every parameter domain over its text domain, the catalog a fresh install's. */
 export const paramDomains = property.exhaust(finite(caseGen), {
-	needs: { caseSubstrate: Substrate.installing },
+	needs: { caseSubstrate: Substrate.fresh },
 	situations: required satisfies ReadonlyArray<Reached<Feature>>,
 	check:
 		({ caseSubstrate }, k: Case<Feature>) =>

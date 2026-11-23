@@ -64,7 +64,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** Grizzle generate, check and migrate over drawn configurations every declared schema keeps its own directory, snapshot and ledger, is admitted and round-trips, by every executor and connection. */
 export const configurations = property.explore(aimed(configGen, refusalAims), {
-	needs: { caseSubstrate: Substrate.installing },
+	needs: { caseSubstrate: Substrate.fresh },
 	situations: [
 		"run by the bin",
 		"run by in process",

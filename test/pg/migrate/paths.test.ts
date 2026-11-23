@@ -63,7 +63,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** Generated migration paths on PostgreSQL renamed paths: every apply admitted against its snapshot, facts carried, A to C as A to B to C. */
 export const renamedPaths = property.explore(steered(renamedCaseSteered), {
-	needs: { substrate: Substrate.installing },
+	needs: { substrate: Substrate.fresh },
 	situations: [["grizzle-first path", "catalog-type name"]] satisfies ReadonlyArray<
 		Reached<Feature>
 	>,
@@ -153,7 +153,7 @@ export const renamedPaths = property.explore(steered(renamedCaseSteered), {
 
 /** Generated migration paths on PostgreSQL paths of adversarial rename intents: every apply admitted against its snapshot, facts carried. */
 export const intentPaths = property.explore(steered(intentsCaseSteered), {
-	needs: { substrate: Substrate.installing },
+	needs: { substrate: Substrate.fresh },
 	situations: Arr.map(
 		legalIntents,
 		(kind): Feature => `the intent ${kind}`

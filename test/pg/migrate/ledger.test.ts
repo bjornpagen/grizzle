@@ -61,7 +61,7 @@ export const ledgerMachine = property.explore(
 		fullSwarm(Struct.keys(machineOf(ledgerShape).commands))
 	),
 	{
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: commandKinds satisfies ReadonlyArray<Reached<Feature>>,
 		/**
 		 * Its pre-conversion budget: runs 3, coverage cases 240 (ledger.test.ts at bf4f43bb: eighty times the rotating

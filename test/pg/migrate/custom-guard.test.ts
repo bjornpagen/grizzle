@@ -41,7 +41,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 /** A custom data step writes a guarded table inside its transaction's bracket, its guard enabled again after it or after its failure, and a no-transaction one is refused saying why. */
 export const aCustomDataStepWritesAGuardedTableInsideItsTransactionsBracketItsGuardEnabledAgainAfterItOrItsFailureAndANoTransactionOneIsRefusedSayingWhy =
 	property.exhaust(finite(word(dataSteps)), {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: dataSteps satisfies ReadonlyArray<Reached<DataStep>>,
 		check:
 			({ substrate }, c: Case<DataStep>) =>

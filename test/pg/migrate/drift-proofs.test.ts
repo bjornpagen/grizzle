@@ -75,7 +75,7 @@ import { type SetChange, setChanges, setsSchema } from "#test/unit/deploy/schema
 
 /** The drift check replays what no proof proves, and holds every proven object to its stored description. */
 export const driftProofs = property.explore(caseGen, {
-	needs: { caseSubstrate: Substrate.installing },
+	needs: { caseSubstrate: Substrate.fresh },
 	situations: [
 		"the first version",
 		"a version over another",
@@ -184,7 +184,7 @@ export const driftReplaysTheDomainAnUnprovenTablesCastNames = property.exhaust(
 		defined(setChanges[source.draw(int(0, setChanges.length - 1))], "a change")
 	),
 	{
-		needs: { caseSubstrate: Substrate.installing },
+		needs: { caseSubstrate: Substrate.fresh },
 		situations: setChanges satisfies ReadonlyArray<Reached<SetChange>>,
 		check:
 			({ caseSubstrate }, c: Case<SetChange>) =>

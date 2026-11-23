@@ -52,7 +52,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** The worked examples migrate version by version every history: every apply admitted and checked, the history the fresh install and the installer agree, the ledger complete and Db.open admits every role. */
 export const workedExamples = property.explore(steered(historySteered), {
-	needs: { substrate: Substrate.installing },
+	needs: { substrate: Substrate.fresh },
 	situations: [
 		...Arr.map(families, (f) => f.label),
 		"an extension added",

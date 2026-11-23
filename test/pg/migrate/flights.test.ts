@@ -52,7 +52,7 @@ import { tappedSession } from "#test/support/wire-tap.ts"
 
 /** Every step of grizzle migrate is one flight an apply sends one flight per step, and the drift check after it exactly two. */
 export const flights = property.exhaust(finite(historyGen), {
-	needs: { caseSubstrate: Substrate.installing },
+	needs: { caseSubstrate: Substrate.fresh },
 	situations: [
 		"an absent ledger admitted",
 		"every folder in one apply",

@@ -29,7 +29,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** Two families over one member table, backfilled draw both families' member columns in one UPDATE, each owner's count its members'. */
 export const sharedMembers = property.explore(steered(aimedGen), {
-	needs: { substrate: Substrate.installing },
+	needs: { substrate: Substrate.fresh },
 	situations: features satisfies ReadonlyArray<Reached<Feature>>,
 	/** Its pre-conversion budget: runs 6, coverage cases 2 * features.length (backfill-shared.test.ts at bf4f43bb). */
 	budget: { runs: 6, steered: 2 * features.length },

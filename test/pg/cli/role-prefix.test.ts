@@ -36,7 +36,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** Two installations of one generated output on one cluster, each under its own role space install one output into two databases under disjoint role spaces, each working against its own database only, and uninstall exactly one of them, refused whole while a role is held elsewhere. */
 export const rolePrefix = property.explore(spacesGen, {
-	needs: { substrate: Substrate.installing },
+	needs: { substrate: Substrate.fresh },
 	situations: [
 		"the second under another prefix",
 		"the second under no prefix",

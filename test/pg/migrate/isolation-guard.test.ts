@@ -36,7 +36,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** A table's isolation guard, migrated as its writers' certified levels change a migration creates or drops each guard exactly as a fresh install of its target holds it, and a READ COMMITTED write is refused exactly where a guard stands. */
 export const isolationGuard = property.explore(aimed(caseGen, aims), {
-	needs: { substrate: Substrate.installing },
+	needs: { substrate: Substrate.fresh },
 	situations: [
 		"a guard dropped on a migration, every writer of its table certified READ COMMITTED",
 		"a guard created on a migration, a writer of its table SERIALIZABLE",

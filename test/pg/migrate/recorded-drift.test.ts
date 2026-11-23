@@ -50,7 +50,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** The drift check of a recorded snapshot admits a migrated database whose every source digests to its record, and finds a planted source and a planted constant. */
 export const recordedDrift = property.exhaust(caseSpace, {
-	needs: { caseSubstrate: Substrate.installing },
+	needs: { caseSubstrate: Substrate.fresh },
 	situations: [
 		...plants,
 		...Arr.map(editedKinds, (kind) => `a source edited: ${kind}` as const),

@@ -63,7 +63,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 export const commandLineWorkflow = property.explore(
 	program(workflow, { min: 0, max: 14 }, fullSwarm(Struct.keys(workflow.commands))),
 	{
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: commandKinds satisfies ReadonlyArray<Reached<CommandKind>>,
 		/** Its pre-conversion budget: runs 3, coverage cases 30 (workflow.test.ts at bf4f43bb). */
 		budget: { runs: 3, steered: 30 },

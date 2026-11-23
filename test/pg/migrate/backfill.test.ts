@@ -105,7 +105,7 @@ import { upTo } from "#test/support/up-to.ts"
 
 /** Backfilling a counted family with a fold on PostgreSQL 19 draw every hidden index, copy, accumulator, count and end of populated families in key order, each owner's tag along the owner axis, and VALIDATE every native. */
 export const populatedFamilies = property.explore(aimed(familyGen, familyAims), {
-	needs: { substrate: Substrate.installing },
+	needs: { substrate: Substrate.fresh },
 	situations: [
 		"an empty family",
 		"a family of one",
@@ -200,7 +200,7 @@ export const populatedFamilies = property.explore(aimed(familyGen, familyAims), 
 
 /** Backfilling a fold of every operation on PostgreSQL 19 draws each member's before and after and each owner's count and end of populated families as the reference fold does in key order: a count over a selection, max over int4 and over a closed id, or over an ordered and a counted family and twos, every one the served scan run from slot 0. */
 export const everyMonoid = property.explore(aimed(seatFamilyGen, seatAims), {
-	needs: { substrate: Substrate.installing },
+	needs: { substrate: Substrate.fresh },
 	situations: Arr.map(monoidSeats, (seat) => seat.label),
 	budget: { runs: 12, steered: 24 },
 	check:
@@ -264,7 +264,7 @@ export const everyMonoid = property.explore(aimed(seatFamilyGen, seatAims), {
 
 /** Backfilling a counted family with a fold on PostgreSQL 19 draw a count fold over each node's siblings, the root its one admitted state, and each parent copy, the root its own, over a stored keyed forest, each tree's rows by its own root value. */
 export const keyedForest = property.explore(aimed(forestGen, treeAims), {
-	needs: { substrate: Substrate.installing },
+	needs: { substrate: Substrate.fresh },
 	situations: [
 		"two trees",
 		"a root alone",
@@ -369,7 +369,7 @@ export const keyedForest = property.explore(aimed(forestGen, treeAims), {
 
 /** Backfilling a counted family with a fold on PostgreSQL 19 order and join members stored by a vector key the migration keeps, renames or drops at the extension's operators, and draw every index, count and end in that key's order. */
 export const vectorKey = property.explore(aimed(vectorKeyedGen, vectorKeyAims), {
-	needs: { substrate: Substrate.installing },
+	needs: { substrate: Substrate.fresh },
 	situations: [
 		"the key kept",
 		"the key renamed",
@@ -453,7 +453,7 @@ export const vectorKey = property.explore(aimed(vectorKeyedGen, vectorKeyAims), 
 
 /** Backfilling a counted family with a fold on PostgreSQL 19 keep each ordered member's stored index across a re-key of its owner, run its fold in that kept order, refuse a data step that leaves an owner's kept indices other than 0 … n − 1, and draw anew an index the migration declares dropped. */
 export const rekeyedOrder = property.explore(aimed(rekeyGen, rekeyAims), {
-	needs: { substrate: Substrate.installing },
+	needs: { substrate: Substrate.fresh },
 	situations: [
 		"two ordered families on one owner",
 		"a fold over a kept order out of member-key order",
