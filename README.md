@@ -4783,8 +4783,9 @@ Every setting is required, and nothing else is configurable:
   names are unique across an installation.
 - **`migrations`**: the directory, absolute or relative to the config file's directory.
 - **`rolePrefixBytes`**: the bytes of the longest role prefix any installation of the config is under, a fact of the
-  deployment: `0` where every installation's roles are at their stems, as production's alone on its cluster; a test
-  harness that installs each case under a prefix of its own states the longest such prefix's length. Every command
+  deployment: the bytes of the prefix production's roles run under (`0` where they are at their stems, `9` for a
+  prefix like `r20261120`); a test harness that installs each case under a prefix of its own states the longest such
+  prefix's length. Every command
   refuses a login or role whose PostgreSQL role, `<prefix>__<stem>`, would pass PostgreSQL's
   63 bytes under a prefix that long, naming the role, its bytes and the limit, before anything is written, so
   `generate` never drafts a role `migrate` would cut short; and every command that connects refuses a connection whose
