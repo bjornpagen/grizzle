@@ -321,8 +321,6 @@ export type DisjointFeature =
 	| "a CHECK refused"
 	| "a 40001 under an Invoice race"
 
-export const runs = 8
-
 /** The import shape installed once per member with every role READ COMMITTED (race.ts certifiedShapeTemplate). */
 export const readCommittedShape = certifiedShapeTemplate(
 	import.meta,

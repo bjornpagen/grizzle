@@ -33,7 +33,6 @@ import {
 	type DisjointFeature,
 	readCommittedShape,
 	runDisjoint,
-	runs,
 	serializableShape
 } from "#test/pg/isolation/arbiter.fixtures.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -115,7 +114,6 @@ export const theInsertProtocolsArbitrationsWritersOfDisjointKeysCommitEveryCallB
 			kind: "specification",
 			name: "disjoint calls commit unless their Invoice is unsettled, which the Settled CHECK refuses at either level, an Invoice race's SERIALIZABLE call perhaps with 40001; no SIRead lock at READ COMMITTED, and at SERIALIZABLE none but a page or an index of Invoice, none for Docs alone"
 		},
-		budget: { runs: runs, steered: runs },
 		kept: [],
 		kills: []
 	})
