@@ -77,7 +77,8 @@ export default defineConfig({
   among its relations, `schema("App", [...own, Jobs], laws)`. The fragment is a level of every schema that lists it:
   queries and ChangeSets written over it (`query(Jobs)`, `ChangeSet.empty(Jobs)`) stand in that schema's workloads, and
   in a role's that holds every relation of the fragment whole. generate compiles them per login, as any program. Only
-  the fragment states a key, `mutable`, `race`, `retirable`, a family, a tree or a fold over its relations. An application
+  the fragment states a key, `mutable`, `race`, `retirable`, a unit or a series over its relations, a family, a tree or
+  a fold. An application
   that adds one is `FragmentRefused`; it may add containments, row checks and rules over queries, which only refuse.
 - A level reaches the levels below it only by a containment of fields into a key, its other side the level's own, a
   lower side every fact or a selection (`on(select(Item, (i) => ...), "id")`, its terms generated columns PostgreSQL
@@ -143,6 +144,18 @@ export default defineConfig({
   relation's name one array, typed and checked as that member's own facts, as in
   `once({ params: {}, facts: { put: { Blob: stated }, delete: { Blob: removed } } })`; every other member's facts are
   `{}`. Two array members of one op and one relation in two strata are refused: merge them into one.
+- Declare the key each family of rows sits under, a sitting, a learner, a package, a workflow's step, as a unit among
+  the statements: `unit("Sitting", { number: AssignmentNo })`. Every stored relation whose primary key leads with the
+  heading's fields, by name and type in order, sits under it, at its level or any above, which states nothing more; so
+  lead each member's key with the unit's fields, and give the key a named domain (a contract of its own,
+  `contract("AssignmentNo", pg.bigint, …)`), since a field of the same name and type that means something else joins the
+  unit too, a coarser lock. A write of a unit's rows holds its key exclusively and a read of a unit it does not write
+  holds it shared, as generate derives from the ChangeSet: no borrow is written. Refused (`MalformedDescription`): a unit
+  whose heading leads with another's or that another's leads with (no unit nests: each relation sits under one at
+  most), one name over two headings, and a unit stated above a level whose relation leads with its heading (state it at
+  that level). A gapless number, one past the greatest, is `series(R)` over a relation keyed by one `natural` field: it
+  states the predecessor law itself and every write of R holds its one lock, the only lock no key splits (README
+  "Units").
 - A retirable unit's groups go by `ChangeSet.empty(S).retire(Header, [])`, a member of a role whose `retire` list names
   the header, `role(S, "retirer", entries, { retire: ["Header"] })`, which grants it EXECUTE on the unit's retirement
   and nothing on its tables; its call's facts are `{ retire: { Header: [{ id }] } }`, each a group, the header's key.

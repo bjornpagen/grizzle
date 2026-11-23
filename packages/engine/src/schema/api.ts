@@ -31,7 +31,9 @@ import {
 	reachableBuilder,
 	retirableBuilder,
 	selectBuilder,
-	treeBuilder
+	seriesBuilder,
+	treeBuilder,
+	unitBuilder
 } from "#compiler/schema/statements.ts"
 import { attestedBuilder, contextBuilder, roleBuilder } from "#compiler/schema/world.ts"
 import type {
@@ -147,6 +149,7 @@ import type {
 	RowScalars,
 	Selection,
 	SelfFamily,
+	Series,
 	Showing,
 	ShowingKeyed,
 	ShowingKind,
@@ -160,7 +163,8 @@ import type {
 	Statement,
 	TermOf,
 	Tree,
-	TreeRootOf
+	TreeRootOf,
+	Unit
 } from "#compiler/types/schema/statements.ts"
 
 import type {
@@ -576,6 +580,33 @@ export const mutable = <R extends AnyRelation>(target: R): Mutable<R> => mutable
  * that holds it, delivered in delta.met, never refused for differing from it. Its other keys stay laws.
  */
 export const race = <R extends AnyRelation>(target: R): Race<R> => raceBuilder<R>(target)
+
+/** A unit's fields lead its members' primary keys, so each is of a type a primary key may list (KeyFieldOf). */
+type UnitFields<Heading> = [Exclude<keyof Heading, KeyFieldOf<Heading>>] extends [never]
+	? unknown
+	: Refusal<"a unit's field is of a type a key holds, one with equality">
+
+/**
+ * unit(name, heading): a unit, the key a family of rows sits under, each value of it one lock. Every stored relation of
+ * the schema whose primary key leads with the heading's fields, by name and type in order, sits under it: `unit("Learner",
+ * { child: LearnerId })` holds every relation keyed (child, …), at any level at or above the unit's own, a level above
+ * stating nothing. A write of a unit's rows borrows the unit at their key exclusively, and a read of a unit it does not
+ * write borrows it shared, as the isolation checker derives from what each ChangeSet writes and reads: no borrow is
+ * written. A unit's key is a named domain, a contract or a bounded text of its own, so no field of another meaning
+ * leads a key with it.
+ */
+export const unit = <const Name extends string, const Heading extends Record<string, FieldBase>>(
+	name: Name,
+	heading: Heading & NamedIds<Heading> & UnitFields<Heading>,
+	...extra: ReadonlyArray<never>
+): Unit<Name, Heading> => unitBuilder<Name, Heading>(name, heading, extra)
+
+/**
+ * series(R): R's one natural primary key field runs 0, 1, 2, … with no gap, a law the statement states, and every write
+ * of R holds the series' one lock from before its first read, so a write that appends one past the greatest number reads
+ * the greatest exactly. It is the only lock no key splits: a call takes it only by writing R.
+ */
+export const series = <R extends AnyRelation>(target: R): Series<R> => seriesBuilder<R>(target)
 
 export const check = <
 	const Name extends string,

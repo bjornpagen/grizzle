@@ -34,6 +34,7 @@ import type {
 	Mutable,
 	OrderedFamily,
 	Race,
+	Series,
 	RelationOfKey,
 	Selection,
 	Side,
@@ -290,37 +291,39 @@ type StatementSpelledAs<St, Kind, Rs, To extends Spelling> = Kind extends "key"
 		? MutableBuilt<Spelled<Stated<St, "relation">, Rs, To>>
 		: Kind extends "race"
 			? RaceBuilt<Spelled<Stated<St, "relation">, Rs, To>>
-			: Kind extends "check"
-				? Stated<St, "name"> extends infer N extends string
-					? CheckBuilt<N, Spelled<Stated<St, "relation">, Rs, To>>
-					: St
-				: Kind extends "contained"
-					? ContainmentBuilt<
-							SideSpelled<Stated<St, "left">, Rs, To>,
-							SideSpelled<Stated<St, "right">, Rs, To>
-						>
-					: Kind extends "mirrors"
-						? MirrorsBuilt<
+			: Kind extends "series"
+				? SeriesBuilt<Spelled<Stated<St, "relation">, Rs, To>>
+				: Kind extends "check"
+					? Stated<St, "name"> extends infer N extends string
+						? CheckBuilt<N, Spelled<Stated<St, "relation">, Rs, To>>
+						: St
+					: Kind extends "contained"
+						? ContainmentBuilt<
 								SideSpelled<Stated<St, "left">, Rs, To>,
 								SideSpelled<Stated<St, "right">, Rs, To>
 							>
-						: Kind extends "alternatives"
-							? Stated<St, "discriminator"> extends infer D extends string
-								? AlternativesBuilt<
-										KeyRefSpelled<Stated<St, "parent">, Rs, To>,
-										D,
-										Spelled<Stated<St, "roster">, Rs, To>,
-										Stated<St, "arms">
-									>
-								: St
-							: Kind extends "fold"
-								? FoldBuilt<
-										FamilySpelled<Stated<St, "family">, Rs, To>,
-										Stated<St, "monoid">,
-										SideSpelled<Stated<St, "step">, Rs, To>,
-										SideSpelled<Stated<St, "end">, Rs, To>
-									>
-								: FamilySpelledAs<St, Kind, Rs, To>
+						: Kind extends "mirrors"
+							? MirrorsBuilt<
+									SideSpelled<Stated<St, "left">, Rs, To>,
+									SideSpelled<Stated<St, "right">, Rs, To>
+								>
+							: Kind extends "alternatives"
+								? Stated<St, "discriminator"> extends infer D extends string
+									? AlternativesBuilt<
+											KeyRefSpelled<Stated<St, "parent">, Rs, To>,
+											D,
+											Spelled<Stated<St, "roster">, Rs, To>,
+											Stated<St, "arms">
+										>
+									: St
+								: Kind extends "fold"
+									? FoldBuilt<
+											FamilySpelled<Stated<St, "family">, Rs, To>,
+											Stated<St, "monoid">,
+											SideSpelled<Stated<St, "step">, Rs, To>,
+											SideSpelled<Stated<St, "end">, Rs, To>
+										>
+									: FamilySpelledAs<St, Kind, Rs, To>
 
 /**
  * T as it is, read as a record's member. The spelled statements' constructors name their interface through it: inside
@@ -339,6 +342,7 @@ type FinBuilt<O, N extends string> = Constructed<Fin<O, N>>
 type KeyBuilt<S> = Constructed<Key<S>>
 type MutableBuilt<R> = Constructed<Mutable<R>>
 type RaceBuilt<R> = Constructed<Race<R>>
+type SeriesBuilt<R> = Constructed<Series<R>>
 type CheckBuilt<N extends string, R> = Constructed<Check<N, R>>
 type ContainmentBuilt<L, R> = Constructed<Containment<L, R>>
 type MirrorsBuilt<L, R> = Constructed<Mirrors<L, R>>
@@ -549,7 +553,7 @@ export type NamedBy<St> = St extends unknown
  */
 type NamedByAs<St, Kind> = Kind extends "key"
 	? SideNames<Stated<St, "side">>
-	: Kind extends "mutable" | "race" | "check"
+	: Kind extends "mutable" | "race" | "series" | "check"
 		? Stated<St, "relation">
 		: Kind extends "contained" | "mirrors"
 			? SideNames<Stated<St, "left">> | SideNames<Stated<St, "right">>

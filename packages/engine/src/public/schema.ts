@@ -61,7 +61,9 @@ export {
 	rows,
 	schema,
 	select,
-	tree
+	series,
+	tree,
+	unit
 } from "#compiler/schema/api.ts"
 export { constraintNamesOf, lawsByStatement, lawsOf } from "#compiler/program/laws.ts"
 export type {
@@ -138,10 +140,12 @@ export type {
 	Retirable,
 	RowScalars,
 	Selection,
+	Series,
 	Side,
 	SlotField,
 	Statement,
-	Tree
+	Tree,
+	Unit
 } from "#compiler/types/schema/statements.ts"
 
 export type {

@@ -597,6 +597,7 @@ const levelsOf = (installation: Installation): ReadonlyArray<SnapshotLevel> => {
 			case "alternatives":
 			case "retirable":
 			case "reachable":
+			case "series":
 				return statementLevel(law.source.statement)
 		}
 	}

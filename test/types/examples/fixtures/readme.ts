@@ -65,12 +65,14 @@ import {
 	Search,
 	searchDocument,
 	select,
+	series,
 	type Sha256,
 	sha256,
 	span,
 	str,
 	Time,
 	Type,
+	unit,
 	v,
 	wholeEntriesOf,
 	workload,
@@ -923,6 +925,47 @@ export const ContentPackage = schema.extend(
 			on(TypedHref, "resource", "path", "type")
 		)
 	]
+)
+
+/** README: "Units": an assignment's sitting, the unit its facts sit under. */
+const TestId = str.bytes(64, str.regex("^[0-9A-Za-z_-]{1,64}$"))
+const QuestionId = str.bytes(255, str.regex("^.{1,255}$", "u"))
+const Reason = str.bytes(255, str.regex("^.{1,255}$", "u"))
+/** An assignment's number, a sitting's key: a contract of its own, so no other number leads a key with it. */
+const AssignmentNo = contract("AssignmentNo", pg.bigint, (n) => Logic.ge(n, 0n))
+
+const Assigned = relation("Assigned", { number: AssignmentNo, test: TestId }, ["number"])
+const ClockOpened = relation(
+	"ClockOpened",
+	{ number: AssignmentNo, at: instant, question: QuestionId },
+	["number", "at"]
+)
+const Invalidated = relation("Invalidated", { number: AssignmentNo, at: instant, reason: Reason }, [
+	"number",
+	"at"
+])
+export const Assignments = schema(
+	"Assignments",
+	[Assigned, ClockOpened, Invalidated],
+	[
+		unit("Sitting", { number: AssignmentNo }),
+		contained(on(ClockOpened, "number"), on(Assigned, "number")),
+		contained(on(Invalidated, "number"), on(Assigned, "number"))
+	]
+)
+
+/** README: "Units", the series. */
+/** What holds a number: an assignment, or nothing, where an import found the number skipped. */
+const NumberHolder = closed.unordered("NumberHolder", ["held", "unused"])
+const AssignmentNumber = relation(
+	"AssignmentNumber",
+	{ number: natural, holder: closedId(NumberHolder) },
+	["number"]
+)
+export const Numbers = schema(
+	"Numbers",
+	[NumberHolder, AssignmentNumber],
+	[series(AssignmentNumber)]
 )
 
 /** README: "Retirable units". */

@@ -23,6 +23,7 @@ import {
 	descText,
 	expandAlternatives,
 	expandReachable,
+	expandSeries,
 	type RoleDesc,
 	type FieldDecl,
 	type FieldDesc,
@@ -5407,6 +5408,10 @@ const statementType = (desc: StatementDesc, ids: Ids): string => {
 				Arr.map(desc.holders, (h) => sideType(h, ids)),
 				", "
 			)}]>`
+		case "unit":
+			return `St.UnitBase`
+		case "series":
+			return `St.Series<typeof ${ids(desc.relation)}>`
 	}
 }
 
@@ -5462,6 +5467,8 @@ const containmentTypes = (views: ReadonlyArray<StatementView>, ids: Ids): Readon
 					return Arr.map(expandAlternatives(s), (c) => statementType(c, ids))
 				case "reachable":
 					return Arr.map(expandReachable(s), (c) => statementType(c, ids))
+				case "series":
+					return [statementType(expandSeries(s), ids)]
 				case "key":
 				case "mutable":
 				case "race":
@@ -5470,6 +5477,7 @@ const containmentTypes = (views: ReadonlyArray<StatementView>, ids: Ids): Readon
 				case "tree":
 				case "fold":
 				case "retirable":
+				case "unit":
 					return []
 			}
 		})

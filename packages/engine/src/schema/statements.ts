@@ -22,9 +22,11 @@ import {
 	sideOver,
 	type StatementDesc,
 	type TermDesc,
-	termText
+	termText,
+	type UnitFieldDesc
 } from "#compiler/ir/desc.ts"
 import { isNaturalDesc } from "#compiler/scalar/natural.ts"
+import { descCapabilities } from "#compiler/scalar/registry.ts"
 import {
 	builderLoc,
 	frozenCopy,
@@ -50,7 +52,8 @@ import {
 	finOf,
 	type NamedRelation,
 	namedRelation,
-	relationDescOf
+	relationDescOf,
+	valueTypeOf
 } from "#compiler/schema/relation.ts"
 import { checkPredicate, derivedRowScalars, rowScalars } from "#compiler/schema/terms.ts"
 import type {
@@ -72,9 +75,11 @@ import type {
 	Reachable,
 	Retirable,
 	Selection,
+	Series,
 	Side,
 	Statement,
-	Tree
+	Tree,
+	Unit
 } from "#compiler/types/schema/statements.ts"
 
 /**
@@ -327,6 +332,89 @@ const admitRace = (relation: unknown): StatementDesc => {
  */
 export const raceBuilder = <R>(relation: R): Race<R> =>
 	ownedStatement({ kind: "race", relation }, admitRace(relation))
+
+/**
+ * The admission core of unit(...): a name, and a heading of at least one field, each a value type a key holds, its
+ * caller's: no field grizzle or PostgreSQL writes, since the unit's fields lead the primary keys of its members, whose
+ * callers state them. Which relations sit under it, and the rules every unit keeps beside the others, are ownership's
+ * (schema/own.ts ownUnits).
+ */
+const admitUnit = (
+	name: unknown,
+	heading: unknown,
+	extra: ReadonlyArray<unknown>
+): StatementDesc => {
+	const label = `unit ${typeof name === "string" ? name : "?"}`
+	const unitName = requireName(name, label, "a unit's name")
+	if (extra.length > 0) {
+		throw malformed(label, "unit(name, heading): two arguments")
+	}
+	if (!isPlainRecord(heading)) {
+		throw malformed(label, "a heading, a record of field descriptors")
+	}
+	const fields = Object.entries(heading).map(([field, value]): UnitFieldDesc => {
+		const at = `${label} field ${field}`
+		const type = valueTypeOf(value, at, () =>
+			builderRefusal(
+				at,
+				"a unit's field is a value its caller writes, which no field grizzle writes is"
+			)
+		).desc
+		if (!descCapabilities(type).includes("equality")) {
+			throw builderRefusal(at, "a unit's field is of a type a key holds, one with equality")
+		}
+		return { field: requireName(field, at, "a field name"), type }
+	})
+	if (!isNonEmpty(fields)) {
+		throw builderRefusal(label, "a unit's heading holds a field at least: a unit is a key")
+	}
+	Object.freeze(fields)
+	return admitted({
+		kind: "unit",
+		name: unitName,
+		heading: fields,
+		loc: builderLoc(label, [unitName, "unit"])
+	})
+}
+
+/** The value holds its name and a frozen copy of its heading. */
+export const unitBuilder = <const Name extends string, const Heading extends object>(
+	name: Name,
+	heading: Heading,
+	extra: ReadonlyArray<unknown>
+): Unit<Name, Heading> => {
+	const desc = admitUnit(name, heading, extra)
+	return ownedStatement({ kind: "unit", name, heading: frozenCopy(heading) }, desc)
+}
+
+/**
+ * The admission core of series(...): a stored relation whose primary key is one natural field, the series' numbers. That
+ * the relation is immutable, and its level, are ownership's (schema/own.ts).
+ */
+const admitSeries = (relation: unknown): StatementDesc => {
+	const rel = namedRelation(relation, "series relation")
+	const label = `series ${rel.name}`
+	if (rel.kind !== "relation") {
+		throw builderRefusal(label, "a series is a stored relation, whose rows its writes append")
+	}
+	const [field, ...rest] = rel.primaryKey
+	if (field === undefined || rest.length > 0 || !isNaturalDesc(fieldOf(rel, field, label))) {
+		throw builderRefusal(
+			label,
+			"a series' relation is keyed by one natural field alone, the series' numbers"
+		)
+	}
+	return admitted({
+		kind: "series",
+		relation: rel.name,
+		field,
+		loc: builderLoc(label, [rel.name, "series"])
+	})
+}
+
+/** series(R): R's one natural primary key field runs 0, 1, 2, … with no gap, its appends queued on one lock. */
+export const seriesBuilder = <R>(relation: R): Series<R> =>
+	ownedStatement({ kind: "series", relation }, admitSeries(relation))
 
 /**
  * The predicate a row callback returns over the row of `relation`, `rel` its name and kind: a check's and a selection's

@@ -56,8 +56,11 @@ const lawRelations = (s: OwnedStatement): ReadonlyArray<string> => {
 	switch (s.kind) {
 		case "mutable":
 		case "race":
+		case "series":
 		case "check":
 			return [s.relation]
+		case "unit":
+			return []
 		case "key":
 			return [s.side.relation]
 		case "contained":
@@ -83,6 +86,8 @@ const appliedRelations = (s: OwnedStatement): ReadonlyArray<string> => {
 	switch (s.kind) {
 		case "mutable":
 		case "race":
+		case "unit":
+		case "series":
 			return []
 		case "check":
 			return closedReadNames(s.predicate)
@@ -261,10 +266,12 @@ export const closureOf = (owned: Owned, slice: Slice): Closure => {
 			case "alternatives":
 			case "retirable":
 			case "reachable":
+			case "series":
 				return axes.some((axis) => s.reads.every((r) => axis.has(r)))
 			case "check":
 			case "mutable":
 			case "race":
+			case "unit":
 				return false
 		}
 	}

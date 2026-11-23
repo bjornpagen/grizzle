@@ -83,6 +83,7 @@ import {
 	expandAlternatives,
 	expandReachable,
 	expandRetirable,
+	expandSeries,
 	type FieldDesc,
 	type InferredExpr,
 	type InferredQuery,
@@ -1388,8 +1389,20 @@ export class Normalizer {
 			case "fold":
 				this.#fold(s, index)
 				return
+			case "series": {
+				const c = expandSeries(s)
+				this.containment(
+					scopeOf(c.left),
+					scopeOf(c.right),
+					pairedTerms(c.left, c.right, loc),
+					{ statement: index, kind: "series" },
+					loc
+				)
+				return
+			}
 			case "mutable":
 			case "race":
+			case "unit":
 				return
 		}
 	}

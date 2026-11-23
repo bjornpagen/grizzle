@@ -1412,6 +1412,11 @@ export interface ArmDesc {
  *   the last one removes them (physical/ddl/retire.ts).
  * - race(R) makes R's primary key first come, first held: an insertion at a key another row holds meets that row,
  *   never refused for differing from it (ir/law.ts Inserts).
+ * - unit(name, heading) declares a unit: a key a family of rows sits under, each value of it one lock. It names no
+ *   relation: every stored relation whose primary key leads with its heading's fields, by name and type in order, sits
+ *   under it (schema/own.ts OwnedUnit), and states no law.
+ * - series(R) declares R's one natural primary key field a series, 0, 1, 2, … with no gap, which expandSeries states,
+ *   whose appends queue on one lock of their own: the only lock no key splits.
  */
 export type StatementDesc<L = Located> = L &
 	(
@@ -1478,7 +1483,76 @@ export type StatementDesc<L = Located> = L &
 				 */
 				readonly holders: NonEmptyReadonlyArray<SideDesc>
 		  }
+		| {
+				readonly kind: "unit"
+				/** The unit's name, its lock's: a value of its key is one lock, which no other unit's value is. */
+				readonly name: string
+				/** The unit's key: its fields in order, each with its type, which every member's primary key leads with. */
+				readonly heading: NonEmptyReadonlyArray<UnitFieldDesc>
+		  }
+		| {
+				readonly kind: "series"
+				/** The series' relation, whose primary key is `field` alone. */
+				readonly relation: string
+				/** Its one natural primary key field, which runs 0, 1, 2, … with no gap. */
+				readonly field: string
+		  }
 	)
+
+/** A field of a unit's key: its name and its type, which a member's field of that name is of. */
+export interface UnitFieldDesc {
+	readonly field: string
+	readonly type: FieldDesc
+}
+
+/** A unit statement's Description. */
+export type UnitDesc<L = Located> = Extract<StatementDesc<L>, { readonly kind: "unit" }>
+
+/** A series statement's Description. */
+export type SeriesDesc<L = Located> = Extract<StatementDesc<L>, { readonly kind: "series" }>
+
+/**
+ * The containment a series statement states: each number's predecessor is a number of the series, so its numbers run
+ * from 0 with no gap. Pure: ownership and the theory call it.
+ */
+export const expandSeries = (s: SeriesDesc): ContainedDesc => ({
+	kind: "contained",
+	left: {
+		relation: s.relation,
+		terms: [{ kind: "pred", field: s.field }],
+		selection: { conjuncts: [] }
+	},
+	right: {
+		relation: s.relation,
+		terms: [{ kind: "field", field: s.field }],
+		selection: { conjuncts: [] }
+	},
+	loc: s.loc
+})
+
+/** Whether two field types are one type: one canonical text (descText), a type's identity. */
+const sameFieldType = (a: FieldDesc, b: FieldDesc): boolean => {
+	const left = descText(a)
+	const right = descText(b)
+	return left.ok && right.ok && left.value === right.value
+}
+
+/**
+ * Whether a key leads with the fields of `heading`, a unit's or another's: its first fields are the heading's, by name
+ * and in order, each of the heading's type (`typeOf` a field's type), so every row keyed by it holds the heading's key
+ * there. A relation whose primary key leads with a unit's heading sits under the unit, and two units one of whose
+ * headings leads with the other's would nest.
+ */
+export const leadsWithHeading = (
+	heading: NonEmptyReadonlyArray<UnitFieldDesc>,
+	key: ReadonlyArray<string>,
+	typeOf: (field: string) => FieldDesc | undefined
+): boolean =>
+	heading.length <= key.length &&
+	heading.every((f, at) => {
+		const type = typeOf(f.field)
+		return key[at] === f.field && type !== undefined && sameFieldType(type, f.type)
+	})
 
 /** A contained statement's Description. */
 export type ContainedDesc<L = Located> = Extract<StatementDesc<L>, { readonly kind: "contained" }>
@@ -3450,7 +3524,21 @@ const statementDescShape: S.Shape<StatementDesc> = S.tagged("kind", {
 			},
 			loc
 		)
-	)
+	),
+	unit: S.located(
+		S.structWith(
+			{
+				name,
+				heading: S.nonEmptyUniqueArray(
+					S.struct({ field: name, type: fieldDescShape }),
+					(f) => f.field,
+					"a unit's fields"
+				)
+			},
+			loc
+		)
+	),
+	series: S.located(S.structWith({ relation: name, field: name }, loc))
 })
 
 const writingShape: S.Shape<Writing> = S.tagged("kind", {

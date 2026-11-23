@@ -2789,6 +2789,98 @@ index is the one the window gives it, and a migration that draws a family over s
 - **A ChangeSet writes family members in one stratum**: writing them in a second is a type error at the call that
   makes it, and from JavaScript `UnsupportedOperation` when the ChangeSet compiles.
 
+### Units
+
+A unit is the key a family of rows sits under: a sitting, a learner, a package, a step of a workflow. Each value of
+it is one lock: a ChangeSet that writes a unit's rows holds their key exclusively, from before its first read until it
+commits; one that reads a unit's rows and writes none of them holds the key shared; and calls of different keys never
+meet. That is what lets every write run READ COMMITTED: a read inside a unit the call holds sees each earlier holder's
+commit and no concurrent writer, and a law whose rows stay inside one unit is judged with none. `unit(name, heading)`
+among a schema's statements declares one:
+
+```ts
+/** An assignment's number, a sitting's key: a contract of its own, so no other number leads a key with it. */
+const AssignmentNo = contract("AssignmentNo", pg.bigint, (n) => Logic.ge(n, 0n))
+
+const Assigned = relation("Assigned", { number: AssignmentNo, test: TestId }, ["number"])
+const ClockOpened = relation(
+	"ClockOpened",
+	{ number: AssignmentNo, at: instant, question: QuestionId },
+	["number", "at"]
+)
+const Invalidated = relation("Invalidated", { number: AssignmentNo, at: instant, reason: Reason }, [
+	"number",
+	"at"
+])
+export const Assignments = schema(
+	"Assignments",
+	[Assigned, ClockOpened, Invalidated],
+	[
+		unit("Sitting", { number: AssignmentNo }),
+		contained(on(ClockOpened, "number"), on(Assigned, "number")),
+		contained(on(Invalidated, "number"), on(Assigned, "number"))
+	]
+)
+```
+
+- **Its members are inferred from their keys.** Every stored relation whose primary key leads with the heading's
+  fields, by name and type in order, sits under the unit: above, `Assigned`, `ClockOpened` and `Invalidated`, and
+  every relation keyed `(number, …)` by an `AssignmentNo`, in this schema or any level above it, which states nothing
+  more. No relation is listed, so none that leads with the key can be left out, and a unit's rows lie in one index
+  range of each member. A relation keyed by its fields in another order, or by other fields, is no member.
+- **Give its key a named domain.** A field of the same name and type that means something else, a user's `number`
+  beside an assignment's, joins the unit all the same. That is never wrong, since every writer and reader of the row
+  takes the same lock, only coarser than it need be; a contract of the key's own, `AssignmentNo` above, keeps it out.
+- **One unit a relation.** No unit's heading leads with another's, by name and type in order, and two units of one
+  heading are refused, `MalformedDescription` naming both: a relation keyed by the longer would sit under both, and a
+  lock on the inner key would not exclude a holder of the outer one. So every relation sits under one unit at most.
+  One name is one unit: a unit stated twice identically, at two levels or in a fragment and its schema, is one
+  declaration, and one name over two headings is refused.
+- **Declared at or below its members.** A unit is stated at the level of its lowest member or below it, since a
+  process over that level compiles its writes without the levels above: a unit stated above a relation of a level
+  below that leads with its heading is refused, naming the relation and its level. A schema that lists a fragment
+  states no unit over the fragment's relations (`FragmentRefused`): the fragment states its own.
+- **No borrow is written.** Which units a ChangeSet holds, and how, follows from what it writes and reads: generate
+  reads each of its statements, and each write of a member at the unit values its parameters and rows state holds
+  them exclusively, and each read of a unit it does not write holds them shared. A call holds each key once, however
+  many members it touches, all of them in one statement sorted by lock, so two calls never wait on each other in a
+  cycle.
+- **A lock is no row.** A unit's key is locked as a PostgreSQL advisory transaction lock, its id a digest of the
+  unit's name and the key's values, the one spelling every lock grizzle takes shares, the stamps of
+  [Instants](#instants) among them. Nothing is stored: a unit adds no table, column or migration step, and two keys
+  whose ids collide only share a lock, a coarser one, never a wrong one.
+
+**The series.** A number every new row takes as one past the greatest, with no gap, such as an assignment's place in
+its series, is the one thing no key splits. `series(R)` declares it, over a relation keyed by one `natural` field
+alone:
+
+```ts
+/** What holds a number: an assignment, or nothing, where an import found the number skipped. */
+const NumberHolder = closed.unordered("NumberHolder", ["held", "unused"])
+const AssignmentNumber = relation(
+	"AssignmentNumber",
+	{ number: natural, holder: closedId(NumberHolder) },
+	["number"]
+)
+export const Numbers = schema(
+	"Numbers",
+	[NumberHolder, AssignmentNumber],
+	[series(AssignmentNumber)]
+)
+```
+
+- **Its law.** The statement states that each number's predecessor is one of the series, `contained(on(R,
+  pred("number")), on(R, "number"))`, so the numbers run 0, 1, 2, … with no gap: a schema that states that
+  containment too states it once.
+- **Its lock.** Every ChangeSet that writes `R` holds the series' one lock, from before its first read until it
+  commits, so its read of the greatest number is exact and the next append waits for it. Appends queue one at a time,
+  which is what a gapless series means at any level.
+- **The only lock no key splits.** A call takes it only by writing `R`: no statement or ChangeSet names a lock, every
+  other lock is a unit's, whose heading holds a field at least, a clock stays refused first in its key
+  (`childless`) and a place first in its key (`groupless`). And the series carries its law, so it is never a lock to
+  wrap other work in.
+- `R`'s primary key is its one `natural` field, and `R` is immutable: its numbers only grow by appends.
+
 ### Retirable units
 
 Facts that only accumulate keep their writers certifiable at READ COMMITTED, but a workflow's leases, results and sent

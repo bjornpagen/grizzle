@@ -327,8 +327,8 @@ export interface EvidenceSide {
 
 /**
  * What declares a law: `statement` is the index of the declaring statement in the schema description, of the relation
- * for a primary key, or of the contract for a contract. A law an alternatives or a retirable statement, a family, a tree
- * or a fold expands to is its statement's, by the statement's kind.
+ * for a primary key, or of the contract for a contract. A law an alternatives, a retirable or a series statement, a
+ * family, a tree or a fold expands to is its statement's, by the statement's kind.
  */
 export interface LawSource {
 	readonly kind:
@@ -343,6 +343,7 @@ export interface LawSource {
 		| "alternatives"
 		| "retirable"
 		| "reachable"
+		| "series"
 	readonly statement: number
 }
 

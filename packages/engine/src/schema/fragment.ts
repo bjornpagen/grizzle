@@ -6,24 +6,32 @@
  * that decides how a relation is written changes what a write of it is: a key, which an insertion's arbiter and a put's
  * same-key checks read (write/insert/unique.ts generatedArbiter); mutable, which puts a row in place rather than
  * deleting and inserting it; race, under which an insertion meets the row at its key rather than being refused by it;
- * retirable, which holds every write of a body at its group; and a family, a tree or a fold, which draw fields and nest
- * members. Only the fragment states those over its relations: a schema that lists it may state one again, one text
+ * retirable, which holds every write of a body at its group; a unit, which every write of a relation keyed by its
+ * heading borrows, and a series, whose lock every write of its relation holds; and a family, a tree or a fold, which
+ * draw fields and nest members. Only the fragment states those over its relations: a schema that lists it may state one again, one text
  * being one statement, and adds over them only what refuses a write and changes none, a containment, a row check or a
  * rule over a query. Such a law may still refuse a fragment's program when a host compiles it (an unorderable stratum,
  * a read-back crossing statements), which generate reports for that host; it never changes what the program does.
  */
 import { CompileError } from "#compiler/core/errors.ts"
-import type { StatementDesc } from "#compiler/ir/desc.ts"
+import { leadsWithHeading, type RelationDesc, type StatementDesc } from "#compiler/ir/desc.ts"
 import type { SchemaContent } from "#compiler/schema/levels.ts"
 import { type CanonicalStatement, statementLabel } from "#compiler/schema/own.ts"
 
-/** The relations whose writes a statement decides: none for a statement that only refuses. */
-const decidedRelations = (s: StatementDesc): ReadonlyArray<string> => {
+/**
+ * The relations of `relations` whose writes a statement decides: none for a statement that only refuses. A unit
+ * decides the writes of every stored relation whose primary key leads with its heading, each of which borrows it.
+ */
+const decidedRelations = (
+	s: StatementDesc,
+	relations: ReadonlyMap<string, RelationDesc>
+): ReadonlyArray<string> => {
 	switch (s.kind) {
 		case "key":
 			return [s.side.relation]
 		case "mutable":
 		case "race":
+		case "series":
 			return [s.relation]
 		case "family":
 		case "tree":
@@ -34,6 +42,12 @@ const decidedRelations = (s: StatementDesc): ReadonlyArray<string> => {
 			return [s.header.relation, ...s.bodies.map((b) => b.relation)]
 		case "reachable":
 			return [...s.target.map((t) => t.relation), ...s.holders.map((h) => h.relation)]
+		case "unit":
+			return [...relations.values()].flatMap((r) =>
+				r.kind === "relation" && leadsWithHeading(s.heading, r.primaryKey, (f) => r.fields[f]?.type)
+					? [r.name]
+					: []
+			)
 		case "check":
 		case "contained":
 		case "alternatives":
@@ -58,7 +72,9 @@ export const fragmentReach = (
 		if (fragment.statements.has(s.text)) {
 			continue
 		}
-		const relation = decidedRelations(s.form).find((r) => fragment.relations.has(r))
+		const relation = decidedRelations(s.form, fragment.relations).find((r) =>
+			fragment.relations.has(r)
+		)
 		if (relation !== undefined) {
 			throw CompileError.make({
 				_tag: "FragmentRefused",

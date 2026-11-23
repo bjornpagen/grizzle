@@ -75,7 +75,7 @@ const unitsOf: Readonly<Record<KeyKind, number>> = {
 
 /** One unit of a drawn schema: its kind, its place among the units of its kind, which names its relations, and whether
  * its key is unrepresentable. */
-export interface Unit {
+export interface DrawnUnit {
 	readonly kind: KeyKind
 	readonly at: number
 	readonly unrepresentable: boolean
@@ -86,7 +86,7 @@ export interface Unit {
  * not create, after the law model and before its tables and indexes.
  */
 export interface KeysCase {
-	readonly units: ReadonlyArray<Unit>
+	readonly units: ReadonlyArray<DrawnUnit>
 	readonly later: boolean
 }
 
@@ -101,7 +101,7 @@ export const keysCaseSpace: FiniteSpace<KeysCase> = finite((source) => ({
 
 /** The text of a unit: the wildcard, which no byte bound proves, or the wildcard bounded at a few bytes. */
 const free = str.regex("^.*$", "su")
-const textOf = (u: Unit) => (u.unrepresentable ? free : str.bytes(16, free))
+const textOf = (u: DrawnUnit) => (u.unrepresentable ? free : str.bytes(16, free))
 
 /** A refused key as the model states it: its subject and its fault's kind. */
 export interface ModelKey {
@@ -111,7 +111,7 @@ export interface ModelKey {
 }
 
 /** The refusal of a unit whose key is unrepresentable, as the compile words it. */
-const refusalOf = (u: Unit): ModelKey => {
+const refusalOf = (u: DrawnUnit): ModelKey => {
 	const n = u.at
 	const stage = stageOf[u.kind]
 	switch (u.kind) {
@@ -170,7 +170,7 @@ interface UnitParts {
 }
 
 /** A declared unit: D0 or D1, keyed by its text. */
-const declaredParts = (u: Unit): UnitParts => {
+const declaredParts = (u: DrawnUnit): UnitParts => {
 	const t = textOf(u)
 	return {
 		relations: [u.at === 0 ? relation("D0", { t }, ["t"]) : relation("D1", { t }, ["t"])],
@@ -179,7 +179,7 @@ const declaredParts = (u: Unit): UnitParts => {
 }
 
 /** The relations and statements of a unit, each kind's one unit named by its place, 0. */
-const unitParts = (u: Unit): UnitParts => {
+const unitParts = (u: DrawnUnit): UnitParts => {
 	const t = textOf(u)
 	switch (u.kind) {
 		case "declared":
@@ -277,7 +277,7 @@ const keyPrefixBytes = 8 + typlens.uuid + (typlens.int8 - 1 + typlens.int8)
 const fittingCodes = 8 * (btreeMaxItemSize - (keyPrefixBytes + (4 - 1)) - (4 + typlens.int4))
 
 /** A set unit's roster: its two live handles, and past the codes Item's entry holds where its key is unrepresentable. */
-const rosterOf = (u: Unit): RosterState => ({
+const rosterOf = (u: DrawnUnit): RosterState => ({
 	closed: parsedName("Tag0"),
 	slots: [
 		{ kind: "live" as const, handle: "red" },

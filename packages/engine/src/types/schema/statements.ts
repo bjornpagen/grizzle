@@ -91,6 +91,28 @@ export interface Race<R> {
 	readonly relation: R
 }
 
+/**
+ * unit(name, heading): a unit, the key a family of rows sits under, each value of it one lock. Every stored relation
+ * whose primary key leads with the heading's fields, by name and type in order, sits under it.
+ */
+export interface Unit<Name extends string, Heading> {
+	readonly kind: "unit"
+	readonly name: Name
+	readonly heading: Heading
+}
+
+/** Any unit statement: Unit is covariant in its heading. */
+export type UnitBase = Unit<string, unknown>
+
+/**
+ * series(R): R's one natural primary key field runs 0, 1, 2, … with no gap, and R's appends queue on one lock of their
+ * own.
+ */
+export interface Series<R> {
+	readonly kind: "series"
+	readonly relation: R
+}
+
 export interface Check<Name extends string, R> {
 	readonly kind: "check"
 	readonly name: Name
@@ -649,6 +671,8 @@ export type Statement =
 	| AlternativesBase
 	| RetirableBase
 	| ReachableBase
+	| UnitBase
+	| Series<unknown>
 	| AnyFamily
 	| Fold<unknown, unknown, unknown, unknown>
 

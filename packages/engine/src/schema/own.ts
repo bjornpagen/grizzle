@@ -75,6 +75,7 @@ import {
 	type DerivedStorage,
 	definitionFields,
 	heldRelation,
+	leadsWithHeading,
 	type RelationDesc,
 	type RoleDesc,
 	type RoleEntryDesc,
@@ -91,6 +92,8 @@ import {
 	type StatementDesc,
 	type TermDesc,
 	termText,
+	type UnitDesc,
+	type UnitFieldDesc,
 	type Writing,
 	writtenNames
 } from "#compiler/ir/desc.ts"
@@ -318,6 +321,10 @@ export interface Owned extends OwnedSchema {
 	 * (law(...)), or none, so each law's is derived (runtime/law-entry.ts StatedEntry).
 	 */
 	readonly statementEntries: ReadonlyArray<StatedEntry>
+	/** Every unit the schema's levels declare, by its name, each with the stored relations under it (OwnedUnit). */
+	readonly units: ReadonlyMap<string, OwnedUnit>
+	/** The unit each stored relation under one sits under, by the relation's name: one unit at most a relation. */
+	readonly unitOf: ReadonlyMap<string, UnitMember>
 	/**
 	 * The catalog entries the schema's declarations declare for the laws no statement states: a relation's primary key's,
 	 * a generated field's, a refined text's pattern law's and a contract's (runtime/law-entry.ts DeclaredEntries).
@@ -370,7 +377,7 @@ export type OwnedKeyLaw =
  * resolves.
  */
 export type OwnedStatement =
-	| Extract<StatementDesc, { readonly kind: "mutable" | "race" }>
+	| Extract<StatementDesc, { readonly kind: "mutable" | "race" | "unit" | "series" }>
 	| (Extract<StatementDesc, { readonly kind: "key" }> & { readonly key: OwnedKeyLaw })
 	| (Extract<StatementDesc, { readonly kind: "check" }> & { readonly check: OwnedCheck })
 	| (Omit<Extract<StatementDesc, { readonly kind: "contained" }>, "left" | "right"> & {
@@ -469,7 +476,7 @@ function failWith(reason: CompileReason): never {
 }
 
 /** A retirable statement as ownership admitted it. */
-type OwnedUnit = Extract<OwnedStatement, { readonly kind: "retirable" }>
+type OwnedRetirable = Extract<OwnedStatement, { readonly kind: "retirable" }>
 
 /** A reachable statement as ownership admitted it. */
 export type OwnedReachable = Extract<OwnedStatement, { readonly kind: "reachable" }>
@@ -492,8 +499,8 @@ export const releasesOf = (
  * the body's fields paired by position with the header's key.
  */
 type UnitRole =
-	| { readonly kind: "header"; readonly unit: OwnedUnit }
-	| { readonly kind: "body"; readonly unit: OwnedUnit; readonly group: ReadonlyArray<string> }
+	| { readonly kind: "header"; readonly unit: OwnedRetirable }
+	| { readonly kind: "body"; readonly unit: OwnedRetirable; readonly group: ReadonlyArray<string> }
 
 /** An owned statement as a refusal names it: an owned containment's sides by their relations, any other's own label. */
 const ownedLabel = (st: OwnedStatement): string =>
@@ -510,6 +517,159 @@ const termFields = (side: {
 /** The fields a selection's conjuncts read. */
 const selectionFields = (selection: SelectionDesc): ReadonlySet<string> =>
 	selection.conjuncts.reduce((out, c) => fieldRefs(c, out), new Set<string>())
+
+/**
+ * A unit as ownership resolved it (ir/desc.ts UnitDesc): its name, its key, the lowest level that states it, and every
+ * stored relation that sits under it, each relation under one unit at most.
+ */
+export interface OwnedUnit {
+	readonly name: string
+	readonly heading: NonEmptyReadonlyArray<UnitFieldDesc>
+	readonly level: number
+	readonly loc: SourceLoc
+	/** Each relation under it, in relation name order. */
+	readonly members: ReadonlyArray<UnitMember>
+}
+
+/**
+ * A stored relation under a unit: the unit's name, and the relation's fields that hold the unit's key, one per field of
+ * its heading, in its order: its primary key's first. The isolation checker reads which unit a write or a read of the
+ * relation stands in from here, as the stored derived relations' admission does, and neither derives it again.
+ */
+export interface UnitMember {
+	readonly unit: string
+	readonly relation: string
+	readonly fields: NonEmptyReadonlyArray<string>
+}
+
+/**
+ * The fields of `relation`'s primary key that hold the key `heading` names, its first, where they are the heading's by
+ * name and type in order (ir/desc.ts leadsWithHeading); none where it does not lead with them. Only a stored relation
+ * has rows a write adds: a closed relation's are its declaration's, and a derived relation's its definition's.
+ */
+const leadingFields = (
+	relation: OwnedRelation,
+	heading: NonEmptyReadonlyArray<UnitFieldDesc>
+): NonEmptyReadonlyArray<string> | undefined => {
+	switch (relation.kind) {
+		case "relation":
+			return leadsWithHeading(heading, relation.desc.primaryKey, (f) => relation.fields[f]?.desc)
+				? mapNonEmpty(heading, (f) => f.field)
+				: undefined
+		case "closed":
+		case "closedRelation":
+		case "derived":
+			return undefined
+	}
+}
+
+/** Whether one unit's heading leads with the other's, by name and type in order: the two would nest. */
+const nests = (
+	a: NonEmptyReadonlyArray<UnitFieldDesc>,
+	b: NonEmptyReadonlyArray<UnitFieldDesc>
+): boolean => {
+	const [short, long] = a.length <= b.length ? [a, b] : [b, a]
+	const types = new Map(long.map((f) => [f.field, f.type] as const))
+	return leadsWithHeading(
+		short,
+		long.map((f) => f.field),
+		(f) => types.get(f)
+	)
+}
+
+/**
+ * The units a schema's unit statements declare, each with the stored relations under it (OwnedUnit), and the rules they
+ * keep, so that a unit is a partition of rows into locks, each row under one lock at most, which every process that
+ * writes or reads the row takes alike:
+ *
+ * - one name is one unit: two unit statements of one name and two headings are refused, where one statement stated twice
+ *   is one statement;
+ * - no unit's heading leads with another's, by name and type in order: a relation keyed by the longer would sit under
+ *   both, and a lock on the inner key would not exclude a holder of the outer one (two names over one heading alike);
+ * - a unit is stated at or below the level of every relation under it, since a process over that level compiles its
+ *   writes alone, holding no level above it, and would take none of the unit's locks.
+ *
+ * And the rule every series statement keeps: its relation is immutable, so its numbers only grow by appends.
+ */
+const ownUnits = (
+	statements: ReadonlyArray<OwnedStatement>,
+	levels: ReadonlyArray<number>,
+	relations: Readonly<Record<string, OwnedRelation>>,
+	levelName: (level: number) => string
+): {
+	readonly units: ReadonlyMap<string, OwnedUnit>
+	readonly unitOf: ReadonlyMap<string, UnitMember>
+} => {
+	const declared = statements.flatMap(
+		(
+			st,
+			at
+		): ReadonlyArray<{
+			readonly st: UnitDesc
+			readonly level: number
+		}> => (st.kind === "unit" ? [{ st, level: defined(levels[at], "a statement's level") }] : [])
+	)
+	for (const [i, a] of declared.entries()) {
+		for (const b of declared.slice(i + 1)) {
+			if (a.st.name === b.st.name) {
+				fail(
+					"MalformedDescription",
+					b.st.loc,
+					`unit ${b.st.name} over one heading; it is stated over two, (${a.st.heading.map((f) => f.field).join(", ")}) and (${b.st.heading.map((f) => f.field).join(", ")})`
+				)
+			}
+			if (nests(a.st.heading, b.st.heading)) {
+				fail(
+					"MalformedDescription",
+					b.st.loc,
+					`unit ${b.st.name} over a heading no other unit's leads with or leads: unit ${a.st.name}'s (${a.st.heading.map((f) => f.field).join(", ")}) and its own (${b.st.heading.map((f) => f.field).join(", ")}) nest, and a lock on the inner key would not exclude a holder of the outer one; declare one of them`
+				)
+			}
+		}
+	}
+	const unitOf = new Map<string, UnitMember>()
+	const units = new Map<string, OwnedUnit>()
+	for (const { st, level } of declared) {
+		const members: Array<UnitMember> = []
+		for (const name of Object.keys(relations).toSorted(compareStrings)) {
+			const r = defined(relations[name], "a relation of its schema")
+			const fields = leadingFields(r, st.heading)
+			if (fields === undefined) {
+				continue
+			}
+			if (r.level < level) {
+				fail(
+					"MalformedDescription",
+					st.loc,
+					`unit ${st.name} stated at or below the level of every relation under it; ${name}, keyed (${fields.join(", ")}, …), is a relation of ${levelName(r.level)}, below ${levelName(level)}, whose writes a process over ${levelName(r.level)} compiles without it: state the unit at ${levelName(r.level)}`
+				)
+			}
+			const member: UnitMember = Object.freeze({ unit: st.name, relation: name, fields })
+			members.push(member)
+			unitOf.set(name, member)
+		}
+		units.set(
+			st.name,
+			Object.freeze({
+				name: st.name,
+				heading: st.heading,
+				level,
+				loc: st.loc,
+				members: Object.freeze(members)
+			})
+		)
+	}
+	for (const st of statements) {
+		if (st.kind === "series" && relations[st.relation]?.mutable === true) {
+			fail(
+				"MalformedDescription",
+				st.loc,
+				`series ${st.relation} over an immutable relation, whose numbers only grow by appends`
+			)
+		}
+	}
+	return { units, unitOf }
+}
 
 /**
  * The units a schema's retirable statements declare, each relation's role in one (UnitRole), and the rules every other
@@ -665,6 +825,8 @@ const checkUnits = (
 			case "retirable":
 			case "race":
 			case "reachable":
+			case "unit":
+			case "series":
 				continue
 			case "mutable":
 				if (roles.get(st.relation)?.kind === "header") {
@@ -1089,6 +1251,8 @@ const canonicalizer = (): Canonicalizer => {
 			case "family":
 			case "tree":
 			case "alternatives":
+			case "unit":
+			case "series":
 				return asIs(s)
 			case "retirable": {
 				const [first, ...rest] = s.bodies.toSorted((a, b) => compareStrings(a.relation, b.relation))
@@ -1177,6 +1341,10 @@ export const statementLabel = (s: StatementDesc): string => {
 			return `retirable ${s.header.relation}`
 		case "reachable":
 			return `reachable ${s.target[0].relation}`
+		case "unit":
+			return `unit ${s.name}`
+		case "series":
+			return `series ${s.relation}`
 	}
 }
 
@@ -1426,6 +1594,12 @@ class Owner {
 			statements.map((s) => s.statement),
 			relations
 		)
+		const { units, unitOf } = ownUnits(
+			statements.map((s) => s.statement),
+			statements.map((s) => s.level),
+			relations,
+			(level) => this.#levelName(level)
+		)
 		const contracts = this.#ownContracts()
 		const functions = unwrap(ownFunctions(this.#levels))
 		const canonical = this.#canonicalDesc()
@@ -1445,6 +1619,8 @@ class Owner {
 			statementAt: new Map(ordered.map((s, i) => [s.text, i] as const)),
 			statementLevels: ordered.map((s) => s.level),
 			statementEntries: ordered.map((s) => s.entry),
+			units,
+			unitOf,
 			declared: this.#lawEntries,
 			contracts,
 			functions,
@@ -2109,7 +2285,10 @@ class Owner {
 				return reach([d.side.relation])
 			case "mutable":
 			case "race":
+			case "series":
 				return reach([d.relation])
+			case "unit":
+				return
 			case "check":
 				return
 			case "family":
@@ -2220,6 +2399,26 @@ class Owner {
 				const entry = this.#ordinary(d.relation, s, "has fixed facts, which no insertion races")
 				this.#checkRacedKey(entry.desc, s)
 				this.#raced.set(d.relation, s)
+				return d
+			}
+			case "unit":
+				return d
+			case "series": {
+				const entry = this.#ordinary(d.relation, s, "has fixed facts, which no write appends")
+				const [field, ...rest] = entry.desc.primaryKey
+				const decl = entry.desc.fields[d.field]
+				if (
+					field !== d.field ||
+					rest.length > 0 ||
+					decl === undefined ||
+					!isNaturalDesc(decl.type)
+				) {
+					failWith({
+						_tag: "Refused",
+						at: d.loc,
+						refusal: "a series' relation is keyed by one natural field alone, the series' numbers"
+					})
+				}
 				return d
 			}
 			case "check": {

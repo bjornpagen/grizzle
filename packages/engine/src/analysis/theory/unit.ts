@@ -1098,6 +1098,8 @@ const statedOf = (
 		case "fold":
 		case "alternatives":
 		case "retirable":
+		case "unit":
+		case "series":
 			return []
 	}
 }
