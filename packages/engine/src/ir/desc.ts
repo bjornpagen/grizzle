@@ -39,7 +39,7 @@ import {
 } from "#compiler/core/function.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings, type Direction, directions } from "#compiler/core/order.ts"
-import { deepFreeze, isRecord, mapRecord } from "#compiler/core/record.ts"
+import { deepFreeze, isList, isPlainRecord, isRecord, mapRecord } from "#compiler/core/record.ts"
 import { type CanonicalSet, tupleKeyedSet } from "#compiler/core/set.ts"
 import { isValidText } from "#compiler/core/text.ts"
 import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
@@ -2159,6 +2159,39 @@ export interface ParamSpelling<P extends object> {
 /** The references a walk over parameters reads: spelled, its scalar parameters typed by `T`. */
 type SpelledAs<T> = ParamsAs<Spelled["param"], T>
 
+/** Whether two values of a part are one: the same value, or two lists or plain records holding the same values alike. */
+const sameParts = (a: unknown, b: unknown): boolean => {
+	if (a === b) {
+		return true
+	}
+	if (isList(a) && isList(b)) {
+		return a.length === b.length && a.every((x, i) => x === b[i])
+	}
+	if (isPlainRecord(a) && isPlainRecord(b)) {
+		const keys = Object.keys(b)
+		return (
+			Object.keys(a).length === keys.length &&
+			keys.every((k) => Object.hasOwn(a, k) && a[k] === b[k])
+		)
+	}
+	return false
+}
+
+/**
+ * Whether the part `old` holds what its rebuilt `fresh` holds: the same keys, each value the same, or a list or plain
+ * record of the same values (`sameParts`, as a walk rebuilds one around parts it kept): then `old` is what `fresh` is.
+ */
+const holdsSame = <B extends object>(old: object, fresh: B): old is B => {
+	if (!isPlainRecord(old) || !isPlainRecord(fresh)) {
+		return false
+	}
+	const keys = Object.keys(fresh)
+	return (
+		Object.keys(old).length === keys.length &&
+		keys.every((k) => Object.hasOwn(old, k) && sameParts(old[k], fresh[k]))
+	)
+}
+
 class ParamWalk<P extends object, T> {
 	readonly #spelling: ParamSpelling<P>
 	/**
@@ -2174,22 +2207,35 @@ class ParamWalk<P extends object, T> {
 		this.#imported = imported
 	}
 
+	/**
+	 * The part `old` rebuilt as `fresh`, as this walk keeps it: rebuilt, for a walk whose output is read apart from its
+	 * input; RelationBinding keeps `old` itself where nothing in it changed (holdsSame).
+	 */
+	protected kept<B extends object>(_old: object, fresh: B): B {
+		return fresh
+	}
+
 	query(q: QueryDesc<Located, SpelledAs<T>>): QueryDesc<Located, ParamsAs<P, T>> {
-		return { ...q, stage: this.stage(q.stage) }
+		return this.kept(q, { ...q, stage: this.stage(q.stage) })
 	}
 
 	stage(s: QueryStageDesc<Located, SpelledAs<T>>): QueryStageDesc<Located, ParamsAs<P, T>> {
+		return this.kept(s, this.#rebuiltStage(s))
+	}
+
+	/** A stage with each of its parts walked, rebuilt (`stage` keeps it where nothing in it changed). */
+	#rebuiltStage(s: QueryStageDesc<Located, SpelledAs<T>>): QueryStageDesc<Located, ParamsAs<P, T>> {
 		switch (s.kind) {
 			case "rules":
 				return { ...s, arms: mapNonEmpty(s.arms, (r) => this.rule(r)) }
 			case "recursive":
 				return {
 					...s,
-					recursive: {
+					recursive: this.kept(s.recursive, {
 						...s.recursive,
 						base: mapNonEmpty(s.recursive.base, (r) => this.rule(r)),
 						rec: mapNonEmpty(s.recursive.rec, (r) => this.rule(r))
-					}
+					})
 				}
 			case "union":
 				return { ...s, input: this.stage(s.input), arms: mapNonEmpty(s.arms, (r) => this.rule(r)) }
@@ -2197,7 +2243,7 @@ class ParamWalk<P extends object, T> {
 				return {
 					...s,
 					input: this.stage(s.input),
-					attach: { ...s.attach, child: this.query(s.attach.child) }
+					attach: this.kept(s.attach, { ...s.attach, child: this.query(s.attach.child) })
 				}
 			case "named":
 			case "order":
@@ -2209,34 +2255,41 @@ class ParamWalk<P extends object, T> {
 					input: this.stage(s.input),
 					take:
 						s.take.kind === "param"
-							? { kind: "param", ...this.#spelling.param(s.take.name) }
+							? this.kept(s.take, { kind: "param" as const, ...this.#spelling.param(s.take.name) })
 							: s.take
 				}
 		}
 	}
 
 	rule(r: RuleDesc<Located, SpelledAs<T>>): RuleDesc<Located, ParamsAs<P, T>> {
-		return {
+		return this.kept(r, {
 			...r,
-			matches: r.matches.map((m) => ({
-				...m,
-				source: this.source(m.source),
-				bindings: this.bindings(m.bindings)
-			})),
+			matches: r.matches.map((m) =>
+				this.kept(m, {
+					...m,
+					source: this.source(m.source),
+					bindings: this.bindings(m.bindings)
+				})
+			),
 			where: r.where.map((e) => this.expr(e)),
 			head: Object.fromEntries(Object.entries(r.head).map(([k, h]) => [k, this.head(h)])),
-			interiors: r.interiors.map((i) => ({ ...i, arms: mapNonEmpty(i.arms, (a) => this.rule(a)) })),
-			attach: r.attach.map((a) => ({ ...a, child: this.query(a.child) }))
-		}
+			interiors: r.interiors.map((i) =>
+				this.kept(i, { ...i, arms: mapNonEmpty(i.arms, (a) => this.rule(a)) })
+			),
+			attach: r.attach.map((a) => this.kept(a, { ...a, child: this.query(a.child) }))
+		})
 	}
 
 	bindings(b: BindingsDesc<Located, SpelledAs<T>>): BindingsDesc<Located, ParamsAs<P, T>> {
-		return mapBindingTerms(b, (e) => this.expr(e))
+		return this.kept(
+			b,
+			mapBindingTerms(b, (e) => this.expr(e))
+		)
 	}
 
 	bound(b: BindTermDesc<Located, SpelledAs<T>>): BindTermDesc<Located, ParamsAs<P, T>> {
 		return b.kind === "relationParam"
-			? { kind: "relationParam", ...this.#spelling.param(b.name) }
+			? this.kept(b, { kind: "relationParam", ...this.#spelling.param(b.name) })
 			: b.kind === "rows"
 				? this.rows(b)
 				: this.expr(b)
@@ -2244,11 +2297,11 @@ class ParamWalk<P extends object, T> {
 
 	/** Rows of a query: the query its own namespace, its bind map read in this one, as an import's is. */
 	rows(a: RowsDesc<Located, SpelledAs<T>>): RowsDesc<Located, ParamsAs<P, T>> {
-		return {
+		return this.kept(a, {
 			kind: "rows",
 			query: this.#importedQuery(a.query),
 			bind: mapRecord(a.bind, (b) => this.bound(b))
-		}
+		})
 	}
 
 	/** An imported query, walked once in a namespace of its own (`#imported`). */
@@ -2267,23 +2320,27 @@ class ParamWalk<P extends object, T> {
 		switch (s.kind) {
 			case "query":
 			case "step":
-				return {
+				return this.kept(s, {
 					...s,
 					query: this.#importedQuery(s.query),
 					bind: Object.fromEntries(Object.entries(s.bind).map(([k, b]) => [k, this.bound(b)]))
-				}
+				})
 			case "param":
-				return { kind: "param", heading: s.heading, ...this.#spelling.param(s.name) }
+				return this.kept(s, { kind: "param", heading: s.heading, ...this.#spelling.param(s.name) })
 			case "paramOf":
-				return { kind: "paramOf", relation: s.relation, ...this.#spelling.param(s.name) }
+				return this.kept(s, {
+					kind: "paramOf",
+					relation: s.relation,
+					...this.#spelling.param(s.name)
+				})
 			case "call":
 			case "callField":
-				return {
+				return this.kept(s, {
 					...s,
 					args: mapRecord(s.args, (a) => (a.kind === "rows" ? this.rows(a) : this.expr(a)))
-				}
+				})
 			case "split":
-				return { kind: "split", split: s.split, text: this.expr(s.text) }
+				return this.kept(s, { kind: "split", split: s.split, text: this.expr(s.text) })
 			case "relation":
 			case "interior":
 			case "self":
@@ -2295,16 +2352,24 @@ class ParamWalk<P extends object, T> {
 	}
 
 	head(h: HeadTermDesc<Located, SpelledAs<T>>): HeadTermDesc<Located, ParamsAs<P, T>> {
-		return mapHeadTerms(h, (e) => this.expr(e))
+		return this.kept(
+			h,
+			mapHeadTerms(h, (e) => this.expr(e))
+		)
 	}
 
 	expr(e: ExprDesc<Located, SpelledAs<T>>): ExprDesc<Located, ParamsAs<P, T>> {
-		return mapExpr(e, {
-			leaf: (x) =>
-				x.kind === "param" ? { kind: "param", type: x.type, ...this.#spelling.param(x.name) } : x,
-			term: (x) => this.expr(x),
-			source: (x) => this.source(x)
-		})
+		return this.kept(
+			e,
+			mapExpr(e, {
+				leaf: (x) =>
+					x.kind === "param"
+						? this.kept(x, { kind: "param", type: x.type, ...this.#spelling.param(x.name) })
+						: x,
+				term: (x) => this.expr(x),
+				source: (x) => this.source(x)
+			})
+		)
 	}
 }
 
@@ -2610,6 +2675,16 @@ class RelationBinding extends ParamWalk<Spelled["param"], FieldDesc> {
 		super(spelledAsIs, unwalkedImports)
 		this.#rows = rows
 		this.#identity = identity
+	}
+
+	/**
+	 * `old` itself where nothing in it changed (holdsSame), so the parts of a member's query the binding leaves as they
+	 * were keep their identity digests (core/fingerprint.ts IdentityDigests) and only what the binding wrote is
+	 * digested again for the bound member, where every part of the query's own namespace was rebuilt and digested
+	 * again (write/changeset/value.ts bindRows).
+	 */
+	protected override kept<B extends object>(old: object, fresh: B): B {
+		return holdsSame(old, fresh) ? old : fresh
 	}
 
 	override source(s: SourceDesc): SourceDesc {
