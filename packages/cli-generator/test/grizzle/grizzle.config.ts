@@ -16,7 +16,14 @@ export default defineConfig({
 	schemas: [Items],
 	logins: [Server],
 	migrations: Effect.runSync(Config.String("EOCG_GRIZZLE_MIGRATIONS")),
-	rolePrefixBytes: 0,
+	/**
+	 * Each twin installs under its clone's database name as its role prefix (twins.ts twinOf): the repository's prefix,
+	 * `c_`, its owner's 16 hex digits, `_` and the owner's serial for it (vendor/toolchain names.ts cloneName), a serial
+	 * being a safe integer of at most 16 digits.
+	 *
+	 * @formatConstant `gz_` (3, test/support/runner.ts) + `c_` (2) + 16 + `_` (1) + 16 = 38 bytes
+	 */
+	rolePrefixBytes: 38,
 	connection: () => ({
 		driver: pg,
 		transport: {
