@@ -525,7 +525,7 @@ export const workloadProgram = (
 			: []),
 		...(read.has("served")
 			? [
-					"type OpenedAs<X> = X extends LoginRole<infer R, infer P> ? DbOf<R, P> : never",
+					"type OpenedAs<X> = X extends LoginRole<infer R, infer Ws> ? DbOf<R, ProgramsOf<R, Ws>> : never",
 					"declare const file: unknown"
 				]
 			: [])

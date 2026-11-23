@@ -3,7 +3,11 @@
  * skeleton, family, regex and nesting programs that share its entries), their prelude (test/support/prelude.ts): each
  * program imports these alone, each through this module.
  */
+export { Array as Arr } from "effect"
 export type { Brand, Option } from "effect"
+export { defineConfig } from "#adapter/config/define.ts"
+export { roleNameOf } from "#adapter/served/served.ts"
+export type { MigrationConnectionConfig } from "#adapter/types/config.ts"
 export type { DbOf } from "#adapter/types/db.ts"
 export { ChangeSet } from "#compiler/public/changeset.ts"
 export {
@@ -73,7 +77,7 @@ export {
 	wholeEntriesOf,
 	writableNamesOf
 } from "#compiler/public/schema.ts"
-export type { Fact, KeysOf } from "#compiler/public/schema.ts"
+export type { AnyLogin, Fact, KeysOf } from "#compiler/public/schema.ts"
 export { str } from "#compiler/public/text.ts"
 export type { WritesOf } from "#compiler/types/changeset/changeset.ts"
 export { answered, clocked, workload } from "#compiler/public/workload.ts"

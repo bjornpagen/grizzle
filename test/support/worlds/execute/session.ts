@@ -97,7 +97,7 @@ export interface DbSession {
 	readonly refusals: RefusalReader
 	readonly value: BuiltRole
 	/** The role reached through its login, whose served files the session's programs are compiled into. */
-	readonly reached: LoginRole<BuiltRole, unknown>
+	readonly reached: LoginRole<BuiltRole, readonly []>
 	readonly snapshot: unknown
 	readonly compile: TestCompileOptions
 	/** The Db's context, its pool's every lease recording the connection it holds in `backend` (pool.ts leaseRecording). */

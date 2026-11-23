@@ -14,6 +14,7 @@ import type {
 	LoginReadsToken,
 	LoginRole,
 	Phantom,
+	ProgramsOf,
 	RolesOf,
 	phantom
 } from "#compiler/plan/common.ts"
@@ -183,11 +184,14 @@ export interface NoDecoder {
  */
 export type ServedDecoder = NoDecoder | DecoderLogin
 
-/** The roles of a served login of L by name, each reached through it with the programs its Dbs run (LoginRole). */
+/**
+ * The roles of a served login of L by name, each reached through it with the programs its Dbs run, those of its login's
+ * workloads over it or a level of it (LoginRole, ProgramsOf).
+ */
 export type ServedRoles<L> = L extends { readonly roles: infer Rs }
 	? {
-			readonly [K in keyof Rs]: Rs[K] extends LoginRole<infer R extends AnyRole, infer P>
-				? ServedRole<R, P>
+			readonly [K in keyof Rs]: Rs[K] extends LoginRole<infer R extends AnyRole, infer Ws>
+				? ServedRole<R, ProgramsOf<R, Ws>>
 				: never
 		}
 	: never

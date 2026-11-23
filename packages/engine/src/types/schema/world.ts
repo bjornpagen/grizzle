@@ -684,11 +684,16 @@ export interface AnyLoginRole extends Built {
 }
 
 /**
- * A role R reached through its login, `Web.roles.member`: what Db.open takes. P is the programs of the login's
- * workloads a Db of R runs (ProgramsOf), which the Db shows as `db.workload`, a phantom no runtime value holds.
+ * A role R reached through its login, `Web.roles.member`: what a served login's roles, which Db.open takes, and an HTTP
+ * client's are typed from. Ws is its login's workloads, a phantom no runtime value holds, whose programs a Db of R runs
+ * (ProgramsOf) where a served role or a client reads them (adapter/types/layer.ts ServedRoles, client/client.ts
+ * ProgramsOfRole), never in the login's own type: a login is related to AnyLogin, to every other login of a list of
+ * them and to every parameter it is passed to by its parts, and a role's programs, a walk of every workload of the
+ * login against the role's levels, were read there at each relation, more than one statement may instantiate for a list
+ * of metis's 23 logins (TS2589).
  */
-export interface LoginRole<R extends AnyRole, P>
-	extends AnyLoginRole, Phantom<{ readonly workload: Invariant<P> }> {
+export interface LoginRole<R extends AnyRole, Ws>
+	extends AnyLoginRole, Phantom<{ readonly workload: Invariant<Ws> }> {
 	readonly role: R
 }
 
@@ -705,9 +710,9 @@ export type ProgramsOf<R, Ws> = Ws extends readonly [infer W, ...infer Rest]
 			ProgramsOf<R, Rest>
 	: unknown
 
-/** A login's roles by name, each reached through the login with the programs its Dbs run. */
+/** A login's roles by name, each reached through the login with its workloads, whose programs its Dbs run. */
 export type LoginRoles<Roles extends ReadonlyArray<AnyRole>, Ws> = {
-	readonly [R in Roles[number] as R["name"]]: LoginRole<R, ProgramsOf<R, Ws>>
+	readonly [R in Roles[number] as R["name"]]: LoginRole<R, Ws>
 }
 
 export interface Login<

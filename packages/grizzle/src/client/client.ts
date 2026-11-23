@@ -19,7 +19,13 @@ import {
 	trusted,
 	type ValueOf
 } from "#compiler/plan/client.ts"
-import type { AnyLogin, AnyRole, LoginReadsToken, LoginRole } from "#compiler/plan/common.ts"
+import type {
+	AnyLogin,
+	AnyRole,
+	LoginReadsToken,
+	LoginRole,
+	ProgramsOf
+} from "#compiler/plan/common.ts"
 
 /** clientOf's options with a token: where the login's programs are served, and the token every call sends. */
 export interface TokenClientOptions<E> {
@@ -86,8 +92,9 @@ interface WatchClient<X, E> {
 	) => Stream.Stream<Watched<X>, CallError | E, HttpClient.HttpClient>
 }
 
-/** The programs a role reached through its login runs: P of its LoginRole. */
-type ProgramsOfRole<R> = R extends LoginRole<infer _R extends AnyRole, infer P> ? P : never
+/** The programs a role reached through its login runs: those of its login's workloads over it (ProgramsOf). */
+type ProgramsOfRole<R> =
+	R extends LoginRole<infer Role extends AnyRole, infer Ws> ? ProgramsOf<Role, Ws> : never
 
 /** A role's programs by name, each a ProgramClient; a role whose login's workloads serve it none holds none. */
 export type RoleClient<P, E> = { readonly [K in keyof P]: ProgramClient<P[K], E> }

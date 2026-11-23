@@ -309,7 +309,7 @@ class UnservableRole extends Data.TaggedError("UnservableRole")<{
  */
 interface OpenTarget {
 	readonly value: BuiltRole
-	readonly reached: LoginRole<BuiltRole, unknown>
+	readonly reached: LoginRole<BuiltRole, readonly []>
 	readonly held: Option.Option<Held>
 	readonly opening: Effect.Effect<Opening, OpenError | ServedRefusal | UnservableRole, Scope.Scope>
 }
@@ -704,7 +704,7 @@ const worldOver = (
 			value: BuiltRole
 		): Effect.Effect<{
 			readonly login: BuiltLogin
-			readonly role: LoginRole<BuiltRole, unknown>
+			readonly role: LoginRole<BuiltRole, readonly []>
 		}> =>
 			Effect.flatMap(
 				Effect.sync(() => loginBuilder(base, unheldLogin, [value])),

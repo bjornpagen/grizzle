@@ -274,6 +274,7 @@ export type {
 	AttestedRecord,
 	LoginReadsToken,
 	LoginRole,
+	ProgramsOf,
 	ReadsAttested,
 	ReadsToken,
 	RefreshListOf,
