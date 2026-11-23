@@ -102,10 +102,10 @@ export const anInterruptedWriteRunAWriteRunInterruptedMidCaseLeavesNoSessionOfIt
 		kept: [
 			{
 				token: ReplayToken(
-					"test/pg/write/oracle/interrupted.test.ts#anInterruptedWriteRunAWriteRunInterruptedMidCaseLeavesNoSessionOfItsWriterOpen:1.0:1.2.b7p.1ek4.13zu.gpb.15ie.hzj.1ae7.2yq.jl4.18tp.9dj.z7b.7ui.13db.1amq.198e.1bii.qqy.11m8.osm.2sg.6ld.d8.sbg.6.k9e.2ua.110a.1.1.0.0.0.0.0.0.0.0.1.0.4.2.1.3.2.2.hfy.2.5no.18bn.1s6.icq.1c11.vbw.obp.on9.15xo.z02.5.1e5b.ow4.7yi.i6p.1dsq.fck.k0r.1ekf.qnk.g9i.16ih.vw9.14tu.cmq.1ck8.b5a.5pm.o89.ds3.b1u.83q.b1n.14ac.1ae0.dfu.0.0.2.2.5pf.5.0.1.w4.0.16wn.83p.1.7ec.3.17r8.2.q91.4.3ub.2.1pf.9.0.0.s8p.0.5gg.xs3.1.mlb.0.slj.2.kvj.1.jub.0.2.2.1.1.2.0.3.3.2.1.1.3.3.121i.1.11la.rgx.dk6.14qd.eyw.5.gls.13gk.a87.hh0.cry.gqt.bmg.cwo.1b.1cxw.17a1.7lh.8bs.186j.ic4.1ek9.f.y8.4ru.itu.8a3.19sr.q7v.vvp.1.0.0.0.0.1.0.0.0.0.0.0.0.0.2.1.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
+					"test/pg/write/oracle/interrupted.test.ts#anInterruptedWriteRunAWriteRunInterruptedMidCaseLeavesNoSessionOfItsWriterOpen:1.0:1.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
 				),
 				reason:
-					"5374a0575: a write run interrupted after its first commit, its Db's one session idle, whose pool's release returned with that session's connection open",
+					"5374a0575: a write run interrupted after its first commit, its Db's one session idle, whose pool's release returned with that session's connection open (found again by the kill's mutant over the drawn write runs' open relations, 2026-11-23)",
 				since: "2026-11-23"
 			}
 		],

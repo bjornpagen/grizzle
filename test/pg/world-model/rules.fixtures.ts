@@ -63,8 +63,6 @@ export const required: Situations<WorldFeature> = [
 	"write:pure-set:mutable:entry:delete",
 	"write:pure-set:mutable:entry:put",
 	"write:pure-set:immutable:entry:insert",
-	"write:pure-set:immutable:entry:delete",
-	"write:pure-set:immutable:entry:put",
 	"read:span"
 ]
 

@@ -34,7 +34,8 @@ import {
 	type Schema,
 	schema,
 	select,
-	type StatementsByName
+	type StatementsByName,
+	unit
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { workload } from "#compiler/public/workload.ts"
@@ -276,6 +277,8 @@ export const Payroll = schema(
 		key(on(Employer, "ein")),
 		key(on(Employee, "employer", "code")),
 		key(on(PayLine, "run", "employee")),
+		unit("Entity", { id: Id }),
+		unit("Employee", { employee: Id }),
 		mutable(PayRun),
 		mutable(Shift),
 		mutable(Timesheet),

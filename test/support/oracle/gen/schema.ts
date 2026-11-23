@@ -19,7 +19,7 @@ import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { noSpellings } from "#compiler/ir/pattern.ts"
 import type { Heading, KeySet } from "#compiler/ir/rel.ts"
-import { type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
+import { type ScalarType, sameScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import {
 	codesOf,
 	liveOf,
@@ -37,7 +37,7 @@ import {
 	type SchemaDesc,
 	type AuthoredStatementDesc as StatementDesc
 } from "#test/support/fixtures/ir/desc.ts"
-import { openedDescs } from "#test/support/open.ts"
+import { openedDescsOf } from "#test/support/open.ts"
 import {
 	allTypeSpecs,
 	baseTypeSpecs,
@@ -245,23 +245,22 @@ const payloadPatterns = (c: GenClosed): ReadonlyArray<RelationDesc> => {
 /**
  * The schema's Description: relation, closed, key, unit, mutable and contained, exactly what the
  * public constructors record for this schema, each mutable relation open, in the unit over its primary key's first field
- * (test/support/open.ts openedDescs). It is an admissible schema: ownership (packages/engine/src/schema/own.ts)
- * accepts it, every key representable. A roster declares its live handles alone: its codes are the installation's
- * (schemaCodes), and a Closed node's payload is the query's own.
+ * (test/support/open.ts openedDescsOf), the unit named by that field's type's label. It is an admissible schema:
+ * ownership (packages/engine/src/schema/own.ts) accepts it, every key representable. A roster declares its live
+ * handles alone: its codes are the installation's (schemaCodes), and a Closed node's payload is the query's own.
  */
 export const schemaDesc = (schema: GenSchema): SchemaDesc => {
 	const closed: Array<RelationDesc> = Arr.flatMap(schema.closed, (c) => [
 		{ kind: "closed", name: c.name, handles: c.handles },
 		...payloadPatterns(c)
 	])
-	const relationOf = (r: GenRelation) => {
+	const relations: Array<RelationDesc> = Arr.map(schema.relations, (r) => {
 		const fields: Record<string, FieldDesc> = {}
 		for (const col of r.columns) {
 			fields[col.name] = fieldDescOf(col.type)
 		}
 		return relation(r.name, fields, r.primaryKey)
-	}
-	const relations: Array<RelationDesc> = Arr.map(schema.relations, relationOf)
+	})
 	const statements: Array<StatementDesc> = []
 	for (const r of schema.relations) {
 		for (const key of r.keys) {
@@ -270,7 +269,21 @@ export const schemaDesc = (schema: GenSchema): SchemaDesc => {
 	}
 	appendAll(
 		statements,
-		openedDescs(Arr.flatMap(schema.relations, (r) => (r.mutable ? [relationOf(r)] : [])))
+		openedDescsOf(
+			Arr.flatMap(schema.relations, (r) =>
+				r.mutable
+					? [
+							{
+								name: r.name,
+								fields: Rec.fromEntries(Arr.map(r.columns, (c) => [c.name, c.type] as const)),
+								primaryKey: r.primaryKey
+							}
+						]
+					: []
+			),
+			fieldDescOf,
+			typeLabel
+		)
 	)
 	for (const c of schema.containments) {
 		statements.push(contained(on(c.from.relation, c.from.fields), on(c.to.relation, c.to.fields)))

@@ -547,9 +547,19 @@ const platformOf = (name: string) =>
 			lineDetail,
 			unit("Workspace", { workspace: Id }),
 			unit("Entity", { id: Id }),
+			unit("Invoice", { invoice: Id }),
+			unit("Key", { key: Id }),
+			unit("Card", { card: Id }),
+			unit("Subscription", { subscription: Id }),
 			mutable(WorkspaceLimit),
 			mutable(CreditGrant),
-			mutable(Invoice)
+			mutable(Invoice),
+			mutable(Payment),
+			mutable(ApiKey),
+			mutable(ApiKeyActive),
+			mutable(RateCard),
+			mutable(RateTier),
+			mutable(Segment)
 		]
 	)
 
@@ -564,6 +574,11 @@ const platformOf = (name: string) =>
  * usage event happens over its request window, a half-open span, and is priced at the window's start. The charge of an
  * event and token kind is graduated: each tier of the rate card in force at the start, a half-open span of token
  * counts, prices the part of [0, tokens) it overlaps, and each piece rounds half up to the micro-dollar.
+ *
+ * Open relations, each mutable in the unit its key leads with: a credit grant, a spend cap and an invoice changed in
+ * place, a payment that gives way to a dispute or a void, a revoked key and its active spans cut, a rate card and its
+ * tiers replaced, and a subscription's priced segments replaced. Every other relation is closed, its facts inserted,
+ * never changed or deleted.
  *
  * The laws, each stated where it is declared: span keys (a model's rates per kind, a card's tiers, a key's active
  * spans, an organization's invoice periods, a subscription's priced segments never overlap); span coverage (a usage

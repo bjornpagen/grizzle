@@ -87,8 +87,8 @@ const contained = (source: SideSpec, target: SideSpec): LawSpec => ({
  * which holds the name. A grade, a mark and a note name the account that recorded them. An account administers the
  * schools its administrator facts name.
  *
- * Grades and profiles are mutable: a grade is corrected and a name changes in place. Every other fact is added and
- * deleted.
+ * Grades and profiles are open, mutable in the units their keys lead with: a grade is corrected and a name changes in
+ * place. Every other relation is closed: its facts are added, never changed or deleted.
  */
 const relations: Arr.NonEmptyReadonlyArray<RelationSpec> = [
 	relation("District", [field("id", uuid)], ["id"], "immutable"),

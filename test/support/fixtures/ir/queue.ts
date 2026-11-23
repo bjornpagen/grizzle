@@ -36,6 +36,7 @@ import {
 	mutable,
 	on,
 	relation,
+	unit,
 	value
 } from "#test/support/fixtures/ir/desc.ts"
 
@@ -85,7 +86,10 @@ export const Queue: SchemaDesc = decodedSchema({
 	name: "Queue",
 	relations: [Standing, Kind, Resource, Outcome, Reason, Work, Wanted, Leased, Done, Denied, Seat],
 	statements: [
+		unit("Item", { key: Digest }),
 		mutable("Work"),
+		mutable("Wanted"),
+		mutable("Leased"),
 		alternatives(Work, "standing", Standing, {
 			wanted: Wanted,
 			leased: Leased,

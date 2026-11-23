@@ -25,8 +25,9 @@ const planContract: FieldDomain = { kind: "contract", name: "Plan", bits: 32, mi
  * world reaches. A note's document
  * exists (a foreign key); an organization's documents differ in their word counts (a candidate key, a unique index); a
  * plan is at most five (a row check), and lies in 0..9 by its contract Plan (a domain
- * CHECK), so a plan of six to nine breaks the check and one past nine the domain. Doc and Note are mutable, so a put of
- * a document or a note replaces it in place; a note is keyed by its number `no`.
+ * CHECK), so a plan of six to nine breaks the check and one past nine the domain. Doc, Share and Note are open, mutable
+ * in the units their keys lead with, so a put of a document or a note replaces it in place and a share is revoked by its
+ * delete; a note is keyed by its number `no`. Org and Visit are closed, their facts inserted, never changed or deleted.
  *
  * Two contexts read the verified token: Session { sub } from the payload's top level, and Tenant { org, seats } from
  * its `t` claim object, seats an int8 a token carries as a JSON number or a string of digits, so a token's wild forms
@@ -65,7 +66,7 @@ export const docsBase: BaseSpec = {
 				{ name: "user", domain: subject }
 			],
 			key: ["doc", "user"],
-			mutability: "immutable"
+			mutability: "mutable"
 		},
 		{
 			name: "Note",

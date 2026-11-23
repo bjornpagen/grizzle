@@ -195,14 +195,14 @@ export interface GrizzleOp {
 
 /**
  * A direct writer's statement: an INSERT of a fact; a DELETE of the fact at a primary key (none there, a zero-row
- * DELETE); an UPDATE of a Note fact's label by its id; or an UPDATE of an Item fact, which no world role may
- * run on an immutable relation (42501).
+ * DELETE) of an open relation; an UPDATE of a Note fact's label by its id; or an UPDATE of a Ref fact's item, which no
+ * world role may run on a closed relation (42501).
  */
 export type Statement =
 	| { readonly kind: "insert"; readonly relation: Rel; readonly fact: Fact }
 	| { readonly kind: "delete"; readonly relation: Rel; readonly key: Fact }
 	| { readonly kind: "update"; readonly id: string; readonly label: string }
-	| { readonly kind: "updateImmutable"; readonly id: string; readonly label: string }
+	| { readonly kind: "updateClosed"; readonly id: string; readonly item: string }
 
 const at = (relation: Rel, facts: ReadonlyArray<Fact>, key: Fact): ReadonlyArray<Fact> =>
 	Arr.filter(facts, (f) => project(f, primaryKeyOf[relation]) === identity(key))
@@ -395,7 +395,7 @@ const directStep = (
 				rows: held.length
 			}
 		}
-		case "updateImmutable":
+		case "updateClosed":
 			return { kind: "failed", code: "42501" }
 	}
 }

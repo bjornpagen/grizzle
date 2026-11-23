@@ -586,16 +586,25 @@ type Holding = (desc: unknown) => {
 }
 
 /** A schema's levels with no statement, each relation kept at its level. */
-const withoutStatements = (level: SrcSchemaDesc): SrcSchemaDesc => ({
+/**
+ * `level` and every level below it holding its unit statements alone: a mutable statement is owned only over a relation
+ * under a unit (schema/own.ts ownUnits), which every other statement owns beside as it owns nothing else.
+ */
+const unitsAlone = (level: SrcSchemaDesc): SrcSchemaDesc => ({
 	...level,
-	statements: [],
-	bases: level.bases[0] === undefined ? [] : [withoutStatements(level.bases[0])]
+	statements: Arr.filter(level.statements, isUnitStatement),
+	bases: level.bases[0] === undefined ? [] : [unitsAlone(level.bases[0])]
 })
 
+/** Whether a statement description is a unit's, which ownership owns as it was stated. */
+const isUnitStatement = (desc: unknown): boolean =>
+	typeof desc === "object" && desc !== null && "kind" in desc && desc.kind === "unit"
+
 /**
- * `desc` owned alone at the lowest level of `bare`, a description with no statement, that admits it: a level states a
- * law only over its own relations and through the ones below it as its level allows (schema/own.ts LevelRefused), so a
- * statement of a lower level is owned at that level, under the levels below it; the top level's refusal when none does.
+ * `desc` owned at the lowest level of `bare`, a description holding its units alone, that admits it beside them: a
+ * level states a law only over its own relations and through the ones below it as its level allows (schema/own.ts
+ * LevelRefused), so a statement of a lower level is owned at that level, under the levels below it; the top level's
+ * refusal when none does.
  */
 const ownedAtItsLevel = (
 	bare: SrcSchemaDesc,
@@ -604,26 +613,33 @@ const ownedAtItsLevel = (
 	const below = bare.bases[0] === undefined ? undefined : ownedAtItsLevel(bare.bases[0], desc)
 	return below?.ok === true
 		? below
-		: Result.flatMap(parseSchemaInput({ ...bare, statements: [desc] }), ownInput)
+		: Result.flatMap(
+				parseSchemaInput({ ...bare, statements: [desc, ...bare.statements] }),
+				ownInput
+			)
 }
 
 /**
- * The identity text of the owned statement `desc` is: own itself owns it over `base`'s levels, at the lowest level
- * holding the statement alone, or refuses it there, such as a statement over a relation `base` does not declare. The statement is
- * the caller's value: the schema boundary parses it before ownership reads it.
+ * The identity text of the owned statement `desc` is: own itself owns it over `base`'s levels beside their units, at the
+ * lowest level holding the statement, or refuses it there, such as a statement over a relation `base` does not declare;
+ * of what that level owns, the statement is the one its units are not, or the unit `desc` itself is. The statement is the
+ * caller's value: the schema boundary parses it before ownership reads it.
  */
 export const ownedStatementText = (
 	base: SrcSchemaDesc,
 	desc: unknown
 ): Result.Result<string, CompileError> =>
-	Result.map(ownedAtItsLevel(withoutStatements(base), desc), (alone) => {
-		const [owned, ...more] = alone.statements
-		if (owned === undefined || more.length > 0) {
+	Result.map(ownedAtItsLevel(unitsAlone(base), desc), (owned) => {
+		const statements = isUnitStatement(desc)
+			? Arr.filter(owned.statements, (s) => identityText(s) === identityText(desc))
+			: Arr.filter(owned.statements, (s) => s.kind !== "unit")
+		const [statement, ...more] = statements
+		if (statement === undefined || more.length > 0) {
 			throw new Error(
-				`ownership owns the statement ${identityText(desc)} as ${alone.statements.length} statements`
+				`ownership owns the statement ${identityText(desc)} as ${statements.length} statements`
 			)
 		}
-		return identityText(owned)
+		return identityText(statement)
 	})
 
 /**

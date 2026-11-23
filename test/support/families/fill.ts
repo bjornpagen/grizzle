@@ -1988,9 +1988,9 @@ const refillsOf = (
  * - `stepped copy`: a mutable owner of a counted or an ordered family over a mutable member, which copies its owner's
  *   `v` along the family's owner axis, and the family's sum fold steps that copy, so a put of the owner changes what
  *   the fold's every step reads;
- * - `re-placed owner`, `re-placed immutable owner`: a mutable owner's ordered family whose member, mutable or immutable,
- *   owns a counted family, its members copying the member's index or nothing, so a delete or a move of a member
- *   re-places the members after it beneath their own counted members;
+ * - `re-placed owner`: a mutable owner's ordered family whose mutable member owns a counted family, its members copying
+ *   the member's index or nothing, so a delete or a move of a member re-places the members after it beneath their own
+ *   counted members (a closed member, whose facts are never deleted or moved, re-places nothing);
  * - `generated copy`: a copy along a counted or an ordered family's owner axis of its owner's generated `g`.
  */
 export type Planted =
@@ -2009,7 +2009,6 @@ export type Planted =
 	| "siblings' ends"
 	| "stepped copy"
 	| "re-placed owner"
-	| "re-placed immutable owner"
 	| "generated copy"
 	| "counted step of a sequence's copy"
 	| "unit cycle"
@@ -2184,20 +2183,6 @@ export const plantedGen =
 						}
 					],
 					copies: [{ family: 0, axis: "owner", source: { kind: "generated" } }],
-					steps: []
-				}
-			case "re-placed immutable owner":
-				return {
-					relations: [
-						{ ...relations[0], mutable: true },
-						{ ...relationGen(), mutable: false },
-						{ ...relationGen(), mutable: true }
-					],
-					families: [
-						{ kind: "ordered", owner: 0, member: 1, fold: fold() },
-						{ kind: "counted", owner: 1, member: 2, fold: fold() }
-					],
-					copies: [],
 					steps: []
 				}
 			case "re-placed owner":

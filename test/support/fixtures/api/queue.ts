@@ -14,6 +14,7 @@ import {
 	role,
 	type Schema,
 	schema,
+	unit,
 	type Statement,
 	type StatementsByName,
 	wholeEntriesOf
@@ -82,12 +83,18 @@ export const Seat = relation("Seat", { resource: closedId(Resource), seat: SeatN
  * the same names, rather than a bare `match(claimable, ...)` and `v(pick, "pick")`. The put of Leased binds only key, epoch and
  * seat, the fields it reads, as its IR states; `r.match(pick, p)` with `p = v(pick, "pick")` binds every field of pick, which
  * is the same set of facts.
+ *
+ * An item's rows, keyed by it, sit in its unit, and those a claim or a settlement changes are open: Work, whose standing
+ * and epoch move, Wanted, deleted at its claim, and Leased, put at its claim and deleted at its settlement.
  */
 export const Queue = schema(
 	"Queue",
 	[Standing, QueueKind, Resource, Outcome, Reason, QueueWork, Wanted, Leased, Done, Denied, Seat],
 	[
+		unit("Item", { key: Digest }),
 		mutable(QueueWork),
+		mutable(Wanted),
+		mutable(Leased),
 		alternatives(QueueWork, "standing", Standing, {
 			wanted: Wanted,
 			leased: Leased,

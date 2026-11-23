@@ -27,6 +27,7 @@ import {
 	on,
 	onWhere,
 	relation,
+	unit,
 	value
 } from "#test/support/fixtures/ir/desc.ts"
 
@@ -269,6 +270,8 @@ const payrollStatements: ReadonlyArray<AuthoredStatementDesc> = [
 	key(on("Employer", ["ein"])),
 	key(on("Employee", ["employer", "code"])),
 	key(on("PayLine", ["run", "employee"])),
+	unit("Entity", { id: f.uuid }),
+	unit("Employee", { employee: f.uuid }),
 	mutable("PayRun"),
 	mutable("Shift"),
 	mutable("Timesheet"),

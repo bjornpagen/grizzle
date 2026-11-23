@@ -224,7 +224,7 @@ const membersOf: { readonly [R in Written]: Arr.NonEmptyReadonlyArray<Gen<Member
 	],
 	Code: [enumerated("insert", "Code", 1), enumerated("put", "Code", 1)],
 	Room: [enumerated("insert", "Room", 1), enumerated("put", "Room", 1)],
-	Ref: [enumerated("insert", "Ref", 1), enumerated("delete", "Ref", 1)],
+	Ref: [enumerated("insert", "Ref", 1)],
 	Zed: [enumerated("put", "Zed", 1)]
 }
 
@@ -305,6 +305,9 @@ const servingOf = (
 /** The relations `app` and `direct` hold and write: every one but `inserter`'s Badge and Gate. */
 const shared: Arr.NonEmptyReadonlyArray<Rel> = ["Item", "Note", "Code", "Room", "Ref", "Zed"]
 
+/** The shared relations a direct writer deletes from: the open ones, every one but the closed Ref. */
+const deletable: Arr.NonEmptyReadonlyArray<Rel> = ["Item", "Note", "Code", "Room", "Zed"]
+
 const statementGen: Gen<Statement> = weighted([
 	[
 		6,
@@ -316,7 +319,7 @@ const statementGen: Gen<Statement> = weighted([
 	[
 		4,
 		(source): Statement => {
-			const relation = source.draw(element(shared))
+			const relation = source.draw(element(deletable))
 			const f = source.draw(factGens[relation])
 			return { kind: "delete", relation, key: relation === "Room" ? f.slice(0, 3) : f.slice(0, 1) }
 		}
@@ -332,9 +335,9 @@ const statementGen: Gen<Statement> = weighted([
 	[
 		1,
 		(source): Statement => ({
-			kind: "updateImmutable",
+			kind: "updateClosed",
 			id: source.draw(idGen),
-			label: source.draw(labelGen)
+			item: source.draw(idGen)
 		})
 	]
 ])
@@ -704,8 +707,8 @@ const sqlOf = (o: Opened) => {
 				return `DELETE FROM ${t(s.relation)} WHERE ${keyCondition(s.relation, s.key)}`
 			case "update":
 				return `UPDATE ${t("Note")} SET ${o.names.column(Note, "label")} = '${s.label}' WHERE ${o.names.column(Note, "id")} = ${s.id}`
-			case "updateImmutable":
-				return `UPDATE ${t("Item")} SET ${o.names.column(Item, "label")} = '${s.label}' WHERE ${o.names.column(Item, "id")} = ${s.id}`
+			case "updateClosed":
+				return `UPDATE ${t("Ref")} SET ${o.names.column(Ref, "item")} = ${s.item} WHERE ${o.names.column(Ref, "id")} = ${s.id}`
 		}
 	}
 	/** The owner's reset to a state, written whole (rig.replace truncates every relation's table): the state's facts. */
@@ -747,8 +750,8 @@ const statementRelation = (s: Statement): Rel => {
 			return s.relation
 		case "update":
 			return "Note"
-		case "updateImmutable":
-			return "Item"
+		case "updateClosed":
+			return "Ref"
 	}
 }
 
@@ -1052,7 +1055,6 @@ export const situations: Arr.NonEmptyReadonlyArray<RaceFeature> = [
 	"put target onConflictDoUpdate",
 	"put target updateFrom",
 	"put target merge",
-	"pair reason immutable",
 	"pair reason candidateKey",
 	"pair reason spanKey",
 	"pair reason pureSet",

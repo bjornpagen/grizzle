@@ -24,7 +24,8 @@ import {
 	race,
 	relation,
 	role,
-	schema
+	schema,
+	unit
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { workload } from "#compiler/public/workload.ts"
@@ -98,6 +99,9 @@ const shared = { Item, Note, Code, Room, Ref, Zed } as const
 const relations = { ...shared, Badge, Gate, Claim, Seat } as const
 const written = ["Item", "Note", "Code", "Room", "Ref", "Zed"] as const
 const statements = [
+	unit("Id", { id: pg.integer }),
+	unit("Room", { room: pg.integer }),
+	mutable(Item),
 	mutable(Note),
 	mutable(Code),
 	mutable(Room),
@@ -187,13 +191,13 @@ const schedSchema = (name: string) => schema(name, Rec.values(relations), statem
  * Every table, column and law a schedule names comes from the installation (`names`).
  *
  * The relations, each the shape of a put target or a transient reason:
- * - Item: immutable (the pinned default), keyed by id: the insert protocol, and a put's DELETE-then-insert pair;
+ * - Item: `mutable`, keyed by id, the target of Ref's deferred foreign key: a put in place, ON CONFLICT DO UPDATE;
  * - Note: `mutable`, keyed by id: a put in place, ON CONFLICT DO UPDATE, UPDATE ... FROM or MERGE by its member;
  * - Code: `mutable`, keyed by id, with the candidate key code: a unique object beside the arbiter (UnseenOccupant), and
  *   a put that stays the pair for its candidate key;
  * - Room: `mutable`, a span key (room, during): WITHOUT OVERLAPS (SpanKeyChange), a put that stays the pair;
- * - Ref: an immutable relation whose foreign key into Item is deferred (Item holds a payload, so it is no pure set): a
- *   law at COMMIT beside the writes;
+ * - Ref: closed, its facts inserted, never changed or deleted, whose foreign key into Item is deferred (Item holds a
+ *   payload, so it is no pure set): a law at COMMIT beside the writes, and an UPDATE no role holds (42501);
  * - Zed: a `mutable` pure set, the blocker: an apply whose later stratum inserts a Zed fact a direct writer holds waits
  *   there, holding everything its earlier statements did, so a race can act between two statements of one grizzle
  *   transaction; and a put of it is the pair for a pure set;

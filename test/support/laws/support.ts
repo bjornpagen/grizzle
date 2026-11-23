@@ -360,7 +360,8 @@ export type Domains = Readonly<Record<string, Readonly<Record<string, ReadonlyAr
 
 /**
  * The features a case's step swarm turns on, off or weighs: each op kind, and each way a fact is drawn. A member's op is
- * one the swarm turns on, insert when it turns on none; its first fact is drawn, stored or linked, drawn when the swarm
+ * one the swarm turns on, insert when it turns on none or its relation is closed; its first fact is drawn, stored or
+ * linked, drawn when the swarm
  * turns on none of them, and each later fact one of those or a sibling. The member sketch states the op kind and the
  * fact modes the swarm chose by name, so resolving a step reads no swarm and a planted member names what it writes.
  */
@@ -577,7 +578,8 @@ export const resolveStep = (
 			continue
 		}
 		const relation = pickIn(host.relations, o.relation, "the relations")
-		const kind: OpKind = o.kind
+		/** A closed relation's facts are inserted, never changed or deleted: a member of one inserts whatever its sketch's op. */
+		const kind: OpKind = relation.mutable ? o.kind : "insert"
 		const domain = domains[relation.name]
 		if (domain === undefined) {
 			throw new Error(`no domains for ${relation.name}`)
@@ -863,8 +865,9 @@ const resolveUnselected = (
 }
 
 /**
- * An unlink member, resolved against the state the step's earlier members `ops` leave: the deletion of one fact that a
- * fact there needs, or nothing when no fact needs another.
+ * An unlink member, resolved against the state the step's earlier members `ops` leave: the deletion of one fact of an
+ * open relation that a fact there needs, or nothing when no such fact is needed, a closed relation's facts never being
+ * deleted.
  */
 const resolveUnlink = (
 	host: HostSchema,
@@ -874,7 +877,10 @@ const resolveUnlink = (
 ): ReadonlyArray<HostOp> => {
 	const before = transition(host, state, ops)
 	const facts = (relation: string) => defined(before.get(relation), `the state's ${relation} facts`)
-	const references = Arr.flatMap(host.laws, needs)
+	const references = Arr.filter(
+		Arr.flatMap(host.laws, needs),
+		({ to }) => relationOf(host, to.relation).mutable
+	)
 	const needed = Arr.flatMap(references, ({ from, to }) =>
 		Arr.map(
 			Arr.filter(

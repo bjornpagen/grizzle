@@ -542,19 +542,41 @@ const standingOf = (
 
 /**
  * The threats that take effect from the initial state: inserting a source or the anchor always does, and the others
- * need the stored fact they replace, delete, insert again or move. "insert source" is the floor.
+ * need the stored fact they replace, delete, insert again or move. "insert source" is the floor. A threat that changes
+ * or deletes a fact takes effect only on an open relation, mutable inside its unit: a closed relation's facts are
+ * inserted, never changed or deleted, so a race over closed relations inserts alone. A retirement deletes the anchor
+ * and every fact it orphans, each of an open relation.
  */
-const applicableThreats = (standing: Standing): Arr.NonEmptyReadonlyArray<ThreatKind> => [
-	"insert source",
-	"insert anchor",
-	...(standing.held.kind === "absent"
-		? []
-		: (["replace anchor", "delete anchor", "retire anchor"] as const)),
-	...(standing.linked.length > 0
-		? (["delete source", "replace source", "reinsert source"] as const)
-		: []),
-	...(standing.linked.length + standing.elsewhere.length > 0 ? (["move source"] as const) : [])
-]
+const applicableThreats = (
+	env: RaceModel,
+	t: Threatened,
+	standing: Standing
+): Arr.NonEmptyReadonlyArray<ThreatKind> => {
+	const open = (relation: string): boolean => relationOf(env.host, relation).mutable
+	const anchorOpen = open(t.anchor.relation)
+	const sourceOpen = open(t.source.relation)
+	const held = standing.held
+	const retirable =
+		held.kind === "stored" &&
+		Arr.every(retired(env, standing.state, { relation: t.anchor.relation, fact: held.fact }), (p) =>
+			open(p.relation)
+		)
+	return [
+		"insert source",
+		"insert anchor",
+		...(held.kind === "absent" || !anchorOpen
+			? []
+			: (["replace anchor", "delete anchor"] as const)),
+		...(retirable ? (["retire anchor"] as const) : []),
+		...(standing.linked.length > 0 && sourceOpen
+			? (["delete source", "replace source"] as const)
+			: []),
+		...(standing.linked.length > 0 ? (["reinsert source"] as const) : []),
+		...(sourceOpen && standing.linked.length + standing.elsewhere.length > 0
+			? (["move source"] as const)
+			: [])
+	]
+}
 
 /** What one threat to the anchor writes from the initial state; an applicable threat writes at least one fact. */
 const threatOps = (
@@ -771,7 +793,7 @@ const seededRace = (
 		}
 	}
 	const standing = standingOf(env, t, initial, anchor, at)
-	return { t, standing, applicable: applicableThreats(standing) }
+	return { t, standing, applicable: applicableThreats(env, t, standing) }
 }
 
 /** The fact a planted writer's statement names: the first fact its first threat writes, or the anchor. */
@@ -1157,8 +1179,8 @@ interface WindowStart {
 const windowStartsOf = <P>(
 	h: HistoryFamily<P>,
 	variants: Arr.NonEmptyReadonlyArray<P>
-): Arr.NonEmptyReadonlyArray<WindowStart> => {
-	const starts = Arr.flatMap(variants, (p, variant) => {
+): ReadonlyArray<WindowStart> =>
+	Arr.flatMap(variants, (p, variant) => {
 		const env: RaceModel = { host: h.family.host(p), domains: h.family.domains }
 		const laws = Arr.flatMap(env.host.laws, threatened).length
 		return Arr.flatMap(
@@ -1188,13 +1210,6 @@ const windowStartsOf = <P>(
 				})
 		)
 	})
-	if (!Arr.isReadonlyArrayNonEmpty(starts)) {
-		throw new Error(
-			`no law of a ${modeOf(h.family.host(Arr.headNonEmpty(variants)))} schema of ${h.family.label} has an anchor a direct writer can replace`
-		)
-	}
-	return starts
-}
 
 /**
  * A race case shaped for a replacement's window, reaching it by construction: a mode drawn, then one of its window
@@ -1240,12 +1255,17 @@ const onDrawnSchema =
  */
 const raceCaseGen = (
 	variants: number,
-	windows: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<WindowStart>>,
+	windows: ReadonlyArray<Arr.NonEmptyReadonlyArray<WindowStart>>,
 	skews: ReadonlyArray<SkewStart>
 ): Gen<RaceCase> =>
 	weighted([
 		[6, onDrawnSchema(variants, raceSketchGen)],
-		[1, windowCaseGen(windows)],
+		[
+			1,
+			Arr.isReadonlyArrayNonEmpty(windows)
+				? windowCaseGen(windows)
+				: onDrawnSchema(variants, raceSketchGen)
+		],
 		[
 			1,
 			Arr.isReadonlyArrayNonEmpty(skews)
@@ -1303,6 +1323,23 @@ const situations: Arr.NonEmptyReadonlyArray<RaceFeature> = [
 	"inside a replacement's window",
 	"refused by the guard"
 ]
+
+/**
+ * What a population over closed relations alone must reach: its insertions and a planted writer refused by the guard.
+ * Its facts are inserted, never changed or deleted, so no threat moves, replaces or deletes one, no replacement opens a
+ * window, and from a lawful seed whose anchor is stored an insertion meets no lock and changes nothing a writer's
+ * acceptance needs.
+ */
+const closedSituations: Arr.NonEmptyReadonlyArray<RaceFeature> = [
+	"threat: insert source",
+	"threat: insert anchor",
+	"threat: reinsert source",
+	"refused by the guard"
+]
+
+/** What a population must reach by its mode: every situation where a relation is open, its insertions where none is. */
+const situationsOf = (mode: Mode): Arr.NonEmptyReadonlyArray<RaceFeature> =>
+	mode === "mutable" ? situations : closedSituations
 
 /**
  * Whether another session's move was issued between a replacing session's first move, its first replacement's
@@ -1486,8 +1523,8 @@ const modeRaces = <P>(h: HistoryFamily<P>, population: Population<P>) => {
 	const reach: Arr.NonEmptyReadonlyArray<RaceFeature> = Arr.isReadonlyArrayNonEmpty(
 		skewStartsOf(h, variants)
 	)
-		? Arr.append(situations, "write skew")
-		: situations
+		? Arr.append(situationsOf(population.mode), "write skew")
+		: situationsOf(population.mode)
 	return { mode: population.mode, variants, windows, reach }
 }
 
@@ -1510,9 +1547,10 @@ export const raceSuite = <P>(declaredIn: ImportMeta, h: HistoryFamily<P>) => {
 		offset: Arr.reduce(Arr.take(populations, i), 0, (n, q) => n + q.variants.length)
 	}))
 	const variants = Arr.flatMap(placed, (q) => q.variants)
-	const windows: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<WindowStart>> = Arr.map(
-		placed,
-		(q) => Arr.map(q.windows, (w) => ({ ...w, variant: w.variant + q.offset }))
+	const windows: ReadonlyArray<Arr.NonEmptyReadonlyArray<WindowStart>> = Arr.flatMap(placed, (q) =>
+		Arr.isReadonlyArrayNonEmpty(q.windows)
+			? [Arr.map(q.windows, (w) => ({ ...w, variant: w.variant + q.offset }))]
+			: []
 	)
 	const reach: Situations<RaceFeature> = Arr.flatMap(placed, (q) =>
 		Arr.map(q.reach, (f) => [q.mode, f] as const)

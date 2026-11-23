@@ -11,7 +11,7 @@ import { quoteIdent } from "#compiler/core/text.ts"
 import type { WriteOutcome } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg, span } from "#compiler/public/fields.ts"
-import { key, login, on, relation, role, schema } from "#compiler/public/schema.ts"
+import { key, login, mutable, on, relation, role, schema, unit } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { threeKeys, twoKeys } from "#test/schedules/write/support.ts"
 import { writeAnswerOf, type WriteAnswer } from "#test/support/calls.ts"
@@ -40,7 +40,13 @@ const bookingSpan = key(on(Booking, "room", "during"))
 
 const bookingRef = key(on(Booking, "ref"))
 const relations = Object.freeze({ Booking })
-const statements = Object.freeze([bookingSpan, bookingRef])
+/** Booking is open, a put displacing its rows, mutable in the unit of its id; its candidate keys keep the put a pair. */
+const statements = Object.freeze([
+	bookingSpan,
+	bookingRef,
+	unit("Booking", { id: pg.integer }),
+	mutable(Booking)
+])
 
 /**
  * The schema under its installed name with its worlds: the full role `app` the grizzle writer opens, in the login
