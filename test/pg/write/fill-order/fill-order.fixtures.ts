@@ -109,7 +109,6 @@ export type ClusterSituation =
 	| "a follow-up that refills a fold stepping a copy"
 	| "a follow-up that draws a stored counted group whole"
 	| "a follow-up that re-places an owner of counted members"
-	| "a follow-up that re-places an immutable owner of counted members"
 	| "a follow-up that moves an owner of counted members to another owner's group"
 	| "a follow-up that moves an owner whose counted members copy its index"
 	| "a chain along a predecessor axis"
@@ -136,7 +135,6 @@ export const situations: Arr.NonEmptyReadonlyArray<ClusterSituation> = [
 	"a follow-up that refills a value it leaves stale",
 	"a follow-up that refills a fold stepping a copy",
 	"a follow-up that re-places an owner of counted members",
-	"a follow-up that re-places an immutable owner of counted members",
 	"a follow-up that moves an owner of counted members to another owner's group",
 	"a follow-up that moves an owner whose counted members copy its index",
 	"a chain along a predecessor axis",
@@ -330,14 +328,6 @@ export const aims: ReadonlyArray<readonly [ClusterSituation, Gen<ClusterCase>]> 
 		"a follow-up that re-places an owner of counted members",
 		caseOver(
 			plantedGen("re-placed owner"),
-			(spec) => constant(fullInstance(spec)),
-			(spec, rows) => replacingGen(spec, rows, 0)
-		)
-	],
-	[
-		"a follow-up that re-places an immutable owner of counted members",
-		caseOver(
-			plantedGen("re-placed immutable owner"),
 			(spec) => constant(fullInstance(spec)),
 			(spec, rows) => replacingGen(spec, rows, 0)
 		)
@@ -547,42 +537,6 @@ const generatedPredecessor: ClusterCase = {
 		{ relation: 1, id: 2, v: 2n, memberOf: [{ family: 0, owner: 1, slot: 0 }] },
 		{ relation: 1, id: 3, v: 3n, memberOf: [{ family: 0, owner: 1, slot: 1 }] },
 		{ relation: 1, id: 4, v: 4n, memberOf: [{ family: 0, owner: 1, slot: 2 }] }
-	],
-	followUp: Option.some({
-		owner: 0,
-		row: 1,
-		put: Option.none(),
-		inserted: [],
-		removed: Option.some({ id: 2, family: 0 }),
-		appended: Option.none(),
-		moved: Option.none()
-	})
-}
-
-/**
- * The case the search found updating an immutable relation in place: R1, immutable, is a member of R0's ordered family
- * and owns R2's counted one. A follow-up deletes R1's first member under R0, re-placing the second, which owns an R2
- * member; the removals write no UPDATE of R1, on which no role holds UPDATE, and re-place every R1 row they write.
- */
-const replacedImmutableOwner: ClusterCase = {
-	spec: {
-		relations: [
-			{ generated: noGeneration, mutable: true },
-			{ generated: noGeneration, mutable: false },
-			{ generated: noGeneration, mutable: true }
-		],
-		families: [
-			{ kind: "ordered", owner: 0, member: 1, fold: "none" },
-			{ kind: "counted", owner: 1, member: 2, fold: "none" }
-		],
-		copies: [],
-		steps: []
-	},
-	rows: [
-		{ relation: 0, id: 1, v: 1n, memberOf: [] },
-		{ relation: 1, id: 2, v: 2n, memberOf: [{ family: 0, owner: 1, slot: 0 }] },
-		{ relation: 1, id: 3, v: 3n, memberOf: [{ family: 0, owner: 1, slot: 1 }] },
-		{ relation: 2, id: 4, v: 4n, memberOf: [{ family: 1, owner: 3, slot: 0 }] }
 	],
 	followUp: Option.some({
 		owner: 0,
@@ -1151,9 +1105,6 @@ export const checkCase = (
 			if (Arr.isReadonlyArrayNonEmpty(replacedOwners)) {
 				c.note("a follow-up that re-places an owner of counted members")
 			}
-			if (Arr.some(replacedOwners, (x) => !relationAt(spec, x.relation).mutable)) {
-				c.note("a follow-up that re-places an immutable owner of counted members")
-			}
 			if (
 				Option.exists(f.moved, (moved) =>
 					Arr.some(rows, (y) => Arr.some(y.memberOf, (m) => m.owner === moved.id))
@@ -1212,7 +1163,9 @@ export const checkCase = (
 
 /**
  * The planted cases the first-insert property kept by value, each a red it once caught, which the steered space reaches
- * beyond toolchain-test keep (717 s, all ten UNFOUND), recorded beside it (gen.ts recorded).
+ * beyond toolchain-test keep (717 s, all ten UNFOUND), recorded beside it (gen.ts recorded); a tenth, a delete
+ * re-placing the members of an immutable relation, goes with the closed rule, under which no delete names a closed
+ * relation's facts.
  */
 export const recordedFirstInserts: Arr.NonEmptyReadonlyArray<ClusterCase> = [
 	replacedOwner,
@@ -1221,7 +1174,6 @@ export const recordedFirstInserts: Arr.NonEmptyReadonlyArray<ClusterCase> = [
 	replacedCountedMember,
 	ownerPutBesideAppend,
 	generatedPredecessor,
-	replacedImmutableOwner,
 	ownerPutBesideRemoval,
 	movedSequenceCopy,
 	ownerPutBesideReplacedCountedMember

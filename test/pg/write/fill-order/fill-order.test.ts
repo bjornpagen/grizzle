@@ -139,7 +139,7 @@ export const theFillOrderOnTheClusterAnAdmittedSchemaInstallsAndItsInstancesFirs
 						"test/pg/write/fill-order/fill-order.test.ts#theFillOrderOnTheClusterAnAdmittedSchemaInstallsAndItsInstancesFirstInsertStoresTheReferenceWritersRows:-:7"
 					),
 					reason:
-						"a delete of an ordered family's member re-places the next, an immutable owner of a counted member",
+						"an owner's put beside a delete of its ordered family's first member, which appends nothing",
 					since: "2026-11-19"
 				},
 				{
@@ -147,20 +147,12 @@ export const theFillOrderOnTheClusterAnAdmittedSchemaInstallsAndItsInstancesFirs
 						"test/pg/write/fill-order/fill-order.test.ts#theFillOrderOnTheClusterAnAdmittedSchemaInstallsAndItsInstancesFirstInsertStoresTheReferenceWritersRows:-:8"
 					),
 					reason:
-						"an owner's put beside a delete of its ordered family's first member, which appends nothing",
-					since: "2026-11-19"
-				},
-				{
-					token: ReplayToken(
-						"test/pg/write/fill-order/fill-order.test.ts#theFillOrderOnTheClusterAnAdmittedSchemaInstallsAndItsInstancesFirstInsertStoresTheReferenceWritersRows:-:9"
-					),
-					reason:
 						"a counted fold stepping its member's copy along an ordered family's owner axis, the member moved to another owner",
 					since: "2026-11-19"
 				},
 				{
 					token: ReplayToken(
-						"test/pg/write/fill-order/fill-order.test.ts#theFillOrderOnTheClusterAnAdmittedSchemaInstallsAndItsInstancesFirstInsertStoresTheReferenceWritersRows:-:a"
+						"test/pg/write/fill-order/fill-order.test.ts#theFillOrderOnTheClusterAnAdmittedSchemaInstallsAndItsInstancesFirstInsertStoresTheReferenceWritersRows:-:9"
 					),
 					reason:
 						"an owner's put beside a delete of its ordered member, re-placing another, whose copy of the owner's v along a counted family the put leaves stale",
