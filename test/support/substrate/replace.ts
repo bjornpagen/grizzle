@@ -117,8 +117,8 @@ export interface ReplacedStatement {
  * read, and a reference into the emptied tables would dangle.
  *
  * Replaces the rows of every table of `group` with what `statements` insert: the deletion that empties the group, then
- * one SERIALIZABLE transaction of the statements, on one backend of `connection`. A COMMIT that PostgreSQL answers with
- * ROLLBACK fails with TransactionRolledBack.
+ * the statements' transaction (inserted), on one backend of `connection`. A reload inside a case; a case's first load
+ * over a seat or a fresh clone, whose tables its form already emptied, is `inserted` alone.
  */
 export const replaceRows = (
 	connection: PgConnection,
@@ -126,22 +126,43 @@ export const replaceRows = (
 	statements: ReadonlyArray<ReplacedStatement>
 ): Effect.Effect<void, SqlError | TransactionRolledBack> =>
 	Effect.scoped(
-		Effect.gen(function* () {
-			const pinned = yield* connection.pin
-			yield* emptied(pinned, group)
-			yield* pinned.query("BEGIN ISOLATION LEVEL SERIALIZABLE", [])
-			yield* Effect.onError(
-				Effect.forEach(statements, (statement) => pinned.query(statement.sql, statement.params), {
-					discard: true
-				}),
-				() => Effect.ignore(pinned.query("ROLLBACK", []))
-			)
-			const committed = yield* pinned.query("COMMIT", [])
-			if (committed.command !== "COMMIT") {
-				return yield* new TransactionRolledBack({ label: "replace", command: committed.command })
-			}
-		})
+		Effect.flatMap(connection.pin, (pinned) =>
+			Effect.andThen(emptied(pinned, group), insertedOn(pinned, statements))
+		)
 	)
+
+/**
+ * `statements` in one SERIALIZABLE transaction on one backend of `connection`, for replaceRows' reasons: the rows a
+ * case starts from, written over tables its form or a deletion emptied, which hold no version a serializable
+ * transaction wrote.
+ */
+export const inserted = (
+	connection: PgConnection,
+	statements: ReadonlyArray<ReplacedStatement>
+): Effect.Effect<void, SqlError | TransactionRolledBack> =>
+	Effect.scoped(Effect.flatMap(connection.pin, (pinned) => insertedOn(pinned, statements)))
+
+/**
+ * `statements` between BEGIN ISOLATION LEVEL SERIALIZABLE and COMMIT on `pinned`, rolled back when one fails. A COMMIT
+ * that PostgreSQL answers with ROLLBACK fails with TransactionRolledBack.
+ */
+const insertedOn = (
+	pinned: PgConnection,
+	statements: ReadonlyArray<ReplacedStatement>
+): Effect.Effect<void, SqlError | TransactionRolledBack> =>
+	Effect.gen(function* () {
+		yield* pinned.query("BEGIN ISOLATION LEVEL SERIALIZABLE", [])
+		yield* Effect.onError(
+			Effect.forEach(statements, (statement) => pinned.query(statement.sql, statement.params), {
+				discard: true
+			}),
+			() => Effect.ignore(pinned.query("ROLLBACK", []))
+		)
+		const committed = yield* pinned.query("COMMIT", [])
+		if (committed.command !== "COMMIT") {
+			return yield* new TransactionRolledBack({ label: "replace", command: committed.command })
+		}
+	})
 
 /**
  * Empties every table of `group` between the cases of a suite that clears its state rather than replacing it, on
