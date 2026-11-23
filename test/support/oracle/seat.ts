@@ -53,7 +53,7 @@ export class OracleSeat extends Context.Service<OracleSeat, OracleSeatShape>()(
 		reading: Effect.succeed({ connection: held.bare, ...readingSavepoint })
 	})
 	/**
-	 * An oracle case on a substrate of the case's own (Substrate.installing): an installation committed in a transaction of
+	 * An oracle case on a substrate of the case's own (Substrate.fresh): an installation committed in a transaction of
 	 * its own, a reading in its own transaction on a pinned owner session, rolled back, a schema name the substrate
 	 * allocates and drops with its roles when the case's scope closes. For a case that reads its substrate beside its seat
 	 * (its owner, its admin session), which the rolled-back seat has none of.
