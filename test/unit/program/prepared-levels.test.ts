@@ -149,10 +149,9 @@ export const eachMembersFrontEndIsCompiledOnceWhateverTheLevelsItsRoleIsCompiled
 			},
 			{
 				file: "packages/engine/src/program/workload/change.ts",
-				original:
-					"\t\t\t\tunformed: { member: program.name, relation: reason.relation, why: reason.why }\n",
+				original: "\t\t\t\tunformed: { member: program.name, relation: reason.relation }\n",
 				replacement:
-					"\t\t\t\tunformed: { member: program.name, relation: reason.relation, why: reason.why, refusal: variants.error }\n",
+					"\t\t\t\tunformed: { member: program.name, relation: reason.relation, refusal: variants.error }\n",
 				why: "A member with no READ COMMITTED form keeps the refusal that said so beside its reason, as the role's loop held it, the refusal's captured stack holding its compile's placement: an unformed role's placements outlive their compiles, and the search fails."
 			}
 		]
