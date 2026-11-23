@@ -944,6 +944,28 @@ const sessionClient = (
 const terminated = (): void => undefined
 
 /**
+ * The wait for every one of `sessions` to close (Session closed), each a Terminate on its way, all at once and
+ * interruptible as one. Interrupted, it destroys every one of them still open before it ends, whether or not the
+ * wait for that one had begun: a wait interrupted before its own fiber ran never reaches the destroy its `closed`
+ * holds, so a pool's release in a fiber already interrupted, the case of every scope an interruption closes, would
+ * return with idle sessions open, their backends alive past the release.
+ */
+const closedAll = (sessions: ReadonlyArray<Session>): Effect.Effect<void> =>
+	Effect.all(
+		Arr.map(sessions, (session) => session.closed),
+		{ concurrency: "unbounded", discard: true }
+	).pipe(
+		Effect.interruptible,
+		Effect.onInterrupt(() =>
+			Effect.sync(() => {
+				for (const session of sessions) {
+					session.destroy()
+				}
+			})
+		)
+	)
+
+/**
  * One session outside any pool over `spec`, closed with the scope as every session grizzle is done with is (Session
  * close): its Terminate written, then the wait for the server's close, which the server makes only once the session's
  * backend has exited, so a DROP DATABASE after `grizzle migrate` finds no backend of its session. `attach` is handed its client once it is connected and
@@ -1410,8 +1432,8 @@ export interface SessionPool {
  * (physical/ddl/rules.ts addRules, sql/print.ts carrierStandUp), each a table with its TOAST table and index, its row
  * types and its NOT NULL constraints: 150 tables, 642 objects, 1.8 s for one session of pantry's export suite and 6
  * to 13 s on its whole project (edullm P5, 2026-11-21), where DROP DATABASE waits 5 s. The wait has no deadline of
- * grizzle's: interrupting the release, your own timeout among the ways, ends it and destroys every connection still
- * open, as the end of a session leased then is destroyed at once.
+ * grizzle's: interrupting the release, or the fiber whose scope it closes, your own timeout among the ways, ends it and
+ * destroys every connection still open (closedAll), as the end of a session leased then is destroyed at once.
  */
 export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, Scope.Scope> =>
 	Effect.gen(function* () {
@@ -1588,15 +1610,14 @@ export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, 
 		 * The pool's end (see makePool): pg's Pool ended, which gives each idle client its Terminate; the wire of every
 		 * client no lease may still run on destroyed, one connecting, handed to a lease or leased, a ready one's through
 		 * its session; every ask still unsettled refused with LayerReleased, the queue emptied with them; then the wait
-		 * for every other session's close (Session closed), each the server makes once its backend has exited, all at once
-		 * and interruptible as one, though the release runs uninterruptibly, so an interruption reaches each wait and
-		 * destroys every connection still open. A connecting ask's attempt answers nobody after: pg's later
-		 * answer, if any comes, goes back to the ended pool with its permit.
+		 * for every other session's close (closedAll), though the release runs uninterruptibly, so an interruption,
+		 * the release's own or the one whose scope it closes, destroys every connection still open. A connecting ask's
+		 * attempt answers nobody after: pg's later answer, if any comes, goes back to the ended pool with its permit.
 		 */
 		const end = (): Effect.Effect<void> => {
 			native.end(terminated)
 			const held = new Set<PgClient>([...leased, ...handed.values()])
-			const closing: Array<Effect.Effect<void>> = []
+			const closing: Array<Session> = []
 			for (const [client, socket] of wires) {
 				const session = sessions.get(client)
 				if (session === undefined) {
@@ -1604,7 +1625,7 @@ export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, 
 				} else if (held.has(client)) {
 					session.destroy()
 				} else {
-					closing.push(session.closed)
+					closing.push(session)
 				}
 			}
 			permits = permits._tag === "waiting" ? exhausted : permits
@@ -1615,7 +1636,7 @@ export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, 
 				}
 				settle(ask, layerReleased())
 			}
-			return Effect.interruptible(Effect.all(closing, { concurrency: "unbounded", discard: true }))
+			return closedAll(closing)
 		}
 		yield* Effect.addFinalizer(() => Effect.suspend(end))
 		yield* Effect.sync(() => {

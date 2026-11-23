@@ -200,8 +200,7 @@ export const adapterSessionPoolsReleaseReturnsOnceNoBackendOfItsIdleSessionsIsLe
 		kills: [
 			{
 				file: "packages/grizzle/src/adapter/wire/session.ts",
-				original:
-					'\t\t\treturn Effect.interruptible(Effect.all(closing, { concurrency: "unbounded", discard: true }))',
+				original: "\t\t\treturn closedAll(closing)",
 				replacement: "\t\t\treturn Effect.void",
 				why: "The end writes each idle session's Terminate and returns without waiting for its close: the backends are still dropping their temporary tables when the release returns, so pg_stat_activity still holds them, as edullm's DROP DATABASE found one (P5)."
 			}
