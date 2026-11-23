@@ -60,13 +60,13 @@ export const aRuleOverAQueryJudgesTheTransactionsNetWriteAsTheRulesWholeCheckJud
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/physical/ddl/rules.ts",
+				file: "packages/engine/src/physical/ddl/deltas.ts",
 				original: '\t\t\t\t\t\tle(col("r3", "c2"), lit.int(0, types.bigint)),',
 				replacement: '\t\t\t\t\t\tle(col("r3", "c2"), lit.int(-1, types.bigint)),',
 				why: "The judge's netting keeps an image whose puts and removals cancel, so a row a transaction put and removed is judged as if it stood, and a transaction that leaves the rules kept is refused."
 			},
 			{
-				file: "packages/engine/src/physical/ddl/rules.ts",
+				file: "packages/engine/src/physical/ddl/deltas.ts",
 				original: "\tconst removed = rows === transitionTables.olds",
 				replacement: "\tconst removed = false",
 				why: "A removal is counted as a put on the side of news, so a row a transaction put and removed sums to two and is judged as if it stood."

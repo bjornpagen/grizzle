@@ -55,20 +55,20 @@ export const aJudgedCommitLeavesEverySessionTableItWroteEmptyEachDeltaOfThemWith
 				why: "The session's deltas and sentinel are ON COMMIT DELETE ROWS, as before, so every COMMIT that touched them truncates each one the session holds, the sentinel among them, which holds no page after it."
 			},
 			{
-				file: "packages/engine/src/physical/ddl/rules.ts",
-				original: "\t\t\tbody: [sessionTableEmptied(delta.name)]",
-				replacement: '\t\t\tbody: [{ kind: "truncateSessionTable", name: delta.name }]',
+				file: "packages/engine/src/physical/ddl/deltas.ts",
+				original: "PlStatement => sessionTableEmptied(delta.name)",
+				replacement: 'PlStatement => ({ kind: "truncateSessionTable", name: delta.name })',
 				why: "Each part truncates every delta it read, as it did before its emptying kept a delta's file within its page: each delta the transaction wrote has a new file after the COMMIT, and every backend of the database walks every plan it holds for the invalidations."
 			},
 			{
-				file: "packages/engine/src/physical/ddl/rules.ts",
-				original: "\t\t\t\t\t},\n\t\t\t\t\trevokeOf(named, [])\n\t\t\t\t]",
-				replacement: "\t\t\t\t\t}\n\t\t\t\t]",
+				file: "packages/engine/src/physical/ddl/deltas.ts",
+				original: "\t\t\t\t},\n\t\t\t\trevokeOf(named, [])\n\t\t\t]",
+				replacement: "\t\t\t\t}\n\t\t\t]",
 				why: "A delta's reader keeps PUBLIC's EXECUTE, PostgreSQL's default for a new function, so any role of the session may run the judge's definer's reader over the run's rows."
 			},
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
-				original: "\t\t\t})),\n\t\t\t...part.deltas.map(emptied)\n",
+				original: "\t\t\t})),\n\t\t\t...part.deltas.map(emptiedWhereWritten)\n",
 				replacement: "\t\t\t}))\n",
 				why: "No part deletes the rows it read, so a delta keeps one transaction's rows past its COMMIT, and the next transaction's judge reads them again as its own."
 			}

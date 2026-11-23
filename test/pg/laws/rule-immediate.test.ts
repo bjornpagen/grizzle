@@ -56,7 +56,7 @@ export const everyWriteIsJudgedInItsTransactionAtItsStatementAfterSetConstraints
 			},
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
-				original: "\t\t\t})),\n\t\t\t...part.deltas.map(emptied)\n",
+				original: "\t\t\t})),\n\t\t\t...part.deltas.map(emptiedWhereWritten)\n",
 				replacement: "\t\t\t}))\n",
 				why: "No part deletes the rows it read, so a lawful document's rows stand in the deltas past its COMMIT."
 			}

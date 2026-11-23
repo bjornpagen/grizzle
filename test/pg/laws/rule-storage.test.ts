@@ -48,14 +48,14 @@ export const aRuleJudgesDeltaHoldsItsValuesInItsRowWhereItsRelationsWidestRowFit
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/physical/ddl/rules.ts",
+				file: "packages/engine/src/physical/ddl/deltas.ts",
 				original:
 					'\treturn rowBytes([...columns, ...count]) <= heapTupleMaxBytes ? "inline" : "toasted"',
 				replacement: '\treturn rowBytes([...columns, ...count]) < 0 ? "inline" : "toasted"',
 				why: "Every delta keeps its TOAST table, as format 6's did: Tag's delta, whose every value fits its row, is three relations, which its emptying's TRUNCATE gives new files and its session's exit drops."
 			},
 			{
-				file: "packages/engine/src/physical/ddl/rules.ts",
+				file: "packages/engine/src/physical/ddl/deltas.ts",
 				original: '\t\t\treturn "toasted"',
 				replacement: "\t\t\tcontinue",
 				why: "A delta of a field of no bound holds its values in its row too: Doc's delta has no TOAST table, and a body past a page is refused as a row too big, failing the COMMIT that wrote it."

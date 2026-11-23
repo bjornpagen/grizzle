@@ -40,7 +40,7 @@ export const aJudgedStatementCallsEachDeltasReaderOnceHoweverManyOfItsReadsReadT
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/physical/ddl/rules.ts",
+				file: "packages/engine/src/physical/ddl/deltas.ts",
 				original: '\tmaterialized: "MATERIALIZED",\n\tquery: simpleSelect(',
 				replacement: '\tmaterialized: "NOT MATERIALIZED",\n\tquery: simpleSelect(',
 				why: "PostgreSQL spells a delta's CTE at each read of it, so a whole rule's statement over a union of two rules or more over T calls T's reader once for each arm, each call reading the whole delta, as the judge's statements did when each read called the reader; the property fails."

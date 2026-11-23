@@ -276,7 +276,7 @@ export const aWholeRulesStatementsReadEveryDeltaThroughItsReader = property.exha
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/physical/ddl/rules.ts",
+				file: "packages/engine/src/physical/ddl/deltas.ts",
 				original:
 					'\t\t\t\tkind: "function",\n\t\t\t\tcall: qualifiedCall(reader.schema, reader.name, []),\n\t\t\t\talias: "r1",\n\t\t\t\tcolumns: [],',
 				replacement:
