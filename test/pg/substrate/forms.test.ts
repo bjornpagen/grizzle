@@ -6,7 +6,7 @@
  * login of the installation logging in with the credentials the case derives from the member's owner password.
  */
 import { assert } from "@bjornpagen/testing/assert"
-import { int } from "@bjornpagen/testing/gen"
+import { finite, int } from "@bjornpagen/testing/gen"
 import { property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { Db } from "#adapter/public/db.ts"
@@ -25,7 +25,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
 /** A case's own clone of an installed template holds its installation, no earlier case's rows, and its logins. */
-export const freshInstalled = property.explore(int(1, 4), {
+export const freshInstalled = property.exhaust(finite(int(1, 4)), {
 	needs: { work: Substrate.freshOf(workTemplate) },
 	situations: [],
 	check:
@@ -37,6 +37,7 @@ export const freshInstalled = property.explore(int(1, 4), {
 				yield* loggedIn(substrate, value)
 			}),
 	oracle: { kind: "specification", name: "a case's clone holds its template's installation alone" },
+	box: "every count of rows a case writes, one to four",
 	kept: [],
 	kills: [
 		{
@@ -49,7 +50,7 @@ export const freshInstalled = property.explore(int(1, 4), {
 })
 
 /** The worker's own clone of an installed template, held across cases, is its template again before every case. */
-export const seated = property.explore(int(1, 4), {
+export const seated = property.exhaust(finite(int(1, 4)), {
 	needs: { work: Substrate.seat(workTemplate) },
 	situations: [],
 	check:
@@ -61,6 +62,7 @@ export const seated = property.explore(int(1, 4), {
 				yield* loggedIn(substrate, value)
 			}),
 	oracle: { kind: "specification", name: "a seat is reset to its template after every case" },
+	box: "every count of rows a case writes, one to four",
 	kept: [],
 	kills: [
 		{
@@ -77,7 +79,7 @@ export const seated = property.explore(int(1, 4), {
  * holding no transaction id until the case writes: a logical slot's making waits for every transaction holding one
  * (substrate.ts transactionBegan), so a case's transaction holds one only once its own write assigns it.
  */
-export const rolledBack = property.explore(int(1, 4), {
+export const rolledBack = property.exhaust(finite(int(1, 4)), {
 	needs: { work: Substrate.rolledBack(workTemplate) },
 	situations: [],
 	check:
@@ -100,6 +102,7 @@ export const rolledBack = property.explore(int(1, 4), {
 		kind: "specification",
 		name: "a rolled-back case leaves its clone as its template, and holds no transaction id it did not write for"
 	},
+	box: "every count of rows a case writes, one to four",
 	kept: [],
 	kills: [
 		{
@@ -122,7 +125,7 @@ export const rolledBack = property.explore(int(1, 4), {
  * A login served over a case's own clone of a generated template (Served.of): its served layer connects to the clone
  * with the password its template derives, and its workload reads what the case wrote.
  */
-export const served = property.explore(int(1, 4), {
+export const served = property.exhaust(finite(int(1, 4)), {
 	needs: { work: Served.of(servedWorld(Work).server, Substrate.freshOf(servedTemplate)) },
 	situations: [],
 	check:
@@ -140,6 +143,7 @@ export const served = property.explore(int(1, 4), {
 				assert.equal(read.size, rows, "the served login reads the case's accounts")
 			}),
 	oracle: { kind: "specification", name: "a served login reads its case's own clone" },
+	box: "every count of rows a case writes, one to four",
 	kept: [],
 	kills: [
 		{
@@ -157,7 +161,7 @@ export const served = property.explore(int(1, 4), {
  * A case's choice among a closed set of templates (Substrate.oneOf): each key a need of its own, of which a case takes
  * only the one it draws, holding that template's installation and no row of another case's.
  */
-export const oneOfTemplates = property.explore(oneOfCase, {
+export const oneOfTemplates = property.exhaust(finite(oneOfCase), {
 	needs: Substrate.oneOf({ first: workTemplate, second: secondWorkTemplate }, Substrate.freshOf),
 	situations: [],
 	check:
@@ -171,6 +175,7 @@ export const oneOfTemplates = property.explore(oneOfCase, {
 		kind: "specification",
 		name: "a case takes the one template it draws, as its own clone"
 	},
+	box: "each of the two templates, with every count of rows a case writes, one to four",
 	kept: [],
 	kills: [
 		{

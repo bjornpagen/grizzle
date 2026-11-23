@@ -33,8 +33,32 @@ import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
 /** A schema's release drops every role under its prefix, the ones an installation created among them. */
 export const releasesEveryRoleUnderItsPrefix = property.explore(aimed(releasingGen, releaseAims), {
 	needs: { substrate: Substrate.fresh },
-	/** Its pre-conversion budget: runs 4, coverage cases 8 (substrate.test.ts:509-511 at d55043f1^). */
-	budget: { runs: 4, steered: 8 },
+	/**
+	 * Its search budget: one case of each stream, the least the runner runs, and three steered cases, one for each
+	 * situation its floor case leaves pending, each aimed at it (releaseAims).
+	 *
+	 * @limitKind measured
+	 * @owner grizzle's network tier (test/pg/substrate/substrate.test.ts)
+	 * @unit cases: the rotating stream's runs (its floor a quarter of them, rounded up), and steered cases at most
+	 * @scope one run of this property's search, on whichever worker runs it
+	 * @evidence ~/.cache/grizzle-release/CULL-SUBSTRATE/budget: `measure.sh 1 2 4` (run-<runs>.log, steered 8) and
+	 *   `measure-steered.sh 0 2 3 4 6 7` (steered-<steered>.log, runs 1), each one `toolchain-test run` of the property
+	 *   under TEST_SEED=2219874524, its search and then its kill; env.txt beside them
+	 * @observed 2026-11-23 04:49:35 to 05:00:05 UTC
+	 * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GB, shared with other lanes' runs (load
+	 *   average 400 to 546, 223 GB of memory in use); the machine's PostgreSQL 19.0 as postgres@grizzle-m-cull-substrate-0
+	 *   and -1, in memory; grizzle dbcb0992 with vendor/toolchain at its pin; Node 26.13.1
+	 * @workload this property on one worker, beside forms.test.ts's five exhaustions in the runs grid
+	 * @result at steered 8: runs 1, 2 and 4 ran 10, 11 and 13 cases, every situation reached, the kill (sql/print.ts
+	 *   quotedLines) killed. At runs 1: steered 0 left three situations unreached and 2 left "no role", each a failed
+	 *   search; steered 3, 4, 6 and 7 ran 5, 6, 8 and 9 cases, every situation reached and the kill killed. Its
+	 *   witnesses, the floor and the steered phase, are fixed by the property's identity, so each holds on every run seed
+	 * @decision runs 1 and steered 3, the least at which every situation is reached and the kill killed: 5 cases, where
+	 *   its pre-conversion budget (runs 4, coverage cases 8, substrate.test.ts:509-511 at d55043f1^) ran 13. No
+	 *   headroom: a situation the steered phase stops reaching fails the search, never passes it
+	 * @revalidate a change to releasingGen, releaseAims or releaseFeatures; a kill added; the runner's floor or steering
+	 */
+	budget: { runs: 1, steered: 3 },
 	situations: releaseFeatures satisfies ReadonlyArray<Reached<ReleaseFeature>>,
 	check: (resources, c: Case<ReleaseFeature>) => (p) =>
 		Effect.provideServiceEffect(
