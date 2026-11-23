@@ -45,7 +45,6 @@ import { succeeded } from "#test/support/assert.ts"
 import { rowsOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { servedGenerated } from "#test/support/served-db.ts"
-import { clearRows, installationGroup } from "#test/support/substrate/replace.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { tokenOf } from "#test/support/worlds.ts"
@@ -119,8 +118,6 @@ export const pgInetAndPgCidrOnPostgreSQL19GrizzleReadsEveryTextAsPostgreSQLDoesA
 								const m = generated.installed
 								const s = yield* Substrate
 								const owner = yield* s.session({ ...ownerSession(), label: "campus owner" })
-								const names = namesOf(m)
-								yield* clearRows(owner, installationGroup(names))
 								const rows = yield* owner.values(verdictsSql, [textArray(texts)])
 								const inets: Array<{
 									readonly id: number
@@ -304,7 +301,6 @@ export const netContainmentOfAContextsAddressItsDbReadsTheNetworksPostgreSQLsHol
 								const s = yield* Substrate
 								const owner = yield* s.session({ ...ownerSession(), label: "campus owner" })
 								const names = namesOf(m)
-								yield* clearRows(owner, installationGroup(names))
 								const gist = yield* owner.values(gistSql(names), [])
 								assert.equal(
 									cell(gist[0] ?? [], 0),
