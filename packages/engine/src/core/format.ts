@@ -244,6 +244,9 @@
  * partner. A unit delete of a relation that is a member of two counted families or more keeps none of a group of any of
  * them a doomed row it removes reaches, across the crossing, by one recursive read over its removed rows
  * (write/delete/unit.ts wholeAcross), where format 8 kept each family's groups by that family's own exclusions alone.
+ * An attachment whose child reads a union or a fold through a rule that matches it as it stands reads it per parent key
+ * inside its LATERAL (lower/optimize/cte-policy probedByKey, perKeyReads), where format 8 derived it whole, a
+ * MATERIALIZED CTE the LATERAL filtered.
  */
 export const artifactFormat = 8
 

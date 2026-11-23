@@ -145,8 +145,9 @@ interface Decided {
 
 /**
  * Whether every column of `columns` of `node` is bound, through the rows a node keeps of its input (ir/rel.ts
- * keptRowsOf: a filter's, a semi- or anti-join's left side's), projections of columns and every arm of a union, by one
- * occurrence of a stored relation in a region: a restriction by them is then a range of that relation, which the index
+ * keptRowsOf: a filter's, a semi- or anti-join's left side's), projections of columns, regions that read a node as it
+ * stands (`renamedSource`) and every arm of a union, by one occurrence of a stored relation in a region: a restriction
+ * by them is then a range of that relation, which the index
  * the workload's access paths request for it reads (physical/access), and the rest of the region joins each row of that
  * range by the variables it binds. A union's arms read its columns by name (lower/conservative/union/arms.ts), and
  * PostgreSQL moves a restriction of a UNION into each arm, so a restriction of a union is that range in each arm.
@@ -163,6 +164,14 @@ const probedByKey = (node: RelNode, columns: ReadonlyArray<string>): boolean => 
 		return read.length === columns.length && probedByKey(node.input, read)
 	}
 	if (node.kind === "MatchRegion") {
+		const renamed = renamedSource(node)
+		if (renamed !== undefined && renamed.occurrence.source.kind !== "Base") {
+			const read = columns.flatMap((c) => {
+				const column = renamed.occurrence.bindings.find((b) => b.var.name === c)?.column
+				return column === undefined ? [] : [column]
+			})
+			return read.length === columns.length && probedByKey(renamed.occurrence.source, read)
+		}
 		const vars = columns.flatMap((c) => node.vars.filter((v) => v.name === c))
 		return (
 			vars.length === columns.length &&
@@ -564,7 +573,8 @@ const readPerRow = (order: ReadonlyArray<RelNode>): ReadonlySet<RelNode> => {
  * key (probesByKey), the occurrence's source and each node on its way down to it, which the region reads for each
  * binding as that binding's rows alone (lower/shapes/region keyedProbes), or read at a value (`fixedAtValues`), a key
  * column the occurrence fixes to a parameter or a literal, which PostgreSQL moves below the fold's grouping or into the
- * union's arms where the node stands inline. A node every reference of which is such a read is read where it stands at
+ * union's arms where the node stands inline, or an attachment's child read per parent key (attachmentRead `perKey`),
+ * the key fixed inside its LATERAL, which PostgreSQL moves into a union's arms. A node every reference of which is such a read is read where it stands at
  * each (rule 5c): shared as a CTE, it would be derived whole once for the statement and joined or filtered beside,
  * every row of the fold's input or the union's arms: edullm's learning-commons crosswalk reader, two rules reading one
  * fold of every pair of supports, one at its state and one at its hub, each read the whole fold MATERIALIZED, all
@@ -591,6 +601,14 @@ const perKeyReads = (order: ReadonlyArray<RelNode>): ReadonlyMap<RelNode, number
 			}
 		} else if (node.kind === "Filter") {
 			const at = filteredAtValues(node)
+			if (at !== undefined) {
+				count([...at.through, at.probed])
+			}
+		} else if (node.kind === "Attach" && attachmentRead(node).kind === "perKey") {
+			const at = probedBeneath(
+				attachedRows(node.child),
+				node.correlation.map((c) => c.child)
+			)
 			if (at !== undefined) {
 				count([...at.through, at.probed])
 			}
