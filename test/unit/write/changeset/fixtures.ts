@@ -2,7 +2,7 @@ import { pipe, String as Str } from "effect"
 import { type Codebook } from "#compiler/ir/codes.ts"
 import type { ChangeSetDesc } from "#compiler/ir/desc.ts"
 import { pg } from "#compiler/public/fields.ts"
-import { contained, key, mutable, on, relation, schema } from "#compiler/public/schema.ts"
+import { contained, key, mutable, on, relation, schema, unit } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -92,7 +92,7 @@ export const switchToManual = (): ChangeSetValue =>
 const label = str.regex("^[a-z]{1,8}$")
 
 /** A ledger with a numbered key, a field outside the key, a candidate key, a mutable relation, a pure set and a foreign
- * key: Entry references Book. */
+ * key: Entry references Book; Status, Counter and Tag mutable, each inside the unit its key leads with. */
 const Book = relation("Book", { id: Id, title: label }, ["id"])
 export const BookEntry = relation("Entry", { id: Id, book: Id, code: label, amount: pg.bigint }, [
 	"id"
@@ -107,6 +107,9 @@ export const LedgerSchema = schema(
 	[
 		key(on(BookEntry, "code")),
 		contained(on(BookEntry, "book"), on(Book, "id")),
+		unit("Row", { id: Id }),
+		unit("Counters", { name: label }),
+		unit("Owned", { owner: Id }),
 		mutable(Status),
 		mutable(Counter),
 		mutable(Tag)

@@ -22,6 +22,6 @@ export { contract, instant, natural, pg, span } from "#compiler/public/fields.ts
 export type { Instant } from "#compiler/public/fields.ts"
 export { query, v } from "#compiler/public/query.ts"
 export type { HeadOf, ResultOf } from "#compiler/public/query.ts"
-export { contained, on, relation, role, schema } from "#compiler/public/schema.ts"
+export { contained, mutable, on, relation, role, schema, unit } from "#compiler/public/schema.ts"
 export type { RowEvaluator } from "#compiler/types/schema/evaluation.ts"
 export { workload } from "#compiler/public/workload.ts"

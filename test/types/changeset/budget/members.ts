@@ -10,7 +10,8 @@ import { assertClean, type Measuring, measuredEach } from "#test/types/batch/mea
  * a ChangeSet of `members` members (members.test.ts), applied through its workload's handle. The schema is edullm
  * pantry's import shape, which its replaceWrite writes one member per relation of: relations R0 … of four fields each,
  * a natural id and three texts of one type, Name, one of them named `params`, as pantry's Reference has one, keyed by
- * its package and id, under no law, beside P, the package's own relation. The ChangeSet deletes P's rows under a
+ * its package and id, under no law but each open, mutable inside the unit of its package, beside P, the package's own
+ * relation, open too. The ChangeSet deletes P's rows under a
  * package parameter, a query member, then writes the first `members` relations, one member each, by one op: a delete, a
  * put or an insert, each a call of its own, one insertAll keyed by them, or one deleteWhere keyed by them. A member is a
  * query, the rows of its relation under the package parameter, as replaceWrite's are, an array of the relation's facts,
@@ -135,7 +136,10 @@ ${Arr.join(
 )}export const S = schema("S", [P, ${Arr.join(
 			Arr.map(indices(shape.relations), (i) => `R${i}`),
 			", "
-		)}], [])
+		)}], [unit("Package", { package: Name }), ${Arr.join(
+			Arr.map(["P", ...Arr.map(indices(shape.relations), (i) => `R${i}`)], (r) => `mutable(${r})`),
+			", "
+		)}])
 export const Q = relation("Q", { id: natural, package: Name }, ["package", "id"])
 export const E = schema.extend([S], "E", [Q], [])
 export const Writer = role(E, "writer", wholeEntriesOf(E), { write: writableNamesOf(E) })

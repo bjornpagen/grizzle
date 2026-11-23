@@ -8,14 +8,15 @@ import { type EqualSteps, equalSteps } from "#test/types/batch/measured.ts"
  * The query-scale programs, one per dimension of what a program states over a schema, each checked at three sizes an
  * equal step apart (scaling.test.ts), each step a whole number of the dimension's period. The schema: `relations` relations R0 … with a candidate
  * key on every fifth, from the first, a containment chain, every relation's kind contained in the Kind roster and every
- * fifth relation mutable, from the third, so the relations repeat every five; and a full role Reader. Over it a
+ * fifth relation mutable, from the third, inside the unit of a row's id, so the relations repeat every five; and a full
+ * role Reader. Over it a
  * program at a shape writes:
  *
  * - `rules` queries, each a rule over relation i (round the relations) with a filter, an attachment of the relation
  *   before it keyed by the parent's field, delivered as the one child where the containment chain proves it, and a read
  *   of it through the handle of a workload over the Reader that serves it alone;
  * - one ChangeSet of `members` members in one stratum, round the relations: inserts, or inserts, deletes and puts in turn,
- *   each put of a mutable relation, round them, so a chain's every call is checked against the stratum the call before
+ *   each delete and put of a mutable relation, round them, so a chain's every call is checked against the stratum the call before
  *   it made; or one insertAll of the first `members` relations, each key checked as its insert is;
  * - `contexts` contexts, each over one of the first five relations, round them, read by a query entry of one role, Ctx,
  *   and each entry's query run through the handle of a workload over Ctx that serves it alone.
@@ -46,7 +47,7 @@ const fixedRelations = 4 * relationPeriod
 
 /**
  * The dimensions, each sized by its period: rules round the fixed relations; members round them, inserts, deletes and
- * puts taking turns, and each put round the four mutable relations, so every 60 members repeat; contexts round the
+ * puts taking turns, and each delete and put round the four mutable relations, so every 60 members repeat; contexts round the
  * first five relations; and relations, with or without their rules and members, every five.
  */
 const queryRoster: Arr.NonEmptyReadonlyArray<QueryDimension> = [
@@ -121,13 +122,15 @@ const queryRoster: Arr.NonEmptyReadonlyArray<QueryDimension> = [
 /** Whether relation i is mutable: every fifth, from the third. */
 const isMutable = (i: number): boolean => i % relationPeriod === 2
 
-const statements = (relations: number): ReadonlyArray<string> =>
-	Arr.flatMap(indices(relations), (i) => [
+const statements = (relations: number): ReadonlyArray<string> => [
+	`unit("Row", { id: Id })`,
+	...Arr.flatMap(indices(relations), (i) => [
 		...(i % relationPeriod === 0 ? [`key(on(R${i}, "label"))`] : []),
 		...(i > 0 ? [`contained(on(R${i}, "parent"), on(R${i - 1}, "id"))`] : []),
 		`contained(on(R${i}, "kind"), on(Kind, "id"))`,
 		...(isMutable(i) ? [`mutable(R${i})`] : [])
 	])
+]
 
 /** Rule q: over relation i, with the relation before it attached by the parent's field. */
 const ruleBlock = (q: number, relations: number): string => {
@@ -150,15 +153,15 @@ const fact = `[{ id: someId, parent: someId, amount: 1n, label: "abc", kind: "A"
 
 /**
  * Member m: one fact of relation m, round the relations, inserted; or, writing inserts, deletes and puts, the m-th of
- * them in turn, the k-th put of the k-th mutable relation (isMutable), round them.
+ * them in turn, the k-th delete and put of the k-th mutable relation (isMutable), round them.
  */
 const memberCall = (m: number, shape: QueryShape): string => {
 	const turn = shape.writes === "inserts" ? 0 : m % 3
-	if (turn === 2) {
-		const put = Math.floor(m / 3) % (shape.relations / relationPeriod)
-		return `\t.put(R${relationPeriod * put + 2}, ${fact})`
+	if (turn === 0) {
+		return `\t.insert(R${m % shape.relations}, ${fact})`
 	}
-	return `\t.${turn === 0 ? "insert" : "delete"}(R${m % shape.relations}, ${fact})`
+	const open = relationPeriod * (Math.floor(m / 3) % (shape.relations / relationPeriod)) + 2
+	return `\t.${turn === 1 ? "delete" : "put"}(R${open}, ${fact})`
 }
 
 /** The ChangeSet's members: a chain of calls, or one insertAll keyed by the first `members` relations. */

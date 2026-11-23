@@ -34,7 +34,8 @@ import {
 	containedBuilder,
 	keyBuilder,
 	mutableBuilder,
-	onBuilder
+	onBuilder,
+	unitBuilder
 } from "#compiler/schema/statements.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
@@ -75,12 +76,16 @@ const AutomaticTask = relation("AutomaticTask", { task: Id, budget: rawPg.bigint
 
 const ManualTask = relation("ManualTask", { task: Id, assignee: Id }, ["task"], [])
 
+/** The unit of a row's own id, which Account and Task sit in, so Account is mutable inside it. */
+export const entity = unitBuilder("Entity", { id: Id }, [])
+
 export const Work = schema(
 	"Work",
 	[Kind, Account, Task, AutomaticTask, ManualTask],
 	[
 		containedBuilder(onBuilder(Task, ["account"]), onBuilder(Account, ["id"])),
 		keyBuilder(onBuilder(Account, ["name"])),
+		entity,
 		mutableBuilder(Account),
 		alternativesBuilder(Task, "kind", Kind, { Automatic: AutomaticTask, Manual: ManualTask })
 	],

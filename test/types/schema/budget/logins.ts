@@ -17,7 +17,7 @@ import { type EqualSteps, equalSteps, type GrowthDimension } from "#test/types/b
  * - its reads, a query over the role for each of the first `queried` modules, each its module's first relation
  *   selected by a parameter;
  * - its write, one ChangeSet over the schema that deletes the last module's first relation by a parameter and inserts
- *   into it;
+ *   into it, that relation open, mutable inside the unit of a row's id;
  * - a login over the role, its workloads the reads and the write, each a workload of the role;
  * - and a ChangeSet over the role that inserts into the first relation of each of the first `queried` modules.
  *
@@ -88,7 +88,10 @@ export const Base = schema("LoginScale", [P, ${Arr.join(
 			", "
 		)}], [
 ${Arr.join(
-	Arr.map(Arr.flatMap(modules, lawsOf), (law) => `\t${law}`),
+	Arr.map(
+		[...Arr.flatMap(modules, lawsOf), `unit("Row", { id: Id })`, `mutable(${last})`],
+		(law) => `\t${law}`
+	),
 	",\n"
 )}
 ])

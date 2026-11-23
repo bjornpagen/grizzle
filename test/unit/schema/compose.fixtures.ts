@@ -9,6 +9,7 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { parseSchemaInput } from "#compiler/program/input.ts"
 import { natural } from "#compiler/public/fields.ts"
 import { relationBuilder as relation } from "#compiler/schema/relation.ts"
+import { unitBuilder } from "#compiler/schema/statements.ts"
 import type { AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
@@ -89,6 +90,9 @@ export const statedGen = (
 		...againOf(Arr.flatMap(below, (level) => level.listed)),
 		...againOf(Arr.flatMap(below, (level) => level.stated))
 	])
+
+/** The unit of a relation's id, which every relation of the pool, keyed by its id, sits in: the root states it. */
+export const entity = unitBuilder("Entity", { id: Id }, [])
 
 /** A relation of the name `name` in the variant `variant`: an id, and in the second variant a count beside it. */
 export const relationOf = (name: string, variant: 0 | 1): AnyRelation =>

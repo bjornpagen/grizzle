@@ -7,7 +7,8 @@
  *
  * Oracle: a model of the declarations by name, variant and level, written apart from the builder. A drawn composition is
  * levels of lists over a pool of relations of a few drawn names, each name in two variants (another heading), each
- * relation the pool's own value or a copy built again; each level states `mutable` over relations, each a pool relation
+ * relation the pool's own value or a copy built again, every one keyed by its id, under the unit of its id the root
+ * states (compose.fixtures.ts entity); each level states `mutable` over relations, each a pool relation
  * (some listed nowhere), one its own list holds, one a lower level's list holds, or one a lower level states. The model
  * walks the levels in order and predicts the build's first refusal, DuplicateIdentity at the later declaration with the
  * earlier's location, or a statement over a name no level declares. Over a composition that builds, it walks the
@@ -41,6 +42,7 @@ import { placeOf, succeeded } from "#test/support/assert.ts"
 import {
 	type Drawn,
 	drawnGen,
+	entity,
 	type Feature,
 	type Held,
 	type Level,
@@ -187,7 +189,7 @@ export const composingRelationsIntoASchemaRefusesTwoDeclarationsOfOneNameDifferi
 								const name = Arr.getUnsafe(s.levelNames, index)
 								below =
 									below === undefined
-										? schema(name, list, statements, [])
+										? schema(name, list, [entity, ...statements], [])
 										: schema.extend([below], name, list, statements, [])
 							}
 							return below

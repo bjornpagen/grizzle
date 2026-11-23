@@ -296,10 +296,31 @@ const keyGen =
 		}
 	}
 
+/**
+ * Whether a key's delete compiles: refused for Order and Pool, closed (their facts are inserted, never deleted), and for
+ * Entry, Item and Book, each a family's member, deleted through its owner.
+ */
+const compiles: { readonly [K in KeyName]: boolean } = {
+	Task: true,
+	Manual: true,
+	Budget: true,
+	Ticket: true,
+	Ledger: true,
+	Tag: true,
+	Order: false,
+	Cart: true,
+	Pool: false,
+	Bin: true,
+	Node: true,
+	Entry: false,
+	Item: false,
+	Book: false
+}
+
 /** The keys whose deletes compile, which a fault is planted at alone, so its refusal is the case's one. */
 const compiling = (base: Base): Arr.NonEmptyReadonlyArray<KeyName> => {
 	const [first, ...rest] = offered(base)
-	return [first, ...Arr.filter(rest, (n) => n !== "Entry" && n !== "Item" && n !== "Book")]
+	return [first, ...Arr.filter(rest, (n) => compiles[n])]
 }
 
 export const caseGen: Gen<DeleteWhereCase> = (source) => {

@@ -258,11 +258,12 @@ const caseBlock = (c: InstantsCase, index: number): ReadonlyArray<string> => [
 /** The program's prelude (test/support/programs/instants.ts). */
 const prelude = await Effect.runPromise(preludeAt("test/support/programs/instants.ts"))
 
-/** Decision, its at a clock of child `child`, Session, its stage a reference to it, and Seen, its at a stored instant. */
+/** Decision, its at a clock of child `child`, Session, its stage a reference to it, and Seen, its at a stored instant;
+ * Decision and Seen open, mutable inside the unit of their child, so their puts and deletes meet the instants' rules. */
 const instantsHeader = `export const Decision = relation("Decision", { child: pg.integer, at: instant, seed: pg.integer }, ["child", "at"])
 export const Session = relation("Session", { child: pg.integer, item: pg.integer, stage: instant }, ["child", "item"])
 export const Seen = relation("Seen", { child: pg.integer, at: instant.stored }, ["child", "at"])
-export const S = schema("S", [Decision, Session, Seen], [contained(on(Session, "child", "stage"), on(Decision, "child", "at"))])
+export const S = schema("S", [Decision, Session, Seen], [contained(on(Session, "child", "stage"), on(Decision, "child", "at")), unit("Child", { child: pg.integer }), mutable(Decision), mutable(Seen)])
 export const decisions = query(S).rule((r) => { const { child, at } = v(Decision, "d"); return r.match(Decision, { child, at }).find({ child, at }) })
 export const latest = query(S).rule((r) => { const { child, at } = v(Decision, "d"); return r.match(Decision, { child, at }).find({ child, m: r.max(at) }) })
 export declare const decoder: FactsDecoder<typeof S>

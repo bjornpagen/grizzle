@@ -74,6 +74,7 @@ export {
 	rows,
 	schema,
 	tree,
+	unit,
 	wholeEntriesOf,
 	writableNamesOf
 } from "#compiler/public/schema.ts"

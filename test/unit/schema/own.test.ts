@@ -82,6 +82,7 @@ import {
 	type FingerprintFeature,
 	gradeFact,
 	gradeOrder,
+	entity,
 	type HandleSite,
 	handleSites,
 	hasOrder,
@@ -187,6 +188,7 @@ export const theOwnedProductFingerprintsCanonicalContentOrderRepeatsAndLocations
 						const chosen = Arr.map(s.statements, (i) => defined(optional[i]))
 						const statements = [
 							...(rewrite ? rotated(chosen, s.rewriteOrder) : chosen),
+							entity,
 							bounded(rewrite, changed && s.change === "check predicate")
 						]
 						const all =

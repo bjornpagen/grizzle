@@ -3,7 +3,7 @@
 import { defined } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { drawn, natural } from "#compiler/public/fields.ts"
-import { key, on, relation, schema } from "#compiler/public/schema.ts"
+import { key, on, relation, schema, unit } from "#compiler/public/schema.ts"
 import { own } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import {
@@ -25,7 +25,9 @@ const A = relation("A", { id: Id, x: Id, y: Id, n: natural }, ["id"])
 
 const L = relation("L", { id: Id, owner: Id }, ["id"])
 
-const Lo = schema("Lo", [A, L], [key(on(A, "x"))])
+/** Lo, A's key over x, and the unit of a row's id, which every relation of both levels, each keyed by its id, sits in:
+ * a unit is stated at or below every relation under it. */
+const Lo = schema("Lo", [A, L], [key(on(A, "x")), unit("Entity", { id: Id })])
 
 const C = relation("C", { id: Id, a: Id, n: natural }, ["id"])
 
