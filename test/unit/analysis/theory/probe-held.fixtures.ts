@@ -177,7 +177,13 @@ export const judged = (shape: Shape, note: (f: Feature) => void): void => {
 		const read =
 			table.touches.kind === "removed"
 				? []
-				: probeRows(probedRule(rule.rule), rel.name, "added", rule.law.loc)
+				: probeRows(
+						probedRule(rule.rule),
+						rel.name,
+						"added",
+						artifacts.laws.theory.regionFacts.containments,
+						rule.law.loc
+					)
 		for (const within of read) {
 			const probe: InferredQuery = { stage: { kind: "rules", arms: [within], loc: within.loc } }
 			const region = defined(within.matches[0], "a probe's region, its first match")

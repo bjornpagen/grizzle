@@ -90,14 +90,16 @@ export const judged = (shape: Shape, note: (r: Reached) => void): void => {
 	const built = schemaOf(shape)
 	const owned = owning(built)
 	const installation = succeeded(compileInstallation(owned, installOptions(owned)))
-	for (const rule of succeeded(testArtifacts(built, testCompile)).laws.rules) {
+	const laws = succeeded(testArtifacts(built, testCompile)).laws
+	const containments = laws.theory.regionFacts.containments
+	for (const rule of laws.rules) {
 		for (const table of rule.tables) {
 			if (table.touches.kind === "added") {
 				continue
 			}
 			const probed = probedRule(rule.rule)
-			const rows = probeRows(probed, table.relation.name, "removed", rule.law.loc)
-			const read = probe(probed, table.relation.name, "removed", rule.law.loc)
+			const rows = probeRows(probed, table.relation.name, "removed", containments, rule.law.loc)
+			const read = probe(probed, table.relation.name, "removed", containments, rule.law.loc)
 			const distinct = new Set(Arr.map(rows, probeKey)).size
 			assert.equal(
 				read === undefined ? 0 : rowArmsOf(read),

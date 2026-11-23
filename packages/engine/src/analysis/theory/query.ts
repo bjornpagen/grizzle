@@ -18,6 +18,7 @@ import {
 	varRef,
 	varsOf
 } from "#compiler/analysis/theory/leaves.ts"
+import type { FieldContainment } from "#compiler/analysis/theory/unit.ts"
 import { encode, withoutSourceLocs } from "#compiler/core/canonical.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
@@ -2229,7 +2230,7 @@ const touchedGroups = (
 			}
 		}
 		return [
-			...gainedOf([arm], relation, side, depth, memo, loc).map(({ candidate: c }) =>
+			...gainedOf([arm], relation, side, depth, memo, everyMatch, loc).map(({ candidate: c }) =>
 				deliver(c, conditionsOf({ where: c.where, negated: c.negated }, loc))
 			),
 			...relaxedOf(
@@ -2503,8 +2504,116 @@ const gainedBy = (arm: LiveArm, touched: ArmMatch, at: number, touch: Touch): Ca
 	}
 }
 
+/** Every match of an arm: what a group's body reads its touches of (`gainedOf`). */
+const everyMatch = (): boolean => true
+
+/** The variable `e` is, if it is a bare one. */
+const varOf = (e: InferredExpr | undefined): string | undefined =>
+	e?.kind === "var" ? e.var : undefined
+
 /**
- * The candidates of the facts of `arms` a transaction's write of `relation` on `side` may add, each beside its arm:
+ * Whether the added rows of `relation` that `m`, a match of a probed rule's breaking arm `arm`, reads add no fact of the
+ * arm that another probe of the rule does not read: a sibling stored match covers it (`covers`) and no match of the arm
+ * covers that sibling, so a chain of containments keeps the probe of its last link and a cycle prunes none of its
+ * links.
+ */
+const covered = (
+	arm: LiveArm,
+	m: ArmMatch,
+	relation: string,
+	containments: ReadonlyArray<FieldContainment>
+): boolean =>
+	arm.matches.some(
+		(s) =>
+			s !== m &&
+			s.kind === "stored" &&
+			covers(s, m, relation, containments) &&
+			!arm.matches.some(
+				(t) => t !== s && t.kind === "stored" && covers(t, s, s.relation, containments)
+			)
+	)
+
+/**
+ * Whether the stored match `s` covers `m`'s reads of `relation` (`covered`): a containment over every row of `s`'s
+ * relation, s[F] ⊆ R[G] with R `relation` (`containments`, the schema's closed under composition), where each field `m`
+ * reads of R is a field of G bound to the variable `s` binds at its pair in F, directly where `m` is R's match, or
+ * through the heading of a definition of several rules (DefinedMatch) every arm of which reads R in such matches of its
+ * own alone and under no negation, at fields its head delivers at the heading fields `m` binds.
+ *
+ * Every row of `s`'s relation that is no row the transaction added stood before it, and so did a row of R that agreed
+ * with it at G, since every committed state holds the containment: one that agrees, at every field `m` reads of R, with
+ * any row of R the transaction added that the fact meets `s`'s row beside. So a fact the arm gains through an added row
+ * of R and a row of `s`'s relation that stood was the arm's fact before the transaction, the stood row of R in place of
+ * the added one, unless another of its rows is one the transaction added, or one of a relation it negates is one it
+ * removed, which that row's own probe reads; and where `s`'s row is one it added, the probe of `s`'s relation's added
+ * rows reads the fact. A fact the arm held before held its law then, the same values now.
+ */
+const covers = (
+	s: StoredMatch,
+	m: ArmMatch,
+	relation: string,
+	containments: ReadonlyArray<FieldContainment>
+): boolean =>
+	containments.some((c) => {
+		if (c.from !== s.relation || c.to !== relation || c.selection.length > 0) {
+			return false
+		}
+		/** Whether the field `field` of R, read at the variable `v`, is a field of G at whose pair `s` binds `v`. */
+		const pinned = (field: string, v: string | undefined): boolean =>
+			v !== undefined && c.pairs.some((p) => p.to === field && varOf(s.bindings[p.from]) === v)
+		return readsPinned(m, relation, pinned)
+	})
+
+/**
+ * Whether every field `m` reads of `relation` is `pinned` at the variable `m`'s arm reads it at (`covers`): `m` being
+ * R's stored match, at its own bindings; a definition of several rules, at the heading field each of its arms delivers
+ * it at, every match of `relation` in each arm a stored one of it, none under a negation, and no other match of the arm
+ * reading it at any depth.
+ */
+const readsPinned = (
+	m: ArmMatch,
+	relation: string,
+	pinned: (field: string, v: string | undefined) => boolean
+): boolean => {
+	switch (m.kind) {
+		case "stored":
+			return (
+				m.relation === relation &&
+				Object.entries(m.bindings).every(([field, e]) => pinned(field, varOf(e)))
+			)
+		case "grouped":
+			return false
+		case "defined":
+			return m.arms.every((a) => {
+				const outer = (v: string | undefined): ReadonlyArray<string> =>
+					Object.entries(a.head).flatMap(([h, e]) => {
+						const w = varOf(m.bindings[h])
+						return v !== undefined && varOf(e) === v && w !== undefined ? [w] : []
+					})
+				return (
+					!readsAt({ matches: [], negated: a.negated }, "positive")
+						.concat(readsAt({ matches: [], negated: a.negated }, "negative"))
+						.flatMap(storedOf)
+						.some((o) => o.relation === relation) &&
+					a.matches.every((o) =>
+						o.kind === "stored"
+							? o.relation !== relation ||
+								Object.entries(o.bindings).every(([field, e]) =>
+									outer(varOf(e)).some((w) => pinned(field, w))
+								)
+							: !everyRead({ matches: [o], negated: [] })
+									.flatMap(storedOf)
+									.some((r) => r.relation === relation)
+					)
+				)
+			})
+	}
+}
+
+/**
+ * The candidates of the facts of `arms` a transaction's write of `relation` on `side` may add, each beside its arm, of
+ * the matches `touching` holds of (every match of a group's body; of a probed rule's breaking side, those no sibling
+ * covers, `uncovered`):
  *
  * - by a match that gains facts (Touch `added`): a stored relation's rows added, or an aggregating rule's groups it
  *   touched as they stand (`gainedBy`);
@@ -2516,11 +2625,12 @@ const gainedOf = <A extends LiveArm>(
 	side: ProbeSide,
 	depth: number,
 	memo: MovedMemo,
+	touching: (arm: A, m: ArmMatch) => boolean,
 	loc: SourceLoc
 ): ReadonlyArray<{ readonly arm: A; readonly candidate: Candidate }> => [
 	...arms.flatMap((arm) =>
 		arm.matches.flatMap((m, at) =>
-			matchTouches(m, relation, side, depth, memo, loc).flatMap((t) =>
+			(touching(arm, m) ? matchTouches(m, relation, side, depth, memo, loc) : []).flatMap((t) =>
 				t.direction === "added"
 					? [
 							{
@@ -2662,10 +2772,19 @@ const gainedRows = (
 	rule: ProbedRule,
 	relation: string,
 	side: ProbeSide,
+	containments: ReadonlyArray<FieldContainment>,
 	memo: MovedMemo,
 	loc: SourceLoc
 ): ReadonlyArray<ProbeRow> =>
-	gainedOf(breakingArms(rule), relation, side, 0, memo, loc).map(({ arm, candidate: c }) =>
+	gainedOf(
+		breakingArms(rule),
+		relation,
+		side,
+		0,
+		memo,
+		(arm, m) => side === "removed" || !covered(arm, m, relation, containments),
+		loc
+	).map(({ arm, candidate: c }) =>
 		rowOf(
 			rule,
 			c.region,
@@ -2772,16 +2891,19 @@ export const everyRowProbe = (
  * its breaking side the write may add (`gainedRows`) and, of a containment, the target tuples it may withdraw
  * (`lostRows`). On the side of what a transaction adds (delta.added, the images the relation holds at COMMIT that it did
  * not hold before, so a row is read from the net write and never again from its table), the gained first; on the side
- * of what it removes (delta.removed, the rows a DELETE or an UPDATE of a column read found), the lost first.
+ * of what it removes (delta.removed, the rows a DELETE or an UPDATE of a column read found), the lost first. A match
+ * of the written relation that a sibling covers through one of the schema's `containments` (`covered`) adds no row:
+ * every fact it gains another probe of the rule reads.
  */
 const rowsOf = (
 	rule: ProbedRule,
 	relation: string,
 	side: ProbeSide,
+	containments: ReadonlyArray<FieldContainment>,
 	loc: SourceLoc
 ): ReadonlyArray<ProbeRow> => {
 	const memo: MovedMemo = new Map()
-	const gained = gainedRows(rule, relation, side, memo, loc)
+	const gained = gainedRows(rule, relation, side, containments, memo, loc)
 	const lost = rule.kind === "contained" ? lostRows(rule, relation, side, memo, loc) : []
 	return side === "added" ? [...gained, ...lost] : [...lost, ...gained]
 }
@@ -2791,23 +2913,26 @@ export const probeRows = (
 	rule: ProbedRule,
 	relation: string,
 	side: ProbeSide,
+	containments: ReadonlyArray<FieldContainment>,
 	loc: SourceLoc
 ): ReadonlyArray<InferredRule> =>
-	rowsOf(rule, relation, side, loc).map((row) => overAny(row.region, row.rule, loc))
+	rowsOf(rule, relation, side, containments, loc).map((row) => overAny(row.region, row.rule, loc))
 
 /**
  * The probe of `rule` over what a transaction wrote of `relation` on `side`, none where the write breaks it at no row:
  * the rule's meeting part over every row the write may break it at (`probeOf`), each row read from the net write's
  * region outward (analysis/theory/navigate.ts), the side its rows meet read by arm (`readAs`): a key's side and a
- * containment's target arm by arm, each negation of the target keyed by the row's terms.
+ * containment's target arm by arm, each negation of the target keyed by the row's terms. `containments` are the
+ * schema's, closed under composition (analysis/theory/unit.ts RegionFacts), which every committed state holds.
  */
 export const probe = (
 	rule: ProbedRule,
 	relation: string,
 	side: ProbeSide,
+	containments: ReadonlyArray<FieldContainment>,
 	loc: SourceLoc
 ): InferredQuery | undefined => {
-	const rows = rowsOf(rule, relation, side, loc)
+	const rows = rowsOf(rule, relation, side, containments, loc)
 	return isNonEmpty(rows) ? probeOf(rule, rows, loc) : undefined
 }
 

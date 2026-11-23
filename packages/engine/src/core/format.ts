@@ -149,7 +149,9 @@
  * statement of its share planning, its arguments read by it alone, and a sub-query whose only stage that is no scan is
  * a carried part is read where it stands (lower/shapes/share/statements.ts planStatementShares, HeldEvaluation,
  * statementCtes), where format 7 counted every member reading a field of the call as reading its arguments, each
- * argument a MATERIALIZED CTE of the statement, and gave a read of a carried part a CTE of its own.
+ * argument a MATERIALIZED CTE of the statement, and gave a read of a carried part a CTE of its own.; and no block probes a relation's added rows that a sibling stored match of the
+ * probed arm covers through one of the schema's containments (analysis/theory/query.ts covered), where format 7 probed
+ * every touched side, so a judge holds fewer blocks
  */
 export const artifactFormat = 7
 

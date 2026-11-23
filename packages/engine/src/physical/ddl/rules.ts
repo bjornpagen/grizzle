@@ -1061,7 +1061,13 @@ export const addRules = (
 				return []
 			}
 			const delta = deltaOf(t, side)
-			const query = probe(probed, relation.name, side, rule.law.loc)
+			const query = probe(
+				probed,
+				relation.name,
+				side,
+				b.model.theory.regionFacts.containments,
+				rule.law.loc
+			)
 			if (query === undefined) {
 				return []
 			}
