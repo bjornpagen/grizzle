@@ -198,38 +198,26 @@ export const aDigestRoundTripsAKeyOverItHoldsAnyPathAndAParameterOfItFindsItsRow
  * Its budget is the runner's: a new property, with no suite before it to carry a count from.
  */
 export const aValueOfAnotherLengthIsRefusedByTheDigestDomain = property.explore(wrongLength, {
-	needs: { fixture: Substrate.seat(digestsTemplate) },
+	needs: { fixture: Substrate.rolledBack(digestsTemplate) },
 	situations: ["a shorter value", "a longer value"] satisfies ReadonlyArray<Reached<LengthFeature>>,
 	check:
 		({ fixture }, c: Case<LengthFeature>) =>
 		(length: number) =>
-			Effect.flatMap(fixture, (taken) =>
-				Effect.provideService(
-					Effect.scoped(
-						Effect.gen(function* () {
-							c.note(length < digestLength ? "a shorter value" : "a longer value")
-							const o = yield* openedIn(Digests, {}, digestsInstall, taken)
-							const s = yield* Substrate
-							const names = namesOf(o.installed)
-							const pinned = yield* s.admin.pin
-							yield* pinned.query("BEGIN ISOLATION LEVEL SERIALIZABLE", [])
-							const direct = yield* probe(
-								pinned,
-								`INSERT INTO ${names.table(Media)} (${names.column(Media, "digest")}, ${names.column(Media, "path")}, ${names.column(Media, "size")}) VALUES (pg_catalog.decode($1::text, 'hex'), 'x', 0)`,
-								[new Uint8Array(length).toHex()]
-							)
-							yield* pinned.query("ROLLBACK", [])
-							assert.equal(
-								direct.kind === "refused" ? direct.code : direct.kind,
-								"23514",
-								`a direct writer's value of ${length} bytes is refused by the digest domain's CHECK`
-							)
-						})
-					),
-					Substrate,
-					taken.substrate
+			Effect.gen(function* () {
+				c.note(length < digestLength ? "a shorter value" : "a longer value")
+				const held = yield* fixture
+				const names = namesOf(held.value.installed)
+				const direct = yield* probe(
+					held.bare,
+					`INSERT INTO ${names.table(Media)} (${names.column(Media, "digest")}, ${names.column(Media, "path")}, ${names.column(Media, "size")}) VALUES (pg_catalog.decode($1::text, 'hex'), 'x', 0)`,
+					[new Uint8Array(length).toHex()]
 				)
-			),
+				assert.equal(
+					direct.kind === "refused" ? direct.code : direct.kind,
+					"23514",
+					`a direct writer's value of ${length} bytes is refused by the digest domain's CHECK`
+				)
+			}),
 	oracle: {
 		kind: "specification",
 		name: "SHA-256's digest length: a value of any other is no digest"
