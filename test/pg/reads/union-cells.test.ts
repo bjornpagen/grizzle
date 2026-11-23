@@ -30,7 +30,7 @@ import {
 } from "#test/pg/reads/union-cells.fixtures.ts"
 import { namesOf, parsedName } from "#test/support/kernel/naming.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
-import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
+import { inserted } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -67,9 +67,8 @@ export const unionCellsDecodesAUnionsRowsToExactlyTheRecordsItsArmsDecodeToEachR
 									{}
 								)
 
-								yield* replaceRows(
+								yield* inserted(
 									s.admin,
-									installationGroup(names),
 									Arr.map(c.facts, (fact, id) => ({
 										sql: insert,
 										params: [
