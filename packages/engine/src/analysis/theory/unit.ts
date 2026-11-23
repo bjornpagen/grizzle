@@ -1801,13 +1801,18 @@ const unitAt = (
 		: { unit, reads: [r0, ...rs], regions, delivered: read.delivered }
 }
 
-/** The first read of `found` at a field its relation's rows change in place (law.ts RelationInfo `inPlace`), if any. */
+/**
+ * The first read of `found` at a field an immutable relation's rows change in place (law.ts RelationInfo `inPlace`), if
+ * any: grizzle's own rewrites, a fold's accumulator through its owner axis, which no write of the relation itself
+ * makes. A mutable relation's every field changes in place by its own writes, which a whole rule never reads (it is no
+ * rule's whole) and a stored relation reads under its unit's exclusive borrow (`storedUnit`).
+ */
 const inPlaceRead = (
 	found: UnitFound,
 	stored: ReadonlyArray<RelationInfo>
 ): { readonly relation: string; readonly column: string } | undefined => {
 	for (const r of found.reads) {
-		const relation = stored.find((s) => s.name === r.relation)
+		const relation = stored.find((s) => s.name === r.relation && !s.mutable)
 		const column = r.columns.find((c) => relation?.inPlace.includes(c) === true)
 		if (column !== undefined) {
 			return { relation: r.relation, column }
@@ -1863,14 +1868,71 @@ const widestOf = (stored: NonEmptyReadonlyArray<RelationInfo>): number =>
 		headNonEmpty(stored).primaryFields.length
 	)
 
+/** A stored relation's membership in a declared unit (schema/own.ts UnitMember): the unit, and its fields holding the
+ * unit's key, its primary key's first. */
+export interface DeclaredMember {
+	readonly unit: string
+	readonly fields: NonEmptyReadonlyArray<string>
+}
+
+/**
+ * The declared unit a stored relation's rows sit under (ir/unit.ts StoredUnit `declared`), where its definition is
+ * unit-local at `unit`, its head delivering the unit at `fields`: the one declared unit every holder of it sits in
+ * (`memberOf`, the schema's Owned.unitOf), whose key, m fields, leads the unit's, so its first m fields are the
+ * holders' and S's fields carrying it are `fields`' first m; or `borrow`, where a holder sits in no declared unit, two
+ * sit in two, or the declared unit is wider than the definition's, which then reads several declared units at one of
+ * its own, each written under a borrow of its own.
+ */
+const declaredOf = (
+	unit: Unit,
+	fields: NonEmptyReadonlyArray<string>,
+	memberOf: (relation: string) => DeclaredMember | undefined
+): { readonly unit: string; readonly fields: NonEmptyReadonlyArray<string> } | UnitLocality => {
+	const [h0, ...hs] = unit.holders
+	const first = memberOf(h0.relation)
+	if (first === undefined) {
+		return {
+			condition: "borrow",
+			detail: `${h0.relation} sits in no declared unit, so no borrow covers a write of its rows`
+		}
+	}
+	for (const h of hs) {
+		const member = memberOf(h.relation)
+		if (member === undefined) {
+			return {
+				condition: "borrow",
+				detail: `${h.relation} sits in no declared unit, so no borrow covers a write of its rows`
+			}
+		}
+		if (member.unit !== first.unit) {
+			return {
+				condition: "borrow",
+				detail: `${h.relation} sits in unit ${member.unit} and ${h0.relation} in ${first.unit}, two borrows`
+			}
+		}
+	}
+	const width = first.fields.length
+	const [f0, ...fs] = fields.slice(0, width)
+	if (width > unit.key.length || f0 === undefined) {
+		return {
+			condition: "borrow",
+			detail: `unit ${first.unit}'s key (${first.fields.join(", ")}) is wider than its own (${h0.fields.join(", ")}), so its rows at one unit read several of ${first.unit}'s`
+		}
+	}
+	const carrying: NonEmptyReadonlyArray<string> = [f0, ...fs]
+	return Object.freeze({ unit: first.unit, fields: carrying })
+}
+
 /**
  * The unit of a stored derived relation's definition, read live (ir/unit.ts StoredUnit), decided once when the schema
- * compiles, by the one walk a whole rule's discharge reads: unit-local, every stored relation it reads immutable and no
- * field it reads one its rows change in place, every declared function it calls anywhere, its head's among them,
+ * compiles, by the one walk a whole rule's discharge reads: unit-local, no field it reads one an immutable relation's
+ * rows change in place, every relation it reads sitting in one declared unit whose key leads its own (`declaredOf`), so
+ * every write of its rows, a mutable relation's updates and deletes among them, holds that unit exclusively and its
+ * upkeep at COMMIT runs under the same borrow, every declared function it calls anywhere, its head's among them,
  * immutable throughout (`unfit` names why one is not, none where it is), at the widest unit whose key its head delivers,
  * so its rows at one unit are replaced by that unit's key; or the condition it lacks (core/causes.ts UnitLocality): its
- * unit, its relations' mutability and its calls first, then, of the narrowest unit, one field wide, the first the walk
- * meets in the definition's order, its fields changed in place after. An immutable function's value at one argument
+ * unit and its calls first, then, of the narrowest unit, one field wide, the first the walk meets in the definition's
+ * order, then its fields changed in place, its head, and its declared unit. An immutable function's value at one argument
  * tuple is the same at every state, and a call's Description carries the digest of the whole function, body included
  * (ir/expr.ts CalledFunction), so its rows change only with its unit's rows, and with a migration that changes the
  * function.
@@ -1878,7 +1940,8 @@ const widestOf = (stored: NonEmptyReadonlyArray<RelationInfo>): number =>
 export const storedUnit = (
 	definition: InferredQuery,
 	relations: ReadonlyMap<string, TheoryRelation>,
-	unfit: (fn: string) => string | undefined
+	unfit: (fn: string) => string | undefined,
+	memberOf: (relation: string) => DeclaredMember | undefined
 ): StoredUnit | UnitLocality => {
 	const stored = storedReads(definition, relations)
 	const [first, ...rest] = stored
@@ -1887,10 +1950,6 @@ export const storedUnit = (
 			condition: "noUnit",
 			detail: "it reads no stored relation: a plain derived relation serves it"
 		}
-	}
-	const mutable = stored.find((r) => r.mutable)
-	if (mutable !== undefined) {
-		return { condition: "mutable", detail: `it reads ${mutable.name}, which is mutable` }
 	}
 	for (const fn of [...callsOf(definition)].toSorted(compareStrings)) {
 		const why = unfit(fn)
@@ -1916,7 +1975,10 @@ export const storedUnit = (
 		}
 		const delivered = found.delivered
 		if (delivered.kind === "at" && isNonEmpty(delivered.fields)) {
-			return Object.freeze({ unit: found.unit, fields: delivered.fields })
+			const declared = declaredOf(found.unit, delivered.fields, memberOf)
+			return "condition" in declared
+				? declared
+				: Object.freeze({ unit: found.unit, fields: delivered.fields, declared })
 		}
 		if (k === 1) {
 			return { condition: "hidden", detail: "its head delivers no field that holds its unit" }

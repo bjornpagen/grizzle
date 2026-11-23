@@ -27,4 +27,11 @@ export interface Unit {
 export interface StoredUnit {
 	readonly unit: Unit
 	readonly fields: NonEmptyReadonlyArray<string>
+	/**
+	 * The declared unit its rows sit under (schema/own.ts OwnedUnit), the one its every holder sits in, whose key leads
+	 * `unit`'s, and the fields of the stored relation that carry that unit's key, the first of `fields`: every write of a
+	 * holder's rows holds that unit exclusively, so grizzle writes the stored rows at COMMIT under the writer's own
+	 * borrow, and a write that reads them borrows it shared, as it does to read its holders.
+	 */
+	readonly declared: { readonly unit: string; readonly fields: NonEmptyReadonlyArray<string> }
 }

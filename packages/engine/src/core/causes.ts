@@ -199,8 +199,8 @@ export type KeyFault =
 /**
  * The conditions of unit-locality (analysis/theory/unit.ts), each a way a query's facts can leave one unit, which a
  * stored derived relation's definition must meet (`notUnitLocal`):
- * - `mutable`: it reads a relation declared mutable;
- * - `inPlace`: it reads a field grizzle rewrites in place on a row it keeps (ir/law.ts RelationInfo `inPlace`);
+ * - `inPlace`: it reads a field grizzle rewrites in place on an immutable relation's row it keeps, a fold's
+ *   accumulator through its owner axis (ir/law.ts RelationInfo `inPlace`);
  * - `unitKey`: a relation it reads leads its primary key with no fields of the unit's types;
  * - `split`: a match binds a relation's unit fields to other variables than its rule's unit, or to none;
  * - `negation`: a negation, or an existence, is not correlated at the unit;
@@ -210,10 +210,11 @@ export type KeyFault =
  * - `hidden`: its head does not deliver its unit, so its rows cannot be replaced by unit;
  * - `noUnit`: it reads no stored relation;
  * - `call`: it calls a declared function that is not immutable, or one whose body calls one that is not, or passes a
- *   call rows.
+ *   call rows;
+ * - `borrow`: a relation it reads sits in no declared unit, two sit in two, or the declared unit's key is wider than its
+ *   own unit's, so no one exclusive borrow covers every write its rows follow.
  */
 export type UnitLocalityCondition =
-	| "mutable"
 	| "inPlace"
 	| "unitKey"
 	| "split"
@@ -224,6 +225,7 @@ export type UnitLocalityCondition =
 	| "hidden"
 	| "noUnit"
 	| "call"
+	| "borrow"
 
 /** A condition of unit-locality a query lacks, and where: the first the walk met (analysis/theory/unit.ts). */
 export interface UnitLocality {

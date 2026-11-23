@@ -658,7 +658,12 @@ class Builder {
 			if (r.desc.kind !== "derived" || r.desc.storage !== "stored") {
 				continue
 			}
-			const decided = storedUnit(this.#live.query(r.desc.query), this.sides.relations, unfit)
+			const decided = storedUnit(
+				this.#live.query(r.desc.query),
+				this.sides.relations,
+				unfit,
+				(relation) => this.owned.unitOf.get(relation)
+			)
 			if ("condition" in decided) {
 				throw new Refusal(
 					derivedRefused(r.desc.loc, { kind: "notUnitLocal", relation: r.name, lacks: decided })

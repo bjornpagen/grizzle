@@ -4143,15 +4143,17 @@ matches no context, has at least one field, and its rules share one set of colum
 
 `derived.stored(name, query)` is the relation grizzle keeps equal to its definition at every COMMIT, for every writer.
 Its definition must be unit-local, as a rule judged whole is ([Rules over queries](#rules-over-queries)):
-- every relation it reads is immutable and leads its primary key with the unit's fields;
+- every relation it reads leads its primary key with the unit's fields and sits in one declared unit
+  ([Units](#units)) whose key leads them, so every write of its rows, a mutable relation's updates and deletes among
+  them, holds that unit, and grizzle writes the stored rows under the same borrow;
 - every match binds them to the rule's variables;
 - every negation is correlated at them, and every aggregate groups by them;
 - its head delivers them;
 - every declared function it calls, and every function that function's body calls, is `immutable`.
 
 A definition that lacks a condition is refused when the schema compiles, `DerivedRefused` naming the condition and
-where it fails: `notUnitLocal`, with `mutable`, `inPlace`, `unitKey`, `split`, `negation`, `aggregate`, `recursion`,
-`shape`, `hidden`, `noUnit` or `call`. The declaration and its admission have landed; its table, its fill and its
+where it fails: `notUnitLocal`, with `inPlace`, `unitKey`, `split`, `negation`, `aggregate`, `recursion`, `shape`,
+`hidden`, `noUnit`, `call` or `borrow`. The declaration and its admission have landed; its table, its fill and its
 upkeep at COMMIT have not. Until they land, a stored relation is read as its definition, as `derived` is, so every row
 it reads is right and none is stored.
 

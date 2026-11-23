@@ -3,10 +3,11 @@
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import type { UnitLocalityCondition } from "#compiler/core/causes.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
+import type { StoredUnit } from "#compiler/ir/unit.ts"
 import { Fn } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { closed, derived, fn, mutable, relation, schema } from "#compiler/public/schema.ts"
+import { closed, derived, fn, mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 
 /**
  * A document's places, keyed by its document first, and a link from a place to a place of any document: the document
@@ -95,54 +96,91 @@ const shapes = [
 	"closed alone"
 ] as const satisfies ReadonlyArray<Shape>
 
-/** Whether every relation is immutable, or Doc is mutable. */
+/** Whether every relation is immutable, or Doc is mutable: open, written in place inside its unit. */
 export type Mutability = "immutable" | "Doc mutable"
+
+/**
+ * The unit the base declares: none; `document`, keyed by the document, which Doc and Link both sit in; or `place`,
+ * keyed by the document and the place, which they sit in too, a unit wider than a definition that drops the place.
+ */
+export type Declared = "none" | "document" | "place"
 
 export interface StoredCase {
 	readonly shape: Shape
 	readonly mutability: Mutability
+	readonly declared: Declared
 }
 
 export const storedCase: Gen<StoredCase> = (s) => ({
 	shape: s.draw(element(shapes)),
-	mutability: s.draw(element<Mutability>(["immutable", "Doc mutable"]))
+	mutability: s.draw(element<Mutability>(["immutable", "Doc mutable"])),
+	declared: s.draw(element<Declared>(["none", "document", "place"]))
 })
 
-/** What a stored relation's admission decides: its unit's fields, or the condition of unit-locality it lacks. */
+/**
+ * What a stored relation's admission decides: its unit's fields and the declared unit it sits in, with its fields
+ * carrying that unit's key; or the condition of unit-locality it lacks.
+ */
 export type Verdict =
-	| { readonly kind: "admitted"; readonly fields: ReadonlyArray<string> }
+	| {
+			readonly kind: "admitted"
+			readonly fields: ReadonlyArray<string>
+			readonly declared: { readonly unit: string; readonly fields: ReadonlyArray<string> }
+	  }
 	| { readonly kind: "refused"; readonly lacks: UnitLocalityCondition }
 
-/** The verdict of each shape over immutable relations (`verdictOf`). */
-const ownVerdict: { readonly [S in Shape]: Verdict } = {
-	projection: { kind: "admitted", fields: ["doc", "at"] },
-	renamed: { kind: "admitted", fields: ["document", "place"] },
-	"by document": { kind: "admitted", fields: ["doc"] },
+/** Each shape's verdict before its declared unit (`verdictOf`): the unit its definition delivers, or what it lacks. */
+type Local =
+	| { readonly kind: "local"; readonly fields: ReadonlyArray<string> }
+	| { readonly kind: "refused"; readonly lacks: UnitLocalityCondition }
+
+const ownVerdict: { readonly [S in Shape]: Local } = {
+	projection: { kind: "local", fields: ["doc", "at"] },
+	renamed: { kind: "local", fields: ["document", "place"] },
+	"by document": { kind: "local", fields: ["doc"] },
 	hidden: { kind: "refused", lacks: "hidden" },
-	"counted by document": { kind: "admitted", fields: ["doc"] },
+	"counted by document": { kind: "local", fields: ["doc"] },
 	"counted across documents": { kind: "refused", lacks: "aggregate" },
 	"joined across documents": { kind: "refused", lacks: "split" },
-	"negated within": { kind: "admitted", fields: ["doc", "at"] },
+	"negated within": { kind: "local", fields: ["doc", "at"] },
 	"negated across": { kind: "refused", lacks: "negation" },
-	"immutable call": { kind: "admitted", fields: ["doc", "at"] },
+	"immutable call": { kind: "local", fields: ["doc", "at"] },
 	"stable call": { kind: "refused", lacks: "call" },
 	"call of a stable call": { kind: "refused", lacks: "call" },
 	"closed alone": { kind: "refused", lacks: "noUnit" }
 }
 
+/** Each declared unit's name and key, its fields. */
+const declaredUnits = {
+	document: { unit: "Document", key: ["doc"] },
+	place: { unit: "Place", key: ["doc", "at"] }
+} as const
+
 /**
  * The rule (analysis/theory/unit.ts storedUnit; d11-design.md §2), restated: a definition that reads no stored relation
- * lacks a unit; one that reads a mutable relation lacks immutability; any other is admitted at the widest unit its head
- * delivers, every match binding the unit to the rule's variables, every negation correlated at them, every aggregate
- * grouping by them and every function it calls immutable throughout, or refused by the first of these it lacks at the
- * narrowest unit, the document.
+ * lacks a unit; any other is unit-local at the widest unit its head delivers, every match binding the unit to the
+ * rule's variables, every negation correlated at them, every aggregate grouping by them and every function it calls
+ * immutable throughout, or refused by the first of these it lacks at the narrowest unit, the document; and admitted
+ * where every relation it reads sits in one declared unit whose key leads its own, Doc open or not, its fields carrying
+ * that unit's key its first, else refused for its borrow.
  */
-export const verdictOf = (c: StoredCase): Verdict =>
-	c.shape === "closed alone"
-		? ownVerdict[c.shape]
-		: c.mutability === "Doc mutable"
-			? { kind: "refused", lacks: "mutable" }
-			: ownVerdict[c.shape]
+export const verdictOf = (c: StoredCase): Verdict => {
+	const local = ownVerdict[c.shape]
+	if (local.kind === "refused") {
+		return local
+	}
+	if (c.declared === "none") {
+		return { kind: "refused", lacks: "borrow" }
+	}
+	const declared = declaredUnits[c.declared]
+	return declared.key.length > local.fields.length
+		? { kind: "refused", lacks: "borrow" }
+		: {
+				kind: "admitted",
+				fields: local.fields,
+				declared: { unit: declared.unit, fields: local.fields.slice(0, declared.key.length) }
+			}
+}
 
 /** The name of the case's stored relation. */
 export const storedName = "Stored"
@@ -267,17 +305,32 @@ const storedOf = (shape: Shape, base: ReturnType<typeof baseOf>) => {
 	}
 }
 
-/** The base: the documents, the links, the closed relation and the functions, Doc mutable where the case says. */
-const baseOf = (mutability: Mutability) =>
+/** The unit of the document, and the unit of the document and its place. */
+const documentUnit = unit("Document", { doc: pg.integer })
+const placeUnit = unit("Place", { doc: pg.integer, at: pg.integer })
+
+/** The base: the documents, the links, the closed relation and the functions, Doc mutable and a unit declared where the
+ * case says. */
+const baseOf = (mutability: Mutability, declared: Declared) =>
 	schema(
 		"StoredAdmission",
 		[Doc, Link, Kind, pure, drifting, wrapped],
-		mutability === "Doc mutable" ? [mutable(Doc)] : []
+		mutability === "Doc mutable"
+			? declared === "none"
+				? [mutable(Doc)]
+				: declared === "document"
+					? [mutable(Doc), documentUnit]
+					: [mutable(Doc), placeUnit]
+			: declared === "none"
+				? []
+				: declared === "document"
+					? [documentUnit]
+					: [placeUnit]
 	)
 
 /** The case's schema: the base, and above it the stored relation of its shape. */
 export const storedSchemaOf = (c: StoredCase) => {
-	const base = baseOf(c.mutability)
+	const base = baseOf(c.mutability, c.declared)
 	return schema.extend([base], "StoredAdmissionTop", [storedOf(c.shape, base)], [])
 }
 
@@ -285,13 +338,17 @@ export const storedSchemaOf = (c: StoredCase) => {
  * notUnitLocal refusal; any other refusal by its tag. */
 export const verdictStated = (
 	compiled:
-		| { readonly ok: true; readonly fields: ReadonlyArray<string> | undefined }
+		| { readonly ok: true; readonly stored: StoredUnit | undefined }
 		| { readonly ok: false; readonly error: CompileError }
 ): Verdict | `other ${string}` => {
 	if (compiled.ok) {
-		return compiled.fields === undefined
+		return compiled.stored === undefined
 			? "other compiled with no stored unit"
-			: { kind: "admitted", fields: compiled.fields }
+			: {
+					kind: "admitted",
+					fields: compiled.stored.fields,
+					declared: { unit: compiled.stored.declared.unit, fields: compiled.stored.declared.fields }
+				}
 	}
 	const reason = compiled.error.reason
 	return reason._tag === "DerivedRefused" && reason.cause.kind === "notUnitLocal"

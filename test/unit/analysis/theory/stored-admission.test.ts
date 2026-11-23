@@ -8,12 +8,15 @@
  * The box is every definition of stored-admission.fixtures.ts over a document's places and links: a projection, the
  * same under other names, one that drops the place, one that hides its unit, counts by document and across documents,
  * a join across documents, a negation within one and across, a call of an immutable function, of a stable one and of
- * an immutable one whose body calls a stable one, and a closed relation alone; every relation immutable, or Doc mutable.
+ * an immutable one whose body calls a stable one, and a closed relation alone; every relation immutable, or Doc mutable
+ * (open, written in place inside its unit); no unit declared, a unit of the document, or one of the document and its
+ * place, which Doc and Link sit in alike.
  *
  * The oracle is the admission restated as a model (a specification, d11-design.md §2): admitted at the unit its head
- * delivers, or refused by the condition it lacks, its unit before its mutability before its shape.
+ * delivers, in the declared unit its relations sit in, or refused by the condition it lacks, its unit-locality before
+ * its borrow.
  *
- * Features: each shape's verdict, and a mutable relation's refusal.
+ * Features: each shape's verdict, each refusal for a borrow, and an open relation admitted.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
@@ -31,7 +34,11 @@ import {
 	verdictStated
 } from "#test/unit/analysis/theory/stored-admission.fixtures.ts"
 
-type StoredFeature = `${"admitted" | "refused"} ${Shape}` | "refused over a mutable relation"
+type StoredFeature =
+	| `${"admitted" | "refused"} ${Shape}`
+	| "refused for its borrow, no unit declared"
+	| "refused for its borrow, a unit wider than its own"
+	| "admitted over an open relation"
 
 /** A stored relation compiles exactly where its definition is unit-local, and is refused by the condition it lacks. */
 export const aStoredRelationIsAdmittedAtTheUnitItsHeadDeliversOrRefusedByTheConditionOfUnitLocalityItLacks =
@@ -51,21 +58,30 @@ export const aStoredRelationIsAdmittedAtTheUnitItsHeadDeliversOrRefusedByTheCond
 			"refused stable call",
 			"refused call of a stable call",
 			"refused closed alone",
-			"refused over a mutable relation"
+			"refused for its borrow, no unit declared",
+			"refused for its borrow, a unit wider than its own",
+			"admitted over an open relation"
 		] satisfies ReadonlyArray<Reached<StoredFeature>>,
 		check: (_, c: Case<StoredFeature>) => (stored) =>
 			Effect.sync(() => {
 				const compiled = compiledOf(storedSchemaOf(stored))
 				const stated = verdictStated(
 					compiled.ok
-						? { ok: true, fields: compiled.value.laws.theory.stored[storedName]?.fields }
+						? { ok: true, stored: compiled.value.laws.theory.stored[storedName] }
 						: { ok: false, error: compiled.error }
 				)
 				const expected = verdictOf(stored)
 				assert.deepEqual(stated, expected, Formatter.format(stored))
-				if (stored.mutability === "Doc mutable" && stored.shape !== "closed alone") {
-					c.note("refused over a mutable relation")
+				if (expected.kind === "refused" && expected.lacks === "borrow") {
+					c.note(
+						stored.declared === "none"
+							? "refused for its borrow, no unit declared"
+							: "refused for its borrow, a unit wider than its own"
+					)
 					return
+				}
+				if (expected.kind === "admitted" && stored.mutability === "Doc mutable") {
+					c.note("admitted over an open relation")
 				}
 				c.note(`${expected.kind} ${stored.shape}`)
 			}),
@@ -73,20 +89,34 @@ export const aStoredRelationIsAdmittedAtTheUnitItsHeadDeliversOrRefusedByTheCond
 			kind: "specification",
 			name: "analysis/theory/unit.ts storedUnit (d11-design.md §2): a stored relation is admitted at the widest unit its head delivers where its definition is unit-local and calls only immutable functions, else refused by the first condition it lacks"
 		},
-		box: "every shape of thirteen, every relation immutable or Doc mutable",
+		box: "every shape of thirteen, every relation immutable or Doc mutable, no unit declared, a unit of the document or one of the document and its place",
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/analysis/theory/unit.ts",
-				original: "\tconst mutable = stored.find((r) => r.mutable)",
-				replacement: "\tconst mutable = stored.find(() => false)",
-				why: "A definition over a mutable relation admitted, whose rows change in place under rows grizzle would not replace."
+				file: "packages/engine/src/analysis/theory/theory.ts",
+				original: "\t\t\t\t(relation) => this.owned.unitOf.get(relation)",
+				replacement:
+					'\t\t\t\t(relation) => this.owned.unitOf.get(relation) ?? { unit: "Document", fields: ["doc"] }',
+				why: "A relation in no declared unit read as one, so a stored relation is admitted that no borrow covers a write of."
 			},
 			{
 				file: "packages/engine/src/analysis/theory/unit.ts",
-				original: "\t\t\treturn Object.freeze({ unit: found.unit, fields: delivered.fields })",
+				original: "\tif (width > unit.key.length || f0 === undefined) {",
+				replacement: "\tif (f0 === undefined) {",
+				why: "A declared unit wider than the definition's admitted: a stored row at one document reads places each written under a borrow of its own."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/unit.ts",
+				original: "\t\tconst relation = stored.find((s) => s.name === r.relation && !s.mutable)",
+				replacement: "\t\tconst relation = stored.find((s) => s.name === r.relation)",
+				why: "An open relation's own fields read as grizzle's rewrites in place: a definition over an open Doc refused, though every write of it holds the unit."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/unit.ts",
+				original:
+					"\t\t\t\t: Object.freeze({ unit: found.unit, fields: delivered.fields, declared })",
 				replacement:
-					"\t\t\treturn Object.freeze({ unit: found.unit, fields: headNonEmpty(found.unit.holders).fields })",
+					"\t\t\t\t: Object.freeze({ unit: found.unit, fields: headNonEmpty(found.unit.holders).fields, declared })",
 				why: "The stored relation's unit fields read off its first holder's key, not its head: a definition that renames them names fields it does not have."
 			},
 			{
