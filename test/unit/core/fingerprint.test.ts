@@ -21,6 +21,7 @@ import { Effect, Formatter, Record } from "effect"
 import {
 	canonicalTag,
 	encode,
+	encodeWithin,
 	everyProperty,
 	maxStringLength,
 	withoutSourceLocs
@@ -394,7 +395,24 @@ export const aDigestCarryingAContainersTextWritesItWhereTheContainerStandsAndRea
 		]
 	})
 
-/** A digest over a canonical text longer than any string V8 builds is a digest: its text streams into the hash and is never built, so no length bounds it (ByteSink), where `encode`, which builds the text, refuses it past V8's longest string (TextSink). Budget: one case, one string of a third or a half of V8's longest string referenced by every member, whose digest hashes past it (about 18 s): a text below the bound cannot tell a bound ByteSink from a free one. */
+/**
+ * The code units a stated limit holds past one member of the record past V8's longest string, the record's opening
+ * brace and its first key with room to spare, so encodeWithin refuses its text as it writes the second member.
+ *
+ * @formatConstant a JSON record's first key and punctuation: under 64 code units
+ */
+const statedMargin = 64
+
+/**
+ * A digest over a canonical text longer than any string V8 builds is a digest: its text streams into the hash and is
+ * never built, so no length bounds it (ByteSink), where `encode`, which builds the text, refuses it past its bound
+ * (TextSink), which encodeWithin states smaller, the same writer under a limit a case can afford. The record holds one
+ * string of a megabyte under 512 keys, its text past V8's longest string, so a case hashes half a gigabyte of text and
+ * builds no string of it; and encode's refusal is read under a limit of one member and a little more, where at V8's own
+ * limit it built a quarter of a gigabyte of string before it refused, and each member held a quarter of a gigabyte (the
+ * unit tier on 0be68193: 62.9 s of CPU in a loaded worker, past its 60 s budget, its worker lost). A text below V8's
+ * bound cannot tell a bound ByteSink from a free one, so the digest is read past it.
+ */
 export const aDigestOverACanonicalTextPastV8sLongestStringIsADigestWhereEncodeWhichBuildsItRefusesIt =
 	property.explore(pastLongestGen, {
 		needs: {},
@@ -403,14 +421,21 @@ export const aDigestOverACanonicalTextPastV8sLongestStringIsADigestWhereEncodeWh
 		check: () => (p) =>
 			Effect.sync(() => {
 				const member = pastLongestMember(p)
-				const v = pastLongestRecord(p, member)
-				const reason = refused(encode(v, everyProperty), "ResourceBound").reason
+				const v = pastLongestRecord(member)
+				const limit = member.length + statedMargin
+				const reason = refused(encodeWithin(v, everyProperty, limit), "ResourceBound").reason
 				assertVariant(reason, "_tag", "ResourceBound", "encode refuses the text it would build")
 				assertVariant(reason.bound, "kind", "stringLengthAtLeast", "past a string's length")
-				assert.equal(reason.bound.limit, maxStringLength, "V8's longest string")
+				assert.equal(reason.bound.limit, limit, "the stated limit")
+				assert.ok(
+					reason.bound.atLeast > limit,
+					"refused as the text passes it, at what it holds then"
+				)
+				const streamed = streamedDigest("past-longest", member)
+				assert.ok(streamed.units > maxStringLength, "the record's text is past V8's longest string")
 				assert.equal(
 					succeeded(digest("past-longest", v, everyProperty), "a digest of a text past the bound"),
-					streamedDigest("past-longest", p, member),
+					streamed.hex,
 					"the digest of the framed text, streamed"
 				)
 			}),

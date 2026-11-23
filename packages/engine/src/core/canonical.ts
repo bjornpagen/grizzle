@@ -1682,7 +1682,17 @@ interface TextOut {
 /** What bounds a text a TextSink writes, measured before each piece is written: V8's longest string, for a text built. */
 type TextBound = (written: number) => void
 
-const builtText: TextBound = (written) => boundCanonicalText(written, maxStringLength)
+/**
+ * The bound of a text built under a stated `limit` of UTF-16 code units, never past V8's longest string
+ * (maxStringLength), which every text a canonical writer builds is held to (`builtText`) and which a smaller limit
+ * states for a text of a length a test can afford (encodeWithin).
+ */
+const builtTextUnder = (limit: number): TextBound => {
+	const bound = Math.min(limit, maxStringLength)
+	return (written) => boundCanonicalText(written, bound)
+}
+
+const builtText: TextBound = builtTextUnder(maxStringLength)
 
 /** A text written as chunks is never built, so no length bounds it. */
 const chunkedText: TextBound = () => undefined
@@ -1899,14 +1909,15 @@ export const writeArtifactJson = (value: Json): Result.Result<TextChunks, Compil
 /** The canonical text of a value. */
 const encodeWalk = (
 	value: unknown,
-	options: EncodeOptions
+	options: EncodeOptions,
+	bound: TextBound
 ): Result.Result<WellFormedText, CompileError> =>
 	catchRefusal(() => {
 		if (value === undefined) {
 			return refuseValue([], "a value, not undefined")
 		}
 		const out = new WellFormedWriter()
-		new Walk(options, new TextSink(out, builtText), canonicalOf, rootPath, nothingCarried).of(value)
+		new Walk(options, new TextSink(out, bound), canonicalOf, rootPath, nothingCarried).of(value)
 		return out.text()
 	})
 
@@ -1945,7 +1956,19 @@ const encodeWalk = (
 export const encode = (
 	value: unknown,
 	options: EncodeOptions
-): Result.Result<WellFormedText, CompileError> => encodeWalk(value, options)
+): Result.Result<WellFormedText, CompileError> => encodeWalk(value, options, builtText)
+
+/**
+ * `encode`'s text of `value` built under a stated `limit` of UTF-16 code units, at most V8's longest string, which is
+ * encode's own (builtTextUnder): the same writer, refusing a text past its limit as ResourceBound (stringLengthAtLeast)
+ * as it is written, so the bound every built canonical text is held to is shown on texts of a length a test can afford,
+ * where one past V8's longest string costs half a gigabyte of string and seconds of a worker's heap.
+ */
+export const encodeWithin = (
+	value: unknown,
+	options: EncodeOptions,
+	limit: number
+): Result.Result<WellFormedText, CompileError> => encodeWalk(value, options, builtTextUnder(limit))
 
 /**
  * The canonical text under `options` of `record`, a plain record each of whose members `written` holds has the
