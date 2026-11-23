@@ -220,8 +220,8 @@ const unitPlans = (b: InstallBuilder): ReadonlyArray<UnitPlan> =>
 const keyColumn = (at: number): string => `c${at + 1}`
 
 /** One function parameter per key field, the array of that field's values, in key order: `keys_1` the first. */
-const keyParams = (b: InstallBuilder, unit: UnitPlan): ReadonlyArray<FunctionParam> =>
-	unit.key.map((field, at) => {
+const keyParams = (b: InstallBuilder, unit: UnitPlan): NonEmptyReadonlyArray<FunctionParam> =>
+	mapNonEmpty(unit.key, (field, at) => {
 		const array = arrayOf(fieldColumnType(b.names, field.type).type)
 		if (array === undefined) {
 			throw defect(`a retirable key field ${unit.header}.${field.name} of a type with an array`)
@@ -233,30 +233,25 @@ const keyParams = (b: InstallBuilder, unit: UnitPlan): ReadonlyArray<FunctionPar
 const argument = (p: FunctionParam): Expr => ({ kind: "plVar", name: p.name })
 
 /**
- * The distinct groups a call states, `(SELECT DISTINCT <unnest>.c1, … FROM unnest(keys_1, …) AS <unnest>(c1, …)) AS
- * <alias>(c1, …)`: the function's key arrays read in lockstep, each group once.
+ * The distinct groups a call states, `(SELECT DISTINCT pg_catalog.unnest(keys_1) AS c1, …) AS <alias>(c1, …)`: the
+ * function's key arrays read in lockstep, each group once. The set-returning functions of one select list run in
+ * lockstep, as a relation input's arrays are read (sql/print.ts printArrays); the multi-argument unnest(keys_1, …) is
+ * PostgreSQL's FROM form only unqualified (parse_clause.c transformRangeFunction), and every catalog function is
+ * printed qualified, so pg_catalog.unnest(keys_1, keys_2) is no function (42883).
  */
-const statedGroups = (
-	unit: UnitPlan,
-	params: ReadonlyArray<FunctionParam>,
-	alias: string,
-	unnested: string
-): FromSource => {
-	const columns = unit.key.map((_, at) => keyColumn(at))
-	const unnest: FromItem = {
-		kind: "function",
-		call: call("unnest", params.map(argument)),
-		alias: unnested,
-		columns,
-		lateral: false,
-		ordinality: false
-	}
-	const [first, ...rest] = columns.map((c) => targetAs(col(unnested, c), c))
-	if (first === undefined) {
-		throw defect(`a retirable header ${unit.header} keyed by one field at least`)
-	}
-	return derived(select(distinctCore([first, ...rest], [unnest], undefined)), alias, columns, false)
-}
+const statedGroups = (params: NonEmptyReadonlyArray<FunctionParam>, alias: string): FromSource =>
+	derived(
+		select(
+			distinctCore(
+				mapNonEmpty(params, (p, at) => targetAs(call("unnest", [argument(p)]), keyColumn(at))),
+				[],
+				undefined
+			)
+		),
+		alias,
+		params.map((_, at) => keyColumn(at)),
+		false
+	)
 
 /** The header row at a group: its key fields, each equal to the group's column of its position, at its type. */
 const atGroup = (b: InstallBuilder, unit: UnitPlan, header: string, group: string): Expr =>
@@ -297,12 +292,12 @@ const open = (unit: UnitPlan, header: string): Expr => not(col(header, unit.life
 /**
  * The open headers of the groups a call states, in key order, locked until the transaction ends at `strength`:
  * `PERFORM 1 FROM <header> AS r1 JOIN <groups> AS r2 ON <r1 at r2> WHERE NOT r1.<retired> ORDER BY r1.<key> FOR
- * <strength> OF r1`, the groups' unnest r3.
+ * <strength> OF r1`.
  */
 const lockOpen = (
 	b: InstallBuilder,
 	unit: UnitPlan,
-	params: ReadonlyArray<FunctionParam>,
+	params: NonEmptyReadonlyArray<FunctionParam>,
 	strength: "KEY SHARE" | "UPDATE"
 ): PlStatement => {
 	const query: PerformQuery = {
@@ -311,7 +306,7 @@ const lockOpen = (
 			[
 				join(
 					table(unit.table.schema, unit.table.name, "r1"),
-					statedGroups(unit, params, "r2", "r3"),
+					statedGroups(params, "r2"),
 					atGroup(b, unit, "r1", "r2")
 				)
 			],
@@ -328,13 +323,13 @@ const lockOpen = (
  * The hold's refusal of a group the call states that is not open, its header absent or retired: the first in key
  * order, refused on the fence of the unit's first body at that group, the law every body's write into it would break,
  * `k["<body>",["<group field>",…],["<value>",…]]`, the refused group's values at the body's group fields: `PERFORM
- * <refusal> FROM <groups> AS r1 WHERE NOT EXISTS (SELECT 1 FROM <header> AS r3 WHERE <r3 at r1> AND NOT
- * r3.<retired>) ORDER BY r1.c1, … LIMIT 1`, the groups' unnest r2.
+ * <refusal> FROM <groups> AS r1 WHERE NOT EXISTS (SELECT 1 FROM <header> AS r2 WHERE <r2 at r1> AND NOT
+ * r2.<retired>) ORDER BY r1.c1, … LIMIT 1`.
  */
 const refuseClosed = (
 	b: InstallBuilder,
 	unit: UnitPlan,
-	params: ReadonlyArray<FunctionParam>
+	params: NonEmptyReadonlyArray<FunctionParam>
 ): PlStatement => {
 	const { body, law } = unit.fence
 	const refusal = raised({
@@ -350,8 +345,8 @@ const refuseClosed = (
 	const openAt = operandSelect(
 		core(
 			[target(lit.int(1, types.integer))],
-			[table(unit.table.schema, unit.table.name, "r3")],
-			and([atGroup(b, unit, "r3", "r1"), open(unit, "r3")])
+			[table(unit.table.schema, unit.table.name, "r2")],
+			and([atGroup(b, unit, "r2", "r1"), open(unit, "r2")])
 		)
 	)
 	return {
@@ -367,7 +362,7 @@ const refuseClosed = (
 						])
 					)
 				],
-				[statedGroups(unit, params, "r1", "r2")],
+				[statedGroups(params, "r1")],
 				notExists(openAt)
 			),
 			orderBy: unit.key.map((_, at) => asc(col("r1", keyColumn(at)))),
@@ -387,25 +382,25 @@ const refuseClosed = (
  *   RETURN QUERY
  *   WITH r1(c1, …) AS MATERIALIZED (SELECT r2.<key> FROM <header> AS r2 JOIN <groups> AS r3 ON <r2 at r3>
  *          WHERE NOT r2.<retired>),
- *        r5 AS (DELETE FROM <body 1> AS r6 USING r1 AS r7 WHERE <r6 at r7> RETURNING 1 AS c1), …,
+ *        r4 AS (DELETE FROM <body 1> AS r5 USING r1 AS r6 WHERE <r5 at r6> RETURNING 1 AS c1), …,
  *        r<n> AS (UPDATE <header> AS r<n + 1> SET <retired> = true FROM r1 AS r<n + 2> WHERE <r<n + 1> at r<n + 2>>
  *          RETURNING 1 AS c1)
  *   SELECT r<n + 4>.c1 AS c1
  *   FROM (SELECT array_agg(r<n + 3>.c2 ORDER BY r<n + 3>.c1) AS c1, r<n + 3>.c3 AS c2
  *         FROM (SELECT 0 AS c1, count(*) AS c2, 0 AS c3 FROM r<n> AS r<n + 5>
- *               UNION ALL SELECT 1, count(*), 0 FROM r5 AS r<n + 6> …) AS r<n + 3>(c1, c2, c3)
+ *               UNION ALL SELECT 1, count(*), 0 FROM r4 AS r<n + 6> …) AS r<n + 3>(c1, c2, c3)
  *         GROUP BY r<n + 3>.c3) AS r<n + 4>(c1, c2)
  *   LIMIT 1
  *
  * its counts grouped by the constant every count row carries, one group, so no aggregate is read over no row, and the
- * group's one row returned; the groups' unnest is r4, and each body's CTE, its row and its locked groups take the next
- * three aliases, in body order. It runs after the lock, under a snapshot of its own, so it reads every row of the groups
- * any call that held them committed, and the groups no call holds now.
+ * group's one row returned; each body's CTE, its row and its locked groups take the next three aliases, in body
+ * order. It runs after the lock, under a snapshot of its own, so it reads every row of the groups any call that held
+ * them committed, and the groups no call holds now.
  */
 const retireLocked = (
 	b: InstallBuilder,
 	unit: UnitPlan,
-	params: ReadonlyArray<FunctionParam>
+	params: NonEmptyReadonlyArray<FunctionParam>
 ): PlStatement => {
 	const alias = (n: number): string => `r${n}`
 	const locked: Cte = {
@@ -418,7 +413,7 @@ const retireLocked = (
 				[
 					join(
 						table(unit.table.schema, unit.table.name, alias(2)),
-						statedGroups(unit, params, alias(3), alias(4)),
+						statedGroups(params, alias(3)),
 						atGroup(b, unit, alias(2), alias(3))
 					)
 				],
@@ -428,7 +423,7 @@ const retireLocked = (
 	}
 	const one = [targetAs(lit.int(1, types.integer), keyColumn(0))]
 	const deletes = unit.bodies.map((body, at): Cte => {
-		const [name, row, groups] = [alias(5 + 3 * at), alias(6 + 3 * at), alias(7 + 3 * at)]
+		const [name, row, groups] = [alias(4 + 3 * at), alias(5 + 3 * at), alias(6 + 3 * at)]
 		const removal: Delete = {
 			kind: "delete",
 			with: undefined,
@@ -440,7 +435,7 @@ const retireLocked = (
 		}
 		return { name, columns: [], materialized: undefined, query: removal }
 	})
-	const n = 5 + 3 * deletes.length
+	const n = 4 + 3 * deletes.length
 	const [retired, header, groups, counted] = [alias(n), alias(n + 1), alias(n + 2), alias(n + 3)]
 	const releasedRelations = unit.releases.reduce((sum, r) => sum + r.records.length, 0)
 	const supply = { next: n + 6 + deletes.length + releasedRelations }
