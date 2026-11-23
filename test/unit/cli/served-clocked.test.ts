@@ -126,7 +126,7 @@ export const aMemberBoundToTheDatabasesClockCertifiesAsItsProgramWithTheCallsNow
 		kills: [
 			{
 				file: "packages/engine/src/program/isolation/extract.ts",
-				original: `\treturn e.kind === "clock" && e.of.kind === "param" ? \`:\${e.of.param}\` : undefined`,
+				original: `\treturn e.kind === "clock" && e.of.kind === "param"\n\t\t? { kind: "param", name: e.of.param }\n\t\t: undefined`,
 				replacement: "\treturn undefined",
 				why: "The certifier reads a clock reading as an expression no parameter carries, so a key bound to it is bound by no value; the certificates' property fails."
 			},

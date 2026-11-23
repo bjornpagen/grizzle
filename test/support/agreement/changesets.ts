@@ -490,7 +490,7 @@ const refusalNotes = {
 		"refused: a put beside a whole delete",
 	"a served ChangeSet's facts name, under each op, only the relations of its array members of that op":
 		"refused: a served fact's relation",
-	"a served ChangeSet's facts name only the ops of its array members: insert, put, delete and retire":
+	"a served ChangeSet's facts name only the ops of its array members: insert, put and delete":
 		"refused: a served fact's op",
 	"a served ChangeSet's facts hold one array for each op and relation: merge the strata's array members of this op and relation into one":
 		"refused: a repeated array"
@@ -3176,7 +3176,7 @@ const servedOf = (
 						claim: {
 							kind: "refusal",
 							refusal:
-								"a served ChangeSet's facts name only the ops of its array members: insert, put, delete and retire"
+								"a served ChangeSet's facts name only the ops of its array members: insert, put and delete"
 						}
 					}
 				}
