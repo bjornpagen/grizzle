@@ -128,6 +128,7 @@ export const kindModel: { readonly [K in PhysicalKind]: KindModel } = {
 		justified: "a law or a program"
 	},
 	refusalFunction: inSchema,
+	borrowFunction: inSchema,
 	unitFunction: onTable("any reason"),
 	head: onTable("any reason"),
 	isolationFunction: inSchema,

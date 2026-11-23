@@ -525,6 +525,7 @@ export const physicalKinds = [
 	"check",
 	"foreignKey",
 	"refusalFunction",
+	"borrowFunction",
 	"unitFunction",
 	"head",
 	"isolationFunction",

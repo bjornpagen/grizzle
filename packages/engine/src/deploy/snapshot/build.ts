@@ -859,6 +859,7 @@ const snapshotTablesOf = (installation: Installation): SnapshotTables => {
 			case "immutableTrigger":
 			case "lawTrigger":
 			case "refusalFunction":
+			case "borrowFunction":
 			case "unitFunction":
 			case "head":
 			case "isolationFunction":

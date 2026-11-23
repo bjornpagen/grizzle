@@ -241,6 +241,7 @@ export const staleReplaced: { readonly [K in PhysicalKind]: boolean } = {
 	check: true,
 	foreignKey: true,
 	refusalFunction: true,
+	borrowFunction: true,
 	unitFunction: true,
 	head: true,
 	isolationFunction: true,
@@ -383,6 +384,7 @@ const dropOrder: { readonly [K in Dropped]: number } = {
 	immutableTrigger: 3,
 	isolationTrigger: 3,
 	refusalFunction: 11,
+	borrowFunction: 11,
 	unitFunction: 11,
 	head: 11,
 	isolationFunction: 11,
@@ -2062,6 +2064,7 @@ class Differ {
 				this.schemaObject(o, before)
 				return
 			case "refusalFunction":
+			case "borrowFunction":
 			case "isolationFunction":
 			case "snapshotGuard":
 				if (before === undefined || !this.unchanged(before, o)) {
@@ -3459,6 +3462,7 @@ class Differ {
 				)
 				return
 			case "refusalFunction":
+			case "borrowFunction":
 			case "unitFunction":
 			case "isolationFunction":
 			case "snapshotGuard":
@@ -4682,6 +4686,7 @@ const grantObjectsOf = (v: Installed<AnyObject>): ReadonlyArray<GrantObject> => 
 			return [{ kind: "FUNCTION", name: functionNameOf(v.create) }]
 		case "constant":
 		case "refusalFunction":
+		case "borrowFunction":
 		case "unitFunction":
 		case "isolationFunction":
 		case "snapshotGuard":

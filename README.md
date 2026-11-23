@@ -2852,7 +2852,13 @@ export const Assignments = schema(
 - **A lock is no row.** A unit's key is locked as a PostgreSQL advisory transaction lock, its id a digest of the
   unit's name and the key's values, the one spelling every lock grizzle takes shares, the stamps of
   [Instants](#instants) among them. Nothing is stored: a unit adds no table, column or migration step, and two keys
-  whose ids collide only share a lock, a coarser one, never a wrong one.
+  whose ids collide only share a lock, a coarser one, never a wrong one. The id's top byte is the unit's rank, its place
+  in the one order generate gives every unit and series, and the 56 bits below it the first of the SHA-256 of the
+  unit's name and the key's values, each written after its length, so no two lists of them spell one text, and each
+  value as its type's equality reads it: 1.0 and 1.00 are one key, as -0 and 0 are. Every schema installs one function
+  that takes them, `__borrow`, which every role executes: handed a call's locks in the order of their ids, each with
+  its mode, it takes them in that order, so a call that waits holds only locks below the one it waits for, and no two
+  calls ever wait on each other in a cycle.
 
 **The series.** A number every new row takes as one past the greatest, with no gap, such as an assignment's place in
 its series, is the one thing no key splits. `series(R)` declares it, over a relation keyed by one `natural` field

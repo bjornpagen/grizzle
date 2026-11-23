@@ -106,6 +106,7 @@ export type IdentityKind =
 	| "ruleDeltaRow"
 	| "ruleSentinel"
 	| "refusal"
+	| "borrow"
 	| "snapshotGuard"
 	| "aside"
 	| "roleAside"

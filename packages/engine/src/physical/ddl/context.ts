@@ -65,6 +65,7 @@ import {
 	transformExpr,
 	transformStatement
 } from "#compiler/sql/transform.ts"
+import { borrowFunctionDdl } from "#compiler/write/borrow/function.ts"
 import { tableMaxColumns } from "#compiler/write/carriers/carriers.ts"
 import { refusalFunctionDdl } from "#compiler/write/refusal.ts"
 
@@ -274,6 +275,8 @@ export class InstallBuilder {
 	readonly levelNodes: NonEmptyReadonlyArray<Node<"setup">>
 	/** The refusal function every write statement that can refuse and every context source calls. */
 	readonly refusal: Node<"setup">
+	/** The borrow function every role's borrow statements call (write/borrow/function.ts). */
+	readonly borrow: Node<"setup">
 	/** The guard function every guarded table's isolation trigger calls. */
 	readonly isolation: Node<"setup">
 	/** The relations whose tables take no isolation trigger (physical/ddl/isolation.ts readCommittedRelations). */
@@ -358,6 +361,17 @@ export class InstallBuilder {
 				ident: this.qualified("function", identity.refusal()),
 				ddl: refusalFunctionDdl(this.schema),
 				reasons: [enforcement(`the refusals of schema ${input.owned.name}`)],
+				phase: "setup"
+			},
+			[this.schemaNode]
+		)
+		this.name(identity.borrow())
+		this.borrow = this.add(
+			{
+				kind: "borrowFunction",
+				ident: this.qualified("function", identity.borrow()),
+				ddl: borrowFunctionDdl(this.schema),
+				reasons: [enforcement(`the borrows of schema ${input.owned.name}`)],
 				phase: "setup"
 			},
 			[this.schemaNode]

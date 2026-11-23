@@ -1760,6 +1760,9 @@ export const identity = Object.freeze({
 		mint("functionOwner", [root], [ownerSegment], `function owner of ${root}`, hashed),
 	refusal: (): Identity<"refusal"> =>
 		mint("refusal", [], ["refuse"], "the refusal function", readable("__refuse")),
+	/** The function a call's borrows take their locks by, in the order of their ids (write/borrow/function.ts). */
+	borrow: (): Identity<"borrow"> =>
+		mint("borrow", [], ["borrow"], "the borrow function", readable("__borrow")),
 	snapshotGuard: (): Identity<"snapshotGuard"> =>
 		mint(
 			"snapshotGuard",

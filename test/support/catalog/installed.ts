@@ -400,6 +400,7 @@ export const installedScope = (
 			guarded: created(snapshot, "isolationTrigger", guardedTableOf),
 			functions: new Map<string, InstalledFunction>([
 				...functionsOf("refusalFunction", { kind: "refusal" }),
+				...functionsOf("borrowFunction", { kind: "borrow" }),
 				...functionsOf("isolationFunction", { kind: "isolationGuard" }),
 				...functionsOf("ruleJudge", { kind: "rule" }),
 				...functionsOf("lawFunction", { kind: "rule" }),

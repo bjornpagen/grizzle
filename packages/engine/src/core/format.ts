@@ -80,7 +80,10 @@
  * by an EXISTS over that part (lower/shapes/share/statements.ts restrictedShares), where format 7 restated it at each
  * read. A family statement that reads a held owner copy from a stamped nesting's rows it does not stamp reads them as
  * the host sends them, without the stamped columns (write/family/additions.ts sentOf), where format 7 declared a
- * placeholder for each stamped column, which no nested row sends.
+ * placeholder for each stamped column, which no nested row sends. Every schema installs its borrow function,
+ * `__borrow(bigint[], boolean[])`, which takes a call's borrowed locks in the order it is handed them, each a
+ * transaction-scoped advisory lock, exclusive or shared, one manifest object of kind `borrowFunction`
+ * (write/borrow/function.ts) every role executes, where format 7 had none.
  *
  * Format 7 (pin+1): a session table, a rule judge's delta (physical/ddl/rules.ts
  * emptied) or a write program's carrier (sql/print.ts carrierStandUp), is emptied by DELETE, and by TRUNCATE only once

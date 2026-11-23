@@ -140,6 +140,7 @@ export type Installed<O extends AnyObject = ManifestObject> =
 	| {
 			readonly kind:
 				| "refusalFunction"
+				| "borrowFunction"
 				| "unitFunction"
 				| "isolationFunction"
 				| "snapshotGuard"
@@ -359,6 +360,7 @@ export const installed = <O extends AnyObject>(o: O): Installed<O> => {
 				? { kind: o.kind, object: o, create: s }
 				: malformed("a table's immutability guard trigger installed by its CREATE TRIGGER")
 		case "refusalFunction":
+		case "borrowFunction":
 		case "unitFunction":
 		case "isolationFunction":
 		case "snapshotGuard":
@@ -559,6 +561,7 @@ export const objectTable = (o: AnyObject): ObjectName | undefined => {
 		case "constant":
 		case "domain":
 		case "refusalFunction":
+		case "borrowFunction":
 		case "unitFunction":
 		case "isolationFunction":
 		case "snapshotGuard":
@@ -690,6 +693,7 @@ export const builtOver = <O extends AnyObject>(
 		case "domain":
 		case "materializedView":
 		case "refusalFunction":
+		case "borrowFunction":
 		case "unitFunction":
 		case "isolationFunction":
 		case "snapshotGuard":
@@ -817,6 +821,7 @@ const objectParts = <O extends AnyObject>(
 		case "domain":
 		case "materializedView":
 		case "refusalFunction":
+		case "borrowFunction":
 		case "unitFunction":
 		case "isolationFunction":
 		case "snapshotGuard":

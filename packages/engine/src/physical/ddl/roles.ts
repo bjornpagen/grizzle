@@ -119,6 +119,7 @@ import {
 } from "#compiler/sql/build.ts"
 import { nameOf } from "#compiler/sql/constants.ts"
 import { printExpr, printStartupOptions } from "#compiler/sql/print.ts"
+import { borrowFunction } from "#compiler/write/borrow/function.ts"
 import { fieldColumns } from "#compiler/write/defined.ts"
 import { filterFields, renderMembership, renderProbes } from "#compiler/write/entry/render.ts"
 import { endColumns } from "#compiler/write/family/statements.ts"
@@ -1477,6 +1478,7 @@ const addRole = (
 	}
 	appendAll(privileges, grants)
 	privileges.push(grant(["EXECUTE"], { kind: "FUNCTION", names: [refusalFunction(b.schema)] }))
+	privileges.push(grant(["EXECUTE"], { kind: "FUNCTION", names: [borrowFunction(b.schema)] }))
 	const executes = roleExecutes(
 		b,
 		use,

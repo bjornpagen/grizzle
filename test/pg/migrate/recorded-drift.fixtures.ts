@@ -52,6 +52,7 @@ export const editedKinds = [
 	"ruleJudge",
 	"lawFunction",
 	"refusalFunction",
+	"borrowFunction",
 	"isolationFunction"
 ] as const
 type EditedKind = (typeof editedKinds)[number]

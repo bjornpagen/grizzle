@@ -30,6 +30,7 @@ export type InstalledFunction =
 			readonly strict: boolean
 	  }
 	| { readonly kind: "refusal" }
+	| { readonly kind: "borrow" }
 	| { readonly kind: "snapshotGuard" }
 	| { readonly kind: "isolationGuard" }
 	| { readonly kind: "immutableGuard" }
@@ -795,6 +796,7 @@ const functionProblems = (j: Judging, f: Fn): ReadonlyArray<ErasureProblem> => {
 				})
 			]
 		case "refusal":
+		case "borrow":
 		case "hold":
 		case "retire":
 		case "stamp":

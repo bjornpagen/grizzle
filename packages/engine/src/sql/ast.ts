@@ -357,6 +357,7 @@ export const builtinFunctions = {
 	chr: { reach: "row" },
 	to_jsonb: { reach: "row" },
 	pg_advisory_xact_lock: { reach: "row" },
+	pg_advisory_xact_lock_shared: { reach: "row" },
 	pg_drop_replication_slot: { reach: "row" },
 	current_setting: { reach: "row" },
 	set_config: { reach: "row" },
