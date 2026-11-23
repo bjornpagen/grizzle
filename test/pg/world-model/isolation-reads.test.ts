@@ -16,7 +16,6 @@ export const isolationReads = programProperty({
 	installs: oneOf([docsInstalls, constant(docsUnionInstall)]),
 	focus: reads,
 	steps: 10,
-	cases: 24,
 	required: readsRequired,
 	realities: docsChainedRealities,
 	lead: leadsOf(directTransaction(readsRequired), dbSession(readsRequired)),
@@ -24,10 +23,10 @@ export const isolationReads = programProperty({
 	kept: [],
 	kills: [
 		{
-			file: "test/support/worlds/model/reads.ts",
-			original: '\tentry?.kind === "query" && entry.rules.length > 1',
-			replacement: "\tfalse",
-			why: "The model allows a recursive read of a relation its role reads as a union, as before: the engine refuses it when the query compiles (RecursionRefused, unionStep), and follow-up 4's suite met that at 791e4f4ab (TEST_SEED=751447835, case 14); this property fails."
+			file: "packages/engine/src/check/recursion/scan.ts",
+			original: "\t\t\t? reads(source.name)\n",
+			replacement: "\t\t\t? undefined\n",
+			why: "A recursion's step that names a role's query entry of several rules reads it through the entry's view as a relation, which the scan never reads as a union, so the step compiles with PostgreSQL inlining the union into every step, where it is refused as RecursionRefused, unionStep: the defect this property met at trunk's TEST_SEED=2219874524 (replay isolationReads:400080000.22), which 0dd538e30 fixed."
 		}
 	]
 })

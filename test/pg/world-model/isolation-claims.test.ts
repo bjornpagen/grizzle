@@ -14,7 +14,6 @@ export const isolationClaims = programProperty({
 	installs: oneOf([docsInstalls, constant(docsProfileInstall)]),
 	focus: ["open-db", "read", "close", "wild"],
 	steps: 8,
-	cases: 32,
 	required: claimsRequired,
 	realities: docsTenantRealities,
 	lead: dbSession(claimsRequired),
@@ -22,10 +21,11 @@ export const isolationClaims = programProperty({
 	kept: [],
 	kills: [
 		{
-			file: "test/support/served-db.ts",
-			original: "\tif (isAnswerableRead(program)) {",
-			replacement: '\tif (isAnswerableRead(program) || Object.hasOwn(Object(program), "paged")) {',
-			why: "The served file a session's read is answered in knows a paged read by its own property, as answeredRead did, so a refusing proxy a wild read passes runs its trap before workload(...) refuses it."
+			file: "packages/grizzle/src/adapter/pool/served.ts",
+			original:
+				"\tconst read = readCaller(value, tokenKeys)\n\tif (!read.ok) {\n\t\treturn Result.fail(noToken())\n\t}\n\tconst { kind, base, login, role } = read.value.data\n",
+			replacement: "\tconst { kind, base, login, role } = Object(value)\n",
+			why: "Db.open reads the role a caller hands it straight off the caller's value, where it reads it once at the boundary (readCaller), so a hostile proxy's trap runs and its throw escapes openServed as a defect where Db.open owes OpenError at `schema`: the defect this suite met at the 26e3c15f pin (WildTouched, \"a Db's contexts hold exactly the facts its verified claims decode to\"), which b542bbd66 and 61885272b fixed."
 		}
 	]
 })

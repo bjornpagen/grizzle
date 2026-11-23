@@ -1,6 +1,6 @@
 import { maxOf } from "@bjornpagen/grizzle-text/base/array"
 import { array, boolean, type Gen, int, uniqueKeys, weighted } from "@bjornpagen/testing/gen"
-import { Array as Arr, Option, Order } from "effect"
+import { Array as Arr } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { drawn, natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -61,8 +61,6 @@ export type WorldRead =
 	| { readonly kind: "page"; readonly relation: RelationPlace }
 	| { readonly kind: "join"; readonly relation: RelationPlace; readonly other: RelationPlace }
 
-export type ReadKind = WorldRead["kind"]
-
 /**
  * Where a page's window starts (live/program.ts Anchor): its first rows, its last, or the rows after or before a key of
  * its completed order, `o` then `id`, which no row need hold.
@@ -92,10 +90,6 @@ export interface LiveSubscription {
 	readonly read: number
 	readonly binding: LiveBinding
 }
-
-/** The group a subscription binds, none for one that binds none. */
-const groupOf = (subscription: LiveSubscription): number | undefined =>
-	subscription.binding.kind === "none" ? undefined : subscription.binding.group
 
 /** A write of one row: an insert of a free key, a delete of a stored row, or a stored row moved to `to` at its key. */
 export type LiveWrite =
@@ -404,34 +398,8 @@ export const liveCaseGen =
 		}
 	}
 
-/**
- * A case that moves a row in an ordered read, its other fields drawn: one ordered read of relation 0, subscribed for
- * group 0, over two rows of the group, id 1 at order 0 before id 0 at order 1, and one grizzle call that puts id 1 at
- * order 1, after id 0 by its key, on a mutable relation 0. A drawn case of 24 left the move unreached (the pin's pg
- * tier at bafa0de1c and at 50de8a880: no witness reached a move in an ordered read).
- */
-export const orderedMoveCase =
-	(bounds: LiveBounds): Gen<LiveCase> =>
-	(source) => {
-		const drawn = source.draw(liveCaseGen(bounds))
-		const first: LiveFact = { id: 1, g: 0, o: 0, val: 0 }
-		const second: LiveFact = { id: 0, g: 0, o: 1, val: 0 }
-		return {
-			mutable: [true, drawn.mutable[1]],
-			reads: [{ kind: "ordered", relation: 0 }],
-			subscriptions: [{ read: 0, binding: { kind: "group", group: 0 } }],
-			facts: [[first, second], drawn.facts[1]],
-			history: [
-				{
-					writer: "grizzle",
-					write: { kind: "update", relation: 0, from: first, to: { ...first, o: 1 } }
-				}
-			]
-		}
-	}
-
 /** A read's member name in the login's workload, by its place. */
-export const readMember = (place: number): string => `read${place}`
+const readMember = (place: number): string => `read${place}`
 
 /** A write member's name: the op its facts go under and the relation's place. */
 export const writeMember = (op: "insert" | "delete" | "put", place: RelationPlace): string =>
@@ -471,12 +439,6 @@ const closedRead = { relation: "Tier", member: "tiers" } as const
 
 /** A relation's declared name, by place. */
 export const relationName = (place: RelationPlace): string => `Item${place}`
-
-/** The parameters a subscription's call binds. */
-export const paramsOf = (subscription: LiveSubscription): Readonly<Record<string, number>> => {
-	const group = groupOf(subscription)
-	return group === undefined ? {} : { g: group }
-}
 
 /**
  * The schema of `c` named `name`, and its full world's login (test/support/worlds.ts fullWorld), whose one role `app`
@@ -574,223 +536,4 @@ export const liveWorld = (c: LiveCase, name: string) => {
 	programs[familyMembers.member] = ChangeSet.empty(base).insert(Book, [])
 	const world = fullWorld(base, programs)
 	return { schema: base, world, logins: [world.server] }
-}
-
-/** The relations a read reads, by place: its footprint. */
-const footprintOf = (read: WorldRead): ReadonlyArray<RelationPlace> =>
-	read.kind === "join" ? Arr.dedupe([read.relation, read.other]) : [read.relation]
-
-/** The rows a write touches: an insert's new row, a delete's old one, an update's both. */
-const touchedRows = (write: LiveWrite): ReadonlyArray<LiveFact> => {
-	switch (write.kind) {
-		case "insert":
-		case "delete":
-			return [write.fact]
-		case "update":
-			return [write.from, write.to]
-	}
-}
-
-/**
- * Whether `commit` touches a routing value of `subscription` (the routing oracle): it writes a relation of the read's
- * footprint, and the read binds no group, or one row it touches holds the bound group in `g`, before or after.
- */
-const touches = (c: LiveCase, subscription: LiveSubscription, commit: LiveCommit): boolean => {
-	const read = c.reads[subscription.read] ?? c.reads[0]
-	const footprint = footprintOf(read)
-	const group = groupOf(subscription)
-	return Arr.some(
-		writesOf(commit),
-		(write) =>
-			footprint.includes(write.relation) &&
-			(group === undefined || Arr.some(touchedRows(write), (row) => row.g === group))
-	)
-}
-
-/** One row of a read's value as the host model states it: its key's text and the row's cells. */
-interface ModelRow {
-	readonly key: string
-	readonly cells: ReadonlyArray<number>
-}
-
-const byOrder: Order.Order<LiveFact> = Order.combine(
-	Order.mapInput(Order.Number, (row: LiveFact) => row.o),
-	Order.mapInput(Order.Number, (row: LiveFact) => row.id)
-)
-
-/** Whether `row` lies after the key `o`, `id` in a page's completed order. */
-const pastKey = (row: LiveFact, o: number, id: number): boolean =>
-	row.o > o || (row.o === o && row.id > id)
-
-/** Whether `row` lies before the key `o`, `id` in a page's completed order. */
-const beforeKey = (row: LiveFact, o: number, id: number): boolean =>
-	row.o < o || (row.o === o && row.id < id)
-
-/** The window a binding reads of rows in a page's completed order: all of them for a binding that is no window. */
-const windowOf = (rows: ReadonlyArray<LiveFact>, binding: LiveBinding): ReadonlyArray<LiveFact> => {
-	if (binding.kind !== "window") {
-		return rows
-	}
-	const anchor = binding.anchor
-	switch (anchor.kind) {
-		case "start":
-			return Arr.take(rows, binding.size)
-		case "end":
-			return Arr.takeRight(rows, binding.size)
-		case "after":
-			return Arr.take(
-				Arr.filter(rows, (row) => pastKey(row, anchor.o, anchor.id)),
-				binding.size
-			)
-		case "before":
-			return Arr.takeRight(
-				Arr.filter(rows, (row) => beforeKey(row, anchor.o, anchor.id)),
-				binding.size
-			)
-	}
-}
-
-/**
- * A subscription's value over `state` as the host model states it, for the features a commit reaches: a set read's rows
- * in key order, an ordered read's in its order, a count's one row. It judges nothing: the suites' oracles are grizzle's
- * own fresh reads and the reference evaluator.
- */
-const modelValue = (
-	c: LiveCase,
-	subscription: LiveSubscription,
-	state: LiveState
-): ReadonlyArray<ModelRow> => {
-	const read = c.reads[subscription.read] ?? c.reads[0]
-	const group = groupOf(subscription)
-	const inGroup = (place: RelationPlace) =>
-		Arr.filter(rowsAt(state, place), (row) => group === undefined || row.g === group)
-	const rowOfFact = (row: LiveFact): ModelRow => ({ key: `${row.id}`, cells: [row.o, row.val] })
-	switch (read.kind) {
-		case "keyed":
-			return Arr.map(Arr.sort(inGroup(read.relation), byOrder), rowOfFact)
-		case "wide":
-			return Arr.map(Arr.sort(rowsAt(state, read.relation), byOrder), (row) => ({
-				key: `${row.id}`,
-				cells: [row.g, row.o, row.val]
-			}))
-		case "count":
-			return [{ key: "", cells: [inGroup(read.relation).length] }]
-		case "ordered":
-			return Arr.map(Arr.sort(inGroup(read.relation), byOrder), rowOfFact)
-		case "window":
-			return Arr.map(Arr.take(Arr.sort(inGroup(read.relation), byOrder), read.size), rowOfFact)
-		case "page":
-			return Arr.map(
-				windowOf(Arr.sort(inGroup(read.relation), byOrder), subscription.binding),
-				rowOfFact
-			)
-		case "join":
-			return Arr.flatMap(inGroup(read.relation), (left) =>
-				Arr.map(inGroup(read.other), (right) => ({
-					key: `${left.id}:${right.id}`,
-					cells: [left.o, right.val]
-				}))
-			)
-	}
-}
-
-/** What a commit reached for one subscription (the live suites' commit situations). */
-export type CommitSituation =
-	| "a write outside its routing values"
-	| "a write inside its routing values"
-	| "a delete of a row it holds"
-	| "a row removed from its value"
-	| "a move in an ordered read"
-	| "a write in a window's neighbourhood"
-	| "a commit of no relation it reads"
-
-/**
- * Whether a subscription's value over `state` holds `fact` of `place`: a row of a relation its read reads, of its bound
- * group, and, for a window or a page, among the window's rows.
- */
-const holds = (
-	c: LiveCase,
-	subscription: LiveSubscription,
-	state: LiveState,
-	place: RelationPlace,
-	fact: LiveFact
-): boolean => {
-	const read = c.reads[subscription.read] ?? c.reads[0]
-	const group = groupOf(subscription)
-	if (!footprintOf(read).includes(place) || (group !== undefined && fact.g !== group)) {
-		return false
-	}
-	return (
-		(read.kind !== "window" && read.kind !== "page") ||
-		Arr.some(modelValue(c, subscription, state), (row) => row.key === `${fact.id}`)
-	)
-}
-
-/**
- * The situations `commit`, from `before` to `after`, reaches for `subscription`: a write of its footprint outside its
- * routing values or inside them; a delete of a row its value held; a key its value held and no longer holds; a row of
- * an ordered read or a window that its commit wrote, which stays and follows another row than before; a window whose rows changed by a row its commit did not write,
- * pushed out or pulled in by a neighbour; a commit of no relation it reads.
- */
-export const situationsOf = (
-	c: LiveCase,
-	subscription: LiveSubscription,
-	commit: LiveCommit,
-	before: LiveState,
-	after: LiveState
-): ReadonlyArray<CommitSituation> => {
-	const read = c.reads[subscription.read] ?? c.reads[0]
-	const footprint = footprintOf(read)
-	const writes = Arr.filter(writesOf(commit), (write) => footprint.includes(write.relation))
-	if (!Arr.isReadonlyArrayNonEmpty(writes)) {
-		return ["a commit of no relation it reads"]
-	}
-	const was = modelValue(c, subscription, before)
-	const is = modelValue(c, subscription, after)
-	const wasKeys = new Set(Arr.map(was, (row) => row.key))
-	const isKeys = new Set(Arr.map(is, (row) => row.key))
-	const writtenKeys = new Set(
-		Arr.flatMap(writes, (write) => Arr.map(touchedRows(write), (row) => `${row.id}`))
-	)
-	const found: Array<CommitSituation> = [
-		touches(c, subscription, commit)
-			? "a write inside its routing values"
-			: "a write outside its routing values"
-	]
-	if (
-		Arr.some(
-			writes,
-			(write) =>
-				write.kind === "delete" && holds(c, subscription, before, write.relation, write.fact)
-		)
-	) {
-		found.push("a delete of a row it holds")
-	}
-	if (Arr.some([...wasKeys], (key) => !isKeys.has(key))) {
-		found.push("a row removed from its value")
-	}
-	if (read.kind === "ordered" || read.kind === "window" || read.kind === "page") {
-		const before = (rows: ReadonlyArray<ModelRow>, key: string): string | undefined => {
-			const at = Option.getOrUndefined(Arr.findFirstIndex(rows, (row) => row.key === key))
-			return at === undefined || at === 0 ? undefined : rows[at - 1]?.key
-		}
-		const moved = Arr.some(
-			was,
-			(row) =>
-				isKeys.has(row.key) &&
-				writtenKeys.has(row.key) &&
-				before(was, row.key) !== before(is, row.key)
-		)
-		if (moved) {
-			found.push("a move in an ordered read")
-		}
-	}
-	if (read.kind === "window" || read.kind === "page") {
-		const entered = Arr.filter([...isKeys], (key) => !wasKeys.has(key))
-		const left = Arr.filter([...wasKeys], (key) => !isKeys.has(key))
-		if (Arr.some([...entered, ...left], (key) => !writtenKeys.has(key))) {
-			found.push("a write in a window's neighbourhood")
-		}
-	}
-	return found
 }

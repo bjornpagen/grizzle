@@ -610,33 +610,20 @@ interface SideMaker {
 }
 
 /**
- * Whether a written relation fills a fact under the session's claims `facts`: a whole entry always, a query entry where
- * every context a fixed field of it is filled from holds a fact, as grizzle compiles a write through it for a Db of
- * those claims (write/frontend/entry.ts entryFillable). One that fills nothing writes no statement: an insert or a put
- * through it is the check that refuses its facts outside the world, a delete a no-op (README "Signed in, no
- * organization": no organization to fill `org` from).
- */
-const fillsUnder = (written: Written, facts: ContextFacts): boolean =>
-	written.kind === "whole" ||
-	Arr.every(
-		Rec.values(written.fills),
-		(fill) => fill.kind === "literal" || facts[fill.context] !== undefined
-	)
-
-/**
  * The statements of a ChangeSet's array members that make a side of `target`'s delta, as grizzle realizes them where
  * both sides of the delta are read back (write/schedule/plan.ts opsOf, write/put/choose.ts): an insertion one statement;
  * a deletion one; a put the DELETE-then-insert pair, since a read-back of its removed side rules out
  * the forms that return no old version, its displacing deletion none where every field of the target is a key field
- * (a pure set). One op of one entry in one stratum is one action, whatever facts it is applied with; an op through an
- * entry that fills nothing under the session's claims `facts` writes no statement, so it makes no side (fillsUnder).
+ * (a pure set). One op of one entry in one stratum is one action, whatever facts it is applied with. A served member's
+ * ChangeSet is planned under every context's claims (program/workload/planned.ts PlannedFrontends), where every entry
+ * fills its fields, so an op through an entry makes its side whatever the session's claims hold: the member is refused
+ * when it compiles for every caller alike.
  */
 const sideMakers = (
 	base: BaseSpec,
 	role: RoleSpec,
 	strata: ReadonlyArray<ReadonlyArray<EntryOp>>,
-	target: string,
-	facts: ContextFacts
+	target: string
 ): ReadonlyArray<SideMaker> => {
 	const spec = relationSpecOf(base, target)
 	const pureSet =
@@ -646,7 +633,7 @@ const sideMakers = (
 			Arr.dedupeWith(ops, (x, y) => x.relation === y.relation && x.kind === y.kind),
 			(op: EntryOp): ReadonlyArray<SideMaker> => {
 				const w = writtenNamed(base, role, op.relation)
-				if (w === undefined || w.target !== target || !fillsUnder(w, facts)) {
+				if (w === undefined || w.target !== target) {
 					return []
 				}
 				const of = (side: SideMaker["side"]): SideMaker => ({ side, stratum })
@@ -683,16 +670,16 @@ const sideCrosses = (makers: ReadonlyArray<SideMaker>, side: SideMaker["side"]):
  * that writes a query entry and also a relation its filter reads, two strata that write one relation by one op, whose
  * array members a call's facts cannot tell apart, a read-back of a relation the role does not hold or whose delta the
  * change does not determine, or one of the added or removed side of a written target's delta that no one statement
- * makes whole (sideCrosses): the executor reads both sides of every read relation's delta, made by the statements a
- * Db of the session's claims `facts` compiles (sideMakers). A ChangeSet's facts are a call's values outside its
- * Description, so no fact it writes is a reason to refuse it there.
+ * makes whole (sideCrosses): the executor reads both sides of every read relation's delta, made by the statements the
+ * member's plan compiles under every context's claims (sideMakers), so no claim of the caller's is a reason to refuse
+ * it or to admit it. A ChangeSet's facts are a call's values outside its Description, so no fact it writes is a reason
+ * to refuse it there either.
  */
 export const compileRefused = (
 	base: BaseSpec,
 	role: RoleSpec,
 	strata: ReadonlyArray<ReadonlyArray<EntryOp>>,
-	reads: ReadonlyArray<string>,
-	facts: ContextFacts
+	reads: ReadonlyArray<string>
 ): boolean => {
 	const layers = Arr.map(strata, (ops) =>
 		Arr.map(ops, (op) => ({ op, written: writtenNamed(base, role, op.relation) }))
@@ -733,7 +720,7 @@ export const compileRefused = (
 					return false
 				case "written":
 				case "beside": {
-					const makers = sideMakers(base, role, strata, delta.target, facts)
+					const makers = sideMakers(base, role, strata, delta.target)
 					return sideCrosses(makers, "added") || sideCrosses(makers, "removed")
 				}
 			}
@@ -787,7 +774,7 @@ export const applyCall = (
 	if (role === undefined) {
 		return onHost({ kind: "handle-refused" })
 	}
-	if (compileRefused(base, role, strata, reads, session.facts)) {
+	if (compileRefused(base, role, strata, reads)) {
 		return onHost({ kind: "compile-refused" })
 	}
 	const layers = Arr.map(strata, (ops) =>

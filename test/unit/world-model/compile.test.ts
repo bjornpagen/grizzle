@@ -4,10 +4,10 @@
  * installation holds any), one apply the worlds suites draw for that Db (generate/action.ts actionGen, its kinds
  * cut to apply under drawn validity weights, so its stale and wild facts and relations come along). The ChangeSet is
  * the one the executor serves (execute/session.ts plannedWrite), compiled with compileWrite against the role's
- * artifacts and the Db's claims, and its array members served as a call supplies them (execute/offline.ts
- * offlineServed), as the served compile compiles it. It compiles exactly where
- * the model's outcomes for the action exclude `compile-refused`, and the model refuses it when it compiles on every
- * branch or on none.
+ * artifacts under every context's claims, as the workload's plan compiles it, then under the Db's, and its array
+ * members served as a call supplies them (execute/offline.ts offlineServed), as the served compile compiles it. It
+ * compiles exactly where the model's outcomes for the action exclude `compile-refused`, and the model refuses it when it
+ * compiles on every branch or on none.
  *
  * Every refusal over a write the model admits fails here, whatever its kind, so a description the compiler builds for
  * itself and then refuses is caught on every seed of the unit tier. Required: both verdicts, and the additions the
@@ -136,17 +136,11 @@ export const theWorldsModelsCompileRulesCompileAWriteExactlyWhereTheModelAdmitsI
 					"test/unit/world-model/compile.test.ts#theWorldsModelsCompileRulesCompileAWriteExactlyWhereTheModelAdmitsItPastItsCompile:-:0.1.0.1.0.0.0.0.1.1.0.0.0.1.0.0.0.0.0.0.0.0.0.1.3.0.0.0.0.0.0.1.0.1.2.3q.0.0.0.0.0.0.1.0.0.1.1.0.0.1.1.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.1.0.0.0.0.1.1.0.0.0.1"
 				),
 				reason:
-					"an insert through View0 then its delete in a stratum of its own, both sides of View0's delta read back, by a session whose claims hold no Tenant, the context View0 fills its doc from: View0 fills nothing, so grizzle writes no statement of either and compiles, where the model took the two strata's ops for the two sides of Share's delta made apart (NEGZERO2's replay at 46905a719)",
+					"an insert through View0 then its delete in a stratum of its own, both sides of View0's delta read back, by a session whose claims hold no Tenant, the context View0 fills its doc from: the served member is planned under every context's claims, where both strata write Share, so grizzle refuses its read-backs as crossing statements for every caller, as the model does (NEGZERO2's replay at 46905a719 compiled it under the session's claims alone)",
 				since: "2026-11-20"
 			}
 		],
 		kills: [
-			{
-				file: "test/support/worlds/model/session/apply.ts",
-				original: "\t\t\t\tif (w === undefined || w.target !== target || !fillsUnder(w, facts)) {",
-				replacement: "\t\t\t\tif (w === undefined || w.target !== target) {",
-				why: "An op through an entry that fills nothing under the session's claims makes a side of its target's delta, so the model refuses the kept case's read-backs as crossing statements, where grizzle writes no statement of the op and compiles it."
-			},
 			{
 				file: "packages/engine/src/core/errors.ts",
 				original: '\tError.isError(value) && "_tag" in value && value._tag === "CompileError"',

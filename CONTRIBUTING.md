@@ -663,8 +663,8 @@ text match. A type agreement's requirements are its property's situations, which
   caller or as a direct SQL writer would. Each action's observation must be one the model allows, no value hidden from
   the acting session may appear in anything grizzle answered, every stored relation must hold exactly the model's facts
   and every open session's connection probe as the model expects, and the model's state keeps every invariant. Its
-  suites: random programs over a documents base, guided by block coverage of the worlds code, and inductive single
-  steps from drawn states (`test/pg/world-model`); concurrent races (`test/schedules/worlds`); and the school system's
+  suites: programs over a documents base, each suite's aimed at what its area must reach (isolation, rules, least
+  privilege), and inductive single steps from drawn states (`test/pg/world-model`); concurrent races (`test/schedules/worlds`); and the school system's
   installation (`test/pg/education`). The rules suite (`test/pg/world-model/rules.test.ts`) meets every law family the
   README's Rules lists with writes through partial worlds, and holds every shown witness to values the writer
   submitted or holds whole.

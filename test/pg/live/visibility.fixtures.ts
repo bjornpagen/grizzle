@@ -165,5 +165,3 @@ export const judgedSeen = (
 			)
 		)
 	})
-
-export const cases = 40

@@ -1690,18 +1690,18 @@ const readBacksOf = (
 ): ReadonlyArray<WorldFeature> =>
 	Option.match(
 		Option.flatMap(dbSession(state, action.session), (session) =>
-			Option.map(roleIn(state.install, session.role), (role) => ({ role, facts: session.facts }))
+			roleIn(state.install, session.role)
 		),
 		{
 			onNone: () => [],
-			onSome: ({ role, facts }): ReadonlyArray<WorldFeature> => {
+			onSome: (role): ReadonlyArray<WorldFeature> => {
 				const base = state.install.base
 				const classes = readBackClasses(base, role, action.strata, action.reads)
 				if (observation.kind === "applied") {
 					return Arr.map(classes, (c): WorldFeature => `readback:${c}`)
 				}
 				return observation.kind === "compile-refused" &&
-					!compileRefused(base, role, action.strata, [], facts) &&
+					!compileRefused(base, role, action.strata, []) &&
 					Arr.contains(classes, "undetermined")
 					? ["readback:undetermined"]
 					: []

@@ -44,7 +44,6 @@ import { jsonText } from "#compiler/core/trusted.ts"
 import { type CallErrorKind, callErrors } from "#compiler/live/index.ts"
 import type { AnyLogin } from "#compiler/public/schema.ts"
 import {
-	cases,
 	classOf,
 	emptyBody,
 	type Feature,
@@ -66,9 +65,7 @@ import { withLayer } from "#test/support/with-layer.ts"
 import { testVerify, tokenOf } from "#test/support/worlds.ts"
 
 /**
- * A failing live call ends with its class's CallError, whose retry holds when the call is sent again, over ${cases} drawn failures.
- *
- * Its pre-conversion budget: runs cases, coverage cases 60 (test/pg/live/errors.test.ts at d8eed1786).
+ * A failing live call ends with its class's CallError, whose retry holds when the call is sent again, over drawn failures.
  */
 export const aFailingLiveCallEndsWithItsClasssCallErrorWhoseRetryHoldsWhenTheCallIsSentAgainOverCasesDrawnFailures =
 	property.explore(provokedGen, {
@@ -299,7 +296,20 @@ export const aFailingLiveCallEndsWithItsClasssCallErrorWhoseRetryHoldsWhenTheCal
 			kind: "specification",
 			name: "each failure's meaning (live/events.ts callErrors) and the database's own state"
 		},
-		budget: { runs: cases, steered: 60 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/live/codec.ts",
+				original:
+					"\t\tResult.mapError(encodeGiven(field.scalar, value), (kind) => ({ kind, at })),\n",
+				replacement: "\t\tResult.ok(encodeScalar(field.scalar, value)),\n",
+				why: "The client encodes a caller's value of another type than its scalar's host type by the server's trusting encode, so a fact of another type sent over HTTP dies \"grizzle internal invariant: a int4 host value to encode\" where the call owes its `input` CallError: this property's red on main (replay pg/live/errors:-:3.1.0.0.0), which 5401c9c70 fixed."
+			},
+			{
+				file: "packages/grizzle/src/adapter/reader/stream.ts",
+				original: "\tconst pending = [reset]\n",
+				replacement: "\toffer(reset)\n\tconst pending: Array<E> = []\n",
+				why: "A read offers its reset at once, before it has answered, so a watch whose parameter PostgreSQL refuses by its pattern answers a reset and then its error, telling the client a fresh answer began: the defect qti-pie's peer run met, which 5401c9c70 fixed and this property's fault \"a watch refused by its parameter's pattern\" holds."
+			}
+		]
 	})

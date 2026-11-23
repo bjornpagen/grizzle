@@ -46,9 +46,8 @@ import {
 import type { ModelState, WorldFeature } from "#test/support/worlds/model/types.ts"
 
 /**
- * Every invariant holds after one action from any generated state.
- *
- * Its pre-conversion budget: runs 64, coverage cases 640 (inductive.test.ts `cases` and `steeredFactor` at 2b5b8d3c).
+ * Every invariant holds after one action from any generated state. Its budget is its own: its required situations need
+ * more steered cases than the runner's 200, 384 at it.
  */
 export const inductive = property.explore(inductiveSpace, {
 	needs: inductiveNeeds,

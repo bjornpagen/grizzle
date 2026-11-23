@@ -207,11 +207,6 @@ const dictionary: ReadonlyMap<string, Admitted> = new Map(
 	Arr.map(admittedNames, (n) => [n.declared, n] as const)
 )
 
-/** The features the installations' names draw: each feature worldNameWeights weighs that the dictionary admits. */
-export const drawnNameFeatures: ReadonlyArray<IdentifierFeature> = Arr.dedupe(
-	Arr.flatMap(admittedNames, (n) => (worldNameWeights[n.feature] > 0 ? [n.feature] : []))
-)
-
 /**
  * The name `name` takes in a scope whose names convert to `taken`: its own, a dictionary name, or a PostgreSQL type's
  * name, each new name one converting to none of `taken`.

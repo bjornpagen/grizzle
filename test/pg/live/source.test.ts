@@ -39,7 +39,6 @@ import { notificationText } from "#compiler/plan/runtime.ts"
 import {
 	bounds,
 	bytesOfHex,
-	cases,
 	expectedKeys,
 	type Feature,
 	liveTables,
@@ -58,9 +57,7 @@ import { roleSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
 /**
- * The live source decodes each commit's transaction to exactly its rows' route keys, and a rollback to nothing, over ${cases} generated histories.
- *
- * Its pre-conversion budget: runs cases, coverage cases 48 (test/pg/live/source.test.ts at d8eed1786).
+ * The live source decodes each commit's transaction to exactly its rows' route keys, and a rollback to nothing, over generated histories.
  */
 export const theLiveSourceDecodesEachCommitsTransactionToExactlyItsRowsRouteKeysAndARollbackToNothingOverCasesGeneratedHistories =
 	property.explore(liveCaseGen(bounds), {
@@ -207,7 +204,6 @@ export const theLiveSourceDecodesEachCommitsTransactionToExactlyItsRowsRouteKeys
 			kind: "specification",
 			name: "each commit's writes' images keyed by the plan's routes, on the host"
 		},
-		budget: { runs: cases, steered: 48 },
 		kept: [],
 		kills: [
 			{

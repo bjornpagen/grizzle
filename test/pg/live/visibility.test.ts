@@ -4,7 +4,7 @@
  * transaction the leader decodes has its COMMIT record flushed, which is before it leaves PostgreSQL's proc array
  * (xact.c RecordTransactionCommit, then ProcArrayEndTransaction), so the leader can read it while every new snapshot
  * still holds it running; a key sent then wakes a subscription whose re-read misses the change, and no later key wakes
- * it again (test/pg/live/exactness.test.ts hung on it under load).
+ * it again (the live exactness property hung on it under load, 93456d045).
  *
  * Each case draws a schedule of writer transactions, each one inserting a row of its own and committing, and the
  * moment a REPEATABLE READ observer takes its snapshot among their steps: before a writer began, while it runs, or after
@@ -28,7 +28,6 @@ import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { servedLiveOf } from "#compiler/plan/common.ts"
 import {
-	cases,
 	type Feature,
 	featuresOf,
 	judgedSeen,
@@ -40,9 +39,7 @@ import { qualified } from "#test/support/substrate.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * The live leader's visibility judgment holds a commit seen exactly where a snapshot reads its row, over ${cases} generated schedules.
- *
- * Its pre-conversion budget: runs cases, coverage cases 48 (test/pg/live/visibility.test.ts at d8eed1786).
+ * The live leader's visibility judgment holds a commit seen exactly where a snapshot reads its row, over generated schedules.
  */
 export const theLiveLeadersVisibilityJudgmentHoldsACommitSeenExactlyWhereASnapshotReadsItsRowOverCasesGeneratedSchedules =
 	property.explore(
@@ -135,7 +132,14 @@ export const theLiveLeadersVisibilityJudgmentHoldsACommitSeenExactlyWhereASnapsh
 				kind: "postgresql",
 				name: "the observer's REPEATABLE READ snapshot reading each writer's row"
 			},
-			budget: { runs: cases, steered: 48 },
+			kills: [
+				{
+					file: "packages/engine/src/live/replication.ts",
+					original: '\tif (full >= snapshot.horizon) {\n\t\treturn "ahead"\n\t}\n',
+					replacement: "",
+					why: "The leader places a decoded transaction at or past its snapshot's horizon, outside the running set, as seen, so a commit the leader decoded before it left the proc array reads as visible to a snapshot that does not see it: the defect 93456d045 fixed, which the kept case is."
+				}
+			],
 			kept: [
 				{
 					token: ReplayToken(
@@ -145,7 +149,6 @@ export const theLiveLeadersVisibilityJudgmentHoldsACommitSeenExactlyWhereASnapsh
 						"writer 1 runs across the snapshot past every commit before it, as a transaction whose COMMIT the leader decoded runs until it leaves the proc array: no snapshot sees it, and it stands at the snapshot's horizon, outside its running set",
 					since: "2026-11-19"
 				}
-			],
-			kills: []
+			]
 		}
 	)

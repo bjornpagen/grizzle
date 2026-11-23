@@ -116,8 +116,6 @@ export const bounds: LiveBounds = {
 	window: 2
 }
 
-export const cases = 24
-
 /** The fields of a live fact, each the integer its column holds. */
 const factFields = ["id", "g", "o", "val"] as const
 

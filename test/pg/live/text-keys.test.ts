@@ -35,7 +35,6 @@ import { served } from "#adapter/public/layer.ts"
 import {
 	BYTE_ORDER_MARK,
 	caseGen,
-	cases,
 	type Feature,
 	login,
 	marked,
@@ -55,9 +54,7 @@ import { withLayer } from "#test/support/with-layer.ts"
 import { testVerify, tokenOf } from "#test/support/worlds.ts"
 
 /**
- * A stored text's live readers hear the commit that writes it, byte for byte, a leading U+FEFF among its characters, over ${cases} drawn sets of texts.
- *
- * Its pre-conversion budget: runs cases, coverage cases 24 (test/pg/live/text-keys.test.ts at d8eed1786).
+ * A stored text's live readers hear the commit that writes it, byte for byte, a leading U+FEFF among its characters, over drawn sets of texts.
  */
 export const aStoredTextsLiveReadersHearTheCommitThatWritesItByteForByteALeadingUFEFFAmongItsCharactersOverCasesDrawnSetsOfTexts =
 	property.explore(caseGen, {
@@ -173,7 +170,6 @@ export const aStoredTextsLiveReadersHearTheCommitThatWritesItByteForByteALeading
 			kind: "specification",
 			name: "the drawn texts themselves and the served reads of the stored rows"
 		},
-		budget: { runs: cases, steered: 24 },
 		kept: [
 			{
 				token: ReplayToken(
@@ -183,5 +179,12 @@ export const aStoredTextsLiveReadersHearTheCommitThatWritesItByteForByteALeading
 				since: "2026-11-19"
 			}
 		],
-		kills: []
+		kills: [
+			{
+				file: "packages/text/src/utf8.ts",
+				original: "{ fatal: true, ignoreBOM: true }",
+				replacement: "{ fatal: true, ignoreBOM: false }",
+				why: "The one decoder strips a leading U+FEFF, as a TextDecoder's defaults do, so a stored text that starts with a byte order mark reaches its live readers without it: the fidelity defect 6a2e40b29 fixed, which the kept case is."
+			}
+		]
 	})

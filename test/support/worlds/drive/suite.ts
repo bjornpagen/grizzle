@@ -10,6 +10,7 @@ import {
 	type Steered
 } from "@bjornpagen/testing/gen"
 import {
+	type Budget,
 	type Case,
 	type Kept,
 	type Kill,
@@ -764,9 +765,6 @@ export interface Leading {
 	readonly pending: Pending
 }
 
-/** No lead: a program draws only its own steps. */
-export const noLead: Lead = (): ReadonlyArray<Weights> => []
-
 /** Leads one after another: each one's draws, in order. */
 export const leadsOf =
 	(...leads: Arr.NonEmptyReadonlyArray<Lead>): Lead =>
@@ -1491,14 +1489,15 @@ export const unnoted: Noting = { noteAll: () => undefined }
 
 /**
  * A suite of generated programs: its label, the name of its test, the installations it draws, the action kinds it
- * draws, the longest program and the count of cases, the features its population must reach, and its own rule over
+ * draws, the longest program, the features its population must reach, and its own rule over
  * each action. Each case realizes its installation afresh, every login's pool of one connection (serialPool).
  */
 export interface ProgramSuite {
 	readonly installs: Gen<InstallSpec>
 	readonly focus: Focus
 	readonly steps: number
-	readonly cases: number
+	/** Its own search budget, where a kill it declares survives the runner's: none, the runner's. */
+	readonly budget?: Budget
 	readonly required: Situations<WorldFeature>
 	readonly check: StepCheck
 	/** The realities its cases draw (drawnRealities, or a targeted mix). */
@@ -1566,9 +1565,6 @@ export const noteNaming = (pc: ProgramCase, c: Case<WorldFeature>): void => {
 	}
 }
 
-/** How many cases a program suite's steered phase may run, as a multiple of its cases. */
-const programSteered = 4
-
 /**
  * The connections of a login's pool a program holds at once: it runs one action at a time, and its open of a Db leases
  * one connection at once (execute/index.ts openedDb), so every login's pool, the stranger's among them, holds one.
@@ -1589,12 +1585,9 @@ export const ownWorld = (
  * A program suite's property: each case realizes its installation afresh in a database of its own (Substrate.fresh), a
  * database no case beside it uses, every login's pool serial (serialPool), so a program's database-wide changes (a
  * tamper of the database's settings or privileges) never meet a case beside it; then it stages its reality and runs its
- * program under the driver and the suite's rule. A steered phase of up to programSteered times as many cases as the
- * suite runs aims programs, through their leads and aims, at the required features no case has reached yet, and stops
- * once every one is reached; the rotating stream's programs aim at nothing.
- *
- * Its pre-conversion budget: runs `cases`, coverage cases programSteered · `cases` (test/support/worlds/drive/suite.ts
- * at c568eb123).
+ * program under the driver and the suite's rule. Its steered phase aims programs, through their leads and aims, at the
+ * required features no case has reached yet, and stops once every one is reached; the rotating stream's programs aim
+ * at nothing.
  */
 export const programProperty = (spec: ProgramSuite): Property =>
 	property.explore(programDraw(spec.installs, worldDraws(spec), spec.steps, spec.required), {
@@ -1616,7 +1609,7 @@ export const programProperty = (spec: ProgramSuite): Property =>
 			kind: "second-implementation",
 			name: "the worlds model (test/support/worlds/model), stepped beside every action: its allowed observations, its stored relations and every open session's probe"
 		},
-		budget: { runs: spec.cases, steered: programSteered * spec.cases },
+		...(spec.budget === undefined ? {} : { budget: spec.budget }),
 		kept: spec.kept,
 		kills: spec.kills
 	})

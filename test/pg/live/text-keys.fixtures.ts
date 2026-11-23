@@ -32,8 +32,6 @@ export type Feature =
 	| "a text with no U+FEFF"
 	| "several texts in one commit"
 
-export const cases = 12
-
 /** The login every case serves. */
 export const login = "server"
 

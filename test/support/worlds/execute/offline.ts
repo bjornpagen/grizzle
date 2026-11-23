@@ -12,6 +12,7 @@ import { inForce } from "#compiler/runtime/write/transport.ts"
 import type { UnservedMember } from "#compiler/served/unserved.ts"
 import { carrierScope } from "#compiler/sql/naming.ts"
 import { type ParsedChangeSet, parseChangeSet } from "#compiler/write/changeset/value.ts"
+import type { EntryClaims } from "#compiler/write/frontend/entry.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import { servedMembers } from "#compiler/write/program/served-members.ts"
 import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
@@ -32,6 +33,14 @@ export const offlineCompile = (
 	role: BuiltRole,
 	change: ParsedChangeSet,
 	claims: ReadonlySet<string>
+): Engine.Result<CompiledWrite, CompileError> =>
+	compiledUnder(role, change, { kind: "facts", present: claims })
+
+/** offlineCompile's compile under `claims`: every context's, as a workload's plan compiles it, or a Db's. */
+const compiledUnder = (
+	role: BuiltRole,
+	change: ParsedChangeSet,
+	claims: EntryClaims
 ): Engine.Result<CompiledWrite, CompileError> => {
 	const artifacts = succeeded(testArtifacts(role, testCompile), "the role's artifacts")
 	const world = artifacts.world
@@ -41,7 +50,7 @@ export const offlineCompile = (
 	return compileWrite(world.checked, change.desc, {
 		names: artifacts.names,
 		reads: artifacts.reads,
-		claims: { kind: "facts", present: claims },
+		claims,
 		world: writeWorldOf(world, artifacts.laws),
 		laws: artifacts.laws,
 		derived: artifacts.derived,
@@ -53,18 +62,22 @@ export const offlineCompile = (
 }
 
 /**
- * The program of a ChangeSet as a served member of the role's workload compiles it, with no PostgreSQL: offlineCompile,
- * then its array members as a call supplies them (write/program/served-members.ts servedMembers), as generate serves a
- * ChangeSet (adapter/served/project.ts): two array members of one op and relation are its UnservedMember, which the
- * served compile refuses.
+ * The program of a ChangeSet as a served member of the role's workload compiles it, with no PostgreSQL: compiled first
+ * as the workload's plan compiles it, under every context's claims (program/workload/planned.ts PlannedFrontends), whose
+ * refusal refuses the member for every caller; then offlineCompile under the Db's claims, then its array members as a
+ * call supplies them (write/program/served-members.ts servedMembers), as generate serves a ChangeSet
+ * (adapter/served/project.ts): two array members of one op and relation are its UnservedMember, which the served
+ * compile refuses.
  */
 export const offlineServed = (
 	role: BuiltRole,
 	change: ParsedChangeSet,
 	claims: ReadonlySet<string>
 ): Engine.Result<CompiledWrite, CompileError | UnservedMember> =>
-	Engine.flatMap(offlineCompile(role, change, claims), (compiled) =>
-		Engine.map(servedMembers(compiled.binding.members, change.opaque), () => compiled)
+	Engine.flatMap(compiledUnder(role, change, { kind: "every" }), () =>
+		Engine.flatMap(offlineCompile(role, change, claims), (compiled) =>
+			Engine.map(servedMembers(compiled.binding.members, change.opaque), () => compiled)
+		)
 	)
 
 /**

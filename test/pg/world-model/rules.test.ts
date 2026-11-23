@@ -12,11 +12,17 @@ export const rules = programProperty({
 	installs,
 	focus,
 	steps: 10,
-	cases: 24,
 	required,
 	realities: drawnRealities,
 	lead: leadsOf(dbSession(required), domainRefusing),
 	check: witnessesShowTheirOwn,
 	kept: [],
-	kills: []
+	kills: [
+		{
+			file: "packages/engine/src/runtime/write/normalize.ts",
+			original: "\trelation: facts.relation,\n",
+			replacement: "\trelation: facts.stated,\n",
+			why: "Two facts of one key written through a query entry are refused as a key conflict named by the entry, where the key's constraint is on its stored relation's table, so the served refusal tables hold no table of it and the apply dies \"grizzle internal invariant: the installation stores relation MyBooking, which a write statement wrote\": the defect this suite met at TEST_SEED=665578811 (4f6206e6e), which d5bd99bdd fixed."
+		}
+	]
 })

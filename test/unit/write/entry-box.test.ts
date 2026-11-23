@@ -91,7 +91,7 @@ export const theWriteFrontEndOverItsSmallBoxBuildsCompilesAndBindsEveryInsertOfT
 				const { change } = yield* changeOf([])
 				const compiled = offlineCompile(writer.value, change, new Set())
 				assert.ok(
-					!compileRefused(base, role, [[insert([])]], [], {}),
+					!compileRefused(base, role, [[insert([])]], []),
 					"the model refuses an insert through the role's one written entry"
 				)
 				if (!compiled.ok) {

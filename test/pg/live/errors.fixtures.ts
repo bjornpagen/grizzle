@@ -177,8 +177,6 @@ export type Feature =
 	| "in process"
 	| "a watch refused by its parameter's pattern"
 
-export const cases = 40
-
 /**
  * A watch of the read member `name` of the writer in process, its Db opened with `token` as a request handler opens one
  * (adapter/db/handles.ts memberCalls): the events it answers up to its first `ready` or `error`.

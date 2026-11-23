@@ -18,8 +18,7 @@ import {
 	type Keyed,
 	opening,
 	type ReadEvent,
-	type ReadState,
-	RowKey
+	type ReadState
 } from "#compiler/live/index.ts"
 import type { AnyLogin } from "#compiler/public/schema.ts"
 import { type HttpConfigRefused, type HttpHandler, httpHandler } from "#http/index.ts"
@@ -40,39 +39,12 @@ import type {
 	Registration
 } from "#test/support/live/system.ts"
 import {
-	type LiveAnchor,
 	type LiveCommit,
-	type LiveSubscription,
 	type LiveWrite,
-	paramsOf,
 	relationName,
 	writeMember
 } from "#test/support/live/world.ts"
 import { tokenOf } from "#test/support/worlds.ts"
-
-/** The anchor of a page's window as a call takes it (live/program.ts Anchor): a key is its completed order, `o` then `id`. */
-const anchorOf = (anchor: LiveAnchor) => {
-	switch (anchor.kind) {
-		case "start":
-		case "end":
-			return { kind: anchor.kind }
-		case "after":
-		case "before":
-			return { kind: anchor.kind, key: RowKey([anchor.o, anchor.id]) }
-	}
-}
-
-/** A subscription's call input: its parameters, no facts, and a page's window. */
-export const inputOf = (subscription: LiveSubscription): CallInput => {
-	const binding = subscription.binding
-	return binding.kind === "window"
-		? {
-				params: paramsOf(subscription),
-				facts: {},
-				window: { anchor: anchorOf(binding.anchor), size: binding.size }
-			}
-		: { params: paramsOf(subscription), facts: {} }
-}
 
 /** The member a grizzle call of `write` runs, and its facts: an insert's or a delete's row, an update's put of its new one. */
 const callOf = (write: LiveWrite): { readonly member: string; readonly input: CallInput } => {
