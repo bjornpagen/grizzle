@@ -39,35 +39,16 @@ type Written =
  * checked here (theory.ts ruleViolation), labelled past them under its Forbid node (LabelSupply). The laws and their
  * identities are a pure function of the owned schema, and the builder allocates its identifiers in the same order for
  * the same laws, so every write of a schema's violation queries builds one DAG.
+ *
+ * Written at each call and held by none: its readers are a law model's artifact objects, once a model
+ * (physical/install/plan.ts artifactObjects), and an installation's law checks, once a draft (deploy/snapshot
+ * violation.ts lawChecks), each of which reads what it needs of them and drops them, where a memo keyed by schema and
+ * theory held every level's for as long as its artifacts lived, though a level below the configured schema's is read
+ * once and drafts nothing (metis's full installation as its change compile ran: eleven schemas' violation queries
+ * alive, 28 to 44 MB each, 380 MB). An installation's are written twice, at its basis and at its draft (edullm's qti App 4.3 s
+ * of CPU, metis's full installation 4.9 s).
  */
 export const theoryViolations = (
-	checked: CheckedSchema,
-	theory: Theory
-): Result.Result<TheoryViolations, CompileError> => {
-	const byTheory =
-		violationsBySchema.get(checked) ??
-		new WeakMap<Theory, Result.Result<TheoryViolations, CompileError>>()
-	violationsBySchema.set(checked, byTheory)
-	const known = byTheory.get(theory)
-	if (known !== undefined) {
-		return known
-	}
-	const violations = writtenViolations(checked, theory)
-	byTheory.set(theory, violations)
-	return violations
-}
-
-/**
- * Each schema's violation queries, by its theory, written once whatever reads them: the installation's text domains
- * (physical/install/plan.ts artifactDomains) and the migration's law checks (deploy/snapshot/violation.ts) alike.
- */
-const violationsBySchema = new WeakMap<
-	CheckedSchema,
-	WeakMap<Theory, Result.Result<TheoryViolations, CompileError>>
->()
-
-/** The violation queries of `theory`'s laws, written (theoryViolations). */
-const writtenViolations = (
 	checked: CheckedSchema,
 	theory: Theory
 ): Result.Result<TheoryViolations, CompileError> =>

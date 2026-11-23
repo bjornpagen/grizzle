@@ -164,12 +164,12 @@ export interface LawChecks {
 	readonly rules: ReadonlyArray<RuleCheck>
 }
 
-/** The violation queries of an installation's theory, written once (laws/model/violations.ts). */
+/** The violation queries of an installation's theory, written for its checks (laws/model/violations.ts). */
 const violationsOf = (installation: Installation): TheoryViolations =>
 	unwrap(theoryViolations(installation.laws.checked, installation.laws.theory))
 
 /**
- * An installation's checks, from its theory's violation queries written once (laws/model/violations.ts):
+ * An installation's checks, from its theory's violation queries, written once for them (laws/model/violations.ts):
  * `migrations`, the laws that read closed relations alone, in the law model's order of its migration-discharged laws,
  * each its violation query lowered; `rules`, each rule over a query in law order, its check over every row
  * (Installation ruleChecks): the judge's own statements over the transaction that writes every row
