@@ -67,7 +67,6 @@ import {
 import { rowsOf, writeAnswerOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { refusedEntries } from "#test/support/refused.ts"
-import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
@@ -170,11 +169,9 @@ export const aWriteNamesItsRowsByTheirTextsAndMeetsEveryOtherFactAtItsKeyGenerat
 							Effect.provideService(
 								Effect.gen(function* () {
 									const o = yield* openedIn(GeneratedKeys, {}, generatedKeysInstall, taken)
-									const s = yield* Substrate
 									const names = namesOf(o.installed)
 									return yield* Effect.gen(function* () {
 										const db = yield* Db.open(o.served.login.roles.app, {})
-										yield* replaceRows(s.admin, installationGroup(names), [])
 										const readFlat = Effect.gen(function* () {
 											const refs = yield* rowsOf(
 												db.workload.stimulusRefs.once({ params: {}, facts: {} })
@@ -434,11 +431,9 @@ export const aFamilyOverAKeyGenerationGroupsItsMembersByTheOwnersDigest = proper
 						Effect.provideService(
 							Effect.gen(function* () {
 								const o = yield* openedIn(GeneratedKeys, {}, generatedKeysInstall, taken)
-								const s = yield* Substrate
 								const names = namesOf(o.installed)
 								return yield* Effect.gen(function* () {
 									const db = yield* Db.open(o.served.login.roles.app, {})
-									yield* replaceRows(s.admin, installationGroup(names), [])
 									const sorted = (
 										rows: ReadonlyArray<ReadonlyArray<string>>
 									): ReadonlyArray<ReadonlyArray<string>> =>
@@ -727,11 +722,9 @@ export const aSetLikeRelationKeyedByItsValuesDigestsHoldsAndFindsValuesOfAnyLeng
 						Effect.provideService(
 							Effect.gen(function* () {
 								const o = yield* openedIn(GeneratedKeys, {}, generatedKeysInstall, taken)
-								const s = yield* Substrate
 								const names = namesOf(o.installed)
 								return yield* Effect.gen(function* () {
 									const db = yield* Db.open(o.served.login.roles.app, {})
-									yield* replaceRows(s.admin, installationGroup(names), [])
 									const readSet = Effect.map(
 										rowsOf(db.workload.setStrings.once({ params: {}, facts: {} })),
 										(rows): ReadonlyArray<ReadonlyArray<string>> =>

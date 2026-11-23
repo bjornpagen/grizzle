@@ -28,7 +28,6 @@ import { writeAnswerOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { refusedEntries } from "#test/support/refused.ts"
 import { servedFixture } from "#test/support/served-db.ts"
-import { clearRows, installationGroup } from "#test/support/substrate/replace.ts"
 import { Substrate, ownerSession } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { tokenOf } from "#test/support/worlds.ts"
@@ -86,7 +85,6 @@ export const aQueryEntrysWriteMeetsEveryUniqueObjectOfItsTargetAStoredFactAtAnyU
 											onSome: (s) => [row(s, "u_ann")]
 										})
 									]
-									yield* clearRows(owner, installationGroup(names))
 									if (stored.length > 0) {
 										yield* owner.query(
 											`INSERT INTO ${table} (${columns}) VALUES ${Arr.join(stored, ", ")}`,

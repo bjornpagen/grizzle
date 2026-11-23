@@ -40,8 +40,6 @@ import {
 	textsTemplate
 } from "#test/pg/write/text-arrays/text-arrays.fixtures.ts"
 import { writeAnswerOf, rowsOf } from "#test/support/calls.ts"
-import { namesOf } from "#test/support/kernel/naming.ts"
-import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
@@ -66,7 +64,6 @@ export const carriesEveryTextAWritesSlotsOrAReadsRelationParameterHoldToPostgreS
 							Effect.gen(function* () {
 								const o = yield* openedIn(Texts, {}, textsInstall, taken)
 								const s = yield* Substrate
-								const names = namesOf(o.installed)
 								yield* Effect.gen(function* () {
 									const db = yield* Db.open(o.served.login.roles.app, {})
 									const bodies = Effect.map(
@@ -77,7 +74,6 @@ export const carriesEveryTextAWritesSlotsOrAReadsRelationParameterHoldToPostgreS
 										rowsOf(db.workload.recorded.once({ params: {}, facts: {} })),
 										(rows) => sorted(Arr.map(rows, (row) => row.value))
 									)
-									yield* replaceRows(s.admin, installationGroup(names), [])
 									/** The texts PostgreSQL reads from the text array literal of `written`, in code unit order. */
 									const literal = (written: ReadonlyArray<string>) =>
 										Effect.map(

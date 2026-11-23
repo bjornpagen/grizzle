@@ -24,7 +24,6 @@ import {
 import { writeAnswerOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { refusedLaws } from "#test/support/refused.ts"
-import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
@@ -46,7 +45,6 @@ export const insertsIntoAFamilyOwnersPrimaryKeyAgreeWithTheKeysModelOnDrawnStore
 						Effect.provideService(
 							Effect.gen(function* () {
 								const o = yield* openedIn(Owners, {}, ownersInstall, taken)
-								const s = yield* Substrate
 								const names = namesOf(o.installed)
 								return yield* Effect.gen(function* () {
 									const db = yield* Db.open(o.served.login.roles.app, {})
@@ -54,7 +52,6 @@ export const insertsIntoAFamilyOwnersPrimaryKeyAgreeWithTheKeysModelOnDrawnStore
 									const stored = storedOf(c.stored)
 									const requested = unique(Arr.map(c.requested, (r) => requestedOf(stored, r)))
 									const members = membersOf(stored)
-									yield* replaceRows(s.admin, installationGroup(names), [])
 									if (stored.length > 0) {
 										const loaded = yield* writeAnswerOf(
 											db.workload.load.once({

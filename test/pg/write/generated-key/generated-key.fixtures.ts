@@ -63,8 +63,7 @@ import {
 } from "#test/support/laws/model.ts"
 import { refusedEntries } from "#test/support/refused.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
-import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
-import { Substrate, type SubstrateCase } from "#test/support/substrate/substrate.ts"
+import type { SubstrateCase } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 /** A key's text: a one-digit integer behind any leading zeros, its sign spelled or not, at most four bytes. */
@@ -998,10 +997,8 @@ export const keyCases = aimed(caseGen(hostOf(lawsOf(lawNamesOf(Keys)))), aims)
  */
 export const keysCase = (taken: SubstrateCase<Generated>, k: Case, c: PropertyCase<Feature>) =>
 	Effect.gen(function* () {
-		const s = yield* Substrate
 		const o = yield* openedIn(Keys, {}, keysInstall, taken)
 		const names = namesOf(o.installed)
-		const group = installationGroup(names)
 		const laws = lawsOf(names)
 		const host = hostOf(laws)
 		const { serve } = yield* openServedDb(o.installed, o.server.roles.app, {})
@@ -1169,7 +1166,6 @@ export const keysCase = (taken: SubstrateCase<Generated>, k: Case, c: PropertyCa
 				)
 				return { changes, facts, params }
 			}
-			yield* replaceRows(s.admin, group, [])
 			const seeded = yield* writeAnswerOf(
 				db.workload.seed.once({
 					params: {},

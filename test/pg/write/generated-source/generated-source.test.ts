@@ -41,9 +41,7 @@ import {
 	genqueryTemplate
 } from "#test/pg/write/generated-source/generated-source.fixtures.ts"
 import { writeAnswerOf, rowsOf } from "#test/support/calls.ts"
-import { namesOf } from "#test/support/kernel/naming.ts"
 import { refusedLaws } from "#test/support/refused.ts"
-import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
@@ -72,9 +70,7 @@ export const aQuerySourcedWriteIntoGeneratedFieldsAgainstPostgreSQL19AnInsertOrA
 					Effect.flatMap(fixture, (taken) =>
 						Effect.provideService(
 							Effect.gen(function* () {
-								const s = yield* Substrate
 								const o = yield* openedIn(Items, {}, genqueryInstall, taken)
-								const group = installationGroup(namesOf(o.installed))
 								return yield* Effect.gen(function* () {
 									const db = yield* Db.open(o.served.login.roles.app, {})
 									/** The rows of `target` as grizzle reads them. */
@@ -109,7 +105,6 @@ export const aQuerySourcedWriteIntoGeneratedFieldsAgainstPostgreSQL19AnInsertOrA
 												: writeAnswerOf(db.workload.putSpot.once({ params, facts: {} }))
 									}
 
-									yield* replaceRows(s.admin, group, [])
 									if (Arr.isReadonlyArrayNonEmpty(k.stored)) {
 										const seeded = yield* seed(k.target, k.stored)
 										assert.equal(seeded.kind, "accepted", "the stored rows are lawful")
