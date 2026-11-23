@@ -351,6 +351,10 @@
  * `empty` beside its fill, where format 8 stood each carrier up by a DO block at every use and each capture and part
  * stood its deltas and the sentinel up inside the write's transaction; a capture requires its tables and refuses a
  * session that stood none up (core/sqlstate.ts grizzleUnstood, 55Z03).
+ * A rule statement's rule that joins is navigated beside a relational filter of a query navigation reads no part of,
+ * that filter its condition as written (analysis/theory/navigate.ts ruleReads, Navigator #chain `asWritten`), where
+ * format 8 left the whole rule as written, one flat join, so every judge statement over such a rule reads it as a chain
+ * of steps.
  */
 export const artifactFormat = 8
 

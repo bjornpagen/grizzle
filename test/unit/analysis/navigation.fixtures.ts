@@ -411,3 +411,73 @@ export const negatedThroughSteps = (
 		asWritten: Arr.sort(asWritten, Str.Order)
 	}
 }
+
+/**
+ * How an unread case reaches a rule navigation reads no part of (analysis/theory/navigate.ts RuleReads): it negates an
+ * aggregating rule itself, or a union one rule of which negates it, as the ledger's limited attempts negate the
+ * unlimited members, whose max-attempts in force negate the nearest scope that states one, a fold.
+ */
+export type UnreadCase = "an aggregate" | "a union negating an aggregate"
+
+export const unreadCaseGen: Gen<UnreadCase> = element([
+	"an aggregate",
+	"a union negating an aggregate"
+] as const)
+
+/** The greatest key N0 holds: a fold, which navigation reads no part of. */
+const greatest = query(Gates).rule((r) => {
+	const { k } = v(N0, "greatest")
+	return r.match(N0, { k }).find({ k: r.max(k) })
+})
+
+/** N1's keys, and N2's that are not N0's greatest: a union one rule of which negates the fold. */
+const ungreatest = query(Gates)
+	.rule((r) => {
+		const { k } = v(N1, "kept")
+		return r.match(N1, { k }).find({ k })
+	})
+	.rule((r) => {
+		const { k } = v(N2, "ungreatest")
+		return r.match(N2, { k }).where(r.not(greatest, { k })).find({ k })
+	})
+
+/** A rule statement's query of an unread case: A at p joined to B by k, beside the case's negation at k. */
+export const unreadQueryOf = (c: UnreadCase): InferredQuery =>
+	succeeded(
+		queryInput(
+			query(Gates).rule((r) => {
+				const { k } = v(A, "a")
+				const { v: value } = v(B, "b")
+				const p = r.param("p", pg.integer)
+				return r
+					.match(A, { id: p, k })
+					.match(B, { k, v: value })
+					.where(c === "an aggregate" ? r.not(greatest, { k }) : r.not(ungreatest, { k }))
+					.find({ k, v: value })
+			})
+		)
+	).desc
+
+/** The relations a navigated rule's steps read, at any depth of its steps and wrappers, each step's rule's own matches, sorted. */
+export const steppedRelations = (rule: InferredRule): ReadonlyArray<string> => {
+	const out: Array<string> = []
+	const visit = (r: InferredRule, inStep: boolean): void => {
+		for (const m of r.matches) {
+			if (m.source.kind === "relation" && inStep) {
+				out.push(m.source.name)
+			} else if (m.source.kind === "step" && m.source.query.stage.kind === "rules") {
+				for (const arm of m.source.query.stage.arms) {
+					visit(arm, true)
+				}
+			}
+		}
+	}
+	visit(rule, false)
+	return Arr.sort(out, Str.Order)
+}
+
+/** The rule of a navigated rule's chain, through every wrapper that holds it (`wrapped`), the innermost. */
+export const unwrapped = (rule: InferredRule): InferredRule => {
+	const inner = wrapped(rule)
+	return inner === undefined ? rule : unwrapped(inner)
+}

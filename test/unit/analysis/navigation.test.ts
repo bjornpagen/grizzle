@@ -26,7 +26,12 @@ import {
 	oneColumnNegationSketchGen,
 	overStepsOf,
 	situations,
-	type Slot
+	type Slot,
+	steppedRelations,
+	type UnreadCase,
+	unreadCaseGen,
+	unreadQueryOf,
+	unwrapped
 } from "#test/unit/analysis/navigation.fixtures.ts"
 
 /**
@@ -253,6 +258,77 @@ export const aRuleOverStepsKeepsItsFiltersAsWrittenInAWriteMemberAndNavigatesThe
 				replacement:
 					'\t\tsharing.kind === "perStatement" && interned.overSteps(read) && read.where.length < 0\n',
 				why: "A rule statement's rule over steps keeps its filters as written, as before the navigation fix: no wrapper navigates a correlated negation; the property fails."
+			}
+		]
+	})
+
+/**
+ * A rule statement's rule that joins is navigated whatever relational filter it holds that navigation reads no part of
+ * (analysis/theory/navigate.ts RuleReads): its reads are a chain of steps, and that filter stays its condition as
+ * written after them (Navigator #chain `asWritten`). Such a filter left the whole rule as written, every relation it
+ * reads one flat join PostgreSQL ordered by its estimates: the ledger's key of a limited test attempt, which negates the
+ * unlimited members, whose max-attempts in force negate a fold's nearest scope, joined every learner's attempts and
+ * item sessions and the written test session's (child, stage) last, a filter of 1,401,075 rows at each start (metis,
+ * 24 s), and every test session of a package for each of its attempts at each answer (edullm, 1.5 s of 1.7 s).
+ *
+ * Its budget is the runner's: a new property, with no suite before it to carry a count from.
+ */
+export const aRuleThatJoinsIsNavigatedPastAFilterNavigationReadsNoPartOfWhichStaysAsWritten =
+	property.exhaust(finite(unreadCaseGen), {
+		needs: {},
+		situations: ["an aggregate", "a union negating an aggregate"] satisfies ReadonlyArray<
+			Reached<UnreadCase>
+		>,
+		check: (_, k: Case<UnreadCase>) => (c) =>
+			Effect.sync(() => {
+				const navigated = navigateQuery(
+					unreadQueryOf(c),
+					loc,
+					gateColumns,
+					{ kind: "perStatement", extent: "units" },
+					new Navigation(gateFacts)
+				)
+				const rule: InferredRule =
+					navigated.stage.kind === "rules"
+						? navigated.stage.arms[0]
+						: assert.fail("a navigated rule is one rules stage")
+				assert.ok(
+					Arr.every(rule.matches, (m) => m.source.kind === "step"),
+					`${c}: the navigated rule reads no relation but through steps`
+				)
+				assert.deepEqual(
+					Arr.filter(steppedRelations(rule), (name) => name === "A" || name === "B"),
+					["A", "B"],
+					`${c}: A and B are each read by a step of the chain`
+				)
+				assert.deepEqual(
+					Arr.flatMap(unwrapped(rule).where, (w) => (w.kind === "absent" ? [w.source.kind] : [])),
+					c === "an aggregate" ? ["query"] : [],
+					c === "an aggregate"
+						? `${c}: the negation of the fold, which navigation reads no part of, stays the chain's condition as written`
+						: `${c}: the negation of the union, whose rules navigation reads, is navigated after the chain`
+				)
+				k.note(c)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "navigation restated over the case: A and B each read by a step, the fold's negation the chain's own condition as written, the union's navigated after the chain"
+		},
+		box: "A at p joined to B by k, beside a negation at k of N0's greatest key, a fold, or of a union of N1's keys and N2's not N0's greatest",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original: "\t\tif (arms.some((arm) => arm.every === undefined)) {\n\t\t\tcontinue\n\t\t}",
+				replacement:
+					"\t\tif (arms.some((arm) => arm.every === undefined)) {\n\t\t\treturn unread\n\t\t}",
+				why: "A filter navigation reads no part of leaves the whole rule as written: A and B one flat join, as the ledger's limited attempts were read at every start and answer."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original: "\t\t\t\t;(this.#readable(c) ? filters : asWritten).push(c)",
+				replacement: "\t\t\t\tfilters.push(c)",
+				why: "A filter navigation reads no part of is navigated after the chain as a readable one is: its rule, a fold, is read as a chain it is not."
 			}
 		]
 	})

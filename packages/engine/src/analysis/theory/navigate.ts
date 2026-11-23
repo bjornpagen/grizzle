@@ -1254,11 +1254,13 @@ class Navigator {
 		]
 		let pending: Array<InferredExpr> = []
 		const filters: Array<Filtered> = []
+		/** The relational filters navigation does not read (`#readable`): each the rule's own condition, as written. */
+		const asWritten: Array<Filtered> = []
 		const head = flat.head
 		const where: Array<InferredExpr> = []
 		for (const c of flat.where) {
 			if (isFiltered(c)) {
-				filters.push(c)
+				;(this.#readable(c) ? filters : asWritten).push(c)
 			} else if (readsOf(c).size === 0) {
 				where.push(c)
 			} else {
@@ -1516,7 +1518,7 @@ class Navigator {
 		if (left.length > 0) {
 			return this.#refuse("a condition over variables no read binds")
 		}
-		return { vars, matches, where: [...where, ...pending], filters, head }
+		return { vars, matches, where: [...where, ...pending, ...asWritten], filters, head }
 	}
 
 	/**
@@ -1649,10 +1651,18 @@ const filtersBelow = (e: InferredExpr): boolean =>
  * once its imports are inlined (`Navigator.#inline`), undefined where navigation reads no such rule: one with
  * interiors, attachments or a folded or produced head, a match of anything but a stored or closed relation, a delta or
  * an imported query of one such rule binding no parameter, a relational filter below a scalar expression, a filter of
- * anything but a stored or closed relation or an imported query whose conjunctions (`conjunctions`) are such rules. A
- * filter, a negation or an existence, is no read the count holds: it keeps or drops a row the reads deliver, so a rule
- * that reads one relation beside a filter is one lookup, and a filter of a delta, which no step reads by an index,
- * leaves the rule as written, where PostgreSQL hashes the delta once per statement.
+ * anything but a stored or closed relation or an imported query. A filter, a negation or an existence, is no read the
+ * count holds: it keeps or drops a row the reads deliver, so a rule that reads one relation beside a filter is one
+ * lookup, and a filter of a delta, which no step reads by an index, leaves the rule as written, where PostgreSQL hashes
+ * the delta once per statement. A filter of an imported query navigation does not read, one binding a parameter or
+ * one of a rule navigation reads no part of (an aggregate's, at any depth), counts nothing either: it stays the rule's
+ * condition as written (Navigator #chain `asWritten`), and the rule's reads are navigated all the same: it is applied
+ * to the same rows after the chain as it was beside the reads as written, so the rule derives the same facts. It left the
+ * whole rule as written, every relation it reads one flat join PostgreSQL ordered by its estimates: the ledger's key
+ * of a limited test attempt, which negates the unlimited members, whose max-attempts in force negate an aggregating
+ * rule's nearest scope, read every attempt and item session of every learner and joined the written test session's
+ * (child, stage) last, a filter of 1,401,075 rows (metis's start, 24 s warm), and every test session of a package for
+ * each of its attempts (edullm's answer and record, 1.5 s of 1.7 s at c1).
  *
  * And the same over the rule's conjunctions, never built: `most`, the most relations a conjunction navigation reads
  * reads, undefined where it reads none of them, and `every`, the most where it reads every one of them, undefined where
@@ -1738,16 +1748,15 @@ const ruleReads = (rule: InferredRule, of: (rule: InferredRule) => RuleReads): R
 		if (source.kind === "relation") {
 			continue
 		}
-		if (
-			source.kind !== "query" ||
-			Object.keys(source.bind).length > 0 ||
-			source.query.stage.kind !== "rules"
-		) {
+		if (source.kind !== "query") {
 			return unread
+		}
+		if (Object.keys(source.bind).length > 0 || source.query.stage.kind !== "rules") {
+			continue
 		}
 		const arms = mapNonEmpty(source.query.stage.arms, of)
 		if (arms.some((arm) => arm.every === undefined)) {
-			return unread
+			continue
 		}
 		filtersJoin ||= arms.some(someConjunctionJoins)
 	}
