@@ -275,8 +275,8 @@ export const aStatementThatReadsSeveralFieldsOfOneCallCallsItOnce = property.exp
 			{
 				file: "packages/engine/src/write/program/compile.ts",
 				original:
-					"\t\t\t\t\tfor (const read of heldEvaluations(w.cx, [\n\t\t\t\t\t\t...step.shares.map((share) => share.node),\n\t\t\t\t\t\t...step.writes.flatMap(plannedNodes)\n\t\t\t\t\t])) {",
-				replacement: "\t\t\t\t\tfor (const read of heldEvaluations(w.cx, [])) {",
+					"\t\t...heldEvaluations(cx, [\n\t\t\t...shares.map((share) => share.node),\n\t\t\t...writes.flatMap(plannedNodes)\n\t\t]).map(",
+				replacement: "\t\t...heldEvaluations(cx, []).map(",
 				why: "A single statement holds no evaluation as a part of its own, so each member's statement part holds its own, and land's plan calls machine three times."
 			}
 		]

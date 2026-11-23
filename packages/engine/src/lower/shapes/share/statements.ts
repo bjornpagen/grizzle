@@ -9,8 +9,8 @@ import type { NodeId } from "#compiler/core/ids.ts"
 import { type DagTemplates, ShareKeys } from "#compiler/ir/dag-digest.ts"
 import { freeVars, type NodeScope, nodeScopes, nodesByLabel, topoOrder } from "#compiler/ir/dag.ts"
 import { Fold } from "#compiler/ir/fold.ts"
-import { edgesOf, inputsOf, type RelNode, type ValidDag } from "#compiler/ir/rel.ts"
-import { statementEvaluations } from "#compiler/lower/conservative/call/index.ts"
+import { edgesOf, inputsOf, type NodeOf, type RelNode, type ValidDag } from "#compiler/ir/rel.ts"
+import { evaluationQuery, statementEvaluations } from "#compiler/lower/conservative/call/index.ts"
 import {
 	type CteTable,
 	cteAtFirstUse,
@@ -23,8 +23,8 @@ import {
 } from "#compiler/lower/conservative/context.ts"
 import { costClass } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { feedbackReadsOf, nodeGraph } from "#compiler/lower/optimize/demand/editor.ts"
-import type { OperandSelect } from "#compiler/sql/ast.ts"
-import { col, core, operandSelect, target } from "#compiler/sql/build.ts"
+import type { OperandSelect, Select } from "#compiler/sql/ast.ts"
+import { col, keyedSet, select, target } from "#compiler/sql/build.ts"
 import type { CarrierName } from "#compiler/sql/naming.ts"
 
 /**
@@ -555,7 +555,11 @@ export class StatementSharing {
 		return (node, cx, env) => this.#root(node, cx, env, share.key)
 	}
 
-	/** A node read from the carrier that holds it, or undefined when none does. */
+	/**
+	 * A node read from the carrier that holds it, or undefined when none does: a keyed read of a set, which every fill
+	 * of a carrier and every share part is (write/carriers/carriers.ts memberRows), so a reader that must read a set, a
+	 * call's rows argument among them, reads it as it would its copy.
+	 */
 	#readCarrier(
 		node: RelNode,
 		cx: LowerContext,
@@ -566,15 +570,16 @@ export class StatementSharing {
 			return undefined
 		}
 		const alias = cx.relationAlias({ kind: "node", node: node.id })
-		return operandSelect(
-			core(
+		return select(
+			keyedSet(
 				carrier.columns.map((c) => target(col(alias, c))),
 				[
 					carrier.kind === "carrier"
 						? { kind: "table", table: carrier.carrier, alias }
 						: { kind: "enclosing", name: carrier.name, alias }
 				],
-				undefined
+				undefined,
+				"a carried sub-query's rows"
 			)
 		)
 	}
@@ -585,6 +590,31 @@ export class StatementSharing {
 		if (carried !== undefined) {
 			return carried
 		}
+		return this.#statement(node, cx, filling, (root, scope) => this.#shared(node, root, env, scope))
+	}
+
+	/**
+	 * The evaluation of the call `read` reads, a statement rooted at the read (lower/conservative/call evaluationQuery):
+	 * every argument of the call lowered in that one statement's scope, so a sub-query two arguments read, a copy in each,
+	 * is one MATERIALIZED CTE of the evaluation's WITH (statementCtes, over the call's every argument), where each
+	 * argument was a statement of its own and computed its copy again. A copy a carrier holds is read from it.
+	 */
+	evaluation(read: NodeOf<"Call">, cx: LowerContext): Select {
+		return this.#statement(read, cx, undefined, (root) => evaluationQuery(read, root, emptyEnv))
+	}
+
+	/**
+	 * The query `lower` builds of the statement rooted at `node`, in the statement's scope: the copies of each share key
+	 * the statement reads at least twice planned as its MATERIALIZED CTEs (statementCtes), which lead the query, every
+	 * node under it lowered through that scope (a carried node read from its carrier, one the statement shares from its
+	 * CTE), and the evaluations of the calls it reads hosted in its WITH or read where a part carries them.
+	 */
+	#statement<Q extends OperandSelect>(
+		node: RelNode,
+		cx: LowerContext,
+		filling: string | undefined,
+		lower: (root: LowerContext, scope: StatementScope) => Q
+	): Q {
 		const scope: StatementScope = {
 			ctes: new Set(),
 			defined: new Map(),
@@ -593,12 +623,10 @@ export class StatementSharing {
 		const inScope: NodeDispatch = (n, ncx, nenv) =>
 			this.#readCarrier(n, ncx, filling) ?? this.#shared(n, ncx, nenv, scope)
 		const root = cx.withDispatch(inScope)
-		const query = this.#shared(
-			node,
+		const query = lower(
 			root
 				.withEvaluations(statementEvaluations(scope.ctes, root))
 				.withEvaluations(this.#carriedEvaluation),
-			env,
 			scope
 		)
 		return withLeading(query, scope.ctes)

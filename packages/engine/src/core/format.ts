@@ -115,7 +115,14 @@
  * it holds (derived.textDomains), each refinement any artifact or served program types a value by, and every contract
  * outside the base they type a value by (derived.params.contracts). Format 3's files were written in several shapes,
  * changes of what they hold riding its number (a constant recorded with no language before 56f26ca01), so a reader that
- * trusted a sealed record of 3 met shapes it never wrote; every one is refused here
+ * trusted a sealed record of 3 met shapes it never wrote; every one is refused here.
+ *
+ * Pending, for the next format, which grizzle main bumps once for the batch: a write's single statement holds the
+ * evaluation of a call its parts read as one statement over every argument of the call, so a sub-query two arguments
+ * read is one MATERIALIZED CTE of the evaluation's WITH, and builds its parts lowest first, so an evaluation reads the
+ * sub-queries the statement carries as parts of their own and a carried sub-query reads the evaluations below it
+ * (lower/shapes/share/statements.ts StatementSharing evaluation, write/program/compile.ts heldParts), where format 7
+ * lowered each argument as a statement of its own and built every evaluation before the carried sub-queries
  */
 export const artifactFormat = 7
 

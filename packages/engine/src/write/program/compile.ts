@@ -40,12 +40,8 @@ import { type CatalogSchema, evidenceCatalog } from "#compiler/laws/model/catalo
 import { generations } from "#compiler/laws/model/generation.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import type { UniqueObject } from "#compiler/laws/model/uniques.ts"
-import {
-	evaluationQuery,
-	evaluationWidth,
-	readsOnlyParameters
-} from "#compiler/lower/conservative/call/index.ts"
-import { emptyEnv, type LowerContext, WriteParams } from "#compiler/lower/conservative/context.ts"
+import { evaluationWidth, readsOnlyParameters } from "#compiler/lower/conservative/call/index.ts"
+import { type LowerContext, WriteParams } from "#compiler/lower/conservative/context.ts"
 import type { DeclaredParamSlot, WriteParamSlot } from "#compiler/lower/conservative/types.ts"
 import { isPlainQuery } from "#compiler/lower/delivery.ts"
 import { emptyCtePlan } from "#compiler/lower/optimize/cte-policy/index.ts"
@@ -61,6 +57,7 @@ import {
 } from "#compiler/lower/shapes/index.ts"
 import { type ShapeFacts, shapeFactsFromPlan } from "#compiler/lower/shapes/share/physical.ts"
 import {
+	type CarriedShare,
 	planStatementShares,
 	ShareIndex,
 	StatementSharing
@@ -70,7 +67,7 @@ import { sentHeading, sentSpec, specifiedProgram } from "#compiler/lower/templat
 import { oneForm } from "#compiler/runtime/lower/forms.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
-import type { EmittedText, SqlStatement } from "#compiler/sql/ast.ts"
+import type { EmittedText, Select, SqlStatement } from "#compiler/sql/ast.ts"
 import {
 	type CarrierScope,
 	freshNames as startNames,
@@ -396,6 +393,30 @@ const heldEvaluations = (
 	}
 	return held
 }
+
+/**
+ * The parts a single statement holds before its writes, each read by the parts after it: the evaluations it holds
+ * once each (heldEvaluations) and its shared sub-queries (`shares`), lowest first (ShareIndex height). A part reads
+ * another only through a node below its own root, a call's read or a copy of a share, which stands strictly lower, so
+ * each part follows every part it reads: an evaluation whose arguments hold a shared sub-query reads its CTE, and a
+ * shared sub-query that reads a call's field reads its evaluation's.
+ */
+const heldParts = (
+	index: ShareIndex,
+	cx: LowerContext,
+	shares: ReadonlyArray<CarriedShare>,
+	writes: ReadonlyArray<PlannedWrite>
+): ReadonlyArray<
+	| { readonly kind: "evaluation"; readonly read: NodeOf<"Call">; readonly key: string }
+	| { readonly kind: "share"; readonly share: CarriedShare }
+> =>
+	[
+		...heldEvaluations(cx, [
+			...shares.map((share) => share.node),
+			...writes.flatMap(plannedNodes)
+		]).map((held) => ({ kind: "evaluation", ...held, height: index.height(held.read) }) as const),
+		...shares.map((share) => ({ kind: "share", share, height: index.height(share.node) }) as const)
+	].toSorted((a, b) => a.height - b.height)
 
 export interface ArtifactBuilder {
 	/** Each statement placed so far, a read-back's naming its read-back, with its audited AST for the carriers'
@@ -1279,21 +1300,15 @@ const optimizedPlacement = (
 					let start = ownStatement
 					const shares: Array<SharedPart> = []
 					sharing.clearEvaluations()
-					for (const read of heldEvaluations(w.cx, [
-						...step.shares.map((share) => share.node),
-						...step.writes.flatMap(plannedNodes)
-					])) {
-						/** A call's evaluation every part reads: a part of its own, before the shared sub-queries that read it. */
-						const fill = { ...w, start }
+					/** A part of its own, of `width` columns, its query `lower`'s in a statement whose names start past the
+					 * parts before it: the CTE every part after it reads it from. */
+					const part = (width: number, lower: () => Select) => {
 						const supply = new NameSupply(start)
 						const placeholders = new WriteParams()
-						fill.cx.beginWriteStatement(supply, placeholders)
-						const query = evaluationQuery(read.read, fill.cx, emptyEnv)
+						w.cx.beginWriteStatement(supply, placeholders)
+						const query = lower()
 						const params = [...placeholders.slots]
-						const names = freshNames(
-							namesPast(supply.map(), ownStatement),
-							evaluationWidth(read.read)
-						)
+						const names = freshNames(namesPast(supply.map(), ownStatement), width)
 						start = names.next
 						shares.push({
 							name: names.relation,
@@ -1302,38 +1317,33 @@ const optimizedPlacement = (
 							params,
 							nameMap: [...supply.map(), ...names.nameMap]
 						})
-						sharing.carryEvaluation(read.key, {
-							kind: "enclosing",
-							name: names.relation,
-							columns: names.columns
-						})
+						return { kind: "enclosing", name: names.relation, columns: names.columns } as const
 					}
-					for (const share of step.shares) {
-						const heading = share.node.heading.map((c) => ({
-							name: c.name,
-							type: c.type
-						}))
-						/** A shared sub-query's CTE lowers its own copies rather than reading itself. */
-						const fill = { ...w, start, cx: w.cx.withDispatch(sharing.filling(share)) }
-						const supply = new NameSupply(start)
-						const placeholders = new WriteParams()
-						fill.cx.beginWriteStatement(supply, placeholders)
-						const query = memberRows(fill, heading, share.node)
-						const params = [...placeholders.slots]
-						const names = freshNames(namesPast(supply.map(), ownStatement), heading.length)
-						start = names.next
-						shares.push({
-							name: names.relation,
-							columns: names.columns,
-							query,
-							params,
-							nameMap: [...supply.map(), ...names.nameMap]
-						})
-						sharing.carry(share, {
-							kind: "enclosing",
-							name: names.relation,
-							columns: names.columns
-						})
+					for (const held of heldParts(sharing.index, w.cx, step.shares, step.writes)) {
+						switch (held.kind) {
+							case "evaluation": {
+								/** A call's evaluation every part reads, its arguments one statement's (StatementSharing evaluation). */
+								const source = part(evaluationWidth(held.read), () =>
+									sharing.evaluation(held.read, w.cx)
+								)
+								sharing.carryEvaluation(held.key, source)
+								break
+							}
+							case "share": {
+								const { share } = held
+								const heading = share.node.heading.map((c) => ({ name: c.name, type: c.type }))
+								/** A shared sub-query's CTE lowers its own copies rather than reading itself. */
+								const source = part(heading.length, () =>
+									memberRows(
+										{ ...w, start, cx: w.cx.withDispatch(sharing.filling(share)) },
+										heading,
+										share.node
+									)
+								)
+								sharing.carry(share, source)
+								break
+							}
+						}
 					}
 					const writes = mapNonEmpty(step.writes, (planned) => {
 						const statement = buildWriteOp({ ...w, start }, planned)
