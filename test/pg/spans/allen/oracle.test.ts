@@ -38,7 +38,7 @@ import {
 
 /**
  * Generated span queries against the reference agree with the reference in both artifacts on Allen and pointIn cases,
- * each case on the worker's seat of its schema's template (oracleSpans). It caught 1e1c91673's bug, kept as its kill
+ * each case on a clone of its own of its schema's template (oracleSpans). It caught 1e1c91673's bug, kept as its kill
  * and its kept case; its budget is the least that kills it, measured (oracleBudget).
  */
 export const generatedSpanQueriesAgainstTheReferenceAgreeWithTheReferenceInBothArtifactsOnAllenAndPointInCases =
