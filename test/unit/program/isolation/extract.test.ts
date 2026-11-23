@@ -11,9 +11,11 @@
  * DELETE's target may be a carrier), or a MERGE of up to three WHEN clauses; with
  * statement CTEs that read or write, the reading ones read where a source names them; a REFRESH, or a
  * statement no member sends. Each query is a core or a UNION, EXCEPT or INTERSECT of cores. A core reads tables,
- * carriers, CTEs, a writing CTE's RETURNING, relation inputs' arrays, VALUES, a function's rows, derived tables, a
- * probe of a table at a key, a group or a group's last row, an INSERT's met rows (a writing CTE's INSERT and a query
- * CTE), and the row an arbitration met for the met rows of an own source it sees, joined in one chain or crosswise,
+ * carriers, CTEs, a writing CTE's RETURNING, relation inputs' arrays, VALUES, a function's rows, the session's context,
+ * derived tables, among them ones of the context's fact alone or beside VALUES, a probe of a table at a key, a group or a
+ * group's last row, an INSERT's met rows (a writing CTE's INSERT and a query CTE), itself or through a MATERIALIZED query
+ * CTE that holds them whole, and the row an arbitration met for the met rows of an own source it sees, joined in one
+ * chain or crosswise,
  * under a WHERE
  * and ON conjuncts that equate a table's columns with a placeholder, an own source's column of its core or an enclosing
  * one, another table's column, a literal or a cast placeholder; it filters by EXISTS, NOT EXISTS, IN, NOT IN, NOT and
@@ -27,7 +29,8 @@
  *   sources of an EXISTS's own cores alone.
  * - A read's mode: arbiter for a probe of a relation its statement writes, an ON CONFLICT, one per object an ON
  *   CONFLICT with no target arbitrates, a MERGE's NOT MATCHED where it writes, and the row an arbitration met wherever
- *   it stands where its met rows are a writing CTE's INSERT into its table that proposes their query CTE alone and
+ *   it stands where its met rows, read themselves or through a query CTE that holds them whole, are a writing CTE's
+ *   INSERT into its table that proposes their query CTE alone and
  *   skips by DO NOTHING with no target or over columns among its key; else negated where not positive; else counted
  *   where counted; else positive. A probe reads its table bound by its own equalities, the row met by its key bound to
  *   its met rows' column, alone; a probe is a row source of its core, the row met none, and met rows read their query
@@ -39,7 +42,9 @@
  * - A table's group is the fields of its columns its core's conditions (its WHERE and every ON of its FROM; a MERGE's
  *   ON and its clause's condition as the clause reads it) equate with a placeholder or a column of an own source in
  *   scope, its core's or an enclosing core's (a non-LATERAL derived table and a CTE see none of their reader's), the
- *   field-less column dropped, sorted; its binding is their texts in that order. An ON CONFLICT's group is its conflict
+ *   field-less column dropped, sorted; its binding is their texts in that order, one group for the call where each is a
+ *   placeholder, the context's fact or a derived table of one row of it (one core over such sources alone, filtering,
+ *   counting and projecting nothing beyond its column), else one per row. An ON CONFLICT's group is its conflict
  *   columns', each bound to EXCLUDED's. A table read through a derived table that only renames its columns (each named
  *   as the table's, each the rotation's other) is keyed so by the conditions of the core that reads it, through the
  *   renaming, the derived table an outside table's value; one that also takes a LIMIT is keyed by none of them, read as
@@ -151,7 +156,12 @@ export const aChangeMembersFactsNameEveryReadByItsModeItsOwnItsGroupAndItsBindin
 			"the row met through met rows of no INSERT proposing them alone with DO NOTHING over its key, read by its place",
 			"an INSERT's met rows",
 			"an INSERT proposing a query CTE alone",
-			"a probe at a group's last row"
+			"a probe at a group's last row",
+			"a group bound by the context's fact",
+			"a CTE that holds an INSERT's met rows whole",
+			"the row an arbitration met, through a CTE that holds its met rows whole",
+			"a group bound by a derived table of the context's fact, one value",
+			"a group bound by a derived table of the context's fact and VALUES, one per row"
 		] satisfies ReadonlyArray<Reached<Shape>>,
 		check: (_2, k: Case<Shape>) => (c) =>
 			Effect.sync(() => {
@@ -287,6 +297,25 @@ export const aChangeMembersFactsNameEveryReadByItsModeItsOwnItsGroupAndItsBindin
 		},
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/program/isolation/extract.ts",
+				original:
+					"\treturn held === undefined ? nameOf(source) : [source.alias ?? source.name, held]",
+				replacement: "\treturn nameOf(source)",
+				why: "A query CTE that holds an INSERT's met rows whole read as any CTE's rows, as extract.ts read it: the row met through it, which the SERIALIZABLE insert protocol reads (write/insert/protocol.ts classifyMet), is read by its place, unsealed, so every SERIALIZABLE inserter is a pivot of what it inserts (METIS-ROLES's roles-mini, admin) and keeps every reader of it SERIALIZABLE by `writers`."
+			},
+			{
+				file: "packages/engine/src/program/isolation/extract.ts",
+				original: '\t\t\treturn [source.alias, callRow(source.query) ? "one" : "many"]',
+				replacement: '\t\t\treturn [source.alias, "many"]',
+				why: "A derived table of the context's fact read as many rows, as extract.ts read every derived table that renames no stored table's columns: a read bound to a claim through the derived tables a write's statements read the context by binds one group per row, unsealed, so every write that reads by a claim (metis's Session to Account proof) fails `pivot` (METIS-ROLES's roles-mini, beat_b)."
+			},
+			{
+				file: "packages/engine/src/program/isolation/extract.ts",
+				original: '\tif (!sources.every(({ source }) => nameOf(source)[1] === "one")) {',
+				replacement: "\tif (sources.length < 0) {",
+				why: "A derived table over the context's fact and many rows read as one row, so a read bound to its column binds one group where it reads one per row."
+			},
 			{
 				file: "packages/engine/src/program/isolation/extract.ts",
 				original: `\t\t\t\tthis.#opaque(\`?every:\${printObjectName(table)}\`, c)`,

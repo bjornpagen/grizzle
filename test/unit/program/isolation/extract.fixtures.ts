@@ -136,15 +136,19 @@ export const NAMES: ExtractNames = {
 		relation === "W" || relation === "R" || relation === "S" ? ARBITERS : []
 }
 
-/** A source of a core that is the call's own: a relation input's arrays, VALUES, a CTE, a carrier or a function. */
-type OwnKind = "arrays" | "values" | "cte" | "carrier" | "function"
+/**
+ * A source of a core that is the call's own: a relation input's arrays, VALUES, a CTE, a carrier, a function, or the
+ * session's context, whose one fact is one row of values the call holds once.
+ */
+type OwnKind = "arrays" | "values" | "cte" | "carrier" | "function" | "context"
 
 const OWN_KINDS: Arr.NonEmptyReadonlyArray<OwnKind> = [
 	"arrays",
 	"values",
 	"cte",
 	"carrier",
-	"function"
+	"function",
+	"context"
 ]
 
 /**
@@ -343,9 +347,15 @@ type Dml =
 			readonly whens: Arr.NonEmptyReadonlyArray<WhenSpec>
 	  }
 
+/**
+ * A statement's CTE: a query, a data-modifying statement, or a query CTE that holds an INSERT's met rows whole, MATERIALIZED,
+ * as the insert protocol keeps them once (write/insert/protocol.ts classifyMet): the met rows of the `insert`-th writing
+ * CTE over the `proposed`-th query CTE, each an index among the statement's CTEs of its kind.
+ */
 type CteSpec =
 	| { readonly kind: "query"; readonly query: QuerySpec }
 	| { readonly kind: "dml"; readonly dml: Dml }
+	| { readonly kind: "held"; readonly insert: number; readonly proposed: number }
 
 type StatementSpec =
 	| { readonly kind: "dml"; readonly dml: Dml; readonly ctes: ReadonlyArray<CteSpec> }
@@ -384,9 +394,42 @@ const otherGen = (owns: number, tables: number, self: number): Gen<Other> => {
 	])
 }
 
-type SourceKind = "table" | "own" | "derived" | "probe" | "metRows" | "met"
+type SourceKind = "table" | "own" | "derived" | "fact" | "probe" | "metRows" | "met"
 
 const derivedArm: Weighted<SourceKind> = [1, () => "derived"]
+
+/**
+ * A derived table over the context's fact, as a write's statements read a claim (the RC and SERIALIZABLE forms rename
+ * and cast it through derived tables): one core over the context alone, or over such a derived table, `depth` deep at
+ * most, filtering, counting and projecting nothing beyond its column; or one over the context and VALUES, whose rows
+ * are many.
+ */
+const factGen =
+	(depth: number): Gen<QuerySpec> =>
+	(s) => {
+		const context: Source = { kind: "own", own: "context", at: 0 }
+		const stacked: ReadonlyArray<Weighted<Arr.NonEmptyReadonlyArray<Source>>> =
+			depth > 0 ? [[2, (t) => [{ kind: "derived", query: t.draw(factGen(depth - 1)) }]]] : []
+		const sources = s.draw(
+			weighted<Arr.NonEmptyReadonlyArray<Source>>([
+				[3, () => [context]],
+				...stacked,
+				[1, () => [context, { kind: "own", own: "values", at: 0 }]]
+			])
+		)
+		return {
+			cores: [
+				{
+					sources,
+					filters: [],
+					aggregate: { kind: "none" },
+					projection: { kind: "plain" },
+					nested: false
+				}
+			],
+			op: "UNION"
+		}
+	}
 
 /** A core's sources first, then each table's equalities over distinct columns of it. */
 const coreGen =
@@ -401,6 +444,7 @@ const coreGen =
 						[1, () => "probe"],
 						[1, () => "metRows"],
 						[1, () => "met"],
+						[1, () => "fact"],
 						...(depth > 0 ? [derivedArm] : [])
 					]),
 					{ min: 1, max: 3 }
@@ -408,7 +452,10 @@ const coreGen =
 			),
 			"a core's sources"
 		)
-		const owns = Arr.filter(shapes, (k) => k === "own" || k === "derived" || k === "metRows").length
+		const owns = Arr.filter(
+			shapes,
+			(k) => k === "own" || k === "derived" || k === "fact" || k === "metRows"
+		).length
 		const tables = Arr.filter(shapes, (k) => k === "table").length
 		const sources = Arr.map(shapes, (kind, at): Source => {
 			switch (kind) {
@@ -453,6 +500,8 @@ const coreGen =
 					return { kind: "own", own: s.draw(element(OWN_KINDS)), at: s.draw(int(0, 2)) }
 				case "derived":
 					return { kind: "derived", query: s.draw(queryGen(depth - 1)) }
+				case "fact":
+					return { kind: "derived", query: s.draw(factGen(2)) }
 				case "metRows":
 					return { kind: "metRows", insert: s.draw(int(0, 1)), proposed: s.draw(int(0, 1)) }
 				case "met":
@@ -658,7 +707,7 @@ const cteGen: Gen<CteSpec> = weighted<CteSpec>([
  * drawn to hold or to fail: two query CTEs, an INSERT into a drawn relation that proposes one of them alone or reads a
  * drawn query, under DO NOTHING with no target or over a subset of the row met's key, DO SELECT or DO UPDATE over such
  * a subset, DO NOTHING over it and a column outside the key, ON CONSTRAINT or none, and a core reading that INSERT's
- * met rows, of either CTE, beside the row met for
+ * met rows, of either CTE, itself or through a CTE that holds them whole, beside the row met for
  * them in the INSERT's relation or another. It composes the spec pieces the other arms draw, so the generic oracle
  * judges it, and the pieces a seal needs meet in one case.
  */
@@ -704,6 +753,13 @@ const metStatementGen: Gen<StatementSpec> = (s) => {
 			[1, () => false]
 		])
 	)
+	const proposed = s.draw(
+		weighted<number>([
+			[3, () => proposes],
+			[1, () => 1 - proposes]
+		])
+	)
+	const held = s.draw(boolean)
 	return {
 		kind: "select",
 		ctes: [
@@ -719,22 +775,14 @@ const metStatementGen: Gen<StatementSpec> = (s) => {
 					proposes: alone ? proposes : undefined,
 					conflict
 				}
-			}
+			},
+			...(held ? [{ kind: "held", insert: 0, proposed } as const] : [])
 		],
 		query: {
 			cores: [
 				{
 					sources: [
-						{
-							kind: "metRows",
-							insert: 0,
-							proposed: s.draw(
-								weighted<number>([
-									[3, () => proposes],
-									[1, () => 1 - proposes]
-								])
-							)
-						},
+						held ? { kind: "own", own: "cte", at: 3 } : { kind: "metRows", insert: 0, proposed },
 						{
 							kind: "met",
 							rel: s.draw(
@@ -796,7 +844,16 @@ type Env = ReadonlyArray<
 			readonly query: QuerySpec
 	  }
 	| { readonly kind: "returning"; readonly name: string }
+	| ({ readonly kind: "held"; readonly name: string; readonly path: string } & HeldRows)
 >
+
+/** The met rows a held CTE keeps: its INSERT's writing CTE, and the query CTE that INSERT proposes, by name and path. */
+interface HeldRows {
+	readonly insert: string
+	readonly proposed: string
+	readonly proposedPath: string
+	readonly query: QuerySpec
+}
 
 /** A source as its core places it: under its alias, an own CTE source resolved to the CTE it names, or VALUES where the
  * statement defines none. */
@@ -820,9 +877,15 @@ type PlacedSource =
 	| {
 			readonly kind: "plain"
 			readonly alias: string
-			readonly own: "arrays" | "values" | "function"
+			readonly own: "arrays" | "values" | "function" | "context"
 	  }
 	| { readonly kind: "returning"; readonly alias: string; readonly name: string }
+	| ({
+			readonly kind: "held"
+			readonly alias: string
+			readonly name: string
+			readonly path: string
+	  } & HeldRows)
 	| { readonly kind: "derived"; readonly alias: string; readonly query: QuerySpec }
 	| {
 			readonly kind: "probe"
@@ -849,6 +912,38 @@ type PlacedSource =
 			readonly rows: number
 			readonly columns: Arr.NonEmptyReadonlyArray<Column>
 	  }
+
+/**
+ * Whether a derived table's query is one row of values the call holds once: one core over the context's fact or such
+ * derived tables alone, filtering, counting and projecting nothing beyond the column it delivers, a column of its first
+ * source (firstColumn).
+ */
+const oneRow = (q: QuerySpec): boolean => {
+	const [only, ...more] = q.cores
+	return (
+		more.length === 0 &&
+		only.filters.length === 0 &&
+		only.aggregate.kind === "none" &&
+		only.projection.kind === "plain" &&
+		Arr.every(
+			only.sources,
+			(s) => (s.kind === "own" && s.own === "context") || (s.kind === "derived" && oneRow(s.query))
+		)
+	)
+}
+
+/** Whether a derived table's query reads the context's fact as factGen draws it, through any number of such. */
+const factOver = (q: QuerySpec): boolean =>
+	Arr.some(
+		q.cores,
+		(c) =>
+			c.filters.length === 0 &&
+			Arr.some(
+				c.sources,
+				(s) =>
+					(s.kind === "own" && s.own === "context") || (s.kind === "derived" && factOver(s.query))
+			)
+	)
 
 /** A core's sources under their aliases, each named by the core's path, so the statement and the oracle agree. */
 const placed = (c: CoreSpec, path: string, env: Env): Arr.NonEmptyReadonlyArray<PlacedSource> =>
@@ -892,15 +987,28 @@ const placed = (c: CoreSpec, path: string, env: Env): Arr.NonEmptyReadonlyArray<
 						return { kind: "carrier", alias, carrier: s.at + 1 }
 					case "cte": {
 						const named = env[s.at % Math.max(env.length, 1)]
-						return named === undefined
-							? { kind: "plain", alias, own: "values" }
-							: named.kind === "returning"
-								? { kind: "returning", alias, name: named.name }
-								: { kind: "cte", alias, name: named.name, path: named.path, query: named.query }
+						if (named === undefined) {
+							return { kind: "plain", alias, own: "values" }
+						}
+						switch (named.kind) {
+							case "returning":
+								return { kind: "returning", alias, name: named.name }
+							case "held":
+								return { ...named, alias }
+							case "query":
+								return {
+									kind: "cte",
+									alias,
+									name: named.name,
+									path: named.path,
+									query: named.query
+								}
+						}
 					}
 					case "arrays":
 					case "values":
 					case "function":
+					case "context":
 						return { kind: "plain", alias, own: s.own }
 				}
 		}
@@ -1042,6 +1150,22 @@ const stackedOf = (
 	)
 }
 
+/** The met rows of the INSERT of writing CTE `insert` over query CTE `proposed`, under `alias`, keyed by OWN_COLUMN. */
+const metRowsSource = (alias: string, insert: string, proposed: string): FromSource => ({
+	kind: "metRows",
+	insert,
+	proposed,
+	key: [{ column: OWN_COLUMN, from: OWN_COLUMN, schema: undefined }],
+	columns: [{ column: OWN_COLUMN, returned: OWN_COLUMN }],
+	scan: `${alias}m`,
+	returned: `${alias}r`,
+	sides: `${alias}s`,
+	marker: `${alias}k`,
+	marked: `${alias}w`,
+	hit: `${alias}h`,
+	alias
+})
+
 /** The FROM source of a placed source. */
 const fromSource = (
 	p: PlacedSource,
@@ -1079,20 +1203,7 @@ const fromSource = (
 				alias: p.alias
 			}
 		case "metRows":
-			return {
-				kind: "metRows",
-				insert: p.insert,
-				proposed: p.proposed,
-				key: [{ column: OWN_COLUMN, from: OWN_COLUMN, schema: undefined }],
-				columns: [{ column: OWN_COLUMN, returned: OWN_COLUMN }],
-				scan: `${p.alias}m`,
-				returned: `${p.alias}r`,
-				sides: `${p.alias}s`,
-				marker: `${p.alias}k`,
-				marked: `${p.alias}w`,
-				hit: `${p.alias}h`,
-				alias: p.alias
-			}
+			return metRowsSource(p.alias, p.insert, p.proposed)
 		case "table":
 			switch (p.form) {
 				case "direct":
@@ -1107,6 +1218,7 @@ const fromSource = (
 			return { kind: "table", table: unitCarrierName(p.carrier), alias: p.alias }
 		case "cte":
 		case "returning":
+		case "held":
 			return cteRefAs(p.name, p.alias)
 		case "derived":
 			return derived(buildOperand(p.query, `${p.alias}q`, scope, env), p.alias, [OWN_COLUMN], false)
@@ -1142,6 +1254,20 @@ const fromSource = (
 						columns: [OWN_COLUMN],
 						lateral: false,
 						ordinality: false
+					}
+				case "context":
+					return {
+						kind: "context",
+						context: "Session",
+						columns: [
+							{
+								field: "sub",
+								column: columnDefinition(OWN_COLUMN, types.integer),
+								judged: types.integer
+							}
+						],
+						refusal: { kind: "qualified", schema: "app", name: NO_TABLE },
+						alias: p.alias
 					}
 			}
 	}
@@ -1472,8 +1598,8 @@ const buildDml = (
 				with: outer,
 				table: TABLES[d.rel],
 				alias: "t",
-				using: derived(buildOperand(d.using, `${path}m`, [], env), "m", [OWN_COLUMN], false),
-				on: eq(col("t", "c_id"), col("m", OWN_COLUMN)),
+				using: derived(buildOperand(d.using, `${path}m`, [], env), `${path}m`, [OWN_COLUMN], false),
+				on: eq(col("t", "c_id"), col(`${path}m`, OWN_COLUMN)),
 				whens: Arr.map(d.whens, mergeWhen),
 				returning: []
 			}
@@ -1519,13 +1645,41 @@ const proposalOf = (
 			}
 }
 
-/** A statement's query CTEs, which its sources may name: none where it defines none. */
-const envOf = (ctes: ReadonlyArray<CteSpec>): Env =>
-	Arr.map(ctes, (c, i) =>
-		c.kind === "query"
-			? { kind: "query", name: `c${i}`, path: `c${i}q`, query: c.query }
-			: { kind: "returning", name: `c${i}` }
+/**
+ * A statement's CTEs as its sources may name them: none where it defines none. A held CTE names its writing CTE and its
+ * query CTE by their places among those of their kind, VALUES-like nothing where the statement defines no such pair.
+ */
+const envOf = (ctes: ReadonlyArray<CteSpec>): Env => {
+	const queries = Arr.flatMap(ctes, (c, i) =>
+		c.kind === "query" ? [{ name: `c${i}`, path: `c${i}q`, query: c.query }] : []
 	)
+	const writes = Arr.flatMap(ctes, (c, i) => (c.kind === "dml" ? [`c${i}`] : []))
+	return Arr.flatMap(ctes, (c, i): Env => {
+		switch (c.kind) {
+			case "query":
+				return [{ kind: "query", name: `c${i}`, path: `c${i}q`, query: c.query }]
+			case "dml":
+				return [{ kind: "returning", name: `c${i}` }]
+			case "held": {
+				const insert = writes[c.insert % Math.max(writes.length, 1)]
+				const proposed = queries[c.proposed % Math.max(queries.length, 1)]
+				return insert === undefined || proposed === undefined
+					? []
+					: [
+							{
+								kind: "held",
+								name: `c${i}`,
+								path: `c${i}q`,
+								insert,
+								proposed: proposed.name,
+								proposedPath: proposed.path,
+								query: proposed.query
+							}
+						]
+			}
+		}
+	})
+}
 
 export const buildStatement = (s: StatementSpec): SqlStatement => {
 	switch (s.kind) {
@@ -1536,15 +1690,48 @@ export const buildStatement = (s: StatementSpec): SqlStatement => {
 		case "select":
 		case "dml": {
 			const env = envOf(s.ctes)
-			const ctes = Arr.map(s.ctes, (c, i): Cte => ({
-				name: `c${i}`,
-				columns: [],
-				materialized: undefined,
-				query:
-					c.kind === "query"
-						? buildOperand(c.query, `c${i}q`, [], [])
-						: buildDml(c.dml, `c${i}`, undefined, [], env)
-			}))
+			const ctes = Arr.flatMap(s.ctes, (c, i): ReadonlyArray<Cte> => {
+				const name = `c${i}`
+				switch (c.kind) {
+					case "query":
+						return [
+							{
+								name,
+								columns: [],
+								materialized: undefined,
+								query: buildOperand(c.query, `${name}q`, [], [])
+							}
+						]
+					case "dml":
+						return [
+							{
+								name,
+								columns: [],
+								materialized: undefined,
+								query: buildDml(c.dml, name, undefined, [], env)
+							}
+						]
+					case "held": {
+						const held = Arr.findFirst(env, (e) => e.name === name).pipe(Option.getOrUndefined)
+						return held?.kind === "held"
+							? [
+									{
+										name,
+										columns: [OWN_COLUMN],
+										materialized: "MATERIALIZED",
+										query: operandSelect(
+											core(
+												[targetAs(col(`${name}x`, OWN_COLUMN), OWN_COLUMN)],
+												[metRowsSource(`${name}x`, held.insert, held.proposed)],
+												undefined
+											)
+										)
+									}
+								]
+							: []
+					}
+				}
+			})
 			const outer: With | undefined = Arr.isReadonlyArrayNonEmpty(ctes)
 				? { recursive: false, ctes }
 				: undefined
@@ -1663,6 +1850,11 @@ export type Shape =
 	| "an INSERT's met rows"
 	| "an INSERT proposing a query CTE alone"
 	| "a probe at a group's last row"
+	| "a group bound by the context's fact"
+	| "a CTE that holds an INSERT's met rows whole"
+	| "the row an arbitration met, through a CTE that holds its met rows whole"
+	| "a group bound by a derived table of the context's fact, one value"
+	| "a group bound by a derived table of the context's fact and VALUES, one per row"
 
 /** A column of a table read with what its conditions equate it with. */
 interface Bound {
@@ -1696,8 +1888,12 @@ class Expect {
 	readonly written: ReadonlySet<string>
 	readonly inserts: ReadonlyMap<string, WritingInsert>
 	readonly level: Isolation
-	/** Every met rows source placed so far, by its alias, which a `met` source names. */
-	readonly metRows = new Map<string, Extract<PlacedSource, { readonly kind: "metRows" }>>()
+	/** Every met rows source placed so far, and every source of a held CTE, by its alias, which a `met` source names. */
+	readonly metRows = new Map<string, { readonly insert: string; readonly proposed: string }>()
+	/** Every source of a held CTE placed so far, by its alias. */
+	readonly held = new Set<string>()
+	/** Every own source placed so far that is one row of values the call holds once (oneRow), by its alias. */
+	readonly oneRows = new Set<string>()
 	/** Each read's key with its base mode and the count of probes above it, and each probe's gated writes. */
 	readonly based: Array<string> = []
 	readonly probes: Array<{
@@ -1792,7 +1988,10 @@ class Expect {
 			if (text !== undefined && field === undefined) {
 				this.shapes.add("a law column dropped from a group")
 			}
-			const rows: "one" | "many" = b.other.kind === "param" ? "one" : "many"
+			const rows: "one" | "many" =
+				b.other.kind === "param" || (b.other.kind === "own" && this.oneRows.has(b.other.alias))
+					? "one"
+					: "many"
 			return text === undefined || field === undefined || rel === "X" ? [] : [{ field, text, rows }]
 		})
 		const sorted = Arr.sort(
@@ -1905,8 +2104,17 @@ class Expect {
 		const rows: Array<Rows> = [...target(here)]
 		const sources = placed(c, path, env)
 		for (const s of sources) {
-			if (s.kind === "metRows") {
+			if (s.kind === "metRows" || s.kind === "held") {
 				this.metRows.set(s.alias, s)
+			}
+			if (s.kind === "held") {
+				this.held.add(s.alias)
+			}
+			if (
+				(s.kind === "plain" && s.own === "context") ||
+				(s.kind === "derived" && oneRow(s.query))
+			) {
+				this.oneRows.add(s.alias)
 			}
 		}
 		const owns = ownAliases(sources)
@@ -1996,6 +2204,19 @@ class Expect {
 									? "a group bound by an own column"
 									: "a group bound by an enclosing core's column"
 							)
+							const source = Arr.findFirst(sources, (p) => p.alias === o.alias).pipe(
+								Option.getOrUndefined
+							)
+							if (source?.kind === "plain" && source.own === "context") {
+								this.shapes.add("a group bound by the context's fact")
+							}
+							if (source?.kind === "derived" && factOver(source.query)) {
+								this.shapes.add(
+									oneRow(source.query)
+										? "a group bound by a derived table of the context's fact, one value"
+										: "a group bound by a derived table of the context's fact and VALUES, one per row"
+								)
+							}
 						}
 					}
 					break
@@ -2059,6 +2280,23 @@ class Expect {
 						rows.push(r)
 					}
 					break
+				case "held":
+					this.shapes.add("a CTE that holds an INSERT's met rows whole")
+					this.ctes.add(s.path)
+					this.ctes.add(s.proposedPath)
+					{
+						/** The held CTE's own core, over its met rows alone, in which the proposed query's rows stand. */
+						const held = this.cores.length
+						this.cores.push([])
+						this.cores[held] = this.query(
+							s.query,
+							s.proposedPath,
+							{ ...beneath, scope: [], core: held },
+							[]
+						)
+						rows.push({ kind: "core", core: held })
+					}
+					break
 				case "met": {
 					if (this.level === "readCommitted") {
 						this.shapes.add("the row an arbitration met, refused at READ COMMITTED")
@@ -2078,6 +2316,11 @@ class Expect {
 							(conflict?.kind === "columns" &&
 								conflict.action === "doNothing" &&
 								Arr.every(conflict.columns, (column) => s.columns.includes(column))))
+					if (sealed && alias !== undefined && this.held.has(alias)) {
+						this.shapes.add(
+							"the row an arbitration met, through a CTE that holds its met rows whole"
+						)
+					}
 					this.shapes.add(
 						sealed
 							? "the row an arbitration met"
@@ -2378,7 +2621,12 @@ class Expect {
 					bySource ? this.enter(place, { ...place, polarity: "both" }) : place,
 					env
 				)
-				const on: Bound = { column: "c_id", other: { kind: "own", alias: "m" } }
+				/** The MERGE's source, one row of values the call holds once where its query is (oneRow). */
+				const source = `${path}m`
+				if (oneRow(d.using)) {
+					this.oneRows.add(source)
+				}
+				const on: Bound = { column: "c_id", other: { kind: "own", alias: source } }
 				const conditioned: Bound = { column: "c_a", other: { kind: "param", slot: 7 } }
 				for (const w of d.whens) {
 					const condition = w.condition ? [conditioned] : []

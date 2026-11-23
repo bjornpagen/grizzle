@@ -496,8 +496,99 @@ const pushedInto = (
 }
 
 /**
+ * Whether an expression of a core is a value the call holds once, from `own`, the aliases of the core's sources that are
+ * such a row (callRow): a placeholder, a literal, a column of one of `own`, or a builtin operator, cast or call that
+ * computes over no rows, over such values alone. No subquery, no schema function and no other name is one: each may
+ * read a stored row, or a row of the call's many.
+ */
+const callValue = (e: Expr, own: ReadonlySet<string>): boolean => {
+	switch (e.kind) {
+		case "param":
+		case "clock":
+		case "literal":
+			return true
+		case "column":
+			return e.table !== undefined && own.has(e.table)
+		case "call":
+			return (
+				e.fn.kind === "builtin" &&
+				overRowsOf(e) === undefined &&
+				callOperands(e).every((o) => callValue(o, own))
+			)
+		case "and":
+		case "or":
+		case "greatest":
+		case "least":
+		case "coalesce":
+		case "not":
+		case "isTrue":
+		case "cast":
+		case "collate":
+		case "negate":
+		case "complement":
+		case "lowerAscii":
+		case "binary":
+		case "nullif":
+		case "subscript":
+		case "between":
+		case "inList":
+		case "equalsAny":
+		case "row":
+		case "case":
+			return operandsOf(e).every((o) => callValue(o, own))
+		case "inQuery":
+		case "exists":
+		case "subquery":
+		case "array":
+		case "domainValue":
+		case "excluded":
+		case "field":
+		case "mergeAction":
+		case "plSpecial":
+		case "plVar":
+		case "regclass":
+		case "returning":
+		case "user":
+			return false
+	}
+}
+
+/**
+ * Whether a derived table's query yields one row at most, each of its values one the call holds once: one core under no
+ * WITH, grouping or HAVING, each of its sources such a row itself, a context's fact or a derived table of one, and each
+ * expression it holds, its targets', conditions', order's and bounds', a value over them alone (callValue). A column
+ * bound to it binds one value for the call, as a column bound to the context's fact itself does (facts.ts ReadGroup
+ * `one`): a write reads a context's fact through such derived tables, which rename and cast its claims.
+ */
+const callRow = (q: OperandSelect): boolean => {
+	const body = q.body
+	if (
+		q.with !== undefined ||
+		body.kind !== "core" ||
+		body.groupBy.length > 0 ||
+		body.having !== undefined
+	) {
+		return false
+	}
+	const sources = sourcesOf(body.from)
+	if (!sources.every(({ source }) => nameOf(source)[1] === "one")) {
+		return false
+	}
+	const own = new Set(sources.map(({ source }) => nameOf(source)[0]))
+	return [
+		...body.targets.map((t) => t.expr),
+		...(typeof body.distinct === "object" ? body.distinct.on : []),
+		...conjunctsOf(body.where),
+		...sources.flatMap(({ on }) => conjunctsOf(on)),
+		...orderExprs(q.orderBy),
+		...(q.limit === undefined ? [] : [q.limit]),
+		...(q.offset === undefined ? [] : [q.offset])
+	].every((e) => callValue(e, own))
+}
+
+/**
  * What a source's alias names: a stored table's values, a derived table's that only renames one's columns among them,
- * or the call's own, of one row or many.
+ * or the call's own, of one row (a context's fact, a derived table of one, callRow) or many.
  */
 const nameOf = (source: FromSource): readonly [string, "table" | ReadGroup["rows"] | MetRows] => {
 	switch (source.kind) {
@@ -514,10 +605,10 @@ const nameOf = (source: FromSource): readonly [string, "table" | ReadGroup["rows
 			return [source.alias, source]
 		case "derived": {
 			const projection = projectionOf(source)
-			return [
-				source.alias,
-				projection === undefined || typeof projection.table === "string" ? "many" : "table"
-			]
+			if (projection !== undefined) {
+				return [source.alias, typeof projection.table === "string" ? "many" : "table"]
+			}
+			return [source.alias, callRow(source.query) ? "one" : "many"]
 		}
 		case "enclosing":
 		case "transition":
@@ -526,6 +617,58 @@ const nameOf = (source: FromSource): readonly [string, "table" | ReadGroup["rows
 		case "values":
 			return [source.alias, "many"]
 	}
+}
+
+/**
+ * The met rows a query CTE holds whole (sql/ast.ts FromSource `metRows`), none for any other query: one core over a met
+ * rows source alone, under no WITH, condition, grouping, HAVING, DISTINCT, ORDER BY, LIMIT or OFFSET, each of its
+ * columns the met rows' column of its own name, as the insert protocol keeps them once in a MATERIALIZED CTE of their
+ * own (write/insert/protocol.ts classifyMet), so every row of it is a met row, column for column.
+ */
+const metRowsHeld = (query: OperandSelect, columns: ReadonlyArray<string>): MetRows | undefined => {
+	const body = query.body
+	if (
+		query.with !== undefined ||
+		query.orderBy.length > 0 ||
+		query.limit !== undefined ||
+		query.offset !== undefined ||
+		body.kind !== "core" ||
+		body.where !== undefined ||
+		body.groupBy.length > 0 ||
+		body.having !== undefined ||
+		body.distinct !== false
+	) {
+		return undefined
+	}
+	const [only, ...rest] = body.from
+	if (only === undefined || rest.length > 0 || only.kind !== "metRows") {
+		return undefined
+	}
+	const names = columns.length > 0 ? columns : body.targets.map((t) => t.alias)
+	return names.length === body.targets.length &&
+		body.targets.every(
+			(t, i) =>
+				t.expr.kind === "column" && t.expr.table === only.alias && t.expr.column === names[i]
+		)
+		? only
+		: undefined
+}
+
+/**
+ * What a source's alias names where `ctes` are in scope (nameOf): a query CTE that holds an INSERT's met rows whole
+ * (metRowsHeld) names them, as their own source does, so a `met` source driven by its rows is read as the met row it is
+ * (metSealed).
+ */
+const namedIn = (
+	source: FromSource,
+	ctes: Ctes
+): readonly [string, "table" | ReadGroup["rows"] | MetRows] => {
+	if (source.kind !== "cte") {
+		return nameOf(source)
+	}
+	const ref = ctes.get(source.name)
+	const held = ref?.kind === "query" ? metRowsHeld(ref.query, ref.columns) : undefined
+	return held === undefined ? nameOf(source) : [source.alias ?? source.name, held]
 }
 
 /** A parameter's canonical name: the declared parameter it carries, else its number. */
@@ -917,7 +1060,7 @@ export class Walk<Top extends Arrival> {
 		const scope: Scope = new Map([
 			...inner.scope,
 			[s.alias, "table"],
-			...using.map(({ source }) => nameOf(source))
+			...using.map(({ source }) => namedIn(source, inner.ctes))
 		])
 		const here: Context<Top> = { ...inner, scope }
 		const on = [...conjunctsOf(s.on), ...innerConditions(using)]
@@ -1071,7 +1214,7 @@ export class Walk<Top extends Arrival> {
 			{
 				...c,
 				counted: c.counted || aggregates,
-				scope: new Map([...c.scope, ...sources.map(({ source }) => nameOf(source))]),
+				scope: new Map([...c.scope, ...sources.map(({ source }) => namedIn(source, c.ctes))]),
 				core
 			},
 			parts.groups ? core : undefined
@@ -1569,9 +1712,10 @@ const proposesAlone = (insert: Insert, proposed: string): boolean => {
 
 /**
  * The key columns of a `met` source where its structure proves the row it reads is the row its statement's INSERT met:
- * its `rows` name a met rows source in scope (`metRows`), whose `insert` names a data-modifying CTE of the statement
- * holding an INSERT into the met row's table that proposes that source's `proposed` alone (`proposesAlone`) and skips
- * a conflicting row by ON CONFLICT DO NOTHING with no target or over columns all among the key. Every row that drives
+ * its `rows` name met rows in scope, a met rows source (`metRows`) or a query CTE that holds one whole (namedIn), whose
+ * `insert` names a data-modifying CTE of the statement holding an INSERT into the met row's table that proposes their
+ * `proposed` alone (`proposesAlone`) and skips a conflicting row by ON CONFLICT DO NOTHING with no target or over columns
+ * all among the key. Every row that drives
  * it is then a row the INSERT proposed and did not insert, and every stored row at the key conflicts with it at the
  * arbiter: under a transaction snapshot each such row is visible to the statement or raised 40001 (nodeModifyTable.c
  * ExecCheckTupleVisible). None for any other `met`, which is read by where it stands.

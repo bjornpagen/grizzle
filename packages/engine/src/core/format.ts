@@ -125,7 +125,13 @@
  * lowered each argument as a statement of its own and built every evaluation before the carried sub-queries; and an
  * existence test whose right side is no scan of one source, restricted at every relation by its join columns and
  * derived anew by the statement, is read per left row, a step correlated inside its EXISTS (lower/conservative/
- * semi-join/exists.ts readPerLeftRow, step/index.ts fencedRead), where format 7 left every right side in a bare EXISTS
+ * semi-join/exists.ts readPerLeftRow, step/index.ts fencedRead), where format 7 left every right side in a bare EXISTS. A
+ * write's read bound to a column of a derived table of a context's fact, one row of values the call holds once, binds
+ * one group for the call, as one bound to the context itself does, and the row an INSERT's arbitration met, read
+ * through a query CTE that holds its met rows whole, is read as the row met (program/isolation/extract.ts callRow,
+ * namedIn), where format 7 read each as a read of one group per own row and as an outside read of its relation, so a
+ * role that reads by a claim, or beside a SERIALIZABLE inserter of what it reads, may certify READ COMMITTED where
+ * format 7 left it SERIALIZABLE: its served level, its relations' guards and its login's fences move
  */
 export const artifactFormat = 7
 
