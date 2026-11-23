@@ -97,6 +97,7 @@ export type IdentityKind =
 	| "captureTrigger"
 	| "ruleJudge"
 	| "ruleJudgePart"
+	| "ruleJudgeBlock"
 	| "ruleDelta"
 	| "ruleDeltaReader"
 	| "ruleDeltaRow"

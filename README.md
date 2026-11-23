@@ -2556,7 +2556,10 @@ definition too.
   violation query reads holds one, over tables that hold none its region being empty. The rules stand in parts, a
   function each, the classes of the rules that read a temporary table in common, and the judge runs a part only where
   the session holds one of its tables, so a session compiles, plans and runs only the parts of the relations it writes:
-  a learner's answers never run, plan or stand up the temporary tables of a content package's rules. After `SET
+  a learner's answers never run, plan or stand up the temporary tables of a content package's rules. Each rule's
+  statement over a side is a function of its own, which its part calls where a table it reads holds a row, so a
+  session compiles the statements its writes run alone: a learner's save compiles its five, never the other seventy of
+  the learner's part. After `SET
   CONSTRAINTS ALL IMMEDIATE` the judge runs at the end of each statement. The functions are SECURITY DEFINER on a
   pinned `search_path`, no role may run them, and a temporary table another role made under the judge's names is
   refused.

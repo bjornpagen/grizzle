@@ -139,7 +139,9 @@
  * write and left it NOT MATERIALIZED in a read. A call an attachment's child reads at its parent's values alone is
  * evaluated once for each parent key, a MATERIALIZED CTE of the statement every attachment under the parent's rows reads
  * at its parent's values (lower/conservative/call/index.ts parentEvaluations), where format 7 evaluated it again in each
- * attachment's child
+ * attachment's child; and each block of a rule judge's part is a function of its own (physical/ddl/rules.ts partBody,
+ * identity.ruleJudgeBlock), which the part calls under the block's guard, where format 7 held every block's statement
+ * in its part, so 04-validate.sql creates a function per block and 05-publish.sql comments each
  */
 export const artifactFormat = 7
 

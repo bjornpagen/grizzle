@@ -25,7 +25,7 @@ import { checkQuery } from "#compiler/check/index.ts"
 import { CheckSession } from "#compiler/check/session.ts"
 import { canonicalTextOf, Refusal, unwrap } from "#compiler/core/canonical.ts"
 import { unsupported } from "#compiler/core/errors.ts"
-import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { type Identity, identifierOf, identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
@@ -443,6 +443,8 @@ const unitLead = (
 interface Judged {
 	readonly rule: RuleTrigger
 	readonly order: string
+	/** The block's function (identity.ruleJudgeBlock), which runs `body` and which its part calls. */
+	readonly named: Identity<"ruleJudgeBlock">
 	readonly reads: NonEmptyReadonlyArray<SessionDelta>
 	readonly body: NonEmptyReadonlyArray<PlStatement>
 }
@@ -814,11 +816,16 @@ const partsOf = (judged: ReadonlyArray<Judged>): ReadonlyArray<JudgePart> => {
  *   not hold. A delta every block that reads it runs on alone stands wherever one of them runs, its own row having run
  *   it;
  * - each block, where a delta it reads holds a row: over deltas that hold none its region is empty, and every statement
- *   of it finds no row.
+ *   of it finds no row. A block is a function of its own (`blockOf`, identity.ruleJudgeBlock), the part's statement a
+ *   call of it: PostgreSQL compiles a PL/pgSQL function's whole text at its first call in a session and plans each
+ *   statement at its first run, so a session compiles a block's statement only where its transaction runs it. A part
+ *   that held its blocks' statements compiled every one at its session's first COMMIT that ran the part: the ledger's
+ *   learner part, 76 statements and 2.68 MB, 47 ms before a save ran the 5 statements over what it wrote.
  */
 const partBody = (
 	part: JudgePart,
-	sideOf: (name: string) => { readonly t: JudgedTable; readonly s: JudgedSide }
+	sideOf: (name: string) => { readonly t: JudgedTable; readonly s: JudgedSide },
+	blockOf: (block: Judged) => ObjectName
 ): PlBlock => {
 	const flags = mapNonEmpty(part.deltas, (delta): PlStatement => {
 		const { t, s } = sideOf(delta.name)
@@ -877,13 +884,28 @@ const partBody = (
 			...stoodUp,
 			...part.blocks.map((j): PlStatement => ({
 				kind: "if",
-				branches: [{ condition: anyRowed(j.reads), body: j.body }],
+				branches: [{ condition: anyRowed(j.reads), body: [performed(blockOf(j), [])] }],
 				else: []
 			})),
 			...part.deltas.map(emptiedWhereWritten)
 		]
 	}
 }
+
+/** PERFORM <fn>(<args>): a call of a function of the judge, the value it returns discarded. */
+const performed = (fn: ObjectName, args: ReadonlyArray<Expr>): PlStatement => ({
+	kind: "perform",
+	query: {
+		body: core(
+			[{ expr: qualifiedCall(fn.schema, fn.name, args), alias: undefined }],
+			[],
+			undefined
+		),
+		orderBy: [],
+		limit: undefined,
+		offset: undefined
+	}
+})
 
 /**
  * `delta` emptied once its part has read it (deltas.ts emptied), where the transaction's written set names it, which a
@@ -941,8 +963,9 @@ const emptiedWhereWritten = (delta: SessionDelta): PlStatement => ({
  * - The judge: it reads the written set and deletes the sentinel's row, so a later statement arms it again into a new
  *   set. Its rules stand in parts (`partsOf`), each a function of its own (identity.ruleJudgePart): the classes of the
  *   rules' blocks under reading a delta in common, so a part's rules read only its deltas, and the judge runs a part
- *   only where the transaction wrote one of them. A transaction reads, judges and compiles only the parts of the
- *   relations it wrote: a learner's write never reads a content package's rules, nor stands up their deltas, nor
+ *   only where the transaction wrote one of them; each block a function of its own too (identity.ruleJudgeBlock), which
+ *   its part calls where a delta it reads holds a row, so a session compiles the statement of a block its transactions
+ *   run alone. A transaction reads, judges and compiles only the parts of the relations it wrote: a learner's write never reads a content package's rules, nor stands up their deltas, nor
  *   compiles their PL/pgSQL, and no COMMIT reads a catalog, or a delta of a relation another transaction of its
  *   session wrote, which holds none of its rows. A part reads each of its written deltas once, netting a side of news
  *   to delta.added first (`netted`), the images the transaction leaves that it did not find; then, for each
@@ -1050,6 +1073,11 @@ export const addRules = (
 						{
 							rule,
 							order: identifierOf(rule.named),
+							named: identity.ruleJudgeBlock(rule.named, rule.law.named, {
+								kind: "probe",
+								relation: relation.name,
+								side
+							}),
 							reads: [delta],
 							body: [whenFound(compiled.statement, [raise])]
 						}
@@ -1095,6 +1123,7 @@ export const addRules = (
 		return {
 			rule,
 			order: identifierOf(rule.named),
+			named: identity.ruleJudgeBlock(rule.named, rule.law.named, { kind: "units" }),
 			reads: [
 				defined(first, `a delta of a side ${rule.law.named.display} reads, which its touches name`),
 				...rest
@@ -1196,11 +1225,50 @@ export const addRules = (
 		tables.flatMap((t) => t.sides.map((s) => ({ relation: t.relation, delta: s.delta }))),
 		reasons
 	)
+	/**
+	 * Each block's function (`partBody`, identity.ruleJudgeBlock): no argument, the block's statement its body, SECURITY
+	 * DEFINER under the closed search path as every function of the judge, its EXECUTE revoked from PUBLIC, so only the
+	 * judge's definer, which its part runs as, calls it. It reads its rule's tables and its deltas through their readers.
+	 */
+	const blockNode = (j: Judged): { readonly fn: ObjectName; readonly node: Node<"validate"> } => {
+		const fn = objectName(b.schema, b.name(j.named))
+		const ddl: readonly [PlFunction, Revoke] = [
+			{
+				kind: "createFunction",
+				language: "plpgsql",
+				name: fn,
+				params: [],
+				returns: "void",
+				volatility: "VOLATILE",
+				parallel: "UNSAFE",
+				security: "DEFINER",
+				body: { declare: [], body: j.body }
+			},
+			revokeOf(fn, [])
+		]
+		const node = b.add(
+			{
+				kind: "lawFunction",
+				ident: b.qualified("function", j.named),
+				ddl,
+				reasons: [{ kind: "law" as const, law: j.rule.law.id }],
+				phase: "validate"
+			},
+			[
+				...tablesOf([j.rule]),
+				...j.reads.map((d) =>
+					defined(readers.get(d.name), "a block's delta, a delta of a judged table")
+				)
+			]
+		)
+		return { fn, node }
+	}
 	const parts = partsOf(judged).map((part) => {
 		const relation = defined(
 			sideOf.get(headNonEmpty(part.deltas).name),
 			"a part's first delta, a judged table's side"
 		).t.relation.name
+		const blocks = new Map(part.blocks.map((j) => [j, blockNode(j)] as const))
 		const named = identity.ruleJudgePart(
 			relation,
 			sentinelIdent,
@@ -1217,8 +1285,10 @@ export const addRules = (
 				volatility: "VOLATILE",
 				parallel: "UNSAFE",
 				security: "DEFINER",
-				body: partBody(part, (name) =>
-					defined(sideOf.get(name), "a part's delta, a judged table's side")
+				body: partBody(
+					part,
+					(name) => defined(sideOf.get(name), "a part's delta, a judged table's side"),
+					(j) => defined(blocks.get(j), "a block of the part").fn
 				)
 			},
 			revokeOf(fn, [namesType])
@@ -1236,7 +1306,8 @@ export const addRules = (
 				...tablesOf(rules),
 				...part.deltas.map((d) =>
 					defined(readers.get(d.name), "a part's delta, a delta of a judged table")
-				)
+				),
+				...[...blocks.values()].map((block) => block.node)
 			]
 		)
 		return { part, fn, node }
@@ -1287,21 +1358,7 @@ export const addRules = (
 								right: namesOf(mapNonEmpty(part.deltas, (d) => d.name)),
 								schema: undefined
 							},
-							body: [
-								{
-									kind: "perform",
-									query: {
-										body: core(
-											[{ expr: qualifiedCall(fn.schema, fn.name, [written]), alias: undefined }],
-											[],
-											undefined
-										),
-										orderBy: [],
-										limit: undefined,
-										offset: undefined
-									}
-								}
-							]
+							body: [performed(fn, [written])]
 						}
 					],
 					else: []

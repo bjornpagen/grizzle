@@ -1813,6 +1813,29 @@ export const identity = Object.freeze({
 			hashed
 		),
 	/**
+	 * A block of the rule judge (physical/ddl/rules.ts addRules): the function that runs one rule's statement over what
+	 * its region reads, a probe's one side of one table or a whole rule's units, which its part runs where one of the
+	 * deltas the region reads holds a row, so a session compiles and plans the statements of the rules its writes can
+	 * break alone. It is named by its rule's trigger, `rule`, and its region, its stem by the rule's law, `law`. It takes
+	 * no argument, so CREATE OR REPLACE puts any statement of its rule in place.
+	 */
+	ruleJudgeBlock: (
+		rule: Identity<"lawTrigger">,
+		law: Identity<"law">,
+		region:
+			| { readonly kind: "probe"; readonly relation: string; readonly side: "added" | "removed" }
+			| { readonly kind: "units" }
+	): Identity<"ruleJudgeBlock"> =>
+		mint(
+			"ruleJudgeBlock",
+			region.kind === "probe" ? [rule, region.relation, region.side] : [rule],
+			["judge", ...law.segments],
+			region.kind === "probe"
+				? `the rule judge's block of rule ${law.display} over the rows ${region.side === "added" ? "a write adds to" : "a write removes from"} ${region.relation}`
+				: `the rule judge's block of rule ${law.display} over its units`,
+			hashed
+		),
+	/**
 	 * A session's delta of `relation`'s writes on one side of the rules that read it (physical/ddl/rules.ts addRules): a
 	 * table of pg_temp, by its installation, the identity of its root schema, since a session may write several, and by
 	 * its declaration's canonical text, its columns and their types, so a migration that changes it names another and

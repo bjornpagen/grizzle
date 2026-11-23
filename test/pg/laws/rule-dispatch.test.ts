@@ -65,15 +65,18 @@ export const theRuleJudgeRunsExactlyTheRulesOverTheRelationsATransactionWrote = 
 		kills: [
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
-				original: "\t\t\t\tbranches: [{ condition: anyRowed(j.reads), body: j.body }],",
-				replacement: "\t\t\t\tbranches: [{ condition: lit.bool(true), body: j.body }],",
+				original:
+					"\t\t\t\tbranches: [{ condition: anyRowed(j.reads), body: [performed(blockOf(j), [])] }],",
+				replacement:
+					"\t\t\t\tbranches: [{ condition: lit.bool(true), body: [performed(blockOf(j), [])] }],",
 				why: "Every rule's block of a part runs whatever the transaction wrote, as before the dispatch: a write of a package's parts runs the probes over the documents' deltas the session never stood up, which PostgreSQL refuses (42P01), or, once they stand, over deltas holding no row, each statement read and its tables locked."
 			},
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
-				original: "\t\t\t\tbranches: [{ condition: anyRowed(j.reads), body: j.body }],",
+				original:
+					"\t\t\t\tbranches: [{ condition: anyRowed(j.reads), body: [performed(blockOf(j), [])] }],",
 				replacement:
-					"\t\t\t\tbranches: [{ condition: anyRowed([headNonEmpty(j.reads)]), body: j.body }],",
+					"\t\t\t\tbranches: [{ condition: anyRowed([headNonEmpty(j.reads)]), body: [performed(blockOf(j), [])] }],",
 				why: "A rule's block runs on its first delta alone, so a whole containment a transaction wrote only the target of, a document or a visit deleted, is never judged, and its tables are never read."
 			},
 			{
