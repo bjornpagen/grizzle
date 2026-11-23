@@ -25,7 +25,7 @@ import { leavesOf, ruleLeaves } from "#compiler/check/scan.ts"
 import { canonicalEquals } from "#compiler/core/canonical.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import { deepFreeze } from "#compiler/core/record.ts"
+import { deepFreeze, mapRecord } from "#compiler/core/record.ts"
 import {
 	type Channel,
 	descIdentity,
@@ -1345,12 +1345,28 @@ class Navigator {
 		}
 		const vars: Array<VarDesc> = []
 		const matches: Array<InferredMatch> = []
+		/**
+		 * The variable a read binds its column `column` to in place of the term `e`, which reads variables other matches
+		 * bind (`place`): a hidden variable of the read's own, declared at the column, and its equality with the term
+		 * pending, so the term's variables stay the matches' that bind them.
+		 */
+		const hiddenFor = (read: Read, column: string, e: InferredExpr): string => {
+			const hidden = `h${this.#next++}.${column}`
+			declared.set(hidden, { id: hidden, origin: originOf(read.source, column), loc: read.loc })
+			pending.push(equal(varRef(hidden), e))
+			return hidden
+		}
 		for (const read of flat.reads) {
 			if (read.source.kind !== "query") {
 				continue
 			}
-			matches.push({ source: read.source, bindings: read.bindings, loc: read.loc })
-			for (const e of Object.values(read.bindings)) {
+			/** Its bindings, a term over other matches' variables through a hidden variable (`hiddenFor`): an import read
+			 * whole binds the variables its bare bindings name, never those a computed term reads. */
+			const bindings = mapRecord(read.bindings, (e, column) =>
+				e.kind === "var" || readsOf(e).size === 0 ? e : varRef(hiddenFor(read, column, e))
+			)
+			matches.push({ source: read.source, bindings, loc: read.loc })
+			for (const e of Object.values(bindings)) {
 				for (const id of readsOf(e)) {
 					if (!known.has(id)) {
 						known.add(id)
@@ -1371,15 +1387,9 @@ class Navigator {
 					own.add(e.var)
 					bindings[column] = e
 				} else {
-					const hidden = `h${this.#next++}.${column}`
+					const hidden = hiddenFor(read, column, e)
 					own.add(hidden)
-					declared.set(hidden, {
-						id: hidden,
-						origin: originOf(read.source, column),
-						loc: read.loc
-					})
 					bindings[column] = varRef(hidden)
-					pending.push(equal(varRef(hidden), e))
 				}
 			}
 			const inner: Array<InferredExpr> = []

@@ -223,7 +223,9 @@
  * columns and foreign keys into the open headers), its hold and retire functions with their EXECUTE grants (manifest
  * objects of kind `unitFunction`, gone from the manifest's kinds), served a hold before a write touching a body and a
  * retire member's call, counted a retirement in an outcome and recorded a `retirement` writing in snapshot.json; an
- * installation of a schema that held one is drafted afresh
+ * installation of a schema that held one is drafted afresh. An import a chain reads whole and matches at a term of a
+ * variable binds its column to a hidden variable equated with the term (analysis/theory/navigate.ts Navigator #chain
+ * `hiddenFor`), where it took the term's variables for its own
  */
 export const artifactFormat = 8
 
