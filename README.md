@@ -1368,7 +1368,7 @@ The whole map, from what you declare to what PostgreSQL enforces for every write
 | a rule: `contained`, `key`, `check`, ... | a foreign key, unique key, no-overlap key or CHECK, over STORED generated columns where a side selects rows or reads `pred` |
 | a rule over a derived relation | on each table its query reads, statement triggers that capture the rows each statement writes, and one deferred judge that runs the rule's violation query over them at COMMIT where the transaction wrote a relation it reads ([Rules over queries](#rules-over-queries)) |
 | a family: `ordered`, `counted`, `tree`, `fold` | the drawn and accumulated fields grizzle fills on every write, hidden columns beside them, and the keys, CHECKs and foreign keys that prove each value it fills |
-| `role(...)` | a NOLOGIN role with a schema of views and its grants; on each table some role writes through a query entry that leaves rows out, row-level security and a policy for each role that writes it |
+| `role(...)` | a NOLOGIN role, SELECT on the whole view of each table it holds whole (one view of each table, `__<schema>.<table>`, whichever roles hold it), a schema of its own holding its query entries' views, and its grants; on each table some role writes through a query entry that leaves rows out, row-level security and a policy for each role that writes it |
 | `login(...)` | a LOGIN NOINHERIT role that can switch to its roles, holds no privilege on your tables, and pins the session settings grizzle's guarantees rest on |
 | `workload(...)` | the indexes its programs need, and the declared statistics that rank them; the programs compiled by `grizzle generate` into the login's served file |
 | `derived(...)` | nothing: every query that matches it and every rule over it reads its definition |
@@ -2997,8 +2997,9 @@ Roles:
 installation `connection` names: the one its pool logs in as, a password is set on and `rds_iam` is granted to.
 `roleNameOf(MemberBlog, connection)` is a role's, which a direct SQL writer's `SET ROLE` names. Each is the login's or
 role's stem, the name `grizzle generate` commits, under the connection's `rolePrefix`; pass the connection, or `{}` for
-an installation without one. `schemaNameOf(Blog)` is a schema's PostgreSQL schema, and `schemaNameOf(MemberBlog)` a
-role's schema of views, the same in every installation. Each is the name the installation creates, minted by the same
+an installation without one. `schemaNameOf(Blog)` is a schema's PostgreSQL schema, `wholeSchemaNameOf(Blog)` the schema
+of the whole views of its tables, `__blog`, and `schemaNameOf(MemberBlog)` a role's schema of its query entries' views,
+which the installation creates only for a role holding one; each is the same in every installation. Each is the name the installation creates, minted by the same
 function, so take it from there and never spell one. Each throws `CompileError` for a value no builder made and for a
 name the installation refuses, as `grizzle generate` does.
 
@@ -4622,8 +4623,10 @@ export const AuthorApp = login(Qti, "author_app", [QtiAuthor])
   adds the check to it, adds it and validates every stored row, refusing the migration over one that breaks it, and the
   one that removes it drops it; an installation of `Qti` without `Ledger` holds no trace of it.
 - **Read-only is the worlds model.** `Learner` holds `Qti`'s tables whole and writes only its own sittings: it reads `Qti`
-  through views in its own schema, owned by the migration role, and holds no privilege on a `Qti` table. Since it
-  holds every `Qti` table whole, every query over `Qti` runs on it, through those views.
+  through the whole views of its tables, one view of each table in `Qti`'s schema of whole views, `__qti`
+  (`wholeSchemaNameOf(Qti)`), owned by the migration role, which every role holding the table whole reads, and holds no
+  privilege on a `Qti` table. Since it holds every `Qti` table whole, every query over `Qti` runs on it, through those
+  views. Its query entry `MySitting` is a view of its own, in its own schema, `ledger__learner`.
 - **Every level is served.** `DbLayer.make` takes the served file of a login over any level of the installation: a
   process of `Qti` alone, such as `AuthorApp`'s, loads only what its programs over `Qti` read, and nothing above it. When a write of it breaks a law a level above states, such as deleting an `Item` a
   `Sitting` holds or inserting one `Titled` refuses, the error is `refused` with `refused.kind` `above`
@@ -4891,8 +4894,8 @@ deploy.
   one at a time, each privilege of one role on one object: the migration grants what the target holds and the
   previous installation did not, revokes what that held and the target does not, and touches no other grant, so a
   migration that changes one relation or one role leaves every other role's grants as they are. An object the
-  migration drops takes its grants with it, and one it creates again, a role's view or a materialized view, is granted
-  again what the target states on it.
+  migration drops takes its grants with it, and one it creates again, a view or a materialized view, is granted
+  again what the target states on it, to every role the target grants it to.
 - **No guessing.** grizzle never guesses a rename and drops nothing you didn't declare. Declare each with
   `--rename <old>=<new>` or `--drop <old>`, once per name, each side a relation (`Task`), a field (`Task.title`), a
   roster's handle (`Status#done`) or a login (`@web`); swaps and chains work. A renamed relation keeps its rows, a
@@ -4994,10 +4997,11 @@ deploy.
   sets `PGOPTIONS` or `PGREPLICATION`, at stage `environment`.
 - **Names come from your code.** A declared name is ASCII letters, digits and underscores, starting with a letter.
   `TaskNote` becomes `task_note` for the schema, tables, derived tables, rosters' domains, contracts, columns, row
-  checks and a role's views; a contract's CHECK is `check`. A login's or role's PostgreSQL role joins its schema's
-  conversion and its own, its stem, under the installation's role prefix: take it from
-  `roleNameOf(login or role, connection)`, and a schema's or a role's schema from `schemaNameOf(schema or role)`, never
-  spell one. Refused: two names that convert to one, a conversion over 63 bytes (a login's or role's with its schema's,
+  checks, a table's whole view and a role's query entries' views; a contract's CHECK is `check`; a schema's schema of
+  whole views is `__` and its own. A login's or role's PostgreSQL role joins its schema's conversion and its own, its
+  stem, under the installation's role prefix: take it from `roleNameOf(login or role, connection)`, a schema's or a
+  role's schema from `schemaNameOf(schema or role)`, and a schema's schema of whole views from `wholeSchemaNameOf`,
+  never spell one. Refused: two names that convert to one, a conversion over 63 bytes (a login's or role's with its schema's,
   and with the role prefix, which `migrate`, `DbLayer.make` and `roleNameOf` refuse before they connect), and a schema
   name or a role prefix starting with `pg_`. A relation's, roster's, derived relation's or schema's name over 63 bytes
   is refused by its builder, `IdentifierTooLong` naming it and its conversion's bytes, and a field's or a check's by
@@ -5029,8 +5033,8 @@ deploy.
   whatever snapshot the database is at, and no other: each login's and role's, `<rolePrefix>__<level>__<name>`, and the
   decoder login and the function owner each level's schema names, `<rolePrefix>____live_<digest>` and
   `<rolePrefix>____owner_<digest>`. `grizzle uninstall` destroys the installation and every row it
-  holds: in one transaction, it drops its schemas in the connection's database (each level's and each role's schema
-  of views) with everything in them, revokes what its roles still hold there and on the database (DROP OWNED, under
+  holds: in one transaction, it drops its schemas in the connection's database (each level's, each level's schema of
+  whole views and each role's schema of views) with everything in them, revokes what its roles still hold there and on the database (DROP OWNED, under
   the database privilege's lock), and drops the roles. The extension's schema and every other role stay. PostgreSQL
   refuses to drop a role that anything of another database still depends on (SQLSTATE 2BP01, its DETAIL naming that
   database): the transaction rolls back whole, nothing is dropped, and the report carries PostgreSQL's message and
@@ -6016,7 +6020,9 @@ psql, scripts and other services may write grizzle's tables directly, under the 
 as a login's role, `roleNameOf(login, connection)`, `SET ROLE` to one of its roles, `roleNameOf(role, connection)`, set the claims in the
 transaction for a role that declares contexts
 (`SELECT set_config('grizzle.claims', '{"Session":{"sub":"user_123"}}', true)`), and write at SERIALIZABLE. The
-schema's tables are in `schemaNameOf(schema)`, and a role's views in `schemaNameOf(role)`.
+schema's tables are in `schemaNameOf(schema)`; a role reads a table it holds whole through the table's whole view, under
+the table's name in `wholeSchemaNameOf(schema)` of the schema that declares it, which every role holding it whole reads,
+and its query entries' views in `schemaNameOf(role)`.
 A readable name spells what it is, and `constraintNamesOf(schema)` gives a check's from its rule
 ([Errors and outcomes](#errors-and-outcomes)); `grizzle names` lists each hashed one with its COMMENT, which says what
 it is, read offline from the committed snapshot. PostgreSQL answers:
@@ -6078,7 +6084,9 @@ it is, read offline from the committed snapshot. PostgreSQL answers:
   `ServerError`. The transaction's setting holds the decoded claims, one member per context that has a row,
   `{"<Context>":{"<field>":"<text>"}}`, each holding exactly its context's fields as JSON strings. It never holds the
   token, and it ends with the transaction.
-- **PostgreSQL enforces every role.** A role holds no privilege on a table it does not write, and reads through views in
+- **PostgreSQL enforces every role.** A role holds no privilege on a table it does not write, and reads through views: a
+  table it holds whole through the table's one whole view, in its schema's schema of whole views, which PostgreSQL lets
+  exactly the roles holding the table whole read, by its own grants, and each query entry through a view of its own, in
   its own schema. A table some role writes through a query entry that leaves rows out is under row-level security, with
   a policy for each role that writes it: the entry's filter, or true for a role that writes every row. A table every
   writer writes whole has no row-level security and no policy, since each policy would be true: the grants alone decide
@@ -6096,10 +6104,11 @@ it is, read offline from the committed snapshot. PostgreSQL answers:
 <details>
 <summary>Exactly what a role holds</summary>
 
-- USAGE on the schema, its own schema, the vector extension's schema when a column it reads or writes is a vector, and
-  exactly the domains its columns use: its rosters' and sets', and its contracts' and patterns', down each contract's
-  base.
-- SELECT on its views, and on no materialized view.
+- USAGE on the schema, the schema of whole views of each table it holds whole, its own schema where it holds a query
+  entry, the vector extension's schema when a column it reads or writes is a vector, and exactly the domains its
+  columns use: its rosters' and sets', and its contracts' and patterns', down each contract's base.
+- SELECT on the whole view of each table it holds whole and on each of its query entries' views, and on no other view
+  and no materialized view. USAGE on a schema only resolves its names: every view's own grants decide who reads it.
 - On a table it writes through a whole-table entry: SELECT, INSERT and DELETE, and UPDATE when the table is mutable.
 - On a table it writes through a query entry: column SELECT and INSERT on every column, column UPDATE (when the table is
   mutable) on each of the entry's columns outside every key that no claim fixes directly, and DELETE; never table-level

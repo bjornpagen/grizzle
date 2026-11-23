@@ -138,6 +138,18 @@
  * (TreeRefused `brokenParts`). snapshot.json, a served file and an OpenAPI document, which an application imports whole
  * by its path, are never laid out in parts: generate refuses one past the bound, before writing anything
  * (FileTooLarge, the shell's cli/files.ts unsplitWithin).
+ * A relation a role holds whole has one view, its whole view, `__<level>.<relation>` in its level's schema of whole
+ * views (core/identity.ts identity.wholeSchema, wholeView; physical/ddl/roles.ts addWholeViews), which every role
+ * holding it whole is granted SELECT on, with USAGE on its schema, and which served statements name
+ * (physical/ddl/names.ts worldNames), where format 7 installed a copy of it in the schema of each role holding it,
+ * byte-identical but for its schema: metis's suite installation's 30,773 views over 1,560 relations held whole and its
+ * 22 query entries are 1,582, its manifest's 327,449 edges about 142,900 and its views' statements 26.6 MB of AST
+ * 1.7 MB. A role's own schema holds its query entries' views alone, and stands exactly when it holds one, where format
+ * 7 created one for every role; the drift check reads each theory role's schema whether or not the manifest creates it
+ * (deploy/admission/roles.ts judgedSchemas), so `grizzle upgrade` of a format 7 installation drops every per-role copy
+ * and every role schema left with no query view as objects the target lacks, and creates the schemas of whole views
+ * and their views, and every role's grants name them. `grizzle uninstall` drops each level's schema of whole views with
+ * its levels'.
  *
  * Format 7 (pin+1): a session table, a rule judge's delta (physical/ddl/rules.ts
  * emptied) or a write program's carrier (sql/print.ts carrierStandUp), is emptied by DELETE, and by TRUNCATE only once

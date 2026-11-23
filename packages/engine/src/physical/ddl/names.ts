@@ -12,7 +12,8 @@ import {
 	type ParamPlace,
 	nameFaultText,
 	parseDeclaredName,
-	roleIdentity
+	roleIdentity,
+	wholeSchemaIdentity
 } from "#compiler/core/identity.ts"
 import type { ConstraintName, RelationIdent } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -33,9 +34,9 @@ import { installationTypes, vectorTypes } from "#compiler/physical/ddl/type-sche
 import { closedIndexOf, type ClosedTable } from "#compiler/runtime/write/fill.ts"
 import {
 	type Owned,
-	type OwnedEntry,
 	type OwnedLogin,
 	type OwnedRole,
+	type OwnedWorldEntry,
 	rostersOf
 } from "#compiler/schema/own.ts"
 import type { FunctionName, ObjectName, TypeRef, TypeSchema } from "#compiler/sql/ast.ts"
@@ -183,11 +184,33 @@ interface NamesInput {
 	readonly library: ReadonlyArray<LibraryFn>
 }
 
-/** A role of an installation named under its levels: the owned role and its PostgreSQL role, fitted once, here, before
- * anything is compiled for it, so every world name read from it (worldNames) is a name the installation can create. */
+/**
+ * The view a role reads one of its relations through: a whole entry's is its relation's whole view,
+ * `<wholeSchema>.<relation>` in the whole views' schema of the relation's level, the one view of it every role holding
+ * it whole reads (`whole`); a query entry's is its own, in the role's schema (`query`). The installation creates a whole
+ * view for a stored relation and a materialized derived one alone: a roster's or a closed relation's whole entry is
+ * named so, but no statement reads it, every query reading a roster's handles as codes and a closed relation's rows
+ * through its constants.
+ */
+export type RoleViewName =
+	| {
+			readonly kind: "whole"
+			readonly schema: Fitted<"wholeSchema">
+			readonly name: Identity<"wholeView">
+	  }
+	| {
+			readonly kind: "query"
+			readonly schema: Identity<"roleSchema">
+			readonly name: Identity<"roleView">
+	  }
+
+/** A role of an installation named under its levels: the owned role, its PostgreSQL role and the view of each of its
+ * relations (RoleViewName), by the relation's declared name, each fitted once, here, before anything is compiled for it,
+ * so every world name read from it (worldNames) is a name the installation can create. */
 export interface NamedRole {
 	readonly owned: OwnedRole
 	readonly theory: Fitted<"role">
+	readonly views: ReadonlyMap<string, RoleViewName>
 }
 
 /** A login of an installation named under its levels: the owned login and each of its roles named (NamedRole), in the
@@ -201,13 +224,33 @@ export interface NamedLogin {
 const nameRole = (
 	role: OwnedRole,
 	levels: NonEmptyReadonlyArray<Identity<"schema">>
-): NamedRole => ({
-	owned: role,
-	theory: roleIdentity(levelIn(levels, role.base), role.name, role.loc)
-})
+): NamedRole => {
+	const theory = roleIdentity(levelIn(levels, role.base), role.name, role.loc)
+	const schema = identity.roleSchema(theory)
+	const views = new Map<string, RoleViewName>()
+	for (const [relation, e] of Object.entries(role.relations)) {
+		if (e.kind === "world") {
+			views.set(relation, { kind: "query", schema, name: roleView(theory, e) })
+			continue
+		}
+		const level =
+			levels[e.relation.level] ?? missing(`physical: no installed level for relation ${relation}`)
+		views.set(relation, {
+			kind: "whole",
+			schema: wholeSchemaIdentity(
+				level,
+				`the whole views' schema of ${level.display}, which role ${role.name} reads ${relation} through`,
+				e.loc
+			),
+			name: identity.wholeView(e.name)
+		})
+	}
+	return { owned: role, theory, views }
+}
 
 /** `role` named under the installation's `levels`: its PostgreSQL role embeds its base's level, refused as
- * IdentifierTooLong when it does not fit with that level's name (fitted). */
+ * IdentifierTooLong when it does not fit with that level's name, and each relation it holds whole is read through its
+ * whole view in its level's schema of whole views, `__<level>`, refused alike when that does not fit (fitted). */
 export const namedRole = (
 	role: OwnedRole,
 	levels: NonEmptyReadonlyArray<Identity<"schema">>
@@ -224,8 +267,8 @@ export const namedLogin = (
 		roles: login.roles.map((role) => nameRole(role, levels))
 	}))
 
-/** A role relation's view in its role's schema, by the name role ownership declared (schema/own.ts ownRole). */
-export const roleView = (role: Identity<"role">, e: OwnedEntry): Identity<"roleView"> =>
+/** A role's query entry's view in its role's schema, by the name role ownership declared (schema/own.ts ownRole). */
+export const roleView = (role: Identity<"role">, e: OwnedWorldEntry): Identity<"roleView"> =>
 	identity.roleView(role, e.name)
 
 /**
@@ -243,15 +286,14 @@ const viewColumn = (field: string): Identity<"column"> => {
 	return identity.column(parsed.value)
 }
 
-/** The installed names of one role: its theory role, its schema, each relation's view, each writable entry's filter
- * function and each of its probes, by their argument types: a filter function's T's fields the membership reads, a
- * probe's its parameters (write/insert/unique.ts probeParams), each at its base type. A probe is named by its identity
+/** The installed names of one role: its theory role, each relation's view (NamedRole views), each writable entry's
+ * filter function and each of its probes, by their argument types: a filter function's T's fields the membership reads,
+ * a probe's its parameters (write/insert/unique.ts probeParams), each at its base type. A probe is named by its identity
  * (`probe`, write/insert/unique.ts probeIdentity), the one the installation creates it by; a key probe is also named by
  * its key's fields (`keyProbe`) and a unique probe by its object's installed name (`uniqueProbe`), which is that
  * identity. */
 export interface WorldNames {
 	readonly role: string
-	readonly schema: string
 	readonly view: (relation: string) => { readonly schema: string; readonly name: RelationIdent }
 	readonly filterFunction: (entry: string, args: ReadonlyArray<TypeRef>) => FunctionName
 	readonly probe: (entry: string, probe: OutsideProbe, args: ReadonlyArray<TypeRef>) => FunctionName
@@ -280,23 +322,20 @@ export const levelIn = (
 	missing(`physical: schema ${base.name} is no level of the installation`)
 
 /** The names of a role, installed in the installation `names` names: its theory role, fitted when the role was named
- * (namedRole), embeds its level's schema, each of its relations' views is named once, here, and its filter functions and
- * probes live in the root's, as every function of the installation does. */
+ * (namedRole), embeds its level's schema, each of its relations' views was named there, a whole entry's its relation's
+ * one whole view and a query entry's its own in the role's schema, and its filter functions and probes live in the
+ * root's, as every function of the installation does. */
 export const worldNames = (named: NamedRole, names: InstallNames): WorldNames => {
 	const { owned: role, theory } = named
 	const schema = names.schema
-	const roleSchema = identifierOf(identity.roleSchema(theory))
-	const views = new Map(
-		Object.entries(role.relations).map(([relation, e]) => [
-			relation,
-			{ schema: roleSchema, name: identifierOf(roleView(theory, e)) }
-		])
-	)
 	return {
 		role: identifierOf(theory),
-		schema: roleSchema,
-		view: (relation) =>
-			views.get(relation) ?? missing(`physical: no relation ${relation} in role ${role.name}`),
+		view: (relation) => {
+			const view =
+				named.views.get(relation) ??
+				missing(`physical: no view of relation ${relation} in role ${role.name}`)
+			return { schema: identifierOf(view.schema), name: identifierOf(view.name) }
+		},
 		filterFunction: (entry, args) => ({
 			schema,
 			name: identifierOf(identity.filter(theory, entry)),
@@ -320,9 +359,9 @@ export const worldNames = (named: NamedRole, names: InstallNames): WorldNames =>
 	}
 }
 
-/** What a role reads its relations through: every relation of it is its view in the role's schema (`world`, the role's
- * names, worldNames), a whole entry's columns its table's (or its materialized view's) and a query entry's its
- * definition's head fields, each a field's column; domains, constants and the vector extension stay the base's. A view
+/** What a role reads its relations through: every relation of it is its view (`world`, the role's names, worldNames), a
+ * whole entry's its relation's whole view, whose columns are its table's (or its materialized view's), and a query
+ * entry's its own in the role's schema, whose columns are its definition's head fields, each a field's column; domains, constants and the vector extension stay the base's. A view
  * holds its heading's columns and no law column (physical/ddl/roles.ts wholeView, worldView), so it holds no selection
  * key a read could probe. Each member is stated here, none carried from the installation's names, so none of what a
  * table holds is read off a view. */
@@ -405,9 +444,10 @@ const rosterOf = (owned: Owned, roster: string) => {
  * one, a structural text domain by its pattern key's digest.
  *
  * The worlds' names (`worldNames`) are minted from declared names under the installation's identity: a login's
- * PostgreSQL role and a role's, its theory role (roles are cluster-wide); a role's schema; in it one view per role
- * relation, whose columns are its fields'; a role's policy on a table it writes; a writable entry's filter function,
- * key probes and unique probes in the base schema.
+ * PostgreSQL role and a role's, its theory role (roles are cluster-wide); a relation's whole view, in its level's schema
+ * of whole views, which every role holding the relation whole reads; a role's schema, and in it one view per query
+ * entry, whose columns are its fields'; a role's policy on a table it writes; a writable entry's filter function, key
+ * probes and unique probes in the base schema.
  *
  * Column types: a contract column is typed by its domain, a refined text column by its structural domain, a wildcard
  * text column is `text COLLATE pg_catalog.pg_c_utf8`, a closed id by its roster's domain over smallint, a set by its

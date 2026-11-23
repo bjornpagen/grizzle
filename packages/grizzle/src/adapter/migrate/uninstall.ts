@@ -33,8 +33,9 @@ import {
  * An installation is its database and its role space (MigrationConnection: `database`, `rolePrefix`). What it holds is
  * read from its levels' schemas, every configured schema's snapshot's, and the catalogs:
  *
- * - in its database, each of its levels' PostgreSQL schemas and its roles' schemas, each its role's stem's name, those
- *   the database holds;
+ * - in its database, each of its levels' PostgreSQL schemas, each level's schema of whole views, `__<level>`
+ *   (core/identity.ts identity.wholeSchema), and its roles' schemas, each its role's stem's name, those the database
+ *   holds;
  * - in the cluster, every role its migrations create under its role space, read from pg_roles by the one reading of an
  *   installation's roles (core/identity.ts installationRoleOf): a login's or a role's of any snapshot it was ever at,
  *   `<level>__<conversion>`, its live source's decoder login and its function owner, each minted from a level's schema;
@@ -269,6 +270,7 @@ export const uninstall = Effect.fn("uninstall")(function* (input: {
 	const roles = yield* installationRolesOf(namespace)
 	const candidates = [
 		...namespace.levels,
+		...Arr.map([...namespace.levels], (level) => identifierOf(identity.wholeSchema(level))),
 		...Arr.flatMap(roles, (r) => (r.is.kind === "stem" ? [r.is.stem] : []))
 	]
 	const schemas = yield* readAlone(session, schemasNamed, [textArray(candidates)], "schemas")

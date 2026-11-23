@@ -76,8 +76,9 @@ export interface ExpectedPolicy {
  *   theory role's none), none for it in this database alone (ALTER ROLE ... IN DATABASE ... SET, which takes
  *   precedence over its own at login); the database's own defaults are its owner's, none of them grizzle's (it sets no
  *   database default, physical/ddl/isolation.ts). grizzle never issues a session-level SET.
- * - Privileges, as PostgreSQL itself judges them: what the role may do to each object of the installed schema and of
- *   every role's schema, and to each other schema the snapshot grants on, through its own grants, PUBLIC's and every
+ * - Privileges, as PostgreSQL itself judges them: what the role may do to each object of the judged schemas
+ *   (judgedSchemas: the installed schema, every schema of views and every role's), and to each other schema the
+ *   snapshot grants on, through its own grants, PUBLIC's and every
  *   role it inherits from (has_*_privilege), is exactly what the manifest grants it, a column-level privilege
  *   (GRANT ... (<columns>)) judged on each column beyond what the role holds on the whole table. An expected privilege
  *   names its object in the SQL the GRANT names it with, which PostgreSQL resolves to the object's OID (to_regclass and
@@ -112,7 +113,7 @@ export interface RoleExpectation {
 	readonly settings: ReadonlyMap<string, string>
 	/** Each privilege once, by family, object, column and type. */
 	readonly privileges: ReadonlyArray<ExpectedPrivilege>
-	/** The schemas whose objects' privileges are judged: the installed schema and every role's schema. */
+	/** The schemas whose objects' privileges are judged (judgedSchemas). */
 	readonly schemas: ReadonlyArray<string>
 	/** The other schemas its privileges name, whose own privileges are read. */
 	readonly otherSchemas: ReadonlyArray<string>
@@ -170,15 +171,27 @@ const typesOf = (family: PrivilegeFamily, privilege: Privilege): ReadonlyArray<s
 const privilegeKey = (p: ExpectedPrivilege): string =>
 	`${p.family}\u0000${p.object}\u0000${p.column}\u0000${p.privilege}`
 
-/** The schemas whose objects every role's privileges are judged on: the installed schema and every role's schema the
- * manifest creates, in its order. */
+/**
+ * The schemas the installation's objects are judged in, and every role's privileges on them: the installed schema, every
+ * schema the manifest creates, in its order (each level's, each level's of whole views and each role's of query views),
+ * then the schema of each theory role it creates that it creates no schema for, named as its role is
+ * (core/identity.ts identity.roleSchema), in its order: a role's schema stands exactly when the role holds a query
+ * entry, so one a previous installation created for a role that holds none, its views with it, is judged too, and found
+ * where it still stands, never left unread.
+ */
 export const judgedSchemas = (
 	statements: ReadonlyArray<ManifestStatement>,
 	schema: string
-): ReadonlyArray<string> => [
-	schema,
-	...statements.flatMap((s) => (s.kind === "createSchema" && s.name !== schema ? [s.name] : []))
-]
+): ReadonlyArray<string> => {
+	const created = [
+		schema,
+		...statements.flatMap((s) => (s.kind === "createSchema" && s.name !== schema ? [s.name] : []))
+	]
+	const roleSchemas = statements.flatMap((s) =>
+		s.kind === "grantRole" && !created.includes(s.role) ? [s.role] : []
+	)
+	return [...created, ...new Set(roleSchemas)]
+}
 
 const namesRole = (grantees: ReadonlyArray<Grantee>, role: string): boolean =>
 	grantees.some((g) => g.kind === "role" && g.name === role)

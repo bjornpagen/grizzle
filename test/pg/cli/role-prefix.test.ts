@@ -22,7 +22,8 @@
  *   in its own database, cannot revoke (it revokes a privilege on a shared object, CONNECT on any database among them,
  *   so that one would not hold the role), `grizzle uninstall` is refused at stage uninstall with PostgreSQL's 2BP01 and
  *   drops nothing (its roles listed as before, `grizzle drift` still passing).
- *   Then it drops exactly the installation: its schema and its roles' schemas, and its roles, `grizzle roles` printing
+ *   Then it drops exactly the installation: its schema and its schema of whole views, which its roles, holding whole
+ *   entries alone, read, and its roles, `grizzle roles` printing
  *   none; the second installation's roles are all there and its reader still reads; and a bystander role under the
  *   first's prefix over another schema, outside its namespace, stays.
  *

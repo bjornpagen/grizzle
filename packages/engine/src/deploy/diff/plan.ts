@@ -97,7 +97,7 @@ export const noDeclarations: Declarations = Object.freeze({ renames: [], drops: 
  *   indexes swapped in; the foreign keys that reference those keys added NOT VALID; then the installation's validation statements (the refined constants' casts to their domains), the
  *   removed laws' native objects and constraints, the logins and roles, the roles' schemas, the views, world
  *   functions and policies of the roles this migration creates, and row security, the grants and memberships, the
- *   login defaults and PUBLIC revokes, every object the target no longer has, dropped in place: its indexes, roles and role schemas,
+ *   login defaults and PUBLIC revokes, every object the target no longer has, dropped in place: its indexes, roles and schemas of views,
  *   statistics, views, functions, stored tags, columns, tables and types, in that order; then each domain's VALIDATE
  *   CONSTRAINT, once every column the target no longer has is gone: PostgreSQL validates a domain over every column it
  *   types, and the rows of a column the migration drops do not outlive it (a removed handle's code in a dropped

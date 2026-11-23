@@ -78,6 +78,8 @@ export type IdentityKind =
 	| "role"
 	| "roleSchema"
 	| "roleView"
+	| "wholeSchema"
+	| "wholeView"
 	| "filter"
 	| "keyProbe"
 	| "uniqueProbe"
@@ -137,10 +139,10 @@ export type LawId = Identifier<RaisedLawKind>
  */
 export type GeneratedLawId = Identifier<"generatedLaw">
 /**
- * The table of a stored relation, the domain of a roster, the materialized view of a derived relation, or a role
- * relation's view, which a role reads it through.
+ * The table of a stored relation, the domain of a roster, the materialized view of a derived relation, a relation's
+ * whole view, which every role holding it whole reads it through, or a role's query entry's view.
  */
-export type RelationIdent = Identifier<"table" | "rosterDomain" | "view" | "roleView">
+export type RelationIdent = Identifier<"table" | "rosterDomain" | "view" | "wholeView" | "roleView">
 /** The column of a field, a derived view's head name, or a law column. */
 export type ColumnIdent = Identifier<"column" | "lawColumn">
 /**

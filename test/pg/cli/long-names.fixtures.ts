@@ -35,6 +35,7 @@ import {
 	role,
 	schema,
 	schemaNameOf,
+	wholeSchemaNameOf,
 	wholeEntriesOf
 } from "#compiler/public/schema.ts"
 import { defineConfig } from "#index.ts"
@@ -249,17 +250,14 @@ export const limitCase = (n: Names, c: Case<LimitFeature>) =>
 				"roleNameOf names every role the installation holds, and only those"
 			)
 			const schemaRows = yield* substrate.admin.queryValues(
-				"SELECT n.nspname::text FROM pg_catalog.pg_namespace AS n WHERE starts_with(n.nspname::text, $1::text)",
-				[rolePrefix(allocated)]
+				"SELECT n.nspname::text FROM pg_catalog.pg_namespace AS n WHERE starts_with(n.nspname::text, $1::text) OR n.nspname::text = $2::text ORDER BY 1",
+				[rolePrefix(allocated), wholeSchemaNameOf(world.schema)]
 			)
 			const heldSchemas = trusted<ReadonlyArray<readonly [string]>>(schemaRows)
 			assert.deepEqual(
-				Arr.sort(
-					Arr.map(heldSchemas, ([held]) => held),
-					Order.String
-				),
-				Arr.sort(Arr.map(world.roles, schemaNameOf), Order.String),
-				"schemaNameOf names every role's schema the installation holds, and only those"
+				Arr.map(heldSchemas, ([held]) => held),
+				[wholeSchemaNameOf(world.schema)],
+				"its roles hold whole entries alone, so it holds no role's schema, and wholeSchemaNameOf names the schema of the whole views they read"
 			)
 			const servedLogin = yield* servedFromFile(dir, allocated, world.login)
 			for (const r of Rec.values(servedLogin.login.roles)) {

@@ -105,7 +105,7 @@ import type { DeploySnapshot, LedgerState } from "#compiler/plan/serve.ts"
  * database is the drift check of a deployed one.
  *
  * What an object is, PostgreSQL alone spells. In one transaction that the runner rolls back (driftTransaction), the
- * check creates a scratch schema for the installed schema and for each role's schema, replays into them the manifest's
+ * check creates a scratch schema for the installed schema and for each schema of views, replays into them the manifest's
  * object statements with each installed schema renamed to its scratch one (no role, membership, grant, default
  * privilege, database default, extension or query runs there; a policy names its installed role), and reads each pair
  * of schemas through one description statement: every relation, column, constraint, domain constraint, type,
@@ -113,6 +113,9 @@ import type { DeploySnapshot, LedgerState } from "#compiler/plan/serve.ts"
  * (quote_ident, so a key is injective) and described by PostgreSQL's own deparse (pg_get_constraintdef,
  * pg_get_indexdef, pg_get_functiondef, pg_get_triggerdef, pg_get_viewdef, pg_get_statisticsobjdef, pg_get_expr and
  * format_type) with its owner and its state: an index not valid, a trigger not enabled, row security on a table. The
+ * schemas read are the judged ones (deploy/admission/roles.ts judgedSchemas), each theory role's among them whether or
+ * not the manifest creates it: a role's schema stands only where the role holds a query entry, so one a previous
+ * installation left, with its views, is read too, and its every fact is unexpected. The
  * two descriptions are compared key by key: a key only the snapshot's has is missing, one only the installed schema's
  * has is unexpected, and a key both have with two definitions differs. Deparsed text is compared only with deparsed
  * text from the same server, so no model of PostgreSQL's deparser exists anywhere. A column and a statistics object's

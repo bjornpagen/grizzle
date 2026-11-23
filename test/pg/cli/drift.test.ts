@@ -21,7 +21,7 @@
  * - a role or the login gains an attribute the snapshot denies it, of PostgreSQL's role attributes the test's
  *   administrator may set;
  * - one role becomes a member of the other;
- * - a table is created in a role's schema;
+ * - a table is created in a schema of views, a role's or the schema of whole views;
  * - a role holding its own TEMPORARY on the database, as the catalog reads it, has it revoked;
  * - a role or the login not holding it is granted TEMPORARY on the database.
  *
@@ -79,7 +79,7 @@ export const drift = property.explore(steered(aimedPlantsGen), {
 		"a role's setting",
 		"a role's attribute",
 		"a membership granted",
-		"a table in a role's schema",
+		"a table in a schema of views",
 		"a TEMPORARY grant revoked",
 		"a TEMPORARY grant beyond the snapshot",
 		"a privilege granted beside the role's column grants",
@@ -113,8 +113,12 @@ export const drift = property.explore(steered(aimedPlantsGen), {
 						assert.equal(ran.code, 0, `grizzle ${command} on a fresh installation: ${ran.stderr}`)
 					}
 					const installation = identity.schema(parsedSchemaName(name))
-					const roleSchema = (role: string) =>
-						identifierOf(identity.roleSchema(identity.role(installation, parsedName(role))))
+					/** The installation's schemas of views: the editor's, of its query entries, and the schema of whole views,
+					 * which every role reads the documents it holds whole through; the viewer, holding them whole alone, has
+					 * none of its own. */
+					const editorSchema = identifierOf(
+						identity.roleSchema(identity.role(installation, parsedName("editor")))
+					)
 					const names: DriftNames = {
 						database: substrate.database,
 						schema: identifierOf(installation),
@@ -123,7 +127,10 @@ export const drift = property.explore(steered(aimedPlantsGen), {
 						viewer: roleNameOf(w.viewer, {}),
 						keeper: roleNameOf(w.keeper, {}),
 						login: roleNameOf(w.desk, {}),
-						roleSchemas: [roleSchema("editor"), roleSchema("viewer")]
+						viewSchemas: [
+							editorSchema,
+							identifierOf(identity.wholeSchema(identifierOf(installation)))
+						]
 					}
 
 					c.noteAll(plantsFeatures(plants))

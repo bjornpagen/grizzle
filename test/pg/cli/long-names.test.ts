@@ -14,8 +14,9 @@
  * - schemaNameOf of the schema is the allocation, however its declared name is spelled;
  * - at 63 bytes, `grizzle generate` drafts, `grizzle check` passes and `grizzle migrate`, with the configuration's
  *   connection, applies it; the installed schema is the allocation; the roles the catalog holds under the allocation
- *   are exactly roleNameOf of the login, which alone logs in, and of every role, and the schemas it holds there exactly
- *   schemaNameOf of every role; and Db.open of every role, its layer given the served file generate wrote and the
+ *   are exactly roleNameOf of the login, which alone logs in, and of every role, and, its roles holding whole entries
+ *   alone, it holds no role's schema there, and the schema of the whole views they read is wholeSchemaNameOf of the
+ *   schema; and Db.open of every role, its layer given the served file generate wrote and the
  *   password of roleNameOf of the login, logs in and is admitted;
  * - one byte past, `grizzle generate` refuses the name as too long and drafts nothing, and roleNameOf refuses
  *   (IdentifierTooLong) exactly the worlds whose role passes 63 bytes.

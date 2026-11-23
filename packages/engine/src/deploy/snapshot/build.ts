@@ -859,7 +859,7 @@ const snapshotTablesOf = (installation: Installation): SnapshotTables => {
 			case "role":
 			case "membership":
 			case "privileges":
-			case "roleSchema":
+			case "viewSchema":
 			case "view":
 			case "policy":
 			case "rowSecurity":

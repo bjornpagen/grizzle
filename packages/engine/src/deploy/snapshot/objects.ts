@@ -86,8 +86,9 @@ export function refuseLaw(law: string, what: string): never {
  * A domain carries at most one CHECK. A `constant` is a function named by its content's digest, created by a CREATE
  * FUNCTION ... RETURN, a closed relation's stated as its hex literal, then its EXECUTE revoked from PUBLIC. A `worldFunction` is a writable
  * entry's filter function. A `role` is a login's
- * or a theory role's CREATE ROLE, and a `membership` a theory role's membership in its login. A `roleSchema` is a
- * role's schema, a `view` a role relation's view in it, a `policy` a role's policy on a table it writes, and a
+ * or a theory role's CREATE ROLE, and a `membership` a theory role's membership in its login. A `viewSchema` is a
+ * schema of views, a level's of its relations' whole views or a role's of its query entries' views, a `view` a
+ * relation's whole view or a query entry's view in it, a `policy` a role's policy on a table it writes, and a
  * `rowSecurity` a table's row security. A `lawColumn` is a column a law adds beside the declared fields (a constant, a
  * partial term, an arm tag): the table, the column's name, and the column as the object's one ALTER TABLE ... ADD
  * COLUMN declares it. A key, check or foreign key is a constraint of a table, by its name: a key or check the table
@@ -157,7 +158,7 @@ export type Installed<O extends AnyObject = ManifestObject> =
 	| { readonly kind: "role"; readonly object: O; readonly create: CreateRole }
 	| { readonly kind: "membership"; readonly object: O; readonly grant: GrantRole }
 	| { readonly kind: "privileges"; readonly object: O; readonly grantee: string }
-	| { readonly kind: "roleSchema"; readonly object: O; readonly create: CreateSchema }
+	| { readonly kind: "viewSchema"; readonly object: O; readonly create: CreateSchema }
 	| { readonly kind: "view"; readonly object: O; readonly create: CreateView }
 	| { readonly kind: "policy"; readonly object: O; readonly create: CreatePolicy }
 	| { readonly kind: "rowSecurity"; readonly object: O; readonly table: ObjectName }
@@ -382,7 +383,7 @@ export const installed = <O extends AnyObject>(o: O): Installed<O> => {
 			return o.ddl.length === 1 && s?.kind === "grantRole"
 				? { kind: o.kind, object: o, grant: s }
 				: malformed("exactly one GRANT of a role to its login")
-		case "roleSchema":
+		case "viewSchema":
 			return o.ddl.length === 1 && s?.kind === "createSchema"
 				? { kind: o.kind, object: o, create: s }
 				: malformed("exactly one CREATE SCHEMA")
@@ -574,7 +575,7 @@ export const objectTable = (o: AnyObject): ObjectName | undefined => {
 		case "functionOwner":
 		case "rowType":
 		case "declaredFunction":
-		case "roleSchema":
+		case "viewSchema":
 		case "view":
 		case "schema":
 		case "extension":
@@ -702,7 +703,7 @@ export const builtOver = <O extends AnyObject>(
 		case "role":
 		case "membership":
 		case "privileges":
-		case "roleSchema":
+		case "viewSchema":
 		case "view":
 		case "policy":
 		case "rowSecurity":
@@ -812,7 +813,7 @@ const objectParts = <O extends AnyObject>(
 		case "role":
 		case "membership":
 		case "privileges":
-		case "roleSchema":
+		case "viewSchema":
 		case "view":
 		case "policy":
 		case "rowSecurity":

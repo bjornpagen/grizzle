@@ -96,11 +96,10 @@ export type InstallCompile = (
 	options: InstallOptions
 ) => Result.Result<Installation, CompileError>
 
-/** An installed role of a login: its theory role and its role schema. */
+/** An installed role of a login: its theory role. */
 export interface OracleWorld {
 	readonly name: string
 	readonly role: string
-	readonly schema: string
 }
 
 /** An installed login: its login role, and its roles by declared name. */
@@ -440,7 +439,7 @@ const build = (input: FixtureSchema, options: RealPlanOptions): RealInstallPlan 
 			roles: Rec.fromEntries(
 				Arr.map(login.roles, (r): readonly [string, OracleWorld] => [
 					r.name,
-					{ name: r.name, role: r.role, schema: r.schema }
+					{ name: r.name, role: r.role }
 				])
 			)
 		}

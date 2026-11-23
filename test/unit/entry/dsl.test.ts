@@ -96,9 +96,9 @@ export const aProgramOverTheAuthoringEntryLoadsTheDslAloneNoCompilerInstallOrRun
 			},
 			{
 				file: "packages/engine/src/public/schema.ts",
-				original: 'export { schemaNameOf } from "#compiler/program/names.ts"\n',
+				original: 'export { schemaNameOf, wholeSchemaNameOf } from "#compiler/program/names.ts"\n',
 				replacement:
-					'export { schemaNameOf } from "#compiler/program/names.ts"\nexport { constraintNamesOf, lawsByStatement, lawsOf } from "#compiler/program/laws.ts"\n',
+					'export { schemaNameOf, wholeSchemaNameOf } from "#compiler/program/names.ts"\nexport { constraintNamesOf, lawsByStatement, lawsOf } from "#compiler/program/laws.ts"\n',
 				why: "The engine's schema facade re-exports the law model again (lawsOf, lawsByStatement, constraintNamesOf), as it did: every program loads the law compiler."
 			}
 		]

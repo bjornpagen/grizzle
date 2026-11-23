@@ -51,17 +51,20 @@ export const maxIdentifierBytes = namedatalen - 1
  * length or a collision.
  *
  * - Readable: a declared name's conversion (its segments, lowercased, joined by single underscores: the schema, tables,
- *   derived relations, rosters' domains, columns, row checks and a role's views), a closed id's decoded
- *   column `<field>_name` beside it in a role's view, a login's or role's
- *   `<schema>__<name>` (a role's schema and policies take its role's), or a name grizzle fixes (`check` for a domain's
+ *   derived relations, rosters' domains, columns, row checks, a relation's whole view and a role's query views), a
+ *   closed id's decoded column `<field>_name` beside it in a view, a login's or role's
+ *   `<schema>__<name>` (a role's schema and policies take its role's), a level's schema of its relations' whole views,
+ *   `__<schema>`, or a name grizzle fixes (`check` for a domain's
  *   CHECK, the per-schema singletons `__ledger` with its key and checks, `__refuse`, `__require_serializable` and
  *   `__snapshot_guard`, the per-table trigger `__isolation`). The declaration rules make each one-to-one in its
  *   namespace: declared names are compared by their conversions (`DeclaredNamespace`, every namespace of declared
  *   names: the schema's relations, rosters and contracts, each relation's or view's columns, each table's row checks,
  *   each role's views), none starts with `_`, and one whose conversion is over maxIdentifierBytes is refused; a schema's
- *   conversion does not start with `pg_`. A readable constructor takes the name parsed (`DeclaredName`, minted by
- *   `parseDeclaredName`; `SchemaName`, by `parseSchemaName`), so no readable identity has a name the rule refuses; a
- *   login's or role's name is refused when it does not fit with its schema's (physical/ddl/names.ts).
+ *   conversion does not start with `pg_`. So no `__<schema>` meets a level's schema, a declared conversion, or a role's,
+ *   `<schema>__<name>`, which starts as its level's does. A readable constructor takes the name parsed (`DeclaredName`,
+ *   minted by `parseDeclaredName`; `SchemaName`, by `parseSchemaName`), so no readable identity has a name the rule
+ *   refuses; a login's or role's name is refused when it does not fit with its schema's, and a level's schema of whole
+ *   views when it does not fit with its lead (physical/ddl/names.ts).
  * - Hashed: `__`, a readable stem cut to `stemBudget` bytes at a segment boundary, `_` and a digest of the identity's
  *   canonical encoding, the first `5 * digestChars` bits of its SHA-256 as `digestChars` characters of lowercase RFC
  *   4648 base32: keys, foreign keys, span, norm and law checks, indexes, contract and
@@ -1640,7 +1643,7 @@ export const identity = Object.freeze({
 			`schema of ${role.display}`,
 			readable(role.identifier)
 		),
-	/** A role relation's view in its role's schema, by the relation's declared name. */
+	/** A role's query entry's view in its role's schema, by the entry's declared name. */
 	roleView: (role: Identity<"role">, entry: DeclaredName): Identity<"roleView"> => {
 		const segments = nameSegments(entry)
 		return mint(
@@ -1651,6 +1654,20 @@ export const identity = Object.freeze({
 			readable(joined(segments))
 		)
 	},
+	/** A level's schema of the whole views of its relations, `__<schema>`, minted from the level's schema: what every
+	 * role holding one of them whole reads it through. */
+	wholeSchema: (level: string): Identity<"wholeSchema"> =>
+		mint(
+			"wholeSchema",
+			[level],
+			[level],
+			`whole views of schema ${level}`,
+			readable(`${hashedLead}${level}`)
+		),
+	/** A relation's whole view, in its level's schema of whole views (`wholeSchema`), by the relation's declared name,
+	 * its table's. */
+	wholeView: (relation: DeclaredName): Identity<"wholeView"> =>
+		readableAs("wholeView", relation, `whole view of relation ${relation}`),
 	/** A writable entry's filter function. */
 	filter: (role: Identity<"role">, entry: string): Identity<"filter"> =>
 		mint(
@@ -2004,17 +2021,22 @@ export const identity = Object.freeze({
 
 declare const fittedBrand: unique symbol
 
-/** A login's or role's PostgreSQL role that fits PostgreSQL's maxIdentifierBytes with its schema's name: minted only by
- * `fitted`, which refuses one that does not. */
-export type Fitted<K extends "login" | "role"> = Identity<K> & { readonly [fittedBrand]: true }
+/** The kinds of identity whose readable name joins a schema's name to more, so one may not fit PostgreSQL's
+ * maxIdentifierBytes: a login's or role's PostgreSQL role, `<schema>__<name>`, and a level's schema of whole views,
+ * `__<schema>`. */
+type FittedKind = "login" | "role" | "wholeSchema"
 
-/** `named` as the Fitted role it is, once its length is checked. */
-const fittedOf = <K extends "login" | "role">(named: Identity<K>): Fitted<K> =>
+/** An identity of a FittedKind that fits PostgreSQL's maxIdentifierBytes: minted only by `fitted`, which refuses one that
+ * does not. */
+export type Fitted<K extends FittedKind> = Identity<K> & { readonly [fittedBrand]: true }
+
+/** `named` as the Fitted identity it is, once its length is checked. */
+const fittedOf = <K extends FittedKind>(named: Identity<K>): Fitted<K> =>
 	nominal<Identity<K>, Fitted<K>>()(named)
 
-/** A login's or role's PostgreSQL role, `<schema>__<name>`, refused at `loc` as IdentifierTooLong of `declaration`
- * when it does not fit PostgreSQL's maxIdentifierBytes with its schema's name. */
-const fitted = <K extends "login" | "role">(
+/** An identity of a FittedKind, refused at `loc` as IdentifierTooLong of `declaration` when it does not fit PostgreSQL's
+ * maxIdentifierBytes. */
+const fitted = <K extends FittedKind>(
 	named: Identity<K>,
 	declaration: string,
 	loc: SourceLoc
@@ -2053,3 +2075,12 @@ export const roleIdentity = (
 	loc: SourceLoc
 ): Fitted<"role"> =>
 	fitted(identity.role(installation, name), `role name ${JSON.stringify(name)}`, loc)
+
+/** A level's schema of the whole views of its relations (identity.wholeSchema), refused at `loc`, where `declaration` is
+ * read through it, as IdentifierTooLong when `__<schema>` does not fit (fitted): what a role holding one of the level's
+ * relations whole reads it through (physical/ddl/names.ts nameRole). */
+export const wholeSchemaIdentity = (
+	level: Identity<"schema">,
+	declaration: string,
+	loc: SourceLoc
+): Fitted<"wholeSchema"> => fitted(identity.wholeSchema(level.identifier), declaration, loc)

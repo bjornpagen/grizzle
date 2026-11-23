@@ -29,7 +29,10 @@
  * - each folder applies and the drift check admits the catalog it reaches: every world object reading what changed was
  *   dropped before the change and created after it, in the same transaction;
  * - Db.open admits every role at the last snapshot;
- * - the installed-catalog checker finds nothing;
+ * - the installed-catalog checker finds nothing: among it, one whole view of each relation some role holds whole, the
+ *   derived relation's one view granted SELECT to both the editor and the viewer, each whole view granted to exactly the
+ *   roles holding its relation whole with USAGE on its schema of whole views, and a role's own schema standing only
+ *   where it holds a query entry, the editor's and not the viewer's;
  * - no migration recreates a login or a role: each keeps its OID across the versions, so a password and what other
  *   roles were granted survive, a renamed login included;
  * - each role reads, by the certifier's bound of its direct transactions (physical/ddl/roles.ts readableRelations),
@@ -246,6 +249,18 @@ export const worlds = property.explore(aimed(historyGen, aims), {
 			replacement:
 				"\treturn [...new Set([...viewed, ...Object.keys(role.base.relations)])].toSorted(",
 			why: "A role read as reading every relation of its base regardless of its grants (a17decc0's bound), the organizations among the editor's reads."
+		},
+		{
+			file: "packages/engine/src/physical/ddl/roles.ts",
+			original: "\t\t\t\tread.push(view.create.name)",
+			replacement: "\t\t\t\tappendAll(read, [...whole.values()].map((v) => v.create.name))",
+			why: "Every role is granted SELECT on every whole view, so the viewer reads the documents' whole view, which it does not hold: a read the installed-catalog checker refuses as a grant to a role not holding the relation, and the certifier's bound of the viewer misses."
+		},
+		{
+			file: "packages/engine/src/physical/ddl/roles.ts",
+			original: "\t\t\t\tviewSchemas.set(view.schema.name, view.schema.node)",
+			replacement: "\t\t\t\tafter.push(view.schema.node)",
+			why: "A role holds SELECT on its whole views and no USAGE on their schema of whole views, so PostgreSQL refuses every read of them (42501), which the installed-catalog checker refuses as a missing USAGE."
 		}
 	]
 })

@@ -3,7 +3,7 @@ import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 import { assert } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Option, Order, Record as Rec, String as Str } from "effect"
-import { identifierOf, roleIdentity } from "#compiler/core/identity.ts"
+import { identifierOf, identity, roleIdentity } from "#compiler/core/identity.ts"
 import { bookkeepingTables } from "#compiler/deploy/ledger/ledger.ts"
 import type { RecordedStatement } from "#compiler/deploy/snapshot/recorded.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
@@ -376,13 +376,26 @@ export const installedScope = (
 				parsedName(r.name),
 				r.loc
 			)
+			const roleSchema = identifierOf(identity.roleSchema(theory))
 			const barrierViews = Arr.flatMap(Rec.values(r.relations), (e) =>
-				e.kind === "world" ? [`${installedRole.schema}.${identifierOf(roleView(theory, e))}`] : []
+				e.kind === "world" ? [`${roleSchema}.${identifierOf(roleView(theory, e))}`] : []
 			)
+			/** Each whole view it reads: a whole entry's over a stored or a materialized derived relation, in its level's
+			 * schema of whole views, by the naming door. */
+			const wholeViews = Arr.flatMap(Rec.values(r.relations), (e) => {
+				const kind = installation.owned.relations[e.name]?.kind
+				return e.kind === "whole" && (kind === "relation" || kind === "derived")
+					? [
+							`${identifierOf(identity.wholeSchema(identifierOf(installation.names.levelOf(e.name))))}.${identifierOf(identity.wholeView(parsedName(e.name)))}`
+						]
+					: []
+			})
 			return {
 				scope: { role: installedRole.role, closedTypes },
 				refreshes: [installedRole.role, new Set(refreshed)] as const,
-				barrierViews
+				barrierViews,
+				queryWorld: barrierViews.length > 0 ? [installedRole.role] : [],
+				wholeViews: Arr.map(wholeViews, (view) => [view, installedRole.role] as const)
 			}
 		})
 	)
@@ -458,6 +471,18 @@ export const installedScope = (
 			),
 			refreshes: new Map(Arr.map(scoped, (s) => s.refreshes)),
 			barrierViews: new Set(Arr.flatMap(scoped, (s) => s.barrierViews)),
+			queryWorlds: new Set(Arr.flatMap(scoped, (s) => s.queryWorld)),
+			wholeViews: new Map(
+				Arr.map(
+					[
+						...Map.groupBy(
+							Arr.flatMap(scoped, (s) => s.wholeViews),
+							([view]) => view
+						)
+					],
+					([view, held]) => [view, new Set(Arr.map(held, ([, role]) => role))] as const
+				)
+			),
 			closedConstants: Arr.some(
 				Rec.values(installation.owned.relations),
 				(r) => r.kind === "closedRelation"
@@ -640,10 +665,14 @@ const insertedTypes = (catalog: Catalog, role: string): ReadonlyArray<NamedType>
 		(c) => (c.generation.kind === "computed" ? [] : [c.type])
 	)
 
-/** The column types of every view of `role`'s world. */
+/** The column types of every view `role` holds SELECT on: its world's, and the whole views of what it holds whole. */
 const viewedTypes = (catalog: Catalog, role: string): ReadonlyArray<NamedType> =>
-	Arr.flatMap(catalog.worlds, (w) =>
-		w.name === role ? Arr.flatMap(w.relations, (v) => Arr.map(v.columns, (c) => c.type)) : []
+	Arr.flatMap([...catalog.worlds, ...catalog.wholes], (w) =>
+		Arr.flatMap(w.relations, (v) =>
+			Arr.some(v.grants, (g) => g.grantee === role && g.privilege === "SELECT")
+				? Arr.map(v.columns, (c) => c.type)
+				: []
+		)
 	)
 
 /**
@@ -832,7 +861,8 @@ const vectorProblems = (catalog: Catalog, scope: InstalledScope): ReadonlyArray<
  * - the erasure ledger's shape rules (verify.ts): only the authored tables, the derived relations' materialized views,
  *   the refusal function, the isolation guard and each table's guard trigger, the snapshot guard every login executes,
  *   the law functions and law triggers, the worlds' functions, and PostgreSQL's
- *   internal foreign-key triggers; the worlds' schemas of views, security_barrier exactly where a query entry's; row
+ *   internal foreign-key triggers; the worlds' schemas of their query entries' views, each security_barrier, and the
+ *   levels' schemas of whole views, each plain and granted exactly to the roles holding its relation whole; row
  *   security and policies exactly where a world writes through a query entry; no UPDATE on an immutable relation, no
  *   TRUNCATE, no sequence, MAINTAIN only to a refresher or a login fencing the table, no PUBLIC grant,
  *   nothing granted to a login beyond what admission and a Db transaction take as it, nothing inherited beyond a role's own privileges, no elevated
@@ -841,13 +871,13 @@ const vectorProblems = (catalog: Catalog, scope: InstalledScope): ReadonlyArray<
  * - least privilege on types, by a derivation of its own: a world's role may hold USAGE on an enum or a domain of the
  *   schema only when its own privileges or its whole closed relations need the type. The types it needs are the types
  *   of every column of every table or materialized view it holds a privilege on, of a column of one, and of every view
- *   of its world, and, for each closed relation its world holds whole, the relation's enum and the types of its
+ *   it holds SELECT on, its world's and the whole views of what it holds whole, and, for each closed relation its world holds whole, the relation's enum and the types of its
  *   payload, each with the bases its domains rest on. The installer's grants are never consulted, so a grant beyond the
  *   scope is found however the installer derived it. The bound holds from below as well: a role holds USAGE on every
- *   such type of its world's views, of the tables it inserts into and of its whole closed relations, which its programs
+ *   such type of the views it reads, of the tables it inserts into and of its whole closed relations, which its programs
  *   name when they bind a value of the type;
  * - the vector type, by the same derivation: a world's role holds USAGE on a schema outside the installation exactly
- *   when a column it reads (of its world's views, or of its whole closed relations' payloads) or a column of a table it
+ *   when a column it reads (of the views it reads, or of its whole closed relations' payloads) or a column of a table it
  *   inserts into is, or rests through the schema's domains on, that schema's `vector`, so it can name the type a search
  *   binds; and each login stores exactly the fixed defaults (`search_path = pg_catalog, pg_temp`,
  *   `extra_float_digits = 1`, `bytea_output = hex` and lc_monetary, lc_numeric and lc_time at C.UTF-8) plus, exactly

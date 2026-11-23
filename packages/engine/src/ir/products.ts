@@ -534,7 +534,7 @@ export const physicalKinds = [
 	"role",
 	"decoder",
 	"membership",
-	"roleSchema",
+	"viewSchema",
 	"view",
 	"worldFunction",
 	"policy",

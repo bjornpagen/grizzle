@@ -33,7 +33,7 @@
 
 import { assert, deepEquals, defined } from "@bjornpagen/testing/assert"
 import { property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
+import { Array as Arr, Effect, Formatter, Order } from "effect"
 import { setText, setWidth } from "#test/support/closed/bit-text.ts"
 import { codebookOfStates, codecFor } from "#test/support/closed/generate.ts"
 import { owning } from "#test/support/policy.ts"
@@ -128,15 +128,7 @@ export const rosterAndClosedConstantsDomainsThatAdmitExactlyTheLiveCodesNamesTha
 
 				const closedNames = closedConstants(i)
 				for (const g of grantsOf(i)) {
-					const roleSchema = defined(
-						Option.getOrUndefined(
-							Arr.findFirst(
-								Arr.flatMap(i.worlds, (l) => l.roles),
-								(r) => r.role === g.role
-							)
-						)
-					).schema
-					const need = requiredExecutes(i, g, roleSchema)
+					const need = requiredExecutes(i, g)
 					for (const name of need) {
 						assert.ok(g.execute.has(name), `${g.role} holds EXECUTE on ${name}, which it calls`)
 					}

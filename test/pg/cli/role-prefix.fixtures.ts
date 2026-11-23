@@ -16,7 +16,7 @@ import {
 } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { roleNameOf } from "#adapter/served/served.ts"
-import { maxIdentifierBytes } from "#compiler/core/identity.ts"
+import { identifierOf, identity, maxIdentifierBytes } from "#compiler/core/identity.ts"
 import { defineConfig } from "#index.ts"
 import { shopV1 } from "#test/pg/cli/fixture.ts"
 import {
@@ -251,7 +251,7 @@ export const spaceCase = (s: Spaces, c: Case<SpaceFeature>) =>
 				Arr.sort(
 					[
 						...Arr.map(
-							[schema, `${schema}__reader`, `${schema}__writer`],
+							[schema, identifierOf(identity.wholeSchema(schema))],
 							(n) => `dropped schema ${n}`
 						),
 						...Arr.map(installedFirst, (r) => `dropped role ${r}`)

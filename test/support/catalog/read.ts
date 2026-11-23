@@ -1,4 +1,5 @@
 import { Array as Arr, Effect, Option, String as Str } from "effect"
+import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type {
 	ColumnIdent,
 	ConstraintName,
@@ -138,7 +139,8 @@ interface CatalogWorldRelation {
 	readonly calls: ReadonlyArray<string>
 }
 
-/** A schema `<schema>__<name>`: a role's world, its views over the schema. */
+/** A schema of views: a role's world, `<schema>__<name>`, its query entries' views, or a level's schema of whole views,
+ * `__<schema>`, its relations' whole views. */
 export interface CatalogWorld {
 	readonly name: string
 	readonly owner: string
@@ -307,8 +309,11 @@ export interface Catalog {
 	readonly roles: ReadonlyArray<CatalogRole>
 	/** Every schema whose name starts with `<schema>__`: the worlds' schemas. */
 	readonly worlds: ReadonlyArray<CatalogWorld>
+	/** Each level's schema of whole views, `__<level>` (core/identity.ts identity.wholeSchema), that the database holds. */
+	readonly wholes: ReadonlyArray<CatalogWorld>
 	/**
-	 * Every privilege those roles hold on a schema neither the base nor a world's, the vector extension's among them.
+	 * Every privilege those roles hold on a schema neither a level's, a world's nor a level's of whole views, the vector
+	 * extension's among them.
 	 */
 	readonly foreignGrants: ReadonlyArray<CatalogForeignGrant>
 	readonly defaultAcls: ReadonlyArray<CatalogDefaultAcl>
@@ -359,6 +364,20 @@ const callsOf = (classid: string, objid: string) =>
  * `__`, so a level's name and `__` is the prefix the installation's own roles and role schemas start with, and no other
  * installation's.
  */
+/** The document of each schema of views the FROM and WHERE after it select: its owner, grants, relations, functions and types. */
+const viewSchemas = `SELECT COALESCE(json_agg(json_build_object(
+		'name', n.nspname::text, 'owner', pg_catalog.pg_get_userbyid(n.nspowner)::text,
+		'grants', ${grants("n.nspacl", "n", "n.nspowner")},
+		'relations', (SELECT COALESCE(json_agg(json_build_object(
+			'name', c.relname::text, 'kind', c.relkind::text, 'owner', pg_catalog.pg_get_userbyid(c.relowner)::text,
+			'options', COALESCE(to_json(c.reloptions), '[]'::json), 'grants', ${grants("c.relacl", "r", "c.relowner")},
+			'columns', (SELECT COALESCE(json_agg(json_build_object('name', a.attname::text, 'type', ${typeJson("a.atttypid", "a.atttypmod")}) ORDER BY a.attnum), '[]'::json) FROM pg_catalog.pg_attribute a WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped),
+			'calls', (SELECT COALESCE(json_agg(DISTINCT p.proname::text), '[]'::json) FROM pg_catalog.pg_rewrite w JOIN pg_catalog.pg_depend d ON d.classid = 'pg_catalog.pg_rewrite'::regclass AND d.objid = w.oid AND d.refclassid = 'pg_catalog.pg_proc'::regclass JOIN pg_catalog.pg_proc p ON p.oid = d.refobjid JOIN pg_catalog.pg_namespace pn ON pn.oid = p.pronamespace WHERE w.ev_class = c.oid AND pn.nspname = ANY($1::text[]))
+		) ORDER BY c.relname), '[]'::json) FROM pg_catalog.pg_class c WHERE c.relnamespace = n.oid),
+		'functions', (SELECT COALESCE(json_agg(p.proname::text ORDER BY p.proname), '[]'::json) FROM pg_catalog.pg_proc p WHERE p.pronamespace = n.oid),
+		'types', (SELECT COALESCE(json_agg(t.typname::text ORDER BY t.typname), '[]'::json) FROM pg_catalog.pg_type t WHERE t.typnamespace = n.oid AND NOT (t.typtype = 'c' AND EXISTS (SELECT 1 FROM pg_catalog.pg_class k WHERE k.oid = t.typrelid AND k.relkind <> 'c')) AND t.typtype <> 'b')
+	) ORDER BY n.nspname), '[]'::json)::text`
+
 const queries = {
 	schema: `SELECT COALESCE((SELECT json_build_object('kind', 'present', 'owner', pg_catalog.pg_get_userbyid(n.nspowner)::text, 'grants', ${grants("n.nspacl", "n", "n.nspowner")}) FROM pg_catalog.pg_namespace n WHERE n.nspname = ($1::text[])[1]), json_build_object('kind', 'absent'))::text`,
 	tables: `SELECT COALESCE(json_agg(json_build_object(
@@ -462,23 +481,14 @@ const queries = {
 		'inherits', (WITH RECURSIVE h(oid) AS (SELECT m.roleid FROM pg_catalog.pg_auth_members m WHERE m.member = r.oid AND m.inherit_option UNION SELECT m.roleid FROM pg_catalog.pg_auth_members m JOIN h ON m.member = h.oid WHERE m.inherit_option) SELECT COALESCE(json_agg(pg_catalog.pg_get_userbyid(h.oid)::text ORDER BY pg_catalog.pg_get_userbyid(h.oid)::text COLLATE "C"), '[]'::json) FROM h WHERE h.oid <> r.oid)
 	) ORDER BY r.rolname), '[]'::json)::text
 	FROM pg_catalog.pg_roles r WHERE EXISTS (SELECT FROM unnest($1::text[]) AS l(s) WHERE starts_with(r.rolname::text, l.s || '__'))`,
-	worlds: `SELECT COALESCE(json_agg(json_build_object(
-		'name', n.nspname::text, 'owner', pg_catalog.pg_get_userbyid(n.nspowner)::text,
-		'grants', ${grants("n.nspacl", "n", "n.nspowner")},
-		'relations', (SELECT COALESCE(json_agg(json_build_object(
-			'name', c.relname::text, 'kind', c.relkind::text, 'owner', pg_catalog.pg_get_userbyid(c.relowner)::text,
-			'options', COALESCE(to_json(c.reloptions), '[]'::json), 'grants', ${grants("c.relacl", "r", "c.relowner")},
-			'columns', (SELECT COALESCE(json_agg(json_build_object('name', a.attname::text, 'type', ${typeJson("a.atttypid", "a.atttypmod")}) ORDER BY a.attnum), '[]'::json) FROM pg_catalog.pg_attribute a WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped),
-			'calls', (SELECT COALESCE(json_agg(DISTINCT p.proname::text), '[]'::json) FROM pg_catalog.pg_rewrite w JOIN pg_catalog.pg_depend d ON d.classid = 'pg_catalog.pg_rewrite'::regclass AND d.objid = w.oid AND d.refclassid = 'pg_catalog.pg_proc'::regclass JOIN pg_catalog.pg_proc p ON p.oid = d.refobjid JOIN pg_catalog.pg_namespace pn ON pn.oid = p.pronamespace WHERE w.ev_class = c.oid AND pn.nspname = ANY($1::text[]))
-		) ORDER BY c.relname), '[]'::json) FROM pg_catalog.pg_class c WHERE c.relnamespace = n.oid),
-		'functions', (SELECT COALESCE(json_agg(p.proname::text ORDER BY p.proname), '[]'::json) FROM pg_catalog.pg_proc p WHERE p.pronamespace = n.oid),
-		'types', (SELECT COALESCE(json_agg(t.typname::text ORDER BY t.typname), '[]'::json) FROM pg_catalog.pg_type t WHERE t.typnamespace = n.oid AND NOT (t.typtype = 'c' AND EXISTS (SELECT 1 FROM pg_catalog.pg_class k WHERE k.oid = t.typrelid AND k.relkind <> 'c')) AND t.typtype <> 'b')
-	) ORDER BY n.nspname), '[]'::json)::text
+	worlds: `${viewSchemas}
 	FROM pg_catalog.pg_namespace n WHERE EXISTS (SELECT FROM unnest($1::text[]) AS l(s) WHERE starts_with(n.nspname::text, l.s || '__'))`,
+	wholes: `${viewSchemas}
+	FROM pg_catalog.pg_namespace n WHERE n.nspname = ANY($2::text[])`,
 	foreignGrants: `SELECT COALESCE(json_agg(json_build_object('schema', n.nspname::text, 'grantee', r.rolname::text, 'privilege', a.privilege_type) ORDER BY n.nspname, r.rolname, a.privilege_type), '[]'::json)::text
 	FROM pg_catalog.pg_namespace n CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(n.nspacl, pg_catalog.acldefault('n', n.nspowner))) AS a
 	JOIN pg_catalog.pg_roles r ON r.oid = a.grantee
-	WHERE EXISTS (SELECT FROM unnest($1::text[]) AS l(s) WHERE starts_with(r.rolname::text, l.s || '__')) AND NOT (n.nspname = ANY($1::text[])) AND NOT EXISTS (SELECT FROM unnest($1::text[]) AS l(s) WHERE starts_with(n.nspname::text, l.s || '__'))`,
+	WHERE EXISTS (SELECT FROM unnest($1::text[]) AS l(s) WHERE starts_with(r.rolname::text, l.s || '__')) AND NOT (n.nspname = ANY($1::text[])) AND NOT (n.nspname = ANY($2::text[])) AND NOT EXISTS (SELECT FROM unnest($1::text[]) AS l(s) WHERE starts_with(n.nspname::text, l.s || '__'))`,
 	defaultAcls: `SELECT COALESCE(json_agg(json_build_object(
 		'role', pg_catalog.pg_get_userbyid(d.defaclrole)::text, 'schema', n.nspname::text, 'objectType', d.defaclobjtype::text,
 		'grants', (SELECT COALESCE(json_agg(json_build_object('grantee', CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(a.grantee)::text END, 'privilege', a.privilege_type) ORDER BY 1, a.privilege_type), '[]'::json) FROM pg_catalog.aclexplode(d.defaclacl) AS a)
@@ -612,13 +622,13 @@ export type CatalogStatement<E> = (
 ) => Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, E>
 
 /**
- * The one JSON text document `sql` returns over `schema`; a missing one is a defect of this support code: every query
+ * The one JSON text document `sql` returns over `params`; a missing one is a defect of this support code: every query
  * is an aggregate or a COALESCE of a scalar subquery.
  */
 const documentText =
-	<E>(run: CatalogStatement<E>, schemas: Arr.NonEmptyReadonlyArray<string>) =>
+	<E>(run: CatalogStatement<E>, params: ReadonlyArray<ReadonlyArray<string>>) =>
 	(sql: string): Effect.Effect<string, E> =>
-		Effect.flatMap(run(sql, [schemas]), (rows) => {
+		Effect.flatMap(run(sql, params), (rows) => {
 			const text = rows[0]?.[0]
 			return typeof text === "string"
 				? Effect.succeed(text)
@@ -641,7 +651,12 @@ export const readCatalogWith = <E>(
 ): Effect.Effect<InstalledCatalog, E> =>
 	Effect.gen(function* () {
 		const schema = schemas[0]
-		const read = documentText(run, schemas)
+		/** A query over the level schemas, $1; and one over them and their schemas of whole views, $2. */
+		const read = documentText(run, [schemas])
+		const readWithWholes = documentText(run, [
+			schemas,
+			Arr.map(schemas, (s) => identifierOf(identity.wholeSchema(s)))
+		])
 		const headText = yield* read(queries.schema)
 		const head = trustedJson<SchemaHead>(headText)
 		if (head.kind === "absent") {
@@ -659,7 +674,8 @@ export const readCatalogWith = <E>(
 			policies: read(queries.policies),
 			roles: read(queries.roles),
 			worlds: read(queries.worlds),
-			foreignGrants: read(queries.foreignGrants),
+			wholes: readWithWholes(queries.wholes),
+			foreignGrants: readWithWholes(queries.foreignGrants),
 			defaultAcls: read(queries.defaultAcls),
 			otherTypes: read(queries.otherTypes),
 			publishedTables: read(queries.publishedTables)
@@ -691,6 +707,7 @@ export const readCatalogWith = <E>(
 				),
 				roles: trustedJson<ReadonlyArray<CatalogRole>>(texts.roles),
 				worlds: trustedJson<ReadonlyArray<CatalogWorld>>(texts.worlds),
+				wholes: trustedJson<ReadonlyArray<CatalogWorld>>(texts.wholes),
 				foreignGrants: trustedJson<ReadonlyArray<CatalogForeignGrant>>(texts.foreignGrants),
 				defaultAcls: Arr.map(
 					trustedJson<ReadonlyArray<Document<CatalogDefaultAcl>>>(texts.defaultAcls),

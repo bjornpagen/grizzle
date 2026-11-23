@@ -71,6 +71,7 @@ import {
 	type InstallNames,
 	levelIn,
 	type NamedRole,
+	type RoleViewName,
 	roleView
 } from "#compiler/physical/ddl/names.ts"
 import type { StampFunction } from "#compiler/physical/ddl/stamps.ts"
@@ -219,11 +220,10 @@ const vectorLibraryLoad = (vectorSchema: TypeSchema): Select =>
 		undefined
 	)
 
-/** One installed role, by its declared name: its theory role and its schema. */
+/** One installed role, by its declared name: its theory role. */
 export interface InstalledRole {
 	readonly name: string
 	readonly role: string
-	readonly schema: string
 }
 
 /**
@@ -279,10 +279,12 @@ export const contextFieldsOf = (
 		)
 	)
 
-/** A role the installation installs, read against the installed schema: the identity its PostgreSQL role and views are
- * named by, and its checked schema over the installed base, built once for every reader of the role. */
+/** A role the installation installs, read against the installed schema: the identity its PostgreSQL role is named by,
+ * the view each of its relations is named by (names.ts NamedRole views), and its checked schema over the installed base,
+ * built once for every reader of the role. */
 export interface CheckedRole {
 	readonly theory: Identity<"role">
+	readonly views: NamedRole["views"]
 	readonly checked: CheckedSchema<RoleWorld>
 }
 
@@ -298,7 +300,11 @@ export const checkedRole = (
 	base: CheckedSchema,
 	role: NamedRole
 ): Result.Result<CheckedRole, CompileError> =>
-	Result.map(checkedRoleOver(role.owned, base), (checked) => ({ theory: role.theory, checked }))
+	Result.map(checkedRoleOver(role.owned, base), (checked) => ({
+		theory: role.theory,
+		views: role.views,
+		checked
+	}))
 
 /** Every view column of a query entry a regex refinement types, as a use of its structural text domain: the definition
  * lowering casts such a column to its pattern's domain, so the domain must exist, and
@@ -547,37 +553,100 @@ const worldView = (
 	}
 }
 
-/** The view of a role relation other than a closed whole entry, with the identity it is named by. */
-const viewOf = (
-	b: InstallBuilder,
-	cx: WorldsContext,
-	role: OwnedRole,
-	theory: Identity<"role">,
-	schema: string,
-	r: Exclude<RoleRelation, { readonly kind: "closed" }>
-): ViewPlan & { readonly named: Identity<"roleView"> } => {
-	const named = roleView(theory, r.entry)
-	const name = objectName(schema, b.name(named))
+/** A whole entry over a stored relation or a materialized derived relation: one a whole view reads. */
+type ViewedWhole = Extract<RoleRelation, { readonly kind: "stored" | "derived" }>
+
+/** The whole view of a relation a whole entry holds, named `name`: its table's every row and column, or its materialized
+ * view's. */
+const wholeViewOf = (b: InstallBuilder, name: ObjectName, r: ViewedWhole): ViewPlan => {
 	switch (r.kind) {
 		case "stored":
-			return {
-				named,
-				...wholeView(b, name, r.relation.name, r.relation.fields, b.readObject(r.relation.name))
-			}
+			return wholeView(b, name, r.relation.name, r.relation.fields, b.readObject(r.relation.name))
 		case "derived":
-			return {
-				named,
-				...wholeView(
-					b,
-					name,
-					r.entry.relation.name,
-					r.analysis.heading,
-					b.readObject(r.entry.relation.name)
-				)
-			}
-		case "world":
-			return { named, ...worldView(b, cx, role, name, r.entry, r.analysis) }
+			return wholeView(
+				b,
+				name,
+				r.entry.relation.name,
+				r.analysis.heading,
+				b.readObject(r.entry.relation.name)
+			)
 	}
+}
+
+/** A relation's whole view as the installation creates it, once, for every role holding the relation whole: its CREATE
+ * VIEW, its node, its columns, and its level's schema of whole views, by name and node. */
+interface WholeViewObject {
+	readonly create: Extract<SqlStatement, { readonly kind: "createView" }>
+	readonly node: Node<"publish">
+	readonly heading: ReadonlyArray<HeadingColumn>
+	readonly schema: { readonly name: string; readonly node: Node<"publish"> }
+}
+
+/**
+ * The whole views of the installation, by their relations' declared names: one per stored or materialized derived
+ * relation some role of `roles` holds whole, named as that role's names name it (names.ts RoleViewName `whole`), the
+ * relation's name in its level's schema of whole views, created once with that schema, owned by the owner. A whole view
+ * is its relation's alone, the same view whichever role holds it: every role holding the relation is granted SELECT on
+ * it (addRole), and no other.
+ */
+const addWholeViews = (
+	b: InstallBuilder,
+	roles: ReadonlyArray<CheckedRole>
+): ReadonlyMap<string, WholeViewObject> => {
+	const held = new Map<
+		string,
+		{
+			readonly relation: ViewedWhole
+			readonly view: Extract<RoleViewName, { readonly kind: "whole" }>
+		}
+	>()
+	for (const { views, checked } of roles) {
+		for (const r of checked.entries.map(roleRelation)) {
+			if ((r.kind !== "stored" && r.kind !== "derived") || held.has(r.entry.name)) {
+				continue
+			}
+			const view = views.get(r.entry.name)
+			if (view?.kind !== "whole") {
+				return missing(`physical: the whole entry ${r.entry.name} is named no whole view`)
+			}
+			held.set(r.entry.name, { relation: r, view })
+		}
+	}
+	const schemas = new Map<string, WholeViewObject["schema"]>()
+	const out = new Map<string, WholeViewObject>()
+	for (const [relation, { relation: r, view }] of [...held].toSorted(([x], [y]) =>
+		compareStrings(x, y)
+	)) {
+		const schemaName = b.name(view.schema)
+		const schema = schemas.getOrInsertComputed(schemaName, () => ({
+			name: schemaName,
+			node: b.add(
+				{
+					kind: "viewSchema",
+					ident: { kind: "schema", name: view.schema },
+					ddl: [{ kind: "createSchema", name: schemaName }],
+					reasons: [enforcement(`the whole views of ${view.schema.display}`)],
+					phase: "publish"
+				},
+				[]
+			)
+		}))
+		const plan = wholeViewOf(b, objectName(schemaName, b.name(view.name)), r)
+		const own = emptyUse()
+		columnDomains(b, plan.heading, own)
+		const node = b.add(
+			{
+				kind: "view",
+				ident: { kind: "view", schema: view.schema, name: view.name },
+				ddl: [plan.create],
+				reasons: [enforcement(`the whole view of ${relation}`)],
+				phase: "publish"
+			},
+			[schema.node, ...plan.reads, ...usedNodes(own)]
+		)
+		out.set(relation, { create: plan.create, node, heading: plan.heading, schema })
+	}
+	return out
 }
 
 /** A world function: a writable entry's filter function or one of its key and unique probes, its name and its object. */
@@ -940,11 +1009,13 @@ interface Writer {
 }
 
 /** What one role installs beyond its objects: whether it can name the vector type, its writable entries, whose
- * policies wait for every role's (`addRowSecurity`), and its schema and views, which PUBLIC holds nothing on. */
+ * policies wait for every role's (`addRowSecurity`), and its own schema and its query entries' views in it, none where it
+ * holds no query entry, which PUBLIC holds nothing on. */
 interface RoleOutcome {
 	readonly installed: InstalledRole
 	readonly vector: boolean
 	readonly writers: ReadonlyArray<Writer>
+	readonly schemas: ReadonlyArray<string>
 	readonly views: ReadonlyArray<ObjectName>
 }
 
@@ -1332,24 +1403,24 @@ const roleExecutes = (
 		]
 	})
 
-/** One role's theory role, schema, views, filter functions, key and unique probes and grants, and its writable entries,
- * whose policies `addRowSecurity` adds. A roster whole entry has no view: its handles are read as codes, typed by its
- * domain, which the role uses. The filter function a policy calls, then the probes, each come
- * after every relation, type and function their statements read. TEMPORARY on the database is among its grants where
- * its served workload creates a carrier (`carried`), with USAGE on each domain a carrier's column is typed by, and
- * EXECUTE on each function of `held`. */
+/** One role's theory role, its schema and query entries' views where it holds a query entry, its filter functions, key
+ * and unique probes and grants, and its writable entries, whose policies `addRowSecurity` adds. A whole entry is read
+ * through its relation's whole view (`whole`, addWholeViews), which the role is granted SELECT on, with USAGE on its
+ * schema. A roster whole entry has no view: its handles are read as codes, typed by its domain, which the role uses. The
+ * filter function a policy calls, then the probes, each come after every relation, type and function their statements
+ * read. TEMPORARY on the database is among its grants where its served workload creates a carrier (`carried`), with
+ * USAGE on each domain a carrier's column is typed by, and EXECUTE on each function of `held`. */
 const addRole = (
 	b: InstallBuilder,
 	cx: WorldsContext,
-	{ theory: named, checked }: CheckedRole,
+	{ theory: named, views: viewNames, checked }: CheckedRole,
+	whole: ReadonlyMap<string, WholeViewObject>,
 	login: { readonly role: string; readonly object: Node<"publish"> },
 	carried: RoleCarriers | undefined,
 	{ called: held, released }: Held
 ): RoleOutcome => {
 	const role = checked.world.role
 	const theory = b.name(named)
-	const schemaNamed = identity.roleSchema(named)
-	const schema = b.name(schemaNamed)
 	const why = [enforcement(`role ${role.name}`)]
 	const roleObject = b.add(
 		{
@@ -1371,16 +1442,6 @@ const addRole = (
 		},
 		[roleObject, login.object]
 	)
-	const schemaObject = b.add(
-		{
-			kind: "roleSchema",
-			ident: { kind: "schema", name: schemaNamed },
-			ddl: [{ kind: "createSchema", name: schema }],
-			reasons: why,
-			phase: "publish"
-		},
-		[]
-	)
 
 	const use = emptyUse()
 	const grants: Array<SqlStatement> = []
@@ -1389,8 +1450,7 @@ const addRole = (
 	const levels = b.names.levels.slice(0, role.base.levels.length)
 	const after: Array<Node<DeployPhase>> = [
 		roleObject,
-		...b.levelNodes.slice(0, role.base.levels.length),
-		schemaObject
+		...b.levelNodes.slice(0, role.base.levels.length)
 	]
 	const grantee: NonEmptyReadonlyArray<Grantee> = [{ kind: "role", name: theory }]
 	const grant = (privileges: NonEmptyReadonlyArray<Privilege>, on: Grant["on"]): Grant => ({
@@ -1400,31 +1460,83 @@ const addRole = (
 		to: grantee
 	})
 
-	const views: Array<ObjectName> = []
+	/** The views it reads, each its relation's whole view or its own query entry's, and the schemas they are in, by name:
+	 * each whole view's level's, then its own. */
+	const read: Array<ObjectName> = []
 	const viewStatements: Array<SqlStatement> = []
+	const viewSchemas = new Map<string, Node<"publish">>()
+	const queries: Array<Extract<RoleRelation, { readonly kind: "world" }>> = []
 	for (const r of checked.entries.map(roleRelation)) {
-		if (r.kind === "closed") {
-			columnDomains(b, r.relation.fields, use)
-			continue
+		switch (r.kind) {
+			case "closed":
+				columnDomains(b, r.relation.fields, use)
+				break
+			case "stored":
+			case "derived": {
+				const view = defined(whole.get(r.entry.name), `the whole view of ${r.entry.name}`)
+				columnDomains(b, view.heading, use)
+				read.push(view.create.name)
+				viewStatements.push(view.create)
+				viewSchemas.set(view.schema.name, view.schema.node)
+				after.push(view.node)
+				break
+			}
+			case "world":
+				queries.push(r)
+				break
 		}
-		const plan = viewOf(b, cx, role, named, schema, r)
-		const own = emptyUse()
-		columnDomains(b, plan.heading, own)
-		const view = b.add(
+	}
+	/** Its own schema, of its query entries' views, which it holds exactly when it holds a query entry. */
+	const ownSchema: Array<string> = []
+	const ownViews: Array<ObjectName> = []
+	if (isNonEmpty(queries)) {
+		const schemaNamed = identity.roleSchema(named)
+		const schema = b.name(schemaNamed)
+		const schemaObject = b.add(
 			{
-				kind: "view",
-				ident: { kind: "view", schema: schemaNamed, name: plan.named },
-				ddl: [plan.create],
+				kind: "viewSchema",
+				ident: { kind: "schema", name: schemaNamed },
+				ddl: [{ kind: "createSchema", name: schema }],
 				reasons: why,
 				phase: "publish"
 			},
-			[schemaObject, ...plan.reads, ...usedNodes(own)]
+			[]
 		)
-		columnDomains(b, plan.heading, use)
-		views.push(plan.create.name)
-		viewStatements.push(plan.create)
-		after.push(view)
+		viewSchemas.set(schema, schemaObject)
+		ownSchema.push(schema)
+		for (const r of queries) {
+			const name = viewNames.get(r.entry.name)
+			if (name?.kind !== "query") {
+				return missing(`physical: the query entry ${role.name}.${r.entry.name} is named no view`)
+			}
+			const plan = worldView(
+				b,
+				cx,
+				role,
+				objectName(schema, b.name(name.name)),
+				r.entry,
+				r.analysis
+			)
+			const columns = emptyUse()
+			columnDomains(b, plan.heading, columns)
+			const view = b.add(
+				{
+					kind: "view",
+					ident: { kind: "view", schema: schemaNamed, name: name.name },
+					ddl: [plan.create],
+					reasons: why,
+					phase: "publish"
+				},
+				[schemaObject, ...plan.reads, ...usedNodes(columns)]
+			)
+			columnDomains(b, plan.heading, use)
+			read.push(plan.create.name)
+			ownViews.push(plan.create.name)
+			viewStatements.push(plan.create)
+			after.push(view)
+		}
 	}
+	appendAll(after, viewSchemas.values())
 
 	const writers: Array<Writer> = []
 	const written = roleWrites(checked.world)
@@ -1526,7 +1638,10 @@ const addRole = (
 	const privileges: Array<SqlStatement> = [
 		grant(["USAGE"], {
 			kind: "SCHEMA",
-			names: appendNonEmpty<string>(levels.map(identifierOf), schema)
+			names: extendNonEmpty<string>(
+				[identifierOf(b.names.levels[0]), ...levels.slice(1).map(identifierOf)],
+				[...viewSchemas.keys()]
+			)
 		})
 	]
 	if (use.vector) {
@@ -1536,8 +1651,8 @@ const addRole = (
 	if (isNonEmpty(domains)) {
 		privileges.push(grant(["USAGE"], { kind: "DOMAIN", names: domains }))
 	}
-	if (isNonEmpty(views)) {
-		privileges.push(grant(["SELECT"], { kind: "TABLE", names: views }))
+	if (isNonEmpty(read)) {
+		privileges.push(grant(["SELECT"], { kind: "TABLE", names: read }))
 	}
 	if (isNonEmpty(refreshed)) {
 		privileges.push(grant(["MAINTAIN"], { kind: "TABLE", names: refreshed }))
@@ -1593,10 +1708,11 @@ const addRole = (
 		]
 	)
 	return {
-		installed: { name: role.name, role: theory, schema },
+		installed: { name: role.name, role: theory },
 		vector: use.vector,
 		writers,
-		views
+		schemas: ownSchema,
+		views: ownViews
 	}
 }
 
@@ -1604,6 +1720,7 @@ const addLogin = (
 	b: InstallBuilder,
 	cx: WorldsContext,
 	{ login, roles }: CheckedLogin,
+	whole: ReadonlyMap<string, WholeViewObject>,
 	carriers: ReadonlyArray<RoleCarriers>,
 	fenced: ReadonlyArray<string>,
 	held: (role: CheckedRole) => Held
@@ -1611,6 +1728,7 @@ const addLogin = (
 	readonly installed: InstalledLogin
 	readonly vector: boolean
 	readonly writers: RoleOutcome["writers"]
+	readonly schemas: ReadonlyArray<string>
 	readonly views: ReadonlyArray<ObjectName>
 } => {
 	const named = loginIdentity(levelIn(b.names.levels, login.base), login.name, login.loc)
@@ -1665,6 +1783,7 @@ const addLogin = (
 				b,
 				cx,
 				r,
+				whole,
 				{ role, object: roleObject },
 				carriers.find((c) => c.login === login.name && c.role === r.checked.world.role.name),
 				held(r)
@@ -1679,6 +1798,7 @@ const addLogin = (
 		},
 		vector: outcomes.some((o) => o.vector),
 		writers: outcomes.flatMap((o) => o.writers),
+		schemas: outcomes.flatMap((o) => o.schemas),
 		views: outcomes.flatMap((o) => o.views)
 	}
 }
@@ -1753,8 +1873,9 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
 	}
 }
 
-/** Worlds: the logins over a schema, their roles, each role's schema and views, grants and policies, the writable
- * entries' filter functions and key and unique probes, the logins' defaults, and the PUBLIC revokes.
+/** Worlds: the logins over a schema, their roles, the whole views of the relations they hold whole, each role's schema
+ * and query views, grants and policies, the writable entries' filter functions and key and unique probes, the logins'
+ * defaults, and the PUBLIC revokes.
  *
  * Every name is minted at the naming door under the installation's identity (`worldNames`): a login's and a role's
  * PostgreSQL roles are cluster-wide. Per login over the base, the Publish phase emits:
@@ -1780,17 +1901,22 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
  *   statement that is not an ALTER ROLE: it installs nothing, and a migration runs it whenever it stores a default
  *   after it.
  *
+ * Once for the installation (`addWholeViews`): for each stored or materialized derived relation some role holds whole,
+ * its whole view, `__<level>.<relation>`, in its level's schema of whole views, `CREATE SCHEMA __<level>`, each owned
+ * by the owner, so it reads reality as the owner: every row and column of its table (or its materialized view), which
+ * hides nothing, so it is a plain view, which PostgreSQL flattens into the reader's query, pushing its quals to the
+ * table's indexes and keeping SSI's read locks to the rows read. A whole view is its relation's alone, the same view
+ * whichever role holds it, so it is created once and granted to every role holding the relation whole.
+ *
  * Per role of a login:
  *
  * - `CREATE ROLE <role> NOLOGIN`, its theory role, and `GRANT <role> TO <login> WITH INHERIT FALSE, SET
  *   TRUE`: the login acts as the role only after SET ROLE, which each of the role's transactions does first;
- * - its schema, `CREATE SCHEMA <role schema>`, owned by the owner, and in it one view per role relation, owned by
- *   the owner, so it reads reality as the owner. A query entry's view is its definition, lowered by the derived
- *   definition lowering (`lowerDefinition`), which reads a context where it stands, `CREATE VIEW ... WITH (security_barrier)`, so no qual a reader adds runs before its own
- *   and no error such a qual raises shows a row outside it. A whole entry's view reads every row and column of its
- *   table (or its materialized view) and hides nothing, so it is a plain view, which PostgreSQL flattens into the
- *   reader's query, pushing its quals to the table's indexes and keeping SSI's read locks to the rows read. Every
- *   closed id column of a view is followed by its decoded column, `<field>_name`, its roster's names constant's element
+ * - where it holds a query entry, its schema, `CREATE SCHEMA <role schema>`, owned by the owner, and in it one view per
+ *   query entry, owned by the owner: its definition, lowered by the derived definition lowering (`lowerDefinition`),
+ *   which reads a context where it stands, `CREATE VIEW ... WITH (security_barrier)`, so no qual a reader adds runs
+ *   before its own and no error such a qual raises shows a row outside it. Every closed id column of a view, a whole
+ *   view's or a query entry's, is followed by its decoded column, `<field>_name`, its roster's names constant's element
  *   at the code plus one. A roster whole entry has no view: every query reads a roster's handles as codes;
  * - per writable entry on a table T under row security (below), one policy on T, named for the role and T, `FOR ALL TO
  *   <role> USING (m) WITH CHECK (m)`, where m is the entry's membership (`renderMembership`): TRUE for a whole entry
@@ -1811,10 +1937,12 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
  *   the fields the object reads: whether such a fact conflicts with the submitted values there, within
  *   the object's predicate. A write's precheck calls each for the facts it submits and refuses a collision with a
  *   hidden fact under the object's law, in the same statement;
- * - its privileges: USAGE on the base schema, on its own schema, on the vector extension's schema when a relation it
- *   reads or writes holds a vector column, and on the domains its relations' columns are typed by, down a contract's
- *   base chain, roster, bits and structural text domains alike, which a write's carriers name;
- *   SELECT on each of its views; MAINTAIN on the materialized view of each derived relation it refreshes, which
+ * - its privileges: USAGE on its base's levels' schemas, on the schema of whole views of each relation it holds whole,
+ *   on its own schema where it holds one, on the vector extension's schema when a relation it reads or writes holds a
+ *   vector column, and on the domains its relations' columns are typed by, down a contract's base chain, roster, bits
+ *   and structural text domains alike, which a write's carriers name; SELECT on the whole view of each relation it
+ *   holds whole and on each of its query entries' views, and on no other view: USAGE on a schema only resolves its
+ *   names, and PostgreSQL checks SELECT on each view's own grants, so what a role reads is exactly what it holds; MAINTAIN on the materialized view of each derived relation it refreshes, which
  *   REFRESH MATERIALIZED VIEW checks. For each writable entry on T: a whole entry's table SELECT, INSERT and DELETE,
  *   and UPDATE when its relation is mutable, so an UPDATE of an immutable relation is refused by privilege (immutable by
  *   default is pinned); a query entry's column SELECT and INSERT on T's fields (the head's, the fixed ones and those
@@ -1855,8 +1983,8 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
  * a narrowed entry on O that is not the members' translated filter. A table every writer of which holds every row has no
  * row security and no policy: each policy would be TRUE, and the grants already decide every write (`addRowSecurity`).
  *
- * For the schema as a whole: REVOKE ALL ... FROM PUBLIC on the base schema and every role's schema, every table and
- * view and every domain, and each constant in its own object, so PUBLIC holds nothing on any
+ * For the schema as a whole: REVOKE ALL ... FROM PUBLIC on every level's schema and every schema of views, every table
+ * and view and every domain, and each constant in its own object, so PUBLIC holds nothing on any
  * schema object; and
  * default-privilege resets so future objects grant nothing implicitly: ALTER DEFAULT PRIVILEGES FOR ROLE <owner> IN
  * SCHEMA <schema> REVOKE ALL ON TABLES and ON SEQUENCES FROM PUBLIC, and, because PostgreSQL adds per-schema default
@@ -1876,10 +2004,15 @@ export const addWorlds = (
 ): WorldsPlan => {
 	const logins = [...checkedLogins].toSorted((x, y) => compareStrings(x.login.name, y.login.name))
 	const cx = worldsContext(b)
+	const whole = addWholeViews(
+		b,
+		logins.flatMap((l) => l.roles)
+	)
 	const roleDefaults: Array<SqlStatement> = []
 	const searchDefaults: Array<SqlStatement> = []
 	const worlds: Array<InstalledLogin> = []
-	const views: Array<ObjectName> = []
+	const schemas = [...new Set([...whole.values()].map((v) => v.schema.name))]
+	const views = [...whole.values()].map((v) => v.create.name)
 	const writers: Array<Writer> = []
 	for (const login of logins) {
 		/** The functions a role calls: the stamp function of each head of a relation its grants let it insert into
@@ -1912,11 +2045,13 @@ export const addWorlds = (
 			b,
 			cx,
 			login,
+			whole,
 			carriers,
 			fences.find((f) => f.login === login.login.name)?.relations ?? [],
 			held
 		)
 		worlds.push(added.installed)
+		appendAll(schemas, added.schemas)
 		appendAll(views, added.views)
 		appendAll(writers, added.writers)
 		const settings = (list: ReadonlyArray<RoleSetting>): ReadonlyArray<SqlStatement> =>
@@ -1936,11 +2071,7 @@ export const addWorlds = (
 	}
 	return {
 		roleDefaults,
-		publicRevokes: publicRevokes(b, {
-			...revocable,
-			schemas: worlds.flatMap((l) => l.roles.map((r) => r.schema)),
-			views
-		}),
+		publicRevokes: publicRevokes(b, { ...revocable, schemas, views }),
 		worlds
 	}
 }
@@ -1953,7 +2084,8 @@ export interface Revocable {
 }
 
 /** PUBLIC holds no privilege on any schema object, and the owner's future objects grant it nothing: every level's
- * schema and every role's schema, every table and role view, and every domain. Each default-privilege reset is the
+ * schema, every schema of views, a level's of whole views and a role's of its query entries', every table and view, and
+ * every domain. Each default-privilege reset is the
  * current role's, the migration identity's, which owns everything the installation creates. */
 const publicRevokes = (
 	b: InstallBuilder,

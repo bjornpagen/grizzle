@@ -130,6 +130,14 @@ export interface ErasureExpectation {
 	readonly refreshes: ReadonlyMap<string, ReadonlySet<string>>
 	/** The query entries' views, `<world schema>.<view>`: the only security_barrier views. */
 	readonly barrierViews: ReadonlySet<string>
+	/** The world roles holding a query entry: the only ones whose own schema stands, of their query entries' views. */
+	readonly queryWorlds: ReadonlySet<string>
+	/**
+	 * Each relation's whole view, `<schema of whole views>.<view>`, with the world roles holding the relation whole: the
+	 * only views of a level's schema of whole views, each plain, granted SELECT to exactly those roles, its schema USAGE
+	 * to exactly the roles holding one of its views.
+	 */
+	readonly wholeViews: ReadonlyMap<string, ReadonlySet<string>>
 	/**
 	 * Whether the schema declares a closed relation, whose constants (each `__constant_<digest>`, named by its content)
 	 * the installation holds besides the rosters'.
@@ -337,6 +345,15 @@ export type ErasureProblem =
 	| { readonly kind: "barrierMissing"; readonly world: string; readonly view: string }
 	| { readonly kind: "barrierUnneeded"; readonly world: string; readonly view: string }
 	| { readonly kind: "worldMissing"; readonly role: string }
+	| { readonly kind: "worldViewUndeclared"; readonly world: string; readonly view: string }
+	| { readonly kind: "wholeViewUndeclared"; readonly view: string }
+	| { readonly kind: "wholeViewMissing"; readonly view: string }
+	| {
+			readonly kind: "wholeGrantMissing"
+			readonly object: CatalogObject
+			readonly role: string
+			readonly privilege: string
+	  }
 	| { readonly kind: "defaultAclMissing"; readonly objectType: "f" | "T" }
 	| {
 			readonly kind: "defaultAclPublic"
@@ -402,7 +419,7 @@ const columnGrants = (t: Table): ReadonlyArray<HeldGrant> =>
 
 /**
  * Every grant on an object of the installation: the schema, its relations and their columns, domains and functions,
- * and each world's schema and views.
+ * each world's schema and views, and each level's schema of whole views and its views.
  */
 const heldGrants = (catalog: Catalog): ReadonlyArray<HeldGrant> => [
 	...on({ kind: "schema", name: catalog.schema }, catalog.schemaGrants),
@@ -412,7 +429,7 @@ const heldGrants = (catalog: Catalog): ReadonlyArray<HeldGrant> => [
 	]),
 	...Arr.flatMap(catalog.domains, (d) => on({ kind: "domain", name: d.name }, d.grants)),
 	...Arr.flatMap(catalog.functions, (f) => on({ kind: "function", name: f.name }, f.grants)),
-	...Arr.flatMap(catalog.worlds, (w) => [
+	...Arr.flatMap([...catalog.worlds, ...catalog.wholes], (w) => [
 		...on({ kind: "world", name: w.name }, w.grants),
 		...Arr.flatMap(w.relations, (v) => on({ kind: "view", world: w.name, name: v.name }, v.grants))
 	])
@@ -887,13 +904,21 @@ const domainHolders = (j: Judging, domain: string, privilege: string): ReadonlyS
 		)
 	)
 
-/** The world roles whose views call the function `name`: each world's role is its schema's name. */
+/** The world roles whose views call the function `name`: each world's role is its schema's name, and each whole view's
+ * readers are the roles holding its relation whole. */
 const viewCallers = (j: Judging, name: string): ReadonlySet<string> =>
-	new Set(
-		Arr.flatMap(j.catalog.worlds, (w) =>
+	new Set([
+		...Arr.flatMap(j.catalog.worlds, (w) =>
 			Arr.some(w.relations, (v) => Arr.contains(v.calls, name)) ? [w.name] : []
+		),
+		...Arr.flatMap(j.catalog.wholes, (w) =>
+			Arr.flatMap(w.relations, (v) =>
+				Arr.contains(v.calls, name)
+					? [...(j.expect.wholeViews.get(`${w.name}.${v.name}`) ?? [])]
+					: []
+			)
 		)
-	)
+	])
 
 /** The world roles that insert into or update any of `tables`, whose CHECKs PostgreSQL evaluates as the invoker. */
 const tableWriters = (j: Judging, tables: ReadonlyArray<string>): ReadonlySet<string> =>
@@ -1241,7 +1266,9 @@ const worldViewProblems = (
 	v: World["relations"][number]
 ): ReadonlyArray<ErasureProblem> => {
 	const object: CatalogObject = { kind: "view", world: w.name, name: v.name }
-	const barrier = j.expect.barrierViews.has(`${w.name}.${v.name}`)
+	if (!j.expect.barrierViews.has(`${w.name}.${v.name}`)) {
+		return [{ kind: "worldViewUndeclared", world: w.name, view: v.name }]
+	}
 	return [
 		...unless(v.kind === "v", {
 			kind: "worldRelationKind",
@@ -1250,12 +1277,11 @@ const worldViewProblems = (
 			relkind: v.kind
 		}),
 		...unless(v.owner === j.owner, { kind: "misowned", object, owner: v.owner }),
-		...unless(
-			Arr.contains(v.options, "security_barrier=true") === barrier,
-			barrier
-				? { kind: "barrierMissing", world: w.name, view: v.name }
-				: { kind: "barrierUnneeded", world: w.name, view: v.name }
-		),
+		...unless(Arr.contains(v.options, "security_barrier=true"), {
+			kind: "barrierMissing",
+			world: w.name,
+			view: v.name
+		}),
 		...Arr.flatMap(v.grants, (g) =>
 			unless(g.grantee === j.owner || (g.grantee === w.name && g.privilege === "SELECT"), {
 				kind: "strayWorldGrant",
@@ -1268,11 +1294,12 @@ const worldViewProblems = (
 }
 
 /**
- * A world is a schema of its role, owned by the owner, holding only views (a query entry's security_barrier, a whole
- * entry's plain) and granting USAGE on itself and SELECT on its views to its own role alone.
+ * A world is a schema of a role holding a query entry, owned by the owner, holding only its query entries' views, each
+ * security_barrier, and granting USAGE on itself and SELECT on its views to its own role alone. A schema of a role that
+ * holds no query entry, or of no role, is an orphan.
  */
 const worldProblems = (j: Judging, w: World): ReadonlyArray<ErasureProblem> => {
-	if (!j.worldRoles.has(w.name)) {
+	if (!j.expect.queryWorlds.has(w.name)) {
 		return [{ kind: "orphanWorld", world: w.name }]
 	}
 	const object: CatalogObject = { kind: "world", name: w.name }
@@ -1293,6 +1320,71 @@ const worldProblems = (j: Judging, w: World): ReadonlyArray<ErasureProblem> => {
 		})),
 		...Arr.map(w.types, (t): ErasureProblem => ({ kind: "worldType", world: w.name, type: t })),
 		...Arr.flatMap(w.relations, (v) => worldViewProblems(j, w, v))
+	]
+}
+
+/**
+ * A level's schema of whole views is owned by the owner and holds only whole views, each a plain view owned by the
+ * owner (it hides nothing) of a relation some world role holds whole; it grants USAGE on itself to exactly the roles
+ * holding one of its views, and SELECT on each view to exactly the roles holding its relation whole.
+ */
+const wholeProblems = (j: Judging, w: World): ReadonlyArray<ErasureProblem> => {
+	const object: CatalogObject = { kind: "world", name: w.name }
+	const readersOf = (view: string): ReadonlySet<string> =>
+		j.expect.wholeViews.get(`${w.name}.${view}`) ?? new Set()
+	const users = new Set(Arr.flatMap(w.relations, (v) => [...readersOf(v.name)]))
+	/** The grants of `on`, each the owner's or `privilege` to one of `holders`, and each of `holders` granted it. */
+	const granted = (
+		on: CatalogObject,
+		grants: ReadonlyArray<CatalogGrant>,
+		privilege: string,
+		holders: ReadonlySet<string>
+	): ReadonlyArray<ErasureProblem> => [
+		...Arr.flatMap(grants, (g) =>
+			unless(g.grantee === j.owner || (g.privilege === privilege && holders.has(g.grantee)), {
+				kind: "strayWorldGrant",
+				object: on,
+				grantee: g.grantee,
+				privilege: g.privilege
+			})
+		),
+		...Arr.flatMap([...holders], (role) =>
+			unless(
+				Arr.some(grants, (g) => g.grantee === role && g.privilege === privilege),
+				{ kind: "wholeGrantMissing", object: on, role, privilege }
+			)
+		)
+	]
+	return [
+		...unless(w.owner === j.owner, { kind: "misowned", object, owner: w.owner }),
+		...granted(object, w.grants, "USAGE", users),
+		...Arr.map(w.functions, (f): ErasureProblem => ({
+			kind: "worldFunction",
+			world: w.name,
+			function: f
+		})),
+		...Arr.map(w.types, (t): ErasureProblem => ({ kind: "worldType", world: w.name, type: t })),
+		...Arr.flatMap(w.relations, (v): ReadonlyArray<ErasureProblem> => {
+			const view: CatalogObject = { kind: "view", world: w.name, name: v.name }
+			if (!j.expect.wholeViews.has(`${w.name}.${v.name}`)) {
+				return [{ kind: "wholeViewUndeclared", view: `${w.name}.${v.name}` }]
+			}
+			return [
+				...unless(v.kind === "v", {
+					kind: "worldRelationKind",
+					world: w.name,
+					relation: v.name,
+					relkind: v.kind
+				}),
+				...unless(v.owner === j.owner, { kind: "misowned", object: view, owner: v.owner }),
+				...unless(!Arr.contains(v.options, "security_barrier=true"), {
+					kind: "barrierUnneeded",
+					world: w.name,
+					view: v.name
+				}),
+				...granted(view, v.grants, "SELECT", readersOf(v.name))
+			]
+		})
 	]
 }
 
@@ -1367,9 +1459,13 @@ const defaultAclProblems = (j: Judging): ReadonlyArray<ErasureProblem> => [
  *   policies: one per world role that writes the table, a permissive FOR ALL policy named after that role, whose USING
  *   and WITH CHECK are one predicate, `true` for a role whose entry holds every row; a table every world writes whole
  *   has neither, its grants alone deciding its writes;
- * - every world `<schema>__<role>` is a schema owned by the owner that holds only views, each owned by the owner, a
- *   query entry's a security_barrier view and a whole entry's a plain one (it hides nothing), and grants USAGE on
- *   itself and SELECT on its views to its own role alone;
+ * - every world `<schema>__<role>` is the schema of a role holding a query entry, owned by the owner, that holds only
+ *   its query entries' views, each owned by the owner and security_barrier, and grants USAGE on itself and SELECT on
+ *   its views to its own role alone; a schema of a role holding none stands nowhere;
+ * - every level's schema of whole views, `__<level>`, is owned by the owner and holds only the whole views of its
+ *   relations some world role holds whole, each plain (it hides nothing) and owned by the owner, granting SELECT on
+ *   each to exactly the roles holding its relation whole and USAGE on itself to exactly the roles holding one of its
+ *   views, so a role reads exactly the relations it holds;
  * - every declared login and world role is installed, and none holds an elevated attribute (SUPERUSER, CREATEDB,
  *   CREATEROLE, REPLICATION, BYPASSRLS); every login logs in, inherits nothing by default, stores no setting for this
  *   database alone, is a member of exactly its own worlds' roles, each WITH INHERIT FALSE, SET TRUE and no ADMIN, and
@@ -1447,10 +1543,19 @@ export const verifyErasure = (
 			)
 		),
 		...Arr.flatMap(catalog.worlds, (w) => worldProblems(j, w)),
-		...Arr.flatMap([...j.worldRoles], (role) =>
+		...Arr.flatMap([...expect.queryWorlds], (role) =>
 			unless(
 				Arr.some(catalog.worlds, (w) => w.name === role),
 				{ kind: "worldMissing", role }
+			)
+		),
+		...Arr.flatMap(catalog.wholes, (w) => wholeProblems(j, w)),
+		...Arr.flatMap([...expect.wholeViews.keys()], (view) =>
+			unless(
+				Arr.some(catalog.wholes, (w) =>
+					Arr.some(w.relations, (v) => `${w.name}.${v.name}` === view)
+				),
+				{ kind: "wholeViewMissing", view }
 			)
 		),
 		...defaultAclProblems(j)

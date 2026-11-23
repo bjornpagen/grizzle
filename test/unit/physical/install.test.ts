@@ -5,7 +5,7 @@
  * - **Install order:** the manifest is the install order: phases in order, every edge from an earlier object to a later
  *   one, and each object kind after the kinds PostgreSQL needs before it, as the model of object kinds states them (the
  *   namespace before what it holds, types before tables, tables before what refers to or is built on them, a role
- *   before its memberships, its schema, its policies and its privileges, a role's schema before its views); every
+ *   before its memberships, its policies and its privileges, a schema of views before its views); every
  *   object needed and justified, and every constraint or index justified by a law or a program, but for the CHECKs
  *   that enforce a span or vector column's own type. The model is total over src's PhysicalKind by the union itself, so
  *   a new kind is a compile error here until its place is stated.
@@ -17,8 +17,8 @@
  *   refuses (its own, or a conversion PostgreSQL reserves with pg_) is refused at its declaration, IdentifierTooLong for
  *   a conversion past 63 bytes and MalformedDescription for any other; only an admitted
  *   identifier (plain lowercase, at most 63 bytes, outside pg_, drawn up to that bound) names the vector schema or the
- *   extension schema, which lies outside the installed one; the installation's roles never take a schema
- *   it names, and its relations lie in the installed schema.
+ *   extension schema, which lies outside the installed one; no schema the installation creates takes a
+ *   schema it names, and its relations lie in the installed schema.
  *
  * What the installed catalog holds is PostgreSQL's to judge, in the database suites.
  *
@@ -307,9 +307,9 @@ export const theFreshInstallationNamesItsSchemaVectorSchemaAndExtensionSchemaByA
 						})),
 						[{ name: login.name, roles: Arr.map(login.roles, (r) => r.name) }]
 					)
-					for (const w of i.worlds) {
-						for (const r of w.roles) {
-							assert.ok(![schema, ...named].includes(r.schema), r.schema)
+					for (const created of i.statements) {
+						if (created.kind === "createSchema" && created.name !== schema) {
+							assert.ok(!named.includes(created.name), created.name)
 						}
 					}
 					for (const r of work.WorkDesc.relations) {

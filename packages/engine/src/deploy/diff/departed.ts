@@ -9,7 +9,7 @@ import type { ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
  * before any departure is drafted: a function, a key or CHECK or foreign key, a trigger, a policy, an index, a
  * statistics object, a view, a materialized view (whose rows its definition computes again), a domain, a composite
  * type, a generated column (a law column, which PostgreSQL computes from its row), a table's row security or replica
- * identity, a role's schema, the database default an installation of format 7 or before set,
+ * identity, a schema of views, the database default an installation of format 7 or before set,
  * default_transaction_isolation serializable, which grizzle no longer sets and which its departure resets, and a
  * replication slot a leader of format 7 or before made in the database, named by its decoder login, which no leader of
  * this grizzle reads or drops and which holds its WAL while it stands.

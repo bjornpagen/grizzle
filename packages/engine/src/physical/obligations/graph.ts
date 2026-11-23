@@ -35,7 +35,7 @@ import {
 
 /** A graph identity as the manifest spells it, the key of an object in the manifest: `<kind>:<name>` for a schema, an
  * extension, a role, a role's membership in its login or a role's privileges; `<kind>:<schema>.<name>` for an object
- * of a schema, a role schema's view among them, and for a table's row security; `<kind>:<schema>.<relation>.<name>` for
+ * of a schema, a view in a schema of views among them, and for a table's row security; `<kind>:<schema>.<relation>.<name>` for
  * a column, a constraint, a trigger or a policy of a relation. PostgreSQL never sees them. The graph spells its nodes'
  * identities (`NodeIdent`) through `identText`, the snapshot's own objects through namedIdent, qualifiedIdent and
  * innerIdent, and a manifest read back is parsed through parseIdent, so the format has one spelling. Any other

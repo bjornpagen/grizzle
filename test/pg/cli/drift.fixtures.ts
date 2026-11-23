@@ -17,7 +17,7 @@ type Planted =
 	| "a role's setting"
 	| "a role's attribute"
 	| "a membership granted"
-	| "a table in a role's schema"
+	| "a table in a schema of views"
 	| "a TEMPORARY grant revoked"
 	| "a TEMPORARY grant beyond the snapshot"
 
@@ -38,7 +38,7 @@ const plantsOf = (each: () => Option.Option<Picks>): Plants => ({
 	"a role's setting": each(),
 	"a role's attribute": each(),
 	"a membership granted": each(),
-	"a table in a role's schema": each(),
+	"a table in a schema of views": each(),
 	"a TEMPORARY grant revoked": each(),
 	"a TEMPORARY grant beyond the snapshot": each()
 })
@@ -77,7 +77,7 @@ export interface DriftNames {
 	readonly viewer: string
 	readonly keeper: string
 	readonly login: string
-	readonly roleSchemas: Arr.NonEmptyReadonlyArray<string>
+	readonly viewSchemas: Arr.NonEmptyReadonlyArray<string>
 }
 
 /** The installation's roles and its login an operator picks among, by their fields of DriftNames, in pick order. */
@@ -151,7 +151,7 @@ export const changeOf = (kind: Planted, [first, second, third]: Picks, n: DriftN
 			case "a view's security barrier": {
 				const rows = yield* admin.queryValues(
 					"SELECT s.nspname::text, c.relname::text, coalesce(array_to_string(c.reloptions, ','), '') FROM pg_catalog.pg_class AS c JOIN pg_catalog.pg_namespace AS s ON s.oid = c.relnamespace WHERE s.nspname = ANY ($1::text[]) AND c.relkind = 'v' ORDER BY 1, 2",
-					[n.roleSchemas]
+					[n.viewSchemas]
 				)
 				const row = picked(rows, first, "a view of a role")
 				const view = column(row, 1)
@@ -201,7 +201,7 @@ export const changeOf = (kind: Planted, [first, second, third]: Picks, n: DriftN
 			case "a function's volatility": {
 				const rows = yield* admin.queryValues(
 					"SELECT p.oid::regprocedure::text, p.proname::text, p.provolatile::text FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS s ON s.oid = p.pronamespace WHERE s.nspname = ANY ($1::text[]) AND p.prokind = 'f' AND p.provolatile <> 'i' ORDER BY 2, 1",
-					[[...n.roleSchemas, n.schema]]
+					[[...n.viewSchemas, n.schema]]
 				)
 				const row = picked(rows, first, "a function a world reads")
 				const signature = column(row, 0)
@@ -295,8 +295,8 @@ export const changeOf = (kind: Planted, [first, second, third]: Picks, n: DriftN
 				}
 				return change
 			}
-			case "a table in a role's schema": {
-				const stray = `${quoteIdent(pickFrom(n.roleSchemas, first))}.${quoteIdent("stray_by_hand")}`
+			case "a table in a schema of views": {
+				const stray = `${quoteIdent(pickFrom(n.viewSchemas, first))}.${quoteIdent("stray_by_hand")}`
 				const change: Change = {
 					plant: [`CREATE TABLE ${stray} (a int4)`],
 					undo: [`DROP TABLE ${stray}`],

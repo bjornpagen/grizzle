@@ -199,11 +199,14 @@ export const membershipOf = (
 }
 
 /**
- * A role's world object: what kind it is, where it stands among the installation's statements, and the relations its
- * statement reads, of which it waits for each.
+ * A world object: what kind it is (a query entry's view, a relation's whole view, a policy or a world function), the role
+ * whose names name it (its own, or, for a whole view, the first role holding its relation whole, whose names name the one
+ * whole view every holder reads), where it stands among the installation's statements, and the relations its statement
+ * reads, of which it waits for each.
  */
 interface WorldObject {
-	readonly kind: "view" | "policy" | "function"
+	readonly kind: "view" | "whole" | "policy" | "function"
+	readonly role: string
 	readonly locus: WorldLocus
 	readonly reads: ReadonlyArray<string>
 }
@@ -248,167 +251,195 @@ const readsOf = (
 	Arr.sort(new Set([...(entry === undefined ? [] : entryReads(entry)), ...target]), Order.String)
 
 /**
- * A role's world object as an installation installs it, which a migration creates again exactly where it changes:
- * the statement PostgreSQL holds of it (compiled.ts heldStatement), which says whatever its compile proves, and what it
+ * A world object as an installation installs it, which a migration creates again exactly where it changes: the
+ * statement PostgreSQL holds of it (compiled.ts heldStatement), which says whatever its compile proves, and what it
  * waits for of each relation it reads (readOf), by name.
  */
-const definitionOf = (install: InstallSpec, role: string, o: WorldObject): unknown => ({
-	statement: heldStatement(install, role, o.locus),
+const definitionOf = (install: InstallSpec, o: WorldObject): unknown => ({
+	statement: heldStatement(install, o.role, o.locus),
 	reads: Arr.map(o.reads, (name) => [name, readOf(install.base, name)])
 })
 
-/** Whether a world object of a role an installation and its next both hold is installed alike in each (definitionOf). */
+/** Whether a world object an installation and its next both hold is installed alike in each (definitionOf). */
 const sameObject = (
 	from: InstallSpec,
 	to: InstallSpec,
-	role: string,
 	before: WorldObject,
 	after: WorldObject
-): boolean => samePlain(definitionOf(from, role, before), definitionOf(to, role, after))
+): boolean => samePlain(definitionOf(from, before), definitionOf(to, after))
+
+/** Whether a relation is a closed roster, which a whole entry of has no view: every query reads its handles as codes. */
+const closedRoster = (install: InstallSpec, relation: string): boolean =>
+	Arr.some(install.base.closed, (c) => c.name === relation)
+
+/** Whether a role holds a query entry: the installation creates its schema exactly then, of its query entries' views. */
+const holdsQuery = (install: InstallSpec, role: string): boolean =>
+	Arr.some(Rec.values(roleOf(install, role)?.entries ?? {}), (e) => e.kind === "query")
+
+/** Whether the base's schema of whole views stands: some role holds a relation whole, a closed roster aside. */
+const wholesStand = (install: InstallSpec): boolean =>
+	Arr.some(install.roles, (r) =>
+		Arr.some(Rec.values(r.entries), (e) => e.kind === "whole" && !closedRoster(install, e.relation))
+	)
 
 /**
- * The world objects of a role (packages/engine/src/physical/ddl/roles.ts, names.ts), each by an identity that differs exactly
- * when the object or its grant does, where it stands and what it reads (WorldObject): its view of each role relation,
- * named by a whole entry's table and a query entry's name (a closed roster held whole has none), reading what the entry
- * reads; its policy on each table it writes that has row security (rowSecured), named as the role, reading what the
- * entry it writes through reads and the table; the key probe of a written query entry for each key of its target, named
- * by the entry and the key's fields and typed by their base types; and the filter function of a written query entry
- * whose membership reads a stored relation besides its target's row, typed by the target fields the membership reads;
- * each function reading what its entry reads and its target. A role the installation lacks has none. A migration's Structure file drops the ones it changes or removes and creates the changed ones again
- * with their grants, for each role the installation already holds, and creates every new world function (a new role's
- * views and policies wait for its schema and role, in Publish).
+ * The world objects of an installation (packages/engine/src/physical/ddl/roles.ts, names.ts), each by an identity that
+ * differs exactly when the object or its grant does, what it is, where it stands and what it reads (WorldObject):
+ * the whole view of each relation some role holds whole (a closed roster held whole has none), once, `whole <relation>`,
+ * reading the relation; and for each role, under its name: its view of each query entry, named by the entry, reading
+ * what the entry reads; its policy on each table it writes that has row security (rowSecured), named by the table,
+ * reading what the entry it writes through reads and the table; the key probe of a written query entry for each key of
+ * its target, named by the entry and the key's fields and typed by their base types; and the filter function of a
+ * written query entry whose membership reads a stored relation besides its target's row, typed by the target fields the
+ * membership reads; each function reading what its entry reads and its target. A migration's Structure file drops the
+ * ones it changes or removes and creates the changed ones again with their grants, each where its schema or role stood
+ * before (standsWithin), and creates every new world function (the others wait for their schema or role, in Publish).
  */
-const worldObjects = (install: InstallSpec, role: string): ReadonlyMap<string, WorldObject> => {
-	const spec = roleOf(install, role)
-	if (spec === undefined) {
-		return new Map()
-	}
+const worldObjects = (install: InstallSpec): ReadonlyMap<string, WorldObject> => {
 	const base = install.base
-	const views = Arr.flatMap(
-		Rec.toEntries(spec.entries),
-		([name, entry]): ReadonlyArray<readonly [string, WorldObject]> =>
-			entry.kind === "query"
-				? [
-						[
-							`view ${name}`,
-							{ kind: "view", locus: { kind: "view", relation: name }, reads: readsOf(entry, []) }
-						]
-					]
-				: Arr.some(base.closed, (c) => c.name === entry.relation)
-					? []
-					: [
-							[
-								`view ${entry.relation}`,
-								{
-									kind: "view",
-									locus: { kind: "view", relation: entry.relation },
-									reads: readsOf(entry, [])
-								}
-							]
-						]
-	)
-	const written = writtenOf(base, spec)
-	const policies = Arr.map(
-		Arr.filter(written, (w) => rowSecured(install, w.target)),
-		(w): readonly [string, WorldObject] => [
-			`policy ${w.target}`,
-			{
-				kind: "policy",
-				locus: { kind: "policy", target: w.target },
-				reads: readsOf(spec.entries[w.entry], [w.target])
+	const wholes = new Map<string, WorldObject>()
+	for (const r of install.roles) {
+		for (const entry of Rec.values(r.entries)) {
+			if (
+				entry.kind === "whole" &&
+				!closedRoster(install, entry.relation) &&
+				!wholes.has(`whole ${entry.relation}`)
+			) {
+				wholes.set(`whole ${entry.relation}`, {
+					kind: "whole",
+					role: r.name,
+					locus: { kind: "view", relation: entry.relation },
+					reads: readsOf(entry, [])
+				})
 			}
-		]
-	)
-	const functions = Arr.flatMap(written, (w): ReadonlyArray<readonly [string, WorldObject]> => {
-		const target = relationSpecOf(base, w.target)
-		if (w.kind !== "query" || target === undefined) {
-			return []
 		}
-		const typed = (fields: ReadonlyArray<string>): string =>
-			Arr.join(
-				Arr.map(fields, (f) => {
-					const field = Option.getOrUndefined(Arr.findFirst(target.fields, (x) => x.name === f))
-					return field === undefined ? "?" : baseTypeOf(field.domain)
-				}),
-				","
+	}
+	const roles = Arr.flatMap(
+		install.roles,
+		(spec): ReadonlyArray<readonly [string, WorldObject]> => {
+			const role = spec.name
+			const views = Arr.flatMap(
+				Rec.toEntries(spec.entries),
+				([name, entry]): ReadonlyArray<readonly [string, WorldObject]> =>
+					entry.kind === "query"
+						? [
+								[
+									`${role} view ${name}`,
+									{
+										kind: "view",
+										role,
+										locus: { kind: "view", relation: name },
+										reads: readsOf(entry, [])
+									}
+								]
+							]
+						: []
 			)
-		const reads = readsOf(spec.entries[w.entry], [w.target])
-		const probes = Arr.map(keysOf(base, w.target), (key): readonly [string, WorldObject] => [
-			`probe ${w.entry} ${Arr.join(key, ",")} (${typed(key)})`,
-			{ kind: "function", locus: { kind: "key-probe", entry: w.entry, key }, reads }
-		])
-		const membership = membershipOf(base, w.rules, target)
-		return [
-			...probes,
-			...(membership !== undefined && filterReadsStored(w.rules)
-				? [
-						[
-							`filter ${w.entry} (${typed(membership)})`,
-							{ kind: "function", locus: { kind: "filter", entry: w.entry }, reads }
-						] as const
-					]
-				: [])
-		]
-	})
-	return new Map([...views, ...policies, ...functions])
+			const written = writtenOf(base, spec)
+			const policies = Arr.map(
+				Arr.filter(written, (w) => rowSecured(install, w.target)),
+				(w): readonly [string, WorldObject] => [
+					`${role} policy ${w.target}`,
+					{
+						kind: "policy",
+						role,
+						locus: { kind: "policy", target: w.target },
+						reads: readsOf(spec.entries[w.entry], [w.target])
+					}
+				]
+			)
+			const functions = Arr.flatMap(written, (w): ReadonlyArray<readonly [string, WorldObject]> => {
+				const target = relationSpecOf(base, w.target)
+				if (w.kind !== "query" || target === undefined) {
+					return []
+				}
+				const typed = (fields: ReadonlyArray<string>): string =>
+					Arr.join(
+						Arr.map(fields, (f) => {
+							const field = Option.getOrUndefined(Arr.findFirst(target.fields, (x) => x.name === f))
+							return field === undefined ? "?" : baseTypeOf(field.domain)
+						}),
+						","
+					)
+				const reads = readsOf(spec.entries[w.entry], [w.target])
+				const probes = Arr.map(keysOf(base, w.target), (key): readonly [string, WorldObject] => [
+					`${role} probe ${w.entry} ${Arr.join(key, ",")} (${typed(key)})`,
+					{ kind: "function", role, locus: { kind: "key-probe", entry: w.entry, key }, reads }
+				])
+				const membership = membershipOf(base, w.rules, target)
+				return [
+					...probes,
+					...(membership !== undefined && filterReadsStored(w.rules)
+						? [
+								[
+									`${role} filter ${w.entry} (${typed(membership)})`,
+									{ kind: "function", role, locus: { kind: "filter", entry: w.entry }, reads }
+								] as const
+							]
+						: [])
+				]
+			})
+			return [...views, ...policies, ...functions]
+		}
+	)
+	return new Map([...wholes, ...roles])
 }
 
 /**
- * Whether a folder drafted from one installation to another holds a world statement in Structure: a role the
- * installation holds whose world objects the folder drops, defines anew or creates (a dropped role's all go), or a world
- * function a role the folder creates calls (worldObjects).
+ * Whether a migration from `from` creates a world object anew in Structure (packages/engine/src/deploy/diff/diff.ts
+ * worldWithin): a view where its schema stood before it, its role's schema for a query entry's, the schema of whole
+ * views for a whole one; a policy where its role stood; and every world function, which names no role.
  */
-export const changesWorlds = (from: InstallSpec, to: InstallSpec): boolean =>
-	Arr.some(
-		[...new Set([...Arr.map(from.roles, (r) => r.name), ...Arr.map(to.roles, (r) => r.name)])],
-		(role) => {
-			const before = worldObjects(from, role)
-			const after = worldObjects(to, role)
-			const held = roleOf(from, role) !== undefined
-			return (
-				Arr.some([...before], ([identity, o]) => {
-					const now = after.get(identity)
-					return now === undefined || !sameObject(from, to, role, o, now)
-				}) ||
-				Arr.some(
-					[...after],
-					([identity, o]) => !before.has(identity) && (held || o.kind === "function")
-				)
-			)
-		}
+const standsWithin = (from: InstallSpec, o: WorldObject): boolean => {
+	switch (o.kind) {
+		case "view":
+			return holdsQuery(from, o.role)
+		case "whole":
+			return wholesStand(from)
+		case "policy":
+			return roleOf(from, o.role) !== undefined
+		case "function":
+			return true
+	}
+}
+
+/**
+ * Whether a folder drafted from one installation to another holds a world statement in Structure: a world object the
+ * folder drops, defines anew or creates again, or one it creates anew where its schema or role stood (standsWithin).
+ */
+export const changesWorlds = (from: InstallSpec, to: InstallSpec): boolean => {
+	const before = worldObjects(from)
+	const after = worldObjects(to)
+	return (
+		Arr.some([...before], ([identity, o]) => {
+			const now = after.get(identity)
+			return now === undefined || !sameObject(from, to, o, now)
+		}) || Arr.some([...after], ([identity, o]) => !before.has(identity) && standsWithin(from, o))
 	)
+}
 
 /**
  * Whether a folder creates a world function, a role's filter or key probe, anew or again under a new definition: a
- * function is named by a digest (core/identity.ts), whose COMMENT the diff writes in Publish, where a view a held role's
- * world creates again, of a readable name, is written whole in Structure (worldObjects).
+ * function is named by a digest (core/identity.ts), whose COMMENT the diff writes in Publish, where a view, of a readable
+ * name, is written whole in Structure (worldObjects).
  */
-export const createsWorldFunction = (from: InstallSpec, to: InstallSpec): boolean =>
-	Arr.some(
-		[...new Set([...Arr.map(from.roles, (r) => r.name), ...Arr.map(to.roles, (r) => r.name)])],
-		(role) => {
-			const before = worldObjects(from, role)
-			return Arr.some([...worldObjects(to, role)], ([identity, o]) => {
-				const was = before.get(identity)
-				return o.kind === "function" && (was === undefined || !sameObject(from, to, role, was, o))
-			})
-		}
-	)
-
-/** Whether a migration drops a role's world object, or creates it again under a definition of its new installation. */
-const rewritten = (from: InstallSpec, to: InstallSpec, role: string, identity: string): boolean => {
-	const before = worldObjects(from, role).get(identity)
-	const after = worldObjects(to, role).get(identity)
-	return before !== undefined && (after === undefined || !sameObject(from, to, role, before, after))
+export const createsWorldFunction = (from: InstallSpec, to: InstallSpec): boolean => {
+	const before = worldObjects(from)
+	return Arr.some([...worldObjects(to)], ([identity, o]) => {
+		const was = before.get(identity)
+		return o.kind === "function" && (was === undefined || !sameObject(from, to, was, o))
+	})
 }
 
-/**
- * The world object of a function a perturbation changed: a role's filter or key probe.
- */
-const functionObject = (
-	install: InstallSpec,
-	fn: WorldFunction
-): { readonly role: string; readonly identity: string } | undefined => {
+/** Whether a migration drops a world object, or creates it again under a definition of its new installation. */
+const rewritten = (from: InstallSpec, to: InstallSpec, identity: string): boolean => {
+	const before = worldObjects(from).get(identity)
+	const after = worldObjects(to).get(identity)
+	return before !== undefined && (after === undefined || !sameObject(from, to, before, after))
+}
+
+/** The identity of the world object of a function a perturbation changed: a role's filter or key probe. */
+const functionObject = (install: InstallSpec, fn: WorldFunction): string | undefined => {
 	const base = install.base
 	switch (fn.kind) {
 		case "filter":
@@ -417,32 +448,28 @@ const functionObject = (
 			const prefixOf = (role: RoleSpec): string | undefined => {
 				switch (fn.kind) {
 					case "filter":
-						return `filter ${fn.entry} (`
+						return `${fn.role} filter ${fn.entry} (`
 					case "key-probe": {
 						const key = probeOf(base, role, fn)?.key
-						return key === undefined ? undefined : `probe ${fn.entry} ${Arr.join(key, ",")} (`
+						return key === undefined
+							? undefined
+							: `${fn.role} probe ${fn.entry} ${Arr.join(key, ",")} (`
 					}
 				}
 			}
 			const prefix = spec === undefined ? undefined : prefixOf(spec)
-			const identity =
-				prefix === undefined
-					? undefined
-					: Option.getOrUndefined(
-							Arr.findFirst([...worldObjects(install, fn.role).keys()], (i) =>
-								Str.startsWith(prefix)(i)
-							)
-						)
-			return identity === undefined ? undefined : { role: fn.role, identity }
+			return prefix === undefined
+				? undefined
+				: Option.getOrUndefined(
+						Arr.findFirst([...worldObjects(install).keys()], (i) => Str.startsWith(prefix)(i))
+					)
 		}
 	}
 }
 
-/** The identity of the world object of an installation a perturbation changed (worldObjects), if it changed one. */
-const perturbedObject = (
-	install: InstallSpec,
-	p: CatalogPerturbation
-): { readonly role: string; readonly identity: string } | undefined => {
+/** The identity of the world object of an installation a perturbation changed (worldObjects), if it changed one: a
+ * redefined whole entry's view is its relation's whole view, which every holder reads. */
+const perturbedObject = (install: InstallSpec, p: CatalogPerturbation): string | undefined => {
 	const base = install.base
 	switch (p.kind) {
 		case "policy-dropped":
@@ -451,16 +478,15 @@ const perturbedObject = (
 			const w = spec === undefined ? undefined : writtenNamed(base, spec, p.entry)
 			return w === undefined || !rowSecured(install, w.target)
 				? undefined
-				: { role: p.role, identity: `policy ${w.target}` }
+				: `${p.role} policy ${w.target}`
 		}
 		case "view-redefined": {
 			const entry = roleOf(install, p.role)?.entries[p.entry]
 			return entry === undefined
 				? undefined
-				: {
-						role: p.role,
-						identity: entry.kind === "query" ? `view ${p.entry}` : `view ${entry.relation}`
-					}
+				: entry.kind === "query"
+					? `${p.role} view ${p.entry}`
+					: `whole ${entry.relation}`
 		}
 		case "function-redefined":
 		case "search-path-altered":
@@ -569,17 +595,19 @@ const revokedWith = (
 
 /**
  * What an installation revokes from PUBLIC (packages/engine/src/physical/ddl/roles.ts publicRevokes), as far as it
- * varies, each object by its kind and name: its schemas (one per role), tables and views, enums and domains.
+ * varies, each object by its kind and name: its schemas of views (the base's of whole views, where one stands, and one
+ * per role holding a query entry), tables and views, enums and domains.
  */
 const publicRevoked = (install: InstallSpec): ReadonlyArray<string> => {
 	const base = install.base
 	return Arr.sort(
 		[
-			...Arr.map(install.roles, (r) => `schema ${r.name}`),
+			...(wholesStand(install) ? ["schema of whole views"] : []),
 			...Arr.flatMap(install.roles, (r) =>
-				Arr.flatMap([...worldObjects(install, r.name)], ([identity, o]) =>
-					o.kind === "view" ? [`view ${r.name} ${identity}`] : []
-				)
+				holdsQuery(install, r.name) ? [`schema ${r.name}`] : []
+			),
+			...Arr.flatMap([...worldObjects(install)], ([identity, o]) =>
+				o.kind === "view" || o.kind === "whole" ? [`view ${identity}`] : []
 			),
 			...Arr.map(base.relations, (r) => `table ${r.name}`),
 			...Arr.map(base.closed, (c) => `closed ${c.name}`),
@@ -676,7 +704,7 @@ export const healedBy = (from: InstallSpec, to: InstallSpec, p: CatalogPerturbat
 		case "rewrite-rule":
 		case "trigger-disabled": {
 			const object = perturbedObject(from, p)
-			return object !== undefined && rewritten(from, to, object.role, object.identity)
+			return object !== undefined && rewritten(from, to, object)
 		}
 	}
 }
@@ -732,9 +760,7 @@ export const departedAt = (
 	switch (p.kind) {
 		case "policy-dropped": {
 			const object = perturbedObject(from, p)
-			return object !== undefined && rewritten(from, to, object.role, object.identity)
-				? drifted("structure")
-				: undefined
+			return object !== undefined && rewritten(from, to, object) ? drifted("structure") : undefined
 		}
 		case "extra-grant":
 		case "extra-column-grant":

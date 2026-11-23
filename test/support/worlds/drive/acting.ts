@@ -147,8 +147,11 @@ export const witnessesShowTheirOwn: StepCheck = (checked) => {
 
 /**
  * Whether a direct statement reaches for what its session does not hold: taking on any identity but a role of its own
- * login (SET SESSION AUTHORIZATION needs a superuser, so every one does), reading or preparing a view of a role
- * another login holds, or calling the filter or key probe of a role it does not act as.
+ * login (SET SESSION AUTHORIZATION needs a superuser, so every one does); reading or preparing the view of a query entry
+ * of a role another login holds, which is that role's alone; reading the view of a whole entry, its relation's one
+ * whole view, which every role holding the relation whole reads, as a role that does not hold it whole (a PREPARE of
+ * one only names it: its EXECUTE reads it, and the model judges that); or calling the filter or key probe of a role it
+ * does not act as.
  */
 const reachesPast = (state: ModelState, session: number, statement: DirectStatement): boolean => {
 	const held = sessionAt(state, session)
@@ -157,15 +160,35 @@ const reachesPast = (state: ModelState, session: number, statement: DirectStatem
 	}
 	const ownLogin = (role: string): boolean =>
 		loginOf(state.install, held.login)?.roles.includes(role) === true
+	const current =
+		held.current.kind === "role" ? roleOf(state.install, held.current.role) : undefined
+	/** The whole entry `role` reads `relation` by, its relation's name, or none for a query entry or none at all. */
+	const wholeOf = (role: string, relation: string): string | undefined => {
+		const entry = roleOf(state.install, role)?.entries[relation]
+		return entry?.kind === "whole" ? entry.relation : undefined
+	}
+	/** Whether the session's current role holds `relation` whole, a closed roster aside, which has no view. */
+	const holdsWhole = (relation: string): boolean =>
+		current !== undefined &&
+		!Arr.some(state.install.base.closed, (c) => c.name === relation) &&
+		Arr.some(Rec.values(current.entries), (e) => e.kind === "whole" && e.relation === relation)
+	const viewPast = (role: string, relation: string): boolean => {
+		const whole = wholeOf(role, relation)
+		return whole === undefined ? !ownLogin(role) : !holdsWhole(whole)
+	}
 	switch (statement.kind) {
 		case "set-role":
 			return statement.role.kind !== "own"
 		case "set-session-authorization":
 			return true
 		case "select-view":
-			return !ownLogin(statement.role)
+			return viewPast(statement.role, statement.relation)
 		case "prepare":
-			return statement.read.kind === "view" && !ownLogin(statement.read.role)
+			return (
+				statement.read.kind === "view" &&
+				wholeOf(statement.read.role, statement.read.relation) === undefined &&
+				!ownLogin(statement.read.role)
+			)
 		case "call":
 			return !(held.current.kind === "role" && held.current.role === statement.fn.role)
 		case "reset-role":
@@ -184,7 +207,8 @@ const reachesPast = (state: ModelState, session: number, statement: DirectStatem
 
 /**
  * A direct writer never crosses into what its login does not hold: a statement that reaches for another login's role
- * or views, another identity or another role's functions is refused, whatever the claims (README "Security model").
+ * or its query entries' views, a whole view of a relation its role does not hold, another identity or another role's
+ * functions is refused, whatever the claims (README "Security model").
  */
 export const reachingPastRefused: StepCheck = ({ seen }) => {
 	if (

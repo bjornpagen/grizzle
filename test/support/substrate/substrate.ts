@@ -588,9 +588,9 @@ const build = Effect.fnUntraced(function* (
 		})
 
 	/**
-	 * Drops every schema whose name starts with `prefix`: each world role's own schema, `<schema>__<role>`, which the
-	 * migration identity owns, so neither releasing its role nor dropping the base schema drops it. Dropped before the
-	 * roles are released, since each grants USAGE to its role.
+	 * Drops every schema whose name starts with `prefix`: each world role's own schema, `<schema>__<role>`, and each
+	 * level's schema of whole views, `__<level>`, which the migration identity owns, so neither releasing its role nor
+	 * dropping the base schema drops it. Dropped before the roles are released, since each grants USAGE to roles.
 	 */
 	const dropRoleSchemas = (prefix: string) =>
 		Effect.gen(function* () {
@@ -603,10 +603,11 @@ const build = Effect.fnUntraced(function* (
 			}
 		})
 
-	/** A schema name the run holds: its finalizer drops its installation's live source, the slot a leader created and
-	 * its publication, then every role its installation creates at its stems (core/identity.ts installationRoleOf: its
-	 * decoder login and its function owner among them), every role named `<schema>__*` and each role's schema, then the
-	 * schema; created as the owner when `create` says so. */
+	/** A schema name the run holds: its finalizer drops each schema of views its installation creates (each role's,
+	 * `<schema>__*`, and each level's of whole views, `__<schema>` and `__<schema>_*`), its live source, the slot a
+	 * leader created and its publication, then every role its installation creates at its stems (core/identity.ts
+	 * installationRoleOf: its decoder login and its function owner among them) and every role named `<schema>__*`, then
+	 * the schema; created as the owner when `create` says so. */
 	const allocated = (name: string, create: boolean) =>
 		Effect.gen(function* () {
 			yield* names.released(
@@ -614,6 +615,11 @@ const build = Effect.fnUntraced(function* (
 				Effect.orDie(
 					Effect.gen(function* () {
 						yield* dropRoleSchemas(rolePrefix(name))
+						yield* dropRoleSchemas(identifierOf(identity.wholeSchema(rolePrefix(name))))
+						yield* admin.query(
+							`DROP SCHEMA IF EXISTS ${quoteIdent(identifierOf(identity.wholeSchema(name)))} CASCADE`,
+							[]
+						)
 						const source = identifierOf(identity.liveSource(name))
 						const slot = liveSlotOf(source, database)
 						yield* admin.query(

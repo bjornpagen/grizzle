@@ -1,3 +1,4 @@
+import { TupleSet } from "@bjornpagen/grizzle-text/base/tuple-map"
 import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, subset, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
@@ -355,10 +356,7 @@ export const buildExecutesWorld = (w: ExecutesWorld, name: string) => {
 }
 
 /** The installed role of a world's role, as the installation names it. */
-export const installedRole = (
-	i: Installation,
-	name: RoleName
-): { readonly role: string; readonly schema: string } =>
+export const installedRole = (i: Installation, name: RoleName): { readonly role: string } =>
 	defined(
 		Option.getOrUndefined(
 			Arr.findFirst(
@@ -423,7 +421,7 @@ type Follow = "every type" | "no written table's types"
  */
 export const reachableConstants = (
 	i: Installation,
-	installed: { readonly role: string; readonly schema: string },
+	installed: { readonly role: string },
 	follow: Follow
 ): ReadonlySet<string> => {
 	const schema = i.names.schema
@@ -477,9 +475,23 @@ export const reachableConstants = (
 			s.table.schema === schema &&
 			written.has(s.table.name)
 	)
+	/** The views it reads: those it is granted SELECT on, its relations' whole views and its query entries' own. */
+	const read = new TupleSet<readonly [string, string]>()
+	for (const s of i.statements) {
+		if (
+			s.kind === "grant" &&
+			s.on.kind === "TABLE" &&
+			Arr.contains(s.privileges, "SELECT") &&
+			Arr.some(s.to, (g) => g.kind === "role" && g.name === installed.role)
+		) {
+			for (const n of s.on.names) {
+				read.add([n.schema, n.name])
+			}
+		}
+	}
 	const views = Arr.filter(
 		i.statements,
-		(s) => s.kind === "createView" && s.name.schema === installed.schema
+		(s) => s.kind === "createView" && read.has([s.name.schema, s.name.name])
 	)
 	const predicates: ReadonlyArray<Expr> = Arr.flatMap(i.statements, (s) =>
 		s.kind === "createPolicy" && s.role === installed.role ? [s.filter] : []

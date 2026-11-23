@@ -1,6 +1,7 @@
 /** What the properties of constants.test.ts read: its spaces, models and helpers. */
 
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { TupleSet } from "@bjornpagen/grizzle-text/base/tuple-map"
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { boolean, type Gen } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
@@ -552,6 +553,8 @@ interface RoleGrants {
 	readonly execute: ReadonlySet<string>
 	readonly domains: ReadonlySet<string>
 	readonly writes: ReadonlySet<string>
+	/** Each view it reads, by schema and name: its relations' whole views and its query entries' own. */
+	readonly views: TupleSet<readonly [string, string]>
 }
 
 export const grantsOf = (i: Installation): ReadonlyArray<RoleGrants> =>
@@ -578,21 +581,26 @@ export const grantsOf = (i: Installation): ReadonlyArray<RoleGrants> =>
 					? [s.table.name]
 					: []
 			)
+			const views = new TupleSet<readonly [string, string]>()
+			for (const g of mine) {
+				if (g.on.kind === "TABLE" && Arr.contains(g.privileges, "SELECT")) {
+					for (const n of g.on.names) {
+						views.add([n.schema, n.name])
+					}
+				}
+			}
 			return {
 				role: r.role,
 				execute: names("FUNCTION"),
 				domains: names("DOMAIN"),
-				writes: new Set([...tableWrites, ...columnWrites])
+				writes: new Set([...tableWrites, ...columnWrites]),
+				views
 			}
 		})
 	)
 
 /** The rule restated: the constants a role's statements call, through function bodies. */
-export const requiredExecutes = (
-	i: Installation,
-	g: RoleGrants,
-	roleSchema: string
-): ReadonlySet<string> => {
+export const requiredExecutes = (i: Installation, g: RoleGrants): ReadonlySet<string> => {
 	const schema = i.names.schema
 	const constants = constantsOf(i)
 	const statements = Arr.filter(
@@ -600,7 +608,7 @@ export const requiredExecutes = (
 		(s) =>
 			(s.kind === "createDomain" && g.domains.has(s.name.name)) ||
 			(s.kind === "createTable" && g.writes.has(s.table.name)) ||
-			(s.kind === "createView" && s.name.schema === roleSchema)
+			(s.kind === "createView" && g.views.has([s.name.schema, s.name.name]))
 	)
 	return closure(constants, schema, callsIn(schema, statements))
 }

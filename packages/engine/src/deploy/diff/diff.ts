@@ -258,7 +258,7 @@ export const staleReplaced: { readonly [K in PhysicalKind]: boolean } = {
 	role: false,
 	decoder: false,
 	membership: true,
-	roleSchema: false,
+	viewSchema: false,
 	view: true,
 	worldFunction: true,
 	policy: true,
@@ -376,7 +376,7 @@ const dropOrder: { readonly [K in Dropped]: number } = {
 	role: 6,
 	decoder: 6,
 	publication: 6,
-	roleSchema: 6,
+	viewSchema: 6,
 	statistics: 7,
 	materializedView: 9,
 	lawTrigger: 3,
@@ -2015,12 +2015,12 @@ class Differ {
 	 * The refusal function, the isolation guard and the snapshot guard, created in Setup and replaced there in place when
 	 * their definition changes: a function's name and signature are its identity, so CREATE OR REPLACE keeps its grants.
 	 *
-	 * A role's views, world functions and policies: created again when this migration dropped them at the start of
+	 * The views, world functions and policies: created again when this migration dropped them at the start of
 	 * Structure, since it changes them or what they read (worldChangesOf), in install order: at the end of Structure, in the transaction that dropped them, with
-	 * their grants, when the role they serve stands before this migration (worldWithin); in Publish, after the
-	 * roles and their schemas, when it creates the role.
+	 * their grants, when the schema or role they stand in stands before this migration (worldWithin); in Publish, after
+	 * the roles and the schemas of views, when it creates it.
 	 *
-	 * A role's schema and a table's row security are created once and never change.
+	 * A schema of views and a table's row security are created once and never change.
 	 *
 	 * A role's membership in its login, granted once both roles stand; a role moved to another login leaves the old.
 	 *
@@ -2139,7 +2139,7 @@ class Differ {
 					this.sql("publish.worlds", o.ddl)
 				}
 				return
-			case "roleSchema":
+			case "viewSchema":
 			case "rowSecurity":
 				if (before === undefined) {
 					this.sql("publish.worlds", o.ddl)
@@ -2222,7 +2222,7 @@ class Differ {
 		}
 	}
 
-	/** Whether a world object can be created again in Structure: a view whose role's schema the previous installation
+	/** Whether a world object can be created again in Structure: a view whose schema of views the previous installation
 	 * holds, a policy whose role it holds, and every world function, which names no role (its EXECUTE grant goes to a
 	 * role this migration creates in Publish). */
 	worldWithin(v: Installed & { readonly kind: "view" | "worldFunction" | "policy" }): boolean {
@@ -3369,7 +3369,7 @@ class Differ {
 			case "worldFunction":
 			case "policy":
 				return
-			case "roleSchema":
+			case "viewSchema":
 				drop(
 					v.kind,
 					statement({ kind: "drop", object: "SCHEMA", name: v.create.name, ifExists: false })
@@ -4616,7 +4616,7 @@ const grantObjectsOf = (v: Installed<AnyObject>): ReadonlyArray<GrantObject> => 
 		case "immutableGuard":
 		case "worldFunction":
 			return [{ kind: "FUNCTION", name: functionNameOf(v.create) }]
-		case "roleSchema":
+		case "viewSchema":
 			return [{ kind: "SCHEMA", name: v.create.name }]
 		case "schema": {
 			const ident = parseIdent(v.object.ident)
@@ -4792,7 +4792,7 @@ const worldChangesOf = (
  *   (structure), then validated (validate), which names every row still holding a removed handle's code, its fix a data
  *   step's; a set's domain over bit(n) is re-pointed the same way when the roster loses a handle, and when it grows a
  *   new domain over bit(n′) types the column, converted by its cast to bit(n′), which pads every stored set with zeros
- *   (structure); the role views that read the old constant are dropped and created again (worldChangesOf); and the
+ *   (structure); the views that read the old constant are dropped and created again (worldChangesOf); and the
  *   old constants and domains are dropped in Publish, RESTRICT, which fails naming any dependent the draft missed.
  * - A closed relation's rows: its constant is content-addressed, so a change is a new constant (Setup) and each table
  *   CHECK that reads it is re-pointed, NOT VALID (structure) then validated (validate), the old one dropped RESTRICT. A
@@ -4827,8 +4827,8 @@ const worldChangesOf = (
  * - Workload changes add indexes and declare each table's statistics anew (indexes); an index no law or program
  *   justifies any longer is dropped.
  * - World changes: a login's or role's PostgreSQL role created, its grants replaced and its memberships granted or
- *   revoked, a removed one's revoked and its role dropped (publish). A role's views, world functions (filter functions
- *   and key probes) and policies hold no data, so each the migration changes, or that reads anything it changes or
+ *   revoked, a removed one's revoked and its role dropped (publish). A whole view, a role's query views, world functions
+ *   (filter functions and key probes) and policies hold no data, so each the migration changes, or that reads anything it changes or
  *   takes away and builds again (a table, a column converted in place, a materialized view it
  *   drops, a relation whose keys or foreign keys it changes, a type, a function, another world object), is dropped at
  *   the start of Structure,
@@ -4837,7 +4837,7 @@ const worldChangesOf = (
  *   at the end of Structure, in the same transaction, with its grants, when its role stands before the migration, so no
  *   committed state lacks a view or policy an existing role relies on; a role's the migration creates are created in
  *   Publish with the role. A
- *   role's schema is created in Publish and dropped at its end, and a table's row security enabled in Publish or
+ *   schema of views is created in Publish and dropped at its end, and a table's row security enabled in Publish or
  *   disabled at its end. A login's rename is declared (`--rename @old=@new`) and carried out before the diff runs
  *   (declared.ts), its role renamed in place with its OID, password and grants, so the diff reads one login that
  *   stands; a login dropped, as declared, and another created are two roles, and the new one has no password until its

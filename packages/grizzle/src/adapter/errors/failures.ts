@@ -86,7 +86,7 @@ export class ServerError extends Data.TaggedError("ServerError")<{
 	readonly sqlstate: Sqlstate
 	readonly message: string
 	readonly constraint: ConstraintName | undefined
-	readonly schema: Identifier<"schema" | "roleSchema"> | undefined
+	readonly schema: Identifier<"schema" | "roleSchema" | "wholeSchema"> | undefined
 	readonly table: RelationIdent | undefined
 	readonly column: ColumnIdent | undefined
 	readonly dataType: DomainName | undefined
