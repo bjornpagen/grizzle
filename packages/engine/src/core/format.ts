@@ -374,6 +374,13 @@
  * each unit written and judged the target beside it at the unit's key; its judge's blocks are a probe's of each side
  * its triggers touch, where format 8 had one of the units, and the refusal of a containment into a side holding no key
  * names the judge's admission, unit-local, where it named a whole judgement.
+ * A rule navigation reads where it stands, beside the rows a call binds a relation parameter to, reads each import it
+ * navigates apart as a chain of its own and that those rows' variables bind restricted inside to their values, its bind
+ * map binding a parameter of its own to each (analysis/theory/navigate.ts Navigator.restrictedApart), where format 8
+ * navigated it from no value, a fenced step over every row: a write member over a call's sittings looks a definition's
+ * relation up by the sitting. A write member's rule over a union keeps the union whole, one node, its rules navigated
+ * inside it (analysis/theory/navigate.ts sharedImports), where format 8 distributed the rule into its conjunctions, one
+ * for each choice of a rule at every union, each reading every other import again.
  */
 export const artifactFormat = 8
 

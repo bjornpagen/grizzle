@@ -229,7 +229,7 @@ const sameDelivery = (a: Delivered, b: Delivered): boolean =>
 /**
  * A query as a walk leaves it: its text, and how it delivers its facts' units. A walk shares every part of the text it
  * leaves as it was, the query itself where it changes nothing, so a query the laws' violations import, read by each law
- * live as one (query.ts liveReading), is one query in every statement the judge navigates (navigate.ts conjunctions).
+ * live as one (query.ts liveReading), is one query in every statement the judge navigates (navigate.ts boundInside).
  */
 interface Walked {
 	readonly query: InferredQuery

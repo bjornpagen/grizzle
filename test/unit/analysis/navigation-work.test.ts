@@ -56,13 +56,6 @@ export const navigatingAChainOfUnionsWorksOnceALevelHoweverDeepTheChain = proper
 		kills: [
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
-				original: "\t\t\tif (!splits(rule) || !someConjunctionJoins(interned.reads(rule))) {",
-				replacement:
-					"\t\t\tif (!splits(rule) || !conjunctions([rule], columns).some((conjunction) => joins(interned.reads(conjunction)))) {",
-				why: "Whether a rule over a union joins is asked of its conjunctions, as before: the rule is distributed into one conjunction for each choice of a rule at every level below it, each level's union of two rules doubling them, so a chain each rule of which reads the level below once, where none joins, builds every one; the property fails."
-			},
-			{
-				file: "packages/engine/src/analysis/theory/navigate.ts",
 				original: "\t\tconst known = this.#navigations.get(identity)",
 				replacement: "\t\tconst known = undefined",
 				why: "Every read of a level navigates it again, as before: each level's two rules each navigate the level below, so a chain d deep navigates its leaf two to the d times; the property fails."

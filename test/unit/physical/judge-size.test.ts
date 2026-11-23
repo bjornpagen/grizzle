@@ -80,7 +80,7 @@ export const aWholeRulesStatementOverAChainOfDefinitionsReadsTheLeafsRelationOnc
  * A whole rule's statement over reads of a union reads each of the union's rules once, however many reads of it the
  * rule joins: navigation reads the union whole (analysis/theory/navigate.ts sharedImports `unions`), one node per unit
  * every read of which joins its rows, its rules navigated inside it, where distributed into the rule's conjunctions
- * (`conjunctions`) it was one conjunction for each choice of a rule at every read, the union's rules to the power of
+ * it was one conjunction for each choice of a rule at every read, the union's rules to the power of
  * its reads, each reading Node at every read (edullm IMPL-TESTS on 5447: the prefixed map response rules, 533 KB and
  * 2158 SELECTs each).
  */
@@ -109,14 +109,6 @@ export const aWholeRulesStatementOverReadsOfAUnionReadsEachOfItsRulesOnceHowever
 				original: "\t\t\t\t\tunions.add(key)",
 				replacement: "\t\t\t\t\tunions.size",
 				why: "Navigation keeps no union whole and distributes none into the rule's conjunctions, so it reads each union's rules inline, which it refuses (\"a navigation: an imported query of one rule\"): every rule over reads of a union fails to compile; the property fails."
-			},
-			{
-				file: "packages/engine/src/analysis/theory/navigate.ts",
-				original:
-					'\t\t\t\tcase "perStatement":\n\t\t\t\t\treturn navigate(rule, loc, columns, sharing, keptOf(rule), interned)',
-				replacement:
-					'\t\t\t\tcase "perStatement":\n\t\t\t\t\treturn flatMapNonEmpty(conjunctions([rule], columns), (conjunction) => navigatedRule(conjunction, loc, columns, sharing, keptOf(conjunction), interned))',
-				why: "A whole rule's statement is distributed into its conjunctions before navigation reads it, as a write member's is, so every union it reads is read once in each conjunction; the property fails."
 			},
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",

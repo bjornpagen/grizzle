@@ -238,7 +238,7 @@ export interface WholeRule {
 	/**
 	 * The query of the violation each query `judged` reads was walked from, itself where the walk copied none: a copy
 	 * reads the unit's channels its import binds (unit.ts passedChannels), which only that import types, so a union's
-	 * heading is its definition's, checked where no channel is (analysis/theory/navigate.ts conjunctions), never the
+	 * heading is its definition's, checked where no channel is (analysis/theory/navigate.ts boundInside), never the
 	 * copy's, checked alone.
 	 */
 	readonly definitionOf: (query: InferredQuery) => InferredQuery
@@ -1534,7 +1534,7 @@ export interface LiveReading {
  * The live reading of the relations `definition` defines (`LiveReading`), each query read live once: every law over a
  * derived relation reads the one live definition, and every query that definition imports the one live query, so the
  * judge's statements, each a navigated violation of a law, meet one query wherever they read it, its heading checked
- * once (analysis/theory/navigate.ts conjunctions, physical/ddl/context.ts InstallBuilder.columns), where each law read
+ * once (analysis/theory/navigate.ts boundInside, physical/ddl/context.ts InstallBuilder.columns), where each law read
  * a copy of its own.
  */
 export const liveReading = (definition: LiveEnv["definition"]): LiveReading => {

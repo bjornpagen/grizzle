@@ -58,12 +58,6 @@ export const aColumnARulesHeadFixesAtALiteralCompilesWhereverANavigatedRuleReads
 					why: "A head literal navigation substitutes stays bare, so `scope < 5` over the rule fixing scope at 0n is `0 < 5`, refused as a literal standing first."
 				},
 				{
-					file: "packages/engine/src/analysis/theory/navigate.ts",
-					original: "stage: { ...stage, arms: [alone(rule)] }",
-					replacement: "stage: { ...stage, arms: [rule] }",
-					why: "A rule navigation splits out of a union is checked alone, its literal at its own default: `scope` 0n is a bigint beside Node.start's natural, refused as two types, where the union types it natural."
-				},
-				{
 					file: "packages/engine/src/physical/ddl/rules.ts",
 					original: "\t\t\t(query) => b.columns(unit.definitionOf(query)),\n",
 					replacement: "\t\t\tb.columns,\n",
