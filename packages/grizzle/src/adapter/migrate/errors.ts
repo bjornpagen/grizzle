@@ -704,13 +704,24 @@ export class StatementFailed extends Data.TaggedError("StatementFailed")<{
 	}
 
 	override get message(): string {
-		return `${this.folder}/${this.file} statement ${this.statement} failed${lawText(this.laws)}: ${failureText(this.failure)}${this.drifted ? driftedFix : ""}${rowsFix(this.failure)}`
+		return `${this.folder}/${this.file} statement ${this.statement} failed${lawText(this.laws)}: ${failureText(this.failure)}${this.drifted ? driftedFix : ""}${rowsFix(this.failure)}${inUseFix(this.failure)}`
 	}
 }
 
 /** What a statement over an object the catalog departs in tells the operator (StatementFailed drifted). */
 const driftedFix =
 	"; the installation may have drifted from its snapshot, an object this statement names dropped, created or depended on outside any migration: run grizzle drift to see what changed, undo it, then run grizzle migrate again"
+
+/**
+ * The fix of a drop PostgreSQL refused because what it drops is in use (55006): a replication slot a leader still
+ * streams from, a live source's (physical/ddl/live.ts dropLiveSlot) or one a leader of format 7 or before made, which
+ * `grizzle upgrade` drafts the drop of (dropFormerLiveSlot). grizzle signals no other process's backend, so the
+ * operator stops that leader, a one-time outage, and migrates again. Nothing for any other failure.
+ */
+const inUseFix = (failure: StatementFailure): string =>
+	failure._tag === "ServerError" && failure.sqlstate === sqlstates.objectInUse
+		? "; a leader still streams from a replication slot this statement drops, and grizzle signals no other process's backend: stop the leaders of the deployment before this one (a one-time outage), then run grizzle migrate again"
+		: ""
 
 /**
  * The fix of a domain's new CHECK refused by rows a column holds, PostgreSQL's VALIDATE of it (a check_violation naming

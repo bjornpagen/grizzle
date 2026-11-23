@@ -129,6 +129,8 @@ export const sqlstates = {
 	dependentObjectsStillExist: brand("2BP01"),
 	invalidSchemaName: brand("3F000"),
 	objectNotInPrerequisiteState: brand("55000"),
+	/** An object a statement drops in use: a replication slot a leader streams from, which PostgreSQL drops never. */
+	objectInUse: brand("55006"),
 	/** A lock NOWAIT could not take: the fence's LOCK of the ledger while a migration holds or awaits it. */
 	lockNotAvailable: brand("55P03"),
 	/** Runtime resources, never a truncated result. */
