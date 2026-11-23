@@ -2525,3 +2525,8 @@ class Visit {
 export const visitSelect = (query: OperandSelect, visitor: AstVisitor): undefined => {
 	new Visit(visitor).select(query)
 }
+
+/** Every expression, FROM item, WITH clause and set operation of an expression, the queries it holds among them, outermost first. */
+export const visitExpr = (e: Expr, visitor: AstVisitor): undefined => {
+	new Visit(visitor).expr(e)
+}

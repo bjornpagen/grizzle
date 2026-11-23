@@ -23,6 +23,7 @@ import { prepared } from "#compiler/core/prepared.ts"
 import type { NativeColumn, NativeObject } from "#compiler/ir/law.ts"
 import { triggerLawsOver } from "#compiler/laws/model/model.ts"
 import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
+import { libraryRef, tablelessLibrary } from "#compiler/physical/ddl/library.ts"
 import { checkedRole, grantedPrivileges, readableRelations } from "#compiler/physical/ddl/roles.ts"
 import type { ParamSource } from "#compiler/physical/install/plan.ts"
 import {
@@ -106,8 +107,11 @@ const variantWrites = (variants: CompiledVariants): ReadonlyArray<CompiledWrite>
  * - the role's view of a whole entry is its relation; a view of a query entry is none, its definition's reads being
  *   the view's own;
  * - a column of a stored relation's table is its field, and none of a law column;
- * - the refusal function and each closed relation's constant functions read no table; a retirable unit's retirement function writes its header's and its bodies' tables by a retirement; any other
- *   function may read any;
+ * - the refusal function, each closed relation's constant functions, each library function whose definition reads no
+ *   table (physical/ddl/library.ts tablelessLibrary, a text's digest among them) and each declared function read no
+ *   table: a declared function runs as the installation's function owner, which holds no privilege on any table or
+ *   view, so a read of one fails its call with 42501 (physical/ddl/functions.ts); a retirable unit's retirement
+ *   function writes its header's and its bodies' tables by a retirement; any other function may read any;
  * - the objects an ON CONFLICT with no target arbitrates on a relation's table are its primary key's, each UNIQUE's and
  *   each span key's natives, each by the columns of its fields.
  *
@@ -150,6 +154,14 @@ const extractNames = (role: RoleChanges): ExtractNames => {
 	const columns = new TupleMap<readonly [string, string], string>()
 	const refuse = refusalFunction(names.schema)
 	const noTable = new TupleSet<readonly [string, string]>().add([refuse.schema, refuse.name])
+	for (const fn of tablelessLibrary) {
+		const ref = libraryRef(names.schema, fn)
+		noTable.add([ref.schema, ref.name])
+	}
+	for (const fn of Object.keys(artifacts.owned.functions)) {
+		const { ref } = names.declaredFunction(fn)
+		noTable.add([ref.schema, ref.name])
+	}
 	for (const [name, r] of stored) {
 		if (r.kind === "relation") {
 			for (const field of Object.values(r.fields)) {

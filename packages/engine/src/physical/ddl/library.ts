@@ -21,7 +21,7 @@ import { constantDigest } from "#compiler/core/fingerprint.ts"
 import { type Identity, identity } from "#compiler/core/identity.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { exprClosure, type ScalarExpr } from "#compiler/ir/expr.ts"
-import type { LibraryFn } from "#compiler/ir/physical.ts"
+import { type LibraryFn, libraryFns } from "#compiler/ir/physical.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { persistentExprs } from "#compiler/physical/ddl/constants.ts"
 import { constantRevoke, type InstallBuilder } from "#compiler/physical/ddl/context.ts"
@@ -36,6 +36,7 @@ import type {
 	FunctionParam,
 	LibraryConstant,
 	OperandSelect,
+	QualifiedFunctionRef,
 	TypeRef
 } from "#compiler/sql/ast.ts"
 import {
@@ -74,6 +75,7 @@ import {
 	windowOf
 } from "#compiler/sql/build.ts"
 import { freshNames, NameSupply } from "#compiler/sql/naming.ts"
+import { inertVisitor, visitExpr } from "#compiler/sql/transform.ts"
 
 /** A library function's body: its parameters, read by position in it, its result type and its expression. */
 interface LibraryBody {
@@ -1263,6 +1265,53 @@ const identities: { readonly [F in LibraryFn]: Identity<"libraryFunction"> } = {
 	)
 }
 
+/**
+ * Whether a library function's body reads no table, read off the body itself: each FROM item of it is a CTE's, a
+ * derived table's, a VALUES list's, a function's or its parameters' rows, every function it calls is PostgreSQL's own,
+ * and so none reads a stored table, a write's met rows, a trigger's transition table, an enclosing statement's rows or
+ * the session's claims. A body that calls a function of a schema may read what that function reads, so it is no such
+ * body.
+ */
+const bodyReadsNoTable = (body: Expr): boolean => {
+	let reads = false
+	visitExpr(body, {
+		...inertVisitor,
+		fromItem: (item) => {
+			switch (item.kind) {
+				case "cte":
+				case "derived":
+				case "values":
+				case "function":
+				case "arrays":
+				case "joins":
+					return
+				case "table":
+				case "probe":
+				case "met":
+				case "metRows":
+				case "transition":
+				case "enclosing":
+				case "context":
+					reads = true
+			}
+		},
+		expr: (e) => {
+			if (e.kind === "call" && e.fn.kind === "qualified") {
+				reads = true
+			}
+		}
+	})
+	return !reads
+}
+
+/**
+ * Each library function whose definition reads no table (bodyReadsNoTable), read off its definition once: what the
+ * certifier reads a call of as no read of any relation (program/isolation/certification.ts extractNames).
+ */
+export const tablelessLibrary: ReadonlyArray<LibraryFn> = libraryFns.filter((fn) =>
+	bodyReadsNoTable(definitions[fn].body)
+)
+
 /** The library function an expression calls, by its native operation's SQL (registry.ts libraryOf), or none. */
 export const calledLibrary = (e: ScalarExpr): LibraryFn | undefined => {
 	const sql = e.kind === "op" ? nativeOp(e.op)?.sql : undefined
@@ -1271,6 +1320,13 @@ export const calledLibrary = (e: ScalarExpr): LibraryFn | undefined => {
 
 /** The identity a library function is named by (core/identity.ts libraryFunction). */
 export const libraryIdentity = (fn: LibraryFn): Identity<"libraryFunction"> => identities[fn]
+
+/** A library function as an installation in `schema` creates it (libraryCreate) and a statement calls it. */
+export const libraryRef = (schema: string, fn: LibraryFn): QualifiedFunctionRef => ({
+	kind: "qualified",
+	schema,
+	name: libraryIdentity(fn).identifier
+})
 
 /**
  * The library functions the persistent expressions of `model` call (constants.ts persistentExprs), in name order: what

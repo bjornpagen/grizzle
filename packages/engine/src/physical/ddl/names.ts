@@ -28,7 +28,7 @@ import {
 import type { RegexRef, ScalarType } from "#compiler/ir/scalar.ts"
 import type { NamedNative } from "#compiler/laws/model/model.ts"
 import { rosterConstants } from "#compiler/physical/ddl/constants.ts"
-import { libraryIdentity } from "#compiler/physical/ddl/library.ts"
+import { libraryRef } from "#compiler/physical/ddl/library.ts"
 import { installationTypes, vectorTypes } from "#compiler/physical/ddl/type-schemas.ts"
 import { closedIndexOf, type ClosedTable } from "#compiler/runtime/write/fill.ts"
 import {
@@ -543,10 +543,7 @@ export const installNames = (input: NamesInput): InstallNames => {
 		spellings: input.spellings,
 		closed: (relation) =>
 			input.closed.get(relation) ?? missing(`physical: no closed relation ${relation}`),
-		library: (fn) =>
-			library.has(fn)
-				? { kind: "qualified", schema, name: identifierOf(libraryIdentity(fn)) }
-				: uninstalledFunction(fn),
+		library: (fn) => (library.has(fn) ? libraryRef(schema, fn) : uninstalledFunction(fn)),
 		closedRelations: input.closedRelations,
 		closedIndex: closedIndexOf(input.closedTable),
 		selectionKeys: (relation) => input.selectionKeys.get(relation) ?? [],

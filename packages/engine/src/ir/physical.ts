@@ -77,7 +77,7 @@ export interface SelectionKey {
  * base (textResolveReference); textDigest, a text's SHA-256 (textSha256); and wall, a zone's wall clock at an instant
  * by PostgreSQL's tzdata (zoneWall), which an installation installs where a program of its served workload calls it.
  */
-const libraryFns = ["isXsdPattern", "resolveReference", "textDigest", "wall"] as const
+export const libraryFns = ["isXsdPattern", "resolveReference", "textDigest", "wall"] as const
 export type LibraryFn = (typeof libraryFns)[number]
 
 /** How the declared names of one schema map to PostgreSQL objects, each qualified by its schema. */
