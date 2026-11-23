@@ -32,7 +32,6 @@ import { openedIn } from "#test/pg/reads/support.ts"
 import { writeAnswerOf, rowsOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { refusedLaws } from "#test/support/refused.ts"
-import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** A row check over a set and a set value holds a row exactly when its flags are disjoint from and a subset of the set values, and a refusal names every check they break, all three at once included, for every set over the roster. */
@@ -53,11 +52,9 @@ export const aRowCheckOverASetAndASetValueHoldsARowExactlyWhenItsFlagsAreDisjoin
 					Effect.gen(function* () {
 						const taken = yield* sets
 						const o = yield* openedIn(Sets, {}, setsInstall, taken)
-						const s = taken.substrate
 						const names = namesOf(o.installed)
 						return yield* Effect.gen(function* () {
 							const db = yield* Db.open(o.served.login.roles.app, {})
-							yield* replaceRows(s.admin, installationGroup(names), [])
 							const outcome = yield* writeAnswerOf(
 								db.workload.write.once({
 									params: {},
