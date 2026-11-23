@@ -17,13 +17,14 @@ import {
 } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import {
-	type FoldProbe,
+	type KeyedProbes,
 	type PlacedOccurrence,
 	regionParts
 } from "#compiler/lower/conservative/match-region/index.ts"
-import { foldsReadByKey } from "#compiler/lower/optimize/cte-policy/index.ts"
+import { probesByKey } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { keyedGroup } from "#compiler/lower/shapes/aggregate/index.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
+import { keyedUnion } from "#compiler/lower/shapes/union/index.ts"
 import { type NativeOp, nativeOp, operandCarriers } from "#compiler/scalar/compute/registry.ts"
 import type { Expr, FromItem, JoinStep, OperandBody, Select, Target } from "#compiler/sql/ast.ts"
 import {
@@ -375,33 +376,37 @@ const impliedBounds = (
 }
 
 /**
- * The folds a region reads per key (cte-policy foldsReadByKey), each `LATERAL (SELECT k, count(*) FROM (<input>) WHERE
- * k = r2.c1 GROUP BY k)`, the fold of one binding's keys alone (aggregate/index.ts keyedGroup), the keys restricted
- * below the aggregate. A derived relation's definition always wants every group, and a fold, or a node the region reads
- * it through, that the statement shares (a CTE: read by two readers, or derived once beside a recursion) is derived
- * once for every reader, so each is read whole.
+ * The folds and unions a region reads per key (cte-policy probesByKey), each a LATERAL derived table of one binding's
+ * keys: a fold `LATERAL (SELECT k, count(*) FROM (<input>) WHERE k = r2.c1 GROUP BY k)`, the keys restricted below the
+ * aggregate (aggregate/index.ts keyedGroup); a union `LATERAL (SELECT ... FROM (<arm 1>) WHERE k = r2.c1 UNION ...)`,
+ * each arm at the keys (union/index.ts keyedUnion). A derived relation's definition always wants every row, and a node
+ * the region reads, or one it reads it through, that the statement shares (a CTE: read by two readers, or derived once
+ * beside a recursion) is derived once for every reader, so each is read whole.
  */
-const foldProbe =
-	(facts: ShapeFacts, shared: (node: RelNode) => boolean): FoldProbe =>
+const keyedProbes =
+	(facts: ShapeFacts, shared: (node: RelNode) => boolean): KeyedProbes =>
 	(region) =>
 		new Map(
 			facts.derivedDefinition
 				? []
-				: [...foldsReadByKey(region)].flatMap(([o, byKey]) =>
-						shared(byKey.fold) || byKey.through.some(shared)
+				: [...probesByKey(region)].flatMap(([o, byKey]) => {
+						const probed = byKey.probed
+						return shared(probed) || byKey.through.some(shared)
 							? []
 							: [
 									[
 										o,
 										{
-											fold: byKey.fold,
+											probed,
 											keys: byKey.keys,
 											lower: (cx: LowerContext, env: Env, restriction: ColumnEqualities) =>
-												keyedGroup(facts, byKey.fold, cx, env, restriction)
+												probed.kind === "Group"
+													? keyedGroup(facts, probed, cx, env, restriction)
+													: keyedUnion(facts, probed, cx, env, restriction)
 										}
 									] as const
 								]
-					)
+					})
 		)
 
 /**
@@ -461,7 +466,7 @@ export const regionLowerer =
 		shared: (node: RelNode) => boolean
 	): NodeLowerer<"MatchRegion"> =>
 	(node, cx, env) => {
-		const lowered = regionParts(node, cx, env, foldProbe(facts, shared))
+		const lowered = regionParts(node, cx, env, keyedProbes(facts, shared))
 		const parts = {
 			...lowered,
 			conditions: [...lowered.conditions, ...impliedBounds(node, cx, env, lowered)]

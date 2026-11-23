@@ -1,8 +1,8 @@
 /**
- * A region that joins a fold by its grouping columns reads it per key (lower/conservative/match-region keyedFolds,
- * lower/shapes/region foldProbe): for each binding of the occurrences before it, the fold of that binding's keys alone,
- * LATERAL, the keys restricted below the aggregate, where the index the workload requests on them reads one group's
- * rows. On PostgreSQL 19, over learning-commons' crosswalk (fold-probe.fixtures.ts): the pairs of one standard, each
+ * A region that joins a fold by its grouping columns reads it per key (lower/conservative/match-region KeyedProbes,
+ * lower/shapes/region keyedProbes): for each binding of the occurrences before it, the fold of that binding's keys
+ * alone, LATERAL, the keys restricted below the aggregate, where the index the workload requests on them reads one
+ * group's rows. On PostgreSQL 19, over learning-commons' crosswalk (fold-probe.fixtures.ts): the pairs of one standard, each
  * with how many components support each of its ends, two occurrences of one fold of Supports by its standard. A grouped
  * derived table is never flattened, so the join of a whole fold stays above its aggregate, which then folds every
  * standard's supports twice for each read (edullm materialized it: 100 ms counting against 0.1 to 1 ms stored).
@@ -70,7 +70,7 @@ export const aReadThatJoinsAFoldByItsKeysFoldsEachBindingsGroupAloneSoItsWorkIsT
 		kills: [
 			{
 				file: "packages/engine/src/lower/shapes/region/index.ts",
-				original: "\t\tconst lowered = regionParts(node, cx, env, foldProbe(facts, shared))",
+				original: "\t\tconst lowered = regionParts(node, cx, env, keyedProbes(facts, shared))",
 				replacement: "\t\tconst lowered = regionParts(node, cx, env, undefined)",
 				why: "The region reads every fold whole, joined by its keys beside its aggregate, so each count folds every standard's supports for the read, whatever pairs it delivers."
 			},

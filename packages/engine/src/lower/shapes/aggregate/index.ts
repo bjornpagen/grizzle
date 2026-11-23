@@ -16,7 +16,8 @@ import {
 	type LowerContext,
 	type NodeLowerer,
 	namedMap,
-	nodeLabel
+	nodeLabel,
+	noRestriction
 } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import {
@@ -235,8 +236,6 @@ export const keyedGroup = (
 		groupBy
 	})
 }
-
-const noRestriction: ColumnEqualities = []
 
 /** The fold of a Group node, its groups unrestricted (`keyedGroup`). */
 export const aggregateLowerer =

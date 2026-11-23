@@ -26,7 +26,9 @@ import {
 	type ValidDag,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
+import { conjuncts } from "#compiler/logical/props.ts"
 import { feedbackReadsOf, nodeGraph } from "#compiler/lower/optimize/demand/editor.ts"
+import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 
 export type CteStrategy = "inline" | "notMaterialized" | "materialized" | "recursive"
 
@@ -337,26 +339,27 @@ export const restrictedByValues = (node: RelNode): boolean => {
 }
 
 /**
- * A fold a region reads per key (`foldsReadByKey`): the fold, the nodes its occurrence reads it through, from the
- * occurrence's source down, and each grouping column it restricts with the variable the occurrence binds through it.
+ * A fold or a union a region reads per key (`probesByKey`): the node, the nodes its occurrence reads it through, from
+ * the occurrence's source down, and each column of it it restricts with the variable the occurrence binds through it: a
+ * fold's grouping column, any column of a union, whose every arm it restricts.
  */
-export interface FoldByKey {
-	readonly fold: NodeOf<"Group">
+export interface ProbedByKey {
+	readonly probed: NodeOf<"Group"> | NodeOf<"Union">
 	readonly through: ReadonlyArray<RelNode>
 	readonly keys: NonEmptyReadonlyArray<{ readonly column: string; readonly variable: VarDecl }>
 }
 
 /**
- * The fold a source reads through projections that rename its columns and filters that keep its rows, the nodes it
- * reads it through, and the column of the fold each of `columns` is there; undefined where the source is no such chain
- * over a Group.
+ * The fold or union a source reads through projections that rename its columns, filters that keep its rows and
+ * regions that read it as it stands (`renamedSource`), the nodes it reads it through, and the column of it each of
+ * `columns` is there; undefined where the source is no such chain over a Group or a Union.
  */
-const foldBeneath = (
+const probedBeneath = (
 	source: RelNode,
 	columns: ReadonlyArray<string>
 ):
 	| {
-			readonly fold: NodeOf<"Group">
+			readonly probed: NodeOf<"Group"> | NodeOf<"Union">
 			readonly through: ReadonlyArray<RelNode>
 			readonly columns: ReadonlyArray<string | undefined>
 	  }
@@ -364,65 +367,119 @@ const foldBeneath = (
 	let at = source
 	let named: ReadonlyArray<string | undefined> = columns
 	const through: Array<RelNode> = []
-	while (at.kind === "Filter" || at.kind === "ProjectSet") {
-		through.push(at)
-		if (at.kind === "ProjectSet") {
+	for (;;) {
+		if (at.kind === "Filter") {
+			through.push(at)
+			at = at.input
+		} else if (at.kind === "ProjectSet") {
+			through.push(at)
 			const input = at.input
 			const out = new Map(at.out.map((o) => [o.name, o.expr]))
 			named = named.map((name) => {
 				const e = name === undefined ? undefined : out.get(name)
 				return e?.kind === "column" && e.column.node === input.id ? e.column.name : undefined
 			})
+			at = input
+		} else {
+			const renamed = at.kind === "MatchRegion" ? renamedSource(at) : undefined
+			if (renamed === undefined) {
+				return at.kind === "Group" || at.kind === "Union"
+					? { probed: at, through, columns: named }
+					: undefined
+			}
+			through.push(at)
+			named = named.map((name) =>
+				name === undefined
+					? undefined
+					: renamed.occurrence.bindings.find((b) => b.var.name === name)?.column
+			)
+			at = renamed.occurrence.source
 		}
-		at = at.input
 	}
-	return at.kind === "Group" ? { fold: at, through, columns: named } : undefined
 }
 
 /**
- * The occurrences of a region whose folds a workload's read reads per key: each occurrence whose source is a fold, read
- * through projections that rename its columns and filters (`foldBeneath`), that binds grouping columns of it to
- * variables an occurrence of a stored relation binds, where one stored relation's range binds those columns in the
- * fold's input (probedByKey). The region places such an occurrence after the stored ones, which read nothing outside
- * themselves, and reads it for each of their bindings as the fold of that binding's keys alone, the keys restricted
- * below the aggregate, which the index the workload's access paths request reads (lower/shapes/region foldProbe), as an
- * attachment's fold by its correlation is read (`attachmentRead` perKey). A grouped derived table is never flattened,
- * so the whole fold joined beside its aggregate, or derived once for the statement (rule 5b), folds every row of its
- * input for each statement: edullm's learning-commons crosswalk, two counts of one standard's supports, each read
- * beside the pair folded every standard's (100 ms against 0.1 to 1 ms stored). Each binding meets the groups of its
- * keys, as the join of the whole fold does, so the region's bindings are the same set.
+ * A region that reads one occurrence as it stands, its rows the source's rows renamed: no equality, no correlation, no
+ * constant, each variable bound once; undefined for any other region.
  */
-export const foldsReadByKey = (
+const renamedSource = (
 	region: NodeOf<"MatchRegion">
-): ReadonlyMap<Occurrence, FoldByKey> => {
-	const stored = new Set(
-		region.occurrences.flatMap((o) =>
-			o.source.kind === "Base" ? o.bindings.map((b) => b.var) : []
-		)
-	)
-	const out = new Map<Occurrence, FoldByKey>()
+): { readonly occurrence: Occurrence } | undefined => {
+	const [occurrence, ...others] = region.occurrences
+	return occurrence !== undefined &&
+		others.length === 0 &&
+		region.equalities.length === 0 &&
+		region.correlated.length === 0 &&
+		occurrence.constants.length === 0 &&
+		new Set(occurrence.bindings.map((b) => b.var.id)).size === occurrence.bindings.length
+		? { occurrence }
+		: undefined
+}
+
+/**
+ * The occurrences of a region whose folds and unions a workload's read reads per key: each occurrence whose source is
+ * a fold or a union, read through projections that rename its columns and filters (`probedBeneath`), that binds
+ * columns of it, a fold's grouping columns or any of a union's, to variables another occurrence binds that reads a
+ * stored relation or a relation the statement's values restrict (restrictedByValues), where one stored relation's
+ * range binds those columns in the fold's input or in every arm of the union (probedByKey). The region places such an
+ * occurrence after those, and reads it for each of their bindings as the fold of that binding's keys alone, the keys
+ * restricted below the aggregate, or as the union of each arm at those keys, which the index the workload's access
+ * paths request reads (lower/shapes/region keyedProbes), as an attachment's fold by its correlation is read
+ * (`attachmentRead` perKey). A grouped derived table is never flattened, so the whole fold joined beside its
+ * aggregate, or derived once for the statement (rule 5b), folds every row of its input for each statement: edullm's
+ * learning-commons crosswalk, two counts of one standard's supports, each read beside the pair folded every standard's
+ * (100 ms against 0.1 to 1 ms stored). Nor is a UNION, whose join to its reader PostgreSQL never moves into its arms:
+ * edullm's ledger answer read every attempt's outcomes in force, a union of each attempt's snapshot no assertion
+ * replaced and its assertions, deduplicated whole and only then joined to the call's attempt (35 ms of 780 at 5,220
+ * attempts). Each binding meets the rows at its keys, as the join of the whole node does, so the region's bindings
+ * are the same set.
+ */
+export const probesByKey = (
+	region: NodeOf<"MatchRegion">
+): ReadonlyMap<Occurrence, ProbedByKey> => {
+	const out = new Map<Occurrence, ProbedByKey>()
 	for (const o of region.occurrences) {
-		const bound = o.source.kind === "Base" ? [] : o.bindings.filter((b) => stored.has(b.var))
-		const beneath = foldBeneath(
-			o.source,
-			bound.map((b) => b.column)
-		)
+		const beneath =
+			o.source.kind === "Base"
+				? undefined
+				: probedBeneath(
+						o.source,
+						o.bindings.map((b) => b.column)
+					)
 		if (beneath === undefined) {
 			continue
 		}
-		const fold = beneath.fold
-		const keys = bound.flatMap((b, i) => {
+		const probed = beneath.probed
+		/**
+		 * The variables another occurrence binds that reads a relation the statement's values restrict, or, for a fold, a
+		 * stored relation: a union beside a stored relation alone is read whole, as PostgreSQL joins it, where each row of
+		 * the relation would read the union's every arm again.
+		 */
+		const binders = new Set(
+			region.occurrences.flatMap((q) =>
+				q !== o &&
+				(restrictedByValues(q.source) || (probed.kind === "Group" && q.source.kind === "Base"))
+					? q.bindings.map((b) => b.var)
+					: []
+			)
+		)
+		const keys = o.bindings.flatMap((b, i) => {
+			if (!binders.has(b.var)) {
+				return []
+			}
 			const column = beneath.columns[i]
-			return column !== undefined && fold.keys.includes(column) ? [{ column, variable: b.var }] : []
+			return column !== undefined && (probed.kind === "Union" || probed.keys.includes(column))
+				? [{ column, variable: b.var }]
+				: []
 		})
 		if (
 			isNonEmpty(keys) &&
 			probedByKey(
-				fold.input,
+				probed.kind === "Group" ? probed.input : probed,
 				keys.map((k) => k.column)
 			)
 		) {
-			out.set(o, { fold, through: beneath.through, keys })
+			out.set(o, { probed, through: beneath.through, keys })
 		}
 	}
 	return out
@@ -470,8 +527,8 @@ const fixedByValue = (region: NodeOf<"MatchRegion">): ReadonlySet<VarDecl> =>
 /**
  * The nodes a reader reads once per row of its other input, as PostgreSQL evaluates them where they stand: the source
  * of a region's occurrence no value restricts (no constant fixes one of its columns, and no parameter or literal one of
- * the variables it binds), which the region joins to its other occurrences, but a fold the region reads per key
- * (`foldsReadByKey`), whose every read is its binding's groups; the right side of a semi- or anti-join,
+ * the variables it binds), which the region joins to its other occurrences, but a fold or a union the region reads per
+ * key (`probesByKey`), whose every read is its binding's rows; the right side of a semi- or anti-join,
  * which it tests for each row of its left; and an attachment's rows no stored relation's range binds by the columns it
  * correlates (attachmentRead `once`), which its part would otherwise read for each parent row.
  */
@@ -480,7 +537,7 @@ const readPerRow = (order: ReadonlyArray<RelNode>): ReadonlySet<RelNode> => {
 	for (const node of order) {
 		if (node.kind === "MatchRegion") {
 			const fixed = fixedByValue(node)
-			const byKey = foldsReadByKey(node)
+			const byKey = probesByKey(node)
 			for (const o of node.occurrences) {
 				if (
 					o.constants.length === 0 &&
@@ -503,24 +560,115 @@ const readPerRow = (order: ReadonlyArray<RelNode>): ReadonlySet<RelNode> => {
 }
 
 /**
- * How many of each node's references are a region's reads of a fold it reads per key (foldsReadByKey): the
- * occurrence's source and each node on its way down to the fold, which the region reads for each binding as that
- * binding's groups alone (lower/shapes/region foldProbe). A node every reference of which is such a read is read per key
- * at each (rule 5c): shared as a CTE, it would be derived whole once for the statement and joined beside, and the
- * region's probe of it, which a shared node never takes, would fold every row of the fold's input.
+ * How many of each node's references are a region's reads of a fold or a union restricted where they stand: read per
+ * key (probesByKey), the occurrence's source and each node on its way down to it, which the region reads for each
+ * binding as that binding's rows alone (lower/shapes/region keyedProbes), or read at a value (`fixedAtValues`), a key
+ * column the occurrence fixes to a parameter or a literal, which PostgreSQL moves below the fold's grouping or into the
+ * union's arms where the node stands inline. A node every reference of which is such a read is read where it stands at
+ * each (rule 5c): shared as a CTE, it would be derived whole once for the statement and joined or filtered beside,
+ * every row of the fold's input or the union's arms: edullm's learning-commons crosswalk reader, two rules reading one
+ * fold of every pair of supports, one at its state and one at its hub, each read the whole fold MATERIALIZED, all
+ * 28,271 pairs (7,986 and 9,235 ms, where inline each read 545 to 632 and 5.8 ms).
  */
 const perKeyReads = (order: ReadonlyArray<RelNode>): ReadonlyMap<RelNode, number> => {
 	const out = new Map<RelNode, number>()
+	const count = (reads: Iterable<RelNode>): void => {
+		for (const read of new Set(reads)) {
+			out.set(read, (out.get(read) ?? 0) + 1)
+		}
+	}
 	for (const node of order) {
 		if (node.kind === "MatchRegion") {
-			for (const [o, byKey] of foldsReadByKey(node)) {
-				for (const read of new Set([o.source, ...byKey.through, byKey.fold])) {
-					out.set(read, (out.get(read) ?? 0) + 1)
+			const probes = probesByKey(node)
+			for (const [o, byKey] of probes) {
+				count([o.source, ...byKey.through, byKey.probed])
+			}
+			for (const o of node.occurrences) {
+				const at = probes.has(o) ? undefined : fixedAtValues(node, o)
+				if (at !== undefined) {
+					count([o.source, ...at.through, at.probed])
 				}
+			}
+		} else if (node.kind === "Filter") {
+			const at = filteredAtValues(node)
+			if (at !== undefined) {
+				count([...at.through, at.probed])
 			}
 		}
 	}
 	return out
+}
+
+/**
+ * The fold or union a filter reads at values (`atKeys`): a key column of it, through its input's projections and
+ * filters, that a conjunct of the filter equates to a value that reads no relation, a parameter or a literal, the
+ * filter its input's one reader, so the filter keeps only that key's rows; undefined where none.
+ */
+const filteredAtValues = (
+	filter: NodeOf<"Filter">
+):
+	| { readonly probed: NodeOf<"Group"> | NodeOf<"Union">; readonly through: ReadonlyArray<RelNode> }
+	| undefined =>
+	atKeys(
+		filter.input,
+		conjuncts(filter.pred).flatMap((e) => {
+			const [x, y, ...more] = e.kind === "op" && nativeOp(e.op)?.fn === "eq" ? e.args : []
+			if (x === undefined || y === undefined || more.length > 0) {
+				return []
+			}
+			const columnAtValue = (column: ScalarExpr, value: ScalarExpr): ReadonlyArray<string> =>
+				column.kind === "column" &&
+				column.column.node === filter.input.id &&
+				value.deps.nodes.length === 0
+					? [column.column.name]
+					: []
+			return [...columnAtValue(x, y), ...columnAtValue(y, x)]
+		})
+	)
+
+/**
+ * The fold or union an occurrence reads at values, through projections that rename its columns and filters
+ * (`probedBeneath`): a key column of it, a fold's grouping column or any of a union's, that the occurrence fixes to a
+ * value that reads no relation, a constant or a variable the region fixes to such a value (`fixedByValue`), a parameter
+ * or a literal; undefined where it fixes none.
+ */
+const fixedAtValues = (
+	region: NodeOf<"MatchRegion">,
+	o: Occurrence
+):
+	| { readonly probed: NodeOf<"Group"> | NodeOf<"Union">; readonly through: ReadonlyArray<RelNode> }
+	| undefined => {
+	if (o.source.kind === "Base") {
+		return undefined
+	}
+	const fixed = fixedByValue(region)
+	const columns = [
+		...o.constants.flatMap((c) => (c.expr.deps.nodes.length === 0 ? [c.column] : [])),
+		...o.bindings.flatMap((b) => (fixed.has(b.var) ? [b.column] : []))
+	]
+	return atKeys(o.source, columns)
+}
+
+/**
+ * The fold or union `source` reads through projections and filters (`probedBeneath`) where one of `columns`, a column of
+ * the source, is a key column of it there: a fold's grouping column, any of a union's; undefined where none is.
+ */
+const atKeys = (
+	source: RelNode,
+	columns: ReadonlyArray<string>
+):
+	| { readonly probed: NodeOf<"Group"> | NodeOf<"Union">; readonly through: ReadonlyArray<RelNode> }
+	| undefined => {
+	const beneath = probedBeneath(source, columns)
+	if (beneath === undefined) {
+		return undefined
+	}
+	const probed = beneath.probed
+	return beneath.columns.some(
+		(c) => c !== undefined && (probed.kind === "Union" || probed.keys.includes(c))
+	)
+		? { probed, through: beneath.through }
+		: undefined
 }
 
 /**
@@ -756,11 +904,13 @@ const holdingRegion = (
  *    attachment's ItemSet once per term). Its readers then join or test each row against rows the statement holds, and
  *    read no relation again. A rule's probe and every other compilation keep rule 1: they read a unit's rows, which a
  *    once-derived relation would read all of.
- * 5c. In a workload's read, a node every read of which is a region's read of a fold by its keys (foldsReadByKey) is
- *    no CTE and takes no decision, as a node read once (perKeyReads): the region reads it for each binding as that
- *    binding's groups alone (lower/shapes/region foldProbe, which a node the policy decides never takes), through
- *    the index the workload requests on the keys, where one evaluation for the statement folds every row of the fold's
- *    input (learning-commons' crosswalk, two counts of one standard's supports, each a read of one shared fold).
+ * 5c. In a workload's read, a node every read of which is a region's read of a fold or a union by its keys
+ *    (probesByKey) or at a value of a key column (perKeyReads) is no CTE and takes no decision, as a node read once:
+ *    the region reads it for each binding as that binding's rows alone (lower/shapes/region keyedProbes, which a node
+ *    the policy decides never takes), or inline, where PostgreSQL moves the value below the fold's grouping or into
+ *    the union's arms, through the index the workload requests on the keys, where one evaluation for the statement
+ *    reads every row of the fold's input or the union's arms (learning-commons' crosswalk, two counts of one standard's
+ *    supports, each a read of one shared fold, and its reader's two rules over one fold, at a state and at a hub).
  * 5. A node that folds, sorts, bounds, deduplicates a set operation or recurses is expensive. Shared, it is
  *    MATERIALIZED: one evaluation feeds every use.
  * 5d. A shared join the statement's own values restrict (restrictedByValues: every occurrence reached from a

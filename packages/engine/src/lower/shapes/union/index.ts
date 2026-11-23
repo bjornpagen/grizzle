@@ -8,11 +8,14 @@ import { malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { CompletedOrder, Heading, HeadingGroup, NodeOf, RelNode } from "#compiler/ir/rel.ts"
 import {
+	type ColumnEqualities,
 	type Env,
+	equalitiesOver,
 	headingTargets,
 	type LowerContext,
 	type NodeLowerer,
-	nodeLabel
+	nodeLabel,
+	noRestriction
 } from "#compiler/lower/conservative/context.ts"
 import { type OrderTotality, orderItemsOf } from "#compiler/lower/conservative/take/order.ts"
 import { armColumns, armTargets } from "#compiler/lower/conservative/union/arms.ts"
@@ -28,6 +31,7 @@ import {
 import {
 	asOperand,
 	asSetArm,
+	conjunction,
 	core,
 	distinctCore,
 	operandSelect,
@@ -41,20 +45,23 @@ import {
 
 /**
  * One arm read as a derived table and projected onto `heading`, in its order, each refined column cast
- * to its base type so the arms agree on every column's PostgreSQL type (armTargets).
+ * to its base type so the arms agree on every column's PostgreSQL type (armTargets), its rows those `restriction`
+ * keeps: each column it names equal to its value, by the arm's column of that name.
  */
 const armBody = (
 	cx: LowerContext,
 	arm: RelNode,
 	heading: Heading,
 	env: Env,
-	form: ArmForm
+	form: ArmForm,
+	restriction: ColumnEqualities
 ): SelectCore => {
 	const source = cx.source(arm, env)
 	const targets = armTargets(cx, heading, source.map)
+	const where = conjunction(equalitiesOver(cx, heading, source.map, restriction))
 	return form === "certified"
-		? provedCore("certified", targets, [source.item], undefined)
-		: core(targets, [source.item], undefined)
+		? provedCore("certified", targets, [source.item], where)
+		: core(targets, [source.item], where)
 }
 
 /**
@@ -127,32 +134,50 @@ const groupsConcatenated = (groups: NonEmptyReadonlyArray<OperandBody>): Operand
  */
 export const unionLowerer =
 	(facts: ShapeFacts): NodeLowerer<"Union"> =>
-	(node, cx, env) => {
-		const form = armForm(facts, node)
-		const group = (arms: NonEmptyReadonlyArray<RelNode>): OperandBody => {
-			const [only, ...others] = arms
-			if (others.length > 0) {
-				return chain(
-					form,
-					mapNonEmpty(arms, (arm) => armBody(cx, arm, node.heading, env, form))
-				)
-			}
-			const source = cx.source(only, env)
-			const targets =
-				node.groups.length > 1
-					? armTargets(cx, node.heading, source.map)
-					: headingTargets(node.heading, source.map)
-			switch (form) {
-				case "union":
-					return distinctCore(targets, [source.item], undefined)
-				case "certified":
-					return provedCore("certified", targets, [source.item], undefined)
-				case "operand":
-					return core(targets, [source.item], undefined)
-			}
+	(node, cx, env) =>
+		keyedUnion(facts, node, cx, env, noRestriction)
+
+/**
+ * A union read inside a statement (unionLowerer), its rows those `restriction` keeps, inside every arm: each column it
+ * names equal to its value in each arm, by the arm's column of that name, so each arm is read at those values alone,
+ * as a region that reads the union per key reads it (lower/optimize/cte-policy probesByKey, lower/shapes/region
+ * keyedProbes); PostgreSQL moves no join of its reader into a UNION's arms, so the union read whole and joined
+ * beside reads every row of every arm. A row of the union is a row of an arm, so the union of each arm at the values
+ * is the union at them.
+ */
+export const keyedUnion = (
+	facts: ShapeFacts,
+	node: NodeOf<"Union">,
+	cx: LowerContext,
+	env: Env,
+	restriction: ColumnEqualities
+): OperandSelect => {
+	const form = armForm(facts, node)
+	const group = (arms: NonEmptyReadonlyArray<RelNode>): OperandBody => {
+		const [only, ...others] = arms
+		if (others.length > 0) {
+			return chain(
+				form,
+				mapNonEmpty(arms, (arm) => armBody(cx, arm, node.heading, env, form, restriction))
+			)
 		}
-		return groupsConcatenated(mapNonEmpty(node.groups, (g) => group(g.arms)))
+		const source = cx.source(only, env)
+		const targets =
+			node.groups.length > 1
+				? armTargets(cx, node.heading, source.map)
+				: headingTargets(node.heading, source.map)
+		const where = conjunction(equalitiesOver(cx, node.heading, source.map, restriction))
+		switch (form) {
+			case "union":
+				return distinctCore(targets, [source.item], where)
+			case "certified":
+				return provedCore("certified", targets, [source.item], where)
+			case "operand":
+				return core(targets, [source.item], where)
+		}
 	}
+	return groupsConcatenated(mapNonEmpty(node.groups, (g) => group(g.arms)))
+}
 
 /**
  * A bounded union consumed inside a statement with each arm bounded first: the
@@ -234,7 +259,7 @@ export const groupRows = (
 		setBodyOf(
 			chain(
 				form,
-				mapNonEmpty(g.arms, (arm) => armBody(cx, arm, g.heading, env, form))
+				mapNonEmpty(g.arms, (arm) => armBody(cx, arm, g.heading, env, form, noRestriction))
 			),
 			"a heading group's set union"
 		)

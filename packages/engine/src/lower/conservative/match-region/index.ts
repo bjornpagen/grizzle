@@ -227,37 +227,37 @@ const readsLocal = (
 	})
 
 /**
- * An occurrence of a fold a region reads per key: the fold, its lowering for one binding's keys, `restriction` each
- * grouping column equal to its variable's value there, and each grouping column it restricts with the variable the
- * occurrence binds through it, which an occurrence of a stored relation binds.
+ * An occurrence of a fold or a union a region reads per key: the node, its lowering for one binding's keys,
+ * `restriction` each column equal to its variable's value there, and each column it restricts with the variable the
+ * occurrence binds through it, which another occurrence binds.
  */
-export interface KeyedFold {
-	readonly fold: NodeOf<"Group">
+export interface KeyedProbe {
+	readonly probed: NodeOf<"Group"> | NodeOf<"Union">
 	readonly lower: (cx: LowerContext, env: Env, restriction: ColumnEqualities) => OperandSelect
 	readonly keys: NonEmptyReadonlyArray<{ readonly column: string; readonly variable: VarDecl }>
 }
 
 /**
- * The occurrences of a region whose folds a lowering reads per key (lower/optimize/cte-policy foldsReadByKey, through
- * lower/shapes/region foldProbe), each placed once its keys hold values and read for each binding of the occurrences
- * placed before it as the fold of that binding's keys alone (`keyedRead`). The conservative lowering reads every fold
- * whole, and passes none.
+ * The occurrences of a region whose folds and unions a lowering reads per key (lower/optimize/cte-policy probesByKey,
+ * through lower/shapes/region keyedProbes), each placed once its keys hold values and read for each binding of the
+ * occurrences placed before it as the node at that binding's keys alone (`keyedRead`). The conservative lowering reads
+ * every fold and union whole, and passes none.
  */
-export type FoldProbe = (region: Region) => ReadonlyMap<Occurrence, KeyedFold>
+export type KeyedProbes = (region: Region) => ReadonlyMap<Occurrence, KeyedProbe>
 
 /**
- * A keyed fold's occurrence read for one binding (`FoldProbe`): its source lowered with the fold restricted to the
+ * A keyed occurrence read for one binding (`KeyedProbes`): its source lowered with the probed node restricted to the
  * binding's keys, `restriction`, as a LATERAL derived table, every other node as the region's lowering lowers it.
  */
 const keyedRead = (
 	cx: LowerContext,
 	o: Occurrence,
-	keyed: KeyedFold,
+	keyed: KeyedProbe,
 	env: Env,
 	restriction: ColumnEqualities
 ): InputSource =>
 	cx
-		.withLowering(keyed.fold, (_fold, within, at) => keyed.lower(within, at, restriction))
+		.withLowering(keyed.probed, (_node, within, at) => keyed.lower(within, at, restriction))
 		.sourceAs(o.source, env, true)
 
 /** One occurrence of a lowered region: its derived table, the table's alias, and the source's columns through it. */
@@ -373,7 +373,7 @@ export const regionParts = (
 	node: Region,
 	cx: LowerContext,
 	env: Env,
-	folds: FoldProbe | undefined
+	keyedProbes: KeyedProbes | undefined
 ): RegionParts => {
 	const at = nodeLabel(node)
 	const local = localNodes(node)
@@ -395,7 +395,8 @@ export const regionParts = (
 	const items: Array<FromSource> = []
 	const shared = sharedSources(node)
 	const evaluating = regionEvaluations(cx, node, env)
-	const keyed: ReadonlyMap<Occurrence, KeyedFold> = folds === undefined ? new Map() : folds(node)
+	const keyed: ReadonlyMap<Occurrence, KeyedProbe> =
+		keyedProbes === undefined ? new Map() : keyedProbes(node)
 	/** The attributes of each call's evaluation the region placed, by its evaluation key. */
 	const evaluated = new Map<string, NonEmptyReadonlyArray<Expr>>()
 	/** Each probed occurrence's law columns, by the field each stands for (`probeKeys`). */
@@ -452,19 +453,19 @@ export const regionParts = (
 		const needs = occurrenceNeeds(cx, node, o, shared)
 		const key = evaluating.get(o)
 		const correlated = needs.vars.size > 0 || needs.sources.size > 0 || key !== undefined
-		const fold = keyed.get(o)
+		const probed = keyed.get(o)
 		const read =
-			fold !== undefined
+			probed !== undefined
 				? keyedRead(
 						cx,
 						o,
-						fold,
+						probed,
 						scope(),
-						fold.keys.map((k) => ({
+						probed.keys.map((k) => ({
 							column: k.column,
 							value: defined(
 								value.get(k.variable),
-								"a keyed fold is placed once its keys hold values"
+								"a keyed occurrence is placed once its keys hold values"
 							)
 						}))
 					)

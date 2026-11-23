@@ -1256,6 +1256,9 @@ export const headingTargets = (heading: Heading, map: ColumnMap): NonEmptyReadon
  */
 export type ColumnEqualities = ReadonlyArray<{ readonly column: string; readonly value: Expr }>
 
+/** No equality: a node read with every row (a fold's every group, a union's every row). */
+export const noRestriction: ColumnEqualities = []
+
 /** An attachment's correlation over its parent's columns read through `parent`: each pair one equality. */
 export const correlatedColumns = (attach: NodeOf<"Attach">, parent: ColumnMap): ColumnEqualities =>
 	attach.correlation.map((c) => ({ column: c.child, value: columnIn(parent, c.parent) }))
