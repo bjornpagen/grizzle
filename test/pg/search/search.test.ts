@@ -58,7 +58,33 @@ type MatchFeature =
 	| "a take cut short of its matches"
 	| "a plain query some note matches"
 
-/** A match and its ranks are what PostgreSQL's own parse of the stored texts answers, its take that set best first, and every stored document the text PostgreSQL's parse prints. */
+/**
+ * A match and its ranks are what PostgreSQL's own parse of the stored texts answers, its take that set best first, and every stored document the text PostgreSQL's parse prints.
+ *
+ * Its budget, measured (fastcycle's cull):
+ *
+ * @limitKind measured
+ * @owner test/pg/search/search.test.ts, this property's search
+ * @unit cases of the rotating stream; the floor stream runs a quarter of them, rounded up
+ * @scope one search of this property in one run; the steered phase's cases, its cap, run only while a required
+ *   situation is pending
+ * @evidence `TEST_SEED=2219874524 pnpm exec toolchain-test kills test/pg/search/search.test.ts` at its budget before,
+ *   `{ runs: 24, steered: 48 }`, each kill's verdict printed with where its witnesses went red (judgedLine with the
+ *   red's headline, a local print), in ~/.cache/grizzle-release/CULL-COMPUTE/kills-current.log; this budget run by path
+ *   in run-budgets.log there
+ * @observed 2026-11-23, 04:00 to 06:00 UTC
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB at load 440 to 530; PostgreSQL 19 in
+ *   memory (the family grizzle-m-cull-compute); Node 26.13.1; grizzle at dbcb09929 with lane CULL-COMPUTE's cull,
+ *   vendor/toolchain at 2cc4817
+ * @workload each declared kill applied alone and judged on the property's witnesses: its kept cases, its floor stream
+ *   and its steered phase, which no run seed moves
+ * @result its 3 kills went red on case 0 of its floor stream, case 5 of its floor stream and case 0 of its floor
+ *   stream, in the order it declares them
+ * @decision the least runs whose floor stream, a quarter of them rounded up, holds its first 6 cases: 21; no headroom:
+ *   a kill its witnesses stop killing fails the kill gate, which measures it again
+ * @revalidate a change of its space, situations, kept cases or kills, of its label (the floor stream's seed), or of the
+ *   runner's floor rule
+ */
 export const aMatchAndItsRanksAreWhatPostgreSQLsOwnParseOfTheStoredTextsAnswersItsTakeThatSetBestFirstAndEveryStoredDocumentTheTextPostgreSQLsParsePrints =
 	property.explore(searchCaseGen, {
 		needs: { fixture: Substrate.seat(searchTemplate) },
@@ -68,7 +94,7 @@ export const aMatchAndItsRanksAreWhatPostgreSQLsOwnParseOfTheStoredTextsAnswersI
 			"a take cut short of its matches",
 			"a plain query some note matches"
 		] satisfies ReadonlyArray<Reached<MatchFeature>>,
-		budget: { runs: 24, steered: 48 },
+		budget: { runs: 21, steered: 48 },
 		check:
 			({ fixture }, k: Case<MatchFeature>) =>
 			(c: SearchCase) =>
@@ -175,14 +201,39 @@ export const aMatchAndItsRanksAreWhatPostgreSQLsOwnParseOfTheStoredTextsAnswersI
 		]
 	})
 
-/** At scale, a match of a marker word few lessons hold reads Lesson through the GIN index, with no sequential scan, and touches buffers in proportion to its matches. */
+/**
+ * At scale, a match of a marker word few lessons hold reads Lesson through the GIN index, with no sequential scan, and touches buffers in proportion to its matches.
+ *
+ * Its budget, measured (fastcycle's cull):
+ *
+ * @limitKind measured
+ * @owner test/pg/search/search.test.ts, this property's search
+ * @unit cases of the rotating stream; the floor stream runs a quarter of them, rounded up
+ * @scope one search of this property in one run; the steered phase's cases, its cap, run only while a required
+ *   situation is pending
+ * @evidence `TEST_SEED=2219874524 pnpm exec toolchain-test kills test/pg/search/search.test.ts` at its budget before,
+ *   `{ runs: 4, steered: 4 }`, each kill's verdict printed with where its witnesses went red (judgedLine with the red's
+ *   headline, a local print), in ~/.cache/grizzle-release/CULL-COMPUTE/kills-current.log; this budget run by path in
+ *   run-budgets.log there
+ * @observed 2026-11-23, 04:00 to 06:00 UTC
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB at load 440 to 530; PostgreSQL 19 in
+ *   memory (the family grizzle-m-cull-compute); Node 26.13.1; grizzle at dbcb09929 with lane CULL-COMPUTE's cull,
+ *   vendor/toolchain at 2cc4817
+ * @workload each declared kill applied alone and judged on the property's witnesses: its kept cases, its floor stream
+ *   and its steered phase, which no run seed moves
+ * @result its kill went red on the first case of its floor stream
+ * @decision 1, the least a generative search draws, whose floor stream holds that one case; no headroom: a kill its
+ *   witnesses stop killing fails the kill gate, which measures it again
+ * @revalidate a change of its space, situations, kept cases or kills, of its label (the floor stream's seed), or of the
+ *   runner's floor rule
+ */
 export const atScaleAMatchOfAMarkerWordFewLessonsHoldReadsLessonThroughTheGINIndexWithNoSequentialScanAndTouchesBuffersInProportionToItsMatches =
 	property.explore(scaledGen, {
 		needs: { fixture: Substrate.seat(searchTemplate) },
 		situations: ["a match at scale served by the GIN index"] satisfies ReadonlyArray<
 			Reached<"a match at scale served by the GIN index">
 		>,
-		budget: { runs: 4, steered: 4 },
+		budget: { runs: 1, steered: 4 },
 		check:
 			({ fixture }, k: Case<"a match at scale served by the GIN index">) =>
 			(c: Scaled) =>

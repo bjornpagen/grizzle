@@ -39,7 +39,28 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 /**
  * Text.parseDouble on PostgreSQL 19 a stored parse, the host evaluator and IEEE 754's conversion agree to the bit on every double's text.
  *
- * Its pre-conversion budget: runs 100, coverage cases 40 (test/pg/compute/parse-double.test.ts at 22a8e17e9).
+ * Its budget, measured (fastcycle's cull):
+ *
+ * @limitKind measured
+ * @owner test/pg/compute/parse-double.test.ts, this property's search
+ * @unit cases of the rotating stream; the floor stream runs a quarter of them, rounded up
+ * @scope one search of this property in one run; the steered phase's cases, its cap, run only while a required
+ *   situation is pending
+ * @evidence `TEST_SEED=2219874524 pnpm exec toolchain-test kills test/pg/compute/parse-double.test.ts` at its budget
+ *   before, `{ runs: 100, steered: 40 }`, each kill's verdict printed with where its witnesses went red (judgedLine
+ *   with the red's headline, a local print), in ~/.cache/grizzle-release/CULL-COMPUTE/kills-current.log; this budget
+ *   run by path in run-budgets.log there
+ * @observed 2026-11-23, 04:00 to 06:00 UTC
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB at load 440 to 530; PostgreSQL 19 in
+ *   memory (the family grizzle-m-cull-compute); Node 26.13.1; grizzle at dbcb09929 with lane CULL-COMPUTE's cull,
+ *   vendor/toolchain at 2cc4817
+ * @workload each declared kill applied alone and judged on the property's witnesses: its kept cases, its floor stream
+ *   and its steered phase, which no run seed moves
+ * @result its kill went red on its kept case
+ * @decision 1, the least a generative search draws: no declared kill needs a floor or a rotating case; no headroom: a
+ *   kill its witnesses stop killing fails the kill gate, which measures it again
+ * @revalidate a change of its space, situations, kept cases or kills, of its label (the floor stream's seed), or of the
+ *   runner's floor rule
  */
 export const computeParseDoubleOnPostgreSQL19AStoredParseTheHostEvaluatorAndIEEE754sConversionAgreeToTheBitOnEveryDoublesText =
 	property.explore(recorded(array(doubleTextGen, { min: 1, max: 48 }), mapKeyDoubles), {
@@ -79,7 +100,7 @@ export const computeParseDoubleOnPostgreSQL19AStoredParseTheHostEvaluatorAndIEEE
 			kind: "second-implementation",
 			name: "IEEE 754's decimal-to-binary64 conversion in exact rational arithmetic, against the host evaluator and a stored generated field"
 		},
-		budget: { runs: 100, steered: 40 },
+		budget: { runs: 1, steered: 40 },
 		kept: [
 			{
 				token: ReplayToken(
@@ -90,5 +111,13 @@ export const computeParseDoubleOnPostgreSQL19AStoredParseTheHostEvaluatorAndIEEE
 				since: "2026-11-07"
 			}
 		],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/scalar/lexical.ts",
+				original: 'isDoubleText(text) ? Number(text.replace("INF", "Infinity")) : undefined',
+				replacement:
+					'isDoubleText(text) && doubleValue(text, () => 0) !== undefined ? Number(text.replace("INF", "Infinity")) : undefined',
+				why: "b0e98c456's fix reverted on the host: the parse reads a double's text only within the cast's bounded form, fifteen digits and its exponent bound, so qti-pie's keys past it have no host value where PostgreSQL's parse reads them."
+			}
+		]
 	})

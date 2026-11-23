@@ -54,7 +54,34 @@ import { refusedLaws } from "#test/support/refused.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
-/** A write's parameters admitted before its statements, against PostgreSQL 19 a parameter outside its type is refused as its type refuses it, whatever a statement before its first reader does. */
+/**
+ * A write's parameters admitted before its statements, against PostgreSQL 19 a parameter outside its type is refused as its type refuses it, whatever a statement before its first reader does.
+ *
+ * Its budget, measured (fastcycle's cull):
+ *
+ * @limitKind measured
+ * @owner test/pg/parameters/admission.test.ts, this property's search
+ * @unit cases of the rotating stream; the floor stream runs a quarter of them, rounded up
+ * @scope one search of this property in one run; the steered phase's cases, its cap, run only while a required
+ *   situation is pending
+ * @evidence `TEST_SEED=2219874524 pnpm exec toolchain-test kills test/pg/parameters/admission.test.ts` at its budget
+ *   before, `{ runs: 40, steered: 40 }`, each kill's verdict printed with where its witnesses went red (judgedLine with
+ *   the red's headline, a local print), in ~/.cache/grizzle-release/CULL-COMPUTE/kills-current.log; this budget run by
+ *   path in run-budgets.log there; the runs 9 and 13 by path in run-budgets.log and probe2.log there
+ * @observed 2026-11-23, 04:00 to 06:00 UTC
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB at load 440 to 530; PostgreSQL 19 in
+ *   memory (the family grizzle-m-cull-compute); Node 26.13.1; grizzle at dbcb09929 with lane CULL-COMPUTE's cull,
+ *   vendor/toolchain at 2cc4817
+ * @workload each declared kill applied alone and judged on the property's witnesses: its kept cases, its floor stream
+ *   and its steered phase, which no run seed moves
+ * @result its kill went red on case 2 of its floor stream; at runs 9, a floor of three cases and its steered cap of 40,
+ *   no witness reached "a scalar parameter read only by a statement after one that fails" (run-budgets.log), at runs 13
+ *   every witness reached it and the kill was killed (probe2.log)
+ * @decision 13, the least runs whose floor stream, four cases, and steered phase reach every required situation and
+ *   kill its kill
+ * @revalidate a change of its space, situations, kept cases or kills, of its label (the floor stream's seed), or of the
+ *   runner's floor rule
+ */
 export const aWritesParametersAdmittedBeforeItsStatementsAgainstPostgreSQL19AParameterOutsideItsTypeIsRefusedAsItsTypeRefusesItWhateverAStatementBeforeItsFirstReaderDoes =
 	property.explore(caseGen, {
 		needs: { fixture: Substrate.seat(admitTemplate) },
@@ -66,8 +93,7 @@ export const aWritesParametersAdmittedBeforeItsStatementsAgainstPostgreSQL19APar
 			"listed refused by the first stratum's key",
 			"listed accepted"
 		] satisfies ReadonlyArray<Reached<Feature>>,
-		/** Its pre-conversion budget: runs 40, coverage cases 40 (admission.test.ts at 4fbc3e95). */
-		budget: { runs: 40, steered: 40 },
+		budget: { runs: 13, steered: 40 },
 		check:
 			({ fixture }, c: CaseOf<Feature>) =>
 			(k) =>

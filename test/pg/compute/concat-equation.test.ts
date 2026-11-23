@@ -40,6 +40,29 @@ import {
  * PostgreSQL the whole against the parts in order, NULL at a NULL operand, as the host evaluates it.
  *
  * Its budget is the runner's: a new property, with no suite before it to carry a count from.
+ *
+ * Its budget, measured (fastcycle's cull):
+ *
+ * @limitKind measured
+ * @owner test/pg/compute/concat-equation.test.ts, this property's search
+ * @unit cases of the rotating stream; the floor stream runs a quarter of them, rounded up
+ * @scope one search of this property in one run; the steered phase's cases, its cap, run only while a required
+ *   situation is pending
+ * @evidence `TEST_SEED=2219874524 pnpm exec toolchain-test kills test/pg/compute/concat-equation.test.ts` at its budget
+ *   before, the runner's, runs 150 and steered 200, each kill's verdict printed with where its witnesses went red
+ *   (judgedLine with the red's headline, a local print), in ~/.cache/grizzle-release/CULL-COMPUTE/kills-current.log;
+ *   this budget run by path in run-budgets.log there
+ * @observed 2026-11-23, 04:00 to 06:00 UTC
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB at load 440 to 530; PostgreSQL 19 in
+ *   memory (the family grizzle-m-cull-compute); Node 26.13.1; grizzle at dbcb09929 with lane CULL-COMPUTE's cull,
+ *   vendor/toolchain at 2cc4817
+ * @workload each declared kill applied alone and judged on the property's witnesses: its kept cases, its floor stream
+ *   and its steered phase, which no run seed moves
+ * @result each of its 2 kills went red on the first case of its floor stream
+ * @decision 1, the least a generative search draws, whose floor stream holds that one case; no headroom: a kill its
+ *   witnesses stop killing fails the kill gate, which measures it again
+ * @revalidate a change of its space, situations, kept cases or kills, of its label (the floor stream's seed), or of the
+ *   runner's floor rule
  */
 export const anEquationWithAConcatenationOfAnyNumberOfPartsIsOnPostgreSQLTheWholeAgainstThePartsInOrderInAQueryAndACheck =
 	property.explore(loweredEquationGen, {
@@ -65,6 +88,7 @@ export const anEquationWithAConcatenationOfAnyNumberOfPartsIsOnPostgreSQLTheWhol
 			kind: "specification",
 			name: "the equation's plain meaning, the whole against the parts' texts joined in order, NULL at a NULL operand"
 		},
+		budget: { runs: 1, steered: 200 },
 		kept: [],
 		kills: [
 			{
@@ -89,6 +113,29 @@ export const anEquationWithAConcatenationOfAnyNumberOfPartsIsOnPostgreSQLTheWhol
  * each the lexical form against its four parts in order, refuses exactly the references whose lexical form is not them.
  *
  * Its budget is the runner's: a new property, with no suite before it to carry a count from.
+ *
+ * Its budget, measured (fastcycle's cull):
+ *
+ * @limitKind measured
+ * @owner test/pg/compute/concat-equation.test.ts, this property's search
+ * @unit cases of the rotating stream; the floor stream runs a quarter of them, rounded up
+ * @scope one search of this property in one run; the steered phase's cases, its cap, run only while a required
+ *   situation is pending
+ * @evidence `TEST_SEED=2219874524 pnpm exec toolchain-test kills test/pg/compute/concat-equation.test.ts` at its budget
+ *   before, the runner's, runs 150 and steered 200, each kill's verdict printed with where its witnesses went red
+ *   (judgedLine with the red's headline, a local print), in ~/.cache/grizzle-release/CULL-COMPUTE/kills-current.log;
+ *   this budget run by path in run-budgets.log there
+ * @observed 2026-11-23, 04:00 to 06:00 UTC
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB at load 440 to 530; PostgreSQL 19 in
+ *   memory (the family grizzle-m-cull-compute); Node 26.13.1; grizzle at dbcb09929 with lane CULL-COMPUTE's cull,
+ *   vendor/toolchain at 2cc4817
+ * @workload each declared kill applied alone and judged on the property's witnesses: its kept cases, its floor stream
+ *   and its steered phase, which no run seed moves
+ * @result its kill went red on its need's open, the mutant's schema refused before any case
+ * @decision 1, the least a generative search draws: no declared kill needs a floor or a rotating case; no headroom: a
+ *   kill its witnesses stop killing fails the kill gate, which measures it again
+ * @revalidate a change of its space, situations, kept cases or kills, of its label (the floor stream's seed), or of the
+ *   runner's floor rule
  */
 export const aReferenceSplitOverAJoinAndARowCheckRefuseExactlyTheReferencesWhoseLexicalFormIsNotTheirFourPartsInOrder =
 	property.explore(writtenGen, {
@@ -112,6 +159,7 @@ export const aReferenceSplitOverAJoinAndARowCheckRefuseExactlyTheReferencesWhose
 			kind: "specification",
 			name: "a reference split as its lexical form is exactly where that form is its lead, target, params and trail joined in order: the judge and the CHECK refuse exactly the others, each naming its law"
 		},
+		budget: { runs: 1, steered: 200 },
 		kept: [],
 		kills: [
 			{

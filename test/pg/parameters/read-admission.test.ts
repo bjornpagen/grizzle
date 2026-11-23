@@ -41,7 +41,32 @@ import { rowsOf } from "#test/support/calls.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
-/** A read's parameters admitted whatever its logic reads, against PostgreSQL 19 a parameter outside its type is refused at bind, though a constant false filter leaves it unread. */
+/**
+ * A read's parameters admitted whatever its logic reads, against PostgreSQL 19 a parameter outside its type is refused at bind, though a constant false filter leaves it unread.
+ *
+ * Its budget, measured (fastcycle's cull):
+ *
+ * @limitKind measured
+ * @owner test/pg/parameters/read-admission.test.ts, this property's search
+ * @unit cases of the rotating stream; the floor stream runs a quarter of them, rounded up
+ * @scope one search of this property in one run; the steered phase's cases, its cap, run only while a required
+ *   situation is pending
+ * @evidence `TEST_SEED=2219874524 pnpm exec toolchain-test kills test/pg/parameters/read-admission.test.ts` at its
+ *   budget before, `{ runs: 40, steered: 40 }`, each kill's verdict printed with where its witnesses went red
+ *   (judgedLine with the red's headline, a local print), in ~/.cache/grizzle-release/CULL-COMPUTE/kills-current.log;
+ *   this budget run by path in run-budgets.log there
+ * @observed 2026-11-23, 04:00 to 06:00 UTC
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB at load 440 to 530; PostgreSQL 19 in
+ *   memory (the family grizzle-m-cull-compute); Node 26.13.1; grizzle at dbcb09929 with lane CULL-COMPUTE's cull,
+ *   vendor/toolchain at 2cc4817
+ * @workload each declared kill applied alone and judged on the property's witnesses: its kept cases, its floor stream
+ *   and its steered phase, which no run seed moves
+ * @result its kill went red on case 3 of its floor stream
+ * @decision the least runs whose floor stream, a quarter of them rounded up, holds its first 4 cases: 13; no headroom:
+ *   a kill its witnesses stop killing fails the kill gate, which measures it again
+ * @revalidate a change of its space, situations, kept cases or kills, of its label (the floor stream's seed), or of the
+ *   runner's floor rule
+ */
 export const aReadsParametersAdmittedWhateverItsLogicReadsAgainstPostgreSQL19AParameterOutsideItsTypeIsRefusedAtBindThoughAConstantFalseFilterLeavesItUnread =
 	property.explore(caseGen, {
 		needs: { fixture: Substrate.seat(readsTemplate) },
@@ -55,8 +80,7 @@ export const aReadsParametersAdmittedWhateverItsLogicReadsAgainstPostgreSQL19APa
 			"relation answered, filtered by none",
 			"relation answered, filtered by false"
 		] satisfies ReadonlyArray<Reached<Feature>>,
-		/** Its pre-conversion budget: runs 40, coverage cases 40 (read-admission.test.ts at 4fbc3e95). */
-		budget: { runs: 40, steered: 40 },
+		budget: { runs: 13, steered: 40 },
 		check:
 			({ fixture }, c: CaseOf<Feature>) =>
 			(k) =>

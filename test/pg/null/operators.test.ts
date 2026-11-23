@@ -35,7 +35,16 @@ import {
 } from "#test/pg/null/operators.fixtures.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-/** Each operation over NULL is evaluated by the host as PostgreSQL evaluates it, at every slot NULL or a value. */
+/**
+ * Each operation over NULL is evaluated by the host as PostgreSQL evaluates it, at every slot NULL or a value.
+ *
+ * Exhaustive, though its box is larger than the runner's default budget (fastcycle's cull): drawn from the same
+ * generator at the runner's default budget, its 38 floor and 200 steered cases reached none of cond, guard, OR over
+ * unknown, a guard's otherwise at NULL, a conditional's else at unknown, BETWEEN false at an unknown bound and a
+ * singleton read at an absent key, so the search goes red with no mutant (`TEST_SEED=2219874524 pnpm exec toolchain-test
+ * kills test/pg/null/operators.test.ts`, ~/.cache/grizzle-release/CULL-COMPUTE/kills-current.log, 2026-11-23); the box
+ * reaches every situation it requires and kills its kill.
+ */
 export const eachOperationOverNULLIsEvaluatedByTheHostAsPostgreSQLEvaluatesItAtEverySlotNULLOrAValue =
 	property.exhaust(finite(caseGen), {
 		needs: { tx: Substrate.transaction },

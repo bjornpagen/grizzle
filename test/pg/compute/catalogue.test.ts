@@ -42,7 +42,30 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 /**
  * The scalar catalogue against PostgreSQL 19 agrees with PostgreSQL on the result type and value of every operation at every boundary, and refuses only what the values justify.
  *
- * Its pre-conversion budget: runs casePerEntry, coverage cases casePerEntry (test/pg/compute/catalogue.test.ts at c568eb123).
+ * Its budget, measured (fastcycle's cull):
+ *
+ * @limitKind measured
+ * @owner test/pg/compute/catalogue.test.ts, this property's search
+ * @unit cases of the rotating stream; the floor stream runs a quarter of them, rounded up
+ * @scope one search of this property in one run; the steered phase's cases, its cap of casePerEntry, run only while a
+ *   required situation is pending
+ * @evidence `TEST_SEED=2219874524 pnpm exec toolchain-test kills test/pg/compute/catalogue.test.ts` at its budget
+ *   before, `{ runs: casePerEntry, steered: casePerEntry }`, its kill's verdict printed with where its witnesses went
+ *   red (judgedLine with the red's headline, a local print), in
+ *   ~/.cache/grizzle-release/CULL-COMPUTE/kills-current.log; at runs 1 by path, its kill judged by the run, in
+ *   probe2.log there
+ * @observed 2026-11-23, 04:00 to 07:00 UTC
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB at load 440 to 530; PostgreSQL 19 in
+ *   memory (the family grizzle-m-cull-compute); Node 26.13.1; grizzle at e79913b8c with lane CULL-COMPUTE's cull,
+ *   vendor/toolchain at 2cc4817
+ * @workload its kill applied alone and judged on the property's witnesses: its floor stream and its steered phase,
+ *   which no run seed moves
+ * @result its kill went red on case 96 of its steered phase at its budget before; at runs 1, a floor of one case, its
+ *   steered phase reached every required situation and still killed it, 246 cases in all where it ran 497
+ * @decision 1, the least a generative search draws; no headroom: a kill its witnesses stop killing fails the kill gate,
+ *   which measures it again
+ * @revalidate a change of its catalogue, space, situations or kill, of its label (the floor stream's seed), or of the
+ *   runner's floor rule
  */
 export const theComputeCatalogueAgainstPostgreSQL19AgreesWithPostgreSQLOnTheResultTypeAndValueOfEveryOperationAtEveryBoundaryAndRefusesOnlyWhatTheValuesJustify =
 	property.explore(
@@ -106,7 +129,7 @@ export const theComputeCatalogueAgainstPostgreSQL19AgreesWithPostgreSQLOnTheResu
 				kind: "postgresql",
 				name: "each operation's value and type, beside the host and the reference evaluators"
 			},
-			budget: { runs: casePerEntry, steered: casePerEntry },
+			budget: { runs: 1, steered: casePerEntry },
 			kept: [],
 			kills: [
 				{

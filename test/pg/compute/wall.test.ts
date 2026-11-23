@@ -87,7 +87,32 @@ const zonesRead = (names: ReadonlyArray<ZoneName>) =>
 		return read
 	})
 
-/** Time.wall on PostgreSQL 19: every probe's wall clock is the TZif reference's over the server's own zone files. */
+/**
+ * Time.wall on PostgreSQL 19: every probe's wall clock is the TZif reference's over the server's own zone files.
+ *
+ * Its budget, measured (fastcycle's cull):
+ *
+ * @limitKind measured
+ * @owner test/pg/compute/wall.test.ts, this property's search
+ * @unit cases of the rotating stream; the floor stream runs a quarter of them, rounded up
+ * @scope one search of this property in one run; the steered phase's cases, its cap, run only while a required
+ *   situation is pending
+ * @evidence `TEST_SEED=2219874524 pnpm exec toolchain-test kills test/pg/compute/wall.test.ts` at its budget before, `{
+ *   runs: 8, steered: 16 }`, each kill's verdict printed with where its witnesses went red (judgedLine with the red's
+ *   headline, a local print), in ~/.cache/grizzle-release/CULL-COMPUTE/kills-current.log; this budget run by path in
+ *   run-budgets.log there
+ * @observed 2026-11-23, 04:00 to 06:00 UTC
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB at load 440 to 530; PostgreSQL 19 in
+ *   memory (the family grizzle-m-cull-compute); Node 26.13.1; grizzle at dbcb09929 with lane CULL-COMPUTE's cull,
+ *   vendor/toolchain at 2cc4817
+ * @workload each declared kill applied alone and judged on the property's witnesses: its kept cases, its floor stream
+ *   and its steered phase, which no run seed moves
+ * @result each of its 2 kills went red on the first case of its floor stream
+ * @decision 1, the least a generative search draws, whose floor stream holds that one case; no headroom: a kill its
+ *   witnesses stop killing fails the kill gate, which measures it again
+ * @revalidate a change of its space, situations, kept cases or kills, of its label (the floor stream's seed), or of the
+ *   runner's floor rule
+ */
 export const timeWallOnPostgreSQL19EveryProbesWallClockIsTheTzifReferencesOverTheServersOwnZoneFiles =
 	property.explore(caseGen, {
 		needs: { substrate: Substrate.installing },
@@ -155,7 +180,7 @@ export const timeWallOnPostgreSQL19EveryProbesWallClockIsTheTzifReferencesOverTh
 			name: "RFC 8536's TZif read over the server's own zone files (test/support/oracle/reference/tzif.ts)"
 		},
 		show: Formatter.format,
-		budget: { runs: 8, steered: 16 },
+		budget: { runs: 1, steered: 16 },
 		kept: [],
 		kills: [
 			{
@@ -266,6 +291,29 @@ export const aZoneRostersMigrationReadsEachHandleAsATimeZoneOneTheServersTzdataL
  * day, the date of that epoch day, and the date of an integer, drawn inside grizzle's dates and past them, as three
  * generated fields of Days, are one in PostgreSQL's stored row, in the host's evaluation of the row (rowEvaluator) and
  * in the reference calendar (test/support/oracle/reference/calendar.ts), dates before 1970 among them.
+ *
+ * Its budget, measured (fastcycle's cull):
+ *
+ * @limitKind measured
+ * @owner test/pg/compute/wall.test.ts, this property's search
+ * @unit cases of the rotating stream; the floor stream runs a quarter of them, rounded up
+ * @scope one search of this property in one run; the steered phase's cases, its cap, run only while a required
+ *   situation is pending
+ * @evidence `TEST_SEED=2219874524 pnpm exec toolchain-test kills test/pg/compute/wall.test.ts` at its budget before, `{
+ *   runs: 6, steered: 12 }`, each kill's verdict printed with where its witnesses went red (judgedLine with the red's
+ *   headline, a local print), in ~/.cache/grizzle-release/CULL-COMPUTE/kills-current.log; this budget run by path in
+ *   run-budgets.log there
+ * @observed 2026-11-23, 04:00 to 06:00 UTC
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB at load 440 to 530; PostgreSQL 19 in
+ *   memory (the family grizzle-m-cull-compute); Node 26.13.1; grizzle at dbcb09929 with lane CULL-COMPUTE's cull,
+ *   vendor/toolchain at 2cc4817
+ * @workload each declared kill applied alone and judged on the property's witnesses: its kept cases, its floor stream
+ *   and its steered phase, which no run seed moves
+ * @result each of its 2 kills went red on the first case of its floor stream
+ * @decision 1, the least a generative search draws, whose floor stream holds that one case; no headroom: a kill its
+ *   witnesses stop killing fails the kill gate, which measures it again
+ * @revalidate a change of its space, situations, kept cases or kills, of its label (the floor stream's seed), or of the
+ *   runner's floor rule
  */
 export const timeEpochDayAndDateOfEpochDayOnPostgreSQL19AndTheHostAreHinnantsDayCount =
 	property.explore(dayCaseGen, {
@@ -352,7 +400,7 @@ export const timeEpochDayAndDateOfEpochDayOnPostgreSQL19AndTheHostAreHinnantsDay
 			name: "Hinnant's days_from_civil and civil_from_days (test/support/oracle/reference/calendar.ts)"
 		},
 		show: Formatter.format,
-		budget: { runs: 6, steered: 12 },
+		budget: { runs: 1, steered: 12 },
 		kept: [],
 		kills: [
 			{

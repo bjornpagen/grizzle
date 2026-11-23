@@ -35,7 +35,33 @@ import {
 import { truth } from "#test/pg/text/differential.fixtures.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-/** Xml.isPattern on PostgreSQL 19: the library function's verdict on every text is the reader's and the host's. */
+/**
+ * Xml.isPattern on PostgreSQL 19: the library function's verdict on every text is the reader's and the host's.
+ *
+ * Its budget, measured (fastcycle's cull):
+ *
+ * @limitKind measured
+ * @owner test/pg/compute/xsd-pattern.test.ts, this property's search
+ * @unit cases of the rotating stream; the floor stream runs a quarter of them, rounded up
+ * @scope one search of this property in one run; the steered phase's cases, its cap, run only while a required
+ *   situation is pending
+ * @evidence `TEST_SEED=2219874524 pnpm exec toolchain-test kills test/pg/compute/xsd-pattern.test.ts` at its budget
+ *   before, `{ runs: 24, steered: 24 }`, each kill's verdict printed with where its witnesses went red (judgedLine with
+ *   the red's headline, a local print), in ~/.cache/grizzle-release/CULL-COMPUTE/kills-current.log; this budget run by
+ *   path in run-budgets.log there
+ * @observed 2026-11-23, 04:00 to 06:00 UTC
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB at load 440 to 530; PostgreSQL 19 in
+ *   memory (the family grizzle-m-cull-compute); Node 26.13.1; grizzle at dbcb09929 with lane CULL-COMPUTE's cull,
+ *   vendor/toolchain at 2cc4817
+ * @workload each declared kill applied alone and judged on the property's witnesses: its kept cases, its floor stream
+ *   and its steered phase, which no run seed moves
+ * @result its 4 kills went red on case 1 of its floor stream, case 0 of its floor stream, case 0 of its floor stream
+ *   and case 0 of its floor stream, in the order it declares them
+ * @decision the least runs whose floor stream, a quarter of them rounded up, holds its first 2 cases: 5; no headroom: a
+ *   kill its witnesses stop killing fails the kill gate, which measures it again
+ * @revalidate a change of its space, situations, kept cases or kills, of its label (the floor stream's seed), or of the
+ *   runner's floor rule
+ */
 export const computeIsXsdPatternOnPostgreSQL19TheLibraryFunctionsVerdictOnEveryTextIsTheReadersAndTheHosts =
 	property.explore(batchGen, {
 		needs: { substrate: Substrate.installing },
@@ -86,7 +112,7 @@ export const computeIsXsdPatternOnPostgreSQL19TheLibraryFunctionsVerdictOnEveryT
 			kind: "second-implementation",
 			name: "grizzle-text's reader of Appendix F's grammar, beside the table PostgreSQL reads, and the host's evaluation of the term"
 		},
-		budget: { runs: 24, steered: 24 },
+		budget: { runs: 5, steered: 24 },
 		kept: [],
 		kills: [
 			{

@@ -41,13 +41,37 @@ import {
 import { succeeded } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-/** Numeric agreement with PostgreSQL parses every literal to the value numeric_in gives it, in its one form. */
+/**
+ * Numeric agreement with PostgreSQL parses every literal to the value numeric_in gives it, in its one form.
+ *
+ * Its budget, measured (fastcycle's cull):
+ *
+ * @limitKind measured
+ * @owner test/pg/values/numeric.test.ts, this property's search
+ * @unit cases of the rotating stream; the floor stream runs a quarter of them, rounded up
+ * @scope one search of this property in one run; the steered phase's cases, its cap, run only while a required
+ *   situation is pending
+ * @evidence `TEST_SEED=2219874524 pnpm exec toolchain-test kills test/pg/values/numeric.test.ts` at its budget before,
+ *   `{ runs: 6, steered: 0 }`, each kill's verdict printed with where its witnesses went red (judgedLine with the red's
+ *   headline, a local print), in ~/.cache/grizzle-release/CULL-COMPUTE/kills-current.log; this budget run by path in
+ *   run-budgets.log there
+ * @observed 2026-11-23, 04:00 to 06:00 UTC
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB at load 440 to 530; PostgreSQL 19 in
+ *   memory (the family grizzle-m-cull-compute); Node 26.13.1; grizzle at dbcb09929 with lane CULL-COMPUTE's cull,
+ *   vendor/toolchain at 2cc4817
+ * @workload each declared kill applied alone and judged on the property's witnesses: its kept cases, its floor stream
+ *   and its steered phase, which no run seed moves
+ * @result its kill went red on the first case of its floor stream
+ * @decision 1, the least a generative search draws, whose floor stream holds that one case; no headroom: a kill its
+ *   witnesses stop killing fails the kill gate, which measures it again
+ * @revalidate a change of its space, situations, kept cases or kills, of its label (the floor stream's seed), or of the
+ *   runner's floor rule
+ */
 export const numericAgreementWithPostgreSQLParsesEveryLiteralToTheValueNumericInGivesItInItsOneForm =
 	property.explore(caseBatch, {
 		needs: { tx: Substrate.transaction },
 		situations: [],
-		/** Its pre-conversion budget: runs 6, no coverage (numeric.test.ts at 4fbc3e95). */
-		budget: { runs: 6, steered: 0 },
+		budget: { runs: 1, steered: 0 },
 		check:
 			({ tx }) =>
 			(chunk) =>
@@ -76,7 +100,32 @@ export const numericAgreementWithPostgreSQLParsesEveryLiteralToTheValueNumericIn
 		]
 	})
 
-/** Numeric agreement with PostgreSQL normalizes literals to numeric(p, s) exactly as both PostgreSQL coercion paths do, and the codec parses exactly. */
+/**
+ * Numeric agreement with PostgreSQL normalizes literals to numeric(p, s) exactly as both PostgreSQL coercion paths do, and the codec parses exactly.
+ *
+ * Its budget, measured (fastcycle's cull):
+ *
+ * @limitKind measured
+ * @owner test/pg/values/numeric.test.ts, this property's search
+ * @unit cases of the rotating stream; the floor stream runs a quarter of them, rounded up
+ * @scope one search of this property in one run; the steered phase's cases, its cap, run only while a required
+ *   situation is pending
+ * @evidence `TEST_SEED=2219874524 pnpm exec toolchain-test kills test/pg/values/numeric.test.ts` at its budget before,
+ *   `{ runs: 6, steered: 6 }`, each kill's verdict printed with where its witnesses went red (judgedLine with the red's
+ *   headline, a local print), in ~/.cache/grizzle-release/CULL-COMPUTE/kills-current.log; this budget run by path in
+ *   run-budgets.log there
+ * @observed 2026-11-23, 04:00 to 06:00 UTC
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB at load 440 to 530; PostgreSQL 19 in
+ *   memory (the family grizzle-m-cull-compute); Node 26.13.1; grizzle at dbcb09929 with lane CULL-COMPUTE's cull,
+ *   vendor/toolchain at 2cc4817
+ * @workload each declared kill applied alone and judged on the property's witnesses: its kept cases, its floor stream
+ *   and its steered phase, which no run seed moves
+ * @result each of its 4 kills went red on the first case of its floor stream
+ * @decision 1, the least a generative search draws, whose floor stream holds that one case; no headroom: a kill its
+ *   witnesses stop killing fails the kill gate, which measures it again
+ * @revalidate a change of its space, situations, kept cases or kills, of its label (the floor stream's seed), or of the
+ *   runner's floor rule
+ */
 export const numericAgreementWithPostgreSQLNormalizesLiteralsToNumericPSExactlyAsBothPostgreSQLCoercionPathsDoAndTheCodecParsesExactly =
 	property.explore(caseBatch, {
 		needs: { tx: Substrate.transaction },
@@ -85,8 +134,7 @@ export const numericAgreementWithPostgreSQLNormalizesLiteralsToNumericPSExactlyA
 			"negative scale",
 			"scale above precision"
 		] satisfies ReadonlyArray<Reached<CoercionFeature>>,
-		/** Its pre-conversion budget: runs 6, coverage cases 6 (numeric.test.ts at 4fbc3e95). */
-		budget: { runs: 6, steered: 6 },
+		budget: { runs: 1, steered: 6 },
 		check:
 			({ tx }, k: CaseOf<CoercionFeature>) =>
 			(chunk) =>
@@ -170,13 +218,37 @@ export const numericAgreementWithPostgreSQLNormalizesLiteralsToNumericPSExactlyA
 		]
 	})
 
-/** Numeric agreement with PostgreSQL orders, equates and deduplicates numerics as PostgreSQL does, NaN last. */
+/**
+ * Numeric agreement with PostgreSQL orders, equates and deduplicates numerics as PostgreSQL does, NaN last.
+ *
+ * Its budget, measured (fastcycle's cull):
+ *
+ * @limitKind measured
+ * @owner test/pg/values/numeric.test.ts, this property's search
+ * @unit cases of the rotating stream; the floor stream runs a quarter of them, rounded up
+ * @scope one search of this property in one run; the steered phase's cases, its cap, run only while a required
+ *   situation is pending
+ * @evidence `TEST_SEED=2219874524 pnpm exec toolchain-test kills test/pg/values/numeric.test.ts` at its budget before,
+ *   `{ runs: 2, steered: 0 }`, each kill's verdict printed with where its witnesses went red (judgedLine with the red's
+ *   headline, a local print), in ~/.cache/grizzle-release/CULL-COMPUTE/kills-current.log; this budget run by path in
+ *   run-budgets.log there
+ * @observed 2026-11-23, 04:00 to 06:00 UTC
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB at load 440 to 530; PostgreSQL 19 in
+ *   memory (the family grizzle-m-cull-compute); Node 26.13.1; grizzle at dbcb09929 with lane CULL-COMPUTE's cull,
+ *   vendor/toolchain at 2cc4817
+ * @workload each declared kill applied alone and judged on the property's witnesses: its kept cases, its floor stream
+ *   and its steered phase, which no run seed moves
+ * @result its kill went red on the first case of its floor stream
+ * @decision 1, the least a generative search draws, whose floor stream holds that one case; no headroom: a kill its
+ *   witnesses stop killing fails the kill gate, which measures it again
+ * @revalidate a change of its space, situations, kept cases or kills, of its label (the floor stream's seed), or of the
+ *   runner's floor rule
+ */
 export const numericAgreementWithPostgreSQLOrdersEquatesAndDeduplicatesNumericsAsPostgreSQLDoesNaNLast =
 	property.explore(array(value, { min: 1, max: 3000 }), {
 		needs: { tx: Substrate.transaction },
 		situations: [],
-		/** Its pre-conversion budget: runs 2, no coverage (numeric.test.ts at 4fbc3e95). */
-		budget: { runs: 2, steered: 0 },
+		budget: { runs: 1, steered: 0 },
 		check:
 			({ tx }) =>
 			(values) =>

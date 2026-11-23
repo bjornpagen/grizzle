@@ -49,7 +49,34 @@ import { nestedPattern } from "#test/unit/text/generators.ts"
 /** Regex membership: ECMAScript, the host NFA, PostgreSQL ARE and the installed domain agree on batches of randomized strings per family. */
 export const regexMembershipAgreeOnBatchesOfRandomizedStringsPerFamily = family(agreements)
 
-/** Regex membership: PostgreSQL compiles the largest pattern the limits admit along a drawn shape, at each limit's edge. */
+/**
+ * Regex membership: PostgreSQL compiles the largest pattern the limits admit along a drawn shape, at each limit's edge.
+ *
+ * Its budget, measured (fastcycle's cull):
+ *
+ * @limitKind measured
+ * @owner test/pg/text/differential.test.ts, this property's search
+ * @unit cases of the rotating stream; the floor stream runs a quarter of them, rounded up
+ * @scope one search of this property in one run; the steered phase's cases, its cap, run only while a required
+ *   situation is pending
+ * @evidence `TEST_SEED=2219874524 pnpm exec toolchain-test kills test/pg/text/differential.test.ts` at its budget
+ *   before, `{ runs: 16, steered: 3 }`, each kill's verdict printed with where its witnesses went red (judgedLine with
+ *   the red's headline, a local print), in ~/.cache/grizzle-release/CULL-COMPUTE/kills-current.log; this budget run by
+ *   path in run-budgets.log there; the runs 1, 5 and 9 by path in run-budgets.log, probe1.log and probe2.log there
+ * @observed 2026-11-23, 04:00 to 06:00 UTC
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB at load 440 to 530; PostgreSQL 19 in
+ *   memory (the family grizzle-m-cull-compute); Node 26.13.1; grizzle at dbcb09929 with lane CULL-COMPUTE's cull,
+ *   vendor/toolchain at 2cc4817
+ * @workload each declared kill applied alone and judged on the property's witnesses: its kept cases, its floor stream
+ *   and its steered phase, which no run seed moves
+ * @result its kill went red on the first case of its floor stream; at runs 1 no witness reached arcs and anchors
+ *   (run-budgets.log), at runs 5 and 9, floors of two and three cases beside its steered cap of 3, none reached
+ *   matchStates (probe1.log, probe2.log)
+ * @decision 13, the least runs whose floor stream, four cases, and steered phase reach every required situation, as its
+ *   budget before did with the same floor
+ * @revalidate a change of its space, situations, kept cases or kills, of its label (the floor stream's seed), or of the
+ *   runner's floor rule
+ */
 export const regexMembershipCompilesTheLargestPatternTheLimitsAdmitAlongADrawnShapeAtEachLimitsEdge =
 	property.explore(growthSpace, {
 		needs: { tx: Substrate.transaction },
@@ -60,7 +87,7 @@ export const regexMembershipCompilesTheLargestPatternTheLimitsAdmitAlongADrawnSh
 		 * witnesses are fixed by the property's identity). The old suite ran 4 coverage cases at that seed; a whole steering
 		 * window of 16 ran 36 cases of about 1.6 CPU-s each a run.
 		 */
-		budget: { runs: 16, steered: 3 },
+		budget: { runs: 13, steered: 3 },
 		show: showGrowth,
 		check:
 			({ tx }, k: Case<EdgeFeature>) =>
@@ -106,13 +133,37 @@ export const regexMembershipCompilesTheLargestPatternTheLimitsAdmitAlongADrawnSh
  * (differential.fixtures.ts, with their evidence); its kept cases are the counterexamples of the compile-space mutants
  * its witnesses do not reach, each the shrunk failure of its mutant, which run first on every seed whatever the budget;
  * the mutants are its kills.
+ *
+ * Its budget, measured (fastcycle's cull):
+ *
+ * @limitKind measured
+ * @owner test/pg/text/differential.test.ts, this property's search
+ * @unit cases of the rotating stream; the floor stream runs a quarter of them, rounded up
+ * @scope one search of this property in one run; the steered phase's cases, its cap, run only while a required
+ *   situation is pending
+ * @evidence `TEST_SEED=2219874524 pnpm exec toolchain-test kills test/pg/text/differential.test.ts` at its budget
+ *   before, `{ runs: nestedRuns, steered: nestedRuns }`, each kill's verdict printed with where its witnesses went red
+ *   (judgedLine with the red's headline, a local print), in ~/.cache/grizzle-release/CULL-COMPUTE/kills-current.log;
+ *   this budget run by path in run-budgets.log there
+ * @observed 2026-11-23, 04:00 to 06:00 UTC
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB at load 440 to 530; PostgreSQL 19 in
+ *   memory (the family grizzle-m-cull-compute); Node 26.13.1; grizzle at dbcb09929 with lane CULL-COMPUTE's cull,
+ *   vendor/toolchain at 2cc4817
+ * @workload each declared kill applied alone and judged on the property's witnesses: its kept cases, its floor stream
+ *   and its steered phase, which no run seed moves
+ * @result its 3 kills went red on its kept case, its kept case and case 265 of its floor stream, in the order it
+ *   declares them
+ * @decision the least runs whose floor stream, a quarter of them rounded up, holds its first 266 cases: 1061; no
+ *   headroom: a kill its witnesses stop killing fails the kill gate, which measures it again
+ * @revalidate a change of its space, situations, kept cases or kills, of its label (the floor stream's seed), or of the
+ *   runner's floor rule
  */
 export const regexMembershipCompilesGeneratedAdmittedNestedQuantifierPatterns = property.explore(
 	nestedPattern,
 	{
 		needs: { tx: Substrate.transaction },
 		situations: ["a large pattern"] satisfies ReadonlyArray<Reached<NestedFeature>>,
-		budget: { runs: nestedRuns, steered: nestedRuns },
+		budget: { runs: 1061, steered: nestedRuns },
 		check:
 			({ tx }, k: Case<NestedFeature>) =>
 			(source) =>

@@ -46,7 +46,28 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 /**
  * Text.parseDecimal on PostgreSQL 19 the parse's SQL, a stored range, the host evaluator and XML Schema's decimal mapping agree exactly on every decimal text.
  *
- * Its pre-conversion budget: runs 100, coverage cases 40 (test/pg/compute/parse-decimal.test.ts at 22a8e17e9).
+ * Its budget, measured (fastcycle's cull):
+ *
+ * @limitKind measured
+ * @owner test/pg/compute/parse-decimal.test.ts, this property's search
+ * @unit cases of the rotating stream; the floor stream runs a quarter of them, rounded up
+ * @scope one search of this property in one run; the steered phase's cases, its cap, run only while a required
+ *   situation is pending
+ * @evidence `TEST_SEED=2219874524 pnpm exec toolchain-test kills test/pg/compute/parse-decimal.test.ts` at its budget
+ *   before, `{ runs: 100, steered: 40 }`, each kill's verdict printed with where its witnesses went red (judgedLine
+ *   with the red's headline, a local print), in ~/.cache/grizzle-release/CULL-COMPUTE/kills-current.log; this budget
+ *   run by path in run-budgets.log there
+ * @observed 2026-11-23, 04:00 to 06:00 UTC
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB at load 440 to 530; PostgreSQL 19 in
+ *   memory (the family grizzle-m-cull-compute); Node 26.13.1; grizzle at dbcb09929 with lane CULL-COMPUTE's cull,
+ *   vendor/toolchain at 2cc4817
+ * @workload each declared kill applied alone and judged on the property's witnesses: its kept cases, its floor stream
+ *   and its steered phase, which no run seed moves
+ * @result its kill went red on its kept case
+ * @decision 1, the least a generative search draws: no declared kill needs a floor or a rotating case; no headroom: a
+ *   kill its witnesses stop killing fails the kill gate, which measures it again
+ * @revalidate a change of its space, situations, kept cases or kills, of its label (the floor stream's seed), or of the
+ *   runner's floor rule
  */
 export const computeParseDecimalOnPostgreSQL19TheParsesSQLAStoredRangeTheHostEvaluatorAndXMLSchemasDecimalMappingAgreeExactlyOnEveryDecimalText =
 	property.explore(recorded(array(pairGen, { min: 1, max: 24 }), ariaRanges), {
@@ -116,7 +137,7 @@ export const computeParseDecimalOnPostgreSQL19TheParsesSQLAStoredRangeTheHostEva
 			kind: "second-implementation",
 			name: "XML Schema 1.1's decimal lexical mapping in BigInt, against the host evaluator, the parse's SQL and a stored range's generated fields"
 		},
-		budget: { runs: 100, steered: 40 },
+		budget: { runs: 1, steered: 40 },
 		kept: [
 			{
 				token: ReplayToken(
@@ -127,5 +148,14 @@ export const computeParseDecimalOnPostgreSQL19TheParsesSQLAStoredRangeTheHostEva
 				since: "2026-11-08"
 			}
 		],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/scalar/lexical.ts",
+				original:
+					"\tif (n === undefined || text.length > decimalTextMaxBytes) {\n\t\treturn undefined\n\t}\n\tconst { units, scale } = unitsOf(n)\n",
+				replacement:
+					"\tif (n === undefined || text.length > decimalTextMaxBytes) {\n\t\treturn undefined\n\t}\n\treturn decimalValue(text, { precision: 511, scale: 255 })\n\tconst { units, scale } = unitsOf(n)\n",
+				why: "91f8347df's fix reverted on the host: the parse reads a decimal text only within numeric(511, 255)'s form, the widest a pattern counted before it, so the downstream's range past 256 integer or 255 fraction digits has no host value where PostgreSQL's numeric reads it exactly."
+			}
+		]
 	})

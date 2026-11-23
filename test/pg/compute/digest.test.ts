@@ -32,7 +32,28 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 /**
  * Crypto.sha256 on PostgreSQL the host's digest of any bytes is PostgreSQL's sha256(v), its 32 bytes, as a check and a query lower it.
  *
- * Its pre-conversion budget: runs 24, coverage cases 24 (test/pg/compute/digest.test.ts at 22a8e17e9).
+ * Its budget, measured (fastcycle's cull):
+ *
+ * @limitKind measured
+ * @owner test/pg/compute/digest.test.ts, this property's search
+ * @unit cases of the rotating stream; the floor stream runs a quarter of them, rounded up
+ * @scope one search of this property in one run; the steered phase's cases, its cap, run only while a required
+ *   situation is pending
+ * @evidence `TEST_SEED=2219874524 pnpm exec toolchain-test kills test/pg/compute/digest.test.ts` at its budget before,
+ *   `{ runs: 24, steered: 24 }`, each kill's verdict printed with where its witnesses went red (judgedLine with the
+ *   red's headline, a local print), in ~/.cache/grizzle-release/CULL-COMPUTE/kills-current.log; this budget run by path
+ *   in run-budgets.log there
+ * @observed 2026-11-23, 04:00 to 06:00 UTC
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB at load 440 to 530; PostgreSQL 19 in
+ *   memory (the family grizzle-m-cull-compute); Node 26.13.1; grizzle at dbcb09929 with lane CULL-COMPUTE's cull,
+ *   vendor/toolchain at 2cc4817
+ * @workload each declared kill applied alone and judged on the property's witnesses: its kept cases, its floor stream
+ *   and its steered phase, which no run seed moves
+ * @result each of its 2 kills went red on the first case of its floor stream
+ * @decision 1, the least a generative search draws, whose floor stream holds that one case; no headroom: a kill its
+ *   witnesses stop killing fails the kill gate, which measures it again
+ * @revalidate a change of its space, situations, kept cases or kills, of its label (the floor stream's seed), or of the
+ *   runner's floor rule
  */
 export const computeSha256OnPostgreSQLTheHostsDigestOfAnyBytesIsPostgreSQLsSha256VAsACheckAndAQueryLowerIt =
 	property.explore(batch, {
@@ -81,7 +102,7 @@ export const computeSha256OnPostgreSQLTheHostsDigestOfAnyBytesIsPostgreSQLsSha25
 			kind: "second-implementation",
 			name: "PostgreSQL's sha256(v)"
 		},
-		budget: { runs: 24, steered: 24 },
+		budget: { runs: 1, steered: 24 },
 		kept: [],
 		kills: [
 			{

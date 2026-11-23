@@ -50,6 +50,30 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 /**
  * Relation inputs against PostgreSQL partitions generated cases exactly as PostgreSQL's DISTINCT equality does, a
  * float's binary image beside it.
+ *
+ * Its budget, measured (fastcycle's cull):
+ *
+ * @limitKind measured
+ * @owner test/pg/codec/relation.test.ts, this property's search
+ * @unit cases of the rotating stream; the floor stream runs a quarter of them, rounded up
+ * @scope one search of this property in one run; the steered phase's cases, its cap, run only while a required
+ *   situation is pending
+ * @evidence `TEST_SEED=2219874524 pnpm exec toolchain-test kills test/pg/codec/relation.test.ts` at its budget before,
+ *   `{ runs: 20, steered: 20 }`, each kill's verdict printed with where its witnesses went red (judgedLine with the
+ *   red's headline, a local print), in ~/.cache/grizzle-release/CULL-COMPUTE/kills-current.log; this budget run by path
+ *   in run-budgets.log there
+ * @observed 2026-11-23, 04:00 to 06:00 UTC
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB at load 440 to 530; PostgreSQL 19 in
+ *   memory (the family grizzle-m-cull-compute); Node 26.13.1; grizzle at dbcb09929 with lane CULL-COMPUTE's cull,
+ *   vendor/toolchain at 2cc4817
+ * @workload each declared kill applied alone and judged on the property's witnesses: its kept cases, its floor stream
+ *   and its steered phase, which no run seed moves
+ * @result its 2 kills went red on case 1 of its floor stream and case 0 of its floor stream, in the order it declares
+ *   them
+ * @decision the least runs whose floor stream, a quarter of them rounded up, holds its first 2 cases: 5; no headroom: a
+ *   kill its witnesses stop killing fails the kill gate, which measures it again
+ * @revalidate a change of its space, situations, kept cases or kills, of its label (the floor stream's seed), or of the
+ *   runner's floor rule
  */
 export const relationInputsAgainstPostgreSQLPartitionsGeneratedCasesExactlyAsPostgreSQLsDISTINCTEqualityDoes =
 	property.explore(array(collidingFactsGen(8), { min: 1, max: 100 }), {
@@ -57,8 +81,7 @@ export const relationInputsAgainstPostgreSQLPartitionsGeneratedCasesExactlyAsPos
 		situations: ["equal facts spelled apart"] satisfies ReadonlyArray<
 			Reached<"equal facts spelled apart">
 		>,
-		/** Its pre-conversion budget: runs 20, coverage cases 20 (relation.test.ts at 4fbc3e95). */
-		budget: { runs: 20, steered: 20 },
+		budget: { runs: 5, steered: 20 },
 		check:
 			({ tx }, c: Case<"equal facts spelled apart">) =>
 			(cases) =>
@@ -142,13 +165,36 @@ export const relationInputsAgainstPostgreSQLPartitionsGeneratedCasesExactlyAsPos
 /**
  * Relation inputs against PostgreSQL sends PostgreSQL a set: the encoder's arrays hold rows distinct under PostgreSQL's
  * equality, a float's binary image beside it.
+ *
+ * Its budget, measured (fastcycle's cull):
+ *
+ * @limitKind measured
+ * @owner test/pg/codec/relation.test.ts, this property's search
+ * @unit cases of the rotating stream; the floor stream runs a quarter of them, rounded up
+ * @scope one search of this property in one run; the steered phase's cases, its cap, run only while a required
+ *   situation is pending
+ * @evidence `TEST_SEED=2219874524 pnpm exec toolchain-test kills test/pg/codec/relation.test.ts` at its budget before,
+ *   `{ runs: 200, steered: 200 }`, each kill's verdict printed with where its witnesses went red (judgedLine with the
+ *   red's headline, a local print), in ~/.cache/grizzle-release/CULL-COMPUTE/kills-current.log; this budget run by path
+ *   in run-budgets.log there
+ * @observed 2026-11-23, 04:00 to 06:00 UTC
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB at load 440 to 530; PostgreSQL 19 in
+ *   memory (the family grizzle-m-cull-compute); Node 26.13.1; grizzle at dbcb09929 with lane CULL-COMPUTE's cull,
+ *   vendor/toolchain at 2cc4817
+ * @workload each declared kill applied alone and judged on the property's witnesses: its kept cases, its floor stream
+ *   and its steered phase, which no run seed moves
+ * @result its 2 kills went red on case 1 of its floor stream and case 0 of its floor stream, in the order it declares
+ *   them
+ * @decision the least runs whose floor stream, a quarter of them rounded up, holds its first 2 cases: 5; no headroom: a
+ *   kill its witnesses stop killing fails the kill gate, which measures it again
+ * @revalidate a change of its space, situations, kept cases or kills, of its label (the floor stream's seed), or of the
+ *   runner's floor rule
  */
 export const relationInputsAgainstPostgreSQLSendsPostgreSQLASetTheEncodersArraysHoldRowsDistinctUnderPostgreSQLsEquality =
 	property.explore(collidingFactsGen(40), {
 		needs: { tx: Substrate.transaction },
 		situations: ["deduplicated"] satisfies ReadonlyArray<Reached<"deduplicated">>,
-		/** Its pre-conversion budget: runs 200, coverage cases 200 (relation.test.ts at 4fbc3e95). */
-		budget: { runs: 200, steered: 200 },
+		budget: { runs: 5, steered: 200 },
 		check:
 			({ tx }, c: Case<"deduplicated">) =>
 			(facts) =>

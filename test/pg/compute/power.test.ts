@@ -64,7 +64,28 @@ import {
 /**
  * Numeric power against PostgreSQL 19 agrees on the value, display scale and failure of every generated power.
  *
- * Its pre-conversion budget: runs 4, coverage cases 8 (test/pg/compute/power.test.ts at c568eb123).
+ * Its budget, measured (fastcycle's cull):
+ *
+ * @limitKind measured
+ * @owner test/pg/compute/power.test.ts, this property's search
+ * @unit cases of the rotating stream; the floor stream runs a quarter of them, rounded up
+ * @scope one search of this property in one run; the steered phase's cases, its cap, run only while a required
+ *   situation is pending
+ * @evidence `TEST_SEED=2219874524 pnpm exec toolchain-test kills test/pg/compute/power.test.ts` at its budget before,
+ *   `{ runs: 4, steered: 8 }`, each kill's verdict printed with where its witnesses went red (judgedLine with the red's
+ *   headline, a local print), in ~/.cache/grizzle-release/CULL-COMPUTE/kills-current.log; this budget run by path in
+ *   run-budgets.log there
+ * @observed 2026-11-23, 04:00 to 06:00 UTC
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB at load 440 to 530; PostgreSQL 19 in
+ *   memory (the family grizzle-m-cull-compute); Node 26.13.1; grizzle at dbcb09929 with lane CULL-COMPUTE's cull,
+ *   vendor/toolchain at 2cc4817
+ * @workload each declared kill applied alone and judged on the property's witnesses: its kept cases, its floor stream
+ *   and its steered phase, which no run seed moves
+ * @result its kill went red on its kept case
+ * @decision 1, the least a generative search draws: no declared kill needs a floor or a rotating case; no headroom: a
+ *   kill its witnesses stop killing fails the kill gate, which measures it again
+ * @revalidate a change of its space, situations, kept cases or kills, of its label (the floor stream's seed), or of the
+ *   runner's floor rule
  */
 export const numericPowerAgainstPostgreSQL19AgreesOnTheValueDisplayScaleAndFailureOfEveryGeneratedPower =
 	property.explore(recorded(powerBatch, pastExpPowers), {
@@ -167,7 +188,7 @@ export const numericPowerAgainstPostgreSQL19AgreesOnTheValueDisplayScaleAndFailu
 			kind: "postgresql",
 			name: "power's value or failure, beside the reference evaluator"
 		},
-		budget: { runs: 4, steered: 8 },
+		budget: { runs: 1, steered: 8 },
 		kept: [
 			{
 				token: ReplayToken(
@@ -178,13 +199,42 @@ export const numericPowerAgainstPostgreSQL19AgreesOnTheValueDisplayScaleAndFailu
 				since: "2026-11-04"
 			}
 		],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/scalar/compute/lower.ts",
+				original:
+					"return integral ? weight < numericMaxIntegerDigits : weight * Math.LN10 < powerExpLimit",
+				replacement: "return weight < numericMaxIntegerDigits",
+				why: "e7fd8b323's fix reverted: a power whose exponent is no integer is proved within numeric's integer digits alone, never held below power_var's exp(6000), so power(9.5e400, 60.123456789) is proved where PostgreSQL raises 22003."
+			}
+		]
 	})
 
 /**
  * Numeric power against PostgreSQL 19 never proves a power over a guarded base that PostgreSQL fails at its guard's ends.
  *
- * Its pre-conversion budget: runs 4, coverage cases 4 (test/pg/compute/power.test.ts at c568eb123).
+ * Its budget, measured (fastcycle's cull):
+ *
+ * @limitKind measured
+ * @owner test/pg/compute/power.test.ts, this property's search
+ * @unit cases of the rotating stream; the floor stream runs a quarter of them, rounded up
+ * @scope one search of this property in one run; the steered phase's cases, its cap, run only while a required
+ *   situation is pending
+ * @evidence `TEST_SEED=2219874524 pnpm exec toolchain-test kills test/pg/compute/power.test.ts` at its budget before,
+ *   `{ runs: 4, steered: 4 }`, each kill's verdict printed with where its witnesses went red (judgedLine with the red's
+ *   headline, a local print), in ~/.cache/grizzle-release/CULL-COMPUTE/kills-current.log; this budget run by path in
+ *   run-budgets.log there
+ * @observed 2026-11-23, 04:00 to 06:00 UTC
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB at load 440 to 530; PostgreSQL 19 in
+ *   memory (the family grizzle-m-cull-compute); Node 26.13.1; grizzle at dbcb09929 with lane CULL-COMPUTE's cull,
+ *   vendor/toolchain at 2cc4817
+ * @workload each declared kill applied alone and judged on the property's witnesses: its kept cases, its floor stream
+ *   and its steered phase, which no run seed moves
+ * @result its kill went red on its kept case
+ * @decision 1, the least a generative search draws: no declared kill needs a floor or a rotating case; no headroom: a
+ *   kill its witnesses stop killing fails the kill gate, which measures it again
+ * @revalidate a change of its space, situations, kept cases or kills, of its label (the floor stream's seed), or of the
+ *   runner's floor rule
  */
 export const numericPowerAgainstPostgreSQL19NeverProvesAPowerOverAGuardedBaseThatPostgreSQLFailsAtItsGuardsEnds =
 	property.explore(
@@ -268,7 +318,7 @@ export const numericPowerAgainstPostgreSQL19NeverProvesAPowerOverAGuardedBaseTha
 						)
 					),
 			oracle: { kind: "postgresql", name: "power's failure at the guard's ends" },
-			budget: { runs: 4, steered: 4 },
+			budget: { runs: 1, steered: 4 },
 			kept: [
 				{
 					token: ReplayToken(
@@ -279,14 +329,42 @@ export const numericPowerAgainstPostgreSQL19NeverProvesAPowerOverAGuardedBaseTha
 					since: "2026-11-04"
 				}
 			],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/scalar/compute/typing.ts",
+					original: "\treturn Math.max(rising, falling)\n",
+					replacement: "\treturn rising\n",
+					why: "e7fd8b323's fix reverted: a power's weight counts its largest base raised to its largest exponent alone, never its least base raised to its most negative one, so a base within (0, 10] raised to -10 is proved where its least value, 10^-16383, overflows."
+				}
+			]
 		}
 	)
 
 /**
  * Numeric power against PostgreSQL 19 never proves a float power over bases of every binary exponent that PostgreSQL's dpow fails.
  *
- * Its pre-conversion budget: runs 4, coverage cases 4 (test/pg/compute/power.test.ts at c568eb123).
+ * Its budget, measured (fastcycle's cull):
+ *
+ * @limitKind measured
+ * @owner test/pg/compute/power.test.ts, this property's search
+ * @unit cases of the rotating stream; the floor stream runs a quarter of them, rounded up
+ * @scope one search of this property in one run; the steered phase's cases, its cap, run only while a required
+ *   situation is pending
+ * @evidence `TEST_SEED=2219874524 pnpm exec toolchain-test kills test/pg/compute/power.test.ts` at its budget before,
+ *   `{ runs: 4, steered: 4 }`, each kill's verdict printed with where its witnesses went red (judgedLine with the red's
+ *   headline, a local print), in ~/.cache/grizzle-release/CULL-COMPUTE/kills-current.log; this budget run by path in
+ *   run-budgets.log there
+ * @observed 2026-11-23, 04:00 to 06:00 UTC
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB at load 440 to 530; PostgreSQL 19 in
+ *   memory (the family grizzle-m-cull-compute); Node 26.13.1; grizzle at dbcb09929 with lane CULL-COMPUTE's cull,
+ *   vendor/toolchain at 2cc4817
+ * @workload each declared kill applied alone and judged on the property's witnesses: its kept cases, its floor stream
+ *   and its steered phase, which no run seed moves
+ * @result its kill went red on its kept case
+ * @decision 1, the least a generative search draws: no declared kill needs a floor or a rotating case; no headroom: a
+ *   kill its witnesses stop killing fails the kill gate, which measures it again
+ * @revalidate a change of its space, situations, kept cases or kills, of its label (the floor stream's seed), or of the
+ *   runner's floor rule
  */
 export const numericPowerAgainstPostgreSQL19NeverProvesAFloatPowerOverBasesOfEveryBinaryExponentThatPostgreSQLsDpowFails =
 	property.explore(
@@ -393,7 +471,7 @@ export const numericPowerAgainstPostgreSQL19NeverProvesAFloatPowerOverBasesOfEve
 				kind: "postgresql",
 				name: "dpow's 22003 on a zero result of a nonzero base or an infinite one (float.c)"
 			},
-			budget: { runs: 4, steered: 4 },
+			budget: { runs: 1, steered: 4 },
 			kept: [
 				{
 					token: ReplayToken(
@@ -404,6 +482,13 @@ export const numericPowerAgainstPostgreSQL19NeverProvesAFloatPowerOverBasesOfEve
 					since: "2026-11-07"
 				}
 			],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/scalar/compute/lower.ts",
+					original: "Math.max(Math.abs(log2Magnitude(bLow)), Math.abs(log2Magnitude(bHigh)))",
+					replacement: "Math.max(log2Magnitude(bLow), log2Magnitude(bHigh))",
+					why: "73360caa6's catch again: a float power's reach reads each base's binary exponent with its sign, so a base below 1 never counts toward the underflow, and power(1.6466997816706438e-110, 9.5) is proved where dpow raises 22003 on its zero result."
+				}
+			]
 		}
 	)

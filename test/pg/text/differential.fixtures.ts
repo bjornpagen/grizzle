@@ -532,6 +532,35 @@ const familyKills: Readonly<Record<string, ReadonlyArray<Kill>>> = {
 	"escapes and literals": [punctuationBareKill]
 }
 
+/**
+ * Each family's agreement's runs, its budget measured (fastcycle's cull): its kill went red on the first case of its
+ *   floor stream in every family but line terminators', on the third there, so that family runs 9, the least whose
+ *   floor stream holds three cases, and every other runs 1, the least a generative search draws.
+ *
+ * @limitKind measured
+ * @owner test/pg/text/differential.fixtures.ts, each family's agreement
+ * @unit cases of the rotating stream; the floor stream runs a quarter of them, rounded up
+ * @scope one search of one family's agreement in one run; the steered phase's cases, its cap of 10, run only while a
+ *   required situation is pending
+ * @evidence `TEST_SEED=2219874524 pnpm exec toolchain-test kills test/pg/text/differential.test.ts` at the budget
+ *   before, `{ runs: 10, steered: 10 }` for every family, each kill's verdict printed with where its witnesses went red
+ *   (judgedLine with the red's headline, a local print), in ~/.cache/grizzle-release/CULL-COMPUTE/kills-current.log;
+ *   these budgets run by path in run-budgets.log there
+ * @observed 2026-11-23, 04:00 to 06:00 UTC
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB at load 440 to 530; PostgreSQL 19 in
+ *   memory (the family grizzle-m-cull-compute); Node 26.13.1; grizzle at dbcb09929 with lane CULL-COMPUTE's cull,
+ *   vendor/toolchain at 2cc4817
+ * @workload each family's kill (familyKills) applied alone and judged on the family's witnesses: its floor stream and
+ *   its steered phase, which no run seed moves
+ * @result the end anchor's kill red on case 2 of line terminators' floor stream and case 0 of anchors' and empty
+ *   string's; the digit, negation and punctuation kills each on case 0 of its family's
+ * @decision line terminators 9, every other family 1; no headroom: a kill its witnesses stop killing fails the kill
+ *   gate, which measures it again
+ * @revalidate a change of a family's patterns, alphabet, space or kills, of its label (the floor stream's seed), or of
+ *   the runner's floor rule
+ */
+const familyRuns: Readonly<Record<string, number>> = { "line terminators": 9 }
+
 const agreementOf = (fi: number, family: Family) => {
 	const written = Arr.map(family.patterns, ([source, flags], pi) => {
 		const r = refine(source, flags, loc(family.name, pi))
@@ -600,8 +629,7 @@ const agreementOf = (fi: number, family: Family) => {
 			kind: "second-implementation",
 			name: "ECMAScript's RegExp membership, against the host NFA, PostgreSQL's ~ and the installed domain"
 		},
-		/** Its pre-conversion budget: runs 10, coverage cases 10 (differential.test.ts, each family's suite, at 4fbc3e95). */
-		budget: { runs: 10, steered: 10 },
+		budget: { runs: familyRuns[family.name] ?? 1, steered: 10 },
 		kept: [],
 		kills: familyKills[family.name] ?? []
 	})

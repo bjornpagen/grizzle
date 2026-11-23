@@ -41,7 +41,11 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 /**
  * A guard of a text's bytes on PostgreSQL 19 admits a cast into str.bytes exactly when the guard's bound is within the target's, and stores what the host computes.
  *
- * Its pre-conversion budget: runs 60, coverage cases 60 (test/pg/compute/bytes-guard.test.ts at c568eb123).
+ * Its budget is the runner's (fastcycle's cull): its evidence is its kept case, FULLSUITE3's red, a real bug, and its
+ * fix (0baff5d6e) reverted where it still applies, a binary coercion typed by its target itself, no longer reddens it:
+ * `TEST_SEED=2219874524 pnpm exec toolchain-test kills test/pg/compute/bytes-guard.test.ts` judged that kill survived
+ * every witness (~/.cache/grizzle-release/CULL-COMPUTE/kills-bytes-guard.log, 2026-11-23), so no kill re-plants the
+ * catch cleanly and no smaller budget is measured.
  */
 export const aGuardOfATextsBytesOnPostgreSQL19AdmitsACastIntoStrBytesExactlyWhenTheGuardsBoundIsWithinTheTargetsAndStoresWhatTheHostComputes =
 	property.explore(caseGen, {
@@ -145,7 +149,6 @@ export const aGuardOfATextsBytesOnPostgreSQL19AdmitsACastIntoStrBytesExactlyWhen
 			kind: "specification",
 			name: "the bounds the case states and the host's guard"
 		},
-		budget: { runs: 60, steered: 60 },
 		kept: [
 			{
 				token: ReplayToken(

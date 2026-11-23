@@ -56,7 +56,33 @@ import { succeeded } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { codecOf } from "#test/unit/codec/support.ts"
 
-/** Exact scalar codecs against PostgreSQL round-trip every carrier exactly through the recordset and a cast parameter. */
+/**
+ * Exact scalar codecs against PostgreSQL round-trip every carrier exactly through the recordset and a cast parameter.
+ *
+ * Its budget, measured (fastcycle's cull):
+ *
+ * @limitKind measured
+ * @owner test/pg/codec/scalar.test.ts, this property's search
+ * @unit cases of the rotating stream; the floor stream runs a quarter of them, rounded up
+ * @scope one search of this property in one run; the steered phase's cases, its cap, run only while a required
+ *   situation is pending
+ * @evidence `TEST_SEED=2219874524 pnpm exec toolchain-test kills test/pg/codec/scalar.test.ts` at its budget before, `{
+ *   runs: roundTripRuns * cases.length, steered: roundTripRuns * cases.length }`, each kill's verdict printed with
+ *   where its witnesses went red (judgedLine with the red's headline, a local print), in
+ *   ~/.cache/grizzle-release/CULL-COMPUTE/kills-current.log; this budget run by path in run-budgets.log there
+ * @observed 2026-11-23, 04:00 to 06:00 UTC
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB at load 440 to 530; PostgreSQL 19 in
+ *   memory (the family grizzle-m-cull-compute); Node 26.13.1; grizzle at dbcb09929 with lane CULL-COMPUTE's cull,
+ *   vendor/toolchain at 2cc4817
+ * @workload each declared kill applied alone and judged on the property's witnesses: its kept cases, its floor stream
+ *   and its steered phase, which no run seed moves
+ * @result its 2 kills went red on case 7 of its floor stream and case 13 of its floor stream, in the order it declares
+ *   them
+ * @decision the least runs whose floor stream, a quarter of them rounded up, holds its first 14 cases: 53; no headroom:
+ *   a kill its witnesses stop killing fails the kill gate, which measures it again
+ * @revalidate a change of its space, situations, kept cases or kills, of its label (the floor stream's seed), or of the
+ *   runner's floor rule
+ */
 export const exactScalarCodecsAgainstPostgreSQLRoundTripsEveryCarrierExactlyThroughTheRecordsetAndACastParameter =
 	property.explore(roundTripGen, {
 		needs: { tx: Substrate.transaction },
@@ -64,8 +90,7 @@ export const exactScalarCodecsAgainstPostgreSQLRoundTripsEveryCarrierExactlyThro
 			cases,
 			(c): RoundTripFeature => `round-trips ${c.label}`
 		) satisfies ReadonlyArray<Reached<RoundTripFeature>>,
-		/** Its pre-conversion budget: runs and coverage cases roundTripRuns times the carriers' cases (scalar.test.ts at 4fbc3e95). */
-		budget: { runs: roundTripRuns * cases.length, steered: roundTripRuns * cases.length },
+		budget: { runs: 53, steered: roundTripRuns * cases.length },
 		check:
 			({ tx }, c: Case<RoundTripFeature>) =>
 			(trip) =>
@@ -97,13 +122,37 @@ export const exactScalarCodecsAgainstPostgreSQLRoundTripsEveryCarrierExactlyThro
 		]
 	})
 
-/** Exact scalar codecs against PostgreSQL store facts through their arrays and decode the stored rows positionally. */
+/**
+ * Exact scalar codecs against PostgreSQL store facts through their arrays and decode the stored rows positionally.
+ *
+ * Its budget, measured (fastcycle's cull):
+ *
+ * @limitKind measured
+ * @owner test/pg/codec/scalar.test.ts, this property's search
+ * @unit cases of the rotating stream; the floor stream runs a quarter of them, rounded up
+ * @scope one search of this property in one run; the steered phase's cases, its cap, run only while a required
+ *   situation is pending
+ * @evidence `TEST_SEED=2219874524 pnpm exec toolchain-test kills test/pg/codec/scalar.test.ts` at its budget before, `{
+ *   runs: 3, steered: 0 }`, each kill's verdict printed with where its witnesses went red (judgedLine with the red's
+ *   headline, a local print), in ~/.cache/grizzle-release/CULL-COMPUTE/kills-current.log; this budget run by path in
+ *   run-budgets.log there
+ * @observed 2026-11-23, 04:00 to 06:00 UTC
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB at load 440 to 530; PostgreSQL 19 in
+ *   memory (the family grizzle-m-cull-compute); Node 26.13.1; grizzle at dbcb09929 with lane CULL-COMPUTE's cull,
+ *   vendor/toolchain at 2cc4817
+ * @workload each declared kill applied alone and judged on the property's witnesses: its kept cases, its floor stream
+ *   and its steered phase, which no run seed moves
+ * @result its kill went red on the first case of its floor stream
+ * @decision 1, the least a generative search draws, whose floor stream holds that one case; no headroom: a kill its
+ *   witnesses stop killing fails the kill gate, which measures it again
+ * @revalidate a change of its space, situations, kept cases or kills, of its label (the floor stream's seed), or of the
+ *   runner's floor rule
+ */
 export const exactScalarCodecsAgainstPostgreSQLStoresFactsThroughTheirArraysAndDecodesTheStoredRowsPositionally =
 	property.explore(uniqueArray(anyUuid, factOf, { min: 1, max: 100 }), {
 		needs: { tx: Substrate.transaction },
 		situations: [],
-		/** Its pre-conversion budget: runs 3, no coverage (scalar.test.ts at 4fbc3e95). */
-		budget: { runs: 3, steered: 0 },
+		budget: { runs: 1, steered: 0 },
 		check:
 			({ tx }) =>
 			(facts) =>
@@ -164,7 +213,32 @@ export const exactScalarCodecsAgainstPostgreSQLStoresFactsThroughTheirArraysAndD
 		]
 	})
 
-/** Exact scalar codecs against PostgreSQL write a routable carrier's value as PostgreSQL's ::text of it, whatever the writer's session settings. */
+/**
+ * Exact scalar codecs against PostgreSQL write a routable carrier's value as PostgreSQL's ::text of it, whatever the writer's session settings.
+ *
+ * Its budget, measured (fastcycle's cull):
+ *
+ * @limitKind measured
+ * @owner test/pg/codec/scalar.test.ts, this property's search
+ * @unit cases of the rotating stream; the floor stream runs a quarter of them, rounded up
+ * @scope one search of this property in one run; the steered phase's cases, its cap, run only while a required
+ *   situation is pending
+ * @evidence `TEST_SEED=2219874524 pnpm exec toolchain-test kills test/pg/codec/scalar.test.ts` at its budget before, `{
+ *   runs: roundTripRuns * routableCases.length, steered: roundTripRuns * routableCases.length }`, each kill's verdict
+ *   printed with where its witnesses went red (judgedLine with the red's headline, a local print), in
+ *   ~/.cache/grizzle-release/CULL-COMPUTE/kills-current.log; this budget run by path in run-budgets.log there
+ * @observed 2026-11-23, 04:00 to 06:00 UTC
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB at load 440 to 530; PostgreSQL 19 in
+ *   memory (the family grizzle-m-cull-compute); Node 26.13.1; grizzle at dbcb09929 with lane CULL-COMPUTE's cull,
+ *   vendor/toolchain at 2cc4817
+ * @workload each declared kill applied alone and judged on the property's witnesses: its kept cases, its floor stream
+ *   and its steered phase, which no run seed moves
+ * @result its kill went red on case 31 of its floor stream
+ * @decision the least runs whose floor stream, a quarter of them rounded up, holds its first 32 cases: 125; no
+ *   headroom: a kill its witnesses stop killing fails the kill gate, which measures it again
+ * @revalidate a change of its space, situations, kept cases or kills, of its label (the floor stream's seed), or of the
+ *   runner's floor rule
+ */
 export const exactScalarCodecsAgainstPostgreSQLWritesARoutableCarriersValueAsPostgreSQLsTextOfItWhateverTheWritersSessionSettings =
 	property.explore(routableGen, {
 		needs: { tx: Substrate.transaction },
@@ -172,11 +246,7 @@ export const exactScalarCodecsAgainstPostgreSQLWritesARoutableCarriersValueAsPos
 			routableCases,
 			(c): RoutableFeature => `routes ${c.label}`
 		) satisfies ReadonlyArray<Reached<RoutableFeature>>,
-		/** Its pre-conversion budget: runs and coverage cases roundTripRuns times the routable cases (scalar.test.ts at 4fbc3e95). */
-		budget: {
-			runs: roundTripRuns * routableCases.length,
-			steered: roundTripRuns * routableCases.length
-		},
+		budget: { runs: 125, steered: roundTripRuns * routableCases.length },
 		check:
 			({ tx }, c: Case<RoutableFeature>) =>
 			(trip) =>
