@@ -32,7 +32,7 @@ import { fullWorld } from "#test/support/worlds.ts"
  */
 export const aLawsKeyOnACycleWithAFamilysOwnerAxisIsDeferredSoEveryLawfulWriteOfOwnersAndMembersIsAcceptedAndEveryOtherRefusedByItsLaw =
 	property.explore(caseGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: situations satisfies ReadonlyArray<Reached<Situation>>,
 		check:
 			({ substrate }, n: CaseOf<Situation>) =>

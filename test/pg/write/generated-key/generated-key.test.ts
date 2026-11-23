@@ -51,7 +51,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * A write meets a key over generated fields at the values PostgreSQL stores, inside it and against every stored row,
- * each case on the worker's seat of Keys, opening its own Db.
+ * each case on a clone of Keys of its own, opening its own Db.
  *
  * Its pre-conversion budget: runs 80, coverage cases 120 (test/pg/write/generated-key/generated-key.test.ts at d43931162).
  * The search's case of two deletions at one tag's id beside two additions at another's goes: it was the oracles' red
@@ -60,7 +60,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aWriteMeetsAKeyOverGeneratedFieldsAtTheValuesPostgreSQLStoresInsideItAndAgainstEveryStoredRow =
 	property.explore(keyCases, {
-		needs: { keys: Substrate.seat(keysTemplate) },
+		needs: { keys: Substrate.freshOf(keysTemplate) },
 		situations: [
 			"typed key refused against a stored row",
 			"typed key refused within the write",

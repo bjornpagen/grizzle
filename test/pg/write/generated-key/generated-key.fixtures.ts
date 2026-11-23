@@ -967,7 +967,7 @@ const keysInstall = { label: "genkey", programs } as const
 
 /**
  * Keys installed once per member as a read fixture (reads/support.ts fixtureTemplate), where its search installed it
- * before its cases; a seat's reset empties every table after a case.
+ * before its cases; each case takes a clone of its own.
  */
 export const keysTemplate = fixtureTemplate(import.meta, Keys, keysInstall)
 

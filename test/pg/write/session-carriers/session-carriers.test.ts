@@ -36,7 +36,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 /** A session's writes stand on its first write's carriers, each holding one write's rows. */
 export const aSessionsWritesStandOnItsFirstWritesCarriersEachHoldingOneWritesRows =
 	property.exhaust(finite(sketchGen), {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: situations satisfies ReadonlyArray<Reached<Situation>>,
 		check:
 			({ substrate }, c: Case<Situation>) =>

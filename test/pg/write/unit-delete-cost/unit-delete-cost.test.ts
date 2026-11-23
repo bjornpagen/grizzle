@@ -18,7 +18,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aUnitDeleteMeetsEachRowItDeletesOnceThroughWhateverIndexPostgreSQLTakes =
 	property.explore(storedGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: ["deleted with no statistics", "deleted analyzed"],
 		check:
 			({ substrate }, c) =>

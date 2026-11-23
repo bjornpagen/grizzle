@@ -60,7 +60,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const theCostOfReplacingAStoredUnitTheRowsItReadsAtMostDoubleWithEachDoublingOfTheUnit =
 	property.exhaust(finite(sketchGen), {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: features satisfies ReadonlyArray<Reached<Feature>>,
 		check:
 			({ substrate }, c: Case<Feature>) =>

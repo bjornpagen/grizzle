@@ -45,7 +45,7 @@ import { fullWorld } from "#test/support/worlds.ts"
  */
 export const aStoredInstanceInsertedAgainAnswersNoChangeWhereEveryStatedRowIsStoredAsStatedAcceptedWhereItAddsRowsAndInvariantRejectedOnTheKeyOfAStatedRowThatDiffersWitnessedByThatRowsKey =
 	property.explore(steered(reinsertCases), {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: situations satisfies ReadonlyArray<Reached<Situation>>,
 		check:
 			({ substrate }, c: Case<Situation>) =>

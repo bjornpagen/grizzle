@@ -97,7 +97,7 @@ const sorted = (rows: ReadonlyArray<ReadonlyArray<string>>) =>
 /** Every member of a nested write under a stamped owner stores exactly its owner's stamp, call after call. */
 export const everyMemberOfANestedWriteUnderAStampedOwnerStoresExactlyItsOwnersStamp =
 	property.exhaust(finite(writtenGen), {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: [
 			"owners one",
 			"owners two groups",

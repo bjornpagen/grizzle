@@ -190,7 +190,7 @@ const repeatOf = (k: FreshCase): Option.Option<{ readonly appended: InstanceRow 
 /** A fresh group drawn by the host is stored as the family's scan draws it, and a stored group goes on being scanned. */
 export const aFreshCountedGroupDrawnByTheHostIsStoredAsTheFamilysScanDrawsItAndAStoredGroupIsStillScanned =
 	property.explore(freshCaseGen, {
-		needs: { caseSubstrate: Substrate.installing },
+		needs: { caseSubstrate: Substrate.fresh },
 		situations: features satisfies ReadonlyArray<Reached<Feature>>,
 		budget: { runs: 32, steered: 32 },
 		check:

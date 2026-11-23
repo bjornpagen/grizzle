@@ -44,7 +44,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 export const theFamilyWriterUnderASwarmEveryLawfulChangeSetStoresTheReferencesRowsEveryUnlawfulOneIsRefusedByALawItBreaksAndEveryRefusalWhenItCompilesIsOneTheOracleStates =
 	property.explore(aimed(recorded(caseGen, recordedSwarmCases), aims), {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: situations satisfies ReadonlyArray<Reached<Situation>>,
 		check:
 			({ substrate }, c: Case<Situation>) =>

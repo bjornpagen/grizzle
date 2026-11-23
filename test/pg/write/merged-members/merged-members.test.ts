@@ -15,7 +15,7 @@
  * fact two of them give, two facts of one key from two of them, Budget's stored fact again, or another fact at its
  * key. Each case's one
  * stratum also inserts a moment of each of two children from host rows, deletes Old's notes of two ns by two queries
- * and reads back the moments it added. Each case installs the schema on the worker's clone, stores the state and applies the write once.
+ * and reads back the moments it added. Each case installs the schema on a clone of its own, stores the state and applies the write once.
  *
  * Property, per case: the write's program is one write statement, a single statement writing Moment, Budget and Old
  * once each, which the read-back of the moments it added rides; and the outcome and the state after it are the model's (merged-members.fixtures.ts modelOf), the stratum's
@@ -65,7 +65,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 /** A stratum's sources of one operation on one relation are one action, so a stratum that stamps a clock is one statement, writing its sources' union at one instant. */
 export const aStratumsSourcesOfOneOperationOnOneRelationAreOneActionSoAStratumThatStampsAClockIsOneStatementWritingTheirUnionAtOneInstant =
 	property.exhaust(finite(mergedGen), {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: situations satisfies ReadonlyArray<Reached<Situation>>,
 		check:
 			({ substrate }, k: Case<Situation>) =>

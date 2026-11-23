@@ -53,7 +53,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 /** The rows a preview gives are the rows the same insertAll stores, fresh and migrated, and its refusals are the write's. */
 export const thePreviewsRowsAreTheRowsTheSameInsertAllStoresFreshAndMigratedAndItsRefusalsAreTheWrites =
 	property.explore(caseGen, {
-		needs: { caseSubstrate: Substrate.installing },
+		needs: { caseSubstrate: Substrate.fresh },
 		situations: previewFeatures satisfies ReadonlyArray<Reached<PreviewFeature>>,
 		budget: { runs: 32, steered: 32 },
 		check:

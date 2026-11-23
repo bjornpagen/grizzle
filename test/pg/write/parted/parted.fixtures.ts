@@ -136,7 +136,7 @@ export const labInstall = {
 	programs: { write: changesOf(false), riderWrite: changesOf(true) }
 } as const
 
-/** The box installed once per member (reads/support.ts fixtureTemplate), which each case's seat holds. */
+/** The box installed once per member (reads/support.ts fixtureTemplate), which each case's own clone holds. */
 export const labTemplate = fixtureTemplate(import.meta, Lab, labInstall)
 
 /** A header no case writes, which an orphan's facts name. */

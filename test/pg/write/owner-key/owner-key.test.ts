@@ -35,7 +35,7 @@ import { withLayer } from "#test/support/with-layer.ts"
  */
 export const insertsIntoAFamilyOwnersPrimaryKeyAgreeWithTheKeysModelOnDrawnStoredOwnersAndRequestedOnesAnExactRepeatChangingNothingAndAStoredConflictRefusedByTheKeyLaw =
 	property.explore(ownerCaseGen, {
-		needs: { fixture: Substrate.seat(ownersTemplate) },
+		needs: { fixture: Substrate.freshOf(ownersTemplate) },
 		situations: situations satisfies ReadonlyArray<Reached<OwnerFeature>>,
 		check:
 			({ fixture }, cx: Case<OwnerFeature>) =>

@@ -46,20 +46,20 @@ import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
  * Carries every text a write's slots or a read's relation parameter hold to PostgreSQL as the text the host holds, each
- * case on the worker's seat of Texts, installed once per member, opening its own Db, where the search shared one Db
+ * case on a clone of Texts of its own, installed once per member, opening its own Db, where the search shared one Db
  * across its cases.
  *
  * Its pre-conversion budget: runs 40, coverage cases 40 (test/pg/write/text-arrays/text-arrays.test.ts at 8d892899f).
  */
 export const carriesEveryTextAWritesSlotsOrAReadsRelationParameterHoldToPostgreSQLAsTheTextTheHostHolds =
 	property.explore(textCases, {
-		needs: { seated: Substrate.seat(textsTemplate) },
+		needs: { fresh: Substrate.freshOf(textsTemplate) },
 		situations: features satisfies ReadonlyArray<Reached<TextFeature>>,
 		check:
-			({ seated }, c: Case<TextFeature>) =>
+			({ fresh }, c: Case<TextFeature>) =>
 			(texts) =>
 				Effect.scoped(
-					Effect.flatMap(seated, (taken) =>
+					Effect.flatMap(fresh, (taken) =>
 						Effect.provideService(
 							Effect.gen(function* () {
 								const o = yield* openedIn(Texts, {}, textsInstall, taken)

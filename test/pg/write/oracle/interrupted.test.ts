@@ -44,7 +44,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const anInterruptedWriteRunAWriteRunInterruptedMidCaseLeavesNoSessionOfItsWriterOpen =
 	property.explore(runGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: ["interrupted after a commit"] satisfies ReadonlyArray<Reached<InterruptFeature>>,
 		check:
 			({ substrate }, c: Case<InterruptFeature>) =>

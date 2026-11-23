@@ -33,7 +33,7 @@ import { withLayer } from "#test/support/with-layer.ts"
 import { tokenOf } from "#test/support/worlds.ts"
 export const aQueryEntrysWriteMeetsEveryUniqueObjectOfItsTargetAStoredFactAtAnyUniqueObjectInsideTheEntryOrOutsideItIsThatObjectsLawWithTheSubmittedKey =
 	property.explore(steered(occupantCases), {
-		needs: { seats: Substrate.seat(seatsTemplate) },
+		needs: { seats: Substrate.freshOf(seatsTemplate) },
 		situations: [
 			"hidden occupant at the primary key",
 			"hidden occupant at the candidate key",

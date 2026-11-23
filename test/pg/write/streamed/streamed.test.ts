@@ -24,7 +24,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 export const aCallDrawnInSharesAnswersWhatOneExecutionOfEveryFactAnswers = property.explore(
 	streamedGen,
 	{
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: [
 			"every fact once",
 			"a fact repeated across shares",

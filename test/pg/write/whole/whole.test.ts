@@ -70,7 +70,7 @@ import { fullWorld } from "#test/support/worlds.ts"
  */
 export const deletingAGroupWholeAndReplacingItOnPostgreSQL19EveryChangeSetStoresTheModelsRowsAndAnswersItsOutcomeCountsAndRefusals =
 	property.explore(programGen, {
-		needs: { whole: Substrate.seat(wholeTemplate) },
+		needs: { whole: Substrate.freshOf(wholeTemplate) },
 		situations: features satisfies ReadonlyArray<Reached<Feature>>,
 		check:
 			({ whole }, c: Case<Feature>) =>

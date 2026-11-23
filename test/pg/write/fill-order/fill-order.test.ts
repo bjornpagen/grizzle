@@ -23,7 +23,7 @@ import {
 import { Substrate } from "#test/support/substrate/substrate.ts"
 export const theFillOrderOnTheClusterAnAdmittedSchemaWhoseGeneratedFieldsReadFieldsGrizzleDrawsOrAccumulatesStoresEachAsTheReferenceWriterRowEvaluatorAndInsertPreviewGiveItThroughEveryWrite =
 	property.explore(steered(steeredBy(generationAims, generationCaseGen)), {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: generationSituations satisfies ReadonlyArray<Reached<ClusterSituation>>,
 		check:
 			({ substrate }, c: Case<ClusterSituation>) =>
@@ -66,7 +66,7 @@ export const theFillOrderOnTheClusterAnAdmittedSchemaInstallsAndItsInstancesFirs
 			recorded(steeredBy(aims, caseGen)(steering), recordedFirstInserts)
 		),
 		{
-			needs: { substrate: Substrate.installing },
+			needs: { substrate: Substrate.fresh },
 			situations: situations satisfies ReadonlyArray<Reached<ClusterSituation>>,
 			check:
 				({ substrate }, c: Case<ClusterSituation>) =>

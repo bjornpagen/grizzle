@@ -13,7 +13,7 @@
  * `deep`, each clocked in micros: an insert of its depth's owner from the call's rows, `until` computed as the reading
  * plus `budget`, and an owner's `due` as the reading plus `delay`, each a Span, a contract bounded by its predicate,
  * under a guard into bigint; each reads the reading back, `now`, in its transaction. The schema is installed and served
- * as `grizzle generate` drafts it, once per member, each case seated on a clone of that installation.
+ * as `grizzle generate` drafts it, once per member, each case on a clone of that installation of its own.
  *
  * Property, per case: the call of its depth's member over one to three owners, each nesting none, one or two items,
  * each of a Deep's items none, one or two parts, is accepted; its read-back holds one reading R; and the tables hold
@@ -122,7 +122,7 @@ const fieldsOf: Readonly<Record<string, ReadonlyArray<string>>> = {
 /** Every row an insert computes a field of holds the call's one value of it, its owner and every member alike, at every depth. */
 export const everyRowOfACallHoldsItsOneValueOfEachComputedFieldTheOwnerAndEveryMemberAlikeAtEveryDepth =
 	property.explore(computingGen, {
-		needs: { fixture: Substrate.seat(computedTemplate) },
+		needs: { fixture: Substrate.freshOf(computedTemplate) },
 		situations,
 		check:
 			({ fixture }, k: Case<ComputedFeature>) =>
@@ -243,7 +243,7 @@ const bySlotKey = Order.combineAll([
 /** An insert that computes a field of its relation's primary key is judged at the key as the table holds its rows. */
 export const anInsertComputingAKeyFieldIsJudgedAtTheKeyAsTheTableHoldsTheRowsItWrites =
 	property.explore(slottingGen, {
-		needs: { fixture: Substrate.seat(computedTemplate) },
+		needs: { fixture: Substrate.freshOf(computedTemplate) },
 		situations: slotSituations,
 		check:
 			({ fixture }, k: Case<SlotFeature>) =>

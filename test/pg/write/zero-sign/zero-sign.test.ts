@@ -36,7 +36,7 @@ import { withLayer } from "#test/support/with-layer.ts"
  */
 export const aFloatsZerosAreOneKeyAndTwoFactsAWriteOfAFactAtAStoredFactsKeyWhoseZeroHasTheOtherSignWritesAnotherFactByEveryPutTargetInsertAndDeletion =
 	property.exhaust(finite(sketchGen), {
-		needs: { fixture: Substrate.seat(zerosTemplate) },
+		needs: { fixture: Substrate.freshOf(zerosTemplate) },
 		situations: Arr.filter(
 			features,
 			(f) => f !== "two zero keys refused as one key"
@@ -179,7 +179,7 @@ export const aFloatsZerosAreOneKeyAndTwoFactsAWriteOfAFactAtAStoredFactsKeyWhose
  */
 export const twoFactsAtMinusZeroAndPlusZeroOfAFloatKeyAreOneKeyAPutOfBothIsRefusedOnTheKey =
 	property.exhaust(finite(keysGen), {
-		needs: { fixture: Substrate.seat(zerosTemplate) },
+		needs: { fixture: Substrate.freshOf(zerosTemplate) },
 		situations: ["two zero keys refused as one key"] satisfies ReadonlyArray<Reached<Feature>>,
 		check:
 			({ fixture }, c: Case<Feature>) =>
@@ -244,7 +244,7 @@ export const twoFactsAtMinusZeroAndPlusZeroOfAFloatKeyAreOneKeyAPutOfBothIsRefus
  */
 export const aFloatKeysZerosAreOneKeyToAnAttachmentAParentAtEitherZeroHasTheChildrenAtBothZerosUnderEveryPlanShape =
 	property.exhaust(finite(planShapeGen), {
-		needs: { fixture: Substrate.seat(zerosTemplate) },
+		needs: { fixture: Substrate.freshOf(zerosTemplate) },
 		situations: attachmentFeatures satisfies ReadonlyArray<Reached<Feature>>,
 		check:
 			({ fixture }, c: Case<Feature>) =>

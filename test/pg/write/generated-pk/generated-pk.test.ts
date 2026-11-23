@@ -150,7 +150,7 @@ export const aWriteNamesItsRowsByTheirTextsAndMeetsEveryOtherFactAtItsKeyGenerat
 			["edullm: a stimulus ref whose path is past the entry limit", constant(edullmCase)]
 		]),
 		{
-			needs: { fixture: Substrate.seat(generatedKeysTemplate) },
+			needs: { fixture: Substrate.freshOf(generatedKeysTemplate) },
 			situations: [
 				"accepted",
 				"unchanged",
@@ -407,7 +407,7 @@ type FamilyFeature =
 export const aFamilyOverAKeyGenerationGroupsItsMembersByTheOwnersDigest = property.explore(
 	familyCaseGen,
 	{
-		needs: { fixture: Substrate.seat(generatedKeysTemplate) },
+		needs: { fixture: Substrate.freshOf(generatedKeysTemplate) },
 		situations: [
 			"accepted",
 			"unchanged",
@@ -702,7 +702,7 @@ type SetFeature =
  */
 export const aSetLikeRelationKeyedByItsValuesDigestsHoldsAndFindsValuesOfAnyLength =
 	property.explore(setCaseGen, {
-		needs: { fixture: Substrate.seat(generatedKeysTemplate) },
+		needs: { fixture: Substrate.freshOf(generatedKeysTemplate) },
 		situations: [
 			"accepted",
 			"unchanged",

@@ -52,7 +52,7 @@ import { withLayer } from "#test/support/with-layer.ts"
  */
 export const aQuerySourcedWriteIntoGeneratedFieldsAgainstPostgreSQL19AnInsertOrAPutFromAQueryRequestsTheWrittenFieldsAloneAndStoresEveryGeneratedFieldsValue =
 	property.explore(caseGen, {
-		needs: { fixture: Substrate.seat(genqueryTemplate) },
+		needs: { fixture: Substrate.freshOf(genqueryTemplate) },
 		situations: [
 			"Item insert applied",
 			"Item put applied",

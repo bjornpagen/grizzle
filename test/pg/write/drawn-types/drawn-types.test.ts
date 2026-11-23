@@ -135,7 +135,7 @@ const answerOf = (answer: WriteAnswer<WriteOutcome<Issued>>): Answer => {
 /** A drawn family over a contract over an integer counts and indexes by the contract, refused past its bound. */
 export const aFamilyDrawnOverAContractOverAnIntegerCountsAndIndexesByItsTypeAndIsRefusedPastItsBound =
 	property.explore(issuingGen, {
-		needs: { fixture: Substrate.seat(drawnTemplate) },
+		needs: { fixture: Substrate.freshOf(drawnTemplate) },
 		situations,
 		check:
 			({ fixture }, k: Case<DrawnFeature>) =>
@@ -372,7 +372,7 @@ export const aFamilyDrawnOverAContractOverAnIntegerCountsAndIndexesByItsTypeAndI
 export const aPutThatMovesMembersIntoAGroupPastItsCarriersBoundIsRefusedOnTheDrawnContractNeverNarrowed =
 	property.exhaust(finite(moveGen), {
 		box: "owner 2's group of 32,766 or 32,767 members, one or two of owner 1's two members put into it",
-		needs: { fixture: Substrate.seat(drawnTemplate) },
+		needs: { fixture: Substrate.freshOf(drawnTemplate) },
 		situations: moveSituations,
 		check:
 			({ fixture }, k: Case<MoveFeature>) =>

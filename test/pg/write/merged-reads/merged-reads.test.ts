@@ -11,7 +11,7 @@
  * stratum, or sequenced with a third ChangeSet after them that puts Item 3 | 33 and reads nothing; the insert's fact a
  * fresh one, 3 | 30, or the stored 1 | 10 again; the delete's a stored fact, 2 | 20, or the insert's; standing every
  * fact of Item, or every fact of a relation parameter each ChangeSet binds to one query of Item's facts, as qti-pie's
- * standing reads the sittings metis binds. Each case installs the schema on the worker's clone, stores the state and
+ * standing reads the sittings metis binds. Each case installs the schema on a clone of its own, stores the state and
  * applies the ChangeSet once.
  *
  * Property, per case: the ChangeSet's Description holds the one read-back `standing`; the call is accepted; standing's
@@ -63,7 +63,7 @@ const sameFacts = Arr.makeEquivalence<string>((x, y) => x === y)
 /** Two read-backs of one name over one query are one, read after the whole ChangeSet: its rows the state after its last stratum. */
 export const twoReadBacksOfOneNameOverOneQueryAreOneReadAfterTheWholeChangeSetItsRowsTheStateAfterItsLastStratum =
 	property.exhaust(finite(mergedReadGen), {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: situations satisfies ReadonlyArray<Reached<Situation>>,
 		check:
 			({ substrate }, k: Case<Situation>) =>

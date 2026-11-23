@@ -38,7 +38,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 /** A write statement reaches every stored relation it joins to a never-analyzed carrier by the key's index. */
 export const aWriteStatementReachesEveryStoredRelationItJoinsToANeverAnalyzedCarrierByTheKeysIndex =
 	property.exhaust(finite(sketchGen), {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: situations satisfies ReadonlyArray<Reached<Situation>>,
 		check:
 			({ substrate }, c: Case<Situation>) =>

@@ -23,7 +23,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const anInsertOfManyFactsRunsInSharesWithinWorkMemSoItsTemporaryFilesAreNoneWhateverItsFacts =
 	property.explore(batchedGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: [
 			"every fact inserted",
 			"a pair across executions refused",
