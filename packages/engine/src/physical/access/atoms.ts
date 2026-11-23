@@ -18,7 +18,7 @@ export type Atom =
 			readonly reads: NonEmptyReadonlyArray<string>
 	  }
 
-type Operand =
+export type Operand =
 	| { readonly kind: "column"; readonly name: string; readonly span: boolean }
 	| { readonly kind: "fixed" }
 	| { readonly kind: "literal" }
@@ -169,6 +169,24 @@ const spanAtoms = (span: Operand, other: Operand): ReadonlyArray<Atom> => {
 		return [{ kind: "pairSpan", column: span.name, other: other.name }]
 	}
 	return []
+}
+
+/**
+ * `o` fixed where every local column it reads is fixed per evaluation (`fixedColumn`): such a column itself, and a term
+ * computed from such columns alone, as known before the local rows are read as the values they hold. A match region's
+ * correlated variables are such columns, the channels a navigation step passes in, so a column the step binds to a term
+ * of them is bound by a fixed value (physical/access/extract.ts regionFacts).
+ */
+export const fixedAt = (o: Operand, fixedColumn: (column: string) => boolean): Operand => {
+	switch (o.kind) {
+		case "column":
+			return fixedColumn(o.name) ? { kind: "fixed" } : o
+		case "computed":
+			return isNonEmpty(o.reads) && o.reads.every(fixedColumn) ? { kind: "fixed" } : o
+		case "fixed":
+		case "literal":
+			return o
+	}
 }
 
 /** The atoms of the predicate `e` over the local node.

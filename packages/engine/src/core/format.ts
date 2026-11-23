@@ -225,7 +225,10 @@
  * retire member's call, counted a retirement in an outcome and recorded a `retirement` writing in snapshot.json; an
  * installation of a schema that held one is drafted afresh. An import a chain reads whole and matches at a term of a
  * variable binds its column to a hidden variable equated with the term (analysis/theory/navigate.ts Navigator #chain
- * `hiddenFor`), where it took the term's variables for its own
+ * `hiddenFor`), where it took the term's variables for its own. A judged step that binds a column to a term computed
+ * from the channels it passes in, a sum, a conditional or a bounded text's guarded cast, asks an index holding that
+ * column (physical/access/extract.ts regionFacts `fixing`), where the term fixed nothing and the step's index held only
+ * the columns its channels bind directly
  */
 export const artifactFormat = 8
 

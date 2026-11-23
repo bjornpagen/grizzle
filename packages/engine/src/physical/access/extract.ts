@@ -35,7 +35,13 @@ import {
 } from "#compiler/ir/rel.ts"
 import { baseOf, type Carrier, fewValued, isSpanCarrier } from "#compiler/ir/scalar.ts"
 import { conjuncts } from "#compiler/logical/props.ts"
-import { type Atom, atomKey, operandOf, predicateAtoms } from "#compiler/physical/access/atoms.ts"
+import {
+	type Atom,
+	atomKey,
+	fixedAt,
+	operandOf,
+	predicateAtoms
+} from "#compiler/physical/access/atoms.ts"
 import { type Lookup, uniqueLookups, uniquePaths } from "#compiler/physical/access/paths.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 
@@ -336,6 +342,16 @@ const isFewValued = (heading: Heading, column: string): boolean => {
 	return carrier !== undefined && fewValued[carrier]
 }
 
+/**
+ * Whether the region's variable `column` is correlated with a value fixed per evaluation, a fixed value or a literal:
+ * a channel a navigation step passes the row before it in by (analysis/theory/navigate.ts).
+ */
+const correlatedFixed = (n: NodeOf<"MatchRegion">, column: string): boolean =>
+	n.correlated.some((c) => {
+		const operand = operandOf(n.id, c.expr)
+		return c.var.name === column && (operand.kind === "fixed" || operand.kind === "literal")
+	})
+
 /** The facts of every occurrence of a region under the pushed facts on its heading. */
 const regionFacts = (n: NodeOf<"MatchRegion">, pushed: Pushed): RegionFacts => {
 	const rootOf = regionVarClasses(n)
@@ -408,9 +424,13 @@ const regionFacts = (n: NodeOf<"MatchRegion">, pushed: Pushed): RegionFacts => {
 		o.partners.set(at, fresh)
 		return fresh
 	}
-	/** A constant or correlated operand that fixes its column: a fixed value or a literal. */
+	/**
+	 * A constant or correlated operand that fixes its column: a fixed value or a literal, or a term of the region's
+	 * correlated variables, each fixed per evaluation (`correlatedFixed`), as a navigation step binds a column to a term
+	 * computed from the channels it passes in.
+	 */
 	const fixing = (expr: ScalarExpr): "fixed" | "literal" | undefined => {
-		const operand = operandOf(n.id, expr)
+		const operand = fixedAt(operandOf(n.id, expr), (column) => correlatedFixed(n, column))
 		return operand.kind === "fixed" || operand.kind === "literal" ? operand.kind : undefined
 	}
 	for (const { occurrence: o, facts } of sites) {
@@ -888,13 +908,7 @@ class Extractor {
 			if (input.kind === "ProjectSet") {
 				return this.constantColumn(input, column)
 			}
-			return (
-				input.kind === "MatchRegion" &&
-				input.correlated.some((c) => {
-					const operand = operandOf(input.id, c.expr)
-					return c.var.name === column && (operand.kind === "fixed" || operand.kind === "literal")
-				})
-			)
+			return input.kind === "MatchRegion" && correlatedFixed(input, column)
 		}
 		return predicateAtoms(input.id, n.pred, constant)
 	}
