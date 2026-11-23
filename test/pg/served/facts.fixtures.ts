@@ -37,7 +37,7 @@ export const Labels = schema("Labels", [Item, Label], [mutable(Item)])
 /** What every case installs: Labels, its login's workload holding no member of its own. */
 export const labelsInstall = { label: "labels", programs: {} } as const
 
-/** Labels installed once per member (reads/support.ts fixtureTemplate), which each case's seat holds. */
+/** Labels installed once per member (reads/support.ts fixtureTemplate), which each case's own clone holds. */
 export const labelsTemplate = fixtureTemplate(import.meta, Labels, labelsInstall)
 
 const tags = ["a", "bc", "def", "ghij"] as const

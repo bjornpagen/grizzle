@@ -50,7 +50,7 @@ const features = [
 /** A declared call receives each argument by its name, and a row each value by its field's, under every key order. */
 export const aDeclaredCallReceivesEachArgumentByItsNameAndARowEachValueByItsFieldsUnderEveryKeyOrder =
 	property.explore(caseGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: features,
 		budget: { runs: 8, steered: features.length },
 		check:

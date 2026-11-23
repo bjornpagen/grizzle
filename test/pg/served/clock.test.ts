@@ -23,7 +23,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 /** A member bound to the database's clock reads the instant its call's transaction began once per call, in its unit, and answers at that instant alone. */
 export const aMemberBoundToTheDatabasesClockReadsTheInstantItsCallsTransactionBeganOncePerCallInItsUnitAndAnswersAtThatInstantAlone =
 	property.explore(caseGen, {
-		needs: Substrate.oneOf(clockTemplates, Substrate.seat),
+		needs: Substrate.oneOf(clockTemplates, Substrate.freshOf),
 		situations: [
 			"micros",
 			"millis",
@@ -40,12 +40,12 @@ export const aMemberBoundToTheDatabasesClockReadsTheInstantItsCallsTransactionBe
 				Effect.gen(function* () {
 					notes.note(c.unit)
 					const programs = clockPrograms(c.unit)
-					const seat = yield* clocks[c.unit]
+					const taken = yield* clocks[c.unit]
 					const opened = yield* openedIn(
 						Clock,
 						{ Wanted: [], Stamp: [], Mark: [], Bounds: [] },
 						clockInstall(c.unit),
-						seat
+						taken
 					)
 					yield* withServedDb(opened.installed, opened.server.roles.app, {}, ({ ctx: db, load }) =>
 						Effect.gen(function* () {

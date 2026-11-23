@@ -28,7 +28,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 /** A served ChangeSet's array members write exactly the facts each call supplies, and a handle that loses some is caught. */
 export const aServedChangeSetsArrayMembersWriteExactlyTheFactsEachCallSuppliesAndAHandleThatLosesSomeIsCaught =
 	property.explore((source) => [source.draw(caseGen), source.draw(plantGen)] as const, {
-		needs: { labelled: Substrate.seat(labelsTemplate) },
+		needs: { labelled: Substrate.freshOf(labelsTemplate) },
 		situations: [
 			"no plant",
 			"a member's facts emptied",
@@ -43,8 +43,13 @@ export const aServedChangeSetsArrayMembersWriteExactlyTheFactsEachCallSuppliesAn
 				Effect.scoped(
 					Effect.gen(function* () {
 						notes.note(featureOf(plant))
-						const seat = yield* labelled
-						const opened = yield* openedIn(Labels, { Item: stored, Label: [] }, labelsInstall, seat)
+						const taken = yield* labelled
+						const opened = yield* openedIn(
+							Labels,
+							{ Item: stored, Label: [] },
+							labelsInstall,
+							taken
+						)
 						const s = opened.schema
 						const add = ChangeSet.empty(s).insert(Label, []).put(Item, []).delete(Item, [])
 						const items = query(s).rule((r) => {
