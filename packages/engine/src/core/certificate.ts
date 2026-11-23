@@ -225,14 +225,21 @@ export type KeySource =
 	| { readonly kind: "context"; readonly field: string }
 	| { readonly kind: "input"; readonly parameter: ParamId; readonly field: string }
 
+/** One field of a key with the binding the call holds it by: the field by its name, and its source (KeySource). */
+export interface KeyField {
+	readonly field: string
+	readonly source: KeySource
+}
+
 /**
  * A place a call holds whole keys of a borrowed unit, each lowered from bindings alone, never from a statement of the
  * member's:
  *
- * - `bound`: each of the unit's key fields in key order from a binding (KeySource), the keys of the rows the call writes
- *   or reads at bound values;
- * - `learned`: a point lookup of `relation` at a whole declared key of it bound to the call's bindings (`key`, in that
- *   key's order), each unit key field the lookup's column at its place in `columns`: the certifier admits one only over
+ * - `bound`: each of the unit's key fields, in key order, with its binding (KeyField), the keys of the rows the call
+ *   writes or reads at bound values;
+ * - `learned`: a point lookup of `relation` at a whole declared key of it, each of that key's fields in its order with
+ *   the binding it is looked up at (`key`), each unit key field the lookup's column at its place in `columns`: the
+ *   certifier admits one only over
  *   an immutable fact (an insert-only relation outside every unit) or a relation no role writes, so the lookup and the
  *   member's own read of it see one row;
  * - `held`: the same lookup over a relation every writer of which borrows `under` exclusively, the call holding `under`
@@ -241,17 +248,17 @@ export type KeySource =
  * - `delta`: at the judge alone, the unit key fields of the rows the call wrote to `relation`.
  */
 export type KeySite =
-	| { readonly kind: "bound"; readonly fields: NonEmptyReadonlyArray<KeySource> }
+	| { readonly kind: "bound"; readonly fields: NonEmptyReadonlyArray<KeyField> }
 	| {
 			readonly kind: "learned"
 			readonly relation: string
-			readonly key: NonEmptyReadonlyArray<KeySource>
+			readonly key: NonEmptyReadonlyArray<KeyField>
 			readonly columns: NonEmptyReadonlyArray<string>
 	  }
 	| {
 			readonly kind: "held"
 			readonly relation: string
-			readonly key: NonEmptyReadonlyArray<KeySource>
+			readonly key: NonEmptyReadonlyArray<KeyField>
 			readonly columns: NonEmptyReadonlyArray<string>
 			readonly under: BorrowLock
 	  }

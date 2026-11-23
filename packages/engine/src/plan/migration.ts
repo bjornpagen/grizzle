@@ -106,6 +106,7 @@ export {
 	type Giver,
 	type IsolationCondition,
 	type IsolationReason,
+	type KeyField,
 	type KeySite,
 	type KeySource,
 	type LockOrder,
