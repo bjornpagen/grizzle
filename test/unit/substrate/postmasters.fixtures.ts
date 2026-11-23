@@ -1,7 +1,7 @@
 /** What the properties of postmasters.test.ts read: its spaces, models and helpers. */
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
-import { Effect, FileSystem } from "effect"
+import { Data, Effect, FileSystem, PlatformError, String as Str } from "effect"
 import { ChildProcess } from "effect/process"
 import { postmastersOf } from "#pg/postmasters.ts"
 
@@ -13,15 +13,24 @@ type Binary = (typeof binaries)[number]
 const locks = ["naming it", "naming another process", "absent", "malformed"] as const
 type Lock = (typeof locks)[number]
 
-/** A case: one process, by the binary it runs and its lock file. */
+/**
+ * What else the scan meets: nothing, or a process /proc lists that the kernel reaps before the scan reads it, as any
+ * process of the machine can end between /proc's listing and the read of its entry.
+ */
+const scans = ["alone", "beside a process reaped as it is read"] as const
+type Scan = (typeof scans)[number]
+
+/** A case: one process, by the binary it runs and its lock file, and what else its scan meets. */
 interface Sketch {
 	readonly binary: Binary
 	readonly lock: Lock
+	readonly scan: Scan
 }
 
 export const sketchGen: Gen<Sketch> = (source) => ({
 	binary: source.draw(element(binaries)),
-	lock: source.draw(element(locks))
+	lock: source.draw(element(locks)),
+	scan: source.draw(element(scans))
 })
 
 /** What postmastersOf finds of a case's process: it, nothing, or a lock file it refuses. */
@@ -35,6 +44,7 @@ export type PostmasterFeature =
 	| "a backend's directory unlisted"
 	| "a process without a lock file unlisted"
 	| "a malformed lock file refused"
+	| "a process reaped as it is read skipped"
 
 /** The model: what postmastersOf finds of a case's process, and why. */
 export const predicted = (s: Sketch): readonly [Verdict, PostmasterFeature] => {
@@ -57,6 +67,50 @@ export const predicted = (s: Sketch): readonly [Verdict, PostmasterFeature] => {
 			]
 	}
 }
+
+/** What the kernel answered kill(2) of a pid no process holds: Node's ESRCH error, as it threw it. */
+class KernelAnswer extends Data.TaggedError("KernelAnswer")<{ readonly cause: unknown }> {}
+
+/**
+ * The scan's file system beside a process reaped as it is read: /proc's listing also holds a pid the kernel never
+ * assigns, one above /proc/sys/kernel/pid_max, and a read of its /proc/<pid>/exe fails as Node's file system fails a
+ * read of a process reaped after /proc listed it: an Unknown system error (@effect/platform-node's mapping names no
+ * reason for ESRCH), its cause the kernel's own ESRCH for that pid, which kill(2) answers.
+ */
+const reapedAsRead = (fs: FileSystem.FileSystem) =>
+	Effect.gen(function* () {
+		const pidMax = yield* fs.readFileString("/proc/sys/kernel/pid_max")
+		const pid = Number(Str.trim(pidMax)) + 1
+		const answer = yield* Effect.orDie(
+			Effect.flip(
+				Effect.try({
+					try: () => process.kill(pid, 0),
+					catch: (cause) => new KernelAnswer({ cause })
+				})
+			)
+		)
+		const exe = `/proc/${pid}/exe`
+		return FileSystem.FileSystem.of({
+			...fs,
+			readDirectory: (path, options) =>
+				path === "/proc"
+					? Effect.map(fs.readDirectory(path, options), (names) => [...names, String(pid)])
+					: fs.readDirectory(path, options),
+			readLink: (path) =>
+				path === exe
+					? Effect.fail(
+							PlatformError.systemError({
+								_tag: "Unknown",
+								module: "FileSystem",
+								method: "readLink",
+								pathOrDescriptor: path,
+								syscall: "readlink",
+								cause: answer.cause
+							})
+						)
+					: fs.readLink(path)
+		})
+	})
 
 /** The port a case's lock file records. */
 const port = 5999
@@ -105,7 +159,15 @@ export const caseOf = (root: string, s: Sketch) =>
 			yield* fs.remove(`${tree}/bin/postgres`)
 			yield* fs.link(binary, `${tree}/bin/postgres`)
 		}
-		const found = yield* Effect.result(postmastersOf([tree]))
+		const scanned =
+			s.scan === "alone"
+				? postmastersOf([tree])
+				: Effect.provideServiceEffect(
+						postmastersOf([tree]),
+						FileSystem.FileSystem,
+						reapedAsRead(fs)
+					)
+		const found = yield* Effect.result(scanned)
 		return {
 			found,
 			listed: {

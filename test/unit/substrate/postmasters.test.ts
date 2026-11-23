@@ -8,14 +8,16 @@
  * is killed, and the process runs one of them in a data directory of its own, outside every cluster's state directory.
  * The box is each binary it runs (the tree's; the tree's, replaced after it started, as a build replaces it; another
  * tree's), each lock file its data directory holds (postmaster.pid naming the process, naming another process as a
- * backend's directory does, absent, or no lock file at all).
+ * backend's directory does, absent, or no lock file at all), and what else its scan meets: nothing, or a process /proc
+ * lists that the kernel reaps before the scan reads it, whose read fails as Node's file system fails it there (ESRCH),
+ * as any process of a loaded machine can end mid-scan.
  *
  * Oracle: the specification. A process running the tree's binary, or one replaced since it started, whose lock file
  * names it, is the one postmaster found, with its lock file's data directory and port and the executable the kernel
  * names; a lock file that is no lock file is refused as LockFileUnparsed wherever the binary is the tree's; any other
- * process is none.
+ * process is none, a process reaped as it is read among them, so it changes no verdict.
  *
- * Features: each verdict, by the reason for it.
+ * Features: each verdict, by the reason for it, and a reaped process skipped.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
@@ -41,7 +43,8 @@ export const thePostmastersRunningATreesBuildAreEveryProcessRunningTheTreesBinPo
 			"another tree's process unlisted",
 			"a backend's directory unlisted",
 			"a process without a lock file unlisted",
-			"a malformed lock file refused"
+			"a malformed lock file refused",
+			"a process reaped as it is read skipped"
 		] satisfies ReadonlyArray<Reached<PostmasterFeature>>,
 		check: (resources, c: Case<PostmasterFeature>) => (s) =>
 			Effect.scoped(
@@ -64,13 +67,16 @@ export const thePostmastersRunningATreesBuildAreEveryProcessRunningTheTreesBinPo
 							break
 					}
 					c.note(feature)
+					if (s.scan === "beside a process reaped as it is read") {
+						c.note("a process reaped as it is read skipped")
+					}
 				})
 			),
 		oracle: {
 			kind: "specification",
 			name: "a process of the tree's binary whose lock file names it is a postmaster"
 		},
-		box: "one process a case, each binary it runs (the tree's, the tree's replaced since it started, another tree's), each lock file its data directory holds (naming it, naming another process, absent, malformed)",
+		box: "one process a case, each binary it runs (the tree's, the tree's replaced since it started, another tree's), each lock file its data directory holds (naming it, naming another process, absent, malformed), and what else its scan meets (nothing, a process reaped as it is read)",
 		kept: [],
 		kills: [
 			{
@@ -79,6 +85,13 @@ export const thePostmastersRunningATreesBuildAreEveryProcessRunningTheTreesBinPo
 					'\t\tconst pids = yield* Effect.mapError(\n\t\t\tfs.readDirectory("/proc"),\n\t\t\t(cause) => new Unreadable({ path: "/proc", cause })',
 				replacement: `\t\tconst stateRoot = \`\${process.env["HOME"]}/.local/var/grizzle\`\n\t\tconst states = yield* Effect.orElseSucceed(fs.readDirectory(stateRoot), () => [])\n\t\tconst pids = yield* Effect.forEach(states, (state) =>\n\t\t\tEffect.orElseSucceed(\n\t\t\t\tEffect.map(\n\t\t\t\t\tfs.readFileString(\`\${stateRoot}/\${state}/data/postmaster.pid\`),\n\t\t\t\t\t(text) => text.split("\\n")[0] ?? ""\n\t\t\t\t),\n\t\t\t\t() => ""\n\t\t\t)`,
 				why: "The postmasters are read from the lock files of the clusters' state directories under ~/.local/var/grizzle, not from the processes, so a postmaster whose data directory lies elsewhere is never found; the property fails at the first case that lists one."
+			},
+			{
+				file: "packages/pg/src/postmasters.ts",
+				original:
+					"\t\t\tUnknown: (reason, error) => (reaped(reason.cause) ? Effect.succeedNone : Effect.fail(error))\n",
+				replacement: "\t\t\tUnknown: (_reason, error) => Effect.fail(error)\n",
+				why: "A process reaped as the scan reads it, whose read Node's file system fails with ESRCH (an Unknown system error), is Unreadable, so the scan dies whenever any process of the machine ends between /proc's listing and its read, as this property did under load in the unit tier of grizzle 864cc4cc6 with toolchain b1e430ad2 (case 9, /proc/1973307/exe); the property fails at the first case beside a reaped process."
 			}
 		]
 	})

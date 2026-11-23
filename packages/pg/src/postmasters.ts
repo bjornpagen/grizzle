@@ -6,6 +6,7 @@ import {
 	Formatter,
 	Option,
 	type PlatformError,
+	Predicate,
 	String as Str
 } from "effect"
 
@@ -21,15 +22,28 @@ class Unreadable extends Data.TaggedError("Unreadable")<{
 	}
 }
 
-/** What `read` reads from `path`, or none when nothing is there: every other failure is Unreadable. */
-const unlessAbsent = <A>(
-	path: string,
+/**
+ * Whether a failure's cause is Node's error for a process that ended between /proc's listing and the read of its entry:
+ * errno ESRCH, what Linux 7.0 answered a readlink of /proc/<pid>/exe for such a process (test/unit/substrate/
+ * postmasters.test.ts, red under load in the unit tier of grizzle 864cc4cc6 with toolchain b1e430ad2). Effect's mapping of Node's errors (@effect/platform-node's
+ * handleErrnoException) names no reason for it, so it arrives as an Unknown system error whose cause carries the code.
+ */
+const reaped = (cause: unknown): boolean =>
+	Predicate.hasProperty(cause, "code") && cause.code === "ESRCH"
+
+/**
+ * What `read` reads of a process's /proc entry, or none once the process has ended: the entry gone (NotFound), or the
+ * process reaped as it is read (an Unknown error whose cause is `reaped`). Every other failure is the read's.
+ */
+const whileRunning = <A>(
 	read: Effect.Effect<A, PlatformError.PlatformError>
-): Effect.Effect<Option.Option<A>, Unreadable> =>
+): Effect.Effect<Option.Option<A>, PlatformError.PlatformError> =>
 	read.pipe(
 		Effect.asSome,
-		Effect.catchReason("PlatformError", "NotFound", () => Effect.succeedNone),
-		Effect.mapError((cause) => new Unreadable({ path, cause }))
+		Effect.catchReasons("PlatformError", {
+			NotFound: () => Effect.succeedNone,
+			Unknown: (reason, error) => (reaped(reason.cause) ? Effect.succeedNone : Effect.fail(error))
+		})
 	)
 
 /**
@@ -74,8 +88,9 @@ const startedFrom = (executable: string): string =>
  * Every postmaster running the bin/postgres of one of `trees`: each process whose executable, as /proc/<pid>/exe names
  * it, is or was one of those files, and whose data directory's lock file names the process itself. A postmaster works
  * in its data directory, so /proc/<pid>/cwd is that directory, and its backends, which share it, are not the process
- * the lock file names. A process that ends while it is read, or whose executable this user may not read, is none; any
- * other failure to read is Unreadable, so the list is never short of a postmaster this user can see.
+ * the lock file names. A process that ends while it is read (whileRunning: its /proc entry gone, or the process reaped
+ * as it is read), or whose executable this user may not read, is none; any other failure to read is Unreadable, so the
+ * list is never short of a postmaster this user can see.
  */
 export const postmastersOf = (
 	trees: ReadonlyArray<string>
@@ -88,12 +103,8 @@ export const postmastersOf = (
 		): Effect.Effect<Option.Option<Postmaster>, Unreadable | LockFileUnparsed> =>
 			Effect.gen(function* () {
 				const exe = `/proc/${pid}/exe`
-				const executable = yield* fs.readLink(exe).pipe(
-					Effect.asSome,
-					Effect.catchReasons("PlatformError", {
-						NotFound: () => Effect.succeedNone,
-						PermissionDenied: () => Effect.succeedNone
-					}),
+				const executable = yield* whileRunning(fs.readLink(exe)).pipe(
+					Effect.catchReason("PlatformError", "PermissionDenied", () => Effect.succeedNone),
 					Effect.mapError((cause) => new Unreadable({ path: exe, cause }))
 				)
 				if (Option.isNone(executable) || !Arr.contains(binaries, startedFrom(executable.value))) {
@@ -101,7 +112,10 @@ export const postmastersOf = (
 				}
 				const cwd = `/proc/${pid}/cwd`
 				const lock = `${cwd}/postmaster.pid`
-				const text = yield* unlessAbsent(lock, fs.readFileString(lock))
+				const text = yield* Effect.mapError(
+					whileRunning(fs.readFileString(lock)),
+					(cause) => new Unreadable({ path: lock, cause })
+				)
 				if (Option.isNone(text)) {
 					return Option.none()
 				}
