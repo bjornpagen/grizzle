@@ -76,5 +76,5 @@ export {
 export type { Fact, KeysOf } from "#compiler/public/schema.ts"
 export { str } from "#compiler/public/text.ts"
 export type { WritesOf } from "#compiler/types/changeset/changeset.ts"
-export { clocked, workload } from "#compiler/public/workload.ts"
+export { answered, clocked, workload } from "#compiler/public/workload.ts"
 export { Id, type IdValue } from "#test/support/ids.ts"

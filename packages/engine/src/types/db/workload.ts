@@ -20,7 +20,7 @@ import type {
 } from "#compiler/types/query/query.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { AnySchema, LevelsOf, RelationOf } from "#compiler/types/schema/schema.ts"
-import type { CandidateKey } from "#compiler/types/schema/statements.ts"
+import type { Side } from "#compiler/types/schema/statements.ts"
 import type {
 	AnyRole,
 	RefreshListOf,
@@ -33,9 +33,22 @@ type KeyedAt<L> = L extends unknown ? Extract<RelationOf<L>, AnyRelation | AnyCl
 
 /**
  * A key of a relation over L: the relation itself, for its primary key, or a candidate key of an ordinary relation of
- * L, a Key from key() over a side of its whole relation's fields.
+ * L, a Key from key() over a side of its whole relation's fields (KeyOn).
  */
-type KeyAt<L> = KeyedAt<L> | CandidateKey<Extract<KeyedAt<L>, AnyRelation>>
+type KeyAt<L> = KeyedAt<L> | KeyOn<Extract<KeyedAt<L>, AnyRelation>>
+
+/**
+ * A candidate key of one of the relations R, told by its kind and its side, whose source is one of them, as key()
+ * builds one (schema/statements.ts CandidateKey), and never by the records it delivers. CandidateKey of a union of
+ * relations is one key over all of them, whose records the checker infers from the side's source as the union of every
+ * relation's, reduced by subtype at each member's check against the workload's programs: past a thousand relations of
+ * distinct headings, as a role of metis's reads, more than the checker represents (TS2590). Told by its side, a key is
+ * held to its own relation, one member of R.
+ */
+interface KeyOn<R> {
+	readonly kind: "key"
+	readonly side: Side<R, ReadonlyArray<string>>
+}
 
 /**
  * What a ChangeSet X of a workload over S writes: over a role, only relations its write list names, as the role's compile
