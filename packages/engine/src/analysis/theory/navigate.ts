@@ -468,6 +468,8 @@ export class Navigation {
  * literal its head fixes, qti's statements of one required fact (`select(PackageFact, fact = author)`), computes that
  * rule alone. The keys of the imports of one rule no parameter restricts over the units a transaction wrote
  * (`unrestricted`, RegionExtent `units`): `Navigator.rule` reads those at each read again, keyed by the steps before.
+ * And the reads of the imports of several rules no parameter restricts over those units (`partnered`), each still one
+ * read of its one node, which the chain places after the steps that bind its columns, its partners (`#chain`).
  */
 /**
  * `source`, an import read at `bindings`, with each rule of its union whose head fixes a field the read binds to another
@@ -515,7 +517,11 @@ const sharedWithin = (
 	columns: QueryColumns,
 	sharing: ImportSharing,
 	interned: Navigation
-): { readonly flat: Flat; readonly unrestricted: ReadonlySet<string> } => {
+): {
+	readonly flat: Flat
+	readonly unrestricted: ReadonlySet<string>
+	readonly partnered: ReadonlySet<Read>
+} => {
 	const fixed = flatFixed(flat, loc)
 	/** A fixed term an import is restricted inside to: one that reads a parameter, a channel among them. */
 	const byParameter = (term: InferredExpr): InferredExpr | undefined => {
@@ -523,6 +529,7 @@ const sharedWithin = (
 		return held !== undefined && leavesOf(held).params.length > 0 ? held : undefined
 	}
 	const unrestricted = new Set<string>()
+	const partnered = new Set<Read>()
 	const reads = flat.reads.map((r): Read => {
 		if (r.source.kind !== "query") {
 			return r
@@ -530,22 +537,25 @@ const sharedWithin = (
 		const read = armsAt(r.source, r.bindings, fixed)
 		const inside = boundInside(read, r.bindings, byParameter, columns)
 		const stage = r.source.query.stage
-		if (
+		const overUnits =
 			inside === read &&
 			sharing.kind === "perStatement" &&
 			sharing.extent === "units" &&
-			stage.kind === "rules" &&
-			stage.arms.length === 1
-		) {
+			stage.kind === "rules"
+		if (overUnits && stage.arms.length === 1) {
 			unrestricted.add(interned.importKey(r.source.query, scalarBinds(r.source.bind) ?? new Map()))
 			return r
 		}
-		return {
+		const navigated: Read = {
 			...r,
 			source: { ...inside, query: navigatedQuery(inside.query, loc, columns, sharing, interned) }
 		}
+		if (overUnits) {
+			partnered.add(navigated)
+		}
+		return navigated
 	})
-	return { flat: { ...flat, reads }, unrestricted }
+	return { flat: { ...flat, reads }, unrestricted, partnered }
 }
 
 /** The imports a rule's navigation reads whole, each one read of one node, by key (`importKey`). */
@@ -950,7 +960,7 @@ class Navigator {
 		}
 		return [
 			this.#filteredAfter(
-				this.#chain(read.flat, depth),
+				this.#chain(read.flat, depth, read.partnered),
 				depth,
 				pinnedBy(flatFixed(read.flat, rule.loc)),
 				rule.loc
@@ -1223,17 +1233,23 @@ class Navigator {
 	 * order (module doc). Each condition is placed inside the first step after which every variable it reads is bound; a
 	 * condition no variable of which a step binds stays the rule's own; the relational filters are left to `rule`.
 	 *
-	 * Each import the rule reads whole (`sharedWithin`) is a match of the rule itself, before the steps: every read of it
-	 * is an occurrence of one region, so the checker builds it once for all of them (check/checker.ts #imported) and the
-	 * lowering computes it once per row of what binds its parameters, the unit's channels, a join of its rows at each
-	 * read (lower/optimize/cte-policy), where a step of its own at each read would be a node of its own, correlated to
-	 * that step's region. Its variables are bound from then on, so the chain's steps read by them.
+	 * Each import the rule reads whole (`sharedWithin`) is a match of the rule itself, never a step (`matchWhole`): every
+	 * read of it is an occurrence of one region, so the checker builds it once for all of them (check/checker.ts
+	 * #imported) and the lowering computes it once per row of what binds its parameters, the unit's channels, a join of
+	 * its rows at each read (lower/optimize/cte-policy), where a step of its own at each read would be a node of its own,
+	 * correlated to that step's region. One a parameter restricts stands before the steps, its variables bound from then
+	 * on, so the chain's steps read by them. One no parameter restricts over the units (`partnered`) is placed among the
+	 * steps by their order, once the steps before it have bound what they bind of its columns: those steps are the
+	 * partners that restrict its rows at each read. Placed before every step, it bound the variables the steps after it
+	 * were keyed by, so no step restricted it, and the lowering computed it whole: metis's judge of a first budget, over
+	 * the delta of an assignment, read every document's timing scopes, a union over the content alone that each read
+	 * joined at the package and path its sitting's test content bound, and every rate-paced assignment, at each COMMIT.
 	 */
-	#chain(flat: Flat, depth: number): Chain {
+	#chain(flat: Flat, depth: number, partnered: ReadonlySet<Read>): Chain {
 		const declared = new Map(flat.vars.map((v) => [v.id, v] as const))
 		const known = new Set<string>()
 		let reads: ReadonlyArray<Read> = [
-			...flat.reads.filter((r) => r.source.kind !== "query"),
+			...flat.reads.filter((r) => r.source.kind !== "query" || partnered.has(r)),
 			...flat.grouped
 		]
 		let pending: Array<InferredExpr> = []
@@ -1357,27 +1373,56 @@ class Navigator {
 			pending.push(equal(varRef(hidden), e))
 			return hidden
 		}
-		for (const read of flat.reads) {
-			if (read.source.kind !== "query") {
-				continue
-			}
-			/** Its bindings, a term over other matches' variables through a hidden variable (`hiddenFor`): an import read
-			 * whole binds the variables its bare bindings name, never those a computed term reads. */
+		/**
+		 * `read`, an import the rule reads whole, placed as the next match of the rule itself, its variables bound
+		 * from then on. Its bindings are the variables its bare bindings name, a term over other matches' variables through
+		 * a hidden variable (`hiddenFor`), never those a computed term reads. An equality still pending between one of the
+		 * variables it binds first and one a step before it bound is the rule's own, a join of the region its occurrence
+		 * stands in, through which those steps restrict it, never a condition of the next step's, inside which no reader of
+		 * the region sees it.
+		 */
+		const matchWhole = (read: Read): void => {
 			const bindings = mapRecord(read.bindings, (e, column) =>
 				e.kind === "var" || readsOf(e).size === 0 ? e : varRef(hiddenFor(read, column, e))
 			)
 			matches.push({ source: read.source, bindings, loc: read.loc })
+			const first = new Set<string>()
 			for (const e of Object.values(bindings)) {
 				for (const id of readsOf(e)) {
-					if (!known.has(id)) {
-						known.add(id)
-						vars.push(declared.get(id) ?? this.#refuse(`a declaration of variable ${id}`))
+					if (known.has(id)) {
+						continue
 					}
+					known.add(id)
+					first.add(id)
+					vars.push(declared.get(id) ?? this.#refuse(`a declaration of variable ${id}`))
 				}
 			}
+			pending = pending.filter((c) => {
+				const joins =
+					c.kind === "compare" &&
+					c.op === "eq" &&
+					c.left.kind === "var" &&
+					c.right.kind === "var" &&
+					known.has(c.left.var) &&
+					known.has(c.right.var) &&
+					first.has(c.left.var) !== first.has(c.right.var)
+				if (joins) {
+					where.push(c)
+				}
+				return !joins
+			})
 		}
-		/** `read` placed as the next step, its variables bound from then on. */
+		for (const read of flat.reads) {
+			if (read.source.kind === "query" && !partnered.has(read)) {
+				matchWhole(read)
+			}
+		}
+		/** `read` placed next: a step, its variables bound from then on, or an import its partners restrict (`matchWhole`). */
 		const place = (read: Read): void => {
+			if (partnered.has(read)) {
+				matchWhole(read)
+				return
+			}
 			const passing = new Passing(depth)
 			const own = new Set<string>()
 			const bindings: Record<string, InferredExpr> = {}

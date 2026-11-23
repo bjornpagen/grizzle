@@ -321,6 +321,10 @@
  * and groupings asked for, named by their columns, and recorded each program's `statistics` in snapshot.json's workload
  * access, which holds its paths alone; a live installation's extended statistics objects are departures its upgrade
  * drops.
+ * An import a rule statement's chain reads whole is placed among its steps once the steps before it have bound what
+ * they bind of its columns, an equality of a variable it binds first with one a step bound the rule's own
+ * (analysis/theory/navigate.ts Navigator #chain `matchWhole`), where format 8 placed it before every step, the steps
+ * after it keyed by its variables, so every judge statement that reads one reads its steps in another order.
  */
 export const artifactFormat = 8
 
