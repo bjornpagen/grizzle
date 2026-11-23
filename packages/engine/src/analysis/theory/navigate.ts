@@ -52,17 +52,23 @@ import {
  * head equated with the terms the match binds it at (`#inline`), a bare literal of either, which stands for the
  * import's column, typed at that column's descriptor (analysis/theory/columns.ts, leaves.ts atColumn); a variable then
  * bound by no match is the term an equality defines (`#defined`), so a literal it replaces a variable by is a term of
- * the variable's column, which stands wherever the variable stood, first among them. The matches are then read in an order of their own (`#chain`): from the values the
- * rule holds, its parameters and literals, each next match the one with the most columns keyed so far, bound to a
- * parameter or to a variable the steps placed bound, directly or by an equality with them, then the one with the most
- * columns bound at all, literals among them, then one whose every row is beside a row of another that reads every row
- * of its relation (Navigation `within`: a containment the schema states of its relation into the other's over every
- * row, at the variables both bind; #chain `readsAll`), then the earliest declared among equals: a literal alone is no
- * key, a constant every key's rows may share, so a read a literal alone binds never goes before one a key binds. That
- * is how a rule's probe starts from the row its write touched; how a member walks a qti package: from the package's
- * documents by its own key, down to a node's children by (package, path, parent), and up to a node's parent by its
- * primary key, never by (package, path) alone while a narrower lookup is left; and how a check over every row of a
- * relation whose rows each sit beside a row of another starts at its rows, never at every row of the other.
+ * the variable's column, which stands wherever the variable stood, first among them. The matches are then read in an
+ * order of their own (`#chain`): from the values the rule holds, its parameters and literals, each next match the
+ * narrowest lookup (Navigation `narrower`), by what the schema states alone, never an estimate: one bound at a key of
+ * its relation, which reads one row at most; then, of two relations one is contained in over every row, the contained
+ * read keyed at more than the container's image of it, which it reads no more rows than, or else the container's
+ * lookup keyed at more than the contained read's image, which narrows the container's rows that hold the contained
+ * read's; then the one with the most columns keyed so far, bound
+ * to a parameter or to a variable the steps placed bound, directly or by an equality with them, then the one with the
+ * most columns bound at all, literals among them; then one whose every row is beside a row of another that reads every
+ * row of its relation (Navigation `within`: a containment the schema states of its relation into the other's over
+ * every row, at the variables both bind; #chain `readsAll`), then the earliest declared among equals: a literal alone
+ * is no key, a constant every key's rows may share, so a read a literal alone binds never goes before one a key binds.
+ * That is how a rule's probe starts from the row its write touched; how a member walks a qti package: from the
+ * package's documents by its own key, down to a node's children by (package, path, parent), and up to a node's parent
+ * by its primary key, never by (package, path) alone while a narrower lookup is left, nor by an item's placed
+ * expressions, (package, path) under a placement; and how a check over every row of a relation whose rows each sit
+ * beside a row of another starts at its rows, never at every row of the other.
  *
  * Each match is its own step: an import of one rule over its relation, every column a variable the steps before it bound
  * read through a channel (ir/desc.ts Channel) its bind map binds to that variable, every parameter of the rule passed in
@@ -110,15 +116,24 @@ const suffixTestOf = (
 		: undefined
 }
 
-/** How a read is looked up from the values known so far: its columns bound by a keyed term, and all its columns bound. */
+/**
+ * How read `read` is looked up from the values known so far: its columns sought by a keyed term, an equality's or a
+ * suffix seek's (`keyed`), and its columns an equality binds to a value known so far, a keyed term or a literal
+ * (`bound`), each of whose rows the lookup reads holds there.
+ */
 interface Lookup {
-	readonly keyed: number
-	readonly bound: number
+	readonly read: Read
+	readonly keyed: ReadonlySet<string>
+	readonly bound: ReadonlySet<string>
 }
 
-/** Whether lookup `a` is narrower than `b`: more columns keyed, then more columns bound. */
-const narrower = (a: Lookup, b: Lookup): boolean =>
-	a.keyed > b.keyed || (a.keyed === b.keyed && a.bound > b.bound)
+/** Whether lookup `a` is narrower than `b` by their columns alone (Navigation `narrower`): more keyed, then more bound. */
+const counted = (a: Lookup, b: Lookup): boolean =>
+	a.keyed.size > b.keyed.size || (a.keyed.size === b.keyed.size && a.bound.size > b.bound.size)
+
+/** Whether every member of `small` is one of `large`, which holds more. */
+const holdsMore = (large: ReadonlySet<string>, small: ReadonlySet<string>): boolean =>
+	large.size > small.size && [...small].every((x) => large.has(x))
 
 /** Whether a relational filter reads no variable of its rule, by its bindings or by the bind map of the query it reads. */
 const readsNoVariable = (a: Filtered): boolean => {
@@ -231,11 +246,106 @@ export class Navigation {
 	 * reads.
 	 */
 	readonly #containments: ReadonlyMap<string, ReadonlyArray<FieldContainment>>
+	/** Each stored relation's keys over every row, its primary key first (RegionFacts `keys`). */
+	readonly #keys: RegionFacts["keys"]
 
 	constructor(facts: RegionFacts) {
 		this.#containments = Map.groupBy(
 			facts.containments.filter((c) => c.selection.length === 0),
 			(c) => c.from
+		)
+		this.#keys = facts.keys
+	}
+
+	/**
+	 * Whether lookup `a` is narrower than `b` (Navigator #chain), by what the schema states of their relations, never an
+	 * estimate, with statistics or none:
+	 *
+	 * - a lookup whose bound columns hold a key of its relation (`#unique`) reads at most one row, so it is narrower than
+	 *   one whose bound columns hold none, which may read many: qti's node at the key (package, path, start) an operand's
+	 *   row binds, its parent then, against the placed expressions of the operand's item instance;
+	 * - else the one a containment between the two relations orders first (`#imaged`);
+	 * - else the one with more columns keyed, then more bound (`counted`).
+	 */
+	narrower(a: Lookup, b: Lookup): boolean {
+		return this.#ordered(a, b) ?? counted(a, b)
+	}
+
+	/** Whether the keys and containments the schema states order `a` before `b` (`narrower`), or undefined. */
+	#ordered(a: Lookup, b: Lookup): boolean | undefined {
+		const unique = this.#unique(a)
+		if (unique !== this.#unique(b)) {
+			return unique
+		}
+		const imaged = this.#imaged(a, b)
+		return imaged === this.#imaged(b, a) ? undefined : imaged
+	}
+
+	/** Whether lookup `l`'s bound columns hold a key of its relation (RegionFacts `keys`), so it reads one row at most. */
+	#unique(l: Lookup): boolean {
+		const source = l.read.source
+		return (
+			source.kind === "relation" &&
+			(this.#keys.get(source.name) ?? []).some((key) => key.every((f) => l.bound.has(f)))
+		)
+	}
+
+	/**
+	 * Whether a containment between their relations over every row, each of its pairs one variable both reads bind
+	 * (`#imagesOf`), orders lookup `a` before `b`. Where x ⊆ y so, each row x's lookup reads is beside its own row of y at
+	 * the image of x's keyed columns, so x reads no more rows than y would at that image: x goes first where its image
+	 * holds more than y's keyed columns, a proof that x is no wider. And the container's lookup keyed at more than the
+	 * contained read's image goes first: the contained read's rows are held to the container's rows at that image, which
+	 * the container's lookup narrows, a rule the schema's facts alone decide, no proof, as one node may have ten thousand
+	 * children where its item has one expression. Keyed columns alone, as a literal alone is no key: a read of Item at a
+	 * parent literal goes no earlier for it than Rare's rows contained in it. qti's placed
+	 * expressions of an item's instance, at (package, assembly, instance, path), are contained in Node at (package, path,
+	 * start), at the image (package, path), every expression of the item: a node's children at (package, path, parent)
+	 * are narrower, where the count of their columns put the expressions first, every reference beside every
+	 * expression of its item (edullm's _08e9e8ae, 33.6 M pairs at 42 items, 364 s of its COMMIT).
+	 */
+	#imaged(a: Lookup, b: Lookup): boolean {
+		return (
+			this.#imagesOf(a, b).some((image) => holdsMore(image, b.keyed)) ||
+			this.#imagesOf(b, a).some((image) => holdsMore(a.keyed, image))
+		)
+	}
+
+	/**
+	 * The images of lookup `x`'s keyed columns in `y`'s relation, one by each containment of x's relation into y's over
+	 * every row whose every pair is one variable both reads bind (`#between`), and under which x's rows at its lookup
+	 * are each beside a row of y of their own: a key of x's relation among x's bound columns and the containment's
+	 * fields, so two rows x reads differ at a field the containment pairs. Each image is the fields of y paired with a
+	 * keyed column of x.
+	 */
+	#imagesOf(x: Lookup, y: Lookup): ReadonlyArray<ReadonlySet<string>> {
+		const source = x.read.source
+		const keys = source.kind === "relation" ? (this.#keys.get(source.name) ?? []) : []
+		return this.#between(x.read, y.read).flatMap((c) => {
+			const paired = new Set(c.pairs.map((p) => p.from))
+			return keys.some((key) => key.every((f) => x.bound.has(f) || paired.has(f)))
+				? [new Set(c.pairs.flatMap((p) => (x.keyed.has(p.from) ? [p.to] : [])))]
+				: []
+		})
+	}
+
+	/**
+	 * The containments the schema states of read `a`'s stored relation into read `b`'s over every row (`#containments`),
+	 * each of whose pairs of fields is one variable both reads bind.
+	 */
+	#between(a: Read, b: Read): ReadonlyArray<FieldContainment> {
+		if (a.source.kind !== "relation" || b.source.kind !== "relation") {
+			return []
+		}
+		const to = b.source.name
+		return (this.#containments.get(a.source.name) ?? []).filter(
+			(c) =>
+				c.to === to &&
+				c.pairs.every((p) => {
+					const x = a.bindings[p.from]
+					const y = b.bindings[p.to]
+					return x?.kind === "var" && y?.kind === "var" && x.var === y.var
+				})
 		)
 	}
 
@@ -249,19 +359,7 @@ export class Navigation {
 	 * read every node.
 	 */
 	within(a: Read, b: Read): boolean {
-		if (a.source.kind !== "relation" || b.source.kind !== "relation") {
-			return false
-		}
-		const to = b.source.name
-		return (this.#containments.get(a.source.name) ?? []).some(
-			(c) =>
-				c.to === to &&
-				c.pairs.every((p) => {
-					const x = a.bindings[p.from]
-					const y = b.bindings[p.to]
-					return x?.kind === "var" && y?.kind === "var" && x.var === y.var
-				})
-		)
+		return this.#between(a, b).length > 0
 	}
 
 	/**
@@ -1196,8 +1294,8 @@ class Navigator {
 			values: ReadonlyMap<string, boolean>,
 			seeks: ReadonlySet<string>
 		): Lookup => {
-			let keyed = 0
-			let bound = 0
+			const keyed = new Set<string>()
+			const bound = new Set<string>()
 			const keys = foldsIn(r.source)
 			for (const [column, e] of Object.entries(r.bindings)) {
 				if (keys !== undefined && !keys.includes(column)) {
@@ -1205,18 +1303,18 @@ class Navigator {
 				}
 				const ids = [...readsOf(e)]
 				if (ids.every((id) => known.has(id) || values.has(id))) {
-					bound++
+					bound.add(column)
 					if (
 						leavesOf(e).params.length > 0 ||
 						ids.some((id) => known.has(id) || values.get(id) === true)
 					) {
-						keyed++
+						keyed.add(column)
 					}
 				} else if (e.kind === "var" && seeks.has(e.var)) {
-					keyed++
+					keyed.add(column)
 				}
 			}
-			return { keyed, bound }
+			return { read: r, keyed, bound }
 		}
 		/**
 		 * Whether read `r` reads every row of its relation: each of its columns bound to a variable of its own, at that
@@ -1343,8 +1441,8 @@ class Navigator {
 				const at = lookupOf(r, values, seeks)
 				const held = lookupOf(current, values, seeks)
 				if (
-					narrower(at, held) ||
-					(!narrower(held, at) &&
+					this.#interned.narrower(at, held) ||
+					(!this.#interned.narrower(held, at) &&
 						this.#interned.within(r, current) &&
 						readsAll(current, values, seeks))
 				) {

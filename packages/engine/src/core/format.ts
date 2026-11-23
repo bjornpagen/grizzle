@@ -196,6 +196,14 @@
  * outside the base they type a value by (derived.params.contracts). Format 3's files were written in several shapes,
  * changes of what they hold riding its number (a constant recorded with no language before 56f26ca01), so a reader that
  * trusted a sealed record of 3 met shapes it never wrote; every one is refused here.
+ *
+ * Pending, for the next format, which grizzle main bumps once for the batch: a chain of steps reads first, of two
+ * lookups, one bound at a key of its relation, then, of two relations one is contained in over every row, the contained
+ * read keyed at more columns than its image in the container, or else the container's lookup keyed at more columns than
+ * the contained read's image (analysis/theory/navigate.ts Navigation narrower), then the one keyed at more columns,
+ * where format 8 counted keyed columns alone: a judged statement over qti's placed references walks to a reference's
+ * child elements and then each expression by its key, never every expression of the reference's item, so its steps
+ * move, and the indexes their lookups ask for with them
  */
 export const artifactFormat = 8
 

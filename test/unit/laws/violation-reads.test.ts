@@ -56,8 +56,14 @@ import { asDrafted, draftChain, fromEmpty, noDeclarations } from "#test/support/
 import {
 	blocksReads,
 	caseGen,
+	chainReads,
 	type Feature,
 	firstRead,
+	imageCaseGen,
+	imageExpected,
+	type ImageFeature,
+	imageFeatureOf,
+	imageSchemaOf,
 	keyedBy,
 	migrationCaseGen,
 	type MigrationFeature,
@@ -437,7 +443,7 @@ export const aRulesCheckOverEveryRowStartsAtAReadContainedInAnother = property.e
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
 				original:
-					"\t\t\t\t\t(!narrower(held, at) &&\n\t\t\t\t\t\tthis.#interned.within(r, current) &&\n\t\t\t\t\t\treadsAll(current, values, seeks))",
+					"\t\t\t\t\t(!this.#interned.narrower(held, at) &&\n\t\t\t\t\t\tthis.#interned.within(r, current) &&\n\t\t\t\t\t\treadsAll(current, values, seeks))",
 				replacement: "\t\t\t\t\tfalse",
 				why: "A chain starts at the first declared of two reads alike, Item, every item read where Rare's few marks, each beside an item, would do; it fails the case of Item read whole and matched first beside Rare contained in it."
 			},
@@ -472,6 +478,95 @@ export const aRulesCheckOverEveryRowStartsAtAReadContainedInAnother = property.e
 					"\t\t\treturn pending.every((c) => ![...readsOf(c)].every((id) => own.has(id) || known.has(id)))",
 				replacement: "\t\t\treturn true",
 				why: "A condition of the read's own variables restricts nothing, so Item beside a condition of its kind reads every row of it, and Rare goes first; it fails the case of Item beside a condition."
+			}
+		]
+	}
+)
+
+/**
+ * A chain reads first, of two lookups, the one the schema's keys and containments order first, whatever their
+ * declared order and however many columns each is keyed by: a lookup bound at its relation's key, one row at most;
+ * else, of two relations one is contained in over every row at the variables both reads bind, the contained read keyed
+ * at more columns than its image in the container, which it reads no more rows than, or the container's lookup keyed at
+ * more columns than the contained read's image, which narrows the container's rows that hold the contained read's. The image box is qti's walk from a placed reference: Expr, the expressions of
+ * its placement, keyed at three columns (doc, asm, inst) and contained in Element at (doc, at), whose image there is
+ * (doc) alone, every expression of the document; Element at (doc, parent), the reference's children, keyed at two. By
+ * the count of keyed columns the chain read every expression of the item beside each reference (edullm's _08e9e8ae:
+ * 33.6 M pairs at 42 items, three statements of 112 to 134 M buffer hits, 364 s of its COMMIT); and walking up, at
+ * Element's key (doc, at) the reference's own place, every expression of the item beside each operand (the giant's
+ * known operand keys). The order is read off the schema's statements alone, never an estimate, with statistics or none.
+ */
+export const aChainReadsFirstTheLookupTheSchemasKeysAndContainmentsOrderFirst = property.exhaust(
+	finite(imageCaseGen),
+	{
+		needs: {},
+		situations: [
+			"an expression's children before its item's expressions, by the containment's image, declared after",
+			"an expression's children before its item's expressions, by the containment's image, declared first",
+			"an operand's element by its key before its item's expressions, declared after",
+			"an operand's element by its key before its item's expressions, declared first",
+			"the item's expressions first, more columns keyed, with no containment",
+			"the item's expressions first, more columns keyed, beside a containment over a selection",
+			"the item's expressions first, more columns keyed, beside a containment at other fields",
+			"the item's expressions first, more columns keyed, beside a containment whose image leaves a key field apart"
+		] satisfies ReadonlyArray<Reached<ImageFeature>>,
+		check: (_, k: CaseOf<ImageFeature>) => (c) =>
+			Effect.sync(() => {
+				const installation = installed(imageSchemaOf(c))
+				const checked = Arr.filter(lawChecks(installation).rules, (r) => r.meaning === "defined")
+				assert.equal(checked.length, 1, "the box's one check over a query, Placed's")
+				for (const rule of checked) {
+					assert.deepEqual(
+						chainReads(rule.query),
+						[
+							tableKey(installation.names.relation("Ref")),
+							...(imageExpected(c) === "Element"
+								? [
+										tableKey(installation.names.relation("Element")),
+										tableKey(installation.names.relation("Expr"))
+									]
+								: [
+										tableKey(installation.names.relation("Expr")),
+										tableKey(installation.names.relation("Element"))
+									])
+						],
+						"the chain's reads, in its order"
+					)
+				}
+				k.note(imageFeatureOf(c))
+			}),
+		oracle: {
+			kind: "specification",
+			name: "the keys and containments the schema states: a lookup bound at its relation's key first; else, under a containment over every row at the variables both reads bind whose source's key is among its bound columns and the containment's fields, the lookup keyed at more columns than the other's image; else the one keyed at more columns"
+		},
+		box: "Placed = Ref at kind 1 ⋈ Expr of its placement ⋈ Element linking them, down to the reference's child or up to its parent at its own place, Expr and Element matched in either order after Ref, Expr contained in Element at (doc, at) over every row, over a selection, at (doc, inst), at (doc) alone, or not",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original: "\t\treturn this.#ordered(a, b) ?? counted(a, b)",
+				replacement: "\t\treturn counted(a, b)",
+				why: "The count of keyed columns orders the chain again: Expr, keyed at (doc, asm, inst), goes before Element at (doc, parent) and before Element at its key, every expression of the item read beside each reference; it fails every case that walks up, and the cases that walk down under the containment over every row."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original:
+					"\t\tconst unique = this.#unique(a)\n\t\tif (unique !== this.#unique(b)) {\n\t\t\treturn unique\n\t\t}\n",
+				replacement: "",
+				why: "A lookup bound at its relation's key is no narrower than one keyed at more columns: walking up, Expr goes before Element at the reference's own place; it fails the cases that walk up."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original:
+					"\t\t\treturn keys.some((key) => key.every((f) => x.bound.has(f) || paired.has(f)))",
+				replacement: "\t\t\treturn true",
+				why: "A containment images a lookup whose rows its fields do not tell apart: Expr at (doc) alone leaves its place apart, many expressions beside one element, and Element goes before Expr all the same; it fails the case of a containment whose image leaves a key field apart."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original: "\t\t\tthis.#imagesOf(b, a).some((image) => holdsMore(a.keyed, image))",
+				replacement: "\t\t\tfalse",
+				why: "Only the contained lookup is ever ordered first by a containment: Element at (doc, parent), keyed at more than Expr's image (doc), is not, and Expr goes first again; it fails the cases that walk down under the containment over every row."
 			}
 		]
 	}

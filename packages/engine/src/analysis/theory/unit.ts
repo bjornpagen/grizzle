@@ -1055,9 +1055,15 @@ export interface FieldContainment {
 }
 
 /** What a whole rule's region reads of the schema's laws (`regionOf`): each containment over the rows of its source its
- * selection admits, and each tree's root fields by its relation (`witnessesOf`). */
+ * selection admits, and each tree's root fields by its relation (`witnessesOf`); and what navigation orders a chain by
+ * (analysis/theory/navigate.ts Navigation `narrower`), those containments and each stored relation's keys. */
 export interface RegionFacts {
 	readonly containments: ReadonlyArray<FieldContainment>
+	/**
+	 * Each stored relation's keys over every row, by the relation: its primary key, then each candidate key a statement
+	 * of the schema states of it, each once. A lookup bound at every field of one reads one row at most.
+	 */
+	readonly keys: ReadonlyMap<string, NonEmptyReadonlyArray<NonEmptyReadonlyArray<string>>>
 	/**
 	 * Each relation a tree statement states the tree of, `tree(on(T, parent, at), fin(T, n), { root: [r…] })`, with its
 	 * root fields r…, which its primary key (r…, start) leads with (analysis/theory/families.ts treeShape): its rows at
@@ -1229,7 +1235,9 @@ const pairedKey = (c: FieldContainment): string =>
  * a pred term holds only of the rows whose predecessor is defined, a condition none of its field pairs states, so it
  * states no fact a region reads. A containment of a relation into itself at its own fields
  * states nothing and is not held. In statement order, then each composition in the order the closure meets it, each
- * containment once. Beside them, each tree statement's stored relation with its root fields (RegionFacts `roots`).
+ * containment once. Beside them, each tree statement's stored relation with its root fields (RegionFacts `roots`),
+ * and each stored relation's keys, its primary key and each candidate key a statement states of it (RegionFacts
+ * `keys`).
  */
 export const regionFactsOf = (
 	statements: ReadonlyArray<OwnedStatement>,
@@ -1287,7 +1295,31 @@ export const regionFactsOf = (
 				: []
 		)
 	)
-	return { containments, roots }
+	const candidates = Map.groupBy(
+		statements.flatMap((s) =>
+			s.kind === "key" && s.key.kind === "candidate"
+				? [[s.side.relation, s.key.key.fields] as const]
+				: []
+		),
+		([relation]) => relation
+	)
+	const keys = new Map(
+		[...relations.values()].flatMap((r) => {
+			if (r.kind !== "relation") {
+				return []
+			}
+			const held: [NonEmptyReadonlyArray<string>, ...Array<NonEmptyReadonlyArray<string>>] = [
+				mapNonEmpty(r.primaryFields, (f) => f.name)
+			]
+			for (const [, key] of candidates.get(r.name) ?? []) {
+				if (!held.some((k) => k.length === key.length && key.every((f) => k.includes(f)))) {
+					held.push(key)
+				}
+			}
+			return [[r.name, held] as const]
+		})
+	)
+	return { containments, roots, keys }
 }
 
 /** E ⊆ N from E ⊆ M (`first`) and M ⊆ N (`second`), a containment over every row of M (`regionFactsOf` reads each

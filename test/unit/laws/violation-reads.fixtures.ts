@@ -809,3 +809,186 @@ export const firstRead = (query: OperandSelect): string | undefined => {
 				? firstRead(first.query)
 				: undefined
 }
+
+/**
+ * The tables a query's chain reads, in its order: the first table of each source of the first core that reads more
+ * than one source, a lone derived table read through to its own first core, and a step's derived table its own first
+ * (`firstRead`).
+ */
+export const chainReads = (query: OperandSelect): ReadonlyArray<string> => {
+	const core = bodyCores(query.body)[0]
+	if (core === undefined) {
+		return []
+	}
+	const sources = sourcesOf(core)
+	const [only] = sources
+	if (sources.length === 1 && only?.kind === "derived") {
+		return chainReads(only.query)
+	}
+	return Arr.flatMap(sources, (source) => {
+		const read =
+			source.kind === "table"
+				? tableKey(source.table)
+				: source.kind === "derived"
+					? firstRead(source.query)
+					: undefined
+		return read === undefined ? [] : [read]
+	})
+}
+
+/**
+ * The image box's relations, qti's placed references and expressions beside their nodes, keyed as qti keys them: Ref
+ * and Expr, a document's references and expressions under each placement of it (asm, inst), keyed by the placement and
+ * the element's place; Element, a document's elements by place, each with its parent.
+ */
+const Ref = relation(
+	"Ref",
+	{ doc: pg.integer, asm: pg.integer, inst: pg.integer, at: pg.integer, kind: pg.integer },
+	["doc", "asm", "inst", "at"]
+)
+
+const Expr = relation(
+	"Expr",
+	{ doc: pg.integer, asm: pg.integer, inst: pg.integer, at: pg.integer, base: pg.integer },
+	["doc", "asm", "inst", "at"]
+)
+
+const Element = relation("Element", { doc: pg.integer, at: pg.integer, parent: pg.integer }, [
+	"doc",
+	"at"
+])
+
+/**
+ * How Placed's rule walks from a reference: down to its expression child, Element at (doc, at: the expression's,
+ * parent: the reference's), as qti's held type checks walk; or up to the expression it stands under, Element at (doc,
+ * at: the reference's, parent: the expression's), Element's key the reference's own place, as qti's known operand keys
+ * walk from an operand to its operator.
+ */
+const imageWalks = ["child", "parent"] as const
+
+/**
+ * What the image box's schema states of Expr into Element: nothing; Expr at (doc, at) contained in Element at its key,
+ * over every row; the same over the rows of a selection of Expr alone; Expr at (doc, inst), fields the rule binds to no
+ * variable of Element's; or Expr at (doc) alone, over every row, a containment that leaves Expr's place apart, so two
+ * of its rows a lookup reads may stand beside one row of Element.
+ */
+const imageContainments = [
+	"none",
+	"every row",
+	"a selection",
+	"other fields",
+	"its document alone"
+] as const
+
+/** Which of Expr and Element Placed's rule matches first, after Ref. */
+const imageFirsts = ["Expr", "Element"] as const
+
+/** The image box: how the rule walks, what the schema states of Expr into Element, and the declared order. */
+export interface ImageCase {
+	readonly walk: (typeof imageWalks)[number]
+	readonly containment: (typeof imageContainments)[number]
+	readonly first: (typeof imageFirsts)[number]
+}
+
+export const imageCaseGen: Gen<ImageCase> = (s) => ({
+	walk: s.draw(element(imageWalks)),
+	containment: s.draw(element(imageContainments)),
+	first: s.draw(element(imageFirsts))
+})
+
+export type ImageFeature =
+	| "an expression's children before its item's expressions, by the containment's image, declared after"
+	| "an expression's children before its item's expressions, by the containment's image, declared first"
+	| "an operand's element by its key before its item's expressions, declared after"
+	| "an operand's element by its key before its item's expressions, declared first"
+	| "the item's expressions first, more columns keyed, with no containment"
+	| "the item's expressions first, more columns keyed, beside a containment over a selection"
+	| "the item's expressions first, more columns keyed, beside a containment at other fields"
+	| "the item's expressions first, more columns keyed, beside a containment whose image leaves a key field apart"
+
+/** The situation a case of the image box reaches by its schema alone. */
+export const imageFeatureOf = (c: ImageCase): ImageFeature => {
+	if (c.walk === "parent") {
+		return c.first === "Expr"
+			? "an operand's element by its key before its item's expressions, declared after"
+			: "an operand's element by its key before its item's expressions, declared first"
+	}
+	switch (c.containment) {
+		case "none":
+			return "the item's expressions first, more columns keyed, with no containment"
+		case "a selection":
+			return "the item's expressions first, more columns keyed, beside a containment over a selection"
+		case "other fields":
+			return "the item's expressions first, more columns keyed, beside a containment at other fields"
+		case "its document alone":
+			return "the item's expressions first, more columns keyed, beside a containment whose image leaves a key field apart"
+		case "every row":
+			return c.first === "Expr"
+				? "an expression's children before its item's expressions, by the containment's image, declared after"
+				: "an expression's children before its item's expressions, by the containment's image, declared first"
+	}
+}
+
+/**
+ * The relation the chain of the check over every row of Placed reads after Ref, by the box's specification: Element
+ * where its bound columns hold its key (the walk up, at the reference's own place), or where the schema states Expr
+ * contained in Element at (doc, at) over every row, the variables both reads bind, and Expr's key is among its bound
+ * columns (doc, asm, inst) and the containment's fields (doc, at), so Element's bound (doc, parent) holds more than
+ * Expr's image (doc); else Expr, three columns keyed against Element's two.
+ */
+export const imageExpected = (c: ImageCase): (typeof imageFirsts)[number] =>
+	c.walk === "parent" || c.containment === "every row" ? "Element" : "Expr"
+
+/**
+ * The image box's schema: Ref, Expr and Element, Expr's containment into Element as the case states, and a check over
+ * Placed, a reference at kind 1 beside an expression of its placement and the element that links them, as the case
+ * walks, Expr and Element matched in the case's order after Ref.
+ */
+export const imageSchemaOf = (c: ImageCase): AnySchema => {
+	const statements = (() => {
+		switch (c.containment) {
+			case "none":
+				return []
+			case "every row":
+				return [contained(on(Expr, "doc", "at"), on(Element, "doc", "at"))]
+			case "a selection":
+				return [
+					contained(
+						on(
+							select(Expr, (e) => e.ne(e.base, 0)),
+							"doc",
+							"at"
+						),
+						on(Element, "doc", "at")
+					)
+				]
+			case "other fields":
+				return [contained(on(Expr, "doc", "inst"), on(Element, "doc", "at"))]
+			case "its document alone":
+				return [contained(on(Expr, "doc"), on(Element, "doc"))]
+		}
+	})()
+	const Base = schema("ImageBox", [Ref, Expr, Element], statements)
+	const Placed = derived(
+		"Placed",
+		query(Base).rule((r) => {
+			const { doc, asm, inst, at } = v(Ref, "r")
+			const { at: expression, base } = v(Expr, "e")
+			const element =
+				c.walk === "child" ? { doc, at: expression, parent: at } : { doc, at, parent: expression }
+			const reference = r.match(Ref, { doc, asm, inst, at, kind: 1 })
+			const placed = { doc, asm, inst, at: expression, base }
+			const matched =
+				c.first === "Expr"
+					? reference.match(Expr, placed).match(Element, element)
+					: reference.match(Element, element).match(Expr, placed)
+			return matched.find({ doc, asm, inst, at, expression, base })
+		})
+	)
+	return schema.extend(
+		[Base],
+		"ImageBox_1",
+		[Placed],
+		[check("P", Placed, (p) => p.ne(p.base, p.at))]
+	)
+}
