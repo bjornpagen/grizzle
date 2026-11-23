@@ -1,6 +1,5 @@
 import { regex } from "arkregex"
 import { Array as Arr, Equal, Option, Order, String as Str } from "effect"
-import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type {
 	Catalog,
 	CatalogGrant,
@@ -12,7 +11,7 @@ import type {
  * What a function of the installation is, by the object that installs it, which decides how it is installed and who
  * may execute it: a world's function (a writable query entry's filter function, key probe or unique probe), the
  * refusal function, the snapshot guard, the
- * isolation guard, a rule over a query's trigger function, a retirable unit's hold or retirement, a head's stamp
+ * isolation guard, a rule over a query's trigger function, a head's stamp
  * function (physical/ddl/stamps.ts), or a constant: a
  * roster's names constant, which only a view's decoded closed id reads; a roster's live-codes constant, read by the
  * CHECK of each of `domains`, its roster's domain and its sets' where a set is typed over it; or a closed relation's or
@@ -35,8 +34,6 @@ export type InstalledFunction =
 	| { readonly kind: "isolationGuard" }
 	| { readonly kind: "immutableGuard" }
 	| { readonly kind: "rule" }
-	| { readonly kind: "hold" }
-	| { readonly kind: "retire" }
 	| { readonly kind: "stamp" }
 	| { readonly kind: "names" }
 	| { readonly kind: "live"; readonly domains: ReadonlyArray<string> }
@@ -71,16 +68,6 @@ export interface StatedShape {
 	readonly strict: boolean
 	readonly config: ReadonlyArray<string>
 }
-
-/** The two functions each retirable unit installs, by the declared names of their headers: its hold and its retirement
- * (physical/ddl/retire.ts addUnitFunctions), each named by its identity. */
-export const unitFunctions = (
-	headers: ReadonlyArray<string>
-): ReadonlyArray<readonly [string, InstalledFunction]> =>
-	Arr.flatMap(headers, (header) => [
-		[identifierOf(identity.hold(header)), { kind: "hold" }] as const,
-		[identifierOf(identity.retire(header)), { kind: "retire" }] as const
-	])
 
 /**
  * What a trigger of the installation is: the isolation guard a guarded table carries, the immutability guard an
@@ -807,8 +794,6 @@ const functionProblems = (j: Judging, f: Fn): ReadonlyArray<ErasureProblem> => {
 			]
 		case "refusal":
 		case "borrow":
-		case "hold":
-		case "retire":
 		case "stamp":
 			return [...definer, ...grantProblems(j, held, allowed.function, allowed.none)]
 		case "snapshotGuard":

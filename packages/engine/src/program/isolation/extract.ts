@@ -64,24 +64,13 @@ import { printObjectName } from "#compiler/sql/print.ts"
  * - `fieldOf`: the field a column of a relation's table is, none for a column of no field (a law column);
  * - `readsNoTable`: whether a schema function a statement calls reads no relation's table, as a refusal, a constant, a
  *   vector reads none; a world's filter function reads the relations of its membership;
- * - `retirementOf`: the tables a retirable unit's retirement function writes, none for any other function: its header's
- *   and its bodies' by the unit's retirement (analysis/isolation/facts.ts WriteFact `retire`), which reads no row besides
- *   the groups it locks; and each relation's of the reachable records it releases by a deletion, which reads the rows
- *   that reference what it deletes, its holders' among them, as every deletion does;
  * - `arbitersOf`: the columns of each object an ON CONFLICT DO NOTHING with no target arbitrates on a relation's table,
  *   its primary key, each UNIQUE and each span key, each by the columns of its fields, a law column's left out.
  */
-/** A table a retirable unit's retirement function writes, and how (ExtractNames `retirementOf`). */
-export interface RetiredTable {
-	readonly table: ObjectName
-	readonly op: "retire" | "delete"
-}
-
 export interface ExtractNames {
 	readonly relationOf: (table: ObjectName) => string | undefined
 	readonly fieldOf: (relation: string, column: string) => string | undefined
 	readonly readsNoTable: (fn: QualifiedFunctionRef) => boolean
-	readonly retirementOf: (fn: QualifiedFunctionRef) => ReadonlyArray<RetiredTable> | undefined
 	readonly arbitersOf: (relation: string) => ReadonlyArray<ReadonlyArray<string>>
 }
 
@@ -1532,9 +1521,7 @@ export class Walk<Top extends Arrival> {
 	}
 
 	/**
-	 * An expression's reads: a sublink's query, a call of a function that may read tables as an opaque read, and a call of
-	 * a retirable unit's retirement as its unit's writes by a retirement and its released records' by a deletion, each
-	 * relation once whatever sites call it.
+	 * An expression's reads: a sublink's query, and a call of a function that may read tables as an opaque read.
 	 */
 	expr(e: Expr, c: Context<Top>): void {
 		if (e.kind === "exists") {
@@ -1546,21 +1533,12 @@ export class Walk<Top extends Arrival> {
 		if (e.kind === "subquery" || e.kind === "array") {
 			this.query(e.query, this.#entering(c, { ...c, probe: false, counted: true }))
 		}
-		if (e.kind === "call" && e.fn.kind === "qualified") {
-			const retired = this.#statement.names.retirementOf(e.fn)
-			if (retired !== undefined) {
-				for (const { table, op } of retired) {
-					if (
-						!this.#statement.writes.some(
-							(w) => w.op === op && w.table.schema === table.schema && w.table.name === table.name
-						)
-					) {
-						this.#statement.writes.push({ table, op })
-					}
-				}
-			} else if (!this.#statement.names.readsNoTable(e.fn)) {
-				this.#opaque(`?function:${printObjectName(e.fn)}`, c)
-			}
+		if (
+			e.kind === "call" &&
+			e.fn.kind === "qualified" &&
+			!this.#statement.names.readsNoTable(e.fn)
+		) {
+			this.#opaque(`?function:${printObjectName(e.fn)}`, c)
 		}
 		const next = this.#operandContext(e, c)
 		for (const operand of operandsOf(e)) {
@@ -1757,8 +1735,7 @@ export class Statement {
 	 * of each query CTE that walk reads, for the same writes, as a walk of its query would have made them, in its order.
 	 * Read from the walk of another query CTE's query (`feeds` the site's), it is the place among the query CTEs that
 	 * walk reads, which each instance of it resolves, its own walk walked there, where a walk of the reader would have
-	 * walked it, so every retirement a query's calls write (Walk expr) is written in the order the walks would have met
-	 * it.
+	 * walked it.
 	 */
 	instance(
 		name: string,
@@ -1795,8 +1772,7 @@ export class Statement {
 	/**
 	 * The walk of `cte`'s query at `polarity` and `counted` (Template), walked once: from no probe and outside every core
 	 * of its own, seeing the CTEs its WITH defines and `name` as the call's own rows of its recursion, its reads feeding
-	 * and its probes gating the site's writes. A query CTE's query writes nothing but the retirements its calls write,
-	 * once each for the statement, which a second walk of it would not write again.
+	 * and its probes gating the site's writes.
 	 */
 	#template(name: string, cte: QueryCte, polarity: Polarity, counted: boolean): Template {
 		return this.#templates.getOrInsertComputed([cte, polarity, counted], () => {
@@ -2021,10 +1997,8 @@ const statementFacts = (
 			const by = resolved(body, b.by)
 			return field === undefined || by === undefined ? [] : [{ field, by }]
 		})
-	/** The relations the statement's DML writes, which a probe of arbitrates; a retirement arbitrates nothing. */
-	const written = new Set(
-		statement.writes.flatMap((w) => (w.op === "retire" ? [] : [relation(w.table)]))
-	)
+	/** The relations the statement's DML writes, which a probe of arbitrates. */
+	const written = new Set(statement.writes.map((w) => relation(w.table)))
 	const readOf = (body: Body, f: Found): Placed => {
 		if (f.kind === "opaque") {
 			return {

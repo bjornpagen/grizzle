@@ -66,9 +66,9 @@ export const normalizationOverAKeyGenerationComparesTheFilledKeyAndKeepsTheMeani
 				{
 					file: "packages/engine/src/write/insert/unique.ts",
 					original:
-						'\t\tcase "retirement":\n\t\tcase "keyGenerated":\n\t\t\treturn true\n\t\tcase "generated":',
+						'\t\tcase "accumulated":\n\t\tcase "keyGenerated":\n\t\t\treturn true\n\t\tcase "generated":',
 					replacement:
-						'\t\tcase "retirement":\n\t\t\treturn true\n\t\tcase "keyGenerated":\n\t\tcase "generated":',
+						'\t\tcase "accumulated":\n\t\t\treturn true\n\t\tcase "keyGenerated":\n\t\tcase "generated":',
 					why: "The host holds no key generation, so it skips a key over one as it skips a key over a generated field PostgreSQL computes: two additions of one stratum at one filled key pass normalization (write/insert/unique.ts hostHeld)."
 				},
 				{

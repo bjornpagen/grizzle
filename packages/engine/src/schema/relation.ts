@@ -119,9 +119,7 @@ import type {
 	PlaceField,
 	FieldBase,
 	GeneratedField,
-	Field,
-	HandleOf,
-	RetirementField
+	HandleOf
 } from "#compiler/types/fields/field.ts"
 import type {
 	AnyRoster,
@@ -185,7 +183,7 @@ const describedFields = (
 
 /**
  * What a field builder recorded for the field value it made: slot(type, fin) its declared type and the fin whose slots
- * its codes are; drawn(type), accumulated(type, start), place(…) and retirement how it is written, the descriptor its
+ * its codes are; drawn(type), accumulated(type, start) and place(…) how it is written, the descriptor its
  * values are of registered with the registry, its one record (scalar/registry.ts registerWrittenField, writtenTypeOf);
  * the clock's instant its declared type, `stored`, the field of its type its caller writes, which the registry does not
  * hold, since where a field descriptor is asked of the instant it is one itself; and generated(type, term) its declared
@@ -195,10 +193,7 @@ type FieldEntry =
 	| { readonly kind: "slot"; readonly type: unknown; readonly slots: SlotsDesc }
 	| {
 			readonly kind: "written"
-			readonly writing: Extract<
-				Writing,
-				{ readonly kind: "drawn" | "accumulated" | "retirement" | "place" }
-			>
+			readonly writing: Extract<Writing, { readonly kind: "drawn" | "accumulated" | "place" }>
 	  }
 	| { readonly kind: "instant"; readonly stored: object }
 	| { readonly kind: "generated"; readonly type: Described; readonly term: unknown }
@@ -234,7 +229,7 @@ const isSlot = (value: unknown): boolean => fieldEntryOf(value)?.kind === "slot"
 /**
  * The first step of every admission of a field its caller writes (a context's field, a heading's or a signature's, an
  * accumulated or a generated field's type, a closed relation's field), taken before the field is described: a field
- * grizzle writes, a drawn, accumulated, generated, retirement or instant field, is refused by `refusal`, which names why,
+ * grizzle writes, a drawn, accumulated, generated or instant field, is refused by `refusal`, which names why,
  * where its description would refuse it as no descriptor. A slot's codes are its caller's, so a slot passes.
  */
 const refuseWritten = (value: unknown, refusal: () => CompileError): void => {
@@ -254,7 +249,7 @@ export const valueTypeOf = (
 	return describedField(value, label)
 }
 
-/** How a field value is written: as drawn(…), accumulated(…), place(…), retirement or instant recorded it, and by its
+/** How a field value is written: as drawn(…), accumulated(…), place(…) or instant recorded it, and by its
  * caller otherwise, instant.stored among them. */
 export const writingOf = (value: unknown): Writing => {
 	const recorded = fieldEntryOf(value)
@@ -364,24 +359,6 @@ export const placeDescriptor: PlaceDescriptor = placed(
 	}),
 	{ kind: "unordered" }
 )
-
-/**
- * The retirement field of a header (`retirable`), over `type`, PostgreSQL's boolean: false when its row is inserted,
- * PostgreSQL's default, and true once its group is retired, which only the retirement of that group sets. The value
- * carries boolean's column and SQL type, so it is read as every boolean is.
- */
-export const retirementField = (type: Field<boolean, "boolean">): RetirementField => {
-	const value: RetirementField = Object.freeze({
-		...builtMark,
-		...fieldMark,
-		writing: "retirement",
-		column: type.column,
-		sql: type.sql
-	})
-	fieldEntries.set(value, { kind: "written", writing: { kind: "retirement" } })
-	registerWrittenField(value, type)
-	return value
-}
 
 /**
  * accumulated(type, start): a field of `type` grizzle fills on the host and PostgreSQL proves, a fold's accumulator or
@@ -1347,7 +1324,7 @@ export const fieldRoster = (
 
 /**
  * The descriptor a field value was built from: its own, or a slot's or the clock instant's declared type's, or the one a
- * drawn, accumulated, place, retirement or generated field's values are of, as the registry holds it (FieldEntry).
+ * drawn, accumulated, place or generated field's values are of, as the registry holds it (FieldEntry).
  */
 const declaredDescriptorOf = (value: unknown): unknown => {
 	const entry = fieldEntryOf(value)

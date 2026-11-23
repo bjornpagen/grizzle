@@ -9,22 +9,13 @@ import type { LawId } from "#compiler/core/ids.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { Logic, Num } from "#compiler/public/compute.ts"
-import { pg, retirement } from "#compiler/public/fields.ts"
-import {
-	contained,
-	key,
-	mutable,
-	on,
-	relation,
-	retirable,
-	schema,
-	select
-} from "#compiler/public/schema.ts"
+import { pg } from "#compiler/public/fields.ts"
+import { contained, key, mutable, on, relation, schema, select } from "#compiler/public/schema.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 
-/** A unit's header, each of its groups open until retired. */
-const H = relation("H", { g: pg.integer, retired: retirement }, ["g"])
-/** A body of H's units, and a relation keyed by the same unit first. */
+/** A unit's header. */
+const H = relation("H", { g: pg.integer }, ["g"])
+/** Two relations keyed by H's unit first. */
 const B = relation("B", { g: pg.integer, i: pg.integer, kind: pg.integer }, ["g", "i"])
 const C = relation("C", { g: pg.integer, i: pg.integer, kind: pg.integer }, ["g", "i"])
 /** A relation keyed apart from the unit. */
@@ -42,8 +33,6 @@ const G = relation("G", { g: pg.integer, i: pg.integer, j: pg.integer }, ["g", "
 /**
  * The box's containments, by what decides each one's discharge (laws/model/plan.ts containmentDischarge):
  *
- * - fence and second fence: B's and C's groups in H's open groups, the fences of the unit of H whose bodies are B and
- *   C, each into a selected side of H, unit-local;
  * - selected: C's facts of kind 1 in B, from a side selected by a comparison, unit-local;
  * - listed: B's facts of kind 1 or 2 in C's of kind 2, between two selected sides, unit-local;
  * - plain: C in B at B's primary key, neither side selected, into a target holding a field its terms do not read,
@@ -59,8 +48,6 @@ const G = relation("G", { g: pg.integer, i: pg.integer, j: pg.integer }, ["g", "
  * - computed: C's facts whose kind plus one is at least 4 in B, a side selected by a computed value, unit-local.
  */
 export const containments = [
-	"fence",
-	"second fence",
 	"selected",
 	"listed",
 	"plain",
@@ -161,7 +148,6 @@ export const schemaOf = (c: Case): AnySchema =>
 		"discharge",
 		[H, B, C, D, E, F, G],
 		[
-			retirable(H, [on(B, "g"), on(C, "g")]),
 			key(on(G, "g", "j")),
 			contained(
 				on(
@@ -220,15 +206,13 @@ export type Discharged = "whole" | "native"
 
 /**
  * The discharge the box's statement of each containment states (the specification, laws/model/plan.ts
- * ContainmentDischarge): whole exactly where it is no fence, it selects, each side selects by comparisons of its
+ * ContainmentDischarge): whole exactly where it selects, each side selects by comparisons of its
  * fields, every term a field, every relation it reads is immutable, and its two sides join within one unit, which the
  * box's every statement but `across` does; native everywhere else, every plain containment among them, each into a
  * target a key holds apart, at a declared key's fields or a superkey's.
  */
 export const expected = (c: Case, of: Containment): Discharged => {
 	const reads: { readonly [K in Containment]: ReadonlyArray<Name> } = {
-		fence: ["B", "H"],
-		"second fence": ["C", "H"],
 		selected: ["C", "B"],
 		listed: ["B", "C"],
 		plain: ["C", "B"],
@@ -240,8 +224,6 @@ export const expected = (c: Case, of: Containment): Discharged => {
 		computed: ["C", "B"]
 	}
 	switch (of) {
-		case "fence":
-		case "second fence":
 		case "plain":
 		case "into declared key":
 		case "into superkey":
@@ -284,10 +266,6 @@ export const lawOf = (laws: ReadonlyArray<TheoryLaw>, of: Containment | "unkeyed
 		const from = d.from.selection.conjuncts.length > 0
 		const at = (name: string) => Arr.some(d.to.terms, (t) => t.column.name === name)
 		switch (of) {
-			case "fence":
-				return law.source.kind === "retirable" && d.from.relation === "B"
-			case "second fence":
-				return law.source.kind === "retirable" && d.from.relation === "C"
 			case "selected":
 				return (
 					d.from.relation === "C" &&
@@ -332,8 +310,6 @@ export const lawOf = (laws: ReadonlyArray<TheoryLaw>, of: Containment | "unkeyed
 /** The containments the theory gives evidence of: each whose source selects by fixed fields alone, or selects nothing
  * (analysis/theory/theory.ts evidenceSides), whatever its discharge. */
 export const evidenced: ReadonlyArray<Containment> = [
-	"fence",
-	"second fence",
 	"selected",
 	"plain",
 	"into declared key",

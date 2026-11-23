@@ -8,11 +8,9 @@ export { arm, query, v } from "#compiler/public/query.ts"
 export type { HeadOf, ImmediateHeadOf } from "#compiler/public/query.ts"
 export {
 	login,
-	on,
 	records,
 	recordsFacts,
 	recordsQuery,
-	retirable,
 	role,
 	schema,
 	wholeEntriesOf
@@ -27,7 +25,6 @@ export {
 	Ink,
 	Paper,
 	Remark,
-	Run,
 	Shelf,
 	Shelves,
 	Spine

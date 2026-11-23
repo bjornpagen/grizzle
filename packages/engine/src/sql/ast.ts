@@ -1280,14 +1280,11 @@ export interface Merge {
 }
 
 /**
- * How a column is generated: a retirement field by its `DEFAULT false`, the state of a group not yet retired, which only the group's retirement changes; a STORED
- * expression of the row; or a partial projection,
- * `GENERATED ALWAYS AS (CASE WHEN <when> THEN <expr> END) STORED`, which holds `expr` where `when` is true and NULL
- * everywhere else. A partial projection is the one form that yields NULL, so it never reaches an expression.
+ * How a column is generated, a generation PostgreSQL computes from its row, STORED: an expression of the row, or a
+ * partial projection, `GENERATED ALWAYS AS (CASE WHEN <when> THEN <expr> END) STORED`, which holds `expr` where `when`
+ * is true and NULL everywhere else. A partial projection is the one form that yields NULL, so it never reaches an
+ * expression.
  */
-export type ColumnGeneration = { readonly kind: "retirement" } | StoredGeneration
-
-/** A generation PostgreSQL computes from its row, STORED: an expression of the row, or a partial projection of one. */
 export type StoredGeneration =
 	| { readonly kind: "stored"; readonly expr: Expr }
 	| { readonly kind: "partial"; readonly when: Expr; readonly expr: Expr }
@@ -1303,7 +1300,7 @@ export interface ColumnDef {
 	readonly type: TypeRef
 	/** Required when the type is builtin text or text[]. */
 	readonly collation: Collation | undefined
-	readonly generated: ColumnGeneration | undefined
+	readonly generated: StoredGeneration | undefined
 }
 
 export interface KeyColumn {
@@ -1444,11 +1441,6 @@ export type AlterTableAction =
 	| { readonly kind: "dropColumn"; readonly column: string }
 	| { readonly kind: "dropDefault"; readonly column: string }
 	| {
-			/** ALTER COLUMN ... SET DEFAULT false: a retirement field's open state, taken in place. */
-			readonly kind: "setRetirementDefault"
-			readonly column: string
-	  }
-	| {
 			readonly kind: "alterColumnType"
 			readonly column: string
 			readonly type: TypeRef
@@ -1513,7 +1505,6 @@ export const addedColumn = (a: AlterTableAction): ColumnDef | undefined => {
 		case "setNotNull":
 		case "dropColumn":
 		case "dropDefault":
-		case "setRetirementDefault":
 		case "alterColumnType":
 		case "addConstraint":
 		case "addConstraintUsingIndex":
@@ -2175,17 +2166,6 @@ export type PlStatement =
 	| { readonly kind: "raise"; readonly message: string; readonly using: ReadonlyArray<RaiseOption> }
 	| { readonly kind: "return"; readonly value: Expr }
 	| {
-			/**
-			 * PERFORM <query> FOR <strength> OF <of>: the rows the query finds, locked in its order until the transaction
-			 * ends. Only a retirable unit's functions lock a row (physical/ddl/retire.ts): a hold, KEY SHARE on the open
-			 * headers of the groups a call touches, and a retirement, UPDATE on the headers it retires.
-			 */
-			readonly kind: "lockRows"
-			readonly query: PerformQuery
-			readonly strength: "KEY SHARE" | "UPDATE"
-			readonly of: string
-	  }
-	| {
 			/** A data-modifying statement run for its effect alone: a rule capture's rows into its delta and its arming of
 			 * the judge, and the judge's disarming. */
 			readonly kind: "modify"
@@ -2194,8 +2174,8 @@ export type PlStatement =
 	| {
 			/**
 			 * RETURN QUERY <query>: the query's rows appended to a set-returning function's result, in its order, each
-			 * as often as the query delivers it. A retirement returns its deletes and its headers' state, one statement
-			 * whose data-modifying CTEs the query counts (physical/ddl/retire.ts); a rule judge's delta reader returns
+			 * as often as the query delivers it: a stamp function returns its children's heads (physical/ddl/stamps.ts);
+			 * a rule judge's delta reader returns
 			 * the delta's rows as they stand, which every statement that reads them takes as a Delta node's DISTINCT of
 			 * the fields it delivers (physical/ddl/deltas.ts addReaders).
 			 */
@@ -2266,8 +2246,7 @@ export interface FunctionParam {
  *   LANGUAGE plpgsql VOLATILE [PARALLEL SAFE] SECURITY DEFINER SET search_path = pg_catalog, pg_temp: the law
  *   functions, the isolation
  *   guard, and the refusal function `<schema>.__refuse(text, text, text) RETURNS boolean`, whose body raises its
- *   arguments, and a retirable unit's
- *   functions, its hold returning nothing and its retirement its counts (physical/ddl/retire.ts). A trigger function
+ *   arguments. A trigger function
  *   takes no argument;
  * - SQL: CREATE OR REPLACE FUNCTION <schema>.<name>(<params>) RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER
  *   SET search_path = pg_catalog, pg_temp RETURN <expr>: a writable entry's world functions, its filter that reads

@@ -50,14 +50,11 @@ import {
 	query,
 	race,
 	Range,
-	reachable,
 	records,
 	recordsFacts,
 	recordsQuery,
 	refresh,
 	relation,
-	retirable,
-	retirement,
 	role,
 	row,
 	rows,
@@ -969,35 +966,29 @@ export const Numbers = schema(
 	[series(AssignmentNumber)]
 )
 
-/** README: "Retirable units". */
+/** README: "Removing a unit's rows". */
 /** A run of a workflow, by the idempotency key its trigger gave it. */
-const RunKey = str.regex("^[0-9A-Za-z_-]{1,64}$")
+const RunKey = str.bytes(64, str.regex("^[0-9A-Za-z_-]{1,64}$"))
 
-export const Flow = relation("Flow", { id: RunKey, retired: retirement }, ["id"])
-export const FlowStep = relation("FlowStep", { flow: RunKey, step: pg.integer }, ["flow", "step"])
-export const FlowClaim = relation(
-	"FlowClaim",
-	{ flow: RunKey, step: pg.integer, attempt: natural },
-	["flow", "step", "attempt"]
+/** Each run, kept for good, so a key a run took never starts a fresh one. */
+export const Flow = relation("Flow", { flow: RunKey, steps: natural }, ["flow"])
+/** The leases of a run's steps, each deleted once its step is done. */
+export const FlowLease = relation(
+	"FlowLease",
+	{ flow: RunKey, step: pg.integer, until: pg.bigint },
+	["flow", "step"]
 )
 export const Flows = schema(
 	"Flows",
-	[Flow, FlowStep, FlowClaim],
+	[Flow, FlowLease],
 	[
-		retirable(Flow, [on(FlowStep, "flow"), on(FlowClaim, "flow")]),
-		contained(on(FlowClaim, "flow", "step"), on(FlowStep, "flow", "step"))
+		unit("Run", { flow: RunKey }),
+		mutable(FlowLease),
+		contained(on(FlowLease, "flow"), on(Flow, "flow"))
 	]
 )
-export const Runner = role(Flows, "runner", wholeEntriesOf(Flows), {
-	insert: ["Flow", "FlowStep", "FlowClaim"]
-})
-export const Janitor = role(Flows, "janitor", wholeEntriesOf(Flows), { retire: ["Flow"] })
-export const flowsApp = login(Flows, "flows_app", [Runner, Janitor], {
-	workload: [
-		workload(Runner, { start: ChangeSet.empty(Flows).insert(Flow, []).insert(FlowStep, []) }),
-		workload(Janitor, { retire: ChangeSet.empty(Flows).retire(Flow, []) })
-	]
-})
+/** A finished step's lease goes: a delete, under its run's exclusive borrow. */
+export const finished = ChangeSet.empty(Flows).delete(FlowLease, [])
 
 /**
  * README: "Scoped entries": a level of the tables a sitting writes, each person a Clerk account signs in as, each
@@ -1528,41 +1519,6 @@ ChangeSet.empty(Audit).insertAll(insert)
 
 /** The rows stored at one owner: rows of `lessonsOf`'s own type, read through its own decoder. */
 export const storedLessons = recordsQuery(Audit, found)
-
-/**
- * README: "Records of a query": the found lessons kept under the root of a graph that found them, retired with it, Root
- * the header of their retirable unit.
- */
-const RootId = contract("RootId", pg.bigint)
-const Root = relation("Root", { id: RootId, retired: retirement }, ["id"])
-
-const kept = records("Lessons", lessonsOf, { digest: sha256, root: RootId }, ["digest", "root"])
-export const Graph = schema.extend(
-	[School],
-	"Graph",
-	[Root, ...kept.relations],
-	[...kept.rules, retirable(Root, [on(kept, "root")])]
-)
-
-/**
- * README: "Records of a query": the found lessons stored once under their digest alone, however many roots found them,
- * each root's references to them a body of its retirable unit, and the lessons released once no reference names them.
- */
-const shared = records("Lessons", lessonsOf, { digest: sha256 }, ["digest"])
-export const LessonRef = relation("LessonRef", { root: RootId, at: natural, digest: sha256 }, [
-	"root",
-	"at"
-])
-export const Library = schema.extend(
-	[School],
-	"Library",
-	[Root, LessonRef, ...shared.relations],
-	[
-		...shared.rules,
-		retirable(Root, [on(LessonRef, "root")]),
-		reachable(on(shared, "digest"), [on(LessonRef, "digest")])
-	]
-)
 
 /** README: "Levels". */
 /** "Declared functions": a function of an SQL body and one of a PL/pgSQL body that calls it, over a heading's rows. */

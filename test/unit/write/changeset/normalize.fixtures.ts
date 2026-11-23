@@ -62,7 +62,7 @@ const categorized = (
 	switch (input.kind) {
 		case "single": {
 			const op = input.act.op
-			return op === "retire" ? [] : [{ category: op, op, slot: input.slot }]
+			return [{ category: op, op, slot: input.slot }]
 		}
 		case "nested":
 			return [{ category: "insert", op: "insert", slot: input.slot }]

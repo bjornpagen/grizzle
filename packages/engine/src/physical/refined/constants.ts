@@ -5,7 +5,6 @@ import { constantValidationObjects } from "#compiler/lower/shapes/refined/index.
 import {
 	type InstallExtension,
 	noCarriers,
-	noHolds,
 	noCalls,
 	noCertificates,
 	noContribution,
@@ -38,7 +37,6 @@ export const refinedConstantsExtension: InstallExtension = {
 	params: servesNoParams,
 	certifies: noCertificates,
 	carriers: noCarriers,
-	holds: noHolds,
 	calls: noCalls,
 	live: noLive,
 	fences: noFences

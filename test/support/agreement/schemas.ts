@@ -22,7 +22,6 @@ import { jsonText } from "#compiler/core/trusted.ts"
 import {
 	descText,
 	expandAlternatives,
-	expandReachable,
 	expandSeries,
 	type RoleDesc,
 	type FieldDecl,
@@ -870,8 +869,6 @@ const reasonKey = (reason: CompileReason): string => {
 		case "StaleDerivedRead":
 		case "UnorderableStratum":
 		case "ReadBackCrossesStatements":
-		case "UnheldGroup":
-		case "RetiredUnitTouched":
 		case "NoReadCommittedForm":
 		case "UninstalledDomain":
 		case "UninstalledFunction":
@@ -5399,16 +5396,6 @@ const statementType = (desc: StatementDesc, ids: Ids): string => {
 			return `St.Fold<typeof ${ids("family")}, typeof Sc.Monoid.${desc.monoid}, ${sideType(desc.step, ids)}, ${sideType(desc.end, ids)}>`
 		case "alternatives":
 			return `St.Alternatives<typeof ${ids(desc.parent.relation)}, ${jsonText(desc.discriminator)}, typeof ${ids(desc.roster)}, ${objectType(Arr.map(desc.arms, (a) => [a.handle, `typeof ${ids(a.arm.relation)}`] as const))}>`
-		case "retirable":
-			return `St.Retirable<typeof ${ids(desc.header.relation)}, readonly [${Arr.join(
-				Arr.map(desc.bodies, (b) => sideType(b, ids)),
-				", "
-			)}]>`
-		case "reachable":
-			return `St.Reachable<St.Side<typeof ${ids(desc.target[0].relation)}>, readonly [${Arr.join(
-				Arr.map(desc.holders, (h) => sideType(h, ids)),
-				", "
-			)}]>`
 		case "unit":
 			return `St.UnitBase`
 		case "series":
@@ -5466,8 +5453,6 @@ const containmentTypes = (views: ReadonlyArray<StatementView>, ids: Ids): Readon
 					return [statementType(s, ids)]
 				case "alternatives":
 					return Arr.map(expandAlternatives(s), (c) => statementType(c, ids))
-				case "reachable":
-					return Arr.map(expandReachable(s), (c) => statementType(c, ids))
 				case "series":
 					return [statementType(expandSeries(s), ids)]
 				case "key":
@@ -5477,7 +5462,6 @@ const containmentTypes = (views: ReadonlyArray<StatementView>, ids: Ids): Readon
 				case "family":
 				case "tree":
 				case "fold":
-				case "retirable":
 				case "unit":
 					return []
 			}
@@ -5489,8 +5473,6 @@ const descriptorType = (decl: FieldDecl, base: Base, ids: Ids): string => {
 	switch (decl.writing.kind) {
 		case "drawn":
 			return "Fi.DrawnField"
-		case "retirement":
-			return "Fi.RetirementField"
 		case "place":
 			return "Fi.PlaceField"
 		case "accumulated":

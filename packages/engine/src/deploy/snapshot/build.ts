@@ -219,7 +219,6 @@ const recordedWriting = (
 	const w = field.writing
 	switch (w.kind) {
 		case "caller":
-		case "retirement":
 		case "instant":
 		case "place":
 			return w.kind
@@ -606,8 +605,6 @@ const levelsOf = (installation: Installation): ReadonlyArray<SnapshotLevel> => {
 			case "tree":
 			case "fold":
 			case "alternatives":
-			case "retirable":
-			case "reachable":
 			case "series":
 				return statementLevel(law.source.statement)
 		}
@@ -860,7 +857,6 @@ const snapshotTablesOf = (installation: Installation): SnapshotTables => {
 			case "lawTrigger":
 			case "refusalFunction":
 			case "borrowFunction":
-			case "unitFunction":
 			case "head":
 			case "isolationFunction":
 			case "snapshotGuard":

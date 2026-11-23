@@ -613,7 +613,6 @@ const witnessWriting = (w: RelationInfo["fields"][number]["writing"]): WitnessFi
 		case "caller":
 		case "drawn":
 		case "accumulated":
-		case "retirement":
 		case "instant":
 		case "place":
 			return { kind: w.kind }

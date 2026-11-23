@@ -5,7 +5,7 @@
  * chapters, an array, each with at most one remark. A book holds a column named `at`, the name an array's place takes
  * first, so a books attachment that heads it moves its place to `at2`.
  */
-import { closedId, pg, retirement } from "#compiler/public/fields.ts"
+import { closedId, pg } from "#compiler/public/fields.ts"
 import {
 	alternatives,
 	closed,
@@ -55,9 +55,3 @@ export const shelvesNamed = <const N extends string>(name: N) =>
 	)
 
 export const Shelves = shelvesNamed("Shelves")
-
-/**
- * A retirable unit's header records over Shelves can be retired with, one row per run: retirable(Run, [on(records,
- * "run")]), a side over the records standing for each of their relations.
- */
-export const Run = relation("Run", { id: Id, retired: retirement }, ["id"])

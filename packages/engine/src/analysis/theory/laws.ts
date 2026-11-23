@@ -81,8 +81,6 @@ import {
 	everyFact,
 	exprChildren,
 	expandAlternatives,
-	expandReachable,
-	expandRetirable,
 	expandSeries,
 	type FieldDesc,
 	type InferredExpr,
@@ -1344,38 +1342,6 @@ export class Normalizer {
 						scopeOf(c.right),
 						pairedTerms(c.left, c.right, loc),
 						{ statement: index, kind: "alternatives" },
-						loc
-					)
-				}
-				return
-			case "retirable": {
-				const header = this.env.relations.get(s.header.relation)
-				const generated = header?.primaryFields.find((f) => f.writing.kind === "keyGenerated")
-				if (header !== undefined && generated !== undefined) {
-					refuse(
-						"UnsupportedOperation",
-						loc,
-						`retirement over a generated key: the header ${header.name}'s primary key holds the key generation ${generated.name}, which a body's caller would have to write as the header's digest; no retirable's header holds a key generation in this cut`
-					)
-				}
-				for (const c of expandRetirable(s)) {
-					this.containment(
-						scopeOf(c.left),
-						scopeOf(c.right),
-						pairedTerms(c.left, c.right, loc),
-						{ statement: index, kind: "retirable" },
-						loc
-					)
-				}
-				return
-			}
-			case "reachable":
-				for (const c of expandReachable(s)) {
-					this.containment(
-						scopeOf(c.left),
-						scopeOf(c.right),
-						pairedTerms(c.left, c.right, loc),
-						{ statement: index, kind: "reachable" },
 						loc
 					)
 				}

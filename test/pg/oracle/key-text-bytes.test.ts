@@ -9,7 +9,7 @@
  * compression shortens them, the last code point of each value of a drawn width, so the bound is met at a multibyte
  * boundary. Each other field is handed to keyTextBytes as its type's descriptor or as a field of that type of any kind a
  * relation holds, which keyTextBytes reads as its declared type: an accumulated or a generated field, drawn(natural), the
- * retirement field and a closed relation's slot; the installed relation declares each of its type.
+ * closed relation's slot; the installed relation declares each of its type.
  *
  * The budget is the room in the worst entry grizzle may plan over the key's columns: one that carries the null bitmap
  * of an index whose hidden law column holds NULL (schema/representability.ts textBytesBeside). The key's own primary
@@ -109,7 +109,6 @@ export const exactlyKeyTextBytes = property.explore(caseSpace, {
 		"accumulated companion",
 		"generated companion",
 		"drawn companion",
-		"retirement companion",
 		"slot companion"
 	] satisfies ReadonlyArray<Reached<BytesFeature>>,
 	check:

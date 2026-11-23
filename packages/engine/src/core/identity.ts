@@ -1339,24 +1339,6 @@ export const identity = Object.freeze({
 			`pattern domain of parameter ${paramPlaceText(place)} of definition ${definition}`,
 			hashed
 		),
-	/** The hold function of a retirable header's groups, by the header relation: a unit has one header. */
-	hold: (header: string): Identity<"hold"> =>
-		mint(
-			"hold",
-			[header],
-			["hold", ...nameSegments(header)],
-			`hold function of the groups of ${header}`,
-			hashed
-		),
-	/** The retire function of a retirable header's groups, by the header relation. */
-	retire: (header: string): Identity<"retire"> =>
-		mint(
-			"retire",
-			[header],
-			["retire", ...nameSegments(header)],
-			`retire function of the groups of ${header}`,
-			hashed
-		),
 	/**
 	 * The head table of a clock or a place (ir/instant.ts Head), by its relation and its field: each child's last stamp,
 	 * which the head's stamp function alone advances (physical/ddl/stamps.ts).

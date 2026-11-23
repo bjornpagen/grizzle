@@ -19,7 +19,7 @@
  * digits, the exponent bound, leap days, year 0000 and 10000), and named corruptions of them.
  *
  * lexicalForm and lexical read a field of every kind a relation holds that is typed as a type with a form, an
- * accumulated field, drawn(natural) and the retirement field, as its declared type: the candidates of the type's form are
+ * accumulated field and drawn(natural), as its declared type: the candidates of the type's form are
  * exactly the members of the pattern each gives for the field.
  *
  * A parse's lexical precondition, of an integer, a decimal, a double's text and a boolean, is proved exactly when the
@@ -167,7 +167,7 @@ export const lexicalFormsEachFormsPatternAndItsScanAgreeOnEveryCandidateAndAMemb
 
 /**
  * A field's lexical form is its declared type's, whatever kind of field it is: for a caller's descriptor, an accumulated
- * field of it, drawn(natural) and the retirement field, the candidates of the declared type's form, built from XML
+ * field of it and drawn(natural), the candidates of the declared type's form, built from XML
  * Schema's parts, are exactly the members of lexicalForm's pattern for the field, within the form's bytes, and of the
  * pattern of lexical's text field.
  *

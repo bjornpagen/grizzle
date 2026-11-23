@@ -25,7 +25,7 @@ import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { inlineLiteralMaxBytes } from "#compiler/physical/ddl/row-functions.ts"
 import type {
-	ColumnGeneration,
+	StoredGeneration,
 	Expr,
 	LiteralValue,
 	SqlStatement,
@@ -122,7 +122,7 @@ interface Planned {
 }
 
 /** A generation's expressions, a partial one's selection and expression apart. */
-const generationOf = (g: ColumnGeneration | undefined): ReadonlyArray<Planned> => {
+const generationOf = (g: StoredGeneration | undefined): ReadonlyArray<Planned> => {
 	switch (g?.kind) {
 		case "stored":
 			return [{ expr: g.expr, kind: "generation" }]
@@ -131,7 +131,6 @@ const generationOf = (g: ColumnGeneration | undefined): ReadonlyArray<Planned> =
 				{ expr: g.when, kind: "generation" },
 				{ expr: g.expr, kind: "generation" }
 			]
-		case "retirement":
 		case undefined:
 			return []
 	}

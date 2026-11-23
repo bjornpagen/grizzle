@@ -307,13 +307,7 @@ export type EntryKind = "relation" | "closed" | "derived" | "query"
  * - `writeUnwritable`: a write list naming a query entry the writable-entry analysis refuses, for `why`.
  * - `writeTwice`: two write entries, `entries`, that both write the base relation `relation`.
  * - `writeAndInsert`: a role stating both a write list and an insert list, where it writes by one of them.
- * - `writeRetirableHeader`: a write list writing `relation`, a retirable statement's header, which every role only
- *   inserts: its row is kept for good, and only its group's retirement changes it.
- * - `writeReachableHolder`: a write list writing `relation`, a holder of reachable records, which every role only
- *   inserts: only its unit's retirement removes its rows, and releases the records no holder names any more.
  * - `refreshKind`: a refresh list naming an entry that is no derived whole entry.
- * - `retireOutside`: a retire list naming `name`, no relation of the role.
- * - `retireNotHeader`: a retire list naming `name`, an entry that is no whole entry of a retirable statement's header.
  */
 export type RoleRule =
 	| { readonly kind: "entryOrdered"; readonly entry: string }
@@ -332,15 +326,12 @@ export type RoleRule =
 			readonly entries: readonly [string, string]
 	  }
 	| { readonly kind: "writeAndInsert" }
-	| { readonly kind: "writeRetirableHeader"; readonly relation: string }
-	| { readonly kind: "writeReachableHolder"; readonly relation: string }
 	| { readonly kind: "refreshOutside"; readonly name: string }
 	| {
 			readonly kind: "refreshKind"
 			readonly name: string
 			readonly entryKind: Exclude<EntryKind, "derived">
 	  }
-	| { readonly kind: "retireOutside" | "retireNotHeader"; readonly name: string }
 
 /**
  * A rule of a login a description breaks (schema/world.ts loginBuilder at the builder, schema/own.ts ownLogin at
@@ -593,18 +584,10 @@ export const roleRuleText = (rule: RoleRule): string => {
 			return `one writable entry per base relation; ${rule.entries[0]} and ${rule.entries[1]} both write ${rule.relation}`
 		case "writeAndInsert":
 			return "a write list or an insert list; the role states both"
-		case "writeRetirableHeader":
-			return `an insert list over a retirable header, whose row is kept for good; the role writes ${rule.relation}`
-		case "writeReachableHolder":
-			return `an insert list over a holder of reachable records, whose rows only a retirement removes; the role writes ${rule.relation}`
 		case "refreshOutside":
 			return `a refresh list of the role's relations; ${rule.name} is none of them`
 		case "refreshKind":
 			return `a refresh list of derived whole entries; ${rule.name} is ${entryKindText[rule.entryKind]}`
-		case "retireOutside":
-			return `a retire list of the role's relations; ${rule.name} is none of them`
-		case "retireNotHeader":
-			return `a retire list of whole entries of retirable units' headers; ${rule.name} heads no retirable unit`
 	}
 }
 
@@ -643,7 +626,7 @@ export type GeneratedRule =
 	| {
 			readonly kind: "keyReadsUnwritten"
 			readonly read: string
-			readonly writing: "drawn" | "accumulated" | "retirement" | "place" | "instant"
+			readonly writing: "drawn" | "accumulated" | "place" | "instant"
 	  }
 
 /** What each input beyond a row is, in a generated field's refusal. */

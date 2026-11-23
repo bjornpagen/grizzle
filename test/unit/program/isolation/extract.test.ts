@@ -132,7 +132,6 @@ export const aChangeMembersFactsNameEveryReadByItsModeItsOwnItsGroupAndItsBindin
 			"an ordered-set aggregate",
 			"a window call",
 			"a function that may read tables",
-			"a retirement",
 			"an ON CONFLICT arbiter over its conflict columns",
 			"a DO UPDATE",
 			"a target bound by its WHERE",
@@ -346,18 +345,6 @@ export const aChangeMembersFactsNameEveryReadByItsModeItsOwnItsGroupAndItsBindin
 				original: `\t\t\t\tthis.#opaque(\`?every:\${printObjectName(table)}\`, c)`,
 				replacement: `\t\t\t\tthis.#opaque(\`?every:\${table.schema}.\${table.name}\`, c)`,
 				why: 'An ON CONFLICT with no target read at READ COMMITTED named by its table\'s dotted text, `?every:<schema>.<name>`, as extract.ts spelled it, which "a.b"."c" and "a"."b.c" share; the read is not the one the contract names.'
-			},
-			{
-				file: "packages/engine/src/program/isolation/extract.ts",
-				original: "\t\t\tif (retired !== undefined) {",
-				replacement: "\t\t\tif (retired !== undefined && retired.length < 0) {",
-				why: "A retirement's call read as a function that may read tables, so a role that retires is no READ COMMITTED role's (an opaque read), and its unit's writes are lost."
-			},
-			{
-				file: "packages/engine/src/program/isolation/extract.ts",
-				original: "\t\t\t\t\tthis.#statement.writes.push({ table, op })",
-				replacement: '\t\t\t\t\tthis.#statement.writes.push({ table, op: "delete" })',
-				why: "A retirement read as a delete of its unit's relations, which would make each a relation a role deletes and unseal its inserters."
 			},
 			{
 				file: "packages/engine/src/program/isolation/extract.ts",

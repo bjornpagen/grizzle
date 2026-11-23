@@ -91,7 +91,6 @@ import {
 import {
 	type ConstantHeader,
 	type DeclaredHeader,
-	type FunctionHeader,
 	type RecordedManifest,
 	type RecordedObject,
 	type RecordedStatement,
@@ -242,7 +241,6 @@ export const staleReplaced: { readonly [K in PhysicalKind]: boolean } = {
 	foreignKey: true,
 	refusalFunction: true,
 	borrowFunction: true,
-	unitFunction: true,
 	head: true,
 	isolationFunction: true,
 	snapshotGuard: true,
@@ -385,7 +383,6 @@ const dropOrder: { readonly [K in Dropped]: number } = {
 	isolationTrigger: 3,
 	refusalFunction: 11,
 	borrowFunction: 11,
-	unitFunction: 11,
 	head: 11,
 	isolationFunction: 11,
 	snapshotGuard: 11,
@@ -764,8 +761,6 @@ const asideSubcommand = (
 				},
 				checked: [a.column.name]
 			}
-		case "retirement":
-			return { alteration: a, checked: [] }
 	}
 }
 /** An alteration's subcommands in PostgreSQL's pass order, the order of drafting within a pass (alterationPass). */
@@ -795,26 +790,12 @@ const inPassOrder = (
 		byPass
 	)
 
-/** The draw a set-aside field takes once its fill renames it into its name: its retirement default, or none for a field
- * its caller writes. */
-const drawOf = (column: ColumnDef): ReadonlyArray<AlterTableAction> => {
-	switch (column.generated?.kind) {
-		case "retirement":
-			return [{ kind: "setRetirementDefault", column: column.name }]
-		case "stored":
-		case "partial":
-		case undefined:
-			return []
-	}
-}
-
 /**
  * The steps of a table's fill: the fill itself, its UPDATE at the reviewer's values (Action fill), in structure.fill;
  * then its settling, in structure.settle, after every table's fill, so a fill that joins another table's old column,
  * a field set aside or declared dropped, reads it still standing under its name: the fields' old columns dropped; each
  * set-aside column renamed into its field's name; then one ALTER TABLE setting the NOT NULL of each field and of each
- * generated column over one (asideSubcommand's `checked`, read off the table's Structure alteration `structure`), and
- * each field's retirement default.
+ * generated column over one (asideSubcommand's `checked`, read off the table's Structure alteration `structure`).
  */
 const fillSteps = (
 	fill: TableFill,
@@ -828,7 +809,6 @@ const fillSteps = (
 		structure === undefined
 			? []
 			: [structure.first, ...structure.rest].flatMap((a) => asideSubcommand(a, aside).checked)
-	const takes = fields.flatMap(({ column }) => drawOf(column))
 	const settled = (s: SqlStatement): Step => ({ slot: "structure.settle", draft: statement(s) })
 	return [
 		{
@@ -860,8 +840,7 @@ const fillSteps = (
 					kind: "setNotNull",
 					column: f.column.name
 				})),
-				...checked.map((column): AlterTableAction => ({ kind: "setNotNull", column })),
-				...takes
+				...checked.map((column): AlterTableAction => ({ kind: "setNotNull", column }))
 			])
 		)
 	]
@@ -2113,13 +2092,6 @@ class Differ {
 			case "statistics":
 				this.statistics(v, before)
 				return
-			case "unitFunction":
-				if (before === undefined) {
-					this.sql("structure", o.ddl)
-				} else if (!this.unchanged(before, o)) {
-					this.unitFunction(before, v.create, o.ddl)
-				}
-				return
 			case "head":
 				if (before === undefined) {
 					this.sql("structure.heads", [...o.ddl, ...this.headFillOf(v.create.table)])
@@ -2302,25 +2274,6 @@ class Differ {
 
 	/** A login's or a theory role's CREATE ROLE, in Publish. grizzle never sets a password, so a login dropped and created
 	 * again under another name has none until its operator sets one. */
-	/**
-	 * A retirable unit's hold or retire function whose definition changes: replaced in place by CREATE OR REPLACE where
-	 * its signature and its result stand, which keeps its grants; dropped first where its parameters' types changed with
-	 * its header's key, since CREATE OR REPLACE would make a second function of the name, or where what it returns
-	 * changed, which CREATE OR REPLACE refuses (42P13). A grantee's GRANT names the function by its parameters, so where
-	 * they changed its privileges are granted again by their own changed statements; the one change of a result there
-	 * has been, a retirement's from void to its counts, came while no role held EXECUTE on any retirement.
-	 */
-	unitFunction(before: RecordedObject, create: FunctionHeader, ddl: ManifestObject["ddl"]): void {
-		const previous = installed(before)
-		const drop: ReadonlyArray<SqlStatement> =
-			previous.kind === "unitFunction" &&
-			(!canonicalEquals(functionNameOf(previous.create), functionNameOf(create)) ||
-				!canonicalEquals(previous.create.returns, create.returns))
-				? [{ kind: "dropFunction", name: functionNameOf(previous.create), ifExists: false }]
-				: []
-		this.sql("structure", [...drop, ...ddl])
-	}
-
 	/**
 	 * A head whose table or stamp function changes (physical/ddl/stamps.ts): dropped, its function first, which returns
 	 * its table's rows, then its table, and created again and filled from its relation in structure.heads, after every
@@ -3463,7 +3416,6 @@ class Differ {
 				return
 			case "refusalFunction":
 			case "borrowFunction":
-			case "unitFunction":
 			case "isolationFunction":
 			case "snapshotGuard":
 			case "lawFunction":
@@ -4096,13 +4048,9 @@ interface Replaced {
 const strongestReplacement = (hows: ReadonlyArray<Replacement>): Replacement | undefined =>
 	hows.includes("converted") ? "converted" : hows.includes("redefined") ? "redefined" : undefined
 
-/** How a column a migration converts in place was drawn: by nothing, or by a retirement field's default, which the
- * conversion drops first, since PostgreSQL casts a column's default with its values. */
-type DrawnBefore = { readonly kind: "none" } | { readonly kind: "retirement" }
-
 /** What a migration does to a field of a table both snapshots install, read off its type, its writing and its draw
  * before and after:
- * - converted in place, its type changed, with what drew it before (DrawnBefore);
+ * - converted in place, its type changed;
  * - re-expressed, a generated field whose generation expression changes and whose type does not, by SET EXPRESSION,
  *   which recomputes every row and rebuilds what is built over the column, checking each constraint over it on the
  *   rows as it leaves them (KeptTable reexpressed);
@@ -4113,18 +4061,13 @@ type DrawnBefore = { readonly kind: "none" } | { readonly kind: "retirement" }
  * - rewritten, dropped and added again: a field whose writing changes between its caller and a generation, a generated
  *   field whose type changes, which PostgreSQL converts by no expression of the reviewer's, or a generated field that
  *   reads a field its table converts in place, which PostgreSQL refuses to convert under it;
- * - otherwise kept, or its retirement default declared or removed in place (inPlace).
- *
- * A column a default drew gives its default up first when it is converted, whatever its new type, and takes the
- * target's retirement default once converted. */
+ * - otherwise kept. */
 type FieldChange =
 	| { readonly kind: "kept" }
-	| { readonly kind: "converted"; readonly drawn: DrawnBefore }
+	| { readonly kind: "converted" }
 	| { readonly kind: "reexpressed"; readonly generation: StoredGeneration }
 	| { readonly kind: "redrawn" }
 	| { readonly kind: "rewritten" }
-	| { readonly kind: "retirementDeclared" }
-	| { readonly kind: "retirementRemoved" }
 
 /**
  * The STORED generation a law column takes in place of its previous one, where the two differ in it alone: the same
@@ -4176,15 +4119,7 @@ const fieldChange = (b: ColumnDef, c: ColumnDef, retyped: Retyped): FieldChange 
 			? { kind: "kept" }
 			: { kind: "reexpressed", generation: { kind: "stored", expr: after } }
 	}
-	const wasRetirement = b.generated?.kind === "retirement"
-	const nowRetirement = c.generated?.kind === "retirement"
-	if (retyped(b, c)) {
-		return { kind: "converted", drawn: wasRetirement ? { kind: "retirement" } : { kind: "none" } }
-	}
-	if (wasRetirement !== nowRetirement) {
-		return nowRetirement ? { kind: "retirementDeclared" } : { kind: "retirementRemoved" }
-	}
-	return { kind: "kept" }
+	return retyped(b, c) ? { kind: "converted" } : { kind: "kept" }
 }
 
 /** The fields two declarations of one relation share, each before and after. */
@@ -4324,8 +4259,6 @@ const drawnAnew = (change: FieldChange): FieldChange => {
 		case "converted":
 		case "reexpressed":
 		case "rewritten":
-		case "retirementDeclared":
-		case "retirementRemoved":
 			return { kind: "rewritten" }
 	}
 }
@@ -4430,13 +4363,11 @@ const changeOf = (changes: ReadonlyMap<string, FieldChange>, column: string): Fi
 }
 
 /** The steps that change a field of `t` from `b` to `c` in place, by its change (fieldChange), `convert` converting the
- * column to its new type: a retirement field gives its default up before its conversion and takes it again once
- * converted; a generated field re-expressed takes
- * its new expression; a field rewritten is dropped and added again by `add`; a field kept as it is takes none. The one
- * reading for a field of a table both install but a rewritten one, which changeField drops before the conversions. A
- * conversion the reviewer's value makes is set aside instead (InPlace setAside), its old column's default leaving with
- * the column. Each alteration joins its table's one ALTER TABLE in Structure (Differ.alter), which
- * PostgreSQL runs pass by pass, every give-up before every conversion and every conversion before every take. */
+ * column to its new type; a generated field re-expressed takes its new expression; a field rewritten is dropped and
+ * added again by `add`; a field kept as it is takes none. The one reading for a field of a table both install but a
+ * rewritten one, which changeField drops before the conversions. A conversion the reviewer's value makes is set aside
+ * instead (InPlace setAside). Each alteration joins its table's one ALTER TABLE in Structure (Differ.alter), which
+ * PostgreSQL runs pass by pass. */
 const inPlace = (
 	t: ObjectName,
 	b: ColumnDef,
@@ -4447,8 +4378,6 @@ const inPlace = (
 ): InPlace => {
 	const altering = (a: AlterTableAction): Action => ({ kind: "alteration", table: t, actions: [a] })
 	const steps = (list: ReadonlyArray<Action>): InPlace => ({ kind: "steps", steps: list })
-	const takeRetirement = altering({ kind: "setRetirementDefault", column: c.name })
-	const giveUpDefault = altering({ kind: "dropDefault", column: b.name })
 	switch (change.kind) {
 		case "kept":
 			return steps([])
@@ -4457,12 +4386,7 @@ const inPlace = (
 			if (conversion.kind === "placeholderRetype") {
 				return { kind: "setAside", reason: conversion.reason }
 			}
-			const before = change.drawn.kind === "none" ? [] : [giveUpDefault]
-			return steps(
-				c.generated?.kind === "retirement"
-					? [...before, altering(conversion), takeRetirement]
-					: [...before, altering(conversion)]
-			)
+			return steps([altering(conversion)])
 		}
 		case "reexpressed":
 			return steps([
@@ -4472,15 +4396,11 @@ const inPlace = (
 			return steps([])
 		case "rewritten":
 			return steps([altering({ kind: "dropColumn", column: b.name }), altering(add(c))])
-		case "retirementDeclared":
-			return steps([takeRetirement])
-		case "retirementRemoved":
-			return steps([giveUpDefault])
 	}
 }
 
 /** What a field's change in place drafts (inPlace): its steps, or, for a conversion the reviewer's value makes, its
- * setting aside (SetAside), which draws its retirement default once its fill renames it. */
+ * setting aside (SetAside). */
 type InPlace =
 	| { readonly kind: "steps"; readonly steps: ReadonlyArray<Action> }
 	| { readonly kind: "setAside"; readonly reason: RetypeReason }
@@ -4687,7 +4607,6 @@ const grantObjectsOf = (v: Installed<AnyObject>): ReadonlyArray<GrantObject> => 
 		case "constant":
 		case "refusalFunction":
 		case "borrowFunction":
-		case "unitFunction":
 		case "isolationFunction":
 		case "snapshotGuard":
 		case "ruleJudge":

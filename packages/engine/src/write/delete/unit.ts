@@ -63,9 +63,6 @@
  * before the stratum, as every member does, and an insert of the stratum at a removed key meets no stored row there.
  * The outcome nets its removals against the stratum's additions by fact (runtime/write/net.ts), so the counts are the
  * difference of the two states.
- *
- * The chain of doomed keys over generic edges, a member's columns equal to an owner's key, is the shape of a retirement's
- * deletion of a sealed group's bodies.
  */
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {

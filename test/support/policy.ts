@@ -102,7 +102,7 @@ export const checkMemberOf = (
 	extra: Partial<CheckOptions>
 ): Result.Result<LogicalQuery, CompileError> => {
 	const decoded = decodedMember(member)
-	if (decoded.op === "retire" || decoded.member.kind !== "query") {
+	if (decoded.member.kind !== "query") {
 		throw new Error("a member described by a query")
 	}
 	const source = decoded.member

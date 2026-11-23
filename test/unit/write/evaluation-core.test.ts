@@ -115,8 +115,8 @@ export const aSubQueryTheArgumentsOfACallsEvaluationReadIsComputedOnceInItsState
 			{
 				file: "packages/engine/src/write/program/compile.ts",
 				original:
-					"\t\t\t\t\t\tsingle ? (node) => heldEvaluationKey(lowering.w.cx, node) : noneHeld,\n",
-				replacement: "\t\t\t\t\t\tnoneHeld,\n",
+					"\t\t\t\t\tsingle ? (node) => heldEvaluationKey(lowering.w.cx, node) : noneHeld,\n",
+				replacement: "\t\t\t\t\tnoneHeld,\n",
 				why: "Every member that reads a field of the call counts as reading its arguments, as before: where both members read the call, each argument is carried as a part of its own, four arguments four more MATERIALIZED CTEs than one."
 			},
 			{

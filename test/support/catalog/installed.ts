@@ -26,7 +26,6 @@ import {
 	type InstalledFunction,
 	type StatedShape,
 	type InstalledTrigger,
-	unitFunctions,
 	verifyErasure
 } from "#test/support/catalog/verify.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
@@ -417,11 +416,6 @@ export const installedScope = (
 				...functionsOf("snapshotGuard", { kind: "snapshotGuard" }),
 				...functionsOf("worldFunction", { kind: "world" }),
 				...functionsOf("head", { kind: "stamp" }),
-				...unitFunctions(
-					Arr.flatMap(installation.owned.statements, (st) =>
-						st.kind === "retirable" ? [st.header.relation] : []
-					)
-				),
 				...constantsOf(installation),
 				...Arr.flatMap(snapshot.manifest.objects, (o) =>
 					o.kind === "declaredFunction"

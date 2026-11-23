@@ -50,7 +50,7 @@ const KEYS: ReadonlyArray<Arr.NonEmptyReadonlyArray<string>> = [["k0"], ["k1"], 
 
 interface WriteSketch {
 	readonly relation: number
-	readonly op: "insert" | "update" | "delete" | "retire"
+	readonly op: "insert" | "update" | "delete"
 	readonly from: ReadonlyArray<number>
 }
 
@@ -117,7 +117,7 @@ type LawSketch = Arr.NonEmptyReadonlyArray<WitnessSketch>
 /**
  * A relation: the rules over queries stated at it, each a fact of every relation its witnesses read and of it (the law
  * model's triggerLawsOver), its declared keys among KEYS, its counted groups and foreign keys, whether its first key is
- * raced (InsertsFact `race`), which only a relation with a key is, and whether it is a retirable unit's header or body.
+ * raced (InsertsFact `race`), which only a relation with a key is.
  */
 interface RelationSketch {
 	readonly triggerLaws: ReadonlyArray<LawSketch>
@@ -125,7 +125,6 @@ interface RelationSketch {
 	readonly race: boolean
 	readonly counted: ReadonlyArray<number>
 	readonly references: ReadonlyArray<ReferenceSketch>
-	readonly retirable: boolean
 }
 
 interface Sketch {
@@ -212,7 +211,6 @@ type Shape =
 	| "monotoneDeleted"
 	| "monotoneSelfJoin"
 	| "monotonePresent"
-	| "monotoneRetired"
 	| "monotoneProbed"
 	| "newlyFenced"
 	| "newlyFencedRead"
@@ -301,8 +299,7 @@ const writeGen =
 			weighted<WriteSketch["op"]>([
 				[6, () => "insert"],
 				[1, () => "update"],
-				[1, () => "delete"],
-				[1, () => "retire"]
+				[1, () => "delete"]
 			])
 		),
 		from: s.draw(
@@ -454,12 +451,6 @@ const relationSketchGen: Gen<RelationSketch> = (s) => {
 				[3, () => []],
 				[1, (t) => [t.draw(referenceGen)]]
 			])
-		),
-		retirable: s.draw(
-			weighted<boolean>([
-				[1, () => true],
-				[7, () => false]
-			])
 		)
 	}
 }
@@ -495,8 +486,7 @@ const clean = (keys: ReadonlyArray<number>): RelationSketch => ({
 	keys,
 	race: false,
 	counted: [],
-	references: [],
-	retirable: false
+	references: []
 })
 
 /** A rule over a query whose one witness reads two rows of `relation`, a self-join: any insert of it breaks the rule
@@ -1911,7 +1901,6 @@ type MonotoneShape = Extract<
 	| "monotoneDeleted"
 	| "monotoneSelfJoin"
 	| "monotonePresent"
-	| "monotoneRetired"
 	| "monotoneProbed"
 >
 
@@ -1922,7 +1911,6 @@ const monotoneShapes: Arr.NonEmptyReadonlyArray<MonotoneShape> = [
 	"monotoneDeleted",
 	"monotoneSelfJoin",
 	"monotonePresent",
-	"monotoneRetired",
 	"monotoneProbed"
 ]
 
@@ -1935,8 +1923,7 @@ const monotoneShapes: Arr.NonEmptyReadonlyArray<MonotoneShape> = [
  * the cure, r0 inserts E alone, which fires no probe, and runs READ COMMITTED too. Each
  * other shape adds one more occurrence some write can make true, and r0 runs
  * SERIALIZABLE by laws: r1 deletes E (the deleted), the witness reads two rows of R (the self-join), r0 inserts E where
- * the witness reads its rows present (the present), or E is a retirable unit's body, which its retirement deletes (the
- * retired). In the probed, r0 inserts R alone, and r1, SERIALIZABLE by its UPDATE of R3, inserts E, a relation r0's
+ * the witness reads its rows present (the present). In the probed, r0 inserts R alone, and r1, SERIALIZABLE by its UPDATE of R3, inserts E, a relation r0's
  * probe reads, which a trigger-held law reads, so it may miss another call's write: 5c holds r0 SERIALIZABLE
  * (NEGATION's case 3 through the probe).
  */
@@ -2003,7 +1990,7 @@ const monotoneOf = (shape: MonotoneShape): Sketch => {
 	return {
 		relations: [
 			{ ...clean([0]), triggerLaws: [law] },
-			{ ...clean([0]), retirable: shape === "monotoneRetired" },
+			clean([0]),
 			clean([0]),
 			shape === "monotoneWriter"
 				? { ...clean([0]), references: [{ relation: 0, key: 0, onUpdate: "noAction" }] }
@@ -2129,7 +2116,6 @@ const shapeSketch = (
 		case "monotoneDeleted":
 		case "monotoneSelfJoin":
 		case "monotonePresent":
-		case "monotoneRetired":
 		case "monotoneProbed":
 			return monotoneOf(shape)
 		case "drawn":
@@ -2344,8 +2330,7 @@ export const relationsOf = (
 					columns: keyOf(ref.key),
 					onUpdate: ref.onUpdate
 				})),
-				inserts: insertsOf(r),
-				retirable: r.retirable
+				inserts: insertsOf(r)
 			}
 		])
 	)
@@ -2704,14 +2689,13 @@ export const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 			...Arr.map(writesOf(i), (w) => w.relation),
 			...updatedOf(i)
 		])
-	/** What a role writes as another role's judge reads it: but by a retirement alone, which waits for every call that
-	 * holds a group it retires and reads nothing besides. */
+	/** What a role writes as another role's judge reads it: everything it writes. */
 	const guardedSet = (i: number): ReadonlySet<number> =>
 		new Set([
 			...Arr.flatMap(Arr.getUnsafe(roles, i).privileges, (p) =>
 				p.privilege === "SELECT" ? [] : [p.relation]
 			),
-			...Arr.flatMap(writesOf(i), (w) => (w.op === "retire" ? [] : [w.relation])),
+			...Arr.map(writesOf(i), (w) => w.relation),
 			...updatedOf(i)
 		])
 	const anyWrites = (relation: number) => Arr.some(roles, (_, i) => writtenSet(i).has(relation))
@@ -2731,7 +2715,7 @@ export const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 		)
 	const updates = (relation: number) => Arr.some(roles, (_, i) => updatedOf(i).has(relation))
 	/** Whether role i's writes, by a privilege, a member or a cascade, make a row of the relation present, or absent:
-	 * an insert present, a delete absent, an update and a retirement both. */
+	 * an insert present, a delete absent, an update both. */
 	const roleMakes = (i: number, relation: number, made: "present" | "absent") =>
 		Arr.some(
 			Arr.getUnsafe(roles, i).privileges,
@@ -2743,15 +2727,11 @@ export const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 			writesOf(i),
 			(w) =>
 				w.relation === relation &&
-				(w.op === "update" ||
-					w.op === "retire" ||
-					w.op === (made === "present" ? "insert" : "delete"))
+				(w.op === "update" || w.op === (made === "present" ? "insert" : "delete"))
 		) ||
 		updatedOf(i).has(relation)
-	/** Whether some role's write, or the relation's retirement as a retirable unit's, makes a row of it present, or
-	 * absent. */
+	/** Whether some role's write makes a row of it present, or absent. */
 	const makes = (relation: number, made: "present" | "absent") =>
-		Arr.getUnsafe(relations, relation).retirable ||
 		Arr.some(roles, (_, i) => roleMakes(i, relation, made))
 	/** Whether role i's write of the relation breaks the witness: it makes a row present where the relation is among its
 	 * rows or presences, or absent where it is among its absences. */
@@ -2839,9 +2819,7 @@ export const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 		Arr.flatMap(statements, (st, at) =>
 			Arr.flatMap(st.writes, (w) => [
 				...Arr.map(
-					w.op === "delete" || w.op === "retire"
-						? []
-						: Arr.getUnsafe(relations, w.relation).references,
+					w.op === "delete" ? [] : Arr.getUnsafe(relations, w.relation).references,
 					(ref): OracleCheck => {
 						const seal: OracleSeal = !anyWrites(ref.relation)
 							? "unwritten"
@@ -2855,7 +2833,7 @@ export const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 						return { at, relation: ref.relation, side: "referencing", seal, write: w.relation }
 					}
 				),
-				...(w.op === "insert" || w.op === "retire"
+				...(w.op === "insert"
 					? []
 					: Arr.flatMap([...relations.entries()], ([i, r]): ReadonlyArray<OracleCheck> =>
 							Arr.some(r.references, (ref) => ref.relation === w.relation)
@@ -3048,7 +3026,7 @@ export const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
 		) ||
 		Arr.some([...writtenSet(o)], (x) => lawsOver(relations, x).length > 0)
 	/** The logins that fence the relation, each once: each whose roles delete it, no role updating it, and each of a
-	 * lowered role that may miss another call's write and writes it but by a retirement alone. */
+	 * lowered role that may miss another call's write and writes it. */
 	const fencers = (relation: number): ReadonlyArray<number> =>
 		Arr.filter(
 			[...new Set(Arr.map(roles, (r) => r.login))],
@@ -3320,7 +3298,6 @@ export type IsolationFeature =
 	| "a fence a READ COMMITTED role relies on"
 	| "a fence of a relation no role deletes"
 	| "a check of the rows that reference a changed one"
-	| "a retirement"
 	| "an update carried by a cascading foreign key"
 	| `the ${Exclude<Shape, "drawn">}`
 	| "a fact dropped beside a READ COMMITTED role"
@@ -3402,7 +3379,6 @@ export const shapes: ReadonlyArray<Exclude<Shape, "drawn">> = [
 	"monotoneDeleted",
 	"monotoneSelfJoin",
 	"monotonePresent",
-	"monotoneRetired",
 	"monotoneProbed",
 	"newlyFenced",
 	"newlyFencedRead"
@@ -3494,7 +3470,6 @@ export const counterexampleRoles = (shape: Shape): ReadonlyArray<number> => {
 		case "monotoneDeleted":
 		case "monotoneSelfJoin":
 		case "monotonePresent":
-		case "monotoneRetired":
 		case "monotoneProbed":
 			return [0]
 		case "drawn":
@@ -3582,7 +3557,6 @@ export const certifiedRoles = (shape: Shape): ReadonlyArray<number> => {
 		case "monotoneDeleted":
 		case "monotoneSelfJoin":
 		case "monotonePresent":
-		case "monotoneRetired":
 		case "monotoneProbed":
 		case "newlyFencedRead":
 			return []

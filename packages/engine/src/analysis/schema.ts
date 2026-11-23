@@ -270,7 +270,7 @@ const roleWrites = (role: OwnedRole, base: CheckedSchema): ReadonlyMap<string, R
 
 /**
  * What a key generation may not read of the field `f` (check/generated.ts keyGeneratedRule): its writing where grizzle
- * or the database writes it, drawn, accumulated, retirement, place or the clock's instant; none for one its caller
+ * or the database writes it, drawn, accumulated, place or the clock's instant; none for one its caller
  * writes, an instant it states as it read it (instant.stored) among them, whose value the caller holds as a key head,
  * or a generated one, which generatedRule refuses first.
  */
@@ -278,7 +278,6 @@ const unwrittenRead = (f: OwnedField): UnwrittenRead | undefined => {
 	switch (f.writing.kind) {
 		case "drawn":
 		case "accumulated":
-		case "retirement":
 		case "place":
 		case "instant":
 			return f.writing.kind
@@ -301,9 +300,6 @@ const callerWriting: FieldWriting = Object.freeze({ kind: "caller" })
 
 /** How a drawn field is written: by grizzle, from the nested arrays. */
 const drawnWriting: FieldWriting = Object.freeze({ kind: "drawn" })
-
-/** How a header's retirement field is written: false by its column's default, true by its group's retirement. */
-const retirementWriting: FieldWriting = Object.freeze({ kind: "retirement" })
 
 /** How an instant `instant` declares is written: by the database's clock, as its relation's laws say
  * (analysis/theory/instants.ts). */
@@ -705,8 +701,8 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	 * The fields of `r` a write changes in place on a row it keeps (law.ts RelationInfo `inPlace`), its fields `fields`
 	 * and its primary key's `primary`: of a mutable relation, every field outside its primary key; of an immutable one,
 	 * its accumulated fields where some family that is no tree has it as its member and a mutable relation as its owner,
-	 * whose owner axis carries the owner's columns into them by ON UPDATE CASCADE (laws/model/plan.ts ownerSources), its
-	 * retirement fields, and each generated field that reads one of them, which PostgreSQL generates again as they change.
+	 * whose owner axis carries the owner's columns into them by ON UPDATE CASCADE (laws/model/plan.ts ownerSources), and
+	 * each generated field that reads one of them, which PostgreSQL generates again as they change.
 	 */
 	#inPlace(
 		r: OwnedOrdinary,
@@ -723,11 +719,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 				this.owned.relations[s.slots.owner]?.mutable === true
 		)
 		const rewritten = new Set(
-			fields.flatMap((f) =>
-				(cascaded && f.writing.kind === "accumulated") || f.writing.kind === "retirement"
-					? [f.name]
-					: []
-			)
+			fields.flatMap((f) => (cascaded && f.writing.kind === "accumulated" ? [f.name] : []))
 		)
 		return fields.flatMap((f) =>
 			rewritten.has(f.name) ||
@@ -783,8 +775,6 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 					)
 				}
 				return drawnWriting
-			case "retirement":
-				return retirementWriting
 			case "place":
 				return Object.freeze({ kind: "place", order: w.order })
 			case "accumulated":

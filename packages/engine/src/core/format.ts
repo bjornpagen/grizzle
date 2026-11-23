@@ -216,7 +216,14 @@
  * child elements and then each expression by its key, never every expression of the reference's item, so its steps
  * move, and the indexes their lookups ask for with them. A single statement holds as a part of its own a sub-query
  * another stratum's member reads too, which the later stratum lowers anew (lower/shapes/share/statements.ts
- * StatementSharing.uncarry, write/schedule/plan.ts), where format 8 left it inline at each read.
+ * StatementSharing.uncarry, write/schedule/plan.ts), where format 8 left it inline at each read. Retirement is deleted:
+ * a schema states no retirable unit, no header's `retirement` field, no reachable records and no side over records, a
+ * role no `retire` list (its Description no `retire` member) and a ChangeSet no retire member, where format 8
+ * installed each retirable unit's header retirement column with its DEFAULT false, its bodies' fence (generated
+ * columns and foreign keys into the open headers), its hold and retire functions with their EXECUTE grants (manifest
+ * objects of kind `unitFunction`, gone from the manifest's kinds), served a hold before a write touching a body and a
+ * retire member's call, counted a retirement in an outcome and recorded a `retirement` writing in snapshot.json; an
+ * installation of a schema that held one is drafted afresh
  */
 export const artifactFormat = 8
 

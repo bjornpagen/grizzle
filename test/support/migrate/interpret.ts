@@ -123,12 +123,11 @@ type Conversion =
 const unknownExpression: Conversion = { kind: "given", value: () => undefined }
 
 /**
- * What generates a column's values: nothing, its retirement default, its stored expression, or a partial projection's
- * stored CASE, which is NULL outside its selection.
+ * What generates a column's values: nothing, its stored expression, or a partial projection's stored CASE, which is
+ * NULL outside its selection.
  */
 export type Generation =
 	| { readonly kind: "none" }
-	| { readonly kind: "retirement" }
 	| { readonly kind: "stored"; readonly calls: ReadonlyArray<string> }
 	| { readonly kind: "partial"; readonly calls: ReadonlyArray<string> }
 
@@ -484,8 +483,6 @@ const generationOf = (c: ColumnDef, schema: string): Generation => {
 		return { kind: "none" }
 	}
 	switch (c.generated.kind) {
-		case "retirement":
-			return { kind: "retirement" }
 		case "stored":
 			return { kind: "stored", calls: callsOf([c.generated.expr], schema) }
 		case "partial":
@@ -1753,24 +1750,10 @@ class Model {
 		this.#converted.add(key)
 	}
 
-	/**
-	 * A column converted to `type`, each row's cell as `conversion` makes it. PostgreSQL converts a column's default with
-	 * it, by an assignment cast: a retirement field's `false` casts to boolean and text alone (42804).
-	 */
+	/** A column converted to `type`, each row's cell as `conversion` makes it. */
 	#retype(table: ObjectName, column: string, type: TypeRef, conversion: Conversion): void {
 		const t = this.#table(table)
 		const at = this.#columnAt(t, table, column, "retyped")
-		const generation = t.columns[at]?.generation.kind
-		if (
-			generation === "retirement" &&
-			!this.#ofBase(type, "text") &&
-			!this.#ofBase(type, "boolean")
-		) {
-			refuse(
-				"42804",
-				`default for column "${column}" cannot be cast automatically to type ${printType(type)}`
-			)
-		}
 		this.#convertOnce(table.name, column)
 		const [pinned] = this.#pinning(table.name, column)
 		if (pinned !== undefined) {
@@ -1810,12 +1793,6 @@ class Model {
 		}
 		const from = this.#column(this.#table(table), table, column).type
 		return printType(this.#base(from)) === printType(this.#base(type))
-	}
-
-	/** Whether a type is the builtin `name`, a domain of the schema over it read through, and no array of it. */
-	#ofBase(type: TypeRef, name: "uuid" | "text" | "boolean"): boolean {
-		const base = this.#base(type)
-		return base.kind === "builtin" && base.name === name && !base.array
 	}
 
 	/** A column's type as a foreign key compares it: a domain of the schema read through to its base type. */
@@ -2837,7 +2814,7 @@ class Model {
 			if (c === undefined) {
 				refuse("42703", `column "${a.column}" of relation "${s.table.name}" does not exist`)
 			}
-			if (c.generation.kind !== "none" && c.generation.kind !== "retirement") {
+			if (c.generation.kind !== "none") {
 				refuse("428C9", `column "${a.column}" can only be updated to DEFAULT`)
 			}
 		}
@@ -3056,11 +3033,7 @@ class Model {
 						this.#callable(column.generation.calls, `the generated column ${a.column.name}`)
 					}
 					this.#addColumn(s.table, column, () =>
-						generated === undefined
-							? undefined
-							: generated.kind === "retirement"
-								? { kind: "value", value: { kind: "bool", value: false } }
-								: { kind: "generated" }
+						generated === undefined ? undefined : { kind: "generated" }
 					)
 					break
 				}
@@ -3096,34 +3069,9 @@ class Model {
 				case "dropColumn":
 					this.#dropColumn(s.table, a.column)
 					break
-				case "dropDefault": {
-					const t = this.#table(s.table)
-					const at = this.#columnAt(t, s.table, a.column, "defaulted")
-					const c = t.columns[at]
-					if (c?.generation.kind === "retirement") {
-						t.columns[at] = { ...c, generation: { kind: "none" } }
-					}
+				case "dropDefault":
+					this.#columnAt(this.#table(s.table), s.table, a.column, "defaulted")
 					break
-				}
-				case "setRetirementDefault": {
-					const t = this.#table(s.table)
-					const at = this.#columnAt(t, s.table, a.column, "defaulted")
-					const c = t.columns[at]
-					if (c?.generation.kind === "stored" || c?.generation.kind === "partial") {
-						refuse(
-							"42601",
-							`column "${a.column}" of relation "${s.table.name}" is a generated column`
-						)
-					} else if (c !== undefined && !this.#ofBase(c.type, "boolean")) {
-						refuse(
-							"42804",
-							`column "${a.column}" is of type ${printType(c.type)} but default expression is of type boolean`
-						)
-					} else if (c !== undefined) {
-						t.columns[at] = { ...c, generation: { kind: "retirement" } }
-					}
-					break
-				}
 				case "alterColumnType": {
 					const using = a.using
 					if (using.kind === "placeholder") {
@@ -4250,8 +4198,6 @@ const generationText = (g: Generation): string => {
 	switch (g.kind) {
 		case "none":
 			return ""
-		case "retirement":
-			return " default false"
 		case "stored":
 			return " stored"
 		case "partial":

@@ -33,7 +33,7 @@ type TextSql = Exclude<SqlTag, StoredOnlySql>
 
 /**
  * A field whose values have a text, of host type V: a descriptor a builder made (a caller's field; a drawn,
- * accumulated, retirement or slot field, each one), or a generated field, which carries its declared type's column
+ * accumulated or slot field, each one), or a generated field, which carries its declared type's column
  * and no builder's brand. A bytes field is stored only and has none.
  */
 export type TextedField<V> = Field<V, TextSql, unknown> | GeneratedField<Field<V, TextSql, unknown>>
@@ -42,7 +42,7 @@ export type TextedField<V> = Field<V, TextSql, unknown> | GeneratedField<Field<V
  * codecText(field), the shell's, over `answer`, its spelling of a caller's Result: the one text of each value of the
  * field's type, a function of the value alone, its descriptor read once: `const startText = codecText(Node.fields.start)`, then `startText(row.start)` is the value's text (codec/scalar.ts
  * hostText). The field is any field of a relation: a caller's is its own descriptor, and a drawn, accumulated,
- * retirement, generated or slot field reads its declared type's, the one its column is stored and read with
+ * generated or slot field reads its declared type's, the one its column is stored and read with
  * (schema/relation.ts describeDeclared), so a drawn natural's text is its integer's. Two values of the type have
  * one text exactly when PostgreSQL's equality of the type holds them equal, numeric 1.0 and 1.00 one value, NaN equal
  * to NaN, -0 to +0, a text by its code points. A closed id's text is its handle, its host value, and a set's its

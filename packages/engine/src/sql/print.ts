@@ -38,7 +38,6 @@ import {
 	type ColumnDefinition,
 	type CreateCarrier,
 	type FromSource,
-	type ColumnGeneration,
 	type StoredGeneration,
 	type CommentTarget,
 	type ContextSource,
@@ -1421,15 +1420,8 @@ const listed = (out: Lines, items: ReadonlyArray<string>): void => {
 
 /** A column's generation. STORED is always written: PostgreSQL's default is VIRTUAL, which no key or reference can
  * name. */
-const printGeneration = (g: ColumnGeneration): string => {
-	switch (g.kind) {
-		case "retirement":
-			return "DEFAULT false"
-		case "stored":
-		case "partial":
-			return `GENERATED ALWAYS AS (${printStoredGeneration(g)}) STORED`
-	}
-}
+const printGeneration = (g: StoredGeneration): string =>
+	`GENERATED ALWAYS AS (${printStoredGeneration(g)}) STORED`
 
 /** A STORED generation's expression, as GENERATED ALWAYS AS and SET EXPRESSION AS write it. */
 const printStoredGeneration = (g: StoredGeneration): string => {
@@ -1758,8 +1750,6 @@ const printAlterTableAction = (action: AlterTableAction): string => {
 			return `DROP COLUMN ${quoteIdent(action.column)}`
 		case "dropDefault":
 			return `ALTER COLUMN ${quoteIdent(action.column)} DROP DEFAULT`
-		case "setRetirementDefault":
-			return `ALTER COLUMN ${quoteIdent(action.column)} SET ${printGeneration({ kind: "retirement" })}`
 		case "alterColumnType":
 			return `ALTER COLUMN ${quoteIdent(action.column)} TYPE ${printType(action.type)}${action.collation === undefined ? "" : ` COLLATE ${printObjectName(action.collation)}`} USING ${printUsing(action.using)}`
 		case "addConstraint":
@@ -1940,14 +1930,6 @@ const plStatement = (out: Lines, statement: PlStatement): void => {
 			return out.line("END LOOP;")
 		case "perform":
 			return performLine(out, statement.query)
-		case "lockRows":
-			return out.line(
-				`${inlineText((row) => {
-					coreClauses(row, statement.query.body, "PERFORM")
-					tailClauses(row, statement.query)
-					row.line(`FOR ${statement.strength} OF ${quoteIdent(statement.of)}`)
-				})};`
-			)
 		case "modify":
 			dmlStatementBlock(out, statement.statement)
 			return out.line(";")

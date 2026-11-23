@@ -77,7 +77,7 @@ export default defineConfig({
   among its relations, `schema("App", [...own, Jobs], laws)`. The fragment is a level of every schema that lists it:
   queries and ChangeSets written over it (`query(Jobs)`, `ChangeSet.empty(Jobs)`) stand in that schema's workloads, and
   in a role's that holds every relation of the fragment whole. generate compiles them per login, as any program. Only
-  the fragment states a key, `mutable`, `race`, `retirable`, a unit or a series over its relations, a family, a tree or
+  the fragment states a key, `mutable`, `race`, a unit or a series over its relations, a family, a tree or
   a fold. An application
   that adds one is `FragmentRefused`; it may add containments, row checks and rules over queries, which only refuse.
 - A level reaches the levels below it only by a containment of fields into a key, its other side the level's own, a
@@ -158,17 +158,10 @@ export default defineConfig({
   grizzle draws, `natural` or a contract over an integer (an int4 number keeps its `contract(…, pg.integer, …)`, whose
   CHECK refuses one past its bound): it states the predecessor law itself and every write of R holds its one lock, the
   only lock no key splits (README "Units").
-- A retirable unit's groups go by `ChangeSet.empty(S).retire(Header, [])`, a member of a role whose `retire` list names
-  the header, `role(S, "retirer", entries, { retire: ["Header"] })`, which grants it EXECUTE on the unit's retirement
-  and nothing on its tables; its call's facts are `{ retire: { Header: [{ id }] } }`, each a group, the header's key.
-  Keep it a role of its own beside the unit's insert-only writers: both stay READ COMMITTED. A retirement removes each
-  open group's body rows and marks its header retired, waiting for every call that holds the group; it answers
-  `accepted`, each group a `put` of its header and each body row a `delete`, or `unchanged` where every group was
-  absent or retired already. A retired group stays retired, so a write into it, a stale writer's and a re-admission
-  under its key alike, is `refused` on the fence. Nothing else of the ChangeSet may read or write the unit
-  (`RetiredUnitTouched`): retire in a ChangeSet of its own, or beside writes of other relations. A row outside the unit
-  contained in a body refuses the retirement of its group (`refused` on that containment) until it goes; declare it a
-  body of the unit to retire it with the group.
+- Remove a family of rows (a finished run, a removed package, a superseded load) by a ChangeSet of deletes of its
+  relations under their unit, which the call borrows exclusively, and keep what must never come back, a run's
+  idempotency key, a package's name, a release's attempt numbers, in a relation no ChangeSet deletes; a foreign key into
+  a row refuses its delete while a reference remains (README "Removing a unit's rows").
 - A delete of a tree names trees by their root value (`delete(Node, [{ package, path }])`), and a delete of a relation
   that owns a family and is no family's member names its rows; each removes every row nested under them through every
   family, so a group goes whole. A replace is `delete(...)` and `insertAll(...)` in one stratum: the delete runs first,
@@ -1026,12 +1019,7 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   whose rows are the query's own type through its own decoder; never restate the columns, and name no relation of your
   own the stem and a suffix. A derived name past PostgreSQL's 63 bytes is `RecordNameTooLong`, naming its path: state
   that attachment's relation name in records' options, `{ names: { "<path>": "<Name>" } }`, or shorten the stem for the
-  root; never a name cut short or hashed by grizzle. To retire them with their owner's group, list `on(R, ...ownerKeyFields)` among a
-  `retirable`'s bodies, one side standing for each of their relations (never `R.relations.map(...)`; records holding an
-  arm are no body). Records keyed by a row's digest alone are stored once however many roots found the row: keep each
-  root's references in a body of its unit and declare `reachable(on(R, ...ownerKeyFields), [on(Ref, ...fields)])`,
-  which states each reference's containment in the records (no `contained` of your own beside it) and lets a
-  retirement remove the records no reference names any more; their writers run SERIALIZABLE. Two
+  root; never a name cut short or hashed by grizzle. Records' relations are deleted as any relation's rows are. Two
   declared names that
   convert alike are one name (two fields of a relation, two head fields of a derived relation or a role's query, two
   relations of a role, two logins or roles of a schema, a contract a context names beside a relation, roster or

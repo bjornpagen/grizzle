@@ -1,4 +1,3 @@
-import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type {
 	DeclaredLanguage,
 	FunctionNullInput,
@@ -28,8 +27,6 @@ import {
 	orderedBuilder,
 	predBuilder,
 	raceBuilder,
-	reachableBuilder,
-	retirableBuilder,
 	selectBuilder,
 	seriesBuilder,
 	treeBuilder,
@@ -104,7 +101,6 @@ import type {
 } from "#compiler/types/schema/schema.ts"
 
 import type { MonoidName } from "#compiler/ir/desc.ts"
-import type { AnyRecords } from "#compiler/types/schema/records.ts"
 import type {
 	Alternatives,
 	AnyFamily,
@@ -144,8 +140,6 @@ import type {
 	KeyShows,
 	Pred,
 	Race,
-	Reachable,
-	Retirable,
 	RowScalars,
 	Selection,
 	SelfFamily,
@@ -217,14 +211,11 @@ type GeneratedApart<Written, G> = [keyof Written & keyof G] extends [never]
 	: Refusal<"a generated field is named apart from the relation's written fields">
 
 /**
- * The fields of R no generation expression reads: a generated one, as PostgreSQL's never reads another, and a header's
- * retirement field.
+ * The fields of R no generation expression reads: a generated one, as PostgreSQL's never reads another.
  */
 type UnreadByGenerationOf<R> = R extends { readonly fields: infer Fields }
 	? {
-			[K in keyof Fields]-?: Fields[K] extends { readonly writing: "generated" | "retirement" }
-				? K
-				: never
+			[K in keyof Fields]-?: Fields[K] extends { readonly writing: "generated" } ? K : never
 		}[keyof Fields]
 	: never
 
@@ -540,7 +531,7 @@ export const fn: typeof declaredFunction & { readonly body: typeof body } = Obje
  * relations and writes its statements at the level whose list holds it, and holds it as one of its levels (LevelsOf), so
  * a query or a ChangeSet over the fragment, `query(library)` or `ChangeSet.empty(library)`, is a program of every
  * schema that lists it and of every role holding its relations whole, which generate compiles there as it compiles any
- * program over a level. Only the fragment states how its relations are written (a key, mutable, race, retirable, a
+ * program over a level. Only the fragment states how its relations are written (a key, mutable, race, a unit, a series, a
  * family, a tree or a fold over them): a schema that lists it adds over them only what refuses a write, and is refused
  * otherwise (FragmentRefused) when it is built. A relation or statement typed `any` is refused.
  */
@@ -625,18 +616,14 @@ export const check = <
 
 /**
  * A side reads at least one term of its source, each once (ir/desc.ts SideDesc): a field, or pred of a natural field,
- * whose fact has no tuple on the side where the field is zero. A side over records (records(...)) names fields of
- * their owner's key, which their heading shows: a retirable body or a reachable target standing for each of their
- * relations, flat or attached, each on its own fields carrying those (schema/statements.ts admitRetirable,
- * admitReachable).
+ * whose fact has no tuple on the side where the field is zero.
  */
 export const on = <
 	R extends
 		| AnyRelation
 		| AnyClosed
 		| RuleReadDerived
-		| Selection<AnyRelation | AnyClosed | RuleReadDerived>
-		| AnyRecords,
+		| Selection<AnyRelation | AnyClosed | RuleReadDerived>,
 	C,
 	const T extends readonly [TermOf<C>, ...TermOf<C>[]]
 >(
@@ -717,36 +704,6 @@ export const alternatives = <
 		AtLeastOneArm<Arms>
 ): Alternatives<PK, D, C, Arms> =>
 	alternativesBuilder<PK, D, C, Arms>(parent, discriminator, roster, arms)
-
-/**
- * retirable(header, bodies): the groups of `header`, each a value of its key, which a retirement removes whole: every
- * row of each body relation, its group named by the side's fields in the header key's order, in one statement, the
- * header's row kept for good with its retirement field set, so a retired group is never written again
- * (ir/desc.ts expandRetirable states the fence). The header is a stored relation standing for its primary key, or a Key
- * over one, with exactly one `retirement` field; each body a side over every fact of another stored relation.
- */
-export const retirable = <
-	H extends AnyRelation | Key<Side<AnyRelation, ReadonlyArray<string>>>,
-	const B extends NonEmptyReadonlyArray<AnySide>
->(
-	header: H,
-	bodies: B
-): Retirable<H, readonly [...B]> => retirableBuilder<H, B>(header, bodies)
-
-/**
- * reachable(target, holders): the records `target` names, a side over records at their whole owner key, live while some
- * holder names their key. Each holder, a side over every fact of a retirable unit's body, its fields paired by position
- * with the owner key, is contained in the records' root (ir/desc.ts expandReachable), and a retirement that removes
- * the last holder fact naming a key removes the records' rows at that key from every relation of them, in its own
- * statement, counted as deletes in its outcome (physical/ddl/retire.ts).
- */
-export const reachable = <
-	T extends Side<AnyRecords>,
-	const H extends NonEmptyReadonlyArray<AnySide>
->(
-	target: T,
-	holders: H
-): Reachable<T, readonly [...H]> => reachableBuilder<T, H>(target, holders)
 
 /**
  * fin(O, n): the slots of O's count n: over an ordinary O, its drawn count, a family's second argument; over a closed O,

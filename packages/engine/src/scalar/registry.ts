@@ -408,8 +408,8 @@ export const isTextDescriptor = (value: unknown): boolean =>
 	hasProperties(value) && ownedText.has(value)
 
 /**
- * Each field of a writing of its own a builder made (schema/relation.ts: a drawn, accumulated, generated, retirement or
- * place field), by its value, with the descriptor its values are of, a place's natural among them: where a field
+ * Each field of a writing of its own a builder made (schema/relation.ts: a drawn, accumulated, generated or place
+ * field), by its value, with the descriptor its values are of, a place's natural among them: where a field
  * descriptor is asked of it, it describes as that value type, one rule for every field, since a caller that states a
  * value typed by it, a parameter's or a relation parameter's column's, states a value of that type. A WeakMap holds
  * nothing alive and is never enumerated, so it is no cache.
@@ -475,8 +475,8 @@ export const descriptorCopy = <F extends object>(value: F): F | undefined => {
 }
 
 /**
- * The descriptor a field of a writing of its own is of (writtenFields): what a drawn, accumulated, generated,
- * retirement or place field's values are; none for any other value, a descriptor among them, which is its own type.
+ * The descriptor a field of a writing of its own is of (writtenFields): what a drawn, accumulated, generated or place
+ * field's values are; none for any other value, a descriptor among them, which is its own type.
  */
 export const writtenTypeOf = (value: unknown): unknown =>
 	hasProperties(value) ? writtenFields.get(value) : undefined

@@ -36,7 +36,6 @@ import type { Installation } from "#compiler/physical/install/compile.ts"
 import {
 	type InstallExtension,
 	noCarriers,
-	noHolds,
 	noCalls,
 	noCertificates,
 	noContribution,
@@ -342,7 +341,6 @@ export const drawnRequests = (specs: ReadonlyArray<RequestSpec>): InstallExtensi
 	params: servesNoParams,
 	certifies: noCertificates,
 	carriers: noCarriers,
-	holds: noHolds,
 	calls: noCalls,
 	live: noLive,
 	fences: noFences

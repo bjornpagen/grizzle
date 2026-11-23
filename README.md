@@ -1895,7 +1895,7 @@ schema.
 - **Immutable by default.** Rows are inserted and deleted, never updated, and no role holds UPDATE on them. Each
   immutable table carries an immutability guard, a `BEFORE UPDATE` row trigger that refuses an UPDATE changing any field
   but the few grizzle itself rewrites in place (a family member's copy of a mutable owner's column, which the owner
-  axis's ON UPDATE CASCADE carries, and a retirement), whoever runs it, its owner included, with 42501 naming the table.
+  axis's ON UPDATE CASCADE carries), whoever runs it, its owner included, with 42501 naming the table.
   A migration's data steps on such a table run with the guard dropped and create it again in the same transaction:
   a draft's and the data step you write at its place, over every table the previous version guards and this one keeps,
   and a custom migration's (`generate --custom`) transactional file, over every guard the database holds as it runs. A
@@ -2103,8 +2103,6 @@ Every field has one writer. An insert or a put takes exactly the fields its call
   is c's and whose CHECK bounds every value grizzle draws into it.
 - **grizzle, accumulated:** `accumulated(type, start)`, a fold's end or accumulator, or a copy along a family's axis,
   `start` its value where the axis begins.
-- **Its group's retirement:** `retirement`, a retirable header's boolean, false when its row is inserted and true once
-  its group is retired ([Retirable units](#retirable-units)).
 - **The database's clock:** `instant`, stamped by the insert that adds its row where it is its relation's clock, or a
   stored instant where it is a reference ([Instants](#instants)). The same type its caller writes is `instant.stored`.
 
@@ -2476,7 +2474,7 @@ definition too.
   stays bounded and non-empty. The judge holds each bound at COMMIT, whether the transaction writes a visit, a start or
   an end, and the host judges a row of either as PostgreSQL does (`rowEvaluator`).
 - **Unit-local rules are judged whole.** A rule is unit-local when every stored relation its query reads is immutable,
-  no field it reads one grizzle rewrites in place (a member's copy of a mutable owner's column, a retirement), and
+  no field it reads one grizzle rewrites in place (a member's copy of a mutable owner's column), and
   leads its primary key with the same fields, its unit key, and its query joins within one unit: every match of a
   stored relation, in every rule of its violation query at any depth, binds those fields to the same variables, every
   negation is correlated at them, and every aggregate's groups hold them. A content package's relations keyed
@@ -2524,8 +2522,7 @@ definition too.
   read, refused with 23503 naming the containment. It is the same law, with the same identity and the same evidence;
   it holds at COMMIT rather than at each statement. A query's rewrite reads a containment's evidence from the law
   itself, whatever discharges it, in the context its discharge holds it in: at every statement for an immediate
-  foreign key, in a committed snapshot for a deferred one or the judge. A fence of a retirable unit stays a foreign
-  key, since a hold and a retirement rely on its locks and its check at the statement, and so does a containment of
+  foreign key, in a committed snapshot for a deferred one or the judge. A containment of
   two unselected sides into a target a key holds apart, at a declared key's fields or a superkey's: its foreign key is
   the same law, its source's fields NOT NULL, so MATCH SIMPLE checks every source row, into that key's UNIQUE or one
   over the superkey, which the key implies, so the rows a source row's values find are exactly the target facts the
@@ -2896,104 +2893,52 @@ export const Numbers = schema(
   of no integer carrier, is refused where `series(R)` is stated.
 - `R` is immutable: its numbers only grow by appends.
 
-### Retirable units
+### Removing a unit's rows
 
-Facts that only accumulate keep their writers certifiable at READ COMMITTED, but a workflow's leases, results and sent
-outbox rows must go once their work is finished. A retirable unit lets them go a group at a time:
+Rows go by deletes. A family of rows that must go once its work is done, a finished run's leases, a removed package's
+content, a superseded load, is deleted by a ChangeSet of deletes of its relations, under the unit its rows sit under,
+which the call borrows exclusively, so a delete inside a unit is as safe as an insert. What must never come back, a run's
+idempotency key, a package's name, a release's attempt numbers, stays in a relation no ChangeSet deletes. A foreign key
+into a row refuses its delete while a row that references it remains (23503), as PostgreSQL holds it at every level.
 
 ```ts
 /** A run of a workflow, by the idempotency key its trigger gave it. */
-const RunKey = str.regex("^[0-9A-Za-z_-]{1,64}$")
+const RunKey = str.bytes(64, str.regex("^[0-9A-Za-z_-]{1,64}$"))
 
-export const Flow = relation("Flow", { id: RunKey, retired: retirement }, ["id"])
-export const FlowStep = relation("FlowStep", { flow: RunKey, step: pg.integer }, ["flow", "step"])
-export const FlowClaim = relation(
-	"FlowClaim",
-	{ flow: RunKey, step: pg.integer, attempt: natural },
-	["flow", "step", "attempt"]
+/** Each run, kept for good, so a key a run took never starts a fresh one. */
+export const Flow = relation("Flow", { flow: RunKey, steps: natural }, ["flow"])
+/** The leases of a run's steps, each deleted once its step is done. */
+export const FlowLease = relation(
+	"FlowLease",
+	{ flow: RunKey, step: pg.integer, until: pg.bigint },
+	["flow", "step"]
 )
 export const Flows = schema(
 	"Flows",
-	[Flow, FlowStep, FlowClaim],
+	[Flow, FlowLease],
 	[
-		retirable(Flow, [on(FlowStep, "flow"), on(FlowClaim, "flow")]),
-		contained(on(FlowClaim, "flow", "step"), on(FlowStep, "flow", "step"))
+		unit("Run", { flow: RunKey }),
+		mutable(FlowLease),
+		contained(on(FlowLease, "flow"), on(Flow, "flow"))
 	]
 )
+/** A finished step's lease goes: a delete, under its run's exclusive borrow. */
+export const finished = ChangeSet.empty(Flows).delete(FlowLease, [])
 ```
 
-- **The header** (`Flow`) holds one row per group, which is never deleted: its key is the group, and its one
-  `retirement` field says whether the group is open (false, the value every insert writes) or retired (true).
-- **The bodies** (`FlowStep`, `FlowClaim`) are the rows of each group: each side names the fields that hold its row's group, in
-  the order of the header's key, so every body carries the header's key as fields of its own. Every key of a body holds
-  them, a family whose owner is a body is a body of the same unit carrying the group, and no other statement reads the
-  retirement field; a schema that breaks one is refused when it compiles (`MalformedDescription`). A containment into a
-  body may come from any relation: a body of the unit carrying the group goes with it, and any other row refuses the
-  retirement of a group whose rows it references (below). The header is immutable, no family's, tree's or alternatives
-  statement's relation, and no role's `write` list names it (`RoleRefused`, `writeRetirableHeader`). A body may hold
-  reachable records ([Records of a query](#records-of-a-query)): its unit's retirement releases the ones no reference
-  names any more.
-- **The fence.** The statement states, for each body, that its group is one of the header's open groups: a foreign key
-  from the body's group into the header's open groups, over columns grizzle generates, whichever adds less to the
-  schema: a constant column on each body, referencing the header's key and retirement field, or one column on the
-  header, its key while its group is open. No writer, direct ones included, ever writes a row into a group that is not
-  open: such a write is refused with 23503.
-- **Its functions.** The unit installs two functions in its header's schema, which no role holds yet. Its hold, given
-  the groups of a call, locks their open headers until the transaction ends and refuses a group whose header is absent
-  or retired, `refused` on the first body's fence with the group as witness. Its retirement, given groups, waits for
-  every transaction that holds one of them, then deletes every body row of those groups and sets their headers'
-  retirement field, in one transaction: a reader sees a group whole or wholly retired, and a retired group stays
-  retired.
-- **Adopting a unit** on a table that holds rows: the migration adds the header's retirement field with its default,
-  false, and the fence's generated columns, stored, each rewriting its table once; every body row must have its header,
-  or the migration's foreign key refuses it (23503), and a data step must insert the missing headers first.
+What the consumers' shapes come to:
 
-**Serving a unit.** Every served ChangeSet that touches a body, or reads the header's retirement field, holds the
-groups it touches before it touches them, and a role that retires them does so by a ChangeSet of its own:
-
-```ts
-export const Runner = role(Flows, "runner", wholeEntriesOf(Flows), {
-	insert: ["Flow", "FlowStep", "FlowClaim"]
-})
-export const Janitor = role(Flows, "janitor", wholeEntriesOf(Flows), { retire: ["Flow"] })
-export const flowsApp = login(Flows, "flows_app", [Runner, Janitor], {
-	workload: [
-		workload(Runner, { start: ChangeSet.empty(Flows).insert(Flow, []).insert(FlowStep, []) }),
-		workload(Janitor, { retire: ChangeSet.empty(Flows).retire(Flow, []) })
-	]
-})
-```
-
-A call of `retire` gives its groups as its facts, `{ retire: { Flow: [{ id }] } }`, each one value of the header's key.
-
-- **The hold.** A served ChangeSet's call holds every group it touches, through the unit's hold, right before its first
-  statement that reads or writes a body or reads the header's retirement field. It must state each such group: a body
-  array's facts state theirs, and a rule matching a body states one where each group field is bound to a parameter, or
-  to a variable its where equates to one. A touch at a group the ChangeSet does not state is refused when it compiles,
-  `UnheldGroup` naming the relation, the header and why. A role whose workload holds a unit holds EXECUTE on its hold.
-- **`ChangeSet.retire(Header, groups)`** retires each group of `groups`, an array or a `Stream` of the header's key
-  values, never a query: the unit's retirement waits for every call holding one of them, then removes every body row of
-  each open group and sets its header's retirement field, in one transaction. A group already retired, or with no
-  header, is no change. A ChangeSet that retires a unit reads and writes it no other way, by no member and no read-back,
-  its deltas included (`RetiredUnitTouched` when it compiles); its other members may write other relations, and where
-  its retirement stands among the strata changes nothing.
-- **The role option `retire`** names the whole entries of the headers whose groups a role retires. It grants EXECUTE on
-  each unit's retirement, a SECURITY DEFINER function, and no UPDATE or DELETE on the unit's tables, so a role that only
-  inserts stays one: a retirement is no update or delete of a unit's relations to the isolation certifier, which reads
-  each body as insert-only for the calls that hold its groups, so the unit's inserters and the retiring role all run
-  READ COMMITTED. A ChangeSet that retires a header outside its role's `retire` list is `OutsideRole` (`retire`); a
-  `retire` naming no relation of the role is `RoleRefused` (`retireOutside`), and one naming an entry that heads no unit
-  `RoleRefused` (`retireNotHeader`).
-- **The outcome** counts a retirement in the counts every write reports: each group it retired is a `put` of its header,
-  the header's fact at that key now a retired one, and each body row it removed with its group a `delete` of its body.
-  It is `accepted` where it retired a group, and `unchanged` where every group it names was retired already or has no
-  header.
-- **A retired group stays retired.** No call writes into it again: a write that holds it, a stale holder's or one that
-  inserts its header again and its bodies under the same key alike, is `refused` on the fence of the unit's first body,
-  so a key a unit retired never starts a fresh group.
-- **A row outside the unit** contained in a body refuses the retirement of a group whose rows it references: the
-  retirement is `refused` on that containment, naming the relation that blocked it, and changes nothing. Delete the
-  row first, or declare its relation a body of the unit, so it goes with the group.
+- **A release's loads** (learning-commons): `unit("Release", { release: ReleaseId })`, the load keyed `(release, attempt)`
+  with `attempt: place`, stamped one past the release's last under the release's exclusive borrow, and every loaded row
+  keyed `(release, attempt, …)`. A superseded attempt's rows are deleted under the release's borrow; the release and its
+  attempt numbers stay, so a new load is a new attempt, never a revived one.
+- **A package's content** (pantry, a publisher): `unit("Package", { package: PackageName })` over every content relation
+  keyed `(package, …)`. A removal deletes the package's rows under the package's exclusive borrow; a
+  learner's write that references the content borrows the package shared, so a removal waits for it, and an insert that
+  references removed content after the removal commits is refused by its foreign key.
+- **A workflow's run** (den): `unit("FanRoot", { root: DenScope })`, every relation of a flow keyed `(root, …)`; a finished
+  run's leases and claims are deleted under the root's exclusive borrow, its root row kept, so its idempotency key never
+  starts a fresh run.
 
 ## Permissions
 
@@ -3004,10 +2949,9 @@ Three declarations, all in the [example](#example):
   boolean, the integer types, contracts over them, and closed ids, whose claim is a handle's name. An absent claim
   object is no row, and a payload that is not an object has none; a context read from the top level refuses such a
   payload at stage `token`. No rule reads a context, and no ChangeSet writes one.
-- **`role(schema, name, entries, { write?, insert?, refresh?, retire?, contexts? })`**: what one kind of user sees. An
+- **`role(schema, name, entries, { write?, insert?, refresh?, contexts? })`**: what one kind of user sees. An
   entry is a table of the schema, whole, a scoped entry of one ([Scoped entries](#scoped-entries)), or a query over it. `write` lists the entries it writes, each once (a name
-  listed twice is a type error), `refresh` the derived tables it refreshes, `retire` the retirable units' headers whose
-  groups it retires ([Retirable units](#retirable-units)), and `contexts` the contexts it declares
+  listed twice is a type error), `refresh` the derived tables it refreshes, and `contexts` the contexts it declares
   ([Contexts of a role](#contexts-of-a-role)). `insert` lists them in place of `write` for a role that only
   inserts: it holds INSERT and SELECT on what it writes and no UPDATE or DELETE, so a ChangeSet of it that deletes,
   puts, or adds a member to a mutable owner's family, which updates the owner's count, is `OutsideRole` (`insert`)
@@ -3049,8 +2993,7 @@ Roles:
   lacks, or with parameters, nested results, vector search or an `orderBy` without `take`; a `write` naming no entry of
   the role, a roster, a derived table or an unwritable query entry, or two entries over one table, and so for an
   `insert`, which also names at least one entry; both a `write` and an `insert` (`writeAndInsert`); a `refresh` naming
-  anything but a derived table; a `retire` naming no relation of the role (`retireOutside`), or an entry that is no
-  whole entry of a retirable unit's header (`retireNotHeader`).
+  anything but a derived table.
 
 **Installed names come from the values.** `roleNameOf(Web, connection)` is a login's PostgreSQL role in the
 installation `connection` names: the one its pool logs in as, a password is set on and `rds_iam` is granted to.
@@ -3801,7 +3744,6 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
   .delete(Comment, rows)            remove these rows
   .deleteWhere({ Comment: { post: param("post", Slug) } })     remove the rows whose fields equal these values
   .put(PostViews, rows)             after the change, the row at each key is the one given
-  .retire(Flow, groups)             retire these groups of a retirable unit (Retirable units)
   .read("name", (delta) => query)   a query over the result, delivered in the outcome
   .bind({ org, sittings: mine })    the parameters it names, ahead of apply: a value, rows, or a query of a relation
                                     parameter's rows; the rest stay the program's
@@ -3893,7 +3835,7 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
   family's members are deleted before their owner. Writes those keys order in a cycle are refused when the ChangeSet
   compiles (`UnorderableStratum`): move one to another stratum with `ChangeSet.sequence`.
 - **A ChangeSet member's `once`** answers `accepted`, with `counts` (each written relation's `added`, `deleted` and
-  `put`, as `bigint`s, a retirement's each group a put of its header and each row it removed a delete) and `reads`, or
+  `put`, as `bigint`s) and `reads`, or
   `unchanged`, with `reads`; a write the laws refuse, or one that writes outside
   its role's world, fails with its `CallError`, `refused` or `outsideWorld`
   ([Errors and outcomes](#errors-and-outcomes)). Its `watch` is that outcome, then the end.
@@ -4339,65 +4281,8 @@ optional: left out, no name is stated. The root's name is the stem's, so its fix
 relation's declared name, `IdentifierTooLong` past the bound, a path no attachment has is refused, and a name of a
 digest is one you write: grizzle derives none.
 
-Records retire with the group their owner's key names: `on(records, ...fields)` is a side over them, its fields fields
-of the owner's key, which their heading shows and every relation of them carries, and as a body of `retirable` it
-stands for each of their relations, flat or attached, each on its own fields carrying those, a child's renamed where
-its own columns take the name. A retirement of a group removes its rows from every relation of the records at once.
-Records holding an arm are no body: no retirable unit takes an `alternatives` law over its bodies. A side over records
-is read only as a retirable body; a law over one of their relations takes `on(relation, …)`.
-
-```ts
-const kept = records("Lessons", lessonsOf, { digest: sha256, root: RootId }, ["digest", "root"])
-export const Graph = schema.extend(
-	[School],
-	"Graph",
-	[Root, ...kept.relations],
-	[...kept.rules, retirable(Root, [on(kept, "root")])]
-)
-```
-
-Records keyed by a row's digest alone are stored once, however many runs found the row, and each run keeps its own
-references to them. `reachable(on(records, ...ownerKey), holders)` declares that such records live while some
-reference names them: each holder is a side over every fact of a retirable unit's body, its fields paired by position
-with the records' whole owner key, and the statement states each holder's containment in the records' root, its one
-spelling. A retirement that removes the last holder row naming a key removes the records' rows at that key, from every
-relation of them, flat or attached, in the retirement's own statement, and its outcome counts each as a `delete` of its
-relation:
-
-```ts
-const shared = records("Lessons", lessonsOf, { digest: sha256 }, ["digest"])
-export const LessonRef = relation("LessonRef", { root: RootId, at: natural, digest: sha256 }, [
-	"root",
-	"at"
-])
-export const Library = schema.extend(
-	[School],
-	"Library",
-	[Root, LessonRef, ...shared.relations],
-	[
-		...shared.rules,
-		retirable(Root, [on(LessonRef, "root")]),
-		reachable(on(shared, "digest"), [on(LessonRef, "digest")])
-	]
-)
-```
-
-- **Only a retirement lets a reference go.** Every holder is a retirable body, and no role's `write` list names one
-  (`RoleRefused`, `writeReachableHolder`), so a holder row goes only by its unit's retirement, which releases what it
-  held. No relation of the records is a unit's header or body, a holder, or another reachable statement's records, and
-  every containment into them comes from the records themselves or is a holder's, which the statement states: another
-  reference would block a release, so declare it a holder instead (`MalformedDescription` when the schema compiles).
-- **The release reads the references.** The retirement's statement takes the keys its retired groups' holder rows
-  name, keeps those any holder row outside its groups still names, every row of another unit's holder among them, and
-  deletes the rest from every relation of the records, each holder's reverse index read once per key. Nothing counts
-  references and nothing sweeps.
-- **Every writer of the records runs SERIALIZABLE.** generate reads a release as the retiring role's deletion of the
-  records, so their inserters and the retirer are certified SERIALIZABLE ([READ COMMITTED writes](#read-committed-writes)).
-  Two retirements of a row's last two holders, or a retirement beside a call that adds a holder of the row, commit one
-  serial order or fail one call with a retryable `transient`: a row stays exactly while a reference to it remains.
-- **A ChangeSet that retires** the unit of a holder touches no relation of the records it releases, by no member,
-  read-back or delta (`RetiredUnitTouched`).
-- **A row no holder ever named** is never released: insert each row beside its reference, in one call.
+Records' relations are relations like any other: their rows go by deletes, under the unit their owner's key leads with,
+a reference to a row of them refusing its delete while it remains.
 
 ## Declared functions
 
@@ -4829,10 +4714,10 @@ export const ShopApp = login(Shop, "shop", [JobWorker], {
   one declaration each, as two copies of a relation are, and its statements one statement each. A fragment's
   relations meet the application's under one namespace, so a relation of the fragment's name that differs is
   `DuplicateIdentity`. A diagnostic names a fragment by its relations, `fragment(Job, JobDone)`.
-- **Only the fragment states how its relations are written.** A key, `mutable`, `race`, `retirable`, a family, a tree or
-  a fold over one of its relations is the fragment's own statement. The application may state one again, since one
+- **Only the fragment states how its relations are written.** A key, `mutable`, `race`, a unit, a series, a family, a
+  tree or a fold over one of its relations is the fragment's own statement. The application may state one again, since one
   text is one statement, but it may not add one: a key can become an insertion's arbiter, `mutable` puts a row in place,
-  `race` meets the row at a key instead of refusing it, `retirable` holds every write of a body at its group, and a
+  `race` meets the row at a key instead of refusing it, a unit and a series are what its writes borrow, and a
   family, tree or fold draws fields and nests members. Any of those, from any level of the schema or another fragment
   it lists, is `FragmentRefused` when the schema is built. What the application may add over the fragment's relations
   only refuses a write: a containment either way, a row check, a rule over a query. So a fragment's program means the
@@ -5698,7 +5583,7 @@ statement's. The role is certified READ COMMITTED when all of these hold, and st
   rule of a side's query, a key's two facts) that its write reaches: that way must read exactly one row some write can
   add or take away, a match of the row its write inserts, and beside it only rows no write adds (of a relation no role
   inserts or updates, or a closed relation) and the absence of rows no write takes away (of a relation no role
-  deletes or updates, and no retirable unit's). A write the trigger misses can then only take a violation away, so it
+  deletes or updates). A write the trigger misses can then only take a violation away, so it
   refuses more, never less: `Live = Hold where not Freed` checked against a closed count, written by a role that
   inserts both, is one; a key over `Live`, a join of two relations roles insert, a count, sum, min or max of a relation
   a role inserts, which reads every row of its group, or a negation of a relation a role deletes is none. No

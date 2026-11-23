@@ -120,11 +120,11 @@ const rowOf = (
  *   END $$;
  *
  * over its fixed fields, every field but those its rows change in place (ir/law.ts RelationInfo `inPlace`: an
- * accumulated copy an owner axis carries from a mutable owner, a retirement, and a generated field over either) and its
+ * accumulated copy an owner axis carries from a mutable owner, and a generated field over one) and its
  * generated fields, which PostgreSQL computes from the row's other fields; and the table's trigger, `BEFORE UPDATE ...
  * FOR EACH ROW` (sql/ast.ts CreateUpdateGuardTrigger), so an UPDATE that would change a fixed field of a row is refused
  * before it writes one, with the error a role's UPDATE meets (core/sqlstate.ts insufficientPrivilege), and every other
- * UPDATE, an owner axis's cascade of its count and copies, a retirement, and a statement that changes no fixed field,
+ * UPDATE, an owner axis's cascade of its count and copies, and a statement that changes no fixed field,
  * runs as before. A unit-local rule's judge reads its relations under this premise (analysis/theory/unit.ts wholeRule):
  * it takes a unit from the rows a transaction gave a relation where it lost one there, and an UPDATE of a fixed field
  * gives one and loses none.

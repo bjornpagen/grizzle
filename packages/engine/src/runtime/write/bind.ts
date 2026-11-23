@@ -349,7 +349,6 @@ const isStamped = (writing: WitnessField["writing"]["kind"]): boolean => {
 		case "caller":
 		case "drawn":
 		case "accumulated":
-		case "retirement":
 		case "generated":
 		case "keyGenerated":
 			return false
@@ -560,8 +559,7 @@ const hostRows = (
 	})
 	/**
 	 * The rows of a slot stated in its written relation's own words, as `fill` fills them: its facts, an owner slot's as
-	 * its insert carries the counts and ends the write draws into it, each as its statement writes it (`judgedRow`); a
-	 * retirement's, its groups, its header's key values, which no statement writes as rows, as they are.
+	 * its insert carries the counts and ends the write draws into it, each as its statement writes it (`judgedRow`).
 	 */
 	const ownRows = (
 		fill: StatedFill,
@@ -572,13 +570,6 @@ const hostRows = (
 		const relation = group.relation
 		const facts = fill.rows.slot(slot.slot).facts
 		const op = input.kind === "single" ? input.act.op : "insert"
-		if (op === "retire") {
-			return facts.map((fact): JudgedRow => ({
-				kind: "known",
-				stated: fact,
-				filled: () => unfilled
-			}))
-		}
 		const source: ColumnsSource =
 			input.kind === "nested"
 				? "walk"
@@ -1136,14 +1127,13 @@ const overlaid = (under: Cells, over: Cells): Cells => {
 	return out
 }
 
-/** Whether a single input's act inserts rows: an insert, never a delete, a put or a retirement. */
+/** Whether a single input's act inserts rows: an insert, never a delete or a put. */
 const insertsRows = (act: SingleAct): boolean => {
 	switch (act.op) {
 		case "insert":
 			return true
 		case "delete":
 		case "put":
-		case "retire":
 			return false
 	}
 }
@@ -1158,8 +1148,6 @@ const insertsOnly = (step: OwnStep): boolean => {
 		case "carrier":
 		case "check":
 		case "familyWrite":
-		case "hold":
-		case "retire":
 		case "admission":
 			return false
 	}
@@ -1225,8 +1213,6 @@ const partOf = (step: OwnStep): ExecutionPart => {
 		case "check":
 		case "single":
 		case "familyWrite":
-		case "hold":
-		case "retire":
 		case "admission":
 			return "statement"
 	}

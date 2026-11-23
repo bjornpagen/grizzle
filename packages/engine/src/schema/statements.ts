@@ -1,9 +1,4 @@
-import { defined } from "@bjornpagen/grizzle-text/base/invariant"
-import {
-	isNonEmpty,
-	mapNonEmpty,
-	type NonEmptyReadonlyArray
-} from "@bjornpagen/grizzle-text/base/nonempty"
+import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { hasProperties, isList, isPlainRecord } from "#compiler/core/record.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import {
@@ -40,7 +35,6 @@ import {
 	ownedKind,
 	ownValue,
 	queryHeadingOf,
-	type RecordsDesc,
 	builderRefusal,
 	requireName,
 	requireNames
@@ -72,8 +66,6 @@ import type {
 	OrderedFamily,
 	Pred,
 	Race,
-	Reachable,
-	Retirable,
 	Selection,
 	Series,
 	Side,
@@ -217,12 +209,6 @@ const sideOf = (value: unknown, label: string): SideDesc => {
 	const desc = sideDescOf(value)
 	if (desc !== undefined) {
 		return desc
-	}
-	if (ownedDesc(value, "recordsSide") !== undefined) {
-		throw builderRefusal(
-			label,
-			"a side over records is read only as a retirable body or a reachable target: a law over one of their relations takes on(relation, …)"
-		)
 	}
 	throw malformed(label, "a law side built by on(...)")
 }
@@ -559,53 +545,15 @@ const admitOn = (source: unknown, terms: unknown): SideDesc => {
 }
 
 /**
- * A side over records (RecordsDesc): each of their relations' side, on its own fields carrying the terms, which name
- * fields of the owner's key, each once, in any order.
- */
-const recordsSides = (records: RecordsDesc, terms: unknown): NonEmptyReadonlyArray<SideDesc> => {
-	const label = `on ${records.name}`
-	const positions = requireTerms(terms, label).map((t) => {
-		const at = records.ownerKey.indexOf(t.field)
-		if (t.kind !== "field" || at < 0) {
-			throw builderRefusal(
-				label,
-				"a side over records names fields of their owner's key, each once"
-			)
-		}
-		return at
-	})
-	if (new Set(positions).size < positions.length) {
-		throw builderRefusal(label, "a side over records names fields of their owner's key, each once")
-	}
-	return mapNonEmpty(records.relations, ({ relation, carries }) =>
-		admitOn(
-			relation,
-			positions.map((at) =>
-				defined(carries[at], "a relation of records carrying each owner key field")
-			)
-		)
-	)
-}
-
-/**
  * A side reads at least one term of its source, each once (ir/desc.ts SideDesc); the value holds a frozen copy of
- * them, `readonly [...T]`. A side over records stands for each of their relations' (recordsSides), which only a
- * retirable body reads (admitRetirable).
+ * them, `readonly [...T]`.
  */
 export const onBuilder = <R, const T extends ReadonlyArray<AnyTerm>>(
 	source: R,
 	terms: T
 ): Side<R, readonly [...T]> => {
 	const value = { source, terms: frozenTuple<T>(terms) }
-	const records = ownedDesc(source, "records")
-	return records === undefined
-		? ownValue({ kind: "side", value, desc: admitOn(source, terms), content: undefined })
-		: ownValue({
-				kind: "recordsSide",
-				value,
-				desc: recordsSides(records, terms),
-				content: undefined
-			})
+	return ownValue({ kind: "side", value, desc: admitOn(source, terms), content: undefined })
 }
 
 const sidePair = (left: unknown, right: unknown, label: string): readonly [SideDesc, SideDesc] => {
@@ -678,10 +626,6 @@ export const mirrorsBuilder = <L, R>(left: L, right: R): Mirrors<L, R> =>
 /** A derived relation in an alternatives statement, refused. */
 const altDerived: Refused =
 	"alternatives relate stored relations: a derived relation's rows are its definition's, which no write draws"
-
-/** A derived relation in a retirable statement, refused. */
-const retirableDerived: Refused =
-	"a retirable statement retires stored relations: a derived relation's rows are its definition's, which no write draws"
 
 /**
  * The admission core of alternatives(...): the arguments checked and the statement described.
@@ -777,140 +721,6 @@ export const alternativesBuilder = <P, const D extends string, C, Arms extends o
 		{ kind: "alternatives", parent, discriminator, roster, arms: frozenCopy(arms) },
 		desc
 	)
-}
-
-/**
- * The admission core of retirable(...): the arguments checked and the statement described.
- *
- * retirable(header, bodies) is one statement of a schema (ir/desc.ts expandRetirable states its fence): its header's key
- * side, the header's one retirement field, and each body relation's side over every fact, its field terms the group
- * fields paired by position with the header's key. The header is a stored relation, which a retirement keeps for good,
- * and each body a stored relation other than it, named once.
- */
-const admitRetirable = (header: unknown, bodies: unknown): StatementDesc => {
-	const headerKey = keyRef(header, "retirable header", retirableDerived)
-	const headerRel = headerKey.rel
-	const label = `retirable ${headerRel.name}`
-	const headerDesc = relationDescOf(headerKey.value, label)
-	if (headerDesc.kind !== "relation") {
-		throw builderRefusal(label, retirableDerived)
-	}
-	const lifecycles = Object.entries(headerDesc.fields).flatMap(([field, decl]) =>
-		decl.writing.kind === "retirement" ? [field] : []
-	)
-	const [lifecycle, ...more] = lifecycles
-	if (lifecycle === undefined || more.length > 0) {
-		throw builderRefusal(label, "a retirable header has exactly one retirement field")
-	}
-	if (!isList(bodies)) {
-		throw malformed(label, "a list of body sides built by on(relation, ...group fields)")
-	}
-	const sides = bodies.flatMap(
-		(body, at): ReadonlyArray<SideDesc> =>
-			ownedDesc(body, "recordsSide") ?? [sideOf(body, `${label} body ${at}`)]
-	)
-	for (const side of sides) {
-		const bodyLabel = `${label} body ${side.relation}`
-		if (side.selection.conjuncts.length > 0) {
-			throw builderRefusal(bodyLabel, "a retirable body is every fact of its relation")
-		}
-		if (side.relation === headerRel.name) {
-			throw builderRefusal(bodyLabel, "a retirable body is a relation other than its header")
-		}
-		if (side.terms.length !== headerKey.fields.length) {
-			throw builderRefusal(bodyLabel, "a body's group does not match the header key")
-		}
-	}
-	const [first, ...rest] = sides
-	if (first === undefined) {
-		throw builderRefusal(label, "a retirable statement retires at least one body relation")
-	}
-	const named = new Set<string>()
-	for (const side of sides) {
-		if (named.has(side.relation)) {
-			throw builderRefusal(
-				`${label} body ${side.relation}`,
-				"a retirable statement names each body once"
-			)
-		}
-		named.add(side.relation)
-	}
-	const bodyList: readonly [SideDesc, ...Array<SideDesc>] = [first, ...rest]
-	Object.freeze(bodyList)
-	return admitted({
-		kind: "retirable",
-		header: admitOn(headerKey.value, headerKey.fields),
-		lifecycle,
-		bodies: bodyList,
-		loc: builderLoc(label, [headerRel.name, "retirable"])
-	})
-}
-
-/** The value holds its two inputs, the body list a frozen copy. */
-export const retirableBuilder = <H, const B extends ReadonlyArray<unknown>>(
-	header: H,
-	bodies: B
-): Retirable<H, readonly [...B]> => {
-	const desc = admitRetirable(header, bodies)
-	return ownedStatement({ kind: "retirable", header, bodies: frozenTuple<B>(bodies) }, desc)
-}
-
-/**
- * The admission core of reachable(...): the arguments checked and the statement described.
- *
- * reachable(target, holders) is one statement of a schema (ir/desc.ts expandReachable states its containments): its
- * target a side over records, standing for each of their relations at the fields carrying the owner key fields it
- * names (recordsSides), their root's first; and each holder a side over every fact of a stored relation, of the
- * target's width, its terms paired by position with the owner key fields, each holder relation named once. Ownership
- * holds the target to the whole owner key and each holder to a retirable body (schema/own.ts).
- */
-const admitReachable = (target: unknown, holders: unknown): StatementDesc => {
-	const sides = ownedDesc(target, "recordsSide")
-	if (sides === undefined) {
-		throw builderRefusal(
-			"reachable",
-			"a reachable target is a side over records, on(records, …their owner's key fields)"
-		)
-	}
-	const [root] = sides
-	const label = `reachable ${root.relation}`
-	if (!isList(holders)) {
-		throw malformed(label, "a list of holder sides built by on(relation, ...fields)")
-	}
-	const holderSides = holders.map((holder, at) => sideOf(holder, `${label} holder ${at}`))
-	const named = new Set<string>()
-	for (const side of holderSides) {
-		const holderLabel = `${label} holder ${side.relation}`
-		if (side.selection.conjuncts.length > 0) {
-			throw builderRefusal(holderLabel, "a holder is every fact of its relation")
-		}
-		if (side.terms.length !== root.terms.length) {
-			throw builderRefusal(holderLabel, "a holder's fields do not match the records' owner key")
-		}
-		if (named.has(side.relation)) {
-			throw builderRefusal(holderLabel, "a reachable statement names each holder once")
-		}
-		named.add(side.relation)
-	}
-	const [first, ...rest] = holderSides
-	if (first === undefined) {
-		throw builderRefusal(label, "a reachable statement is held by at least one holder relation")
-	}
-	return admitted({
-		kind: "reachable",
-		target: sides,
-		holders: Object.freeze([first, ...rest]),
-		loc: builderLoc(label, [root.relation, "reachable"])
-	})
-}
-
-/** The value holds its two inputs, the holder list a frozen copy. */
-export const reachableBuilder = <T, const H extends ReadonlyArray<unknown>>(
-	target: T,
-	holders: H
-): Reachable<T, readonly [...H]> => {
-	const desc = admitReachable(target, holders)
-	return ownedStatement({ kind: "reachable", target, holders: frozenTuple<H>(holders) }, desc)
 }
 
 /**

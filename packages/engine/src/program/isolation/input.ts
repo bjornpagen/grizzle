@@ -137,14 +137,6 @@ const nativeReferences = (model: LawModel): ReadonlyMap<string, ReadonlyArray<Re
 		})
 	)
 
-/** The relations of every retirable unit of the model's owned schema, its header and its bodies, by declared name. */
-const unitRelations = (model: LawModel): ReadonlySet<string> =>
-	new Set(
-		model.owned.statements.flatMap((s): ReadonlyArray<string> =>
-			s.kind === "retirable" ? [s.header.relation, ...s.bodies.map((b) => b.relation)] : []
-		)
-	)
-
 /** What an insertion into a relation meets at its primary key: a raced relation's race at that key's fields, any other's
  * a repeatable insertion's. */
 const insertsOf = (relation: OwnedRelation): InsertsFact =>
@@ -155,7 +147,7 @@ const insertsOf = (relation: OwnedRelation): InsertsFact =>
 /**
  * The isolation facts of an installation (analysis/isolation/facts.ts IsolationInput), total by construction: one
  * RelationFacts for every relation its owned schema states, at every level, stored, closed and derived alike, by its
- * declared name, each a retirable unit's header or body where a retirable statement names it, and one RoleFacts for
+ * declared name, and one RoleFacts for
  * every role of `sources`, in their order, its privileges its grant plan's and its
  * members' facts the extractor's for each of its change members, in member order, every variant's: its writes served,
  * or unknown where it has no change member, so it writes by direct SQL alone, bounded by what its grants let it read
@@ -168,7 +160,6 @@ export const isolationInput = <Checked, Names, Compiled>(
 	const keys = nativeKeys(model)
 	const counted = countedGroups(model)
 	const references = nativeReferences(model)
-	const units = unitRelations(model)
 	const relations = new Map<string, RelationFacts>(
 		Object.entries(model.owned.relations).map(([name, relation]) => [
 			name,
@@ -177,8 +168,7 @@ export const isolationInput = <Checked, Names, Compiled>(
 				keys: keys.get(name) ?? [],
 				countedGroups: counted.get(name) ?? [],
 				references: references.get(name) ?? [],
-				inserts: insertsOf(relation),
-				retirable: units.has(name)
+				inserts: insertsOf(relation)
 			}
 		])
 	)

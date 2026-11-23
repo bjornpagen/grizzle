@@ -2,8 +2,7 @@
  * What a fragment holding records costs (schema/budget/records-fragment.ts): flat records, records of an array of
  * options two levels deep, and records of a document scan (pantry's documentScanOf's shape: an array of nodes, each with
  * an option chain three deep and arrays of arrays under one name twice), each written 10 and 20 times over one schema,
- * each unit a query, its records, a header and a fragment holding the header, the records' relations, a retirable body
- * over the records and the records' own laws, each program checked alone by one checker. The records hold their
+ * each unit a query, its records and a fragment holding the records' relations and their own laws, each program checked alone by one checker. The records hold their
  * relations and laws as unions of the members alone, read once their query is known (types/schema/records.ts
  * RecordsHeld), each relation one type for one child, so the fragment's statements, read back by name, are related
  * member by member and never through the recursion over the attachment tree that built them.
@@ -18,7 +17,7 @@ import { fragmentCost, fragmentShapeName } from "#test/types/schema/budget/recor
 
 /** Each shape's added unit costs at most its measured instantiations. */
 export const cost = costGate(recordsFragments, {
-	box: "every shape of records a fragment holds beside their laws and a retirable body over them",
+	box: "every shape of records a fragment holds beside their laws",
 	name: fragmentShapeName,
 	measure: fragmentCost,
 	oracle: {

@@ -71,7 +71,7 @@ import { hostBindingOf } from "#compiler/write/program/served.ts"
  * stamps an instant as its statement runs, so no write knows it before any SQL.
  */
 type PreviewWriting =
-	| { readonly kind: "caller" | "drawn" | "retirement" }
+	| { readonly kind: "caller" | "drawn" }
 	| Extract<FieldWriting, { readonly kind: "accumulated" }>
 
 /**
@@ -90,7 +90,6 @@ const previewWriting = (writing: FieldWriting): PreviewWriting | undefined => {
 	switch (writing.kind) {
 		case "caller":
 		case "drawn":
-		case "retirement":
 			return { kind: writing.kind }
 		case "accumulated":
 			return writing
@@ -265,9 +264,7 @@ export const previewWriteOf = (frontend: WriteFrontend, host: HostBinding): Prev
 })
 
 /**
- * The value an inserted row holds at a stored field PostgreSQL does not generate, as the write stores it: a
- * retirement field's is false, every insert writing its header open, which only its group's retirement sets true; every
- * other field's is the host's, as its statements send it (BoundWrite `inserted`), which fill every one of them where no
+ * The value an inserted row holds at a stored field PostgreSQL does not generate, as the write stores it: the host's, as its statements send it (BoundWrite `inserted`), which fill every one of them where no
  * family draws a row past a stored group.
  */
 const storedValue = (
@@ -276,8 +273,6 @@ const storedValue = (
 	field: PreviewField
 ): unknown => {
 	switch (field.writing.kind) {
-		case "retirement":
-			return false
 		case "caller":
 		case "drawn":
 		case "accumulated": {

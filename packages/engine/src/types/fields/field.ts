@@ -293,10 +293,9 @@ export interface InstantField extends StoredInstantField {
 /**
  * How a field is written, as its descriptor's type states it under `writing`; a caller's field carries none.
  * generated: by PostgreSQL from its row; drawn: by grizzle from the nested arrays its caller writes; accumulated: by
- * grizzle on the host, proved by PostgreSQL; retirement: by its group's retirement; place: by the insert that adds its
- * row, one past its group's greatest place.
+ * grizzle on the host, proved by PostgreSQL; place: by the insert that adds its row, one past its group's greatest place.
  */
-export type WritingTag = "generated" | "drawn" | "accumulated" | "retirement" | "place"
+export type WritingTag = "generated" | "drawn" | "accumulated" | "place"
 
 /**
  * A span's width is upper - lower, a value of the endpoint's base type: over a contract
@@ -366,7 +365,7 @@ export interface Contract<
 
 /**
  * Not a field of a writing of its own. A caller's descriptor carries no `writing` member, so an absent optional `never`
- * admits it and refuses a drawn field's, an accumulated field's, a generated field's and a retirement field's. A
+ * admits it and refuses a drawn field's, an accumulated field's and a generated field's. A
  * contract's base is one (types/fields ContractConstructor), so no contract's chain holds a field of a writing of its
  * own.
  */
@@ -509,14 +508,6 @@ export interface PlaceField extends NaturalField, UnwrittenField {
  */
 export interface PlaceDescriptor extends PlaceField {
 	readonly by: (field: string) => PlaceField
-}
-
-/**
- * A header's retirement field: a boolean PostgreSQL defaults to false when its row is inserted, and the retirement of its
- * group sets to true for good (schema/relation.ts retirementField). In a Fact, never in an Addition.
- */
-export interface RetirementField extends Field<boolean, "boolean">, UnwrittenField {
-	readonly writing: "retirement"
 }
 
 /**

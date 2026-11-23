@@ -64,14 +64,6 @@ import type { Isolation } from "#compiler/core/isolation.ts"
  *   every role that writes it runs READ COMMITTED, and refuses any other with 25000 (physical/ddl/isolation.ts
  *   readCommittedRelations), so a role certified past it would have every write refused.
  *
- * A retirable unit's retirement (facts.ts WriteFact `retire`) is no update or delete of its relations: a change member
- * that touches a unit's bodies holds every group it touches from before its first statement that does until it commits
- * (physical/ddl/retire.ts, the hold), and a retirement locks every header it retires before it reads a body, so it waits
- * for every call that holds one; each call then reads a group's rows insert-only from its hold to its commit, and no
- * retired group is ever written again (the unit's fence). A retirement reads nothing besides the groups it locks and
- * makes no check, so it misses no write and is no pivot; it counts among its own role's writes, whose guard and laws it
- * meets, and among no other role's judgement of it (RoleView.guarded).
- *
  * A role is served the form its level chooses, so certification runs in rounds (analysis/isolation/certify.ts certify): a role is judged over its
  * READ COMMITTED form, the one it is served while it runs READ COMMITTED, until a round leaves it SERIALIZABLE; it is
  * then lowered to its SERIALIZABLE form and never judged again, its certificate that round's. A role's own SERIALIZABLE

@@ -20,7 +20,6 @@ import {
 	generated,
 	natural,
 	pg,
-	retirement,
 	slot
 } from "#compiler/public/fields.ts"
 import { closed as closedRelations, fin, relation } from "#compiler/public/schema.ts"
@@ -34,9 +33,9 @@ type CompanionType = "uuid" | "natural" | "integer" | "smallint" | "boolean" | "
 /**
  * How a companion is handed to keyTextBytes: as its type's descriptor, a caller's field, or as a field of its type that
  * grizzle or PostgreSQL writes, which keyTextBytes reads as that type: an accumulated or a generated field of any type,
- * drawn(natural), the retirement field, a boolean, and a closed relation's slot over a closed id.
+ * drawn(natural), and a closed relation's slot over a closed id.
  */
-type Reading = "caller" | "accumulated" | "generated" | "drawn" | "retirement" | "slot"
+type Reading = "caller" | "accumulated" | "generated" | "drawn" | "slot"
 
 /** A key's other field: its type, which the installed relation declares it of, and how keyTextBytes is handed it. */
 interface Companion {
@@ -82,7 +81,7 @@ const readingsOf = (c: CompanionType): Arr.NonEmptyReadonlyArray<Reading> => {
 		case "natural":
 			return ["caller", "accumulated", "generated", "drawn"]
 		case "boolean":
-			return ["caller", "accumulated", "generated", "retirement"]
+			return ["caller", "accumulated", "generated"]
 		case "closedId":
 			return ["caller", "accumulated", "generated", "slot"]
 		case "uuid":
@@ -135,8 +134,6 @@ export const fieldOf = (c: Companion): FieldBase | GeneratedField<FieldBase> => 
 			})).fields.x
 		case "drawn":
 			return drawn(natural)
-		case "retirement":
-			return retirement
 		case "slot":
 			return slot(closedId(Kind), fin(Slots, "n"))
 	}
@@ -310,7 +307,6 @@ export const caseSpace: Aimed<KeyCase, BytesFeature> = aimed(caseGen, [
 	["accumulated companion", caseOver(withCompanion("integer", "accumulated"))],
 	["generated companion", caseOver(withCompanion("uuid", "generated"))],
 	["drawn companion", caseOver(withCompanion("natural", "drawn"))],
-	["retirement companion", caseOver(withCompanion("boolean", "retirement"))],
 	["slot companion", caseOver(withCompanion("closedId", "slot"))]
 ])
 

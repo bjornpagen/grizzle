@@ -323,13 +323,12 @@ const descriptionOf = (member: ServedMember, deed: Deed, input: WireInput<Served
 const opWords: { readonly [Op in WireFacts<ServedLeaf>["op"]]: string } = {
 	insert: "insert into",
 	delete: "delete from",
-	put: "put into",
-	retire: "retire the groups of"
+	put: "put into"
 }
 
 /**
  * The facts a ChangeSet's array members take from the call, counted by op: how many relations the call gives facts to
- * insert into, delete from, put into or retire the groups of, in the order the ops first appear; their relations are
+ * insert into, delete from or put into, in the order the ops first appear; their relations are
  * the schema's.
  */
 const factsWords = (facts: ReadonlyArray<WireFacts<ServedLeaf>>): string => {

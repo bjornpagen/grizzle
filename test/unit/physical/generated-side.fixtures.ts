@@ -133,10 +133,10 @@ const columnsRead = (e: Expr): ReadonlyArray<string> => {
 	return read
 }
 
-/** The columns a column's generation reads: none for a column with none, a retirement default among them. */
+/** The columns a column's generation reads: none for a column with none. */
 export const generationReads = (c: ColumnDef): ReadonlyArray<string> => {
 	const g = c.generated
-	if (g === undefined || g.kind === "retirement") {
+	if (g === undefined) {
 		return []
 	}
 	return g.kind === "stored"

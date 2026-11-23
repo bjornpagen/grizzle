@@ -4,7 +4,6 @@ import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Option, Path, String as Str } from "effect"
 import { hostInputs, type InputFailure, valuesFailure } from "#adapter/apply/run.ts"
 import { fromEngine } from "#adapter/engine.ts"
-import type { OpenError } from "#adapter/errors/execution.ts"
 import {
 	type LoadedChange,
 	type LoadedLogin,
@@ -16,7 +15,6 @@ import { bindFrame } from "#adapter/wire/batch.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
 import type { RoleIsolation } from "#compiler/core/certificate.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { silentPhases } from "#compiler/core/phase.ts"
 import type { Param } from "#compiler/core/wire.ts"
@@ -30,11 +28,9 @@ import {
 	noCarriers,
 	noContribution,
 	noFences,
-	type RoleHold,
 	servesNoParams
 } from "#compiler/physical/install/extension.ts"
 import { servableRole } from "#compiler/program/workload/change.ts"
-import { servedHolds } from "#compiler/program/workload/compile.ts"
 import type { AnyLogin, AnyRole, AnySchema } from "#compiler/public/schema.ts"
 import { reachOf } from "#compiler/runtime/write/steps.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
@@ -49,8 +45,6 @@ import { paths, repoRoot } from "#test/support/files.ts"
 import {
 	appliedHistory,
 	draftedHistory,
-	type Generated,
-	generatedTemplate,
 	type Installed,
 	noPlaceholders,
 	noVersionWorkload,
@@ -58,14 +52,7 @@ import {
 } from "#test/support/install-migrate.ts"
 import { type Names, namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
-import { everyRelation } from "#test/support/schedules/interleave.ts"
-import { type RaceStatement, type RaceTxn } from "#test/support/schedules/serial.ts"
-import {
-	installTemplate,
-	type SubstrateCase,
-	type SubstrateShape,
-	type SubstrateTemplate
-} from "#test/support/substrate/substrate.ts"
+import { installTemplate, type SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 
 /**
  * A shape as the oracle installs it (shapes.ts, drawn.ts): its schema, its roles by name, and the login over them, whose
@@ -120,7 +107,7 @@ export type CallInput =
  * sends statement by statement as the served write's one flight states them; a read member of a role with its
  * parameters, whose one statement the oracle sends in the read's own transaction, DEFERRABLE where its member is
  * deferrable(...); or a transaction of the installation's owner, its statements as written, at the database's default
- * level, as an operator runs what no role holds, a retirable unit's retirement function among them.
+ * level, as an operator runs what no role holds.
  */
 type RaceCall =
 	| {
@@ -178,23 +165,17 @@ const draftOf = (shape: Shape) =>
 	)
 
 /**
- * The installer extension that states `roles`' certificates and the roles whose served ChangeSets hold a retirable
- * unit, `holds`, and contributes nothing else, which the installation reads as it reads the served workload's
- * (physical/access/extension.ts servedWorkloadExtension): each table's guard follows the certificates, and each holding
- * role holds EXECUTE on its unit's hold. The workload's access paths, the rest of that extension, are indexes, which
- * decide no outcome a race compares; its carrier roles are TEMPORARY grants, which the test cluster's PUBLIC already
- * holds.
+ * The installer extension that states `roles`' certificates and contributes nothing else, which the installation reads
+ * as it reads the served workload's (physical/access/extension.ts servedWorkloadExtension): each table's guard follows
+ * the certificates. The workload's access paths, the rest of that extension, are indexes, which decide no outcome a race
+ * compares; its carrier roles are TEMPORARY grants, which the test cluster's PUBLIC already holds.
  */
-const certifying = (
-	roles: ReadonlyArray<RoleIsolation>,
-	holds: ReadonlyArray<RoleHold>
-): InstallExtension => ({
+const certifying = (roles: ReadonlyArray<RoleIsolation>): InstallExtension => ({
 	contribute: () => Result.ok(noContribution),
 	params: servesNoParams,
 	certifies: roles,
 	carriers: noCarriers,
 	fences: noFences,
-	holds,
 	calls: noCalls,
 	live: noLive
 })
@@ -236,32 +217,6 @@ const servedOf = (loaded: LoadedLogin) => ({
 	levels: new Map(Arr.map(loaded.roles, (r) => [r.name, r.isolation] as const))
 })
 
-/** A shape's schema and the one login its installation carries. */
-const shapeLogins = (shape: Shape) => ({ schema: shape.schema, logins: [shape.login] })
-
-/** A generated installation of `build(name)` as a race reads it: every role at the level its served file records. */
-const generatedShape = (
-	generated: Generated,
-	build: (name: string) => Shape
-): Effect.Effect<InstalledShape, CompileError | OpenError> =>
-	Effect.gen(function* () {
-		const shape = build(generated.installed.declared)
-		const json = defined(
-			generated.served.get(shape.login.name),
-			`the served file of login ${shape.login.name}`
-		)
-		const file = yield* fromEngine(servedFile(json))
-		const loaded = yield* Effect.fromResult(loadServed(file, shape.login.name))
-		const served = servedOf(loaded)
-		return {
-			installed: generated.installed,
-			names: namesOf(generated.installed),
-			shape,
-			generated: served.levels,
-			...served
-		}
-	})
-
 /**
  * A certified installation of `build(name)` planned under `name`, all but its install: the history
  * that installs the shape's schema with its login, holding the certificates `certifier` states (certifying), its
@@ -285,12 +240,7 @@ const certifiedPlan = (
 					)
 		const options = {
 			label: "iso",
-			extensions: [
-				certifying(
-					certified,
-					servedHolds(new Map(Arr.map([...first.served.logins], ([l, p]) => [l, p.roles] as const)))
-				)
-			],
+			extensions: [certifying(certified)],
 			ambient: ordinarySession,
 			compile: compileInstallation,
 			review: noPlaceholders
@@ -380,29 +330,6 @@ const shapeOf = (
 })
 
 /**
- * installShape's generated installation as a template (install-migrate.ts generatedTemplate): `build(name)` drafted and
- * served once per member under the template's name. A case reads its shape over its clone (generatedShapeIn).
- */
-export const generatedShapeTemplate = (
-	declaredIn: ImportMeta,
-	name: string,
-	build: (name: string) => Shape
-): SubstrateTemplate<Generated> =>
-	generatedTemplate({
-		declaredIn,
-		name,
-		content: { shape: name },
-		build: (installed) => shapeLogins(build(installed)),
-		ambient: ordinarySession
-	})
-
-/** The shape of a case over a clone of a generated shape's template (generatedShapeTemplate), as installShape reads it. */
-const generatedShapeIn = (
-	taken: SubstrateCase<Generated>,
-	build: (name: string) => Shape
-): Effect.Effect<InstalledShape, CompileError | OpenError> => generatedShape(taken.value, build)
-
-/**
  * installShape's certified installation as a template (substrate.ts installTemplate): `build(name)` holding
  * `certifier`'s certificates, every draft, certificate and served file of it planned once per worker under the
  * template's name (certifiedPlan), and installed once per member; each case's InstalledShape the installation in its
@@ -430,18 +357,6 @@ export const certifiedShapeTemplate = (
 		bind: ({ names, plan }, binding) =>
 			shapeOf(plan, templateInstalled(names, plan.history, ordinarySession, new Map(), binding))
 	})
-
-/** A shape a case races, and the substrate of the case's own clone it is installed in, where its race runs (raceOn). */
-export interface RacedShape {
-	readonly shape: InstalledShape
-	readonly substrate: SubstrateShape
-}
-
-/** A case's own clone of a generated shape's template (generatedShapeTemplate) as the shape it races. */
-export const racedGenerated =
-	(build: (name: string) => Shape) =>
-	(taken: SubstrateCase<Generated>): Effect.Effect<RacedShape, CompileError | OpenError> =>
-		Effect.map(generatedShapeIn(taken, build), (shape) => ({ shape, substrate: taken.substrate }))
 
 /** A SQL text literal of `text`: in quotes, its quotes doubled. */
 const quoted = (text: string): string => `'${Str.replaceAll("'", "''")(text)}'`
@@ -562,43 +477,4 @@ export const callStatements = (
 		return first === undefined
 			? ([`SELECT 'no statement'::text AS sent`] as const)
 			: [first, ...rest]
-	})
-
-/** The level a role's served writes begin at, as its served file records it. */
-const levelOf = (s: InstalledShape, role: string): Isolation =>
-	defined(s.levels.get(role), `the served level of role ${role}`)
-
-/**
- * The lock a change call's served write takes before its snapshot (runtime/write/flight.ts WriteExclusion), none where
- * its login fences nothing it writes. The call's session is its role's, which holds DELETE on every relation it fences,
- * a privilege that permits the lock as the login's MAINTAIN does.
- */
-const exclusionOf = (s: InstalledShape, call: ChangeCall): ReadonlyArray<RaceStatement> => {
-	const exclusion = defined(
-		s.changes.get(call.role)?.get(call.member),
-		`member ${call.member} of role ${call.role}`
-	).entry.program.exclusion
-	return exclusion.kind === "lock" ? [{ sql: exclusion.text.sql, footprint: everyRelation }] : []
-}
-
-/**
- * A change call's direct transaction: begun as its served write begins, its BEGIN stating the level its role's served
- * file records (schedules/types.ts DirectAction BeginAs), then the lock its served write takes before its snapshot, as a
- * Db's prologue sends it before the statement that takes the snapshot, then the call's statements, the served file's,
- * compiled for that level (program/workload/change.ts RoleChanges `level`).
- */
-export const changeTxnOf = (
-	s: InstalledShape,
-	call: ChangeCall
-): Effect.Effect<RaceTxn<never>, InputFailure> =>
-	Effect.map(callStatements(s, call), (statements) => {
-		const sent = Arr.map(statements, (sql): RaceStatement => ({ sql, footprint: everyRelation }))
-		const [first, ...rest] = [...exclusionOf(s, call), ...sent]
-		return {
-			kind: "direct",
-			session: call.session,
-			begin: { _tag: "BeginAs", sql: s.writeBegins[levelOf(s, call.role)] },
-			statements: [defined(first, "a call's statement"), ...rest],
-			end: "commit"
-		}
 	})

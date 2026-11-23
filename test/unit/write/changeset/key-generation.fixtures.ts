@@ -202,8 +202,7 @@ const slotsOf = (
 ): ReadonlyArray<{ readonly op: Op; readonly slot: MemberSlot }> => {
 	switch (input.kind) {
 		case "single": {
-			const op = input.act.op
-			return op === "retire" ? [] : [{ op, slot: input.slot }]
+			return [{ op: input.act.op, slot: input.slot }]
 		}
 		case "nested":
 			return [{ op: "insert", slot: input.slot }]

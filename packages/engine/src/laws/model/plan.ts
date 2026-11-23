@@ -861,11 +861,6 @@ const sideReadsAlike = (side: ResolvedSide): boolean =>
  * The discharge of the scalar containment `d`, the detail of `law` (`ContainmentDischarge`), from what the schema
  * states, in order:
  *
- * - a fence of a retirable unit is native: a hold refuses by it and a retirement relies on it, each through its foreign
- *   key's locks and its NO ACTION check at the statement (physical/ddl/retire.ts). It contains a body in its open
- *   header, a selection by the header's retirement, a field its group's retirement sets in place (ir/law.ts
- *   RelationInfo `inPlace`), so no whole rule reads it (analysis/theory/unit.ts wholeRule) and it falls to the rules
- *   below, its target keyed or not;
  * - a plain containment (`isPlain`) into a target a key holds apart (`keyHolds`), at a declared key's fields or a
  *   superkey's, is native, its foreign key the same law, which generate proves here: its referencing columns are its
  *   source's fields, each NOT NULL as every column of a relation is, so MATCH SIMPLE checks every source row, and its

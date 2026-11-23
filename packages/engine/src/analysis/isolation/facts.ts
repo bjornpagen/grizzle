@@ -20,10 +20,7 @@ import type { OnUpdate } from "#compiler/ir/law.ts"
  * binds whole; its counted groups, each by its key's fields: the members, under one value of the key, of a family whose
  * immutable owner holds their count (a counted, ordered or fin family), a set the count law fixes once the owner is
  * written; every foreign key it holds, native or a rule lowered to one, immediate or deferred, by the columns it
- * references, by the same texts; what an insertion into it meets at its primary key
- * (InsertsFact); and whether it is a retirable unit's header or body (`retirable`), whose retirement function
- * (physical/ddl/retire.ts), which no role holds, deletes its bodies' rows and sets its header's retirement field beside
- * every role's write.
+ * references, by the same texts; and what an insertion into it meets at its primary key (InsertsFact).
  */
 export interface RelationFacts {
 	readonly triggerLaws: ReadonlyArray<TriggerLaw>
@@ -31,7 +28,6 @@ export interface RelationFacts {
 	readonly countedGroups: ReadonlyArray<ReadonlyArray<string>>
 	readonly references: ReadonlyArray<Reference>
 	readonly inserts: InsertsFact
-	readonly retirable: boolean
 }
 
 /**
@@ -82,15 +78,11 @@ export interface ReadAt {
 
 /**
  * One relation a statement writes and how. `from` lists the statement's reads, by their bodies and places (ReadAt),
- * every row it writes is positively joined with, so a read that finds nothing makes it write nothing. A `retire` is a
- * retirable unit's retirement (physical/ddl/retire.ts), one of each relation of the unit: its header's retirement field
- * set and its bodies' rows of the retired groups deleted, by the unit's retire function, which locks every header it
- * retires before it reads a body and so waits for every call that holds one of its groups; it reads no row no other
- * call holds, and makes no check another call's write can pass.
+ * every row it writes is positively joined with, so a read that finds nothing makes it write nothing.
  */
 export interface WriteFact {
 	readonly relation: string
-	readonly op: "insert" | "update" | "delete" | "retire"
+	readonly op: "insert" | "update" | "delete"
 	readonly from: ReadonlyArray<ReadAt>
 }
 

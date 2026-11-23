@@ -1,6 +1,6 @@
 /**
  * A value type is a descriptor, and every admission of one takes the same first step (schema/relation.ts refuseWritten):
- * a field a field builder made, drawn, accumulated or retirement, is no value type, refused by the admission's own
+ * a field a field builder made, drawn or accumulated, is no value type, refused by the admission's own
  * reason before its value is described, where the description would refuse it as no descriptor. The box: each such
  * field at each admission that reads a value type, beside the context's (test/unit/schema/worlds.test.ts): an
  * accumulated field's type, a generated field's type, a closed relation's field and a heading's field (rows, which a
@@ -15,7 +15,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record as Rec } from "effect"
-import { accumulated, drawn, natural, pg, retirement } from "#compiler/public/fields.ts"
+import { accumulated, drawn, natural, pg } from "#compiler/public/fields.ts"
 import { rows } from "#compiler/public/schema.ts"
 import { admitClosedRelation, generatedField } from "#compiler/schema/relation.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
@@ -24,8 +24,7 @@ import { throwsRefused } from "#test/support/assert.ts"
 /** The fields a field builder makes that are no value type, each by its builder. */
 const writtenFields = {
 	"drawn(natural)": () => drawn(natural),
-	"accumulated(pg.bigint, 0n)": () => accumulated(pg.bigint, 0n),
-	retirement: () => retirement
+	"accumulated(pg.bigint, 0n)": () => accumulated(pg.bigint, 0n)
 } as const satisfies Readonly<Record<string, () => FieldBase>>
 
 type Written = keyof typeof writtenFields
@@ -80,7 +79,7 @@ export const everyAdmissionOfAValueTypeRefusesAFieldAFieldBuilderMadeByItsOwnRea
 	property.exhaust(
 		finite((source) => source.draw(element(cases))),
 		{
-			box: "each written field (drawn, accumulated, retirement) at each admission that reads a value type",
+			box: "each written field (drawn, accumulated) at each admission that reads a value type",
 			needs: {},
 			situations: Arr.map(
 				cases,

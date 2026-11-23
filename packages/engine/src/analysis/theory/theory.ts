@@ -114,10 +114,6 @@ const containmentPairing = (source: LawSource): Refused => {
 	switch (source.kind) {
 		case "alternatives":
 			return "the arm's key does not match the parent key"
-		case "retirable":
-			return "a body's group does not match the header key"
-		case "reachable":
-			return "a holder's fields do not match the records' owner key"
 		case "series":
 		case "relation":
 		case "key":
@@ -980,10 +976,7 @@ export const theoryEvidence = (
 					from: sides.from,
 					to: sides.to,
 					coverage: d.pairing.kind === "span",
-					statement:
-						law.source.kind === "alternatives" || law.source.kind === "retirable"
-							? law.source.kind
-							: "contained",
+					statement: law.source.kind === "alternatives" ? law.source.kind : "contained",
 					context:
 						d.to.rel.kind === "closed" || immediate.has(law.id) ? "immediate" : "committedSnapshot"
 				})

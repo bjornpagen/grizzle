@@ -272,7 +272,7 @@ type FamilySpelledAs<Fa, Kind, Rs, To extends Spelling> = Kind extends "ordered"
  * One statement spelled, each relation it names in place, the statement told by its kind and read by key
  * (StatementSpelledAs), never tested whole: a statement over a derived relation holds its definition, a query over the
  * level below, and a conditional the checker resolves instantiates its operands whole. A statement of no kind spelled
- * here, a retirable one, is itself. An alternatives law keeps its arm map as written, the caller's own object-literal
+ * here, a unit, is itself. An alternatives law keeps its arm map as written, the caller's own object-literal
  * type, which the checker instantiates as one type without walking its arms.
  */
 type StatementSpelled<St, Rs, To extends Spelling> = St extends unknown
@@ -537,7 +537,7 @@ export type LevelKeyOf<L> = L extends unknown
 /**
  * The relations a statement names: the relation of a mutable, a race or a check; the source of each law side (a selection's
  * relation), a key's, a family's, a tree's and a fold's included; a family's and a tree's owner; and an alternatives
- * law's parent, roster and arms. A retirable statement names none here, and a statement typed `any`, whose keys are
+ * law's parent, roster and arms. A unit names none, and a statement typed `any`, whose keys are
  * every key, names `unknown`, as a side typed `any` does (SideNames). Each statement is read by its kind
  * (NamedByAs), each part by key.
  */

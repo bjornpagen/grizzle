@@ -2683,7 +2683,7 @@ const arraysOf = (
 ): ReadonlyArray<{ readonly relation: string; readonly op: Op }> =>
 	Arr.flatMap(desc.strata, (st) =>
 		Arr.flatMap(st.members, (m) =>
-			m.op !== "retire" && m.member.kind === "array" ? [{ relation: m.relation, op: m.op }] : []
+			m.member.kind === "array" ? [{ relation: m.relation, op: m.op }] : []
 		)
 	)
 

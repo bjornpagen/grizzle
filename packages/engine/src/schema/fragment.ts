@@ -6,7 +6,7 @@
  * that decides how a relation is written changes what a write of it is: a key, which an insertion's arbiter and a put's
  * same-key checks read (write/insert/unique.ts generatedArbiter); mutable, which puts a row in place rather than
  * deleting and inserting it; race, under which an insertion meets the row at its key rather than being refused by it;
- * retirable, which holds every write of a body at its group; a unit, which every write of a relation keyed by its
+ * a unit, which every write of a relation keyed by its
  * heading borrows, and a series, whose lock every write of its relation holds; and a family, a tree or a fold, which
  * draw fields and nest members. Only the fragment states those over its relations: a schema that lists it may state one again, one text
  * being one statement, and adds over them only what refuses a write and changes none, a containment, a row check or a
@@ -38,10 +38,6 @@ const decidedRelations = (
 			return [s.member.relation, s.slots.owner]
 		case "fold":
 			return [s.family.owner, s.step.relation, s.end.relation]
-		case "retirable":
-			return [s.header.relation, ...s.bodies.map((b) => b.relation)]
-		case "reachable":
-			return [...s.target.map((t) => t.relation), ...s.holders.map((h) => h.relation)]
 		case "unit":
 			return [...relations.values()].flatMap((r) =>
 				r.kind === "relation" && leadsWithHeading(s.heading, r.primaryKey, (f) => r.fields[f]?.type)

@@ -129,7 +129,7 @@ export type UnwrittenRead = Extract<
 /**
  * Why the generation expression `expr` of a field its relation's primary key holds (law.ts FieldWriting keyGenerated)
  * breaks the key-generation rule, or undefined when it keeps it: the least field it reads in code-unit order that
- * `unwritten` says grizzle or the database writes, drawn, accumulated, retirement, place or a stamped instant, with its
+ * `unwritten` says grizzle or the database writes, drawn, accumulated, place or a stamped instant, with its
  * writing. A key generation reads
  * its row's caller fields alone, so its reads are the heads a put, a delete or a get states the key by (law.ts
  * keyHeads), each a value the caller holds before any row is filled; a generated field it reads is generatedRule's

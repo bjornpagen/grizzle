@@ -35,13 +35,13 @@ import { constantDigest } from "#compiler/core/fingerprint.ts"
 import { type Identity, identity } from "#compiler/core/identity.ts"
 import { digestedHooks } from "#compiler/physical/ddl/type-schemas.ts"
 import type {
-	ColumnGeneration,
 	CreateConstant,
 	Expr,
 	FunctionParam,
 	LiteralValue,
 	QualifiedFunctionRef,
-	TypeRef
+	TypeRef,
+	StoredGeneration
 } from "#compiler/sql/ast.ts"
 import { and, or, param, qualifiedCall, types } from "#compiler/sql/build.ts"
 import { identityHooks, ownColumns, Transform, transformExpr } from "#compiler/sql/transform.ts"
@@ -332,10 +332,10 @@ const called = (
  * expression, of the column's type, and a partial one's selection, a boolean, and expression apart. */
 export const rowGeneration = (
 	scope: RowScope,
-	generated: ColumnGeneration | undefined,
+	generated: StoredGeneration | undefined,
 	type: TypeRef,
 	install: (fn: RowFunction) => void
-): ColumnGeneration | undefined => {
+): StoredGeneration | undefined => {
 	switch (generated?.kind) {
 		case "stored":
 			return { kind: "stored", expr: rowExpression(scope, generated.expr, type, install) }
@@ -345,7 +345,6 @@ export const rowGeneration = (
 				when: rowExpression(scope, generated.when, types.boolean, install),
 				expr: rowExpression(scope, generated.expr, type, install)
 			}
-		case "retirement":
 		case undefined:
 			return generated
 	}

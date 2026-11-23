@@ -40,13 +40,13 @@ import { nativeOp } from "#compiler/scalar/compute/registry.ts"
  * A containment as the attachment rule reads it, theory/theory.ts ContainmentEvidence without its law: every `from`
  * projection, selection applied, has a matching `to` fact, in `context`. A span coverage law (`coverage`) proves
  * coverage, not scalar existence. `statement` is what states it: a `contained` statement, an alternatives
- * statement's expansion (desc.ts expandAlternatives) or a retirable unit's; attach reads only declared containments.
+ * statement's expansion (desc.ts expandAlternatives); attach reads only declared containments.
  */
 export interface ContainmentFact {
 	readonly from: EvidenceSide
 	readonly to: EvidenceSide
 	readonly coverage: boolean
-	readonly statement: "contained" | "alternatives" | "retirable"
+	readonly statement: "contained" | "alternatives"
 	readonly context: EvidenceContext
 }
 

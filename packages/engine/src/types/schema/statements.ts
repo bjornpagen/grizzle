@@ -669,8 +669,6 @@ export type Statement =
 	| Containment<unknown, unknown>
 	| MirrorsBase
 	| AlternativesBase
-	| RetirableBase
-	| ReachableBase
 	| UnitBase
 	| Series<unknown>
 	| AnyFamily
@@ -890,38 +888,6 @@ export interface Alternatives<P, D extends string, C, Arms> {
 	readonly roster: C
 	readonly arms: Arms
 }
-
-/**
- * A retirable statement: one statement of a schema whose header H, a relation standing for its primary key or a Key,
- * keeps one row per group for good, holding its retirement field, and whose bodies B, sides over every fact of each
- * body relation, name each row's group by the fields paired with the header's key. A retirement removes a group's
- * rows of every body relation in one statement and sets its header's retirement field, so no group is read half
- * retired and none is written again (ir/desc.ts expandRetirable states the fence that keeps it).
- */
-export interface Retirable<H, B> {
-	readonly kind: "retirable"
-	readonly header: H
-	readonly bodies: B
-}
-
-/** Any retirable statement: Retirable is covariant in what it names. */
-export type RetirableBase = Retirable<unknown, unknown>
-
-/**
- * A reachable statement: one statement of a schema whose target T, a side over records at their whole owner key,
- * stands for each of their relations, and whose holders H, sides over every fact of retirable bodies, name a key of the
- * records each, paired by position with the owner key. Each holder is contained in the records' root, and the records at
- * a key live while some holder names it: a retirement that removes the last one removes the records' rows at that key
- * from every relation of them, in its own statement (ir/desc.ts expandReachable states the containments).
- */
-export interface Reachable<T, H> {
-	readonly kind: "reachable"
-	readonly target: T
-	readonly holders: H
-}
-
-/** Any reachable statement: Reachable is covariant in what it names. */
-export type ReachableBase = Reachable<unknown, unknown>
 
 /** Any alternatives law: Alternatives is covariant in what it names. */
 export type AlternativesBase = Alternatives<unknown, string, unknown, unknown>

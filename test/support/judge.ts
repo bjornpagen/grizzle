@@ -195,7 +195,6 @@ const standUpsOf = (body: ReadonlyArray<PlStatement>): ReadonlyArray<readonly [s
 				return Arr.flatMap(s.whens, (w) => standUpsOf(w.body))
 			case "assign":
 			case "perform":
-			case "lockRows":
 			case "modify":
 			case "returnQuery":
 			case "truncateSessionTable":

@@ -21,9 +21,8 @@ import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/bat
  * name, key and fields the runtime records' own (the oracle, each case's records built by the engine as the program's
  * are typed), the records
  * listed by a level over Shelves, as schema.extend takes their relations and laws, their read (recordsQuery) of the
- * query's own records under either reading, their insert (recordsFacts) taken by insertAll over the level, and a side
- * over them, on(records, "run"), a retirable body of Run's unit, its terms the owner's key field it names, refused for a
- * column of the root alone; and their read served by a login, its workload a reader's of the level.
+ * query's own records under either reading, and their insert (recordsFacts) taken by insertAll over the level; and
+ * their read served by a login, its workload a reader's of the level.
  */
 
 /** A relation as the runtime records build it: its name, its key in order and its fields' names. */
@@ -198,14 +197,8 @@ const caseLines = (stated: StatedShape, at: number): ReadonlyArray<string> => {
 		`export type Head${at} = Expect<Equals<HeadOf<typeof read${at}>, HeadOf<typeof q${at}>>>`,
 		`export type Immediate${at} = Expect<Equals<ImmediateHeadOf<typeof read${at}>, ImmediateHeadOf<typeof q${at}>>>`,
 		`export const write${at} = (rows: ReadonlyArray<HeadOf<typeof q${at}>>) => ChangeSet.empty(level${at}).insertAll(recordsFacts(level${at}, kept${at})(rows.map((row) => [${ownerValues(shape)}, row] as const)))`,
-		`export const side${at} = on(kept${at}, "run")`,
-		`export type SideTerms${at} = Expect<Equals<(typeof side${at})["terms"], readonly ["run"]>>`,
-		`export type SideSource${at} = Expect<Equals<(typeof side${at})["source"]["name"], "Kept">>`,
-		`export const unit${at} = retirable(Run, [side${at}])`,
 		`export const Reader${at} = role(level${at}, "reader", wholeEntriesOf(level${at}))`,
 		`export const App${at} = login(level${at}, "app", [Reader${at}], { workload: [workload(Reader${at}, { read: read${at} })] })`,
-		"// @ts-expect-error -- refused: a side over records names fields of their owner's key, which every relation of them carries, and label is the root's column alone",
-		`export const label${at} = on(kept${at}, "label")`,
 		`const strayNames${at} = { "${shape.books.name}": "Okay", nowhere: "Stray" } as const`,
 		"// @ts-expect-error -- refusal: records' names name only the query's attachments, each by its path",
 		`export const stray${at} = records("Stray", q${at}, ${owner.fields}, ${owner.key}, { names: strayNames${at} })`,

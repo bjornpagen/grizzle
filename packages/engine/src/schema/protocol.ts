@@ -25,7 +25,6 @@
  *   is frozen, carries its Description under a non-enumerable `desc`, and is registered here, so ownership trusts
  *   exactly the values the builders made and a JavaScript look-alike is decoded strictly.
  */
-import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { type CompileError, malformedDescription, ruleRefused } from "#compiler/core/errors.ts"
 import { admitDeclaredName, type DeclaredName } from "#compiler/core/identity.ts"
@@ -227,20 +226,6 @@ export const querySchemaOf = (value: unknown): object | undefined =>
  * is its Description, compared by structure (core/canonical.ts sameContent). A mirrors is sugar, owned as an expansion,
  * the two containments it states, never as a statement.
  */
-/**
- * Records records(...) made (program/records.ts), as a side over them reads them: their name, their owner's key, and
- * each of their relations, the root's first, with its fields carrying the owner's key, in the key's order: the root's
- * the key itself, a child's the fields its key carries its parent's under, renamed where its own columns take a name.
- */
-export interface RecordsDesc {
-	readonly name: string
-	readonly ownerKey: ReadonlyArray<string>
-	readonly relations: NonEmptyReadonlyArray<{
-		readonly relation: AnyRelation
-		readonly carries: ReadonlyArray<string>
-	}>
-}
-
 interface OwnedKinds {
 	readonly relation: {
 		readonly value: AnyRelation
@@ -279,16 +264,6 @@ interface OwnedKinds {
 		}
 	}
 	readonly side: { readonly value: AnySide; readonly desc: SideDesc; readonly content: undefined }
-	readonly records: {
-		readonly value: object
-		readonly desc: RecordsDesc
-		readonly content: undefined
-	}
-	readonly recordsSide: {
-		readonly value: AnySide
-		readonly desc: NonEmptyReadonlyArray<SideDesc>
-		readonly content: undefined
-	}
 	readonly selection: {
 		readonly value: Selection<unknown>
 		readonly desc: SelectedDesc
@@ -429,14 +404,6 @@ export const ownQuery = (
 	content: { readonly schema: object; readonly heading: ReadonlyMap<string, HeadingTyping> }
 ): void => {
 	owned.set(query, { kind: "query", value: query, desc, content })
-}
-
-/**
- * Registers records records(...) made (program/records.ts recordsBuilder) under their Description, what a side over them
- * reads (RecordsDesc). The value is frozen as built, and a side over it names it by the value alone.
- */
-export const ownRecords = (records: object, desc: RecordsDesc): void => {
-	owned.set(records, { kind: "records", value: records, desc, content: undefined })
 }
 
 /** The entry of an owned value, its kind among it; undefined for any value the builders did not make. */

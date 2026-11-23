@@ -714,7 +714,6 @@ export const reportable = (installation: Installation): ReadonlyArray<Identified
 						case "dropColumn":
 						case "dropDefault":
 						case "setNotNull":
-						case "setRetirementDefault":
 						case "alterColumnType":
 						case "validateConstraint":
 						case "alterConstraintDeferral":

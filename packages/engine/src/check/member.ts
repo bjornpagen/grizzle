@@ -25,7 +25,6 @@ const memberWrites = (writing: MemberColumn["writing"]["kind"]): boolean => {
 		case "keyGenerated":
 		case "drawn":
 		case "accumulated":
-		case "retirement":
 		case "place":
 			return false
 	}

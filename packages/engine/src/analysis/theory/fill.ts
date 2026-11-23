@@ -266,7 +266,6 @@ const entriesAt = (
 			case "keyGenerated":
 			case "drawn":
 			case "accumulated":
-			case "retirement":
 			case "instant":
 			case "place":
 				break

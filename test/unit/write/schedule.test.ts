@@ -84,8 +84,7 @@ export const aStratumsScheduleKeepsAnImmediateForeignKeyIntoARelationItReference
 							fromColumns: ["p"],
 							toColumns: ["id"]
 						}
-					],
-					[]
+					]
 				)
 				if (schedule.kind === "ordered") {
 					const order = Arr.map(schedule.actions, ({ scheduled }) => scheduled)

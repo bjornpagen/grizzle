@@ -14,8 +14,7 @@ import {
 	drawnField,
 	generatedField,
 	generatedRelation,
-	relationBuilder as relation,
-	retirementField
+	relationBuilder as relation
 } from "#compiler/schema/relation.ts"
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import {
@@ -25,7 +24,6 @@ import {
 	monoids,
 	onBuilder,
 	orderedBuilder,
-	retirableBuilder,
 	treeBuilder
 } from "#compiler/schema/statements.ts"
 import type { FieldBase, GeneratedField } from "#compiler/types/fields/field.ts"
@@ -36,15 +34,15 @@ import { ownInput } from "#test/support/policy.ts"
 
 /**
  * How a field of a template's relation is written (ir/desc.ts Writing): by its caller, drawn by grizzle from the
- * nesting, accumulated along a family's axis, stamped as a place in its group, or a header's retirement flag.
+ * nesting, accumulated along a family's axis, or stamped as a place in its group.
  */
-export type Writing = "caller" | "drawn" | "accumulated" | "place" | "retirement"
+export type Writing = "caller" | "drawn" | "accumulated" | "place"
 
 /**
  * What a field's value is, so the generation can read it: a text it reads as itself, an integer (pg.integer), a natural
- * (a drawn field's or a place's type, whose literals are bigints), or a boolean.
+ * (a drawn field's or a place's type, whose literals are bigints).
  */
-type Form = "text" | "integer" | "natural" | "boolean"
+type Form = "text" | "integer" | "natural"
 
 /** A field the generation may read: its name, how it is written, and its form. */
 export interface Readable {
@@ -64,8 +62,7 @@ interface Declared {
 
 /**
  * A template: a relation `R`, built by relation.generated, whose fields are written in the ways `readables` names, and
- * the statements that make each such field lawful (a family that draws, a fold that accumulates, a place's group, a
- * retirable unit). `declare` builds it over the primary key `slot` completes: `slot` is `g`, the generated field, or
+ * the statements that make each such field lawful (a family that draws, a fold that accumulates, a place's group). `declare` builds it over the primary key `slot` completes: `slot` is `g`, the generated field, or
  * `name`, a bounded caller text, and the generated field reads `reads`.
  */
 interface Template {
@@ -241,44 +238,11 @@ const placed: Template = {
 	}
 }
 
-/**
- * A retirable unit: the header Root, its retirement field `retired`, and its one body, Step, keyed by its group, the
- * header's primary key, whose copy of the header's slot is a caller field of Step (INTERFACE.md §3: a copy of an
- * owner's key generation is a plain column).
- */
-const retirable: Template = {
-	readables: [
-		caller("name", "text"),
-		caller("body", "text"),
-		caller("id", "integer"),
-		{ field: "retired", writing: "retirement", form: "boolean" }
-	],
-	declare: (slot, generation) => {
-		const Root = keyedRelation(
-			"Root",
-			{ id: pg.integer, retired: retirementField(pg.boolean), name: Name, body: Body },
-			["id", slot],
-			generation
-		)
-		const copied: FieldBase = slot === "g" ? Generated : Name
-		const Step = relation(
-			"Step",
-			{ root: pg.integer, rootSlot: copied, step: pg.integer },
-			["root", "rootSlot", "step"],
-			[]
-		)
-		return {
-			relations: [Root, Step],
-			statements: [retirableBuilder(Root, [onBuilder(Step, ["root", "rootSlot"])])]
-		}
-	}
-}
-
-const templateNames = ["ordered", "tree", "placed", "retirable"] as const
+const templateNames = ["ordered", "tree", "placed"] as const
 
 export type TemplateName = (typeof templateNames)[number]
 
-const templates: Readonly<Record<TemplateName, Template>> = { ordered, tree, placed, retirable }
+const templates: Readonly<Record<TemplateName, Template>> = { ordered, tree, placed }
 
 /** One case: a template, the fields its generation reads, in the template's order, and where the generation stands. */
 export interface KeyGenerationCase {
@@ -314,7 +278,7 @@ const pieceLiteral = (text: string): unknown => computeCore.literal(Piece, text)
 
 /**
  * A field's value as a text the generation concatenates: a text as itself; an integer or a natural as whether it is
- * positive, a boolean as whether it holds, each a conditional between two literal pieces, which reads the field as every term does.
+ * positive, a conditional between two literal pieces, which reads the field as every term does.
  */
 const formOf = (row: Readonly<Record<string, unknown>>, r: Readable): unknown => {
 	const value = row[r.field]
@@ -325,8 +289,6 @@ const formOf = (row: Readonly<Record<string, unknown>>, r: Readable): unknown =>
 			return computeCore.cond(computeCore.gt(value, 0), pieceLiteral("+"), pieceLiteral("0"))
 		case "natural":
 			return computeCore.cond(computeCore.gt(value, 0n), pieceLiteral("+"), pieceLiteral("0"))
-		case "boolean":
-			return computeCore.cond(computeCore.eq(value, true), pieceLiteral("t"), pieceLiteral("f"))
 	}
 }
 
@@ -384,14 +346,11 @@ const compiled = (build: () => unknown): Result.Result<unknown, CompileError> =>
  * What compiling a case's schema must give (INTERFACE.md §4, GENPK-A's admission): outside the key, the installation,
  * whatever the generation reads, as a generated field no key holds reads any field of its row; in the key, the
  * installation exactly when every field the generation reads is its caller's, and otherwise
- * GeneratedRefused at `g` for its least non-caller read by code units, named with how that field is written. A
- * retirable header whose key holds a generation is refused whatever it reads, UnsupportedOperation, retirement over a
- * generated key: its bodies' copies of the header's key would be written by no fill (GENPK-A, first cut).
+ * GeneratedRefused at `g` for its least non-caller read by code units, named with how that field is written.
  */
 export type Verdict =
-	| { readonly kind: "admitted"; readonly template: Exclude<TemplateName, "retirable"> }
+	| { readonly kind: "admitted"; readonly template: TemplateName }
 	| { readonly kind: "refused"; readonly read: Readable }
-	| { readonly kind: "retirement over a generated key"; readonly read: Readable | undefined }
 
 /** The least field `c`'s generation reads that its caller does not write, by name in code units. */
 const leastForeign = (c: KeyGenerationCase): Readable | undefined =>
@@ -407,11 +366,7 @@ const leastForeign = (c: KeyGenerationCase): Readable | undefined =>
 /** What compiling `c`'s schema with its generation in the primary key must give. */
 export const keyedVerdictOf = (c: KeyGenerationCase): Verdict => {
 	const read = leastForeign(c)
-	const template = c.template
-	if (template === "retirable") {
-		return { kind: "retirement over a generated key", read }
-	}
-	return read === undefined ? { kind: "admitted", template } : { kind: "refused", read }
+	return read === undefined ? { kind: "admitted", template: c.template } : { kind: "refused", read }
 }
 
 /** The rule GeneratedRefused states for a key generation's read `r` its caller does not write (core/causes.ts GeneratedRule). */
@@ -423,15 +378,14 @@ export const keyReadRule = (r: Readable): Readonly<Record<string, string>> => ({
 
 /** What a case reaches: admitted in its template, or refused for a writing it reads. */
 export type KeyGenerationFeature =
-	| `admitted in the ${Exclude<TemplateName, "retirable">} template`
+	| `admitted in the ${TemplateName} template`
 	| `refused: its ${Exclude<Writing, "caller">} read`
 	| "refused: reads several writings outside its caller's"
-	| "refused: a retirable header over a generated key"
 	| "admitted: reads an unbounded text"
 
 /** The writings outside its caller's that a case's generation reads, each once, in Writing's order. */
 export const foreignWritings = (c: KeyGenerationCase): ReadonlyArray<Exclude<Writing, "caller">> =>
-	Arr.filter(["drawn", "accumulated", "place", "retirement"] as const, (w) =>
+	Arr.filter(["drawn", "accumulated", "place"] as const, (w) =>
 		Arr.some(c.reads, (r) => r.writing === w)
 	)
 

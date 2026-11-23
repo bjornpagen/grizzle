@@ -902,17 +902,14 @@ const firstConflict = <E>(
 }
 
 /** One slot group's admitted facts, by how its inputs write them: a deletion's of rows (`delete`) apart from a unit
- * delete's, whose facts name units (`units`), and a retirement's, whose facts name groups (`retire`). */
-type GroupSets = Readonly<
-	Record<"insert" | "put" | "delete" | "units" | "retire", TextsMap<IdentifiedFact>>
->
+ * delete's, whose facts name units (`units`). */
+type GroupSets = Readonly<Record<"insert" | "put" | "delete" | "units", TextsMap<IdentifiedFact>>>
 
 /** The set a single input's facts join: its operation's, a unit delete's its own (frontend/compile.ts SingleAct). */
 const setOf = (act: SingleAct): keyof GroupSets => {
 	switch (act.op) {
 		case "insert":
 		case "put":
-		case "retire":
 			return act.op
 		case "delete":
 			return act.names === "units" ? "units" : "delete"
@@ -980,9 +977,6 @@ type AdmittedGroup =
  *    them; the unit statement keeps a unit's rows the stratum adds again unchanged, row by row. Deleting an absent
  *    fact, or one a put displaces anyway, stays a request: the statement decides it against the stored state.
  *
- * A retirement's facts name groups (frontend/compile.ts RetireAct): admitted and collapsed as any slot's, and judged at
- * no key and netted against nothing, since no other member of the ChangeSet writes their unit.
- *
  * A nested write's facts are filled by `walk`, the write's filler (nesting.ts NestedWalk), and a single input's key
  * generations by the one generation (fill.ts generation) over `evaluate`, the write's evaluator, each before any key of
  * it is compared (`filledFacts`): every key the host compares is the key its statement writes.
@@ -1019,8 +1013,7 @@ export const normalizeChangeSet = (
 			insert: new TextsMap(),
 			put: new TextsMap(),
 			delete: new TextsMap(),
-			units: new TextsMap(),
-			retire: new TextsMap()
+			units: new TextsMap()
 		}
 		const slotOf = new Map<keyof GroupSets, SlotData>()
 		/** The first of the group's nested writes whose generated field has no value: the group's refusal, once every

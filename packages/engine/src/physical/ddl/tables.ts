@@ -48,7 +48,6 @@ import {
 } from "#compiler/schema/representability.ts"
 import type {
 	ColumnDef,
-	ColumnGeneration,
 	Expr,
 	ObjectName,
 	ForeignKey,
@@ -57,7 +56,8 @@ import type {
 	KeyColumn,
 	PrimaryKey,
 	SqlStatement,
-	TableConstraint
+	TableConstraint,
+	StoredGeneration
 } from "#compiler/sql/ast.ts"
 import { and, tableCol } from "#compiler/sql/build.ts"
 import { identityHooks, ownColumns, transformExpr } from "#compiler/sql/transform.ts"
@@ -90,7 +90,7 @@ const primaryKeyOf = (b: InstallBuilder, pk: NamedPrimaryKey): PrimaryKey => {
 }
 
 /**
- * A field's column's generation: a retirement field's `DEFAULT false`, a generated field's `GENERATED ALWAYS AS (e) STORED`, its
+ * A field's column's generation: a generated field's `GENERATED ALWAYS AS (e) STORED`, its
  * expression lowered over the row's own columns, or none for a field the caller writes and for one grizzle writes, a
  * family's drawn field, a fold's accumulated one, or a key generation, which its key's CHECK proves (laws/model/plan.ts
  * keyGenerationCheck).
@@ -99,7 +99,7 @@ const fieldGeneration = (
 	b: InstallBuilder,
 	relation: TableRelation,
 	field: LawField
-): ColumnGeneration | undefined => {
+): StoredGeneration | undefined => {
 	switch (field.writing.kind) {
 		case "generated":
 			return {
@@ -111,8 +111,6 @@ const fieldGeneration = (
 					`generated field ${relation.name}.${field.name}`
 				)
 			}
-		case "retirement":
-			return { kind: "retirement" }
 		case "caller":
 		case "drawn":
 		case "accumulated":
@@ -781,7 +779,7 @@ const lawColumnGeneration = (
 	o: NativeOf<"LawColumn">,
 	value: Extract<NativeOf<"LawColumn">["value"], { readonly kind: "generated" }>,
 	label: string
-): ColumnGeneration => {
+): StoredGeneration => {
 	const expr = lowerWrittenRow(b, o.relation, value.term, label)
 	const guard = value.guard.map((g) => lowerWrittenRow(b, o.relation, g, label))
 	return isNonEmpty(guard)

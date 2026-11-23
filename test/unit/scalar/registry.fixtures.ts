@@ -75,8 +75,7 @@ import {
 	accumulatedField,
 	admittedClosedId,
 	drawnField,
-	placeDescriptor,
-	retirementField
+	placeDescriptor
 } from "#compiler/schema/relation.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -971,7 +970,7 @@ export const literalOperandSpace = aimed<LiteralOperand, LiteralFeature>(
 /**
  * The descriptor boundary: describeField reads a descriptor a builder made, pg.numeric itself among them (numeric of no
  * typmod, which is also numeric(p, s)'s constructor), and a field of a writing of its own (drawn, accumulated,
- * retirement or a place) as the descriptor its values are of, a place as natural, one rule for every field, so a
+ * or a place) as the descriptor its values are of, a place as natural, one rule for every field, so a
  * parameter typed by one is typed by its value type; span takes one as its endpoint, and closedId takes a closed
  * relation. A copy of a descriptor's members (a look-alike) and any wild value are no descriptor: MalformedDescription
  * at describeField and span; any wild value is no closed relation: MalformedDescription at closedId. A live descriptor
@@ -1023,7 +1022,6 @@ const writtenFields: Arr.NonEmptyReadonlyArray<readonly [object, object]> = [
 	[drawnField(naturalDescriptor, []), naturalDescriptor],
 	[placeDescriptor, naturalDescriptor],
 	[placeDescriptor.by("stage"), naturalDescriptor],
-	[retirementField(pgDescriptors.boolean), pgDescriptors.boolean],
 	[accumulatedField(pgDescriptors.integer, 0, []), pgDescriptors.integer]
 ]
 

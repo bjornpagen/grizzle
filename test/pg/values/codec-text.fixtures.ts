@@ -26,7 +26,6 @@ import {
 	generated,
 	natural,
 	pg,
-	retirement,
 	slot,
 	span
 } from "#compiler/public/fields.ts"
@@ -51,10 +50,10 @@ import { codecOf } from "#test/unit/codec/support.ts"
 
 /**
  * The kinds of field a relation holds, each of which has a text: a caller's, written by its caller, and each that
- * grizzle or PostgreSQL writes, drawn(natural), accumulated(type, start), generated(type, term), the retirement field,
- * and a closed relation's slot(type, fin).
+ * grizzle or PostgreSQL writes, drawn(natural), accumulated(type, start), generated(type, term), and a closed
+ * relation's slot(type, fin).
  */
-const fieldKinds = ["caller", "drawn", "accumulated", "generated", "retirement", "slot"] as const
+const fieldKinds = ["caller", "drawn", "accumulated", "generated", "slot"] as const
 
 type FieldKind = (typeof fieldKinds)[number]
 
@@ -128,7 +127,7 @@ const naturalCarrier: DeclaredCarrier = {
 	values: oneOf([bigint(0n, int8Max), element([0n, 1n, int8Max])])
 }
 
-/** boolean, the retirement field's type. */
+/** boolean. */
 const booleanCarrier = declaredOf("boolean", pg.boolean)
 
 /** A closed id of Kind, a slot's type. */
@@ -201,7 +200,7 @@ const Slots = closed.relation(
 /**
  * The fields of every kind, each the one field of a relation of its own beside its key: a caller's of every declared
  * type; drawn(natural); an accumulated field of every value type, starting at its batch's first value; a generated
- * field of every declared type, its term the written field of that type; the retirement field; and a closed relation's
+ * field of every declared type, its term the written field of that type; and a closed relation's
  * slot over Kind's closed id.
  */
 const fieldCases: ReadonlyArray<TextCase> = [
@@ -231,11 +230,6 @@ const fieldCases: ReadonlyArray<TextCase> = [
 					x: generated(c.type, row.w)
 				})).fields.x
 		)
-	),
-	fieldCase(
-		"retirement",
-		booleanCarrier,
-		() => relation("Texted", { id: Id, x: retirement }, ["id"]).fields.x
 	),
 	fieldCase(
 		"slot",

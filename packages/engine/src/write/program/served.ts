@@ -152,8 +152,6 @@ const servedStep = (step: OwnStep, isolation: Isolation): OwnStep => {
 		case "carrier":
 		case "check":
 		case "familyWrite":
-		case "hold":
-		case "retire":
 		case "admission":
 			return step
 	}
@@ -195,13 +193,12 @@ const servedStatements = (
 /**
  * A compiled write as everything past its compile reads it: its application and the served file that holds it
  * (projectWrite, flightOf; adapter/served/project.ts), the installation's grants (program/workload/compile.ts
- * servedCarriers, servedHolds) and its role's classifier (adapter/served/project.ts refusalsOf). Its level and its
+ * servedCarriers) and its role's classifier (adapter/served/project.ts refusalsOf). Its level and its
  * exclusion; its statements as its application runs them at that level, but the read-backs', which their own programs
  * run, each step with the aborts it meets there, every form its text, parts and slots (ServedStatement); its read-backs
  * as its served file holds them (served/spine.ts servedReadBacks); whether its flight may create a carrier
- * (write/program/artifact.ts createsCarrier) and the columns of its program carriers; the headers of the retirable units
- * it holds and the relations each retirement it runs removes; its declared and clocked parameters, its binding; and of
- * its front end the schema it compiled against, the relations it writes and the codes it reads. A compiled write's
+ * (write/program/artifact.ts createsCarrier) and the columns of its program carriers; its declared and clocked
+ * parameters, its binding; and of its front end the schema it compiled against, the relations it writes and the codes it reads. A compiled write's
  * artifact holds each statement's SQL AST beside its text, which its certification's facts read and nothing after
  * (program/isolation/member-facts.ts), so the servable write holds no AST, no schedule, no placement and no analysis.
  */
@@ -214,8 +211,6 @@ export interface ServableWrite {
 		readonly creates: boolean
 		readonly columns: ReadonlyArray<CarrierColumn>
 	}
-	readonly holds: ReadonlyArray<string>
-	readonly retires: ReadonlyArray<string>
 	readonly params: ReadonlyArray<CallerParamDecl>
 	readonly clocked: ReadonlyArray<ClockParamDecl>
 	readonly binding: Binding
@@ -236,14 +231,6 @@ export const servableWrite = (compiled: CompiledWrite): ServableWrite => {
 			creates: createsCarrier(artifact),
 			columns: Object.freeze(artifact.carriers.flatMap((c) => c.heading))
 		}),
-		holds: Object.freeze(
-			artifact.statements.flatMap((s) => (s.step.kind === "hold" ? [s.step.header] : []))
-		),
-		retires: Object.freeze(
-			artifact.statements.flatMap((s) =>
-				s.step.kind === "retire" ? [s.step.header, ...s.step.removed] : []
-			)
-		),
 		params: compiled.params,
 		clocked: compiled.clocked,
 		binding: compiled.binding,

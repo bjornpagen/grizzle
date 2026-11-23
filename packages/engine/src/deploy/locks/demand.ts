@@ -315,7 +315,6 @@ const plWrites = (statements: ReadonlyArray<PlStatement>, into: Names): void => 
 			case "perform":
 			case "raise":
 			case "return":
-			case "lockRows":
 			case "returnQuery":
 			case "truncateSessionTable":
 				break
@@ -485,9 +484,6 @@ const addAlteration = (
 				if (a.kind === "addColumnPlaceholder" || a.kind === "addColumnDefault") {
 					member(catalogOf.defaults, relationKey(catalogOf, table)).add(a.column.name)
 				}
-				break
-			case "setRetirementDefault":
-				member(catalogOf.defaults, relationKey(catalogOf, table)).add(a.column)
 				break
 			case "alterColumnType":
 				addColumns(catalogOf, table, [
@@ -1169,7 +1165,7 @@ const alterationLocks = (
 		case "addColumnUnchecked":
 			locks.type(a.column.type)
 			locks.addedColumn(table)
-			if (a.column.generated === undefined || a.column.generated.kind === "retirement") {
+			if (a.column.generated === undefined) {
 				return "keeps"
 			}
 			locks.typmodCast(a.column.type)
@@ -1195,8 +1191,6 @@ const alterationLocks = (
 			locks.addedColumn(table)
 			locks.names(exprNames([a.default]), "stored")
 			locks.add(toastedCatalog("pg_attrdef"))
-			return "keeps"
-		case "setRetirementDefault":
 			return "keeps"
 		case "setNotNull":
 		case "enableRowSecurity":
@@ -1309,7 +1303,7 @@ const lockStatement = (locks: Locks, s: SqlStatement | RecordedStatement): void 
 			locks.created(s.table, locks.toasted(s.table))
 			for (const c of s.columns) {
 				locks.type(c.type)
-				if (c.generated === undefined || c.generated.kind === "retirement") {
+				if (c.generated === undefined) {
 					continue
 				}
 				locks.typmodCast(c.type)

@@ -415,7 +415,7 @@ export const memberBorrows = (member: MemberFacts, at: BorrowInstallation): Memb
 		for (const w of s.writes) {
 			const place = at.units.get(w.relation)
 			if (place === undefined) {
-				if (w.op === "update" || w.op === "delete" || w.op === "retire") {
+				if (w.op === "update" || w.op === "delete") {
 					faults.push({
 						kind: w.op === "update" ? "update" : "delete",
 						statement,

@@ -21,7 +21,6 @@ import {
 	type InstallContribution,
 	type InstallExtension,
 	noCarriers,
-	noHolds,
 	noCalls,
 	noCertificates,
 	noContribution,
@@ -241,7 +240,6 @@ const derivedRelationExtension = (): InstallExtension => {
 		params: servesNoParams,
 		certifies: noCertificates,
 		carriers: noCarriers,
-		holds: noHolds,
 		calls: noCalls,
 		live: noLive,
 		fences: noFences

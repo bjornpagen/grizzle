@@ -68,12 +68,11 @@ import {
 import type { InstalledFunction } from "#compiler/physical/ddl/functions.ts"
 import { snapshotGuardFunction } from "#compiler/physical/ddl/ledger.ts"
 import { levelIn, type NamedRole, roleView } from "#compiler/physical/ddl/names.ts"
-import type { UnitFunction, UnitFunctions } from "#compiler/physical/ddl/retire.ts"
 import type { StampFunction } from "#compiler/physical/ddl/stamps.ts"
 
-/** A function a role executes beside its statements' own: a retirable unit's hold or retirement, a head's stamp
- * function, or a declared function its served programs call. */
-type CalledFunction = UnitFunction | StampFunction | InstalledFunction
+/** A function a role executes beside its statements' own: a head's stamp function, or a declared function its served
+ * programs call. */
+type CalledFunction = StampFunction | InstalledFunction
 
 /**
  * What a role holds beside its statements' own objects: EXECUTE on each function it calls, and SELECT and DELETE on the
@@ -89,12 +88,7 @@ import {
 	type LoweredDefinition,
 	lowerDefinition
 } from "#compiler/physical/derived/definition.ts"
-import type {
-	LoginFence,
-	RoleCall,
-	RoleCarriers,
-	RoleHold
-} from "#compiler/physical/install/extension.ts"
+import type { LoginFence, RoleCall, RoleCarriers } from "#compiler/physical/install/extension.ts"
 import { enforcement, type Node, type ObjectSpec } from "#compiler/physical/obligations/graph.ts"
 import type { HeadStanding } from "#compiler/schema/entry.ts"
 import type { OwnedEntry, OwnedLogin, OwnedRole, OwnedWorldEntry } from "#compiler/schema/own.ts"
@@ -1277,8 +1271,7 @@ const roleExecutes = (
  * domain, which the role uses. The filter function a policy calls, then the probes, each come
  * after every relation, type and function their statements read. TEMPORARY on the database is among its grants where
  * its served workload creates a carrier (`carried`), with USAGE on each domain a carrier's column is typed by, and
- * EXECUTE on each unit function of `held`: the hold of each retirable unit its served workload holds, and the
- * retirement of each unit its retire list names. */
+ * EXECUTE on each function of `held`. */
 const addRole = (
 	b: InstallBuilder,
 	cx: WorldsContext,
@@ -1785,10 +1778,7 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
  *   role a transaction's SET ROLE takes on, never its login. No other login or role is granted it, and PUBLIC's, which
  *   PostgreSQL gives every database, is the database owner's: grizzle neither relies on it nor revokes it. A later
  *   migration revokes it from a role whose workload no longer creates one, as it replaces any role's changed grants.
- *   EXECUTE on the hold function of each retirable unit its served workload holds (`holds`, stated by the served
- *   workload's extension; physical/ddl/retire.ts addUnitFunctions), which every served call that touches the unit
- *   calls before it touches it, and on the retirement function of each unit whose header its `retire` list names, which
- *   its ChangeSets' retire members call; no role holds EXECUTE on any other unit function. EXECUTE on the stamp
+ *   EXECUTE on the stamp
  *   function of each head of a relation it holds INSERT on (physical/ddl/stamps.ts addStamps), which each of its inserts
  *   that stamps the head calls; SELECT and DELETE on the head table of each place of a relation it holds DELETE on, which
  *   each of its deletes, removing whole groups, deletes the groups' heads of (write/insert/stamp.ts placeReleases); no
@@ -1811,12 +1801,10 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
  * the global ALTER DEFAULT PRIVILEGES FOR ROLE <owner> REVOKE ALL ON FUNCTIONS and ON TYPES FROM PUBLIC. */
 export const addWorlds = (
 	b: InstallBuilder,
-	units: ReadonlyMap<string, UnitFunctions>,
 	stamps: ReadonlyMap<string, ReadonlyArray<StampFunction>>,
 	revocable: Revocable,
 	checkedLogins: ReadonlyArray<CheckedLogin>,
 	carriers: ReadonlyArray<RoleCarriers>,
-	holds: ReadonlyArray<RoleHold>,
 	calls: {
 		readonly calls: ReadonlyArray<RoleCall>
 		readonly declared: ReadonlyMap<string, InstalledFunction>
@@ -1831,24 +1819,14 @@ export const addWorlds = (
 	const views: Array<ObjectName> = []
 	const writers: Array<Writer> = []
 	for (const login of logins) {
-		/** The functions a role calls: the hold of each unit its served workload holds, the retirement of each unit
-		 * whose header its retire list names, the stamp function of each head of a relation its grants let it insert
-		 * into (grantedPrivileges), which every insert of the relation that stamps the head calls, and each declared
-		 * function its served programs call; and the head of each place of a relation its grants let it delete from,
-		 * which its deletes delete the removed groups' heads of. */
+		/** The functions a role calls: the stamp function of each head of a relation its grants let it insert into
+		 * (grantedPrivileges), which every insert of the relation that stamps the head calls, and each declared function
+		 * its served programs call; and the head of each place of a relation its grants let it delete from, which its
+		 * deletes delete the removed groups' heads of. */
 		const held = ({ checked }: CheckedRole): Held => {
 			const role = checked.world.role
 			const granted = [...grantedPrivileges(b.model, checked)]
 			const called = [
-				...holds.flatMap((h) =>
-					h.login === login.login.name && h.role === role.name
-						? [defined(units.get(h.header), `the hold function of retirable ${h.header}`).hold]
-						: []
-				),
-				...role.retire.map(
-					(header) =>
-						defined(units.get(header), `the retirement function of retirable ${header}`).retire
-				),
 				...granted.flatMap(([relation, privileges]) =>
 					privileges.has("INSERT") ? (stamps.get(relation) ?? []) : []
 				),

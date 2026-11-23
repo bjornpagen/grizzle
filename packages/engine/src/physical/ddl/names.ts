@@ -61,10 +61,6 @@ export interface InstallNames extends PhysicalNames {
 	readonly levels: NonEmptyReadonlyArray<Identity<"schema">>
 	/** The identity of the PostgreSQL schema of the level that declares a relation, a roster among them. */
 	readonly levelOf: (relation: string) => Identity<"schema">
-	/** A retirable header's hold function, in the header's level's schema, which takes its groups' key arrays. */
-	readonly hold: (header: string) => ObjectName
-	/** A retirable header's retire function, in the header's level's schema, which takes its groups' key arrays. */
-	readonly retire: (header: string) => ObjectName
 	/** The head table of a clock or a place, by its relation and field, in the relation's level's schema
 	 * (physical/ddl/stamps.ts). */
 	readonly head: (relation: string, field: string) => ObjectName
@@ -566,14 +562,6 @@ export const installNames = (input: NamesInput): InstallNames => {
 		}),
 		rosterNamed,
 		bitsNamed,
-		hold: (header) => ({
-			schema: identifierOf(levelOf(header)),
-			name: identifierOf(identity.hold(header))
-		}),
-		retire: (header) => ({
-			schema: identifierOf(levelOf(header)),
-			name: identifierOf(identity.retire(header))
-		}),
 		head: (relation, field) => ({
 			schema: identifierOf(levelOf(relation)),
 			name: identifierOf(identity.head(relation, field))

@@ -62,7 +62,6 @@ const actionCreated = (table: ObjectName, a: AlterTableAction): ReadonlyArray<Cr
 		case "dropColumn":
 		case "dropDefault":
 		case "setNotNull":
-		case "setRetirementDefault":
 		case "alterColumnType":
 		case "setExpression":
 		case "validateConstraint":

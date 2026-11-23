@@ -11,7 +11,6 @@ import type {
 	ClockInstant,
 	ColumnDef,
 	ColumnDefinition,
-	ColumnGeneration,
 	CommentTarget,
 	ConflictAction,
 	CoreProjection,
@@ -893,16 +892,6 @@ export class Transform {
 		}
 	}
 
-	generation(g: ColumnGeneration): ColumnGeneration {
-		switch (g.kind) {
-			case "retirement":
-				return g
-			case "stored":
-			case "partial":
-				return this.storedGeneration(g)
-		}
-	}
-
 	storedGeneration(g: StoredGeneration): StoredGeneration {
 		switch (g.kind) {
 			case "stored": {
@@ -919,7 +908,7 @@ export class Transform {
 
 	columnDef(c: ColumnDef): ColumnDef {
 		const type = this.type(c.type)
-		const generated = c.generated === undefined ? undefined : this.generation(c.generated)
+		const generated = c.generated === undefined ? undefined : this.storedGeneration(c.generated)
 		if (type === c.type && generated === c.generated) {
 			return c
 		}
@@ -1009,7 +998,6 @@ export class Transform {
 			case "dropColumn":
 			case "dropDefault":
 			case "setNotNull":
-			case "setRetirementDefault":
 			case "enableRowSecurity":
 			case "disableRowSecurity":
 			case "replicaIdentity":
@@ -1138,8 +1126,7 @@ export class Transform {
 				const body = this.plStatements(s.body)
 				return query === s.query && body === s.body ? s : { ...s, query, body }
 			}
-			case "perform":
-			case "lockRows": {
+			case "perform": {
 				const query = this.performQuery(s.query)
 				return query === s.query ? s : { ...s, query }
 			}
@@ -1620,13 +1607,12 @@ export const ownColumns = (e: Expr): ReadonlyArray<string> => {
 
 /** The columns of its own row a column's generation reads: a stored one's expression's, a partial one's selection's
  * and expression's; none of a column its caller writes or its default draws. */
-export const generationColumns = (g: ColumnGeneration | undefined): ReadonlyArray<string> => {
+export const generationColumns = (g: StoredGeneration | undefined): ReadonlyArray<string> => {
 	switch (g?.kind) {
 		case "stored":
 			return ownColumns(g.expr)
 		case "partial":
 			return [...new Set([...ownColumns(g.when), ...ownColumns(g.expr)])]
-		case "retirement":
 		case undefined:
 			return []
 	}

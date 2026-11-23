@@ -2,9 +2,8 @@
  * A role's change members hold no more of each compile than what reads them after it (write/program/served.ts
  * ServableWrite, program/workload/change.ts CertifiableEntry, certifiedRole): its write's level and exclusion, its
  * statements as its application runs them (texts, parts, slots and steps, projected at its level), its read-backs as
- * its served file holds them, whether it may create a carrier and its carriers' columns, the units it holds and the
- * relations its retirements remove, its parameters and binding, and of its front end the schema, written relations and
- * codes; as certification reads it, beside those its isolation facts, extracted as it compiled
+ * its served file holds them, whether it may create a carrier and its carriers' columns, its parameters and binding, and
+ * of its front end the schema, written relations and codes; as certification reads it, beside those its isolation facts, extracted as it compiled
  * (program/isolation/member-facts.ts compiledFacts), and the contexts it was prepared for, which a SERIALIZABLE compile
  * of it prepares it for again from its value: no prepared write, so no front end, outlives its compile.
  * Every role held its compiled writes whole from its compile through certification and the served files, each artifact
@@ -64,11 +63,9 @@ const servableFields = [
 	"clocked",
 	"exclusion",
 	"frontend",
-	"holds",
 	"level",
 	"params",
 	"readBacks",
-	"retires",
 	"statements"
 ] as const
 

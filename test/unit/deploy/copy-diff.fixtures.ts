@@ -593,7 +593,6 @@ const alterationTouches = (
 				break
 			case "setNotNull":
 			case "dropDefault":
-			case "setRetirementDefault":
 			case "validateConstraint":
 			case "alterConstraintDeferral":
 			case "enableRowSecurity":

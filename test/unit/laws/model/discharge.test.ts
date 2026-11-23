@@ -6,17 +6,14 @@
  * physical/ddl/rules.ts addRules), installing nothing on either relation. The law is one law either way: its
  * identity, its evidence and its violation query are the theory's.
  *
- * The box, exhausted: a unit's header H and its bodies B and C, grouped by g, with B's and C's fences into H's open
- * groups; D, keyed apart; E, keyed by the unit at its every field; F, with a field beyond a superkey of its key; G,
+ * The box, exhausted: H, keyed by g, and B and C, keyed by g first; D, keyed apart; E, keyed by the unit at its every field; F, with a field beyond a superkey of its key; G,
  * with a declared key (g, j) beside its primary key; containments from C's facts of kind 1 into B, from B's facts of
  * kind 1 or 2 into C's of kind 2, from C into B at its primary key, into G at its declared key, into F at a superkey
  * and into E, from C's facts of kind 4 into E, from C's facts of kind 3 into D at i alone, and from C's facts whose
  * kind plus one is at least 4 into B; with one containment into a target no key holds or none, plain and unit-local,
- * across units, or selected by a computed value; and with no relation mutable, or B, C, both or D; H, a header, is
- * immutable.
+ * across units, or selected by a computed value; and with no relation mutable, or B, C, both or D; H is immutable.
  *
- * - **discharge**: the specification, the decision table: a fence native, since a hold refuses by it and a retirement
- *   relies on its foreign key's locks and its check at the statement (physical/ddl/retire.ts); every plain containment
+ * - **discharge**: the specification, the decision table: every plain containment
  *   into a target a key holds native, at its declared key or a superkey, its foreign key stating it exactly with no
  *   law column, the plain one into E's every field immediate, the existence evidence a read inside a transaction relies
  *   on; one with a side selected by a computed value native, its law column computing it where a query's site may
@@ -64,7 +61,6 @@ import {
 
 type Feature =
 	| "a whole containment"
-	| "a native fence over immutable relations"
 	| "a native plain containment into a declared key"
 	| "a native plain containment into a superkey"
 	| "the immediate evidence of a plain containment into a target referenced whole"
@@ -78,15 +74,14 @@ type Feature =
 	| "a refusal across units"
 	| "a refusal of a computed selection"
 
-/** A containment is discharged whole where it is unit-local, no fence, selected by comparisons, and selected or into a
+/** A containment is discharged whole where it is unit-local, selected by comparisons, and selected or into a
  * target no key holds, natively otherwise, and refused into a target no key holds where it is not whole, its evidence
  * the theory's either way. */
-export const aContainmentIsWholeWhereItIsUnitLocalNoFenceAndSelectedOrIntoATargetNoKeyHoldsNativeOtherwiseItsEvidenceTheSame =
+export const aContainmentIsWholeWhereItIsUnitLocalAndSelectedOrIntoATargetNoKeyHoldsNativeOtherwiseItsEvidenceTheSame =
 	property.exhaust(finite(caseGen), {
 		needs: {},
 		situations: [
 			"a whole containment",
-			"a native fence over immutable relations",
 			"a native plain containment into a declared key",
 			"a native plain containment into a superkey",
 			"the immediate evidence of a plain containment into a target referenced whole",
@@ -138,12 +133,6 @@ export const aContainmentIsWholeWhereItIsUnitLocalNoFenceAndSelectedOrIntoATarge
 						continue
 					}
 					switch (of) {
-						case "fence":
-						case "second fence":
-							if (c.mutable === "none") {
-								k.note("a native fence over immutable relations")
-							}
-							break
 						case "plain":
 						case "into declared key":
 							k.note("a native plain containment into a declared key")
@@ -209,18 +198,11 @@ export const aContainmentIsWholeWhereItIsUnitLocalNoFenceAndSelectedOrIntoATarge
 			}),
 		oracle: {
 			kind: "specification",
-			name: "the decision table: a fence, a plain containment into a target a key holds, a computed selection, a join across units or a mutable relation native, every other whole where it is unit-local, a containment into a target no key holds refused where it is not; the evidence the same either way"
+			name: "the decision table: a plain containment into a target a key holds, a computed selection, a join across units or a mutable relation native, every other whole where it is unit-local, a containment into a target no key holds refused where it is not; the evidence the same either way"
 		},
-		box: "a retirable unit H of bodies B and C, D keyed apart, E keyed by the unit at its every field, F with a field beyond a superkey, G with a declared key beside its primary key, eleven containments into a key of each, one into a target no key holds or none, and no relation mutable, or B, C, both or D",
+		box: "H and B and C keyed by its unit first, D keyed apart, E keyed by the unit at its every field, F with a field beyond a superkey, G with a declared key beside its primary key, nine containments into a key of each, one into a target no key holds or none, and no relation mutable, or B, C, both or D",
 		kept: [],
 		kills: [
-			{
-				file: "packages/engine/src/analysis/schema.ts",
-				original:
-					'\t\t\t\t(cascaded && f.writing.kind === "accumulated") || f.writing.kind === "retirement"',
-				replacement: '\t\t\t\tcascaded && f.writing.kind === "accumulated"',
-				why: "A header's retirement is a field its rows never change in place, so a fence over immutable relations, a body contained in its open header, reads no field that changes and is discharged whole, its foreign key gone, which a hold and a retirement rely on; the fence's discharge fails."
-			},
 			{
 				file: "packages/engine/src/laws/model/plan.ts",
 				original: "\t\t(isPlain(d) && keyHolds(projected, d.to)) ||",

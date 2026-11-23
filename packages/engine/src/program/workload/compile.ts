@@ -50,7 +50,7 @@ import { extractAccess } from "#compiler/physical/access/extract.ts"
 import { uniquePaths } from "#compiler/physical/access/paths.ts"
 import { type ServedTypes, servedTypesOf } from "#compiler/physical/ddl/domains.ts"
 import { namedRole, worldNames } from "#compiler/physical/ddl/names.ts"
-import type { RoleCall, RoleCarriers, RoleHold } from "#compiler/physical/install/extension.ts"
+import type { RoleCall, RoleCarriers } from "#compiler/physical/install/extension.ts"
 import type { ParamSource } from "#compiler/physical/install/plan.ts"
 import {
 	mergeStatistics,
@@ -822,8 +822,8 @@ export interface ServedLogin<S extends ParamSource = ParamSource> extends Change
  * login's served file compiles over (change.ts readCommittedChanges), in the form its certificate's level serves, by the
  * login's name, then the role's name in it: what each login's served file projects; and the certificate of each of
  * those roles (program/isolation/certification.ts), the level its writes begin at, which the installation's guards
- * follow (physical/install/compile.ts installationOver); the roles whose served ChangeSets create a carrier; the roles
- * whose served ChangeSets hold a retirable unit; and the fences the certification states
+ * follow (physical/install/compile.ts installationOver); the roles whose served ChangeSets create a carrier; and the
+ * fences the certification states
  * (analysis/isolation/certify.ts Fence), each with the roles certified READ COMMITTED that rely on it.
  */
 export interface ServedWorkloadPlan<S extends ParamSource = ParamSource> extends WorkloadPlan {
@@ -832,9 +832,6 @@ export interface ServedWorkloadPlan<S extends ParamSource = ParamSource> extends
 	/** The roles whose served ChangeSets create a carrier (servedCarriers), which the installation grants TEMPORARY on the
 	 * database. */
 	readonly carriers: ReadonlyArray<RoleCarriers>
-	/** The roles whose served ChangeSets hold a retirable unit, each with the unit's header (servedHolds), which the
-	 * installation grants EXECUTE on the unit's hold function. */
-	readonly holds: ReadonlyArray<RoleHold>
 	/** The roles whose served programs call a declared function, each with the function (servedCalls), which the
 	 * installation grants EXECUTE on the function. */
 	readonly calls: ReadonlyArray<RoleCall>
@@ -863,22 +860,6 @@ const servedCarriers = (
 				? [{ login, role, columns: writes.flatMap((w) => w.carriers.columns) }]
 				: []
 		})
-	)
-
-/**
- * The roles of `served`, each login's ChangeSets in the forms their certificates serve them by role, with each
- * retirable unit any of their served ChangeSets holds, by its header (ServableWrite `holds`), in login, role and header
- * order: the roles whose calls execute the unit's hold function.
- */
-export const servedHolds = (
-	served: ReadonlyMap<string, ReadonlyMap<string, ServableRole>>
-): ReadonlyArray<RoleHold> =>
-	[...served].flatMap(([login, roles]) =>
-		[...roles].flatMap(([role, changes]): ReadonlyArray<RoleHold> =>
-			[...new Set([...changes.members.values()].flatMap(variantWrites).flatMap((w) => w.holds))]
-				.toSorted(compareStrings)
-				.map((header) => ({ login, role, header }))
-		)
 	)
 
 /**
@@ -959,7 +940,6 @@ export const servedWorkload = <S extends ParamSource>(
 			changes: certified.served,
 			certification: certified.certificates,
 			carriers: servedCarriers(certified.served),
-			holds: servedHolds(certified.served),
 			calls: calls.value,
 			fences: certified.fences
 		})

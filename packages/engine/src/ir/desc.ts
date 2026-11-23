@@ -1406,11 +1406,6 @@ export interface ArmDesc {
  *   read per member row, each member once by its key in the family, where a key's or a containment's side is a set of
  *   tuples: two members of one step value both step.
  * - alternatives(parent, discriminator, roster, arms) is its own statement, which expandAlternatives states.
- * - retirable(header, bodies) is its own statement, which expandRetirable states: the groups of `header`, each a value of
- *   its key, and each group's rows of every body relation, which a retirement removes whole while the header stays.
- * - reachable(target, holders) is its own statement, which expandReachable states: each holder's facts name a key of
- *   the target records, and the records at a key live while some holder's fact names it, so a retirement that removes
- *   the last one removes them (physical/ddl/retire.ts).
  * - race(R) makes R's primary key first come, first held: an insertion at a key another row holds meets that row,
  *   never refused for differing from it (ir/law.ts Inserts).
  * - unit(name, heading) declares a unit: a key a family of rows sits under, each value of it one lock. It names no
@@ -1459,31 +1454,6 @@ export type StatementDesc<L = Located> = L &
 				readonly discriminator: string
 				readonly roster: string
 				readonly arms: NonEmptyReadonlyArray<ArmDesc>
-		  }
-		| {
-				readonly kind: "retirable"
-				/** The header's key side over every fact: a group is one value of it, and its header row is kept for good. */
-				readonly header: SideDesc
-				/** The header's retirement field, false while its group is open and true once it is retired. */
-				readonly lifecycle: string
-				/**
-				 * Each body relation's side over every fact, in statement order, its terms the fields that name a row's group,
-				 * paired by position with the header's key: every row of a body relation is in the group they name.
-				 */
-				readonly bodies: NonEmptyReadonlyArray<SideDesc>
-		  }
-		| {
-				readonly kind: "reachable"
-				/**
-				 * The records it releases: each of their relations' side over every fact at the fields carrying their owner's
-				 * whole key, in the key's order, their root's first, whose terms are its primary key.
-				 */
-				readonly target: NonEmptyReadonlyArray<SideDesc>
-				/**
-				 * Each holder relation's side over every fact, in statement order, its terms the fields that name a key of the
-				 * records, paired by position with the owner's key.
-				 */
-				readonly holders: NonEmptyReadonlyArray<SideDesc>
 		  }
 		| {
 				readonly kind: "unit"
@@ -1565,56 +1535,6 @@ export type AlternativesDesc<L = Located> = Extract<
 	{ readonly kind: "alternatives" }
 >
 
-/** A retirable statement's Description. */
-export type RetirableDesc<L = Located> = Extract<StatementDesc<L>, { readonly kind: "retirable" }>
-
-/** The header side of a retirable statement over its open groups: its key, where its retirement field is false. */
-export const openHeader = (r: RetirableDesc): SideDesc => ({
-	...r.header,
-	selection: {
-		conjuncts: [
-			{
-				kind: "compare",
-				op: "eq",
-				left: { kind: "field", field: r.lifecycle },
-				right: { kind: "literal", value: false }
-			}
-		]
-	}
-})
-
-/**
- * The containments a retirable statement states, its fence: per body relation, its group among the header's open
- * groups, so no row of a body relation is ever written into a group that is not open, by any writer, a retired one's
- * least of all. Pure: ownership and the theory call it.
- */
-export const expandRetirable = (r: RetirableDesc): NonEmptyReadonlyArray<ContainedDesc> => {
-	const open = openHeader(r)
-	return mapNonEmpty(r.bodies, (body): ContainedDesc => ({
-		kind: "contained",
-		left: body,
-		right: open,
-		loc: r.loc
-	}))
-}
-
-/** A reachable statement's Description. */
-export type ReachableDesc<L = Located> = Extract<StatementDesc<L>, { readonly kind: "reachable" }>
-
-/**
- * The containments a reachable statement states: per holder, its facts' keys among the keys of the records' root, so
- * every fact of a holder names a key the records hold. Pure: ownership and the theory call it.
- */
-export const expandReachable = (r: ReachableDesc): NonEmptyReadonlyArray<ContainedDesc> => {
-	const [root] = r.target
-	return mapNonEmpty(r.holders, (holder): ContainedDesc => ({
-		kind: "contained",
-		left: holder,
-		right: root,
-		loc: r.loc
-	}))
-}
-
 /** The parent side selected by its discriminator holding one of `handles`: `eq` for one, `in` for several. */
 const discriminated = (a: AlternativesDesc, handles: NonEmptyReadonlyArray<string>): SideDesc => {
 	const tag: ExprDesc = { kind: "field", field: a.discriminator }
@@ -1674,8 +1594,6 @@ export const expandAlternatives = (a: AlternativesDesc): NonEmptyReadonlyArray<C
  *   which exactly one family or tree statement names.
  * - accumulated: by grizzle on the host, and proved by PostgreSQL: a fold's accumulator or a copy along a family axis,
  *   `start` at the axis's base, which exactly one fold or axis containment carries.
- * - retirement: by its group's retirement, a boolean false when its row is inserted and true once the group it heads is
- *   retired, which exactly one retirable statement names (`RetirableDesc`).
  * - place: by the insert that adds its row, a natural the database stamps one past its group's greatest, 0 for the
  *   first, so every group's places run gapless from 0 in the order its rows were inserted; `order` how a migration that
  *   adds the place numbers the rows it finds stored (PlaceOrderDesc, ir/instant.ts PlaceHead).
@@ -1694,7 +1612,6 @@ export type Writing<L = Located> =
 			/** The field's value at its axis's base: slot 0, the empty family, or a tree's root. */
 			readonly start: LiteralDesc
 	  }
-	| { readonly kind: "retirement" }
 	| { readonly kind: "place"; readonly order: PlaceOrderDesc }
 
 /**
@@ -2024,8 +1941,6 @@ export type RoleDesc<L = Located> = L & {
 	readonly base: SchemaDesc<L>
 	readonly relations: NonEmptyReadonlyArray<RoleEntryDesc<L>>
 	readonly refresh: ReadonlyArray<string>
-	/** The whole entries of retirable units' headers whose groups the role retires (ChangeSet.retire). */
-	readonly retire: ReadonlyArray<string>
 	/**
 	 * The contexts the role declares, each name once: the facts its Db's claims hold, decoded from the verified token,
 	 * and the only contexts its query entries and its programs match.
@@ -2063,14 +1978,10 @@ export type EqualedDesc =
  * the planner holds it as the query member it is (PlannedMemberDesc).
  */
 type MemberSourceDesc<L = Located> =
-	| SlotSourceDesc
-	| { readonly kind: "query"; readonly query: QueryDesc<L> }
-	| { readonly kind: "equal"; readonly fields: Readonly<Record<string, EqualedDesc>> }
-
-/** A member's facts as values, outside the Description: an array's or a Stream's, by the slot they travel in. */
-export type SlotSourceDesc =
 	| { readonly kind: "array"; readonly slot: string }
 	| { readonly kind: "stream"; readonly slot: string }
+	| { readonly kind: "query"; readonly query: QueryDesc<L> }
+	| { readonly kind: "equal"; readonly fields: Readonly<Record<string, EqualedDesc>> }
 
 /**
  * The fields of an insert's host rows the call computes (ChangeSet.insert's third argument): `query`, one rule that
@@ -2092,9 +2003,7 @@ export type WriteOp = "insert" | "delete" | "put"
 
 /**
  * A member: a write of its relation, `op` its facts' operation, an insert's facts its source or the fields its host
- * rows leave out for the call to compute; or a retirement of the groups of the retirable unit its relation heads, each
- * fact one group, a value of the header's key, which travels in a slot alone, since a retirement's groups are values the
- * call states (ChangeSet.retire).
+ * rows leave out for the call to compute.
  */
 export type MemberDesc<L = Located> = L &
 	(
@@ -2108,7 +2017,6 @@ export type MemberDesc<L = Located> = L &
 				readonly relation: string
 				readonly member: MemberSourceDesc<L>
 		  }
-		| { readonly op: "retire"; readonly relation: string; readonly member: SlotSourceDesc }
 	)
 
 /** A write member of facts: every write member but an insert's computed fields (ComputedSourceDesc), which writes no
@@ -2119,18 +2027,12 @@ export type FactsMemberDesc<L = Located> = L & {
 	readonly member: MemberSourceDesc<L>
 }
 
-/** A retire member (ChangeSet.retire). */
-export type RetireMemberDesc<L = Located> = Extract<MemberDesc<L>, { readonly op: "retire" }>
-
-/** A member as the planner reads it: an array, a Stream or a query, a field-equality member made its query; a retire
- * member as it is. */
-export type PlannedMemberDesc<L = Located> =
-	| (L & {
-			readonly op: WriteOp
-			readonly relation: string
-			readonly member: Exclude<MemberSourceDesc<L>, { readonly kind: "equal" }>
-	  })
-	| RetireMemberDesc<L>
+/** A member as the planner reads it: an array, a Stream or a query, a field-equality member made its query. */
+export type PlannedMemberDesc<L = Located> = L & {
+	readonly op: WriteOp
+	readonly relation: string
+	readonly member: Exclude<MemberSourceDesc<L>, { readonly kind: "equal" }>
+}
 
 /** The parameters a field-equality member's fields name, by name. */
 export const equalParamNames = (
@@ -3520,25 +3422,6 @@ const statementDescShape: S.Shape<StatementDesc> = S.tagged("kind", {
 			loc
 		)
 	),
-	retirable: S.located(
-		S.structWith(
-			{
-				header: memberShape,
-				lifecycle: name,
-				bodies: S.nonEmptyUniqueArray(memberShape, (b) => b.relation, "body relations")
-			},
-			loc
-		)
-	),
-	reachable: S.located(
-		S.structWith(
-			{
-				target: S.nonEmptyUniqueArray(memberShape, (t) => t.relation, "records relations"),
-				holders: S.nonEmptyUniqueArray(memberShape, (h) => h.relation, "holder relations")
-			},
-			loc
-		)
-	),
 	unit: S.located(
 		S.structWith(
 			{
@@ -3561,29 +3444,19 @@ const writingShape: S.Shape<Writing> = S.tagged("kind", {
 	generated: S.struct({ expr: exprDescShape }),
 	drawn: S.struct({}),
 	accumulated: S.struct({ start: literalDescShape }),
-	retirement: S.struct({}),
 	place: S.struct({
 		order: S.tagged("kind", { unordered: S.struct({}), by: S.struct({ by: S.string }) })
 	})
 })
 
-/** Whether a field's declaration is no retirement field, or one of boolean, the one type a group's state is of. */
-const retirementBoolean = (d: FieldDecl): boolean =>
-	d.writing.kind !== "retirement" || (d.type.kind === "pg" && d.type.type === "boolean")
-
-/** A retirement field is a boolean. */
-const fieldDeclShape: S.Shape<FieldDecl> = S.refine(
-	S.struct({ type: fieldDescShape, writing: writingShape }),
-	retirementBoolean,
-	"a retirement field of boolean, false until its group is retired"
-)
+const fieldDeclShape: S.Shape<FieldDecl> = S.struct({ type: fieldDescShape, writing: writingShape })
 
 /**
  * Whether a field may be in a primary key: one whose value a fact holds when it is written, its caller's, its
  * family's, its insert's place or the database's clock's instant, or one generated from its caller's fields, a key
  * generation, which grizzle writes as its generation's value (law.ts FieldWriting keyGenerated; that it reads its
  * caller's fields alone is check/generated.ts keyGeneratedRule's, where the schema is checked). An accumulated field is
- * computed from the row it would identify, and a retirement field changes when its group is retired.
+ * computed from the row it would identify.
  */
 const keyWriting = (decl: FieldDecl | undefined): boolean => {
 	switch (decl?.writing.kind) {
@@ -3594,7 +3467,6 @@ const keyWriting = (decl: FieldDecl | undefined): boolean => {
 		case "generated":
 			return true
 		case "accumulated":
-		case "retirement":
 		case undefined:
 			return false
 	}
@@ -3928,7 +3800,6 @@ const roleRelations = S.nonEmptyUniqueArray(
 const roleWrite = S.uniqueStrings("written relations", name)
 const roleInsert = S.nonEmptyUniqueStrings("inserted relations")
 const roleRefresh = S.uniqueStrings("refreshed relations", name)
-const roleRetire = S.uniqueStrings("retired headers", name)
 const roleContexts = S.uniqueArray(contextDescShape, (c) => c.name, "declared contexts")
 
 const roleDescShape: S.Shape<RoleDesc> = S.located(
@@ -3940,7 +3811,6 @@ const roleDescShape: S.Shape<RoleDesc> = S.located(
 				relations: roleRelations,
 				write: roleWrite,
 				refresh: roleRefresh,
-				retire: roleRetire,
 				contexts: roleContexts
 			},
 			loc
@@ -3952,7 +3822,6 @@ const roleDescShape: S.Shape<RoleDesc> = S.located(
 				relations: roleRelations,
 				insert: roleInsert,
 				refresh: roleRefresh,
-				retire: roleRetire,
 				contexts: roleContexts
 			},
 			loc
@@ -3965,12 +3834,11 @@ type RoleParts = Located & {
 	readonly name: string
 	readonly relations: NonEmptyReadonlyArray<RoleEntryDesc>
 	readonly refresh: ReadonlyArray<string>
-	readonly retire: ReadonlyArray<string>
 	readonly contexts: ReadonlyArray<ContextDesc>
 } & RoleWriting
 
 /**
- * A role's own parts as its builder holds them: its caller's name, entries, written, refreshed and retired relations
+ * A role's own parts as its builder holds them: its caller's name, entries, written and refreshed relations
  * and location, each query entry's query the Description the builder decoded where it took it (schema/protocol.ts
  * queryDescOf).
  */
@@ -3978,7 +3846,6 @@ export type RoleInput = {
 	readonly name: string
 	readonly relations: ReadonlyArray<RoleEntryDesc>
 	readonly refresh: ReadonlyArray<string>
-	readonly retire: ReadonlyArray<string>
 	readonly contexts: ReadonlyArray<ContextDesc>
 	readonly loc: SourceLoc
 } & RoleWriting
@@ -4008,7 +3875,6 @@ const roleWrittenShape = S.located(
 				relations: S.nonEmptyUniqueArray(roleEntryPartShape, (e) => e.name, "role relation names"),
 				write: roleWrite,
 				refresh: roleRefresh,
-				retire: roleRetire,
 				contexts: roleContextNames
 			},
 			loc
@@ -4019,7 +3885,6 @@ const roleWrittenShape = S.located(
 				relations: S.nonEmptyUniqueArray(roleEntryPartShape, (e) => e.name, "role relation names"),
 				insert: roleInsert,
 				refresh: roleRefresh,
-				retire: roleRetire,
 				contexts: roleContextNames
 			},
 			loc
@@ -4068,17 +3933,7 @@ const memberDescShape: S.Shape<MemberDesc> = S.located(
 	S.tagged("op", {
 		insert: S.structWith({ relation: name, member: insertSourceShape }, loc),
 		delete: writeMemberShape,
-		put: writeMemberShape,
-		retire: S.structWith(
-			{
-				relation: name,
-				member: S.tagged("kind", {
-					array: S.struct({ slot: name }),
-					stream: S.struct({ slot: name })
-				})
-			},
-			loc
-		)
+		put: writeMemberShape
 	})
 )
 
@@ -4299,7 +4154,6 @@ const roleDescOver = (base: SchemaDesc, role: RoleParts): RoleDesc =>
 			? { insert: Object.freeze(role.insert) }
 			: { write: Object.freeze(role.write) }),
 		refresh: Object.freeze(role.refresh),
-		retire: Object.freeze(role.retire),
 		contexts: Object.freeze(role.contexts),
 		loc: role.loc
 	})
@@ -4330,7 +4184,6 @@ export const decodeRoleOver = (
 				relations: deepFreeze([defined(first, "an entry of a role its decode admitted"), ...rest]),
 				...("insert" in written ? { insert: written.insert } : { write: written.write }),
 				refresh: written.refresh,
-				retire: written.retire,
 				contexts: deepFreeze([...role.contexts]),
 				loc: written.loc
 			})

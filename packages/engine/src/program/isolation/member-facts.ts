@@ -21,12 +21,10 @@ import type { NamedRole } from "#compiler/physical/ddl/names.ts"
 import {
 	type ExtractNames,
 	memberFacts,
-	type RetiredTable,
 	type SlotFill
 } from "#compiler/program/isolation/extract.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import { reachOf } from "#compiler/runtime/write/steps.ts"
-import { releasesOf } from "#compiler/schema/own.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import type { ArtifactStatement } from "#compiler/write/program/artifact.ts"
 import type { CompiledWrite } from "#compiler/write/program/compile.ts"
@@ -48,23 +46,18 @@ interface SentStatement {
 }
 
 /**
- * Every statement a compiled write's flight may send, in the order it sends them (adapter/apply/run.ts), but its holds:
+ * Every statement a compiled write's flight may send, in the order it sends them (adapter/apply/run.ts):
  * its write statements, each in every form an execution may send (write/program/served.ts projectWrite), then its
  * read-backs', which run in the change's own transaction at its level: a read-back riding a write statement is parts
  * of that statement's own forms (write/program/artifact.ts ReadBackCarried), and sends nothing of its own. A staged
  * statement reads its nested rows from carriers in place of its arrays and reads the stored relations its inline form
- * reads (write/program/staged.ts), so its inline form stands for it. A hold (write/hold/statement.ts) states no fact: it reads only its unit's header, whose key no
- * call changes, and its lock keeps every group the call states unretired until the call ends, so each body's rows are,
- * for the call, an insert-only relation's, which is how the certifier reads them (analysis/isolation/certify.ts, a
- * retirement no change); a read fact of it would cut the clean prefix the reads after it are sealed by. A statement
+ * reads (write/program/staged.ts), so its inline form stands for it. A statement
  * that reaches only the call's parameters, the admission, reads no relation and writes nothing (runtime/write/steps.ts
  * reachOf).
  */
 const flightStatements = (compiled: CompiledWrite): ReadonlyArray<SentStatement> => [
 	...compiled.artifact.statements
-		.filter(
-			(s) => s.step.kind !== "readBack" && s.step.kind !== "hold" && reachOf(s.step) === "state"
-		)
+		.filter((s) => s.step.kind !== "readBack" && reachOf(s.step) === "state")
 		.flatMap(sentForms),
 	...compiled.artifact.readBacks.flatMap((r) =>
 		r.carried.kind === "sent" ? sentForms(r.carried.statement) : []
@@ -123,8 +116,7 @@ const inputFill = (
  *   stamp function read no table: a declared function runs as the installation's function owner, which holds no
  *   privilege on any table or view, so a read of one fails its call with 42501 (physical/ddl/functions.ts); a stamp
  *   function writes and reads only its head's table, which no relation names, and returns each child's stamp, a value
- *   its call takes as it takes the clock's (physical/ddl/stamps.ts); a retirable unit's retirement function writes its
- *   header's and its bodies' tables by a retirement; any other function may read any;
+ *   its call takes as it takes the clock's (physical/ddl/stamps.ts); any other function may read any;
  * - the objects an ON CONFLICT with no target arbitrates on a relation's table are its primary key's, each UNIQUE's and
  *   each span key's natives, each by the columns of its fields.
  *
@@ -193,29 +185,6 @@ export const extractNames = (role: {
 		const stamp = names.stamp(head.relation, head.field.name)
 		noTable.add([stamp.schema, stamp.name])
 	}
-	const retirements = new TupleMap<readonly [string, string], ReadonlyArray<RetiredTable>>()
-	for (const st of owned.base.statements) {
-		if (st.kind !== "retirable") {
-			continue
-		}
-		const fn = names.retire(st.header.relation)
-		const bodies = st.bodies.map((b) => b.relation)
-		retirements.set(
-			[fn.schema, fn.name],
-			[
-				...[st.header.relation, ...bodies].map((r): RetiredTable => ({
-					table: names.relation(r),
-					op: "retire"
-				})),
-				...releasesOf(owned.base.statements, bodies).flatMap((r) =>
-					r.target.map((side): RetiredTable => ({
-						table: names.relation(side.relation),
-						op: "delete"
-					}))
-				)
-			]
-		)
-	}
 	const arbiters = new Map<string, Array<ReadonlyArray<string>>>()
 	for (const { object } of artifacts.laws.natives) {
 		const arbiter = arbiterOf(object)
@@ -229,7 +198,6 @@ export const extractNames = (role: {
 		relationOf: (table) => relations.get([table.schema, table.name]),
 		fieldOf: (relation, column) => columns.get([relation, column]),
 		readsNoTable: (fn) => noTable.has([fn.schema, fn.name]),
-		retirementOf: (fn) => retirements.get([fn.schema, fn.name]),
 		arbitersOf: (relation) => arbiters.get(relation) ?? []
 	}
 }

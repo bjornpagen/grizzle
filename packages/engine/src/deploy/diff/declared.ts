@@ -188,10 +188,10 @@ const heldAlike = (
 }
 
 /** Whether grizzle draws a field's values again, so its drop loses nothing its caller wrote: a generated, drawn or
- * accumulated field. A caller's field holds the caller's values, a retirement field which of its header's groups are
- * retired, and an instant the database's clock at each row's write. */
+ * accumulated field. A caller's field holds the caller's values, and an instant the database's clock at each row's
+ * write. */
 const drawnAgain = (writing: SnapshotWriting): boolean =>
-	writing !== "caller" && writing !== "retirement" && writing !== "instant"
+	writing !== "caller" && writing !== "instant"
 
 /** A login a snapshot records, under its record's name. */
 interface HeldLogin {
@@ -1851,7 +1851,6 @@ const withColumns = (
 			case "dropColumn":
 			case "dropDefault":
 			case "setNotNull":
-			case "setRetirementDefault":
 				return { ...a, column: nameIn(into)(a.column) }
 			case "addConstraintUsingIndex":
 			case "validateConstraint":

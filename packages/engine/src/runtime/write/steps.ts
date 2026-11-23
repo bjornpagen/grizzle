@@ -64,8 +64,6 @@ export type WriteStep =
 			readonly casts: CarrierCasts
 	  }
 	| { readonly kind: "readBack"; readonly name: string }
-	| HoldStep
-	| RetireStep
 	| AdmissionStep
 	| {
 			readonly kind: "check"
@@ -91,32 +89,6 @@ export type WriteStep =
  */
 export interface AdmissionStep {
 	readonly kind: "admission"
-}
-
-/**
- * A retirable unit's hold of the groups a write states (write/hold/statement.ts), by its header: before the first
- * statement of the write that touches the unit, wherever that stands among the strata and the read-backs after them,
- * so it belongs to no stratum. Its one row carries nothing to decode, and a group it finds absent or retired is a
- * refusal the refusal function raises on the fence of the unit's first body.
- */
-export interface HoldStep {
-	readonly kind: "hold"
-	readonly header: StoredRelationName
-}
-
-/**
- * A retirable unit's retirement of the groups a stratum's retire members state (write/hold/statement.ts), by its
- * header: its one row is its counts (RetireResult), the groups it retired, which the outcome counts as puts of the
- * header, each header's fact at its key now a retired one, then each of `removed`' rows it removed, its bodies' rows
- * with their groups and then each relation's of the reachable records it released, which it counts as deletes
- * (outcome.ts retiredCounts). No other statement of the write reads or writes the unit or those records
- * (RetiredUnitTouched), so its rows are no delta's.
- */
-export interface RetireStep {
-	readonly kind: "retire"
-	readonly stratum: StratumAt
-	readonly header: StoredRelationName
-	readonly removed: ReadonlyArray<StoredRelationName>
 }
 
 /**
@@ -180,8 +152,6 @@ export const writeRows = (
 		case "carrier":
 		case "readBack":
 		case "check":
-		case "hold":
-		case "retire":
 		case "admission":
 			return []
 	}
@@ -190,12 +160,10 @@ export const writeRows = (
 /** The step of a statement of the write program's own: every step but a read-back's. */
 export type OwnStep = Exclude<WriteStep, { readonly kind: "readBack" }>
 
-/** The stratum a step belongs to, none for a carrier around the strata, a read-back's statement, a hold and the
- * admission. */
+/** The stratum a step belongs to, none for a carrier around the strata, a read-back's statement and the admission. */
 const stratumOf = (step: WriteStep): StratumAt | undefined => {
 	switch (step.kind) {
 		case "readBack":
-		case "hold":
 		case "admission":
 			return undefined
 		case "carrier":
@@ -203,7 +171,6 @@ const stratumOf = (step: WriteStep): StratumAt | undefined => {
 		case "check":
 		case "single":
 		case "familyWrite":
-		case "retire":
 			return step.stratum
 	}
 }
@@ -223,8 +190,6 @@ export const reachOf = (step: WriteStep): StepReach => {
 		case "admission":
 			return "parameters"
 		case "readBack":
-		case "hold":
-		case "retire":
 		case "carrier":
 		case "write":
 		case "check":

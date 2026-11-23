@@ -148,7 +148,7 @@ export type RecordApart<Stem extends string, Owner, Key, Q, Names> = RecordsHeld
  * builds carries that alias and its arguments, the query's attachment phantom among them, which holds each attached
  * query whole; the checker relates two such unions by the alias's variance, which it measures by instantiating the
  * recursion over markers, a tree no level ends, and infers through the arguments into the queries: TS2589 where a
- * fragment's statements, a tuple of a law or a retirable body over the records beside the records' laws, are read back
+ * fragment's statements, a tuple of laws over the records beside the records' laws, are read back
  * (records of a document scan, an array of nodes each with options and arrays under it). Unboxed, the union is its
  * members, each relation and law one type for one child (ChildRelation), related member by member, each by identity.
  * Distributed again without boxes (`U extends unknown ? U : never`), a union maps to itself: the union the recursion
@@ -215,21 +215,11 @@ export type RecordedQuery = Decoders<unknown, unknown> & { readonly heading: Car
 export type RecordOwner = Readonly<Record<string, FieldBase>>
 
 /**
- * The fields of an owner's key, under their names: what every relation of records carries, so what records show as a
- * side's source (OwnerHeading), on(records, …) naming them.
- */
-type OwnerHeading<Owner, Key extends ReadonlyArray<keyof Owner & string>> = {
-	readonly [K in Key[number]]: Owner[K]
-}
-
-/**
  * A query's records (program/records.ts records): its root relation `${Stem}Row`, the owner's fields then the query's
  * stored columns and its arrays' counts, keyed by the owner's key; the relations and laws a level lists for them, root
  * first, then each attachment's (Children, Laws); the relations an insert states apart from the root (Apart); and the
  * query's own decoders, its rows' (Head) and its read-back rows' (IHead), which the read of the records (RecordsQuery)
- * delivers through. As a side's source records show their stem as their name and their owner's key as their heading
- * (OwnerHeading), which every relation of them carries: on(records, …owner key fields) is a retirable body standing for
- * each of their relations, on its own fields carrying those (schema/statements.ts admitRetirable).
+ * delivers through.
  */
 export interface Records<
 	Stem extends string,
@@ -244,7 +234,6 @@ export interface Records<
 > extends Decoders<Head, IHead> {
 	readonly kind: "records"
 	readonly name: Stem
-	readonly heading: OwnerHeading<Owner, Key>
 	readonly row: RecordsRow<Stem, Fields, Key>
 	readonly relations: readonly [RecordsRow<Stem, Fields, Key>, ...ReadonlyArray<Children>]
 	readonly rules: ReadonlyArray<Laws>

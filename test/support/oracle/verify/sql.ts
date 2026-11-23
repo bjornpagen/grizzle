@@ -1958,8 +1958,6 @@ class StatementAuditor {
 			return
 		}
 		switch (generated.kind) {
-			case "retirement":
-				return
 			case "stored":
 				this.ddlExpr(generated.expr, tableColumns, "generated")
 				return
@@ -2273,7 +2271,6 @@ class StatementAuditor {
 				})
 				return
 			case "perform":
-			case "lockRows":
 				this.at("query", () => {
 					embeddedSelect({ kind: "select", with: undefined, ...statement.query })
 				})
@@ -2577,7 +2574,6 @@ class StatementAuditor {
 								case "dropColumn":
 								case "dropDefault":
 								case "setNotNull":
-								case "setRetirementDefault":
 									this.ident(action.column, "column", "column")
 									return
 								case "validateConstraint":

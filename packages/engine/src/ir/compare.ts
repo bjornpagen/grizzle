@@ -128,8 +128,7 @@ const rowCompare = <F>(op: "=" | "<>", sides: RowSides<F>, names: OperatorNames)
 }
 
 /** `(left) = (right)` over the fields; one field compares as a scalar. */
-export const rowEq = <F>(sides: RowSides<F>, names: OperatorNames): Expr =>
-	rowCompare("=", sides, names)
+const rowEq = <F>(sides: RowSides<F>, names: OperatorNames): Expr => rowCompare("=", sides, names)
 
 /** `(left) <> (right)` over the fields; one field compares as a scalar. */
 const rowNe = <F>(sides: RowSides<F>, names: OperatorNames): Expr => rowCompare("<>", sides, names)

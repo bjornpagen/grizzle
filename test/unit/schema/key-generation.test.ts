@@ -2,14 +2,14 @@
  * A generated field in a primary key, a key generation (INTERFACE.md of lane GENPK, §1 and §4): grizzle writes it on
  * every insert and PostgreSQL proves it by a row CHECK, so a key generation reads only fields its caller writes, which
  * every write states before grizzle fills anything. A generation that reads a field grizzle draws from the nesting,
- * accumulates along an axis, stamps as a place, or sets as a retirement, reads a value no key head states, and is
+ * accumulates along an axis, or stamps as a place, reads a value no key head states, and is
  * refused when its schema compiles, GeneratedRefused at the field, naming its least such read by code units and how
  * that read is written.
  *
- * The box: four templates, each a relation built by relation.generated whose fields are written in every way its
+ * The box: three templates, each a relation built by relation.generated whose fields are written in every way its
  * statements make lawful: an ordered family with a concat fold (drawn `at`, accumulated `before` and `after`), a tree
  * with a concat fold, keyed by its root fields and its start as pantry's Node is (drawn `parent`, `at`, `children`,
- * `start` and `end`, three accumulated texts), a place in its group (`n`), and a retirable header (`retired`); and
+ * `start` and `end`, three accumulated texts), and a place in its group (`n`); and
  * beside them caller texts, one past every key's bound, and caller integers. Each case draws a nonempty subset of its
  * template's fields, half the time among its caller's alone, and builds the generation `g` over them: their texts
  * concatenated, a field that is no text entering through a conditional over it, so every read is a term's read. It
@@ -18,9 +18,7 @@
  *
  * Oracle: the rule restated over the reads the case drew. The control compiles whatever `g` reads, as a generated
  * field no key holds reads any field of its row, so a refusal of the keyed schema is its key's; the keyed schema
- * compiles exactly when every read is its caller's, and is otherwise refused at `g` for its least non-caller read. A
- * retirable header's key holding a generation is refused whatever it reads, UnsupportedOperation, its bodies' copies
- * of the header's key written by no fill (GENPK-A, first cut).
+ * compiles exactly when every read is its caller's, and is otherwise refused at `g` for its least non-caller read.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
@@ -94,19 +92,6 @@ const judged = (k: KeyGenerationCase, c: Case<KeyGenerationFeature>): void => {
 			}
 			return
 		}
-		case "retirement over a generated key": {
-			if (
-				!keyed.ok &&
-				keyed.error.reason._tag === "GeneratedRefused" &&
-				verdict.read !== undefined
-			) {
-				keyReadRefused(keyed.error, verdict.read, shown)
-			} else {
-				refused(keyed, "UnsupportedOperation", `${shown}: a retirable header over a generated key`)
-			}
-			c.note("refused: a retirable header over a generated key")
-			return
-		}
 	}
 }
 
@@ -126,8 +111,7 @@ export const aKeyGenerationIsAdmittedExactlyWhenItsCallerWritesEveryFieldItReads
 			"refused: its drawn read",
 			"refused: its accumulated read",
 			"refused: its place read",
-			"refused: reads several writings outside its caller's",
-			"refused: a retirable header over a generated key"
+			"refused: reads several writings outside its caller's"
 		] satisfies ReadonlyArray<Reached<KeyGenerationFeature>>,
 		check: (_, c: Case<KeyGenerationFeature>) => (k) => Effect.sync(() => judged(k, c)),
 		oracle: {

@@ -68,8 +68,7 @@ export interface LawField extends HeadingColumn {
  * expression over the row's caller-written fields of the field's type, typed from `desc`, the description it is written
  * by (analysis/schema.ts #generated: a cast into the field's own type its operand's); drawn by grizzle from the nested arrays it is a
  * family's index, count, start or end of; accumulated by grizzle on the host, the copy the one axis that carries it
- * gives it, `start` at the axis's base, and proved by PostgreSQL; retirement, a header's boolean PostgreSQL defaults
- * to false and its group's retirement alone sets true; instant, by the database's clock, stamped where it is its
+ * gives it, `start` at the axis's base, and proved by PostgreSQL; instant, by the database's clock, stamped where it is its
  * relation's clock or a stored instant where it is a reference (analysis/theory/instants.ts); or place, by the insert
  * that adds its row, one past its group's greatest place, `order` how a migration that adds it numbers the rows it
  * finds stored (ir/desc.ts PlaceOrderDesc, ir/instant.ts PlaceOrder). Only a caller field is in an insert's head, and an instant
@@ -83,7 +82,7 @@ export interface LawField extends HeadingColumn {
  * known by is a column every native reads as any other. Its key head is its generation's reads (`keyHeads`).
  */
 export type FieldWriting =
-	| { readonly kind: "caller" | "drawn" | "retirement" | "instant" }
+	| { readonly kind: "caller" | "drawn" | "instant" }
 	| {
 			readonly kind: "generated" | "keyGenerated"
 			readonly desc: ExprDesc
@@ -105,7 +104,6 @@ export const generationOf = (field: Pick<LawField, "writing">): ScalarExpr | und
 			return field.writing.expr
 		case "caller":
 		case "drawn":
-		case "retirement":
 		case "instant":
 		case "place":
 		case "accumulated":
@@ -202,9 +200,8 @@ export interface RelationInfo extends StoredRelationOf<"relation">, TableRelatio
 	 * The fields a write changes in place on a row it keeps, in field order, decided once where the checked schema types
 	 * the relation (analysis/schema.ts): a mutable relation's every field outside its primary key, which a put updates;
 	 * an immutable one's accumulated fields where it is a member of a family, no tree, whose owner is mutable, which the
-	 * family's owner axis rewrites ON UPDATE CASCADE as the owner's columns change; its retirement fields, which its
-	 * group's retirement sets (physical/ddl/retire.ts); and its generated fields that read either. Every other field of
-	 * an immutable relation holds the value its row was inserted with until the row is deleted: the premise a unit-local
+	 * family's owner axis rewrites ON UPDATE CASCADE as the owner's columns change; and its generated fields that read
+	 * them. Every other field of an immutable relation holds the value its row was inserted with: the premise a unit-local
 	 * rule's judge reads the fields it reads under (analysis/theory/unit.ts wholeRule), and what the relation's
 	 * immutability guard holds against every UPDATE, the owner's included (physical/ddl/immutable.ts).
 	 */
@@ -327,8 +324,8 @@ export interface EvidenceSide {
 
 /**
  * What declares a law: `statement` is the index of the declaring statement in the schema description, of the relation
- * for a primary key, or of the contract for a contract. A law an alternatives, a retirable or a series statement, a
- * family, a tree or a fold expands to is its statement's, by the statement's kind.
+ * for a primary key, or of the contract for a contract. A law an alternatives or a series statement, a family, a tree
+ * or a fold expands to is its statement's, by the statement's kind.
  */
 export interface LawSource {
 	readonly kind:
@@ -341,8 +338,6 @@ export interface LawSource {
 		| "tree"
 		| "fold"
 		| "alternatives"
-		| "retirable"
-		| "reachable"
 		| "series"
 	readonly statement: number
 }

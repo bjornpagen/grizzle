@@ -31,7 +31,6 @@ import {
 	type PlannedChangeSetDesc,
 	type PlannedMemberDesc,
 	type FactsMemberDesc,
-	type RetireMemberDesc,
 	type WriteOp
 } from "#compiler/ir/desc.ts"
 import { fieldReads } from "#compiler/ir/expr.ts"
@@ -138,11 +137,9 @@ import {
 	type OwnerCopy,
 	type RemovalEdit,
 	type Schedule,
-	scheduleStratum,
-	type UnitOrder
+	scheduleStratum
 } from "#compiler/write/frontend/schedule.ts"
 import { payloadOf, primaryKeyShape } from "#compiler/write/frontend/targets.ts"
-import { storedReads } from "#compiler/write/hold/stated.ts"
 import { type RelationInput, relationInput } from "#compiler/write/insert/input.ts"
 import { isCarried, keyFirst } from "#compiler/write/insert/statement.ts"
 import {
@@ -196,19 +193,6 @@ export type SingleAct =
 	| { readonly op: "delete"; readonly names: "rows" | "units" }
 	| { readonly op: "put" }
 	| { readonly op: "insert" }
-	| RetireAct
-
-/** The groups a stratum retires of a retirable unit, its header's key values (ChangeSet.retire), read by the unit's
- * retirement (write/hold/statement.ts), which no action of the stratum writes. */
-export interface RetireAct {
-	readonly op: "retire"
-}
-
-/** The one retirement's act. */
-const retireAct: RetireAct = Object.freeze({ op: "retire" })
-
-/** An act of a write's own action: a deletion, a put or an insertion. */
-type WriteAct = Exclude<SingleAct, RetireAct>
 
 /** The enumerated members of one operation on one relation in one stratum, by their member slots' names, whose faults
  * name them, and the slot each of their facts travels in: one slot, for a deletion, a put and an insertion; or an
@@ -1451,11 +1435,10 @@ const compile = (
 			carried: carriedOf(member)
 		}
 	}
-	/** Each stratum's write members of facts, its inserts' computed fields aside (`strataComputed`), and its retire
-	 * members, which write no relation (`strataRetires`). */
+	/** Each stratum's write members of facts, its inserts' computed fields aside (`strataComputed`). */
 	const strataWrites = desc.strata.map((stratum) =>
 		stratum.members.flatMap((m): ReadonlyArray<FactsMemberDesc> =>
-			m.op === "retire" || m.member.kind === "computed"
+			m.member.kind === "computed"
 				? []
 				: [{ op: m.op, relation: m.relation, member: m.member, loc: m.loc }]
 		)
@@ -1896,71 +1879,10 @@ const compile = (
 			)
 		)
 
-	/**
-	 * The header a retire member names, as the stratum's retirement reads it: in a role's program, a whole entry its
-	 * `retire` list names (OutsideRole `retire` otherwise), and in reality's, any relation; either way the header of a
-	 * retirable statement of the schema, whose facts are its groups, each its key's fields in the statement's order.
-	 */
-	const retiredOf = (
-		member: RetireMemberDesc
-	): { readonly relation: WrittenRelation; readonly key: Heading } => {
-		const world = checked.world
-		const name = member.relation
-		const header =
-			world.kind === "reality"
-				? name
-				: world.role.retire.includes(name)
-					? world.role.relations[name]?.kind === "whole"
-						? name
-						: undefined
-					: undefined
-		if (header === undefined) {
-			if (world.kind === "reality") {
-				return refuse("MalformedDescription", member.loc, `a retirable header, not ${name}`)
-			}
-			throw new Refusal(
-				CompileError.make({
-					_tag: "OutsideRole",
-					at: member.loc,
-					role: world.role.name,
-					access: { kind: "retire", relation: name }
-				})
-			)
-		}
-		const unit = checked.owned.statements.find(
-			(st) => st.kind === "retirable" && st.header.relation === header
-		)
-		if (unit?.kind !== "retirable") {
-			return refuse(
-				"MalformedDescription",
-				member.loc,
-				`a retirement of a retirable unit's header; ${name} heads no retirable statement`
-			)
-		}
-		const relation = writtenOf(header, member.loc)
-		const key = unit.header.terms.map((t): HeadingColumn => {
-			const field =
-				t.kind === "field" ? relation.heading.find((c) => c.name === t.field) : undefined
-			if (field === undefined) {
-				throw defect(`retirable ${header}'s key is fields of ${header}`)
-			}
-			return carriedColumn(field)
-		})
-		return { relation, key }
-	}
-	/** Each stratum's retire members (ChangeSet.retire), which no action writes: each header's are one slot group of
-	 * its stratum, its groups one slot, which the unit's retirement reads (write/hold/stated.ts retiredUnits). */
-	const strataRetires = desc.strata.map((stratum) =>
-		stratum.members.flatMap((m): ReadonlyArray<RetireMemberDesc> => (m.op === "retire" ? [m] : []))
-	)
-
 	/** 2. Group each stratum's members into actions. */
 	const slots: Array<SlotGroup> = []
 	const occupied = strataAt(
-		strataMembers.flatMap((members, s) => {
-			const retires = strataRetires[s] ?? []
-			return members.length > 0 || retires.length > 0 ? [{ s, members, retires }] : []
-		})
+		strataMembers.flatMap((members, s) => (members.length > 0 ? [{ s, members }] : []))
 	)
 	/** Each stratum's nested writes, by its position among the occupied strata, the stratum its statements run in. */
 	const nestedWrites: Array<NestedWrite> = []
@@ -1993,7 +1915,7 @@ const compile = (
 			)
 		}
 	}
-	const draftsByStratum = occupied.map(([stratum, { s, members, retires }]) => {
+	const draftsByStratum = occupied.map(([stratum, { s, members }]) => {
 		const drafts: Array<Draft> = []
 		const outside: Array<OutsideDraft> = []
 		const units: Array<UnitDraft> = []
@@ -2069,7 +1991,7 @@ const compile = (
 				/** The operation's enumerated input of one slot, read as `act`, when it has enumerated members: its facts
 				 * carry `carried`, its members' admitted against `admitted`. */
 				const singleInput = (
-					act: WriteAct,
+					act: SingleAct,
 					carried: Heading,
 					admitted: Heading
 				): MemberSlot | undefined => {
@@ -2203,7 +2125,7 @@ const compile = (
 					const computed = op === "insert" ? computedStamps(s, relation.name) : []
 					const stated = facts.filter((c) => !computed.some((st) => st.field.name === c.name))
 					const heading = op === "delete" ? stated : [...stated, ...owned]
-					const act: WriteAct = op === "delete" ? { op, names: "rows" } : { op }
+					const act: SingleAct = op === "delete" ? { op, names: "rows" } : { op }
 					const slot = singleInput(act, heading, stated)
 					if (slot !== undefined) {
 						edits.push(
@@ -2232,7 +2154,7 @@ const compile = (
 					}
 					case "delete": {
 						if (unitRoot(relation.name)) {
-							const act: WriteAct = { op, names: "units" }
+							const act: SingleAct = { op, names: "units" }
 							/** A tree's units are named by their root fields, an owner's by its facts. */
 							const shape = treeShapeOf(relation.name)
 							const named =
@@ -2252,12 +2174,12 @@ const compile = (
 						/** One relation, one fact heading (rule 0): a deletion's facts carry what an addition's do, its
 						 * written fields, so a fact inserted and deleted is one fact with one identity, which nets. A
 						 * generated field is a function of the written ones, so it decides no match. */
-						const act: WriteAct = { op, names: "rows" }
+						const act: SingleAct = { op, names: "rows" }
 						actionsOf(act, facts, singleInput(act, facts, facts), [])
 						break
 					}
 					case "insert": {
-						const insert: WriteAct = { op }
+						const insert: SingleAct = { op }
 						if (nests(relation.name)) {
 							const nesting = nestingFor(relation, s)
 							if (memberNames !== undefined) {
@@ -2333,34 +2255,6 @@ const compile = (
 					})
 				)
 			}
-		}
-		for (const [header, list] of [...groupBy(retires, (m) => m.relation)].toSorted(
-			Order.mapInput(Order.compareStrings, ([name]: readonly [string, unknown]) => name)
-		)) {
-			const { relation, key } = retiredOf(list[0])
-			const id = ParamId(reservedSlot(s, "retire", header))
-			const slot: MemberSlot = Object.freeze({
-				slot: id,
-				transport: list.some((m) => m.member.kind === "stream") ? "stream" : "enumerated",
-				heading: key,
-				input: relationInput(id, key, relation, noneWalked)
-			})
-			const input: EnumeratedInput = Object.freeze({
-				kind: "single",
-				act: retireAct,
-				slot,
-				members: mapNonEmpty(list, (m) => m.member.slot),
-				admitted: key,
-				starts: Object.freeze([])
-			})
-			slots.push(
-				Object.freeze({
-					stratum,
-					relation,
-					inputs: Object.freeze([input] as const),
-					facts: { stated: statedInRelation, host: relation.host }
-				})
-			)
 		}
 		const [firstUnit, ...moreUnits] = units
 		const below =
@@ -2751,8 +2645,7 @@ const compile = (
 				return undefined
 			}
 			if (
-				first !== undefined &&
-				first.stamp.kind === "call" &&
+				first?.stamp.kind === "call" &&
 				rest.every((st) => st !== undefined && oneValue(first, st))
 			) {
 				return first
@@ -3229,27 +3122,7 @@ const compile = (
 	 * the statement that makes it (write/schedule/plan.ts placeReadBacks), which sees only the state earlier statements
 	 * wrote: where the stratum's order runs a delta's relation before a relation the same read-back reads as state, the
 	 * stratum is ordered again with that delta's relation after every action no key orders before it
-	 * (schedule.ts canonicalActionOrder), and any other stratum keeps its order. A retirable header's insertion runs
-	 * before every statement of its stratum that touches its unit, where the keys allow (schedule.ts UnitOrder). */
-	const retirables: ReadonlyArray<UnitOrder> = checked.owned.statements.flatMap(
-		(s): ReadonlyArray<UnitOrder> => {
-			if (s.kind !== "retirable") {
-				return []
-			}
-			const bodies = new Set(s.bodies.map((b) => b.relation))
-			return [
-				{
-					header: s.header.relation,
-					bodies,
-					reads: (action) =>
-						action.source.kind === "described" &&
-						action.source.node.meta.reads.some((r) =>
-							storedReads(checked.world, r).some((stored) => bodies.has(stored))
-						)
-				}
-			]
-		}
-	)
+	 * (schedule.ts canonicalActionOrder), and any other stratum keeps its order. */
 	const strata = placedByStratum.map(({ stratum, built, outside }): WriteStratum => {
 		const scheduleOf = (last: ReadonlySet<string>) =>
 			scheduleStratum(
@@ -3258,8 +3131,7 @@ const compile = (
 					last
 				),
 				familyNodesOf(stratum),
-				references,
-				retirables
+				references
 			)
 		const natural = scheduleOf(new Set())
 		const order: ReadonlyArray<string> =
@@ -3577,9 +3449,9 @@ const compile = (
 		...restatement,
 		desc: Object.freeze({
 			strata: Object.freeze(
-				strataMembers.map((members, s) =>
+				strataMembers.map((members) =>
 					Object.freeze({
-						members: Object.freeze([...members.map((m) => m.planned), ...(strataRetires[s] ?? [])])
+						members: Object.freeze(members.map((m) => m.planned))
 					})
 				)
 			),

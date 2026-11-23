@@ -14,8 +14,7 @@ import {
 	drawn,
 	generated,
 	natural,
-	pg,
-	retirement
+	pg
 } from "#compiler/public/fields.ts"
 import { type AnyRelation, relation } from "#compiler/public/schema.ts"
 import { type lexicalForm, str } from "#compiler/public/text.ts"
@@ -249,10 +248,10 @@ export const longestMember = (nfa: Nfa, chars: number): number => {
 
 /**
  * The kinds of field lexicalForm and lexical are handed, each typed as a type with a lexical form: a caller's
- * descriptor, an accumulated field of it, drawn(natural), a bigint's, and the retirement field, a boolean. A slot is a
+ * descriptor, an accumulated field of it, and drawn(natural), a bigint's. A slot is a
  * closed id, which has no form, and a generated field is no type.
  */
-const lexicalReadings = ["caller", "accumulated", "drawn", "retirement"] as const
+const lexicalReadings = ["caller", "accumulated", "drawn"] as const
 
 type LexicalReading = (typeof lexicalReadings)[number]
 
@@ -307,8 +306,7 @@ const startOf = (target: TypeTarget): unknown => {
 
 /**
  * Each kind of field, the targets its type's form is of, and the field it is of a target's type: any type's for a
- * caller's descriptor and an accumulated field, a bigint's for drawn(natural), natural's base, and a boolean's for the
- * retirement field.
+ * caller's descriptor and an accumulated field, and a bigint's for drawn(natural), natural's base.
  */
 const readingOf: {
 	readonly [R in LexicalReading]: {
@@ -321,8 +319,7 @@ const readingOf: {
 		targets: typeTargetGen,
 		field: (target) => accumulated(declaredOf(target), startOf(target))
 	},
-	drawn: { targets: constant({ kind: "integer", carrier: "int8" }), field: () => drawn(natural) },
-	retirement: { targets: constant({ kind: "boolean" }), field: () => retirement }
+	drawn: { targets: constant({ kind: "integer", carrier: "int8" }), field: () => drawn(natural) }
 }
 
 /** A field's case: a kind of field, each alike, a target its type has, and a candidate of the target's form. */

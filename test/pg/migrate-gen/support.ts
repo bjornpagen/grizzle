@@ -53,7 +53,6 @@ import {
 	noCarriers,
 	noCertificates,
 	noFences,
-	noHolds,
 	noCalls,
 	servesNoParams
 } from "#compiler/physical/install/extension.ts"
@@ -750,7 +749,6 @@ const worldsOf = (
 			relations: whole(stored),
 			write: stored,
 			refresh: [],
-			retire: [],
 			contexts: [],
 			loc
 		}),
@@ -762,7 +760,6 @@ const worldsOf = (
 							relations: whole(read),
 							write: [],
 							refresh: [],
-							retire: [],
 							contexts: [],
 							loc
 						}),
@@ -858,7 +855,6 @@ export const extensionsOf = (v: Version): ReadonlyArray<InstallExtension> => {
 					params: servesNoParams,
 					certifies: noCertificates,
 					carriers: noCarriers,
-					holds: noHolds,
 					calls: noCalls,
 					live: noLive,
 					fences: noFences

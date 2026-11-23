@@ -4,7 +4,7 @@
  * bytea, a bytes value being stored only, read at the carrier's type; or of a field of every kind read through
  * codecText, the field as a caller reads it off its relation's value, judged at the type it is declared of, its
  * column's: a caller's field and a generated one of every type with a text, an accumulated one of every value type,
- * drawn(natural), the retirement field, and a closed relation's slot. Each batch is stored under two installations'
+ * drawn(natural) and a closed relation's slot. Each batch is stored under two installations'
  * codes, a fresh one's and one migrated twice, whose rosters' codes have holes.
  *
  * - One text per value: two values of the batch have one text exactly when PostgreSQL holds them one value, a set's

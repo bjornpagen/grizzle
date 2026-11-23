@@ -245,9 +245,9 @@ export const aChangeSetStampsAPlaceItsInsertLeavesOutAndWritesItsRelationByInser
 			},
 			{
 				file: "packages/engine/src/check/member.ts",
-				original: '\t\tcase "retirement":\n\t\tcase "place":\n\t\t\treturn false\n',
+				original: '\t\tcase "accumulated":\n\t\tcase "place":\n\t\t\treturn false\n',
 				replacement:
-					'\t\tcase "place":\n\t\t\treturn true\n\t\tcase "retirement":\n\t\t\treturn false\n',
+					'\t\tcase "place":\n\t\t\treturn true\n\t\tcase "accumulated":\n\t\t\treturn false\n',
 				why: "A member head may hold a place, so the insert stating its place is not refused as its heading's mismatch, and the property fails."
 			}
 		]
@@ -306,8 +306,6 @@ export const aStampedNestingIsOneStatementWritingItsOwnerAndEveryMemberItsHeadSt
 							case "carrier":
 							case "readBack":
 							case "check":
-							case "hold":
-							case "retire":
 							case "admission":
 								return []
 						}

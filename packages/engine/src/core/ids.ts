@@ -53,8 +53,6 @@ export type IdentityKind =
 	| "closedConstant"
 	| "libraryFunction"
 	| "rowFunction"
-	| "hold"
-	| "retire"
 	| "head"
 	| "headKey"
 	| "stamp"

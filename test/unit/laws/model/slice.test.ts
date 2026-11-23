@@ -365,8 +365,7 @@ export const aCompilesLawModelIsTheWholeSchemasRestrictedToItsSlicesWritesAndNam
 					)
 					const narrowed = raisableOf(wholeArtifacts, {
 						written: changed,
-						cast,
-						held: new Set()
+						cast
 					})
 					const constraintOf = (e: {
 						readonly kind: string

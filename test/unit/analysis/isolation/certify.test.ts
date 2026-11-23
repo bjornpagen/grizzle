@@ -1,12 +1,12 @@
 /**
  * The isolation certifier (analysis/isolation/certify.ts) over drawn installations: two logins' roles over four
  * relations, each relation with rules over queries stated at it or not, each by its witnesses (analysis/theory/query.ts
- * Witness: one or two rows of matches, absences, rarely presences beyond them, over any relations), a retirable unit's
- * or not, declared keys, its first raced or not, counted groups and
+ * Witness: one or two rows of matches, absences, rarely presences beyond them, over any relations), declared keys, its
+ * first raced or not, counted groups and
  * foreign keys (immediate or deferred alike, an update cascading or not), each role's privileges, and its change members'
  * statements, each reading relations, positively, negated, counted or as grizzle's key arbitration, its own rows or not,
  * by a group whose fields are bound to one value or to one per own row, k0 and k1 to one parameter or each to its own,
- * or none, and writing relations, by insert, update, delete or a retirement, which changes none of them, with each
+ * or none, and writing relations, by insert, update or delete, with each
  * written row joined with some of its statement's reads; its members as served at READ COMMITTED, and those of its SERIALIZABLE
  * form, which certification lowers it to once a round leaves it SERIALIZABLE. Some draws are counterexamples: two copiers, each inserting
  * into one relation and then copying the other's (by a scan, or at a whole key); a writer reading another's absence
@@ -28,14 +28,10 @@
  * READ COMMITTED; the same read at another value of the key or of a part of it, and a raced relation's read at another
  * key its insertion was probed at, each a pivot; and that read where the relation is not raced, whose probed key is fixed too.
  *
- * A retirement counts among its own role's writes, whose laws and guard it meets, and among no other role's judgement of
- * it: no co-writer's guard and no pivot's write of what another reads (physical/ddl/retire.ts, the hold).
- *
  * The oracle restates every condition over the drawn facts, apart from the certifier's code, in rounds from none
  * lowered: each judged role's own conditions over its READ COMMITTED members, a rule over a query it writes a relation
  * of failing condition 2 where its write breaks a witness (makes a row present where the witness reads it as a row or a
- * presence, absent where as an absence; an update and a retirement both, a retirable unit's relation absent and
- * present by its retirement) that holds other than exactly one occurrence any write can make true, a row, and every
+ * presence, absent where as an absence; an update both) that holds other than exactly one occurrence any write can make true, a row, and every
  * relation of every witness its writes break an outside read of it for 5c; its foreign key checks among its reads,
  * a referencing check sealed where it binds a whole declared key of a relation no role updates (an insert-only one's,
  * a held one's and a fenced one's alike, fenced where one login's roles both delete and insert it), a fenced write's
@@ -114,9 +110,9 @@
  * among the facts it was judged by. Features: a role SERIALIZABLE by form, and beside one a role certified READ
  * COMMITTED, a role SERIALIZABLE by reasons one gives, and a judged role SERIALIZABLE by its own conditions.
  *
- * DENSEATS's repro and its five neighbours (monotoneOf): a role that inserts R and E under a rule whose witness reads
+ * DENSEATS's repro and its four neighbours (monotoneOf): a role that inserts R and E under a rule whose witness reads
  * one row of R and E's absence runs READ COMMITTED (the monotone writer); a deleter of E, a self-join of R, E read
- * present, E a retirable unit's body, or a SERIALIZABLE inserter of E that may miss a write each leave it SERIALIZABLE.
+ * present, or a SERIALIZABLE inserter of E that may miss a write each leave it SERIALIZABLE.
  *
  * Features: each condition failed and met, each counterexample shape, each level, each capability added or fact
  * removed, a role lowered in a later round, a role whose lowered form alone reads the absence of what it writes, a held
@@ -238,7 +234,6 @@ export const theIsolationCertifierRunsARoleREADCOMMITTEDExactlyWhenEveryConditio
 				"a fence a READ COMMITTED role relies on",
 				"a fence of a relation no role deletes",
 				"a check of the rows that reference a changed one",
-				"a retirement",
 				"an update carried by a cascading foreign key",
 				...Arr.map(shapes, (s) => `the ${s}` as const),
 				"a fact dropped beside a READ COMMITTED role",
@@ -428,9 +423,6 @@ export const theIsolationCertifierRunsARoleREADCOMMITTEDExactlyWhenEveryConditio
 									)
 									if ((w.op === "update" || w.op === "delete") && referencing.length > 0) {
 										k.note("a check of the rows that reference a changed one")
-									}
-									if (w.op === "retire") {
-										k.note("a retirement")
 									}
 									if (
 										w.op === "update" &&
@@ -639,13 +631,6 @@ export const theIsolationCertifierRunsARoleREADCOMMITTEDExactlyWhenEveryConditio
 					original: "\t...w.rows.flatMap((relation) =>",
 					replacement: "\t...[...new Set(w.rows)].flatMap((relation) =>",
 					why: "A witness's rows counted by relation, so a self-join's two rows count once and the self-join neighbour is certified READ COMMITTED; the search fails."
-				},
-				{
-					file: "packages/engine/src/analysis/isolation/certify.ts",
-					original: '\t\tcase "retire":\n\t\t\treturn ["present", "absent"]',
-					replacement:
-						'\t\t\treturn ["present", "absent"]\n\t\tcase "retire":\n\t\t\treturn ["present"]',
-					why: "A retirement making rows present alone, so a retirable unit's body read absent is taken for monotone; the search fails."
 				},
 				{
 					file: "packages/engine/src/analysis/isolation/certify.ts",

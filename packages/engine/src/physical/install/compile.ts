@@ -38,7 +38,6 @@ import { addImmutableGuards } from "#compiler/physical/ddl/immutable.ts"
 import { readCommittedRelations } from "#compiler/physical/ddl/isolation.ts"
 import { addLibrary } from "#compiler/physical/ddl/library.ts"
 import { addLiveSource } from "#compiler/physical/ddl/live.ts"
-import { addUnitFunctions } from "#compiler/physical/ddl/retire.ts"
 import { addWorlds, grantedPrivileges, type InstalledLogin } from "#compiler/physical/ddl/roles.ts"
 import { addRules } from "#compiler/physical/ddl/rules.ts"
 import { addStamps } from "#compiler/physical/ddl/stamps.ts"
@@ -482,7 +481,6 @@ const installationIn = (
 				]
 				const declared = addFunctions(b)
 				const { keyIndexes, tables } = addTables(b)
-				const units = addUnitFunctions(b)
 				const stamps = addStamps(b)
 				const rules = phased(phases, { name: "judge", of: [] }, () => addRules(b))
 				addImmutableGuards(b)
@@ -511,7 +509,6 @@ const installationIn = (
 				const live = liveOf(options.extensions)
 				const worlds = addWorlds(
 					b,
-					units,
 					stamps,
 					{ tables, domains: [...domains, ...paramDomains] },
 					plan.logins,
@@ -520,7 +517,6 @@ const installationIn = (
 						options.extensions.flatMap((e) => e.carriers),
 						"carrier statement"
 					),
-					options.extensions.flatMap((e) => e.holds),
 					{ calls: options.extensions.flatMap((e) => e.calls), declared },
 					fencedOnce(
 						plan,

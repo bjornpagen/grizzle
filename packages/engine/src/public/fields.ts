@@ -26,7 +26,6 @@ import {
 	drawnField,
 	generatedField,
 	placeDescriptor,
-	retirementField,
 	slotField
 } from "#compiler/schema/relation.ts"
 import type { BitsApi } from "#compiler/types/compute/compute.ts"
@@ -77,7 +76,6 @@ import type {
 	NaturalField,
 	NoWriting,
 	PlaceDescriptor,
-	RetirementField,
 	SpanField,
 	SpanWidthOf,
 	SubsetHandles
@@ -141,7 +139,6 @@ export type {
 	PatternField,
 	PlaceDescriptor,
 	PlaceField,
-	RetirementField,
 	SpanField,
 	SpanWidthOf,
 	SqlOf,
@@ -370,12 +367,6 @@ export const searchDocument: SearchDocumentConstructor = <const C extends TextSe
 		[]
 	)
 }
-
-/**
- * retirement: a retirable statement's header field, a boolean false while its group is open and true once its group is
- * retired, never written by a caller (schema/relation.ts retirementField).
- */
-export const retirement: RetirementField = retirementField(pgDescriptors.boolean)
 
 /**
  * instant: microseconds since the Unix epoch on the database's clock, written only by the database: an insert stamps

@@ -1209,10 +1209,7 @@ const readBackValue = (
 			"members by relation, operation, kind and identity digest"
 		)
 		return Arr.map(
-			runsOf(
-				Arr.flatMap(stratum.members, (m) => (m.op === "retire" ? [] : [m])),
-				(m) => ({ relation: m.relation, op: m.op })
-			),
+			runsOf(stratum.members, (m) => ({ relation: m.relation, op: m.op })),
 			(run): CanonGroup => {
 				const arrays: Array<ReadonlyArray<number>> = []
 				const ids: Array<number> = []

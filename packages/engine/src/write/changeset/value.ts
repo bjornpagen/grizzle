@@ -84,7 +84,7 @@ import type { Decoders, OrderedBase, QueryBase } from "#compiler/types/query/que
 import { type BuiltOver, builtOverOf } from "#compiler/write/changeset/levels.ts"
 import { delta, memberRelation, memberRelationNamed } from "#compiler/write/delta/source.ts"
 
-/** What any member does: a write member's op, or a retirement's (ChangeSet.retire), which an array or a Stream holds. */
+/** What any member does: a write member's op, which an array or a Stream holds. */
 type SlotOp = MemberDesc["op"]
 
 /**
@@ -304,8 +304,6 @@ export interface ChangeSetValue extends Built {
 		selections: Readonly<Record<string, Readonly<Record<string, unknown>>>>
 	): ChangeSetValue
 	put(relation: unknown, facts: MemberInput): ChangeSetValue
-	/** A retirement's groups from a JavaScript caller are an array or a Stream; a query is refused. */
-	retire(header: unknown, groups: MemberInput): ChangeSetValue
 	/** A read-back from a JavaScript caller may be any value; the builder checks it is a function. */
 	read(name: unknown, readBack: unknown): ChangeSetValue
 	bind(params: unknown): ChangeSetValue
@@ -884,9 +882,6 @@ const make = <S, P, W extends string, Rd, Done extends Strata, Last extends Stra
 		put(relation, facts) {
 			return addMember(stateOf(this, "ChangeSet.put"), "put", relation, facts)
 		},
-		retire(header, groups) {
-			return addMember(stateOf(this, "ChangeSet.retire"), "retire", header, groups)
-		},
 		read: (name, readBack) => addRead(state, name, readBack),
 		bind: (params) => bindParams(state, params)
 	}
@@ -978,12 +973,6 @@ const memberState = (
 	}
 	const built = queryState(facts)
 	if (built !== undefined) {
-		if (op === "retire") {
-			throw malformed(
-				label,
-				"the groups a retirement retires as an array or a Stream of its header's keys: they are values the call states, never a query"
-			)
-		}
 		if (isOrdered(built)) {
 			throw malformed(
 				label,

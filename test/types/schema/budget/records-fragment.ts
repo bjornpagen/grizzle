@@ -7,8 +7,8 @@ import { assertClean, type Measuring, measuredEach } from "#test/types/batch/mea
 
 /**
  * The records-fragment programs (records-fragment.test.ts): over a schema of thirteen relations, `units` times, a
- * query's records (records(...)) and a fragment holding them, a header beside their relations and, among its
- * statements, a retirable body over the records beside the records' own laws, as den lists a recorded tree in a library:
+ * query's records (records(...)) and a fragment holding their relations and the records' own laws, as den lists a
+ * recorded tree in a library:
  * flat records, of a query that attaches nothing; records of an array of children each with an option of its own, two
  * levels below the root; or records of a document scan (scanOf), as metis records a read of a document. The records
  * hold their relations and laws as unions of the members alone, read once their query is known
@@ -91,14 +91,13 @@ const queryOf = (shape: FragmentShape, i: number): string => {
 	}
 }
 
-/** Unit i: its query, its records, the header that retires their groups, and the fragment holding them all. */
+/** Unit i: its query, its records, and the fragment holding them. */
 const unitOf = (
 	shape: FragmentShape,
 	i: number
 ): string => `export const q${i} = ${queryOf(shape, i)}
 export const k${i} = records("K${i}", q${i}, { run: Id }, ["run"])
-export const H${i} = relation("H${i}", { run: Id, retired: retirement }, ["run"])
-export const F${i} = fragment([H${i}, ...k${i}.relations], [retirable(H${i}, [on(k${i}, "run")]), ...k${i}.rules])
+export const F${i} = fragment([...k${i}.relations], [...k${i}.rules])
 `
 
 /** The program of `units` units of a shape, its imports read through the gates' prelude as `entries` reaches it. */
@@ -136,8 +135,7 @@ const step = 10
  * @limitKind measured
  * @owner the records' type cost gates (test/types/schema/budget/records-fragment.ts)
  * @unit instantiations a unit adds
- * @scope one unit of the shape (a query, its records, a header and the fragment holding them, their retirable body and
- *   their laws), checked by one checker against the engine's and the shell's declarations, as
+ * @scope one unit of the shape (a query, its records and the fragment holding them and their laws), checked by one checker against the engine's and the shell's declarations, as
  *   test/types/batch/measured.ts checks a program
  * @evidence ~/.cache/grizzle-release/recnames-tools/ts2589 (a mirror of pantry's documentScanOf and metis's fragment
  *   of its records beside a retirable body, checked as measured.ts checks a program: tsgo --checkers 1
@@ -159,8 +157,8 @@ const step = 10
  * @decision the bound is the unboxed records' own cost, exactly: a change that makes a fragment of records cost more
  *   is refused here, and a change that lowers it lowers the bound
  * @revalidate a TypeScript 7 or tsgo upgrade; another machine; any change to records' types (types/schema/records.ts),
- *   to a fragment's or a schema's statements (types/schema/schema.ts) or to a retirable statement's that moves a unit's
- *   cost, which states its cost here
+ *   or to a fragment's or a schema's statements (types/schema/schema.ts) that moves a unit's cost, which states its
+ *   cost here
  */
 const addedAtMost: { readonly [S in FragmentShape]: number } = {
 	"flat records": 5544,

@@ -170,8 +170,7 @@ const setAt = <V>(by: Map<string, Set<V>>, key: string): Set<V> => {
  */
 export type Made = "present" | "absent"
 
-/** What a write makes: an insert a row present, a delete one absent, and an update both, as a retirement does, which
- * deletes a unit's bodies' rows and sets its header's retirement field (physical/ddl/retire.ts). */
+/** What a write makes: an insert a row present, a delete one absent, and an update both. */
 export const madeBy = (op: WriteFact["op"]): ReadonlyArray<Made> => {
 	switch (op) {
 		case "insert":
@@ -179,7 +178,6 @@ export const madeBy = (op: WriteFact["op"]): ReadonlyArray<Made> => {
 		case "delete":
 			return ["absent"]
 		case "update":
-		case "retire":
 			return ["present", "absent"]
 	}
 }
@@ -310,13 +308,6 @@ class Writers {
 				this.#note(relation, "update", login)
 			}
 		}
-		for (const [relation, facts] of relations) {
-			if (facts.retirable) {
-				for (const m of madeBy("retire")) {
-					setAt(this.#made, relation).add(m)
-				}
-			}
-		}
 		for (const [login, deletes] of deleted) {
 			const inserts = setAt(inserted, login)
 			for (const relation of deletes) {
@@ -328,17 +319,13 @@ class Writers {
 		}
 	}
 
-	/** One write of `relation` by a role of `login`. A retirement writes it but neither updates, deletes nor inserts a
-	 * row of it: its relation's calls read each group they hold insert-only (facts.ts WriteFact `retire`). It makes rows
-	 * present and absent all the same (madeBy), as the triggers it fires read them. */
+	/** One write of `relation` by a role of `login`, which makes rows present or absent as its op does (madeBy). */
 	#note(relation: string, op: WriteFact["op"], login: LoginWrites): void {
 		this.#written.add(relation)
 		for (const m of madeBy(op)) {
 			setAt(this.#made, relation).add(m)
 		}
 		switch (op) {
-			case "retire":
-				return
 			case "insert":
 				login.inserts.add(relation)
 				return
@@ -358,8 +345,7 @@ class Writers {
 		return !this.#written.has(relation)
 	}
 
-	/** Whether some role's write, or a retirable unit's retirement (RelationFacts.retirable), can make a row of the relation
-	 * present, or absent (Made). */
+	/** Whether some role's write can make a row of the relation present, or absent (Made). */
 	makes(relation: string, made: Made): boolean {
 		return this.#made.get(relation)?.has(made) ?? false
 	}
@@ -1500,20 +1486,14 @@ const referencedChecks = (
 const checksOf = (at: Installation, member: MemberFacts): ReadonlyArray<Check> =>
 	member.statements.flatMap((s, statement) =>
 		s.writes.flatMap((w): ReadonlyArray<Check> => [
-			...(w.op === "delete" || w.op === "retire"
-				? []
-				: referencingChecks(at, w.relation, statement)),
-			...(w.op === "insert" || w.op === "retire" ? [] : referencedChecks(at, w.relation, statement))
+			...(w.op === "delete" ? [] : referencingChecks(at, w.relation, statement)),
+			...(w.op === "insert" ? [] : referencedChecks(at, w.relation, statement))
 		])
 	)
 
 /** The relations a role writes: those it holds a writer's privilege on, those the members it may be served write, and
  * those its updates cascade to. */
-const writtenBy = (
-	at: Installation,
-	served: Served,
-	retired: "counted" | "apart"
-): ReadonlySet<string> => {
+const writtenBy = (at: Installation, served: Served): ReadonlySet<string> => {
 	const out = new Set<string>(cascaded(at.relations, updatedBy(served)))
 	for (const [relation, privileges] of served.role.privileges) {
 		if ([...privileges].some((p) => writing.has(p))) {
@@ -1523,9 +1503,7 @@ const writtenBy = (
 	for (const member of served.members) {
 		for (const s of member.statements) {
 			for (const w of s.writes) {
-				if (w.op !== "retire" || retired === "counted") {
-					out.add(w.relation)
-				}
+				out.add(w.relation)
 			}
 		}
 	}
@@ -1563,12 +1541,7 @@ interface RoleView {
 	readonly role: RoleFacts
 	readonly members: ReadonlyArray<MemberView>
 	readonly written: ReadonlySet<string>
-	/**
-	 * What it writes as another role's judge reads it: what it writes but by a retirement alone (`writtenBy` apart). A
-	 * retirement waits for every call that holds a group it retires and reads nothing besides, so it is no pivot of any
-	 * cycle, and its guard is no role's grants: a role's own retirement of a relation another role writes changes neither
-	 * that role's level nor whether that relation keeps its guard.
-	 */
+	/** What it writes as another role's judge reads it: everything it writes. */
 	readonly guarded: ReadonlySet<string>
 	/** What its writes make of each relation it writes (Made), by a privilege, a member or a cascade. */
 	readonly made: ReadonlyMap<string, ReadonlySet<Made>>
@@ -1754,7 +1727,7 @@ const roleView = (at: Installation, served: Served): RoleView => {
 			}
 		}
 	}
-	const written = writtenBy(at, served, "counted")
+	const written = writtenBy(at, served)
 	const made = madeOf(at, served)
 	const probed = new Set(
 		[...made].flatMap(([relation, m]) =>
@@ -1771,7 +1744,7 @@ const roleView = (at: Installation, served: Served): RoleView => {
 		role: served.role,
 		members,
 		written,
-		guarded: writtenBy(at, served, "apart"),
+		guarded: written,
 		made,
 		probed,
 		cause: pivotCauseOf(at, members, written),
@@ -2442,7 +2415,7 @@ export interface Certifications<R, S> {
  * The fences of a settled round's roles, over its installation (`at`), each role with its view there: for each relation
  * a role certified READ COMMITTED checks by a sealed check (lockedSeal), one fence of each login that fences it (Fence):
  * each login whose roles delete it (Writers.fencers), and each login of a role that runs SERIALIZABLE, may miss another
- * call's write (RoleView.cause) and writes it but by a retirement alone (RoleView.guarded), the writers 5c spared for the
+ * call's write (RoleView.cause) and writes it (RoleView.guarded), the writers 5c spared for the
  * fence (givenReasons); by login then relation in code-unit order.
  */
 const fencesOf = <R, S, E>(
@@ -2482,9 +2455,9 @@ const fencesOf = <R, S, E>(
 
 /**
  * The pivots of a settled round's roles, each with its view there (Certifications `pivots`): each role that runs
- * SERIALIZABLE and may miss another call's write (RoleView.cause), at each relation it writes but by a retirement alone
- * (RoleView.guarded), its cause read off every member it may be served, both its forms (servedOf), as 5c and the fences
- * read it (serializableReasons, fencesOf). A retirement reads nothing besides the groups it locks, so it misses no write.
+ * SERIALIZABLE and may miss another call's write (RoleView.cause), at each relation it writes (RoleView.guarded), its
+ * cause read off every member it may be served, both its forms (servedOf), as 5c and the fences read it
+ * (serializableReasons, fencesOf).
  */
 const pivotsOf = <R, S, E>(
 	settled: ReadonlyArray<{

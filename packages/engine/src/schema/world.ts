@@ -344,10 +344,6 @@ const statementNames = (desc: StatementDesc): ReadonlyArray<string> => {
 			return [desc.step.relation, desc.end.relation]
 		case "alternatives":
 			return [desc.parent.relation, desc.roster, ...desc.arms.map((a) => a.arm.relation)]
-		case "retirable":
-			return [desc.header.relation, ...desc.bodies.map((b) => b.relation)]
-		case "reachable":
-			return [...desc.target.map((t) => t.relation), ...desc.holders.map((h) => h.relation)]
 	}
 }
 
@@ -555,12 +551,12 @@ export const admitRole = (
 	if (!isPlainRecord(options) && options !== undefined) {
 		throw malformed(
 			label,
-			"options { write?, insert?, refresh?, retire?, contexts? }: lists of role relation names, and of the contexts the role declares"
+			"options { write?, insert?, refresh?, contexts? }: lists of role relation names, and of the contexts the role declares"
 		)
 	}
 	const opts = options ?? {}
 	for (const k of Object.keys(opts)) {
-		if (k !== "write" && k !== "insert" && k !== "refresh" && k !== "retire" && k !== "contexts") {
+		if (k !== "write" && k !== "insert" && k !== "refresh" && k !== "contexts") {
 			throw malformed(label, `options without ${k}`)
 		}
 	}
@@ -599,7 +595,6 @@ export const admitRole = (
 		listed === "write" ? "a write list" : "an insert list"
 	)
 	const refresh = nameList(opts["refresh"], `${label} refresh`, "a refresh list")
-	const retire = nameList(opts["retire"], `${label} retire`, "a retire list")
 	const targets = new Map<string, string>()
 	const target = (relation: string, entry: string): void => {
 		const prior = targets.get(relation)
@@ -671,7 +666,6 @@ export const admitRole = (
 			relations: entries,
 			...writing,
 			refresh,
-			retire,
 			contexts,
 			loc: builderLoc(label, [baseDesc.name, roleName])
 		})
@@ -737,8 +731,7 @@ const noNames: readonly [] = Object.freeze([] as const)
  *   analysis (entry.ts) admits, at most one per base relation. `insert`, in place of `write`, names them as `write` does, and
  *   the role holds INSERT and SELECT on what they write, no DELETE or UPDATE, so a program of the role that deletes
  *   or updates there is refused (RoleAccess insert); a role stating both is refused (writeAndInsert). `refresh` names
- *   derived whole entries, and `retire` the whole entries of retirable units' headers whose groups the role retires,
- *   which ownership holds to that (schema/own.ts, retireOutside and retireNotHeader). `contexts` names the contexts
+ *   derived whole entries. `contexts` names the contexts
  *   the role declares, the facts its Db's claims hold: each query entry matches only those (entryContext), and so does
  *   each program on the role (check/checker.ts, OutsideRole context). The role keeps the base's statements whose every
  *   relation is a whole entry.
@@ -752,8 +745,8 @@ const noNames: readonly [] = Object.freeze([] as const)
  * compilation of the role runs.
  *
  * role(base, name, relations, options?). The value holds the base, the role relations (each query entry as its world
- * relation), the base's statements whose every relation is a whole entry, and frozen copies of the write (or insert),
- * refresh and retire lists, the insert list as `write`.
+ * relation), the base's statements whose every relation is a whole entry, and frozen copies of the write (or insert)
+ * and refresh lists, the insert list as `write`.
  */
 export const roleBuilder = <
 	Base extends AnySchema,
@@ -807,8 +800,7 @@ export const roleBuilder = <
 					: options?.write === undefined
 						? noNames
 						: frozenTuple(options.write),
-			refresh: options?.refresh === undefined ? noNames : frozenTuple(options.refresh),
-			retire: options?.retire === undefined ? noNames : frozenTuple(options.retire)
+			refresh: options?.refresh === undefined ? noNames : frozenTuple(options.refresh)
 		},
 		desc: admitted.desc,
 		content: admitted.level

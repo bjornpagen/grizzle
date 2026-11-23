@@ -268,19 +268,6 @@ export interface ImmediateReference {
 	readonly toColumns: ReadonlyArray<string>
 }
 
-/**
- * A retirable unit as a stratum's order runs around its hold (write/schedule/plan.ts placeHolds): its header, its
- * bodies, and whether an action's source reads a body, through a role's views (write/hold/stated.ts storedReads). A
- * write holds the unit right before its first statement that reads or writes a body, and the hold refuses a group whose
- * header is absent, so an insertion of the header goes before each such statement the keys leave free to follow it: the
- * group it creates is open when the hold locks it.
- */
-export interface UnitOrder {
-	readonly header: string
-	readonly bodies: ReadonlySet<string>
-	readonly reads: (action: ActionCore) => boolean
-}
-
 /** The phase of an action on its own relation. */
 const phaseOf = (a: ActionCore): 0 | 1 | 2 => (a.op === "delete" ? 0 : a.op === "put" ? 1 : 2)
 
@@ -353,11 +340,6 @@ export const canonicalActionOrder = <A extends Scheduled>(
  * every removals before every additions, one member relation's additions before those of a member relation an
  * immediate key names it from, and their removals the other way, an additions that copies a column of another's member
  * after that additions (`orderFamilyWrites`).
- * A retirable unit's header insertion (`UnitOrder`) runs before every action and family statement of the stratum that
- * reads or writes one of the unit's bodies, the header's own insertion aside, each where the edges above leave that
- * statement free to follow it: where they order the statement first, it keeps their order, the unit's hold precedes it
- * and so the header's insertion, and a group the stratum touches before it inserts its header is refused by the hold
- * at run time, as any absent group is.
  * A stratum's unit removal (`UnitRemovals`) runs before every other write of it, so its source reads the state before
  * the stratum and every insertion of the stratum meets no row it removed, but the removals of rows that reference its
  * relations immediately from outside them, which run before it, as any removal of referencing rows does; a member's
@@ -371,8 +353,7 @@ export const canonicalActionOrder = <A extends Scheduled>(
 export const scheduleStratum = <A extends Scheduled>(
 	actions: ReadonlyArray<A>,
 	family: ReadonlyArray<FamilyNode>,
-	references: ReadonlyArray<ImmediateReference>,
-	units: ReadonlyArray<UnitOrder>
+	references: ReadonlyArray<ImmediateReference>
 ): Schedule<A> => {
 	interface Vertex {
 		readonly write: Write<A>
@@ -454,43 +435,6 @@ export const scheduleStratum = <A extends Scheduled>(
 		for (const { node, vertex: y } of statements) {
 			if (node.kind !== "unit") {
 				orderFamilyWrite(action, x, node, y, references)
-			}
-		}
-	}
-	/** Whether `later` follows `earlier` by the edges placed so far, directly or through others. */
-	const follows = (later: Vertex, earlier: Vertex): boolean => {
-		const seen = new Set<Vertex>()
-		const pending = [later]
-		for (let v = pending.pop(); v !== undefined; v = pending.pop()) {
-			if (v === earlier) {
-				return true
-			}
-			for (const u of v.follows) {
-				if (!seen.has(u)) {
-					seen.add(u)
-					pending.push(u)
-				}
-			}
-		}
-		return false
-	}
-	for (const unit of units) {
-		const touching = [
-			...plain.flatMap(({ action, vertex }) =>
-				unit.bodies.has(action.action.relation) || unit.reads(action.action) ? [vertex] : []
-			),
-			...statements.flatMap(({ node, vertex }) =>
-				familyNodeRelations(node).some((r) => unit.bodies.has(r)) ? [vertex] : []
-			)
-		]
-		for (const { action, vertex: header } of plain) {
-			if (action.action.relation !== unit.header || !adds(action)) {
-				continue
-			}
-			for (const touch of touching) {
-				if (touch !== header && !follows(header, touch)) {
-					touch.follows.add(header)
-				}
 			}
 		}
 	}

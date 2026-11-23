@@ -45,7 +45,6 @@ import type { Installation, InstallOptions } from "#compiler/physical/install/co
 import {
 	type InstallExtension,
 	noCarriers,
-	noHolds,
 	noCalls,
 	noCertificates,
 	noContribution,
@@ -465,7 +464,6 @@ const workloadExtensionOver = (
 		params: (checked) => Result.map(planOver(checked.owned, []), (plan) => plan.params),
 		certifies: noCertificates,
 		carriers: noCarriers,
-		holds: noHolds,
 		calls: noCalls,
 		live,
 		fences: noFences
@@ -527,7 +525,6 @@ export const declaredParams = (
 		params: () => Result.ok(types),
 		certifies: noCertificates,
 		carriers: noCarriers,
-		holds: noHolds,
 		calls: noCalls,
 		live: noLive,
 		fences: noFences

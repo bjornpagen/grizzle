@@ -137,8 +137,6 @@ import {
 import type { EntryClaims } from "#compiler/write/frontend/entry.ts"
 import type { PlainRefill } from "#compiler/write/frontend/refill.ts"
 import { type FamilyNode, sameNode } from "#compiler/write/frontend/schedule.ts"
-import { heldUnits, retiredUnits } from "#compiler/write/hold/stated.ts"
-import { buildHold, buildRetire } from "#compiler/write/hold/statement.ts"
 import { distinctByEvidence, type WriteInput } from "#compiler/write/insert/input.ts"
 import { buildInsert } from "#compiler/write/insert/protocol.ts"
 import {
@@ -925,15 +923,7 @@ const placeSpec = (
 	step: Extract<
 		WriteStep,
 		{
-			readonly kind:
-				| "write"
-				| "carrier"
-				| "single"
-				| "check"
-				| "familyWrite"
-				| "hold"
-				| "retire"
-				| "admission"
+			readonly kind: "write" | "carrier" | "single" | "check" | "familyWrite" | "admission"
 		}
 	>,
 	spec: StatementSpec<WriteParamSlot>,
@@ -1149,9 +1139,7 @@ const optimizedPlacement = (
 	const placed = <S extends WriteStatement | PutStatement>(
 		build: () => S,
 		dependsOn: ReadonlyArray<number>,
-		step: (
-			statement: S
-		) => Extract<WriteStep, { readonly kind: "write" | "carrier" | "check" | "hold" | "retire" }>
+		step: (statement: S) => Extract<WriteStep, { readonly kind: "write" | "carrier" | "check" }>
 	): number => {
 		const { statement, forms } = formed(build, sentOf)
 		return placeSpec(
@@ -1441,43 +1429,6 @@ const optimizedPlacement = (
 				if (step.check.kind === "membership" && step.check.addition.kind === "action") {
 					record(step.check.addition.action, position)
 				}
-				break
-			}
-			case "hold": {
-				/** A hold reads its unit's header, after a statement of the write that inserts one, and every statement
-				 * that touches a body of its unit follows it. */
-				const { unit } = step.hold
-				const deps = tracker.add(
-					[`relation:${unit.header}`],
-					[...unit.bodies.keys()].map((body) => `relation:${body}`)
-				)
-				placed(
-					() => buildHold(w, step.hold),
-					deps,
-					() => ({ kind: "hold", header: unit.header })
-				)
-				break
-			}
-			case "retire": {
-				/** A retirement writes its unit's header and bodies and the reachable records it releases, which no other
-				 * statement of the write reads or writes. */
-				const { unit } = step.retired
-				const deps = tracker.add(
-					[],
-					[unit.header, ...unit.bodies.keys(), ...unit.released].map(
-						(relation) => `relation:${relation}`
-					)
-				)
-				placed(
-					() => buildRetire(w, step.retired),
-					deps,
-					(statement) => ({
-						kind: "retire",
-						stratum: step.retired.stratum,
-						header: statement.result.header,
-						removed: statement.result.removed
-					})
-				)
 				break
 			}
 			case "readBack": {
@@ -2004,31 +1955,25 @@ const compileAt = (
 			templates
 		})
 	}
-	const plan = planWrite(
-		restated,
-		chosenIn(chosen, frontend.restate),
-		{
-			distinct: (node, relation) => distinctByEvidence(placed.facts, node, relation),
-			shares: (members, single) => {
-				const shares = unwrap(
-					planStatementShares(
-						sharing.index,
-						members,
-						single ? (node) => heldEvaluationKey(lowering.w.cx, node) : noneHeld,
-						single ? "byPartners" : "never"
-					)
+	const plan = planWrite(restated, chosenIn(chosen, frontend.restate), {
+		distinct: (node, relation) => distinctByEvidence(placed.facts, node, relation),
+		shares: (members, single) => {
+			const shares = unwrap(
+				planStatementShares(
+					sharing.index,
+					members,
+					single ? (node) => heldEvaluationKey(lowering.w.cx, node) : noneHeld,
+					single ? "byPartners" : "never"
 				)
-				for (const planned of shares) {
-					certifyRestriction(placed.facts, planned)
-				}
-				return shares
-			},
-			carrierTyping: (t) => lowering.w.cx.typeRef(t),
-			carrierScope: options.carrierScope
+			)
+			for (const planned of shares) {
+				certifyRestriction(placed.facts, planned)
+			}
+			return shares
 		},
-		heldUnits(frontend),
-		retiredUnits(frontend)
-	)
+		carrierTyping: (t) => lowering.w.cx.typeRef(t),
+		carrierScope: options.carrierScope
+	})
 	const admission = buildAdmission(lowering.w, callerParams(frontend.params))
 	const optimized = optimizedArtifact(restated, plan, lowering, admission, options)
 	unwrap(insertOnly(schema, optimized.statements, options.names, options.laws))
