@@ -1,7 +1,7 @@
 import { assert, deepEquals, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import type { ApplyOutcome } from "#adapter/types/db.ts"
 import type { LawId } from "#compiler/core/ids.ts"
@@ -32,9 +32,36 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 
 /**
- * A counted set keyed by three fields and a name stores each owner's count and folds of exactly the model's members after every insert, delete, move and refill.
+ * Its search budget: the fewest cases a run spends at which every kill it declares is killed and every situation it
+ * requires reached. A kill's trial runs the witnesses alone, its kept cases, its floor stream of ⌈runs / 4⌉ cases and its
+ * steered phase while a situation is unreached, all fixed by the property's identity and its floor, so runs within one
+ * floor draw the same witnesses, and a run adds `runs` rotating cases.
  *
- * Its pre-conversion budget: runs 24, coverage cases 96 (test/pg/fin/counted-set.test.ts at d8eed1786).
+ * @limitKind measured
+ * @owner grizzle's test/pg/fin/counted-set.test.ts
+ * @unit independent cases (runs) and steered cases
+ * @scope one run of aCountedSetKeyedByThreeFieldsAndANameStoresEachOwnersCountAndFoldsOfExactlyTheModelsMembersAfterEveryInsertDeleteMoveAndRefill
+ * @evidence `~/.cache/grizzle/CULL-FIN-tools/measure.sh r<runs> <runs> 200 <files>` over test/pg/fin's counted,
+ *   lemmas, fold, plans and counted-set at runs 1, 4, 8, 16 and 32, the steered cases capped at 200, each a
+ *   `toolchain-test run` of the files that ran the kills of every property it passed; uncommitted logs
+ *   ~/.cache/grizzle/CULL-FIN-tools/measure-r{1,4,8,16,32}.log
+ * @observed 2026-11-23 03:50 to 04:26 UTC
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB, load 200 to 520 from other lanes;
+ *   PostgreSQL 19.0 (scripts/pg/pin.env) as the lane's in-memory family; Node 26.13.1; grizzle f87b2aaab with lane
+ *   CULL-FIN's cull of test/pg/fin; TEST_SEED=2219874524
+ * @workload the property with its kill, a family's insert through no probe gate (283f02952)
+ * @result steered cases to reach every required situation: 16 at every floor measured, one to eight cases (runs 1 to
+ *   32); the kill killed at every budget, no failure
+ * @decision a floor of one case spends the fewest, 18 cases a run and its kept case at runs 1, against 23 at runs 5, 33 at
+ *   13 and 53 at 29; the steered cap the 16 it needs. It ran 46 cases at runs 24, steered 96
+ * @revalidate a change of the property, its space, its situations or the code its cases run, which moves its witnesses;
+ *   a red that reaches no situation (FeaturesUnreached) or a kill that survives
+ */
+const countedSetBudget = { runs: 1, steered: 16 } as const
+
+/**
+ * A counted set keyed by three fields and a name stores each owner's count and folds of exactly the model's members after every insert, delete, move and refill.
+
  */
 export const aCountedSetKeyedByThreeFieldsAndANameStoresEachOwnersCountAndFoldsOfExactlyTheModelsMembersAfterEveryInsertDeleteMoveAndRefill =
 	property.explore(aimed(caseGen, aims), {
@@ -181,7 +208,23 @@ export const aCountedSetKeyedByThreeFieldsAndANameStoresEachOwnersCountAndFoldsO
 			kind: "specification",
 			name: "the reference fold of each owner's members (test/support/families/fold.ts foldStoredOf) over the README's set of members"
 		},
-		budget: { runs: 24, steered: 96 },
-		kept: [],
-		kills: []
+		budget: countedSetBudget,
+		kept: [
+			{
+				token: ReplayToken(
+					"test/pg/fin/counted-set.test.ts#aCountedSetKeyedByThreeFieldsAndANameStoresEachOwnersCountAndFoldsOfExactlyTheModelsMembersAfterEveryInsertDeleteMoveAndRefill:-:0.0.0.0.0.0.0.0.0.1.1.1.0.1.0.0.0.2.0.0.0.2.1.0.1.0.0.0"
+				),
+				reason:
+					"a counted member stated again at its stored key with other steps, refused on Attr's primary key with no witness before 283f02952 gated a family's inserts by the probe, the red this property met at its birth (913a3d3a9)",
+				since: "2026-11-11"
+			}
+		],
+		kills: [
+			{
+				file: "packages/engine/src/write/family/statements.ts",
+				original: "\treturn { ctes: [...probe.ctes, guarded.cte], guards: [guarded.guard] }",
+				replacement: "\treturn { ctes: [...probe.ctes, guarded.cte], guards: [] }",
+				why: "A family's insert reads its candidates through no probe gate, as before 283f02952: a counted member stated again at its stored key is refused by PostgreSQL's 23505 on Attr's primary key with no witness (unreported), where the probe names the stated row's key, the red this property met at its birth (913a3d3a9)."
+			}
+		]
 	})

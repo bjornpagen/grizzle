@@ -27,7 +27,7 @@
  *   (families/tree.ts descendantsOf) or the family as written, a second implementation that reads no interval.
  */
 import { assert, deepEquals, defined } from "@bjornpagen/testing/assert"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { explain, explainServerStatement, type PlanMode } from "#bench/harness/explain.ts"
 import { constraintOf as familyConstraintOf, familySeatIn } from "#test/pg/fin/family.ts"
@@ -53,11 +53,39 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /**
+ * Its search budget: the fewest cases a run spends at which every kill it declares is killed and every situation it
+ * requires reached. A kill's trial runs the witnesses alone, its kept cases, its floor stream of ⌈runs / 4⌉ cases and its
+ * steered phase while a situation is unreached, all fixed by the property's identity and its floor, so runs within one
+ * floor draw the same witnesses, and a run adds `runs` rotating cases.
+ *
+ * @limitKind measured
+ * @owner grizzle's test/pg/fin/plans.test.ts
+ * @unit independent cases (runs) and steered cases
+ * @scope one run of familyAndTreeReadsGoThroughGrizzlesInstalledIndexesWithNoSortSequentialScanOrRecursion
+ * @evidence `~/.cache/grizzle/CULL-FIN-tools/measure.sh r<runs> <runs> 200 <files>` over test/pg/fin's counted,
+ *   lemmas, fold, plans and counted-set at runs 1, 4, 8, 16 and 32, the steered cases capped at 200, each a
+ *   `toolchain-test run` of the files that ran the kills of every property it passed; uncommitted logs
+ *   ~/.cache/grizzle/CULL-FIN-tools/measure-r{1,4,8,16,32}.log
+ * @observed 2026-11-23 03:50 to 04:26 UTC
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB, load 200 to 520 from other lanes;
+ *   PostgreSQL 19.0 (scripts/pg/pin.env) as the lane's in-memory family; Node 26.13.1; grizzle f87b2aaab with lane
+ *   CULL-FIN's cull of test/pg/fin; TEST_SEED=2219874524
+ * @workload the property with its kill, the owner axis's reverse index over its copy of the count (3adc7e172)
+ * @result steered cases to reach every required situation: 128 at a floor of one case (runs 1, 4), 128 at two (runs 8),
+ *   80 at four (runs 16), 32 at eight (runs 32); the kill killed at every budget, no failure
+ * @decision a floor of eight spends the fewest, 69 cases a run and its kept case at runs 29, the fewest runs with that
+ *   floor, against 130 at a floor of one (runs 1), 135 at two (runs 5) and 97 at four (runs 13); the steered cap the 32
+ *   it needs. Floors of three, five, six and seven and past eight are unmeasured; it ran 72 cases at runs 32, steered 64
+ * @revalidate a change of the property, its space, its situations or the code its cases run, which moves its witnesses;
+ *   a red that reaches no situation (FeaturesUnreached) or a kill that survives
+ */
+const plansBudget = { runs: 29, steered: 32 } as const
+
+/**
  * Read a tree in document order with no sort, each subtree's descendants by a range scan of T1's index, and a family's
  * members by its key, with no sequential scan and no recursion, each case on the worker's seats of the planted tree and
  * family.
- *
- * Its pre-conversion budget: runs 32, coverage cases 64 (test/pg/fin/plans.test.ts at 4ca3036a9).
+
  */
 export const familyAndTreeReadsGoThroughGrizzlesInstalledIndexesWithNoSortSequentialScanOrRecursion =
 	property.explore(probes, {
@@ -209,7 +237,25 @@ export const familyAndTreeReadsGoThroughGrizzlesInstalledIndexesWithNoSortSequen
 			name: "EXPLAIN's plan shape: T1's or the family key's index alone, no Sort, no Seq Scan, no recursive node; each read's rows against the tree's parent links or the family as written"
 		},
 		show: Formatter.format,
-		budget: { runs: 32, steered: 64 },
-		kept: [],
-		kills: []
+		budget: plansBudget,
+		kept: [
+			{
+				token: ReplayToken(
+					"test/pg/fin/plans.test.ts#familyAndTreeReadsGoThroughGrizzlesInstalledIndexesWithNoSortSequentialScanOrRecursion:-:0.2.0"
+				),
+				reason:
+					"a family's members read by a custom plan, red at 3adc7e172 where the planner read them through the owner axis's reverse index (g, ‹n›), fixed by 9ebfb08ca",
+				since: "2026-11-14"
+			}
+		],
+		kills: [
+			{
+				file: "packages/engine/src/laws/model/plan.ts",
+				original:
+					"\t\t\t\t\t\t\t{ relation: member, base: extendNonEmpty(group, [copy]), keyed: memberGroup },",
+				replacement:
+					"\t\t\t\t\t\t\t{ relation: member, base: extendNonEmpty(group, [copy]), keyed: extendNonEmpty(group, [copy]) },",
+				why: "An ordered family's owner axis plans its reverse index over every referencing column, its copy of the count among them, as at 3adc7e172: the index (g, ‹n›) it adds, which this property's red there found the planner reading a family's members through (fixed by 9ebfb08ca), stands beside the family key."
+			}
+		]
 	})

@@ -22,17 +22,16 @@
  *   reference fold: the owner cannot be inserted again alone, its members' copy of its count a foreign key ON UPDATE
  *   CASCADE that is not deferrable.
  *
- * The box (doctrine rule 9): owner 0 with every counted family of one to four members over the five step values of
- * each counted fold seat (folds.ts), each member's removal, sent, over mutable relations, in the prescribed order,
- * move first and count first, and in the prescribed order with the predecessor axis immediate, and, over the immutable
- * default, prescribed and rewritten whole.
+ * The space (counted.fixtures.ts sketchGen): owner 0 with a counted family of one to four members over the five step
+ * values of each counted fold seat (folds.ts), one member's removal, sent, over mutable relations, in the prescribed
+ * order, move first or count first, or in the prescribed order with the predecessor axis immediate, or, over the
+ * immutable default, prescribed or rewritten whole; the search requires every one of them.
  *
  * Each case is one transaction from an empty seat: it writes its family, then sends its removal, checked as its COMMIT
  * would check it and rolled back, or ended by a real COMMIT whose rows are then cleared, as the case draws its end on
- * its tape (installed.ts endGen; folds.ts judgedFold): the box holds every case under both ends.
+ * its tape (installed.ts endGen; folds.ts judgedFold): the search requires both ends.
  */
 import { assert, deepEquals, defined } from "@bjornpagen/testing/assert"
-import { finite } from "@bjornpagen/testing/gen"
 import { type Case, family, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
@@ -62,7 +61,37 @@ import {
 } from "#test/pg/fin/counted.fixtures.ts"
 
 /**
- * Counted swap-with-last through grizzle's lowering on PostgreSQL 19: remove every member of every counted family of
+ * Its search budget: the fewest cases a run spends at which every kill it declares is killed and every situation it
+ * requires reached. A kill's trial runs the witnesses alone, its kept cases, its floor stream of ⌈runs / 4⌉ cases and its
+ * steered phase while a situation is unreached, all fixed by the property's identity and its floor, so runs within one
+ * floor draw the same witnesses, and a run adds `runs` rotating cases.
+ *
+ * @limitKind measured
+ * @owner grizzle's test/pg/fin/counted.test.ts
+ * @unit independent cases (runs) and steered cases
+ * @scope one run of each member of countedSwapWithLast
+ * @evidence `~/.cache/grizzle/CULL-FIN-tools/measure.sh r<runs> <runs> 200 <files>` over test/pg/fin's counted,
+ *   lemmas, fold, plans and counted-set at runs 1, 4, 8, 16 and 32, the steered cases capped at 200, each a
+ *   `toolchain-test run` of the files that ran the kills of every property it passed; uncommitted logs
+ *   ~/.cache/grizzle/CULL-FIN-tools/measure-r{1,4,8,16,32}.log
+ * @observed 2026-11-23 03:50 to 04:26 UTC
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GiB, load 200 to 520 from other lanes;
+ *   PostgreSQL 19.0 (scripts/pg/pin.env) as the lane's in-memory family; Node 26.13.1; grizzle f87b2aaab with lane
+ *   CULL-FIN's cull of test/pg/fin; TEST_SEED=2219874524
+ * @workload both members, sum of int4 and or of a set over a counted family, each with its one kill
+ * @result steered cases to reach every required situation, sum and or: 112 and 96 at a floor of one case (runs 1, 4),
+ *   128 and 32 at two (runs 8), 64 and 32 at four (runs 16), 64 and 32 at eight (runs 32); the kill killed in both
+ *   members at every budget, no failure
+ * @decision a floor of four spends the fewest, 81 and 49 cases a run at runs 13, the fewest runs with that floor, against
+ *   212 at a floor of one (runs 1), 174 at two (runs 5) and 170 at eight (runs 29); the steered cap the sum member's 64.
+ *   Floors of three, five, six and seven are unmeasured; the exhaustive box ran 35,160 cases a member (f1bf91a2f)
+ * @revalidate a change of the property, its space, its situations or the code its cases run, which moves its witnesses;
+ *   a red that reaches no situation (FeaturesUnreached) or a kill that survives
+ */
+const swapBudget = { runs: 13, steered: 64 } as const
+
+/**
+ * Counted swap-with-last through grizzle's lowering on PostgreSQL 19: remove each member of a counted family of
  * at most four by swap-with-last under the deferred predecessor axis, and refuse every misorder, one property for each
  * counted fold spec, each case on the worker's seat of its spec's schema.
  */
@@ -73,8 +102,7 @@ export const countedSwapWithLast = family(
 			const seats = defined(countedSeats[spec.label], "the spec's seats")
 			return [
 				spec.label,
-				property.exhaust(finite(sketchGen), {
-					box: "owner 0 with every counted family of one to four members over the seat's five step values, each member removed by swap-with-last, sent prescribed, move first, count first, and prescribed with the predecessor axis immediate, each case ended by a real COMMIT and by the checked end",
+				property.explore(sketchGen, {
 					needs: {
 						mutable: Substrate.seat(seats.mutable),
 						immutable: Substrate.seat(seats.immutable)
@@ -239,6 +267,7 @@ export const countedSwapWithLast = family(
 						kind: "second-implementation",
 						name: "the reference fold of the families swap-with-last leaves (families/fold.ts), beside the fold's model of each installed native's moment (fold.ts foldPredicted)"
 					},
+					budget: swapBudget,
 					kept: [],
 					kills: [
 						{
