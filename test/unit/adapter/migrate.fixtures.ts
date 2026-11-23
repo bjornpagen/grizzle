@@ -32,6 +32,7 @@ import { placeholderToken, printStatement } from "#compiler/sql/print.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { chunked, joined } from "#test/support/chunked.ts"
 import { firstCodes } from "#test/support/compile.ts"
+import { f, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
 	compile,
@@ -98,8 +99,26 @@ export const reviewedText = (file: FileText): string => {
 	)
 }
 
+/**
+ * A booking of a room for a span of slots, keyed by both: its key a no-overlap constraint over a GiST index whose room
+ * column btree_gist serves, so the version that adds it creates the extension in its first file, a database-wide
+ * statement (sql/print.ts commandsOf) before the transactional files after it.
+ */
+const Booking = relation(
+	"Booking",
+	{ room: f.uuid, during: f.span(f.integer, undefined), id: f.uuid },
+	["room", "during"]
+)
+
+/** A version of the shop with the room's bookings beside its relations (Booking). */
+const booked = (desc: SchemaDesc): SchemaDesc => ({
+	...desc,
+	relations: [...desc.relations, Booking]
+})
+
 /** Three versions of the shop, drafted as a chain from the empty snapshot: a folder each, the second and third with
- * placeholders, the second with a file that runs outside a transaction. */
+ * placeholders, the second with a file that runs outside a transaction, and the second adding the room's bookings, so
+ * its first file creates btree_gist, a database-wide statement before a transactional file (planCases). */
 export const shopChain = draftChain(
 	[
 		{
@@ -108,12 +127,12 @@ export const shopChain = draftChain(
 			declared: noDeclarations
 		},
 		{
-			desc: shopV2,
+			desc: booked(shopV2),
 			options: { schema: shopSchema, extensions: [], codes: firstCodes },
 			declared: noDeclarations
 		},
 		{
-			desc: shopV3,
+			desc: booked(shopV3),
 			options: { schema: shopSchema, extensions: [], codes: firstCodes },
 			declared: shopV3Declared
 		}
