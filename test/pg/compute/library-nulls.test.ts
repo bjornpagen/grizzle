@@ -63,7 +63,7 @@ const cell = (row: ReadonlyArray<unknown>): LibraryValue => libraryValue(row[0],
  */
 export const grizzlesLibraryOnPostgreSQL19EveryLibraryFunctionsValueOverEverySetOfNullArgumentsIsTheHosts =
 	property.explore(batchGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { tx: Substrate.transaction },
 		situations: [
 			"isXsdPattern with no argument NULL",
 			"isXsdPattern with every argument NULL",
@@ -75,40 +75,35 @@ export const grizzlesLibraryOnPostgreSQL19EveryLibraryFunctionsValueOverEverySet
 			"textDigest with every argument NULL"
 		] satisfies ReadonlyArray<Reached<LibraryNullFeature>>,
 		check:
-			({ substrate }, k: Case<LibraryNullFeature>) =>
+			({ tx }, k: Case<LibraryNullFeature>) =>
 			(batch) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const s = yield* Substrate
-						yield* agree<ReadonlyArray<string>>(
-							[
-								["the native nodes that call a library function and no call holds", uncalledNodes],
-								["none", []]
-							],
-							exact
-						)
-						const pinned = yield* s.admin.pin
-						for (const [call, rows] of Arr.zip(calls, batch)) {
-							for (const row of rows) {
-								k.note(row.feature)
-							}
-							const answered = yield* inInstallation(
-								pinned,
-								[call.create],
-								pinned.queryValues(call.sql, [jsonText(rowsJson(rows))])
-							)
-							yield* agree<ReadonlyArray<LibraryValue>>(
-								[
-									["PostgreSQL", Arr.map(answered, cell)],
-									["the host", Arr.map(rows, (row) => hostValue(call, row))]
-								],
-								ordered(sameLibraryValue)
-							)
+				Effect.gen(function* () {
+					const { bare } = yield* tx
+					yield* agree<ReadonlyArray<string>>(
+						[
+							["the native nodes that call a library function and no call holds", uncalledNodes],
+							["none", []]
+						],
+						exact
+					)
+					for (const [call, rows] of Arr.zip(calls, batch)) {
+						for (const row of rows) {
+							k.note(row.feature)
 						}
-					}),
-					Substrate,
-					substrate
-				),
+						const answered = yield* inInstallation(
+							bare,
+							[call.create],
+							bare.queryValues(call.sql, [jsonText(rowsJson(rows))])
+						)
+						yield* agree<ReadonlyArray<LibraryValue>>(
+							[
+								["PostgreSQL", Arr.map(answered, cell)],
+								["the host", Arr.map(rows, (row) => hostValue(call, row))]
+							],
+							ordered(sameLibraryValue)
+						)
+					}
+				}),
 		oracle: {
 			kind: "second-implementation",
 			name: "the host evaluator's value of the term, beside PostgreSQL's of the library function's SQL"

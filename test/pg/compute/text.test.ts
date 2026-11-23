@@ -54,7 +54,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const computesTextTermsOnPostgreSQLAnInstalledCHECKOverAClosedDictionaryOfPatternsAdmitsExactlyEachDomainsMatches =
 	property.explore(dictionary, {
-		needs: { substrate2: Substrate.installing },
+		needs: { tx: Substrate.transaction },
 		situations: [
 			"dictionary admits",
 			"dictionary refuses",
@@ -62,29 +62,25 @@ export const computesTextTermsOnPostgreSQLAnInstalledCHECKOverAClosedDictionaryO
 			"literal refuses"
 		] satisfies ReadonlyArray<Reached<DictionaryFeature>>,
 		check:
-			({ substrate2 }, c: Case<DictionaryFeature>) =>
+			({ tx }, c: Case<DictionaryFeature>) =>
 			(d) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const substrate = yield* Substrate
-						return yield* Effect.scoped(
-							Effect.gen(function* () {
-								const s = dictionarySchema(d)
-								const installation = yield* textInstallation(s)
-								const pinned = yield* substrate.admin.pin
-								const { problems, reached } = yield* inInstallation(
-									pinned,
-									installationSql(installation, substrate.database),
-									judgeDictionary(pinned, installation, s, d)
-								)
-								c.noteAll(reached)
-								assert.deepEqual(problems, [])
-							})
-						)
-					}),
-					Substrate,
-					substrate2
-				),
+				Effect.gen(function* () {
+					const { bare, database, schema } = yield* tx
+					return yield* Effect.scoped(
+						Effect.gen(function* () {
+							const s = dictionarySchema(d)
+							const schemaName = yield* schema("text")
+							const installation = yield* textInstallation(s, schemaName)
+							const { problems, reached } = yield* inInstallation(
+								bare,
+								installationSql(installation, database),
+								judgeDictionary(bare, installation, s, d)
+							)
+							c.noteAll(reached)
+							assert.deepEqual(problems, [])
+						})
+					)
+				}),
 		oracle: { kind: "second-implementation", name: "ECMAScript's own RegExp test" },
 		budget: { runs: 1, steered: 30 },
 		kept: [],

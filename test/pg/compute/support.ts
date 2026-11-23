@@ -339,19 +339,28 @@ const verdict = (c: EvalCase, pg: PgAnswer): "value" | "declined" | "typed" | "b
 	}
 }
 
-/** Installs `sql` on the pinned session in a transaction, runs `body` in it, and rolls back. */
-export const inInstallation = <A>(
-	pinned: PgConnection,
+/**
+ * Installs `sql` and runs `body` under a savepoint of the case's rolled-back transaction (Substrate.transaction's
+ * `bare` connection), then rolls back to it and releases it: each call's installation is its own, a refused statement
+ * leaves the case's transaction open for the next call, and the case's rollback undoes whatever is left.
+ */
+export const inInstallation = <A, E>(
+	bare: PgConnection,
 	sql: ReadonlyArray<string>,
-	body: Effect.Effect<A, SqlError>
-): Effect.Effect<A, SqlError> =>
+	body: Effect.Effect<A, E>
+): Effect.Effect<A, E | SqlError> =>
 	Effect.ensuring(
 		Effect.gen(function* () {
-			yield* pinned.query("BEGIN", [])
+			yield* bare.query("SAVEPOINT grizzle_installation", [])
 			for (const statement of sql) {
-				yield* pinned.query(statement, [])
+				yield* bare.query(statement, [])
 			}
 			return yield* body
 		}),
-		Effect.orDie(pinned.query("ROLLBACK", []))
+		Effect.orDie(
+			Effect.andThen(
+				bare.query("ROLLBACK TO SAVEPOINT grizzle_installation", []),
+				bare.query("RELEASE SAVEPOINT grizzle_installation", [])
+			)
+		)
 	)

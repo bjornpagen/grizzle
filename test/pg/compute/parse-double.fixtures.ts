@@ -19,6 +19,7 @@ import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { compiledExpr } from "#compiler/scalar/compute/evaluate.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { regexField } from "#compiler/text/field.ts"
+import { inInstallation } from "#test/pg/compute/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { installationSql } from "#test/support/compile.ts"
 import { installationNamesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -29,7 +30,6 @@ import {
 } from "#test/support/oracle/evaluate/double-text.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { owning } from "#test/support/policy.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
 import { baseParams, lowerWith, spelledExpr, testPg, v } from "#test/unit/compute/support.ts"
 
 export type Feature =
@@ -166,43 +166,43 @@ const Keys = relation.generated(
 
 const parsed = schema("ParseDouble", [Keys], [])
 
-export const parseDoubleInstallation = Effect.gen(function* () {
-	const substrate = yield* Substrate
-	const schemaName = yield* substrate.schema({ create: false, label: "parse_double" })
-	const owned = owning(parsed)
-	const real = compileInstallation(owned, {
-		...installOptions(owned),
-		levels: [identity.schema(parsedSchemaName(schemaName))]
+export const parseDoubleInstallation = (schemaName: string) =>
+	Effect.gen(function* () {
+		const owned = owning(parsed)
+		const real = compileInstallation(owned, {
+			...installOptions(owned),
+			levels: [identity.schema(parsedSchemaName(schemaName))]
+		})
+		return real.ok ? real.value : yield* Effect.die(new Error(`compile ${real.error.message}`))
 	})
-	return real.ok ? real.value : yield* Effect.die(new Error(`compile ${real.error.message}`))
-})
 
-/** Installs the relation on the pinned session in a transaction, stores `texts`, reads each value's bits, rolls back. */
+/**
+ * Installs the relation under a savepoint of the case's rolled-back transaction (compute/support.ts inInstallation),
+ * stores `texts`, reads each value's bits, and rolls back to it.
+ */
 export const storedBits = (
-	pinned: PgConnection,
+	bare: PgConnection,
 	database: string,
 	installation: Installation,
 	texts: ReadonlyArray<string>
-): Effect.Effect<ReadonlyArray<bigint>, SqlError> =>
-	Effect.ensuring(
+): Effect.Effect<ReadonlyArray<bigint>, SqlError> => {
+	const names = installationNamesOf(installation)
+	return inInstallation(
+		bare,
+		installationSql(installation, database),
 		Effect.gen(function* () {
-			const names = installationNamesOf(installation)
-			yield* pinned.query("BEGIN", [])
-			for (const statement of installationSql(installation, database)) {
-				yield* pinned.query(statement, [])
-			}
-			yield* pinned.query(
+			yield* bare.query(
 				`INSERT INTO ${names.table(Keys)} (${names.column(Keys, "id")}, ${names.column(Keys, "key")}) SELECT r.ord, r.v FROM jsonb_to_recordset($1::text::jsonb) AS r(ord int4, v text)`,
 				[jsonText(Arr.map(texts, (text, ord) => ({ ord, v: text })))]
 			)
-			const rows = yield* pinned.queryValues(
+			const rows = yield* bare.queryValues(
 				`SELECT pg_catalog.float8send(${names.column(Keys, "value")})::text FROM ${names.table(Keys)} ORDER BY ${names.column(Keys, "id")}`,
 				[]
 			)
 			return Arr.map(rows, (row) => BigInt(`0x${Str.slice(2)(String(defined(row[0])))}`))
-		}),
-		Effect.orDie(pinned.query("ROLLBACK", []))
+		})
 	)
+}
 
 /**
  * qti-pie's xs:double map keys b0e98c456 fixed, kept by value since the space draws none of them (toolchain-test keep

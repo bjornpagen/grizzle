@@ -64,7 +64,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const computeIsXsdPatternOnPostgreSQL19TheLibraryFunctionsVerdictOnEveryTextIsTheReadersAndTheHosts =
 	property.explore(batchGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { tx: Substrate.transaction },
 		situations: [
 			"a pattern of every construct",
 			"a construct outside the grammar",
@@ -77,37 +77,32 @@ export const computeIsXsdPatternOnPostgreSQL19TheLibraryFunctionsVerdictOnEveryT
 			"a text the reader refuses"
 		] satisfies ReadonlyArray<Reached<XsdPatternFeature>>,
 		check:
-			({ substrate }, k: Case<XsdPatternFeature>) =>
+			({ tx }, k: Case<XsdPatternFeature>) =>
 			(batch) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const s = yield* Substrate
-						const texts = Arr.map(batch, (d) => d.text)
-						const read = Arr.map(texts, (t) => xsdPattern(t).ok)
-						for (const [i, drawn] of batch.entries()) {
-							for (const feature of drawn.features) {
-								k.note(feature)
-							}
-							k.note(read[i] === true ? "a text the reader admits" : "a text the reader refuses")
+				Effect.gen(function* () {
+					const { bare } = yield* tx
+					const texts = Arr.map(batch, (d) => d.text)
+					const read = Arr.map(texts, (t) => xsdPattern(t).ok)
+					for (const [i, drawn] of batch.entries()) {
+						for (const feature of drawn.features) {
+							k.note(feature)
 						}
-						const pinned = yield* s.admin.pin
-						const rows = yield* inInstallation(
-							pinned,
-							[createLibrary],
-							pinned.queryValues(testedSql, [jsonText(texts)])
-						)
-						yield* agree<ReadonlyArray<boolean>>(
-							[
-								["the reader", read],
-								["PostgreSQL", Arr.map(rows, (row) => truth(row[0]))],
-								["the host", Arr.map(texts, hostVerdict)]
-							],
-							ordered(exact)
-						)
-					}),
-					Substrate,
-					substrate
-				),
+						k.note(read[i] === true ? "a text the reader admits" : "a text the reader refuses")
+					}
+					const rows = yield* inInstallation(
+						bare,
+						[createLibrary],
+						bare.queryValues(testedSql, [jsonText(texts)])
+					)
+					yield* agree<ReadonlyArray<boolean>>(
+						[
+							["the reader", read],
+							["PostgreSQL", Arr.map(rows, (row) => truth(row[0]))],
+							["the host", Arr.map(texts, hostVerdict)]
+						],
+						ordered(exact)
+					)
+				}),
 		oracle: {
 			kind: "second-implementation",
 			name: "grizzle-text's reader of Appendix F's grammar, beside the table PostgreSQL reads, and the host's evaluation of the term"

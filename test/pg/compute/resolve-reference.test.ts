@@ -67,37 +67,32 @@ const situations = [
  */
 export const computeResolveReferenceOnPostgreSQL19TheLibraryFunctionsTargetOfEveryReferenceAgainstEveryBaseIsTheHostsAndRFC3986s =
 	property.explore(pairsBatch, {
-		needs: { substrate: Substrate.installing },
+		needs: { tx: Substrate.transaction },
 		situations,
 		check:
-			({ substrate }, k: Case<UriFeature>) =>
+			({ tx }, k: Case<UriFeature>) =>
 			({ pairs, features }) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const s = yield* Substrate
-						for (const feature of features) {
-							k.note(feature)
-						}
-						const pinned = yield* s.admin.pin
-						const rows = yield* inInstallation(
-							pinned,
-							[createLibrary],
-							pinned.queryValues(resolveSql, [
-								jsonText(Arr.map(pairs, (p, ord) => ({ ord, b: p.base, r: p.reference })))
-							])
-						)
-						yield* agree<ReadonlyArray<string>>(
-							[
-								["RFC 3986", Arr.map(pairs, (p) => resolvedReference(p.base, p.reference))],
-								["PostgreSQL", Arr.map(rows, (row) => textCell(row, 0))],
-								["the host", Arr.map(pairs, hostTarget)]
-							],
-							ordered(exact)
-						)
-					}),
-					Substrate,
-					substrate
-				),
+				Effect.gen(function* () {
+					const { bare } = yield* tx
+					for (const feature of features) {
+						k.note(feature)
+					}
+					const rows = yield* inInstallation(
+						bare,
+						[createLibrary],
+						bare.queryValues(resolveSql, [
+							jsonText(Arr.map(pairs, (p, ord) => ({ ord, b: p.base, r: p.reference })))
+						])
+					)
+					yield* agree<ReadonlyArray<string>>(
+						[
+							["RFC 3986", Arr.map(pairs, (p) => resolvedReference(p.base, p.reference))],
+							["PostgreSQL", Arr.map(rows, (row) => textCell(row, 0))],
+							["the host", Arr.map(pairs, hostTarget)]
+						],
+						ordered(exact)
+					)
+				}),
 		oracle: {
 			kind: "second-implementation",
 			name: "RFC 3986 read by other means (Appendix B's expression, §5.2.4's rules as patterns), and the host's grizzle-text resolver"

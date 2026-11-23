@@ -64,38 +64,34 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const computeParseDoubleOnPostgreSQL19AStoredParseTheHostEvaluatorAndIEEE754sConversionAgreeToTheBitOnEveryDoublesText =
 	property.explore(recorded(array(doubleTextGen, { min: 1, max: 48 }), mapKeyDoubles), {
-		needs: { substrate2: Substrate.installing },
+		needs: { tx: Substrate.transaction },
 		situations: features satisfies ReadonlyArray<Reached<Feature>>,
 		check:
-			({ substrate2 }, c: Case<Feature>) =>
+			({ tx }, c: Case<Feature>) =>
 			(texts) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const substrate = yield* Substrate
-						return yield* Effect.scoped(
-							Effect.gen(function* () {
-								const installation = yield* parseDoubleInstallation
-								const pinned = yield* substrate.admin.pin
-								const stored = yield* storedBits(pinned, substrate.database, installation, texts)
-								assert.equal(stored.length, texts.length, "a row per text")
-								for (const [i, text] of texts.entries()) {
-									const reference = defined(referenceConversion(text), "a member of the form")
-									const host = hostBits(text)
-									const database = defined(stored[i], "its stored value")
-									const label = `${Formatter.format(text)}: reference ${reference.bits.toString(16)}`
-									assert.ok(sameDouble(host, reference.bits), `${label}, host ${host.toString(16)}`)
-									assert.ok(
-										sameDouble(database, reference.bits),
-										`${label}, PostgreSQL ${database.toString(16)}`
-									)
-									c.noteAll(featuresOf(text, reference))
-								}
-							})
-						)
-					}),
-					Substrate,
-					substrate2
-				),
+				Effect.gen(function* () {
+					const { bare, database, schema } = yield* tx
+					return yield* Effect.scoped(
+						Effect.gen(function* () {
+							const schemaName = yield* schema("parse_double")
+							const installation = yield* parseDoubleInstallation(schemaName)
+							const stored = yield* storedBits(bare, database, installation, texts)
+							assert.equal(stored.length, texts.length, "a row per text")
+							for (const [i, text] of texts.entries()) {
+								const reference = defined(referenceConversion(text), "a member of the form")
+								const host = hostBits(text)
+								const database = defined(stored[i], "its stored value")
+								const label = `${Formatter.format(text)}: reference ${reference.bits.toString(16)}`
+								assert.ok(sameDouble(host, reference.bits), `${label}, host ${host.toString(16)}`)
+								assert.ok(
+									sameDouble(database, reference.bits),
+									`${label}, PostgreSQL ${database.toString(16)}`
+								)
+								c.noteAll(featuresOf(text, reference))
+							}
+						})
+					)
+				}),
 		oracle: {
 			kind: "second-implementation",
 			name: "IEEE 754's decimal-to-binary64 conversion in exact rational arithmetic, against the host evaluator and a stored generated field"

@@ -1,4 +1,3 @@
-/** What the properties of float-binding.test.ts read: its terms, its ledger and the judgments of each lowering. */
 import { defined } from "@bjornpagen/testing/assert"
 import {
 	array,
@@ -24,6 +23,8 @@ import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
+/** What the properties of float-binding.test.ts read: its terms, its ledger and the judgments of each lowering. */
+import { inInstallation } from "#test/pg/compute/support.ts"
 import { optimizedLowering } from "#test/pg/recursion/lowering/support.ts"
 import { filledSql } from "#test/support/compile.ts"
 import type {
@@ -54,7 +55,7 @@ import {
 	type RunnerSide
 } from "#test/support/oracle/runner.ts"
 import { checkAuthored, checking, checkOptions } from "#test/support/policy.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import type { RolledBack } from "#test/support/substrate/substrate.ts"
 import * as D from "#test/unit/check/dsl.ts"
 
 type Width = "float8" | "float4"
@@ -433,13 +434,17 @@ const subplansRun = (plan: PlanNode): ReadonlyArray<PlanNode> =>
 	)
 
 /**
- * The statement of `lowering` over the case, installed and filled in one rolled-back transaction, planned under
- * EXPLAIN ANALYZE: the SubPlans and InitPlans that ran.
+ * The statement of `lowering` over the case, installed and filled under a savepoint of the case's rolled-back
+ * transaction (compute/support.ts inInstallation), planned under EXPLAIN ANALYZE: the SubPlans and InitPlans that ran.
  */
-export const subplansOf = (c: LabelledCase, lowering: Lowering, schema: string) =>
+export const subplansOf = (
+	c: LabelledCase,
+	lowering: Lowering,
+	schema: string,
+	held: RolledBack<void>
+) =>
 	Effect.scoped(
 		Effect.gen(function* () {
-			const substrate = yield* Substrate
 			const planned = oraclePlanUnder(
 				schemaDesc(c.schema),
 				identity.schema(parsedSchemaName(schema)),
@@ -458,27 +463,27 @@ export const subplansOf = (c: LabelledCase, lowering: Lowering, schema: string) 
 			if (!lowered.ok) {
 				return yield* Effect.die(new Error(lowered.error.message))
 			}
-			const session = yield* substrate.admin.pin
-			yield* session.query("BEGIN", [])
-			return yield* Effect.gen(function* () {
-				for (const sql of [...filledSql(plan.drafted, substrate.database), ...facts.value]) {
-					yield* session.query(sql, [])
-				}
-				const tables = Arr.map(Rec.values(plan.tables), (t) => printObjectName(t.name))
-				yield* session.query(`ANALYZE ${Arr.join(tables, ", ")}`, [])
-				const ran: Array<string> = []
-				const text = lowered.value.statement.sql.text
-				const rows = yield* session.queryValues(
-					explainStatementWith(text, { serialize: { kind: "off" }, wal: false }),
-					[]
-				)
-				const explained = yield* Effect.fromResult(parsePlan(rows[0]?.[0]))
-				for (const n of subplansRun(explained.plan)) {
-					ran.push(
-						`${lowering.name}: a subplan's ${n.nodeType} ran ${n.actualLoops} times\n${text}`
+			const session = held.bare
+			return yield* inInstallation(
+				session,
+				[...filledSql(plan.drafted, held.database), ...facts.value],
+				Effect.gen(function* () {
+					const tables = Arr.map(Rec.values(plan.tables), (t) => printObjectName(t.name))
+					yield* session.query(`ANALYZE ${Arr.join(tables, ", ")}`, [])
+					const ran: Array<string> = []
+					const text = lowered.value.statement.sql.text
+					const rows = yield* session.queryValues(
+						explainStatementWith(text, { serialize: { kind: "off" }, wal: false }),
+						[]
 					)
-				}
-				return ran
-			}).pipe(Effect.ensuring(Effect.ignore(session.query("ROLLBACK", []))))
+					const explained = yield* Effect.fromResult(parsePlan(rows[0]?.[0]))
+					for (const n of subplansRun(explained.plan)) {
+						ran.push(
+							`${lowering.name}: a subplan's ${n.nodeType} ran ${n.actualLoops} times\n${text}`
+						)
+					}
+					return ran
+				})
+			)
 		})
 	)

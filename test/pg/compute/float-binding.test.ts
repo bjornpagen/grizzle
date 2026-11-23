@@ -78,7 +78,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const guardedFloatFormsBindTheirOperandsOncePerRowAndComputeTheReferencesValues =
 	property.explore(aimedCaseGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { tx: Substrate.transaction },
 		situations: [
 			"width:float8",
 			"width:float4",
@@ -88,43 +88,39 @@ export const guardedFloatFormsBindTheirOperandsOncePerRowAndComputeTheReferences
 			...Arr.map(positions, (p): Feature => `position:${p}`)
 		] satisfies ReadonlyArray<Reached<Feature>>,
 		check:
-			({ substrate }, cx: Case<Feature>) =>
+			({ tx }, cx: Case<Feature>) =>
 			(k) =>
-				Effect.flatMap(substrate, (taken) =>
+				Effect.flatMap(tx, (held) =>
 					Effect.provideService(
-						Effect.provideService(
-							Effect.gen(function* () {
-								const schema = yield* taken.schema({ create: false, label: "floatbinding" })
-								const options: RunOptions = {
-									...defaultRunOptions,
-									schema: { kind: "named", name: schema }
-								}
-								cx.noteAll(featuresOf(k))
-								const desc = queryOf(exprOf(k.term), k.term.width, k.position)
-								const edge = ledgerCase("edge classes", desc, k.edge)
-								const moderate = ledgerCase("moderate values", desc, k.moderate)
-								for (const [lowering, judge] of judged(k.position)) {
-									for (const c of [edge, moderate]) {
-										const outcome = yield* runLabelledOracle(c, lowering, judge, options)
-										if (!outcome.comparison.equal) {
-											return yield* comparisonFailed(outcome)
-										}
+						Effect.gen(function* () {
+							const schema = yield* held.schema("floatbinding")
+							const options: RunOptions = {
+								...defaultRunOptions,
+								schema: { kind: "named", name: schema }
+							}
+							cx.noteAll(featuresOf(k))
+							const desc = queryOf(exprOf(k.term), k.term.width, k.position)
+							const edge = ledgerCase("edge classes", desc, k.edge)
+							const moderate = ledgerCase("moderate values", desc, k.moderate)
+							for (const [lowering, judge] of judged(k.position)) {
+								for (const c of [edge, moderate]) {
+									const outcome = yield* runLabelledOracle(c, lowering, judge, options)
+									if (!outcome.comparison.equal) {
+										return yield* comparisonFailed(outcome)
 									}
 								}
-								for (const lowering of lowerings) {
-									const ran = yield* subplansOf(moderate, lowering, schema)
-									assert.deepEqual(
-										ran,
-										[],
-										"no SubPlan or InitPlan runs over values every guarded form computes natively"
-									)
-								}
-							}),
-							OracleSeat,
-							OracleSeat.ofSubstrate(taken)
-						),
-						Substrate,
-						taken
+							}
+							for (const lowering of lowerings) {
+								const ran = yield* subplansOf(moderate, lowering, schema, held)
+								assert.deepEqual(
+									ran,
+									[],
+									"no SubPlan or InitPlan runs over values every guarded form computes natively"
+								)
+							}
+						}),
+						OracleSeat,
+						OracleSeat.rolledBack(held)
 					)
 				),
 		oracle: {

@@ -62,7 +62,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const numDivOfFloatsOnPostgreSQL19AQuotientByEitherZeroIsOneValueTheHostsAndTheRules =
 	property.explore(batchGen, {
-		needs: { substrate: Substrate.installing },
+		needs: { tx: Substrate.transaction },
 		situations: [
 			"a positive dividend",
 			"a negative dividend",
@@ -75,37 +75,32 @@ export const numDivOfFloatsOnPostgreSQL19AQuotientByEitherZeroIsOneValueTheHosts
 			"a real's quotient"
 		] satisfies ReadonlyArray<Reached<ZeroQuotientFeature>>,
 		check:
-			({ substrate }, k: Case<ZeroQuotientFeature>) =>
+			({ tx }, k: Case<ZeroQuotientFeature>) =>
 			({ carrier, dividends }) =>
-				Effect.provideServiceEffect(
-					Effect.gen(function* () {
-						const s = yield* Substrate
-						k.note(carrier === "float8" ? "a double's quotient" : "a real's quotient")
-						for (const x of dividends) {
-							k.note(classOf(x, carrier))
-						}
-						const rows = rowsOf(dividends)
-						const pinned = yield* s.admin.pin
-						const answered = yield* inInstallation(
-							pinned,
-							[],
-							pinned.queryValues(quotientSql(carrier), [jsonText(rowsJson(rows))])
-						)
-						yield* agree<ReadonlyArray<string>>(
+				Effect.gen(function* () {
+					const { bare } = yield* tx
+					k.note(carrier === "float8" ? "a double's quotient" : "a real's quotient")
+					for (const x of dividends) {
+						k.note(classOf(x, carrier))
+					}
+					const rows = rowsOf(dividends)
+					const answered = yield* inInstallation(
+						bare,
+						[],
+						bare.queryValues(quotientSql(carrier), [jsonText(rowsJson(rows))])
+					)
+					yield* agree<ReadonlyArray<string>>(
+						[
+							["the rule", Arr.map(rows, (row) => identityOf(byZero(row.x)))],
+							["the host", Arr.map(rows, (row) => identityOf(hostQuotient(carrier, row)))],
 							[
-								["the rule", Arr.map(rows, (row) => identityOf(byZero(row.x)))],
-								["the host", Arr.map(rows, (row) => identityOf(hostQuotient(carrier, row)))],
-								[
-									"PostgreSQL",
-									Arr.map(answered, (row) => identityOf(readFloat(textCell(row, 0), carrier)))
-								]
-							],
-							ordered(exact)
-						)
-					}),
-					Substrate,
-					substrate
-				),
+								"PostgreSQL",
+								Arr.map(answered, (row) => identityOf(readFloat(textCell(row, 0), carrier)))
+							]
+						],
+						ordered(exact)
+					)
+				}),
 		oracle: {
 			kind: "specification",
 			name: "grizzle's quotient by zero, the infinity of the dividend's sign or NaN over a zero or NaN dividend, a function of the dividend alone"

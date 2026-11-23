@@ -19,7 +19,6 @@ import { installationNamesOf, parsedSchemaName } from "#test/support/kernel/nami
 import type { PgConnection } from "#test/support/pg.ts"
 import { owning } from "#test/support/policy.ts"
 import { jsMatcher } from "#test/support/regex.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
 import { admittedPatternOver, families, stringsOver } from "#test/unit/text/generators.ts"
 
 /** The dictionary a case installs: each domain's pattern, the literal pattern of its Tagged rows, and the probe texts. */
@@ -80,10 +79,8 @@ export const dictionarySchema = (d: Dictionary) => {
 	return { value, Value, Tagged, lexical, literal }
 }
 
-export const textInstallation = (s: ReturnType<typeof dictionarySchema>) =>
+export const textInstallation = (s: ReturnType<typeof dictionarySchema>, schemaName: string) =>
 	Effect.gen(function* () {
-		const substrate = yield* Substrate
-		const schemaName = yield* substrate.schema({ create: false, label: "text" })
 		const owned = owning(s.value)
 		const real = compileInstallation(owned, {
 			...installOptions(owned),
