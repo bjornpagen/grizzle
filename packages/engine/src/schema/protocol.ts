@@ -28,7 +28,6 @@
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { type CompileError, malformedDescription, ruleRefused } from "#compiler/core/errors.ts"
-import type { IdentityDigests } from "#compiler/core/fingerprint.ts"
 import { admitDeclaredName, type DeclaredName } from "#compiler/core/identity.ts"
 import { captureLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
@@ -366,22 +365,9 @@ interface OwnedEntry<K extends OwnedKind> {
 	readonly content: OwnedKinds[K]["content"]
 }
 
-/** The kinds a query or a ChangeSet is written over: a level (schema/level.ts Level). */
-type LevelKind = "schema" | "fragment" | "role"
-
-/**
- * A level's entry: its value, Description and content, and the identity digests of what is written over it
- * (core/fingerprint.ts IdentityDigests): made where the level is built, one for the level's life, so each frozen part of
- * every query a ChangeSet over it or a compile of one reads is digested once for the level, however many ChangeSets ask.
- * No part of the level's identity: its content holds that (schema/levels.ts sameLevel).
- */
-interface LevelEntry<K extends LevelKind> extends OwnedEntry<K> {
-	readonly identities: IdentityDigests
-}
-
-/** Each kind's owned entry, by kind: a level's with its identity digests (LevelEntry). */
+/** Each kind's owned entry, by kind. */
 type OwnedEntries = {
-	readonly [K in OwnedKind]: K extends LevelKind ? LevelEntry<K> : OwnedEntry<K>
+	readonly [K in OwnedKind]: OwnedEntry<K>
 }
 
 /** An owned value of any kind: its entry, whose kind says which. */

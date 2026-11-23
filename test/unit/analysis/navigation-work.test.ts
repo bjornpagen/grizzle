@@ -7,11 +7,11 @@
  * rule at every level, to learn whether one of them joins. The work is counted, never timed (test/support/kernel/
  * calls.ts): every call of navigation's functions.
  *
- * Navigation's digesting of what it reads is linear in the depth too: a compile's navigation (Navigation) keeps one set
- * of identity digests (ir/desc.ts descIdentities) for every identity and import key it asks, each query frozen before
- * it is digested, so each part of a query, the ones navigation builds among them, is digested once, where each
- * identity and key digested its query anew and every level digested the whole chain below it again. Its work is the
- * calls of the identity digests' functions (core/fingerprint.ts).
+ * Navigation's digesting of what it reads is linear in the depth too: every identity and import key navigation asks is
+ * digested in the Descriptions' one set of identity digests (ir/desc.ts descIdentities), each query frozen before it is
+ * digested, so each part of a query, the ones navigation builds among them, is digested once, where each identity and
+ * key digested its query anew and every level digested the whole chain below it again. Its work is the calls of the
+ * identity digests' functions (core/fingerprint.ts), the declared queries' parts digested before the count begins.
  *
  * Oracle: linearity, read off the chain: every level over a union is alike, so each costs navigation what the third
  * level added to the second.
@@ -102,9 +102,9 @@ export const navigatingAChainOfUnionsDigestsEachPartOnceHoweverDeepTheChain = pr
 		kills: [
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
-				original: "\t\tconst identity = this.#digests.of(deepFreeze(query))",
-				replacement: "\t\tconst identity = descIdentities().of(deepFreeze(query))",
-				why: "Each identity is digested by digests of its own, as descIdentity's were: every level's identity digests the whole chain below it again; the property fails."
+				original: "\t\tconst identity = descIdentity(deepFreeze(query))",
+				replacement: "\t\tconst identity = descIdentity(query)",
+				why: "A navigated query is digested as navigation built it, unfrozen, so no token of a part it built is kept past the one identity: every level's identity digests the whole chain below it again; the property fails."
 			}
 		]
 	}

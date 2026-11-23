@@ -127,7 +127,7 @@ export const thePublicBoundaryAdmitsABuiltSchemaAtTheSchemaDoorAndRefusesEveryOt
 				{
 					file: "packages/engine/src/program/schema.ts",
 					original:
-						'\tif (built !== undefined) {\n\t\treturn Result.ok(\n\t\t\tObject.freeze<SchemaInput>({\n\t\t\t\tkind: "built",\n\t\t\t\tvalue: built.value,\n\t\t\t\tdesc: built.desc,\n\t\t\t\tcontent: built.content,\n\t\t\t\tidentities: built.identities\n\t\t\t})\n\t\t)\n\t}',
+						'\tif (built !== undefined) {\n\t\treturn Result.ok(\n\t\t\tObject.freeze<SchemaInput>({\n\t\t\t\tkind: "built",\n\t\t\t\tvalue: built.value,\n\t\t\t\tdesc: built.desc,\n\t\t\t\tcontent: built.content\n\t\t\t})\n\t\t)\n\t}',
 					replacement: "\t{}",
 					why: "Operator mutant (guard) at packages/engine/src/program/schema.ts:200 in parseSchemaInput: `if (built !== undefined) {\n\t\treturn Result.ok(\n\t\t\tObject.freeze<SchemaInput>({\n\t` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
 				}

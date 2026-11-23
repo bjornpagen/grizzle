@@ -94,12 +94,11 @@ export const identityDigest = (
  * Identity digests under one EncodeOptions (`identityDigest`), each frozen container's identity kept across every value
  * they digest, as one value's every container is within it: a container two values hold is digested once for both, and
  * a frozen value asked again, or a part of one asked as a value of its own, is its kept identity, never digested again.
- * Owned by the caller whose values share parts, a ChangeSet's chain of members, each of which may import what an
- * earlier one does (write/changeset/value.ts), or a statement's navigation (analysis/theory/navigate.ts), which asks
- * the identity of every query it reads at every read of it, never by a module. A frozen container's identity is its
- * content's for as long as it lives; one that is not frozen is digested anew in each value that holds it. Every
- * container's text is written into one writer, one after another, each finished before the next is begun
- * (Sha256Messages).
+ * A frozen container's identity is its content's for as long as it lives, so one set of digests serves every reader of
+ * the values it keeps: Descriptions' are one for the process (ir/desc.ts descIdentities), which every ChangeSet's
+ * members, every owned schema's levels and statements and every navigation read. One that is not frozen is digested
+ * anew in each value that holds it. Every container's text is written into one writer, one after another, each
+ * finished before the next is begun (Sha256Messages).
  */
 export class IdentityDigests {
 	readonly #options: EncodeOptions
@@ -362,8 +361,9 @@ export const constantDigest = <D extends ConstantDomain>(
  * SourceLocs its descs carry under "loc" (ir/desc.ts), which are presentation, excluded from semantic identity. The text
  * is built Merkle-style (IdentityDigests): every array and record the level holds, its bases among them, written as its
  * own identity digest's token, so a query its relations read by many paths is digested once, and the levels of one
- * owned schema, read by one IdentityDigests, digest each part they share once (schema/own.ts hashedLevels): a level's
- * text is linear in its distinct parts, where its canonical text, a union chain's, doubles with each level.
+ * owned schema, read by the Descriptions' one IdentityDigests (ir/desc.ts descIdentities), digest each part they share
+ * once (schema/own.ts hashedLevels): a level's text is linear in its distinct parts, where its canonical text, a union
+ * chain's, doubles with each level.
  */
 export const schemaFingerprint = (
 	identities: IdentityDigests,

@@ -20,7 +20,7 @@ import {
 	type RecordField,
 	type RowDecoder
 } from "#compiler/core/decoder.ts"
-import type { IdentityDigest, IdentityDigests } from "#compiler/core/fingerprint.ts"
+import type { IdentityDigest } from "#compiler/core/fingerprint.ts"
 import { hostRead } from "#compiler/core/host.ts"
 import { captureLoc, formatLoc, labeledChildLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import * as Order from "#compiler/core/order.ts"
@@ -30,6 +30,7 @@ import { type TextsId, TextsMap, textsId } from "#compiler/core/text.ts"
 import {
 	type ChangeSetDesc,
 	decodeDesc,
+	descIdentity,
 	type EqualedDesc,
 	equalParamNames,
 	type MemberDesc,
@@ -524,14 +525,13 @@ const equalState = (
 	op: WriteOp,
 	relation: string,
 	fields: Readonly<Record<string, EqualedDesc>>,
-	loc: SourceLoc,
-	identities: IdentityDigests
+	loc: SourceLoc
 ): Extract<MemberState, { readonly kind: "equal" }> => ({
 	kind: "equal",
 	op,
 	relation,
 	fields,
-	identity: identityOf(identities, fields),
+	identity: identityOf(fields),
 	params: equalParamNames(fields),
 	desc: Object.freeze({ op, relation, member: Object.freeze({ kind: "equal", fields }), loc })
 })
@@ -608,21 +608,14 @@ const describe = (
 	return { desc, inputs }
 }
 
-/**
- * The part of a state that holds parameters, and the identity digests its members' Descriptions are digested in: its
- * level's (schema/level.ts Level identities), so a member that imports what any member of any ChangeSet over the level
- * does digests each shared part once for the level.
- */
-type Scope = Pick<ChangeSetState, "strata" | "reads" | "bound"> & {
-	readonly identities: IdentityDigests
-}
+/** The part of a state that holds parameters. */
+type Scope = Pick<ChangeSetState, "strata" | "reads" | "bound">
 
-/** A state's scope: its members, read-backs and parameters, over its level's identity digests. */
+/** A state's scope: its members, read-backs and parameters. */
 const scopeOf = (state: ChangeSetState): Scope => ({
 	strata: state.strata,
 	reads: state.reads,
-	bound: state.bound,
-	identities: state.over.identities
+	bound: state.bound
 })
 
 /** Every parameter name the members and read-backs use, free or private, in canonical walk order. */
@@ -672,54 +665,39 @@ const renamedQuery = (query: QueryDesc, rename: ReadonlyMap<string, string>): Qu
 /** A member a query describes, its query `query`: its identity, its parameters and its Description with it. */
 const withMemberQuery = (
 	m: Extract<MemberState, { readonly kind: "query" | "computed" }>,
-	query: QueryDesc,
-	identities: IdentityDigests
+	query: QueryDesc
 ): MemberState =>
 	m.kind === "computed"
-		? computedState(m.relation, query, m.desc.loc, identities)
+		? computedState(m.relation, query, m.desc.loc)
 		: {
 				...m,
 				query,
-				identity: identityOf(identities, query),
+				identity: identityOf(query),
 				params: queryParamNames(query),
 				desc: queryMemberDesc(m.op, m.relation, query, m.desc.loc)
 			}
 
 /** A read-back, its query `query`: its identity, its parameters and its Description with it. */
-const withReadQuery = (
-	r: ReadBackState,
-	query: QueryDesc,
-	identities: IdentityDigests
-): ReadBackState => ({
+const withReadQuery = (r: ReadBackState, query: QueryDesc): ReadBackState => ({
 	...r,
 	query,
-	identity: identityOf(identities, query),
+	identity: identityOf(query),
 	params: queryParamNames(query),
 	desc: Object.freeze({ name: r.name, query })
 })
 
-const renameMember = (
-	m: MemberState,
-	rename: ReadonlyMap<string, string>,
-	identities: IdentityDigests
-): MemberState => {
+const renameMember = (m: MemberState, rename: ReadonlyMap<string, string>): MemberState => {
 	if (!isDescribed(m) || ![...m.params].some((p) => rename.has(p))) {
 		return m
 	}
 	if (m.kind === "equal") {
-		return equalState(m.op, m.relation, renameEqualParams(m.fields, rename), m.desc.loc, identities)
+		return equalState(m.op, m.relation, renameEqualParams(m.fields, rename), m.desc.loc)
 	}
-	return withMemberQuery(m, renamedQuery(m.query, rename), identities)
+	return withMemberQuery(m, renamedQuery(m.query, rename))
 }
 
-const renameRead = (
-	r: ReadBackState,
-	rename: ReadonlyMap<string, string>,
-	identities: IdentityDigests
-): ReadBackState =>
-	[...r.params].some((p) => rename.has(p))
-		? withReadQuery(r, renamedQuery(r.query, rename), identities)
-		: r
+const renameRead = (r: ReadBackState, rename: ReadonlyMap<string, string>): ReadBackState =>
+	[...r.params].some((p) => rename.has(p)) ? withReadQuery(r, renamedQuery(r.query, rename)) : r
 
 /** The scope with its uses of the names `rename` maps renamed, and its private parameters with them. The images are
  * distinct and none is a name of the scope `rename` leaves in place. */
@@ -733,12 +711,11 @@ const renameScope = (scope: Scope, rename: ReadonlyMap<string, string>): Scope =
 	}
 	return {
 		strata: scope.strata.map((stratum) => {
-			const renamed = stratum.map((m) => renameMember(m, rename, scope.identities))
+			const renamed = stratum.map((m) => renameMember(m, rename))
 			return renamed.every((m, i) => m === stratum[i]) ? stratum : canonicalStratum(renamed)
 		}),
-		reads: scope.reads.map((r) => renameRead(r, rename, scope.identities)),
-		bound,
-		identities: scope.identities
+		reads: scope.reads.map((r) => renameRead(r, rename)),
+		bound
 	}
 }
 
@@ -801,10 +778,7 @@ const canonicalBindings = (scope: Scope): Scope => {
 			merges.set(name, same)
 		}
 	}
-	const merged = renameScope(
-		{ strata: scope.strata, reads: scope.reads, bound: kept, identities: scope.identities },
-		merges
-	)
+	const merged = renameScope({ strata: scope.strata, reads: scope.reads, bound: kept }, merges)
 	const taken = new Set(freeParams(merged))
 	const canonical = new Map<string, string>()
 	for (const [name, param] of [...merged.bound].toSorted(
@@ -872,12 +846,7 @@ const make = <S, P, W extends string, Rd, Done extends Strata, Last extends Stra
 	given: ReadonlyArray<ReadBackState>,
 	boundParams: ReadonlyMap<string, BoundParam>
 ): ChangeSetOf<S, P, W, Rd, never, Done, Last, A> & SchemaMember => {
-	const scope = canonicalBindings({
-		strata,
-		reads: given,
-		bound: boundParams,
-		identities: over.identities
-	})
+	const scope = canonicalBindings({ strata, reads: given, bound: boundParams })
 	const canonical = Object.freeze(scope.strata)
 	const reads = readBackSet(label, scope.reads)
 	const bound: ReadonlyMap<string, BoundParam> = scope.bound
@@ -953,12 +922,13 @@ const frozenFact = (fact: unknown): unknown =>
 const heldFacts = (facts: ReadonlyArray<unknown>): ReadonlyArray<unknown> =>
 	isDecoded(facts) ? facts : Object.freeze(facts.map(frozenFact))
 
-/** The identity digest of a decoded part of a member's Description: a query, or a field-equality member's fields. */
-const identityOf = (
-	identities: IdentityDigests,
-	desc: QueryDesc | Readonly<Record<string, EqualedDesc>>
-): IdentityDigest => {
-	const identity = identities.of(desc)
+/**
+ * The identity digest of a decoded part of a member's Description: a query, or a field-equality member's fields (ir/desc.ts
+ * descIdentity), each frozen part it shares with what any ChangeSet, owned schema or navigation read digested once for the
+ * process.
+ */
+const identityOf = (desc: QueryDesc | Readonly<Record<string, EqualedDesc>>): IdentityDigest => {
+	const identity = descIdentity(desc)
 	if (!identity.ok) {
 		throw identity.error
 	}
@@ -1015,7 +985,7 @@ const memberState = (
 		}
 		requireLevel(built.schema.over, state.over, label)
 		const query = publicDesc(built, label)
-		const identity = identityOf(state.over.identities, query)
+		const identity = identityOf(query)
 		return {
 			kind: "query",
 			op,
@@ -1037,8 +1007,7 @@ const scopeWith = (scope: Scope, member: MemberState): Scope => {
 	return {
 		strata: released.strata.map((s, i) => (i === last ? withMember(s, i, member) : s)),
 		reads: released.reads,
-		bound: released.bound,
-		identities: released.identities
+		bound: released.bound
 	}
 }
 
@@ -1060,14 +1029,13 @@ const addMember = <S, P, W extends string, Rd, Done extends Strata, Last extends
 const computedState = (
 	relation: string,
 	query: QueryDesc,
-	loc: SourceLoc,
-	identities: IdentityDigests
+	loc: SourceLoc
 ): Extract<MemberState, { readonly kind: "computed" }> => ({
 	kind: "computed",
 	op: "insert",
 	relation,
 	query,
-	identity: identityOf(identities, query),
+	identity: identityOf(query),
 	params: queryParamNames(query),
 	desc: Object.freeze({
 		op: "insert",
@@ -1123,7 +1091,7 @@ const addInsertComputed = <
 	)
 	const scope = scopeWith(
 		scopeWith(scopeOf(state), member),
-		computedState(name, query, keptLoc(loc), state.over.identities)
+		computedState(name, query, keptLoc(loc))
 	)
 	return make(label, state.over, scope.strata, scope.reads, scope.bound)
 }
@@ -1216,13 +1184,7 @@ const addDeletesWhere = <S, P, W extends string, Rd, Done extends Strata, Last e
 		)
 		return scopeWith(
 			at,
-			equalState(
-				"delete",
-				name,
-				equaled,
-				keptLoc(captureLoc(`delete ${name}`, [])),
-				state.over.identities
-			)
+			equalState("delete", name, equaled, keptLoc(captureLoc(`delete ${name}`, [])))
 		)
 	}, scopeOf(state))
 	return make(label, state.over, scope.strata, scope.reads, scope.bound)
@@ -1272,7 +1234,7 @@ const addRead = <
 	const read: ReadBackState = {
 		name,
 		query,
-		identity: identityOf(scope.identities, query),
+		identity: identityOf(query),
 		params,
 		loc,
 		desc: Object.freeze({ name, query }),
@@ -1478,7 +1440,7 @@ const bindRows = (
 ): Pick<Scope, "strata" | "reads"> => {
 	const identityQueries = new Map<IdentityDigest, QueryDesc>()
 	const identity = (source: RelationParamSourceDesc): QueryDesc => {
-		const key = orThrow(state.over.identities.of(source))
+		const key = orThrow(descIdentity(source))
 		const known = identityQueries.get(key)
 		if (known !== undefined) {
 			return known
@@ -1506,14 +1468,12 @@ const bindRows = (
 	const strata = state.strata.map((stratum) => {
 		const bound = stratum.map((m) =>
 			(m.kind === "query" || m.kind === "computed") && uses(m.params)
-				? withMemberQuery(m, bind(m.query), state.over.identities)
+				? withMemberQuery(m, bind(m.query))
 				: m
 		)
 		return bound.every((m, i) => m === stratum[i]) ? stratum : canonicalStratum(bound)
 	})
-	const reads = state.reads.map((r) =>
-		uses(r.params) ? withReadQuery(r, bind(r.query), state.over.identities) : r
-	)
+	const reads = state.reads.map((r) => (uses(r.params) ? withReadQuery(r, bind(r.query)) : r))
 	const still = [...rows.keys()].find((name) => usedParams({ strata, reads }).has(name))
 	if (still !== undefined) {
 		throw builderRefusal(

@@ -136,7 +136,7 @@ export const judged = (c: Case, note: (f: Feature) => void): void => {
 				loc,
 				queryColumns(artifacts.laws.checked, loc),
 				{ kind: "perStatement", extent: "every" },
-				new Navigation(theory.regionFacts, artifacts.laws.checked.owned.identities)
+				new Navigation(theory.regionFacts)
 			),
 			{
 				read: "region",

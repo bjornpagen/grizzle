@@ -124,9 +124,9 @@ export const startupWorkReadsASchemasContentOnceCompilesItOncePerCommandNothingF
 			},
 			{
 				file: "packages/engine/src/schema/own.ts",
-				original: "\t\tfingerprint: unwrap(schemaFingerprint(identities, level))\n",
+				original: "\t\tfingerprint: unwrap(schemaFingerprint(descIdentities, level))\n",
 				replacement:
-					"\t\tfingerprint: unwrap(\n\t\t\tResult.flatMap(schemaFingerprint(identities, level), () => schemaFingerprint(identities, level))\n\t\t)\n",
+					"\t\tfingerprint: unwrap(\n\t\t\tResult.flatMap(schemaFingerprint(descIdentities, level), () => schemaFingerprint(descIdentities, level))\n\t\t)\n",
 				why: "generate and check hash each level's fingerprint twice; the count of fingerprints fails."
 			},
 			{

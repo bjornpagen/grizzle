@@ -9,7 +9,6 @@ import {
 } from "#compiler/analysis/schema.ts"
 import { catchCompileError, settled } from "#compiler/core/canonical.ts"
 import { CompileError, malformedDescription, type RoleAccess } from "#compiler/core/errors.ts"
-import type { IdentityDigests } from "#compiler/core/fingerprint.ts"
 import { type DeclaredName, identifierOf } from "#compiler/core/identity.ts"
 import type { LawId, SchemaFingerprint } from "#compiler/core/ids.ts"
 import { Lazy } from "#compiler/core/lazy.ts"
@@ -160,8 +159,6 @@ export type SchemaInput =
 			readonly value: object
 			readonly desc: SchemaDesc
 			readonly content: SchemaContent
-			/** The identity digests the schema's build made for what is written over it (schema/protocol.ts LevelEntry). */
-			readonly identities: IdentityDigests
 	  }
 	| {
 			readonly kind: "owned"
@@ -213,8 +210,7 @@ export const parseSchemaInput = (value: unknown): Result.Result<SchemaInput, Com
 				kind: "built",
 				value: built.value,
 				desc: built.desc,
-				content: built.content,
-				identities: built.identities
+				content: built.content
 			})
 		)
 	}
@@ -282,8 +278,7 @@ export const parseBuiltSchema = (
 			kind: "built",
 			value: entry.value,
 			desc: entry.desc,
-			content: entry.content,
-			identities: entry.identities
+			content: entry.content
 		})
 	)
 }

@@ -7,7 +7,7 @@ import { queryColumns } from "#compiler/analysis/theory/columns.ts"
 import { Navigation, navigateQuery, type RegionExtent } from "#compiler/analysis/theory/navigate.ts"
 import { buildTheory } from "#compiler/analysis/theory/theory.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { descIdentities, type InferredQuery } from "#compiler/ir/desc.ts"
+import type { InferredQuery } from "#compiler/ir/desc.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -141,7 +141,7 @@ export const navigatedOver = (c: Extent, note: (r: Reached) => void): void => {
 		loc,
 		columns,
 		{ kind: "perStatement", extent: c.extent },
-		new Navigation(facts, descIdentities())
+		new Navigation(facts)
 	)
 	note(
 		c.import === "one rule"

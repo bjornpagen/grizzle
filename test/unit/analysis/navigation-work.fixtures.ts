@@ -8,7 +8,7 @@ import { queryColumns } from "#compiler/analysis/theory/columns.ts"
 import { Navigation, navigateQuery } from "#compiler/analysis/theory/navigate.ts"
 import { buildTheory } from "#compiler/analysis/theory/theory.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { descIdentities, type InferredQuery } from "#compiler/ir/desc.ts"
+import { descIdentity, type InferredQuery } from "#compiler/ir/desc.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -153,7 +153,7 @@ const navigationWork = (c: Chain, depth: number): Effect.Effect<number> =>
 					loc,
 					columns,
 					{ kind: "perStatement", extent: c.read === "whole" ? "every" : "units" },
-					new Navigation(facts, descIdentities())
+					new Navigation(facts)
 				)
 			),
 			isNavigation
@@ -166,24 +166,28 @@ const isDigesting = (file: string): boolean => Str.endsWith("core/fingerprint.ts
 
 /**
  * The calls of the identity digests' functions navigating case `c`'s read at `depth`: the digesting of every identity
- * and import key navigation asks of what it reads, counted, never timed.
+ * and import key navigation asks of what it reads, counted, never timed. The declared queries the chain is made of are
+ * digested before the count begins, as a compile's are before its navigation reads them (ir/desc.ts descIdentities, one
+ * for the process, which keeps each frozen part's identity whatever read it first), so the count is navigation's own
+ * digesting whatever case ran before it.
  */
 const digestWork = (c: Chain, depth: number): Effect.Effect<number> =>
-	Effect.map(
-		everyCallCount(
+	Effect.gen(function* () {
+		yield* Effect.sync(() => succeeded(descIdentity(readAt(c, depth))))
+		const [, counts] = yield* everyCallCount(
 			Effect.sync(() =>
 				navigateQuery(
 					readAt(c, depth),
 					loc,
 					columns,
 					{ kind: "perStatement", extent: c.read === "whole" ? "every" : "units" },
-					new Navigation(facts, descIdentities())
+					new Navigation(facts)
 				)
 			),
 			isDigesting
-		),
-		([, counts]) => Arr.reduce([...counts.values()], 0, (sum, n) => sum + n)
-	)
+		)
+		return Arr.reduce([...counts.values()], 0, (sum, n) => sum + n)
+	})
 
 /**
  * Judges case `c`'s digesting: navigating its chain `depth` deep digests what its chain two deep does and, for each level

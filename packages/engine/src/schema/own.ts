@@ -28,11 +28,7 @@ import {
 	prose,
 	undeclaredRelation
 } from "#compiler/core/errors.ts"
-import {
-	type IdentityDigest,
-	type IdentityDigests,
-	schemaFingerprint
-} from "#compiler/core/fingerprint.ts"
+import { type IdentityDigest, schemaFingerprint } from "#compiler/core/fingerprint.ts"
 import {
 	admitSchemaName,
 	conversionOf,
@@ -64,6 +60,7 @@ import {
 	type ContextDesc,
 	decodeRoleOver,
 	descIdentities,
+	descIdentity,
 	descText,
 	descTextOver,
 	type ExprDesc,
@@ -282,7 +279,7 @@ export interface OwnedContract {
  * Semantic identity excludes allocation order, callback identity, aliases and source locations.
  * Equivalent declarations agree: a relation, closed relation or statement declared twice identically is one
  * declaration, and the canonical description sorts each level's relations by name and its statements by identity
- * digest (ir/desc.ts descIdentities), and a closed relation holds its rows as a set by key (ir/desc.ts
+ * digest (ir/desc.ts descIdentity), and a closed relation holds its rows as a set by key (ir/desc.ts
  * AdmittedClosedRelation). A statement is canonicalized first: a check's and a selection's conjunctions and
  * disjunctions have their operands in canonical order, each comparison its canonical orientation and each IN list its
  * values in canonical order, so that reordered but equal declarations share one text. Roster order is kept, because it
@@ -294,14 +291,6 @@ export interface OwnedContract {
  */
 export interface Owned extends OwnedSchema {
 	readonly name: string
-	/**
-	 * The identity digests of what is written over the schema (core/fingerprint.ts IdentityDigests): its built level's
-	 * (schema/protocol.ts LevelEntry), which every ChangeSet over the schema digests in, or one made where a description
-	 * is owned. Each level's fingerprint, each statement's identity, every compile's navigation over the schema
-	 * (write/frontend/compile.ts) and the judge's (physical/ddl/rules.ts) read it, so a frozen part any of them digested is
-	 * digested once for the schema.
-	 */
-	readonly identities: IdentityDigests
 	/**
 	 * Each level of the schema, root first and the schema itself last: its declared name, the identity at the naming door
 	 * of the PostgreSQL schema its relations install in, and its own fingerprint, the owned fingerprint of the schema
@@ -834,7 +823,7 @@ interface StatementEntry {
 	readonly desc: StatementDesc
 	readonly level: number
 	readonly text: string
-	/** The statement's identity digest (ir/desc.ts descIdentities): its place in a level's canonical order. */
+	/** The statement's identity digest (ir/desc.ts descIdentity): its place in a level's canonical order. */
 	readonly identity: IdentityDigest
 	/** The catalog entry its author declares for its laws, each written copy's merged (mergedEntry), or none. */
 	readonly entry: StatedEntry
@@ -1295,54 +1284,49 @@ const fieldSide = (side: SideDesc, entry: RelationEntry): boolean => {
  */
 const ownedLevels = (
 	canonical: SchemaDesc,
-	fingerprinted: LevelFingerprints,
-	identities: IdentityDigests
+	fingerprinted: LevelFingerprints
 ): NonEmptyReadonlyArray<OwnedLevel> => {
 	const schemas = new Map<string, SchemaDesc>()
-	return mapNonEmpty(
-		fingerprinted(levelChain(canonical), identities),
-		({ level, fingerprint }): OwnedLevel => {
-			const installation = unwrap(schemaInstallation(level.name, level.loc))
-			const ident = identifierOf(installation)
-			const prior = schemas.get(ident)
-			if (prior !== undefined) {
-				failWith({
-					_tag: "IdentifierCollision",
-					at: level.loc,
-					other: prior.loc,
-					identifier: ident,
-					what: "the installation's schema",
-					declaration: `schema ${level.name}`,
-					otherDeclaration: `schema ${prior.name}`
-				})
-			}
-			schemas.set(ident, level)
-			return {
-				name: level.name,
-				installation,
-				fingerprint,
-				loc: level.loc
-			}
+	return mapNonEmpty(fingerprinted(levelChain(canonical)), ({ level, fingerprint }): OwnedLevel => {
+		const installation = unwrap(schemaInstallation(level.name, level.loc))
+		const ident = identifierOf(installation)
+		const prior = schemas.get(ident)
+		if (prior !== undefined) {
+			failWith({
+				_tag: "IdentifierCollision",
+				at: level.loc,
+				other: prior.loc,
+				identifier: ident,
+				what: "the installation's schema",
+				declaration: `schema ${level.name}`,
+				otherDeclaration: `schema ${prior.name}`
+			})
 		}
-	)
+		schemas.set(ident, level)
+		return {
+			name: level.name,
+			installation,
+			fingerprint,
+			loc: level.loc
+		}
+	})
 }
 
-/** The chain of an owned schema's levels, root first, each with its fingerprint, hashed in the schema's identities. */
+/** The chain of an owned schema's levels, root first, each with its fingerprint. */
 type LevelFingerprints = (
-	levels: NonEmptyReadonlyArray<SchemaDesc>,
-	identities: IdentityDigests
+	levels: NonEmptyReadonlyArray<SchemaDesc>
 ) => NonEmptyReadonlyArray<{ readonly level: SchemaDesc; readonly fingerprint: SchemaFingerprint }>
 
 /**
  * Each level's fingerprint hashed over its canonical description (core/fingerprint.ts schemaFingerprint), in the
- * schema's one identity digests (Owned identities), reading each part they share once: a base, which the level above
- * holds among its bases, and a query its relations read by many paths, and a part a ChangeSet over the schema digested.
- * What `grizzle generate` and `grizzle check` record and verify.
+ * Descriptions' one identity digests (ir/desc.ts descIdentities), reading each part they share once: a base, which the
+ * level above holds among its bases, and a query its relations read by many paths, and a part a ChangeSet over the
+ * schema digested. What `grizzle generate` and `grizzle check` record and verify.
  */
-const hashedLevels: LevelFingerprints = (levels, identities) =>
+const hashedLevels: LevelFingerprints = (levels) =>
 	mapNonEmpty(levels, (level) => ({
 		level,
-		fingerprint: unwrap(schemaFingerprint(identities, level))
+		fingerprint: unwrap(schemaFingerprint(descIdentities, level))
 	}))
 
 /** A level of a schema as its installation's snapshot records it: its declared name and its fingerprint. */
@@ -1383,8 +1367,6 @@ class Owner {
 	readonly #relations = new Map<string, RelationEntry>()
 	readonly #statements: Array<StatementEntry> = []
 	/** The identity digests of the statements, each part they share digested once (StatementEntry identity). */
-	/** The schema's identity digests (Owned identities), each statement's identity digested in them. */
-	readonly #identities: IdentityDigests
 	/** Each ordinary relation's namespace of row checks, filled as its check statements are owned. */
 	readonly #checkNames = new Map<string, DeclaredNamespace>()
 	/**
@@ -1419,10 +1401,8 @@ class Owner {
 		desc: SchemaDesc,
 		written: NonEmptyReadonlyArray<ReadonlyArray<CanonicalStatement>>,
 		keys: KeyLedger,
-		declared: DeclaredEntries,
-		identities: IdentityDigests
+		declared: DeclaredEntries
 	) {
-		this.#identities = identities
 		this.#levels = levelChain(desc)
 		this.#schemaName = desc.name
 		this.#written = written
@@ -1449,7 +1429,7 @@ class Owner {
 		const contracts = this.#ownContracts()
 		const functions = unwrap(ownFunctions(this.#levels))
 		const canonical = this.#canonicalDesc()
-		const levels = ownedLevels(canonical, fingerprinted, this.#identities)
+		const levels = ownedLevels(canonical, fingerprinted)
 		const fingerprint = lastNonEmpty(levels).fingerprint
 		const fieldIds = Object.values(relations)
 			.flatMap((r) => Object.values(r.fields).map((f) => f.id))
@@ -1469,8 +1449,7 @@ class Owner {
 			contracts,
 			functions,
 			fieldIds,
-			unrepresentable: this.#keys.met(),
-			identities: this.#identities
+			unrepresentable: this.#keys.met()
 		}
 	}
 
@@ -1807,7 +1786,7 @@ class Owner {
 						desc: form,
 						level,
 						text,
-						identity: unwrap(this.#identities.of(form)),
+						identity: unwrap(descIdentity(form)),
 						entry
 					})
 					continue
@@ -2757,18 +2736,13 @@ export const own = (desc: SchemaDesc): Result.Result<Owned, CompileError> =>
 		desc,
 		mapNonEmpty(levelChain(desc), (level) => level.statements.map(everyRule.statement)),
 		() => noDeclaredEntries,
-		hashedLevels,
-		descIdentities()
+		hashedLevels
 	)
 
-/**
- * A schema value's built schema: its description, its content (levels.ts SchemaContent), read at its build, and the
- * identity digests its build made for what is written over it (schema/protocol.ts LevelEntry).
- */
+/** A schema value's built schema: its description and its content (levels.ts SchemaContent), read at its build. */
 interface BuiltLevels {
 	readonly desc: SchemaDesc
 	readonly content: SchemaContent
-	readonly identities: IdentityDigests
 }
 
 /** Each level's statements in canonical form as a built schema's content carries them, root first (writtenOf). */
@@ -2803,13 +2777,7 @@ const declaredOf = (built: BuiltLevels): DeclaredEntries => {
  * its level content carries from their build (levels.ts SchemaContent.canonical), none put in canonical form again.
  */
 export const ownBuilt = (built: BuiltLevels): Result.Result<Owned, CompileError> =>
-	ownWith(
-		built.desc,
-		writtenOf(built.content),
-		() => declaredOf(built),
-		hashedLevels,
-		built.identities
-	)
+	ownWith(built.desc, writtenOf(built.content), () => declaredOf(built), hashedLevels)
 
 /**
  * ownBuilt(), each level's fingerprint taken from its installation's snapshot (`recorded`, root first) rather than
@@ -2819,13 +2787,7 @@ export const ownServed = (
 	built: BuiltLevels,
 	recorded: ReadonlyArray<SchemaFingerprint>
 ): Result.Result<Owned, CompileError> =>
-	ownWith(
-		built.desc,
-		writtenOf(built.content),
-		() => declaredOf(built),
-		recordedLevels(recorded),
-		built.identities
-	)
+	ownWith(built.desc, writtenOf(built.content), () => declaredOf(built), recordedLevels(recorded))
 
 /**
  * Owns `desc`, each level's statements in canonical form in `written` (root first, as levelChain gives its levels),
@@ -2837,14 +2799,11 @@ const ownWith = (
 	desc: SchemaDesc,
 	written: NonEmptyReadonlyArray<ReadonlyArray<CanonicalStatement>>,
 	declared: () => DeclaredEntries,
-	fingerprinted: LevelFingerprints,
-	identities: IdentityDigests
+	fingerprinted: LevelFingerprints
 ): Result.Result<Owned, CompileError> => {
 	const keys = new KeyLedger([])
 	return Result.map(
-		keys.first(
-			catchRefusal(() => new Owner(desc, written, keys, declared(), identities).run(fingerprinted))
-		),
+		keys.first(catchRefusal(() => new Owner(desc, written, keys, declared()).run(fingerprinted))),
 		(owned) => {
 			owners.set(owned, owned)
 			return owned

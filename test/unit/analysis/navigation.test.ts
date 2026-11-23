@@ -8,7 +8,7 @@ import {
 	Navigation,
 	navigateQuery
 } from "#compiler/analysis/theory/navigate.ts"
-import { descIdentities, type InferredRule } from "#compiler/ir/desc.ts"
+import type { InferredRule } from "#compiler/ir/desc.ts"
 import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
 import {
 	type Feature,
@@ -122,7 +122,7 @@ export const navigationsGateJudgesAWriteMembersNegationThatReadsNoVariableAmongT
 					loc,
 					gateColumns,
 					{ kind: "perRead" },
-					new Navigation(gateFacts, descIdentities())
+					new Navigation(gateFacts)
 				)
 				if (navigated.stage.kind !== "rules") {
 					return assert.fail("a navigated member is one rules stage")
@@ -198,7 +198,7 @@ export const aRuleOverStepsKeepsItsFiltersAsWrittenInAWriteMemberAndNavigatesThe
 						loc,
 						gateColumns,
 						sharing,
-						new Navigation(gateFacts, descIdentities())
+						new Navigation(gateFacts)
 					)
 					return navigated.stage.kind === "rules"
 						? navigated.stage.arms[0]

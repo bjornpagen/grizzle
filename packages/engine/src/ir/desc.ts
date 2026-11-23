@@ -29,7 +29,7 @@ import {
 import { clockUnits } from "#compiler/core/clock.ts"
 import { isSha256Text } from "#compiler/core/digest.ts"
 import { type CompileError, ruleRefused } from "#compiler/core/errors.ts"
-import { type IdentityDigest, IdentityDigests, identityDigest } from "#compiler/core/fingerprint.ts"
+import { type IdentityDigest, IdentityDigests } from "#compiler/core/fingerprint.ts"
 import {
 	type DeclaredLanguage,
 	declaredLanguages,
@@ -4342,17 +4342,22 @@ export const descText = (desc: unknown): Result.Result<WellFormedText, CompileEr
 	encode(desc, withoutSourceLocs)
 
 /**
- * The identity digest of `desc` (core/fingerprint.ts identityDigest): one exactly when descText is one, computed once
- * for each part the Description shares, where descText is the size of the tree its sharing expands into.
+ * The identity digests of Descriptions (core/fingerprint.ts IdentityDigests), one for the process: a frozen part's
+ * identity is its content's, without source locations, for as long as it lives, so each is digested once however many
+ * levels, ChangeSets, owned schemas and navigations read it. Each schema, fragment, role and owned schema made digests of
+ * its own, so a part a ChangeSet over a role bound in from its base, or a navigation read beside the ChangeSets of its
+ * level, was digested again in each: edullm's qti-database configuration, imported, digested 351,000 of its 1,312,678
+ * containers a second time in another level's digests, for 27,016 distinct identities.
  */
-export const descIdentity = (desc: unknown): Result.Result<IdentityDigest, CompileError> =>
-	identityDigest(desc, withoutSourceLocs)
+export const descIdentities: IdentityDigests = new IdentityDigests(withoutSourceLocs)
 
 /**
- * Identity digests of Descriptions (descIdentity) that keep each frozen part's token across the Descriptions they digest
- * (core/fingerprint.ts IdentityDigests): one owner's, a ChangeSet chain's, whose members share the queries they import.
+ * The identity digest of `desc` (core/fingerprint.ts identityDigest): one exactly when descText is one, each frozen
+ * part it holds digested once for the process (descIdentities), where descText is the size of the tree its sharing
+ * expands into.
  */
-export const descIdentities = (): IdentityDigests => new IdentityDigests(withoutSourceLocs)
+export const descIdentity = (desc: unknown): Result.Result<IdentityDigest, CompileError> =>
+	descIdentities.of(desc)
 
 /**
  * The canonical identity text of `desc`, a plain record each of whose members `written` holds has the identity text it
