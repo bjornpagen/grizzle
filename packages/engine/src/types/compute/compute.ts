@@ -54,7 +54,6 @@ import type {
 	CallArgs,
 	CalledTerm,
 	CallFields,
-	CallParams,
 	CallReads,
 	CallSource,
 	ExactCallArgs,
@@ -63,6 +62,7 @@ import type {
 	ValueFunction
 } from "#compiler/types/compute/call.ts"
 import type {
+	BindMapParams,
 	Carriers,
 	ColumnFacts,
 	ComputedOrigin,
@@ -1644,7 +1644,7 @@ export interface FnApi {
 	>(
 		f: RowsFunction<Args, Fields>,
 		args: A & ExactCallArgs<A, Args>
-	): CallSource<FactOfFields<Fields>, CallParams<A>, Fields, CallReads<A>>
+	): CallSource<FactOfFields<Fields>, BindMapParams<A>, Fields, CallReads<A>>
 	/**
 	 * The fields of the one row a declared function of one row returns at its arguments, immutable or stable, each
 	 * argument as Fn.rows takes one: each field of the row that holds rows of a heading of values, by its name, a

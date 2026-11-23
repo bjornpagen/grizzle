@@ -47,9 +47,10 @@ export const calls = boxAgreement(finite(word(callsBox)), {
 		},
 		{
 			file: "packages/engine/src/types/compute/call.ts",
-			original: "\t\t? CallSource<FactOfFields<F>, CallParams<A>, F, CallReads<A>>\n\t\t: never\n}",
+			original:
+				"\t\t? CallSource<FactOfFields<F>, BindMapParams<A>, F, CallReads<A>>\n\t\t: never\n}",
 			replacement:
-				"\t\t? CallSource<FactOfFields<F>, CallParams<A>, Carriers, CallReads<A>>\n\t\t: never\n}",
+				"\t\t? CallSource<FactOfFields<F>, BindMapParams<A>, Carriers, CallReads<A>>\n\t\t: never\n}",
 			why: "A field's rows are carried by no heading of their own, so a variable of them is untyped, passes for another roster's id, and that cell's directive is unused; the program fails."
 		},
 		{

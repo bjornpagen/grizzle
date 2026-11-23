@@ -21,8 +21,6 @@ import type {
 	Origin,
 	OriginOfTerm,
 	ParamNeeds,
-	ParamsContribution,
-	ParamsOfTerm,
 	Refusal,
 	Retyped,
 	Source,
@@ -386,11 +384,6 @@ type IsConstant<X> = X extends TermBase
 		: false
 	: false
 
-/** The parameters a binding object needs: its terms' own. */
-export type BindingParams<B> = UnionToIntersection<
-	{ [K in keyof B]-?: ParamsContribution<ParamsOfTerm<B[K]>> }[keyof B]
->
-
 /**
  * The origins of a finished head: each variable a match of its relation binds at its own field, held by one head
  * field, of a scope whose head variables are fields of one fact. An origin names one variable of its rule, its scope's
@@ -579,8 +572,3 @@ export type HeadTerms<H> = {
 
 /** The host value of each head term: the record a find over head H decodes to (schema/record.ts record). */
 export type ResultOf<H> = Decoded<[H]>
-
-/** The parameters a head's terms need: a union-to-intersection over the head's own values, never over the schema. */
-export type HeadParams<H> = UnionToIntersection<
-	{ [K in keyof H]-?: ParamsContribution<ParamsOfTerm<H[K]>> }[keyof H]
->

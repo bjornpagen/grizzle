@@ -21,8 +21,9 @@ import type {
 	Requires
 } from "#compiler/types/compute/scalar.ts"
 
-import type { CallArgs, CallParams, CallReads, CallSource } from "#compiler/types/compute/call.ts"
+import type { CallArgs, CallReads, CallSource } from "#compiler/types/compute/call.ts"
 import type {
+	BindMapParams,
 	Carriers,
 	ComputedOrigin,
 	Facts as ProvedFacts,
@@ -38,6 +39,7 @@ import type {
 	ParamsContribution,
 	ParamType,
 	ParamsOfTerm,
+	ParamsOfValues,
 	Predicate,
 	Refusal,
 	RequireBound,
@@ -95,11 +97,9 @@ import type {
 import type { ContextsOf, Finished, InteriorSource } from "#compiler/types/query/query.ts"
 import type {
 	Aggregate,
-	BindingParams,
 	Bindings,
 	DeadConstants,
 	HeadOrigins,
-	HeadParams,
 	HeadTerm,
 	HeadTerms,
 	NoExcess,
@@ -160,7 +160,7 @@ type FinishedHead<S, Params, Sole, Facts, Cx, H extends Carriers> = Finished<
 			ProducedCard<S, H, OccurrencesOf<Facts>, StatedAt<Facts>>
 		>
 	>,
-	Simplify<Params & HeadParams<H>>,
+	Simplify<Params & ParamsOfValues<H>>,
 	S,
 	ResultOf<H>,
 	H,
@@ -535,7 +535,7 @@ type RuleMatch = <
 		>
 ) => Rule<
 	S,
-	Params & ShownSourceParams<R, OrdinaryKind<K, BT>> & BindingParams<B>,
+	Params & ShownSourceParams<R, OrdinaryKind<K, BT>> & ParamsOfValues<B>,
 	[Sole] extends ["no match"]
 		? SoleMatch<
 				ShownSource<
@@ -629,7 +629,7 @@ type RuleTokens = <const X extends CallArgs<TokensArgs>["text"]>(
 	text: X
 ) => CallSource<
 	FactOfFields<TokenFields>,
-	CallParams<{ readonly text: X }>,
+	BindMapParams<{ readonly text: X }>,
 	TokenFields,
 	CallReads<{ readonly text: X }>
 >
@@ -672,7 +672,7 @@ type RuleNot = <
 			ShownHeading<R, OrdinaryKind<K, BT>, ShownHeadingOf<HeadingIn<R>, C, EachInstanceOf<RN, C>>>,
 			ShownCarriers<R, OrdinaryKind<K, BT>, ShownHeadingOf<HeadingIn<R>, C, EachInstanceOf<RN, C>>>
 		>
-) => Predicate<ShownSourceParams<R, OrdinaryKind<K, BT>> & BindingParams<B>> &
+) => Predicate<ShownSourceParams<R, OrdinaryKind<K, BT>> & ParamsOfValues<B>> &
 	Shaped<Negation> &
 	ReadsContexts<ShownSourceContexts<R, OrdinaryKind<K, BT>>> &
 	Negating<true>

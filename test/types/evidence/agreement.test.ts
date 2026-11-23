@@ -22,7 +22,9 @@
  *    another's among them, a self-join's second scope among them, the program admitting exactly what the engine admits;
  *    every combinator over every shape of query; and the scope axis: a query matched, as it is and bound, over each
  *    level against its rule's schema, a relation parameter bound to each kind of source, each query at each level of
- *    the import's, the rule's and of neither, and a relational negation at each place in a rule's filters. Beside it, the argument axis (`arguments`, test/support/agreement/arguments.ts):
+ *    the import's, the rule's and of neither, a write's parameters bound by ChangeSet.bind to each kind of value, and a
+ *    relational negation at each place in a rule's filters, each admitted cell's parameters the ones a call of it
+ *    supplies. Beside it, the argument axis (`arguments`, test/support/agreement/arguments.ts):
  *    every shape of a query's parameters against every form of argument, through every method that takes one, the
  *    program admitting exactly what the runtime's reading of an argument admits.
  * 4. Faults (`faults`): queries of the same generator, each planting one fault at a site whose drawn value the engine
@@ -173,7 +175,7 @@ export const faults = agreement(faultSpace, {
  * of query and every cell of the scope axis: the types admit exactly what the engine admits, and name its refusal.
  */
 export const admission = boxAgreement(admissionBox, {
-	box: "every position against every constant kind, under every value and stage of the kind; every combinator over every shape under every wrapper; every level, relation source and negation place of the scope axis",
+	box: "every position against every constant kind, under every value and stage of the kind; every combinator over every shape under every wrapper; every level, relation source, write binding and negation place of the scope axis",
 	situations: [],
 	notes: () => [],
 	checking: "disarmed",
@@ -208,6 +210,20 @@ export const admission = boxAgreement(admissionBox, {
 			original: "\tconst over = highestLevel(levels)\n",
 			replacement: "\tconst over = state.schema.over\n",
 			why: "The bound import keeps its query's level, so the engine admits a query over Apart bound into byIds (apart) and a rule over Agree matching a bound import that reads AgreeAbove (aboveRule), both of which the types refuse."
+		},
+		{
+			file: "packages/engine/src/types/core/phantom.ts",
+			original:
+				'\t: "sourceParams" extends keyof B\n\t\t? B["sourceParams" & keyof B]\n\t\t: unknown\n',
+			replacement: "\t: unknown\n",
+			why: "No program's parameter reader reads a bound query's, those its bind map needs (core/phantom.ts BundleParams, types/query/query.ts ParamsOf), so a write whose ids is bound to a bound query whose bind map reads the call's q (callerBoundQuery) states p alone where the engine needs p and q; the program fails."
+		},
+		{
+			file: "packages/engine/src/types/changeset/changeset.ts",
+			original:
+				"\t\tUnionToIntersection<{ [K in keyof A]-?: ParamsContribution<ParamsOf<A[K]>> }[keyof A]>\n",
+			replacement: "\t\tUnionToIntersection<{ [K in keyof A]-?: ParamsOf<A[K]> }[keyof A]>\n",
+			why: "ChangeSet.bind folds its bind map's values as maps, so the value bound to p, which needs none, is unknown beside the query of q (valueBeside) and erases q: the write states no parameter where the engine needs q; the program fails."
 		}
 	]
 })

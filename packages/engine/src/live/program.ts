@@ -14,9 +14,9 @@ import type {
 	FactsRow
 } from "#compiler/types/changeset/changeset.ts"
 import type {
+	BundleParams,
 	OnlyParams,
 	ParamArg,
-	ParamNeeds,
 	ParamsContribution,
 	ParamValue,
 	Refusal,
@@ -391,8 +391,8 @@ type ParamsOfRead<X> = X extends unknown
 	: never
 
 /**
- * A program's parameter map (query.ts ParamsOf, core/phantom.ts ParamsOfTerm), read off its phantom by key, each
- * program of a union its own; a value indexed by number, an array, read by ParamsOf itself. The phantom is read
+ * A program's parameter map (query.ts ParamsOf, core/phantom.ts ParamsOfTerm), read off its phantom by key
+ * (core/phantom.ts BundleParams), each program of a union its own; a value indexed by number, an array, read by ParamsOf itself. The phantom is read
  * through NonNullable, an intersection, never Exclude, a conditional whose operand would be the phantom, which holds the
  * query's schema; a phantom stated as unknown reads as {} there, which states no parameters either.
  */
@@ -406,14 +406,6 @@ type ProgramParams<P> = P extends unknown
 type PhantomParams<P> = typeof phantom extends keyof P
 	? BundleParams<NonNullable<P[typeof phantom & keyof P]>>
 	: unknown
-type BundleParams<B> = B extends unknown
-	? "needs" extends keyof B
-		? NeedsOf<B["needs" & keyof B]>
-		: "params" extends keyof B
-			? B["params" & keyof B]
-			: unknown
-	: never
-type NeedsOf<F> = F extends ParamNeeds<infer P> ? P : unknown
 
 /** InputOf by the program's keys. */
 export type ServedInput<X> =

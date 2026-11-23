@@ -2,19 +2,17 @@ import type { FunctionNullInput } from "#compiler/core/function.ts"
 import type { Built, phantom } from "#compiler/core/phantom.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type {
+	BindMapParams,
 	Carriers,
 	Facts,
 	Headed,
 	Meets,
 	OperandOrigin,
-	ParamsContribution,
-	ParamsOfTerm,
 	Refusal,
 	RequireBound,
 	Source,
 	Term,
-	UnhostedOrigin,
-	UnionToIntersection
+	UnhostedOrigin
 } from "#compiler/types/core/phantom.ts"
 import type { Field, FieldBase, LiteralOf } from "#compiler/types/fields/field.ts"
 import type { DeclaredFunction, FunctionType, Row, Rows } from "#compiler/types/schema/function.ts"
@@ -51,20 +49,6 @@ export type ExactCallArgs<A, Args> = {
 		? RequireBound<A[K]>
 		: Refusal<"an argument the function declares">
 }
-
-/**
- * The parameters a call's arguments need: each term's own, and what each bound query contributes, its bind map's
- * (BoundSource); a query of no parameters, the one other rows argument ExactCallArgs admits, contributes none.
- */
-export type CallParams<A> = UnionToIntersection<
-	{
-		[K in keyof A]-?: ParamsContribution<
-			A[K] extends { readonly [phantom]?: { readonly sourceParams: infer SP } | undefined }
-				? SP
-				: ParamsOfTerm<A[K]>
-		>
-	}[keyof A]
->
 
 /** The origins a call's arguments read, on which its value or its rows depend. */
 export type CallReads<A> = {
@@ -145,7 +129,7 @@ export type CallFields<A, Fields> = {
 	readonly [K in ReadFields<Fields>]: Fields[K] extends Rows<
 		infer F extends Readonly<Record<string, FieldBase>> & Carriers
 	>
-		? CallSource<FactOfFields<F>, CallParams<A>, F, CallReads<A>>
+		? CallSource<FactOfFields<F>, BindMapParams<A>, F, CallReads<A>>
 		: never
 }
 
@@ -156,7 +140,7 @@ export type CallFields<A, Fields> = {
  */
 export type CalledTerm<A, H, S extends SqlTag, D, F extends Facts> = Term<
 	D,
-	CallParams<A>,
+	BindMapParams<A>,
 	UnhostedOrigin<CallReads<A>>,
 	S,
 	H,

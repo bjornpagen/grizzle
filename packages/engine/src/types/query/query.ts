@@ -5,6 +5,8 @@ import type { Built, Delivering, phantom, Phantom } from "#compiler/core/phantom
 import type { Refused } from "#compiler/core/refusals.ts"
 import type { Requires } from "#compiler/types/compute/scalar.ts"
 import type {
+	BindMapParams,
+	BundleParams,
 	Carrier,
 	Carriers,
 	ConstantValuesOf,
@@ -19,10 +21,8 @@ import type {
 	LanguageOf,
 	Meets,
 	OperandOrigin,
-	ParamNeeds,
 	PhantomOf,
 	ParamsContribution,
-	ParamsOfTerm,
 	ParamType,
 	Refusal,
 	RequireBound,
@@ -554,18 +554,6 @@ type BindReads<B> = { [K in keyof B]-?: OperandOrigin<B[K]> }[keyof B]
 export type BindContexts<B> = { [K in keyof B]-?: ContextsOf<B[K]> }[keyof B]
 
 /**
- * The parameters a binding object leaves to the importing rule: its terms' own, outer parameters among them, and what
- * each bound source contributes.
- */
-type BindParams<B> = UnionToIntersection<
-	{
-		[K in keyof B]-?: ParamsContribution<
-			B[K] extends Phantom<{ readonly sourceParams: infer SP }> ? SP : ParamsOfTerm<B[K]>
-		>
-	}[keyof B]
->
-
-/**
  * Any query, any ordered query and any finished arm: the members every runtime value of each has, its decoders among
  * them. Query and Ordered are invariant in their schema and parameters, so no instance of them is universal;
  * QueryOver<S> is any query over S, whatever its heading, evidence, parameters and immediate heading, and
@@ -753,7 +741,7 @@ export interface Query<
 	): BoundSource<
 		BoundOver<Over, B, P>,
 		Head,
-		BindParams<B>,
+		BindMapParams<B>,
 		Hc,
 		Cx | BindContexts<B>,
 		Ev,
@@ -1426,9 +1414,10 @@ type PhantomContexts<B> = B extends unknown ? ContextsRead<B["readsContexts" & k
 /** The records a query delivers to a read inside a write transaction, a read-back: its immediate decoder's. */
 export type ImmediateHeadOf<Q> = Q extends { readonly immediate: RowDecoder<infer I> } ? I : never
 /**
- * The parameters a program needs, each program of a union its own: a query's, ordered query's or ChangeSet's map, read
- * off its phantom by key and folded as ParamsOfTerm folds a value's (core/phantom.ts); an array or Stream member, which
- * has no phantom, and a value typed `any`, whose keys are every string, none, `unknown`. A program is told by its keys,
+ * The parameters a program needs, each program of a union its own: a query's, ordered query's or ChangeSet's map, or a
+ * bound import's, the parameters its bind map needs, read off its phantom by key (core/phantom.ts BundleParams) and
+ * folded as ParamsOfTerm folds a value's; an array or Stream member, which has no phantom, and a value typed `any`,
+ * whose keys are every string, none, `unknown`. A program is told by its keys,
  * never by a test of it: a query holds its schema, and a conditional the checker resolves instantiates its operands
  * whole, every relation of the schema with them, once for each program it tests. A value without the phantom's key is
  * never indexed by it, as ContextsOf says: an array member's facts would be read as its phantom, and a fact's field
@@ -1443,24 +1432,10 @@ export type ParamsOf<X> = X extends unknown
 		: typeof phantom extends keyof X
 			? OneMap<
 					UnionToIntersection<
-						ParamsContribution<PhantomParams<NonNullable<X[typeof phantom & keyof X]>>>
+						ParamsContribution<BundleParams<NonNullable<X[typeof phantom & keyof X]>>>
 					>
 				>
 			: unknown
 	: never
 /** A map of parameters, an intersection of maps, as one record: none, unknown, where it needs none. */
 type OneMap<P> = unknown extends P ? P : Simplify<P>
-
-/**
- * The parameters each shape of a program's phantom B states, each its own: the map its `needs` member needs, else the map
- * its `params` member carries, else none, each member read by its key. ParamsOf folds the shapes' maps by intersection,
- * as ParamsOfTerm folds a phantom read across its shapes at once.
- */
-type PhantomParams<B> = B extends unknown
-	? "needs" extends keyof B
-		? [B["needs" & keyof B]] extends [ParamNeeds<infer P>]
-			? P
-			: PhantomMap<B>
-		: PhantomMap<B>
-	: never
-type PhantomMap<B> = "params" extends keyof B ? B["params" & keyof B] : unknown

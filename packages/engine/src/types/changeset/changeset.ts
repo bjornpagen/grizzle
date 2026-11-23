@@ -28,6 +28,7 @@ import type {
 	OnlyParams,
 	ParamOrigin,
 	ParamValue,
+	ParamsContribution,
 	ParamsOfTerm,
 	PhantomOf,
 	Refusal,
@@ -944,11 +945,14 @@ type AgreeingParams<P, Q> = [
 	: Refusal<"a bound query's parameter is the ChangeSet's parameter of its name, at its one type">
 
 /**
- * The parameters a ChangeSet bound with A needs: those of P that A leaves free, and the own parameters of each query A
- * binds a relation parameter to, which join them; none, unknown, where none is left.
+ * The parameters a ChangeSet bound with A needs: those of P that A leaves free, and those each program A binds a
+ * relation parameter to needs (ParamsOf), a query's own, a bound query's those its bind map needs, which join them,
+ * each folded as a contribution (ParamsContribution), so a value or facts, which need none, never erase them; none,
+ * unknown, where none is left.
  */
 type BoundParams<P, A> = FreeLeft<
-	Omit<P, keyof A> & UnionToIntersection<{ [K in keyof A]-?: ParamsOf<A[K]> }[keyof A]>
+	Omit<P, keyof A> &
+		UnionToIntersection<{ [K in keyof A]-?: ParamsContribution<ParamsOf<A[K]>> }[keyof A]>
 >
 /** A map of parameters as one record, or unknown where it holds none. */
 type FreeLeft<M> = [keyof M] extends [never] ? unknown : Simplify<M>

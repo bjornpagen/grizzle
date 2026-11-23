@@ -24,7 +24,7 @@ export {
 } from "#compiler/public/compute.ts"
 export { date, Decimal, Money, pg, Vector } from "#compiler/public/fields.ts"
 export type { CalendarDate, Span, Uuid } from "#compiler/public/fields.ts"
-export { query, v } from "#compiler/public/query.ts"
+export { param, query, v } from "#compiler/public/query.ts"
 export { paged, workload } from "#compiler/public/workload.ts"
 export type {
 	EvidenceOfQuery,

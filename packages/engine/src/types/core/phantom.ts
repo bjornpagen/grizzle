@@ -850,10 +850,11 @@ export type ParamsOfTerm<X> = UnionToIntersection<
 >
 /**
  * The parameters one value needs: a term's, predicate's, aggregate's or producer's, read off the contravariant phantom
- * it needs them through (ParamNeeds), or a query's, ordered query's, finished arm's or ChangeSet's, read off the map it
- * carries. ParamsOfTerm folds a union of values, either of which may be the one that runs, by intersecting what each
- * needs, as a contravariant inference does, so a JavaScript value or a parameterless term beside a parameter never
- * erases the parameter.
+ * it needs them through (ParamNeeds), a query's, ordered query's, finished arm's or ChangeSet's, read off the map it
+ * carries, or a bound import's or a call's, the parameters its bind map or its arguments need (BundleParams).
+ * ParamsOfTerm folds a union of values, either of which may be the one that runs, by intersecting what each needs, as a
+ * contravariant inference does, so a JavaScript value or a parameterless term beside a parameter never erases the
+ * parameter.
  */
 type ParamsOfOne<X> =
 	X extends Phantom<{ readonly needs: ParamNeeds<infer P> }>
@@ -861,19 +862,55 @@ type ParamsOfOne<X> =
 		: X extends Phantom<{ readonly params: infer P }>
 			? P
 			: X extends Phantom<infer B>
-				? ParamsOfBundle<B>
+				? BundleParams<B>
 				: unknown
 
 /**
- * The parameters a phantom bundle B states, each shape of a bundle that is a union of shapes its own: what ParamsOfOne
- * reads where neither member is the whole bundle's. ParamsOfOne reads a member alone wherever it can: a conditional
- * the checker resolves instantiates its operands whole, and a query's bundle holds its schema.
+ * The parameters a phantom bundle B states, each shape of a bundle that is a union of shapes its own, each member read
+ * by its key, never by a test of the bundle, which holds a query's schema: the map its `needs` member needs (ParamNeeds),
+ * else the map its `params` member carries, else what its `sourceParams` member contributes to a rule that matches it,
+ * which a source that is no query carries alone: a bound import the parameters its bind map needs, a call those its
+ * arguments need, an interior stage those of its rule, a relation parameter its own name. Every reader of a value's
+ * parameters reads its bundle here: ParamsOfOne where neither member is the whole bundle's, query.ts ParamsOf and
+ * live/program.ts ProgramParams.
  */
-type ParamsOfBundle<B> = B extends { readonly needs: ParamNeeds<infer P> }
-	? P
-	: B extends { readonly params: infer P }
-		? P
+export type BundleParams<B> = B extends unknown
+	? "needs" extends keyof B
+		? [B["needs" & keyof B]] extends [ParamNeeds<infer P>]
+			? P
+			: BundleMap<B>
+		: BundleMap<B>
+	: never
+type BundleMap<B> = "params" extends keyof B
+	? B["params" & keyof B]
+	: "sourceParams" extends keyof B
+		? B["sourceParams" & keyof B]
 		: unknown
+
+/**
+ * The parameters the terms of a record need, each term's own (ParamsOfTerm) folded as a contribution
+ * (ParamsContribution), so a term that needs none never erases another's: a match's bindings and a head's terms, a
+ * union-to-intersection over the record's own values, never over the schema.
+ */
+export type ParamsOfValues<R> = UnionToIntersection<
+	{ [K in keyof R]-?: ParamsContribution<ParamsOfTerm<R[K]>> }[keyof R]
+>
+
+/**
+ * The parameters the values of a bind map leave to whoever binds it, folded as ParamsOfValues folds a record's: a
+ * source's, what it contributes to a rule that matches it, read first, as a bind map's values mostly are sources (a
+ * bound query those its own bind map needs, a relation parameter its own name, a call's rows those its arguments need);
+ * any other value's own (ParamsOfTerm). A query contributes none there, and its own parameters are refused unbound
+ * wherever a bind map takes it (RequireBound): an import's bind map (types/query/query.ts Query.bind) and a call's
+ * arguments (types/compute/call.ts) alike.
+ */
+export type BindMapParams<B> = UnionToIntersection<
+	{
+		[K in keyof B]-?: ParamsContribution<
+			B[K] extends Phantom<{ readonly sourceParams: infer SP }> ? SP : ParamsOfTerm<B[K]>
+		>
+	}[keyof B]
+>
 
 export type OriginOfTerm<X> =
 	X extends Phantom<infer B> ? (B extends { readonly origin: infer O } ? O : unknown) : unknown

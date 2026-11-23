@@ -32,7 +32,6 @@ import type {
 	CallArgs,
 	CalledTerm,
 	CallFields,
-	CallParams,
 	CallReads,
 	CallSource,
 	ExactCallArgs,
@@ -40,7 +39,7 @@ import type {
 	RowsFunction,
 	ValueFunction
 } from "#compiler/types/compute/call.ts"
-import type { Carriers, Facts, Headed } from "#compiler/types/core/phantom.ts"
+import type { BindMapParams, Carriers, Facts, Headed } from "#compiler/types/core/phantom.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { FunctionType } from "#compiler/types/schema/function.ts"
 import type { FactOfFields } from "#compiler/types/schema/relation.ts"
@@ -196,7 +195,7 @@ export const callRows = <
 >(
 	f: RowsFunction<Args, Fields>,
 	args: A & ExactCallArgs<A, Args>
-): CallSource<FactOfFields<Fields>, CallParams<A>, Fields, CallReads<A>> => {
+): CallSource<FactOfFields<Fields>, BindMapParams<A>, Fields, CallReads<A>> => {
 	const label = spelling.rowsOf
 	const desc = declaredOf(f, label)
 	const returns = desc.returns
