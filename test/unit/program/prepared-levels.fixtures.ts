@@ -62,14 +62,18 @@ export const programs = {
 
 export type Program = keyof typeof programs
 
-const names: readonly [Program, ...Array<Program>] = [
+/** The programs in their order: Room's insert, Hold's put, Plain's insert and Plain's put. */
+export const programNames: readonly [Program, ...Array<Program>] = [
 	"insertRoom",
 	"putHold",
 	"insertPlain",
 	"putPlain"
 ]
 
-const roleGen: Gen<ReadonlyArray<Program>> = subset(names, { min: 1, max: names.length })
+const roleGen: Gen<ReadonlyArray<Program>> = subset(programNames, {
+	min: 1,
+	max: programNames.length
+})
 
 /** A login's roles, one to three, each its workload's programs, one to all four. */
 export const rolesGen: Gen<NonEmptyReadonlyArray<ReadonlyArray<Program>>> = (source) => [
