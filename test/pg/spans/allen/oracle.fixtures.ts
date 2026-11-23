@@ -161,7 +161,7 @@ type RawRows = ReadonlyArray<ReadonlyArray<string>>
  * that one (a roster-typed parameter would be a defect here, never a silently miscoded one).
  */
 export const runArtifact = (
-	session: RawSession,
+	session: Pick<RawSession, "values">,
 	template: OracleTemplate,
 	artifact: "optimized" | "conservative",
 	params: Readonly<Record<string, unknown>>

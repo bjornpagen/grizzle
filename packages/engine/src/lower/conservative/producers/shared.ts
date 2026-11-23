@@ -1,7 +1,7 @@
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { NodeOf, ProducerNode } from "#compiler/ir/rel.ts"
-import { isSpanCarrier, type SpanCarrier } from "#compiler/ir/scalar.ts"
+import { baseOf, isSpanCarrier, type SpanCarrier } from "#compiler/ir/scalar.ts"
 import {
 	type ColumnMap,
 	columnIn,
@@ -10,7 +10,13 @@ import {
 	refuse
 } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
-import type { Expr, FromItem, OperandSelect, Target } from "#compiler/sql/ast.ts"
+import type {
+	BuiltinFunctionName,
+	Expr,
+	FromItem,
+	OperandSelect,
+	Target
+} from "#compiler/sql/ast.ts"
 import {
 	distinctCore,
 	keyedSet,
@@ -121,6 +127,44 @@ export const spanArguments = (
 	const left = lowerExpr(cx, a, scope)
 	const right = lowerExpr(cx, b, scope)
 	return { args: [left, right], carrier }
+}
+
+/** The range constructor over each endpoint carrier, with its default bounds, start included and end excluded. */
+const rangeConstructors = {
+	int4: "int4range",
+	int8: "int8range",
+	date: "daterange"
+} as const satisfies Readonly<Record<string, BuiltinFunctionName>>
+
+/**
+ * A span from its ends' arguments lowered where `scope` is in scope, two endpoints of one carrier, and the range
+ * constructor of that carrier, or MalformedDescription: the checker builds both as endpoints of one span type.
+ */
+export const endpointArguments = (
+	cx: LowerContext,
+	node: ProducerNode<"spanFromEnds">,
+	scope: Env,
+	at: string
+): {
+	readonly args: readonly [Expr, Expr]
+	readonly constructor: (typeof rangeConstructors)[keyof typeof rangeConstructors]
+} => {
+	const [a, b] = node.args
+	const carrier = baseOf(a.type).carrier
+	if (carrier !== "int4" && carrier !== "int8" && carrier !== "date") {
+		return refuse(
+			"MalformedDescription",
+			at,
+			`a span endpoint of the producer, not a value of ${carrier}`
+		)
+	}
+	if (baseOf(b.type).carrier !== carrier) {
+		return refuse("MalformedDescription", at, `endpoints of one type for ${node.producer}`)
+	}
+	return {
+		args: [lowerExpr(cx, a, scope), lowerExpr(cx, b, scope)],
+		constructor: rangeConstructors[carrier]
+	}
 }
 
 /**

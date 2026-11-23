@@ -67,6 +67,7 @@ import {
 	inputSetPlaceholder,
 	inputsOf,
 	type NodeOf,
+	piecesPerBinding,
 	type PlaceholderInput,
 	type RelKind,
 	type RelNode,
@@ -1782,8 +1783,9 @@ const groupProps = (
 }
 
 /**
- * One intersection per input fact keeps the input's carried keys: each of its rows is one of the input's. The pieces
- * of a difference or a pack are several per input fact, told apart by the produced span.
+ * A producer of at most one span per input fact (ir/rel.ts piecesPerBinding), an intersection or a span from its ends,
+ * keeps the input's carried keys: each of its rows is one of the input's. The pieces of a difference or a pack are
+ * several per input fact, told apart by the produced span.
  */
 const produceProps = (node: NodeOf<"Produce">, cx: RuleContext): PhysicalProps => {
 	const input = cx.props(node.input)
@@ -1792,16 +1794,16 @@ const produceProps = (node: NodeOf<"Produce">, cx: RuleContext): PhysicalProps =
 	const fixed = new Map<string, FixedFacts>()
 	const carried = (c: string): ReadonlyArray<Rep> =>
 		node.carried.includes(c) && fds.has(c) ? [{ column: c, just: structural }] : []
-	const inputRow =
-		node.producer === "spanIntersection" ? rowAttribute : hiddenIn("input", rowAttribute)
+	const one = piecesPerBinding[node.producer] === "atMostOne"
+	const inputRow = one ? rowAttribute : hiddenIn("input", rowAttribute)
 	inherit(fds, fixed, input, carried, "input", inputRow)
-	if (node.producer !== "spanIntersection") {
+	if (!one) {
 		fds.identify([inputRow, node.out], justify({ premises: [nodePremise(node.id)] }))
 	}
 	return finish(node, cx, {
 		fds,
 		fixed,
-		maxCard: node.producer === "spanIntersection" ? input.maxCard : unbounded,
+		maxCard: one ? input.maxCard : unbounded,
 		dedup: placed
 	})
 }

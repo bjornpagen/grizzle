@@ -2443,8 +2443,9 @@ const attachFields = {
 	judged: S.literalsShape(["array", "option", "one"])
 } as const
 
-/** A producer decodes by the producer it names; the two of two spans read one shape. */
-const twoSpanProducer = S.structStated(
+/** A producer decodes by the producer it names; those of two arguments, two spans or a span's two ends, read one
+ * shape. */
+const twoArgumentProducer = S.structStated(
 	{ ...common, input: nodeIdShape, args: S.pairShape(exprIdShape), ...produced },
 	commonStated,
 	{}
@@ -2609,8 +2610,9 @@ const tableNodeShape: S.Shape<TableNode> = S.tagged("kind", {
 			commonStated,
 			{}
 		),
-		spanIntersection: twoSpanProducer,
-		spanDifference: twoSpanProducer
+		spanIntersection: twoArgumentProducer,
+		spanDifference: twoArgumentProducer,
+		spanFromEnds: twoArgumentProducer
 	}),
 	Recursive: S.structStated(
 		{

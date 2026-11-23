@@ -459,7 +459,7 @@ export type EvidenceOf<
 	Pr extends Proofs<true, boolean, unknown> = NoProofs,
 	B extends RuleBindings<boolean, Card> = RuleBindings<
 		IsPinned<Keys> extends true ? true : never,
-		H[ProducerFields<H>] extends { readonly produces: "intersection" } ? never : "many"
+		H[ProducerFields<H>] extends { readonly produces: "intersection" | "span" } ? never : "many"
 	>
 > = [ProducerFields<H>] extends [never]
 	? [AggregateFields<H>] extends [never]
@@ -540,13 +540,13 @@ type ReadingPins<S, Os, H, St, Rd> =
 
 /**
  * A producer yields its facts per binding of its rule, the rule's whole region, which no projection onto the head
- * narrows (check/checker.ts #produceNode): an intersection at most one per binding, so at most one where every variable
- * the rule binds is pinned (RegionHead); a difference up to two and a pack any number (logical/props.ts Produce). A
- * head that produces nothing reads no card here (EvidenceOf).
+ * narrows (check/checker.ts #produceNode): an intersection and a span from its ends at most one per binding, so at most
+ * one where every variable the rule binds is pinned (RegionHead); a difference up to two and a pack any number
+ * (ir/rel.ts piecesPerBinding). A head that produces nothing reads no card here (EvidenceOf).
  */
 export type ProducedCard<S, H, Os, St> = [ProducerFields<H>] extends [never]
 	? "many"
-	: H[ProducerFields<H>] extends { readonly produces: "intersection" }
+	: H[ProducerFields<H>] extends { readonly produces: "intersection" | "span" }
 		? IsPinned<HeadKeys<S, Os, RegionHead<Os>, St>> extends true
 			? "atMostOne"
 			: "many"

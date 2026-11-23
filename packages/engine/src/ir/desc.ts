@@ -1137,12 +1137,13 @@ export type HeadTermDesc<L = Located, R extends Refs = Spelled> =
 	  }
 	| ProducerDesc<L, R>
 
-/** A span producer in a head: pack over one span term, intersection and difference over two. */
+/** A span producer in a head: pack over one span term, intersection and difference over two, and span over a start
+ * and an end, two endpoints of one type. */
 export type ProducerDesc<L = Located, R extends Refs = Spelled> =
 	| { readonly kind: "producer"; readonly fn: "pack"; readonly args: readonly [ExprDesc<L, R>] }
 	| {
 			readonly kind: "producer"
-			readonly fn: "intersection" | "difference"
+			readonly fn: "intersection" | "difference" | "span"
 			readonly args: readonly [ExprDesc<L, R>, ExprDesc<L, R>]
 	  }
 
@@ -3225,7 +3226,7 @@ const headTermDescShape: S.Shape<HeadTermDesc> = S.normalized<ReadHead, HeadTerm
 		producer: S.unionShape(
 			S.struct({ fn: S.literalsShape(["pack"]), args: S.single(exprDescShape) }),
 			S.struct({
-				fn: S.literalsShape(["intersection", "difference"]),
+				fn: S.literalsShape(["intersection", "difference", "span"]),
 				args: S.pairShape(exprDescShape)
 			})
 		)

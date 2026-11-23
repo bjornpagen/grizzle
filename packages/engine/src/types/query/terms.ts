@@ -83,7 +83,7 @@ export interface Producer<out T, in P = unknown, out D = T, out L = T, out O = u
 			readonly needs: ParamNeeds<P>
 			readonly origin: O
 		}> {
-	readonly produces: "intersection" | "difference" | "pack"
+	readonly produces: "intersection" | "difference" | "pack" | "span"
 	readonly column: Column<T>
 	readonly sql: "range"
 }

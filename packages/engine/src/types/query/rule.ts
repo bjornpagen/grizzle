@@ -1,6 +1,12 @@
 import type { AllenMask, HoldsExactly } from "#compiler/allen/mask.ts"
 import type { Built, phantom, Phantom } from "#compiler/core/phantom.ts"
-import type { AvgSql, NumericSql, PlainHost, SumSql } from "#compiler/scalar/compute/tables.ts"
+import type {
+	AvgSql,
+	EndpointSql,
+	NumericSql,
+	PlainHost,
+	SumSql
+} from "#compiler/scalar/compute/tables.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
 import type {
@@ -822,6 +828,27 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 	pack<A extends TermBase | FirstValue, X, PA, OA, V, L>(
 		spans: A & FirstTerm<A> & Term<X, PA, OA, "range", V, ProvedFacts, L>
 	): Producer<V, PA, X, L, ComputedOrigin<OA>>
+	/**
+	 * Zero or one fact, the span from `start` to `end`, start included and end excluded, of the span type over the start's
+	 * type: none where the end is not after the start. The start is a term of a span endpoint's type, integer, bigint,
+	 * date or a contract over one, never an instant, the database's alone; the end a term of that type, a typed constant
+	 * (Type.literal) among them. It states that it produces at most one fact per binding, as an intersection does.
+	 */
+	span<
+		A extends TermBase | FirstValue,
+		D,
+		PA,
+		OA,
+		ES extends EndpointSql,
+		H,
+		L,
+		B extends InputTerm<D, never, unknown, ES>
+	>(
+		start: A & FirstTerm<A> & Term<D, PA, OA, ES, H, ProvedFacts, L> & NotInstant<D>,
+		end: B
+	): Producer<Span<H>, PA & P<B>, Span<D>, Span<L>, ComputedOrigin<OA | OperandOrigin<B>>> & {
+		readonly produces: "span"
+	}
 
 	/**
 	 * count is a natural, whose host and SQL type are bigint's; sum and mean take their result type off the SUM and AVG

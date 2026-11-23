@@ -421,49 +421,59 @@ const resolveQuery = (endpoint: SpanEndpointKind, sketch: QuerySketch): SpanQuer
  * Everything is generated as a sketch of plain numbers resolved by pure functions, so every sketch is a valid case
  * and shrinking any number toward zero keeps it valid.
  */
-export interface SpanCase {
+export interface CaseOf<Q> {
 	readonly schema: SpanSchema
 	readonly facts: SpanFacts
-	readonly query: SpanQuery
+	readonly query: Q
 }
 
-interface SpanCaseSketch {
+export type SpanCase = CaseOf<SpanQuery>
+
+interface CaseSketch<S> {
 	readonly endpoint: number
 	readonly spanKeyed: readonly [boolean, boolean]
 	readonly rows: Readonly<Record<SpanRelationName, ReadonlyArray<RowSketch>>>
-	readonly query: QuerySketch
+	readonly query: S
 }
 
 /** The most facts a case stores in each relation. */
 const maxRows = 6
 
-const spanCaseSketchGen: Gen<SpanCaseSketch> = (source) => {
-	const rows = array(rowSketchGen, { min: 0, max: maxRows })
-	return {
-		endpoint: source.draw(int(0, spanEndpointKinds.length - 1)),
-		spanKeyed: [source.draw(boolean), source.draw(boolean)],
-		rows: { Left: source.draw(rows), Right: source.draw(rows) },
-		query: source.draw(querySketchGen)
-	}
-}
-
-const resolveSpanCase = (sketch: SpanCaseSketch): SpanCase => {
-	const endpoint = cyclicAt(spanEndpointKinds, sketch.endpoint, "the span endpoints")
-	const schema: SpanSchema = {
-		endpoint,
-		relations: {
-			Left: { name: "Left", spanKeyed: sketch.spanKeyed[0] },
-			Right: { name: "Right", spanKeyed: sketch.spanKeyed[1] }
+const caseSketchGen =
+	<S>(query: Gen<S>): Gen<CaseSketch<S>> =>
+	(source) => {
+		const rows = array(rowSketchGen, { min: 0, max: maxRows })
+		return {
+			endpoint: source.draw(int(0, spanEndpointKinds.length - 1)),
+			spanKeyed: [source.draw(boolean), source.draw(boolean)],
+			rows: { Left: source.draw(rows), Right: source.draw(rows) },
+			query: source.draw(query)
 		}
 	}
-	return {
-		schema,
-		facts: resolveFacts(schema, sketch.rows),
-		query: resolveQuery(endpoint, sketch.query)
-	}
-}
 
-export const spanCaseGen: Gen<SpanCase> = map(spanCaseSketchGen, resolveSpanCase)
+/** A case's schema, its facts and its query, each resolved from its sketch, the query by `resolve`. */
+const resolveCase =
+	<S, Q>(resolve: (endpoint: SpanEndpointKind, sketch: S) => Q) =>
+	(sketch: CaseSketch<S>): CaseOf<Q> => {
+		const endpoint = cyclicAt(spanEndpointKinds, sketch.endpoint, "the span endpoints")
+		const schema: SpanSchema = {
+			endpoint,
+			relations: {
+				Left: { name: "Left", spanKeyed: sketch.spanKeyed[0] },
+				Right: { name: "Right", spanKeyed: sketch.spanKeyed[1] }
+			}
+		}
+		return {
+			schema,
+			facts: resolveFacts(schema, sketch.rows),
+			query: resolve(endpoint, sketch.query)
+		}
+	}
+
+export const spanCaseGen: Gen<SpanCase> = map(
+	caseSketchGen(querySketchGen),
+	resolveCase(resolveQuery)
+)
 
 const variable = (id: string): ExprDesc => ({ kind: "var", var: id })
 
@@ -615,7 +625,7 @@ const rowOrder = (a: RawRow, b: RawRow): -1 | 0 | 1 => {
 const rowSet = (rows: ReadonlyArray<RawRow>): ReadonlyArray<RawRow> =>
 	Arr.dedupeAdjacentWith(Arr.sort(rows, rowOrder), (a, b) => rowOrder(a, b) === 0)
 
-const pairs = (c: SpanCase): ReadonlyArray<readonly [SpanFact, SpanFact]> =>
+const pairs = (c: CaseOf<unknown>): ReadonlyArray<readonly [SpanFact, SpanFact]> =>
 	Arr.flatMap(c.facts.Left, (l) =>
 		Arr.map(
 			Arr.filter(c.facts.Right, (r) => r.group === l.group),
@@ -673,7 +683,7 @@ const keyingOf = (relation: SpanRelation): Keying => (relation.spanKeyed ? "span
 export type SpanVariant = `${SpanEndpointKind} ${Keying} ${Keying}`
 
 /** The span schema of a case: its variant (SpanVariant). */
-export const spanVariantOf = (c: SpanCase): SpanVariant =>
+export const spanVariantOf = (c: { readonly schema: SpanSchema }): SpanVariant =>
 	`${c.schema.endpoint} ${keyingOf(c.schema.relations.Left)} ${keyingOf(c.schema.relations.Right)}`
 
 /** A value for every span schema a case can have, by its variant, `make` given its endpoint and keyings. */
@@ -701,7 +711,7 @@ export const bySpanVariant = <A>(
 /** One INSERT of a list of facts through jsonb_to_recordset, with its one parameter. */
 export const spanInsert = (
 	schema: string,
-	c: SpanCase,
+	c: { readonly schema: SpanSchema },
 	relation: SpanRelationName,
 	facts: ReadonlyArray<SpanFact>
 ): { readonly sql: string; readonly params: ReadonlyArray<string> } => {
@@ -736,7 +746,8 @@ const queryText = (endpoint: SpanEndpointKind, query: SpanQuery): string => {
 	}
 }
 
-export const printSpanCase = (c: SpanCase): string =>
+/** A case's endpoint and each relation's keying and facts, a line each. */
+const factsText = (c: CaseOf<unknown>): string =>
 	Arr.join(
 		[
 			`endpoint ${c.schema.endpoint}`,
@@ -751,8 +762,151 @@ export const printSpanCase = (c: SpanCase): string =>
 						),
 						"; "
 					)}`
-			),
-			`query ${queryText(c.schema.endpoint, c.query)}`
+			)
+		],
+		"\n"
+	)
+
+export const printSpanCase = (c: SpanCase): string =>
+	Arr.join([factsText(c), `query ${queryText(c.schema.endpoint, c.query)}`], "\n")
+
+/**
+ * A span from its ends (r.span): over a Left and a Right fact of one group, from the Left span's start to the Right
+ * span's end (`join`); or over one relation's facts, from each span's start to a point, a parameter or a literal of the
+ * endpoint's type, a typed constant (`to`). Each yields a fact where its start lies before its end and none elsewhere, so
+ * it reaches the empty and the reversed pair as often as the nonempty one.
+ */
+export type EndsQuery =
+	| { readonly kind: "join" }
+	| { readonly kind: "to"; readonly relation: SpanRelationName; readonly end: PointOperand }
+
+export type EndsCase = CaseOf<EndsQuery>
+
+interface EndsSketch {
+	readonly join: boolean
+	readonly relation: number
+	readonly literal: boolean
+	readonly point: PointSketch
+}
+
+const endsSketchGen: Gen<EndsSketch> = (source) => ({
+	join: source.draw(boolean),
+	relation: source.draw(int(0, 1)),
+	literal: source.draw(boolean),
+	point: source.draw(pointSketchGen)
+})
+
+const resolveEnds = (endpoint: SpanEndpointKind, sketch: EndsSketch): EndsQuery =>
+	sketch.join
+		? { kind: "join" }
+		: {
+				kind: "to",
+				relation: elementAt(spanRelationNames, sketch.relation % 2, "the span relation names"),
+				end: {
+					kind: sketch.literal ? "literal" : "param",
+					point: resolvePoint(endpoint, sketch.point)
+				}
+			}
+
+export const endsCaseGen: Gen<EndsCase> = map(
+	caseSketchGen(endsSketchGen),
+	resolveCase(resolveEnds)
+)
+
+/** r.span(lower(start), end), the endpoint descriptor reading the span's ends. */
+const endsHead = (start: ExprDesc, end: ExprDesc): HeadTermDesc => ({
+	kind: "producer",
+	fn: "span",
+	args: [{ kind: "compute", fn: "lower", args: [start] }, end]
+})
+
+/** The query as query(Spans).rule(...) records it, its span produced from its ends (EndsQuery). */
+export const endsQueryDesc = (c: EndsCase): QueryDesc => {
+	const q = c.query
+	switch (q.kind) {
+		case "join":
+			return rules(
+				pairRule([], {
+					group: variable("g"),
+					left: variable("a"),
+					right: variable("b"),
+					span: endsHead(variable("a"), { kind: "compute", fn: "upper", args: [variable("b")] })
+				})
+			)
+		case "to":
+			return rules(
+				oneRelationRule(q.relation, [], {
+					group: variable("g"),
+					during: variable("s"),
+					span: endsHead(
+						variable("s"),
+						q.end.kind === "param"
+							? { kind: "param", name: "end", type: endpointFieldDesc(c.schema.endpoint) }
+							: {
+									kind: "literal",
+									value: endpointHost(c.schema.endpoint, q.end.point),
+									type: endpointFieldDesc(c.schema.endpoint)
+								}
+					)
+				})
+			)
+	}
+}
+
+/** The parameter values an ends query binds, as host values. */
+export const endsQueryParams = (c: EndsCase): Readonly<Record<string, unknown>> =>
+	c.query.kind === "to" && c.query.end.kind === "param"
+		? { end: endpointHost(c.schema.endpoint, c.query.end.point) }
+		: {}
+
+/** An ends query's output heading, in order. */
+export const endsQueryHeading = (q: EndsQuery): ReadonlyArray<string> =>
+	q.kind === "join" ? ["group", "left", "right", "span"] : ["group", "during", "span"]
+
+/** The span from `start` to `end`, start included and end excluded, where the start lies before the end. */
+const spanFrom = (start: bigint, end: bigint): ReadonlyArray<HalfOpen> =>
+	start < end ? [{ lo: start, hi: end }] : []
+
+/**
+ * The expected rows of an ends query, as raw text in heading order: each binding's span from its ends, [start, end)
+ * where its start lies before its end, and no row for a binding whose end does not. A set, in a fixed order.
+ */
+export const endsReferenceRows = (c: EndsCase): ReadonlyArray<RawRow> => {
+	const q = c.query
+	const spanText = spanTextOf(c.schema.endpoint)
+	switch (q.kind) {
+		case "join":
+			return rowSet(
+				Arr.flatMap(pairs(c), ([l, r]) =>
+					Arr.map(spanFrom(l.during.lo, r.during.hi), (span) => [
+						String(l.group),
+						spanText(l.during),
+						spanText(r.during),
+						spanText(span)
+					])
+				)
+			)
+		case "to":
+			return rowSet(
+				Arr.flatMap(c.facts[q.relation], (fact) =>
+					Arr.map(spanFrom(fact.during.lo, q.end.point), (span) => [
+						String(fact.group),
+						spanText(fact.during),
+						spanText(span)
+					])
+				)
+			)
+	}
+}
+
+/** An ends case, for a report. */
+export const printEndsCase = (c: EndsCase): string =>
+	Arr.join(
+		[
+			factsText(c),
+			c.query.kind === "join"
+				? "query Left x Right find span(lower(left), upper(right))"
+				: `query ${c.query.relation} find span(lower(during), ${c.query.end.kind} ${pointTextOf(c.schema.endpoint)(c.query.end.point)})`
 		],
 		"\n"
 	)

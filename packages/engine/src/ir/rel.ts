@@ -295,14 +295,28 @@ export interface TerminationCert {
 }
 
 /**
- * What a producer computes from its span arguments: the packed components of one span per group, or the
- * intersection or difference of two spans.
+ * What a producer computes from its arguments: the packed components of one span per group, the intersection or
+ * difference of two spans, or the span from a start to an end, two endpoints of one type.
  */
 export type ProducerCallOver<E> =
 	| { readonly producer: "spanPack"; readonly args: readonly [E] }
 	| { readonly producer: "spanIntersection" | "spanDifference"; readonly args: readonly [E, E] }
+	| { readonly producer: "spanFromEnds"; readonly args: readonly [E, E] }
 export type ProducerKind = ProducerCallOver<ScalarExpr>["producer"]
 export type ProducerNode<P extends ProducerKind> = NodeOf<"Produce"> & { readonly producer: P }
+
+/**
+ * How many spans a producer yields per binding of its input: an intersection and a span from its ends at most one,
+ * nothing where its spans share no point or its end is not after its start; a difference up to two and a pack any
+ * number. A producer of at most one keeps its input's keys among the carried columns; the pieces of any other are told
+ * apart by the produced span (analysis/physical/rules.ts produceProps, logical/props.ts Produce).
+ */
+export const piecesPerBinding = {
+	spanPack: "many",
+	spanIntersection: "atMostOne",
+	spanDifference: "many",
+	spanFromEnds: "atMostOne"
+} as const satisfies Readonly<Record<ProducerKind, "atMostOne" | "many">>
 
 /**
  * The window functions R26-R28 and R41 lower to: ordinals, the running and partition aggregates (avg is mean), and

@@ -4,6 +4,7 @@ import { captureLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { isList } from "#compiler/core/record.ts"
 import { type CompareOp, connectiveExpr, type LiteralDesc } from "#compiler/ir/desc.ts"
+import { isInstantType } from "#compiler/ir/instant.ts"
 import type { OpenExpr, OpenHead } from "#compiler/ir/open.ts"
 import { spanCarrierOf, spanOf, typeLabel } from "#compiler/ir/scalar.ts"
 import { type AggregateName, aggregateOverload } from "#compiler/scalar/aggregate.ts"
@@ -39,9 +40,11 @@ import {
 } from "#compiler/scalar/compute/term.ts"
 import { compatible } from "#compiler/scalar/compute/types.ts"
 import { literalDescFor } from "#compiler/scalar/literal.ts"
-import { describeField, type SqlTag } from "#compiler/scalar/registry.ts"
+import { describeField, spanType, type SqlTag } from "#compiler/scalar/registry.ts"
+import { spanColumn } from "#compiler/scalar/span.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { describeFault } from "#compiler/scalar/values/fault.ts"
+import type { Span } from "#compiler/scalar/values/span.ts"
 import { untypedLiteral } from "#compiler/schema/literal.ts"
 import { malformed } from "#compiler/schema/protocol.ts"
 import type { HeadValue } from "#compiler/types/query/terms.ts"
@@ -66,7 +69,7 @@ interface AggregateValue<out T, out S extends SqlTag> extends Built, TermCarrier
 interface ProducerValue<
 	out T,
 	out S extends SqlTag,
-	out F extends "intersection" | "difference" | "pack"
+	out F extends "intersection" | "difference" | "pack" | "span"
 >
 	extends Built, TermCarrier<T, S> {
 	readonly produces: F
@@ -459,6 +462,50 @@ export const pack = <T, S extends SqlTag>(
 		Object.freeze({ ...builtMark, produces: "pack", column: spans.column, sql: spans.sql }),
 		{ kind: "producer", fn: "pack", args: [s.expr] },
 		s.typing
+	)
+}
+
+/**
+ * r.span(start, end): the span from a start to an end, zero or one fact per binding (lower/conservative/producers/ends.ts),
+ * its spans over the start's type, delivered by the start's column read as a span's endpoints (scalar/span.ts
+ * spanColumn). The start is a term of a span endpoint's type, integer, bigint, date or a contract over one, an instant
+ * never; the end a term of its type, a typed constant among them (Type.literal), which the checker meets with it.
+ */
+export const spanFromEnds = <T, S extends SqlTag>(
+	start: TermCarrier<T, S>,
+	end: unknown
+): ProducerValue<Span<T>, "range", "span"> => {
+	const s = firstTerm(start, "r.span")
+	carried(start, "r.span")
+	const e = termExpr(end)
+	if (e === undefined) {
+		throw malformed(
+			"r.span",
+			"an end term of the start's type: a variable, a parameter, a scalar term or a typed constant, Type.literal(E, x)"
+		)
+	}
+	const typing = ((): Typing => {
+		if (s.typing.kind !== "typed") {
+			return untyped
+		}
+		const spanned = spanType(s.typing.type, undefined, captureLoc("r.span", []))
+		if (!spanned.ok || isInstantType(s.typing.type)) {
+			throw malformed(
+				"r.span",
+				`a start of a span endpoint's type, integer, bigint, date or a contract over one, not ${typeLabel(s.typing.type)}`
+			)
+		}
+		return typed(spanned.value)
+	})()
+	return headValue(
+		Object.freeze({
+			...builtMark,
+			produces: "span",
+			column: spanColumn(start.column),
+			sql: "range"
+		}),
+		{ kind: "producer", fn: "span", args: [s.expr, e] },
+		typing
 	)
 }
 

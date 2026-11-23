@@ -3278,6 +3278,7 @@ Rows are typed from the query: `commentsPerAuthor` gives `{ author: string; comm
 | order and limit | `.orderBy(["title", "asc"])`, then `.take(10)`, `.take("batch")` for an integer parameter, or a `paged(query)` member's windows |
 | recurse | `query(S).recursive(...)` |
 | compare spans | `r.allen` with `ALLEN` masks, `r.pointIn`, `r.intersection`, `r.difference`, `r.pack` |
+| build a span | `r.span(start, end)`: zero or one fact, the span from `start`, included, to `end`, excluded, of the span type over their endpoint type; none where `end` is not after `start` |
 | compute | `Num.add`, `Num.mul`, `Num.round`, `Logic.cond`, `Logic.when` and the rest of the [scalar terms](#scalar-terms) |
 | match text | `Text.matches(x, pattern)`, `Text.startsWith`, `Text.endsWith`, `Text.contains`, `Xml.isPattern`; `Text.concat` in checks |
 | search vectors | `.approximateNearest(...)`, with pgvector, from a parameter's vector or a stored row's ([Nearest rows](#nearest-rows)) |

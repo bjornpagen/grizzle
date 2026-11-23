@@ -349,6 +349,7 @@ export const builtinFunctions = {
 	upper_inf: { reach: "row" },
 	int4range: { reach: "row" },
 	int8range: { reach: "row" },
+	daterange: { reach: "row" },
 	range_minus_multi: { reach: "row" },
 	unnest: { reach: "row" },
 	string_to_array: { reach: "row" },

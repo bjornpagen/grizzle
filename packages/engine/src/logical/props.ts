@@ -77,6 +77,7 @@ import {
 	type KindOver,
 	type NodeOf,
 	type NodeOver,
+	piecesPerBinding,
 	type RelNode,
 	replacedEdges,
 	unionArms,
@@ -177,8 +178,9 @@ export interface Provenance {
  *   Difference and Intersect (either side), OrderedResult, ApproximateNearest, Window, Attach, Forbid; a SemiJoin also
  *   fixes a left column paired with a fixed right column, a Take its correlated columns, and take(1) has at most one
  *   row. A Window's input row determines its value.
- * - Produce: the input's dependencies among the carried columns; one intersection per input fact is keyed by the
- *   input's carried key, differences and packs by the carried key and the produced span.
+ * - Produce: the input's dependencies among the carried columns; a producer of at most one span per input fact, an
+ *   intersection or a span from its ends (ir/rel.ts piecesPerBinding), is keyed by the input's carried key,
+ *   differences and packs by the carried key and the produced span.
  *
  * Every node also states which of its columns are equal in every row, by its rule or carried from an input, each pair
  * with its witness, the step by which each determines the other: they join its classes, a labelled forest whose paths
@@ -2896,7 +2898,7 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 		case "Produce": {
 			const input = reading.input
 			const out = reading.out
-			const intersection = reading.producer === "spanIntersection"
+			const one = piecesPerBinding[reading.producer] === "atMostOne"
 			const inCarried = (c: string) => reading.carried.includes(c)
 			/** Each input key, by the carried columns of its class when its own are not all carried. */
 			const produced = input.keys.flatMap((k) => {
@@ -2906,7 +2908,7 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 					: within === undefined
 						? undefined
 						: input.prove(within)
-				return p === undefined ? [] : [producedFact(intersection ? p.key : [...p.key, out], all, p)]
+				return p === undefined ? [] : [producedFact(one ? p.key : [...p.key, out], all, p)]
 			})
 			const nameOf = hiddenUnless(input, inCarried)
 			const deps: Array<Dependency> = [...carried(input, nameOf, rowsKeep), ...produced]

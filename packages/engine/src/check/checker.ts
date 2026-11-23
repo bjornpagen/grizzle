@@ -80,6 +80,7 @@ import {
 	type VarDesc,
 	valueHeading
 } from "#compiler/ir/desc.ts"
+import { isInstantType } from "#compiler/ir/instant.ts"
 import type { OwnedFunction } from "#compiler/schema/function-own.ts"
 
 import { int4Max } from "#compiler/core/canonical.ts"
@@ -902,8 +903,38 @@ const everyDefined = <A>(
 const producerKinds = {
 	intersection: "spanIntersection",
 	difference: "spanDifference",
-	pack: "spanPack"
-} as const satisfies Readonly<Record<"intersection" | "difference" | "pack", ProducerKind>>
+	pack: "spanPack",
+	span: "spanFromEnds"
+} as const satisfies Readonly<Record<ProducerHead["fn"], ProducerKind>>
+
+/**
+ * r.span(start, end): two endpoints of one type, the type a span is over (scalar/registry.ts spanType), and the span
+ * over it they bound. An instant is no endpoint: it is the database's alone, stamped or read from a stored row, where a
+ * span's ends are values (ir/instant.ts instantName).
+ */
+const spanFromEnds = (
+	args: readonly [ResolvedExpr, ResolvedExpr],
+	env: LowerEnv<Resolved>,
+	at: SourceLoc
+): { readonly call: ProducerCallOver<ScalarExpr>; readonly type: ScalarType } => {
+	const first = unwrap(lowerTerm(args[0], env))
+	const last = unwrap(lowerTerm(args[1], env))
+	const spanned = spanType(first.nominal, undefined, childLoc(at, 0))
+	if (!spanned.ok || isInstantType(first.nominal)) {
+		return fail(
+			"MalformedDescription",
+			childLoc(at, 0),
+			`a span endpoint for span, integer, bigint, date or a contract over one, not ${typeLabel(first.nominal)}`
+		)
+	}
+	if (!compatible(last.nominal, first.nominal)) {
+		return fail("MalformedDescription", childLoc(at, 1), "endpoints of one type for span")
+	}
+	return {
+		call: { producer: producerKinds.span, args: [first.expr, last.expr] },
+		type: spanned.value
+	}
+}
 
 const int4TakeCapability = `a positive integer bound for take, at most ${int4Max}`
 
@@ -4951,21 +4982,28 @@ class RuleCheck {
 			}
 			return t
 		}
-		if (p.fn === "pack") {
-			const spans = span(p.args[0], 0)
-			return {
-				call: { producer: producerKinds.pack, args: [spans.expr] },
-				type: spans.expr.type
+		switch (p.fn) {
+			case "pack": {
+				const spans = span(p.args[0], 0)
+				return {
+					call: { producer: producerKinds.pack, args: [spans.expr] },
+					type: spans.expr.type
+				}
 			}
-		}
-		const first = span(p.args[0], 0)
-		const second = span(p.args[1], 1)
-		if (!compatible(second.nominal, first.nominal)) {
-			fail("MalformedDescription", at, `spans of one type for ${p.fn}`)
-		}
-		return {
-			call: { producer: producerKinds[p.fn], args: [first.expr, second.expr] },
-			type: first.expr.type
+			case "intersection":
+			case "difference": {
+				const first = span(p.args[0], 0)
+				const second = span(p.args[1], 1)
+				if (!compatible(second.nominal, first.nominal)) {
+					fail("MalformedDescription", at, `spans of one type for ${p.fn}`)
+				}
+				return {
+					call: { producer: producerKinds[p.fn], args: [first.expr, second.expr] },
+					type: first.expr.type
+				}
+			}
+			case "span":
+				return spanFromEnds(p.args, env, at)
 		}
 	}
 

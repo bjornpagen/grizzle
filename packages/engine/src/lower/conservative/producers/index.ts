@@ -1,5 +1,6 @@
 import type { Lowerers, NodeLowerer } from "#compiler/lower/conservative/context.ts"
 import { differenceQuery } from "#compiler/lower/conservative/producers/difference.ts"
+import { endsQuery } from "#compiler/lower/conservative/producers/ends.ts"
 import { intersectionQuery } from "#compiler/lower/conservative/producers/intersection.ts"
 import { packQuery } from "#compiler/lower/conservative/producers/pack.ts"
 import {
@@ -19,7 +20,8 @@ export type { ProducerForm } from "#compiler/lower/conservative/producers/shared
  *
  * - spanIntersection: `a * b` under `a && b`, zero or one span (intersection.ts);
  * - spanDifference: range_minus_multi as a LATERAL FROM producer, zero, one or two spans (difference.ts);
- * - spanPack: unnest of the grouped range_agg, one span per maximal covered component of each group (pack.ts).
+ * - spanPack: unnest of the grouped range_agg, one span per maximal covered component of each group (pack.ts);
+ * - spanFromEnds: the endpoints' range constructor under `start < end`, zero or one span (ends.ts).
  *
  * Each closes its produced heading with SELECT DISTINCT, the oracle baseline's boundary at every set boundary:
  * different bindings can produce the same piece. A node lowers to a set, or, realized plain where its consumers make
@@ -35,6 +37,8 @@ export const produceQuery =
 				return differenceQuery(node, cx, env, form)
 			case "spanPack":
 				return packQuery(node, cx, env, form)
+			case "spanFromEnds":
+				return endsQuery(node, cx, env, form)
 		}
 	}
 
