@@ -1183,11 +1183,15 @@ export const planWrite = (
 		const members = drafted.flatMap(({ action }) =>
 			action.info.reads.kind === "described" ? [action.info.reads.node] : []
 		)
-		const shares = (
+		const planned = (
 			members.length < 2 ? [] : evidence.shares(members, realization.kind === "single")
 		).filter(
 			(share) =>
 				!share.copies.some((copy) => reached.some((nodes, t) => t !== s && nodes.has(copy)))
+		)
+		/** A share restricted by a partner the stratum no longer carries is dropped with it. */
+		const shares = planned.filter(
+			(share) => share.restriction.kind === "whole" || planned.includes(share.restriction.partner)
 		)
 		const familyStep = familyStepsOf(s, checks)
 		if (realization.kind === "sequential") {

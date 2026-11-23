@@ -61,7 +61,7 @@ export const subQueriesCarriedAcrossAStratumsStatementsCarryPickOnceEveryCopyThr
 			Effect.sync(() => {
 				const p = program(statements)
 				const index = new ShareIndex(p.dag, new DagTemplates())
-				const shares = succeeded(planStatementShares(index, p.roots, noneHeld))
+				const shares = succeeded(planStatementShares(index, p.roots, noneHeld, "never"))
 				if (statements < 2) {
 					assert.deepEqual(shares, [])
 					c.note("inline")
@@ -196,7 +196,12 @@ export const twoCallsOfAVolatileFunctionAreNeverOneCarrierOrOneCteWhereOneCallRe
 				Effect.sync(() => {
 					const p = drawnCalls(volatility, twice)
 					const shares = succeeded(
-						planStatementShares(new ShareIndex(p.dag, new DagTemplates()), p.roots, noneHeld)
+						planStatementShares(
+							new ShareIndex(p.dag, new DagTemplates()),
+							p.roots,
+							noneHeld,
+							"never"
+						)
 					)
 					const ctes = statementCtes(new ShareIndex(p.dag, new DagTemplates()), p.root, () => false)
 					if (volatility === "volatile" && !twice) {
@@ -313,7 +318,13 @@ const plannedByRounds = (
 				Arr.some(nodes, (n) => (u >= roots.length ? n !== nodes[0] : true) && carried(n))
 			).length
 		})
-		chosen.push({ key: winner.key, node, copies: [] })
+		chosen.push({
+			key: winner.key,
+			node,
+			copies: [],
+			restriction: { kind: "whole" },
+			height: index.height(node)
+		})
 	}
 	const roundOf = new Map(Arr.map(chosen, (c, i) => [c.key, i] as const))
 	const shares = Arr.sort(
@@ -365,7 +376,7 @@ export const theCarriedSharesPlanningReadsAStatementAgainOnlyInARoundWhoseKeyItR
 				Effect.sync(() => {
 					const p = chained(reads)
 					const counting = new CountingIndex(p.dag, new DagTemplates())
-					const shares = succeeded(planStatementShares(counting, p.roots, noneHeld))
+					const shares = succeeded(planStatementShares(counting, p.roots, noneHeld, "never"))
 					const reference = new CountingIndex(p.dag, new DagTemplates())
 					const byRounds = plannedByRounds(reference, p.roots)
 					const view = (all: ReadonlyArray<CarriedShare>) =>

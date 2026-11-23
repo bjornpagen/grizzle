@@ -167,7 +167,10 @@
  * its other fixed defaults (physical/ddl/roles.ts genericPlans, roleDefaultSettings), so each installation's roles
  * gain an ALTER ROLE ... SET and each served file's startup options the setting, and its session texts the generic
  * plans an owner's session starts under beside its default level (served/forms.ts ServedSession ownerStartup, roles.ts
- * ownerStartupOptions), so every session of a login's pool and every owner's session plan generically
+ * ownerStartupOptions), so every session of a login's pool and every owner's session plan generically. A join no value
+ * of a write's single statement restricts, which its parts read joined to a carried part by its columns, is one part of
+ * the statement, its rows kept by an EXISTS over that part (lower/shapes/share/statements.ts restrictedShares), where
+ * format 7 restated it at each read.
  */
 export const artifactFormat = 7
 

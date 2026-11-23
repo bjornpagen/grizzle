@@ -11,7 +11,7 @@ import { canonicalEquals, catchRefusal, unwrap } from "#compiler/core/canonical.
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
-import type { Certificate } from "#compiler/ir/certificate.ts"
+import { type Certificate, localCertificate } from "#compiler/ir/certificate.ts"
 import type { ClockBinding, ClockSource } from "#compiler/ir/clock.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { DagTemplates } from "#compiler/ir/dag-digest.ts"
@@ -363,6 +363,29 @@ const plannedNodes = (planned: PlannedWrite): ReadonlyArray<RelNode> => {
 }
 
 /**
+ * The certificate of a share restricted by a partner (CarriedShare restriction, share.restricted): its copies, read where
+ * every reader joins them to the partner by its pairs, held as the rows that match a row of the partner, the proof
+ * reading the copies and the partner's node; none for a share that holds every row.
+ */
+const certifyRestriction = (facts: ShapeFacts, share: CarriedShare): void => {
+	const restriction = share.restriction
+	switch (restriction.kind) {
+		case "whole":
+			return
+		case "partner":
+			facts.certify(
+				localCertificate(
+					"share.restricted",
+					[...share.copies.map((c) => c.id), restriction.partner.node.id],
+					share.copies.map((c) => c.id),
+					[restriction.partner.node.id, ...share.copies.map((c) => c.id)],
+					share.node.heading.map((c) => c.name)
+				)
+			)
+	}
+}
+
+/**
  * The evaluation key of `node` where a single statement holds its call's evaluation as a part of its own: a read of a
  * call's field that reads only parameters (readsOnlyParameters), by its evaluation key (lower/conservative/call/keys.ts
  * EvaluationKeys); undefined for every other node.
@@ -408,7 +431,9 @@ const heldEvaluations = (
  * once each (heldEvaluations) and its shared sub-queries (`shares`), lowest first (ShareIndex height). A part reads
  * another only through a node below its own root, a call's read or a copy of a share, which stands strictly lower, so
  * each part follows every part it reads: an evaluation whose arguments hold a shared sub-query reads its CTE, and a
- * shared sub-query that reads a call's field reads its evaluation's.
+ * shared sub-query that reads a call's field reads its evaluation's. A share restricted by a partner (CarriedShare
+ * restriction) reads its partner's part too, so it stands past it (its height) and leads the parts of its height; a part
+ * placed before it lowers its copies where they stand.
  */
 const heldParts = (
 	index: ShareIndex,
@@ -423,9 +448,20 @@ const heldParts = (
 		...heldEvaluations(cx, [
 			...shares.map((share) => share.node),
 			...writes.flatMap(plannedNodes)
-		]).map((held) => ({ kind: "evaluation", ...held, height: index.height(held.read) }) as const),
-		...shares.map((share) => ({ kind: "share", share, height: index.height(share.node) }) as const)
-	].toSorted((a, b) => a.height - b.height)
+		]).map(
+			(held) =>
+				({ kind: "evaluation", ...held, height: index.height(held.read), first: false }) as const
+		),
+		...shares.map(
+			(share) =>
+				({
+					kind: "share",
+					share,
+					height: share.height,
+					first: share.restriction.kind === "partner"
+				}) as const
+		)
+	].toSorted((a, b) => a.height - b.height || Number(b.first) - Number(a.first))
 
 export interface ArtifactBuilder {
 	/** Each statement placed so far, a read-back's naming its read-back, with its audited AST for the carriers'
@@ -1342,13 +1378,12 @@ const optimizedPlacement = (
 								const { share } = held
 								const heading = share.node.heading.map((c) => ({ name: c.name, type: c.type }))
 								/** A shared sub-query's CTE lowers its own copies rather than reading itself. */
-								const source = part(heading.length, () =>
-									memberRows(
-										{ ...w, start, cx: w.cx.withDispatch(sharing.filling(share)) },
-										heading,
-										share.node
+								const source = part(heading.length, () => {
+									const filling = { ...w, start, cx: w.cx.withDispatch(sharing.filling(share)) }
+									return memberRows(filling, heading, share.node, (columns) =>
+										sharing.restriction(share, columns, filling.cx)
 									)
-								)
+								})
 								sharing.carry(share, source)
 								break
 							}
@@ -1998,14 +2033,20 @@ const compileAt = (
 		{
 			level: options.level,
 			distinct: (node, relation) => distinctByEvidence(placed.facts, node, relation),
-			shares: (members, single) =>
-				unwrap(
+			shares: (members, single) => {
+				const shares = unwrap(
 					planStatementShares(
 						sharing.index,
 						members,
-						single ? (node) => heldEvaluationKey(lowering.w.cx, node) : noneHeld
+						single ? (node) => heldEvaluationKey(lowering.w.cx, node) : noneHeld,
+						single ? "byPartners" : "never"
 					)
-				),
+				)
+				for (const planned of shares) {
+					certifyRestriction(placed.facts, planned)
+				}
+				return shares
+			},
 			carrierTyping: (t) => lowering.w.cx.typeRef(t),
 			carrierScope: options.carrierScope
 		},

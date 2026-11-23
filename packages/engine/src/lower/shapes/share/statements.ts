@@ -1,5 +1,5 @@
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
-import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { analyzeDemand, type DemandAnalysis, noPins } from "#compiler/analysis/demand/demand.ts"
 import { outerOf } from "#compiler/analysis/physical/rules.ts"
@@ -9,9 +9,18 @@ import type { NodeId } from "#compiler/core/ids.ts"
 import { type DagTemplates, ShareKeys } from "#compiler/ir/dag-digest.ts"
 import { freeVars, type NodeScope, nodeScopes, nodesByLabel, topoOrder } from "#compiler/ir/dag.ts"
 import { Fold } from "#compiler/ir/fold.ts"
-import { edgesOf, inputsOf, type NodeOf, type RelNode, type ValidDag } from "#compiler/ir/rel.ts"
+import {
+	edgesOf,
+	inputsOf,
+	type NodeOf,
+	type Occurrence,
+	type RelNode,
+	type ValidDag
+} from "#compiler/ir/rel.ts"
 import { evaluationQuery, statementEvaluations } from "#compiler/lower/conservative/call/index.ts"
 import {
+	type ColumnMap,
+	columnIn,
 	type CteTable,
 	cteAtFirstUse,
 	type Env,
@@ -27,8 +36,19 @@ import {
 	restrictedByValues
 } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { feedbackReadsOf, nodeGraph } from "#compiler/lower/optimize/demand/editor.ts"
-import type { OperandSelect, Select } from "#compiler/sql/ast.ts"
-import { col, keyedSet, select, target } from "#compiler/sql/build.ts"
+import { columnType } from "#compiler/runtime/lower/columns.ts"
+import type { Expr, FromSource, OperandSelect, Select } from "#compiler/sql/ast.ts"
+import {
+	col,
+	conjunction,
+	exists,
+	keyedSet,
+	lit,
+	select,
+	simpleSelect,
+	target,
+	types
+} from "#compiler/sql/build.ts"
 import type { CarrierName } from "#compiler/sql/naming.ts"
 
 /**
@@ -78,6 +98,8 @@ export class ShareIndex {
 	readonly #keys = new Map<NodeId, { readonly key: string | undefined }>()
 	/** Whether each node may be shared, by label, decided on its first read. */
 	readonly #eligible = new Map<NodeId, boolean>()
+	/** Whether each node is a set the statement can read under any alias, by label, decided on its first read. */
+	readonly #shareable = new Map<NodeId, boolean>()
 	/** The longest path from each node to a leaf, folded from its inputs'. */
 	readonly #heights = new Fold<RelNode, number>(function* (node) {
 		let h = 0
@@ -138,16 +160,43 @@ export class ShareIndex {
 		if (known !== undefined) {
 			return known
 		}
-		const eligible =
+		const eligible = this.#isShareable(node) && sharedOnce(node)
+		this.#eligible.set(node.id, eligible)
+		return eligible
+	}
+
+	/**
+	 * Whether the node may be carried restricted by a partner (restrictedShares): a join no value of the statement
+	 * restricts (cte-policy costClass, restrictedByValues), which sharedOnce leaves inline at each read, a set the
+	 * statement can read under any alias as an eligible node is.
+	 */
+	restrictable(node: RelNode): boolean {
+		return costClass(node) === "join" && !restrictedByValues(node) && this.#isShareable(node)
+	}
+
+	/** The share key of a restrictable node: equal for two copies that compute the same set. */
+	restrictedKey(node: RelNode): string {
+		return this.#shareKey(node)
+	}
+
+	/**
+	 * Whether the node is a set the statement can read under any alias: no recursion, uncorrelated, without free
+	 * variables, read laterally by no expression and off every recursion's feedback (cte-policy rules 3 to 6).
+	 */
+	#isShareable(node: RelNode): boolean {
+		const known = this.#shareable.get(node.id)
+		if (known !== undefined) {
+			return known
+		}
+		const shareable =
 			node.kind !== "Recursive" &&
 			node.kind !== "SelfRef" &&
 			freeVars(this.#labels, this.#scopes.of(node)).length === 0 &&
 			!this.#demand.lateral(node) &&
 			!this.#feedback.has(node) &&
-			outerOf(node).length === 0 &&
-			sharedOnce(node)
-		this.#eligible.set(node.id, eligible)
-		return eligible
+			outerOf(node).length === 0
+		this.#shareable.set(node.id, shareable)
+		return shareable
 	}
 
 	/** The share key of an eligible node (ir/dag-digest.ts ShareKeys); a DAG it cannot key is refused. */
@@ -175,14 +224,42 @@ const sharedOnce = (node: RelNode): boolean => {
 }
 
 /**
- * A sub-query carried across the statements of one stratum: its copies, all of one share key, and the copy the
- * carrier's fill evaluates.
+ * A sub-query carried across the statements of one stratum: its copies, all of one share key, the copy the carrier's
+ * fill evaluates, the rows the carrier holds of it, and the height its fill is placed at, past every carried sub-query
+ * its fill reads.
  */
 export interface CarriedShare {
 	readonly key: string
 	readonly node: RelNode
 	readonly copies: ReadonlyArray<RelNode>
+	readonly restriction: ShareRestriction
+	readonly height: number
 }
+
+/**
+ * The rows a carrier holds of its copy: every row the copy delivers, or those whose `pairs` columns equal a row of the
+ * carried sub-query `partner` (restrictedShares), which every reader of the copies joins them to by those columns.
+ */
+export type ShareRestriction =
+	| { readonly kind: "whole" }
+	| {
+			readonly kind: "partner"
+			readonly partner: CarriedShare
+			readonly pairs: NonEmptyReadonlyArray<PartnerPair>
+	  }
+
+/** A column of a restricted copy and the column of its partner a reader equates it to. */
+export interface PartnerPair {
+	readonly column: string
+	readonly partnerColumn: string
+}
+
+/**
+ * Whether a planning carries joins no value of the statement restricts, each restricted by a partner its readers join it
+ * to (restrictedShares): a single statement's, whose parts every later part reads; never across statements realized
+ * one after another.
+ */
+export type Restricting = "byPartners" | "never"
 
 /** No node is opaque to a reach: it enters every node's inputs. */
 export const noneOpaque = (_node: RelNode): boolean => false
@@ -229,15 +306,18 @@ export const noneHeld: HeldEvaluation = () => undefined
  * the statements, and is carried too only when enough statements, that fill among them, still read it. The result is
  * in fill order: a carried sub-query before every carried sub-query that reads it.
  *
- * Every copy of each carried key the statements and the fills reach; filled lowest first.
+ * Every copy of each carried key the statements and the fills reach; filled lowest first. Where `restricting` carries
+ * them, the joins no value of the statement restricts that its statements read joined to a carried sub-query follow,
+ * each restricted by it (restrictedShares).
  */
 export const planStatementShares = (
 	index: ShareIndex,
 	roots: ReadonlyArray<RelNode>,
-	held: HeldEvaluation
+	held: HeldEvaluation,
+	restricting: Restricting
 ): Result.Result<ReadonlyArray<CarriedShare>, CompileError> =>
 	catchRefusal(() => {
-		const chosen: Array<CarriedShare> = []
+		const chosen: Array<{ readonly key: string; readonly node: RelNode }> = []
 		const carriedKeys = new Set<string>()
 		/** Each node the statements have read that may be shared, carried by no key then, in the order they first read it,
 		 * by the round they first read it in. */
@@ -343,7 +423,7 @@ export const planStatementShares = (
 			const winner = keyed.reduce((a, b) => (b.key < a.key ? b : a))
 			const node = defined(winner.nodes[0], "a class's first node")
 			carriedKeys.add(winner.key)
-			chosen.push({ key: winner.key, node, copies: [] })
+			chosen.push({ key: winner.key, node })
 			for (const u of units.keys()) {
 				reread(u)
 			}
@@ -351,16 +431,184 @@ export const planStatementShares = (
 		}
 		/** Each carried key's copies: the nodes of its key the statements read before it was carried. */
 		const roundOf = new Map(chosen.map((c, i) => [c.key, i] as const))
-		return chosen
-			.map((c) => {
+		const whole = chosen
+			.map((c): CarriedShare => {
 				const round = defined(roundOf.get(c.key), "a carried key's round")
 				const copies = [...seen].flatMap(([node, at]) =>
 					at <= round && index.key(node) === c.key ? [node] : []
 				)
-				return { ...c, copies }
+				return { ...c, copies, restriction: { kind: "whole" }, height: index.height(c.node) }
 			})
-			.toSorted((a, b) => index.height(a.node) - index.height(b.node))
+			.toSorted((a, b) => a.height - b.height)
+		switch (restricting) {
+			case "never":
+				return whole
+			case "byPartners":
+				return [
+					...whole,
+					...restrictedShares(
+						index,
+						units.map((u) => u.nodes),
+						whole
+					)
+				].toSorted((a, b) => a.height - b.height)
+		}
 	})
+
+/** A region's read of a restrictable copy (ShareIndex.restrictable) and the partner it is restricted by there. */
+interface PartnerSite {
+	readonly partner: CarriedShare
+	readonly pairs: NonEmptyReadonlyArray<PartnerPair>
+}
+
+/**
+ * The partner a region's occurrence `o` of a restrictable copy is read joined to: of the region's other occurrences of a
+ * carried copy (`carriedBy`), the one whose variables equal the most of the copy's columns (a variable both bind, or two
+ * the region's equalities equate), its pairs in the copy's column order, the least key among equals; none where no
+ * occurrence of a carried copy shares a variable with it.
+ */
+const partnerAt = (
+	region: NodeOf<"MatchRegion">,
+	o: Occurrence,
+	carriedBy: ReadonlyMap<RelNode, CarriedShare>
+): PartnerSite | undefined => {
+	/** Each variable's class under the region's equalities, by the least variable id of it. */
+	const parent = new Map<number, number>()
+	const find = (v: number): number => {
+		let at = v
+		for (let up = parent.get(at); up !== undefined && up !== at; up = parent.get(at)) {
+			at = up
+		}
+		return at
+	}
+	for (const e of region.equalities) {
+		const [a, b] = [find(e.a.id), find(e.b.id)]
+		if (a !== b) {
+			parent.set(Math.max(a, b), Math.min(a, b))
+		}
+	}
+	const sites = region.occurrences.flatMap((q): ReadonlyArray<PartnerSite> => {
+		const partner = q === o ? undefined : carriedBy.get(q.source)
+		if (partner === undefined) {
+			return []
+		}
+		const pairs = o.bindings.flatMap((b): ReadonlyArray<PartnerPair> => {
+			const bound = q.bindings.find((c) => find(c.var.id) === find(b.var.id))
+			return bound === undefined ? [] : [{ column: b.column, partnerColumn: bound.column }]
+		})
+		const distinct = pairs.filter((p, i) => pairs.findIndex((x) => x.column === p.column) === i)
+		return isNonEmpty(distinct) ? [{ partner, pairs: distinct }] : []
+	})
+	return sites.reduce<PartnerSite | undefined>(
+		(best, x) =>
+			best === undefined ||
+			x.pairs.length > best.pairs.length ||
+			(x.pairs.length === best.pairs.length && x.partner.key < best.partner.key)
+				? x
+				: best,
+		undefined
+	)
+}
+
+/** A site's partner and pairs as one text, equal for two sites one restricted share serves. */
+const siteKey = (site: PartnerSite): string =>
+	`${site.partner.key}(${site.pairs.map((p) => `${p.column}=${p.partnerColumn}`).join(",")})`
+
+/**
+ * The joins no value of the statement restricts (ShareIndex.restrictable) that the statements, each reading the nodes of
+ * `read`, read joined to a carried sub-query of `whole`, each carried restricted by it: a region reading a copy beside
+ * an occurrence of a carried copy, the two sharing variables, delivers no row of the copy whose shared columns equal no
+ * row of the partner, so the carrier holds only the copy's rows that equal one, every row a reader of it can deliver,
+ * and every reader reads it in place of its copy (lower/shapes/share/statements.ts StatementSharing restricted, the
+ * EXISTS of its fill). Computed once, as rule 5d computes a join the statement's values restrict (cte-policy), where
+ * each read restated it whole: edullm's ledger grade read the response declarations of every item, a join of four
+ * reads of the attributes, 36 times, each joined to the gradable runs by their item, 708 KB of its 2.24 MB statement
+ * and 934 MB of its 1,186 MB of planning. A copy is carried restricted only where every node reads it as a region's
+ * occurrence, each such region beside the same partner on the same columns, and its key's copies are read so at least
+ * twice; the rest stay inline, restricted where they stand. Each restricted share is filled past its partner.
+ */
+const restrictedShares = (
+	index: ShareIndex,
+	read: ReadonlyArray<ReadonlyArray<RelNode>>,
+	whole: ReadonlyArray<CarriedShare>
+): ReadonlyArray<CarriedShare> => {
+	const carriedBy = new Map(whole.flatMap((share) => share.copies.map((c) => [c, share] as const)))
+	const nodes = [...new Set(read.flat())]
+	/** Each restrictable copy's sites, or "no" where a node reads it otherwise or no partner restricts it there. */
+	const sites = new Map<RelNode, Array<PartnerSite> | "no">()
+	const mark = (node: RelNode, site: PartnerSite | undefined): void => {
+		const known = sites.get(node)
+		if (known === "no") {
+			return
+		}
+		if (site === undefined) {
+			sites.set(node, "no")
+			return
+		}
+		sites.set(node, [...(known ?? []), site])
+	}
+	for (const node of nodes) {
+		if (node.kind === "MatchRegion") {
+			for (const o of node.occurrences) {
+				if (index.restrictable(o.source)) {
+					mark(o.source, partnerAt(node, o, carriedBy))
+				}
+			}
+			continue
+		}
+		for (const input of index.inputs(node)) {
+			if (index.restrictable(input)) {
+				mark(input, undefined)
+			}
+		}
+	}
+	for (const statement of read) {
+		const [root] = statement
+		if (root !== undefined && index.restrictable(root)) {
+			mark(root, undefined)
+		}
+	}
+	/** The copies one partner restricts on the same columns, by the copy's key and the site's, and their reads. */
+	const groups = new Map<
+		string,
+		{ readonly site: PartnerSite; readonly copies: Array<RelNode>; reads: number }
+	>()
+	for (const [copy, at] of sites) {
+		if (at === "no" || copy.heading.length === 0) {
+			continue
+		}
+		const [first, ...rest] = at
+		if (first === undefined || rest.some((x) => siteKey(x) !== siteKey(first))) {
+			continue
+		}
+		const group = groups.getOrInsertComputed(
+			`${index.restrictedKey(copy)}|${siteKey(first)}`,
+			() => ({
+				site: first,
+				copies: [],
+				reads: 0
+			})
+		)
+		group.copies.push(copy)
+		group.reads += at.length
+	}
+	return [...groups]
+		.toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+		.flatMap(([key, { site, copies, reads }]): ReadonlyArray<CarriedShare> => {
+			const [node] = copies
+			return node === undefined || reads < 2
+				? []
+				: [
+						{
+							key,
+							node,
+							copies,
+							restriction: { kind: "partner", partner: site.partner, pairs: site.pairs },
+							height: Math.max(index.height(node), site.partner.height + 1)
+						}
+					]
+		})
+}
 
 /**
  * The classes of one share key among `nodes`, each a node that may be shared, in the order the statements first read
@@ -514,6 +762,12 @@ type SharedSource =
 	  }
 	| { readonly kind: "enclosing"; readonly name: string; readonly columns: ReadonlyArray<string> }
 
+/** The FROM item that reads a shared source under `alias`. */
+const sourceItem = (source: SharedSource, alias: string): FromSource =>
+	source.kind === "carrier"
+		? { kind: "table", table: source.carrier, alias }
+		: { kind: "enclosing", name: source.name, alias }
+
 interface StatementScope extends CteTable<string> {
 	/** The copies of each share key the statement computes once as a MATERIALIZED CTE (statementCtes), by label. */
 	readonly materialize: ReadonlyMap<NodeId, string>
@@ -532,6 +786,8 @@ export class StatementSharing {
 	readonly #inner: NodeDispatch
 	/** What each carried copy reads, by the copy's label. */
 	readonly #carried = new Map<NodeId, { readonly key: string; readonly source: SharedSource }>()
+	/** What each carried sub-query's readers read, which a share restricted by it reads too (restriction). */
+	readonly #sources = new Map<CarriedShare, SharedSource>()
 	/**
 	 * The CTE of the single statement that holds a call's evaluation as a part (carryEvaluation), by the call's
 	 * evaluation key (lower/conservative/call evaluationKey), which every read of it in the statement's parts reads.
@@ -545,8 +801,52 @@ export class StatementSharing {
 
 	/** Every copy of `share` reads `source` from now on. */
 	carry(share: CarriedShare, source: SharedSource): void {
+		this.#sources.set(share, source)
 		for (const copy of share.copies) {
 			this.#carried.set(copy.id, { key: share.key, source })
+		}
+	}
+
+	/**
+	 * The condition a restricted share's fill keeps its copy's rows by, over `columns`, the copy's columns as its fill
+	 * reads them: EXISTS a row of its partner, read where every reader reads it, whose paired columns equal the row's
+	 * (ShareRestriction), the equality the readers' regions compare them by; none for a share that holds every row.
+	 */
+	restriction(share: CarriedShare, columns: ColumnMap, cx: LowerContext): Expr | undefined {
+		const restriction = share.restriction
+		switch (restriction.kind) {
+			case "whole":
+				return undefined
+			case "partner": {
+				const partner = restriction.partner
+				const source = defined(
+					this.#sources.get(partner),
+					"a restricted share's partner, filled before it (planStatementShares heights)"
+				)
+				const alias = cx.relationAlias({ kind: "node", node: partner.node.id })
+				const partnerColumn = (name: string): Expr =>
+					col(
+						alias,
+						defined(
+							source.columns[partner.node.heading.findIndex((c) => c.name === name)],
+							"a partner column its carrier holds, in its copy's heading order"
+						)
+					)
+				const on = restriction.pairs.map((p) =>
+					cx.equal(
+						columnType(share.node.heading, p.column),
+						partnerColumn(p.partnerColumn),
+						columnIn(columns, p.column)
+					)
+				)
+				return exists(
+					simpleSelect(
+						[target(lit.int(1, types.integer))],
+						[sourceItem(source, alias)],
+						conjunction(on)
+					)
+				)
+			}
 		}
 	}
 
@@ -649,11 +949,7 @@ export class StatementSharing {
 		return select(
 			keyedSet(
 				carrier.columns.map((c) => target(col(alias, c))),
-				[
-					carrier.kind === "carrier"
-						? { kind: "table", table: carrier.carrier, alias }
-						: { kind: "enclosing", name: carrier.name, alias }
-				],
+				[sourceItem(carrier, alias)],
 				undefined,
 				"a carried sub-query's rows"
 			)

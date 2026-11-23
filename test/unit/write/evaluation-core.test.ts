@@ -106,7 +106,8 @@ export const aSubQueryTheArgumentsOfACallsEvaluationReadIsComputedOnceInItsState
 			},
 			{
 				file: "packages/engine/src/write/program/compile.ts",
-				original: "\t].toSorted((a, b) => a.height - b.height)\n",
+				original:
+					"\t].toSorted((a, b) => a.height - b.height || Number(b.first) - Number(a.first))\n",
 				replacement:
 					'\t].toSorted((a, b) => (a.kind === "evaluation" ? 0 : 1) - (b.kind === "evaluation" ? 0 : 1))\n',
 				why: "The evaluations are built before every carried sub-query, as before: where one member reads the call and the other the core, the core is a carried part the evaluation never reads, so it computes the core again."
@@ -114,8 +115,8 @@ export const aSubQueryTheArgumentsOfACallsEvaluationReadIsComputedOnceInItsState
 			{
 				file: "packages/engine/src/write/program/compile.ts",
 				original:
-					"\t\t\t\t\t\tsingle ? (node) => heldEvaluationKey(lowering.w.cx, node) : noneHeld\n",
-				replacement: "\t\t\t\t\t\tnoneHeld\n",
+					"\t\t\t\t\t\tsingle ? (node) => heldEvaluationKey(lowering.w.cx, node) : noneHeld,\n",
+				replacement: "\t\t\t\t\t\tnoneHeld,\n",
 				why: "Every member that reads a field of the call counts as reading its arguments, as before: where both members read the call, each argument is carried as a part of its own, four arguments four more MATERIALIZED CTEs than one."
 			},
 			{
