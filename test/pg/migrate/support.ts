@@ -106,7 +106,7 @@ import { paramText } from "#test/support/wire.ts"
  * the runner checks, runs, records and admits. A migrated catalog compares with a fresh install's through
  * `sameCatalog`: PostgreSQL's catalog of both as the test kernel reads it, never grizzle's own
  * snapshot. */
-const migrationConnection = (
+export const migrationConnection = (
 	substrate: SubstrateShape,
 	credentials: Credentials
 ): MigrationConnection =>

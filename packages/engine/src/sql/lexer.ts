@@ -26,9 +26,9 @@ import { isAsciiDigit } from "@bjornpagen/grizzle-text/text"
  * A semicolon ends a statement where psql's scanner ends one: outside every parenthesis, and outside the BEGIN blocks
  * of a routine's body (Statement), where it is the statement's terminator; anywhere else it is punctuation. psql's
  * backslash commands are its own script language, which a migration file never holds, so a backslash reads as the
- * server reads it. Its identifier variables, `:"<name>"`, which a drafted file names its installation's roles and
- * database by, read as a `:` and the quoted identifier right after it, which migrate fills before it sends the
- * statement (deploy/render/variables.ts).
+ * server reads it. Its variables, `:"<name>"` and `:'<name>'`, which a drafted file names its installation's roles and
+ * database by, read as a `:` and the quoted identifier or string constant right after it, which migrate fills before
+ * it sends the statement (deploy/render/variables.ts).
  */
 export type Token =
 	| { readonly kind: "word"; readonly text: string; readonly upper: string; readonly start: number }

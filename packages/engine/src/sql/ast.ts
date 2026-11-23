@@ -2500,6 +2500,18 @@ export interface AdoptRole {
 }
 
 /**
+ * The end of every session that holds a temporary object of one of `roles`, by stem, which a migration sends right
+ * before the role's DROP ROLE (sql/print.ts writeEndHolders, the one text of it, which uninstall's sends too: sql/catalog.ts
+ * UninstallStatement). A write's carrier, or any object a transaction under the role makes in its session's temporary
+ * schema, is the role's, and stands until its session ends; PostgreSQL refuses DROP ROLE (2BP01) while one stands. Such a
+ * session belongs to the installation that is ending, so the drop ends it.
+ */
+export interface EndHolders {
+	readonly kind: "endHolders"
+	readonly roles: NonEmptyReadonlyArray<string>
+}
+
+/**
  * Transaction control: a read's BEGIN, SERIALIZABLE READ ONLY (core/isolation.ts); a write's BEGIN at its isolation
  * level; COMMIT, ROLLBACK, and SET CONSTRAINTS ALL IMMEDIATE, under which every
  * deferrable constraint's check runs at the end of each statement, so no trigger event waits for the commit.
@@ -2581,6 +2593,7 @@ export type Ddl =
 	| HandOverFunction
 	| CreateRowType
 	| AdoptRole
+	| EndHolders
 	| PackConstant
 	| CreateConstant
 	| StubConstant

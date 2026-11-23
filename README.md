@@ -1458,7 +1458,7 @@ In full:
 - **TypeScript.** Your tsconfig typechecks grizzle's source as part of your program, so it needs `allowImportingTsExtensions` (grizzle's modules import each other by their `.ts` paths) and `moduleResolution` `nodenext` or `bundler`, which read the packages' `exports` and `imports`. grizzle's own tsconfigs extend only files inside its repository, so a tool that reads the nearest tsconfig of each module, as Vite does, needs nothing else of yours.
 - **Hardened Node.** grizzle runs under `--disable-proto=delete` and `--disable-sigusr1`: it never touches `Object.prototype.__proto__`, the `grizzle` command starts with both flags, and every test runs under both.
 - **The database.** UTF8 with the builtin `C.UTF-8` locale, on a server host that has the `C.UTF-8` operating-system locale. `btree_gist` must be available; a migration creates it when a no-overlap key or a coverage rule needs it. pgvector 0.8.7 is needed only for vector fields; it is not a trusted extension, so a superuser creates `vector` first where the migration role cannot.
-- **A migration role that owns the database.** It owns the schema and the database, and has CREATEROLE to create the PostgreSQL roles of your logins and roles. It needs no superuser. Any other role fails the first migration with 42501, because only the database's owner may set its default isolation level.
+- **A migration role that owns the database.** It owns the schema and the database, and has CREATEROLE to create the PostgreSQL roles of your logins and roles. It needs no superuser. Any other role fails the first migration with 42501, because only the database's owner may set its default isolation level. It also holds `pg_signal_backend` (`GRANT pg_signal_backend TO <migration role>`, which a superuser gives, or a role holding it WITH ADMIN): a migration that drops a role first ends the sessions holding that role's temporary tables ([Deploying](#deploying)), and PostgreSQL lets a role end a session only where it holds the privileges of the session's login or pg_signal_backend's. Without it, such a migration fails with 42501 ("permission denied to terminate process") and rolls back, as it fails with 2BP01 when nothing ends them.
 - **A password for each login role**, which you set, or, for RDS IAM authentication, membership in `rds_iam`, and one for the installation's decoder login where a login serves a read: the role a reading login's served file names, `roleNameOf(WebServed.decoder, connection)` ([Connecting](#connecting)). Each connection authenticates with exactly the password its configuration names: node-postgres never reads `PGPASSWORD` or `~/.pgpass` for one.
 - **TLS with verify-full**, the only mode. Plaintext is refused.
 - **A direct connection.** PgBouncer is not supported.
@@ -5090,7 +5090,8 @@ deploy.
   decoder login and the function owner each level's schema names, `<rolePrefix>____live_<digest>` and
   `<rolePrefix>____owner_<digest>`. `grizzle uninstall` destroys the installation and every row it
   holds: in one transaction, it drops its schemas in the connection's database (each level's, each level's schema of
-  whole views and each role's schema of views) with everything in them, revokes what its roles still hold there and on the database (DROP OWNED, under
+  whole views and each role's schema of views) with everything in them, ends every session holding a temporary object of
+  one of its roles, as a migration that drops a role does ([Deploying](#deploying)), revokes what its roles still hold there and on the database (DROP OWNED, under
   the database privilege's lock), and drops the roles. The extension's schema and every other role stay. PostgreSQL
   refuses to drop a role that anything of another database still depends on (SQLSTATE 2BP01, its DETAIL naming that
   database): the transaction rolls back whole, nothing is dropped, and the report carries PostgreSQL's message and
@@ -6013,7 +6014,12 @@ the database does not install.
 **Migrations are downtime.** Each migration file takes the ledger's exclusive lock, which waits for the transactions in
 flight. From the first file until the last commits, and while a stopped run leaves a folder unfinished, every `Db` call
 fails at once with a `stale` `CallError` (`StaleSnapshot`, reason `Migrating`) before any statement runs. After the migration, a `Db` opened at the old snapshot fails with `stale` (reason `Migrated`),
-and keeps failing: deploy the code that carries the new served files and open new `Db`s with them. A migration whose
+and keeps failing: deploy the code that carries the new served files and open new `Db`s with them. A migration that
+drops a role, a login, the decoder login or the function owner ends, right before its DROP ROLE, every session that
+holds a temporary object of it, and waits for each to exit: a write's carrier, a temporary table one of the role's
+transactions made, stands until its session ends, and PostgreSQL refuses to drop a role while one does (2BP01). Such a
+session belongs to the installation that is ending; its pool opens a new connection at the next lease, and every other
+session, of the same login among them, runs on. A migration whose
 Structure holds a data step (a backfill, a fill, a reviewer's UPDATE) drops the immutability guard of every immutable
 relation's table before its data steps and creates it again after them, in the same transaction, so a direct SQL reader
 of any such table also waits for the migration to commit: DROP TRIGGER takes ACCESS EXCLUSIVE. Only dropped, never

@@ -5,24 +5,25 @@ import {
 	type RoleNameForm,
 	type RoleSpace
 } from "#compiler/core/identity.ts"
-import { quoteIdent } from "#compiler/core/text.ts"
+import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import { type Lexeme, lexemesOf } from "#compiler/sql/lexer.ts"
 import { databaseVariable } from "#compiler/sql/print.ts"
 
 /**
  * The variables of a drafted statement, and their filling.
  *
- * A statement names what an installation decides, never what it is called there, by psql's identifier variables,
- * `:"<name>"`: each role of the installation by the name the naming door mints it under (sql/print.ts printRole), its
- * stem, the name a migration sets it aside under while it renames logins, or its live source's decoder login's
- * (core/identity.ts RoleNameForm), which `grizzle generate` commits, and the current database by `:"DBNAME"`
- * (printDatabase). `grizzle migrate` fills each with what its installation names it (resolveVariables) before it sends
- * the statement, so one drafted file installs into every database under every role space, and a statement sent unfilled
- * is a syntax error, never another role.
+ * A statement names what an installation decides, never what it is called there, by psql's variables: each role of the
+ * installation by the name the naming door mints it under (sql/print.ts printRole), its stem, the name a migration sets
+ * it aside under while it renames logins, or its live source's decoder login's (core/identity.ts RoleNameForm), which
+ * `grizzle generate` commits, and the current database by `DBNAME` (printDatabase). A variable is spelled as an
+ * identifier, `:"<name>"`, where the statement names the object, or as a literal, `:'<name>'`, where it reads the
+ * object's name as a value (sql/print.ts printRoleName). `grizzle migrate` fills each with what its installation names
+ * it (resolveVariables), quoted as its spelling quotes it, before it sends the statement, so one drafted file installs
+ * into every database under every role space, and a statement sent unfilled is a syntax error, never another role.
  *
  * A variable is read as psql reads one, among the statement's lexemes (sql/lexer.ts lexemesOf): a `:` the next lexeme,
- * a quoted identifier, starts right after. `::` and `:=` are lexemes of their own, and a quote, a dollar-quoted body
- * and a comment are each one lexeme, so a variable is never read inside one.
+ * a quoted identifier or a string constant of no prefix, starts right after. `::` and `:=` are lexemes of their own,
+ * and a quote, a dollar-quoted body and a comment are each one lexeme, so a variable is never read inside one.
  */
 
 /** What a variable stands for: the current database, or a role of the installation by its name in one of its forms. */
@@ -63,17 +64,30 @@ export const variableOf = (name: string): Variable | undefined => {
 	return form === undefined ? undefined : { kind: "role", name, form }
 }
 
-/** The identifier `variable` is filled with under `names`, quoted, or why none is. */
-const filled = (name: string, names: InstallationNames): Result.Result<string, VariableFault> => {
+/** How a statement spells a variable: `:"<name>"`, filled as a quoted identifier, or `:'<name>'`, as a quoted literal. */
+type Spelling = "identifier" | "literal"
+
+const quotedAs: { readonly [S in Spelling]: (value: string) => string } = {
+	identifier: quoteIdent,
+	literal: quoteString
+}
+
+/** What the variable `name` spelled as `spelling` is filled with under `names`, quoted, or why nothing is. */
+const filled = (
+	name: string,
+	spelling: Spelling,
+	names: InstallationNames
+): Result.Result<string, VariableFault> => {
 	const variable = variableOf(name)
 	if (variable === undefined) {
 		return Result.err({ kind: "unknownVariable", name })
 	}
+	const quote = quotedAs[spelling]
 	if (variable.kind === "database") {
-		return Result.ok(quoteIdent(names.database))
+		return Result.ok(quote(names.database))
 	}
 	return Result.mapError(
-		Result.map(roleInSpace(names.roles, variable.name), quoteIdent),
+		Result.map(roleInSpace(names.roles, variable.name), quote),
 		(tooLong): VariableFault => ({ kind: "roleTooLong", name: variable.name, ...tooLong })
 	)
 }
@@ -83,18 +97,33 @@ const filled = (name: string, names: InstallationNames): Result.Result<string, V
 const quotedEnd = (start: number, name: string): number =>
 	start + 2 + name.length + name.split('"').length - 1
 
-/** A variable among `lexemes`: the `:` at `i` and the quoted identifier right after it. */
+/** A variable among `lexemes`: the `:` at `i` and the quoted identifier or plain string constant right after it. */
 const variableAt = (
 	lexemes: ReadonlyArray<Lexeme>,
 	i: number
-): { readonly start: number; readonly end: number; readonly name: string } | undefined => {
+):
+	| {
+			readonly start: number
+			readonly end: number
+			readonly name: string
+			readonly spelling: Spelling
+	  }
+	| undefined => {
 	const colon = lexemes[i]
 	const name = lexemes[i + 1]
-	return colon?.kind === "punct" &&
-		colon.text === ":" &&
-		name?.kind === "quotedIdent" &&
-		name.start === colon.start + 1
-		? { start: colon.start, end: quotedEnd(name.start, name.text), name: name.text }
+	if (colon?.kind !== "punct" || colon.text !== ":" || name?.start !== colon.start + 1) {
+		return undefined
+	}
+	if (name.kind === "quotedIdent") {
+		return {
+			start: colon.start,
+			end: quotedEnd(name.start, name.text),
+			name: name.text,
+			spelling: "identifier"
+		}
+	}
+	return name.kind === "string" && name.prefix === undefined
+		? { start: colon.start, end: name.end, name: name.text, spelling: "literal" }
 		: undefined
 }
 
@@ -115,7 +144,7 @@ export const resolveVariables = (
 		if (found === undefined) {
 			continue
 		}
-		const value = filled(found.name, names)
+		const value = filled(found.name, found.spelling, names)
 		if (!value.ok) {
 			return value
 		}

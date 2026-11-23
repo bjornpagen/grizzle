@@ -3357,6 +3357,10 @@ class Differ {
 	 *
 	 * Both roles still stand when grants are replaced; a role dropped at the end takes it along anyway.
 	 *
+	 * A role, a decoder login or the function owner goes after the end of every session that holds a temporary object of
+	 * it (sql/ast.ts EndHolders): a write's carrier a transaction under it made, which stands until its session ends, and
+	 * which PostgreSQL's DROP ROLE refuses (2BP01).
+	 *
 	 * A validation installs nothing, so nothing is dropped.
 	 *
 	 * A stored relation's drop loses its rows, which the migration declares (`--drop`).
@@ -3372,6 +3376,12 @@ class Differ {
 		const v = installed(o)
 		const drop = (kind: Dropped, d: Action): void => {
 			this.removal(dropOrder[kind], order, d)
+		}
+		/** A role's drop: the end of every session that holds a temporary object of it, then its DROP ROLE, which
+		 * PostgreSQL refuses (2BP01) while one stands (sql/ast.ts EndHolders). */
+		const dropRole = (kind: Dropped, name: string): void => {
+			drop(kind, statement({ kind: "endHolders", roles: [name] }))
+			drop(kind, statement({ kind: "drop", object: "ROLE", name, ifExists: false }))
 		}
 		switch (v.kind) {
 			case "schema":
@@ -3477,10 +3487,7 @@ class Differ {
 						)
 					}
 				}
-				drop(
-					v.kind,
-					statement({ kind: "drop", object: "ROLE", name: v.create.name, ifExists: false })
-				)
+				dropRole(v.kind, v.create.name)
 				return
 			case "immutableTrigger":
 			case "lawTrigger":
@@ -3522,10 +3529,7 @@ class Differ {
 				return
 			case "role":
 			case "decoder":
-				drop(
-					v.kind,
-					statement({ kind: "drop", object: "ROLE", name: v.create.name, ifExists: false })
-				)
+				dropRole(v.kind, v.create.name)
 				return
 			case "liveSecret":
 				drop(

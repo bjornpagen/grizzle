@@ -770,6 +770,7 @@ export const reportable = (installation: Installation): ReadonlyArray<Identified
 			case "handOverFunction":
 			case "createRowType":
 			case "adoptRole":
+			case "endHolders":
 			case "createMaterializedView":
 			case "drop":
 			case "revoke":

@@ -154,6 +154,27 @@ const catalog = (name: string): LockTarget => target("catalog", name)
 const relfilenodeIndex = catalog("pg_class_tblspc_relfilenode_index")
 
 /**
+ * What the end of a dropped role's sessions keeps locked (sql/ast.ts EndHolders): the catalogs its query reads, with
+ * every index the planner opens of each, pg_roles with the two it reads (PostgreSQL 19.0, 2026-11-23: pg_locks of the
+ * statement's transaction listed exactly these twelve); pg_identify_object's reads of the catalog of each object it
+ * places release their locks at once.
+ */
+const endHoldersLocks: ReadonlyArray<LockTarget> = [
+	"pg_database",
+	"pg_database_oid_index",
+	"pg_database_datname_index",
+	"pg_shdepend",
+	"pg_shdepend_depender_index",
+	"pg_shdepend_reference_index",
+	"pg_roles",
+	"pg_authid",
+	"pg_authid_oid_index",
+	"pg_authid_rolname_index",
+	"pg_db_role_setting",
+	"pg_db_role_setting_databaseid_rol_index"
+].map(catalog)
+
+/**
  * A system catalog whose datum a statement may store out of line: the catalog's TOAST table and its index, which the
  * insert keeps locked (heaptoast.c heap_toast_insert_or_update): pg_proc's for a function's body, pg_rewrite's for a
  * view's rule, pg_constraint's for a CHECK, pg_attrdef's for a default or a generation, pg_policy's for a policy's
@@ -619,6 +640,7 @@ const learn = (catalogOf: LockCatalog, s: SqlStatement | RecordedStatement): voi
 			return
 		}
 		case "adoptRole":
+		case "endHolders":
 		case "resetDatabaseDefault":
 		case "alterDefaultPrivileges":
 		case "alterRole":
@@ -1537,6 +1559,9 @@ const lockStatement = (locks: Locks, s: SqlStatement | RecordedStatement): void 
 			return
 		case "adoptRole":
 			locks.add([target("role", s.role), owner, catalog("pg_auth_members")])
+			return
+		case "endHolders":
+			locks.add(endHoldersLocks)
 			return
 		case "packConstant":
 			locks.add([

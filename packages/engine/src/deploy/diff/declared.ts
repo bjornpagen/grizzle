@@ -1943,6 +1943,7 @@ const withColumns = (
 		case "handOverFunction":
 		case "createRowType":
 		case "adoptRole":
+		case "endHolders":
 		case "createGuardTrigger":
 		case "createUpdateGuardTrigger":
 		case "createTransitionTrigger":
@@ -1998,6 +1999,8 @@ const withRoles = (s: WholeStatement, roles: ReadonlyMap<string, string>): Whole
 			return { ...s, owner: role(s.owner) }
 		case "adoptRole":
 			return { ...s, role: role(s.role) }
+		case "endHolders":
+			return { ...s, roles: mapNonEmpty(s.roles, role) }
 		case "rename":
 			return s.object === "ROLE" ? { ...s, name: role(s.name), to: role(s.to) } : s
 		case "drop":

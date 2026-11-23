@@ -355,6 +355,11 @@
  * that filter its condition as written (analysis/theory/navigate.ts ruleReads, Navigator #chain `asWritten`), where
  * format 8 left the whole rule as written, one flat join, so every judge statement over such a rule reads it as a chain
  * of steps.
+ * A migration's DROP ROLE of a role, a login, the decoder login or the function owner follows a statement of its own
+ * that ends every session holding a temporary object of the role and waits for each to exit (sql/ast.ts EndHolders,
+ * deploy/diff/diff.ts remove), naming the role by psql's literal variable `:'<stem>'`, which migrate fills as a quoted
+ * literal (deploy/render/variables.ts), where format 8 dropped the role alone, refused (2BP01) while any session that
+ * had written under it held its carriers; so every publish file that drops a role moves.
  */
 export const artifactFormat = 8
 

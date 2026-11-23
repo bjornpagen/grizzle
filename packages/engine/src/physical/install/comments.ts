@@ -185,6 +185,7 @@ const created = (s: SqlStatement): ReadonlyArray<Created> => {
 		case "dropTrigger":
 		case "handOverFunction":
 		case "adoptRole":
+		case "endHolders":
 		case "resetDatabaseDefault":
 		case "alterRole":
 		case "grantRole":

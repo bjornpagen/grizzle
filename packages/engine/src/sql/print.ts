@@ -208,11 +208,18 @@ const statementTextLoc = SourceLoc("SQL statement text", [])
 
 /**
  * A role of the installation where a statement names it: psql's identifier variable `:"<stem>"`, the role's stem, which
- * `grizzle generate` commits, the one way a statement prints an installation's role. Migrate fills it with the role the
+ * `grizzle generate` commits, the one way a statement names an installation's role. Migrate fills it with the role the
  * installation's role space installs (deploy/render/variables.ts resolveVariables), so one drafted file installs under every
  * role space, and one never filled is a syntax error, never another role.
  */
 const printRole = (stem: string): string => `:${quoteIdent(stem)}`
+
+/**
+ * A role of the installation where a statement reads its name as a value: psql's literal variable `:'<stem>'`, which
+ * migrate fills with the quoted literal of the name the installation's role space installs (deploy/render/variables.ts
+ * resolveVariables), as it fills printRole's identifier.
+ */
+const printRoleName = (stem: string): string => `:${quoteString(stem)}`
 
 /** The name of the variable that stands for the current database, psql's own: a name of no role stem, all of which
  * hold `__`. */
@@ -268,6 +275,75 @@ const printCatalogType = (name: CatalogTypeName): string => {
 		case "qualified":
 			return inCatalog(name)
 	}
+}
+
+/**
+ * The longest wait for one session's end (writeEndHolders): pg_terminate_backend reads its timeout, an int8 of
+ * milliseconds, into a C int, so this, the greatest C int, is the longest wait it holds, and a larger one wraps
+ * (9223372036854775807 reads as -1, refused 22003). The end waits for a backend's exit as a migration waits for a lock,
+ * with no deadline of grizzle's (adapter/migrate/session.ts): interrupting the migration cancels it, pg_terminate_backend
+ * checking for interrupts every 100 ms of its wait (pg_wait_until_termination).
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19.0's pg_terminate_backend (src/backend/storage/ipc/signalfuncs.c)
+ * @unit milliseconds
+ * @scope the wait for one backend's exit in one statement that ends the sessions holding a dropped role's temporary
+ *   objects
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/backend/storage/ipc/signalfuncs.c#L239
+ * @quote int timeout; (milliseconds), then timeout = PG_GETARG_INT64(1);
+ * @verified 2026-11-23
+ */
+const terminationWaitMaxMillis = 2 ** 31 - 1
+
+/**
+ * The end of every session that holds a temporary object of a role among `names`, each the SQL text of a role's name
+ * (sql/ast.ts EndHolders, sql/catalog.ts UninstallStatement), one statement:
+ *
+ *   SELECT pg_terminate_backend(pg_stat_get_backend_pid(b.proc), <terminationWaitMaxMillis>)
+ *   FROM pg_database AS d, pg_stat_get_backend_idset() AS b(proc)
+ *   WHERE d.datname = current_database() AND pg_stat_get_backend_dbid(b.proc) = d.oid AND EXISTS (SELECT FROM
+ *   pg_shdepend AS s JOIN pg_roles AS r ON r.oid = s.refobjid CROSS JOIN LATERAL pg_identify_object(s.classid,
+ *   s.objid, s.objsubid) AS o WHERE s.dbid = d.oid AND s.refclassid = 'pg_authid'::regclass AND s.deptype = 'o' AND
+ *   r.rolname IN (<names>) AND o.schema = 'pg_temp_' || b.proc)
+ *
+ * Exactly the sessions that hold one, never every session of a login: PostgreSQL 19 names a session's temporary schema
+ * pg_temp_<its proc number> (namespace.c InitTempTableNamespace), the number pg_stat_get_backend_pid and _dbid read a
+ * backend by (backend_status.c pgstat_get_beentry_by_proc_number), so each backend of the database is matched to its
+ * own schema; and the objects a role owns are its owner rows in pg_shdepend, the rows DROP ROLE refuses by
+ * (pg_shdepend.c checkSharedDependencies), any kind of object, a table, its function or a type alike, each placed by
+ * pg_identify_object, which reads the catalog as it stands, never the transaction's snapshot, so an object a session's
+ * exit dropped after the snapshot is found no more. A session that holds objects only of roles that stay keeps running.
+ *
+ * Each end waits until the backend has exited, which it does after dropping its temporary objects (namespace.c
+ * RemoveTempRelationsCallback, run before it leaves): when the statement returns, none of them stands, and DROP ROLE,
+ * which reads the catalog as it stands too, finds none. A wait that ran out returns false with a warning, and DROP ROLE
+ * refuses the role (2BP01): the transaction rolls back whole.
+ *
+ * No session makes a new one between this read and DROP ROLE: a session makes a role's temporary object only inside a
+ * Db transaction, under the role its SET LOCAL ROLE takes on, and a migration's transaction took the ledger's ACCESS
+ * EXCLUSIVE lock first (uninstall's DROP SCHEMA of the ledger takes it), which waited for every Db transaction in
+ * flight and refuses every new one at its fence (deploy/ledger/ledger.ts). Revoking the role's TEMPORARY in the same
+ * transaction would not do it: another session reads the database's privileges as committed, and makes its object
+ * anyway (PostgreSQL 19, 2026-11-23: a session made a temporary table under a role after the role's DROP OWNED in a
+ * transaction still open, and DROP ROLE then refused it, 2BP01).
+ *
+ * PostgreSQL lets a role end a backend whose session user, the login, it holds the privileges of, or any backend of a
+ * role not superuser where it holds pg_signal_backend's (signalfuncs.c pg_signal_backend); a role's own membership is
+ * not enough, since a session's user is its login, not the role it took on. Uninstall adopts the installation's roles,
+ * its logins among them, first; a migration's identity holds pg_signal_backend (README "A migration role").
+ */
+const writeEndHolders = (out: Lines, names: NonEmptyReadonlyArray<string>): void => {
+	const backend = `${inCatalog("pg_stat_get_backend_pid")}("b"."proc")`
+	out.line(
+		`SELECT ${inCatalog("pg_terminate_backend")}(${backend}, ${terminationWaitMaxMillis.toString()})`
+	)
+	out.line(
+		`FROM ${inCatalog("pg_database")} AS "d", ${inCatalog("pg_stat_get_backend_idset")}() AS "b"("proc")`
+	)
+	out.line(
+		`WHERE "d"."datname" = ${inCatalog("current_database")}() AND ${inCatalog("pg_stat_get_backend_dbid")}("b"."proc") = "d"."oid" AND EXISTS (SELECT FROM ${inCatalog("pg_shdepend")} AS "s" JOIN ${inCatalog("pg_roles")} AS "r" ON "r"."oid" = "s"."refobjid" CROSS JOIN LATERAL ${inCatalog("pg_identify_object")}("s"."classid", "s"."objid", "s"."objsubid") AS "o" WHERE "s"."dbid" = "d"."oid" AND "s"."refclassid" = ${quoteString("pg_catalog.pg_authid")}::${printCatalogType("regclass")} AND "s"."deptype" = ${quoteString("o")} AND "r"."rolname" IN (${names.join(", ")}) AND "o"."schema" = ${quoteString("pg_temp_")} || "b"."proc")`
+	)
 }
 
 /**
@@ -2828,6 +2904,8 @@ const writeCommand = (out: Lines, statement: SqlStatement): void => {
 			return out.line(
 				`GRANT ${printRole(statement.role)} TO CURRENT_USER WITH INHERIT TRUE, SET TRUE`
 			)
+		case "endHolders":
+			return writeEndHolders(out, mapNonEmpty(statement.roles, printRoleName))
 		case "packConstant":
 			return writePack(out, statement)
 		case "createConstant":
@@ -3010,6 +3088,7 @@ export const commandsOf = (statement: SqlStatement): NonEmptyReadonlyArray<Comma
 		case "createDeclaredFunction":
 		case "createRowType":
 		case "adoptRole":
+		case "endHolders":
 		case "packConstant":
 		case "createConstant":
 		case "stubConstant":
@@ -3323,6 +3402,8 @@ const writeCatalogStatement = (out: Lines, statement: CatalogStatement): void =>
 			return out.line(
 				`GRANT ${statement.roles.map(quoteIdent).join(", ")} TO CURRENT_ROLE WITH INHERIT TRUE, SET FALSE`
 			)
+		case "endHolders":
+			return writeEndHolders(out, mapNonEmpty(statement.roles, quoteString))
 		case "dropOwned":
 			return out.line(`DROP OWNED BY ${statement.roles.map(quoteIdent).join(", ")}`)
 		case "dropRoles":

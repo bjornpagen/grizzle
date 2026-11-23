@@ -2422,6 +2422,7 @@ class StatementAuditor {
 			case "handOverFunction":
 			case "createRowType":
 			case "adoptRole":
+			case "endHolders":
 			case "createConstant":
 			case "stubConstant":
 			case "packConstant":
@@ -2807,6 +2808,11 @@ class StatementAuditor {
 				return
 			case "adoptRole":
 				this.ident(statement.role, "role", "role")
+				return
+			case "endHolders":
+				for (const [i, role] of statement.roles.entries()) {
+					this.ident(role, "role", "roles", i)
+				}
 				return
 			case "createConstant":
 				this.constantHeader(statement)

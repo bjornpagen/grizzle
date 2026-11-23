@@ -1347,6 +1347,7 @@ export class Transform {
 				return name === s.name && attributes === s.attributes ? s : { ...s, name, attributes }
 			}
 			case "adoptRole":
+			case "endHolders":
 				return s
 			case "packConstant": {
 				const fn = this.name(s.function, "function")
@@ -1499,6 +1500,7 @@ export class Transform {
 			case "handOverFunction":
 			case "createRowType":
 			case "adoptRole":
+			case "endHolders":
 			case "createGuardTrigger":
 			case "createUpdateGuardTrigger":
 			case "createConstraintTrigger":

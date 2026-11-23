@@ -336,15 +336,20 @@ export interface DoBlock {
  * A statement of an installation's uninstall (adapter/migrate/uninstall.ts), each of one transaction, in this order:
  * DROP SCHEMA of its schemas in its database, CASCADE, with everything they hold; GRANT of its roles TO CURRENT_ROLE
  * WITH INHERIT TRUE, SET FALSE, so the migration identity, which holds ADMIN on each role it created, holds their
- * privileges, as DROP OWNED asks; DROP OWNED BY them, which revokes what they hold in the database and on its shared
- * objects (the database's own TEMPORARY among them) and drops what they own; DROP ROLE of them, which PostgreSQL refuses
- * (2BP01) while anything of another database depends on one. Each role is the cluster's role by the name pg_roles
- * reads (adapter/migrate/uninstall.ts), quoted, never a name the naming door derives now: the role dropped is the role
- * the cluster holds, whatever name the migration that made it gave it.
+ * privileges, as DROP OWNED asks, and may end their logins' sessions; the end of every session that holds a temporary
+ * object of one of them (sql/ast.ts EndHolders, the text a migration sends before a role's DROP ROLE, its roles named
+ * here by quoted literals); DROP OWNED BY them, which revokes what they hold in the database and on its shared objects
+ * (the database's own TEMPORARY among them) and drops what they own; DROP ROLE of them, which PostgreSQL refuses
+ * (2BP01) while anything of another database depends on one. The sessions end before DROP OWNED, which would drop a
+ * live session's temporary tables under it, the session's own buffers of them left to fail its next temporary work
+ * ("could not open file"), and leave no object for the end to find them by. Each role is the cluster's role by the
+ * name pg_roles reads (adapter/migrate/uninstall.ts), quoted, never a name the naming door derives now: the role dropped
+ * is the role the cluster holds, whatever name the migration that made it gave it.
  */
 export type UninstallStatement =
 	| { readonly kind: "dropSchemas"; readonly schemas: NonEmptyReadonlyArray<string> }
 	| { readonly kind: "adoptRoles"; readonly roles: NonEmptyReadonlyArray<string> }
+	| { readonly kind: "endHolders"; readonly roles: NonEmptyReadonlyArray<string> }
 	| { readonly kind: "dropOwned"; readonly roles: NonEmptyReadonlyArray<string> }
 	| { readonly kind: "dropRoles"; readonly roles: NonEmptyReadonlyArray<string> }
 

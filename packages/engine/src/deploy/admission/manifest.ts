@@ -137,6 +137,7 @@ const manifestStatement = (s: SqlStatement): ManifestStatement => {
 		case "alterDomain":
 		case "dropIndex":
 		case "drop":
+		case "endHolders":
 		case "dropFunction":
 		case "dropTrigger":
 		case "dropPublication":

@@ -3883,6 +3883,7 @@ class Model {
 				}
 				return
 			case "adoptRole":
+			case "endHolders":
 				return
 			case "createConstant":
 				this.#addFunction(s.name, {

@@ -49,9 +49,10 @@ import {
  * `roles` lists the installation's roles, by name, in code point order. `uninstall` drops all of it in one SERIALIZABLE
  * transaction (sql/catalog.ts UninstallStatement): its publications and its slots, which PostgreSQL refuses to drop
  * while a leader streams from one, its schemas CASCADE, with every row they hold, then its roles, after the migration
- * identity takes on their privileges and DROP OWNED revokes what they hold in the database and on its shared objects,
- * under the database lock (sql/catalog.ts databaseLock), as every writer of a row the database's installations share
- * takes it. PostgreSQL refuses DROP ROLE (2BP01) while anything of another database depends on a role, its DETAIL
+ * identity takes on their privileges, every session holding a temporary object of one of them ends (a write's carrier:
+ * sql/ast.ts EndHolders), and DROP OWNED revokes what they hold in the database and on its shared
+ * objects, under the database lock (sql/catalog.ts databaseLock), as every writer of a row the database's installations
+ * share takes it. PostgreSQL refuses DROP ROLE (2BP01) while anything of another database depends on a role, its DETAIL
  * naming that database: the transaction rolls back whole, nothing is dropped, and the refusal carries PostgreSQL's
  * message and detail (UninstallRefused). Each role is named by the name pg_roles read, so the role dropped is the role
  * listed.
@@ -232,6 +233,7 @@ const uninstallStatements = (
 				...dropped,
 				sent({ kind: "adoptRoles", roles: names }),
 				privilegeLock(),
+				sent({ kind: "endHolders", roles: names }),
 				sent({ kind: "dropOwned", roles: names }),
 				sent({ kind: "dropRoles", roles: names })
 			]
