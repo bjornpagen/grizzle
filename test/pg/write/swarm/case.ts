@@ -15,6 +15,7 @@ import { keep, type Swarm } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option } from "effect"
 import {
 	absentId,
+	deletedAll,
 	type PlainOp,
 	type Placed,
 	type QueryInsert,
@@ -178,6 +179,24 @@ const selectionReach = (core: FillSpec): ReadonlySet<number> => {
 	return reached
 }
 
+/** Relation `r` and every relation nested under it through its families, at any depth: what a delete of its rows
+ * removes. */
+const nestedUnder = (core: FillSpec, r: number): ReadonlySet<number> => {
+	const reached = new Set([r])
+	for (const owner of reached) {
+		for (const f of core.families) {
+			if (f.owner === owner) {
+				reached.add(f.member)
+			}
+		}
+	}
+	return reached
+}
+
+/** Whether every relation of `relations` is mutable: a put or a delete changes only mutable relations. */
+const allMutable = (core: FillSpec, relations: Iterable<number>): boolean =>
+	Arr.every(Arr.fromIterable(relations), (r) => defined(core.relations[r], "a relation").mutable)
+
 /** Whether the rules admit a delete of relation `r`'s rows: no tree's, no member that owns a sequence, no member of an
  * immutable owner's family. */
 const deletable = (core: FillSpec, r: number): boolean =>
@@ -192,14 +211,13 @@ const deletable = (core: FillSpec, r: number): boolean =>
 			f.member === r && f.kind !== "tree" && !defined(core.relations[f.owner], "an owner").mutable
 	)
 
-/** The relations a put from a query may write: no family's member, mutable where it owns a family, with a row. */
+/** The relations a put from a query may write: no family's member, mutable, with a row. */
 const queryPuttable = (spec: SwarmSpec, rows: ReadonlyArray<InstanceRow>): ReadonlyArray<number> =>
 	Arr.filter(
 		Arr.map(spec.fill.relations, (_, r) => r),
 		(r) =>
 			!Arr.some(spec.fill.families, (f) => f.member === r) &&
-			(defined(spec.fill.relations[r], "a relation").mutable ||
-				!Arr.some(spec.fill.families, (f) => f.owner === r)) &&
+			defined(spec.fill.relations[r], "a relation").mutable &&
 			Arr.some(rows, (x) => x.relation === r)
 	)
 
@@ -228,7 +246,8 @@ const plainAfter = (
  * The plain writes that keep a follow-up's laws over the rows it leaves: each pure set's missing needed values
  * inserted, each referrer naming a row or member the rows no longer hold deleted, and now and then another referrer, a
  * referrer put, or a set's spare value deleted; where `breaks`, one law broken instead: a needed value deleted or a
- * referrer naming no row inserted.
+ * referrer naming no row inserted. A put or a delete is of a mutable plain relation's row alone: a closed one's rows
+ * are inserted, and a referrer of one naming a row the follow-up removed breaks its law.
  */
 const plainOpsGen =
 	(
@@ -240,12 +259,14 @@ const plainOpsGen =
 		breaks: boolean
 	): Gen<ReadonlyArray<PlainOp>> =>
 	(source) => {
+		const changes = (row: PlainRow): boolean =>
+			defined(spec.plains[row.plain], "a plain relation").mutable
 		const need = needed(spec, rows)
 		const inserts = Arr.flatMap(need, (row): ReadonlyArray<PlainOp> =>
 			Arr.some(plain, (p) => samePlain(p, row)) ? [] : [{ op: "insert", row, at: placed(true) }]
 		)
 		const gone = Arr.flatMap(plain, (p): ReadonlyArray<PlainOp> => {
-			if (p.kind !== "referrer") {
+			if (p.kind !== "referrer" || !changes(p)) {
 				return []
 			}
 			const law = Arr.findFirst(
@@ -264,11 +285,15 @@ const plainOpsGen =
 		const fresh = source.draw(referrersGen(spec, rows, next))
 		const added = Arr.take(fresh, source.draw(int(0, 2)))
 		for (const row of added) {
-			extra.push({ op: source.draw(boolean) ? "insert" : "put", row, at: placed(false) })
+			extra.push({
+				op: source.draw(boolean) || !changes(row) ? "insert" : "put",
+				row,
+				at: placed(false)
+			})
 		}
 		const spare = Arr.filter(
 			plain,
-			(p) => p.kind === "set" && !Arr.some(need, (n) => samePlain(n, p))
+			(p) => p.kind === "set" && changes(p) && !Arr.some(need, (n) => samePlain(n, p))
 		)
 		if (Arr.isReadonlyArrayNonEmpty(spare) && source.draw(boolean)) {
 			extra.push({ op: "delete", row: source.draw(pick(spare)), at: placed(false) })
@@ -276,8 +301,11 @@ const plainOpsGen =
 		if (!breaks) {
 			return [...inserts, ...gone, ...extra]
 		}
-		const held = Arr.filter(need, (n) =>
-			Arr.some([...plain, ...Arr.map(inserts, (i) => i.row)], (p) => samePlain(p, n))
+		const held = Arr.filter(
+			need,
+			(n) =>
+				changes(n) &&
+				Arr.some([...plain, ...Arr.map(inserts, (i) => i.row)], (p) => samePlain(p, n))
 		)
 		const referrers = Arr.flatMap(spec.plains, (p, j) => (p.kind === "referrer" ? [j] : []))
 		const broken: ReadonlyArray<PlainOp> =
@@ -459,10 +487,18 @@ export const stepsGen =
 					 */
 					const by = kept("delete where") ? "selection" : "rows"
 					const reach = selectionReach(spec.fill)
+					/** A delete removes each relation it names and every relation nested under it, and every plain row:
+					 * each mutable. */
+					const removesMutable =
+						allMutable(
+							spec.fill,
+							Arr.flatMap(deletedAll(spec, state, by), (r) => [...nestedUnder(spec.fill, r)])
+						) && Arr.every(state.plain, (p) => defined(spec.plains[p.plain], "a plain").mutable)
 					if (
-						by === "selection"
+						removesMutable &&
+						(by === "selection"
 							? Arr.every(stored, (r) => reach.has(r))
-							: Arr.every(stored, (r) => deletable(spec.fill, r))
+							: Arr.every(stored, (r) => deletable(spec.fill, r)))
 					) {
 						steps.push({ kind: "delete all", by })
 						state = { rows: [], plain: [] }

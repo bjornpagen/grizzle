@@ -39,7 +39,6 @@ import {
 	foldBuilder,
 	keyBuilder,
 	monoids,
-	mutableBuilder,
 	onBuilder,
 	orderedBuilder,
 	predBuilder,
@@ -70,6 +69,7 @@ import {
 	uuidOfRow
 } from "#test/support/families/fill.ts"
 import { Id } from "#test/support/ids.ts"
+import { opened } from "#test/support/open.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /** An extra fold end over a family: max over its member's `v`, or or over its member's set `b`, into its owner's `e<f>`. */
@@ -845,7 +845,10 @@ const familyStatement = (
 	}
 }
 
-/** The schema of a drawn spec, by the builders: fill.ts's statements, then the extra ends, the laws and `mutable`. */
+/**
+ * The schema of a drawn spec, by the builders: fill.ts's statements, then the extra ends, the laws, and its mutable
+ * relations open, each inside the unit its key leads with (test/support/open.ts opened).
+ */
 export const buildSwarm = (spec: SwarmSpec): BuiltSwarm => {
 	const core = spec.fill
 	const values = Arr.map(core.relations, (_, r) => relationValue(spec, r))
@@ -997,10 +1000,10 @@ export const buildSwarm = (spec: SwarmSpec): BuiltSwarm => {
 				)
 		}
 	})
-	const mutables: ReadonlyArray<Statement> = [
-		...Arr.flatMap(core.relations, (r, i) => (r.mutable ? [mutableBuilder(valueAt(i))] : [])),
-		...Arr.flatMap(spec.plains, (p, j) => (p.mutable ? [mutableBuilder(plainAt(j))] : []))
-	]
+	const mutables = opened([
+		...Arr.filter(values, (_, r) => defined(core.relations[r], "a relation").mutable),
+		...Arr.filter(plains, (_, j) => defined(spec.plains[j], "a plain relation").mutable)
+	])
 	const statements: ReadonlyArray<Statement> = [
 		...Arr.flatMap(families, (stated, f) => [
 			stated,

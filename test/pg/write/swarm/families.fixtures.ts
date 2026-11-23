@@ -748,7 +748,7 @@ export const aims: ReadonlyArray<readonly [Situation, Gen<SwarmCase>]> = [
 	["a refill of an immutable relation refused", over(bare(staleCopies(false)), ["follow-ups"])],
 	[
 		"a delete of everything by field equality accepted",
-		over(importWrite([true, false, true, false, true], nestedImportWriteFamilies), [
+		over(importWrite([true, true, true, true, true], nestedImportWriteFamilies), [
 			"delete all",
 			"delete where"
 		])
@@ -759,7 +759,7 @@ export const aims: ReadonlyArray<readonly [Situation, Gen<SwarmCase>]> = [
 			{
 				...bare(twoFamilies),
 				plains: [
-					{ kind: "set", mutable: false },
+					{ kind: "set", mutable: true },
 					{ kind: "referrer", mutable: true }
 				],
 				laws: [
@@ -884,7 +884,8 @@ const inserted = (
  * The swarm cases kept by value that the space reaches beyond toolchain-test keep, each a real bug the property once
  * caught, recorded beside the space (gen.ts recorded): 26 keep never found, within 790 to 2720 s each, then five whose
  * tokens keep had found went stale under 0d63f3740's fill generators, none found again in 1162 s; the one keep finds
- * again is kept by its token.
+ * again is kept by its token. A case whose steps delete holds every relation they remove open, as a closed relation's
+ * facts are never deleted.
  */
 export const recordedSwarmCases: Arr.NonEmptyReadonlyArray<SwarmCase> = [
 	{
@@ -1313,7 +1314,7 @@ export const recordedSwarmCases: Arr.NonEmptyReadonlyArray<SwarmCase> = [
 		spec: {
 			fill: coreOf([true, true], [{ kind: "counted", owner: 0, member: 1, fold: "none" }], [], []),
 			ends: [],
-			plains: [{ kind: "set", mutable: false }],
+			plains: [{ kind: "set", mutable: true }],
 			laws: [{ kind: "into set", relation: 1, plain: 0 }]
 		},
 		steps: [
@@ -1816,11 +1817,11 @@ export const recordedSwarmCases: Arr.NonEmptyReadonlyArray<SwarmCase> = [
 		spec: {
 			fill: {
 				relations: [
-					{ generated: generationOfV, mutable: false },
-					{ generated: noGeneration, mutable: false },
-					{ generated: noGeneration, mutable: false },
-					{ generated: noGeneration, mutable: false },
-					{ generated: generationOfV, mutable: false }
+					{ generated: generationOfV, mutable: true },
+					{ generated: noGeneration, mutable: true },
+					{ generated: noGeneration, mutable: true },
+					{ generated: noGeneration, mutable: true },
+					{ generated: generationOfV, mutable: true }
 				],
 				families: [
 					{ kind: "tree", owner: 4, member: 4, fold: "none" },
