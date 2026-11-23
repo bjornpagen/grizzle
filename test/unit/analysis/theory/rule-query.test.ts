@@ -188,9 +188,9 @@ export const aRuleOverAQueryCompilesWheneverTheBuildersAdmitItCorrelatingTextsOf
 		kills: [
 			{
 				file: "packages/engine/src/check/checker.ts",
-				original: "\t\tif (!compatible(region.type, col.type)) {",
+				original: "\t\tif (!sameCarrier(region.type, col.type)) {",
 				replacement:
-					"\t\tif (!compatible(region.type, col.type) || typeLabel(region.type) !== typeLabel(col.type)) {",
+					"\t\tif (!sameCarrier(region.type, col.type) || typeLabel(region.type) !== typeLabel(col.type)) {",
 				why: "A negated text correlated with a region text of another pattern refused, as the check c2f719c1 deleted refused it (check/checker.ts correlatedBinding); the second box fails."
 			}
 		]

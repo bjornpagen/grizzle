@@ -447,9 +447,8 @@ export const printedSQLOnPostgreSQL19EvaluatesGeneratedSetOperationTreesAsSQLsSe
 		kills: [
 			{
 				file: "packages/engine/src/sql/print.ts",
-				original: `const nestedSelect = (select: OperandSelect): string => \`(\${printSelectInline(select)})\``,
-				replacement:
-					"const nestedSelect = (select: OperandSelect): string => printSelectInline(select)",
+				original: `\t\`(\${printSelectInline(select, reader)})\``,
+				replacement: "\tprintSelectInline(select, reader)",
 				why: "A nested set-operation level is printed without its parentheses; the set trees property fails."
 			}
 		]

@@ -250,10 +250,8 @@ export const declaredFunctions = property.explore(functionCaseSpace, {
 		},
 		{
 			file: "packages/engine/src/physical/ddl/functions.ts",
-			original:
-				'\t\t\treturned.kind === "rows" ? { setOf: rowType(returned.heading) } : argType(returned)\n',
-			replacement:
-				'\t\t\treturned.kind !== "value" ? { setOf: rowType(returned.heading) } : argType(returned)\n',
+			original: '\t\t\treturned.kind === "rows"\n',
+			replacement: '\t\t\treturned.kind !== "value"\n',
 			why: "A result of one row installed as a set of rows, so a PL/pgSQL body that returns its row is refused as it is created (RETURN cannot have a parameter in function returning set)."
 		},
 		{
