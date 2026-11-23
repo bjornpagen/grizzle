@@ -18,7 +18,13 @@ import { type BatchStatement, oneShotStatement, sentAnswer } from "#adapter/wire
 import type { CatalogQuery } from "#adapter/wire/statement.ts"
 import { C, databaseLock, emptyNameMap, type UninstallStatement } from "#compiler/plan/catalog.ts"
 import { defect, emit, emitCatalog } from "#compiler/plan/common.ts"
-import { type InstallationRole, installationRoleOf } from "#compiler/plan/migration.ts"
+import {
+	identifierOf,
+	identity,
+	type InstallationRole,
+	installationRoleOf,
+	liveSlotOf
+} from "#compiler/plan/migration.ts"
 
 /**
  * `grizzle roles` and `grizzle uninstall`: an installation's roles in the cluster, and its removal from its database
@@ -33,8 +39,8 @@ import { type InstallationRole, installationRoleOf } from "#compiler/plan/migrat
  *   installation's roles (core/identity.ts installationRoleOf): a login's or a role's of any snapshot it was ever at,
  *   `<level>__<conversion>`, its live source's decoder login and its function owner, each minted from a level's schema;
  * - each publication of the database that publishes a relation of its schemas, its live source's, whatever its name;
- * - each replication slot of the database named as one of its decoder logins, as its leader names the slot it makes
- *   (pool/live.ts: the slot is the decoder login's role).
+ * - each replication slot of the database its live sources' leaders name as they make it, by each decoder login's
+ *   source and the database (pool/live.ts, core/identity.ts liveSlotOf).
  *
  * No other role, schema, publication or slot is read as the installation's, and the extension's schema, which the
  * installation was given, is never one of them.
@@ -177,8 +183,9 @@ const emitted = (statement: Parameters<typeof emit>[0]): BatchStatement => {
 }
 
 /**
- * The drop of each replication slot of the database named as one of `slots`, the installation's decoder logins, where
- * its leader made one: PostgreSQL refuses it while a leader streams from the slot (55006).
+ * The drop of each replication slot of the database named as one of `slots`, the slots of the installation's live
+ * sources in it (liveSlotOf), where its leader made one: PostgreSQL refuses it while a leader streams from the slot
+ * (55006).
  */
 const droppedSlots = (slots: ReadonlyArray<string>): BatchStatement => {
 	const s = C.from("pg_replication_slots", "s")
@@ -198,19 +205,24 @@ const droppedSlots = (slots: ReadonlyArray<string>): BatchStatement => {
 }
 
 /**
- * The statements of the transaction that drops `publications`, the slots of `roles`' decoder logins, wherever their
- * leaders made one, `schemas` and `roles`, in order (sql/catalog.ts UninstallStatement); none for an installation that
- * holds none.
+ * The statements of the transaction that drops `publications`, the slots in `database` of the live sources whose
+ * decoder logins are among `roles`, wherever their leaders made one, `schemas` and `roles`, in order
+ * (sql/catalog.ts UninstallStatement); none for an installation that holds none.
  */
 const uninstallStatements = (
 	publications: ReadonlyArray<string>,
 	schemas: ReadonlyArray<string>,
-	roles: ReadonlyArray<HeldRole>
+	roles: ReadonlyArray<HeldRole>,
+	database: string
 ): ReadonlyArray<BatchStatement> => {
-	const decoders = Arr.flatMap(roles, (r) => (r.is.kind === "liveSource" ? [r.role] : []))
+	const slots = Arr.flatMap(roles, (r) =>
+		r.is.kind === "liveSource"
+			? [liveSlotOf(identifierOf(identity.liveSource(r.is.level)), database)]
+			: []
+	)
 	const dropped = [
 		...Arr.map(publications, (name) => emitted({ kind: "dropPublication", name })),
-		...(Arr.isReadonlyArrayNonEmpty(decoders) ? [droppedSlots(decoders)] : []),
+		...(Arr.isReadonlyArrayNonEmpty(slots) ? [droppedSlots(slots)] : []),
 		...(Arr.isReadonlyArrayNonEmpty(schemas) ? [sent({ kind: "dropSchemas", schemas })] : [])
 	]
 	const names = Arr.map(roles, (r) => r.role)
@@ -267,7 +279,7 @@ export const uninstall = Effect.fn("uninstall")(function* (input: {
 		"publications"
 	)
 	const published = Arr.dedupe(publications)
-	const statements = uninstallStatements(published, schemas, roles)
+	const statements = uninstallStatements(published, schemas, roles, session.installation.database)
 	if (Arr.isReadonlyArrayNonEmpty(statements)) {
 		yield* Effect.mapError(session.transaction(statements), (failure) =>
 			stopped(

@@ -802,6 +802,23 @@ const mint = <K extends IdentityKind>(
 export const identifierOf = <K extends IdentityKind>(identity: Identity<K>): Identifier<K> =>
 	identity.identifier
 
+/**
+ * The replication slot of a live source in database `database`: the source's identifier `stem` (identity.liveSource,
+ * served/forms.ts ServedLive stem), `_`, and the digest of the database's name, `__live_<digest>_<digest>`, 28 bytes. A
+ * slot's name is the cluster's and a logical slot is its database's, so two databases holding one installation on one
+ * cluster (two clones of one template, staging beside production) each make their own, where a slot named by the
+ * installation alone was one name for both and a database's leader met the other's slot (42710, TESTRESET4,
+ * 2026-11-23, test/pg/net/network.test.ts on clones of one template). No role space leads it: within its database the
+ * stem alone names the installation, whose root schema is the database's one of that name. Every drop of a database's
+ * slot of the source finds it by the stem and `_` in that database (physical/ddl/live.ts dropLiveSlot,
+ * adapter/migrate/uninstall.ts), which no other source's slot begins with, its stem of a length of its own.
+ */
+export const liveSlotOf = (stem: string, database: string): string =>
+	`${liveSlotLead(stem)}${digestOf(`database(${encodePart(database)})`)}`
+
+/** What the slot of the live source `stem` begins with in every database (liveSlotOf): the stem and `_`. */
+export const liveSlotLead = (stem: string): string => `${stem}${digestSeparator}`
+
 /** What a hashed object's COMMENT holds: its identity spelled out. */
 export const displayOf = (identity: Identity<IdentityKind>): string => identity.display
 
@@ -1727,11 +1744,11 @@ export const identity = Object.freeze({
 		),
 	/**
 	 * The live change source of the installation whose root level's PostgreSQL schema is `root`: one name for its
-	 * publication, which PostgreSQL scopes to the database, and for its replication slot and decoder login, each cluster
-	 * wide under the installation's role space (roleInSpace); the publication's name is also the fan-out channel and the
-	 * prefix of the logical messages the installation announces. Hashed by the root's identifier, `__live_<digest>`, its
-	 * stem the lead word alone, so its length is one whatever the root's (rolePrefixBytes) and every role prefix within
-	 * rolePrefixBytes leads it within maxIdentifierBytes.
+	 * publication, which PostgreSQL scopes to the database, and for its decoder login, cluster wide under the
+	 * installation's role space (roleInSpace), and the stem of its replication slot in each database (liveSlotOf); the
+	 * publication's name is also the fan-out channel and the prefix of the logical messages the installation announces.
+	 * Hashed by the root's identifier, `__live_<digest>`, its stem the lead word alone, so its length is one whatever the
+	 * root's (rolePrefixBytes) and every role prefix within rolePrefixBytes leads it within maxIdentifierBytes.
 	 */
 	liveSource: (root: string): Identity<"liveSource"> =>
 		mint("liveSource", [root], [liveSegment], `live source of ${root}`, hashed),

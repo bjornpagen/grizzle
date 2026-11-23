@@ -29,7 +29,13 @@ import {
 	String as Str
 } from "effect"
 import { ChildProcessSpawner } from "effect/process"
-import { identifierOf, identity, installationRoleOf } from "#compiler/core/identity.ts"
+import {
+	identifierOf,
+	identity,
+	installationRoleOf,
+	liveSlotLead,
+	liveSlotOf
+} from "#compiler/core/identity.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import { advisoryKey } from "#compiler/sql/catalog.ts"
 import { InitializedCluster, lentPlace, lentVariable } from "#test/support/cluster.ts"
@@ -614,13 +620,14 @@ const build = Effect.fnUntraced(function* (
 					Effect.gen(function* () {
 						yield* dropRoleSchemas(rolePrefix(name))
 						const source = identifierOf(identity.liveSource(name))
+						const slot = liveSlotOf(source, database)
 						yield* admin.query(
 							"SELECT pg_catalog.pg_terminate_backend(active_pid) FROM pg_catalog.pg_replication_slots WHERE slot_name = $1::name AND active_pid IS NOT NULL",
-							[source]
+							[slot]
 						)
 						yield* admin.query(
 							"SELECT pg_catalog.pg_drop_replication_slot(slot_name) FROM pg_catalog.pg_replication_slots WHERE slot_name = $1::name",
-							[source]
+							[slot]
 						)
 						yield* admin.query(`DROP PUBLICATION IF EXISTS ${quoteIdent(source)}`, [])
 						const installed = installationRoleOf({ kind: "stems" }, new Set([name]))
@@ -942,14 +949,15 @@ const templateAllocations = (
 
 /**
  * What a former build of the template of digest `digest` left on the member, dropped as its bootstrap superuser before
- * the build installs: every role under its allocations (`gzt_<digest>_…`, names.ts templateSchemaName), the replication
- * slot of each allocation's live source (core/identity.ts identity.liveSource, `__live_<digest>`), and every role an
- * installation at its stems on an allocation creates (installationRoleOf): its live source's decoder login and its
- * function owner, `__owner_<digest>`, which carry no allocation, so they are read off the allocations as the sweep
- * reads them, shared.ts. A role and a slot are the cluster's, not the template database's, so the toolchain's
- * collection, which drops a template no run declares any more (resources collect.ts), leaves them, and a later build of
- * the same digest (a tree or toolchain run again after another's) would meet them. A role that still owns an object
- * somewhere is a defect of the run, as the superuser's refusal is.
+ * the build installs: every role under its allocations (`gzt_<digest>_…`, names.ts templateSchemaName), the
+ * replication slots of each allocation's live source in any database, each beginning with the source's lead
+ * (core/identity.ts liveSlotLead, `__live_<digest>_`), and every role an installation at its stems on an allocation
+ * creates (installationRoleOf): its live source's decoder login and its function owner, `__owner_<digest>`, which
+ * carry no allocation, so they are read off the allocations as the sweep reads them, shared.ts. A role and a slot are
+ * the cluster's, not the template database's, so the toolchain's collection, which drops a template no run declares
+ * any more (resources collect.ts), leaves them, and a later build of the same digest (a tree or toolchain run again
+ * after another's) would meet them. A role that still owns an object somewhere is a defect of the run, as the
+ * superuser's refusal is.
  */
 const formerBuildDropped = (
 	substrate: SubstrateShape,
@@ -966,12 +974,12 @@ const formerBuildDropped = (
 			...Arr.map(roles, (role) => Arr.headNonEmpty(Str.split("__")(role)))
 		])
 		for (const allocation of allocations) {
-			const source = quoteString(identifierOf(identity.liveSource(allocation)))
+			const lead = quoteString(liveSlotLead(identifierOf(identity.liveSource(allocation))))
 			yield* substrate.superuser(
-				`SELECT pg_catalog.pg_terminate_backend(active_pid) FROM pg_catalog.pg_replication_slots WHERE slot_name = ${source}::name AND active_pid IS NOT NULL`
+				`SELECT pg_catalog.pg_terminate_backend(active_pid) FROM pg_catalog.pg_replication_slots WHERE pg_catalog.starts_with(slot_name::text, ${lead}) AND active_pid IS NOT NULL`
 			)
 			yield* substrate.superuser(
-				`SELECT pg_catalog.pg_drop_replication_slot(slot_name) FROM pg_catalog.pg_replication_slots WHERE slot_name = ${source}::name`
+				`SELECT pg_catalog.pg_drop_replication_slot(slot_name) FROM pg_catalog.pg_replication_slots WHERE pg_catalog.starts_with(slot_name::text, ${lead})`
 			)
 		}
 		const installed = installationRoleOf({ kind: "stems" }, new Set(allocations))

@@ -83,7 +83,15 @@
  * placeholder for each stamped column, which no nested row sends. Every schema installs its borrow function,
  * `__borrow(bigint[], boolean[])`, which takes a call's borrowed locks in the order it is handed them, each a
  * transaction-scoped advisory lock, exclusive or shared, one manifest object of kind `borrowFunction`
- * (write/borrow/function.ts) every role executes, where format 7 had none.
+ * (write/borrow/function.ts) every role executes, where format 7 had none. A live source's replication slot is named
+ * by the source and the database it decodes, `__live_<digest>_<digest of the database's name>` (core/identity.ts
+ * liveSlotOf), so two databases of one installation on one cluster each hold their own, where format 7's leader named
+ * it by its decoder login alone, one cluster-wide name for both, and the second database's leader met the first's slot
+ * (42710); a migration that removes a live source drops the slot of its database that begins with the source's stem
+ * and `_` (physical/ddl/live.ts dropLiveSlot), where format 7 matched one that ended in the stem, and `grizzle
+ * uninstall` drops the slot of its database by that name. A slot an earlier grizzle's leader made under its decoder
+ * login's name is none of this grizzle's: a leader of this grizzle makes its own beside it, and the earlier one holds
+ * its WAL until it is dropped by hand.
  *
  * Format 7 (pin+1): a session table, a rule judge's delta (physical/ddl/rules.ts
  * emptied) or a write program's carrier (sql/print.ts carrierStandUp), is emptied by DELETE, and by TRUNCATE only once

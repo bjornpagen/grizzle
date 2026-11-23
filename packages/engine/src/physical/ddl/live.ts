@@ -1,6 +1,6 @@
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
-import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { identifierOf, identity, liveSlotLead } from "#compiler/core/identity.ts"
 import type { LivePlan, LiveTable } from "#compiler/live/notify.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { enforcement, type Node } from "#compiler/physical/obligations/graph.ts"
@@ -192,21 +192,23 @@ export const addLiveSource = (b: InstallBuilder, plan: LivePlan): void => {
 
 /**
  * SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE database = current_database() AND
- * right(slot_name, <length of stem>) = <stem>: the drop of the slot the installation's leader created, where it stands,
- * named by the live source's stem `stem` under whatever role space the installation is in, which only its own slot in
- * the database ends in. PostgreSQL refuses it while a leader streams from the slot (55006), so a migration that removes
- * the live source fails closed until its leaders stop.
+ * left(slot_name, <length of its lead>) = <stem>_: the drop of the slot the installation's leader created in the
+ * database, where it stands, named by the live source's stem `stem` and the database (core/identity.ts liveSlotOf), whose
+ * lead only its own slot in the database begins with. PostgreSQL refuses it while a leader streams from the slot
+ * (55006), so a migration that removes the live source fails closed until its leaders stop.
  */
-export const dropLiveSlot = (stem: string): Select =>
-	provedSelect(
+export const dropLiveSlot = (stem: string): Select => {
+	const lead = liveSlotLead(stem)
+	return provedSelect(
 		"keyed",
 		[target(call("pg_drop_replication_slot", [col("s", "slot_name")]))],
 		[fromTable("pg_catalog", "pg_replication_slots", "s")],
 		and([
 			eq(col("s", "database"), call("current_database", [])),
 			eq(
-				call("right", [col("s", "slot_name"), lit.int(BigInt(stem.length), types.integer)]),
-				lit.text(stem, types.text)
+				call("left", [col("s", "slot_name"), lit.int(BigInt(lead.length), types.integer)]),
+				lit.text(lead, types.text)
 			)
 		])
 	)
+}

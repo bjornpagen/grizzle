@@ -145,6 +145,7 @@ export {
 	identity,
 	type InstallationRole,
 	installationRoleOf,
+	liveSlotOf,
 	type InstalledRoleTooLong,
 	roleInSpace,
 	type RoleSpace

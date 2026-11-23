@@ -17,7 +17,7 @@ import { loginEnvironment, readServedLogin } from "#adapter/pool/served.ts"
 import type { LoginBase, LiveSourceConfigShape, LiveSourceService } from "#adapter/types/layer.ts"
 import type { LoginConnection } from "#adapter/wire/session.ts"
 import type { AnyLogin } from "#compiler/plan/common.ts"
-import { slotCommand } from "#compiler/plan/runtime.ts"
+import { liveSlotOf, slotCommand } from "#compiler/plan/runtime.ts"
 import type { ServedLive, ServedSession } from "#compiler/plan/serve.ts"
 
 /**
@@ -75,8 +75,9 @@ const parseLiveConfig = <L extends AnyLogin>(
 	)
 
 /**
- * The live source in the layer's scope: over a login that serves a read, the decoder login's connection, its role and
- * its slot the live source's stem under the config's role space, the fan-out's source over it with the candidacy each
+ * The live source in the layer's scope: over a login that serves a read, the decoder login's connection, its role the
+ * live source's stem under the config's role space and its slot the stem's in the config's database (core/identity.ts
+ * liveSlotOf), the fan-out's source over it with the candidacy each
  * process runs, and the registry over the source; over a login that serves none, the registry that holds no source
  * (live/subscriptions.ts unsourced), which connects nothing and never reads the credential, so a generic program may
  * provide it where no layer needs it.
@@ -100,6 +101,7 @@ const makeLiveSource = (
 					role: decoder,
 					password: parsed.password
 				}
+				const slot = liveSlotOf(source.stem, parsed.database)
 				const fanout = yield* fanoutSource({
 					connection,
 					session: parsed.session,
@@ -108,9 +110,9 @@ const makeLiveSource = (
 						decoder: connection,
 						session: parsed.session,
 						source,
-						slot: decoder,
-						createSlot: slotCommand(source.createSlot, decoder),
-						start: slotCommand(source.start, decoder),
+						slot,
+						createSlot: slotCommand(source.createSlot, slot),
+						start: slotCommand(source.start, slot),
 						tables: new Map(Rec.toEntries(source.tables)),
 						views: new Set(source.views)
 					}

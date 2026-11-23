@@ -193,8 +193,9 @@ export interface UncoveredRead {
  * - `ledger`: the migrations ledger's table in the root's schema, which the publication publishes whole, so a change of
  *   it is a migration applied, which the leader fans out as `:migrated` (live/notify.ts), after which every watch is
  *   stale;
- * - `stem`: the replication slot's and the decoder login's stem, each named in the cluster under the installation's
- *   role space (core/identity.ts roleInSpace), which every slot parameter (`$1::name`) is filled with;
+ * - `stem`: the decoder login's stem, named in the cluster under the installation's role space (core/identity.ts
+ *   roleInSpace), and the stem of its replication slot, named in the cluster by the stem and the database it decodes
+ *   (core/identity.ts liveSlotOf), which every slot parameter (`$1::name`) is filled with;
  * - `tables`: each published table by its installed identifier, with the columns it routes by;
  * - `views`: each materialized view of the plan by its installed identifier, the only relation whose table's key an
  *   announced message may name; any other message's content is no installation's sender's;

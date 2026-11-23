@@ -279,7 +279,7 @@ const gistSql = (names: ReturnType<typeof namesOf>) =>
 /** Network containment of a context's address, its Db reads the networks PostgreSQL's `<<=` holds of the address its token claims or its server attests, and a token reaches no attested context. */
 export const netContainmentOfAContextsAddressItsDbReadsTheNetworksPostgreSQLsHoldsOfTheAddressItsTokenClaimsOrItsServerAttestsAndATokenReachesNoAttestedContext =
 	property.explore(contextsCases, {
-		needs: { campus: Substrate.seat(campusTemplate) },
+		needs: { campus: Substrate.freshOf(campusTemplate) },
 		situations: [
 			"a token's address within a network",
 			"an attested address within a network",

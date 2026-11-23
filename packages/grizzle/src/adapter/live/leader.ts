@@ -177,9 +177,9 @@ export class ReplicationSilent extends Data.TaggedError("ReplicationSilent")<{
 
 /**
  * What a candidacy runs with: the decoder login's connection, its sessions' control texts, the installation's live
- * source, its slot under the installation's role space, the source's slot commands filled with it once, where the
- * layer names it (engine live/replication.ts slotCommand), its live tables, and its materialized views, the only table
- * keys an announcement may name (live/changes.ts).
+ * source, its slot in the connection's database (engine core/identity.ts liveSlotOf), the source's slot commands filled
+ * with it once, where the layer names it (engine live/replication.ts slotCommand), its live tables, and its
+ * materialized views, the only table keys an announcement may name (live/changes.ts).
  */
 export interface Candidacy {
 	readonly decoder: LoginConnection
