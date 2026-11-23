@@ -1,12 +1,17 @@
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
-import { isNonEmpty, mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { TupleMap, TupleSet } from "@bjornpagen/grizzle-text/base/tuple-map"
 import {
 	type Candidate,
 	certify,
 	type Fence,
-	isolationOf
+	isolationOf,
+	type PivotWriter
 } from "#compiler/analysis/isolation/certify.ts"
 import type { MemberFacts } from "#compiler/analysis/isolation/facts.ts"
 import type { CheckedSchema, RoleWorld } from "#compiler/analysis/schema.ts"
@@ -402,12 +407,14 @@ const zipped = <A, B>(
  * certificate's level: its READ COMMITTED form where it runs READ COMMITTED, and its SERIALIZABLE form
  * (program/workload/change.ts serializableChanges) where it runs SERIALIZABLE, so a served form's level
  * (RoleChanges.level) is its certificate's, each write of a login that fences a relation it writes locking it before
- * its snapshot; and the fences (analysis/isolation/certify.ts Fence), by login then relation.
+ * its snapshot; the fences (analysis/isolation/certify.ts Fence), by login then relation; and each relation a writer
+ * that may be a pivot writes, with every such writer (certify.ts PivotWriter), which a read of it runs SERIALIZABLE by.
  */
 export interface Certification<S extends ParamSource = ParamSource> {
 	readonly certificates: ReadonlyArray<RoleIsolation>
 	readonly served: ReadonlyMap<string, ReadonlyMap<string, RoleChanges<Isolation, S>>>
 	readonly fences: ReadonlyArray<Fence>
+	readonly pivots: ReadonlyMap<string, NonEmptyReadonlyArray<PivotWriter>>
 }
 
 /**
@@ -503,6 +510,7 @@ export const certification = <S extends ParamSource>(
 	return Result.ok({
 		certificates: certified.value.roles.map(isolationOf),
 		served,
-		fences: certified.value.fences
+		fences: certified.value.fences,
+		pivots: certified.value.pivots
 	})
 }

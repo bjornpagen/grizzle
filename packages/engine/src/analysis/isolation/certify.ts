@@ -2351,10 +2351,27 @@ export interface Fence {
 	readonly for: NonEmptyReadonlyArray<{ readonly login: string; readonly role: string }>
 }
 
-/** Every role certified, in the candidates' order, and the fences the READ COMMITTED ones rely on. */
+/**
+ * A writer that may be the pivot of a dangerous structure through a relation it writes (Fekete et al., 2005): a role
+ * that runs SERIALIZABLE and may miss another call's write (RoleView.cause, pivotCauseOf), by its login, its name and that
+ * cause, which a read of the relation that SSI does not track could see beside the write it missed. A role certified
+ * READ COMMITTED is none: `pivot` holds each of its writes to one made after outside reads of sealed groups alone, which
+ * a group it misses empties, and `laws` its probes to ones that pass at every later state, so it behaves as run at once.
+ */
+export interface PivotWriter {
+	readonly login: string
+	readonly role: string
+	readonly cause: string
+}
+
+/**
+ * Every role certified, in the candidates' order; the fences the READ COMMITTED ones rely on; and each relation a writer
+ * that may be a pivot writes (`pivots`, PivotWriter), with every such writer, in the roles' order.
+ */
 export interface Certifications<R, S> {
 	readonly roles: ReadonlyArray<Certified<R, S>>
 	readonly fences: ReadonlyArray<Fence>
+	readonly pivots: ReadonlyMap<string, NonEmptyReadonlyArray<PivotWriter>>
 }
 
 /**
@@ -2399,6 +2416,32 @@ const fencesOf = <R, S, E>(
 		.toSorted((a, b) => compareStrings(a.login, b.login) || compareStrings(a.relation, b.relation))
 }
 
+/**
+ * The pivots of a settled round's roles, each with its view there (Certifications `pivots`): each role that runs
+ * SERIALIZABLE and may miss another call's write (RoleView.cause), at each relation it writes but by a retirement alone
+ * (RoleView.guarded), its cause read off every member it may be served, both its forms (servedOf), as 5c and the fences
+ * read it (serializableReasons, fencesOf). A retirement reads nothing besides the groups it locks, so it misses no write.
+ */
+const pivotsOf = <R, S, E>(
+	settled: ReadonlyArray<{
+		readonly judgement: Exclude<Judgement<R, S, E>, { readonly kind: "serializable" }>
+		readonly view: RoleView
+	}>
+): ReadonlyMap<string, NonEmptyReadonlyArray<PivotWriter>> => {
+	const out = new Map<string, NonEmptyReadonlyArray<PivotWriter>>()
+	for (const { judgement, view } of settled) {
+		const cause = view.cause
+		if (judgement.kind !== "lowered" || cause === undefined) {
+			continue
+		}
+		const writer: PivotWriter = { login: view.role.login, role: view.role.role, cause }
+		for (const relation of view.guarded) {
+			out.set(relation, [...(out.get(relation) ?? []), writer])
+		}
+	}
+	return out
+}
+
 /** The condition `form`: one reason per change member with no READ COMMITTED form, at the relation it has none for. */
 const formReasons = (
 	unformed: NonEmptyReadonlyArray<Unformed>
@@ -2430,7 +2473,8 @@ const standingOf = <R, S, E>(candidate: Candidate<R, S, E>): Standing<R, S, E> =
  * never judged again: it runs SERIALIZABLE from then on, since each round reads every fact the one before it read
  * (servedOf), and its certificate names the reasons that made it SERIALIZABLE, never one its own lowering gave. Every
  * round but the last lowers a role, so there are at most one more rounds than roles. A lowering that fails fails
- * certification. The fences are the last round's (fencesOf), over its installation and its views.
+ * certification. The fences are the last round's (fencesOf), over its installation and its views, and so are the pivots
+ * (pivotsOf).
  */
 export const certify = <R, S, E>(
 	relations: ReadonlyMap<string, RelationFacts>,
@@ -2445,7 +2489,8 @@ export const certify = <R, S, E>(
 		if (settled.length === judged.roles.length) {
 			return Result.ok({
 				roles: settled.map((r) => certifiedOf(r.judgement)),
-				fences: fencesOf(judged.at, settled)
+				fences: fencesOf(judged.at, settled),
+				pivots: pivotsOf(settled)
 			})
 		}
 		const next: Array<Standing<R, S, E>> = []
