@@ -31,6 +31,7 @@ import { edgesOf } from "#compiler/ir/rel.ts"
 import { shareKey } from "#compiler/lower/shapes/share/index.ts"
 import {
 	type CarriedShare,
+	noneHeld,
 	planStatementShares,
 	ShareIndex
 } from "#compiler/lower/shapes/share/statements.ts"
@@ -66,7 +67,7 @@ export const theSharePlanningKeyedByBlocksCarriesWhatThePlanningKeyedByEachNodes
 			Effect.sync(() => {
 				const p = programOf(sketch)
 				const shares = succeeded(
-					planStatementShares(new ShareIndex(p.dag, new DagTemplates()), p.roots)
+					planStatementShares(new ShareIndex(p.dag, new DagTemplates()), p.roots, noneHeld)
 				)
 				const reference = referenceShares(new ShareIndex(p.dag, new DagTemplates()), p.dag, p.roots)
 				const view = (
@@ -119,12 +120,13 @@ export const theCarriedSharesDoNotDependOnTheOrderTheMembersStandIn = property.e
 						)
 					}))
 				const inOrder = succeeded(
-					planStatementShares(new ShareIndex(p.dag, new DagTemplates()), p.roots)
+					planStatementShares(new ShareIndex(p.dag, new DagTemplates()), p.roots, noneHeld)
 				)
 				const permuted = succeeded(
 					planStatementShares(
 						new ShareIndex(p.dag, new DagTemplates()),
-						Arr.map(order, (i) => present(p.roots[i], "a statement"))
+						Arr.map(order, (i) => present(p.roots[i], "a statement")),
+						noneHeld
 					)
 				)
 				assert.equal(inOrder.length, 2, "both classes carried")
@@ -219,7 +221,7 @@ export const anAttachmentsChildReadingBelowItsSealedParentNamesItsPlaceSoCopiesB
 			Effect.sync(() => {
 				const p = attachedBelowItsParent(same)
 				const index = new ShareIndex(p.dag, new DagTemplates())
-				const shares = succeeded(planStatementShares(index, p.roots))
+				const shares = succeeded(planStatementShares(index, p.roots, noneHeld))
 				const [first, second] = p.copies
 				assert.equal(
 					index.key(first) === index.key(second),

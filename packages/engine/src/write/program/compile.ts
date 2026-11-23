@@ -58,6 +58,7 @@ import {
 import { type ShapeFacts, shapeFactsFromPlan } from "#compiler/lower/shapes/share/physical.ts"
 import {
 	type CarriedShare,
+	noneHeld,
 	planStatementShares,
 	ShareIndex,
 	StatementSharing
@@ -362,6 +363,16 @@ const plannedNodes = (planned: PlannedWrite): ReadonlyArray<RelNode> => {
 }
 
 /**
+ * The evaluation key of `node` where a single statement holds its call's evaluation as a part of its own: a read of a
+ * call's field that reads only parameters (readsOnlyParameters), by its evaluation key (lower/conservative/call/keys.ts
+ * EvaluationKeys); undefined for every other node.
+ */
+const heldEvaluationKey = (cx: LowerContext, node: RelNode): string | undefined =>
+	node.kind === "Call" && node.function.kind === "field" && readsOnlyParameters(cx, node)
+		? cx.evaluationKey(node)
+		: undefined
+
+/**
  * The evaluations a single statement holds once each as a part of its own, which every part reads
  * (lower/shapes/share/statements.ts carryEvaluation): one per evaluation key (lower/conservative/call/keys.ts EvaluationKeys) of
  * the calls the field reads under `roots` read, each that reads only parameters (readsOnlyParameters), with the first
@@ -383,12 +394,10 @@ const heldEvaluations = (
 		for (const input of edgesOf(node)) {
 			queue.push(input)
 		}
-		if (node.kind === "Call" && node.function.kind === "field" && readsOnlyParameters(cx, node)) {
-			const key = cx.evaluationKey(node)
-			if (!keys.has(key)) {
-				keys.add(key)
-				held.push({ read: node, key })
-			}
+		const key = heldEvaluationKey(cx, node)
+		if (key !== undefined && node.kind === "Call" && !keys.has(key)) {
+			keys.add(key)
+			held.push({ read: node, key })
 		}
 	}
 	return held
@@ -1989,7 +1998,14 @@ const compileAt = (
 		{
 			level: options.level,
 			distinct: (node, relation) => distinctByEvidence(placed.facts, node, relation),
-			shares: (members) => unwrap(planStatementShares(sharing.index, members)),
+			shares: (members, single) =>
+				unwrap(
+					planStatementShares(
+						sharing.index,
+						members,
+						single ? (node) => heldEvaluationKey(lowering.w.cx, node) : noneHeld
+					)
+				),
 			carrierTyping: (t) => lowering.w.cx.typeRef(t),
 			carrierScope: options.carrierScope
 		},

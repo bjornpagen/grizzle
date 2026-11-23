@@ -21,7 +21,11 @@ import {
 	type NodeDispatch,
 	withLeading
 } from "#compiler/lower/conservative/context.ts"
-import { costClass, restrictedByValues } from "#compiler/lower/optimize/cte-policy/index.ts"
+import {
+	costClass,
+	ownCost,
+	restrictedByValues
+} from "#compiler/lower/optimize/cte-policy/index.ts"
 import { feedbackReadsOf, nodeGraph } from "#compiler/lower/optimize/demand/editor.ts"
 import type { OperandSelect, Select } from "#compiler/sql/ast.ts"
 import { col, keyedSet, select, target } from "#compiler/sql/build.ts"
@@ -180,15 +184,26 @@ export interface CarriedShare {
 	readonly copies: ReadonlyArray<RelNode>
 }
 
-/** The nodes a statement rooted at `root` lowers, each once, without entering a node `stop` names. */
+/** No node is opaque to a reach: it enters every node's inputs. */
+export const noneOpaque = (_node: RelNode): boolean => false
+
+/**
+ * The nodes a statement rooted at `root` lowers, each once, without entering a node `stop` names, nor the inputs of a
+ * node `opaque` names below the root: a read of a call's field whose evaluation the statement holds as a part of its
+ * own, which reads that part, its arguments lowered there once.
+ */
 export const reach = (
 	index: ShareIndex,
 	root: RelNode,
-	stop: (node: RelNode) => boolean
+	stop: (node: RelNode) => boolean,
+	opaque: (node: RelNode) => boolean
 ): ReadonlyArray<RelNode> => {
 	const seen = new Set<RelNode>([root])
 	const queue = [root]
 	for (const node of queue) {
+		if (node !== root && opaque(node)) {
+			continue
+		}
 		for (const input of index.inputs(node)) {
 			if (!seen.has(input) && !stop(input)) {
 				seen.add(input)
@@ -200,6 +215,15 @@ export const reach = (
 }
 
 /**
+ * The evaluation key of a read of a call's field whose evaluation a single statement holds as a part of its own
+ * (write/program/compile.ts heldEvaluations), undefined for every other node.
+ */
+export type HeldEvaluation = (node: RelNode) => string | undefined
+
+/** No evaluation is held: statements of their own, each lowering every call it reads itself. */
+export const noneHeld: HeldEvaluation = () => undefined
+
+/**
  * The sub-queries more than one of `roots` reads, each statement rooted at one root, to carry across them.
  * The highest shared sub-query is chosen first; a sub-query inside it is then read by the carrier's fill instead of by
  * the statements, and is carried too only when enough statements, that fill among them, still read it. The result is
@@ -209,7 +233,8 @@ export const reach = (
  */
 export const planStatementShares = (
 	index: ShareIndex,
-	roots: ReadonlyArray<RelNode>
+	roots: ReadonlyArray<RelNode>,
+	held: HeldEvaluation
 ): Result.Result<ReadonlyArray<CarriedShare>, CompileError> =>
 	catchRefusal(() => {
 		const chosen: Array<CarriedShare> = []
@@ -231,18 +256,26 @@ export const planStatementShares = (
 		const units: Array<{
 			readonly root: RelNode
 			readonly own: string | undefined
+			readonly read: () => ReadonlyArray<RelNode>
 			nodes: ReadonlyArray<RelNode>
 		}> = []
 		/** Each node that may be shared, by the statements reading it now. */
 		const readers = new Map<RelNode, Set<number>>()
+		/** A read of a call's field whose evaluation the statement holds, which reads that part, not its arguments. */
+		const opaque = (node: RelNode): boolean => held(node) !== undefined
 		/** The nodes a statement reads, a root's none once a key carries the root itself. */
 		const readOf = (root: RelNode, own: string | undefined): ReadonlyArray<RelNode> =>
-			own === undefined && carried(root) ? [] : reach(index, root, carried)
+			own === undefined && carried(root) ? [] : reach(index, root, carried, opaque)
 		/** A statement entered at `round`: each node it reads that may be shared, read by it, seen first then if never. */
-		const enter = (root: RelNode, own: string | undefined, round: number): void => {
+		const enter = (
+			root: RelNode,
+			own: string | undefined,
+			round: number,
+			read: () => ReadonlyArray<RelNode>
+		): void => {
 			const u = units.length
-			const nodes = readOf(root, own)
-			units.push({ root, own, nodes })
+			const nodes = read()
+			units.push({ root, own, read, nodes })
 			for (const node of nodes) {
 				if (!index.eligible(node) || node.heading.length === 0 || carried(node)) {
 					continue
@@ -264,7 +297,7 @@ export const planStatementShares = (
 			if (!isNonEmpty(now)) {
 				return
 			}
-			const nodes = readOf(unit.root, unit.own)
+			const nodes = unit.read()
 			const kept = new Set(nodes)
 			for (const n of unit.nodes) {
 				if (!kept.has(n)) {
@@ -274,7 +307,28 @@ export const planStatementShares = (
 			unit.nodes = nodes
 		}
 		for (const root of roots) {
-			enter(root, undefined, 0)
+			enter(root, undefined, 0, () => readOf(root, undefined))
+		}
+		/**
+		 * Each evaluation the statement holds, a statement of its own (write/program/compile.ts heldParts): the nodes its
+		 * call's arguments read, which it alone lowers, once, where every read of its fields reads its part.
+		 */
+		const evaluations = new Map<string, RelNode>()
+		for (let u = 0; u < units.length; u++) {
+			for (const node of defined(units[u], "a statement").nodes) {
+				const key = held(node)
+				if (key === undefined || evaluations.has(key)) {
+					continue
+				}
+				evaluations.set(key, node)
+				enter(node, undefined, 0, () =>
+					index
+						.inputs(node)
+						.flatMap((argument) =>
+							carried(argument) ? [] : reach(index, argument, carried, opaque)
+						)
+				)
+			}
 		}
 		for (let round = 0; ; round++) {
 			/** The highest classes enough statements read this round (decidingClasses), the least key among them chosen. */
@@ -293,7 +347,7 @@ export const planStatementShares = (
 			for (const u of units.keys()) {
 				reread(u)
 			}
-			enter(node, winner.key, round + 1)
+			enter(node, winner.key, round + 1, () => readOf(node, winner.key))
 		}
 		/** Each carried key's copies: the nodes of its key the statements read before it was carried. */
 		const roundOf = new Map(chosen.map((c, i) => [c.key, i] as const))
@@ -389,21 +443,6 @@ const occurrencesByKey = (
 	return byKey
 }
 
-/** The share key of each node of a statement that may be shared (ShareIndex.key), by label. */
-const keyedNodes = (
-	index: ShareIndex,
-	order: ReadonlyArray<RelNode>
-): ReadonlyMap<NodeId, string> => {
-	const keyed = new Map<NodeId, string>()
-	for (const node of order) {
-		const key = index.key(node)
-		if (key !== undefined) {
-			keyed.set(node.id, key)
-		}
-	}
-	return keyed
-}
-
 /**
  * The share keys one statement rooted at `root` reads at least twice and computes once as a MATERIALIZED CTE, never
  * entering a node `carried` names (the statement reads its carrier), each with the nodes of the statement that are its
@@ -416,10 +455,24 @@ export const statementCtes = (
 	root: RelNode,
 	carried: (node: RelNode) => boolean
 ): ReadonlyMap<NodeId, string> => {
-	const nodes = reach(index, root, carried)
+	const nodes = reach(index, root, carried, noneOpaque)
 	/** Parents before children: by decreasing height, a node's inputs being strictly lower. */
 	const order = [...nodes].toSorted((a, b) => index.height(b) - index.height(a))
-	const keyed = keyedNodes(index, order)
+	/** Whether a stage of the node, short of a carried node, which the statement reads as a carrier's scan, is no scan. */
+	const costly = new Map<RelNode, boolean>()
+	for (const node of order.toReversed()) {
+		costly.set(
+			node,
+			ownCost(node) !== "scan" ||
+				index.inputs(node).some((input) => !carried(input) && costly.get(input) === true)
+		)
+	}
+	const keyed = new Map(
+		order.flatMap((node) => {
+			const key = index.key(node)
+			return key !== undefined && costly.get(node) === true ? [[node.id, key] as const] : []
+		})
+	)
 	const chosen = new Set<string>()
 	for (;;) {
 		const byKey = occurrencesByKey(index, root, order, keyed, chosen, carried)
@@ -556,9 +609,12 @@ export class StatementSharing {
 		if (own !== undefined) {
 			return own.kind === "carrier" ? [own.carrier] : []
 		}
-		for (const input of reach(this.index, root, (n) => carrierOf(n) !== undefined).flatMap((n) =>
-			this.index.inputs(n)
-		)) {
+		for (const input of reach(
+			this.index,
+			root,
+			(n) => carrierOf(n) !== undefined,
+			noneOpaque
+		).flatMap((n) => this.index.inputs(n))) {
 			const source = carrierOf(input)
 			if (source?.kind === "carrier") {
 				out.add(source.carrier)

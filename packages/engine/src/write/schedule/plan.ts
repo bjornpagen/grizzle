@@ -472,8 +472,9 @@ interface PlanEvidence {
 	readonly level: Isolation
 	readonly distinct: (node: RelNode, relation: RelationInfo) => boolean
 	/** The sub-queries several of a stratum's member statements read, each statement rooted at one member's node, to be
-	 * carried across them (`planStatementShares`). */
-	readonly shares: (members: ReadonlyArray<RelNode>) => ReadonlyArray<CarriedShare>
+	 * carried across them (`planStatementShares`); where one statement realizes the stratum (`single`), each evaluation
+	 * it holds as a part of its own is a statement of the planning, the only one that reads its call's arguments. */
+	readonly shares: (members: ReadonlyArray<RelNode>, single: boolean) => ReadonlyArray<CarriedShare>
 	/** The type each carrier column is declared with, which the carrier's name digests (write/carriers CarrierTyping). */
 	readonly carrierTyping: CarrierTyping
 	/** Whose session tables its carriers are, which their names digest (sql/naming.ts CarrierScope). */
@@ -1167,14 +1168,6 @@ export const planWrite = (
 						}
 					]
 		)
-		/** The sub-queries several member statements read, carried from the start of the stratum. */
-		const members = drafted.flatMap(({ action }) =>
-			action.info.reads.kind === "described" ? [action.info.reads.node] : []
-		)
-		const shares = (members.length < 2 ? [] : evidence.shares(members)).filter(
-			(share) =>
-				!share.copies.some((copy) => reached.some((nodes, t) => t !== s && nodes.has(copy)))
-		)
 		/** A stratum one statement realizes runs its family statements after that statement, whose snapshot is the
 		 * stratum's starting state, so one whose schedule runs a family statement before any of its actions is realized
 		 * sequentially, its members carried where an earlier statement wrote what they read. */
@@ -1185,6 +1178,17 @@ export const planWrite = (
 		)
 		const realization: Realization =
 			before || creates ? { kind: "sequential" } : realizationOf(drafted)
+		/** The sub-queries several member statements read, carried from the start of the stratum: in one statement, its
+		 * held evaluations among the statements, each reading its call's arguments once. */
+		const members = drafted.flatMap(({ action }) =>
+			action.info.reads.kind === "described" ? [action.info.reads.node] : []
+		)
+		const shares = (
+			members.length < 2 ? [] : evidence.shares(members, realization.kind === "single")
+		).filter(
+			(share) =>
+				!share.copies.some((copy) => reached.some((nodes, t) => t !== s && nodes.has(copy)))
+		)
 		const familyStep = familyStepsOf(s, checks)
 		if (realization.kind === "sequential") {
 			refuseStampedStatements(

@@ -145,7 +145,11 @@
  * place's head is a table of its children's last stamps beside its relation, with the stamp function that advances it,
  * one manifest object of kind `head` (physical/ddl/stamps.ts), which a statement that stamps calls in its stamps' CTE
  * and a migration fills from its relation as it creates it, where format 7 read each child's head from the relation's
- * primary key backwards and had no such object
+ * primary key backwards and had no such object. A call's evaluation a write's single statement holds is one
+ * statement of its share planning, its arguments read by it alone, and a sub-query whose only stage that is no scan is
+ * a carried part is read where it stands (lower/shapes/share/statements.ts planStatementShares, HeldEvaluation,
+ * statementCtes), where format 7 counted every member reading a field of the call as reading its arguments, each
+ * argument a MATERIALIZED CTE of the statement, and gave a read of a carried part a CTE of its own.
  */
 export const artifactFormat = 7
 

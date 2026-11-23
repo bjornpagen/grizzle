@@ -30,7 +30,7 @@ import { feedbackReadsOf, nodeGraph } from "#compiler/lower/optimize/demand/edit
 
 export type CteStrategy = "inline" | "notMaterialized" | "materialized" | "recursive"
 
-type CostClass = "scan" | "join" | "expensive"
+export type CostClass = "scan" | "join" | "expensive"
 
 type CteReason =
 	| "singleUse"
@@ -95,7 +95,7 @@ const expensiveKinds: ReadonlyArray<RelKind> = [
 ]
 
 /** The cost class of a node's own stage alone (costClass), its inputs' aside. */
-const ownCost = (node: RelNode): CostClass =>
+export const ownCost = (node: RelNode): CostClass =>
 	expensiveKinds.includes(node.kind)
 		? "expensive"
 		: (node.kind === "MatchRegion" && node.occurrences.length > 1) ||

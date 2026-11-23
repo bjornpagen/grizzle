@@ -29,6 +29,8 @@ import type { RelNode } from "#compiler/ir/rel.ts"
 import {
 	type CarriedShare,
 	decidingClasses,
+	noneHeld,
+	noneOpaque,
 	planStatementShares,
 	reach,
 	ShareIndex,
@@ -59,7 +61,7 @@ export const subQueriesCarriedAcrossAStratumsStatementsCarryPickOnceEveryCopyThr
 			Effect.sync(() => {
 				const p = program(statements)
 				const index = new ShareIndex(p.dag, new DagTemplates())
-				const shares = succeeded(planStatementShares(index, p.roots))
+				const shares = succeeded(planStatementShares(index, p.roots, noneHeld))
 				if (statements < 2) {
 					assert.deepEqual(shares, [])
 					c.note("inline")
@@ -194,7 +196,7 @@ export const twoCallsOfAVolatileFunctionAreNeverOneCarrierOrOneCteWhereOneCallRe
 				Effect.sync(() => {
 					const p = drawnCalls(volatility, twice)
 					const shares = succeeded(
-						planStatementShares(new ShareIndex(p.dag, new DagTemplates()), p.roots)
+						planStatementShares(new ShareIndex(p.dag, new DagTemplates()), p.roots, noneHeld)
 					)
 					const ctes = statementCtes(new ShareIndex(p.dag, new DagTemplates()), p.root, () => false)
 					if (volatility === "volatile" && !twice) {
@@ -278,7 +280,9 @@ const plannedByRounds = (
 		const reached: Array<ReadonlyArray<RelNode>> = []
 		for (const [u, unit] of units.entries()) {
 			const nodes =
-				unit.own === undefined && carried(unit.root) ? [] : reach(index, unit.root, carried)
+				unit.own === undefined && carried(unit.root)
+					? []
+					: reach(index, unit.root, carried, noneOpaque)
 			reached.push(nodes)
 			for (const node of nodes) {
 				if (!index.eligible(node) || node.heading.length === 0 || carried(node)) {
@@ -361,7 +365,7 @@ export const theCarriedSharesPlanningReadsAStatementAgainOnlyInARoundWhoseKeyItR
 				Effect.sync(() => {
 					const p = chained(reads)
 					const counting = new CountingIndex(p.dag, new DagTemplates())
-					const shares = succeeded(planStatementShares(counting, p.roots))
+					const shares = succeeded(planStatementShares(counting, p.roots, noneHeld))
 					const reference = new CountingIndex(p.dag, new DagTemplates())
 					const byRounds = plannedByRounds(reference, p.roots)
 					const view = (all: ReadonlyArray<CarriedShare>) =>

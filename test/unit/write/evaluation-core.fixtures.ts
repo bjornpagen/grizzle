@@ -118,8 +118,16 @@ const argumentOfEvery = (j: number) =>
 /** How many of the call's four arguments read the core; the others are empty. */
 export type Reading = 1 | 2 | 4
 
-/** Whether the write is one member reading the call, or two members of one statement, one or both reading it. */
-export type Members = "one reads the call" | "two, one reads the call" | "two, both read the call"
+/**
+ * Whether the write is one member reading the call, or two members of one statement, one or both reading it, or one
+ * reading the call and the other the core itself.
+ */
+export type Members =
+	| "one reads the call"
+	| "two, one reads the call"
+	| "two, both read the call"
+	| "two, one reads the call, one the core"
+	| "two, both read the call, one the core too"
 
 export interface Box {
 	readonly core: CoreKind
@@ -137,7 +145,13 @@ export const boxGen: Gen<Box> = element<Box>(
 		(core) =>
 			Arr.flatMap([1, 2, 4] as const, (reading) =>
 				Arr.map(
-					["one reads the call", "two, one reads the call", "two, both read the call"] as const,
+					[
+						"one reads the call",
+						"two, one reads the call",
+						"two, both read the call",
+						"two, one reads the call, one the core",
+						"two, both read the call, one the core too"
+					] as const,
 					(members) => ({ core, reading, members })
 				)
 			)
@@ -188,6 +202,53 @@ const itemMember = query(Core).rule((r) => {
 		.find({ session, k, v: x })
 })
 
+/** A member that reads the core itself, at its sessions: each of its rows. */
+const coreMember = (core: CoreKind) =>
+	query(Core).rule((r) => {
+		switch (core) {
+			case "a fold at the call's sessions": {
+				const p = folded.bind(bySession(r))
+				const { session, k, v: x } = v(p, "core")
+				return r.match(p, { session, k, v: x }).find({ session, k, v: x })
+			}
+			case "a join at the call's sessions": {
+				const p = joined.bind(bySession(r))
+				const { session, k, v: x } = v(p, "core")
+				return r.match(p, { session, k, v: x }).find({ session, k, v: x })
+			}
+			case "a join of every session": {
+				const { session, k, v: x } = v(everySession, "core")
+				return r.match(everySession, { session, k, v: x }).find({ session, k, v: x })
+			}
+		}
+	})
+
+/** A member writing `field` of the call's row for each row of the core at its sessions: it reads both. */
+const callAndCoreMember = (core: CoreKind, reading: Reading, field: "a0" | "a1") =>
+	query(Core).rule((r) => {
+		const read = callIn(r, core, reading)[field]
+		const { k, v: x } = v(read, "out")
+		switch (core) {
+			case "a fold at the call's sessions": {
+				const p = folded.bind(bySession(r))
+				const { session } = v(p, "core")
+				return r.match(p, { session }).match(read, { k, v: x }).find({ session, k, v: x })
+			}
+			case "a join at the call's sessions": {
+				const p = joined.bind(bySession(r))
+				const { session } = v(p, "core")
+				return r.match(p, { session }).match(read, { k, v: x }).find({ session, k, v: x })
+			}
+			case "a join of every session": {
+				const { session } = v(everySession, "core")
+				return r
+					.match(everySession, { session })
+					.match(read, { k, v: x })
+					.find({ session, k, v: x })
+			}
+		}
+	})
+
 /** The session the call names: the write's `sittings`. */
 const named = query(Core).rule((r) => r.find({ session: r.param("session", pg.integer) }))
 
@@ -201,6 +262,12 @@ const changesOf = (box: Box) => {
 			return first.insert(Out1, itemMember).bind({ sittings: named })
 		case "two, both read the call":
 			return first.insert(Out1, callMember(box.core, box.reading, "a1")).bind({ sittings: named })
+		case "two, one reads the call, one the core":
+			return first.insert(Out1, coreMember(box.core)).bind({ sittings: named })
+		case "two, both read the call, one the core too":
+			return first
+				.insert(Out1, callAndCoreMember(box.core, box.reading, "a1"))
+				.bind({ sittings: named })
 	}
 }
 
@@ -219,3 +286,7 @@ export const statementsOf = (box: Box): ReadonlyArray<string> =>
 /** How many times `sql` scans Done, the core's anti-join's right side. */
 export const doneScans = (sql: string): number =>
 	Str.split('"evaluation_core"."done" AS')(sql).length - 1
+
+/** How many MATERIALIZED CTEs `sql` defines: its parts and every shared sub-query of them. */
+export const materializedCtes = (sql: string): number =>
+	Str.split("AS MATERIALIZED")(sql).length - 1

@@ -18,8 +18,15 @@
  * reads a copy of its own), or the anti-join over every session, which no value of the call restricts; the call read by
  * one member, or by one of two members of one statement, or by both.
  *
+ * And an evaluation the statement holds is one statement of its share planning (lower/shapes/share/statements.ts
+ * planStatementShares, HeldEvaluation): its call's arguments are read by it alone, so none is carried as a part of its
+ * own, where every member that reads a field of the call counted as reading them and each argument was a MATERIALIZED
+ * CTE of the statement, each CTE a cost PostgreSQL's planner pays per entry.
+ *
  * Oracle: specification, a core at the call's sessions computed once, the statement scanning Done, the core's
- * anti-join's right side, once; the core over every session scanned at each argument that reads it.
+ * anti-join's right side, once; the core over every session scanned at each argument that reads it; and the
+ * statement's MATERIALIZED CTEs at two or four arguments as many as at one, but the core's own where the statement first
+ * shares it.
  *
  * Features: one member; two members, one reading the call; two members, both reading it.
  */
@@ -31,6 +38,7 @@ import { Array as Arr, Effect } from "effect"
 import {
 	boxGen,
 	doneScans,
+	materializedCtes,
 	type Members,
 	statementsOf
 } from "#test/unit/write/evaluation-core.fixtures.ts"
@@ -42,16 +50,44 @@ import {
 export const aSubQueryTheArgumentsOfACallsEvaluationReadIsComputedOnceInItsStatementHoweverManyReadIt =
 	property.exhaust(finite(boxGen), {
 		needs: {},
-		situations: ["one reads the call", "two, one reads the call", "two, both read the call"],
+		situations: [
+			"one reads the call",
+			"two, one reads the call",
+			"two, both read the call",
+			"two, one reads the call, one the core",
+			"two, both read the call, one the core too"
+		],
 		check: (_, k: Case<Members>) => (box) =>
 			Effect.sync(() => {
 				k.note(box.members)
 				const statements = statementsOf(box)
-				const expected = box.core === "a join of every session" ? box.reading : 1
+				const expected =
+					box.core !== "a join of every session"
+						? 1
+						: box.reading +
+							(box.members === "two, one reads the call, one the core" ||
+							box.members === "two, both read the call, one the core too"
+								? 1
+								: 0)
 				assert.equal(
 					Arr.reduce(statements, 0, (n, sql) => n + doneScans(sql)),
 					expected,
 					`${box.reading} of four arguments reading ${box.core}, ${box.members}: Done scanned ${expected} times\n${Arr.join(statements, "\n")}`
+				)
+				const ctes = (b: typeof box) =>
+					Arr.reduce(statementsOf(b), 0, (n, sql) => n + materializedCtes(sql))
+				/** A core at the call's sessions no member reads itself is one CTE more once two arguments read it. */
+				const grown =
+					box.core !== "a join of every session" &&
+					box.reading > 1 &&
+					box.members !== "two, one reads the call, one the core" &&
+					box.members !== "two, both read the call, one the core too"
+						? 1
+						: 0
+				assert.equal(
+					ctes(box) - ctes({ ...box, reading: 1 }),
+					grown,
+					`${box.reading} arguments reading ${box.core}, ${box.members}: no argument a part of its own, nor a read of a carried core a CTE of its own (${ctes(box)} against ${ctes({ ...box, reading: 1 })} at one argument)`
 				)
 			}),
 		oracle: {
@@ -73,7 +109,21 @@ export const aSubQueryTheArgumentsOfACallsEvaluationReadIsComputedOnceInItsState
 				original: "\t].toSorted((a, b) => a.height - b.height)\n",
 				replacement:
 					'\t].toSorted((a, b) => (a.kind === "evaluation" ? 0 : 1) - (b.kind === "evaluation" ? 0 : 1))\n',
-				why: "The evaluations are built before every carried sub-query, as before: where both members read the call, the core is a carried part the evaluation never reads, so it computes the core again."
+				why: "The evaluations are built before every carried sub-query, as before: where one member reads the call and the other the core, the core is a carried part the evaluation never reads, so it computes the core again."
+			},
+			{
+				file: "packages/engine/src/write/program/compile.ts",
+				original:
+					"\t\t\t\t\t\tsingle ? (node) => heldEvaluationKey(lowering.w.cx, node) : noneHeld\n",
+				replacement: "\t\t\t\t\t\tnoneHeld\n",
+				why: "Every member that reads a field of the call counts as reading its arguments, as before: where both members read the call, each argument is carried as a part of its own, four arguments four more MATERIALIZED CTEs than one."
+			},
+			{
+				file: "packages/engine/src/lower/shapes/share/statements.ts",
+				original:
+					"\t\t\treturn key !== undefined && costly.get(node) === true ? [[node.id, key] as const] : []\n",
+				replacement: "\t\t\treturn key !== undefined ? [[node.id, key] as const] : []\n",
+				why: "A sub-query whose only stage that is no scan is a carried part is shared as well: where both members read the call and one the core, the arguments' read of the carried core is a CTE of its own beside the core's part."
 			},
 			{
 				file: "packages/engine/src/lower/shapes/share/statements.ts",
