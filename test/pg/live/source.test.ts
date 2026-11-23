@@ -61,7 +61,7 @@ import { withLayer } from "#test/support/with-layer.ts"
  */
 export const theLiveSourceDecodesEachCommitsTransactionToExactlyItsRowsRouteKeysAndARollbackToNothingOverCasesGeneratedHistories =
 	property.explore(liveCaseGen(bounds), {
-		needs: { substrate2: Substrate.installing },
+		needs: { substrate2: Substrate.fresh },
 		situations: [
 			"an insert",
 			"a delete",

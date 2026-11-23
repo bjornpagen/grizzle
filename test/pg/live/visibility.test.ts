@@ -50,7 +50,7 @@ export const theLiveLeadersVisibilityJudgmentHoldsACommitSeenExactlyWhereASnapsh
 			]
 		]),
 		{
-			needs: { substrate2: Substrate.installing },
+			needs: { substrate2: Substrate.fresh },
 			situations: [
 				"a commit before the snapshot",
 				"a writer running across the snapshot below a later commit before it",

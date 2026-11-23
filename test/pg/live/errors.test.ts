@@ -69,7 +69,7 @@ import { testVerify, tokenOf } from "#test/support/worlds.ts"
  */
 export const aFailingLiveCallEndsWithItsClasssCallErrorWhoseRetryHoldsWhenTheCallIsSentAgainOverCasesDrawnFailures =
 	property.explore(provokedGen, {
-		needs: { substrate2: Substrate.installing },
+		needs: { substrate2: Substrate.fresh },
 		situations: [
 			"route",
 			"input",

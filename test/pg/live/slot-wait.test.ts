@@ -27,7 +27,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** A read registered before its slot stands waits for the leader's `stands`, checking the slot once before and once after. */
 export const slotWait = property.explore(slotWaitGen, {
-	needs: { substrate: Substrate.installing },
+	needs: { substrate: Substrate.fresh },
 	situations: ["a read in process", "a read over HTTP"] satisfies ReadonlyArray<
 		Reached<SlotWaitFeature>
 	>,

@@ -28,7 +28,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 export const everySessionGrizzleOpensALoginsAndAnOwnersStartsUnderGenericPlans = property.exhaust(
 	finite(sessionKinds),
 	{
-		needs: { substrate: Substrate.installing },
+		needs: { substrate: Substrate.fresh },
 		situations: genericPlansFeatures,
 		check:
 			({ substrate }, c) =>

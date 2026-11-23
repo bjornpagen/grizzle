@@ -58,7 +58,7 @@ import { testVerify, tokenOf } from "#test/support/worlds.ts"
  */
 export const aStoredTextsLiveReadersHearTheCommitThatWritesItByteForByteALeadingUFEFFAmongItsCharactersOverCasesDrawnSetsOfTexts =
 	property.explore(caseGen, {
-		needs: { substrate2: Substrate.installing },
+		needs: { substrate2: Substrate.fresh },
 		situations: [
 			"a text that begins with U+FEFF",
 			"a text holding U+FEFF after its start",
