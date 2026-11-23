@@ -3,6 +3,7 @@
  * level of and generate prints: every term below not defined here is certify.ts's or facts.ts's.
  */
 import { flatMapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import type { ParamId } from "#compiler/core/ids.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 
 /**
@@ -215,12 +216,14 @@ export type BorrowAt = "flight" | "judge"
 /**
  * One field of a unit key as a call holds it before its first snapshot, by a binding alone: a declared parameter; a
  * field of the session's context; or a field of the call's own rows (`input`), a relation parameter's or a member slot's,
- * by its declared parameter and field, one key per distinct value among its rows.
+ * by its ParamId (a relation parameter's its name, a member slot's its reserved slot id, ir/slots.ts reservedSlot, one
+ * space, inReservedSpace telling them apart) and a field of its heading by name, one key per distinct value among its
+ * rows.
  */
 export type KeySource =
 	| { readonly kind: "param"; readonly name: string }
 	| { readonly kind: "context"; readonly field: string }
-	| { readonly kind: "input"; readonly parameter: string; readonly field: string }
+	| { readonly kind: "input"; readonly parameter: ParamId; readonly field: string }
 
 /**
  * A place a call holds whole keys of a borrowed unit, each lowered from bindings alone, never from a statement of the
