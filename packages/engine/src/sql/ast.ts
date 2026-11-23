@@ -2488,7 +2488,7 @@ export interface AdoptRole {
  * SET CONSTRAINTS ALL IMMEDIATE, under which every deferrable constraint's check runs at the end of each statement, so
  * no trigger event waits for the commit.
  */
-export type Txn =
+export type TransactionControl =
 	| { readonly kind: "beginRead"; readonly deferrable: true }
 	| { readonly kind: "beginRead"; readonly deferrable: false }
 	| { readonly kind: "beginWrite"; readonly isolation: Isolation }
@@ -2597,7 +2597,7 @@ export type Ddl =
 	| LockTable
 	| Comment
 
-export type SqlStatement = Dml | Ddl | CreateCarrier | Txn | Refresh
+export type SqlStatement = Dml | Ddl | CreateCarrier | TransactionControl | Refresh
 
 /** SQL text printed from a statement's AST: emit (sql/emit.ts) spells it, and nothing else. */
 export type EmittedText = string & { readonly [emittedTextBrand]: true }
