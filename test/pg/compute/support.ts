@@ -46,7 +46,7 @@ const concreteTypeName: { readonly [C in Carrier]: string } = {
  * checked by type alone. No admitted expression raises (scalar/compute/registry.ts Totality), so every PostgreSQL error
  * is a mismatch, and so is a host evaluation that meets an operation where its precondition fails.
  */
-export const installEvaluator = (
+const installEvaluator = (
 	db: CaseSession,
 	schema: string
 ): Effect.Effect<RawQueryResult, SqlError> =>
