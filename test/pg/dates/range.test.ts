@@ -39,7 +39,7 @@ import { withLayer } from "#test/support/with-layer.ts"
 /** A date column holds the days a CalendarDate spells, against PostgreSQL 19 a direct writer's date is stored exactly when a CalendarDate spells it, and refused by the column's range CHECK otherwise. */
 export const aDateColumnHoldsTheDaysACalendarDateSpellsAgainstPostgreSQL19ADirectWritersDateIsStoredExactlyWhenACalendarDateSpellsItAndRefusedByTheColumnsRangeCHECKOtherwise =
 	property.explore(dayGen, {
-		needs: { fixture: Substrate.seat(eventsTemplate) },
+		needs: { fixture: Substrate.freshOf(eventsTemplate) },
 		situations: [
 			"stored and read back",
 			"refused: before the common era",

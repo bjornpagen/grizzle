@@ -85,7 +85,7 @@ type HybridFeature =
  */
 export const aHybridSearchFusesItsArmsByReciprocalRankInOneStatementEachArmTheRoutesOwnCandidatesTheNearestFillingItsBoundBesideTheRoutesFilters =
 	property.explore(hybridCaseGen, {
-		needs: { fixture: Substrate.seat(hybridTemplate) },
+		needs: { fixture: Substrate.freshOf(hybridTemplate) },
 		situations: [
 			"a route some lessons pass",
 			"a route no lesson passes",

@@ -102,7 +102,7 @@ const programs = { matching, ranked, plainNotes, documents } as const
 
 export const searchInstall = { label: "search", programs } as const
 
-/** Catalog installed once per member (reads/support.ts fixtureTemplate), which each case's seat holds. */
+/** Catalog installed once per member (reads/support.ts fixtureTemplate), which each case's own clone holds. */
 export const searchTemplate = fixtureTemplate(import.meta, Catalog, searchInstall)
 
 /**

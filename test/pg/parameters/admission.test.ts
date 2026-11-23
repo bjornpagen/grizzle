@@ -84,7 +84,7 @@ import { withLayer } from "#test/support/with-layer.ts"
  */
 export const aWritesParametersAdmittedBeforeItsStatementsAgainstPostgreSQL19AParameterOutsideItsTypeIsRefusedAsItsTypeRefusesItWhateverAStatementBeforeItsFirstReaderDoes =
 	property.explore(caseGen, {
-		needs: { fixture: Substrate.seat(admitTemplate) },
+		needs: { fixture: Substrate.freshOf(admitTemplate) },
 		situations: [
 			"a scalar parameter read only by a statement after one that fails",
 			"a relation parameter's field read only by a statement after one that fails",
@@ -104,16 +104,6 @@ export const aWritesParametersAdmittedBeforeItsStatementsAgainstPostgreSQL19APar
 							const o = yield* openedIn(Admit, { Item: [...stored] }, admitInstall, taken)
 							const names = o.installed.installation.names
 							const table = (r: string) => printObjectName(names.relation(r))
-							const itemId = quoteIdent(names.column("Item", "id"))
-							/** The installation as it was installed: Pick empty, Item its two stored items. */
-							const reset = Effect.forEach(
-								[
-									`DELETE FROM ${table("Pick")}`,
-									`DELETE FROM ${table("Item")} WHERE ${itemId} = '${freshId}'::uuid`
-								],
-								(sql) => s.admin.query(sql, []),
-								{ discard: true }
-							)
 							/** Each row Pick holds, its item and its code, in code point order. */
 							const written = Effect.map(
 								s.admin.queryValues(
@@ -128,8 +118,6 @@ export const aWritesParametersAdmittedBeforeItsStatementsAgainstPostgreSQL19APar
 							)
 							return yield* Effect.gen(function* () {
 								const db = yield* Db.open(o.served.login.roles.app, {})
-
-								yield* reset
 								const fresh = [k.collides ? collidingItem : freshItem]
 								const named = stored[1].id
 								const applied = yield* Effect.result(

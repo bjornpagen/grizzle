@@ -96,7 +96,7 @@ const byId = <R extends { readonly id: number }>(rows: ReadonlyArray<R>): Readon
 /** pg.inet and pg.cidr on PostgreSQL 19, grizzle reads every text as PostgreSQL does and stores and reads back each value as its one text. */
 export const pgInetAndPgCidrOnPostgreSQL19GrizzleReadsEveryTextAsPostgreSQLDoesAndStoresAndReadsBackEachValueAsItsOneText =
 	property.explore(spellings, {
-		needs: { campus: Substrate.seat(campusTemplate) },
+		needs: { campus: Substrate.freshOf(campusTemplate) },
 		situations: [
 			"an IPv4 inet stored",
 			"an IPv6 inet stored",

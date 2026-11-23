@@ -200,7 +200,7 @@ const programs = { step: deferrable(step), hybrid: deferrable(hybrid) } as const
 
 export const hybridInstall = { label: "hybrid", programs } as const
 
-/** Catalog installed once per member (reads/support.ts fixtureTemplate), which each case's seat holds. */
+/** Catalog installed once per member (reads/support.ts fixtureTemplate), which each case's own clone holds. */
 export const hybridTemplate = fixtureTemplate(import.meta, Catalog, hybridInstall)
 
 /** The words a text is drawn of: inflections english stems together, stop words, and a few other words. */

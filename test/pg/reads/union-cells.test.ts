@@ -40,7 +40,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const unionCellsDecodesAUnionsRowsToExactlyTheRecordsItsArmsDecodeToEachReadAloneAndRefusesALiteralAgainstANumericField =
 	property.explore(caseGen, {
-		needs: { fixture: Substrate.seat(cellsTemplate) },
+		needs: { fixture: Substrate.freshOf(cellsTemplate) },
 		situations: allFeatures satisfies ReadonlyArray<Reached<Feature>>,
 		check:
 			({ fixture }, notes: CaseOf<Feature>) =>

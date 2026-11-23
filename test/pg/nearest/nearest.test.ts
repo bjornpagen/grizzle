@@ -58,7 +58,7 @@ type KeyedFeature =
 /** A search whose query vector is a stored item's, by its key, answers what reading the item and then searching by its vector answers, and PostgreSQL serves it from the HNSW index in one scan, which an absent item never runs. */
 export const aSearchWhoseQueryVectorIsAStoredItemsByItsKeyAnswersWhatReadingTheItemAndThenSearchingByItsVectorAnswersAndPostgreSQLServesItFromTheHNSWIndexInOneScanWhichAnAbsentItemNeverRuns =
 	property.explore(nearestCaseGen, {
-		needs: { fixture: Substrate.seat(nearestTemplate) },
+		needs: { fixture: Substrate.freshOf(nearestTemplate) },
 		situations: [
 			"a stored item",
 			"an absent item",
@@ -200,7 +200,7 @@ type RecordFeature =
 /** A record of reads answers one row holding each read's own answer, the search's candidates, the ordered read's rows in its order and the item's row, in one statement, its search served by one HNSW scan. */
 export const aRecordOfReadsAnswersOneRowHoldingEachReadsOwnAnswerTheSearchsCandidatesTheOrderedReadsRowsInItsOrderAndTheItemsRowInOneStatementItsSearchServedByOneHNSWScan =
 	property.explore(nearestCaseGen, {
-		needs: { fixture: Substrate.seat(nearestTemplate) },
+		needs: { fixture: Substrate.freshOf(nearestTemplate) },
 		situations: [
 			"every read holding rows",
 			"an empty read",

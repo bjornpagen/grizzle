@@ -193,8 +193,8 @@ export const scopedAt = (name: string) => {
 }
 
 /**
- * The schema drafted and served as `grizzle generate` does, installed once per member, each case seating it
- * (scopedAt): every worker plans its draft and both logins' served files once, which each case serves over its seat
+ * The schema drafted and served as `grizzle generate` does, installed once per member, each case a clone of its own
+ * (scopedAt): every worker plans its draft and both logins' served files once, which each case serves over its clone
  * (served-db.ts servedGenerated).
  */
 export const scopedTemplate = generatedTemplate({

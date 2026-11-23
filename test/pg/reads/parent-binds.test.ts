@@ -58,7 +58,7 @@ const deliveredOf = (row: Readonly<Record<string, unknown>>): Delivered => ({
  */
 export const anAttachmentChildsImportBoundToAParentVariableReadsTheRowsTheParentsValueSelectsWhicheverMatchBindsTheVariable =
 	property.explore(factsGen, {
-		needs: { fixture: Substrate.seat(parentBindsTemplate) },
+		needs: { fixture: Substrate.freshOf(parentBindsTemplate) },
 		situations: [
 			"the import's own match, a scalar parameter",
 			"the import's own match, a relation parameter's rows",

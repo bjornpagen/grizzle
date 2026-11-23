@@ -1,9 +1,9 @@
 /**
  * The forms a grizzle case's database takes (test/support/substrate/substrate.ts): a clone of an installed template a
- * case (Substrate.freshOf), the worker's own clone of it held across cases and reset after each (Substrate.seat), and
- * one owner transaction a case on the worker's own clone (Substrate.rolledBack). Each case writes into what it was given
- * and requires to find what its form promises: the template's installation and no row an earlier case wrote, every
- * login of the installation logging in with the credentials the case derives from the member's owner password.
+ * case (Substrate.freshOf), and one owner transaction a case on the worker's own clone (Substrate.rolledBack). Each case
+ * writes into what it was given and requires to find what its form promises: the template's installation and no row an
+ * earlier case wrote, every login of the installation logging in with the credentials the case derives from the
+ * member's owner password.
  */
 import { assert } from "@bjornpagen/testing/assert"
 import { finite, int } from "@bjornpagen/testing/gen"
@@ -37,31 +37,6 @@ export const freshInstalled = property.exhaust(finite(int(1, 4)), {
 				yield* loggedIn(substrate, value)
 			}),
 	oracle: { kind: "specification", name: "a case's clone holds its template's installation alone" },
-	box: "every count of rows a case writes, one to four",
-	kept: [],
-	kills: [
-		{
-			file: "packages/engine/src/physical/install/compile.ts",
-			original: "\t\tconst level = owned.levels[login.base.levels.length - 1]",
-			replacement: "\t\tconst level = owned.levels[login.base.levels.length - 2]",
-			why: "Operator mutant (bound) at packages/engine/src/physical/install/compile.ts:341 in admittedSettings: `1` becomes `2`; the property fails (lane CATCH, grizzle 0baff5d6)."
-		}
-	]
-})
-
-/** The worker's own clone of an installed template, held across cases, is its template again before every case. */
-export const seated = property.exhaust(finite(int(1, 4)), {
-	needs: { work: Substrate.seat(workTemplate) },
-	situations: [],
-	check:
-		({ work }) =>
-		(rows) =>
-			Effect.gen(function* () {
-				const { substrate, value } = yield* work
-				yield* writtenAccounts(substrate.admin, value, rows)
-				yield* loggedIn(substrate, value)
-			}),
-	oracle: { kind: "specification", name: "a seat is reset to its template after every case" },
 	box: "every count of rows a case writes, one to four",
 	kept: [],
 	kills: [

@@ -69,7 +69,7 @@ import { withLayer } from "#test/support/with-layer.ts"
  */
 export const aReadsParametersAdmittedWhateverItsLogicReadsAgainstPostgreSQL19AParameterOutsideItsTypeIsRefusedAtBindThoughAConstantFalseFilterLeavesItUnread =
 	property.explore(caseGen, {
-		needs: { fixture: Substrate.seat(readsTemplate) },
+		needs: { fixture: Substrate.freshOf(readsTemplate) },
 		situations: [
 			"scalar outside Code refused, filtered by none",
 			"scalar outside Code refused, filtered by false",

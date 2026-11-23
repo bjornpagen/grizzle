@@ -133,7 +133,7 @@ const programs = {
 
 export const nearestInstall = { label: "nearest", programs } as const
 
-/** Nearest installed once per member (reads/support.ts fixtureTemplate), which each case's seat holds. */
+/** Nearest installed once per member (reads/support.ts fixtureTemplate), which each case's own clone holds. */
 export const nearestTemplate = fixtureTemplate(import.meta, Nearest, nearestInstall)
 
 /**
