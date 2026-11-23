@@ -52,7 +52,11 @@ export const WorkDesc: SchemaDesc = decodedSchema({
 		contained(on("Task", ["account"]), on("Account", ["id"])),
 		contained(on("TaskNote", ["task"]), on("Task", ["id"])),
 		taskKinds,
+		unit("Entity", { id: f.uuid }),
 		unit("Task", { task: f.uuid }),
+		mutable("Task"),
+		mutable("AutomaticTask"),
+		mutable("ManualTask"),
 		mutable("TaskNote")
 	],
 	bases: []

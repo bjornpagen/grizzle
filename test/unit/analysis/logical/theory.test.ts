@@ -531,7 +531,7 @@ const sameStatements = Arr.makeEquivalence((a: number, b: number) => a === b)
 /**
  * Law identities are deterministic, independent of declaration order and of unrelated statements. The schema orders
  * its statements canonically, so a permutation leaves every law's statement index as it was; an unrelated statement
- * ordered before a law's (`extra`'s mutable Task) moves that index, and the law keeps its identity.
+ * ordered before a law's (`extra`'s mutable Account) moves that index, and the law keeps its identity.
  *
  * Budget: 50 runs and 50 steered cases, what its suite stated before it became a property
  * (test/unit/analysis/logical/theory.test.ts:942 at 8cad5bce, its runs and its coverage's cases).

@@ -48,7 +48,11 @@ export const Work = schema(
 		contained(on(Task, "account"), on(Account, "id")),
 		contained(on(TaskNote, "task"), on(Task, "id")),
 		alternatives(Task, "kind", Kind, { Automatic: AutomaticTask, Manual: ManualTask }),
+		unit("Entity", { id: Id }),
 		unit("Task", { task: Id }),
+		mutable(Task),
+		mutable(AutomaticTask),
+		mutable(ManualTask),
 		mutable(TaskNote)
 	]
 )
