@@ -253,6 +253,10 @@
  * Each capture's branch and each part stands its session tables up in one read of pg_catalog.pg_class
  * (physical/ddl/rules.ts standing, sql/print.ts sessionTablesStanding), where format 8 asked whether each table stood
  * and whether it was the definer's own in two statements of its own, so every capture function's and part's body moves
+ * An existence test whose right side the statement's values restrict, a filter at a parameter or a literal among them
+ * (lower/optimize/cte-policy restrictedByValues), stays in a bare test, derived once
+ * (lower/conservative/semi-join/exists.ts readPerLeftRow), where format 8 read it per left row and counted a filter at
+ * a value no restriction.
  */
 export const artifactFormat = 8
 

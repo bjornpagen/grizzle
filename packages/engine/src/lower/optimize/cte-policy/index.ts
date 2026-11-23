@@ -330,6 +330,7 @@ export const restrictedByValues = (node: RelNode): boolean => {
 			case "Difference":
 				return restrictedByValues(node.left)
 			case "Filter":
+				return restrictedByValues(node.input) || valueEqualities(node).length > 0
 			case "ProjectSet":
 			case "Take":
 			case "Group":
@@ -626,23 +627,26 @@ const filteredAtValues = (
 	filter: NodeOf<"Filter">
 ):
 	| { readonly probed: NodeOf<"Group"> | NodeOf<"Union">; readonly through: ReadonlyArray<RelNode> }
-	| undefined =>
-	atKeys(
-		filter.input,
-		conjuncts(filter.pred).flatMap((e) => {
-			const [x, y, ...more] = e.kind === "op" && nativeOp(e.op)?.fn === "eq" ? e.args : []
-			if (x === undefined || y === undefined || more.length > 0) {
-				return []
-			}
-			const columnAtValue = (column: ScalarExpr, value: ScalarExpr): ReadonlyArray<string> =>
-				column.kind === "column" &&
-				column.column.node === filter.input.id &&
-				value.deps.nodes.length === 0
-					? [column.column.name]
-					: []
-			return [...columnAtValue(x, y), ...columnAtValue(y, x)]
-		})
-	)
+	| undefined => atKeys(filter.input, valueEqualities(filter))
+
+/**
+ * The columns of a filter's input a conjunct of it equates to a value that reads no relation, a parameter or a literal:
+ * the filter keeps only the rows at those values.
+ */
+const valueEqualities = (filter: NodeOf<"Filter">): ReadonlyArray<string> =>
+	conjuncts(filter.pred).flatMap((e) => {
+		const [x, y, ...more] = e.kind === "op" && nativeOp(e.op)?.fn === "eq" ? e.args : []
+		if (x === undefined || y === undefined || more.length > 0) {
+			return []
+		}
+		const columnAtValue = (column: ScalarExpr, value: ScalarExpr): ReadonlyArray<string> =>
+			column.kind === "column" &&
+			column.column.node === filter.input.id &&
+			value.deps.nodes.length === 0
+				? [column.column.name]
+				: []
+		return [...columnAtValue(x, y), ...columnAtValue(y, x)]
+	})
 
 /**
  * The fold or union an occurrence reads at values, through projections that rename its columns and filters

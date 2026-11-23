@@ -8,13 +8,15 @@
  * six key columns over 56 relations planned in 17 s, the statement's 32 such reads past 8.5 minutes and 43.8 GB.
  *
  * The box, exhausted: a negation of a query over one relation, over a join of two, over a fold by the negation's keys,
- * and over a fold whose count the negation binds.
+ * over a fold whose count the negation binds, and over a fold at the statement's value, which it restricts.
  *
  * Oracle: specification, the rule: the join and the fold by its keys are read per left row, the NOT EXISTS over a step
  * whose WHERE holds the join's equalities and no condition of its own; the scan of one source stays in a bare NOT
  * EXISTS, its equalities its own condition, which PostgreSQL probes per left row through its index, and so does the
  * fold whose count is bound, a column no relation it reads holds, past which a fixed value would derive the fold whole
- * for each row.
+ * for each row, and the fold the statement's value restricts, small derived once, which a step per left row would fold
+ * again for each (edullm's PERF-COMMIT submit at 100x: the call's previous attempts, 20 rows, folded again for each of
+ * 1,650,480 processed attempts, 11.3 s).
  *
  * Features: a right side read per left row; a right side left in NOT EXISTS.
  */
@@ -39,6 +41,7 @@ type Shape =
 	| "a join of two sources"
 	| "a fold by the negation's keys"
 	| "a fold whose count is bound"
+	| "a fold at the statement's value"
 
 type Feature = "a right side read per left row" | "a right side left in NOT EXISTS"
 
@@ -58,6 +61,15 @@ const folded = query(S).rule((r) => {
 	return r.match(B, { k1, k2, x }).find({ k1, k2, n: r.count() })
 })
 
+/** The fold by the keys at the asked k1, a fold the statement's value restricts: its rows few, derived once. */
+const foldedAt = query(S).rule((r) => {
+	const { k1, k2, x } = v(B, "b")
+	return r
+		.match(B, { k1, k2, x })
+		.where(r.eq(k1, r.param("k", pg.integer)))
+		.find({ k1, k2, n: r.count() })
+})
+
 /** The rows of A no fact of the right side matches, by the shape's bindings. */
 const negated = (shape: Shape) =>
 	query(S).rule((r) => {
@@ -72,6 +84,10 @@ const negated = (shape: Shape) =>
 				return matched.where(r.not(folded, { k1, k2 })).find({ k1, k2 })
 			case "a fold whose count is bound":
 				return matched.where(r.not(folded, { k1, n: value })).find({ k1, k2 })
+			case "a fold at the statement's value":
+				return matched
+					.where(r.not(foldedAt.bind({ k: r.param("k", pg.integer) }), { k1, k2 }))
+					.find({ k1, k2 })
 		}
 	})
 
@@ -167,7 +183,8 @@ export const anExistenceTestReadsARightSideOfSeveralSourcesOrAFoldByItsKeysPerLe
 					"a scan of one source",
 					"a join of two sources",
 					"a fold by the negation's keys",
-					"a fold whose count is bound"
+					"a fold whose count is bound",
+					"a fold at the statement's value"
 				])
 			)
 		),
@@ -192,9 +209,9 @@ export const anExistenceTestReadsARightSideOfSeveralSourcesOrAFoldByItsKeysPerLe
 				}),
 			oracle: {
 				kind: "specification",
-				name: "a right side of several sources, or a fold by the keys, is read per left row, a step correlated inside its NOT EXISTS; a scan of one source and a fold whose count is bound stay in a bare NOT EXISTS"
+				name: "a right side of several sources, or a fold by the keys, is read per left row, a step correlated inside its NOT EXISTS; a scan of one source, a fold whose count is bound and a fold the statement's value restricts stay in a bare NOT EXISTS"
 			},
-			box: "a negation of a query over one relation, a join of two, a fold by its keys, and a fold whose count it binds",
+			box: "a negation of a query over one relation, a join of two, a fold by its keys, a fold whose count it binds, and a fold at the statement's value",
 			kept: [],
 			kills: [
 				{
@@ -216,6 +233,19 @@ export const anExistenceTestReadsARightSideOfSeveralSourcesOrAFoldByItsKeysPerLe
 					original: "\trestrictedByKeys(\n",
 					replacement: "\t(() => true)(\n",
 					why: "A right side is read per left row though a join column stops at its fold's count: the fold whose count is bound is derived whole for each left row, and the property fails."
+				},
+				{
+					file: "packages/engine/src/lower/conservative/semi-join/exists.ts",
+					original: "\t!restrictedByValues(node.right) &&\n",
+					replacement: "",
+					why: "A right side the statement's value restricts is read per left row too, as 2bdab1f6f's did: the fold at the asked k1, a few rows, folded again for each row of A, where it is derived once and each of its rows probes A."
+				},
+				{
+					file: "packages/engine/src/lower/optimize/cte-policy/index.ts",
+					original:
+						"\t\t\t\treturn restrictedByValues(node.input) || valueEqualities(node).length > 0\n",
+					replacement: "\t\t\t\treturn restrictedByValues(node.input)\n",
+					why: "A filter at the statement's value restricts nothing, as before: the fold at the asked k1, whose filter the checked DAG keeps above the fold's region, counts as unrestricted and is read per left row."
 				}
 			]
 		}
