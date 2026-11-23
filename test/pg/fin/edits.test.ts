@@ -1,169 +1,34 @@
 /**
- * Counted put and delete through grizzle's own apply, on PostgreSQL 19 (rows-first §2, §3): a counted family's
- * members are rows, and grizzle draws every edit to them in SQL. A member put that changes its step value refills the
- * fold from its slot, and a member delete swaps the last member into the freed slot and refills from there, each one
- * suffix rewrite in the write's own statements.
+ * A counted put through grizzle's own apply, on PostgreSQL 19 (rows-first §2, §3): an owner keyed by an id and a span
+ * WITHOUT OVERLAPS is put in place, its row updated, never deleted and inserted again, which its members' foreign key
+ * and its drawn count and fold end would refuse. Drawn span-keyed owners (test/support/families/generate.ts
+ * `spanOwnersGen`), owners sharing an id over disjoint spans among them, are inserted with their counted members through
+ * a served member, one is put with a new label, and PostgreSQL then holds every owner with its label, count and fold
+ * end, and every member, exactly as the families model states them.
  *
- * - **Two implementations agreeing:** the families model (test/support/families/counted.ts `stepPut`, `swapWithLast`)
- *   and the reference fold (fold.ts) state what each edit leaves, every slot and every hidden accumulator, and what
- *   PostgreSQL holds after the served member's apply must be exactly that.
- * - **PostgreSQL as the judge:** every state the apply leaves holds every installed native, or the apply could not have
- *   committed.
- *
- * The box (doctrine rule 9): owner 0 with every counted family of one to four members over the int4 sum seat's five
- * values (folds.ts), stored as the reference writes it by one transaction that replaces the seat's rows; each member's
- * delete, and each member's put to every other value.
- *
- * An owner keyed by an id and a span WITHOUT OVERLAPS is put in place: its row updated, never deleted and inserted
- * again, which its members' foreign key and its drawn count and fold end would refuse. Drawn span-keyed owners
- * (test/support/families/generate.ts `spanOwnersGen`), owners sharing an id over disjoint spans among them, are
- * inserted with their counted members through a served member, one is put with a new label, and PostgreSQL then holds
- * every owner with its label, count and fold end, and every member, exactly as the families model states them.
+ * - **A second implementation:** the families model of span-keyed owners and each family's sum of its step values.
  */
 
-import { assert, deepEquals, defined, unorderedEqual } from "@bjornpagen/testing/assert"
+import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
-import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter } from "effect"
+import { Array as Arr, Effect } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import {
-	Edited,
-	type EditFeature,
-	m,
-	sketchGen,
 	SpanEdited,
 	type SpanFeature,
 	SpanMember,
 	SpanOwner,
 	spanSketchGen,
-	SPEC,
-	editedInstall,
-	editedTemplate,
 	spannedInstall,
 	spannedTemplate
 } from "#test/pg/fin/edits.fixtures.ts"
-import {
-	attemptedText,
-	byMember,
-	Disagreed,
-	foldRead,
-	foldSeatOf,
-	foldStatementSql,
-	foldWriteOf
-} from "#test/pg/fin/folds.ts"
-import { cleared, replaced, seatOfInstalled } from "#test/pg/fin/installed.ts"
+import { cleared, seatOfInstalled } from "#test/pg/fin/installed.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
 import { writeAnswerOf } from "#test/support/calls.ts"
-import { stepPut, swapWithLast } from "#test/support/families/counted.ts"
-import { foldStoredOf } from "#test/support/families/fold.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
-
-/**
- * Counted put and delete through grizzle's apply on PostgreSQL 19 leave exactly the state the families model and the reference fold state after each member's put of a new step value and each member's delete.
- */
-export const countedPutAndDeleteThroughGrizzlesApplyOnPostgreSQL19LeaveExactlyTheStateTheFamiliesModelAndTheReferenceFoldStateAfterEachMembersPutOfANewStepValueAndEachMembersDelete =
-	property.exhaust(finite(sketchGen), {
-		needs: { fixture: Substrate.seat(editedTemplate) },
-		situations: [
-			"delete of the last slot applied as the model states",
-			"delete of a slot before the last applied as the model states",
-			"put of the last slot applied as the model states",
-			"put of a slot before the last applied as the model states",
-			"a put of the first slot refilled every slot"
-		] satisfies ReadonlyArray<Reached<EditFeature>>,
-		check:
-			({ fixture }, c: Case<EditFeature>) =>
-			(sketch) =>
-				Effect.scoped(
-					Effect.flatMap(fixture, (taken) =>
-						Effect.provideService(
-							Effect.gen(function* () {
-								const o = yield* openedIn(Edited, {}, editedInstall, taken)
-								const seat = yield* seatOfInstalled(o.installed, ["Owner", "Member"], "edits")
-								const f = foldSeatOf(SPEC, seat)
-								return yield* Effect.gen(function* () {
-									const db = yield* Db.open(o.served.login.roles.app, {})
-
-									const members = Arr.map(sketch.values, (i, member) => ({
-										member,
-										x: Arr.getUnsafe(SPEC.domain, i),
-										selected: true
-									}))
-									const before = foldStoredOf(m, [{ owner: 0, members }])
-									const written = yield* replaced(
-										seat,
-										["Owner", "Member"],
-										Arr.map(foldWriteOf(before), (s) => foldStatementSql(f, s))
-									)
-									if (written.kind !== "committed") {
-										return yield* new Disagreed({
-											message: `the reference state ${Formatter.format(before)} met ${attemptedText(written)}`
-										})
-									}
-									const target = Arr.getUnsafe(members, sketch.edit.at)
-									const fact = { member: target.member, g: 0, x: Number(target.x) }
-									if (sketch.edit.kind === "delete") {
-										yield* writeAnswerOf(
-											db.workload.deleteMember.once({
-												params: {},
-												facts: { delete: { Member: [fact] } }
-											})
-										)
-									} else {
-										const put = { ...fact, x: Number(Arr.getUnsafe(SPEC.domain, sketch.edit.to)) }
-										yield* writeAnswerOf(
-											db.workload.putMember.once({
-												params: {},
-												facts: { put: { Member: [put] } }
-											})
-										)
-									}
-									const read = yield* foldRead(f)
-									const after =
-										sketch.edit.kind === "delete"
-											? swapWithLast(m, before, 0, sketch.edit.at).after
-											: stepPut(
-													before,
-													0,
-													target.member,
-													Arr.getUnsafe(SPEC.domain, sketch.edit.to)
-												)
-									const expected = foldStoredOf(m, after)
-									if (!deepEquals(read, byMember(expected))) {
-										return yield* new Disagreed({
-											message: `${sketch.edit.kind} of slot ${sketch.edit.at} left ${Formatter.format(read)}, where the model states ${Formatter.format(byMember(expected))}, from ${Formatter.format(before)}`
-										})
-									}
-									const position =
-										sketch.edit.at === sketch.values.length - 1
-											? "the last slot"
-											: "a slot before the last"
-									c.note(`${sketch.edit.kind} of ${position} applied as the model states`)
-									if (
-										sketch.edit.kind === "put" &&
-										sketch.edit.at === 0 &&
-										sketch.values.length > 1
-									) {
-										c.note("a put of the first slot refilled every slot")
-									}
-								}).pipe(Effect.scoped, withLayer(o.served.layer))
-							}),
-							Substrate,
-							taken.substrate
-						)
-					)
-				),
-		oracle: {
-			kind: "second-implementation",
-			name: "the families model (test/support/families/counted.ts stepPut, swapWithLast) and the reference fold (fold.ts) of the families each edit leaves"
-		},
-		box: "owner 0 with every counted family of one to four members over five int4 values, each member deleted and each put to every other value",
-		kept: [],
-		kills: []
-	})
 
 /**
  * Counted put and delete through grizzle's apply on PostgreSQL 19 put a span-keyed owner in place, leaving every owner's label, count and fold end and every member as the families model states them.

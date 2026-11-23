@@ -1,7 +1,6 @@
 /**
- * The rows of trees.md's tree relation as a writer sends them, and the trees test/pg/fin draws and loads: every tree and
- * two-tree forest of a bounded size (forestsOf), a tree of a given size and fanout (loadTree), and a tree's rows by
- * depth (rowsByDepth).
+ * The rows of trees.md's tree relation as a writer sends them, and the tree test/pg/fin loads: a tree of a given size
+ * and fanout (loadTree), and a tree's rows by depth (rowsByDepth).
  *
  * A tree relation `node (id, root, parent, at, children, start, end)` is the ordered family of node over itself,
  * `node(parent, at)` counted by `fin(node, children)`, whose every row carries its pre-order interval `[start, end)`,
@@ -9,7 +8,7 @@
  * fields, which the parent copy holds to the parent's values: its count ‹n› and its start, which T3's check reads. The
  * root copies itself.
  */
-import { indices, maxOf } from "@bjornpagen/grizzle-text/base/array"
+import { maxOf } from "@bjornpagen/grizzle-text/base/array"
 import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { Array as Arr, Option, Order } from "effect"
 import { upTo } from "#test/support/up-to.ts"
@@ -46,86 +45,6 @@ const withCopies = (rows: Arr.NonEmptyReadonlyArray<Bare>): Arr.NonEmptyReadonly
 			parentStart: Option.match(parent, { onNone: () => 0, onSome: (p) => p.start })
 		}
 	})
-
-/**
- * The rows of the plane tree a pre-order depth sequence draws, built by construction rather than by the checker's
- * walk: each row's id `first` plus its pre-order index, its start that index, its parent the last row one shallower,
- * its slot its rank among its parent's children, and its end the index of the next row as shallow as it, or N.
- */
-const treeOf = (
-	depths: Arr.NonEmptyReadonlyArray<number>,
-	root: number,
-	first: number
-): Arr.NonEmptyReadonlyArray<TreeRow> => {
-	const n = depths.length
-	const depth = (i: number) => Arr.getUnsafe(depths, i)
-	const parentOf = (i: number): number =>
-		Option.getOrElse(
-			Arr.findLast(indices(i), (j) => depth(j) === depth(i) - 1),
-			() => i
-		)
-	const endOf = (i: number): number =>
-		Option.getOrElse(
-			Arr.findFirst(indices(n), (j) => j > i && depth(j) <= depth(i)),
-			() => n
-		)
-	const childrenOf = (i: number) => Arr.filter(indices(n), (j) => j !== i && parentOf(j) === i)
-	return withCopies(
-		Arr.map(depths, (_, i) => ({
-			id: first + i,
-			root,
-			parent: first + parentOf(i),
-			at: i === 0 ? 0 : Arr.filter(childrenOf(parentOf(i)), (j) => j < i).length,
-			children: childrenOf(i).length,
-			start: i,
-			end: endOf(i)
-		}))
-	)
-}
-
-/**
- * Every plane tree's pre-order depth sequence of 1 to `most` rows: the root at depth 0, and each next row one deeper
- * than the row before it or as shallow as depth 1, so each tree is drawn once, Catalan(N − 1) of N rows.
- */
-const depthsOf = (most: number): ReadonlyArray<Arr.NonEmptyReadonlyArray<number>> => {
-	const sequences = (
-		prefix: Arr.NonEmptyReadonlyArray<number>,
-		n: number
-	): ReadonlyArray<Arr.NonEmptyReadonlyArray<number>> =>
-		prefix.length === n
-			? [prefix]
-			: Arr.flatMap(
-					upTo(Arr.lastNonEmpty(prefix) + 1, (i) => i + 1),
-					(d) => sequences(Arr.append(prefix, d), n)
-				)
-	return Arr.flatMap(
-		upTo(most, (i) => i + 1),
-		(n) => sequences([0], n)
-	)
-}
-
-/**
- * Every tree of at most `most` rows, of root value 0, and every forest of two such trees of at most `most` rows in
- * all, the second of root value 1, one per pair up to swapping the two.
- */
-export const forestsOf = (
-	most: number
-): Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<TreeRow>> => {
-	const depths = depthsOf(most)
-	return nonEmpty(
-		[
-			...Arr.map(depths, (d) => treeOf(d, 0, 0)),
-			...Arr.flatMap(depths, (a, i) =>
-				Arr.flatMap(depths, (b, j) =>
-					j >= i && a.length + b.length <= most
-						? [Arr.appendAll(treeOf(a, 0, 0), treeOf(b, 1, a.length))]
-						: []
-				)
-			)
-		],
-		"a forest of one tree"
-	)
-}
 
 /** A tree of `rows` rows in breadth-first numbering, every row with up to `fanout` children, its rows in pre-order. */
 export const loadTree = (rows: number, fanout: number): Arr.NonEmptyReadonlyArray<TreeRow> => {

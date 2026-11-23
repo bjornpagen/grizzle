@@ -1386,38 +1386,6 @@ export interface GeneratedSpec {
  * `content` is what tells this template from another its module declares: its module's import closure covers the code.
  */
 export const generatedTemplate = (spec: GeneratedSpec): SubstrateTemplate<Generated> =>
-	generatedSeeded(spec, {
-		seed: () => Effect.void,
-		reset: (generated) => installationGroup(namesOf(generated.installed))
-	})
-
-/**
- * generatedTemplate's installation with its catalog altered once per member, as the build's owner, right after the
- * install: `alter` on the installation it made (constraints dropped, a defect planted in the schema), where a search did
- * it once before its cases. Its seat's reset empties every stored relation's table, as generatedTemplate's does: what
- * the alteration made is the template's own, and a case's rows are its own.
- */
-export const alteredGeneratedTemplate = <E>(
-	spec: GeneratedSpec & {
-		readonly alter: (generated: Generated) => Effect.Effect<void, E, Substrate | Scope.Scope>
-	}
-): SubstrateTemplate<Generated> =>
-	generatedSeeded(spec, {
-		seed: spec.alter,
-		reset: (generated) => installationGroup(namesOf(generated.installed))
-	})
-
-/**
- * generatedTemplate's and alteredGeneratedTemplate's one template, its build seeding and its seat resetting as `seeding`
- * says.
- */
-const generatedSeeded = <E>(
-	spec: GeneratedSpec,
-	seeding: {
-		readonly seed: (generated: Generated) => Effect.Effect<void, E, Substrate | Scope.Scope>
-		readonly reset: (generated: Generated) => ResetGroup
-	}
-): SubstrateTemplate<Generated> =>
 	installTemplate({
 		budget: templateNeedBudget,
 		declaredIn: spec.declaredIn,
@@ -1441,13 +1409,12 @@ const generatedSeeded = <E>(
 				const owner = yield* ambientOwner(spec.ambient, installedSchemas(drafted.plan.installation))
 				yield* applyFolders(owner, substrate.database, drafted.snapshot, [drafted.folder])
 				const credentials = yield* loginCredentials(drafted.plan, drafted.served, new Map())
-				const generated = yield* generatedAt(drafted, {
+				yield* generatedAt(drafted, {
 					declared: names.schema,
 					folders: [drafted.folder],
 					ambientOwner: owner,
 					credentials
 				})
-				yield* seeding.seed(generated)
 			}),
 		bind: ({ names, drafted }, binding) => ({
 			installed: installedAt(
@@ -1467,7 +1434,7 @@ const generatedSeeded = <E>(
 			),
 			served: drafted.served
 		}),
-		reset: seeding.reset
+		reset: (generated) => installationGroup(namesOf(generated.installed))
 	})
 
 /**

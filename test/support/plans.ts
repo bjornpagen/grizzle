@@ -180,10 +180,9 @@ const explained = (admin: PgConnection, name: string, st: Sent) =>
 /**
  * The settings every judged statement is planned under (see the header): sequential and index scans disabled, and
  * index-only scans never considered, so PostgreSQL builds no index path of no condition that a bitmap scan could read.
- * Each is a parameter and its value, which a transaction sets LOCAL (sentProblems) and a role's sessions take as their
- * defaults (ALTER ROLE ... SET), so a served member's own explain plans under them.
+ * Each is a parameter and its value, which a transaction sets LOCAL (sentProblems).
  */
-export const judgedSettings: ReadonlyArray<RoleDefault> = [
+const judgedSettings: ReadonlyArray<RoleDefault> = [
 	{ parameter: "enable_seqscan", value: "off" },
 	{ parameter: "enable_indexscan", value: "off" },
 	{ parameter: "enable_indexonlyscan", value: "off" }

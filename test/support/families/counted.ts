@@ -138,23 +138,6 @@ export const appended = (
 }
 
 /**
- * The families a member's put that changes its step value leaves (rows-first §2, "a member update that changes a step
- * value refills from its slot"): every member keeps its slot, the member's value is the new one, and the reference fold
- * of the result is what the refill from its slot writes.
- */
-export const stepPut = (
-	stored: FoldStored,
-	owner: number,
-	member: number,
-	x: bigint
-): ReadonlyArray<FoldFamily> =>
-	replaced(
-		familiesOf(stored),
-		owner,
-		Arr.map(membersOf(stored, owner), (m) => (m.member === member ? { ...m, x } : m))
-	)
-
-/**
  * Swap-with-last of the member at slot `at` of `owner` over an immutable owner and member (see the header): the family
  * swapWithLast leaves, written whole. Every member of the owner deleted; the owner deleted and inserted again with the
  * kept count and its end; the kept members, if any, inserted at their final slots with their accumulators.

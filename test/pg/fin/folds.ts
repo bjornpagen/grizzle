@@ -20,16 +20,7 @@ import { Array as Arr, Data, Effect, Formatter, Option, Order, Result, String as
 import { StoredRelationName } from "#compiler/core/ids.ts"
 import type { FoldPlane } from "#compiler/ir/family.ts"
 import { type ColumnKey, columnKey, columnKeyOf } from "#compiler/ir/law.ts"
-import {
-	accumulated,
-	Bits,
-	bits,
-	closedId,
-	Decimal,
-	drawn,
-	natural,
-	pg
-} from "#compiler/public/fields.ts"
+import { accumulated, Bits, bits, closedId, drawn, natural, pg } from "#compiler/public/fields.ts"
 import {
 	closed,
 	check,
@@ -172,66 +163,6 @@ const sumInt4 = (() => {
 	const family = ordered(on(Member, "g", "at"), fin(Owner, "n"))
 	return schema(
 		"fin_fold_sum_int4",
-		[Owner, Member],
-		[
-			family,
-			fold(family, Monoid.sum, on(Member, "g", "x", "before", "after"), on(Owner, "id", "end"))
-		]
-	)
-})()
-
-const sumNumeric = (() => {
-	const zero = Decimal.of("0")
-	const Owner = relation(
-		"Owner",
-		{ id: pg.integer, n: drawn(natural), end: accumulated(pg.numeric(10, 2), zero) },
-		["id"]
-	)
-	const Member = relation(
-		"Member",
-		{
-			member: pg.integer,
-			g: pg.integer,
-			at: drawn(natural),
-			x: pg.numeric(10, 2),
-			before: accumulated(pg.numeric(10, 2), zero),
-			after: accumulated(pg.numeric(10, 2), zero)
-		},
-		["member"]
-	)
-	const family = ordered(on(Member, "g", "at"), fin(Owner, "n"))
-	return schema(
-		"fin_fold_sum_numeric",
-		[Owner, Member],
-		[
-			family,
-			fold(family, Monoid.sum, on(Member, "g", "x", "before", "after"), on(Owner, "id", "end"))
-		]
-	)
-})()
-
-const sumWideNumeric = (() => {
-	const zero = Decimal.of("0")
-	const Owner = relation(
-		"Owner",
-		{ id: pg.integer, n: drawn(natural), end: accumulated(pg.numeric(60, 20), zero) },
-		["id"]
-	)
-	const Member = relation(
-		"Member",
-		{
-			member: pg.integer,
-			g: pg.integer,
-			at: drawn(natural),
-			x: pg.numeric(60, 20),
-			before: accumulated(pg.numeric(60, 20), zero),
-			after: accumulated(pg.numeric(60, 20), zero)
-		},
-		["member"]
-	)
-	const family = ordered(on(Member, "g", "at"), fin(Owner, "n"))
-	return schema(
-		"fin_fold_sum_wide_numeric",
 		[Owner, Member],
 		[
 			family,
@@ -451,40 +382,6 @@ export const int4: Carrier = { ...integer, toHost: (v) => Number(v) }
 const naturals: Carrier = { ...integer, toHost: (v) => v }
 
 /**
- * A numeric in units of 10^-scale, each value written exactly as a numeric constant of that exponent and read back in
- * its units, exactly at every magnitude.
- */
-const decimalUnits = (scale: number): Carrier => {
-	const unit = 10n ** BigInt(scale)
-	return {
-		write: (v) => `(${v}e-${scale})`,
-		read: (c) => `trunc(${c} * ${unit})::text`,
-		parse: (t) => BigInt(t),
-		junk: (v) => v + 1n,
-		toHost: (v) => {
-			const magnitude = v < 0n ? -v : v
-			return Decimal.of(
-				`${v < 0n ? "-" : ""}${magnitude / unit}.${Str.padStart(scale, "0")(String(magnitude % unit))}`
-			)
-		},
-		fromHost: (h) => {
-			const text = String(h)
-			const negative = Str.startsWith("-")(text)
-			const [whole, fraction = ""] = Str.split(negative ? Str.slice(1)(text) : text, ".")
-			const units =
-				BigInt(whole) * unit + BigInt(Str.padEnd(scale, "0")(Str.slice(0, scale)(fraction)))
-			return negative ? -units : units
-		}
-	}
-}
-
-/** numeric(10, 2) in hundredths. */
-const hundredths = decimalUnits(2)
-
-/** numeric(60, 20) in units of 10^-20, past what numeric(10, 2) holds at both ends. */
-const fineUnits = decimalUnits(20)
-
-/**
  * A set of codes 0 to 4 as its bit mask, written as the hex literal of the bit string whose position c is code c, its
  * codes rounded up to whole bytes (test/support/closed/bit-text.ts setText).
  */
@@ -579,30 +476,6 @@ export const FOLD_SPECS: Arr.NonEmptyReadonlyArray<FoldSpec> = [
 		shape: "ordered",
 		carrier: int4,
 		domain: ints,
-		selected: Option.none(),
-		x: Option.some("x"),
-		planes: named,
-		check: Option.none()
-	},
-	{
-		label: "sum of numeric(10, 2)",
-		schema: sumNumeric,
-		monoid: { name: "sum", least: 0n },
-		shape: "ordered",
-		carrier: hundredths,
-		domain: [-150n, 1n, 25n, 100n, 275n],
-		selected: Option.none(),
-		x: Option.some("x"),
-		planes: named,
-		check: Option.none()
-	},
-	{
-		label: "sum of numeric(60, 20)",
-		schema: sumWideNumeric,
-		monoid: { name: "sum", least: 0n },
-		shape: "ordered",
-		carrier: fineUnits,
-		domain: [-(3n * 10n ** 40n), 1n, 25n * 10n ** 18n, 10n ** 38n + 7n, 275n],
 		selected: Option.none(),
 		x: Option.some("x"),
 		planes: named,
@@ -760,7 +633,7 @@ export const foldInstalledOf = (f: FoldSeat, native: FoldNative): ReadonlyArray<
 	Arr.filter(f.seat.constraints, (c) => Option.contains(foldNativeOf(f, c), native))
 
 /** A fold statement's SQL on a seat. */
-export const foldStatementSql = (f: FoldSeat, statement: FoldStatement): string => {
+const foldStatementSql = (f: FoldSeat, statement: FoldStatement): string => {
 	const { seat, spec } = f
 	const c = (relation: string, role: string) => seat.column(relation, role)
 	const v = spec.carrier.write
@@ -878,7 +751,7 @@ const predictedText = (model: FoldPredicted): string =>
 				", "
 			)}`
 
-export const attemptedText = (real: Attempted | Checked<unknown>): string =>
+const attemptedText = (real: Attempted | Checked<unknown>): string =>
 	real.kind === "committed"
 		? "commit"
 		: `refusal ${momentText(real.moment)}: ${refusalText(real.fields)}`

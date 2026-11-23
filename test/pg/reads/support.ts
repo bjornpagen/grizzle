@@ -1,6 +1,5 @@
 import { Array as Arr, Effect, Record as Rec, type Scope, String as Str } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { quoteIdent } from "#compiler/core/text.ts"
 import {
 	type AnyClosed,
 	type AnyRelation,
@@ -14,7 +13,6 @@ import {
 import { schemaBuilder as builtSchema } from "#compiler/schema/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import {
-	alteredGeneratedTemplate,
 	type Generated,
 	type GeneratedSpec,
 	generatedTemplate,
@@ -24,7 +22,6 @@ import {
 } from "#test/support/install-migrate.ts"
 import type { FactSet } from "#test/support/oracle/install/load.ts"
 import type { SqlError } from "#test/support/pg.ts"
-import { judgedSettings, unanalyzed } from "#test/support/plans.ts"
 import { type ServedFixture, servedGenerated } from "#test/support/served-db.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import {
@@ -204,64 +201,6 @@ export const fixtureTemplate = <
 	fixture: ReadFixture<N, R, St>,
 	options: FixtureInstall<P>
 ): SubstrateTemplate<Generated> => generatedTemplate(fixtureSpec(declaredIn, fixture, options))
-
-/**
- * fixtureTemplate's installation with its catalog altered once per member right after the install (install-migrate.ts
- * alteredGeneratedTemplate): `alter` plants what every case reads, such as the constraints behind a read-back's
- * evidence dropped, where the search did it once before its cases. A case opens it as fixtureTemplate's (openedIn).
- */
-const alteredFixtureTemplate = <
-	const N extends string,
-	R extends Record<string, AnyRelation | AnyClosed>,
-	const St extends ReadonlyArray<Statement>,
-	const P extends Readonly<Record<string, unknown>>,
-	E
->(
-	declaredIn: ImportMeta,
-	fixture: ReadFixture<N, R, St>,
-	options: FixtureInstall<P>,
-	alter: (generated: Generated) => Effect.Effect<void, E, Substrate | Scope.Scope>
-): SubstrateTemplate<Generated> =>
-	alteredGeneratedTemplate({ ...fixtureSpec(declaredIn, fixture, options), alter })
-
-/**
- * fixtureTemplate's installation as a suite that judges the plans of what its login sends reads it, made so once per
- * member right after the install (alteredFixtureTemplate): the login's sessions plan under the judged settings, the
- * login's defaults in the template's database (plans.ts judgedSettings), which the toolchain sets again on every clone
- * as a template's role settings, and every stored relation planned as one never analyzed (plans.ts unanalyzed). A case
- * over a seat of it sets nothing: what a case sets on the template's own login outlives the case, which no seat's reset
- * undoes (the seat refused fin/removal-plans' and write/keyed-target's next case, each case's ALTER ROLE ... IN
- * DATABASE ... SET left in pg_db_role_setting). A case opens it as fixtureTemplate's (openedIn).
- */
-export const judgedFixtureTemplate = <
-	const N extends string,
-	R extends Record<string, AnyRelation | AnyClosed>,
-	const St extends ReadonlyArray<Statement>,
-	const P extends Readonly<Record<string, unknown>>
->(
-	declaredIn: ImportMeta,
-	fixture: ReadFixture<N, R, St>,
-	options: FixtureInstall<P>
-): SubstrateTemplate<Generated> =>
-	alteredFixtureTemplate(declaredIn, fixture, options, (generated) =>
-		Effect.gen(function* () {
-			const substrate = yield* Substrate
-			const done = generated.installed
-			const server = fullWorld(namedFixture(fixture)(done.declared), options.programs).server
-			const login = quoteIdent(done.as(server).role)
-			for (const setting of judgedSettings) {
-				yield* substrate.superuser(
-					`ALTER ROLE ${login} IN DATABASE ${quoteIdent(substrate.database)} SET ${setting.parameter} = ${setting.value}`
-				)
-			}
-			yield* unanalyzed(
-				substrate.admin,
-				Arr.flatMap(Rec.values(done.installation.owned.relations), (r) =>
-					r.kind === "relation" ? [done.names.relation(r.name)] : []
-				)
-			)
-		})
-	)
 
 /**
  * A read fixture's generated template's spec (fixtureTemplate): its full world's login, whose workload holds

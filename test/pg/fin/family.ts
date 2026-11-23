@@ -136,7 +136,7 @@ const familyOf = (shape: Shape, seat: Seat, label: string): Effect.Effect<Family
  * A shape's family installed once per member as a template (installed.ts seatTemplate), named by `label` and the
  * shape, which a case seats (familySeatIn).
  */
-export const familyTemplate = (declaredIn: ImportMeta, shape: Shape, label: string): SeatTemplate =>
+const familyTemplate = (declaredIn: ImportMeta, shape: Shape, label: string): SeatTemplate =>
 	seatTemplate(declaredIn, heldSchema(shape), `${label} ${shape}`)
 
 /**
@@ -254,7 +254,7 @@ const statementSql = (f: FamilySeat, statement: MutationStatement): string => {
 }
 
 /** The read of a seat's stored state, owners then rows. */
-export const storedSql = (f: FamilySeat): string => {
+const storedSql = (f: FamilySeat): string => {
 	const c = (relation: string, role: string) => f.seat.column(relation, role)
 	return `SELECT 0, ${c("Owner", "id")}::int8, ${c("Owner", "n")}::int8, 0::int8, 0::int8 FROM ${f.seat.table("Owner")} UNION ALL SELECT 1, ${c("Member", "member")}::int8, ${c("Member", "g")}::int8, ${c("Member", f.index)}::int8, ${c("Member", "‹n›")}::int8 FROM ${f.seat.table("Member")}`
 }

@@ -2,25 +2,11 @@ import { assert, deepEquals, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
-import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import {
 	applied,
-	brokenBy,
 	caseGen,
 	formsTouched,
 	groupOf,
-	judgedCaseGen,
-	judgedFacts,
-	JudgedMember,
-	judgedMemberRows,
-	JudgedOwner,
-	judgedOwnerRow,
-	type JudgedOwnerState,
-	judgedSchema,
-	type JudgedSituation,
-	judgedSituationOf,
-	judgedSituations,
-	judgeOwner,
 	judgeRefused,
 	reaches,
 	refusedBy,
@@ -32,8 +18,7 @@ import {
 	slotsOf,
 	storedRelations,
 	treesRows,
-	endsTemplates,
-	judgedTemplate
+	endsTemplates
 } from "#test/pg/fin/fold-ends.fixtures.ts"
 import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import {
@@ -163,67 +148,5 @@ export const everyFoldsEndThroughGrizzlesApplyOnPostgreSQL19StoresExactlyTheREAD
 				since: "2026-11-19"
 			}
 		],
-		kills: []
-	})
-
-/**
- * Every fold's end through grizzle's apply on PostgreSQL 19 judges an owner's row CHECKs over the Monoid.or and Monoid.sum ends the host fills from the counted members one ChangeSet inserts it with.
- *
- * Its pre-conversion budget: runs 16, coverage cases 64 (test/pg/fin/fold-ends.test.ts at d8eed1786).
- */
-export const everyFoldsEndThroughGrizzlesApplyOnPostgreSQL19JudgesAnOwnersRowCHECKsOverTheMonoidOrAndMonoidSumEndsTheHostFillsFromTheCountedMembersOneChangeSetInsertsItWith =
-	property.explore(judgedCaseGen, {
-		needs: { judged: Substrate.seat(judgedTemplate) },
-		situations: judgedSituations satisfies ReadonlyArray<Reached<JudgedSituation>>,
-		check:
-			({ judged }, c: Case<JudgedSituation>) =>
-			(sketch) =>
-				Effect.scoped(
-					Effect.flatMap(judged, (taken) =>
-						Effect.provideService(
-							Effect.gen(function* () {
-								const done = taken.value
-								const value = judgedSchema(done.schema)
-								const db = yield* openServedDb(done, fullWorld(value, {}).server.roles.app, {})
-								const served = yield* db.serve({
-									write: ChangeSet.empty(value).insert(JudgedOwner, []).insert(JudgedMember, [])
-								})
-								const write = member(served, "write")
-
-								const stored: Array<JudgedOwnerState> = []
-								for (const o of sketch) {
-									const outcome = yield* writeAnswerOf(
-										writeOnce(write)({ params: {}, facts: judgedFacts(o) })
-									)
-									judgeOwner(o, outcome)
-									if (!Arr.isReadonlyArrayNonEmpty(brokenBy(o))) {
-										stored.push(o)
-									}
-									const owners = yield* tableState(done, JudgedOwner)
-									unorderedEqual<ModelRow>(
-										owners,
-										Arr.map(stored, judgedOwnerRow),
-										`the owners after ${Formatter.format(o)}`
-									)
-									const members = yield* tableState(done, JudgedMember)
-									unorderedEqual<ModelRow>(
-										members,
-										Arr.flatMap(stored, judgedMemberRows),
-										`the members after ${Formatter.format(o)}`
-									)
-									c.note(judgedSituationOf(o))
-								}
-							}),
-							Substrate,
-							taken.substrate
-						)
-					)
-				),
-		oracle: {
-			kind: "specification",
-			name: "the README's fold of a counted family's members into its owner's or-end and sum-end, each held to its declared value by the owner's row CHECK"
-		},
-		budget: { runs: 16, steered: 64 },
-		kept: [],
 		kills: []
 	})

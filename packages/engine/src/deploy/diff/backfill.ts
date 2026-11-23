@@ -1041,8 +1041,8 @@ const rootName = "__root"
  *   its siblings' count, a root's its own count, as the root pin reads it.
  * - the tree's scan over its members, each parent's children a group in slot order, and over its roots, each alone at
  *   slot 0, outside its members as the fill order places it (scanOver): the root's before the identity, as its
- *   first-slot pin holds it, and its after its own step's, the one state NP's fold suite admits a root
- *   (test/pg/fin/fold.test.ts); a root's predecessor copy its base, as a first sibling's.
+ *   first-slot pin holds it, and its after its own step's, the one state the tree's pins admit a root; a root's
+ *   predecessor copy its base, as a first sibling's.
  *
  * A row under stored parents that make no tree is drawn anyway, and VALIDATE refuses it by the tree's laws. Each fold's
  * end is a row's last child's after (treeEndDerivation). It sets the columns `added` holds alone, none where it holds

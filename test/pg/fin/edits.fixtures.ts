@@ -1,8 +1,8 @@
-/** What the properties of edits.test.ts read: its spaces, models and helpers. */
+/** What the property of edits.test.ts reads: its space, schema and fixture. */
 
 import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
-import { Array as Arr, Option } from "effect"
+import { Array as Arr } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { accumulated, drawn, natural, pg, span } from "#compiler/public/fields.ts"
 import {
@@ -15,78 +15,8 @@ import {
 	relation,
 	schema
 } from "#compiler/public/schema.ts"
-import { FOLD_SPECS } from "#test/pg/fin/folds.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import { type SpanKeyedOwner, spanOwnersGen } from "#test/support/families/generate.ts"
-import { upTo } from "#test/support/up-to.ts"
-
-const Owner = relation(
-	"Owner",
-	{ id: pg.integer, n: drawn(natural), end: accumulated(pg.integer, 0) },
-	["id"]
-)
-
-const Member = relation("Member", { member: pg.integer, g: pg.integer, x: pg.integer }, ["member"])
-
-const family = counted(on(Member, "g"), fin(Owner, "n"))
-
-/**
- * The int4 sum over a counted family, both relations mutable so a member's put and delete are planned: over the
- * immutable default grizzle refuses both at compile, an immutable owner's family being fixed when its owner is inserted,
- * its count a field the guard holds fixed (write/frontend/compile.ts fixedSentence, UnsupportedOperation).
- */
-export const Edited = schema(
-	"fin_edits",
-	[Owner, Member],
-	[
-		family,
-		fold(family, Monoid.sum, on(Member, "g", "x"), on(Owner, "id", "end")),
-		mutable(Owner),
-		mutable(Member)
-	]
-)
-
-/** The seat's specification: the counted int4 sum's, over this schema. */
-export const SPEC = Object.freeze({
-	...defined(
-		Arr.findFirst(FOLD_SPECS, (s) => s.label === "sum of int4 over a counted family").pipe(
-			Option.getOrUndefined
-		)
-	),
-	label: "a counted int4 sum, mutable",
-	schema: Edited
-})
-
-/** An edit of owner 0's family: one member's delete, or its put to another of the five values. */
-type Edit =
-	| { readonly kind: "delete"; readonly at: number }
-	| { readonly kind: "put"; readonly at: number; readonly to: number }
-
-interface Sketch {
-	readonly values: Arr.NonEmptyReadonlyArray<number>
-	readonly edit: Edit
-}
-
-export const sketchGen: Gen<Sketch> = (source) => {
-	const n = source.draw(int(1, 4))
-	const values = nonEmpty(
-		Arr.map(
-			upTo(n, (i) => i + 1),
-			() => source.draw(element([0, 1, 2, 3, 4] as const))
-		)
-	)
-	const at = source.draw(int(0, n - 1))
-	const from = Arr.getUnsafe(values, at)
-	const edit: Edit =
-		source.draw(element(["delete", "put"] as const)) === "delete"
-			? { kind: "delete", at }
-			: {
-					kind: "put",
-					at,
-					to: source.draw(element(nonEmpty(Arr.filter([0, 1, 2, 3, 4], (v) => v !== from))))
-				}
-	return { values, edit }
-}
 
 export const SpanOwner = relation(
 	"SpanOwner",
@@ -125,12 +55,6 @@ export const SpanEdited = schema(
 	]
 )
 
-/** The counted family's workload: a member's delete and a member's put, each from its call's facts. */
-const editPrograms = Object.freeze({
-	deleteMember: ChangeSet.empty(Edited).delete(Member, []),
-	putMember: ChangeSet.empty(Edited).put(Member, [])
-})
-
 /** The span-keyed owners' workload: their insert with their members, and an owner's put, each from its call's facts. */
 const spanPrograms = Object.freeze({
 	insertOwners: ChangeSet.empty(SpanEdited).insert(SpanOwner, []).insert(SpanMember, []),
@@ -163,18 +87,6 @@ export type SpanFeature =
 	| "a span-keyed owner put in place"
 	| "a span-keyed owner put in place over its family's members"
 	| "a span-keyed owner put in place beside an owner of its id over another span"
-
-export type EditFeature =
-	| `${"delete" | "put"} of ${"the last slot" | "a slot before the last"} applied as the model states`
-	| "a put of the first slot refilled every slot"
-
-export const m = SPEC.monoid
-
-/** How the module's fixture is installed: its label and the programs its login's workload holds. */
-export const editedInstall = Object.freeze({ label: "edits", programs: editPrograms })
-
-/** Edited installed as `grizzle generate` drafts it, once per member: the template every case clones. */
-export const editedTemplate = fixtureTemplate(import.meta, Edited, editedInstall)
 
 /** How the module's fixture is installed: its label and the programs its login's workload holds. */
 export const spannedInstall = Object.freeze({ label: "span_edits", programs: spanPrograms })

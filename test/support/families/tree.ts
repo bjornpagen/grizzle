@@ -169,7 +169,7 @@ const byKey: Order.Order<KeyedRow> = Order.combine(
 )
 
 /** A state's rows in key order, compared as a set. */
-export const canonicalRows = (rows: ReadonlyArray<KeyedRow>): ReadonlyArray<KeyedRow> =>
+const canonicalRows = (rows: ReadonlyArray<KeyedRow>): ReadonlyArray<KeyedRow> =>
 	Arr.sort(rows, byKey)
 
 /**

@@ -15,11 +15,11 @@
  * member keys drawn apart and written out of their order, and each member's value; and the same family with each
  * owner's tag copied onto its members along the owner axis, or without. And one or two trees of one to five nodes,
  * keyed by their root value (doc, page) and start, each under its own root value, two of which may share a doc or a
- * page, stored lawful by a direct writer, then folded by count over each node's children, as NP's fold suite folds it
- * (test/pg/fin/fold.test.ts), and each node's parent's kind copied down the parent axis, the root its own, both added by
- * the migration. And members stored by a vector key that the migration which keys them by their
- * group and a new drawn index keeps as a field, renames or drops, declared: its backfill orders and joins the stored
- * members by that key at the extension's operators, the dropped one's column standing until the migration's removals.
+ * page, stored lawful by a direct writer, then folded by count over each node's children, and each node's parent's
+ * kind copied down the parent axis, the root its own, both added by the migration. And members stored by a vector key
+ * that the migration which keys them by their group and a new drawn index keeps as a field, renames or drops, declared:
+ * its backfill orders and joins the stored members by that key at the extension's operators, the dropped one's column
+ * standing until the migration's removals.
  *
  * Features: an empty family, a family of one and of several, members written out of their key order, tags copied or
  * not; two trees, a root alone, a node of several children, a grandchild; and each fate of a vector key. Each pending situation is aimed at by a case constructed to reach it (a leading owner of a

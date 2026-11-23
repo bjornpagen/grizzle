@@ -1,6 +1,6 @@
 import { Option } from "effect"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
-import { messageText, pgErrorFields } from "#test/support/substrate/errors.ts"
+import { pgErrorFields } from "#test/support/substrate/errors.ts"
 
 /**
  * How an operation under measurement ended, by cause, for the contention gates' lock waits, deadlock rate and
@@ -117,21 +117,6 @@ export const failedAt = (
 	at: "begin" | "deferredChecks" | "commit"
 ): Option.Option<FailedOutcome> =>
 	Option.map(fieldsOf(error), (fields): FailedOutcome => ({ kind: "failed", at, ...fields }))
-
-/**
- * An outcome as a counterexample reads it: committed, rolled back, or the failure where it was raised, with its
- * SQLSTATE, the constraint PostgreSQL named, and its message and DETAIL, a 40001's "Reason code" among them.
- */
-export const outcomeText = (outcome: Outcome): string => {
-	switch (outcome.kind) {
-		case "committed":
-			return "committed"
-		case "rolledBack":
-			return "rolled back"
-		case "failed":
-			return `failed ${outcome.at === "statement" ? `at statement ${outcome.statement}` : `at ${outcome.at}`} with ${outcome.sqlstate}${outcome.constraint.kind === "named" ? ` on ${outcome.constraint.name}` : ""}: ${messageText(outcome)}`
-	}
-}
 
 /** An outcome's key in a tally: `committed`, `rolledBack`, or the failure's cause. */
 export type OutcomeKey = "committed" | "rolledBack" | OutcomeCause
