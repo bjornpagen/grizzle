@@ -82,10 +82,8 @@ export const regexMembershipCompilesTheLargestPatternTheLimitsAdmitAlongADrawnSh
 		needs: { tx: Substrate.transaction },
 		situations: edgeLimits satisfies ReadonlyArray<Reached<EdgeFeature>>,
 		/**
-		 * Its pre-conversion runs, 16 (differential.test.ts at 4fbc3e95), and the steered cases its witnesses need: the
-		 * floor and 3 steered cases reach every limit's edge, 2 do not (measured at TEST_SEED=1 on grizzle 01506d52; the
-		 * witnesses are fixed by the property's identity). The old suite ran 4 coverage cases at that seed; a whole steering
-		 * window of 16 ran 36 cases of about 1.6 CPU-s each a run.
+		 * Its steered cap, the steered cases its witnesses need: its floor and 3 steered cases reach every limit's edge, 2 do
+		 * not (measured at TEST_SEED=1 on grizzle 01506d52; the witnesses are fixed by the property's identity).
 		 */
 		budget: { runs: 13, steered: 3 },
 		show: showGrowth,
