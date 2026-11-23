@@ -795,6 +795,21 @@ export class StatementSharing {
 	}
 
 	/**
+	 * No copy of `shares` reads its carrier from now on: a single statement that held them as parts is built, and a
+	 * statement after it, which reads a later state, lowers each copy anew (write/program/compile.ts).
+	 */
+	uncarry(shares: ReadonlyArray<CarriedShare>): void {
+		for (const share of shares) {
+			this.#sources.delete(share)
+			for (const copy of share.copies) {
+				if (this.#carried.get(copy.id)?.key === share.key) {
+					this.#carried.delete(copy.id)
+				}
+			}
+		}
+	}
+
+	/**
 	 * The condition a restricted share's fill keeps its copy's rows by, over `columns`, the copy's columns as its fill
 	 * reads them: EXISTS a row of its partner, read where every reader reads it, whose paired columns equal the row's
 	 * (ShareRestriction), the equality the readers' regions compare them by; none for a share that holds every row.

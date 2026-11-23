@@ -1413,6 +1413,7 @@ const optimizedPlacement = (
 				for (const x of step.writes) {
 					record(x.action, position)
 				}
+				sharing.uncarry(step.shares)
 				break
 			}
 			case "check": {

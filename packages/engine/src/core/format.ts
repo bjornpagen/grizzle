@@ -203,7 +203,9 @@
  * the contained read's image (analysis/theory/navigate.ts Navigation narrower), then the one keyed at more columns,
  * where format 8 counted keyed columns alone: a judged statement over qti's placed references walks to a reference's
  * child elements and then each expression by its key, never every expression of the reference's item, so its steps
- * move, and the indexes their lookups ask for with them
+ * move, and the indexes their lookups ask for with them. A single statement holds as a part of its own a sub-query
+ * another stratum's member reads too, which the later stratum lowers anew (lower/shapes/share/statements.ts
+ * StatementSharing.uncarry, write/schedule/plan.ts), where format 8 left it inline at each read.
  */
 export const artifactFormat = 8
 

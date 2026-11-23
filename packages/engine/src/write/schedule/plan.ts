@@ -1129,8 +1129,9 @@ export const planWrite = (
 	const supply = new CarrierSupply(evidence.carrierTyping, evidence.carrierScope)
 	/** The strata's statements, the read-backs placed among them below. */
 	const strata: Array<PlanStep> = []
-	/** The nodes each stratum's members reach: a carried copy holds its stratum's starting state, so a node another
-	 * stratum's member also reaches is never carried. */
+	/** The nodes each stratum's members reach: a carrier holds its stratum's starting state, so a node another
+	 * stratum's member also reaches is never carried across statements; a single statement's parts are its own CTEs,
+	 * which no later statement reads (write/program/compile.ts uncarries them), so it holds such a node too. */
 	const reached = chosen.strata.map(({ actions }) => {
 		const seen = new Set<RelNode>()
 		const queue = actions.flatMap((action) =>
@@ -1196,6 +1197,7 @@ export const planWrite = (
 			members.length < 2 ? [] : evidence.shares(members, realization.kind === "single")
 		).filter(
 			(share) =>
+				realization.kind === "single" ||
 				!share.copies.some((copy) => reached.some((nodes, t) => t !== s && nodes.has(copy)))
 		)
 		/** A share restricted by a partner the stratum no longer carries is dropped with it. */
