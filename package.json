@@ -29,7 +29,7 @@
 		"prepare": "effect-tsgo patch",
 		"types": "toolchain-turbo run typecheck --filter=./packages/* --filter=//",
 		"check": "toolchain-turbo run typecheck workspace-gate oxlint format dead-code architecture dedupe load runtime-gate benchmark --filter=./packages/* --filter=// --continue=dependencies-successful",
-		"trunk": "pnpm check && scripts/trunk-tiers.sh",
+		"release": "scripts/release.sh",
 		"typecheck": "toolchain-typecheck -p tsconfig.json",
 		"workspace-gate": "workspace-gate",
 		"oxlint": "toolchain-oxlint-root",
