@@ -9,7 +9,7 @@ import {
 	valueHeading
 } from "#compiler/ir/desc.ts"
 import type { OpenCallArg, OpenExpr } from "#compiler/ir/open.ts"
-import { tokensHeading } from "#compiler/ir/rel.ts"
+import { seriesHeading, tokensHeading } from "#compiler/ir/rel.ts"
 import { tokenPattern } from "#compiler/ir/scalar.ts"
 import { fieldTyping, heading } from "#compiler/query/build/heading.ts"
 import {
@@ -20,7 +20,14 @@ import {
 } from "#compiler/query/build/state.ts"
 import { scalarTerm } from "#compiler/scalar/compute/builders.ts"
 import { spelling } from "#compiler/scalar/compute/spelling.ts"
-import { predicateExpr, type ScalarTerm, termExpr, typed } from "#compiler/scalar/compute/term.ts"
+import {
+	predicateExpr,
+	type ScalarTerm,
+	termExpr,
+	termOf,
+	typed
+} from "#compiler/scalar/compute/term.ts"
+import { exactIntegerDescriptor } from "#compiler/scalar/exact.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
 import { bareEnv, type SqlTag } from "#compiler/scalar/registry.ts"
 import { functionDescOf } from "#compiler/schema/function.ts"
@@ -310,5 +317,49 @@ export const tokensRows = (text: unknown): Built & Headed<typeof tokenCarriers> 
 		tokenCarriers,
 		[],
 		"a text's tokens"
+	)
+}
+
+/**
+ * An end of r.series: a term, a parameter or a typed constant of an integer type, which the checker lowers in the rule's
+ * scope (check/checker.ts Checker.series); a JavaScript value, which has no type of its own and meets no term here, is
+ * refused.
+ */
+const seriesEnd = (value: unknown, label: string) => {
+	const term = termOf(value)
+	if (term === undefined) {
+		throw malformed(
+			label,
+			"a term, a parameter or a typed constant of an integer type, not a JavaScript value"
+		)
+	}
+	return term
+}
+
+/** A series' heading's descriptors: each element, an exact integer, as integer arithmetic counts. */
+const seriesCarriers = Object.freeze({ at: exactIntegerDescriptor })
+
+/**
+ * r.series(low, high): each integer from `low` to `high`, both included, a source a rule matches as it matches a call's
+ * rows, of `seriesHeading`, `at` each integer, an exact integer, none where `low` lies above `high` (ir/rel.ts
+ * CallFunction `series`). Each end is a term of the rule's scope (seriesEnd), and every element lies between the least
+ * value `low` takes and the greatest `high` takes, which a term of the rule reads of it (check/checker.ts
+ * Checker.series).
+ */
+export const seriesRows = (low: unknown, high: unknown): Built & Headed<typeof seriesCarriers> => {
+	const label = "r.series"
+	return callSourceValue(
+		{
+			kind: "series",
+			low: seriesEnd(low, `${label} low`).expr,
+			high: seriesEnd(high, `${label} high`).expr
+		},
+		heading(
+			[[seriesHeading.at, typed(describedField(exactIntegerDescriptor, `${label} at`).scalar)]],
+			[]
+		),
+		seriesCarriers,
+		[],
+		"a series"
 	)
 }

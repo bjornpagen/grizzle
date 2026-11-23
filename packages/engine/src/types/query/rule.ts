@@ -81,6 +81,7 @@ import type {
 	Split
 } from "#compiler/types/evidence/evidence.ts"
 import type {
+	ExactIntegerField,
 	Field,
 	FieldBase,
 	InstantDomain,
@@ -637,6 +638,34 @@ type RuleTokens = <const X extends CallArgs<TokensArgs>["text"]>(
 /** A token split's one argument (RuleTokens): its text, of any text. */
 type TokensArgs = { readonly text: TextField<string> }
 
+/**
+ * Rule.series: each integer from `low` to `high`, both included, a source the rule matches as it matches a call's rows
+ * (CallSource), of SeriesFields, needing what its ends need. Each end is a term, a parameter or a typed constant of an
+ * integer type (SeriesEnd); every element lies between the least value `low` takes and the greatest `high` takes,
+ * which the checker reads of it (check/checker.ts Checker.series), a bound no type here states.
+ */
+type RuleSeries = <const L extends TermBase, const H extends TermBase>(
+	low: L & SeriesEnd<L>,
+	high: H & SeriesEnd<H>
+) => CallSource<
+	FactOfFields<SeriesFields>,
+	BindMapParams<{ readonly low: L; readonly high: H }>,
+	SeriesFields,
+	CallReads<{ readonly low: L; readonly high: H }>
+>
+
+/** The SQL types a series' end is of (RuleSeries): an integer's, a bigint's and an exact integer's. */
+type SeriesSql = "smallint" | "integer" | "bigint" | "exact integer"
+
+/** A series' end (RuleSeries): a term of a SeriesSql type, any other refused by name. */
+type SeriesEnd<X> =
+	SqlOfTerm<X> extends SeriesSql
+		? unknown
+		: Refusal<"an integer for each end of r.series: an integer, bigint or exact integer term, parameter or typed constant">
+
+/** A series' heading (RuleSeries): `at`, each element, an exact integer, as integer arithmetic counts. */
+type SeriesFields = { readonly at: ExactIntegerField }
+
 /** A token split's heading (RuleTokens): each token's place from 0, and the token, a record of carriers. */
 type TokenFields = { readonly at: NaturalField; readonly token: TextField<string> }
 
@@ -723,6 +752,12 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 	 * and split at its spaces, none of a text of whitespace alone (RuleTokens).
 	 */
 	readonly tokens: RuleTokens
+	/**
+	 * Each integer from `low` to `high`, both included, none where `low` lies above `high`, a source the rule matches:
+	 * `at`, each integer, of the ends' common type, every one between the least value `low` takes and the greatest
+	 * `high` takes, which a term of the rule reads of it (RuleSeries).
+	 */
+	readonly series: RuleSeries
 
 	/**
 	 * An equality between a variable and a value fixed per binding fixes the variable, and one between two variables

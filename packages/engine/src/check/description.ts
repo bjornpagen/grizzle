@@ -18,7 +18,7 @@ import {
 	type InferredStage,
 	type Located
 } from "#compiler/ir/desc.ts"
-import { splitArgument } from "#compiler/ir/rel.ts"
+import { seriesArguments, splitArgument } from "#compiler/ir/rel.ts"
 
 export interface StructureOptions {
 	/**
@@ -207,6 +207,10 @@ class Structure {
 				return
 			case "split":
 				this.expr(s.text, vars, interiors, cx, childLoc(loc, splitArgument))
+				return
+			case "series":
+				this.expr(s.low, vars, interiors, cx, childLoc(loc, seriesArguments.low))
+				this.expr(s.high, vars, interiors, cx, childLoc(loc, seriesArguments.high))
 				return
 			case "relation":
 			case "param":

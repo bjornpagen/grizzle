@@ -52,6 +52,8 @@ const spellSource = (source: OpenSource, s: Spellings): SourceDesc => {
 			}
 		case "split":
 			return { kind: "split", split: source.split, text: spellExpr(source.text, s) }
+		case "series":
+			return { kind: "series", low: spellExpr(source.low, s), high: spellExpr(source.high, s) }
 		case "param":
 		case "paramOf":
 		case "relation":

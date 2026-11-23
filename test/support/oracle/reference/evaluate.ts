@@ -25,6 +25,7 @@ import {
 	type NodeOf,
 	type RelDag,
 	type RelNode,
+	seriesArguments,
 	type TextSplit,
 	tokensHeading,
 	type VarDecl
@@ -1092,7 +1093,8 @@ export class Reference {
 	}
 
 	/**
-	 * A call's rows: a split's (`split`); a declared function's by its model (ReferenceInput functions), its rows
+	 * A call's rows: a split's (`split`); a series' (`series`), each integer from its low end to its high end, none where
+	 * the low end lies above the high end, as generate_series yields them; a declared function's by its model (ReferenceInput functions), its rows
 	 * (`declared`) or the rows of a field of its one row (`field`), each a set of rows in the call's heading order, the
 	 * call refused (CallRefused) where the result holds NULL where the call reads it, as the lowering refuses it: a
 	 * row holding NULL; for a field, a row holding NULL at any of its fields, or a NULL row, before the field is read.
@@ -1137,6 +1139,21 @@ export class Reference {
 					throw referenceUnsupported("a split of a value that is no text")
 				}
 				return splits[called.split](value, node.heading)
+			}
+			case "series": {
+				const end = (name: string): bigint => {
+					const a = Option.getOrUndefined(Arr.findFirst(node.args, (x) => x.name === name))
+					const value = a?.kind === "value" ? this.expr(a.expr, scope) : undefined
+					if (typeof value !== "bigint") {
+						throw referenceUnsupported(`a series' ${name} end that is no integer`)
+					}
+					return value
+				}
+				const low = end(seriesArguments.low)
+				const high = end(seriesArguments.high)
+				return Array.from({ length: low > high ? 0 : Number(high - low + 1n) }, (_, i): Row => [
+					low + BigInt(i)
+				])
 			}
 		}
 	}

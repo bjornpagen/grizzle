@@ -161,6 +161,10 @@ class Collector {
 			case "split":
 				this.expr(s.text)
 				return
+			case "series":
+				this.expr(s.low)
+				this.expr(s.high)
+				return
 			case "param":
 				this.inputs.add(`relation parameter ${s.name}`)
 				return

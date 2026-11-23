@@ -121,6 +121,7 @@ export const refusals = [
 	"an immutable owner's family takes an append only beside an insert of its owner in the same stratum: insert the owner with it, or declare it mutable",
 	"an input holds its params and facts, and a paged member's window, alone",
 	"an instant is the database's clock's alone: no parameter, literal, constant, cast, contract or span is of its type",
+	"an integer for each end of r.series: an integer, bigint or exact integer term, parameter or typed constant",
 	"an operation the host evaluates: a contract predicate, a row check and a generated field compute no quot, rem, round, trunc, ceil, floor, gcd, lcm, power, sqrt, widthBucket, minScale, numeric, cosineDistance, textMatches, textRank or textRankCd, and call no declared function",
 	"an ordered family's index is of its count's type",
 	"an ordered family's side is its owner's key, then its drawn index",

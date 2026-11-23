@@ -357,7 +357,7 @@ const env = (
 	const common = commonEnv(vars, emit, params)
 	switch (mode) {
 		case "query":
-			return { ...common, mode, extension: noExtension, functions: () => undefined }
+			return { ...common, mode, held: [], extension: noExtension, functions: () => undefined }
 		case "check":
 			return { ...common, mode }
 	}
@@ -471,6 +471,7 @@ export const typeWith = (
 	const env: TypingEnv<Spelled> = {
 		...names,
 		functions: { kind: "none", why: "a unit typing declares no function" },
+		held: [],
 		analysis: { kind: "analyzed", lookup: patternLanguage, patterns }
 	}
 	const literal = withLiterals(expr, vars)

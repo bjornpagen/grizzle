@@ -438,6 +438,7 @@ class Call {
 					? Result.err(malformedDescription(this.loc, "a field descriptor"))
 					: Result.ok(type)
 			},
+			held: [],
 			analysis: { kind: "unanalyzed" }
 		}
 	}

@@ -11,6 +11,8 @@ import {
 	type CallFunction,
 	type Heading,
 	type NodeOf,
+	seriesArguments,
+	seriesHeading,
 	type TextSplit,
 	tokensHeading
 } from "#compiler/ir/rel.ts"
@@ -573,6 +575,43 @@ const lowerTokens = (node: NodeOf<"Call">, cx: LowerContext, env: Env): OperandS
 	)
 }
 
+/**
+ * A series' call (r.series): each integer from its low end to its high end, both included, none where the low end lies
+ * above the high end.
+ *
+ *   SELECT r3.c3 FROM pg_catalog.generate_series(<low>::<type>, <high>::<type>) AS r3(c3)
+ *
+ * Each end is cast to the element's type's base, the common type the checker gave them, so generate_series is the one
+ * overload of that type; it yields every value from the low end to the high end stepping by 1, each once, so the rows
+ * are a set its one column keys, and none is NULL (an end is never NULL). Each element lies between its row's ends,
+ * which is what a rule reads of it (check/checker.ts Checker.series).
+ */
+const lowerSeries = (node: NodeOf<"Call">, cx: LowerContext, env: Env): OperandSelect => {
+	const end = (name: string): Expr => {
+		const a = node.args.find((x) => x.name === name)
+		if (a?.kind !== "value") {
+			throw defect(`a series' ${name} end, a value argument`)
+		}
+		return cast(lowerExpr(cx, a.expr, env), cx.baseTypeRef(a.type))
+	}
+	const origin = originOf(node)
+	const alias = cx.relationAlias(origin)
+	const element = cx.supply.column(origin)
+	const item: FromSource = {
+		kind: "function",
+		call: call("generate_series", [end(seriesArguments.low), end(seriesArguments.high)]),
+		alias,
+		columns: [element],
+		lateral: false,
+		ordinality: false
+	}
+	const [column, ...more] = node.heading
+	if (column?.name !== seriesHeading.at || more.length > 0) {
+		throw defect("a series' heading, its element")
+	}
+	return select(keyedSet([target(col(alias, element))], [item], undefined, "a series' rows"))
+}
+
 /** Each split's rows (ir/rel.ts TextSplit): a token split's (lowerTokens). */
 const splitLowerings: {
 	readonly [K in TextSplit]: (node: NodeOf<"Call">, cx: LowerContext, env: Env) => OperandSelect
@@ -592,6 +631,8 @@ const lowerCall: NodeLowerer<"Call"> = (node, cx, env) => {
 			return lowerField(node, called, cx, env)
 		case "split":
 			return splitLowerings[called.split](node, cx, env)
+		case "series":
+			return lowerSeries(node, cx, env)
 	}
 }
 

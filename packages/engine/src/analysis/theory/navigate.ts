@@ -1009,6 +1009,7 @@ class Navigator {
 			case "call":
 			case "callField":
 			case "split":
+			case "series":
 			case "interior":
 			case "self":
 			case "delta":
@@ -1569,6 +1570,7 @@ class Navigator {
 			case "call":
 			case "callField":
 			case "split":
+			case "series":
 			case "interior":
 			case "self":
 			case "delta":

@@ -147,6 +147,7 @@ const loweredType = (desc: (name: (v: Var) => string) => ExprDesc): ScalarType =
 	const node = NodeId("a generated term's input")
 	const env: LowerEnv = {
 		mode: "query",
+		held: [],
 		functions: () => undefined,
 		loc: SourceLoc("a generated scalar term", []),
 		closed: noClosedRelations("a generated term reads no closed relation"),

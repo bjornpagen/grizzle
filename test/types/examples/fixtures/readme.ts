@@ -1375,9 +1375,14 @@ export const purge = ChangeSet.empty(Blog)
 /** README: "A window a put extends". */
 const LearnerId = contract("LearnerId", pg.integer)
 const StageKey = contract("StageKey", pg.bigint)
-/** Microseconds on the database's clock, a window's ends; a reading is one below the top, so it ends a window too. */
-const Moment = contract("Moment", pg.bigint, (t) => Num.within(t, 0n, 2n ** 62n))
-const Reading = contract("Reading", pg.bigint, (t) => Num.within(t, 0n, 2n ** 62n - 1n))
+/**
+ * Microseconds on the database's clock, a window's ends, up to 10000-01-01, after which no day a date holds begins; a
+ * reading is one below the top, so it ends a window too.
+ */
+const Moment = contract("Moment", pg.bigint, (t) => Num.within(t, 0n, 253_402_300_800_000_000n))
+const Reading = contract("Reading", pg.bigint, (t) =>
+	Num.within(t, 0n, 253_402_300_800_000_000n - 1n)
+)
 
 export const Presence = relation(
 	"Presence",

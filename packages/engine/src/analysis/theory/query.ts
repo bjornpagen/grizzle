@@ -814,6 +814,8 @@ class Flattener {
 				return this.#refuse(relation, `${verb} a declared function's rows`)
 			case "split":
 				return this.#refuse(relation, `${verb} a text's split, which only a unit-local rule reads`)
+			case "series":
+				return this.#refuse(relation, `${verb} a series, which only a unit-local rule reads`)
 			case "interior":
 			case "self":
 			case "delta":
@@ -1592,6 +1594,7 @@ const liveQuery = (query: InferredQuery, live: LiveReading): InferredQuery => {
 					args: mapRecord(s.args, (a) => (a.kind === "rows" ? liveImport(a) : a))
 				}
 			case "split":
+			case "series":
 			case "param":
 			case "paramOf":
 			case "interior":

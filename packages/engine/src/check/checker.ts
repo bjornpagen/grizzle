@@ -71,6 +71,7 @@ import {
 import { deliverySpine, relNode } from "#compiler/ir/dag.ts"
 import {
 	bindTerms,
+	exprChildren,
 	descText,
 	type FieldDesc,
 	functionTypeLabel,
@@ -115,6 +116,8 @@ import {
 	type ProducerKind,
 	type RelNode,
 	semiJoinRight,
+	seriesArguments,
+	seriesHeading,
 	splitArgument,
 	type TakeBound,
 	type TextSplit,
@@ -124,6 +127,7 @@ import {
 } from "#compiler/ir/rel.ts"
 import {
 	baseOf,
+	type Carrier,
 	isFloat,
 	languageOctets,
 	languageWithin,
@@ -141,6 +145,7 @@ import {
 	returnsInput,
 	unaryOverload
 } from "#compiler/scalar/aggregate.ts"
+import { type Bounds, seriesBounds } from "#compiler/scalar/compute/bounds.ts"
 import { bareLiteralKind } from "#compiler/scalar/compute/literal.ts"
 import {
 	type LowerEnv,
@@ -161,6 +166,8 @@ import { type Typing, typed, untyped } from "#compiler/scalar/compute/term.ts"
 import {
 	anyNumeric,
 	compatible,
+	exactType,
+	familyDigits,
 	isComputedNumeric,
 	literalNumeric,
 	meetingType,
@@ -171,6 +178,7 @@ import {
 import {
 	adoptedType,
 	type ClosedRelations,
+	type HeldLeaf,
 	type LeafDesc,
 	type LowerParams,
 	noClosedRelations,
@@ -2255,6 +2263,68 @@ export class Checker {
 				return this.#callFieldSource(src, loc, bind)
 			case "split":
 				return this.#splitSource(src, loc, bind)
+			case "series":
+				return fail(
+					"UnsupportedOperation",
+					loc,
+					"r.series as a relational filter's source: a series is a match of its rule, its element between its ends; compare a value with the ends instead"
+				)
+		}
+	}
+
+	/**
+	 * A series (r.series), a call of grizzle's series (CallFunction `series`): each integer from its low end to its high
+	 * end, both included, none where the low end lies above the high end. Each end is a term of the scope the match
+	 * stands in, lowered there (`lower`) and of an integer type; the element `at` is an exact integer of the wider end's
+	 * digits, as integer arithmetic computes one, and lies between the least value the low end takes and the greatest
+	 * the high end takes (seriesBounds), which the rule
+	 * holds of every variable bound to it (typing.ts HeldLeaf): a fact of every row the series delivers, wherever a
+	 * term reads it, so no filter is a premise of it.
+	 */
+	series(
+		src: Extract<ResolvedSource, { readonly kind: "series" }>,
+		loc: SourceLoc,
+		lower: (e: ResolvedExpr, at: SourceLoc) => Lowered
+	): { readonly node: RelNode; readonly element: Bounds } {
+		const end = (e: ResolvedExpr, name: string): Lowered => {
+			const at = childLoc(loc, name)
+			const term = lower(e, at)
+			if (!seriesCarriers.has(baseOf(term.nominal).carrier)) {
+				return fail(
+					"MalformedDescription",
+					at,
+					`an integer for r.series' ${name} end, an integer, bigint or exact integer term; it is ${typeLabel(term.nominal)}`
+				)
+			}
+			return term
+		}
+		const low = end(src.low, seriesArguments.low)
+		const high = end(src.high, seriesArguments.high)
+		const type = exactType(
+			"exactInteger",
+			Math.max(
+				defined(familyDigits(low.nominal), "an integer's digits"),
+				defined(familyDigits(high.nominal), "an integer's digits")
+			)
+		)
+		const node = this.node(
+			{
+				kind: "Call",
+				function: { kind: "series" },
+				args: [
+					{ kind: "value", name: seriesArguments.low, expr: low.expr, type },
+					{ kind: "value", name: seriesArguments.high, expr: high.expr, type }
+				],
+				heading: [{ name: seriesHeading.at, type }]
+			},
+			loc
+		)
+		return {
+			node,
+			element: seriesBounds(
+				defined(low.bounds, "an integer term's bounds"),
+				defined(high.bounds, "an integer term's bounds")
+			)
 		}
 	}
 
@@ -3070,11 +3140,13 @@ export class Checker {
 			cell: ParamCell,
 			loc: SourceLoc
 		) => { readonly name: string; readonly type: ScalarType },
-		reads: ExprReading
+		reads: ExprReading,
+		held: ReadonlyArray<HeldLeaf>
 	): QueryEnv {
 		return {
 			mode: "query",
 			loc,
+			held,
 			closed: reads === "filter" ? this.schema.closedReads : deliveredValue,
 			functions: (name) => this.schema.owned.functions[name],
 			emit: (spec) => this.emit(spec),
@@ -3430,8 +3502,22 @@ const sourceLabel = (src: ResolvedSource): string => {
 			return `the rows of field ${src.field} of function ${src.function}`
 		case "split":
 			return `the ${src.split} of a text`
+		case "series":
+			return "a series"
 	}
 }
+
+/** The rule variables a term reads, at any depth of it. */
+const readVars = (e: ResolvedExpr): ReadonlyArray<string> =>
+	e.kind === "var" ? [e.var] : exprChildren(e).flatMap((c) => readVars(c.term))
+
+/** The carriers a series' ends are of (Checker.series): an integer's, a bigint's and an exact integer's. */
+const seriesCarriers: ReadonlySet<Carrier> = new Set<Carrier>([
+	"int2",
+	"int4",
+	"int8",
+	"exactInteger"
+])
 
 /** One rule: its region, filters, negations and head. */
 class RuleCheck {
@@ -3459,6 +3545,11 @@ class RuleCheck {
 	readonly #needed = new Set<VarId>()
 	readonly names = new Set<string>()
 	#occurrences: ReadonlyArray<PendingOccurrence> = []
+	/**
+	 * The variables a series' element is bound to, each by its id, with the element's bounds (Checker.series): what
+	 * every term of the rule holds of it (typing.ts HeldLeaf).
+	 */
+	#elements: ReadonlyArray<{ readonly id: string; readonly bounds: Bounds }> = []
 	/** The region's occurrences, each beside the match it was resolved from, in match order, once the region is defined. */
 	#defined: ReadonlyArray<{
 		readonly pending: PendingOccurrence
@@ -3746,9 +3837,7 @@ class RuleCheck {
 	#matches(): void {
 		const pending = this.rule.matches.map((match, index) => ({ match, index }))
 		const waiting = (m: ResolvedMatch): ReadonlyArray<string> =>
-			bindTerms(m.source).flatMap(([, e]) =>
-				e.kind === "var" && this.#unbound(e.var) ? [e.var] : []
-			)
+			bindTerms(m.source).flatMap(([, e]) => readVars(e).filter((x) => this.#unbound(x)))
 		while (isNonEmpty(pending)) {
 			const [p] = pending
 			const found = pending.find((q) => waiting(q.match).length === 0)
@@ -3763,13 +3852,17 @@ class RuleCheck {
 			pending.splice(pending.indexOf(ready), 1)
 			const { match, index } = ready
 			const loc = match.loc
-			const source = this.cx.source(
-				match.source,
-				this.scope,
-				this.rule.interiors,
-				loc,
-				(term, param, at) => this.#bindValue(term, param, at, this.region)
-			)
+			const series =
+				match.source.kind === "series"
+					? this.cx.series(match.source, loc, (e, at) =>
+							unwrap(lowerTerm(e, this.env(this.region, at, "value")))
+						)
+					: undefined
+			const source =
+				series?.node ??
+				this.cx.source(match.source, this.scope, this.rule.interiors, loc, (term, param, at) =>
+					this.#bindValue(term, param, at, this.region)
+				)
 			const narrowed = this.#narrow(source, match.bindings, loc)
 			const heading = narrowed.heading
 			const bindings = entries(match.bindings).flatMap(([column, e]) => {
@@ -3780,7 +3873,16 @@ class RuleCheck {
 					childLoc(childLoc(loc, "bindings"), column)
 				)
 				if (e.kind === "var") {
-					return [this.#bindUser(e.var, this.#reservedSlot(e.var, childLoc(loc, column)), col, loc)]
+					const bound = this.#bindUser(
+						e.var,
+						this.#reservedSlot(e.var, childLoc(loc, column)),
+						col,
+						loc
+					)
+					if (series !== undefined && column === seriesHeading.at) {
+						this.#elements = [...this.#elements, { id: e.var, bounds: series.element }]
+					}
+					return [bound]
 				}
 				return e.kind === "parent"
 					? [this.#bindParent(this.#parentSlot(e.column, loc), col, loc)]
@@ -4042,7 +4144,11 @@ class RuleCheck {
 	}
 
 	env(node: NodeId, loc: SourceLoc, reads: ExprReading): QueryEnv {
-		return this.cx.env(node, loc, this.#leaf, this.scope, this.#paramColumn, reads)
+		const held = this.#elements.map((e): HeldLeaf => {
+			const slot = this.#userSlot(e.id, loc)
+			return { leaf: storedColumn(node, slot.name, this.slotType(slot)), bounds: e.bounds }
+		})
+		return this.cx.env(node, loc, this.#leaf, this.scope, this.#paramColumn, reads, held)
 	}
 
 	/**

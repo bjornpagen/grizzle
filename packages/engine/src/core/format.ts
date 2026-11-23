@@ -233,7 +233,14 @@
  * changes of what they hold riding its number (a constant recorded with no language before 56f26ca01), so a reader that
  * trusted a sealed record of 3 met shapes it never wrote; every one is refused here.
  *
- * Pending, for the next format, which grizzle main bumps once for the batch: a chain of steps reads first, of two
+ * Pending, for the next format, which grizzle main bumps once for the batch: a rule matches r.series(low, high), a
+ * call of grizzle's series (ir/rel.ts CallFunction `series`, a Description source of kind `series`), each integer from
+ * its low end to its high end, printed as generate_series, its element read within the least value its low end takes
+ * and the greatest its high end takes; GREATEST is stated within its operands' greater least and greater greatest values
+ * and LEAST within their lesser, and an exact integer's division by a divisor of one sign within the quotients of the
+ * operands' ends (scalar/compute/bounds.ts greatestBounds, leastBounds, quotientBounds), where format 8 stated their
+ * hull and the dividend's digits, so a term over them is typed narrower, an exact integer's digits and the casts and
+ * domain casts its bounds prove with it. A chain of steps reads first, of two
  * lookups, one bound at a key of its relation, then, of two relations one is contained in over every row, the contained
  * read keyed at more columns than its image in the container, or else the container's lookup keyed at more columns than
  * the contained read's image (analysis/theory/navigate.ts Navigation narrower), then the one keyed at more columns,

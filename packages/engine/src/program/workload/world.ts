@@ -82,6 +82,8 @@ export const inlineWorlds = (query: QueryDesc, role: CheckedSchema): QueryDesc =
 				}
 			case "split":
 				return { ...s, text: expr(s.text) }
+			case "series":
+				return { ...s, low: expr(s.low), high: expr(s.high) }
 			case "param":
 			case "paramOf":
 			case "interior":

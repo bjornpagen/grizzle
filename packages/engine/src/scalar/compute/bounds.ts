@@ -297,7 +297,101 @@ const highest = (a: Edge & { readonly kind: "at" }, b: Edge & { readonly kind: "
 	return c > 0 ? a : c < 0 ? b : at(a.value, a.open && b.open)
 }
 
-/** The values of either branch of a conditional, or of any operand of LEAST and GREATEST: their hull. */
+/**
+ * The values of GREATEST over operands of bounds `a` and `b`: at least the higher of their least values and at most the
+ * higher of their greatest, NaN where either may be NaN, which PostgreSQL orders above every other value. Its low end is
+ * open where either operand's is open at it, since the greater operand then lies above it; its high end only where both
+ * are.
+ */
+export const greatestBounds = (a: Bounds, b: Bounds): Bounds =>
+	bounds(
+		tighterLow(a.low, b.low),
+		a.high.kind === "infinite" || b.high.kind === "infinite" ? infinite : highest(a.high, b.high),
+		a.nan || b.nan,
+		Math.max(a.digits, b.digits),
+		Math.max(a.scale, b.scale)
+	)
+
+/**
+ * The values of LEAST over operands of bounds `a` and `b`: at least the lower of their least values and at most the
+ * lower of their greatest, an operand that may be NaN read as unbounded above, since NaN lies above every other value
+ * and LEAST then takes the other; NaN only where both may be. Its high end is open where either operand's is open at it,
+ * its low end only where both are.
+ */
+export const leastBounds = (a: Bounds, b: Bounds): Bounds =>
+	bounds(
+		a.low.kind === "infinite" || b.low.kind === "infinite" ? infinite : lowest(a.low, b.low),
+		tighterHigh(a.nan ? infinite : a.high, b.nan ? infinite : b.high),
+		a.nan && b.nan,
+		Math.max(a.digits, b.digits),
+		Math.max(a.scale, b.scale)
+	)
+
+/**
+ * The one-sided refinements that cut an interval to `b`'s ends: at least its low end and at most its high end, each where
+ * it is finite, an infinite end cutting nothing.
+ */
+export const refinementsOf = (b: Bounds): ReadonlyArray<Refinement> => [
+	...(b.low.kind === "at"
+		? [{ kind: "atLeast", value: b.low.value, open: b.low.open } as const]
+		: []),
+	...(b.high.kind === "at"
+		? [{ kind: "atMost", value: b.high.value, open: b.high.open } as const]
+		: [])
+]
+
+/**
+ * The values of a series from an end of bounds `low` to one of `high` (r.series): every element lies between the ends
+ * of its own row, so at least the least value the low end takes and at most the greatest the high end takes; the low
+ * end's greatest value and the high end's least bound nothing, where an element lies between them or there is none. An
+ * integer, so never NaN, its digits the wider end's.
+ */
+export const seriesBounds = (low: Bounds, high: Bounds): Bounds =>
+	bounds(low.low, high.high, false, Math.max(low.digits, high.digits), 0)
+
+/** The least integer an interval's low edge admits: its value rounded up, past it where the edge is open there. */
+const leastInteger = (e: Edge & { readonly kind: "at" }): bigint => {
+	const up = -floorOfExact(negExact(e.value))
+	return e.open && compareExact(exactOf(up, 0), e.value) === 0 ? up + 1n : up
+}
+
+/** The greatest integer an interval's high edge admits: its value rounded down, below it where the edge is open there. */
+const greatestInteger = (e: Edge & { readonly kind: "at" }): bigint => {
+	const down = floorOfExact(e.value)
+	return e.open && compareExact(exactOf(down, 0), e.value) === 0 ? down - 1n : down
+}
+
+/**
+ * The values of an integer quotient truncated toward zero (an exact integer's division, PostgreSQL's div over numeric)
+ * of a dividend of bounds `a` by a divisor of bounds `b` whose every value lies on one side of zero: between the least
+ * and the greatest of the quotients of their ends, since for a divisor of one sign the quotient moves monotonically
+ * with each operand and truncation toward zero keeps that order. Undefined where an end is infinite, where either may be
+ * NaN, or where the divisor's values reach zero, which leaves the quotient as large as the dividend.
+ */
+export const quotientBounds = (a: Bounds, b: Bounds): Bounds | undefined => {
+	if (
+		a.low.kind === "infinite" ||
+		a.high.kind === "infinite" ||
+		b.low.kind === "infinite" ||
+		b.high.kind === "infinite" ||
+		a.nan ||
+		b.nan
+	) {
+		return undefined
+	}
+	const [x0, x1] = [leastInteger(a.low), greatestInteger(a.high)]
+	const [y0, y1] = [leastInteger(b.low), greatestInteger(b.high)]
+	if (x0 > x1 || y0 > y1 || (y0 <= 0n && y1 >= 0n)) {
+		return undefined
+	}
+	const corners = [x0 / y0, x0 / y1, x1 / y0, x1 / y1]
+	const low = corners.reduce((m, q) => (q < m ? q : m))
+	const high = corners.reduce((m, q) => (q > m ? q : m))
+	const digits = Math.max(digitsOfExact(exactOf(low, 0)), digitsOfExact(exactOf(high, 0)))
+	return ofRange(low, high, digits)
+}
+
+/** The values of either branch of a conditional: their hull. */
 export const hullBounds = (a: Bounds, b: Bounds): Bounds =>
 	bounds(
 		a.low.kind === "infinite" || b.low.kind === "infinite" ? infinite : lowest(a.low, b.low),

@@ -49,7 +49,13 @@ import type { CalendarDate } from "#compiler/ir/date.ts"
 import { decimalTag, isDecimalPayload } from "#compiler/ir/decimal.ts"
 import type { PatternValue } from "#compiler/ir/pattern.ts"
 import { type Fact, factNames, factsSorted } from "#compiler/ir/proof.ts"
-import { type DeltaSide, splitArgument, type TextSplit, textSplits } from "#compiler/ir/rel.ts"
+import {
+	type DeltaSide,
+	seriesArguments,
+	splitArgument,
+	type TextSplit,
+	textSplits
+} from "#compiler/ir/rel.ts"
 import {
 	calendarDateShape,
 	patternValueShape,
@@ -734,6 +740,11 @@ export const bindTerms = <L, R extends Refs>(
 			)
 		case "split":
 			return [[splitArgument, s.text]]
+		case "series":
+			return [
+				[seriesArguments.low, s.low],
+				[seriesArguments.high, s.high]
+			]
 		case "relation":
 		case "param":
 		case "paramOf":
@@ -870,6 +881,8 @@ export const mapBindTerms = <L, R extends Refs>(
 			}
 		case "split":
 			return { ...s, text: f(s.text) }
+		case "series":
+			return { ...s, low: f(s.low), high: f(s.high) }
 		case "relation":
 		case "param":
 		case "paramOf":
@@ -1035,6 +1048,18 @@ export type SourceDesc<L = Located, R extends Refs = Spelled> =
 			readonly kind: "split"
 			readonly split: TextSplit
 			readonly text: ExprDesc<L, R>
+	  }
+	| {
+			/**
+			 * r.series(low, high): each integer from `low` to `high`, both included, a fact of `seriesHeading` each,
+			 * none where `low` lies above `high`. Each end is a term of the scope the match stands in, of an integer type,
+			 * computed from its variables, parameters and constants, so the facts are a function of the binding the match
+			 * stands at, and every one lies between the least value `low` takes and the greatest `high` takes, which a
+			 * term of the rule reads of it (check/checker.ts, typing.ts HeldLeaf).
+			 */
+			readonly kind: "series"
+			readonly low: ExprDesc<L, R>
+			readonly high: ExprDesc<L, R>
 	  }
 	| { readonly kind: "interior"; readonly id: R["interior"] }
 	| { readonly kind: "self" }
@@ -2331,6 +2356,8 @@ class ParamWalk<P extends object, T> {
 				})
 			case "split":
 				return this.kept(s, { kind: "split", split: s.split, text: this.expr(s.text) })
+			case "series":
+				return this.kept(s, { kind: "series", low: this.expr(s.low), high: this.expr(s.high) })
 			case "relation":
 			case "interior":
 			case "self":
@@ -2505,6 +2532,10 @@ class ParamReads<T> {
 				return
 			case "split":
 				this.expr(s.text)
+				return
+			case "series":
+				this.expr(s.low)
+				this.expr(s.high)
 				return
 			case "relation":
 			case "interior":
@@ -3208,6 +3239,10 @@ const sourceDescBody: S.Shape<SourceDesc> = S.tagged("kind", {
 	split: S.struct({
 		split: S.literalsShape(textSplits),
 		text: S.ref("an expression", () => exprDescShape)
+	}),
+	series: S.struct({
+		low: S.ref("an expression", () => exprDescShape),
+		high: S.ref("an expression", () => exprDescShape)
 	}),
 	interior: S.struct({ id: name }),
 	self: S.struct({}),

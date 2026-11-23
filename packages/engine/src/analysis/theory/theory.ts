@@ -927,7 +927,10 @@ export const ruleViolation = (
 const readsStable = (dag: ValidDag): boolean =>
 	topoOrder(dag).some(
 		(n) =>
-			(n.kind === "Call" && n.function.kind !== "split" && n.function.volatility !== "immutable") ||
+			(n.kind === "Call" &&
+				n.function.kind !== "split" &&
+				n.function.kind !== "series" &&
+				n.function.volatility !== "immutable") ||
 			exprsOf(n).some((e) => e.volatility === "stable")
 	)
 

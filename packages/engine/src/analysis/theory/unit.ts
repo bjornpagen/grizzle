@@ -451,6 +451,7 @@ const sourceUnit = (
 			return vars instanceof NotLocal ? vars : { unit: { kind: "vars", vars }, source }
 		}
 		case "split":
+		case "series":
 			return { unit: { kind: "none" }, source }
 		case "call":
 		case "callField": {

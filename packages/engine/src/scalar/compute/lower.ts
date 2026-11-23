@@ -89,6 +89,7 @@ import {
 	contractLevels,
 	type ExtensionDesc,
 	factsOfType,
+	type HeldLeaf,
 	type LeafDesc,
 	literalComparison,
 	nodeLiteral,
@@ -239,6 +240,8 @@ interface LowerCommon<R extends Refs> {
 export type LowerEnv<R extends Refs = Spelled> =
 	| (LowerCommon<R> & {
 			readonly mode: "query"
+			/** What the query's site proves of its leaves beyond their types (typing.ts HeldLeaf). */
+			readonly held: ReadonlyArray<HeldLeaf>
 			readonly extension: LowerExtension<R>
 			/** The declared functions of the query's schema, by name, which a Fn.call term calls. */
 			readonly functions: (name: string) => CallableFunction | undefined
@@ -259,6 +262,7 @@ const typingEnvOf = <R extends Refs>(env: LowerEnv<R>): TypingEnv<R> => ({
 					kind: "none",
 					why: "PostgreSQL alone evaluates a declared function, and the host evaluates a check, a contract predicate and a generated field"
 				},
+	held: env.mode === "query" ? env.held : [],
 	analysis: { kind: "analyzed", lookup: env.patternLanguage, patterns: env.patterns }
 })
 

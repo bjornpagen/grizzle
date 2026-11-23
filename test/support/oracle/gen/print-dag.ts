@@ -187,6 +187,8 @@ const calledName = (called: CallFunction): string => {
 			return `${called.name}.${called.field}`
 		case "split":
 			return called.split
+		case "series":
+			return "series"
 	}
 }
 

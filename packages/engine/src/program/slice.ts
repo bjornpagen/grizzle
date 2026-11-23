@@ -382,6 +382,7 @@ class Slice {
 				}
 				return undefined
 			case "split":
+			case "series":
 			case "self":
 			case "delta":
 			case "context":

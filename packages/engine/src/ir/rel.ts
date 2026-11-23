@@ -864,9 +864,22 @@ export type CallFunction =
 			readonly row: NonEmptyReadonlyArray<string>
 	  } & CalledFunction)
 	| { readonly kind: "split"; readonly split: TextSplit }
+	| { readonly kind: "series" }
 
 /** The one argument of a split (CallFunction `split`): the text it splits. */
 export const splitArgument = "text"
+
+/**
+ * The two arguments of a series (CallFunction `series`, r.series): its low end and its high end, each included, each a
+ * term of an integer type of the scope the match stands in.
+ */
+export const seriesArguments = { low: "low", high: "high" } as const
+
+/**
+ * A series' heading (CallFunction `series`): `at`, each integer from its low end to its high end, none where the low end
+ * lies above the high end, PostgreSQL's generate_series(low, high).
+ */
+export const seriesHeading = { at: "at" } as const
 
 /** A token split's heading (TextSplit `tokens`): each token's place among them, from 0, and the token. */
 export const tokensHeading = { at: "at", token: "token" } as const

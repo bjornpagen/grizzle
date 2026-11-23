@@ -102,7 +102,9 @@ import {
 	type FactSet,
 	floorOfExact,
 	finiteEnds,
+	greatestBounds,
 	hullBounds,
+	leastBounds,
 	magnitudeAtLeast,
 	minus,
 	mulBounds,
@@ -115,9 +117,11 @@ import {
 	ofRange,
 	ofSpecial,
 	pointOf,
+	quotientBounds,
 	type Refinement,
 	boundsHave,
 	refine,
+	refinementsOf,
 	scaleOfExact,
 	significantRound,
 	subBounds
@@ -501,8 +505,34 @@ const derivedLanguage = (
 }
 
 /**
+ * What a site proves of every value of one of its leaves beyond the leaf's type, which every term typed there holds of
+ * each occurrence of it (an `occurrences` WhenScope): a rule's series element lies between its endpoints, at least the
+ * least value its low endpoint takes and at most the greatest its high endpoint takes (check/checker.ts), a fact of
+ * every row its source delivers. Never what a filter tests, which may be evaluated anywhere
+ * (lower/optimize/pushdown), so a leaf's values are those its source delivers wherever a term reads it.
+ */
+export interface HeldLeaf {
+	readonly leaf: ExprSpec
+	readonly bounds: Bounds
+}
+
+/** The scope a site's held leaves give every term typed there: each leaf's every occurrence cut to its bounds. */
+const heldScope = (held: ReadonlyArray<HeldLeaf>): ReadonlyArray<WhenScope> =>
+	held.flatMap((h) =>
+		refinementsOf(h.bounds).map((refinement): WhenScope => ({
+			kind: "occurrences",
+			holds: {
+				kind: "facts",
+				subject: { kind: "stated", spec: leafSpec(h.leaf) },
+				refinement,
+				facts: []
+			}
+		}))
+	)
+
+/**
  * What a typing reads besides its description: where it stands for diagnostics, what its leaves, parameters,
- * descriptors and closed reads name, and its text analysis.
+ * descriptors and closed reads name, what the site holds of its leaves (HeldLeaf), and its text analysis.
  */
 export interface TypingEnv<R extends Refs> {
 	/** The source location of the expression, the prefix of every diagnostic. */
@@ -516,6 +546,8 @@ export interface TypingEnv<R extends Refs> {
 	readonly closed: ClosedRelations
 	/** The declared functions Fn.call calls (DeclaredFunctions). */
 	readonly functions: DeclaredFunctions
+	/** What the site proves of its leaves beyond their types: none but a rule's series elements. */
+	readonly held: ReadonlyArray<HeldLeaf>
 	readonly analysis: TextAnalysis
 }
 
@@ -4312,9 +4344,10 @@ class Typing<R extends Refs> {
 				const converted = all.map((x) => this.convert(x, type, here))
 				const op = this.commonOp(desc.fn, type, here)
 				const [head, ...tail] = converted
+				const combined = desc.fn === "least" ? leastBounds : greatestBounds
 				const bounds = tail.reduce<Bounds | undefined>(
 					(acc, x) =>
-						acc === undefined || x.bounds === undefined ? undefined : hullBounds(acc, x.bounds),
+						acc === undefined || x.bounds === undefined ? undefined : combined(acc, x.bounds),
 					head?.bounds
 				)
 				return this.emitAt(
@@ -4529,7 +4562,10 @@ class Typing<R extends Refs> {
 			const a = this.widenExact(a0, "exactInteger", at)
 			const b = this.widenExact(b0, "exactInteger", at)
 			const op = this.overload("div", [a.actual, b.actual], at)
-			const bounds = ofDigits(this.boundsOf(a, at).digits, 0, { infinite: false, nan: false })
+			const dividend = this.boundsOf(a, at)
+			const bounds =
+				(b.bounds === undefined ? undefined : quotientBounds(dividend, b.bounds)) ??
+				ofDigits(dividend.digits, 0, { infinite: false, nan: false })
 			return this.nativeJudged(
 				op,
 				[a, b],
@@ -5205,7 +5241,7 @@ const typed = <R extends Refs>(
 ): Result.Result<TermTyping<R>, CompileError> => {
 	const tape: Array<TapeEntry<R>> = []
 	return Result.map(
-		catchRefusal(() => f(new Typing(env, [], tape))),
+		catchRefusal(() => f(new Typing(env, heldScope(env.held), tape))),
 		(root): TermTyping<R> => ({ root, tape })
 	)
 }
@@ -5279,7 +5315,7 @@ export const typeWithin = <R extends Refs>(
 ): Result.Result<TermTyping<R>, CompileError> => {
 	const tape: Array<TapeEntry<R>> = []
 	return Result.map(
-		catchRefusal(() => new Typing(env, scope, tape).lower(desc, at)),
+		catchRefusal(() => new Typing(env, [...heldScope(env.held), ...scope], tape).lower(desc, at)),
 		(root): TermTyping<R> => ({ root, tape })
 	)
 }

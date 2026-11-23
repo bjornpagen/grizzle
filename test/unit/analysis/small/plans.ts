@@ -254,6 +254,7 @@ const wholeMatches = (matches: RuleDesc["matches"]): boolean =>
 			case "call":
 			case "callField":
 			case "split":
+			case "series":
 			case "context":
 			case "delta":
 			case "interior":
