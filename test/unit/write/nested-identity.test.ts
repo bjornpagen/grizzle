@@ -1,9 +1,8 @@
 /**
  * A nested write's identities are structural (write/family/nesting.ts NestedSet): a row's identity is its filled
  * columns' texts themselves, and a fact's signature its own texts and the rows it nests, each row the set's one token,
- * never one text joined from their contents. A lawful write whose texts sum past the longest string V8 holds binds
- * (test/pg/write/nested-identity.test.ts keeps that case on PostgreSQL); here the search holds the representation to
- * that at every content length.
+ * never one text joined from their contents. A lawful write whose texts sum past the longest string V8 holds binds;
+ * here the search holds the representation to that at every content length.
  *
  * The schema is the downstream case's shape: an owner with a caller's title and an ordered family of members, each a
  * body of letters. A case draws one to three owner facts of two ids and two titles, each nesting up to two bodies of

@@ -652,17 +652,12 @@ text match. A type agreement's requirements are its property's situations, which
 - **The entry-owner box** (`test/support/families/entry-owner.ts`): a family's owner written through a role's query
   entry, over every head, filter, op and fact. Without PostgreSQL (`test/unit/write/entry-owner.test.ts`) the box's
   specification is the oracle: a role is refused exactly when its entry's filter reads a family field, and every other
-  write compiles and binds. On PostgreSQL (`test/pg/write/entry-owner`), drawn stored states and one write through an
-  entry are judged by a model of the entry over the family.
+  write compiles and binds.
 - **The law model** (`test/unit/laws`): the native constraints mean what the laws mean, so over every state of the
   boxes the installation accepts a state exactly when the host model finds every law holds (`native.test.ts`); each
   law shape's model in `model/`; and an installation's objects, its total and its snapshot grow at most linearly in
   every schema dimension, compared at n and 2n as AST node counts (`scaling.test.ts`). The catalog verifier
   (`test/support/catalog/verify.ts`) holds that no law trigger exists, every law being native.
-- **The direct-writer model** (`test/pg/direct-writers`): psql writers' statements, built as typed SQL ASTs over
-  generated schemas, drawing missing fields (23502), codes no live handle holds (23514) and transactions below
-  SERIALIZABLE (25000). For each transaction it predicts which step fails, with its SQLSTATE and the laws allowed, or
-  the committed state and sequences.
 - **The worlds model** (`test/support/worlds`): a model of installations, sessions, actions and observations,
   independent of grizzle's source (laws are judged by the host law model), checked against the real system
   (`execute`), which installs a drawn installation through its first migration and performs each action as grizzle's

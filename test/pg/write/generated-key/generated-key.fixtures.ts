@@ -1,4 +1,4 @@
-/** What the properties of generated-key.test.ts read: the Keys and Labels schemas and templates, their spaces, and each case. */
+/** What the property of generated-key.test.ts reads: the Keys schema and template, its space, and each case. */
 import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	array,
@@ -31,12 +31,10 @@ import {
 	contained,
 	fin,
 	key,
-	login,
 	mutable,
 	on,
 	ordered,
 	relation,
-	role,
 	schema,
 	select
 } from "#compiler/public/schema.ts"
@@ -45,8 +43,7 @@ import { type ParamMap } from "#compiler/types/core/phantom.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import { fixtureTemplate, openedIn } from "#test/pg/reads/support.ts"
 import { writeAnswerOf, rowsOf, writeOnce } from "#test/support/calls.ts"
-import { type Generated, type Installed } from "#test/support/install-migrate.ts"
-import { migratedOnceTemplate } from "#test/support/installed.ts"
+import { type Generated } from "#test/support/install-migrate.ts"
 import { namesOf, type LawNames, lawNamesOf } from "#test/support/kernel/naming.ts"
 import {
 	type HostFact,
@@ -64,11 +61,10 @@ import {
 	valueText,
 	violations
 } from "#test/support/laws/model.ts"
-import { noDeclarations } from "#test/support/migrate/kit.ts"
-import { refusedLaws, refusedEntries } from "#test/support/refused.ts"
+import { refusedEntries } from "#test/support/refused.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
-import { clearRows, installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
-import { Substrate, ownerSession, type SubstrateCase } from "#test/support/substrate/substrate.ts"
+import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
+import { Substrate, type SubstrateCase } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 /** A key's text: a one-digit integer behind any leading zeros, its sign spelled or not, at most four bytes. */
@@ -964,136 +960,6 @@ const appliedNotes = (c: Case, after: HostState, changed: boolean): ReadonlyArra
 	]
 }
 
-/**
- * Label (id, text), its `value` generated from its text, at most one label of each value: a declared key over a
- * generated field. The role `writer` writes Low, the labels below id 5, an entry whose head holds the generated `value`
- * beside the fields its writer states; a label at id 5 or above is outside its world.
- */
-const Label = relation.generated("Label", { id: pg.integer, text: KeyText }, ["id"], (r) => ({
-	value: generated(pg.integer, Type.cast(r.text, pg.integer))
-}))
-const labelValue = key(on(Label, "value"))
-
-const labelsAt = (name: string) => {
-	const base = schema(name, [Label], [labelValue])
-	const low = query(base).rule((r) => {
-		const { id, text, value } = v(Label, "label")
-		return r.match(Label, { id, text, value }).where(r.lt(id, 5)).find({ id, text, value })
-	})
-	const writer = role(base, "writer", { Low: low }, { write: ["Low"] })
-	return { base, writer, desk: login(base, "desk", [writer]) }
-}
-
-/** A label as written through Low, its text in KeyText's language or outside it, as a JavaScript caller states it. */
-interface LabelRow {
-	readonly id: number
-	readonly text: string
-}
-
-/** The labels stored before a write through Low, lawful together, some inside it and some outside; and the label
- * written, its text in KeyText's language or, a draw in eight, outside it. */
-export interface LabelCase {
-	readonly stored: ReadonlyArray<TagRow>
-	readonly edit: "insert" | "put"
-	readonly written: TagRow
-	readonly unmatched: boolean
-}
-
-/** The label a case sends: its written label, its text spoiled where the case draws it unmatched. */
-const sentOf = (c: LabelCase): LabelRow => ({
-	id: c.written.id,
-	text: c.unmatched ? `x${c.written.text}` : c.written.text
-})
-
-const labelGen: Gen<TagRow> = (source) => ({
-	id: source.draw(int(1, 7)),
-	text: source.draw(textGen)
-})
-
-export const labelCaseGen: Gen<LabelCase> = (source) => {
-	const drawnRows = source.draw(array(labelGen, { min: 0, max: 3 }))
-	const stored = Arr.reduce(drawnRows, Arr.empty<TagRow>(), (kept, r) =>
-		Arr.some(kept, (k) => k.id === r.id || valueOf(k.text) === valueOf(r.text))
-			? kept
-			: [...kept, r]
-	)
-	const fresh = source.draw(labelGen)
-	const near: Gen<TagRow> = Arr.isReadonlyArrayNonEmpty(stored)
-		? oneOf([
-				(s) => ({ ...s.draw(element(stored)), id: fresh.id }),
-				(s) => ({ ...s.draw(element(stored)), text: otherSpelling(s.draw(element(stored)).text) }),
-				(s) => ({ ...fresh, text: otherSpelling(s.draw(element(stored)).text) })
-			])
-		: (s) => s.draw(labelGen)
-	const written = source.draw(oneOf([labelGen, near]))
-	const unmatched = source.draw(int(0, 7)) === 0
-	return {
-		stored,
-		edit: source.draw(element(["insert", "put"] as const)),
-		written,
-		unmatched
-	}
-}
-
-/** Whether a label is inside Low. */
-const inLow = (r: { readonly id: number }): boolean => r.id < 5
-
-/**
- * What a write through Low must answer, from its specification (README, "Writing through a role"): a label outside Low
- * whose text the pattern refuses is either, which the README leaves unpromised; any other label outside Low is outside
- * the world; a text outside the pattern is the pattern's law; then a stored label at the written id that the write does
- * not displace, any outside Low and, for an insert, one inside it of another text, is the primary key's law; and a
- * stored label of the written value at another id, inside or outside Low, beside every label the put displaces, is the
- * value key's; an exact repeat inside Low changes nothing; any other write stores the label.
- */
-type LabelExpected =
-	| { readonly kind: "outsideOrPattern" }
-	| { readonly kind: "outside" }
-	| { readonly kind: "pattern" }
-	| { readonly kind: "refused"; readonly laws: Arr.NonEmptyReadonlyArray<"primary" | "value"> }
-	| { readonly kind: "unchanged" }
-	| { readonly kind: "stored"; readonly rows: ReadonlyArray<TagRow> }
-
-const labelExpected = (c: LabelCase): LabelExpected => {
-	if (!inLow(c.written)) {
-		return c.unmatched ? { kind: "outsideOrPattern" } : { kind: "outside" }
-	}
-	if (c.unmatched) {
-		return { kind: "pattern" }
-	}
-	const atId = Arr.findFirst(c.stored, (s) => s.id === c.written.id)
-	if (Option.exists(atId, (s) => s.text === c.written.text)) {
-		return { kind: "unchanged" }
-	}
-	const displaced = c.edit === "put" && Option.exists(atId, inLow)
-	const laws: Array<"primary" | "value"> = []
-	if (Option.isSome(atId) && !displaced) {
-		laws.push("primary")
-	}
-	if (
-		Arr.some(c.stored, (s) => s.id !== c.written.id && valueOf(s.text) === valueOf(c.written.text))
-	) {
-		laws.push("value")
-	}
-	const [first, ...rest] = laws
-	return first === undefined
-		? {
-				kind: "stored",
-				rows: [...Arr.filter(c.stored, (s) => s.id !== c.written.id), c.written]
-			}
-		: { kind: "refused", laws: [first, ...rest] }
-}
-
-export type LabelFeature =
-	| "outside Low, its text unmatched"
-	| "outside Low"
-	| "a text outside the pattern inside Low"
-	| "refused by the value key against a label outside Low"
-	| "refused by the value key against a label inside Low"
-	| "refused by the primary key"
-	| "an exact repeat"
-	| "stored"
-
 /** A state's rows as grizzle reads them back, each relation's rows as their values' texts in heading order. */
 type ReadRows = ReadonlyArray<ReadonlyArray<ReadonlyArray<string>>>
 
@@ -1408,177 +1274,4 @@ export const keysCase = (taken: SubstrateCase<Generated>, k: Case, c: PropertyCa
 				c.note(note)
 			}
 		}).pipe(Effect.scoped, withLayer(o.served.layer))
-	})
-
-/**
- * Labels installed once per member through its generated migration (installed.ts migratedOnceTemplate), where its
- * search installed it before its cases; a seat's reset empties every table after a case.
- */
-export const labelsTemplate = migratedOnceTemplate({
-	declaredIn: import.meta,
-	name: "generated key labels",
-	options: {
-		label: "labels",
-		first: (name) => {
-			const labels = labelsAt(name)
-			return { schema: labels.base, logins: [labels.desk] }
-		},
-		later: [],
-		apply: { kind: "noPlaceholders" },
-		declared: () => noDeclarations
-	}
-})
-
-/**
- * A write through Low over the case's clone of Labels (`taken`): the drawn labels stored as the owner, the write sent
- * through the served writer, and its outcome held to its world, its pattern and each key.
- */
-export const labelsCase = (
-	taken: SubstrateCase<Installed>,
-	c: LabelCase,
-	cx: PropertyCase<LabelFeature>
-) =>
-	Effect.gen(function* () {
-		const s = yield* Substrate
-		const m = taken.value
-		const { writer, desk } = labelsAt(m.declared)
-		const names = namesOf(m)
-		const owner = yield* s.session({ ...ownerSession(), label: "labels owner" })
-		const ownerSql = (text: string) => Effect.asVoid(owner.query(text, []))
-		const primaryLaw = names.primaryKeyLaw(Label)
-		const valueLaw = names.lawOf(labelValue)
-		const table = names.table(Label)
-		const id = names.column(Label, "id")
-		const text = names.column(Label, "text")
-		const value = names.column(Label, "value")
-		/**
-		 * A JavaScript caller's writes through Low, an insert and a put of one label from each call's facts,
-		 * whose text the types would refuse where it is unmatched.
-		 */
-		const lowWrites = {
-			insert: changeSetOver.empty(writer).insert(writer.relations.Low, []),
-			put: changeSetOver.empty(writer).put(writer.relations.Low, [])
-		}
-		const { serve } = yield* openServedDb(m, desk.roles.writer, {})
-		const served = yield* serve(lowWrites)
-		yield* clearRows(owner, installationGroup(names))
-		if (Arr.isReadonlyArrayNonEmpty(c.stored)) {
-			yield* ownerSql(
-				`INSERT INTO ${table} (${id}, ${text}) VALUES ${Arr.join(
-					Arr.map(c.stored, (r) => `(${String(r.id)}, '${r.text}')`),
-					", "
-				)}`
-			)
-		}
-		const rowsNow = owner.values(`SELECT ${id}, ${text}, ${value} FROM ${table} ORDER BY 1`, [])
-		const before = yield* rowsNow
-		const applied = yield* Effect.result(
-			writeAnswerOf(
-				writeOnce(member(served, c.edit))({
-					params: {},
-					facts: { [c.edit]: { Low: [sentOf(c)] } }
-				})
-			)
-		)
-		if (Result.isFailure(applied)) {
-			return assert.fail(
-				`a write through Low is an outcome: ${applied.failure.kind}: ${applied.failure.message}`
-			)
-		}
-		const outcome = applied.success
-		const after = yield* rowsNow
-		const expected = labelExpected(c)
-		switch (expected.kind) {
-			case "outsideOrPattern": {
-				assert.ok(
-					outcome.kind === "outsideWorld" ||
-						(outcome.kind === "refused" &&
-							Arr.every(refusedLaws(outcome.refused), (l) => l.kind === "pattern")),
-					`a label outside Low whose text the pattern refuses is outside the world or the pattern's, not ${outcome.kind}`
-				)
-				assert.deepEqual(after, before, "a refused write changes nothing")
-				cx.note("outside Low, its text unmatched")
-				return
-			}
-			case "outside": {
-				assert.equal(outcome.kind, "outsideWorld", "a label outside Low")
-				assert.deepEqual(after, before, "outside the world, nothing is written")
-				cx.note("outside Low")
-				return
-			}
-			case "pattern": {
-				if (outcome.kind !== "refused") {
-					return assert.fail(`an unmatched text is refused, not ${outcome.kind}`)
-				}
-				assert.deepEqual(
-					Arr.map(refusedLaws(outcome.refused), (l) => l.kind),
-					["pattern"],
-					"the pattern's law"
-				)
-				assert.deepEqual(after, before, "a refused write changes nothing")
-				cx.note("a text outside the pattern inside Low")
-				return
-			}
-			case "unchanged": {
-				assert.equal(outcome.kind, "unchanged", "an exact repeat")
-				assert.deepEqual(after, before, "an exact repeat writes nothing")
-				cx.note("an exact repeat")
-				return
-			}
-			case "stored": {
-				assert.equal(outcome.kind, "accepted", "a lawful label is stored")
-				assert.deepEqual(
-					after,
-					Arr.map(
-						Arr.sort(
-							expected.rows,
-							Order.mapInput(Order.Number, (r: TagRow) => r.id)
-						),
-						(r) => [r.id, r.text, valueOf(r.text)]
-					),
-					"the labels after the write"
-				)
-				cx.note("stored")
-				return
-			}
-			case "refused": {
-				if (outcome.kind !== "refused") {
-					return assert.fail(
-						`a label breaking ${Arr.join(expected.laws, ", ")} is refused, not ${outcome.kind}`
-					)
-				}
-				assert.deepEqual(after, before, "a refused write changes nothing")
-				const [law, ...more] = Arr.map(refusedEntries(outcome.refused), names.reported)
-				assert.deepEqual(more, [], "a key's refusal names its one law")
-				const broken = law === primaryLaw ? "primary" : law === valueLaw ? "value" : undefined
-				if (broken === undefined || !expected.laws.includes(broken)) {
-					return assert.fail(
-						`the refusal names ${String(law)}, not one of ${Arr.join(expected.laws, ", ")}`
-					)
-				}
-				assert.deepEqual(
-					outcome.witness,
-					{
-						kind: "key",
-						relation: "Low",
-						values: broken === "primary" ? { id: c.written.id } : { value: valueOf(c.written.text) }
-					},
-					"the witness: the key written, in Low's fields, its generated value as PostgreSQL stores it"
-				)
-				if (broken === "primary") {
-					cx.note("refused by the primary key")
-					return
-				}
-				const outside = Arr.some(
-					c.stored,
-					(r) => !inLow(r) && r.id !== c.written.id && valueOf(r.text) === valueOf(c.written.text)
-				)
-				cx.note(
-					outside
-						? "refused by the value key against a label outside Low"
-						: "refused by the value key against a label inside Low"
-				)
-				return
-			}
-		}
 	})

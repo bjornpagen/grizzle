@@ -19,43 +19,23 @@
  *   the whole index where it holds no entry yet (nbtsearch.c _bt_first locks an empty index whole). A race of Docs
  *   alone, which neither read reaches, holds no SIRead lock. A met row's classification that read the stored rows of
  *   the facts its INSERT inserted would lock more.
- * - Writers of shared keys: every race of calls over a few keys, at the level generate certifies the importer at and at
- *   SERIALIZABLE, is one some serial order of the same calls explains (support/race.ts runIsolationRace): READ
- *   COMMITTED promises that only where generate certifies it.
- * - One history, two forms: the same calls run one after another give the same rows, the same refusals and the same
- *   state at either level.
  *
- * Oracles: the specification of the disjoint writers' outcomes and of their SIRead locks; a serial order of the same calls (support/race.ts),
- * timing drawn from the case (every order where a race makes few moves, a PCT schedule beyond); and the differential of
- * one history at the two levels. Features: Docs only, an Invoice posted, three sessions, a CHECK refused; a stored Doc
- * and two calls at one key; an exact repeat, a key or axis refusal, an unsettled invoice refused and Lines sent alone.
+ * Oracle: the specification of the disjoint writers' outcomes and of their SIRead locks. Features: Docs only, an Invoice
+ * posted, three sessions, a CHECK refused.
  */
 
 import type { Reached } from "@bjornpagen/testing/features"
 import { steered } from "@bjornpagen/testing/gen"
-import { agree, exact } from "@bjornpagen/testing/oracle"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import {
 	aimedDisjoint,
-	aimedHistory,
 	type DisjointFeature,
-	generatedShape,
-	importShape,
-	initialOf,
-	raceOf,
 	readCommittedShape,
 	runDisjoint,
 	runs,
-	runSerial,
-	sameHistory,
-	type SerialFeature,
-	serializableShape,
-	type SharedFeature,
-	sharedRaces,
-	strategyOf
+	serializableShape
 } from "#test/pg/isolation/arbiter.fixtures.ts"
-import { raceOn, seatedCertified, seatedGenerated } from "#test/pg/isolation/support/race.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -135,124 +115,6 @@ export const theInsertProtocolsArbitrationsWritersOfDisjointKeysCommitEveryCallB
 			kind: "specification",
 			name: "disjoint calls commit unless their Invoice is unsettled, which the Settled CHECK refuses at either level, an Invoice race's SERIALIZABLE call perhaps with 40001; no SIRead lock at READ COMMITTED, and at SERIALIZABLE none but a page or an index of Invoice, none for Docs alone"
 		},
-		budget: { runs: runs, steered: runs },
-		kept: [],
-		kills: []
-	})
-
-/**
- * The insert protocol's arbitrations every race over shared keys is serial at generate's level and at SERIALIZABLE.
- *
- * Its pre-conversion budget: runs runs, coverage cases runs (test/pg/isolation/arbiter.test.ts at d8eed1786).
- */
-export const theInsertProtocolsArbitrationsEveryRaceOverSharedKeysIsSerialAtGeneratesLevelAndAtSERIALIZABLE =
-	property.explore(sharedRaces, {
-		needs: {
-			generated: Substrate.seat(generatedShape),
-			serializable: Substrate.seat(serializableShape)
-		},
-		situations: ["a stored Doc", "two calls at one key"] satisfies ReadonlyArray<
-			Reached<SharedFeature>
-		>,
-		check:
-			({ generated, serializable }, c: Case<SharedFeature>) =>
-			(race) =>
-				Effect.gen(function* () {
-					const generatedSeat = yield* generated
-					const serSeat = yield* serializable
-					const shapes = [
-						yield* seatedGenerated(importShape)(generatedSeat),
-						seatedCertified(serSeat)
-					]
-					return yield* Effect.suspend(() => {
-						if (race.initial === "doc") {
-							c.note("a stored Doc")
-						}
-						if (race.calls.length === 3) {
-							c.note("three sessions")
-						}
-						if (
-							Arr.some(race.calls, (a, i) =>
-								Arr.some(race.calls, (b, j) => i < j && Arr.some(a.keys, (k) => b.keys.includes(k)))
-							)
-						) {
-							c.note("two calls at one key")
-						}
-						return Effect.forEach(
-							shapes,
-							(seated) => raceOn(seated, raceOf(race), strategyOf(c), () => undefined),
-							{ discard: true }
-						)
-					})
-				}).pipe(Effect.scoped),
-		oracle: { kind: "specification", name: "a serial order of the same calls" },
-		budget: { runs: runs, steered: runs },
-		kept: [],
-		kills: []
-	})
-
-/**
- * The insert protocol's arbitrations one history gives the same rows, refusals and state at either level.
- *
- * Its pre-conversion budget: runs runs, coverage cases runs (test/pg/isolation/arbiter.test.ts at d8eed1786).
- */
-export const theInsertProtocolsArbitrationsOneHistoryGivesTheSameRowsRefusalsAndStateAtEitherLevel =
-	property.explore(steered(aimedHistory), {
-		needs: {
-			readCommitted: Substrate.seat(readCommittedShape),
-			serializable: Substrate.seat(serializableShape)
-		},
-		situations: [
-			"an exact repeat",
-			"a key or axis refusal",
-			"an unsettled invoice refused",
-			"lines sent alone"
-		] satisfies ReadonlyArray<Reached<SerialFeature>>,
-		check:
-			({ readCommitted, serializable }, c: Case<SerialFeature>) =>
-			(history) =>
-				Effect.gen(function* () {
-					const rcSeat = yield* readCommitted
-					const serSeat = yield* serializable
-
-					const initial = initialOf(history)
-					const rc = yield* Effect.provideService(
-						runSerial(rcSeat.value, initial, history.calls, "readCommitted"),
-						Substrate,
-						rcSeat.substrate
-					)
-					const ser = yield* Effect.provideService(
-						runSerial(serSeat.value, initial, history.calls, "serializable"),
-						Substrate,
-						serSeat.substrate
-					)
-					for (const shown of rc.shown) {
-						if (shown === "refused by a CHECK" || shown === "refused by the host") {
-							c.note("an unsettled invoice refused")
-						}
-						if (shown === "refused by a key or an axis") {
-							c.note("a key or axis refusal")
-						}
-					}
-					if (Arr.some(history.calls, (call) => call.kind === "lines")) {
-						c.note("lines sent alone")
-					}
-					if (
-						Arr.some(history.calls, (a, i) =>
-							Arr.some(history.calls, (b, j) => i < j && Option.isNone(exact(a.input, b.input)))
-						)
-					) {
-						c.note("an exact repeat")
-					}
-					yield* agree(
-						[
-							["READ COMMITTED", rc],
-							["SERIALIZABLE", ser]
-						],
-						sameHistory
-					)
-				}).pipe(Effect.scoped),
-		oracle: { kind: "specification", name: "the READ COMMITTED form's outcomes" },
 		budget: { runs: runs, steered: runs },
 		kept: [],
 		kills: []

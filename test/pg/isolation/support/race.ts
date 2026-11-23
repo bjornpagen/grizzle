@@ -1,21 +1,10 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { utf8Text } from "@bjornpagen/grizzle-text/utf8"
 import { defined } from "@bjornpagen/testing/assert"
-import {
-	Array as Arr,
-	Effect,
-	Option,
-	Path,
-	Record as Rec,
-	type Scope,
-	String as Str
-} from "effect"
+import { Array as Arr, Effect, Option, Path, String as Str } from "effect"
 import { hostInputs, type InputFailure, valuesFailure } from "#adapter/apply/run.ts"
 import { fromEngine } from "#adapter/engine.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"
-import { hostParams } from "#adapter/reader/params.ts"
-import { executionInputs } from "#adapter/reader/relations.ts"
-import { programStatement } from "#adapter/reader/run.ts"
 import {
 	type LoadedChange,
 	type LoadedLogin,
@@ -23,9 +12,8 @@ import {
 	loadServed
 } from "#adapter/served/load.ts"
 import { loginChangesOver } from "#adapter/served/login.ts"
-import { bindFrame, keptRows } from "#adapter/wire/batch.ts"
+import { bindFrame } from "#adapter/wire/batch.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
-import type { CliError } from "#cli/errors.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
 import type { RoleIsolation } from "#compiler/analysis/isolation/certify.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -63,31 +51,17 @@ import {
 	type Generated,
 	generatedTemplate,
 	type Installed,
-	installGenerated,
 	noPlaceholders,
 	noVersionWorkload,
-	replaceMigrated,
 	templateInstalled
 } from "#test/support/install-migrate.ts"
 import { type Names, namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
-import type { FactSet } from "#test/support/oracle/install/load.ts"
-import type { SqlError } from "#test/support/pg.ts"
-import { type ActorSpec, openActors, textOfValue } from "#test/support/schedules/actors.ts"
-import { everyRelation, exploreEnv, type Strategy } from "#test/support/schedules/interleave.ts"
-import {
-	type Explained,
-	type RaceStatement,
-	type RaceTxn,
-	runSerialRace,
-	type SerialRaceFailed
-} from "#test/support/schedules/serial.ts"
-import { beginSerializableAction } from "#test/support/schedules/types.ts"
-import type { PsqlProcessError, TransactionRolledBack } from "#test/support/substrate/errors.ts"
+import { everyRelation } from "#test/support/schedules/interleave.ts"
+import { type RaceStatement, type RaceTxn } from "#test/support/schedules/serial.ts"
 import { installationGroup } from "#test/support/substrate/replace.ts"
 import {
 	installTemplate,
-	Substrate,
 	type SubstrateCase,
 	type SubstrateShape,
 	type SubstrateTemplate
@@ -148,7 +122,7 @@ export type CallInput =
  * deferrable(...); or a transaction of the installation's owner, its statements as written, at the database's default
  * level, as an operator runs what no role holds, a retirable unit's retirement function among them.
  */
-export type RaceCall =
+type RaceCall =
 	| {
 			readonly kind: "change"
 			readonly session: string
@@ -171,15 +145,6 @@ export type RaceCall =
 
 /** A race's ChangeSet call (RaceCall). */
 type ChangeCall = Extract<RaceCall, { readonly kind: "change" }>
-
-/** A race's read call (RaceCall). */
-type ReadCall = Extract<RaceCall, { readonly kind: "read" }>
-
-/** A race: its calls, each in a session of its own, from the stored facts `initial`. */
-export interface IsolationRace {
-	readonly initial: FactSet
-	readonly calls: Arr.NonEmptyReadonlyArray<RaceCall>
-}
 
 /** The draft `grizzle generate` makes of `shape` from the empty snapshot, and its schema as the CLI compiles it. */
 const draftOf = (shape: Shape) =>
@@ -270,41 +235,6 @@ const servedOf = (loaded: LoadedLogin) => ({
 	),
 	levels: new Map(Arr.map(loaded.roles, (r) => [r.name, r.isolation] as const))
 })
-
-/**
- * Installs `build(name)` under a fresh schema name with its login, holding `certifier`'s certificates, and loads every
- * role's ChangeSets from the login's served file.
- *
- * - generate's: installed as `grizzle generate` drafts and serves it (test/support/install-migrate.ts installGenerated),
- *   each role at the level its served file records (generatedShape);
- * - a flawed certifier's or generate's with roles forced: generate's draft of the shape certifies it first
- *   (cli/generate.ts draftSchema); the installation holds the stated certificates through an installer extension, as
- *   it holds the served workload's; and the served file is the draft's of the installed name (servedFiles), each role
- *   at its stated level (certifiedPlan). A draft under the installed name that certifies otherwise than under the first
- *   is a defect: a certificate is a function of the shape, never of its name.
- */
-export const installShape = (
-	build: (name: string) => Shape,
-	certifier: Certifier
-): Effect.Effect<
-	InstalledShape,
-	CompileError | SqlError | TransactionRolledBack | CliError | OpenError,
-	Substrate | Scope.Scope
-> =>
-	Effect.gen(function* () {
-		if (certifier.kind === "generate") {
-			const generated = yield* installGenerated((name) => shapeLogins(build(name)), {
-				label: "iso",
-				ambient: ordinarySession
-			})
-			return yield* generatedShape(generated, build)
-		}
-		const substrate = yield* Substrate
-		const name = yield* substrate.schema({ create: false, label: "iso" })
-		const plan = yield* certifiedPlan(build, certifier, name)
-		const installed = yield* appliedHistory(plan.history, name, plan.options, new Map())
-		return shapeOf(plan, installed)
-	})
 
 /** A shape's schema and the one login its installation carries. */
 const shapeLogins = (shape: Shape) => ({ schema: shape.schema, logins: [shape.login] })
@@ -467,7 +397,7 @@ export const generatedShapeTemplate = (
 	})
 
 /** The shape of a case over a clone of a generated shape's template (generatedShapeTemplate), as installShape reads it. */
-export const generatedShapeIn = (
+const generatedShapeIn = (
 	taken: SubstrateCase<Generated>,
 	build: (name: string) => Shape
 ): Effect.Effect<InstalledShape, CompileError | OpenError> => generatedShape(taken.value, build)
@@ -513,25 +443,6 @@ export const seatedGenerated =
 	(build: (name: string) => Shape) =>
 	(taken: SubstrateCase<Generated>): Effect.Effect<SeatedShape, CompileError | OpenError> =>
 		Effect.map(generatedShapeIn(taken, build), (shape) => ({ shape, seat: taken.substrate }))
-
-/** A case's seat of a certified shape's template (certifiedShapeTemplate) as the shape it races. */
-export const seatedCertified = (taken: SubstrateCase<InstalledShape>): SeatedShape => ({
-	shape: taken.value,
-	seat: taken.substrate
-})
-
-/** runIsolationRace over a seated shape, on its seat's substrate, the race's sessions closed after it. */
-export const raceOn = (
-	seated: SeatedShape,
-	race: IsolationRace,
-	strategy: (txns: ReadonlyArray<RaceTxn<never>>) => Strategy,
-	noteRun: (explained: Explained<never>) => void
-) =>
-	Effect.provideService(
-		Effect.scoped(runIsolationRace(seated.shape, race, strategy, noteRun)),
-		Substrate,
-		seated.seat
-	)
 
 /** A SQL text literal of `text`: in quotes, its quotes doubled. */
 const quoted = (text: string): string => `'${Str.replaceAll("'", "''")(text)}'`
@@ -601,7 +512,7 @@ const inlined = (sql: string, params: ReadonlyArray<Param>): Effect.Effect<strin
 	)
 
 /** The one statement a call the host refuses before any SQL sends: a constant SELECT naming the refusal. */
-export const hostRefused = `SELECT 'host refused'::text AS refused`
+const hostRefused = `SELECT 'host refused'::text AS refused`
 
 /**
  * The statements of `call` a race interleaves, in the order its served write's one flight sends them: each statement
@@ -691,146 +602,4 @@ export const changeTxnOf = (
 			statements: [defined(first, "a call's statement"), ...rest],
 			end: "commit"
 		}
-	})
-
-/**
- * The one statement a read call sends, its parameters inlined: its program's statement over the call's parameters, as
- * a Db's read binds them (adapter/db/handles.ts programCall). A race states its reads' parameters, so one the read does
- * not admit is a defect of the race.
- */
-const readStatement = (read: LoadedRead, call: ReadCall): Effect.Effect<string> =>
-	Effect.orDie(
-		Effect.gen(function* () {
-			const values = yield* hostParams(read.params, call.params)
-			const inputs = yield* Effect.fromResult(executionInputs(read.codecs, values))
-			const statement = yield* programStatement(read.program, inputs, keptRows)
-			return yield* inlined(statement.text.sql, statement.params)
-		})
-	)
-
-/** A read call's direct transaction: begun as its served BEGIN states its modes, SERIALIZABLE READ ONLY, DEFERRABLE
- * for a deferrable member's (schedules/types.ts DirectAction BeginAs), then its one statement (readStatement). */
-const readTxnOf = (s: InstalledShape, call: ReadCall): Effect.Effect<RaceTxn<never>> =>
-	Effect.gen(function* () {
-		const read = defined(
-			s.reads.get(call.role)?.get(call.member),
-			`read ${call.member} of role ${call.role}`
-		)
-		const sql = yield* readStatement(read, call)
-		return {
-			kind: "direct",
-			session: call.session,
-			begin: {
-				_tag: "BeginAs",
-				sql: read.deferrable ? s.readBegins.deferrable : s.readBegins.immediate
-			},
-			statements: [{ sql, footprint: everyRelation }],
-			end: "commit"
-		}
-	})
-
-/** An owner's call's direct transaction: BEGIN ISOLATION LEVEL SERIALIZABLE, a direct writer's level, its statements
- * as written, then COMMIT. */
-const ownerTxnOf = (
-	s: InstalledShape,
-	call: Extract<RaceCall, { readonly kind: "owner" }>
-): RaceTxn<never> => ({
-	kind: "direct",
-	session: call.session,
-	begin: beginSerializableAction,
-	statements: Arr.map(call.statements(s), (sql): RaceStatement => ({
-		sql,
-		footprint: everyRelation
-	})),
-	end: "commit"
-})
-
-/** A call's direct transaction (changeTxnOf, readTxnOf, ownerTxnOf). */
-const txnOf = (s: InstalledShape, call: RaceCall): Effect.Effect<RaceTxn<never>, InputFailure> => {
-	switch (call.kind) {
-		case "change":
-			return changeTxnOf(s, call)
-		case "read":
-			return readTxnOf(s, call)
-		case "owner":
-			return Effect.succeed(ownerTxnOf(s, call))
-	}
-}
-
-/** How many moves one transaction makes when it runs to its COMMIT: a direct one's statements, its BEGIN joining its
- * first, and its COMMIT; a grizzle call one. */
-const movesOf = (t: RaceTxn<never>): number => (t.kind === "direct" ? t.statements.length + 1 : 1)
-
-/** How many moves a race's transactions make when each runs to its COMMIT: PCT's k. */
-export const raceMoves = (txns: ReadonlyArray<RaceTxn<never>>): number =>
-	Arr.reduce(txns, 0, (sum, t) => sum + movesOf(t))
-
-/** A call as a race's name spells it: its session, then its role's member or the owner. */
-const callName = (c: RaceCall): string =>
-	c.kind === "owner" ? `${c.session}:owner` : `${c.session}:${c.role}.${c.member}`
-
-/** Every stored table's rows as text: its name and each row's JSON, one row each. */
-export const stateSql = (names: Names): string =>
-	Arr.join(
-		Arr.map(
-			names.storedTables,
-			(table) =>
-				`SELECT ${quoted(table)}::text AS "table", to_jsonb(t)::text AS "row" FROM ${table} AS t`
-		),
-		" UNION ALL "
-	)
-
-/**
- * Runs `race` over `s` at the levels its roles' served files record, every order `strategy` chooses, each run judged by the serial
- * reference (test/support/schedules/serial.ts): some order of the calls that respects real time, each run alone from
- * the race's initial state, shows every statement's rows or SQLSTATE the run showed and leaves its state.
- */
-export const runIsolationRace = (
-	s: InstalledShape,
-	race: IsolationRace,
-	strategy: (txns: ReadonlyArray<RaceTxn<never>>) => Strategy,
-	noteRun: (explained: Explained<never>) => void
-): Effect.Effect<
-	void,
-	| SerialRaceFailed
-	| SqlError
-	| PsqlProcessError
-	| CompileError
-	| TransactionRolledBack
-	| InputFailure,
-	Substrate | Scope.Scope
-> =>
-	Effect.gen(function* () {
-		const substrate = yield* Substrate
-		const env = yield* exploreEnv(substrate)
-		const specs = Rec.fromEntries(
-			Arr.map(race.calls, (call): readonly [string, ActorSpec] => {
-				if (call.kind === "owner") {
-					return [call.session, { kind: "raw", as: s.installed.ambientOwner.credentials }]
-				}
-				const role = defined(s.shape.roles[call.role], `role ${call.role} of the shape`)
-				return [call.session, { kind: "psql", as: s.installed.world(role) }]
-			})
-		)
-		const direct = yield* openActors(substrate, specs)
-		const [first, ...rest] = yield* Effect.forEach(race.calls, (call) => txnOf(s, call))
-		const txns: Arr.NonEmptyReadonlyArray<RaceTxn<never>> = [defined(first, "a call"), ...rest]
-		yield* runSerialRace(
-			env,
-			{ direct, grizzle: {} },
-			{
-				name: Arr.join(Arr.map(race.calls, callName), " "),
-				txns,
-				reset: Effect.provideService(
-					replaceMigrated(s.installed, race.initial),
-					Substrate,
-					substrate
-				),
-				state: Effect.map(env.observer.queryValues(stateSql(s.names), []), (rows) =>
-					Arr.map(rows, (row) => Arr.map(row, textOfValue))
-				)
-			},
-			strategy(txns),
-			noteRun
-		)
 	})

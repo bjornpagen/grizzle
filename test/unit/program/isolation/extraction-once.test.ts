@@ -7,7 +7,7 @@
  * MB of facts twice. The work is counted (test/support/kernel/calls.ts): the calls of extractedFacts, each one
  * extraction of one compiled write.
  *
- * The box, drawn: G3's fenced shape (test/pg/isolation/support/shapes.ts fencedShape) over one published relation, one
+ * The box, drawn: G3's fenced shape over one published relation, one
  * login of a writer, whose gate insert runs or not, a publisher of one to all three of a replace (deleting and inserting
  * what the learner references, which generate fences), a removal and a publish gated on Gate's absence (SERIALIZABLE),
  * and a learner inserting what it sees, compiled for READ COMMITTED as generate compiles it (readCommittedChanges),

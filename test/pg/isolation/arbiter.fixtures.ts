@@ -11,9 +11,6 @@ import {
 	weighted,
 	type Steered
 } from "@bjornpagen/testing/gen"
-import { pctSchedule } from "@bjornpagen/testing/interleave"
-import { type Equivalence, exact, ordered } from "@bjornpagen/testing/oracle"
-import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effect"
 import type { RoleCertificate } from "#compiler/analysis/isolation/certify.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
@@ -39,20 +36,13 @@ import {
 	callStatements,
 	certifiedShapeTemplate,
 	type Certifier,
-	generatedShapeTemplate,
-	hostRefused,
-	type InstalledShape,
-	type IsolationRace,
-	type RaceCall,
-	raceMoves,
-	stateSql
+	type InstalledShape
 } from "#test/pg/isolation/support/race.ts"
 import { Id } from "#test/support/ids.ts"
 import { replaceMigrated } from "#test/support/install-migrate.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { openActors, textOfValue } from "#test/support/schedules/actors.ts"
-import { every, exploreEnv, type Strategy } from "#test/support/schedules/interleave.ts"
-import type { RaceTxn } from "#test/support/schedules/serial.ts"
+import { exploreEnv } from "#test/support/schedules/interleave.ts"
 import type { ScheduleOutcome } from "#test/support/schedules/types.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -70,7 +60,7 @@ const Line = relation("Line", { invoice: Id, n: pg.integer, amount: pg.integer }
 const invoiceLines = counted(on(Line, "invoice"), fin(Invoice, "lines"))
 
 /** The import shape under the name `name`: the role `importer`, with its members `doc` and `post`. */
-export const importShape = (name: string) => {
+const importShape = (name: string) => {
 	const relations = { Doc, Invoice, Line } as const
 	const base = schema(name, Rec.values(relations), [
 		key(on(Doc, "slug")),
@@ -159,24 +149,6 @@ const postCall = (id: number, amounts: ReadonlyArray<number>, amount: number): C
 	}
 })
 
-/** Lines of the Invoice `id` sent alone, its Invoice none of the call's facts. */
-const linesCall = (id: number, lines: ReadonlyArray<readonly [number, number]>): CallSketch => ({
-	kind: "lines",
-	member: "post",
-	keys: [`invoice ${id}`],
-	unsettled: false,
-	input: {
-		kind: "facts",
-		facts: {
-			insert: {
-				Invoice: [],
-				Line: Arr.map(lines, ([n, amount]) => ({ invoice: uuidOf(id), n, amount }))
-			}
-		},
-		params: {}
-	}
-})
-
 /** A post of the Invoice `id` whose amount is its Lines' sum plus what `off` draws: 0 settles it, 1 the CHECK refuses. */
 const postedOff =
 	(id: number, off: Gen<number>): Gen<CallSketch> =>
@@ -240,113 +212,6 @@ export const aimedDisjoint: Steered<DisjointRace, DisjointFeature>["under"] = (s
 	Option.exists(steering, (pending) => pending.names("a CHECK refused"))
 		? oneOf([disjointRaces, refusedFirst])
 		: disjointRaces
-
-/** A race of shared keys: two or three calls over two Docs, two slugs and two Invoices, from a stored Doc or none. */
-interface SharedRace {
-	readonly initial: "empty" | "doc"
-	readonly calls: Arr.NonEmptyReadonlyArray<CallSketch>
-}
-
-const sharedCall: Gen<CallSketch> = (s) => {
-	switch (s.draw(element(["doc", "post", "lines"] as const))) {
-		case "doc":
-			return docCall(s.draw(int(1, 2)), s.draw(int(1, 2)), s.draw(int(0, 1)))
-		case "post":
-			return s.draw(posted(s.draw(int(3, 4))))
-		case "lines":
-			return linesCall(
-				s.draw(int(3, 4)),
-				Arr.dedupeWith(
-					s.draw(
-						array((t) => [t.draw(int(0, 3)), t.draw(element([1, 2, 3]))] as const, {
-							min: 1,
-							max: 2
-						})
-					),
-					(a, b) => a[0] === b[0]
-				)
-			)
-	}
-}
-
-export const sharedRaces: Gen<SharedRace> = (s) => ({
-	initial: s.draw(element(["empty", "doc"] as const)),
-	calls: nonEmptyList(s.draw(array(sharedCall, { min: 2, max: 3 })), "a race's calls")
-})
-
-/** A history of one to five calls over the shared keys, from a stored Doc or none. */
-const histories: Gen<SharedRace> = (s) => ({
-	initial: s.draw(element(["empty", "doc"] as const)),
-	calls: nonEmptyList(s.draw(array(sharedCall, { min: 1, max: 5 })), "a history's calls")
-})
-
-/** A drawn history after a post the CHECK refuses, its Invoice one no fact of the initial state holds. */
-const unsettledFirst: Gen<SharedRace> = (s) => {
-	const drawnHistory = s.draw(histories)
-	return { ...drawnHistory, calls: [s.draw(postedOff(3, constant(1))), ...drawnHistory.calls] }
-}
-
-/**
- * A drawn history with one of its calls sent again last, as it was: an exact repeat, which a drawn history of eight
- * runs left unreached (the pin's pg tier at bafa0de1c and at 50de8a880: no witness reached).
- */
-const repeatedLast: Gen<SharedRace> = (s) => {
-	const drawnHistory = s.draw(histories)
-	return { ...drawnHistory, calls: [...drawnHistory.calls, s.draw(element(drawnHistory.calls))] }
-}
-
-/**
- * The history a witness runs, drawn under its steering: while an unsettled invoice's refusal is pending, one after a
- * post the CHECK refuses (unsettledFirst); while an exact repeat is, one that sends a call again (repeatedLast);
- * otherwise a drawn one. The generator draws it, so it is the history the search runs, prints and keeps.
- */
-export const aimedHistory: Steered<SharedRace, SerialFeature>["under"] = (steering) => {
-	if (Option.exists(steering, (pending) => pending.names("an unsettled invoice refused"))) {
-		return unsettledFirst
-	}
-	return Option.exists(steering, (pending) => pending.names("an exact repeat"))
-		? repeatedLast
-		: histories
-}
-
-export const initialOf = (race: SharedRace) =>
-	race.initial === "doc" ? { Doc: [{ id: uuidOf(1), slug: 1, title: 0 }] } : {}
-
-export const raceOf = (race: SharedRace): IsolationRace => {
-	const [first, ...rest] = Arr.map(race.calls, (c, i): RaceCall => ({
-		kind: "change",
-		session: `s${i}`,
-		role: "importer",
-		member: c.member,
-		input: c.input
-	}))
-	return { initial: initialOf(race), calls: [defined(first, "a call"), ...rest] }
-}
-
-/** Every order where a race makes few moves; past that, a PCT schedule of depth 3 the case draws. */
-const exhaustiveMoves = 6
-
-export const strategyOf =
-	<F extends string>(c: Case<F>) =>
-	(txns: ReadonlyArray<RaceTxn<never>>): Strategy => {
-		const moves = raceMoves(txns)
-		return moves <= exhaustiveMoves
-			? every
-			: {
-					kind: "pct",
-					nature: c,
-					schedule: c.draw(
-						pctSchedule(
-							nonEmptyList(
-								Arr.map(txns, (t) => t.session),
-								"a race's sessions"
-							),
-							3,
-							moves
-						)
-					)
-				}
-	}
 
 /** A SIRead lock a race's sessions hold, read from pg_locks: its kind, its relation's name, and whether that relation
  * is an index of a relation some foreign key references, which in the import shape is Invoice alone. */
@@ -446,89 +311,6 @@ export const runDisjoint = (s: InstalledShape, race: DisjointRace, level: Isolat
 		})
 	)
 
-/**
- * Runs `calls` over `s` one after another, each in its own transaction at `level` from the stored facts `initial`: each
- * call's failure, its SQLSTATE and DETAIL, none where it committed, and the state they leave, every stored row by its
- * table's name in the schema.
- */
-export const runSerial = (
-	s: InstalledShape,
-	initial: ReturnType<typeof initialOf>,
-	calls: ReadonlyArray<CallSketch>,
-	level: Isolation
-) =>
-	Effect.scoped(
-		Effect.gen(function* () {
-			const substrate = yield* Substrate
-			yield* Effect.provideService(replaceMigrated(s.installed, initial), Substrate, substrate)
-			const env = yield* exploreEnv(substrate)
-			const role = defined(s.shape.roles["importer"], "the importer")
-			const { serial } = yield* openActors(substrate, {
-				serial: { kind: "psql", as: s.installed.world(role) }
-			})
-			const shown: Array<string> = []
-			for (const c of calls) {
-				const statements = yield* callStatements(s, {
-					kind: "change",
-					session: "serial",
-					role: "importer",
-					member: c.member,
-					input: c.input
-				})
-				const begun = yield* serial.perform({ _tag: "Begin" })
-				const leveled = yield* serial.perform({ _tag: "Sql", sql: levelSql(level) })
-				const outcomes: Array<ScheduleOutcome> = [begun, leveled]
-				for (const sql of statements) {
-					if (failureOf(outcomes) === undefined) {
-						const outcome = yield* serial.perform({ _tag: "Sql", sql })
-						outcomes.push(outcome)
-					}
-				}
-				const failed = Arr.findFirst(outcomes, (o) => o._tag !== "Ok")
-				const refusedByHost = Arr.headNonEmpty(statements) === hostRefused
-				const ended = yield* serial.perform(
-					Option.isNone(failed) ? { _tag: "Commit" } : { _tag: "Rollback" }
-				)
-				outcomes.push(ended)
-				shown.push(
-					refusedByHost
-						? "refused by the host"
-						: Option.match(
-								Arr.findFirst(outcomes, (o) => o._tag !== "Ok"),
-								{
-									onNone: () => "committed",
-									onSome: (o) =>
-										o._tag === "PgError"
-											? Str.startsWith("23")(o.fields.code)
-												? `refused ${o.fields.code === "23514" ? "by a CHECK" : "by a key or an axis"}`
-												: o.fields.code
-											: o._tag
-								}
-							)
-				)
-			}
-			const rows = yield* env.observer.queryValues(stateSql(s.names), [])
-			const state = Arr.sort(
-				Arr.map(rows, (row): string => {
-					const table = textOfValue(row[0]) ?? ""
-					const name = Arr.lastNonEmpty(Str.split(".")(table))
-					return `${name} ${textOfValue(row[1]) ?? ""}`
-				}),
-				Str.Order
-			)
-			return { shown, state }
-		})
-	)
-
-/** Two runs of one history agree: the same outcome for each call, in order, and the same state, sorted. */
-export const sameHistory: Equivalence<{
-	readonly shown: ReadonlyArray<string>
-	readonly state: ReadonlyArray<string>
-}> = (left, right) =>
-	Option.orElse(ordered(exact)(left.shown, right.shown), () =>
-		ordered(exact)(left.state, right.state)
-	)
-
 export type DisjointFeature =
 	| "docs only"
 	| "an invoice posted"
@@ -536,18 +318,7 @@ export type DisjointFeature =
 	| "a CHECK refused"
 	| "a 40001 under an Invoice race"
 
-export type SharedFeature = "a stored Doc" | "two calls at one key" | "three sessions"
-
-export type SerialFeature =
-	| "an exact repeat"
-	| "a key or axis refusal"
-	| "an unsettled invoice refused"
-	| "lines sent alone"
-
 export const runs = 8
-
-/** The import shape installed once per member as generate certifies it (race.ts generatedShapeTemplate). */
-export const generatedShape = generatedShapeTemplate(import.meta, "arbiter generate", importShape)
 
 /** The import shape installed once per member with every role READ COMMITTED (race.ts certifiedShapeTemplate). */
 export const readCommittedShape = certifiedShapeTemplate(

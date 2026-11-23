@@ -305,8 +305,7 @@ const traitAims = <P>(
 /**
  * One family's generated-history suite: a property for each population of its box (laws/boxes.ts populationsOf), keyed by
  * its mode, histories over the population's schemas, each run in its order. A planted writer below SERIALIZABLE runs
- * inside a history beside the others (history/refused.ts); the guard's refusal of every statement at every level on
- * every kind of table, alone, is test/pg/direct-writers/isolation.test.ts's box.
+ * inside a history beside the others (history/refused.ts).
  *
  * A case draws which of the family's schemas it runs on, and runs on the worker's clone of that schema's template
  * (history/families.ts HistoryFamily templates), whose installation is checked to enforce the host's laws as the host

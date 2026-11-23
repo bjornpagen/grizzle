@@ -20,7 +20,6 @@ import { printObjectName } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import {
 	type Installed,
-	installedTemplate,
 	installMigrated as install,
 	loadMigrated as load,
 	type MigratedOptions
@@ -30,20 +29,11 @@ import { transaction } from "#test/support/oracle/install/transaction.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { type ServedFixture, servedFixture } from "#test/support/served-db.ts"
 import {
-	ExpectationFailed,
-	type PgErrorFields,
 	type PsqlProcessError,
-	pgErrorFields,
 	type TransactionRolledBack
 } from "#test/support/substrate/errors.ts"
 import type { PsqlWriter } from "#test/support/substrate/psql.ts"
-import {
-	Substrate,
-	type SubstrateCase,
-	type SubstrateShape,
-	type SubstrateTemplate,
-	worldPsql
-} from "#test/support/substrate/substrate.ts"
+import { Substrate, type SubstrateShape, worldPsql } from "#test/support/substrate/substrate.ts"
 
 /** A schema's relations as the list it was built from, its record's members. */
 type Listed<R> = ReadonlyArray<R[keyof R]>
@@ -187,39 +177,3 @@ const fixtureOf = (s: SubstrateShape, done: Installed): Fixture => {
 		psql: (role) => s.psql({ ...worldPsql(done.world(role)), label: role.name })
 	}
 }
-
-/**
- * openFixture's installation as a template (install-migrate.ts installedTemplate): `fixture` installed empty with
- * `logins` once per member, as openFixture installs it, where a search opened it once before its cases; each case's
- * fixture over its clone (fixtureIn), whose seat empties every stored relation's table after the case.
- */
-export const openFixtureTemplate = (
-	declaredIn: ImportMeta,
-	name: string,
-	fixture: AnySchema,
-	logins: ReadonlyArray<AnyLogin>
-): SubstrateTemplate<Installed> =>
-	installedTemplate({ declaredIn, name, schema: fixture, options: fixtureInstall(logins) })
-
-/** The fixture of a case over a clone of an openFixtureTemplate, as openFixture opens one, in the case's substrate. */
-export const fixtureIn = (taken: SubstrateCase<Installed>): Fixture =>
-	fixtureOf(taken.substrate, taken.value)
-
-/** The PostgreSQL error a psql statement or transaction failed with, or a failure naming what happened instead. */
-export const failure = <A, E, R>(
-	effect: Effect.Effect<A, E, R>
-): Effect.Effect<PgErrorFields, ExpectationFailed, R> =>
-	Effect.matchEffect(effect, {
-		onSuccess: () =>
-			Effect.fail(
-				new ExpectationFailed({ message: "expected a PostgreSQL error, but it succeeded" })
-			),
-		onFailure: (error) => {
-			const fields = pgErrorFields(error)
-			return fields === undefined
-				? Effect.fail(
-						new ExpectationFailed({ message: `expected a PostgreSQL error, got ${String(error)}` })
-					)
-				: Effect.succeed(fields)
-		}
-	})

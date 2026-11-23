@@ -29,8 +29,7 @@ const Room = relation("Room", { room: pg.integer, during: span(pg.bigint) }, ["r
 
 const stored = { Gate, Pub, Seen, Room } as const
 
-/** G3's fenced shape (test/pg/isolation/support/shapes.ts fencedShape), one published relation: what a learner sees is
- * published. */
+/** G3's fenced shape, one published relation: what a learner sees is published. */
 const Fenced = schema("ExtractionOnce", Rec.values(stored), [
 	contained(on(Seen, "v"), on(Pub, "v"))
 ])

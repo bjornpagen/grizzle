@@ -4,7 +4,7 @@
  * its own nested writes alone, and every member slot and nested rows a family statement reads are of its stratum. A
  * stratum that planned another stratum's edits again would change nothing a lawful ChangeSet stores: a family's members
  * are written in one stratum, so the edit planned again deletes nothing and its inserts meet exact repeats. No stored
- * state shows that doubled work (test/pg/write/strata-families), and the compiled program does.
+ * state shows that doubled work, and the compiled program does.
  *
  * The box, constructed: a counted family of Members under Clubs and an ordered family of Lines under Docs, each owner
  * mutable, and Tags of no family. A case edits Members (inserts, deletes and puts, at least one), Lines (deletes and

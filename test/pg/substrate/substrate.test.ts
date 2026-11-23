@@ -1,7 +1,7 @@
 /**
  * The native multi-session test substrate's release of the roles a schema's scope leaves. Its sessions and psql writers
  * are the substrate every other pg suite runs on, the lock barrier among them under every schedule
- * (test/support/schedules/interleave.ts); psql's native errors are the direct-writer suites' (test/pg/direct-writers).
+ * (test/support/schedules/interleave.ts).
  * Each case runs in a database of its own (Substrate.fresh), cloned from the base template for it and dropped after it.
  *
  * The released-roles property draws a schema and who creates roles under its prefix: the substrate, which gives each

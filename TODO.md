@@ -342,7 +342,7 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   per-stratum SQL (write/program/compile.ts familyProgram), each planned from its own stratum's edits and refills and
   reading the state its statement finds, and a write no statement draws is refused when it compiles (StaleDerivedRead
   `passed`, `rewritten`, `edits`). Two editing strata, and a refill after an earlier stratum, are believed lawful there,
-  unverified. Lift both refusals, the type's refusal and its vocabulary entry together, with test/pg/write/strata-families
+  unverified. Lift both refusals, the type's refusal and its vocabulary entry together, with a property on PostgreSQL
   drawing two strata that edit one family's members and a refill in a later stratum against its model; then the
   refusals' advice (`a ChangeSet of its own`) becomes ChangeSet.sequence.
 - **A SERIALIZABLE writer that only withdraws a rule's violations still holds a READ COMMITTED prober (MONOTONE,
@@ -358,10 +358,10 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   (PARTITION BY <key>) ... WHERE NOT`), and the isolation extractor reads every relation beneath that NOT as read
   negated (program/isolation/extract.ts modeOf, l.1480-1489: a read whose context's polarity is not positive is
   `negated`), though only the presence of its rows feeds the write and the anti-join reads the write's own rows, not
-  shared state. Condition `absence` then keeps every role that writes the insertion's source SERIALIZABLE:
-  test/pg/isolation/reads.test.ts's teller, whose Deposit the closer's `close` copies into Copy, is certified
-  SERIALIZABLE for `absence`, relation Deposit, "closer of app reads it negated" (statement 0 of `close`), where only
-  condition `laws`'s second half should refuse it. Too strict, never too lax. Not built.
+  shared state. Condition `absence` then keeps every role that writes the insertion's source SERIALIZABLE: a teller
+  whose Deposit a closer's `close` copies into Copy is certified SERIALIZABLE for `absence`, relation Deposit, "closer
+  of app reads it negated" (statement 0 of `close`), where only condition `laws`'s second half should refuse it. Too
+  strict, never too lax. Not built.
 - **A folder's WAL, not its data, sizes a small instance (push-database-migration-through, 2026-11-14):** edullm's
   identity 02 ran 5 h in one transaction on a db.t4g.medium (4 GB, 3,000 IOPS gp3); every set-based backfill over node
   was disk-bound (83% DataFileRead), RDS warned its 200 GiB volume was near full from the WAL, and the instance

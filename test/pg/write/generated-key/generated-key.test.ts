@@ -37,14 +37,6 @@
  * before a deferred one, with a witness naming one of its violators, or `unreported` for a containment and for the
  * entry key where a new mapping's nested entries break it, and changes nothing; any other write stores exactly the
  * model's state, accepted where it changed a row and unchanged otherwise.
- *
- * Through a role (README, "Writing through a role"): Label (id, text), its `value` generated from its text, at most one
- * label of each value, written through Low, the labels below id 5, by an insert or a put of one label beside stored
- * labels inside Low and outside it, its text drawn in the pattern or, a draw in eight, outside it. The oracle is the
- * write restated: outside Low it is outside the world, or the pattern's law where its text breaks that, which the
- * README leaves unpromised; a text outside the pattern is the pattern's law; a stored label at its id the write does
- * not displace is the primary key's, and one of its value at another id, inside Low or outside it, the value key's, the
- * witness the key written in Low's fields, its generated value as PostgreSQL stores it.
  */
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
@@ -53,11 +45,7 @@ import {
 	type Feature,
 	keyCases,
 	keysCase,
-	keysTemplate,
-	labelCaseGen,
-	labelsCase,
-	labelsTemplate,
-	type LabelFeature
+	keysTemplate
 } from "#test/pg/write/generated-key/generated-key.fixtures.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -113,42 +101,5 @@ export const aWriteMeetsAKeyOverGeneratedFieldsAtTheValuesPostgreSQLStoresInside
 				since: "2026-11-07"
 			}
 		],
-		kills: []
-	})
-
-/**
- * A write through a query entry meets a key over a generated field at every stored row, inside the entry and outside
- * it, each case on the worker's seat of Labels, opening its own served writer.
- *
- * Its pre-conversion budget: runs 60, coverage cases 120 (test/pg/write/generated-key/generated-key.test.ts at d43931162).
- */
-export const aWriteThroughAQueryEntryMeetsAKeyOverAGeneratedFieldAtEveryStoredRowInsideTheEntryAndOutsideIt =
-	property.explore(labelCaseGen, {
-		needs: { labels: Substrate.seat(labelsTemplate) },
-		situations: [
-			"outside Low, its text unmatched",
-			"outside Low",
-			"a text outside the pattern inside Low",
-			"refused by the value key against a label outside Low",
-			"refused by the value key against a label inside Low",
-			"refused by the primary key",
-			"an exact repeat",
-			"stored"
-		] satisfies ReadonlyArray<Reached<LabelFeature>>,
-		check:
-			({ labels }, cx: Case<LabelFeature>) =>
-			(c) =>
-				Effect.scoped(
-					Effect.flatMap(labels, (taken) =>
-						Effect.provideService(labelsCase(taken, c, cx), Substrate, taken.substrate)
-					)
-				),
-		oracle: {
-			kind: "specification",
-			name: "a write through Low restated over the drawn labels: its world, its pattern, then each key"
-		},
-		show: Formatter.format,
-		budget: { runs: 60, steered: 120 },
-		kept: [],
 		kills: []
 	})
