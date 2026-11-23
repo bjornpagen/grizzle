@@ -20,9 +20,6 @@
  *   recreates the view, compared as a set of the columns each index keys. Oracle: that rule, restated over both
  *   drafts' programs. Features: an index built concurrently, an index after its recreated view, a standing index the
  *   later draft keeps.
- *
- * That the index is the one the program's statement uses on PostgreSQL is the database suite's
- * (test/pg/derived/workload-index.test.ts).
  */
 
 import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"

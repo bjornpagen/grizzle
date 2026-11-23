@@ -83,7 +83,7 @@ export type SketchedField =
 const letters = 26
 
 /** A refined text's pattern, the wildcard one draw in five. */
-export const patternSketchGen: Gen<PatternSketch> = weighted<PatternSketch>([
+const patternSketchGen: Gen<PatternSketch> = weighted<PatternSketch>([
 	[1, (): PatternSketch => ({ kind: "wildcard" })],
 	[
 		4,
@@ -101,9 +101,7 @@ export const patternSketchGen: Gen<PatternSketch> = weighted<PatternSketch>([
 ])
 
 /** The pattern's source and flags. */
-export const patternOf = (
-	p: PatternSketch
-): { readonly source: string; readonly flags: "u" | "su" } => {
+const patternOf = (p: PatternSketch): { readonly source: string; readonly flags: "u" | "su" } => {
 	if (p.kind === "wildcard") {
 		return { source: "^.*$", flags: "su" }
 	}

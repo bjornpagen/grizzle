@@ -1338,46 +1338,6 @@ export const oracleProperty = <S, const F extends string, E>(
 	})
 
 /**
- * What an oracle property whose cases commit states (installingOracleProperty): an oracle property's statement
- * (OracleSpec) whose check of a case runs on the case's own Substrate, where it installs, writes and commits.
- */
-export interface InstallingOracleSpec<S, F extends string, E> extends Omit<
-	OracleSpec<S, F, E>,
-	"check"
-> {
-	readonly check: (
-		c: PropertyCase<F>
-	) => (value: S) => Effect.Effect<void, E, Substrate | Scope.Scope>
-}
-
-/**
- * An oracle property (oracleProperty) whose cases install and commit, as a refresh's one commit or a stored write's
- * needs: each case on the worker's clone of the base template held across its cases (Substrate.installing), provided as
- * the Substrate service, under its perturbation, its allocations released after it.
- */
-export const installingOracleProperty = <S, const F extends string, E>(
-	space: OracleSpace<S, F>,
-	spec: InstallingOracleSpec<S, F, E>
-) =>
-	property.explore(conditionedSpace(space, spec.perturb), {
-		needs: { substrate: Substrate.installing },
-		situations: spec.situations,
-		check:
-			({ substrate }, c: PropertyCase<F>) =>
-			([value, conditions]) =>
-				Effect.provideServiceEffect(
-					Effect.scoped(underPerturbation(spec.check(c)(value), conditions)),
-					Substrate,
-					substrate
-				),
-		oracle: spec.oracle,
-		kept: spec.kept,
-		kills: spec.kills,
-		budget: spec.budget,
-		show: ([value]: readonly [S, Conditions]) => spec.show(value)
-	})
-
-/**
  * What an oracle property over templates states (seatedOracleProperty): an oracle property's statement (OracleSpec)
  * whose check of a case runs on the case's own Substrate, its seat of the template its value names, and reads that
  * template's value bound to the case's clone.

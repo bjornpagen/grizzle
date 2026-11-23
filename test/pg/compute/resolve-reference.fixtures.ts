@@ -1,4 +1,4 @@
-/** What the properties of resolve-reference.test.ts read: its spaces, its schema and its SQL. */
+/** What the property of resolve-reference.test.ts reads: its batches and its SQL. */
 
 import { assert } from "@bjornpagen/testing/assert"
 import { array, type Gen } from "@bjornpagen/testing/gen"
@@ -6,16 +6,10 @@ import { Array as Arr, Formatter } from "effect"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { predicateTable } from "#compiler/ir/expr.ts"
 import { libraryCreate } from "#compiler/physical/ddl/library.ts"
-import { pg } from "#compiler/public/fields.ts"
-import { relation, schema } from "#compiler/public/schema.ts"
-import { str } from "#compiler/public/text.ts"
-import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { compiledExpr } from "#compiler/scalar/compute/evaluate.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
-import { generatedField } from "#compiler/schema/relation.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { Id } from "#test/support/ids.ts"
 import { baseParams, lowerWith, plainRender, renderSql } from "#test/unit/compute/support.ts"
 import { textColumn } from "#test/unit/compute/text.fixtures.ts"
 import { referenceCaseGen, rfcExamples, type UriFeature } from "#test/unit/text/uri.fixtures.ts"
@@ -77,15 +71,3 @@ export const hostTarget = ({ base, reference }: Pair): string => {
 		? value
 		: assert.fail(`the host's target is a text, not ${Formatter.format(value)}`)
 }
-
-const text = str.regex("^.*$", "su")
-
-/** Links: a base, an href, and the generated target of the href resolved against the base. */
-export const Links = relation.generated(
-	"Links",
-	{ id: Id, n: pg.integer, base: text, href: text },
-	["id"],
-	(r) => ({ target: generatedField(text, computeCore.resolveReference(r.base, r.href), []) })
-)
-
-export const links = schema("ResolveReference", [Links], [])

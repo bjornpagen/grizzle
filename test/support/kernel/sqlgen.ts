@@ -1,5 +1,5 @@
 import { array, boolean, element, type Gen, int, map, span } from "@bjornpagen/testing/gen"
-import { forcedChooser, generate, recorder, type Source } from "@bjornpagen/testing/source"
+import { type Source } from "@bjornpagen/testing/source"
 import {
 	keep,
 	type Presence,
@@ -538,7 +538,7 @@ const statementFeatures = [
 	"zero width"
 ] as const
 
-export type StatementFeature = (typeof statementFeatures)[number]
+type StatementFeature = (typeof statementFeatures)[number]
 
 /** How deep queries nest in queries, and expressions in expressions. */
 const maxQueryDepth = 2
@@ -2141,25 +2141,3 @@ export const unframedWindowGen =
 		}
 		return source.draw(statementUnder(catalog, on))
 	}
-
-/**
- * A statement as a planted case states it: the swarm it is drawn under, a literal such as `{ merge: 3, returning: 3 }`
- * or `fullSwarm(on)`, and the decisions `statementGen` takes after its swarm, in order. A decision past the tape's end,
- * or outside the bounds the statement drawn so far gives it, takes its simplest value, the first option, so every
- * sketch resolves to a valid statement, and an empty tape to the simplest statement of its swarm.
- */
-export interface StatementSketch {
-	readonly swarm: Swarm<StatementFeature>
-	readonly tape: ReadonlyArray<number>
-}
-
-/**
- * The statement a sketch resolves to over a catalog: the one `statementGen` draws when its swarm comes out as the
- * sketch's and the decisions after it are the sketch's tape.
- */
-export const resolveStatement = (catalog: SqlCatalog, sketch: StatementSketch): SqlStatement =>
-	generate(
-		recorder(),
-		statementUnder(catalog, sketch.swarm),
-		forcedChooser(Float64Array.from(sketch.tape), sketch.tape.length)
-	).value

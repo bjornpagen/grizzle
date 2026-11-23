@@ -35,7 +35,7 @@ import { regex } from "#test/unit/schema/support.ts"
  * them, and a key over a selected side, or a containment from one into a relation keyed by fields of its terms' types,
  * whose one or two terms and whose selection each read a drawn field, written or generated. Oracle: PostgreSQL's rule
  * for generated columns, that a generation expression reads no generated column, over every column the installation
- * adds, which every case's installation compiles. test/pg/compute/translate.test.ts installs one and writes it.
+ * adds, which every case's installation compiles.
  *
  * Features: a term and a selection over a generated field, alone and together, under a key or a containment over a
  * generated read, and a key over written fields.

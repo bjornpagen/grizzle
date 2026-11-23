@@ -63,20 +63,3 @@ export const vectorInVerdict = (
 	}
 	return Option.exists(dimensions, (n) => n !== xs.length) ? "22000" : "admitted"
 }
-
-/** The norm of binary32 components summed in binary64, in index order: what the cosine domain bounds. */
-export const normOf = (xs: ReadonlyArray<number>): number =>
-	Math.sqrt(Arr.reduce(xs, 0, (sum, x) => sum + Math.fround(x) * Math.fround(x)))
-
-/** One unit in the last place of a positive normal double. */
-const ulp = (x: number): number => 2 ** (Math.floor(Math.log2(x)) - 52)
-
-/**
- * How far the host norm may lie from vector_norm's: both sum the same n exact double squares (a binary32 square fits
- * a double), in index order on the host and in whatever order pgvector's -fassociative-math build vectorizes, so
- * each sum is within (n - 1) units of 2^-53 of the exact one, relatively; the square root halves that and adds half
- * an ulp on either side. A float32 accumulator or a square taken before widening errs by about 2^-24 per term, far
- * beyond this bound at every dimension count.
- */
-export const normTolerance = (dimensions: number, norm: number): number =>
-	dimensions * 2 ** -53 * norm + ulp(norm)

@@ -26,12 +26,12 @@ import {
 	admitted,
 	caseGen,
 	type Feature,
-	inInstallation,
 	interval,
 	schemaOf,
 	sourceBytes,
 	sourceHolds
 } from "#test/pg/compute/bytes-guard.fixtures.ts"
+import { inInstallation } from "#test/pg/compute/support.ts"
 import { probe } from "#test/pg/physical/checks.ts"
 import { installationSql } from "#test/support/compile.ts"
 import { installationNamesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"

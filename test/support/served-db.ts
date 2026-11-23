@@ -68,7 +68,7 @@ import { testVerify, tokenOf } from "#test/support/worlds.ts"
  * and parsed: what an application imports. A program the compile refuses is its ServedRefusal, naming the role and the
  * program.
  */
-export const servedJson = (
+const servedJson = (
 	installed: Installed,
 	login: AnyLogin,
 	workloads: ReadonlyArray<AnyWorkload>

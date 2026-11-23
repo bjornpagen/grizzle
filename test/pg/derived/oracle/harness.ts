@@ -1,39 +1,21 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { assertVariant } from "@bjornpagen/testing/assert"
 import { Array as Arr, Data, Effect, Order, Record as Rec, type Scope } from "effect"
-import type { ApplyError, OpenError } from "#adapter/errors/execution.ts"
-import type { ServedRefusal } from "#adapter/public/compile.ts"
-import { type RefreshReport, runRefresh } from "#adapter/refresh/run.ts"
 import { type DerivedAnalysis, derivedAnalysis } from "#compiler/analysis/schema.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
-import type { CallError } from "#compiler/live/index.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
-import { refreshMember } from "#compiler/program/workload/value.ts"
-import type { AnyLoginRole } from "#compiler/public/schema.ts"
-import { queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
-import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { readOnce } from "#test/support/calls.ts"
 import type { FixtureSchema } from "#test/support/compile.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
-import { namesOf } from "#test/support/kernel/naming.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
 import type { LoginSource } from "#test/support/oracle/install/real.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
-import {
-	complementOf,
-	CurrentPerturbation,
-	perturbedContext
-} from "#test/support/oracle/perturb.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { checkedIn } from "#test/support/policy.ts"
-import { member, withServedDb } from "#test/support/served-db.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
-import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** The refresh oracle's harness.
@@ -70,15 +52,6 @@ export interface StoredRow {
 export interface Snapshot {
 	readonly stored: ReadonlyMap<string, ReadonlyArray<StoredRow>>
 	readonly defined: ReadonlyMap<string, ReadonlyArray<string>>
-}
-
-/** The rows a snapshot read for `relation`; a relation it did not read is a defect of the caller. */
-export const readOf = <A>(reads: ReadonlyMap<string, A>, relation: string): A => {
-	const rows = reads.get(relation)
-	if (rows === undefined) {
-		throw new OracleFixtureFailed({ message: `the snapshot did not read ${relation}` })
-	}
-	return rows
 }
 
 export interface Opened {
@@ -219,71 +192,6 @@ export const installDerived = (
 		}
 	})
 
-/** Which plan a refresh runs under: the case's plan perturbation, or its complement, the plan of a second reading. */
-export type RefreshPlan = "case" | "complement"
-
-/** A case's Db of one role, opened through its login's served file. */
-export interface CaseDb {
-	/** Every fact of the relation the reads name `name`, read through its served member (everyFact). */
-	readonly read: (name: string) => Effect.Effect<ReadonlyArray<unknown>, CallError>
-	/**
-	 * A refresh of `named` through a refresh member compiled for the Db's role, refresh(named), run on the Db's
-	 * context under `plan`, every transaction of it setting the plan's planner settings (perturb.ts perturbedContext),
-	 * and its statements.
-	 */
-	readonly refresh: (
-		named: Arr.NonEmptyReadonlyArray<unknown>,
-		plan: RefreshPlan
-	) => Effect.Effect<RefreshReport, ApplyError | ServedRefusal | OpenError>
-}
-
-/**
- * The query that reads every fact of a derived relation `value` of `top`: one match binding each of its `columns`, a
- * generated schema's type being known only at run time.
- */
-export const everyFact = (top: unknown, value: unknown, columns: ReadonlyArray<string>): unknown =>
-	query(top).rule((r: RuleValue) => {
-		const vars = v(value, "value")
-		const bound = Rec.fromEntries(Arr.map(columns, (c) => [c, vars[c]]))
-		return r.match(value, bound).find(bound)
-	})
-
-/**
- * Opens `role`, a role reached through its login over the schema rebuilt under the installed name, through the login's
- * served file (test/support/served-db.ts withServedDb), with `reads` served as its members by name, and runs `body` with
- * the case's Db (CaseDb), under the case's plan perturbation (CurrentPerturbation).
- */
-export const withCaseDb = <A, E>(
-	o: Opened,
-	role: AnyLoginRole,
-	reads: Readonly<Record<string, unknown>>,
-	body: (db: CaseDb) => Effect.Effect<A, E, Scope.Scope | Substrate>
-): Effect.Effect<A, E | ServedRefusal | OpenError, Scope.Scope | Substrate> =>
-	Effect.gen(function* () {
-		const substrate = yield* Substrate
-		const perturbation = yield* CurrentPerturbation
-		return yield* withServedDb(o.installed, role, {}, ({ ctx, load, serve }) =>
-			Effect.gen(function* () {
-				const members = yield* serve(reads)
-				const contexts = {
-					case: perturbedContext(ctx, perturbation),
-					complement: perturbedContext(ctx, complementOf(perturbation))
-				}
-				const db: CaseDb = {
-					read: (name) => readOnce(member(members, name))({ params: {}, facts: {} }),
-					refresh: (named, plan) =>
-						Effect.gen(function* () {
-							const loaded = yield* load({ refresh: refreshMember(named) })
-							const refresh = member(loaded, "refresh")
-							assertVariant(refresh, "kind", "refresh", "refresh(named) loads a refresh member")
-							return yield* Effect.scoped(runRefresh(contexts[plan], refresh.refresh))
-						})
-				}
-				return yield* Effect.provideService(body(db), Substrate, substrate)
-			})
-		)
-	})
-
 const viewRows = (session: PgConnection, o: Opened, relation: string) =>
 	Effect.map(
 		session.query(
@@ -355,22 +263,3 @@ export const snapshotOf = (
 			return out
 		})
 	)
-
-/** Replaces every base relation's facts with `facts`, as the owner, in one transaction (`installationGroup`). Every base relation's rows are deleted first and the facts inserted in the order given, so a
- * reload of the same facts rewrites every base row. */
-export const reload = (
-	o: Opened,
-	facts: Facts
-): Effect.Effect<void, CompileError | SqlError | TransactionRolledBack, Substrate> =>
-	Effect.gen(function* () {
-		const s = yield* Substrate
-		const inserts = factStatements(o.installed.plan, facts)
-		if (!inserts.ok) {
-			return yield* Effect.fail(inserts.error)
-		}
-		yield* replaceRows(
-			s.admin,
-			installationGroup(namesOf(o.installed)),
-			Arr.map(inserts.value, (sql) => ({ sql, params: [] }))
-		)
-	})

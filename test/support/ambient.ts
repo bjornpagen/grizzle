@@ -132,7 +132,7 @@ export const ambientFeatures = (ambient: AmbientSession): ReadonlyArray<AmbientF
 /**
  * The ambient session `ambient` as a role's or a database's defaults, the grizzle-first path listing `schemas`, the
  * installation's own and each role's, in that order. The vector extension's schema is never listed, as no grizzle
- * session's path holds it (test/pg/vector/exact/equality.test.ts).
+ * session's path holds it.
  */
 export const ambientDefaults = (
 	ambient: AmbientSession,

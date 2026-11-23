@@ -1,12 +1,10 @@
-/** What the properties of text.test.ts read: its spaces, models and helpers. */
+/** What the property of text.test.ts reads: its dictionary space, its schema and its judge. */
 
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { defined } from "@bjornpagen/testing/assert"
-import { array, boolean, element, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
+import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { identity } from "#compiler/core/identity.ts"
-import type { ExprDesc } from "#compiler/ir/desc.ts"
-import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import {
 	compileInstallation,
 	type Installation,
@@ -17,134 +15,12 @@ import { closedId, pg } from "#compiler/public/fields.ts"
 import { check, closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { judged, probe } from "#test/pg/physical/checks.ts"
-import { spelled } from "#test/support/fixtures/ir/scalar.ts"
 import { installationNamesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
-import type { PgConnection, SqlError } from "#test/support/pg.ts"
+import type { PgConnection } from "#test/support/pg.ts"
 import { owning } from "#test/support/policy.ts"
 import { jsMatcher } from "#test/support/regex.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import {
-	baseParams,
-	type LeafBinding,
-	lowerWith,
-	plainRender,
-	renderSql,
-	testPg
-} from "#test/unit/compute/support.ts"
-import {
-	admittedPatternOver,
-	families,
-	patternOver,
-	stringsOver
-} from "#test/unit/text/generators.ts"
-
-/** A text whose pattern bounds its bytes, which a query's `~` reads (lower.ts regexReadable); every drawn row is short. */
-const textColumn: LeafBinding = { kind: "column", type: testPg.regex("^.{0,64}$", "su").scalar }
-
-const boolColumn: LeafBinding = { kind: "column", type: testPg.boolean.scalar }
-
-export const variable = (name: string): ExprDesc => ({ kind: "var", var: name })
-
-/**
- * A Text.matches pattern literal of `spelling`, admitted (test/support/fixtures/ir/scalar.ts spelled): the one literal a
- * match reads as its pattern since 8b0332f84, where a text literal is refused there.
- */
-export const patternLiteral = (spelling: string): ExprDesc => ({
-	kind: "literal",
-	value: spelled(spelling)
-})
-
-export const compute = (
-	fn: "matches" | "concat" | "startsWith" | "endsWith",
-	...args: ReadonlyArray<ExprDesc>
-): ExprDesc => ({ kind: "compute", fn, args })
-
-/** One expression case: a family, the patterns of its match, the row batch and the dictionary's choice. */
-interface SqlCase {
-	readonly family: number
-	readonly sources: Arr.NonEmptyReadonlyArray<string>
-	readonly rows: ReadonlyArray<{
-		readonly v: string
-		readonly w: string
-		readonly r: string
-		readonly p: boolean
-	}>
-}
-
-export type SqlFeature =
-	| "a literal's match held"
-	| "a literal's match failed"
-	| "a dictionary's match held"
-	| "a dictionary's match failed"
-	| "a prefix held"
-	| "an equation held"
-
-export const sqlCase: Gen<SqlCase> = (source) => {
-	const fi = source.draw(int(0, families.length - 1))
-	const family = defined(families[fi], "a family")
-	const pattern: Gen<string> = weighted([
-		[
-			1,
-			map(
-				element(
-					Arr.isReadonlyArrayNonEmpty(family.patterns) ? family.patterns : [["^$", "u"] as const]
-				),
-				([s]) => s
-			)
-		],
-		[2, patternOver(family.alphabet)]
-	])
-	const first = source.draw(pattern)
-	const second = source.draw(boolean) ? [source.draw(pattern)] : []
-	const strings = stringsOver(element(family.alphabet), 8)
-	return {
-		family: fi,
-		sources: [first, ...second],
-		rows: source.draw(
-			array(
-				(row) => {
-					const w = row.draw(strings)
-					const r = row.draw(strings)
-					/** Half the time v is w then r, so prefix tests and equations hold as often as not. */
-					const v = row.draw(boolean) ? `${w}${r}` : row.draw(strings)
-					return { v, w, r, p: row.draw(boolean) }
-				},
-				{ min: 1, max: 64 }
-			)
-		)
-	}
-}
-
-/** A lowered expression of a case, its SQL and the reference evaluator's value per row. */
-export interface Probe {
-	readonly label: string
-	readonly expr: ScalarExpr
-	readonly sql: string
-}
-
-export const lowered = (
-	label: string,
-	desc: ExprDesc,
-	predicate: boolean,
-	mode: "query" | "check"
-): Probe | undefined => {
-	const result = lowerWith(
-		mode,
-		desc,
-		{ v: textColumn, w: textColumn, r: textColumn, p: boolColumn },
-		predicate,
-		baseParams
-	)
-	if (!result.ok) {
-		return undefined
-	}
-	const expr = result.value.root.expr
-	return { label, expr, sql: renderSql(expr, plainRender) }
-}
-
-/** The text PostgreSQL prints a host value as: a boolean's word, a text itself. */
-export const printed = (value: unknown): string =>
-	typeof value === "boolean" ? (value ? "true" : "false") : String(value)
+import { admittedPatternOver, families, stringsOver } from "#test/unit/text/generators.ts"
 
 /** The dictionary a case installs: each domain's pattern, the literal pattern of its Tagged rows, and the probe texts. */
 interface Dictionary {
@@ -218,23 +94,6 @@ export const textInstallation = (s: ReturnType<typeof dictionarySchema>) =>
 		}
 		return real.value
 	})
-
-/** Installs `sql` on the pinned session in a transaction, runs `body` in it, and rolls back. */
-export const inInstallation = <A>(
-	pinned: PgConnection,
-	sql: ReadonlyArray<string>,
-	body: Effect.Effect<A, SqlError>
-): Effect.Effect<A, SqlError> =>
-	Effect.ensuring(
-		Effect.gen(function* () {
-			yield* pinned.query("BEGIN", [])
-			for (const statement of sql) {
-				yield* pinned.query(statement, [])
-			}
-			return yield* body
-		}),
-		Effect.orDie(pinned.query("ROLLBACK", []))
-	)
 
 export const judgeDictionary = (
 	pinned: PgConnection,

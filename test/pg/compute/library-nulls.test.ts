@@ -29,7 +29,7 @@ import {
 	sameLibraryValue,
 	uncalledNodes
 } from "#test/pg/compute/library-nulls.fixtures.ts"
-import { inInstallation } from "#test/pg/compute/utf16-length.fixtures.ts"
+import { inInstallation } from "#test/pg/compute/support.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** The cell of a row PostgreSQL returned, the call's value in its own type. */

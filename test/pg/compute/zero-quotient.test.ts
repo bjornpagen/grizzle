@@ -19,8 +19,7 @@ import { agree, exact, ordered } from "@bjornpagen/testing/oracle"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
-import { textCell } from "#test/pg/compute/support.ts"
-import { inInstallation } from "#test/pg/compute/utf16-length.fixtures.ts"
+import { inInstallation, textCell } from "#test/pg/compute/support.ts"
 import {
 	batchGen,
 	byZero,

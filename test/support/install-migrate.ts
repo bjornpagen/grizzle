@@ -1,7 +1,6 @@
 import { inspect } from "node:util"
 import * as Engine from "@bjornpagen/grizzle-text/base/result"
 import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
-import type { Need } from "@bjornpagen/testing/property"
 import type { Content } from "@bjornpagen/testing/resources"
 import {
 	Array as Arr,
@@ -79,7 +78,7 @@ import { type SqlError, wireSession } from "#test/support/pg.ts"
 import { schemaDescIn } from "#test/support/policy.ts"
 import type { BudgetedCluster } from "#test/support/substrate/budget.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
-import { type TemplateNames, templateNames } from "#test/support/substrate/names.ts"
+import { type TemplateNames } from "#test/support/substrate/names.ts"
 import {
 	installationGroup,
 	noTables,
@@ -93,11 +92,11 @@ import {
 	Substrate,
 	type SubstrateTemplate
 } from "#test/support/substrate/substrate.ts"
-import { templateDigest, templatePassword } from "#test/support/substrate/templates.ts"
+import { templatePassword } from "#test/support/substrate/templates.ts"
 
 import { regex } from "arkregex"
 import { silentPhases } from "#compiler/core/phase.ts"
-import { fixtureNeedBudget, templateNeedBudget } from "#test/support/budgets.ts"
+import { templateNeedBudget } from "#test/support/budgets.ts"
 /**
  * Installing a compiled schema into the test file's database through its migrations.
  *
@@ -957,26 +956,6 @@ export const migratedTemplate = (spec: HistorySpec): SubstrateTemplate<Installed
 		seed: () => Effect.void,
 		reset: (installed) => installationGroup(namesOf(installed))
 	})
-
-/**
- * What every case over a clone of `template` derives from the template's names alone (its installed schema name, its
- * owner login), such as a statement compiled under the installation's name: a need that derives it once per worker,
- * from the template's identity as its build names it (substrate/templates.ts templateDigest, names.ts templateNames),
- * where each case derived it again from its own Installed. A derivation that throws fails the property once, as a
- * need's open does.
- */
-export const templateNamed = <A>(
-	key: string,
-	template: Pick<SubstrateTemplate<never>, "database">,
-	derive: (names: TemplateNames) => A
-): Need<A> => ({
-	key,
-	budget: fixtureNeedBudget,
-	runNeeds: [],
-	open: Effect.map(templateDigest(template.database), (digest) =>
-		Effect.succeed(derive(templateNames(digest)))
-	)
-})
 
 /**
  * A template's installation of `history` (draftedHistory under the template's names), as a case over a clone of it sees

@@ -1,31 +1,17 @@
-/** What the properties of digest.test.ts read: its spaces, models and helpers. */
+/** What the property of digest.test.ts reads: its values, its lowerings and its SQL. */
 
 import { assert } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import type { Need } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter, Order } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { predicateTable } from "#compiler/ir/expr.ts"
-import { ChangeSet } from "#compiler/public/changeset.ts"
-import { Crypto } from "#compiler/public/compute.ts"
-import {
-	accumulated,
-	bytes,
-	drawn as drawnField,
-	generated,
-	natural,
-	Sha256,
-	sha256
-} from "#compiler/public/fields.ts"
-import { query, v } from "#compiler/public/query.ts"
-import { check, contained, fin, on, ordered, relation, schema } from "#compiler/public/schema.ts"
 import { compiledExpr } from "#compiler/scalar/compute/evaluate.ts"
 import type { Lowered } from "#compiler/scalar/compute/lower.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { fixtureNeedBudget } from "#test/support/budgets.ts"
-import { Id } from "#test/support/ids.ts"
 import {
 	baseParams,
 	field,
@@ -161,89 +147,6 @@ export const hexOf = (body: Uint8Array<ArrayBuffer>): string => Buffer.from(body
  */
 export const digestsSql = (check: Lowered, read: Lowered): string =>
 	`SELECT pg_catalog.encode(${renderSql(check.expr, plainRender)}, 'hex'), pg_catalog.encode(${renderSql(read.expr, plainRender)}, 'hex'), pg_catalog.encode(pg_catalog.sha256(r0.v), 'hex'), (pg_catalog.octet_length(${renderSql(check.expr, plainRender)}) = pg_catalog.octet_length(pg_catalog.sha256(r0.v)))::text FROM unnest($1::text[]) WITH ORDINALITY AS h(hex, ord) CROSS JOIN LATERAL (SELECT pg_catalog.decode(h.hex, 'hex') AS v) AS r0 ORDER BY h.ord`
-
-/**
- * The start a page's copy holds at its axis's base, which no page reaches: its owner axis copies every page's owner. A
- * digest literal, any digest's, the empty value's here.
- */
-const noDigest = Sha256.ofBytes(new Uint8Array())
-
-/**
- * An entry stores its bytes `content` and generates `digest`, a sha256 field of their SHA-256, the pantry's
- * declaration `generated(sha256, Crypto.sha256(row.content))`.
- */
-export const Entry = relation.generated(
-	"Entry",
-	{ id: Id, content: bytes, pages: drawnField(natural) },
-	["id"],
-	(row) => ({
-		digest: generated(sha256, Crypto.sha256(row.content))
-	})
-)
-
-const Page = relation(
-	"Page",
-	{ id: Id, entry: Id, at: drawnField(natural), entryDigest: accumulated(sha256, noDigest) },
-	["id"]
-)
-
-export const Media = schema(
-	"Media",
-	[Entry, Page],
-	[
-		ordered(on(Page, "entry", "at"), fin(Entry, "pages")),
-		contained(on(Page, "entry", "entryDigest"), on(Entry, "id", "digest")),
-		check("Digested", Entry, (row) => row.eq(row.digest, Crypto.sha256(row.content)))
-	]
-)
-
-/**
- * The full world's workload: entries written with their pages nested, the entries' digests read back, a query's head
- * computing each entry's digest from its bytes, and the pages' copies read back.
- */
-export const programs = Object.freeze({
-	insertEntries: ChangeSet.empty(Media).insert(Entry, []),
-	entries: query(Media).rule((r) => {
-		const { id, digest } = v(Entry, "e")
-		return r.match(Entry, { id, digest }).find({ id, digest })
-	}),
-	computed: query(Media).rule((r) => {
-		const { id, content } = v(Entry, "e")
-		return r.match(Entry, { id, content }).find({ id, computed: Crypto.sha256(content) })
-	}),
-	pages: query(Media).rule((r) => {
-		const { id, entry, entryDigest } = v(Page, "p")
-		return r.match(Page, { id, entry, entryDigest }).find({ id, entry, entryDigest })
-	})
-})
-
-/** A drawn installed case: each entry's value and its count of pages. */
-export interface Stored {
-	readonly entries: ReadonlyArray<{ readonly value: Value; readonly pages: number }>
-}
-
-export const stored: Gen<Stored> = (s) => ({
-	entries: s.draw(
-		array((r) => ({ value: r.draw(value), pages: r.draw(int(0, 3)) }), { min: 1, max: 6 })
-	)
-})
-
-export type StoredFeature =
-	| "an entry of the empty value"
-	| "an entry with no page"
-	| "an entry of pages"
-	| "entries of two values"
-
-export const storedNotes = (d: Stored): ReadonlyArray<StoredFeature> => [
-	...(Arr.some(d.entries, (e) => e.value.arm === "empty")
-		? (["an entry of the empty value"] as const)
-		: []),
-	...(Arr.some(d.entries, (e) => e.pages === 0) ? (["an entry with no page"] as const) : []),
-	...(Arr.some(d.entries, (e) => e.pages > 0) ? (["an entry of pages"] as const) : []),
-	...(d.entries.length >= 2 ? (["entries of two values"] as const) : [])
-]
-
-export const byId = Order.mapInput(Order.String, (row: { readonly id: string }) => row.id)
 
 export const read = lowered("query")
 

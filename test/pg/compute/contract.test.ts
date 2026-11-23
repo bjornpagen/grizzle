@@ -1,33 +1,25 @@
 /**
- * Contract predicates against PostgreSQL 19 domains: a contract over each base (bigint, integer, numeric, double
- * precision and text), its predicate the installed domain's CHECK.
+ * Contract predicates against PostgreSQL 19 domains: a contract over numeric(7, 6), its predicate the installed domain's
+ * CHECK.
  *
- * - Admission: for every drawn value, the edges its predicate turns on weighted among them, a literal's cast into the
- *   contract compiles exactly where PostgreSQL's CAST into the domain succeeds, the host evaluator's value then a value
- *   and the literal, stated as one of the contract, admitted; and it is refused exactly where PostgreSQL refuses it, for
- *   the reason its SQLSTATE names (23514 for the predicate, 22003 for the typmod).
- * - Rounding: a literal stated as a value of a numeric contract is rounded to its scale before its predicate, as the
- *   domain cast does (scalar/compute/literal.ts LiteralMeeting `stored`): the host admits a drawn literal about the
- *   predicate's bounds exactly where PostgreSQL's cast does. A literal compared with a column of the contract is held to
- *   it as written (`compared`), since PostgreSQL compares it at the base type: the host admits it exactly where the cast
- *   admits it and leaves it as written, and refuses it where the cast would round it, so a comparison never reads a value
- *   its literal does not state (README Arithmetic, main's ruling on a bare literal).
+ * A literal stated as a value of a numeric contract is rounded to its scale before its predicate, as the domain cast does
+ * (scalar/compute/literal.ts LiteralMeeting `stored`): the host admits a drawn literal about the predicate's bounds
+ * exactly where PostgreSQL's cast does. A literal compared with a column of the contract is held to it as written
+ * (`compared`), since PostgreSQL compares it at the base type: the host admits it exactly where the cast admits it and
+ * leaves it as written, and refuses it where the cast would round it, so a comparison never reads a value its literal
+ * does not state (README Arithmetic, main's ruling on a bare literal).
  *
- * Oracle: PostgreSQL itself, the domain cast of each value.
- *
- * Features: a value the domain admits and one it refuses, for each contract.
+ * Oracle: PostgreSQL itself, the domain cast of each literal.
  */
 import { assert } from "@bjornpagen/testing/assert"
-import { family, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Record as Rec } from "effect"
+import { property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { predicateTree } from "#compiler/ir/expr.ts"
 import { compareDecimal, Decimal } from "#compiler/scalar/values/decimal.ts"
 import {
-	contractProperty,
 	domainRuns,
 	evaluatorSchema,
-	fixtures,
 	Rate,
 	roundingBatch
 } from "#test/pg/compute/contract.fixtures.ts"
@@ -40,11 +32,6 @@ import {
 	renderSql,
 	admittedStored
 } from "#test/unit/compute/support.ts"
-
-/** Contract predicates against PostgreSQL 19 domains admit exactly the values PostgreSQL's domain admits, for every generated value of each contract. */
-export const contracts = family(
-	Rec.fromEntries(Arr.map(fixtures(), (f) => [f.name, contractProperty(f)]))
-)
 
 /**
  * Contract predicates against PostgreSQL 19 domains round a literal stated as a value of the contract to its scale

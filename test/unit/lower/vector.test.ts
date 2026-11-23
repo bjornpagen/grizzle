@@ -1,7 +1,6 @@
 /**
  * approximateNearest in the optimized lowering: one search per execution, never one per parent, and the refusals of
- * placements that would run it more often. The indexed statements run on PostgreSQL in test/pg/vector/ann, which
- * checks their plans; here a search is counted on the AST as a query ranked by the cosine distance.
+ * placements that would run it more often. A search is counted on the AST as a query ranked by the cosine distance.
  *
  * The rule, over every placement of a search a parent and its child make (the checker builds only some of them; the
  * others are hand-built DAGs the lowering must refuse on its own): a program the lowering admits computes each search

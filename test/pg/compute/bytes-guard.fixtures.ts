@@ -3,7 +3,7 @@
 import { codePoints } from "@bjornpagen/grizzle-text/text"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { array, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
-import { Array as Arr, Effect } from "effect"
+import { Array as Arr } from "effect"
 import { pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -11,7 +11,6 @@ import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { generatedField } from "#compiler/schema/relation.ts"
 import { regexField } from "#compiler/text/field.ts"
 import { Id } from "#test/support/ids.ts"
-import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { stringsOver } from "#test/unit/text/generators.ts"
 
 /** The guard over the cast: the text's bytes within [low, high], or none. */
@@ -138,20 +137,3 @@ export const schemaOf = (c: Case) => {
 	)
 	return { Texts, value: schema("BytesGuard", [Texts], []) }
 }
-
-/** Installs `sql` on the pinned session in a transaction, runs `body` in it, and rolls back. */
-export const inInstallation = <A>(
-	pinned: PgConnection,
-	sql: ReadonlyArray<string>,
-	body: Effect.Effect<A, SqlError>
-): Effect.Effect<A, SqlError> =>
-	Effect.ensuring(
-		Effect.gen(function* () {
-			yield* pinned.query("BEGIN", [])
-			for (const statement of sql) {
-				yield* pinned.query(statement, [])
-			}
-			return yield* body
-		}),
-		Effect.orDie(pinned.query("ROLLBACK", []))
-	)

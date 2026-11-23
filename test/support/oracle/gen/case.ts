@@ -95,22 +95,6 @@ export const soundnessGenConfig: GenConfig = {
 }
 
 /**
- * The approximate-search population: the soundness population's every shape a conservative lowering accepts, its
- * approximate searches four times as often and no window, which no lowering accepts, with more takes; a source of more
- * rows than a search takes then ties at its cutoff wherever its scores do.
- */
-export const annGenConfig: GenConfig = {
-	...defaultGenConfig,
-	query: {
-		...defaultQueryConfig,
-		soundness: true,
-		statedOrders: true,
-		imported: 4,
-		weights: { ...defaultQueryConfig.weights, approximate: 4, window: 0, take: 3 }
-	}
-}
-
-/**
  * The optimizer's population: what each rewrite family needs, containments to read through, wide payload under takes
  * with stated orders, total computed terms, equations, filters read through regions and rooted closures, and now and
  * then a filter directly over a group or a union (filterOver), the stage pushdown.group and pushdown.union move a filter

@@ -13,7 +13,7 @@ import { templateNeedBudget } from "#test/support/budgets.ts"
 import { strictIntegers, strictRead } from "#test/support/kernel/strict.ts"
 import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
 import { type CatalogResult, declinedOps } from "#test/support/oracle/evaluate/catalog.ts"
-import type { RawQueryResult, SqlError } from "#test/support/pg.ts"
+import type { PgConnection, RawQueryResult, SqlError } from "#test/support/pg.ts"
 import { noTables } from "#test/support/substrate/replace.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import {
@@ -31,7 +31,7 @@ export const textCell = (row: ReadonlyArray<unknown>, i: number): string => {
 }
 
 /** The concrete PostgreSQL type of a carrier, as a cast or pg_typeof names it. */
-export const concreteTypeName: { readonly [C in Carrier]: string } = {
+const concreteTypeName: { readonly [C in Carrier]: string } = {
 	...catalogTypeName,
 	cidr: "cidr",
 	range4: "int4range",
@@ -225,7 +225,7 @@ const sameValue = (value: ModelValue, text: string, type: ScalarType): boolean =
 }
 
 /** A carrier value as a report names it: a span or a vector by Formatter, any other value by its own text. */
-export const carrierText = (value: ModelValue): string =>
+const carrierText = (value: ModelValue): string =>
 	typeof value === "object" && !(value instanceof Decimal) && !(value instanceof Money)
 		? Formatter.format(value)
 		: String(value)
@@ -338,3 +338,20 @@ const verdict = (c: EvalCase, pg: PgAnswer): "value" | "declined" | "typed" | "b
 			return "bad"
 	}
 }
+
+/** Installs `sql` on the pinned session in a transaction, runs `body` in it, and rolls back. */
+export const inInstallation = <A>(
+	pinned: PgConnection,
+	sql: ReadonlyArray<string>,
+	body: Effect.Effect<A, SqlError>
+): Effect.Effect<A, SqlError> =>
+	Effect.ensuring(
+		Effect.gen(function* () {
+			yield* pinned.query("BEGIN", [])
+			for (const statement of sql) {
+				yield* pinned.query(statement, [])
+			}
+			return yield* body
+		}),
+		Effect.orDie(pinned.query("ROLLBACK", []))
+	)

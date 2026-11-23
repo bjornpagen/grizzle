@@ -59,7 +59,7 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  * call refreshes exactly the relations of its level, one statement per relation, as the call's own report names them.
  * Each call's time is information.
  *
- * The fixture is the refresh suite's shape (test/pg/derived/refresh/refresh.test.ts): Sitting and Fee at level 0;
+ * The fixture: Sitting and Fee at level 0;
  * level 1 StudentWeekly (sittings and passes per student and week) and TopFee (each student's largest fee, an
  * unconstrained numeric whose equal values may differ in spelling); level 2 WeekBusy, which reads StudentWeekly. The
  * refresher role refreshes through refresh members of its Db's served workload, one per level, each reporting the

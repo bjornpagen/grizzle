@@ -1737,42 +1737,6 @@ export const statementBreaks: Arr.NonEmptyReadonlyArray<StatementBreak> = Arr.ap
 	unrequiredStatementBreaks
 )
 
-/**
- * The statement breaks whose rule mirrors a refusal of PostgreSQL's, with the class of SQLSTATE it refuses with: each,
- * at a drawn site, is refused by PostgreSQL as well (test/pg/sql/audit.test.ts).
- * A refusal's SQLSTATE: its class, or the full code where the class names other refusals too (22, a data exception).
- */
-type Refusal = "42" | "0A" | "22P02"
-
-const mirroredClasses: ReadonlyMap<StatementBreakName, Refusal> = new Map<
-	StatementBreakName,
-	Refusal
->([
-	["a column qualified by a relation nothing defines", "42"],
-	["a derived table that is not LATERAL naming an earlier FROM entry", "42"],
-	["a write's FROM or USING reading the write's target", "42"],
-	["a MERGE WHEN naming the side its match lacks", "42"],
-	["a data-modifying CTE in a WITH that is not the statement's own", "0A"],
-	["EXCLUDED in a query", "42"],
-	["an ORDER BY over a set operation naming no output", "42"],
-	[
-		"a parenthesized query body whose clauses PostgreSQL would merge with the enclosing query's",
-		"42"
-	],
-	["set operation arms of different widths", "42"],
-	["an INSERT whose columns and source differ in width", "42"],
-	["a scalar literal typed as an array", "42"],
-	["a quoted number typed as an array", "22P02"]
-])
-
-export const mirroredBreaks: ReadonlyArray<{
-	readonly operator: StatementBreak
-	readonly sqlstateClass: Refusal
-}> = Arr.flatMap(statementBreaks, (operator) => {
-	const sqlstateClass = mirroredClasses.get(operator.name)
-	return sqlstateClass === undefined ? [] : [{ operator, sqlstateClass }]
-})
-
 /** The first stored table a query reads, the target of the DELETE a break plants. */
 const tableOf = (q: OperandSelect): ObjectName | undefined => {
 	const tables: Array<ObjectName> = []
@@ -1911,11 +1875,8 @@ const queryOnly = (s: SqlStatement): Select | undefined =>
 const ordered = (items: ReadonlyArray<OrderItem>): boolean =>
 	items.length > 0 && orderWithoutParams(items)
 
-/**
- * The faithful rewrite PostgreSQL plans as well (test/pg/sql/audit.test.ts): a derived table made LATERAL may read an
- * earlier FROM entry.
- */
-export const lateralRewrite: FaithfulRewrite = {
+/** A faithful rewrite: a derived table made LATERAL may read an earlier FROM entry. */
+const lateralRewrite: FaithfulRewrite = {
 	name: "a later derived FROM entry made LATERAL, reading an earlier one",
 	print: "different",
 	holes: { ...noHoles, core: (c) => siblingReferences(c, true) }

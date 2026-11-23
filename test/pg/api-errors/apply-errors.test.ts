@@ -18,7 +18,7 @@
  *
  * Covered elsewhere through the public API: ExecutionFailure{compiler, compile} for an unchecked ChangeSet outside the
  * role's write list (test/pg/transactions/apply.test.ts) and for a refresh outside its refresh list, TransientFailure
- * from an apply (test/schedules/write/races.test.ts) and from a refresh member (test/pg/derived/refresh/refresh.test.ts).
+ * from an apply (test/schedules/write/races.test.ts).
  * Not provoked: TransportFailure and CommitUnknown arise only from a lost connection or an unacknowledged COMMIT, which
  * are infrastructure faults out of the suite's scope. A read-back's rows are converted, not validated (the public-boundary
  * differential reads each read-back as strictly as a read, test/pg/oracle/public/run.ts).

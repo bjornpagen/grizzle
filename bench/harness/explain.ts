@@ -526,13 +526,6 @@ export const groupingSteps = (nodeTypes: ReadonlyArray<string>): ReadonlyArray<s
 	Arr.filter(nodeTypes, (t) => groupingNodeTypes.has(t))
 
 /**
- * Every index a node of a cell's plan reads by name (an index scan, an index-only scan, a bitmap index scan), in plan
- * order.
- */
-export const planIndexNames = (cell: unknown): ReadonlyArray<string> =>
-	Arr.fromIterable(planNodes(planTreeOf(cell)).flatMap((node) => Option.toArray(node.index)))
-
-/**
  * A plan node as a plan feature reads it: its type, refined by its join type or its aggregate or set operation
  * strategy where EXPLAIN prints one.
  */

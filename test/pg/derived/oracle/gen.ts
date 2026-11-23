@@ -1,8 +1,6 @@
-import { appendAll, indices } from "@bjornpagen/grizzle-text/base/array"
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { array, boolean, constant, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
-import { floatLiteral } from "#compiler/ir/carriers.ts"
-import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { login } from "#compiler/program/workload/login.ts"
 import { Logic } from "#compiler/public/compute.ts"
 import { closedId, contract, natural, pg } from "#compiler/public/fields.ts"
@@ -18,7 +16,6 @@ import { str } from "#compiler/public/text.ts"
 import { type QueryValue, queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import {
 	closedBuilder as closed,
 	materializedDerived,
@@ -29,15 +26,6 @@ import { roleBuilder as role } from "#compiler/schema/world.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { Id } from "#test/support/ids.ts"
 import { argumentsOf } from "#test/support/list.ts"
-import type { StorageCarrier } from "#test/support/oracle/gen/domain.ts"
-import {
-	inputRespelling,
-	type Restorage,
-	restoredFacts,
-	type StorageOrder,
-	type StoredRelation
-} from "#test/support/oracle/gen/restorage.ts"
-import { elementAt, whereIndex } from "#test/support/oracle/pick.ts"
 
 /** The choice-th item, modulo the items there are; a choice with nothing to choose from is a defect of the generator.
  *
@@ -71,7 +59,7 @@ import { elementAt, whereIndex } from "#test/support/oracle/pick.ts"
  * key holds, and is read only as an aggregate's argument. Raw text comparison needs display-deterministic data:
  * every stored value of a kind has one spelling, numeric(6, 2) stores two decimals whatever the input, and the double
  * precision values are exact binary fractions, so sums do not depend on the order PostgreSQL meets them in. */
-export const pick = <A>(items: ReadonlyArray<A>, choice: number): A => {
+const pick = <A>(items: ReadonlyArray<A>, choice: number): A => {
 	const item = items[choice % items.length]
 	if (item === undefined) {
 		throw new Error(`no item to choose from for choice ${choice}`)
@@ -140,14 +128,6 @@ export type AggregateKey =
 	| "sum(cond)"
 	| `${"sum" | "mean"}(${SummedKind})`
 	| `${"min" | "max"}(${ExtremalKind})`
-
-/** Every aggregate key, the population's required reach. */
-export const aggregateKeys: Arr.NonEmptyReadonlyArray<AggregateKey> = [
-	"count",
-	"sum(cond)",
-	...Arr.flatMap(summedKinds, (k) => [`sum(${k})` as const, `mean(${k})` as const]),
-	...Arr.flatMap(extremalKinds, (k) => [`min(${k})` as const, `max(${k})` as const])
-]
 
 /** Kinds a literal is written for: a numeric literal would need a Decimal carrier, so numerics are compared only
  * through variables. */
@@ -564,93 +544,6 @@ export const caseSketchGen: Gen<CaseSketch> = weighted([
 	[1, plantedNumSketchGen]
 ])
 
-/** Every aggregate key in one case: the drawn population reaches each key over a base kind a few times a run, since a
- * definition draws few aggregates and each over a variable of any kind. R0(f0 integer key, f1 bigint, f2 Cents, f3
- * Word) and R1(f0 numeric(6, 2) key, f1 double precision, f2 boolean), four facts each; L1a reads R0 with sum and mean
- * over each field they take, and min and max over each; L1b reads R1 the same way, with a count and a conditional count
- * of its flag; L2a reads L1a's first computed numeric result, its sum of f1, with all four. The one step drops the
- * first fact of each relation and adds a fact to R0. */
-const ungrouped = (
-	source: number,
-	aggs: ReadonlyArray<AggSketch>,
-	counted: boolean
-): DefinitionSketch => {
-	const d = aggregateOver(source, [], aggs)
-	return { ...d, rule: { ...d.rule, count: counted, cond: counted } }
-}
-
-/** Each of `fns` over each of the first `variables` variables a function takes. */
-const eachOver = (fns: ReadonlyArray<number>, variables: number): ReadonlyArray<AggSketch> =>
-	Arr.flatMap(fns, (fn) => Arr.map(indices(variables), (variable) => ({ fn, variable })))
-
-const factRows = (rows: ReadonlyArray<ReadonlyArray<number>>): ReadonlyArray<FactSketch> =>
-	Arr.map(rows, (values) => ({ values }))
-
-/**
- * The sources of level 2 are R0, R1, the roster, L1a and L1b; L1a's second summed variable is its sum of f1. R0 holds a
- * natural last, f4, which sum and mean take as their fourth variable and min and max as their fifth, so every aggregate
- * over every kind it takes is planted, natural's among them since 5757e399b made it a kind they take.
- */
-export const plantedAggregates: CaseSketch = {
-	relations: [
-		{
-			fields: Arr.map(["int4", "int8", "cents", "text", "nat"] as const, (k) => ({
-				kind: baseKinds.indexOf(k)
-			})),
-			key: 0
-		},
-		{
-			fields: Arr.map(["dec", "f8", "bool"] as const, (k) => ({ kind: baseKinds.indexOf(k) })),
-			key: 0
-		}
-	],
-	levels: [
-		{
-			naming: 0,
-			definitions: [
-				ungrouped(0, [...eachOver([0, 1], 4), ...eachOver([2, 3], 5)], false),
-				ungrouped(1, eachOver([0, 1, 2, 3], 2), true)
-			]
-		},
-		{
-			naming: 0,
-			definitions: [
-				ungrouped(
-					3,
-					Arr.map([0, 1, 2, 3], (fn) => ({ fn, variable: 1 })),
-					false
-				)
-			]
-		}
-	],
-	facts: [
-		factRows([
-			[0, 0, 0, 0, 0],
-			[1, 2, 3, 1, 2],
-			[2, 4, 1, 2, 1],
-			[4, 3, 2, 1, 3]
-		]),
-		factRows([
-			[0, 0, 0, 0],
-			[1, 2, 1, 0],
-			[2, 3, 0, 0],
-			[3, 1, 1, 0]
-		]),
-		[]
-	],
-	first: 0,
-	steps: [
-		{
-			change: 0,
-			drops: [0],
-			adds: [factRows([[3, 1, 0, 2, 1]]), [], []],
-			names: 0,
-			shuffle: 0,
-			repeat: false
-		}
-	]
-}
-
 export interface GenColumn {
 	readonly name: string
 	readonly kind: Kind
@@ -1034,198 +927,4 @@ export const buildSchema = (sketch: CaseSketch, options: BuildOptions): GenSchem
 		refresher: server.roles.refresher,
 		server
 	}
-}
-
-export type FactRecord = Readonly<Record<string, unknown>>
-export type FactsByRelation = Readonly<Record<string, ReadonlyArray<FactRecord>>>
-
-const factOf = (r: GenBase, f: FactSketch): FactRecord =>
-	Rec.fromEntries(
-		Arr.map(r.columns, (c, i) => [c.name, storedValue(c.kind, f.values[i % f.values.length] ?? 0)])
-	)
-
-const keyText = (r: GenBase, fact: FactRecord): string =>
-	Arr.join(
-		Arr.map(r.key, (k) => String(fact[k])),
-		"\u0000"
-	)
-
-/** A set of facts at distinct keys: a later fact at a key replaces an earlier one, as a put would. */
-const keyed = (r: GenBase, facts: ReadonlyArray<FactRecord>): ReadonlyArray<FactRecord> => {
-	const out = new Map<string, FactRecord>()
-	for (const fact of facts) {
-		out.set(keyText(r, fact), fact)
-	}
-	return [...out.values()]
-}
-
-export const initialFacts = (s: GenSchema, sketch: CaseSketch): FactsByRelation =>
-	Rec.fromEntries(
-		Arr.map(
-			s.base,
-			(r, i) =>
-				[
-					r.name,
-					keyed(
-						r,
-						Arr.map(sketch.facts[i] ?? [], (f) => factOf(r, f))
-					)
-				] as const
-		)
-	)
-
-/** The carrier each base kind is stored at, whose twin spellings a stored value of the kind may be written in. */
-const baseCarriers: { readonly [K in BaseKind]: StorageCarrier } = {
-	uuid: "uuid",
-	int4: "int4",
-	int8: "int8",
-	bool: "bool",
-	text: "text",
-	cents: "int8",
-	color: "code",
-	dec: "numeric",
-	f8: "float8",
-	nat: "int8"
-}
-
-/** A stored value of a base kind (storedValue) as the IR's literal: a value of another host type is a defect. */
-const literalOfBase = (k: BaseKind, value: unknown): TypedLiteral => {
-	const wrong = (): never => {
-		throw new TypeError(`a ${k} value of another host type: ${String(value)}`)
-	}
-	switch (k) {
-		case "uuid":
-			return typeof value === "string" ? { kind: "uuid", value } : wrong()
-		case "int4":
-			return typeof value === "number" && Number.isSafeInteger(value)
-				? { kind: "int", value: BigInt(value) }
-				: wrong()
-		case "int8":
-		case "cents":
-		case "nat":
-			return typeof value === "bigint" ? { kind: "int", value } : wrong()
-		case "bool":
-			return typeof value === "boolean" ? { kind: "bool", value } : wrong()
-		case "text":
-			return typeof value === "string" ? { kind: "text", value } : wrong()
-		case "color":
-			return typeof value === "string" ? { kind: "handle", handle: value } : wrong()
-		case "dec":
-			return typeof value === "string" ? { kind: "numeric", value: Decimal.of(value) } : wrong()
-		case "f8":
-			return typeof value === "number" ? floatLiteral(value) : wrong()
-	}
-}
-
-/**
- * The order a second reading stores the base facts in: the first reading's. The oracle reads every view's tuples, and
- * which tuple a refresh writes a row to follows the order it meets the base rows in.
- */
-const tuplesObserved: StorageOrder = { kind: "kept", observed: "tuple ids" }
-
-/**
- * The facts stored otherwise for a second reading (gen/restorage.ts restoredFacts), in the order they are stored
- * (tuplesObserved): one value whose carrier has twin spellings in its first twin, which the loader writes as that
- * text. Every value is unchanged, so every view holds the same values over them.
- */
-export const restoredDerivedFacts = (
-	s: GenSchema,
-	facts: FactsByRelation,
-	r: Restorage
-): { readonly facts: FactsByRelation; readonly respelled: boolean } => {
-	const restored = restoredFacts(
-		Arr.map(s.base, (base): StoredRelation<unknown> => ({
-			name: base.name,
-			columns: Arr.map(base.columns, (c) =>
-				inputRespelling(baseCarriers[c.kind], (v) => literalOfBase(c.kind, v))
-			),
-			rows: Arr.map(facts[base.name] ?? [], (fact) => Arr.map(base.columns, (c) => fact[c.name]))
-		})),
-		tuplesObserved,
-		r
-	)
-	return {
-		facts: Rec.fromEntries(
-			Arr.map(
-				Arr.zip(s.base, restored.relations),
-				([base, stored]) =>
-					[
-						base.name,
-						Arr.map(stored.rows, (row) =>
-							Rec.fromEntries(
-								Arr.map(
-									base.columns,
-									(c, j) => [c.name, elementAt(row, j, "a restored fact")] as const
-								)
-							)
-						)
-					] as const
-			)
-		),
-		respelled: restored.respelled
-	}
-}
-
-/** The facts after a base change: some dropped, some added at new or existing keys. */
-export const changedFacts = (
-	s: GenSchema,
-	facts: FactsByRelation,
-	step: StepSketch
-): FactsByRelation =>
-	Rec.fromEntries(
-		Arr.map(s.base, (r, i) => {
-			const now = facts[r.name] ?? []
-			const dropped = new Set(Arr.map(step.drops, (d) => (now.length === 0 ? -1 : d % now.length)))
-			const kept = whereIndex(now, (j) => !dropped.has(j))
-			return [
-				r.name,
-				keyed(r, [...kept, ...Arr.map(step.adds[i] ?? [], (f) => factOf(r, f))])
-			] as const
-		})
-	)
-
-/** The relations a call names (a nonempty subset of `order` picked by `bits`, all when it picks none), in an order
- * picked by `shuffle`, with the first one repeated when `repeat` (a relation named twice is refreshed once). */
-export const namedIn = (
-	order: ReadonlyArray<string>,
-	bits: number,
-	shuffle: number,
-	repeat: boolean
-): ReadonlyArray<string> => {
-	const picked = whereIndex(order, (i) => (bits >> i) % 2 === 1)
-	const chosen = picked.length === 0 ? [...order] : picked
-	const out: Array<string> = []
-	let seed = shuffle
-	const pool = [...chosen]
-	while (pool.length > 0) {
-		const at = seed % pool.length
-		seed = Math.floor(seed / pool.length) + 7
-		appendAll(out, pool.splice(at, 1))
-	}
-	const [first] = out
-	return repeat && first !== undefined ? [...out, first] : out
-}
-
-/** The smallest set containing `named` and every derived relation a member reads, directly or through another. */
-export const downwardClosed = (
-	s: GenSchema,
-	named: ReadonlyArray<string>
-): ReadonlyArray<string> => {
-	const byName = new Map(Arr.map(s.derived, (d) => [d.name, d]))
-	const out = new Set<string>()
-	const visit = (name: string) => {
-		if (out.has(name)) {
-			return
-		}
-		out.add(name)
-		for (const read of byName.get(name)?.reads ?? []) {
-			if (byName.has(read)) {
-				visit(read)
-			}
-		}
-	}
-	for (const n of named) {
-		visit(n)
-	}
-	return Arr.filter(s.refreshOrder, (n) => out.has(n))
 }
