@@ -33,7 +33,6 @@ import { bareRecord, succeeded } from "#test/support/assert.ts"
 import { rowsOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
-import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
@@ -58,7 +57,6 @@ export const aDateColumnHoldsTheDaysACalendarDateSpellsAgainstPostgreSQL19ADirec
 							const s = yield* Substrate
 							const o = yield* openedIn(Events, {}, eventsInstall, taken)
 							const names = namesOf(o.installed)
-							const group = installationGroup(names)
 							const insert = `INSERT INTO ${names.table(Event)} (${names.column(Event, "id")}, ${names.column(Event, "day")}) VALUES ($1::integer, $2::date)`
 							return yield* Effect.gen(function* () {
 								const db = yield* Db.open(o.served.login.roles.app, {})
@@ -67,7 +65,6 @@ export const aDateColumnHoldsTheDaysACalendarDateSpellsAgainstPostgreSQL19ADirec
 									label: "writer"
 								})
 
-								yield* replaceRows(s.admin, group, [])
 								const text = textOf(d)
 								const written = yield* Effect.result(writer.query(insert, ["1", text]))
 								const stored = yield* rowsOf(db.workload.days.once({ params: {}, facts: {} }))
