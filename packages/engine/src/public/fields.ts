@@ -264,7 +264,9 @@ export const span: SpanConstructor = <E extends SpanEndpointLike>(
 
 /**
  * A reference to the roster the admission core admitted, holding the subset of its handles `subset` states or every
- * one, its column the roster's codes read as those literal handles.
+ * one, its column the roster's codes read as those literal handles: an unrestricted closed id's the roster's own
+ * handles, shared, a restricted one's its subset's, so a field over a roster costs nothing per handle unless it
+ * restricts it.
  */
 export const closedId: ClosedIdConstructor = <
 	C extends AnyRoster,
@@ -279,6 +281,12 @@ export const closedId: ClosedIdConstructor = <
 	/** Whether the closed id holds `handle`: every handle where it holds no subset, else its subset's (readSubset). */
 	const holds = (handle: HandleOf<C>): handle is SubsetHandles<C, Subset> =>
 		only === undefined || only.has(handle)
+	/** Whether the closed id holds every handle of `handles`, its roster's: at once where it holds no subset (readSubset),
+	 * and never where it holds one, which leaves some handle out. */
+	const holdsEvery = (
+		handles: ReadonlyArray<HandleOf<C>>
+	): handles is ReadonlyArray<SubsetHandles<C, Subset>> =>
+		only === undefined || handles.every(holds)
 	return defineField(
 		{},
 		carrierSql.code,
@@ -287,7 +295,7 @@ export const closedId: ClosedIdConstructor = <
 			roster,
 			column: codeColumn<SubsetHandles<C, Subset>>(
 				parts.roster.closed,
-				roster.handles.filter(holds)
+				holdsEvery(roster.handles) ? roster.handles : roster.handles.filter(holds)
 			)
 		},
 		parts.loc,

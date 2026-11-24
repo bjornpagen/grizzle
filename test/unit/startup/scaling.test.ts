@@ -5,8 +5,10 @@
  * the installation with its declared statistics) makes no more than 2.1 times the calls at twice the schema in each
  * module whose work for a relation once scanned the whole schema: analysis/schema.ts, whose writings of a relation read
  * every statement for the families that cascade into it (CheckedSchema #inPlace), and physical/statistics/statistics.ts,
- * whose shape of a relation read every native, key, index and containment of the installation (Grouped). A scan of the
- * schema for each relation grows with the square of the schema, four times the calls at twice it. And the families that
+ * whose shape of a relation read every native, key, index and containment of the installation (Grouped); and the
+ * schema's builders make no more than 2.1 times the calls in public/fields.ts, whose closed id over a roster copied the
+ * roster's handles it holds for each field, though it restricted none (closedId). A scan of the schema for each relation
+ * grows with the square of the schema, four times the calls at twice it. And the families that
  * cascade into a relation are read once a checked schema (analysis/schema.ts cascadedMembers), as many times at every
  * scale.
  *
@@ -34,6 +36,7 @@ type ScaleFeature = "the base scale" | "twice the base"
 
 /** The modules whose per-relation work the property counts, each by its path in the repository. */
 const counted = {
+	fields: "packages/engine/src/public/fields.ts",
 	schema: "packages/engine/src/analysis/schema.ts",
 	statistics: "packages/engine/src/physical/statistics/statistics.ts"
 } as const
@@ -52,7 +55,11 @@ const scaleAt = (base: number, factor: number): Scale => ({
 /** The calls the installation's compile of the generated schema at `scale` makes in each counted module. */
 const callsAt = (scale: Scale) =>
 	Effect.gen(function* () {
-		const owned = succeeded(ownedInput(generatedSchema(scale)), "the generated schema owns")
+		const [built, fields] = yield* everyCallCount(
+			Effect.sync(() => generatedSchema(scale)),
+			(file) => file === counted.fields
+		)
+		const owned = succeeded(ownedInput(built), "the generated schema owns")
 		const [, counts] = yield* everyCallCount(
 			Effect.sync(() =>
 				succeeded(
@@ -78,6 +85,7 @@ const callsAt = (scale: Scale) =>
 				(n, [, k]) => n + k
 			)
 		return {
+			fields: Arr.reduce([...fields.values()], 0, (n, k) => n + k),
 			schema: callsIn(counted.schema),
 			statistics: callsIn(counted.statistics),
 			cascaded: Arr.reduce(
@@ -106,7 +114,7 @@ export const theInstallationsCompileDoesPerRelationWorkLinearInTheSchema = prope
 					cascaded(half) === cascaded(once) && cascaded(once) === cascaded(twice),
 					`the families that cascade into a relation, read once a checked schema at every scale: ${cascaded(half)}, ${cascaded(once)}, ${cascaded(twice)}`
 				)
-				for (const module of ["schema", "statistics"] as const) {
+				for (const module of ["fields", "schema", "statistics"] as const) {
 					const at = (calls: typeof once) => defined(calls, "a scale's calls")[module]
 					assert.ok(
 						at(once) <= 2.1 * at(half) && at(twice) <= 2.1 * at(once),
@@ -120,6 +128,13 @@ export const theInstallationsCompileDoesPerRelationWorkLinearInTheSchema = prope
 		},
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/public/fields.ts",
+				original:
+					"\t\t\t\tholdsEvery(roster.handles) ? roster.handles : roster.handles.filter(holds)\n",
+				replacement: "\t\t\t\troster.handles.filter(holds)\n",
+				why: "Each closed id over a roster copies the roster's handles it holds, though it restricts none: the builders' calls in public/fields.ts grow with the fields times the handles, the square of the schema, and the property fails."
+			},
 			{
 				file: "packages/engine/src/analysis/schema.ts",
 				original: "\t\tconst cascaded = this.#cascaded.has(r.name)\n",
