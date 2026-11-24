@@ -17,8 +17,10 @@
  *   A member's binding that holds none of the columns that scope its rows, its unit's fields and its keys' first fields,
  *   spans its units: its declaration prices it at a share of the table, which PostgreSQL may scan. In each state:
  *   - empty as installed, a table no VACUUM has seen, which PostgreSQL plans at ten pages: a lookup binding a key
- *     reads through a key's index it binds whole; nothing else is judged empty (a read of several rows may scan it);
- *   - filled at 2^14 rows and vacuumed: a lookup binding a key reads through a key's index it binds whole, any other
+ *     reads at most one row by a key, through an index the leading run of whose columns its index condition binds by
+ *     equality holds a key (copies.ts readsOneRowByKey), a key's index bound whole or one leading with a key's columns
+ *     in another order; nothing else is judged empty (a read of several rows may scan it);
+ *   - filled at 2^14 rows and vacuumed: a lookup binding a key reads at most one row by a key, as empty, any other
  *     through indexes whose equalities bind as long a run of its binding as any B-tree of the relation does, and never
  *     scans the table where one binds any, but a binding that spans a member's units may; the joined probe binds by its index
  *     condition a column that scopes the rows, so it reads within one scope, never by the coordinates alone (its paths
@@ -34,7 +36,7 @@
  *   hold none of its keys, a containment no foreign key states, which the rule judge reads: every statement of the judge
  *   is planned over the shape's own tables, filled with their triggers off and vacuumed, then after ANALYZE, and each of
  *   its scans is judged by what its plan offers it, its own equalities and the conditions of the join that probes its
- *   side (plan-bindings.ts), as a probe's scan is: a scan whose binding holds a key binds that key's index whole, any
+ *   side (plan-bindings.ts), as a probe's scan is: a scan whose binding holds a key reads at most one row by a key, any
  *   other the longest run any B-tree binds; each read after ANALYZE as filled.
  * - **Oracle:** PostgreSQL, its generic plans (EXPLAIN EXECUTE under force_generic_plan), judged against the indexes its
  *   catalog holds.

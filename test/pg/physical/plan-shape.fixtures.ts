@@ -10,8 +10,11 @@ import type { Installation } from "#compiler/physical/install/compile.ts"
 import {
 	type CopiedTable,
 	type Copy,
+	type CopyIndex,
 	dropCopy,
 	fillCopy,
+	indexesOf,
+	readsOneRowByKey,
 	standCopy
 } from "#test/pg/physical/copies.ts"
 import { type ScanBinding, scanBindings } from "#test/pg/physical/plan-bindings.ts"
@@ -395,42 +398,9 @@ type Probe =
 			readonly unit: Arr.NonEmptyReadonlyArray<string>
 	  }
 
-/** An index of a copy as the catalog holds it: its name, its access method, whether it is unique, and its key columns. */
-interface CopyIndex {
-	readonly name: string
-	readonly method: string
-	readonly unique: boolean
-	readonly columns: ReadonlyArray<string>
-}
-
 /** The rows of an answer, each cell as text. */
 const texts = (rows: ReadonlyArray<ReadonlyArray<unknown>>): ReadonlyArray<ReadonlyArray<string>> =>
 	Arr.map(rows, (row) => Arr.map(row, (cell) => (typeof cell === "string" ? cell : String(cell))))
-
-/** The indexes of a table or a copy (CopyIndex), an expression key's column the empty name. */
-const indexesOf = (quoted: string) =>
-	Effect.gen(function* () {
-		const { admin } = yield* Substrate
-		const rows = yield* admin.queryValues(
-			"SELECT c.relname::text, am.amname::text, x.indisunique::text, " +
-				"pg_catalog.array_to_string(ARRAY(SELECT coalesce(a.attname::text, '') " +
-				"FROM pg_catalog.unnest(x.indkey::pg_catalog.int2[]) WITH ORDINALITY AS k(attnum, ord) " +
-				"LEFT JOIN pg_catalog.pg_attribute AS a ON a.attrelid = x.indrelid AND a.attnum = k.attnum " +
-				"WHERE k.ord <= x.indnkeyatts ORDER BY k.ord), ',') " +
-				"FROM pg_catalog.pg_index AS x JOIN pg_catalog.pg_class AS c ON c.oid = x.indexrelid " +
-				"JOIN pg_catalog.pg_am AS am ON am.oid = c.relam WHERE x.indrelid = $1::text::pg_catalog.regclass ORDER BY 1",
-			[quoted]
-		)
-		return Arr.map(
-			texts(rows),
-			([name = "", method = "", unique = "", columns = ""]): CopyIndex => ({
-				name,
-				method,
-				unique: unique === "true",
-				columns: columns === "" ? [] : Str.split(",")(columns)
-			})
-		)
-	})
 
 /** The foreign keys of a table: each its referencing columns, its referenced table, quoted, and its referenced columns. */
 const referencesOf = (quoted: string) =>
@@ -560,8 +530,9 @@ const keyIn = (index: CopyIndex, columns: ReadonlySet<string>): boolean =>
 	index.unique && index.columns.length > 0 && Arr.every(index.columns, (c) => columns.has(c))
 
 /**
- * The law's judgment of one scan (see plan-shape.test.ts): a scan whose binding holds a key binds that key's index whole
- * by its index condition; any other binds by its index condition as long a run of its binding as any B-tree of the
+ * The law's judgment of one scan (see plan-shape.test.ts): a scan whose binding holds a key reads at most one row by a
+ * key, the leading run of its index's columns that its index condition binds by equality holding a key's every column
+ * (copies.ts readsOneRowByKey); any other binds by its index condition as long a run of its binding as any B-tree of the
  * relation does, none if none binds any, and never scans the table where one does, but a binding that `spans` the
  * units, a member's binding of no column the schema scopes its rows by, which a declaration prices at a share of the
  * table, may scan it.
@@ -574,10 +545,10 @@ const judged = (
 ): Option.Option<string> => {
 	const used = Arr.filter(indexes, (i) => scan.indexes.includes(i.name))
 	if (Arr.some(indexes, (i) => keyIn(i, scan.binding))) {
-		return Arr.some(used, (i) => keyIn(i, scan.bound))
+		return Arr.some(used, (i) => readsOneRowByKey(indexes, i, scan.bound))
 			? Option.none()
 			: Option.some(
-					`${label} binds a key and reads ${readText(scan)}, binding (${Arr.join([...scan.bound], ", ")}), no key's index whole`
+					`${label} binds a key and reads ${readText(scan)}, binding (${Arr.join([...scan.bound], ", ")}), no run of whose index holds a key`
 				)
 	}
 	const best = Arr.reduce(

@@ -45,7 +45,15 @@ import {
 	servesNoParams
 } from "#compiler/physical/install/extension.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
-import { copyIndexes, fillCopy, originalOf, standCopy } from "#test/pg/physical/copies.ts"
+import {
+	copyIndexes,
+	fillCopy,
+	indexesOf,
+	originalOf,
+	readsOneRowByKey,
+	standCopy
+} from "#test/pg/physical/copies.ts"
+import { scanBindings } from "#test/pg/physical/plan-bindings.ts"
 import { parsedName, wild } from "#test/support/kernel/naming.ts"
 import { backendWaitStep, caseHang } from "#test/support/limits.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
@@ -1420,10 +1428,16 @@ const stoodUp = (installed: Judged, table: Table, load: VolumeLoad, state: LawSt
 /**
  * What PostgreSQL's generic plan of a probe reads its relation through (EXPLAIN (GENERIC_PLAN), as every login's role
  * plans each statement it prepares): an index, by the name of the table's index of the same definition, with the rows
- * it estimates the scan returns; or none, and why.
+ * it estimates the scan returns and the columns its index condition binds by equality (plan-bindings.ts scanBindings);
+ * or none, and why.
  */
 type Choice =
-	| { readonly kind: "index"; readonly index: string; readonly rows: number }
+	| {
+			readonly kind: "index"
+			readonly index: string
+			readonly rows: number
+			readonly bound: ReadonlySet<string>
+	  }
 	| { readonly kind: "none"; readonly why: string; readonly rows: number }
 
 /** The generic plan's choice for `sql` at `values` (Choice), prepared and planned under force_generic_plan, whose scans
@@ -1438,7 +1452,7 @@ const choiceOf = (
 		const { admin } = yield* Substrate
 		yield* admin.query(`PREPARE judged_choice AS ${sql}`, [])
 		const rows = yield* admin.queryValues(
-			`EXPLAIN (FORMAT JSON) EXECUTE judged_choice${values.length === 0 ? "" : `(${Arr.join(values, ", ")})`}`,
+			`EXPLAIN (VERBOSE, FORMAT JSON) EXECUTE judged_choice${values.length === 0 ? "" : `(${Arr.join(values, ", ")})`}`,
 			[]
 		)
 		yield* admin.query("DEALLOCATE judged_choice", [])
@@ -1469,7 +1483,16 @@ const choiceOf = (
 					why: "a scan of an index the installation did not plan",
 					rows: scan.planRows
 				}) satisfies Choice,
-			onSome: (name) => ({ kind: "index", index: name, rows: scan.planRows }) satisfies Choice
+			onSome: (name) =>
+				({
+					kind: "index",
+					index: name,
+					rows: scan.planRows,
+					bound: Option.match(
+						Arr.findFirst(scanBindings(plan.success), (b) => b.relation === relation),
+						{ onNone: () => new Set<string>(), onSome: (b) => b.bound }
+					)
+				}) satisfies Choice
 		})
 	})
 
@@ -1563,7 +1586,7 @@ type Residue =
 
 /** What the judgment noted of one request or one created index. */
 export type ServingFeature =
-	| "a key lookup read through its key, empty as installed"
+	| "a key lookup read at most one row by a key, empty as installed"
 	| `${Shape} probe served`
 	| "served by a key or enforcement index"
 	| "served by a created index"
@@ -1604,8 +1627,11 @@ const residueFeature = (residue: Residue): ServingFeature => {
  * copy of the relation's table, its indexes and its declared statistics, stood up in a transaction rolled back
  * (copies.ts standCopy, stoodUp), so the table the probes run on is never grown.
  * - Empty as installed, a table no VACUUM has seen, which PostgreSQL plans at ten pages: each probe binding a key by
- *   equality reads through a key's index it binds whole. Nothing else is judged empty, where a read of several rows may
- *   scan the table.
+ *   equality reads at most one row by a key, as its plan shows it: the leading run of the chosen index's columns that its
+ *   index condition binds by equality holds a key's every column (copies.ts readsOneRowByKey), the key's index bound
+ *   whole or an index leading with the key's columns in another order, which an ordered read asks for beside it, where
+ *   PostgreSQL breaks the tie of the two by the latest index (serving.test.ts, the kept case on Rel0x0). An index on part
+ *   of the key is none. Nothing else is judged empty, where a read of several rows may scan the table.
  * - Filled, each relation at its derived size (filledRowsOf), the least past PostgreSQL's one-page degeneracy, where
  *   indexes that read one page each are told apart only by their descent charges, and a relation no probe of which
  *   grows with its table at the load itself: PostgreSQL's choice there is the index each probe reads through, and a created index is needed where, filled without it, PostgreSQL's choice for
@@ -1793,6 +1819,7 @@ export const judgeServing = (
 			if (!Arr.isReadonlyArrayNonEmpty(lookups)) {
 				continue
 			}
+			const cataloged = yield* indexesOf(tableFor(relation).quoted)
 			const chosen = yield* rolledBack(
 				Effect.gen(function* () {
 					const copy = yield* stoodUp(installed, tableFor(relation), loadOf(relation), {
@@ -1809,11 +1836,14 @@ export const judgeServing = (
 			for (const [p, c] of chosen) {
 				if (c.kind === "none") {
 					problems.push(`${p.label}, empty as installed: ${c.why}`)
-				} else if (keyOf(c.index, p)) {
-					note("a key lookup read through its key, empty as installed")
+					continue
+				}
+				const through = Arr.findFirst(cataloged, (i) => i.name === c.index)
+				if (Option.exists(through, (i) => readsOneRowByKey(cataloged, i, c.bound))) {
+					note("a key lookup read at most one row by a key, empty as installed")
 				} else {
 					problems.push(
-						`${p.label}, empty as installed: read through ${c.index}, no key's index the probe binds whole`
+						`${p.label}, empty as installed: read through ${c.index}, binding (${Arr.join([...c.bound], ", ")}), no run of whose columns holds a key`
 					)
 				}
 			}

@@ -30,7 +30,11 @@
  *   led by Bool that lacks B1, lookups on DistPs's (fixed0, tick0) and its other lookups through the GiST index of span
  *   predicates that leads with Bool for the one on Bool alone, the engine keeping every column that may lead until that
  *   one narrows them, and an equality lookup on SpgTextLeafConsistent's Name through a GiST index that leads with tick0
- *   for a span predicate on (tick0, Bool) another GiST index serves. The judge's own excuses are its own (serving.ts):
+ *   for a span predicate on (tick0, Bool) another GiST index serves. One more, kept by the token its draw made, the
+ *   judge's reading closed: a key lookup on Rel0x0's key (Bool, field0) beside a page seek on (field0, Bool), whose
+ *   index leads with the key's columns in the other order, which PostgreSQL reads the lookup through empty as
+ *   installed, at most one row by the key, as the plan's index condition shows (serving.ts). The judge's own excuses are
+ *   its own (serving.ts):
  *   a join key's GiST sweep no plan the engine makes avoids, a span predicate's GiST index needed beside a B-tree that
  *   finds its one row, btree_gist's pricing of multibyte text (README, PostgreSQL known issues), and a skip scan's
  *   descents over closed keys.
@@ -137,6 +141,14 @@ export const everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIs
 				reason:
 					"an equality lookup on SpgTextLeafConsistent's Name, planned on its primary key, beside a span predicate on (Name, tick0, Bool) whose GiST index leads with tick0 for a span predicate on (tick0, Bool) that another GiST index serves, one its order answers to (PlannedIndex answers): PostgreSQL sweeps it for the lookup, which no order of it serves beside them",
 				since: "2026-11-14"
+			},
+			{
+				token: ReplayToken(
+					"test/pg/physical/serving.test.ts#everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIsNeeded:-:0.4.1.0.1.0.1.0.1.0.0.1.0.1.0.1.2.0.0.1.0.1.0.1.0.0.0.1.2.0.1.0.1.0.0.1.0.0.1.0.1.0.1.0.1.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.2.0.0.0.0.0.pa8.0.0.3.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.1.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.pa8.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.pa8.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.4.0.0.0.0.0.0.1.0"
+				),
+				reason:
+					"a key lookup on Rel0x0's key (Bool, field0) beside a page seek on (field0, Bool), field0 bound and Bool ordered, which needs an index leading with the key's columns in the other order, where the key's index serves the lookup and an equality lookup on Bool: empty as installed, PostgreSQL breaks the tie of the two indexes by the latest, the seek's, and reads the key's one row through it, which the judge held to the key's own index until it read the plan for the run its index condition binds (serving.ts, empty as installed)",
+				since: "2026-11-24"
 			}
 		],
 		kills: []
