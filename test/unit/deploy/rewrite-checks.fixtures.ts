@@ -26,14 +26,17 @@ import { asDrafted, draftChain, fromEmpty, noDeclarations } from "#test/support/
 /**
  * A rule over a query of the schema, each over a column no other reads: Capped, Gs' `g`, T1's generated cap of its
  * tier; Plain, Xs' `x`, T1's caller field; Unsigned, Hs' `h`, T2's generated sign of its text; Bounded, Totals' `total`,
- * O's sum of its members' amounts.
+ * O's sum of its members' amounts. Each derived relation a rule reads is live, so the rule is judged over a query: Gs,
+ * Xs and Hs deliver no document, so their heads hide the unit (analysis/derived/storage.ts), and Totals reads O, in no
+ * unit.
  */
 export const laws = ["Capped", "Plain", "Unsigned", "Bounded"] as const
 export type Law = (typeof laws)[number]
 
 /**
- * A stored derived relation of the schema: XsView over T1. None stands over O, whose `total` its fold rewrites in place,
- * which no stored relation reads.
+ * A stored derived relation of the schema: XsView over T1, each document's amount, unit-local in the unit Document,
+ * which the installation stores. None stands over O, whose `total` its fold rewrites in place, which no stored relation
+ * reads.
  */
 export const views = ["XsView"] as const
 export type View = (typeof views)[number]
@@ -86,8 +89,8 @@ const Signed = str.bytes(4, str.regex("^[-+]?[0-9]$", "u"))
  * The schema at `version`: T1, each document's tier and amount `x`, and `g`, generated, the cap Cap holds for its tier;
  * T2, each document's signed text `s` and `h`, generated, whether `s` starts with a minus; O, each owner's counted
  * members M and `total`, the sum of their `x`; T1 and T2 in the unit Document, keyed by the document; and over them,
- * at level 1, Gs, Xs, Hs and Totals, each the column of its rule, Capped, Plain, Unsigned and Bounded, and XsView,
- * stored. The second version holds the case's change: Cap's high cap 30 where it was 20, `h` testing for a plus, or the
+ * at level 1, Gs, Xs, Hs and Totals, each the column of its rule, Capped, Plain, Unsigned and Bounded, each live, and
+ * XsView, stored. The second version holds the case's change: Cap's high cap 30 where it was 20, `h` testing for a plus, or the
  * fold summing `y`.
  */
 const schemaOf = (change: Change, version: "first" | "second") => {
@@ -132,21 +135,27 @@ const schemaOf = (change: Change, version: "first" | "second") => {
 		"Gs",
 		query(Base).rule((r) => {
 			const { doc, g } = v(T1, "t")
-			return r.match(T1, { doc, g }).find({ doc, g })
+			return r.match(T1, { doc, g }).find({ g })
+		})
+	)
+	const Xs = derived(
+		"Xs",
+		query(Base).rule((r) => {
+			const { doc, x } = v(T1, "t")
+			return r.match(T1, { doc, x }).find({ x })
+		})
+	)
+	const Hs = derived(
+		"Hs",
+		query(Base).rule((r) => {
+			const { doc, h } = v(T2, "t")
+			return r.match(T2, { doc, h }).find({ h })
 		})
 	)
 	const xs = query(Base).rule((r) => {
 		const { doc, x } = v(T1, "t")
 		return r.match(T1, { doc, x }).find({ doc, x })
 	})
-	const Xs = derived("Xs", xs)
-	const Hs = derived(
-		"Hs",
-		query(Base).rule((r) => {
-			const { doc, h } = v(T2, "t")
-			return r.match(T2, { doc, h }).find({ doc, h })
-		})
-	)
 	const Totals = derived(
 		"Totals",
 		query(Base).rule((r) => {
@@ -157,7 +166,7 @@ const schemaOf = (change: Change, version: "first" | "second") => {
 	return schema.extend(
 		[Base],
 		"rewrite_checks_1",
-		[Gs, Xs, Hs, Totals, derived.stored("XsView", xs)],
+		[Gs, Xs, Hs, Totals, derived("XsView", xs)],
 		[
 			check("Capped", Gs, (d) => d.le(d.g, 25)),
 			check("Plain", Xs, (d) => d.ge(d.x, 0)),

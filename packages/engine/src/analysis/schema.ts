@@ -1,3 +1,4 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	isNonEmpty,
@@ -9,10 +10,19 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { type Closure, closureOf } from "#compiler/analysis/closure.ts"
 import {
 	analyzeDerivedRelation,
+	type DerivedDefinition,
+	derivedDefinition,
 	type DerivedRelationAnalysis,
 	shapedDefinition
 } from "#compiler/analysis/derived/analyze.ts"
+import {
+	type DerivedHolding,
+	derivedHolding,
+	holdersOf
+} from "#compiler/analysis/derived/storage.ts"
 import { analyzeWorld, type WorldAnalysis } from "#compiler/analysis/derived/world.ts"
+import { liveReading } from "#compiler/analysis/theory/query.ts"
+import type { DeclaredMember } from "#compiler/analysis/theory/unit.ts"
 import { closedReads, closedReadsAmong } from "#compiler/check/closed.ts"
 import { DeclarationTable } from "#compiler/check/declarations.ts"
 import { fail, failWith } from "#compiler/check/fail.ts"
@@ -25,6 +35,7 @@ import {
 	rowNode,
 	type UnwrittenRead
 } from "#compiler/check/generated.ts"
+import type { AdmittedQuery } from "#compiler/check/index.ts"
 import type { ClosedRelation, SchemaReading } from "#compiler/check/schema.ts"
 import { CheckSession } from "#compiler/check/session.ts"
 import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
@@ -33,6 +44,7 @@ import { type CompileError, malformedDescription } from "#compiler/core/errors.t
 import { StoredRelationName } from "#compiler/core/ids.ts"
 import { childLoc, labeledChildLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings, mapInput } from "#compiler/core/order.ts"
+import type { DerivedRows } from "#compiler/ir/derived.ts"
 import {
 	descText,
 	type ExprDesc,
@@ -44,7 +56,7 @@ import {
 } from "#compiler/ir/desc.ts"
 import { type ExprTable, fieldReads, type TypedLiteral, storedColumn } from "#compiler/ir/expr.ts"
 import { instantInputText, isInstantDesc, isInstantType } from "#compiler/ir/instant.ts"
-import type { GeneratedRead } from "#compiler/ir/keys.ts"
+import type { GeneratedRead, ViewRead } from "#compiler/ir/keys.ts"
 import {
 	type ClosedSlot,
 	type ClosedTheoryRelation,
@@ -92,19 +104,22 @@ import type {
 	OwnedWorldEntry,
 	OwnedWrite
 } from "#compiler/schema/own.ts"
-import type { Slice } from "#compiler/schema/reach.ts"
+import { type Slice, writesOf } from "#compiler/schema/reach.ts"
 import type { Scope } from "#compiler/schema/scope.ts"
 import { AnalyzedPatterns } from "#compiler/text/refinement.ts"
 
 /**
- * A derived relation with its analysis (analysis/derived/analyze.ts): its definition checked against the levels below
- * it, its heading and its inherited keys, which a Base over its view reads (`analysis.read`).
+ * A derived relation as a query reads it, stored or live alike (analysis/derived/analyze.ts DerivedDefinition): a Base
+ * over it reads its definition's heading and the keys its rows are proven to have, each on its proof's own grounds
+ * (`analysis.read`), so no verdict reads where its rows live; the lowering alone reads them from its table or from its
+ * definition (ir/derived.ts servedDag, CheckedSchema `serves`), and a stored one's table, its unique indexes on its
+ * keys, is the physical layer's (CheckedSchema holdings).
  */
 interface DerivedRelation {
 	readonly kind: "derived"
 	readonly name: string
 	readonly loc: SourceLoc
-	readonly analysis: DerivedRelationAnalysis
+	readonly analysis: { readonly read: ViewRead }
 }
 
 /**
@@ -457,10 +472,31 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	 * base's. */
 	readonly closure: Closure
 	/**
-	 * Every stored derived relation's analysis in creation order's levels, level then name: a role's are its
-	 * base's. A live derived relation is no relation a query reads: a query matching it reads its definition, which the
-	 * builder imports in its place (query/build/state.ts), and a rule over it reads its definition too
-	 * (analysis/theory/query.ts).
+	 * Where each derived relation of the closure keeps its rows, by name, as the schema's dependency structure decides it
+	 * (analysis/derived/storage.ts DerivedHolding): a role's are its base's.
+	 */
+	readonly holdings: ReadonlyMap<string, DerivedHolding>
+	/**
+	 * Whether a derived relation's table holds its rows as this schema reads it (`serves`): reality a stored one's, a role
+	 * a stored one's it reads in full (schema/own.ts OwnedRole `wholeDerived`), its table's rows being then exactly its
+	 * definition's over the rows the role sees.
+	 */
+	readonly #tables: (relation: string) => boolean
+	/**
+	 * The relations of the base a transaction of this schema may write, so a statement inside one may read a stored
+	 * derived relation's table before its COMMIT's upkeep replaces it (`serves`): a role's, each relation its write list
+	 * writes and each a write of those writes in turn (schema/reach.ts writesOf); reality's, every ordinary relation.
+	 */
+	readonly writable: ReadonlySet<string>
+	/** Every derived relation's definition as every reader reads it (analyze.ts DerivedDefinition), by name: a role's are
+	 * its base's. */
+	readonly #definitions: ReadonlyMap<string, DerivedDefinition>
+	/** A derived relation's definition as this schema reads it (`definition`). */
+	readonly #definitionOf: (relation: string) => AdmittedQuery
+	/**
+	 * Every stored derived relation's analysis in creation order's levels, level then name: a role's are its base's. A
+	 * live derived relation is read as a relation too (`relation`), its rows its definition's (ir/derived.ts), and a
+	 * rule over it reads its definition (analysis/theory/query.ts).
 	 */
 	readonly derived: ReadonlyArray<DerivedRelationAnalysis>
 	/** Every relation held as a base relation, by name: reality's own, or the ones a role holds whole. */
@@ -531,11 +567,55 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 			}
 		}
 		if (read.kind === "role") {
+			this.holdings = read.base.holdings
+			this.#definitions = read.base.#definitions
+			/** A role reads a derived relation's definition over its own relations, each by its name, checked when a read
+			 * of the role first needs it: a definition reading a relation the role holds none of is refused there, as a
+			 * read of that relation is (OutsideRole). */
+			const roleDefinitions = new Map<string, AdmittedQuery>()
+			/** The one session of the role's definitions' checks, so an import they share is checked once for the role. */
+			const roleSession = new CheckSession(this.patterns)
+			this.#definitionOf = (relation) => {
+				const known = roleDefinitions.get(relation)
+				if (known !== undefined) {
+					return known
+				}
+				const r = this.owned.relations[relation]
+				if (r?.kind !== "derived") {
+					return fail(
+						"MalformedDescription",
+						SourceLoc(`derived ${relation}`, []),
+						"a derived relation"
+					)
+				}
+				const checked = unwrap(
+					shapedDefinition(this, `derived ${relation}`, r.desc.query, relation, r.loc, roleSession)
+				).checked
+				roleDefinitions.set(relation, checked)
+				return checked
+			}
+			this.writable = writesOf(
+				read.base.owned,
+				[...read.writes.values()].map((write) =>
+					write.kind === "rows" ? write.writable.target.name : write.relation.name
+				)
+			)
+			const readsWhole = new Set(read.role.wholeDerived)
+			this.#tables = (relation) =>
+				read.base.holdings.get(relation)?.kind === "stored" && readsWhole.has(relation)
 			this.derived = read.base.derived
 			this.closedReads = read.base.closedReads
 			this.closure = read.base.closure
 			const within = this.closure.relations
-			this.entries = Object.values(read.role.relations)
+			/** Each stored derived relation the role reads in full (schema/own.ts OwnedRole `wholeDerived`), held as a whole
+			 * entry of its own: its table serves the role exactly where the role sees every row its definition reads. */
+			const wholeDerived = read.role.wholeDerived.flatMap((relation): ReadonlyArray<OwnedEntry> => {
+				const derived = read.base.owned.relations[relation]
+				return derived !== undefined && read.base.holdings.get(relation)?.kind === "stored"
+					? [{ kind: "whole", name: derived.name, relation: derived, loc: derived.loc }]
+					: []
+			})
+			this.entries = [...Object.values(read.role.relations), ...wholeDerived]
 				.filter((e) =>
 					e.kind === "whole" ? within.has(e.relation.name) : e.reads.every((r) => within.has(r))
 				)
@@ -564,6 +644,25 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 					reads.push({ info: c, whole: false })
 				}
 			}
+			/** Every other derived relation of the base's closure, its rows its definition's over the role's relations: by the
+			 * keys its definition proves, as the base reads it. */
+			const throughDefinitions = [...read.base.#definitions].flatMap(([name, definition]) => {
+				const derived = read.base.owned.relations[name]
+				return derived !== undefined && within.has(name) && !this.#tables(name)
+					? [
+							{
+								info: {
+									kind: "derived" as const,
+									name,
+									loc: derived.loc,
+									analysis: { read: definition.read }
+								},
+								whole: false
+							}
+						]
+					: []
+			})
+			appendAll(reads, throughDefinitions)
 			for (const r of reads.toSorted(mapInput(compareStrings, (x) => x.info.name))) {
 				hold(r.info, r.whole)
 			}
@@ -590,28 +689,104 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		}
 		const derived: Array<DerivedRelationAnalysis> = []
 		this.derived = derived
+		const holdings = new Map<string, DerivedHolding>()
+		this.holdings = holdings
+		/** The relations a stored relation's unit-locality reads (storage.ts HoldingInput `known`): the closure's ordinary
+		 * and closed ones, and each stored derived relation of the levels decided so far. */
+		const known = new Map<string, TheoryRelation>(stored.map((r) => [r.name, r] as const))
+		const members = new Map<string, DeclaredMember>()
+		const definitions = new Map<string, DerivedDefinition>()
+		this.#definitions = definitions
 		/**
-		 * The one session of every live definition's check (check/session.ts CheckSession): a live definition is checked
-		 * for its refusals alone, nothing reading its checked query, and reads the definitions below it as imports, so an
-		 * import the definitions share is checked once for the schema, where a session of each definition's own checked
-		 * the whole chain of imports below it again: O(i) import checks for the i imports the definitions read, where it
-		 * was the sum over the definitions of each one's chain. Over edullm's QTI schema (qti-pie 1bf7dcc) its 228 live
-		 * definitions' checks took 2.2 s of a lawsOf's 10.3 s under a 100 µs CPU profile, 1.45 s of it checking imports.
+		 * The one session of every derived definition's check (check/session.ts CheckSession): a definition reads a
+		 * derived relation below it as a relation, and an import its definitions share, a query several of them read, is
+		 * checked once for the schema (check/checker.ts #closedImport), where a session of each definition's own checked it
+		 * again for each.
 		 */
-		const live = new CheckSession(this.patterns)
+		const session = new CheckSession(this.patterns)
+		this.#definitionOf = (relation) =>
+			defined(definitions.get(relation), `the definition of the derived relation ${relation}`)
+				.checked
+		this.writable = new Set(relations.keys())
+		this.#tables = (relation) => holdings.get(relation)?.kind === "stored"
+		/** A definition as its unit-locality reads it (storage.ts HoldingInput `definition`): every live derived relation it
+		 * names, at any depth, read through its own definition, whose rows its upkeep would read. */
+		const live = liveReading((relation) => {
+			const r = owned.relations[relation]
+			return r?.kind === "derived" && holdings.get(relation)?.kind !== "stored"
+				? r.desc.query
+				: undefined
+		})
 		for (const r of ownedRelations
 			.flatMap((o) => (o.kind === "derived" ? [o] : []))
 			.toSorted((a, b) =>
 				a.desc.level === b.desc.level ? compareStrings(a.name, b.name) : a.desc.level - b.desc.level
 			)) {
-			if (r.view.kind === "live") {
-				unwrap(shapedDefinition(this, `derived ${r.name}`, r.desc.query, r.name, r.loc, live))
-				continue
+			const definition = unwrap(derivedDefinition(this, r, session))
+			definitions.set(r.name, definition)
+			const holding = derivedHolding({
+				owned,
+				relation: r,
+				definition: live.query(r.desc.query),
+				known,
+				memberOf: (relation) => owned.unitOf.get(relation) ?? members.get(relation),
+				analyze: () => analyzeDerivedRelation(this, r, definition)
+			})
+			holdings.set(r.name, holding)
+			switch (holding.kind) {
+				case "stored":
+					derived.push(holding.analysis)
+					known.set(r.name, holding.relation)
+					members.set(r.name, holding.relation.unit.declared)
+					break
+				case "live":
+					break
 			}
-			const analysis = unwrap(analyzeDerivedRelation(this, r, r.view))
-			derived.push(analysis)
-			hold({ kind: "derived", name: r.name, loc: r.loc, analysis }, true)
+			hold({ kind: "derived", name: r.name, loc: r.loc, analysis: { read: definition.read } }, true)
 		}
+	}
+
+	/**
+	 * The definition of the derived relation `relation` as this schema reads it, checked: reality's, checked once when
+	 * the schema was built (analyze.ts derivedDefinition); a role's, over the role's own relations (`#definitionOf`). The
+	 * lowering reads it where the relation's table does not serve a read (ir/derived.ts servedDag).
+	 */
+	definition(relation: string): AdmittedQuery {
+		return this.#definitionOf(relation)
+	}
+
+	/** Every derived relation read through its definition, whatever this schema stores: what a membership reads, and
+	 * what a verdict over a query's rows reads them from (ir/derived.ts DerivedRows). */
+	expanded(): DerivedRows {
+		return { serves: () => false, definition: (relation) => this.definition(relation) }
+	}
+
+	/** How a statement of a write that writes the relations `written` reads this schema's derived relations
+	 * (ir/derived.ts DerivedRows): `serves`, and `definition` where a table does not. */
+	rows(written: ReadonlySet<string>): DerivedRows {
+		return {
+			serves: (relation) => this.serves(relation, written),
+			definition: (relation) => this.definition(relation)
+		}
+	}
+
+	/**
+	 * Whether the derived relation `relation`'s table serves a read of it, as this schema reads it, by a statement of a
+	 * write that writes the relations `written` (none for a read, a judge or an upkeep, each of which reads every table
+	 * its COMMIT's upkeep made current): where its table holds its rows (reality a stored one's, a role a stored one's it
+	 * reads in full) and its definition reads none of `written`, at any depth. The write's own COMMIT replaces that
+	 * relation's stored rows at the units it writes (the judge's phase A), so no statement of the write would read its
+	 * table current, where its definition reads what the write's earlier statements wrote, as it did before the
+	 * installation stored it (analysis/derived/storage.ts). Every other derived relation's rows are its definition's
+	 * (ir/derived.ts servedDag).
+	 */
+	serves(relation: string, written: ReadonlySet<string>): boolean {
+		const r = this.owned.relations[relation]
+		return (
+			r?.kind === "derived" &&
+			this.#tables(relation) &&
+			!holdersOf(this.owned, r).some((holder) => written.has(holder))
+		)
 	}
 
 	/** A relation of this schema a role over it holds whole, with its handles: the role reads the base's own. */
@@ -1245,8 +1420,8 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	}
 }
 
-/** The derived analysis of a checked schema, which analyzed each stored derived relation when it was built, and shaped
- * each live one's definition, refusing one no derived relation may have (analyze.ts shapedDefinition): the analyses
+/** The derived analysis of a checked schema, which read every derived relation's definition when it was built, refusing
+ * one no derived relation may have (analyze.ts derivedDefinition), and analyzed each stored one's table: the analyses
  * by name and in creation order's levels, level then name. */
 export interface DerivedAnalysis {
 	readonly schema: CheckedSchema

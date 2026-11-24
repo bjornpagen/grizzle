@@ -158,7 +158,7 @@ const agreeEntries = Object.freeze({
 /** The full role over Agree every drawn read goes through, but where a case reads through Reporter. */
 export const Reader = role(Agree, "reader", agreeEntries)
 
-export const ItemTones = derived.stored(
+export const ItemTones = derived(
 	"ItemTones",
 	query(Agree).rule((r) => {
 		const { id, tone, owner } = v(Item, "item")
@@ -176,11 +176,9 @@ export const OwnerCounts = derived(
 
 export const Rollup = schema.extend([Agree], "Rollup", [ItemTones, OwnerCounts], [])
 
-/** Rollup's entries a full role holds whole: Agree's and the stored derived relation. */
-const rollupEntries = Object.freeze({ ...agreeEntries, ItemTones })
-
-/** The full role over Rollup, which reads queries over Rollup and over Agree, a level of it. */
-export const Reporter = role(Rollup, "reporter", rollupEntries)
+/** The full role over Rollup, which reads queries over Rollup and over Agree, a level of it: it holds Agree's
+ * relations whole, so it reads Rollup's derived relations in full, the stored ItemTones by its table. */
+export const Reporter = role(Rollup, "reporter", agreeEntries)
 
 export const Tones = query(Agree)
 	.rule((r) => {

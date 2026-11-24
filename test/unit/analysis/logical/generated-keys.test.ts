@@ -161,6 +161,11 @@ export const aRelationOfGeneratedFieldsIsKeyedByExactlyTheClosureOfItsKeysAndIts
 					}
 				}
 				const viewed = succeeded(checkedIn(viewSchemaOf(c)), "the view of the relation checks")
+				assert.equal(
+					viewed.holdings.get(viewName)?.kind,
+					"stored",
+					"the view, unit-local and each key indexed or another's alternative, is stored"
+				)
 				const overView = succeeded(
 					checkAuthored(viewed, scanOf(c, viewName), checkOptions("view scan")),
 					"the view's scan checks"

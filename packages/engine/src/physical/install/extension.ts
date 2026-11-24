@@ -14,13 +14,10 @@ import { noServedTypes, type ServedTypes } from "#compiler/physical/ddl/domains.
  * extension spreads `noContribution` and states what it contributes. */
 export interface InstallContribution {
 	readonly indexRequests: ReadonlyArray<IndexRequest>
-	/** The derived relations whose stored tables it installs. */
-	readonly derivedRelations: ReadonlyArray<string>
 }
 
 export const noContribution: InstallContribution = {
-	indexRequests: [],
-	derivedRelations: []
+	indexRequests: []
 }
 
 /** What another package installs, plugged into an installation: the tables of stored derived relations and the

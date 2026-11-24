@@ -75,7 +75,6 @@ export const ReportsDesc: SchemaDesc = decodedSchema({
 			kind: "derived",
 			name: "AccountBudget",
 			level: 1,
-			storage: "live",
 			query: decodedQuery({
 				kind: "rules",
 				arms: [

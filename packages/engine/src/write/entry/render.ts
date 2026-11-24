@@ -7,6 +7,7 @@ import { CompileError, prose } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { noClock } from "#compiler/ir/clock.ts"
 import { typedEq } from "#compiler/ir/compare.ts"
+import { servedQuery } from "#compiler/ir/derived.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
 import type { LawField } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
@@ -127,7 +128,12 @@ export const renderMembership = (
 	if (!query.ok) {
 		return query
 	}
-	const annotated = optimizedInput(query.value, queryEvidence)
+	/** A membership is asked at a statement of a write, which may have written the holders of a stored derived relation
+	 * its COMMIT's upkeep has yet to replace: every derived relation is read through its definition (ir/derived.ts). */
+	const annotated = optimizedInput(
+		servedQuery(query.value, options.schema.expanded()),
+		queryEvidence
+	)
 	if (!annotated.ok) {
 		return annotated
 	}

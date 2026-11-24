@@ -6,7 +6,7 @@ import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/bat
 
 /**
  * The relation-name program: the box of every constructor that names a relation (relation, relation.generated,
- * closed.ordered, closed.unordered, closed.relation, derived, derived.stored, and the dynamic door's relation,
+ * closed.ordered, closed.unordered, closed.relation, derived, and the dynamic door's relation,
  * relation.generated, closed.ordered, closed.unordered and closed.relation) by every spelling of the name it is
  * handed, exhausted and printed as one program the type batch checks.
  *
@@ -30,7 +30,6 @@ const constructorNames = [
 	"closed.unordered",
 	"closed.relation",
 	"derived",
-	"derived.stored",
 	"dynamicRelation",
 	"dynamicRelation.generated",
 	"dynamicClosed.ordered",
@@ -49,7 +48,6 @@ const doorOf = (callee: ConstructorName): "checked" | "dynamic" => {
 		case "closed.unordered":
 		case "closed.relation":
 		case "derived":
-		case "derived.stored":
 			return "checked"
 		case "dynamicRelation":
 		case "dynamicRelation.generated":
@@ -86,7 +84,6 @@ const restOf: { readonly [C in ConstructorName]: ReadonlyArray<string> } = {
 		'[{ kind: "a", w: 1 }]'
 	],
 	derived: ["Items"],
-	"derived.stored": ["Items"],
 	dynamicRelation: ["{ id: Id, n: pg.integer }", '["id"]'],
 	"dynamicRelation.generated": [
 		"{ id: Id, n: pg.integer }",

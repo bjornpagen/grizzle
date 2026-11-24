@@ -1,5 +1,5 @@
 import { recordsBuilder, recordsFactsOver, recordsQueryOver } from "#compiler/program/records.ts"
-import { derivedBuilder, storedDerived as storedBuilder } from "#compiler/schema/relation.ts"
+import { derivedBuilder } from "#compiler/schema/relation.ts"
 import type {
 	CheckedDefinition,
 	DefinitionQuery,
@@ -214,34 +214,18 @@ export type {
  * precise signature is declared with the derived relation types (types/derived); the view here gives it to the one
  * builder of a derived relation's value (schema/relation.ts).
  *
- * derived(name, definition) and derived.stored(name, definition): views over the builders of a derived relation's
- * value (schema/relation.ts derivedBuilder and storedDerived), which narrow its definition to one DefinitionCheck
- * admits.
+ * derived(name, definition): a view over the builder of a derived relation's value (schema/relation.ts derivedBuilder),
+ * which narrows its definition to one DefinitionCheck admits. Whether its rows are stored is the installation's
+ * inference from what its definition reads, never the caller's (analysis/derived/storage.ts).
  */
-export const derived: DerivedConstructor = Object.freeze(
-	Object.assign(
-		<const Name extends string, Q extends DefinitionQuery>(
-			name: RelationName<Name>,
-			definition: CheckedDefinition<Q>,
-			...extra: ReadonlyArray<unknown>
-		): Derived<
-			Name,
-			DefinitionView<Q["heading"], DefinitionKeys<Q>, RuleReadOf<Q>, DefinitionLevel<Q>>,
-			"live"
-		> => derivedBuilder<Name, Q>(name, definition, extra),
-		{
-			stored: <const Name extends string, Q extends DefinitionQuery>(
-				name: RelationName<Name>,
-				definition: CheckedDefinition<Q>,
-				...extra: ReadonlyArray<unknown>
-			): Derived<
-				Name,
-				DefinitionView<Q["heading"], DefinitionKeys<Q>, RuleReadOf<Q>, DefinitionLevel<Q>>,
-				"stored"
-			> => storedBuilder<Name, Q>(name, definition, extra)
-		}
-	)
-)
+export const derived: DerivedConstructor = <const Name extends string, Q extends DefinitionQuery>(
+	name: RelationName<Name>,
+	definition: CheckedDefinition<Q>,
+	...extra: ReadonlyArray<unknown>
+): Derived<
+	Name,
+	DefinitionView<Q["heading"], DefinitionKeys<Q>, RuleReadOf<Q>, DefinitionLevel<Q>>
+> => derivedBuilder<Name, Q>(name, definition, extra)
 
 /**
  * records(stem, query, owner, ownerKey, { names }): the relations that hold the rows `query` found, for a level over the

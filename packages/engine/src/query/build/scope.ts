@@ -21,10 +21,10 @@ export const requireLevel = (written: Level, over: Level, label: string): void =
 }
 
 /**
- * Refuses a live derived relation, the relation `name` of the definition `query`, that a rule over `over` matches or
- * negates where `over`'s schema declares no such relation, as a held relation no level of the rule's schema declares is
- * refused: the rule reads the definition in its place, whose relations the schema may hold though the derived relation
- * stands at a level above it.
+ * Refuses a derived relation, the relation `name` of the definition `query`, that a rule over `over` matches or negates
+ * where `over`'s schema declares no such relation: a live one is read through its definition, whose relations the
+ * schema may hold though the derived relation stands at a level above it, so whether a rule may read it is decided by
+ * its declaration alone, never by the storage the installation infers.
  */
 export const requireDeclared = (
 	name: string,

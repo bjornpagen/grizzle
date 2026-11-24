@@ -8,9 +8,10 @@
  * The schema: documents of organizations on a tier (a roster, whose closed ids are smallint codes), each with a word
  * count and a cap (a contract), their shares and their notes (each its document's and its number there), and a stored
  * derived relation over the documents' word counts, the documents open in a unit of their own. Two contexts are read:
- * the session's subject, and a quota whose cap is the contract. `editor` holds the documents and the derived relation
- * whole, reads Capped (the documents at the quota's cap) and writes Mine, its notes under row security; `viewer` holds the organizations, the tier and the derived relation whole;
- * `tally` holds the derived relation alone, of its level only. All three are of one login.
+ * the session's subject, and a quota whose cap is the contract. `editor` holds the documents whole, so it reads the
+ * derived relation in full, reads Capped (the documents at the quota's cap) and writes Mine, its notes under row
+ * security; `viewer` holds the organizations and the tier whole, relations of the base alone; `tally` holds the
+ * documents alone, so it reads the derived relation in full too. All three are of one login.
  *
  * The knobs, each a change a world rests on when it turns:
  * - a read query entry's head;
@@ -30,9 +31,10 @@
  *   dropped before the change and created after it, in the same transaction;
  * - Db.open admits every role at the last snapshot;
  * - the installed-catalog checker finds nothing: among it, one whole view of each relation some role holds whole, the
- *   derived relation's one view granted SELECT to the editor, the viewer and the tally, each whole view granted to
- *   exactly the roles holding its relation whole with USAGE on its schema of whole views, the tally's on the derived
- *   relation's level's alone, and a role's own schema standing only where it holds a query entry, the editor's alone;
+ *   derived relation's one view granted SELECT to the editor and the tally, who read it in full, each whole view
+ *   granted to exactly the roles holding its relation whole or reading it in full with USAGE on its schema of whole
+ *   views, the viewer's on the base's alone, and a role's own schema standing only where it holds a query entry, the
+ *   editor's alone;
  * - no migration recreates a login or a role: each keeps its OID across the versions, so a password and what other
  *   roles were granted survive, a renamed login included;
  * - each role reads, by the certifier's bound of its direct transactions (physical/ddl/roles.ts readableRelations),
@@ -191,7 +193,10 @@ export const worlds = property.explore(aimed(historyGen, aims), {
 					/** Each relation PostgreSQL stores a table of, by its table's qualified name. */
 					const tabled = new Map<string, string>(
 						Arr.flatMap(Rec.toEntries(m.installation.laws.owned.relations), ([name, r]) => {
-							if (r.kind === "relation" || (r.kind === "derived" && r.view.kind !== "live")) {
+							if (
+								r.kind === "relation" ||
+								m.installation.checked.holdings.get(name)?.kind === "stored"
+							) {
 								const table = m.installation.names.relation(name)
 								return [[`${table.schema}.${table.name}`, name] as const]
 							}
@@ -235,7 +240,7 @@ export const worlds = property.explore(aimed(historyGen, aims), {
 			original: "\t\t\t\tviewSchemas.set(view.schema.name, view.schema.node)\n",
 			replacement:
 				"\t\t\t\tfor (const w of whole.values()) {\n\t\t\t\t\tviewSchemas.set(w.schema.name, w.schema.node)\n\t\t\t\t}\n",
-			why: "A role holding any relation whole is granted USAGE on every level's schema of whole views (physical/ddl/roles.ts), where it holds USAGE only on the schemas of the whole views it reads, so the tally, who holds only the stored Busy whole, holds USAGE on the base's schema of whole views: the installed-catalog checker finds it."
+			why: "A role holding any relation whole is granted USAGE on every level's schema of whole views (physical/ddl/roles.ts), where it holds USAGE only on the schemas of the whole views it reads, so the viewer, who holds relations of the base alone, holds USAGE on the derived relation's level's schema of whole views: the installed-catalog checker finds it."
 		},
 		{
 			file: "packages/engine/src/deploy/diff/declared.ts",
@@ -245,8 +250,8 @@ export const worlds = property.explore(aimed(historyGen, aims), {
 		},
 		{
 			file: "packages/engine/src/physical/ddl/roles.ts",
-			original: '\t\tentry.kind === "whole" ? [entry.relation.name] : entry.reads.flatMap(stored)',
-			replacement: '\t\tentry.kind === "whole" ? [entry.relation.name] : []',
+			original: '\t\t\tentry.kind === "whole" ? [] : entry.reads.flatMap(stored)',
+			replacement: '\t\t\tentry.kind === "whole" ? [] : []',
 			why: "A role's query entries read nothing by its grants, so a direct writer's reads miss a relation its view of the shared notes reads (Share), and the certifier bounds it short of what PostgreSQL lets it read."
 		},
 		{

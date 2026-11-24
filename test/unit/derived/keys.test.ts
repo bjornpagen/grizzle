@@ -56,10 +56,9 @@ import { aimed, boolean, finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order, Record as Rec } from "effect"
 import { derivedKeyLayout } from "#compiler/analysis/derived/keys.ts"
-import { derivedAnalysis } from "#compiler/analysis/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
-import { storedDerived as runtimeDerived } from "#compiler/schema/relation.ts"
+import { derivedBuilder as runtimeDerived } from "#compiler/schema/relation.ts"
 import { schemaBuilder as runtimeSchema } from "#compiler/schema/schema.ts"
 import {
 	buildSchema,
@@ -67,6 +66,7 @@ import {
 	unitLocalSketchGen
 } from "#test/pg/derived/oracle/gen.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { analysesOf } from "#test/support/derived.ts"
 import { checkedIn } from "#test/support/policy.ts"
 import {
 	aboveOf,
@@ -131,7 +131,7 @@ export const derivedRelationKeysAreProvenKeysInHeadingOrderNarrowestFirstNoneImp
 					if (Arr.some(built.derived, (d) => d.negationOverCond)) {
 						c.note("a negation over a level whose conditional count is numeric")
 					}
-					const analysis = succeeded(Result.map(checkedIn(built.value), derivedAnalysis))
+					const analysis = succeeded(Result.flatMap(checkedIn(built.value), analysesOf))
 					for (const r of analysis.order) {
 						const name = r.name
 						keyRules(r)
@@ -213,7 +213,7 @@ export const derivedRelationKeysStateExactlyTheMinimalSetsOfHeadColumnsAJoinsKey
 						const expected = minimalKeys(j, (r) => r.keys)
 						const d = defined(
 							succeeded(
-								Result.map(
+								Result.flatMap(
 									checkedIn(
 										runtimeSchema.extend(
 											[j.base.schema],
@@ -223,7 +223,7 @@ export const derivedRelationKeysStateExactlyTheMinimalSetsOfHeadColumnsAJoinsKey
 											[]
 										)
 									),
-									derivedAnalysis
+									analysesOf
 								)
 							).relations["D"]
 						)
@@ -306,7 +306,7 @@ export const derivedRelationKeysIndexAProductOfRelationsKeyedByEitherOfTwoFields
 					const level = runtimeSchema.extend([p.base.schema], "Level1", [view], [], [])
 					const above = aboveOf(p, minimal, view, level)
 					const analysis = succeeded(
-						Result.map(
+						Result.flatMap(
 							checkedIn(
 								above === undefined
 									? level
@@ -318,7 +318,7 @@ export const derivedRelationKeysIndexAProductOfRelationsKeyedByEitherOfTwoFields
 											[]
 										)
 							),
-							derivedAnalysis
+							analysesOf
 						)
 					)
 					productLaws(defined(analysis.relations["D"]), minimal)
@@ -388,11 +388,11 @@ export const derivedRelationKeysRefuseADefinitionNoViewCanStoreOrIndexWithItsTyp
 			check: (_, k: Case<StorableFeature>) => (c) =>
 				Effect.sync(() => {
 					const { base, definition } = storableOf(c)
-					const analyzed = Result.map(
+					const analyzed = Result.flatMap(
 						checkedIn(
 							runtimeSchema.extend([base], "Level2", [runtimeDerived("D", definition, [])], [], [])
 						),
-						derivedAnalysis
+						analysesOf
 					)
 					const expected = storableModel(c)
 					if (expected.kind === "named") {
@@ -493,9 +493,9 @@ export const derivedRelationKeysStateEachNameAViewsHeadGivesItsKeysVariableAsAKe
 						[]
 					)
 					const analysis = succeeded(
-						Result.map(
+						Result.flatMap(
 							checkedIn(runtimeSchema.extend([level], "Level4", [above], [], [])),
-							derivedAnalysis
+							analysesOf
 						)
 					)
 					for (const name of ["D", "E"]) {
@@ -539,7 +539,7 @@ export const aStoredRelationOverACallsRowsIsKeyedByThePlaceThatNumbersThemAtItsA
 		>,
 		check: (_, k: Case<CallKeyCase["call"] | CallKeyCase["ordinal"]>) => (c) =>
 			Effect.sync(() => {
-				const analyzed = Result.map(checkedIn(callKeySchema(c)), derivedAnalysis)
+				const analyzed = Result.flatMap(checkedIn(callKeySchema(c)), analysesOf)
 				const expected = callKeyModel(c)
 				const label = `${c.call}, ${c.ordinal}`
 				if (expected.kind === "refused") {

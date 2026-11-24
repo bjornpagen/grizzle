@@ -8,16 +8,17 @@
  * unit does not lead, which asks for no index: the key's own serves it, as the scan a whole rule's check over every row
  * starts from needs none.
  *
- * Each case is a containment of D in S, D the x of each T row and U row of one package that agree on g, on h or on
- * both, U's w held to a literal or not, over T and U keyed by `package` and a column of their own and S by its pack,
- * immutable, so the rule is unit-local and judged whole, or mutable, S in a unit of its own, so it reads two units and
- * is probed; and, beside it or not, a containment of E, U's g of every row, in Q, keyed by g alone, whose probe of Q's
+ * Each case is a containment of D in S, D the x of each T row and U row that agree on g, on h or on both, U's w held
+ * to a literal or not, over T and U keyed by `package` and a column of their own and S by its pack: immutable in no
+ * declared unit, D's rows of one package, so the rule is unit-local and judged whole and D live for its borrow; or
+ * mutable, each in a unit of its own, D's rows of any two packages, so D is live, its definition unit-local in no unit
+ * (analysis/derived/storage.ts), and the rule, reading several units, is probed; and, beside it or not, a containment of E, U's g of every row, in Q, keyed by g alone, whose probe of Q's
  * deletes reads U by g across every unit; with U declaring a key over g alone or not, which a read of U that binds g
  * looks it up by. The schema compiles to its installation.
  *
- * Oracle: specification, read from the installation's planned indexes: each read of a probe's chain and of a whole
- * rule's, U and T by the join's columns and `package` (U also by w where D holds it, and by its key over g alone where
- * it declares one and the join binds g), and a whole rule's first read of U at its unit and w, has an index of exactly
+ * Oracle: specification, read from the installation's planned indexes: each read of a probe's chain, U and T by the
+ * join's columns, and of a whole rule's, by those and `package` (U also by w where D holds it, and by its key over g
+ * alone where it declares one and the join binds g), and a whole rule's first read of U at its unit and w, has an index of exactly
  * those columns; and every index a whole rule creates for its requests leads with `package`.
  *
  * Features: a whole rule's read by a join, a probe's, a whole rule's read beside a read of its relation across units,

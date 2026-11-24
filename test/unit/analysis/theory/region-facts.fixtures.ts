@@ -210,7 +210,6 @@ const viewOf = (view: Arr.NonEmptyReadonlyArray<ViewRule>, named: (r: string) =>
 	kind: "derived" as const,
 	name: named("V"),
 	level: 1,
-	storage: "live" as const,
 	query: decodedQuery({
 		kind: "rules",
 		arms: Arr.map(view, (r) => ({

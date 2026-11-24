@@ -32,7 +32,7 @@ import { own } from "#compiler/schema/own.ts"
 import {
 	closedBuilder as closed,
 	closedRelation,
-	storedDerived,
+	derivedBuilder,
 	relationBuilder as relation
 } from "#compiler/schema/relation.ts"
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
@@ -204,7 +204,7 @@ export const theOwnedProductFingerprintsCanonicalContentOrderRepeatsAndLocations
 						if (!s.extended) {
 							return root
 						}
-						const Ids = storedDerived(
+						const Ids = derivedBuilder(
 							"TaskIds",
 							queryOver(root).rule((r: RuleValue) => {
 								const { id } = varsOver(Task, "task")

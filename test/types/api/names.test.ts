@@ -17,7 +17,7 @@ import { boxAgreement } from "#test/types/batch/agreement.ts"
  * inputs kept.
  */
 export const names = boxAgreement(finite(word(namesBox)), {
-	box: "every constructor that names a relation (relation, relation.generated, closed.ordered, closed.unordered, closed.relation, derived, derived.stored, and the dynamic door's five) by every spelling of its name: a literal, string, a union, a template, a helper's RelationName<N> and a helper's string",
+	box: "every constructor that names a relation (relation, relation.generated, closed.ordered, closed.unordered, closed.relation, derived, and the dynamic door's five) by every spelling of its name: a literal, string, a union, a template, a helper's RelationName<N> and a helper's string",
 	situations: [],
 	notes: () => [],
 	checking: "disarmed",

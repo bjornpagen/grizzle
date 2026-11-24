@@ -199,7 +199,7 @@ const matching = (pattern: PatternValue) =>
  */
 const schemaOver = (pattern: PatternValue, keyed: string): SchemaDesc => ({
 	name: "Judged",
-	relations: [{ kind: "derived", name: "D", level: 1, storage: "live", query: matching(pattern) }],
+	relations: [{ kind: "derived", name: "D", level: 1, query: matching(pattern) }],
 	statements: [key(on("D", ["id"]))],
 	bases: [
 		{

@@ -373,16 +373,23 @@ export const installedScope = (
 			const barrierViews = Arr.flatMap(Rec.values(r.relations), (e) =>
 				e.kind === "world" ? [`${roleSchema}.${identifierOf(roleView(theory, e))}`] : []
 			)
-			/** Each whole view it reads: a whole entry's over a stored or a materialized derived relation, in its level's
-			 * schema of whole views, by the naming door. */
-			const wholeViews = Arr.flatMap(Rec.values(r.relations), (e) => {
-				const kind = installation.owned.relations[e.name]?.kind
-				return e.kind === "whole" && (kind === "relation" || kind === "derived")
-					? [
-							`${identifierOf(identity.wholeSchema(identifierOf(installation.names.levelOf(e.name))))}.${identifierOf(identity.wholeView(parsedName(e.name)))}`
-						]
-					: []
-			})
+			/** The whole view of `relation`, in its level's schema of whole views, by the naming door. */
+			const wholeView = (relation: string): string =>
+				`${identifierOf(identity.wholeSchema(identifierOf(installation.names.levelOf(relation))))}.${identifierOf(identity.wholeView(parsedName(relation)))}`
+			/** Each whole view it reads: a whole entry's over a stored relation, and each stored derived relation's it reads
+			 * in full (schema/own.ts OwnedRole `wholeDerived`). */
+			const wholeViews = [
+				...Arr.flatMap(Rec.values(r.relations), (e) =>
+					e.kind === "whole" && installation.owned.relations[e.name]?.kind === "relation"
+						? [wholeView(e.name)]
+						: []
+				),
+				...Arr.flatMap(r.wholeDerived, (relation) =>
+					installation.checked.holdings.get(relation)?.kind === "stored"
+						? [wholeView(relation)]
+						: []
+				)
+			]
 			return {
 				scope: { role: installedRole.role, closedTypes },
 				barrierViews,

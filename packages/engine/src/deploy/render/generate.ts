@@ -2,10 +2,9 @@ import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { catchRefusal, Refusal, unwrap } from "#compiler/core/canonical.ts"
-import { type CompileError, malformedArtifact, unsupported } from "#compiler/core/errors.ts"
+import { type CompileError, malformedArtifact } from "#compiler/core/errors.ts"
 import { TemporaryCensus } from "#compiler/core/identity.ts"
 import type { LawId, SchemaFingerprint } from "#compiler/core/ids.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
 import { asidesOf, setAside } from "#compiler/deploy/diff/aside.ts"
 import { applyDeclarations } from "#compiler/deploy/diff/declared.ts"
 import type { Departure } from "#compiler/deploy/diff/departed.ts"
@@ -186,15 +185,6 @@ const draftOver = (
 					"snapshot",
 					["schema"],
 					`a previous snapshot of the installed schema ${installation.names.schema}; it is of ${previous.schema}`
-				)
-			)
-		}
-		const deferred = installation.deferred.derivedRelations
-		if (deferred.length > 0) {
-			throw new Refusal(
-				unsupported(
-					SourceLoc(`grizzle generate of schema ${installation.owned.name}`, []),
-					`an installation that installs every derived relation; ${deferred.join(", ")} is left to an extension the caller did not supply`
 				)
 			)
 		}

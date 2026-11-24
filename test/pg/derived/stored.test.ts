@@ -2,7 +2,8 @@
  * A stored derived relation equals its definition after every COMMIT, for every writer (physical/ddl/rules.ts, the
  * judge's phase A; analysis/theory/unit.ts StoredUpkeep): the judge reads both sides of every holder a transaction
  * wrote at each unit, and makes the stored rows there its definition's by their set difference, under the borrow that
- * every write of the unit holds.
+ * every write of the unit holds. The installation infers each one stored, its definition unit-local within the unit Doc
+ * and Link sit in, whether Doc is closed or open (analysis/derived/storage.ts).
  *
  * The box: a document's places and its links, both in the unit of the document, Doc closed or open; five stored
  * relations over them, a projection, a count by document, a negation within the document, the rows of an immutable
@@ -10,7 +11,7 @@
  * Programmed, edullm's WalkPattern in the box's terms, each linked place joined back to its value's program, a rule
  * compiling each of a document's distinct values once by an immutable function; and a level above them Hops, the places
  * a document reaches from its place 0 back along links from placed places, a recursion over the stored projection's
- * table and, in its step, the links through a live derived relation, kept a stratum after the projection, though it
+ * table and, in its step, the links through a stored relation of them, kept a stratum after both, though it
  * sorts before it by name, Dense, the documents of two places or more, over the stored count's table, kept a stratum
  * after the count, and Weighted, each place with each heavy
  * weight, reading the closed Weight through a live derived relation, whose rows no write changes, so its upkeep holds
@@ -22,7 +23,8 @@
  * The oracle is PostgreSQL's: after each COMMIT, in one read-only snapshot, each stored relation's rows and its
  * definition's, the definition evaluated by the conservative lowering, which relies on no evidence (oracle/harness.ts);
  * and a query of each stored relation, compiled as a read of its rows is, reads its table, never its definition, and
- * exactly its table's rows (a stored relation is a relation a query matches by its table, ir/desc.ts derivedHeld).
+ * exactly its table's rows (a stored relation is a relation a query matches by its table, analysis/schema.ts
+ * CheckedSchema read).
  *
  * Features: each kind of write, a transaction over two documents, and an open Doc.
  *
@@ -90,9 +92,9 @@ export const aStoredRelationEqualsItsDefinitionAfterEveryCommitOfEveryWriteOfIts
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/query/build/state.ts",
-				original: "\tif (derived !== undefined && !derivedHeld(derived.storage)) {",
-				replacement: "\tif (derived !== undefined) {",
+				file: "packages/engine/src/analysis/schema.ts",
+				original: '\t\tthis.#tables = (relation) => holdings.get(relation)?.kind === "stored"\n',
+				replacement: "\t\tthis.#tables = () => false\n",
 				why: "A query matching a stored relation reads its definition again, every holder of its units scanned, where its table holds the rows it reads."
 			},
 			{
@@ -292,8 +294,8 @@ export const aLawOverAStoredRelationIsJudgedOverItsRowsAsTheTransactionLeavesThe
 			{
 				file: "packages/engine/src/analysis/theory/theory.ts",
 				original:
-					'\t\treturn declared?.kind === "derived" && declared.view.kind === "stored"\n\t\t\t? undefined\n\t\t\t: this.definitions.get(relation)\n',
-				replacement: "\t\treturn this.definitions.get(relation)\n",
+					'\t\tthis.checked.holdings.get(relation)?.kind === "stored"\n\t\t\t? undefined\n\t\t\t: this.definitions.get(relation)\n',
+				replacement: "\t\tthis.definitions.get(relation)\n",
 				why: "A law over a stored relation reads its definition again, a key over it judged as a rule over every row of its units, and the stored rows it reads at COMMIT none of the judge's."
 			}
 		]

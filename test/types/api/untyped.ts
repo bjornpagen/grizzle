@@ -72,7 +72,7 @@ const schemaRelations = list(1, "Parent", "Kid")
 const schemaStatements = list(2, "nesting")
 const levelRelations = list(2, "Bag", "Item")
 const levelStatements = list(3, "bagging")
-const roleEntries = record(2, "Parent", "Labels")
+const roleEntries = record(2, "Parent")
 const roleWrites = list(3, '"Parent"')
 const loginRoles = list(2, "member")
 const loginWorkloads = list(3, "names")
@@ -102,7 +102,7 @@ const shapes: { readonly [B in BuilderName]: Shape } = {
 			"Up",
 			jsonText(name),
 			spell(roleEntries),
-			`{ write: ${spell(roleWrites)} }`
+			`{ insert: ${spell(roleWrites)} }`
 		]
 	},
 	login: {
@@ -231,7 +231,7 @@ export const Root = schema("Root", [Parent, Kid], [nesting])
 export const Bag = relation("Bag", { id: Id, items: drawn(natural) }, ["id"])
 export const Item = relation("Item", { bag: Id, at: drawn(natural), label: pg.integer }, ["bag", "at"])
 export const bagging = ordered(on(Item, "bag", "at"), fin(Bag, "items"))
-export const Labels = derived.stored(
+export const Labels = derived(
 	"Labels",
 	query(Root).rule((r) => {
 		const { parent, label } = v(Kid, "kid")

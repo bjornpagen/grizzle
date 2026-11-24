@@ -3,7 +3,7 @@ import { assert, assertVariant, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { agree, exact, set, structuralHash } from "@bjornpagen/testing/oracle"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { installationWitness } from "#adapter/served/refusals.ts"
 import { noLevelAbove } from "#adapter/witness/keylaw.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
@@ -14,18 +14,15 @@ import { selectionKeysOf } from "#compiler/physical/ddl/names.ts"
 import { installBasis, unserved, planBasis } from "#compiler/physical/install/plan.ts"
 import { parseSchemaInput } from "#compiler/program/input.ts"
 import { baseArtifacts, raisableOf } from "#compiler/program/schema.ts"
-import { type OwnedRole, own, rostersOf } from "#compiler/schema/own.ts"
+import { type OwnedRole, rostersOf } from "#compiler/schema/own.ts"
 import { everySlice, sliceOf, writesOf } from "#compiler/schema/reach.ts"
 import type { CompiledWrite } from "#compiler/write/program/compile.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { decodedSchema } from "#test/support/fixtures/ir/desc.ts"
 import { upTo } from "#test/support/up-to.ts"
 import {
 	caseSpace,
 	rootName,
 	topName,
-	derivedName,
-	chainedName,
 	ordinaryName,
 	roleName,
 	loginOf,
@@ -45,10 +42,7 @@ import {
 	features,
 	compiledChange,
 	compiledQuery,
-	ran,
-	byNameGen,
-	byNameSchema,
-	type ByNameFeature
+	ran
 } from "#test/unit/laws/model/slice.fixtures.ts"
 
 /** A compile's law model is the whole schema's restricted to its slice's writes and names. Its budget is its suite's before it was a property (test/unit/laws/model/slice.test.ts at 4ca3036a): 200 runs and 200 steered cases. */
@@ -590,43 +584,6 @@ export const aCompilesLawModelIsTheWholeSchemasRestrictedToItsSlicesWritesAndNam
 				replacement:
 					"\t\t\treferenceChoice(theory.laws, theory.relations, discharge, theory.regionFacts)",
 				why: "A slice compile chooses each fixed target's reference over its own closure in place of the whole schema's recorded choice (laws/model/model.ts), so it plans a native the installation lacks; the slice fails."
-			}
-		]
-	})
-
-/** A schema's ownership refuses a derived definition matching a live derived relation by its name, which stores nothing to match. Its budget is its suite's before it was a property (test/unit/laws/model/slice.test.ts at 4ca3036a): 40 runs and 40 steered cases. */
-export const aSchemasOwnershipRefusesADerivedDefinitionMatchingALiveDerivedRelationByItsNameWhichStoresNothingToMatch =
-	property.explore(byNameGen, {
-		needs: {},
-		budget: { runs: 40, steered: 40 },
-		situations: [
-			"a direct match by name",
-			"a match by name inside a matched query"
-		] satisfies ReadonlyArray<Reached<ByNameFeature>>,
-		check: (_, k: Case<ByNameFeature>) => (b) =>
-			Effect.sync(() => {
-				const owned = own(decodedSchema(byNameSchema(b)))
-				assert.ok(!owned.ok, "the schema is refused when it is owned")
-				const reason = owned.error.reason
-				assert.ok(
-					reason._tag === "MalformedDescription" &&
-						Str.includes(chainedName(b.at))(reason.what) &&
-						Str.includes(derivedName(b.at))(reason.what),
-					`a MalformedDescription naming ${chainedName(b.at)}'s definition and the live ${derivedName(b.at)} it matches`
-				)
-				k.note(b.nested ? "a match by name inside a matched query" : "a direct match by name")
-			}),
-		oracle: {
-			kind: "specification",
-			name: "README's derived tables: a query over a live derived relation reads its definition"
-		},
-		kept: [],
-		kills: [
-			{
-				file: "packages/engine/src/schema/own.ts",
-				original: `\t\t\t\tif (lower.desc.kind === "derived" && !derivedHeld(lower.desc.storage)) {\n\t\t\t\t\tfail(\n\t\t\t\t\t\t"MalformedDescription",\n\t\t\t\t\t\tentry.desc.loc,\n\t\t\t\t\t\t\`a definition of \${r.name} that reads the live derived relation \${read} through its definition; it matches \${read} by name, and a live derived relation stores nothing to match, so a query over it matches the query it is defined by\`\n\t\t\t\t\t)\n\t\t\t\t}`,
-				replacement: "",
-				why: "A definition matching a live derived relation by name admitted (schema/own.ts checkDerived); the second property fails."
 			}
 		]
 	})

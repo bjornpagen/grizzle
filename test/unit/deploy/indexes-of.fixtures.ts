@@ -73,7 +73,7 @@ export const schemaOf = (c: Case): AnySchema => {
 					[root],
 					"Upper",
 					[
-						derived.stored(
+						derived(
 							"Pairs",
 							query(root).rule((r) => {
 								const { id, other } = v(R, "r")
@@ -91,7 +91,7 @@ export const schemaOf = (c: Case): AnySchema => {
 				[mid],
 				"Upper",
 				[
-					derived.stored(
+					derived(
 						"Pairs",
 						query(mid).rule((r) => {
 							const { id, other } = v(R, "r")

@@ -64,7 +64,7 @@ export const versionOf = (name: string, k: Knobs) => {
 		[mutable(Doc), unit("Record", { id: Id })]
 	)
 	/** Each document's word count, stored: Doc, open, sits in the unit Record, so Busy sits in it too. */
-	const Busy = derived.stored(
+	const Busy = derived(
 		"Busy",
 		query(base).rule((r) => {
 			const { id, words } = v(Doc, "doc")
@@ -113,15 +113,18 @@ export const versionOf = (name: string, k: Knobs) => {
 					const { id, cap } = v(Doc, "doc")
 					return r.match(Doc, { id, cap }).match(Quota, { cap }).find({ id, cap })
 				})
+	/** The documents whole, so it reads Busy in full, through Busy's whole view. */
 	const editor = role(
 		ext,
 		"editor",
-		{ Doc, Busy: ext.relations.Busy, Mine: mine(), Capped: capped },
+		{ Doc, Mine: mine(), Capped: capped },
 		{ insert: ["Mine"], contexts: [Session, Quota] }
 	)
-	const viewer = role(ext, "viewer", { Tier, Org, Busy: ext.relations.Busy })
-	/** Busy alone: the one relation of its level it holds, so it holds USAGE on that level's schema of whole views alone. */
-	const tally = role(ext, "tally", { Busy: ext.relations.Busy })
+	/** Relations of the base alone, so it holds USAGE on the base's schema of whole views alone. */
+	const viewer = role(ext, "viewer", { Tier, Org })
+	/** The documents alone: it reads Busy in full, so it holds Busy's whole view beside the documents', one in each
+	 * level's schema of whole views. */
+	const tally = role(ext, "tally", { Doc })
 	return {
 		schema: ext,
 		editor,

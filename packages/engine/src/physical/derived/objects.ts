@@ -3,13 +3,10 @@ import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { DerivedRelationAnalysis } from "#compiler/analysis/derived/analyze.ts"
+import { storedPrimaryKey, storedSecondaryKeys } from "#compiler/analysis/derived/storage.ts"
 import type { CatalogKey } from "#compiler/analysis/physical/evidence.ts"
 import { type DerivedAnalysis, derivedAnalysis } from "#compiler/analysis/schema.ts"
-import {
-	storedPrimaryKey,
-	storedSecondaryKeys,
-	type Theory
-} from "#compiler/analysis/theory/theory.ts"
+import type { Theory } from "#compiler/analysis/theory/theory.ts"
 import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import {
@@ -19,15 +16,16 @@ import {
 	identity
 } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
+import { noneWritten } from "#compiler/ir/derived.ts"
 import type { Premise } from "#compiler/ir/evidence.ts"
 import { fieldNames, type StoredDerivedRelation } from "#compiler/ir/law.ts"
+import { fieldColumnType } from "#compiler/ir/physical.ts"
 import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import { storedKeyPremise } from "#compiler/logical/props.ts"
 import type { InstallBuilder, TargetField } from "#compiler/physical/ddl/context.ts"
 import { columnDomains, emptyUse, usedNodes } from "#compiler/physical/ddl/domains.ts"
 import { lowerRow } from "#compiler/physical/ddl/expr.ts"
 import { lowerDefinition } from "#compiler/physical/derived/definition.ts"
-import type { InstallOptions } from "#compiler/physical/install/compile.ts"
 import {
 	type InstallContribution,
 	type InstallExtension,
@@ -133,7 +131,9 @@ const viewObjects = (
 	const lowered = unwrap(
 		lowerDefinition(name, a.query, {
 			names: b.names,
-			catalog
+			catalog,
+			/** Its upkeep runs in level order at COMMIT, so a lower level's table is current when it reads it. */
+			rows: b.checked.rows(noneWritten)
 		})
 	)
 	const create: CreateStoredTable = {
@@ -143,7 +143,7 @@ const viewObjects = (
 		query: lowered.query
 	}
 	const stored = storedOf(b, name)
-	/** Its primary key, led by its unit, as the theory chose it (analysis/theory/theory.ts storedPrimaryKey), and every
+	/** Its primary key, led by its unit, as its holding chose it (analysis/derived/storage.ts storedPrimaryKey), and every
 	 * other proven key, each a unique index of its own. */
 	const primary = storedPrimaryKey(a.keys, stored.unit.fields)
 	const secondary = storedSecondaryKeys(a.keys, primary)
@@ -173,6 +173,13 @@ const viewObjects = (
 	}
 	const use = emptyUse()
 	columnDomains(b, a.heading, use)
+	b.storedColumns(
+		view,
+		a.heading.map((c) => ({
+			name: b.names.column(name, c.name),
+			type: fieldColumnType(b.names, c.type).type
+		}))
+	)
 	const viewObject = b.add(
 		{
 			kind: "storedTable",
@@ -348,9 +355,11 @@ const viewObjects = (
 	return keys.map((k) => k.key)
 }
 
-/** The installer extension that adds every derived relation's view and unique indexes to the obligation graph
- * and claims the relation, so the installation does not report it deferred. Its view columns' patterns are among the
- * installation's structural text domains (physical/install/plan.ts artifactDomains).
+/** The installer extension every installation runs last, after its caller's (physical/install/compile.ts), which adds
+ * every stored derived relation's table and unique indexes to the obligation graph: storage is the installation's
+ * inference (analysis/derived/storage.ts), so no installation leaves a stored relation to an extension its caller may
+ * not supply. Its table columns' patterns are among the installation's structural text domains
+ * (physical/install/plan.ts artifactDomains).
  *
  * Each derived relation lowers to exactly these objects of the one obligation graph, through the installer's
  * extensions, so they share its install order, manifest and determinism with every native object:
@@ -382,36 +391,23 @@ const viewObjects = (
  * Each object's reason is the enforcement of its declaration, the derived relation, and the proof of the key its
  * index rests on: the stored table's its primary key's, a unique index's its own. No law names a derived relation, so
  * none carries a law reason. */
-const derivedRelationExtension = (): InstallExtension => {
-	const extension = (b: InstallBuilder): Result.Result<InstallContribution, CompileError> =>
+export const storedTablesExtension: InstallExtension = {
+	contribute: (b: InstallBuilder): Result.Result<InstallContribution, CompileError> =>
 		catchRefusal(() => {
 			const analysis = derivedAnalysis(b.checked)
 			const keys: Array<CatalogKey> = []
 			for (const a of analysis.order) {
 				appendAll(keys, viewObjects(b, analysis, a, keys))
 			}
-			const out: InstallContribution = {
-				...noContribution,
-				derivedRelations: analysis.order.map((a) => a.name)
-			}
-			return out
-		})
-	return {
-		contribute: extension,
-		params: servesNoParams,
-		certifies: noCertificates,
-		carriers: noCarriers,
-		calls: noCalls,
-		live: noLive,
-		fences: noFences
-	}
+			return noContribution
+		}),
+	params: servesNoParams,
+	certifies: noCertificates,
+	carriers: noCarriers,
+	calls: noCalls,
+	live: noLive,
+	fences: noFences
 }
-
-/** Installer options with the derived relation extension after any extension the caller already listed. */
-export const withDerivedRelations = (options: InstallOptions): InstallOptions => ({
-	...options,
-	extensions: [...options.extensions, derivedRelationExtension()]
-})
 
 /** A stored relation's fill: every row of its definition, into the table `create` makes (sql/ast.ts FillStored). */
 export const fillStatement = (create: CreateStoredTable): FillStored => ({

@@ -35,6 +35,7 @@ import type { SourceLoc } from "#compiler/core/loc.ts"
 import { compareNumbers, compareStrings } from "#compiler/core/order.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { noClock } from "#compiler/ir/clock.ts"
+import { noneWritten, servedQuery } from "#compiler/ir/derived.ts"
 import type { InferredQuery } from "#compiler/ir/desc.ts"
 import {
 	defaultOpclass,
@@ -315,18 +316,23 @@ const loweredJudged = (
 	deltas: (relation: string, side: DeltaSide) => DeltaRelation | undefined,
 	extent: RegionExtent
 ): Compiled => {
-	const checked = unwrap(
-		checkQuery(
-			b.checked,
-			navigateQuery(
-				query,
-				loc,
-				columns,
-				{ kind: "perStatement", extent },
-				new Navigation(b.model.theory.regionFacts)
-			),
-			{ read: "region", label, clock: noClock, session: new CheckSession(b.checked.patterns) }
-		)
+	/** The judge's query as the lowering reads it: it runs at COMMIT after every upkeep (the judge's phase A), so each
+	 * stored derived relation's table is current (ir/derived.ts servedQuery). */
+	const checked = servedQuery(
+		unwrap(
+			checkQuery(
+				b.checked,
+				navigateQuery(
+					query,
+					loc,
+					columns,
+					{ kind: "perStatement", extent },
+					new Navigation(b.model.theory.regionFacts)
+				),
+				{ read: "region", label, clock: noClock, session: new CheckSession(b.checked.patterns) }
+			)
+		),
+		b.checked.rows(noneWritten)
 	)
 	const requests = requestsAt(checked.dag.roots[0])
 	const lowered = unwrap(

@@ -34,7 +34,7 @@ const Book = unit("Book", { account: Id })
 const Books = schema("Books", [Entry], [Book])
 
 /** Each account's entries, counted, and their budgets summed. */
-const AccountBudget = derived.stored(
+const AccountBudget = derived(
 	"AccountBudget",
 	query(Books).rule((r) => {
 		const { account, at, budget } = v(Entry, "entry")
@@ -48,7 +48,7 @@ const AccountBudget = derived.stored(
 export const Reports = schema.extend([Books], "Reports", [AccountBudget], [])
 
 /** AccountBudget redefined: the entries with a budget above 10 only. */
-const BusyBudget = derived.stored(
+const BusyBudget = derived(
 	"AccountBudget",
 	query(Books).rule((r) => {
 		const { account, at, budget } = v(Entry, "entry")
@@ -175,14 +175,12 @@ export const keyColumn = (k: Installation["indexes"][number]["keys"][number]): s
 
 export interface IndexCase {
 	readonly programs: ReadonlyArray<Program>
-	readonly installed: boolean
 }
 
 export type IndexFeature =
 	| "an index of a column"
 	| "the key's own index"
 	| "two columns indexed"
-	| "deferred"
 	| "the empty workload"
 
 /** Two drafts: each one's definition and workload. */

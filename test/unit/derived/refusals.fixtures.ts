@@ -14,7 +14,6 @@ import type {
 	RuleDesc,
 	SideDesc
 } from "#compiler/ir/desc.ts"
-import { withDerivedRelations } from "#compiler/physical/derived/objects.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { parseSchemaInput } from "#compiler/program/input.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
@@ -226,9 +225,7 @@ export const entries = (desc: SchemaDesc): ReadonlyArray<Result.Result<unknown, 
 		Result.flatMap(ownedInput(desc), (owned) => checkedSchema(owned, everySlice(owned))),
 		derivedAnalysis
 	),
-	Result.flatMap(ownedInput(desc), (o) =>
-		compileInstallation(o, withDerivedRelations(installOptions(o)))
-	)
+	Result.flatMap(ownedInput(desc), (o) => compileInstallation(o, installOptions(o)))
 ]
 
 /** Every entry that reads a schema refuses it alike: the refusal, at each. */
@@ -389,7 +386,6 @@ export const mutated = (
 				kind: "derived" as const,
 				name: `${target.name}x`,
 				level: derivedLevel,
-				storage: "stored" as const,
 				query: {
 					stage: {
 						kind: "rules" as const,

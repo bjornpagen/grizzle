@@ -57,7 +57,7 @@ import {
 	admitRelation,
 	admitRoster,
 	closedBuilder as closed,
-	storedDerived,
+	derivedBuilder,
 	relationBuilder as relation,
 	relationDescOf
 } from "#compiler/schema/relation.ts"
@@ -1282,7 +1282,7 @@ export const schemaAndSchemaExtendExtendsUnderItsOwnNameAndComputesDerivedLevels
 									 * The prefix varies where a view sorts by name among the relations a later definition reads.
 									 */
 									const name = `${view.prefix}View${k + 1}x${j}`
-									const value = storedDerived(
+									const value = derivedBuilder(
 										name,
 										idsOf(current, [
 											defined(reads[0]).value,
@@ -1327,7 +1327,7 @@ export const schemaAndSchemaExtendExtendsUnderItsOwnNameAndComputesDerivedLevels
 									const first = defined(declared[0])
 									switch (s.defect) {
 										case "a read of its own level":
-											record["OwnLevel"] = storedDerived(
+											record["OwnLevel"] = derivedBuilder(
 												"OwnLevel",
 												idsOf(schema.extend([current], "Probe", [first.value], [], []), [
 													first.value
@@ -1336,7 +1336,7 @@ export const schemaAndSchemaExtendExtendsUnderItsOwnNameAndComputesDerivedLevels
 											)
 											break
 										case "a parameter":
-											record["ByAccount"] = storedDerived(
+											record["ByAccount"] = derivedBuilder(
 												"ByAccount",
 												queryOver(current).rule((r: RuleValue) => {
 													const { id } = varsOver(Task, "task")
@@ -1346,7 +1346,7 @@ export const schemaAndSchemaExtendExtendsUnderItsOwnNameAndComputesDerivedLevels
 											)
 											break
 										case "a definition that is no query":
-											admitDerived("Bad", {}, "stored", [])
+											admitDerived("Bad", {}, [])
 											break
 										case "two bases":
 										case "none":
@@ -1372,6 +1372,16 @@ export const schemaAndSchemaExtendExtendsUnderItsOwnNameAndComputesDerivedLevels
 							assert.equal(
 								error.reason._tag === "Refused" ? error.reason.refusal : error.reason._tag,
 								"schema.extend takes one base: a level over several bases is not built yet"
+							)
+							return
+						}
+						if (s.defect === "a read of its own level") {
+							/** A definition written over a level above the base, which a read of its own level needs, is refused as
+							 * such before what it reads (schema/schema.ts admitExtend), as the types refuse it. */
+							const error = throwsRefused(tower, "Refused")
+							assert.equal(
+								error.reason._tag === "Refused" ? error.reason.refusal : error.reason._tag,
+								"a derived definition is a query over a level of the schema it extends"
 							)
 							return
 						}

@@ -11,7 +11,6 @@ import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import {
 	closedBuilder as closed,
 	derivedBuilder,
-	storedDerived,
 	relationBuilder as relation
 } from "#compiler/schema/relation.ts"
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
@@ -23,7 +22,7 @@ import { argumentsOf } from "#test/support/list.ts"
 /** The choice-th item, modulo the items there are; a choice with nothing to choose from is a defect of the generator.
  *
  * Generated derived relations for the derived analysis's properties, each read through its definition, or stored
- * where the case is unit-local and drew it so.
+ * where the case is unit-local, as the installation infers it (analysis/derived/storage.ts).
  *
  * A case is a base schema and one to three levels of derived relations over it.
  * Everything is a sketch of small numbers built through the builders (relation, closed, contract, schema,
@@ -46,8 +45,8 @@ import { argumentsOf } from "#test/support/list.ts"
  *   with sum, mean, min and max, which the drawn population reaches about once in 250 cases per function;
  * - two in sixteen unit-local (unitLocalSketchGen): a unit of every base relation's first field, an int8 its key leads
  *   with, and every definition one rule over the base, each match bound at the unit, its head delivering it, so a
- *   definition drawn stored is stored there, admitted by construction (analysis/theory/unit.ts storedUnit); every
- *   other definition, and every one of another case, a derived relation read through its definition.
+ *   definition the installation can keep is stored there (analysis/derived/storage.ts); every other definition, and
+ *   every one of another case, a derived relation read through its definition.
  *
  * The kinds track what each derived column holds, so a higher level binds it to variables of the right kind:
  * count is natural, sum and mean take the native result types, min and max keep their input's kind,
@@ -305,8 +304,6 @@ export interface DefinitionSketch {
 	readonly form: number
 	readonly k: number
 	readonly desc: boolean
-	/** Whether it is drawn stored, which it is only in a case of a unit whose definitions are unit-local (CaseSketch). */
-	readonly stored: boolean
 }
 
 export interface LevelSketch {
@@ -318,8 +315,8 @@ export interface LevelSketch {
 export interface CaseSketch {
 	/**
 	 * Whether the case declares a unit of every base relation's first field, an int8 its every key leads with, and every
-	 * definition is unit-local in it (unitLocalSketchGen): only there is a definition drawn stored a stored relation,
-	 * and every other one a derived relation read through its definition.
+	 * definition is unit-local in it (unitLocalSketchGen): only there does the installation store a definition, every
+	 * other one a derived relation read through its definition.
 	 */
 	readonly unit: boolean
 	readonly relations: ReadonlyArray<RelationSketch>
@@ -384,8 +381,7 @@ const definitionGen: Gen<DefinitionSketch> = (source) => ({
 	rule: source.draw(ruleGen),
 	form: source.draw(int(0, 3)),
 	k: source.draw(int(1, 3)),
-	desc: source.draw(boolean),
-	stored: source.draw(boolean)
+	desc: source.draw(boolean)
 })
 
 const drawnCaseSketchGen: Gen<CaseSketch> = (source) => ({
@@ -430,7 +426,6 @@ const aggregateOver = (
 	form: 0,
 	k: 1,
 	desc: false,
-	stored: false,
 	rule: {
 		matches: [{ source, binds: [fresh, fresh] }],
 		preds: [],
@@ -474,9 +469,9 @@ const atUnit: BindSketch = { how: 1, share: 0, n: 0 }
  * leads its fields and its key with an int8; every definition one rule over the base relations and the derived
  * relations of the levels below, never the roster, each match binding its first field to the first match's, its head
  * delivering that first, so a lower derived relation's first column is the unit too, and its negation, if any, of a
- * base relation, whose first field it binds to it; each drawn stored or not as it was drawn. So a stored one is
- * unit-local by construction: its every read of a holder, and of a lower level, bound at the unit, its aggregates
- * grouped by it, and its negation correlated at it (analysis/theory/unit.ts storedUnit).
+ * base relation, whose first field it binds to it. So each is unit-local by construction, which the installation
+ * stores where its table holds its rows: its every read of a holder, and of a lower level, bound at the unit, its
+ * aggregates grouped by it, and its negation correlated at it (analysis/derived/storage.ts).
  */
 export const unitLocalSketchGen: Gen<CaseSketch> = map(drawnCaseSketchGen, (s) => {
 	const bases = s.relations.length
@@ -528,7 +523,6 @@ export const unitLocalCondNegationSketchGen: Gen<CaseSketch> = map(drawnCaseSket
 			definitions: [
 				{
 					...aggregateOver(0, [0], []),
-					stored: true,
 					rule: { ...aggregateOver(0, [0], []).rule, count: true, cond: true }
 				}
 			]
@@ -540,7 +534,6 @@ export const unitLocalCondNegationSketchGen: Gen<CaseSketch> = map(drawnCaseSket
 					form: 0,
 					k: 1,
 					desc: false,
-					stored: true,
 					rule: {
 						matches: [{ source: 2, binds: [fresh, fresh, fresh] }],
 						preds: [],
@@ -559,7 +552,7 @@ export const unitLocalCondNegationSketchGen: Gen<CaseSketch> = map(drawnCaseSket
 
 /**
  * One case in sixteen is planted: about 15 per stream of 250, each reaching all four keys; two in sixteen are
- * unit-local, where a definition drawn stored is stored.
+ * unit-local, where the installation stores a definition it can keep.
  */
 export const caseSketchGen: Gen<CaseSketch> = weighted([
 	[13, drawnCaseSketchGen],
@@ -904,10 +897,7 @@ export const buildSchema = (sketch: CaseSketch, options: BuildOptions): GenSchem
 				level: li + 1,
 				declared: di,
 				columns: built.columns,
-				value:
-					sketch.unit && d.stored
-						? storedDerived(name, built.query, [])
-						: derivedBuilder(name, built.query, []),
+				value: derivedBuilder(name, built.query, []),
 				form: built.form,
 				aggregates: built.aggregates,
 				negation: built.negation,

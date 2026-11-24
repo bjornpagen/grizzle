@@ -10,7 +10,7 @@ import { closed, relation } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { contractParts } from "#compiler/scalar/contract.ts"
-import { derivedBuilder, storedDerived } from "#compiler/schema/relation.ts"
+import { derivedBuilder } from "#compiler/schema/relation.ts"
 import { schemaBuilder } from "#compiler/schema/schema.ts"
 
 const lowercase = nonEmpty(Arr.fromIterable("abcdefghijklmnopqrstuvwxyz"), "lowercase letters")
@@ -154,7 +154,6 @@ export const nameBuilders = [
 	"closed.unordered",
 	"closed.relation",
 	"derived",
-	"derived.stored",
 	"schema",
 	"schema.extend",
 	"contract"
@@ -238,8 +237,6 @@ export const builtNamed = (builder: NameBuilder, name: string): unknown => {
 			)
 		case "derived":
 			return derivedBuilder(name, itemIds, [])
-		case "derived.stored":
-			return storedDerived(name, itemIds, [])
 		case "schema":
 			return schemaBuilder(name, [Item], [], [])
 		case "schema.extend":

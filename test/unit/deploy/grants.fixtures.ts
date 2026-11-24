@@ -114,7 +114,8 @@ export const featureOf = (t: Turn): TurnFeature => {
 }
 
 /** A version's schema and logins, as the public API builds them: A, B and C, each in a unit of its own id, under a
- * level that stores Listing, A's ids and notes, which the writer holds whole and so reads by SELECT. */
+ * level that stores Listing, A's ids and notes, which every role holding A whole reads in full, by SELECT on its whole
+ * view. */
 const built = (
 	v: Version
 ): { readonly base: DeploySubject; readonly logins: ReadonlyArray<OwnedLogin> } => {
@@ -125,7 +126,7 @@ const built = (
 		succeeded(ownLogin(defined(loginDescOf(l), "a login built by login(...)")))
 	if (v.third === "C") {
 		const root = schema("Worlds", [A, B, C], [unit("Entity", { id: Id })])
-		const Listing = derived.stored(
+		const Listing = derived(
 			"Listing",
 			query(root).rule((r) => {
 				const { id, note } = v_(A, "a")
@@ -133,7 +134,6 @@ const built = (
 			})
 		)
 		const base = schema.extend([root], "Worlds_1", [Listing], [])
-		const listing = base.relations.Listing
 		const reader =
 			v.reads === "A"
 				? role(base, "reader", { A })
@@ -142,10 +142,10 @@ const built = (
 					: role(base, "reader", { A, B, C })
 		const writer =
 			v.writes === "A"
-				? role(base, "writer", { A, Listing: listing }, { insert: ["A"] })
+				? role(base, "writer", { A }, { insert: ["A"] })
 				: v.writes === "all"
-					? role(base, "writer", { A, B, C, Listing: listing }, { insert: ["A", "B", "C"] })
-					: role(base, "writer", { A, B, Listing: listing })
+					? role(base, "writer", { A, B, C }, { insert: ["A", "B", "C"] })
+					: role(base, "writer", { A, B })
 		const desk = owned(login(base, "desk", [reader, writer]))
 		return {
 			base,
@@ -155,7 +155,7 @@ const built = (
 		}
 	}
 	const root = schema("Worlds", [A, B], [unit("Entity", { id: Id })])
-	const Listing = derived.stored(
+	const Listing = derived(
 		"Listing",
 		query(root).rule((r) => {
 			const { id, note } = v_(A, "a")
@@ -163,14 +163,13 @@ const built = (
 		})
 	)
 	const base = schema.extend([root], "Worlds_1", [Listing], [])
-	const listing = base.relations.Listing
 	const reader = v.reads === "A" ? role(base, "reader", { A }) : role(base, "reader", { A, B })
 	const writer =
 		v.writes === "A"
-			? role(base, "writer", { A, Listing: listing }, { insert: ["A"] })
+			? role(base, "writer", { A }, { insert: ["A"] })
 			: v.writes === "all"
-				? role(base, "writer", { A, B, Listing: listing }, { insert: ["A", "B"] })
-				: role(base, "writer", { A, B, Listing: listing })
+				? role(base, "writer", { A, B }, { insert: ["A", "B"] })
+				: role(base, "writer", { A, B })
 	const desk = owned(login(base, "desk", [reader, writer]))
 	return {
 		base,

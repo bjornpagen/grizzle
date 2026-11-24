@@ -3,12 +3,7 @@ import { codeColumn, type DecoderForm, decoderOf, type RowDecoder } from "#compi
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isPlainRecord } from "#compiler/core/record.ts"
-import {
-	derivedHeld,
-	type FieldDesc,
-	type QueryDesc,
-	type QueryStageDesc
-} from "#compiler/ir/desc.ts"
+import type { FieldDesc, QueryDesc, QueryStageDesc } from "#compiler/ir/desc.ts"
 import type { BuilderScope, OpenRows, OpenSource } from "#compiler/ir/open.ts"
 import { Roster } from "#compiler/ir/scalar.ts"
 import {
@@ -215,8 +210,8 @@ export const stageHeading = (stage: QueryStageDesc, env: ScalarEnv): Heading => 
 /**
  * Where a source may be matched: anywhere; only in the rule whose interior stage it is; only in a recursive arm of its
  * own definition; a query or a bound import of one, in a rule over a level above the level it is written over; or a
- * live derived relation, whose definition the rule reads in its place, in a rule over a schema that declares it, the
- * derived relation `name` of the definition `query`, as a held relation must be one of the rule's schema's.
+ * derived relation, in a rule over a schema that declares it, the derived relation `name` of the definition `query`,
+ * whatever the installation infers of its storage.
  */
 type SourceScope =
 	| { readonly kind: "anywhere" }
@@ -466,8 +461,8 @@ const isOrdinaryOrClosed = (kind: OwnedKind | undefined): boolean =>
 
 /**
  * What a rule reads of `value` it matches or negates: a registered source's own; a query's, written over its schema; a
- * derived relation no table holds, its definition, matched only in a rule over a schema that declares it (SourceScope
- * `declared`); a held derived relation, a world entry or a stored relation, by its table.
+ * derived relation, a world entry or a stored relation, by its name, a derived relation whether or not the installation
+ * stores it (the checker reads it as a relation, the lowering a live one through its definition, ir/derived.ts).
  */
 export const sourceInfo = (value: unknown, label: string, env: ScalarEnv): SourceInfo => {
 	if (!hasProperties(value)) {
@@ -497,25 +492,25 @@ export const sourceInfo = (value: unknown, label: string, env: ScalarEnv): Sourc
 		}
 	}
 	const derived = derivedDraftOf(value)
-	if (derived !== undefined && !derivedHeld(derived.storage)) {
+	if (derived !== undefined) {
 		return {
-			desc: { kind: "query", query: derived.query, bind: {} },
+			desc: { kind: "relation", name: derived.name },
 			heading: derivedHeading(value, env, label),
 			carriers: derivedCarriers(value),
-			origin: noOrigin,
+			origin: relationOrigin(derived.name),
 			scope: { kind: "declared", name: derived.name, query: derived.query },
 			label: derived.name
 		}
 	}
-	const draft = derived ?? worldDraftOf(value)
-	if (draft !== undefined) {
+	const world = worldDraftOf(value)
+	if (world !== undefined) {
 		return {
-			desc: { kind: "relation", name: draft.name },
+			desc: { kind: "relation", name: world.name },
 			heading: derivedHeading(value, env, label),
 			carriers: derivedCarriers(value),
-			origin: relationOrigin(draft.name),
+			origin: relationOrigin(world.name),
 			scope: anywhere,
-			label: draft.name
+			label: world.name
 		}
 	}
 	const context = contextDescOf(value)

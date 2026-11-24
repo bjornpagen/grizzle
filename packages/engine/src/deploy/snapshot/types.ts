@@ -1,5 +1,6 @@
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { TextChunks } from "@bjornpagen/grizzle-text/chunks"
+import type { UnitLocalityCondition } from "#compiler/core/causes.ts"
 import type { ColumnIdent, LawId, RelationIdent, SchemaFingerprint } from "#compiler/core/ids.ts"
 import type { RecordedManifest } from "#compiler/deploy/snapshot/recorded.ts"
 import type { RosterCodes } from "#compiler/ir/cells.ts"
@@ -362,4 +363,23 @@ export interface SnapshotDerived extends CompileFacts {
 	 * domain the installation lacks where it is compiled (physical/install/plan.ts ParamSource `recorded`).
 	 */
 	readonly params: InstalledParams
+	/**
+	 * Each derived relation the installation keeps live, by its declared name, with why (`LiveDerived`): the record a
+	 * consumer reads to see which of its derived relations store no table, every read of one reading its definition,
+	 * and what keeps each from being stored (analysis/derived/storage.ts). No compile reads it.
+	 */
+	readonly liveDerived: Readonly<Record<string, LiveDerived>>
 }
+
+/**
+ * Why the installation keeps a derived relation live (analysis/derived/storage.ts LiveReason), as snapshot.json records
+ * it: `notUnitLocal`, the condition of unit-locality its definition lacks, with where; or `unrepresentable`, why its
+ * table could not hold its rows, as the refusal of its table states it.
+ */
+export type LiveDerived =
+	| {
+			readonly kind: "notUnitLocal"
+			readonly condition: UnitLocalityCondition
+			readonly detail: string
+	  }
+	| { readonly kind: "unrepresentable"; readonly detail: string }

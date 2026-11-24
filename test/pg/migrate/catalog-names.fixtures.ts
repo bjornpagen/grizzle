@@ -129,7 +129,6 @@ export const schemaOf = (names: Names): SchemaDesc => {
 				kind: "derived",
 				name: names["derived relation"].declared,
 				level: 1,
-				storage: "stored",
 				query: decodedQuery({
 					kind: "rules",
 					arms: [
@@ -164,24 +163,25 @@ export const schemaOf = (names: Names): SchemaDesc => {
 }
 
 /**
- * The login of a case's schema: a writer holding and writing its stored relations, and a reader holding every one, each
- * the full role's description over it (schema/own.ts fullRoleDesc, which states every list a role describes) narrowed
- * to what it holds and writes.
+ * The login of a case's schema: a writer holding and writing its stored relations, and a reader holding every one and
+ * the closed relation, so it reads the derived relation's table through its whole view (schema/own.ts OwnedRole
+ * `wholeDerived`), each the full role's description over it (schema/own.ts fullRoleDesc, which states every list a role
+ * describes) narrowed to what it holds and writes.
  */
 export const loginOf = (desc: SchemaDesc, names: Names): LoginDesc => {
 	const loc = SourceLoc("the catalog-names box", [])
 	const whole = (held: ReadonlyArray<string>) =>
 		Arr.map(held, (name) => ({ kind: "whole" as const, name, loc }))
 	const stored = [names.relation.declared, entry]
-	const read = [names["closed relation"].declared, ...stored, names["derived relation"].declared]
+	const read = [names["closed relation"].declared, ...stored]
 	const full = succeeded(fullRoleDesc(desc, "full", loc), "the full role over the box's schema")
 	return succeeded(
 		decodeDesc("login", {
 			name: "server",
 			base: desc,
 			roles: [
-				{ ...full, name: "writer", relations: whole(stored), write: stored },
-				{ ...full, name: "reader", relations: whole(read), write: [] }
+				{ ...full, name: "writer", relations: whole(stored), insert: stored, write: [] },
+				{ ...full, name: "reader", relations: whole(read), insert: [], write: [] }
 			],
 			loc
 		}),

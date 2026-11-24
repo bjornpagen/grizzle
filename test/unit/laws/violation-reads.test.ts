@@ -166,8 +166,8 @@ export const aRulesCheckOverEveryRowReadsEachStoredTableNeverAViewInOneChainOfLo
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
 				original:
-					'\t\t\tnavigateQuery(\n\t\t\t\tquery,\n\t\t\t\tloc,\n\t\t\t\tcolumns,\n\t\t\t\t{ kind: "perStatement", extent },\n\t\t\t\tnew Navigation(b.model.theory.regionFacts)\n\t\t\t),\n',
-				replacement: "\t\t\tquery,\n",
+					'\t\t\t\tnavigateQuery(\n\t\t\t\t\tquery,\n\t\t\t\t\tloc,\n\t\t\t\t\tcolumns,\n\t\t\t\t\t{ kind: "perStatement", extent },\n\t\t\t\t\tnew Navigation(b.model.theory.regionFacts)\n\t\t\t\t),\n',
+				replacement: "\t\t\t\tquery,\n",
 				why: "The judge reads its queries as written, a join of every relation a probe reads, which PostgreSQL may plan as a product it filters; it fails the first box by its loose joins."
 			}
 		]

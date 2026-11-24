@@ -28,28 +28,22 @@ type Reality = AnySchema & {
 	readonly relations: Readonly<Record<string, AnyRelation | AnyClosed | AnyDerived>>
 }
 
-/** A relation of a schema PostgreSQL holds no rows of: a closed relation's are its constants, a live derived one's its
- * definition's. */
-type Unheld =
-	| { readonly kind: "closedRelation" }
-	| { readonly kind: "derived"; readonly storage: "live" }
+/** A relation of a schema no role holds: a closed relation, whose rows are its constants, and a derived relation, which
+ * a role reads through the relations its definition reads. */
+type Unheld = { readonly kind: "closedRelation" } | { readonly kind: "derived" }
 
 /**
  * The relations of `base` a role can hold: every one but its closed relations, which have no extent in the database,
- * only their constants, and its live derived relations, which a role reads through the relations their definitions
- * read.
+ * only their constants, and its derived relations, which a role reads through the relations their definitions read.
  */
 export const heldRelations = <B extends Reality>(base: B): HeldOf<B> =>
 	trusted<HeldOf<B>>(
-		Rec.filter(
-			base.relations,
-			(r) => r.kind !== "closedRelation" && !(r.kind === "derived" && r.storage === "live")
-		)
+		Rec.filter(base.relations, (r) => r.kind !== "closedRelation" && r.kind !== "derived")
 	)
 
 /**
- * The relations of B a role can hold, by their own names and values: B's relation map but its closed relations and live
- * derived relations, so a map of any relations holds any relation, roster or stored derived relation.
+ * The relations of B a role can hold, by their own names and values: B's relation map but its closed and derived
+ * relations, so a map of any relations holds any relation or roster.
  */
 export type HeldOf<B extends Reality> = {
 	readonly [K in keyof B["relations"] as B["relations"][K] extends Unheld ? never : K]: Exclude<

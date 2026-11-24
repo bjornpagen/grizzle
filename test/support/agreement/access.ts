@@ -26,7 +26,6 @@ import {
 	wholeWritesOf,
 	writableNamesOf
 } from "#compiler/schema/world.ts"
-import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type {
 	AnyContext,
 	AnyRole,
@@ -35,7 +34,6 @@ import type {
 } from "#compiler/types/schema/world.ts"
 import {
 	Account,
-	AccountNames,
 	accountIds,
 	accountOrg,
 	accountSeats,
@@ -104,7 +102,7 @@ import {
  *   naming a closed relation under write exactly when the engine refuses one such name alone (writeClosed), and for
  *   naming one twice exactly when the engine admits each name of the lists alone and refuses the lists, and then its
  *   relations' names and its written names are exactly those of the engine's Description of it, and a program over the base reading the closed relation, and one over the level (over
- *   Reports, matching its live derived relation, which no role holds), are members of a workload over it exactly when
+ *   Reports, matching a derived relation of it, which no role holds), are members of a workload over it exactly when
  *   the engine compiles them there, and so is a program over the base matching a drawn context, which the full role
  *   runs exactly when it declares that context: one program over the base serves every full role declaring what it
  *   matches;
@@ -131,8 +129,6 @@ const taskEntry: { readonly [P in Place]: readonly [string, EntryValue] } = {
 }
 
 const derivedNames = ["AccountNames"] as const
-type DerivedName = (typeof derivedNames)[number]
-const derivedValues: { readonly [D in DerivedName]: AnyDerived } = { AccountNames }
 
 const contextNames = ["Org", "Session"] as const
 type ContextName = (typeof contextNames)[number]
@@ -167,7 +163,7 @@ const baseValues: { readonly [P in BaseProgram]: object } = { accountIds, accoun
 
 /**
  * The program over each level a full role of that level runs: over Work, one reading its ordinary relations; over
- * Reports, one matching its live derived relation, which no role holds, so a full role holds Reports whole without it.
+ * Reports, one matching a derived relation of it, which no role holds, so a full role holds Reports whole without it.
  */
 const levelPrograms = { Work: "accountIds", Reports: "accountTasks" } as const
 const levelValues: { readonly [L in keyof typeof levelPrograms]: object } = {
@@ -435,14 +431,14 @@ const specOf =
 	}
 
 /**
- * A role's entries: Tier and Account whole, Task at its place, and over Reports the stored derived relation whole. The
- * closed relation is no role's entry: every role reads its rows.
+ * A role's entries: Tier and Account whole and Task at its place. The closed relation is no role's entry, every role
+ * reading its rows, and neither is a derived relation of Reports: a role holding Account whole reads AccountNames in
+ * full, by its stored table.
  */
-const roleEntries = (spec: AccessSpec, r: RoleSpec): ReadonlyArray<readonly [string, string]> => [
+const roleEntries = (r: RoleSpec): ReadonlyArray<readonly [string, string]> => [
 	["Tier", "Tier"],
 	["Account", "Account"],
-	["Task", taskEntry[r.place][0]],
-	...(spec.level === "Reports" ? Arr.map(derivedNames, (d) => [d, d] as const) : [])
+	["Task", taskEntry[r.place][0]]
 ]
 
 /** The positions in a role's base's statements of the laws the role keeps, its statements, as role(...) built them. */
@@ -476,13 +472,9 @@ const contextsSource = (names: ReadonlyArray<ContextName>): string =>
 
 /** A role, built by the public role(...) as the program builds it. */
 const builtRole = (spec: AccessSpec, r: RoleSpec): AnyRole => {
-	const values: Readonly<Record<string, EntryValue>> = {
-		Tier,
-		Account,
-		...(spec.level === "Reports" ? derivedValues : {})
-	}
+	const values: Readonly<Record<string, EntryValue>> = { Tier, Account }
 	const entriesOf = Rec.fromEntries(
-		Arr.map(roleEntries(spec, r), ([name, value]) => [
+		Arr.map(roleEntries(r), ([name, value]) => [
 			name,
 			name === "Task" ? taskEntry[r.place][1] : got(values, value)
 		])
@@ -851,7 +843,7 @@ const levelDirective =
 /** A role's declaration, in the program. */
 const roleSource = (spec: AccessSpec, r: RoleSpec, i: number): string =>
 	`export const R${i}_${r.name} = role(${spec.level}, ${jsonText(r.name)}, { ${Arr.join(
-		Arr.map(roleEntries(spec, r), ([name, value]) => `${name}: ${value}`),
+		Arr.map(roleEntries(r), ([name, value]) => `${name}: ${value}`),
 		", "
 	)} }, { ${contextsSource(declaredOf(r))} })`
 

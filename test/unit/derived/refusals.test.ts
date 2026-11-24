@@ -160,7 +160,7 @@ export const derivedRelationRefusalsRefuseALevelParameterOrContextAnUncheckedDes
 								.find({ [column]: vars[column] })
 						})
 						assert.throws(
-							() => admitDerived(`P${mutation.parameter}`, parameterized, "stored", []),
+							() => admitDerived(`P${mutation.parameter}`, parameterized, []),
 							(e) => isCompileError(e) && e.reason._tag === "MalformedDescription"
 						)
 					}

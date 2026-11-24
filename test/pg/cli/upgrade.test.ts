@@ -251,7 +251,7 @@ export const aFormat7InstallationsPerRoleWholeViewsUpgradeToOneWholeViewOfEachRe
 			"a role holding a query entry",
 			"a role holding whole entries alone",
 			"a role over the base",
-			"a stored derived relation held whole"
+			"a stored derived relation read in full"
 		] satisfies ReadonlyArray<Reached<WorldsFeature>>,
 		check:
 			({ caseSubstrate }, c: Case<WorldsFeature>) =>

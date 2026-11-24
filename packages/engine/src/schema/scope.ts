@@ -10,7 +10,6 @@ import { compareStrings } from "#compiler/core/order.ts"
 import { deepFreeze } from "#compiler/core/record.ts"
 import {
 	candidateKeyFields,
-	definitionFields,
 	type ExprDesc,
 	exprChildren,
 	levelChain,
@@ -122,17 +121,12 @@ const relationsOf = (schema: SchemaDesc): ReadonlyMap<string, RelationDesc> => {
 }
 
 /**
- * The fields of a relation of `schema` a role may scope, an ordinary one's declared fields or a stored derived one's
- * definition's (ir/desc.ts definitionFields), at least one; none for any other relation, or one it lacks.
+ * The fields of a relation of `schema` a role may scope, an ordinary one's declared fields, at least one; none for any
+ * other relation, or one it lacks: a role reads a derived relation through the relations its definition reads.
  */
 export const scopableFields = (schema: SchemaDesc, relation: string): Columns | undefined => {
 	const desc = relationsOf(schema).get(relation)
-	const fields =
-		desc?.kind === "relation"
-			? Object.keys(desc.fields)
-			: desc?.kind === "derived" && desc.storage === "stored"
-				? definitionFields(desc.query)
-				: []
+	const fields = desc?.kind === "relation" ? Object.keys(desc.fields) : []
 	return isNonEmpty(fields) ? fields : undefined
 }
 

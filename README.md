@@ -1254,7 +1254,7 @@ The cursor format, the backward page and both indexes are yours, and an index th
 
 **The reframe.** Each piece follows from something you declare anyway. A page is a window of an ordered set, and its anchor a row's place in that order; the order is total once it ends in a key, which grizzle knows, so a row's key is its place. A rollup is a derived relation, a query with a name, and its key follows from its query. An index serves the queries that need it, so the queries your app runs decide the indexes:
 
-- **`derived(name, query)`** names a query as a relation. It stores nothing: a read of it reads its definition, here one workspace's calls of one model, a range of the index its read earns. `schema.extend` declares it in a level of its own over the schema it reads, here `Reporting` over `Usage`.
+- **`derived(name, query)`** names a query as a relation. Here it stores nothing, since `Usage` declares no unit its calls sit in (grizzle stores a derived relation exactly where its definition keeps within one unit: [Derived tables](#derived-tables)): a read of it reads its definition, here one workspace's calls of one model, a range of the index its read earns. `schema.extend` declares it in a level of its own over the schema it reads, here `Reporting` over `Usage`.
 - **`workload(role, programs)`** names the queries and writes your app runs on its hot paths. A login owns its workloads: `grizzle generate` compiles them into the login's served file and derives the indexes they need. An ordered query your app pages is the member `paged(query)`: its input holds a `window`, and generate compiles window templates for no other member. A read answered once and never watched is the member `answered(read)`, whose login needs no live source for it ([Reading](#reading)).
 
 **The declaration**, continuing the `Usage` schema of [case 2](#2-top-three-per-group-with-exact-types):
@@ -1364,7 +1364,7 @@ For porting an app, each Drizzle construct and what takes its place:
 | `` check("some_seats", sql`...`) ``                    | `check("SomeSeats", Show, (s) => s.ge(s.seats, 1n))`                                               |
 | `index().on(...)`                                      | nothing: `grizzle generate` derives indexes from your rules and your `workload(...)` queries    |
 | `pgPolicy(...)`, and `set_config` around each request  | `context(...)` and `role(...)`                                                                  |
-| `pgMaterializedView(...)`                              | `derived.stored(...)`                                                                           |
+| `pgMaterializedView(...)`                              | `derived(...)`, which grizzle stores where it can keep it at every COMMIT                       |
 | `db.select().from(post).where(eq(post.id, id))`        | `query(Blog).rule((r) => r.match(Post, { ... }).where(r.eq(...)).find({ ... }))`                |
 | `.innerJoin(comment, eq(comment.postId, post.id))`     | one variable in two matches                                                                     |
 | `notExists(...)`                                       | `r.not(Comment, { org, post: slug })`                                                           |
@@ -1398,8 +1398,7 @@ The whole map, from what you declare to what PostgreSQL enforces for every write
 | `role(...)` | a NOLOGIN role, SELECT on the whole view of each table it holds whole (one view of each table, `__<schema>.<table>`, whichever roles hold it), a schema of its own holding its query entries' views, and its grants; on each table some role writes through a query entry that leaves rows out, row-level security and a policy for each role that writes it |
 | `login(...)` | a LOGIN NOINHERIT role that can switch to its roles, holds no privilege on your tables, and pins the session settings grizzle's guarantees rest on |
 | `workload(...)` | the indexes its programs need, and the declared statistics that rank them; the programs compiled by `grizzle generate` into the login's served file |
-| `derived(...)` | nothing: every query that matches it and every rule over it reads its definition |
-| `derived.stored(...)` | a table grizzle keeps equal to its definition at every COMMIT, uniquely indexed on the keys it provably has |
+| `derived(...)` | where its definition is unit-local in one unit, a table grizzle keeps equal to its definition at every COMMIT, uniquely indexed on the keys it provably has; otherwise nothing, every query and rule over it reading its definition |
 | a query | SQL, usually one statement and one more per attachment, and a decoder for its exact row type |
 
 None of it is a trigger or a policy you keep in step by hand. Migrations are plain SQL files that `grizzle generate` drafts and you review, as with drizzle-kit.
@@ -4288,26 +4287,47 @@ and no count for a write to read.
 ## Derived tables
 
 `derived(name, query)` names a query as a relation of the schema; declare it in a level over the schema its query reads,
-with `schema.extend` ([Levels](#levels)). It stores nothing:
-every query that matches it, and every rule over it ([Rules over queries](#rules-over-queries)), reads its definition,
-and a role reads it through the tables its definition reads, never as a whole entry. The query takes no parameter,
-matches no context, has at least one field, and its rules share one set of columns.
+with `schema.extend` ([Levels](#levels)). The query takes no parameter, matches no context, has at least one field,
+and its rules share one set of columns. No role holds it as an entry: a role reads it through the relations its
+definition reads.
 
-`derived.stored(name, query)` is the same relation with its rows in a table of its own, which grizzle keeps equal to
-its definition at every COMMIT, for every writer: grizzle's programs, direct SQL and a migration's data steps alike.
-A query that matches it reads the table, a range of its key, never its definition; a role may hold it whole, and no
-role writes it. Its definition must be unit-local, as a rule judged whole is ([Rules over queries](#rules-over-queries)):
+Where its rows live is grizzle's to decide, never yours. grizzle stores it, its rows in a table of its own kept equal
+to its definition at every COMMIT for every writer (grizzle's programs, direct SQL and a migration's data steps alike),
+exactly where it can keep it at a written unit by reading only rows that write's borrow covers. That is where its
+definition is unit-local, as a rule judged whole is ([Rules over queries](#rules-over-queries)):
 - every relation it reads leads its primary key with the unit's fields and sits in one declared unit
   ([Units](#units)) whose key leads them, so every write of its rows, a mutable relation's updates and deletes among
   them, holds that unit, and grizzle writes the stored rows under the same borrow;
 - every match binds them to the rule's variables;
 - every negation is correlated at them, and every aggregate groups by them;
 - its head delivers them;
-- every declared function it calls, and every function that function's body calls, is `immutable`.
+- every declared function it calls, and every function that function's body calls, is `immutable`;
+- it reads no field grizzle rewrites in place, a fold's running value;
+- and its table can hold its rows: every key it provably has fits a B-tree entry, and its fields convert to columns
+  apart.
 
-A definition that lacks a condition is refused when the schema compiles, `DerivedRefused` naming the condition and
-where it fails: `notUnitLocal`, with `inPlace`, `unitKey`, `split`, `negation`, `aggregate`, `recursion`, `shape`,
-`hidden`, `noUnit`, `call` or `borrow`.
+Whether the relations it reads are closed or open decides nothing. A definition over closed relations alone that joins
+two units' rows could lose a fact two writers inserted into the two at once, so it is live; one over a relation open
+inside its unit is kept under the borrow every writer of the unit holds. Every other derived relation is live: it stores
+nothing, and every query that matches it and every rule over it reads its definition. `grizzle generate` records each
+live one in snapshot.json, under `derived.liveDerived`, with why: `notUnitLocal`, naming the condition it lacks
+(`inPlace`, `unitKey`, `split`, `negation`, `aggregate`, `recursion`, `shape`, `hidden`, `noUnit`, `call` or `borrow`)
+and where, or `unrepresentable`, naming why no table could hold its rows.
+
+A stored relation's table serves a read exactly where its rows are its definition's there:
+- **A query** that matches it reads the table, a range of its key, never its definition.
+- **A role** reads it through its whole view where the role holds every relation its definition reads whole, and through
+  its definition over the role's own entries otherwise, so a role sees the same rows whether or not it is stored. No role
+  writes it.
+- **A ChangeSet** that writes a relation its definition reads reads its definition, whose table the ChangeSet's own
+  COMMIT replaces.
+- **A read inside a write's transaction** and a query entry's view read its definition where the role may write a
+  relation its definition reads, and a write entry's membership always reads it: the transaction's own writes reach
+  its table only at COMMIT.
+
+Its storage changes no verdict and no type: the checker and every analysis read a derived relation as a relation keyed
+by the keys its definition provably has, stored or live alike, and only the SQL grizzle writes reads its table or its
+definition.
 
 - **When its rows are written.** At COMMIT, where the rule judge runs: for each unit whose rows a transaction wrote,
   on either side of every relation its definition reads, the judge deletes the stored rows there its definition no
@@ -4316,8 +4336,7 @@ where it fails: `notUnitLocal`, with `inPlace`, `unitKey`, `split`, `negation`, 
   stored relation reads its table, which the judge keeps first in the same COMMIT: it keeps each stored relation after
   every stored relation it reads, at the units whose rows the transaction wrote or whose stored rows the keeping of
   those below it changed, so no work below is done twice. After `SET CONSTRAINTS ALL
-  IMMEDIATE` the judge runs at the end of each statement, so the stored rows are current after each. A statement
-  earlier in the writing transaction reads them as the transaction found them, for the units it wrote.
+  IMMEDIATE` the judge runs at the end of each statement, so the stored rows are current after each.
 - **Laws over it.** A rule over a stored relation reads its table, its rows as the transaction leaves them. A key
   over it is a unique index of its table (the index of the key it provably has, where it is one), a check over it its
   table's CHECK, each refusing at the upkeep's insert of a row that breaks it, at COMMIT (23505, 23514). A containment

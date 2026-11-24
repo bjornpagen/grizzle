@@ -337,8 +337,8 @@ export const sharesLoweredTarget = (
 
 export const rootName = (i: number): string => `R${i}`
 export const topName = (i: number): string => `T${i}`
-export const derivedName = (i: number): string => `D${i}`
-export const chainedName = (i: number): string => `E${i}`
+const derivedName = (i: number): string => `D${i}`
+const chainedName = (i: number): string => `E${i}`
 const worldName = (i: number): string => `V${i}`
 const roster = "Color"
 
@@ -460,7 +460,6 @@ const derivedOf = (name: string, query: QueryDesc): AuthoredRelationDesc => ({
 	kind: "derived",
 	name,
 	level: 1,
-	storage: "live",
 	query
 })
 
@@ -1059,42 +1058,3 @@ export const ran = <S>(p: ProgramArtifacts<S>) => ({
 	optimized: p.optimized,
 	certificates: p.certificates
 })
-
-/**
- * A schema whose derived relation E_at matches the live derived relation D_at by its name, as no query builder writes a
- * match of a live derived relation: directly, or inside a query it matches, `nested`.
- */
-interface ByName {
-	readonly c: SliceCase
-	readonly at: number
-	readonly nested: boolean
-}
-
-export const byNameGen: Gen<ByName> = (s) => {
-	const drawn = s.draw(caseGen)
-	const at = s.draw(int(0, drawn.roots - 1))
-	const c: SliceCase = {
-		...drawn,
-		derived: distinct([...drawn.derived, at]),
-		chained: distinct([...drawn.chained, at])
-	}
-	return { c, at, nested: s.draw(boolean) }
-}
-
-/** The case's schema with E_at's definition matching D_at by name, at the level above D_at's. */
-export const byNameSchema = (b: ByName): SchemaDesc => {
-	const whole = schemaOf(b.c)
-	const direct = idsOf(named(derivedName(b.at)), false)
-	const definition = b.nested ? idsOf({ kind: "query", query: direct }, false) : direct
-	return {
-		...whole,
-		relations: Arr.map(whole.relations, (r) =>
-			r.kind === "derived" && r.name === chainedName(b.at)
-				? { ...r, level: 2, query: definition }
-				: r
-		)
-	}
-}
-
-/** What the by-name property notes: a direct match of a live derived relation by its name, or one nested in a query. */
-export type ByNameFeature = "a direct match by name" | "a match by name inside a matched query"

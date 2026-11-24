@@ -481,6 +481,24 @@ export class InstallBuilder {
 	}
 
 	/**
+	 * The columns of the stored table `table` with their types, which its CREATE TABLE ... AS states none of (sql/ast.ts
+	 * CreateStoredTable): kept as a CREATE TABLE's are (`#withRowFunctions`), so a CHECK over the stored relation, which
+	 * its own ALTER TABLE adds, reads its columns' types where a row function of it hoists.
+	 */
+	storedColumns(
+		table: ObjectName,
+		columns: ReadonlyArray<{ readonly name: string; readonly type: TypeRef }>
+	): void {
+		const known = this.#columnTypes.getOrInsertComputed(
+			printObjectName(table),
+			() => new Map<string, TypeRef>()
+		)
+		for (const c of columns) {
+			known.set(c.name, c.type)
+		}
+	}
+
+	/**
 	 * A statement on an installed table with each CHECK it adds and each generation of a column it adds its row
 	 * function's call where the expression hoists (physical/ddl/row-functions.ts), each row function added as a constant
 	 * (`addConstant`) for `reasons`, the table's object's: every CHECK and stored generation of the installation's tables

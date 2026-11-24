@@ -19,7 +19,7 @@ import { featureOf, judge, type TurnFeature, turns } from "#test/unit/deploy/gra
 /** A migration of role worlds grants and revokes exactly the privileges the two versions hold apart, each once, so an object it keeps keeps its grants and an object it drops revokes nothing. */
 export const aMigrationOfRoleWorldsGrantsAndRevokesExactlyThePrivilegesTheTwoVersionsHoldApartEachOnce =
 	property.exhaust(turns, {
-		box: "every pair of versions one knob apart: C held or not, A's note an integer or a bigint (read by the stored Listing), the reader reading A, A and B or every relation, the writer writing nothing, A or every relation and holding the stored Listing whole, and the counter login or not",
+		box: "every pair of versions one knob apart: C held or not, A's note an integer or a bigint (read by the stored Listing), the reader reading A, A and B or every relation, the writer writing nothing, A or every relation, each role holding A reading the stored Listing in full, and the counter login or not",
 		needs: {},
 		situations: [
 			"a relation dropped",

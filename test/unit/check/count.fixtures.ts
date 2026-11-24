@@ -222,7 +222,7 @@ export const observedOf = (c: CountCase): Observed =>
 			}
 			case "derived":
 			case "compared": {
-				const Tallied = derived.stored(
+				const Tallied = derived(
 					"Tallied",
 					query(Counts).rule((q) => {
 						const { id, kind } = v(Item, "item")

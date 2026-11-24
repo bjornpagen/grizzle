@@ -71,9 +71,7 @@ import {
 	type LoginDesc,
 	nestedFields,
 	type QueryDesc,
-	type DerivedStorage,
 	definitionFields,
-	derivedHeld,
 	heldRelation,
 	leadsWithHeading,
 	type RelationDesc,
@@ -184,8 +182,9 @@ interface Owning<K extends RelationDesc["kind"]> {
 
 /**
  * What an installed relation is named by: `named` its table's, roster domain's or stored table's identity at the
- * naming door, and `ident` that identity's identifier. A closed relation and a live derived relation install no
- * relation of their own.
+ * naming door, and `ident` that identity's identifier. A closed relation installs no relation of its own. Every
+ * derived relation's table is named, whether or not the installation stores it (analysis/derived/storage.ts), so a
+ * schema whose change stores one never meets a name it had not reserved.
  */
 interface Installed<K extends "table" | "rosterDomain" | "view"> {
 	readonly named: Identity<K>
@@ -220,19 +219,13 @@ export type OwnedRelation =
 			readonly keys: readonly []
 			readonly mutable: false
 	  })
-	| (Owning<"derived"> & {
-			readonly fields: Readonly<Record<string, never>>
-			readonly keys: readonly []
-			readonly mutable: false
-			readonly reads: ReadonlyArray<string>
-			/** Its stored table, where PostgreSQL stores its rows; a live one's are its definition's alone. */
-			readonly view: OwnedView
-	  })
-
-/** Where a derived relation's rows are: its definition's alone, or a stored table of them too. */
-export type OwnedView =
-	| { readonly kind: "live" }
-	| ({ readonly kind: "stored" } & Installed<"view">)
+	| (Owning<"derived"> &
+			Installed<"view"> & {
+				readonly fields: Readonly<Record<string, never>>
+				readonly keys: readonly []
+				readonly mutable: false
+				readonly reads: ReadonlyArray<string>
+			})
 
 /**
  * An owned contract: its declared name, its type-level brand, its descriptor, and its level, the lowest level of a
@@ -392,28 +385,16 @@ export type OwnedStatement =
  * fields', sequences', keys' and checks'. A contract's domain is the installation's to name. The installation's census
  * and its comments read them (physical/install/comments.ts).
  */
-/** The identity of the relation PostgreSQL installs for `r`, none for a closed or live derived relation. */
+/** The identity of the relation PostgreSQL installs for `r`, a derived relation's table's whether or not it is stored
+ * (Installed), none for a closed relation. */
 const installedIdentity = (r: OwnedRelation): ReadonlyArray<Identity<IdentityKind>> => {
 	switch (r.kind) {
 		case "closedRelation":
 			return []
 		case "derived":
-			return r.view.kind === "live" ? [] : [r.view.named]
 		case "relation":
 		case "closed":
 			return [r.named]
-	}
-}
-
-/** Where the derived relation `name`'s rows are, by its storage: a stored one's table named at the naming door. */
-const ownedView = (name: DeclaredName, storage: DerivedStorage): OwnedView => {
-	switch (storage) {
-		case "live":
-			return { kind: "live" }
-		case "stored": {
-			const named = identity.view(name)
-			return { kind: "stored", named, ident: identifierOf(named) }
-		}
 	}
 }
 
@@ -1383,10 +1364,10 @@ class Owner {
 
 	/**
 	 * Derived definitions read no parameter and no context: no session's claims stand at the COMMIT that keeps a stored
-	 * relation, so no context fact
-	 * reaches a derived definition. Each reads a live derived relation through its definition, as the query builder
-	 * writes a match of one, never by its name, which no stored relation answers. Each is one level above the highest
-	 * derived level it reads.
+	 * relation, so no context fact reaches a derived definition. Each matches every derived relation it reads by its
+	 * name, as the query builder writes it, whether or not the installation stores that relation (the lowering reads a
+	 * live one through its definition, ir/derived.ts servedDag). Each is one level above the highest derived level it
+	 * reads.
 	 */
 	#checkDerived(): void {
 		for (const entry of this.#relations.values()) {
@@ -1412,13 +1393,6 @@ class Owner {
 			let level = 1
 			for (const read of uses.relations) {
 				const lower = this.#relation(read, entry.desc.loc, `the definition of ${r.name}`)
-				if (lower.desc.kind === "derived" && !derivedHeld(lower.desc.storage)) {
-					fail(
-						"MalformedDescription",
-						entry.desc.loc,
-						`a definition of ${r.name} that reads the live derived relation ${read} through its definition; it matches ${read} by name, and a live derived relation stores nothing to match, so a query over it matches the query it is defined by`
-					)
-				}
 				if (lower.level >= entry.level) {
 					fail(
 						"MalformedDescription",
@@ -2396,15 +2370,17 @@ class Owner {
 				}
 			case "derived": {
 				const reads = [...queryUses(r.query).relations].toSorted(compareStrings)
+				const named = identity.view(name)
 				return {
 					...owning,
 					kind: r.kind,
 					desc: r,
+					named,
+					ident: identifierOf(named),
 					fields: {},
 					keys: [],
 					mutable: false,
-					reads,
-					view: ownedView(name, r.storage)
+					reads
 				}
 			}
 		}
@@ -2731,6 +2707,14 @@ export interface OwnedRole {
 	readonly contexts: Readonly<Record<string, ContextDesc>>
 	/** Each scoped entry's scope (scope.ts Scope), by its relation's name, in name order: its query entry's query. */
 	readonly scoped: ReadonlyMap<string, Scope>
+	/**
+	 * The derived relations of its base it reads in full, in name order: every relation PostgreSQL holds that each one's
+	 * definition reads, at any depth through the derived relations it names, is a whole entry of the role, and no entry
+	 * of the role bears its name. A role holds no derived relation; it reads each through the relations its definition
+	 * reads, and from its stored table where it is one of these (analysis/schema.ts CheckedSchema), the table's rows then
+	 * being exactly the definition's over the rows the role sees.
+	 */
+	readonly wholeDerived: ReadonlyArray<string>
 }
 
 /** The owned login: its name, its base's Owned and its owned roles in name order. */
@@ -2765,12 +2749,12 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 					refusal: "a whole entry is a relation of the base under its own name"
 				})
 			}
-			if (relation.kind === "derived" && !derivedHeld(relation.desc.storage)) {
+			if (relation.kind === "derived") {
 				failWith({
 					_tag: "Refused",
 					at: e.loc,
 					refusal:
-						"a whole entry is a relation PostgreSQL stores: a role reads a live derived relation through the relations its definition reads"
+						"a role holds no derived relation: it reads one through the relations its definition reads"
 				})
 			}
 			relations[e.name] = { kind: "whole", name: entryName, relation, loc: e.loc }
@@ -2899,6 +2883,29 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 	const full = Object.values(base.relations).every(
 		(r) => !heldRelation(r.desc) || relations[r.name]?.kind === "whole"
 	)
+	/** Whether the role sees every row of `relation`: a held relation it holds whole, a closed relation every role reads,
+	 * a derived relation every relation of whose definition it sees so (OwnedRole `wholeDerived`). */
+	const seen = new Map<string, boolean>()
+	const seesWhole = (relation: string): boolean => {
+		const known = seen.get(relation)
+		if (known !== undefined) {
+			return known
+		}
+		const r = base.relations[relation]
+		const whole =
+			r === undefined
+				? false
+				: r.kind === "derived"
+					? r.reads.every(seesWhole)
+					: !heldRelation(r.desc) || relations[relation]?.kind === "whole"
+		seen.set(relation, whole)
+		return whole
+	}
+	const wholeDerived = Object.values(base.relations)
+		.flatMap((r) =>
+			r.kind === "derived" && relations[r.name] === undefined && seesWhole(r.name) ? [r.name] : []
+		)
+		.toSorted(compareStrings)
 	const ownedContexts: Record<string, ContextDesc> = {}
 	for (const c of [...desc.contexts].toSorted((a, b) => compareStrings(a.name, b.name))) {
 		ownedContexts[c.name] = c
@@ -2911,7 +2918,8 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 		writes: new Map([...admitted].toSorted(([a], [b]) => compareStrings(a, b))),
 		full,
 		contexts: ownedContexts,
-		scoped: new Map([...scoped].toSorted(([a], [b]) => compareStrings(a, b)))
+		scoped: new Map([...scoped].toSorted(([a], [b]) => compareStrings(a, b))),
+		wholeDerived
 	}
 }
 

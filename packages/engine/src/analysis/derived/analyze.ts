@@ -37,6 +37,7 @@ import {
 } from "#compiler/ir/keys.ts"
 import {
 	type Card,
+	type DeclaredKey,
 	type HeadingColumn,
 	keptRowsOf,
 	type RelNode,
@@ -49,7 +50,7 @@ import {
 	queryEvidence
 } from "#compiler/logical/annotate.ts"
 import { derivedKeyPremise } from "#compiler/logical/props.ts"
-import type { OwnedRelation, OwnedView } from "#compiler/schema/own.ts"
+import type { OwnedRelation } from "#compiler/schema/own.ts"
 
 export interface DerivedRelationAnalysis {
 	readonly name: string
@@ -106,9 +107,7 @@ const viewKeysOf = (relation: string, keys: ReadonlyArray<DerivedKey>): Readonly
 	}))
 
 /** A derived relation as ownership resolved it. */
-type OwnedDerived = Extract<OwnedRelation, { readonly kind: "derived" }>
-/** A stored derived relation's table, which its analysis names its rows by. */
-type StoredView = Extract<OwnedView, { readonly kind: "stored" }>
+export type OwnedDerived = Extract<OwnedRelation, { readonly kind: "derived" }>
 
 /** What a stored table's definition cannot have on its delivered rows. */
 type Obstacle = "attachment" | "headingGroups"
@@ -273,6 +272,66 @@ export const analyzedDefinition = (
 }
 
 /**
+ * A derived relation's definition as every reader reads it, whatever the installation infers of its storage: checked and
+ * shaped (`shapedDefinition`), analyzed under the evidence a view's keys give (queryEvidence), and read as a Base over
+ * the relation reads it (`read`): its heading and every key its rows are proven to have, narrowest first, each on its
+ * proof's own grounds (`provenKey`). The checker reads a derived relation by this read, stored or live, so no verdict
+ * reads its storage; the lowering alone reads its rows from its table or from this definition (ir/derived.ts).
+ */
+export interface DerivedDefinition {
+	readonly checked: AdmittedQuery
+	readonly root: RelNode
+	readonly analyzed: LogicalAnalysis<Rooted>
+	readonly heading: NonEmptyReadonlyArray<HeadingColumn>
+	readonly read: ViewRead
+}
+
+/**
+ * A key a derived relation's rows are proven to have, as a Base over it states it: on its proof's grounds, the premises
+ * and the evidence context its definition derives it in, with the columns standing for its fields and the alternatives
+ * of its factors.
+ */
+const provenKey = (key: { readonly columns: DeclaredKey; readonly proof: KeyProof }): ViewKey => ({
+	fields: key.columns,
+	premises: key.proof.premises,
+	context: key.proof.context,
+	members: classMembers(key.proof),
+	alternatives: viewAlternatives(key.proof)
+})
+
+/**
+ * The definition of the derived relation `owned` as every reader reads it (DerivedDefinition), checked in `session`, or
+ * the first refusal of a definition no derived relation may have (`shapedDefinition`) or of its analysis.
+ */
+export const derivedDefinition = (
+	schema: SchemaReading,
+	owned: OwnedDerived,
+	session: CheckSession
+): Result.Result<DerivedDefinition, CompileError> => {
+	const shaped = shapedDefinition(
+		schema,
+		`derived ${owned.name}`,
+		owned.desc.query,
+		owned.name,
+		owned.loc,
+		session
+	)
+	if (!shaped.ok) {
+		return shaped
+	}
+	const { checked, root, heading } = shaped.value
+	const analyzed = analyzeLogical(checked.dag, queryEvidence, keptNodes([root]))
+	if (!analyzed.ok) {
+		return analyzed
+	}
+	const props = defined(analyzed.value.props.get(root), "a definition's root, kept")
+	const keys = inheritedKeys(heading, props.keys, props.prove, () => true).map((k) =>
+		provenKey({ columns: mapNonEmpty(k.columns, (c) => c.name), proof: k.proof })
+	)
+	return Result.ok({ checked, root, analyzed: analyzed.value, heading, read: { heading, keys } })
+}
+
+/**
  * One derived relation of a checked schema, analyzed against the relations it holds so far, or the first refusal.
  *
  * Derived relation analysis: each definition checked, its fields inferred and its keys inherited.
@@ -313,8 +372,10 @@ export const analyzedDefinition = (
  *   the digests' index.
  *
  * Definitions outside the levels below (MalformedDescription) are refused by ownership (schema/own.ts), before any
- * definition is read. A rule over a derived relation reads its definition live, never its view
- * (analysis/theory/query.ts).
+ * definition is read. The checked schema reads every derived relation's definition (`derivedDefinition`), refusing one
+ * no derived relation may have, and analyzes this, its table, only where its definition is unit-local
+ * (analysis/derived/storage.ts), reading a refusal of it as a reason to keep it live: its table could not hold its rows,
+ * while its definition is still read.
  *
  * Derived relations: field inference and key inheritance. The keys a query over a derived relation relies on are the
  * same ones (ir/rel.ts ViewBase view).
@@ -322,15 +383,16 @@ export const analyzedDefinition = (
 export const analyzeDerivedRelation = (
 	schema: SchemaReading,
 	owned: OwnedDerived,
-	view: StoredView
+	definition: DerivedDefinition
 ): Result.Result<DerivedRelationAnalysis, CompileError> => {
 	const { name, loc } = owned
 	const at = loc
-	const definition = analyzedDefinition(schema, `derived ${name}`, owned.desc.query, name, at)
-	if (!definition.ok) {
-		return definition
+	const { checked, root, analyzed, heading } = definition
+	const declaredResult = declaredHeading(name, heading, at)
+	if (!declaredResult.ok) {
+		return declaredResult
 	}
-	const { checked, root, analyzed, heading, declared } = definition.value
+	const declared = declaredResult.value
 	const props = defined(analyzed.props.get(root), "a definition's root, kept")
 	const all = mapNonEmpty(heading, (c) => c.name)
 	const described = inferredFields(name, declared, schema.owned.contracts)
@@ -398,7 +460,7 @@ export const analyzeDerivedRelation = (
 	})
 	return Result.ok({
 		name,
-		ident: view.ident,
+		ident: owned.ident,
 		level: owned.desc.level,
 		reads: owned.reads,
 		loc,

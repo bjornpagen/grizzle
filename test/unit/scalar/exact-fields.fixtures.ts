@@ -9,7 +9,7 @@ import { exactInteger, exactMoney, Money, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { key, on, relation, schema, unit } from "#compiler/public/schema.ts"
 import { numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
-import { storedDerived } from "#compiler/schema/relation.ts"
+import { derivedBuilder } from "#compiler/schema/relation.ts"
 import { schemaBuilder } from "#compiler/schema/schema.ts"
 
 /** Each exact field by its carrier. */
@@ -194,7 +194,7 @@ export const derivedLevel = (carrier: ExactValueCarrier) =>
 		[PlainSchema],
 		"Derived",
 		[
-			storedDerived(
+			derivedBuilder(
 				"Summed",
 				query(PlainSchema).rule((r) => {
 					const { id, a, b, m, n } = v(Plain, "p")

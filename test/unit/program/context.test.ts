@@ -74,9 +74,9 @@ export const aTemplateRestsOnCommittedSnapshotEvidenceOnlyForASnapshotAndSharesO
 			},
 			{
 				file: "packages/engine/src/program/compile.ts",
-				original: "\t\tprograms: { optimized, checked: judged },",
+				original: "\t\tprograms: { optimized, checked: served },",
 				replacement:
-					'\t\tprograms: { optimized, checked: context === "snapshot" ? { ...judged, dag: analyzed.value.dag } : judged },',
+					'\t\tprograms: { optimized, checked: context === "snapshot" ? { ...served, dag: analyzed.value.dag } : served },',
 				why: "The conservative lowering is keyed by the context: under a snapshot it lowers the analysis's restated DAG."
 			}
 		]

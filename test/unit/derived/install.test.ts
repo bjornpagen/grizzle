@@ -1,13 +1,14 @@
 /**
  * A stored derived relation's head names are its table's declared column names: two whose conversions agree
  * (core/identity.ts conversionOf, a name's segments lowercased and joined by single underscores) are one column
- * identifier, refused as IdentifierCollision naming that identifier, and two whose conversions differ install as two
- * columns.
+ * identifier, so no table could hold the relation's rows, which the installation keeps live for an IdentifierCollision
+ * naming that identifier (analysis/derived/storage.ts LiveReason `unrepresentable`), and two whose conversions differ
+ * install as two columns of its table.
  *
  * Property: over drawn pairs of head names, each a spelling (snake_case, camelCase or PascalCase) of a drawn
- * sequence of words, a derived relation whose head binds one field under both names is refused with
- * IdentifierCollision, naming its words joined by underscores, exactly when the two names spell one sequence of
- * words; otherwise it installs two columns whose identifiers differ.
+ * sequence of words, a derived relation unit-local in its unit whose head binds one field under both names is live
+ * for IdentifierCollision, naming its words joined by underscores, exactly when the two names spell one sequence of
+ * words; otherwise it is stored and installs two columns whose identifiers differ.
  *
  * Oracle: the conversion's specification restated over the words a name is spelled from: a name's segments are its
  * words, so two names convert alike exactly when they spell one sequence. A word is two or three of the letters a
@@ -30,22 +31,21 @@ import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, String as Str } from "effect"
-import { withDerivedRelations } from "#compiler/physical/derived/objects.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { own } from "#compiler/schema/own.ts"
-import { refused, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { decodedSchema } from "#test/support/fixtures/ir/desc.ts"
 import { installationNamesOf } from "#test/support/kernel/naming.ts"
 import { type Feature, pairGen, pairs, spell } from "#test/unit/derived/install.fixtures.ts"
 
 /**
- * Derived relation view columns refuse two head names converting to one column identifier, and install names
- * converting apart.
+ * Derived relation view columns keep live a relation of two head names converting to one column identifier, and
+ * install names converting apart.
  *
  * Budget: 100 runs and 100 steered cases, what its suite stated before it became a property
  * (test/unit/derived/install.test.ts:185 at 8cad5bce, its runs and its coverage's cases).
  */
-export const derivedRelationViewColumnsRefuseTwoHeadNamesConvertingToOneColumnIdentifierAndInstallNamesConvertingApart =
+export const derivedRelationViewColumnsKeepLiveTwoHeadNamesConvertingToOneColumnIdentifierAndInstallNamesConvertingApart =
 	property.explore(pairGen, {
 		needs: {},
 		budget: { runs: 100, steered: 100 },
@@ -61,7 +61,7 @@ export const derivedRelationViewColumnsRefuseTwoHeadNamesConvertingToOneColumnId
 				const a = spell(p.left, p.spelled[0])
 				const b = spell(p.right, p.spelled[1])
 				const installed = Result.flatMap(own(decodedSchema(pairs(a, b))), (owned) =>
-					compileInstallation(owned, withDerivedRelations(installOptions(owned)))
+					compileInstallation(owned, installOptions(owned))
 				)
 				if (Arr.makeEquivalence(Str.Equivalence)(p.left, p.right)) {
 					c.note(
@@ -69,7 +69,11 @@ export const derivedRelationViewColumnsRefuseTwoHeadNamesConvertingToOneColumnId
 							? "a collision of one word's spellings"
 							: "a collision of several words' spellings"
 					)
-					const reason = refused(installed, "IdentifierCollision").reason
+					const holding = succeeded(installed).checked.holdings.get("Pairs")
+					if (holding?.kind !== "live" || holding.why.kind !== "unrepresentable") {
+						return assert.fail("Pairs kept live, its table unable to hold its rows")
+					}
+					const reason = holding.why.refusal.reason
 					if (reason._tag !== "IdentifierCollision") {
 						return assert.fail(`an IdentifierCollision, not ${reason._tag}`)
 					}

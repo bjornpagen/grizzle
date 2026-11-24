@@ -1175,11 +1175,11 @@ const justificationOrder: Comparator<IndexRequest> = (a, b) => {
  * its reads apply beside the index; a column it orders by or matches a prefix of stays, and an entry those still
  * overfill is refused naming them (schema/representability.ts lookupEntry, KeyFault `orderedColumns`).
  *
- * A derived relation's stored table takes indexes like a table: the derived relation
- * extension registers the view's fields and inherited key indexes with the builder (`addIndexedView`),
- * the key indexes serve requests as a table's key indexes do, and an unserved request becomes an index of the view,
- * created after the view. A request on a derived relation no extension installs is deferred with the relation, which
- * the installation reports (Installation.deferred).
+ * A derived relation's stored table takes indexes like a table: the stored tables extension registers the table's
+ * fields and inherited key indexes with the builder (`addIndexedView`), the key indexes serve requests as a table's key
+ * indexes do, and an unserved request becomes an index of the table, created after it, but a lookup that binds by
+ * equality only texts of no byte bound, which asks for none. A request on a live derived relation, which stores no
+ * table, asks for none.
  *
  * Requests whose keys are expressions, a form the workload compiler does not produce, are refused as
  * UnsupportedOperation. */
@@ -1232,6 +1232,13 @@ export const planIndexes = (
 					(k) =>
 						k.relation === relation && k.columns.every((c) => columns.some((x) => sameColumn(x, c)))
 				)
+		/**
+		 * The stored derived relations' tables: a lookup of one whose every key it binds by equality is a text of no byte
+		 * bound, which no B-tree entry holds, asks for no index, its columns filters over the table. The installation
+		 * stores the relation by its own inference (analysis/derived/storage.ts), so its table never refuses a read the
+		 * relation's definition would serve, where an author's relation refuses one until its text is bounded.
+		 */
+		const stored = new Set(b.indexedViews().map((view) => view.relation))
 		const plan = requests
 			.flatMap((r): ReadonlyArray<Planned> => {
 				const label = requestLabel(r)
@@ -1287,6 +1294,15 @@ export const planIndexes = (
 					methodOf(placements.own) === "btree"
 						? fittingKeys(o, keys, (_, at) => defined(roles[at], "a role per key"))
 						: undefined
+				if (
+					entry !== undefined &&
+					!entry.ok &&
+					entry.error.kind === "unboundedText" &&
+					roles.every((role) => role === "equality") &&
+					stored.has(r.relation)
+				) {
+					return []
+				}
 				const filtered =
 					entry === undefined || !entry.ok
 						? []

@@ -13,8 +13,6 @@ import type {
 import type { AnyWorkload, Workload } from "#compiler/types/db/workload.ts"
 import type {
 	AnyDerived,
-	AnyLive,
-	AnyStored,
 	DefinitionQuery,
 	DefinitionShape
 } from "#compiler/types/derived/derived.ts"
@@ -171,14 +169,14 @@ type UnwrittenOrigin<S, T> =
 export interface AnyScoped extends Built {
 	readonly kind: "scope"
 	readonly name: string
-	readonly relation: AnyRelation | AnyDerived
+	readonly relation: AnyRelation
 }
 
 /**
  * A scoped entry of R: R under its own name and with its whole heading, its rows those of one owner. A role holding it
  * holds R (RoleRelations), so the base's programs over R run on the role, each over the owner's rows.
  */
-export interface Scoped<R extends AnyRelation | AnyDerived> extends AnyScoped {
+export interface Scoped<R extends AnyRelation> extends AnyScoped {
 	readonly name: NameOf<R>
 	readonly relation: R
 }
@@ -213,23 +211,23 @@ type QuerySchema<Q> = Q extends Phantom<{ readonly schema: Invariant<infer QS> }
  * base, admissible as a definition (one flat heading of at least one field, no parameter), and matches only the
  * contexts the role declares, Declared their names (EntryContextsWithin).
  */
-type EntryCheck<Base, K, V, Declared> = V extends AnyRelation | AnyRoster | AnyDerived
-	? V extends AnyLive
-		? Refusal<"a whole entry is a relation PostgreSQL stores: a role reads a live derived relation through the relations its definition reads">
-		: IsRelationOf<Base, V> extends true
+type EntryCheck<Base, K, V, Declared> = V extends AnyDerived
+	? Refusal<"a role holds no derived relation: it reads one through the relations its definition reads">
+	: V extends AnyRelation | AnyRoster
+		? IsRelationOf<Base, V> extends true
 			? [K] extends [NameOf<V>]
 				? unknown
 				: Refusal<"a whole entry is a relation of the base under its own name">
 			: Refusal<"a whole entry is a relation of the base under its own name">
-	: V extends AnyScoped
-		? IsRelationOf<Base, V["relation"]> extends true
-			? [K] extends [NameOf<V["relation"]>]
-				? unknown
+		: V extends AnyScoped
+			? IsRelationOf<Base, V["relation"]> extends true
+				? [K] extends [NameOf<V["relation"]>]
+					? unknown
+					: Refusal<"a scoped entry is a relation of the base under its own name">
 				: Refusal<"a scoped entry is a relation of the base under its own name">
-			: Refusal<"a scoped entry is a relation of the base under its own name">
-		: IsLevelOf<Base, QuerySchema<V>> extends true
-			? DefinitionShape<V> & EntryContextsWithin<ContextsOf<V>, Declared>
-			: Refusal<"a query entry is a query over the role's base">
+			: IsLevelOf<Base, QuerySchema<V>> extends true
+				? DefinitionShape<V> & EntryContextsWithin<ContextsOf<V>, Declared>
+				: Refusal<"a query entry is a query over the role's base">
 export type EntriesCheck<Base, Rs, Declared = never> = {
 	readonly [K in keyof Rs]: EntryCheck<Base, K, Rs[K], Declared>
 }
@@ -267,12 +265,12 @@ type WritableValue<V> = V extends AnyRelation
 			: true
 
 /**
- * The relations no role holds, since PostgreSQL holds none of their rows (desc.ts heldRelation): a closed relation,
- * whose rows are its constants and which every role reads, and a live derived relation, which stores nothing and which a
- * role reads through the relations its definition reads. The one definition a full role's entries (WholeEntries) and
- * the levels a role holds whole (UnheldOf) both read.
+ * The relations no role holds: a closed relation, whose rows are its constants and which every role reads, and a
+ * derived relation, which a role reads through the relations its definition reads, from its stored table where the role
+ * holds every one of them whole (analysis/schema.ts CheckedSchema). The one definition a full role's entries
+ * (WholeEntries) and the levels a role holds whole (UnheldOf) both read.
  */
-type UnheldRelation = AnyClosedRelation | AnyLive
+type UnheldRelation = AnyClosedRelation | AnyDerived
 
 /**
  * A full role's entries over a schema's record of relations: each relation under its own key, whole, but the relations
@@ -302,7 +300,7 @@ export type WholeEntriesOf<Base extends AnySchema> = WholeEntries<Base["relation
 
 /**
  * The entries scopedEntriesOf(base, options) makes: every relation of every level of the base under its own name, as
- * WholeEntriesOf, each ordinary or stored derived one whole or scoped (ScopedOrWhole), which of the two its
+ * WholeEntriesOf, each ordinary one whole or scoped (ScopedOrWhole), which of the two its
  * options and the base's declared containments decide when it runs. A role holding them holds every relation of its
  * base, each whole or scoped, so its base is among its levels (FullBaseOf).
  */
@@ -311,12 +309,12 @@ export type ScopedEntriesOf<Base extends AnySchema> = ScopedEntries<Base["relati
 /** The record Rs at its held keys (HeldKeys), each relation whole or scoped (ScopedOrWhole). */
 export type ScopedEntries<Rs> = { readonly [P in HeldKeys<Rs> & string]: ScopedOrWhole<Rs[P]> }
 
-/** A relation R as scopedEntriesOf holds it: an ordinary or a stored derived one whole or scoped, any other whole. */
-export type ScopedOrWhole<R> = R extends AnyRelation | AnyStored ? R | Scoped<R> : R
+/** A relation R as scopedEntriesOf holds it: an ordinary one whole or scoped, any other whole. */
+export type ScopedOrWhole<R> = R extends AnyRelation ? R | Scoped<R> : R
 
-/** The relations of a schema scopedEntriesOf may root, by name: its ordinary and stored derived ones. */
+/** The relations of a schema scopedEntriesOf may root, by name: its ordinary ones. */
 export type ScopableNameOf<Base extends AnySchema> = {
-	[K in keyof Base["relations"]]-?: Base["relations"][K] extends AnyRelation | AnyStored ? K : never
+	[K in keyof Base["relations"]]-?: Base["relations"][K] extends AnyRelation ? K : never
 }[keyof Base["relations"]] &
 	string
 

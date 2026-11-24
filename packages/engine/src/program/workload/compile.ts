@@ -12,6 +12,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { type Phases, phased, silentPhases } from "#compiler/core/phase.ts"
 import { type ClockBinding, noClock, transactionClock } from "#compiler/ir/clock.ts"
+import { noneWritten, servedQuery } from "#compiler/ir/derived.ts"
 import {
 	type ChangeSetDesc,
 	type WorkloadDesc,
@@ -328,8 +329,14 @@ const analyzedQuery = (
 ): Result.Result<AnalyzedQuery, CompileError> =>
 	Result.flatMap(
 		checkQuery(read, query, { read: reading, label, clock, session: CheckSession.own() }),
-		(checked) =>
-			Result.flatMap(allenNormalDag(checked.dag), (allen) =>
+		(admitted) => {
+			/** Its rows as its lowering reads them (ir/derived.ts servedQuery): a read's stored derived relations by their
+			 * tables, a membership's every derived relation by its definition (write/entry/render.ts renderMembership). */
+			const checked = servedQuery(
+				admitted,
+				reading === "rows" ? read.rows(noneWritten) : read.expanded()
+			)
+			return Result.flatMap(allenNormalDag(checked.dag), (allen) =>
 				Result.flatMap(keyJoinNormalDag(allen), (dag) => {
 					const facts = new Map<RelNode, RouteFacts>()
 					return Result.map(
@@ -348,6 +355,7 @@ const analyzedQuery = (
 					)
 				})
 			)
+		}
 	)
 
 /**

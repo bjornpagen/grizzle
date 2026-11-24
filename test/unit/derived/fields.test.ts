@@ -26,7 +26,6 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record } from "effect"
-import { derivedAnalysis } from "#compiler/analysis/schema.ts"
 import { instant, pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -34,13 +33,14 @@ import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { fieldDescOf } from "#compiler/schema/field-desc.ts"
 import {
-	storedDerived as runtimeDerived,
+	derivedBuilder as runtimeDerived,
 	closedBuilder,
 	relationBuilder
 } from "#compiler/schema/relation.ts"
 import { schemaBuilder as runtimeSchema } from "#compiler/schema/schema.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { analysesOf } from "#test/support/derived.ts"
 import { f as field } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { Id } from "#test/support/ids.ts"
@@ -188,9 +188,9 @@ export const derivedFieldInferenceRefusesAContractTheSchemaDeclaresOnNoRelationI
 						)
 					})
 				})
-				const analyzed = Result.map(
+				const analyzed = Result.flatMap(
 					checkedIn(runtimeSchema.extend([L], "Level1", [runtimeDerived("T", q, [])], [], [])),
-					derivedAnalysis
+					analysesOf
 				)
 				const owned = checking(L).owned
 				const holder = owned.relations[`Holder${k.target}`]

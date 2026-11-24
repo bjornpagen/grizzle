@@ -35,6 +35,7 @@ import { closedIndexOf, type ClosedTable } from "#compiler/runtime/write/fill.ts
 import {
 	type Owned,
 	type OwnedLogin,
+	type OwnedRelation,
 	type OwnedRole,
 	type OwnedWorldEntry,
 	rostersOf
@@ -189,10 +190,11 @@ interface NamesInput {
 /**
  * The view a role reads one of its relations through: a whole entry's is its relation's whole view,
  * `<wholeSchema>.<relation>` in the whole views' schema of the relation's level, the one view of it every role holding
- * it whole reads (`whole`); a query entry's is its own, in the role's schema (`query`). The installation creates a whole
- * view for a stored relation and a stored derived one alone: a roster's or a closed relation's whole entry is
- * named so, but no statement reads it, every query reading a roster's handles as codes and a closed relation's rows
- * through its constants.
+ * it whole reads (`whole`); a query entry's is its own, in the role's schema (`query`). Each derived relation the role
+ * reads in full (schema/own.ts OwnedRole `wholeDerived`) is named a whole view too, whatever the installation infers of
+ * its storage, which it creates where the relation is stored. The installation creates a whole view for a stored
+ * relation and a stored derived one alone: a roster's or a closed relation's whole entry is named so, but no statement
+ * reads it, every query reading a roster's handles as codes and a closed relation's rows through its constants.
  */
 export type RoleViewName =
 	| {
@@ -230,22 +232,34 @@ const nameRole = (
 	const theory = roleIdentity(levelIn(levels, role.base), role.name, role.loc)
 	const schema = identity.roleSchema(theory)
 	const views = new Map<string, RoleViewName>()
-	for (const [relation, e] of Object.entries(role.relations)) {
-		if (e.kind === "world") {
-			views.set(relation, { kind: "query", schema, name: roleView(theory, e) })
-			continue
-		}
+	/** The whole view of `relation`, declared at `at`, in its level's schema of whole views. */
+	const whole = (relation: OwnedRelation, at: SourceLoc): RoleViewName => {
 		const level =
-			levels[e.relation.level] ?? missing(`physical: no installed level for relation ${relation}`)
-		views.set(relation, {
+			levels[relation.level] ??
+			missing(`physical: no installed level for relation ${relation.name}`)
+		return {
 			kind: "whole",
 			schema: wholeSchemaIdentity(
 				level,
-				`the whole views' schema of ${level.display}, which role ${role.name} reads ${relation} through`,
-				e.loc
+				`the whole views' schema of ${level.display}, which role ${role.name} reads ${relation.name} through`,
+				at
 			),
-			name: identity.wholeView(e.name)
-		})
+			name: identity.wholeView(relation.name)
+		}
+	}
+	for (const [relation, e] of Object.entries(role.relations)) {
+		views.set(
+			relation,
+			e.kind === "world"
+				? { kind: "query", schema, name: roleView(theory, e) }
+				: whole(e.relation, e.loc)
+		)
+	}
+	for (const relation of role.wholeDerived) {
+		const r =
+			role.base.relations[relation] ??
+			missing(`physical: the derived relation ${relation} of role ${role.name}'s base`)
+		views.set(relation, whole(r, r.loc))
 	}
 	return { owned: role, theory, views }
 }
@@ -362,7 +376,8 @@ export const worldNames = (named: NamedRole, names: InstallNames): WorldNames =>
 }
 
 /** What a role reads its relations through: every relation of it is its view (`world`, the role's names, worldNames), a
- * whole entry's its relation's whole view, whose columns are its table's (or its stored table's), and a query
+ * whole entry's, and a stored derived relation's it reads in full (schema/own.ts OwnedRole `wholeDerived`), its
+ * relation's whole view, whose columns are its table's (or its stored table's), and a query
  * entry's its own in the role's schema, whose columns are its definition's head fields, each a field's column; domains, constants and the vector extension stay the base's. A view
  * holds its heading's columns and no law column (physical/ddl/roles.ts wholeView, worldView), so it holds no selection
  * key a read could probe. Each member is stated here, none carried from the installation's names, so none of what a
@@ -375,12 +390,13 @@ export const roleReadNames = (
 	relation: world.view,
 	column: (relation, field) => {
 		const e = role.relations[relation]
-		if (e === undefined) {
+		if (e?.kind === "world") {
+			return identifierOf(viewColumn(field))
+		}
+		if (e === undefined && !role.wholeDerived.includes(relation)) {
 			missing(`physical: no relation ${relation} in role ${role.name}`)
 		}
-		return e.kind === "whole"
-			? names.column(e.relation.name, field)
-			: identifierOf(viewColumn(field))
+		return names.column(relation, field)
 	},
 	selectionKeys: () => [],
 	rosterDomain: names.rosterDomain,
@@ -424,9 +440,6 @@ const installedOf = (
 		case "closedRelation":
 			return missing(`physical: the closed relation ${relation} installs no relation of its own`)
 		case "derived":
-			return r.view.kind === "live"
-				? missing(`physical: the live derived relation ${relation} installs no relation of its own`)
-				: r.view
 		case "relation":
 		case "closed":
 			return r

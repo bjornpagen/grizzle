@@ -6,6 +6,7 @@ import { Array as Arr, String as Str } from "effect"
 import { probe, probeKey, probeRows } from "#compiler/analysis/theory/query.ts"
 import type { InferredQuery } from "#compiler/ir/desc.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
+import { Num, Type } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, mutable, on, relation, schema, unit } from "#compiler/public/schema.ts"
@@ -32,7 +33,11 @@ export const shapeGen: Gen<Shape> = (s) => ({
 
 export type Reached = "a probe of several rows" | "a probe whose rows outnumber its arms"
 
-/** The schema of a shape: T, U and S on a base level, D over them and S's containment in it above. */
+/**
+ * The schema of a shape: T, U and S on a base level, D over them and S's containment in it above. D's head computes its
+ * k from T's, so no field of it delivers the unit its arms read within, and the installation keeps it live
+ * (analysis/derived/storage.ts, `hidden`): the containment into it reads its definition, whose probes the test reads.
+ */
 const schemaOf = (shape: Shape) => {
 	const T = relation("T", { k: pg.integer, a: pg.integer }, ["k"])
 	const U = relation("U", { k: pg.integer }, ["k"])
@@ -53,17 +58,23 @@ const schemaOf = (shape: Shape) => {
 	const first = query(Base).rule((r) => {
 		const { k } = v(T, "t")
 		const held = r.match(T, shape.literal ? { k, a: 1 } : { k })
-		return (shape.joined ? held.match(U, { k }) : held).find({ k })
+		return (shape.joined ? held.match(U, { k }) : held).find({
+			k: Type.cast(Num.add(k, 0), pg.integer)
+		})
 	})
 	const second = first.rule((r) => {
 		const { k } = v(T, "t")
 		const held = r.match(T, shape.literal ? { k, a: 2 } : { k })
-		return (shape.joined ? held.match(U, { k }) : held).find({ k })
+		return (shape.joined ? held.match(U, { k }) : held).find({
+			k: Type.cast(Num.add(k, 0), pg.integer)
+		})
 	})
 	const third = second.rule((r) => {
 		const { k } = v(T, "t")
 		const held = r.match(T, shape.literal ? { k, a: 3 } : { k })
-		return (shape.joined ? held.match(U, { k }) : held).find({ k })
+		return (shape.joined ? held.match(U, { k }) : held).find({
+			k: Type.cast(Num.add(k, 0), pg.integer)
+		})
 	})
 	const D = derived("D", shape.arms === 1 ? first : shape.arms === 2 ? second : third)
 	return schema.extend([Base], "rule_probes_1", [D], [contained(on(S, "j"), on(D, "k"))])

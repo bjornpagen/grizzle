@@ -54,8 +54,8 @@ const Doc = relation("Doc", { id: Id, a: pg.vector(3), b: pg.vector(3) }, ["id"]
 /** The blog: every relation keyed by its id sits in the unit Entry, so a stored relation over Post sits in it too. */
 const Blog = schema("Blog", [Kind, Post, Note, Doc], [unit("Entry", { id: Id })])
 
-/** Each post's author, a stored derived relation a role holds whole and writes nothing of. */
-const Bylines = derived.stored(
+/** Each post's author, a stored derived relation no role holds: a role holding Post whole reads it in full. */
+const Bylines = derived(
 	"Bylines",
 	query(Blog).rule((r) => {
 		const { id, author } = v(Post, "post")
@@ -82,9 +82,10 @@ const baseRelations = Reports.relations
 
 type BaseName = keyof typeof baseRelations
 
+/** The base's relations a role may hold whole: every one but its derived relation, which a role reads through Post. */
 const baseNames: Arr.NonEmptyReadonlyArray<BaseName> = nonEmpty(
-	Rec.keys(baseRelations),
-	"the base's relations"
+	Arr.filter(Rec.keys(baseRelations), (name) => baseRelations[name].kind !== "derived"),
+	"the base's held relations"
 )
 
 const ordinaries = {
@@ -299,7 +300,8 @@ type Defect =
 	| { readonly kind: "entryOrdered"; readonly relation: Ordinary; readonly descending: boolean }
 	| { readonly kind: "entryContext"; readonly relation: Ordinary }
 	| { readonly kind: "writeOutside"; readonly name: number }
-	| { readonly kind: "writeKind"; readonly derived: boolean }
+	| { readonly kind: "wholeEntryDerived" }
+	| { readonly kind: "writeKind" }
 	| { readonly kind: "writeUnwritable"; readonly relation: Ordinary; readonly omit: number }
 	| { readonly kind: "writeTwice"; readonly relation: Ordinary; readonly wholeFirst: boolean }
 
@@ -335,7 +337,8 @@ const defectGen: Gen<Defect> = weighted<Defect>([
 	],
 	[1, (s) => ({ kind: "entryContext", relation: s.draw(ordinaryGen) })],
 	[1, (s) => ({ kind: "writeOutside", name: s.draw(int(0, 9)) })],
-	[1, (s) => ({ kind: "writeKind", derived: s.draw(boolean) })],
+	[1, (): Defect => ({ kind: "wholeEntryDerived" })],
+	[1, (): Defect => ({ kind: "writeKind" })],
 	[1, (s) => ({ kind: "writeUnwritable", relation: s.draw(ordinaryGen), omit: s.draw(int(1, 7)) })],
 	[1, (s) => ({ kind: "writeTwice", relation: s.draw(ordinaryGen), wholeFirst: s.draw(boolean) })]
 ])
@@ -351,7 +354,11 @@ type Stated =
 	| { readonly kind: "named"; readonly refusal: Refused }
 
 /** The defects that break a rule the types name too, which role refuses as Refused. */
-type NamedDefect = "wholeEntryName" | "wholeEntryUndeclared" | "entryOverAnother"
+type NamedDefect =
+	| "wholeEntryName"
+	| "wholeEntryUndeclared"
+	| "entryOverAnother"
+	| "wholeEntryDerived"
 
 /** What a planted defect breaks: the feature it reaches, and what the refusal states. */
 interface Broken {
@@ -474,12 +481,17 @@ const plant = (healthy: RoleSpec, defect: Defect): RoleCase => {
 			const name = `Ghost${defect.name}`
 			return of({ ...healthy, write: [...healthy.write, name] }, { kind: "writeOutside", name })
 		}
+		case "wholeEntryDerived":
+			return named(
+				entered(healthy, "Bylines", { kind: "whole", relation: "Bylines" }),
+				"wholeEntryDerived",
+				"a role holds no derived relation: it reads one through the relations its definition reads"
+			)
 		case "writeKind": {
-			const relation: BaseName = defect.derived ? "Bylines" : "Kind"
-			const withEntry = entered(healthy, relation, { kind: "whole", relation })
+			const withEntry = entered(healthy, "Kind", { kind: "whole", relation: "Kind" })
 			return of(
-				{ ...withEntry, write: [...withEntry.write, relation] },
-				{ kind: "writeKind", name: relation, entryKind: defect.derived ? "derived" : "closed" }
+				{ ...withEntry, write: [...withEntry.write, "Kind"] },
+				{ kind: "writeKind", name: "Kind", entryKind: "closed" }
 			)
 		}
 		case "writeUnwritable": {

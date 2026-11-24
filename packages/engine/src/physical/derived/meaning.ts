@@ -1,6 +1,7 @@
 import { derivedAnalysis } from "#compiler/analysis/schema.ts"
 import { unwrap } from "#compiler/core/canonical.ts"
 import { rooted, rowsDigestWithin, StatedFacts } from "#compiler/ir/dag.ts"
+import { noneWritten, servedQuery } from "#compiler/ir/derived.ts"
 import { makePassContext } from "#compiler/ir/pass.ts"
 import { derivedKeyConstraints, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import { conservativeInput } from "#compiler/lower/conservative/types.ts"
@@ -31,9 +32,12 @@ export const definitionMeanings = (installation: Installation): ReadonlyMap<stri
 	const stated = new StatedFacts(installation.checked.closed)
 	return new Map(
 		analysis.order.map((a) => {
+			/** As its fill reads it: a lower level's stored relation by its table, a live one by its definition, whose
+			 * meaning is then its own (ir/derived.ts servedQuery). */
+			const served = servedQuery(a.query, installation.checked.rows(noneWritten))
 			const pruned = unwrap(
 				sourcePrunePass.run(
-					{ dag: rooted([a.query.dag.roots[0]]), params: [] },
+					{ dag: rooted([served.dag.roots[0]]), params: [] },
 					makePassContext({ evidenceContext: "transaction", catalog })
 				)
 			)

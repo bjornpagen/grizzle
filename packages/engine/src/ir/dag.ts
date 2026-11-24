@@ -829,6 +829,14 @@ export class LabelSupply {
 		})
 	}
 
+	/**
+	 * `query`'s nodes renamed past every label so far (renamedPast), the counterpart there of each node of it: a query
+	 * checked in a label space of its own, spliced into the DAG the supply was read from (ir/derived.ts servedDag).
+	 */
+	renamed(query: ValidDag): (node: RelNode) => RelNode {
+		return renamedPast(this.#tops, query, () => undefined).node
+	}
+
 	/** The DAG of `roots`, the builder's DAG's nodes and the Forbid nodes forbid gave, with the labels' tops. */
 	dag<R extends Roots>(roots: R): LabelledDag<R> {
 		return labelledDag(roots, { ...this.#tops })

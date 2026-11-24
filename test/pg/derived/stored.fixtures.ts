@@ -117,15 +117,16 @@ const baseOf = (openness: Openness, name: string) =>
 	)
 
 /**
- * The stored relations, each over the document's unit: a projection, a count by document, a negation within it, the
- * rows of a function each place's document and place are passed to, which a restriction to the written units reads at
- * the unit's channels (analysis/theory/unit.ts channelled), and Programmed, each linked place's value's program, a
- * function called once per distinct value of a document (ir/expr.ts evaluatesCall); and, a level above them, Hops, the
- * places a document reaches from its place 0 back along links from placed places, a recursion whose base and step read
- * the stored Placed's table and whose step reads the links through the live Linked's definition (analysis/theory/query.ts
- * liveQuery): its upkeep runs a stratum after Placed's (physical/ddl/rules.ts), though Hops sorts before Placed by
- * name, and reads Placed's table as Placed's upkeep left it in the same COMMIT, at the units whose places or links the
- * transaction changed and those whose Placed rows that upkeep changed.
+ * The stored relations, each over the document's unit, every one stored by the installation's inference, unit-local
+ * within the unit Doc and Link sit in (analysis/derived/storage.ts): a projection, a count by document, a negation within
+ * it, the rows of a function each place's document and place are passed to, which a restriction to the written units
+ * reads at the unit's channels (analysis/theory/unit.ts channelled), and Programmed, each linked place's value's
+ * program, a function called once per distinct value of a document (ir/expr.ts evaluatesCall); and, a level above them,
+ * Hops, the places a document reaches from its place 0 back along links from placed places, a recursion whose base and
+ * step read the stored Placed's table and whose step reads the links through the stored Linked's: its upkeep runs a
+ * stratum after Placed's and Linked's (physical/ddl/rules.ts), though Hops sorts before Placed by name, and reads
+ * Placed's table as Placed's upkeep left it in the same COMMIT, at the units whose places or links the transaction
+ * changed and those whose Placed rows that upkeep changed.
  */
 const storedNames = [
 	"Placed",
@@ -141,28 +142,28 @@ const storedNames = [
 
 const topOf = (openness: Openness, name: string) => {
 	const base = baseOf(openness, name)
-	const Placed = derived.stored(
+	const Placed = derived(
 		"Placed",
 		query(base).rule((r) => {
 			const { doc, at, v: x } = v(Doc, "d")
 			return r.match(Doc, { doc, at, v: x }).find({ doc, at, v: x })
 		})
 	)
-	const Counted = derived.stored(
+	const Counted = derived(
 		"Counted",
 		query(base).rule((r) => {
 			const { doc, at } = v(Doc, "d")
 			return r.match(Doc, { doc, at }).find({ doc, places: r.count() })
 		})
 	)
-	const Unlinked = derived.stored(
+	const Unlinked = derived(
 		"Unlinked",
 		query(base).rule((r) => {
 			const { doc, at } = v(Doc, "d")
 			return r.match(Doc, { doc, at }).where(r.not(Link, { doc, at })).find({ doc, at })
 		})
 	)
-	const Coded = derived.stored(
+	const Coded = derived(
 		"Coded",
 		query(base).rule((r) => {
 			const { doc, at } = v(Doc, "d")
@@ -171,7 +172,8 @@ const topOf = (openness: Openness, name: string) => {
 			return r.match(Doc, { doc, at }).match(run, { code }).find({ doc, at, code })
 		})
 	)
-	/** The heavy weights, a live derived relation over the closed Weight, which a stored relation reads through it. */
+	/** The heavy weights, over the closed Weight alone, a relation of no unit the installation keeps live, which a stored
+	 * relation reads through its definition. */
 	const Heavy = derived(
 		"Heavy",
 		query(base).rule((r) => {
@@ -200,7 +202,7 @@ const topOf = (openness: Openness, name: string) => {
 	 * Each linked place's program, its value's compile: edullm's WalkPattern, its pattern matches joined back to their
 	 * texts' compiles, whose upkeep calls `compile` once for each distinct value of a document it keeps.
 	 */
-	const Programmed = derived.stored(
+	const Programmed = derived(
 		"Programmed",
 		query(base).rule((r) => {
 			const { doc, at, value } = v(linked, "p")
@@ -211,7 +213,7 @@ const topOf = (openness: Openness, name: string) => {
 				.find({ doc, at, program })
 		})
 	)
-	/** Each link, a live derived relation a recursion's step reads through its definition. */
+	/** Each link, a stored relation a recursion's step reads by its table. */
 	const Linked = derived(
 		"Linked",
 		query(base).rule((r) => {
@@ -226,7 +228,7 @@ const topOf = (openness: Openness, name: string) => {
 		[]
 	)
 	const hop = { doc: pg.integer, at: pg.integer }
-	const Hops = derived.stored(
+	const Hops = derived(
 		"Hops",
 		query(lower).recursive("Hop", {
 			row: hop,
@@ -250,15 +252,16 @@ const topOf = (openness: Openness, name: string) => {
 		})
 	)
 	/** The documents of two places or more, a stored relation over the stored Counted's table, kept a stratum after it. */
-	const Dense = derived.stored(
+	const Dense = derived(
 		"Dense",
 		query(lower).rule((r) => {
 			const { doc, places } = v(Counted, "c")
 			return r.match(Counted, { doc, places }).where(r.ge(places, 2n)).find({ doc })
 		})
 	)
-	/** Each place with each heavy weight, a stored relation reading the closed Weight through the live Heavy. */
-	const Weighted = derived.stored(
+	/** Each place with each heavy weight, a stored relation reading the closed Weight through the live Heavy's
+	 * definition. */
+	const Weighted = derived(
 		"Weighted",
 		query(lower).rule((r) => {
 			const { doc, at } = v(Doc, "d")
@@ -273,7 +276,7 @@ const topOf = (openness: Openness, name: string) => {
 	 * take, so a writer's stand-up of Doc makes Dense's deltas, two upkeeps above it and beside no block that reads Doc
 	 * (physical/ddl/rules.ts besidesOf).
 	 */
-	const Crowded = derived.stored(
+	const Crowded = derived(
 		"Crowded",
 		query(top).rule((r) => {
 			const { doc } = v(Dense, "d")
@@ -717,14 +720,14 @@ export const watchRun = (
  */
 const lawfulOf = (openness: Openness, name: string) => {
 	const base = baseOf(openness, name)
-	const Placed = derived.stored(
+	const Placed = derived(
 		"Placed",
 		query(base).rule((r) => {
 			const { doc, at, v: x } = v(Doc, "d")
 			return r.match(Doc, { doc, at, v: x }).find({ doc, at, v: x })
 		})
 	)
-	const Counted = derived.stored(
+	const Counted = derived(
 		"Counted",
 		query(base).rule((r) => {
 			const { doc, at } = v(Doc, "d")

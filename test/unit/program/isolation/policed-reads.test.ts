@@ -161,10 +161,9 @@ export const aWriteThroughAPolicedEntryIsReadOverItsRowSecurity = property.exhau
 			},
 			{
 				file: "packages/engine/src/program/isolation/member-facts.ts",
-				original:
-					'\t\t\tr.kind === "relation" || (r.kind === "derived" && r.view.kind !== "live") ? [name] : []',
+				original: '\t\t\tr.kind === "relation" ? [r.name] : []\n',
 				replacement:
-					'\t\t\t(r.kind === "relation" && ![...owned.writes.values()].some((w) => w.kind !== "whole" && w.writable.target === name)) || (r.kind === "derived" && r.view.kind !== "live") ? [name] : []',
+					'\t\t\tr.kind === "relation" && ![...owned.writes.values()].some((w) => w.kind !== "whole" && w.writable.target === r.name) ? [r.name] : []\n',
 				why: 'A table the role writes through a query entry left unnamed, as at 1d105e86c: T reads as `?"policed_reads"."t"`, so a fact names an object the installation states no fact of; the property fails.'
 			},
 			{

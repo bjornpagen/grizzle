@@ -58,7 +58,8 @@ const joinColumns = (join: Join): ReadonlyArray<"g" | "h"> => (join === "gh" ? [
 
 /**
  * The schema of a shape: T and U keyed by their unit, `package`, then a column of their own, S by its pack and x, and
- * D, T's x of each T row and U row of one package that agree on the join, held in S at its pack.
+ * D, T's x of each T row and U row that agree on the join, of one package where the rule is unit-local and of any two
+ * where it is probed, so D is live in both, held in S at its pack.
  */
 const schemaOf = (shape: Shape) => {
 	const T = relation(
@@ -96,9 +97,10 @@ const schemaOf = (shape: Shape) => {
 		query(Base).rule((r) => {
 			const { package: packageNo, g, h, x } = v(T, "t")
 			const joined = shape.join === "g" ? { g } : shape.join === "h" ? { h } : { g, h }
+			const together = shape.unitLocal ? { package: packageNo } : {}
 			return r
 				.match(T, { package: packageNo, ...joined, x })
-				.match(U, { package: packageNo, ...joined, ...(shape.literal ? { w: 1 } : {}) })
+				.match(U, { ...together, ...joined, ...(shape.literal ? { w: 1 } : {}) })
 				.find({ package: packageNo, x })
 		})
 	)
@@ -146,6 +148,7 @@ export const judged = (shape: Shape, note: (r: Reached) => void): void => {
 	const owned = owning(schemaOf(shape))
 	const installation = succeeded(compileInstallation(owned, installOptions(owned)))
 	const joined = ["package", ...joinColumns(shape.join)]
+	const across = joinColumns(shape.join)
 	const reads: ReadonlyArray<{
 		readonly relation: string
 		readonly fields: ReadonlyArray<string>
@@ -153,9 +156,9 @@ export const judged = (shape: Shape, note: (r: Reached) => void): void => {
 		? [
 				{
 					relation: "U",
-					fields: byKeyOfG(shape) ? ["g"] : [...joined, ...(shape.literal ? ["w"] : [])]
+					fields: byKeyOfG(shape) ? ["g"] : [...across, ...(shape.literal ? ["w"] : [])]
 				},
-				{ relation: "T", fields: joined }
+				{ relation: "T", fields: across }
 			]
 		: shape.literal
 			? [

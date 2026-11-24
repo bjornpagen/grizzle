@@ -19,7 +19,9 @@ import {
 } from "#compiler/core/canonical.ts"
 import {
 	type CompileError,
+	compileReasonText,
 	formatRefused,
+	type LiveReason,
 	malformedArtifact,
 	unsupported
 } from "#compiler/core/errors.ts"
@@ -54,6 +56,7 @@ import {
 	type LawColumnHolds,
 	manifestFileName,
 	type SnapshotContent,
+	type LiveDerived,
 	type SnapshotDerived,
 	type SnapshotFiles,
 	snapshotFileName,
@@ -295,14 +298,14 @@ const theoryOf = (installation: Installation, checks: LawChecks): SnapshotTheory
 	): ReadonlyArray<readonly [string, SnapshotRelation]> => {
 		switch (o.kind) {
 			case "derived":
-				return o.view.kind === "live"
+				return installation.checked.holdings.get(o.name)?.kind !== "stored"
 					? []
 					: [
 							[
 								o.name,
 								{
 									kind: "derived",
-									ident: o.view.ident,
+									ident: o.ident,
 									mutable: o.mutable,
 									level: o.desc.level,
 									meaning: defined(meanings.get(o.name), "every stored derived relation's meaning")
@@ -733,9 +736,7 @@ const snapshotTablesOf = (installation: Installation): SnapshotTables => {
 		...Object.values(installation.laws.theory.relations).flatMap((t) =>
 			t.kind === "relation" ? [t.name] : []
 		),
-		...Object.values(installation.owned.relations).flatMap((o) =>
-			o.kind === "derived" && o.view.kind !== "live" ? [o.name] : []
-		)
+		...installation.checked.derived.map((a) => a.name)
 	]
 	const derivedHeadings = new Map(
 		installation.checked.derived.map((a) => [a.name, a.heading.map((c) => c.name)] as const)
@@ -894,8 +895,34 @@ export const derivedOf = (installation: Installation): SnapshotDerived => ({
 	),
 	tables: snapshotTablesOf(installation),
 	live: liveSourceOf(installation),
-	params: installation.installedParams
+	params: installation.installedParams,
+	liveDerived: liveDerivedOf(installation)
 })
+
+/** Why a derived relation is live, as snapshot.json records it (types.ts LiveDerived): the condition of unit-locality
+ * its definition lacks, or the refusal of its table as its reason's text alone. */
+const liveDerivedOfReason = (why: LiveReason): LiveDerived => {
+	switch (why.kind) {
+		case "notUnitLocal":
+			return { kind: "notUnitLocal", condition: why.lacks.condition, detail: why.lacks.detail }
+		case "unrepresentable":
+			return { kind: "unrepresentable", detail: compileReasonText(why.refusal.reason) }
+	}
+}
+
+/**
+ * Each derived relation the installation keeps live, by name in code point order, with why (types.ts LiveDerived): the
+ * condition of unit-locality its definition lacks, or the refusal of its table, stated as its reason's text alone, no
+ * location in it, so the record is the same wherever the schema was compiled.
+ */
+const liveDerivedOf = (installation: Installation): Readonly<Record<string, LiveDerived>> =>
+	Object.fromEntries(
+		[...installation.checked.holdings]
+			.toSorted(([a], [b]) => compareStrings(a, b))
+			.flatMap(([name, holding]): ReadonlyArray<readonly [string, LiveDerived]> =>
+				holding.kind === "stored" ? [] : [[name, liveDerivedOfReason(holding.why)]]
+			)
+	)
 
 /**
  * The installation's live source in installed terms (live/notify.ts LiveSource): none where it serves no read;
@@ -1364,6 +1391,7 @@ const derivedForm = (d: SnapshotDerived): SnapshotForm => ({
 	judged: d.judged,
 	textDomains: Object.fromEntries([...d.textDomains].toSorted(([a], [b]) => compareStrings(a, b))),
 	library: d.library,
+	liveDerived: d.liveDerived,
 	tables: Object.fromEntries(
 		Object.entries(d.tables).map(([schema, tables]) => [
 			schema,

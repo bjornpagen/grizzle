@@ -3,8 +3,8 @@
  * does. A workload request on it lands on an inherited key's unique index that serves it, merging the access into its
  * reasons, or becomes a workload index of its own, justified by the access. The migration generator drafts such an
  * index through the same rules as any index: built concurrently on a table that may hold rows, and created again with
- * the table a changed definition recreates. An installation without the derived relation extension leaves the table,
- * and so its indexes, deferred.
+ * the table a changed definition recreates. Every installation installs the table, the relation stored by the
+ * installation's inference (analysis/derived/storage.ts).
  *
  * Each case draws a workload of programs over AccountBudget (each account's entries of the books counted and their
  * budgets summed, or a redefinition over the entries above a budget of 10), each comparing a drawn column of the table,
@@ -12,9 +12,8 @@
  * parameter. Read off the typed plan a draft states, never its SQL text.
  *
  * - Table indexes: a program over the key lands on the key's unique index, every other column takes one created index
- *   keyed by it alone, standing on access, compared as a set; a table not installed is deferred and takes none.
- *   Oracle: that rule, restated over the drawn programs. Features: an index of a column, the key's own index, two
- *   columns indexed, deferred, the empty workload.
+ *   keyed by it alone, standing on access, compared as a set. Oracle: that rule, restated over the drawn programs.
+ *   Features: an index of a column, the key's own index, two columns indexed, the empty workload.
  * - Drafts: over two drafts, the second's workload indexes are exactly those its workload asks for that the first's
  *   did not, each built concurrently, or all of them, each after the table, where a changed definition drops and
  *   recreates the table, compared as a set of the columns each index keys. Oracle: that rule, restated over both
@@ -24,12 +23,11 @@
 
 import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
-import { array, boolean } from "@bjornpagen/testing/gen"
+import { array } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { withWorkload } from "#compiler/physical/access/extension.ts"
-import { withDerivedRelations } from "#compiler/physical/derived/objects.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
@@ -56,17 +54,16 @@ import {
 } from "#test/unit/derived/workload-indexes.fixtures.ts"
 
 /**
- * Workload indexes on a derived relation index a view column, its key on its key index, a computed numeric's by its
- * proved bound, and defer them with a view not installed.
+ * Workload indexes on a derived relation index a view column, its key on its key index, and a computed numeric's by its
+ * proved bound.
  *
  * Budget: 40 runs and 60 steered cases, what its suite stated before it became a property
  * (test/unit/derived/workload-indexes.test.ts:218 at 8cad5bce, its runs and its coverage's cases).
  */
-export const workloadIndexesOnADerivedRelationIndexAViewColumnItsKeyOnItsKeyIndexAComputedNumericsByItsProvedBoundAndDeferThemWithAViewNotInstalled =
+export const workloadIndexesOnADerivedRelationIndexAViewColumnItsKeyOnItsKeyIndexAndAComputedNumericsByItsProvedBound =
 	property.explore(
 		(source): IndexCase => ({
-			programs: source.draw(array(programGen, { min: 0, max: 3 })),
-			installed: source.draw(boolean)
+			programs: source.draw(array(programGen, { min: 0, max: 3 }))
 		}),
 		{
 			needs: {},
@@ -75,7 +72,6 @@ export const workloadIndexesOnADerivedRelationIndexAViewColumnItsKeyOnItsKeyInde
 				"an index of a column",
 				"the key's own index",
 				"two columns indexed",
-				"deferred",
 				"the empty workload"
 			] satisfies ReadonlyArray<Reached<IndexFeature>>,
 			check: (_, k: Case<IndexFeature>) => (c) =>
@@ -83,20 +79,9 @@ export const workloadIndexesOnADerivedRelationIndexAViewColumnItsKeyOnItsKeyInde
 					const plan = planOf(Reports, programsOf(c.programs, false))
 					const owned = owning(Reports)
 					const options = withWorkload(installOptions(owned), plan)
-					const installation = succeeded(
-						compileInstallation(owned, c.installed ? withDerivedRelations(options) : options)
-					)
+					const installation = succeeded(compileInstallation(owned, options))
 					if (c.programs.length === 0) {
 						k.note("the empty workload")
-					}
-					if (!c.installed) {
-						k.note("deferred")
-						assert.ok(
-							Arr.contains(installation.deferred.derivedRelations, "AccountBudget"),
-							"the view not installed is deferred"
-						)
-						assert.deepEqual(viewIndexes(installation), [])
-						return
 					}
 					const indexes = viewIndexes(installation)
 					const created = Arr.filter(indexes, (x) => x.index.kind === "created")

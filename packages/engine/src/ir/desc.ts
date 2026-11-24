@@ -1731,24 +1731,8 @@ export type RelationDesc<L = Located> = L &
 				readonly query: QueryDesc<L>
 				/** The derived level: 1 over base relations, n + 1 over a level-n derived relation. */
 				readonly level: number
-				/** Whether PostgreSQL stores its rows: never, every read and rule reading its definition; or in a
-				 * table of its own, which grizzle keeps equal to its definition at every COMMIT. */
-				readonly storage: DerivedStorage
 		  }
 	)
-
-/**
- * How a derived relation is held: `live`, its definition alone, which every query matching it and every rule over it
- * reads; or `stored`, its rows in a table of its own, which grizzle keeps equal to its definition at every COMMIT, for
- * every writer, admitted only where its definition is unit-local (analysis/theory/unit.ts storedUnit): the judge's
- * phase A replaces its rows at the units a transaction wrote (physical/ddl/rules.ts), and the migration that creates it
- * fills it (deploy/diff/diff.ts).
- */
-const derivedStorages = ["live", "stored"] as const
-export type DerivedStorage = (typeof derivedStorages)[number]
-
-/** Whether PostgreSQL holds a derived relation's rows: a stored one's, in its table. */
-export const derivedHeld = (storage: DerivedStorage): boolean => storage === "stored"
 
 /** A closed relation's row: a value of each of its fields. */
 export type ClosedRow = Readonly<Record<string, LiteralDesc>>
@@ -1777,8 +1761,8 @@ export const declaredRoster = (desc: RosterDesc): RosterHandles => ({
 })
 
 /**
- * Whether a role holds a relation: whether PostgreSQL holds its rows, so neither a closed relation, whose rows are its
- * constants, nor a live derived relation, whose rows are its definition's over the relations it reads.
+ * Whether a role holds a relation: an ordinary relation or a roster, never a closed relation, whose rows are its
+ * constants, nor a derived relation, which a role reads through the relations its definition reads.
  */
 export const heldRelation = (relation: RelationDesc): boolean => {
 	switch (relation.kind) {
@@ -1786,9 +1770,8 @@ export const heldRelation = (relation: RelationDesc): boolean => {
 		case "closed":
 			return true
 		case "closedRelation":
-			return false
 		case "derived":
-			return derivedHeld(relation.storage)
+			return false
 	}
 }
 
@@ -3880,8 +3863,7 @@ const relationDescShape: S.Shape<RelationDesc> = S.tagged("kind", {
 			{
 				name,
 				query: unorderedQueryShape,
-				level: S.positiveInteger,
-				storage: S.literalsShape(derivedStorages)
+				level: S.positiveInteger
 			},
 			loc
 		)

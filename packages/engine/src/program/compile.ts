@@ -6,6 +6,7 @@ import { catchRefusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { ClockBinding, ClockSource } from "#compiler/ir/clock.ts"
+import { noneWritten, servedQuery } from "#compiler/ir/derived.ts"
 import { isOrderedQuery, type QueryDesc } from "#compiler/ir/desc.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import {
@@ -20,7 +21,6 @@ import type { Heading, RootedDag } from "#compiler/ir/rel.ts"
 import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import { analyzeLogical, keptNodes, queryEvidence } from "#compiler/logical/annotate.ts"
 import type { ProgramDelivery } from "#compiler/lower/conservative/types.ts"
-
 import {
 	lowerOptimized,
 	type OptimizedProgram,
@@ -212,10 +212,19 @@ export const compileQuery = (
 	 */
 	const judged: AdmittedQuery = { ...checked, dag: analyzed.value.judged }
 	/**
-	 * The query as the optimized lowering takes it (optimizedInput), annotated under the query's evidence, the
-	 * checker's with the keys of the views it reads (logical/annotate.ts queryEvidence).
+	 * The judged query as the lowering reads it (ir/derived.ts servedQuery), which its optimized artifact, its pages
+	 * (lower/shapes/page/compile.ts) and its conservative artifact lower: a snapshot read reads each stored derived
+	 * relation's table, current at every COMMIT; a read inside a write's transaction reads through its definition each
+	 * one whose holders the schema's writes may write, since the transaction may have written what that table's upkeep
+	 * replaces only at its COMMIT (analysis/schema.ts CheckedSchema serves, writable).
 	 */
-	const rewritten = optimizedInput(judged, queryEvidence)
+	const served = servedQuery(
+		judged,
+		read.rows(context === "snapshot" ? noneWritten : read.writable)
+	)
+	/** The query as the optimized lowering takes it (optimizedInput), annotated under the query's evidence, the checker's
+	 * with the keys of the views it reads (logical/annotate.ts queryEvidence). */
+	const rewritten = optimizedInput(served, queryEvidence)
 	if (!rewritten.ok) {
 		return rewritten
 	}
@@ -242,7 +251,7 @@ export const compileQuery = (
 		params: callerParams(checked.params),
 		clocked: clockedParams(checked.params),
 		delivery: optimized.delivery,
-		programs: { optimized, checked: judged },
+		programs: { optimized, checked: served },
 		run: run.value,
 		analyzed: analyzed.value.dag
 	}

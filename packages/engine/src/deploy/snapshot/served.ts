@@ -12,6 +12,7 @@ import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type {
+	LiveDerived,
 	ServedSnapshot,
 	SnapshotDerived,
 	SnapshotIndex,
@@ -75,6 +76,7 @@ const servedDerived = (derived: unknown): Result.Result<SnapshotDerived, Compile
 	const tables = derived["tables"]
 	const live = derived["live"]
 	const params = derived["params"]
+	const liveDerived = derived["liveDerived"]
 	if (!isRecord(closed)) {
 		return Result.err(underived(["derived", "closed"]))
 	}
@@ -102,6 +104,9 @@ const servedDerived = (derived: unknown): Result.Result<SnapshotDerived, Compile
 	if (!isRecord(params)) {
 		return Result.err(underived(["derived", "params"]))
 	}
+	if (!isRecord(liveDerived)) {
+		return Result.err(underived(["derived", "liveDerived"]))
+	}
 	return Result.ok({
 		closed: new Map(Object.entries(trusted<Readonly<Record<string, NamedClosed>>>(closed))),
 		fkCycles: trusted<FkCycles>(fkCycles),
@@ -111,7 +116,8 @@ const servedDerived = (derived: unknown): Result.Result<SnapshotDerived, Compile
 		library: trusted<ReadonlyArray<LibraryFn>>(library),
 		tables: trusted<SnapshotTables>(tables),
 		live: trusted<LiveSource>(live),
-		params: trusted<InstalledParams>(params)
+		params: trusted<InstalledParams>(params),
+		liveDerived: trusted<Readonly<Record<string, LiveDerived>>>(liveDerived)
 	})
 }
 

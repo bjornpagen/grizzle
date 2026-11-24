@@ -46,8 +46,8 @@ export const aRuleOverAQueryIsRefusedExactlyWhereItsViolationReadsAStableValueWh
 		kills: [
 			{
 				file: "packages/engine/src/analysis/theory/theory.ts",
-				original: "\t\t\treadsStable(admitted.dag)\n",
-				replacement: "\t\t\tfalse\n",
+				original: "\t\t\tif (readsStable(read.dag)) {\n",
+				replacement: "\t\t\tif (false) {\n",
 				why: "A rule's violation is written whatever it reads, as before: the check over a stable function's value, or over a conversion to money, compiles, judged whole or by its probes, and the property fails."
 			}
 		]

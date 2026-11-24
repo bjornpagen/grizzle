@@ -36,7 +36,7 @@ import {
 import { str } from "#compiler/public/text.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
-import { storedDerived as runtimeDerived, relationBuilder } from "#compiler/schema/relation.ts"
+import { derivedBuilder as runtimeDerived, relationBuilder } from "#compiler/schema/relation.ts"
 import { schemaBuilder as runtimeSchema } from "#compiler/schema/schema.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { Id } from "#test/support/ids.ts"
@@ -1469,7 +1469,7 @@ const fixed = (c: CallKeyCase): boolean => c.ordinal === "the place fixed to a l
 /** The stored relation of a token split's case: each row's tokens, at their places where its head delivers them. */
 const tokensStored = (c: CallKeyCase) =>
 	c.ordinal === "the place in the head"
-		? derived.stored(
+		? derived(
 				"D",
 				query(callBase).rule((r) => {
 					const { id, list } = v(Listed, "row")
@@ -1481,7 +1481,7 @@ const tokensStored = (c: CallKeyCase) =>
 						.find({ id, at, piece: token })
 				})
 			)
-		: derived.stored(
+		: derived(
 				"D",
 				query(callBase).rule((r) => {
 					const { id, list } = v(Listed, "row")
@@ -1497,7 +1497,7 @@ const tokensStored = (c: CallKeyCase) =>
 /** The stored relation of a separator split's case: each row's pieces at a comma, at their places where delivered. */
 const separatedStored = (c: CallKeyCase) =>
 	c.ordinal === "the place in the head"
-		? derived.stored(
+		? derived(
 				"D",
 				query(callBase).rule((r) => {
 					const { id, list } = v(Listed, "row")
@@ -1506,7 +1506,7 @@ const separatedStored = (c: CallKeyCase) =>
 					return r.match(Listed, { id, list }).match(split, { at, piece }).find({ id, at, piece })
 				})
 			)
-		: derived.stored(
+		: derived(
 				"D",
 				query(callBase).rule((r) => {
 					const { id, list } = v(Listed, "row")
@@ -1520,7 +1520,7 @@ const separatedStored = (c: CallKeyCase) =>
 			)
 
 /** The stored relation of a rest's case: each row's list after the prefix `a`, where the list starts with it. */
-const restStored = derived.stored(
+const restStored = derived(
 	"D",
 	query(callBase).rule((r) => {
 		const { id, list } = v(Listed, "row")
@@ -1536,7 +1536,7 @@ const restStored = derived.stored(
  */
 const seriesStored = (c: CallKeyCase) =>
 	c.ordinal === "the place in the head"
-		? derived.stored(
+		? derived(
 				"D",
 				query(callBase).rule((r) => {
 					const { id, lo, hi } = v(Listed, "row")
@@ -1548,7 +1548,7 @@ const seriesStored = (c: CallKeyCase) =>
 						.find({ id, at: Type.cast(at, pg.integer) })
 				})
 			)
-		: derived.stored(
+		: derived(
 				"D",
 				query(callBase).rule((r) => {
 					const { id, lo, hi } = v(Listed, "row")
@@ -1561,7 +1561,7 @@ const seriesStored = (c: CallKeyCase) =>
 /** The stored relation of a declared function's case: each row's pieces, at their places where its head delivers them. */
 const piecesStored = (c: CallKeyCase) =>
 	c.ordinal === "the place in the head"
-		? derived.stored(
+		? derived(
 				"D",
 				query(callBase).rule((r) => {
 					const { id, list } = v(Listed, "row")
@@ -1570,7 +1570,7 @@ const piecesStored = (c: CallKeyCase) =>
 					return r.match(Listed, { id, list }).match(run, { at, piece }).find({ id, at, piece })
 				})
 			)
-		: derived.stored(
+		: derived(
 				"D",
 				query(callBase).rule((r) => {
 					const { id, list } = v(Listed, "row")

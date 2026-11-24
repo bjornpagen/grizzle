@@ -617,6 +617,15 @@ const admitExtend = (
 			continue
 		}
 		let level = 1
+		/** A definition written over no level of the schema it extends is refused before what it reads: a relation of its
+		 * own level, which it may name, is no level below. */
+		const over = definitionLevel(value)
+		if (over !== undefined && !isLevelOver(over, baseLevel)) {
+			throw builderRefusal(
+				`${label} derived ${draft.name}`,
+				"a derived definition is a query over a level of the schema it extends"
+			)
+		}
 		for (const read of draft.reads) {
 			const lowerRead = below.get(read)
 			if (lowerRead === undefined) {
@@ -629,20 +638,12 @@ const admitExtend = (
 				level = Math.max(level, lowerRead.level + 1)
 			}
 		}
-		const over = definitionLevel(value)
-		if (over !== undefined && !isLevelOver(over, baseLevel)) {
-			throw builderRefusal(
-				`${label} derived ${draft.name}`,
-				"a derived definition is a query over a level of the schema it extends"
-			)
-		}
 		descs.push(
 			builtNode({
 				kind: "derived",
 				name: draft.name,
 				query: draft.query,
 				level,
-				storage: draft.storage,
 				loc: draft.loc
 			})
 		)

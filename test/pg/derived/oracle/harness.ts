@@ -3,6 +3,7 @@ import { Array as Arr, Data, Effect, Order, Record as Rec, type Scope } from "ef
 import { type DerivedAnalysis, derivedAnalysis } from "#compiler/analysis/schema.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
+import { servedQuery } from "#compiler/ir/derived.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
@@ -142,11 +143,16 @@ export const installDerived = (
 		 * than as a defect in the middle of a snapshot. */
 		const definitions = new Map<string, Definition>()
 		for (const [relation, r] of Rec.toEntries(analysis.relations)) {
-			const program = lowerConservative(conservativeInput(r.query), {
-				names: installed.names,
-				params: [],
-				subject: { kind: "query" }
-			})
+			/** The definition over the base relations alone, every derived relation it reads through its own definition
+			 * (CheckedSchema expanded), whatever the installation stores: the oracle a stored table is held against. */
+			const program = lowerConservative(
+				conservativeInput(servedQuery(r.query, analysis.schema.expanded())),
+				{
+					names: installed.names,
+					params: [],
+					subject: { kind: "query" }
+				}
+			)
 			if (!program.ok) {
 				return yield* Effect.fail(program.error)
 			}

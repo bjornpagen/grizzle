@@ -4,6 +4,7 @@ import type { AdmittedQuery } from "#compiler/check/index.ts"
 import { type CompileError, malformedDescription, unsupported } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
+import { type DerivedRows, servedQuery } from "#compiler/ir/derived.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
 import { fieldColumnType, type PhysicalNames } from "#compiler/ir/physical.ts"
 import type { Heading, RootedDag } from "#compiler/ir/rel.ts"
@@ -41,6 +42,9 @@ interface DefinitionOptions {
 	readonly names: PhysicalNames
 	/** The installed key constraints the rewrites may rely on, named as ownership installs them. */
 	readonly catalog: EvidenceCatalog
+	/** How the definition reads the derived relations it reads: from a table, or through a definition (ir/derived.ts
+	 * servedQuery). */
+	readonly rows: DerivedRows
 }
 
 export interface LoweredDefinition {
@@ -253,7 +257,7 @@ export const lowerDefinition = (
 		return Result.err(malformedDescription(at, "a parameterless definition"))
 	}
 	/** The definition as the optimized lowering takes it (optimizedInput), annotated again under the same key evidence. */
-	const annotated = optimizedInput(query, queryEvidence)
+	const annotated = optimizedInput(servedQuery(query, options.rows), queryEvidence)
 	if (!annotated.ok) {
 		return annotated
 	}

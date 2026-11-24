@@ -38,6 +38,7 @@ import {
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
+import type { DerivedRows } from "#compiler/ir/derived.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
 import type { Family } from "#compiler/ir/family.ts"
@@ -352,7 +353,7 @@ interface WorldsContext {
 	/** The schema's installed keys and containments, as every compilation sees them, with the derived relations'
 	 * inherited keys; the transaction evidence context both lowerings run in admits only what holds at every statement. */
 	readonly catalog: EvidenceCatalog
-	readonly lower: (relation: string, query: AdmittedQuery) => LoweredDefinition
+	readonly lower: (relation: string, query: AdmittedQuery, rows: DerivedRows) => LoweredDefinition
 }
 
 const worldsContext = (b: InstallBuilder): WorldsContext => {
@@ -364,8 +365,8 @@ const worldsContext = (b: InstallBuilder): WorldsContext => {
 	return {
 		checked,
 		catalog,
-		lower: (relation, query) =>
-			unwrap(lowerDefinition(relation, query, { names: b.names, catalog }))
+		lower: (relation, query, rows) =>
+			unwrap(lowerDefinition(relation, query, { names: b.names, catalog, rows }))
 	}
 }
 
@@ -398,20 +399,32 @@ export interface WrittenEntry {
 
 /** A relation of a role as the installation reads it: a whole entry by the kind of the base relation its checked schema
  * holds, the installed schema's own handle or analysis, or a query entry with its analysis. */
-const roleRelation = (e: RoleEntry): RoleRelation => {
-	if (e.kind === "world") {
-		return { kind: "world", entry: e.entry, analysis: e.analysis }
+const roleRelation =
+	(checked: CheckedSchema) =>
+	(e: RoleEntry): RoleRelation => {
+		if (e.kind === "world") {
+			return { kind: "world", entry: e.entry, analysis: e.analysis }
+		}
+		const r = e.relation
+		switch (r.kind) {
+			case "relation":
+				return { kind: "stored", entry: e.entry, relation: r }
+			case "closed":
+				return { kind: "closed", entry: e.entry, relation: r.relation }
+			case "derived": {
+				/** A role holds a derived relation whole only where its base stores it (schema/own.ts OwnedRole `wholeDerived`). */
+				const holding = checked.holdings.get(r.name)
+				return {
+					kind: "derived",
+					entry: e.entry,
+					analysis: defined(
+						holding?.kind === "stored" ? holding.analysis : undefined,
+						`the stored analysis of ${r.name}, which a role holds whole`
+					)
+				}
+			}
+		}
 	}
-	const r = e.relation
-	switch (r.kind) {
-		case "relation":
-			return { kind: "stored", entry: e.entry, relation: r }
-		case "closed":
-			return { kind: "closed", entry: e.entry, relation: r.relation }
-		case "derived":
-			return { kind: "derived", entry: e.entry, analysis: r.analysis }
-	}
-}
 
 /** Each writable entry of a role, in name order, with the relation it writes: the role's write list over the installed
  * schema's handles (analysis/schema.ts RoleWrite), which names only relations the installed schema declares. */
@@ -509,13 +522,16 @@ const wholeView = (
 const worldView = (
 	b: InstallBuilder,
 	cx: WorldsContext,
-	role: OwnedRole,
+	checked: CheckedSchema<RoleWorld>,
 	name: ObjectName,
 	e: OwnedWorldEntry,
 	analysis: WorldAnalysis
 ): ViewPlan => {
+	const role = checked.world.role
 	const entry = `${role.name}.${e.name}`
-	const lowered = cx.lower(entry, analysis.query)
+	/** A query entry's view is read inside the role's writes too: a stored derived relation one of them may write the
+	 * holders of is read through its definition (analysis/schema.ts CheckedSchema writable). */
+	const lowered = cx.lower(entry, analysis.query, checked.world.base.rows(checked.writable))
 	const decodes = analysis.heading.some((c) => baseOf(c.type).carrier === "code")
 	const reading = decodes
 		? unwrap(derivedReading(lowered, `the decoded view of ${entry}`))
@@ -605,7 +621,7 @@ const addWholeViews = (
 		}
 	>()
 	for (const { views, checked } of roles) {
-		for (const r of checked.entries.map(roleRelation)) {
+		for (const r of checked.entries.map(roleRelation(checked))) {
 			if ((r.kind !== "stored" && r.kind !== "derived") || held.has(r.entry.name)) {
 				continue
 			}
@@ -1251,9 +1267,10 @@ export const grantedPrivileges = (
 
 /**
  * Every relation a statement of a role can read, by its declared name, in code-unit order, as its installation grants
- * it: each relation its views read as their owner, a whole entry's relation and each relation a query entry's
- * definition reads, a live derived relation by the relations its own definition reads, since its view stores no row;
- * and each relation it holds a table privilege on (grantedPrivileges), what it writes and the owners of the families
+ * it: each relation its views read as their owner, a whole entry's relation, a stored derived relation it reads in full
+ * among them (analysis/schema.ts CheckedSchema), and each relation a query entry's definition reads, any other derived
+ * relation by the relations its own definition reads, which the role reads in its place; and each relation it holds a
+ * table privilege on (grantedPrivileges), what it writes and the owners of the families
  * whose members it writes. Its filter functions and key and unique probes, the one other way it reads, read a relation
  * it writes and its entry's membership, which its view reads. PostgreSQL refuses a statement's read of any other
  * relation with 42501 as its executor starts (ExecCheckPermissions), before it reads a row. What certification reads of
@@ -1265,15 +1282,24 @@ export const readableRelations = (
 	checked: CheckedSchema<RoleWorld>
 ): ReadonlyArray<string> => {
 	const role = checked.world.role
+	const whole = new Set([
+		...Object.values(role.relations).flatMap((entry) =>
+			entry.kind === "whole" ? [entry.relation.name] : []
+		),
+		...role.wholeDerived.filter((name) => checked.holdings.get(name)?.kind === "stored")
+	])
 	const stored = (name: string): ReadonlyArray<string> => {
 		const relation = role.base.relations[name]
-		return relation?.kind === "derived" && relation.view.kind === "live"
+		return relation?.kind === "derived" && !whole.has(name)
 			? relation.reads.flatMap(stored)
 			: [name]
 	}
-	const viewed = Object.values(role.relations).flatMap((entry) =>
-		entry.kind === "whole" ? [entry.relation.name] : entry.reads.flatMap(stored)
-	)
+	const viewed = [
+		...whole,
+		...Object.values(role.relations).flatMap((entry) =>
+			entry.kind === "whole" ? [] : entry.reads.flatMap(stored)
+		)
+	]
 	return [...new Set([...viewed, ...grantedPrivileges(model, checked).keys()])].toSorted(
 		compareStrings
 	)
@@ -1512,7 +1538,7 @@ const addRole = (
 	const viewStatements: Array<SqlStatement> = []
 	const viewSchemas = new Map<string, Node<"publish">>()
 	const queries: Array<Extract<RoleRelation, { readonly kind: "world" }>> = []
-	for (const r of checked.entries.map(roleRelation)) {
+	for (const r of checked.entries.map(roleRelation(checked))) {
 		switch (r.kind) {
 			case "closed":
 				columnDomains(b, r.relation.fields, use)
@@ -1558,7 +1584,7 @@ const addRole = (
 			const plan = worldView(
 				b,
 				cx,
-				role,
+				checked,
 				objectName(schema, b.name(name.name)),
 				r.entry,
 				r.analysis

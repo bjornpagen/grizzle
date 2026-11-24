@@ -25,7 +25,7 @@ const Article = relation("Article", { id: Id, slug: Slug, title: Prose }, ["id"]
 /** The articles, each in a unit of its own, keyed by its id. */
 const Stored = schema("RefinedOrder", [Article], [unit("Story", { id: Id })])
 
-const Listed = derived.stored(
+const Listed = derived(
 	"Listed",
 	query(Stored).rule((r) => {
 		const { id, slug, title } = v(Article, "article")

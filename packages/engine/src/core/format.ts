@@ -518,6 +518,26 @@
  * or a take over heading groups ordered again that would compare one, is refused (UnsupportedOperation), as format 8
  * refused both. A rule's violation and a ChangeSet's bound relation parameter are checked as relations, sets no caller
  * reads in an order (check/index.ts checkRelation).
+ * Where a derived relation's rows live is the installation's inference, never its declaration's
+ * (analysis/derived/storage.ts): `derived.stored` is gone, and a derived relation's Description states no `storage`. Every
+ * derived relation whose definition is unit-local within one declared unit, every function it calls immutable, no field
+ * it reads one grizzle rewrites in place, and whose table can hold its rows is stored, kept at every COMMIT by the
+ * judge's upkeep as format 8 kept a declared one, whether the relations it reads are closed or open; every other is
+ * live, and snapshot.json's derived facts record each live one with why (types.ts SnapshotDerived `liveDerived`). So an
+ * installation gains a stored table, its unique indexes, its fill, its upkeep blocks and its holders' captures for every
+ * such relation format 8 read live, every statement that read its definition reads its table, and its laws become its
+ * table's natives as a declared stored relation's were. A query names every derived relation by its name, the checker
+ * reads it as a relation keyed by the keys its definition proves, stored or live alike, and the lowering reads a live
+ * one through its definition (ir/derived.ts servedDag), where format 8's builder inlined a live one's definition into
+ * the query's Description, so every served file's query and ChangeSet Description that matched a live derived relation
+ * names it instead. A statement of a write that writes a relation a stored relation's definition reads reads that
+ * relation through its definition (analysis/schema.ts CheckedSchema serves), as does a read inside a write's
+ * transaction where its schema may write such a relation, and every membership; and a role reads a
+ * stored relation's table through its whole view where it holds every relation its definition reads whole
+ * (schema/own.ts OwnedRole `wholeDerived`), its definition over its entries otherwise: no role holds a derived relation
+ * as an entry, so every role's description that held a stored one whole loses that entry, and every role reading one
+ * in full gains its whole view. Every installation installs its stored tables, which format 8 left to an extension its
+ * caller supplied (the installation's `deferred` derived relations are gone).
  * A closed relation's constant, and each side's and each dependent key's owner function's, is two parallel arrays
  * (ir/cells.ts Constant): its cells, `'{-1,k1,…}'::bigint[]`, every row's key index ascending after the sentinel -1,
  * and, where its payload space holds more than one code, its payloads, `'{c1,…}'::bigint[]`, every row's payload code

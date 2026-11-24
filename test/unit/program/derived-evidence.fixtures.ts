@@ -55,7 +55,7 @@ const Line = relation("Line", { doc: Id, at: pg.integer, words: pg.integer }, ["
 const Docs = schema("Docs", [Line], [unit("Document", { doc: Id })])
 
 /** Each document's line count and word sum, keyed by the document, in its unit. */
-const DocWords = derived.stored(
+const DocWords = derived(
 	"DocWords",
 	query(Docs).rule((r) => {
 		const { doc, at, words } = v(Line, "line")
@@ -64,7 +64,7 @@ const DocWords = derived.stored(
 )
 
 /** The lines themselves, keyed by their document and place, in the document's unit. */
-const LongLines = derived.stored(
+const LongLines = derived(
 	"LongLines",
 	query(Docs).rule((r) => {
 		const { doc, at, words } = v(Line, "line")

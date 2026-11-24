@@ -22,7 +22,6 @@ import {
 	closedRelationOver,
 	closedRowKey,
 	decodeDesc,
-	type DerivedStorage,
 	type ExprDesc,
 	type FieldDecl,
 	type AdmittedClosedRelation,
@@ -142,7 +141,6 @@ export interface DerivedDraft {
 	readonly name: string
 	readonly query: QueryDesc
 	readonly reads: ReadonlyArray<string>
-	readonly storage: DerivedStorage
 	readonly loc: SourceLoc
 }
 
@@ -1109,22 +1107,15 @@ export const bitsOf = <C extends AnyRoster>(
 	return mintBits<C>()(new RosterSet(roster.name, members))
 }
 
-/** Each storage's constructor, as a refusal of its admission names it. */
-const derivedSpelling = {
-	live: "derived",
-	stored: "derived.stored"
-} as const satisfies Record<DerivedStorage, string>
-
-/** The admission core of derived(...) and derived.stored(...): the definition checked and
- * recorded, as relation's is, with how the relation is held. A stored one's unit-locality is decided where its theory
- * is built (analysis/theory/theory.ts), over the relations its definition reads. */
+/** The admission core of derived(...): the definition checked and recorded, as relation's is. Whether its rows are
+ * stored is no declaration of its: the checked schema infers it from what its definition reads (analysis/schema.ts
+ * CheckedSchema, analysis/derived/storage.ts). */
 export const admitDerived = (
 	name: unknown,
 	definition: unknown,
-	storage: DerivedStorage,
 	extra: ReadonlyArray<unknown>
 ): DerivedDraft => {
-	const label = `${derivedSpelling[storage]} ${typeof name === "string" ? name : "?"}`
+	const label = `derived ${typeof name === "string" ? name : "?"}`
 	const derivedName = requireDeclaredName(name, label, "derived relation")
 	if (extra.length > 0) {
 		throw malformed(label, "derived(name, definition): two arguments")
@@ -1153,51 +1144,42 @@ export const admitDerived = (
 		name: derivedName,
 		query,
 		reads: Object.freeze([...uses.relations].toSorted(compareStrings)),
-		storage,
 		loc: builderLoc(label, [derivedName])
 	})
 	return draft
 }
 
-/** The value of a derived relation's definition under its name, held as `storage` says (derivedBuilder). */
-const derivedOf =
-	<St extends DerivedStorage>(storage: St) =>
-	<const Name extends string, Q extends DefinitionQuery>(
-		name: Name,
-		definition: Q,
-		extra: ReadonlyArray<unknown>
-	): Derived<
-		Name,
-		DefinitionView<Q["heading"], DefinitionKeys<Q>, RuleReadOf<Q>, DefinitionLevel<Q>>,
-		St
-	> => {
-		const draft = admitDerived(name, definition, storage, extra)
-		const heading: Q["heading"] = definition.heading
-		return ownValue({
-			kind: "derived",
-			value: {
-				...builtMark,
-				kind: "derived",
-				name,
-				definition,
-				heading,
-				storage,
-				fact: record(heading)
-			},
-			desc: draft,
-			content: undefined
-		})
-	}
-
 /**
- * derived(name, definition): the value of the definition under its name, a live derived relation PostgreSQL stores
- * nothing for, owned with the draft its admission core records; its heading is the definition's, which v mints
- * variables over, and its `fact` the decoder of that heading. derived.stored(name, definition) is the same relation
- * with its rows in a table of its own, which grizzle keeps equal to its definition at every COMMIT (ir/desc.ts
- * DerivedStorage).
+ * derived(name, definition): the value of the definition under its name, owned with the draft its admission core
+ * records; its heading is the definition's, which v mints variables over, and its `fact` the decoder of that heading.
+ * Where its rows live is the installation's inference, never its declaration's: in a table of its own, which grizzle
+ * keeps equal to its definition at every COMMIT, where its definition is unit-local within one declared unit and its
+ * table can hold its rows, and its definition's alone otherwise (analysis/derived/storage.ts).
  */
-export const derivedBuilder = derivedOf("live")
-export const storedDerived = derivedOf("stored")
+export const derivedBuilder = <const Name extends string, Q extends DefinitionQuery>(
+	name: Name,
+	definition: Q,
+	extra: ReadonlyArray<unknown>
+): Derived<
+	Name,
+	DefinitionView<Q["heading"], DefinitionKeys<Q>, RuleReadOf<Q>, DefinitionLevel<Q>>
+> => {
+	const draft = admitDerived(name, definition, extra)
+	const heading: Q["heading"] = definition.heading
+	return ownValue({
+		kind: "derived",
+		value: {
+			...builtMark,
+			kind: "derived",
+			name,
+			definition,
+			heading,
+			fact: record(heading)
+		},
+		desc: draft,
+		content: undefined
+	})
+}
 
 /**
  * The Description of a relation, roster or closed relation value: an owned value's own, or a JavaScript look-alike's,

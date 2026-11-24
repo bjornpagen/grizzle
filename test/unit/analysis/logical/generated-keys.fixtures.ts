@@ -310,7 +310,6 @@ export const viewSchemaOf = (c: GeneratedCase): SchemaDesc => ({
 			kind: "derived",
 			name: viewName,
 			level: 1,
-			storage: "stored",
 			query: scanOf(c, relationName)
 		}
 	],

@@ -16,7 +16,6 @@ import {
 	contextOver,
 	type ContextFactSourceKind,
 	decodeRoleOver,
-	derivedHeld,
 	type FieldDesc,
 	heldRelation,
 	type LoginDesc,
@@ -105,7 +104,7 @@ export const roleDescOf = (value: unknown): RoleDesc | undefined => ownedDesc(va
  * A role as a level (write/changeset/levels.ts), read once, when role(...) builds the role: its Description; its base's
  * content (levels.ts SchemaContent), which beside the Description is its identity (levels.ts sameRoleLevel); the
  * highest level of its base it holds, every relation of that level and below it whole or scoped under its own name but
- * the closed and live derived relations, which no role holds and every role reads (desc.ts heldRelation); every relation
+ * the closed and derived relations, which no role holds and every role reads (desc.ts heldRelation); every relation
  * of every level of its base by name (levelRelations); its entries by name; and the scope of each scoped entry.
  */
 export interface RoleLevel {
@@ -113,7 +112,7 @@ export interface RoleLevel {
 	readonly base: SchemaContent
 	/**
 	 * The highest level of its base the role holds, every relation of that level and of every level below it whole or
-	 * scoped under its own name but the closed and live derived relations: programs over that level and every level below
+	 * scoped under its own name but the closed and derived relations: programs over that level and every level below
 	 * it run on the role, each over its scoped relations' owner's rows (program/slice.ts). Its base itself for a full
 	 * role; none for a role that holds not every relation of its base's root so.
 	 */
@@ -467,13 +466,13 @@ export const admitRole = (
 		}
 		const draft = derivedDraftOf(value)
 		const kind = ownedKind(value)
-		if (draft !== undefined && !derivedHeld(draft.storage)) {
+		if (draft !== undefined) {
 			throw ruleRefused(
 				builderLoc(at, []),
-				"a whole entry is a relation PostgreSQL stores: a role reads a live derived relation through the relations its definition reads"
+				"a role holds no derived relation: it reads one through the relations its definition reads"
 			)
 		}
-		if (draft !== undefined || kind === "relation" || kind === "closed") {
+		if (kind === "relation" || kind === "closed") {
 			const own = wholeOf(value, at)
 			const declared = below.get(key)
 			const held = Object.hasOwn(baseEntry.value.relations, key)
@@ -896,8 +895,8 @@ const scopedValue = (
 	relation: AnySchema["relations"][string],
 	scope: Scope
 ): AnyScoped => {
-	if (relation.kind !== "relation" && relation.kind !== "derived") {
-		throw defect(`scopedEntriesOf: ${key}, a roster or a closed relation, scoped`)
+	if (relation.kind !== "relation") {
+		throw defect(`scopedEntriesOf: ${key}, no ordinary relation, scoped`)
 	}
 	return ownValue({
 		kind: "scope",

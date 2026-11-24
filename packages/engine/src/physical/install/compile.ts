@@ -43,6 +43,7 @@ import { addRules } from "#compiler/physical/ddl/rules.ts"
 import { addStamps } from "#compiler/physical/ddl/stamps.ts"
 import { addTables } from "#compiler/physical/ddl/tables.ts"
 import { wholeTables } from "#compiler/physical/ddl/whole.ts"
+import { storedTablesExtension } from "#compiler/physical/derived/objects.ts"
 import {
 	type PlannedIndex,
 	planIndexes,
@@ -113,11 +114,6 @@ export interface Installation extends InstallPlan {
 	/** Every identity the installation named an object by, ownership's, the law model's and the installer's, each as
 	 * often as it was minted: the census its comments passed. */
 	readonly identities: ReadonlyArray<Identity<IdentityKind>>
-	/** What this installation leaves to other packages' extensions: its stored derived relations no extension
-	 * installs. */
-	readonly deferred: {
-		readonly derivedRelations: ReadonlyArray<string>
-	}
 	/** Each role of each login with its certificate, in login then role order: the level its writes begin at, and what
 	 * each table's guard trigger is installed by (physical/ddl/isolation.ts readCommittedRelations). */
 	readonly certification: ReadonlyArray<CertifiedRole>
@@ -483,15 +479,13 @@ const installationIn = (
 				addImmutableGuards(b)
 				addSpanStorage(b, plan.spans)
 
-				const claimedDerived = new Set<string>()
 				const extensionRequests: Array<IndexRequest> = []
-				for (const extension of new Set([refinedConstantsExtension, ...options.extensions])) {
-					const contribution = unwrap(extension.contribute(b))
-					const c = contribution
-					appendAll(extensionRequests, c.indexRequests)
-					for (const d of c.derivedRelations) {
-						claimedDerived.add(d)
-					}
+				for (const extension of new Set([
+					refinedConstantsExtension,
+					...options.extensions,
+					storedTablesExtension
+				])) {
+					appendAll(extensionRequests, unwrap(extension.contribute(b)).indexRequests)
 				}
 				/** The judge after the extensions, whose stored derived relations' tables its upkeep writes and its captures
 				 * stand on. */
@@ -538,9 +532,6 @@ const installationIn = (
 					...worlds.roleDefaults,
 					...comments
 				]
-				const derived = Object.values(owned.relations)
-					.filter((r) => r.kind === "derived" && r.view.kind === "stored")
-					.map((r) => r.name)
 				return {
 					...plan,
 					settings,
@@ -550,9 +541,6 @@ const installationIn = (
 					indexes,
 					worlds: worlds.worlds,
 					identities,
-					deferred: {
-						derivedRelations: derived.filter((d) => !claimedDerived.has(d)).toSorted(compareStrings)
-					},
 					certification,
 					live,
 					ruleChecks: rules.checks

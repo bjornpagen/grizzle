@@ -488,7 +488,7 @@ export const schemaOf = (c: LoweringCase): SchemaDesc => {
 	const on0 = (level: Level, r: AuthoredRelationDesc): ReadonlyArray<AuthoredRelationDesc> =>
 		level === "base" ? [r] : []
 	const rule: Layer = {
-		relations: [{ kind: "derived", name: "D", level: 1, storage: "live", query: definitionOf(c) }],
+		relations: [{ kind: "derived", name: "D", level: 1, query: definitionOf(c) }],
 		statements: [
 			contained(
 				on("S", Arr.take(SOURCE, c.heads)),

@@ -135,7 +135,8 @@ const derivedMembers: { readonly [K in keyof SnapshotDerived]: K } = {
 	library: "library",
 	tables: "tables",
 	live: "live",
-	params: "params"
+	params: "params",
+	liveDerived: "liveDerived"
 }
 
 /** The members the first draft's derived facts record. */

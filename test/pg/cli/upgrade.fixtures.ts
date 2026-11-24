@@ -343,7 +343,7 @@ export type WorldsFeature =
 	| "a role holding a query entry"
 	| "a role holding whole entries alone"
 	| "a role over the base"
-	| "a stored derived relation held whole"
+	| "a stored derived relation read in full"
 
 /** Every case of the worlds box, each knob by its own draw, so a finite enumeration draws each case once. */
 export const worldsCaseGen: Gen<WorldsCase> = (source) => ({
@@ -353,7 +353,7 @@ export const worldsCaseGen: Gen<WorldsCase> = (source) => ({
 
 /**
  * The worlds box under `name`: a base of a roster, Kind, an Item holding a code of it and a Note, each keyed by its id
- * in the unit Record, and a level over it holding a Tag of an item and Busy, the notes stored, each in its note's unit. `reader` holds every relation whole, so its whole views read
+ * in the unit Record, and a level over it holding a Tag of an item and Busy, the notes stored, each in its note's unit. `reader` holds every relation whole, so it reads Busy in full, and its whole views read
  * both levels', Kind's none; `writer` holds Item and Tag whole and writes Tag, and, where the case says, reads Labelled,
  * the tagged items, a query entry of its own; one login serves both. Where the case says, `auditor`, over the base, holds
  * Item and Note whole, served by a login of its own. So a whole view is held by several roles, a role holds whole
@@ -365,7 +365,7 @@ export const worldsBox = (name: string, c: WorldsCase) => {
 	const Note = relation("Note", { id: Id, words: pg.integer }, ["id"])
 	const base = schema(name, [Kind, Item, Note], [unit("Record", { id: Id })])
 	const Tag = relation("Tag", { item: Id, label: str.regex("^[a-z]{1,8}$") }, ["item", "label"])
-	const Busy = derived.stored(
+	const Busy = derived(
 		"Busy",
 		query(base).rule((r) => {
 			const { id, words } = v(Note, "note")
@@ -377,7 +377,7 @@ export const worldsBox = (name: string, c: WorldsCase) => {
 		const { item, label } = v(Tag, "tag")
 		return r.match(Tag, { item, label }).find({ item })
 	})
-	const reader = role(upper, "reader", { Kind, Item, Note, Tag, Busy: upper.relations.Busy })
+	const reader = role(upper, "reader", { Kind, Item, Note, Tag })
 	const writer = c.query
 		? role(upper, "writer", { Item, Tag, Labelled: labelled }, { insert: ["Tag"] })
 		: role(upper, "writer", { Item, Tag }, { insert: ["Tag"] })
@@ -396,7 +396,7 @@ export const worldsBox = (name: string, c: WorldsCase) => {
 
 /** The features a worlds case reaches by its box alone. */
 export const worldsFeatures = (c: WorldsCase): ReadonlyArray<WorldsFeature> => [
-	"a stored derived relation held whole",
+	"a stored derived relation read in full",
 	c.query ? "a role holding a query entry" : "a role holding whole entries alone",
 	...(c.query ? (["a role holding whole entries alone"] as const) : []),
 	...(c.auditor ? (["a role over the base"] as const) : [])

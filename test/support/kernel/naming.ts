@@ -979,12 +979,6 @@ export const installationWith = (
 	if (!installation.ok) {
 		throw refused(installation.error)
 	}
-	const { derivedRelations } = installation.value.deferred
-	if (derivedRelations.length > 0) {
-		throw new Error(
-			`the test names the installation of ${owned.name}, which leaves deferred the derived relations (${Arr.join(derivedRelations, ", ")})`
-		)
-	}
 	return installation.value
 }
 
@@ -1102,7 +1096,7 @@ const namesOver = (installation: Installation, schema: string): Names => {
 		table,
 		storedTables: [
 			...Arr.flatMap(Rec.values(installation.owned.relations), (r) =>
-				r.kind === "relation" || (r.kind === "derived" && r.view.kind === "stored")
+				r.kind === "relation" || installation.checked.holdings.get(r.name)?.kind === "stored"
 					? [table(r)]
 					: []
 			),

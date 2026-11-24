@@ -1,9 +1,8 @@
 /**
- * A checked schema checks each import its live definitions read once (analysis/schema.ts CheckedSchema, the one session
- * of its live definitions' checks): a live definition is checked for its refusals alone and reads the definitions below
- * it as imports, so over a chain of live derived relations, each reading the definition below it, the imports are
- * checked once each, one for each definition that reads another, where a session of each definition's own
- * checked the whole chain below it again, a number of checks of the square of the chain's length.
+ * A checked schema checks each import its derived definitions read once (analysis/schema.ts CheckedSchema, the one
+ * session of its definitions' checks): over a chain of live derived relations, each reading the definition below it as
+ * an import, the imports are checked once each, one for each definition that reads another, where a session of each
+ * definition's own checked the whole chain below it again, a number of checks of the square of the chain's length.
  *
  * The count is work, never time: V8's precise coverage counts the checker's import checks (kernel/calls.ts callCounts,
  * check/checker.ts #importChecked). The box is exhausted: chains of one to nine definitions.
@@ -81,7 +80,6 @@ const chainOf = (length: number): SchemaDesc => {
 			kind: "derived" as const,
 			name: `D${i + 1}`,
 			level: 1,
-			storage: "live" as const,
 			query
 		})),
 		statements: [],
@@ -127,9 +125,10 @@ export const aCheckedSchemaChecksEachImportItsLiveDefinitionsReadOnce = property
 		kills: [
 			{
 				file: "packages/engine/src/analysis/schema.ts",
-				original: "r.desc.query, r.name, r.loc, live)",
-				replacement: "r.desc.query, r.name, r.loc, new CheckSession(this.patterns))",
-				why: "Each live definition is checked in a session of its own, which checks the whole chain of imports below it again: a chain of n definitions checks n(n - 1) / 2 imports, and the property fails from three."
+				original: "\t\t\tconst definition = unwrap(derivedDefinition(this, r, session))\n",
+				replacement:
+					"\t\t\tconst definition = unwrap(derivedDefinition(this, r, new CheckSession(this.patterns)))\n",
+				why: "Each definition is checked in a session of its own, which checks the whole chain of imports below it again: a chain of n definitions checks n(n - 1) / 2 imports, and the property fails from three."
 			}
 		]
 	}

@@ -82,10 +82,10 @@ const schemaOf = (change: Change, version: "first" | "second") => {
 			const { doc, at, b } = v(T, "t")
 			return r.match(T, { doc, at, a, b }).find({ doc, at, b })
 		})
-	const Ones = derived.stored("Ones", selected(changed("Ones") ? 3 : 1))
-	const Twos = derived.stored("Twos", selected(changed("Twos") ? 4 : 2))
+	const Ones = derived("Ones", selected(changed("Ones") ? 3 : 1))
+	const Twos = derived("Twos", selected(changed("Twos") ? 4 : 2))
 	const Level1 = schema.extend([Base], "view_identity_1", [Ones, Twos], [])
-	const Fives = derived.stored(
+	const Fives = derived(
 		"Fives",
 		query(Level1).rule((r) => {
 			const { doc, at } = v(Ones, "ones")

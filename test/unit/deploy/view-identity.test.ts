@@ -142,13 +142,13 @@ export const aChangeOfAViewsMeaningCreatesExactlyThatViewAgainAndPopulatesIt = p
 				why: "The snapshot's files record no stored relation's meaning, so every draft over a committed snapshot drops and creates every stored table again and fills it over every row."
 			},
 			{
-				file: "packages/engine/src/analysis/theory/theory.ts",
+				file: "packages/engine/src/analysis/derived/storage.ts",
 				original: "\tconst holding = keys.find((k) => unit.every((f) => k.fields.includes(f)))\n",
 				replacement: "\tconst holding = narrowest\n",
 				why: "A stored table's primary key is its narrowest proven key with its unit's fields put before it, whatever key holds the unit already: T's key of b moves Ones' and Twos' from (doc, at) to (doc, at, b), so a key added creates every stored table again."
 			},
 			{
-				file: "packages/engine/src/analysis/theory/theory.ts",
+				file: "packages/engine/src/analysis/derived/storage.ts",
 				original:
 					'\t\treturn { kind: "superkey", fields, named: [first, ...rest], of: narrowest }\n',
 				replacement: '\t\treturn { kind: "superkey", fields, named: fields, of: narrowest }\n',

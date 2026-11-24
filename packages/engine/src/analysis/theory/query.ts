@@ -1517,10 +1517,9 @@ const sourcesThrough = (
 ): InferredExpr => mapExpr(e, { leaf: (x) => x, term: (x) => sourcesThrough(x, source), source })
 
 /**
- * How a theory's violation queries read their relations live: the source each relation is read through, a stored or
- * closed relation by its name, a derived relation, materialized or not, as its definition, read live and imported as a
- * query of its own (`liveQuery`), never through its view, which the migration that checks the rule may not have filled;
- * and each query read live, once however many laws read it (`liveReading`).
+ * How a theory's violation queries read their relations live: the source each relation is read through, an ordinary,
+ * closed or stored derived relation by its name, a live derived relation as its definition, read live and imported as a
+ * query of its own (`liveQuery`); and each query read live, once however many laws read it (`liveReading`).
  */
 export interface LiveReading {
 	readonly relation: (relation: string) => InferredSource
@@ -1570,13 +1569,13 @@ export const liveReading = (definition: LiveEnv["definition"]): LiveReading => {
 }
 
 /**
- * A definition read live: every derived relation it matches or negates, at any depth, read as its own definition, live,
- * imported (`LiveReading`), and every query it imports read so in turn. Each stays a query of its own, so its rows are
- * computed at a level of their own, joined to the level that reads them by the columns that level binds; none stays a
- * relation by its name, which a walk of the query (analysis/theory/unit.ts) would read as a closed relation, the same
- * at every state and in no unit. A recursion is read as it stands: only a definition holds one, and the query builder
- * that built it reads a live derived relation through its definition and a stored one by its table, as the reading
- * does (query/build/state.ts), so no step or base of it matches a relation the reading reads otherwise.
+ * A query read live: every derived relation it matches or negates that the reading reads no table of, at any depth, in
+ * every stage, interior stage, attachment and import of it, read as its own definition, live, imported (`LiveReading`),
+ * and every query it imports read so in turn. Each stays a query of its own, so its rows are computed at a level of
+ * their own, joined to the level that reads them by the columns that level binds; none stays a relation by its name,
+ * which a walk of the query (analysis/theory/unit.ts) would read as a closed relation, the same at every state and in
+ * no unit, and the checker as a table. The query builder names every derived relation by its name, whatever the
+ * installation infers of its storage (query/build/state.ts), so the reading is where a definition takes its place.
  */
 const liveQuery = (query: InferredQuery, live: LiveReading): InferredQuery => {
 	/** A query read under a bind map, live, and each query's rows its bind map binds a relation parameter to. */
@@ -1613,7 +1612,9 @@ const liveQuery = (query: InferredQuery, live: LiveReading): InferredQuery => {
 	const rule = (r: InferredRule): InferredRule => ({
 		...r,
 		matches: r.matches.map((m) => ({ ...m, source: source(m.source) })),
-		where: r.where.map((w) => sourcesThrough(w, source))
+		where: r.where.map((w) => sourcesThrough(w, source)),
+		interiors: r.interiors.map((i) => ({ ...i, arms: mapNonEmpty(i.arms, rule) })),
+		attach: r.attach.map((a) => ({ ...a, child: live.query(a.child) }))
 	})
 	const stage = (st: InferredStage): InferredStage => {
 		switch (st.kind) {
@@ -1621,14 +1622,26 @@ const liveQuery = (query: InferredQuery, live: LiveReading): InferredQuery => {
 				return { ...st, arms: mapNonEmpty(st.arms, rule) }
 			case "union":
 				return { ...st, input: stage(st.input), arms: mapNonEmpty(st.arms, rule) }
-			case "named":
-				return { ...st, input: stage(st.input) }
 			case "recursive":
+				return {
+					...st,
+					recursive: {
+						...st.recursive,
+						base: mapNonEmpty(st.recursive.base, rule),
+						rec: mapNonEmpty(st.recursive.rec, rule)
+					}
+				}
 			case "attach":
+				return {
+					...st,
+					input: stage(st.input),
+					attach: { ...st.attach, child: live.query(st.attach.child) }
+				}
+			case "named":
 			case "order":
 			case "take":
 			case "approx":
-				return st
+				return { ...st, input: stage(st.input) }
 		}
 	}
 	return { ...query, stage: stage(query.stage) }

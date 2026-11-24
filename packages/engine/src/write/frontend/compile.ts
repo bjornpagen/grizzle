@@ -33,6 +33,7 @@ import { closedChangeRefusals } from "#compiler/core/refusals.ts"
 import type { ClockBinding, ClockSource } from "#compiler/ir/clock.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { rooted } from "#compiler/ir/dag.ts"
+import { type ServedDag, servedDag } from "#compiler/ir/derived.ts"
 import {
 	bindRelationParams,
 	boundRowsLoc,
@@ -69,7 +70,14 @@ import {
 	type RelationInfo
 } from "#compiler/ir/law.ts"
 import type { LogicalQuery, ParamDecl } from "#compiler/ir/products.ts"
-import type { DeltaSide, Heading, HeadingColumn, RelNode, ValidDag } from "#compiler/ir/rel.ts"
+import type {
+	DeltaSide,
+	Heading,
+	HeadingColumn,
+	RelNode,
+	Roots,
+	ValidDag
+} from "#compiler/ir/rel.ts"
 import { sameScalarType } from "#compiler/ir/scalar.ts"
 import { reservedSlot } from "#compiler/ir/slots.ts"
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
@@ -102,6 +110,7 @@ import {
 	hostEvaluator
 } from "#compiler/runtime/write/fill.ts"
 import { sentLayout } from "#compiler/runtime/write/nesting.ts"
+import { writesOf } from "#compiler/schema/reach.ts"
 import { determines } from "#compiler/schema/scope.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
 import type { RecordedLaw } from "#compiler/types/changeset/changeset.ts"
@@ -575,14 +584,16 @@ const queriesIn = (drafted: Drafted, dag: ValidDag, at: Counterpart): WriteQueri
  */
 const analyzedQueries = (
 	drafted: Drafted,
-	structural: ValidDag,
+	structural: ServedDag<Roots>,
 	analyzed: (structure: ValidDag) => LogicalAnalysis
 ): { readonly dag: ValidDag; readonly queries: WriteQueries } => {
-	const analysis = analyzed(structural)
+	const analysis = analyzed(structural.dag)
 	const judged = judgedAsDelivered(analysis.dag)
 	return {
 		dag: judged.dag,
-		queries: queriesIn(drafted, judged.dag, (node) => judged.of(analysis.of(node).node))
+		queries: queriesIn(drafted, judged.dag, (node) =>
+			judged.of(analysis.of(structural.of(node)).node)
+		)
 	}
 }
 
@@ -1105,6 +1116,25 @@ export const compileChangeSet = (
 	options: FrontendOptions
 ): Result.Result<WriteFrontend, CompileError> => catchRefusal(() => compile(checked, desc, options))
 
+/** The relation of the base a member written into `relation` writes: itself in reality, its role's write list's
+ * target in a role; none for a name the role's write list leaves out, which the member's own target refuses. */
+const baseWritten = (world: CheckedSchema["world"], relation: string): ReadonlyArray<string> => {
+	if (world.kind === "reality") {
+		return [relation]
+	}
+	const write = world.writes.get(relation)
+	if (write === undefined) {
+		return []
+	}
+	switch (write.kind) {
+		case "whole":
+		case "scoped":
+			return [write.relation.name]
+		case "rows":
+			return [write.writable.target.name]
+	}
+}
+
 /** A write into a query entry is judged against the entry's filter at its own statement, in the middle of its stratum
  * (, and the role's row security), so a stratum that also writes a relation the filter reads
  * would make which facts the entry holds depend on the order its statements run in. Such a write is refused, as a
@@ -1124,6 +1154,14 @@ const compile = (
 	const existingKeysProof = existingKeysProofOver({ laws, views })
 	/** The base every written relation is an ordinary relation of: reality's own, or the role's base. */
 	const base = checked.definitions()
+	/** Each relation of the base the ChangeSet writes: each member's, through its role's write list where it runs on one,
+	 * and each relation a write of those writes in turn (schema/reach.ts writesOf). */
+	const writtenRelations = writesOf(
+		checked.owned,
+		desc.strata.flatMap((stratum) =>
+			stratum.members.flatMap((m) => baseWritten(checked.world, m.relation))
+		)
+	)
 
 	/** 1. Check the members and read-backs, merging their queries into one DAG in that order, every check one session's
 	 * (check/session.ts), so every closed import of one key, in any of them, is one node of the DAG. */
@@ -3617,7 +3655,14 @@ const compile = (
 		bound: boundInputs
 	}
 	/** The queries over the analyzed DAG, each node the frontend built read as its annotated counterpart. */
-	const { dag, queries } = analyzedQueries(drafted, structural, analyzed)
+	/**
+	 * The write DAG as its lowering reads it (ir/derived.ts servedDag): every derived relation a member, a read-back or a
+	 * fill reads from its table where this schema reads its table (analysis/schema.ts CheckedSchema serves) and its
+	 * definition reads none of the relations the ChangeSet writes, through its definition otherwise, whose rows the
+	 * write's own earlier statements change before its COMMIT's upkeep replaces that table.
+	 */
+	const served = servedDag(structural, checked.rows(writtenRelations))
+	const { dag, queries } = analyzedQueries(drafted, served, analyzed)
 	/** The DAG the optimized artifact lowers: every take correlated through bind restated with its correlation explicit,
 	 * as a query's is, so the take policy sees its parent set, and analyzed alike. The rewrite reads the analyzed DAG's
 	 * roots, every described source and read-back, and keeps every node's label; each node the queries name is read as

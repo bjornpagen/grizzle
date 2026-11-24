@@ -402,7 +402,7 @@ const derivedOf = (
 			}
 		]
 	})
-	return { kind: "derived", name: "D", level: 1, storage: "live", query }
+	return { kind: "derived", name: "D", level: 1, query }
 }
 
 /** A comparison of two variables. */
@@ -482,7 +482,7 @@ const readsRuleOf = (kinds: number, reads: number): AuthoredRelationDesc => {
 			}
 		]
 	})
-	return { kind: "derived", name: "D", level: 1, storage: "live", query }
+	return { kind: "derived", name: "D", level: 1, query }
 }
 
 /**

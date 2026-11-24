@@ -24,7 +24,7 @@ export const Doc = relation("Doc", { doc: pg.integer, at: pg.integer }, ["doc", 
  */
 export const stored = (name: string) => {
 	const base = schema(name, [Doc], [unit("Document", { doc: pg.integer })])
-	const Counted = derived.stored(
+	const Counted = derived(
 		"Counted",
 		query(base).rule((r) => {
 			const { doc, at } = v(Doc, "d")

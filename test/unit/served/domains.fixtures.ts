@@ -172,7 +172,7 @@ const loginOf = (c: TextDomainCase) => {
 	 * The items whose codes `judge` gives, a stored definition of its rows that finds none of their fields, in the unit
 	 * Items every relation keyed by the item sits in.
 	 */
-	const Judging = derived.stored(
+	const Judging = derived(
 		"Judging",
 		query(base).rule((r) => {
 			const { item: at } = v(Item, "item")

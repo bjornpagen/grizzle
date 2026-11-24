@@ -185,6 +185,7 @@ export const roleAdmissionRefusesEveryPlantedBreachOfARolesRulesByThatRuleAtTheB
 			"wholeEntryName",
 			"wholeEntryUndeclared",
 			"entryOverAnother",
+			"wholeEntryDerived",
 			"entryOutsideBase",
 			"entryParameters",
 			"entryAttaches",
@@ -229,9 +230,9 @@ export const roleAdmissionRefusesEveryPlantedBreachOfARolesRulesByThatRuleAtTheB
 		kills: [
 			{
 				file: "packages/engine/src/schema/world.ts",
-				original: '\t\tif (draft !== undefined || kind === "relation" || kind === "closed") {',
-				replacement: '\t\tif (draft === undefined || kind === "relation" || kind === "closed") {',
-				why: "Operator mutant 23023a52cc at packages/engine/src/schema/world.ts:334 in admitRole: `!==` becomes `===`; the property fails (the census, lane TESTPOLICY2)."
+				original: "\t\tif (draft !== undefined) {\n\t\t\tthrow ruleRefused(\n",
+				replacement: "\t\tif (draft === undefined) {\n\t\t\tthrow ruleRefused(\n",
+				why: "admitRole refuses every whole entry that is no derived relation as one, and admits a derived relation's: the healthy role is refused, and the planted whole entry of Bylines admitted."
 			},
 			{
 				file: "packages/engine/src/schema/own.ts",

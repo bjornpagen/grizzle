@@ -1,6 +1,5 @@
 import type { RowDecoder } from "#compiler/core/decoder.ts"
 import type { Built, Phantom } from "#compiler/core/phantom.ts"
-import type { DerivedStorage } from "#compiler/ir/desc.ts"
 import type {
 	Carriers,
 	Headed,
@@ -28,7 +27,6 @@ export interface AnyDerived extends Built, Headed<Carriers> {
 	readonly kind: "derived"
 	readonly name: string
 	readonly definition: QueryBase
-	readonly storage: DerivedStorage
 	readonly fact: RowDecoder<unknown>
 }
 
@@ -83,18 +81,8 @@ export type RuleReadOf<Q> = ArmsRefusals<Q> extends never ? true : ArmsRefusals<
 /** A derived relation a rule may read: one whose definition joins, selects and projects (RuleRead). */
 export type RuleReadDerived = AnyDerived & RuleRead<true>
 
-/** A derived relation whose rows PostgreSQL holds in a table of its own, which grizzle keeps equal to its definition. */
-export interface AnyStored extends AnyDerived {
-	readonly storage: "stored"
-}
-
-/** A derived relation PostgreSQL stores nothing of: a query matching it and a rule over it read its definition. */
-export interface AnyLive extends AnyDerived {
-	readonly storage: "live"
-}
-
 /**
- * Derived relations: named queries, kept in tables where stored. The runtime constructor is
+ * Derived relations: named queries, kept in tables where the installation infers them stored. The runtime constructor is
  * packages/engine/src/schema's, bound to this signature by the public schema barrel.
  *
  * A derived relation's kind is "derived": a key's, a check's and a containment's side may read it (a rule over its
@@ -118,11 +106,7 @@ export interface AnyLive extends AnyDerived {
  * parameter of `ReturnType<typeof levelOf>`: TS2589 at edullm's DeliveryLevel, a Delivery over 711 relations). The
  * definition is still the relation's value, a query of its heading (test/types/schema/budget/levels).
  */
-export interface Derived<
-	Name extends string,
-	V extends AnyDefinitionView,
-	St extends DerivedStorage = DerivedStorage
->
+export interface Derived<Name extends string, V extends AnyDefinitionView>
 	extends
 		AnyDerived,
 		Phantom<{
@@ -135,7 +119,6 @@ export interface Derived<
 	readonly name: Name
 	readonly definition: QueryBase & Headed<V["heading"]>
 	readonly heading: V["heading"]
-	readonly storage: St
 	readonly fact: RowDecoder<FactOfFields<V["heading"]>>
 }
 
@@ -215,25 +198,14 @@ export type CheckedDefinition<Q> = Q & DefinitionCheck<Q>
 
 /**
  * A derived relation is a named query: fields from the query's head, keys from its evidence. It is declared in an
- * extension of the schema its definition reads. `derived(name, q)` stores nothing: a query matching it and a rule over
- * it read its definition. `derived.stored(name, q)` is the relation grizzle keeps equal to its definition at every
- * COMMIT in a table of its own, admitted where its definition is unit-local, which only the schema's compile decides
- * (analysis/theory/unit.ts storedUnit).
+ * extension of the schema its definition reads. Where its rows live is never its declaration's: the installation keeps
+ * it equal to its definition at every COMMIT in a table of its own where its definition is unit-local within one
+ * declared unit, and reads its definition everywhere else (analysis/derived/storage.ts).
  */
-export type DerivedConstructor = (<const Name extends string, Q extends DefinitionQuery>(
+export type DerivedConstructor = <const Name extends string, Q extends DefinitionQuery>(
 	name: RelationName<Name>,
 	definition: CheckedDefinition<Q>
 ) => Derived<
 	Name,
-	DefinitionView<Q["heading"], DefinitionKeys<Q>, RuleReadOf<Q>, DefinitionLevel<Q>>,
-	"live"
->) & {
-	readonly stored: <const Name extends string, Q extends DefinitionQuery>(
-		name: RelationName<Name>,
-		definition: CheckedDefinition<Q>
-	) => Derived<
-		Name,
-		DefinitionView<Q["heading"], DefinitionKeys<Q>, RuleReadOf<Q>, DefinitionLevel<Q>>,
-		"stored"
-	>
-}
+	DefinitionView<Q["heading"], DefinitionKeys<Q>, RuleReadOf<Q>, DefinitionLevel<Q>>
+>

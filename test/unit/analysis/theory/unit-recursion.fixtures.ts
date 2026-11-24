@@ -130,7 +130,7 @@ export const walkSchemaOf = (c: WalkCase) => {
 	})
 	const Within =
 		c.mutability === "Node mutable in its document"
-			? derived.stored("Within", parentLinks)
+			? derived("Within", parentLinks)
 			: derived("Within", parentLinks)
 	const Across = derived(
 		"Across",

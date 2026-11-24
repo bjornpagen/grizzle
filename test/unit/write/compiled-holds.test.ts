@@ -217,9 +217,9 @@ export const aWritesCompileHoldsOneAnalysisAtATimeTheFoldsAliveWhenItsRestatemen
 			kills: [
 				{
 					file: "packages/engine/src/write/frontend/compile.ts",
-					original: "\tconst { dag, queries } = analyzedQueries(drafted, structural, analyzed)\n",
+					original: "\tconst { dag, queries } = analyzedQueries(drafted, served, analyzed)\n",
 					replacement:
-						"\tconst first = analyzed(structural)\n\tconst { dag, queries } = analyzedQueries(drafted, structural, () => first)\n",
+						"\tconst first = analyzed(served.dag)\n\tconst { dag, queries } = analyzedQueries(drafted, served, () => first)\n",
 					why: "The compile makes the first analysis and hands it to the helper, so its scope holds it while the restatement analyzes the DAG again: two analyses alive at once, the folds alive at the second outnumbering those at the first."
 				}
 			]

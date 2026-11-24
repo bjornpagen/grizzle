@@ -29,6 +29,7 @@ import {
 	type StaleCause,
 	staleDerivedReadText,
 	unfillableText,
+	type UnitLocality,
 	type UnwritableCause,
 	unwritableRelationText
 } from "#compiler/core/causes.ts"
@@ -1181,6 +1182,20 @@ const compileErrorMessage = (reason: CompileReason): string => {
  * builders throw it at the user's call, and the shell carries the same value in Effect's error channel. A defect stays
  * a defect (core/invariant.ts).
  */
+/**
+ * Why the installation reads a derived relation through its definition, never a table of its own
+ * (analysis/derived/storage.ts):
+ *
+ * - `notUnitLocal`: its definition lacks a condition of unit-locality (`lacks`, the first analysis/theory/unit.ts
+ *   storedUnit met): a fact of it may join rows of several units, which two writers may write at once, each blind to the
+ *   other's, so no upkeep at one written unit could keep it exact;
+ * - `unrepresentable`: its table could not hold its rows: derived analysis refused its heading or its keys
+ *   (`refusal`), a refusal its definition's reading never meets.
+ */
+export type LiveReason =
+	| { readonly kind: "notUnitLocal"; readonly lacks: UnitLocality }
+	| { readonly kind: "unrepresentable"; readonly refusal: CompileError }
+
 export class CompileError extends Error {
 	readonly _tag = "CompileError" as const
 	readonly reason: CompileReason

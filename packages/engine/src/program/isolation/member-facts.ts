@@ -153,12 +153,12 @@ export const extractNames = (role: {
 	const { artifacts } = role
 	const owned = role.named.owned
 	const names = artifacts.names
-	const stored = Object.entries(artifacts.owned.relations)
-	const tabled = new Set(
-		stored.flatMap(([name, r]) =>
-			r.kind === "relation" || (r.kind === "derived" && r.view.kind !== "live") ? [name] : []
-		)
-	)
+	const tabled = new Set([
+		...Object.values(artifacts.owned.relations).flatMap((r) =>
+			r.kind === "relation" ? [r.name] : []
+		),
+		...artifacts.derived.order.map((a) => a.name)
+	])
 	const relations = new TupleMap<readonly [string, string], string>()
 	for (const name of tabled) {
 		const table = names.relation(name)
@@ -192,7 +192,7 @@ export const extractNames = (role: {
 		const { ref } = names.declaredFunction(fn)
 		noTable.add([ref.schema, ref.name])
 	}
-	for (const [name, r] of stored) {
+	for (const [name, r] of Object.entries(artifacts.owned.relations)) {
 		if (r.kind === "relation") {
 			for (const field of Object.values(r.fields)) {
 				columns.set([name, names.column(name, field.name)], field.name)
@@ -351,7 +351,8 @@ const roleWorld = (
 			query: unwrap(
 				lowerDefinition(`${role.name}.${e.entry.name}`, e.analysis.query, {
 					names,
-					catalog: cx.catalog
+					catalog: cx.catalog,
+					rows: world.checked.world.base.rows(world.checked.writable)
 				})
 			).query,
 			columns: e.analysis.heading.map((c) => identifierOf(identity.column(c.name)))
