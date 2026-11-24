@@ -107,7 +107,8 @@ export const aCompilesLawModelIsTheWholeSchemasRestrictedToItsSlicesWritesAndNam
 							{
 								kind: "recorded",
 								cycles: whole.fkCycles,
-								references: whole.references
+								references: whole.references,
+								judged: whole.judged
 							}
 						),
 						(basis) => baseArtifacts(basis, unserved)
@@ -117,6 +118,11 @@ export const aCompilesLawModelIsTheWholeSchemasRestrictedToItsSlicesWritesAndNam
 				const model = sliced.laws
 
 				assert.deepEqual(model.fkCycles, whole.fkCycles, "the foreign key graph's cycles")
+				assert.deepEqual(
+					model.judged,
+					whole.judged,
+					"the relations the installation's judge captures"
+				)
 				const planned = plannedOver(whole, names, writes)
 				const read = (from: string, to: string): boolean =>
 					writes.has(from) || writes.has(to) || (names.has(from) && names.has(to))

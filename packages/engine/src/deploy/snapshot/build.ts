@@ -939,6 +939,7 @@ export const derivedFacts = (
 	closed,
 	fkCycles: model.fkCycles,
 	references: model.references,
+	judged: model.judged,
 	textDomains,
 	library
 })
@@ -1361,6 +1362,7 @@ const derivedForm = (d: SnapshotDerived): SnapshotForm => ({
 	closed: Object.fromEntries([...d.closed].map(([name, c]) => [name, closedForm(c)] as const)),
 	fkCycles: d.fkCycles,
 	references: d.references.map((r) => ({ law: r.law, part: r.part })),
+	judged: d.judged,
 	textDomains: Object.fromEntries([...d.textDomains].toSorted(([a], [b]) => compareStrings(a, b))),
 	library: d.library,
 	tables: Object.fromEntries(

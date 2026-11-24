@@ -18,12 +18,27 @@
  *
  * Oracle: PostgreSQL's pg_stat_statements, track all, its plans and calls of the clone's statements before and after
  * each call after the first, and the catalog rows of the session's own relations and functions.
+ *
+ * And a session stands up every table its write writes that the installation's judge captures, though the rule that
+ * reads it is a level above its login's (write/program/stand-up.ts writeStandUps over deploy/snapshot/types.ts
+ * CompileFacts `judged`): metis's assignment level's login wrote BoundLineItem, which only a rule of its xp level reads,
+ * and the capture refused its first assign (55Z03). Each case: Fixed's insert by a login over Fixed's level alone, below
+ * Bounded's, served under the installation's snapshot, two calls on one brand-new backend, each a fact under the bound
+ * or past it (second-call.fixtures.ts runBelow). Oracle: the specification, Bounded over the facts: a lawful call
+ * accepted, an unlawful one refused by Bounded as the level above states it.
  */
 
+import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
-import { callsGen, runCalls } from "#test/pg/adapter/second-call.fixtures.ts"
+import {
+	type BelowFeature,
+	belowGen,
+	callsGen,
+	runBelow,
+	runCalls
+} from "#test/pg/adapter/second-call.fixtures.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** A brand-new backend's calls of a write after its first plan nothing and change no catalog row of its session's own. */
@@ -64,6 +79,46 @@ export const aBrandNewBackendsCallsOfAWriteAfterItsFirstPlanNothingAndChangeNoCa
 				replacement:
 					"\t\t\treturn writeDoBlock(out, { declare: [], body: [sessionTableEmptied(statement.name)] })\n",
 				why: "A carrier's emptying is a DO block of its body, which PostgreSQL compiles anew at every run: its size check and its DELETE are planned at every call, the second's among them."
+			}
+		]
+	})
+
+/** A login below a rule's level stands up the tables it writes that the rule reads, so each of its writes is judged. */
+export const aLoginBelowARulesLevelStandsUpTheTablesItWritesThatTheRuleReadsSoEachWriteIsJudged =
+	property.exhaust(finite(belowGen), {
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
+		situations: [
+			"a lawful write accepted",
+			"an unlawful write refused by the rule above",
+			"a call after a refusal"
+		] satisfies ReadonlyArray<Reached<BelowFeature>>,
+		check:
+			({ substrate }, c) =>
+			(below) =>
+				Effect.provideServiceEffect(
+					Effect.scoped(runBelow(below, c)),
+					Substrate,
+					Effect.map(substrate, (taken) => taken.substrate)
+				),
+		oracle: {
+			kind: "specification",
+			name: "Bounded over the facts each call puts: a fact under the bound accepted, one past it refused by Bounded, named as the level above Fixed's states it"
+		},
+		box: "two calls of an insert of Fixed on one brand-new backend of a served Db of a login over Fixed's level, below Bounded's, each a fact under the bound or past it",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/laws/model/model.ts",
+				original:
+					'\t\t\t\tthis.cycles.kind === "planned" ? judgedOf(rules, this.theory.upkeeps) : this.cycles.judged,\n',
+				replacement: "\t\t\t\tjudgedOf(rules, this.theory.upkeeps),\n",
+				why: "A login's write stands up the tables its own level's rules read: Bounded is a level above the login's, so Fixed's tables stand nowhere and the capture refuses every call (55Z03), metis's assign at 395838066."
+			},
+			{
+				file: "packages/engine/src/deploy/snapshot/build.ts",
+				original: "\tjudged: model.judged,\n",
+				replacement: "\tjudged: [],\n",
+				why: "The snapshot records no relation the installation's judge captures: a login below the top stands up none of its tables, and the capture refuses its write of Fixed (55Z03)."
 			}
 		]
 	})

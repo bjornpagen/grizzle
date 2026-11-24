@@ -130,6 +130,7 @@ const derivedMembers: { readonly [K in keyof SnapshotDerived]: K } = {
 	closed: "closed",
 	fkCycles: "fkCycles",
 	references: "references",
+	judged: "judged",
 	textDomains: "textDomains",
 	library: "library",
 	tables: "tables",

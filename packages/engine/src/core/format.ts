@@ -445,6 +445,11 @@
  * law column after every field (physical/indexes/engine.ts withinBlock, ddl/context.ts BuiltTarget `place`), where format
  * 8 held them in the order the request that created it stated them, so a created index whose request stated its
  * columns in another order is created again, its name with them.
+ * snapshot.json's derived facts record the relations the installation's rule judge captures (deploy/snapshot/types.ts
+ * CompileFacts `judged`), which a login over a level below the top compiles its writes' stand-ups from (write/program/
+ * stand-up.ts writeStandUps), where format 8 stood up only the tables its own level's rules read, so a served write of
+ * a table a rule of a level above reads met the capture's 55Z03; every such write's served file holds the stand-ups of
+ * those tables.
  */
 export const artifactFormat = 8
 

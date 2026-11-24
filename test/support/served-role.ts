@@ -6,13 +6,13 @@ import { fromEngine } from "#adapter/engine.ts"
 import { type ApplyError, ExecutionFailure, TransportFailure } from "#adapter/errors/execution.ts"
 import { applyOutcome } from "#adapter/outcomes/index.ts"
 import { boundReads, type CompiledEntry } from "#adapter/served/forms.ts"
-import { artifactsOver, builtLogin, loginRoles, ownLoginOver } from "#adapter/served/login.ts"
+import { artifactsUnder, builtLogin, loginRoles, ownLoginOver } from "#adapter/served/login.ts"
 import type { RoleContext } from "#adapter/served/role.ts"
 import type { ApplyOutcome } from "#adapter/types/db.ts"
 import { lawsAbove } from "#adapter/witness/keylaw.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { Engine, levelChain, ownBuilt, type RowDecoder } from "#compiler/plan/common.ts"
-import { everySlice, planBasis, servedSnapshot } from "#compiler/plan/serve.ts"
+import { everySlice, servedSnapshot } from "#compiler/plan/serve.ts"
 import type { AnyLoginRole } from "#compiler/types/schema/world.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import { snapshotValue } from "#test/support/snapshot-json.ts"
@@ -29,8 +29,9 @@ export class RoleSetupError extends Data.TaggedError("RoleSetupError")<{ readonl
 /**
  * `role` as the one compile `grizzle generate` commits reads it (adapter/served/compile.ts snapshotCompiled): its
  * login's base owned, the snapshot `installed` reached read over the base's level as that compile reads it, the
- * installation's artifacts planned from what the snapshot records over every relation, its parameters cast to the
- * types the snapshot records the installation installs (ParamSource `recorded`), and the login's roles compiled over
+ * installation's artifacts planned from what the snapshot records over every relation (adapter/served/login.ts
+ * artifactsUnder), its parameters cast to the types the snapshot records the installation installs (ParamSource
+ * `recorded`), and the login's roles compiled over
  * them (adapter/served/login.ts loginRoles), its own workload left out. A program the suite compiles through the role
  * casts a parameter only to a type the installation installs, or is refused as UninstalledDomain where it compiles, so
  * the installation must plan the parameter types of every program the suite runs (test/support/compile.ts paramsOver).
@@ -53,23 +54,11 @@ export const servedRoleContext = (
 			)
 		)
 		const slice = everySlice(owned.base)
-		const artifacts = yield* fromEngine(
-			Engine.flatMap(
-				planBasis(
-					owned.base,
-					snapshot.codes,
-					slice,
-					snapshot.derived.closed,
-					snapshot.derived.textDomains,
-					snapshot.derived.library,
-					{
-						kind: "recorded",
-						cycles: snapshot.derived.fkCycles,
-						references: snapshot.derived.references
-					}
-				),
-				(basis) => artifactsOver(basis, { kind: "recorded", installed: snapshot.derived.params })
-			)
+		const { artifacts } = yield* fromEngine(
+			artifactsUnder(owned.base, snapshot.codes, snapshot.derived, slice, {
+				kind: "recorded",
+				installed: snapshot.derived.params
+			})
 		)
 		const roles = yield* Effect.mapError(
 			loginRoles(

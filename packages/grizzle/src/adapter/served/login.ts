@@ -195,7 +195,8 @@ export const artifactsUnder = (
 			planBasis(base, codes, sliced, derived.closed, derived.textDomains, derived.library, {
 				kind: "recorded",
 				cycles: derived.fkCycles,
-				references: derived.references
+				references: derived.references,
+				judged: derived.judged
 			}),
 			(basis) => artifactsOver(basis, params)
 		)

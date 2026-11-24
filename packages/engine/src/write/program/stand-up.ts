@@ -2,11 +2,12 @@
  * A compiled write's stand-ups (runtime/write/flight.ts StandUp): the session objects its flight reads and writes, which
  * its session makes once before its first call of the write, each from the one emitter that names it: every carrier the
  * artifact's statements empty and fill, the program's own and each statement's staged ones (write/carriers/carriers.ts
- * carrierStandUp), in the order the statements name them; then each table the write writes that the rule judge holds,
- * in code point order, by the call of its stand-up (physical/ddl/rules.ts addStandUps).
+ * carrierStandUp), in the order the statements name them; then each table the write writes that the installation's rule
+ * judge holds (laws/model/model.ts LawModel `judged`), whatever level states the rule that reads it, in code point
+ * order, by the call of its stand-up (physical/ddl/rules.ts addStandUps).
  */
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import { judgedRelations, type LawModel } from "#compiler/laws/model/model.ts"
+import type { LawModel } from "#compiler/laws/model/model.ts"
 import type { StandUp } from "#compiler/runtime/write/flight.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
 import { calledAlone } from "#compiler/sql/build.ts"
@@ -34,7 +35,7 @@ export const writeStandUps = (
 	const written = new Set(Object.keys(artifact.deltas))
 	return [
 		...carriers.map(carrierStandUp),
-		...judgedRelations(laws)
+		...laws.judged
 			.filter((relation) => written.has(relation))
 			.map((relation): StandUp<EmittedText> => ({
 				kind: "judged",

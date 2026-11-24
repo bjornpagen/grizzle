@@ -35,6 +35,7 @@ import {
 	theoryEvidence,
 	typingEnv
 } from "#compiler/analysis/theory/theory.ts"
+import type { StoredUpkeep } from "#compiler/analysis/theory/unit.ts"
 import { catchRefusal, KeyLedger, Refusal, unwrap } from "#compiler/core/canonical.ts"
 import {
 	CompileError,
@@ -449,6 +450,16 @@ export interface LawModel {
 	/** The reference choice its recognizer read (plan.ts ReferenceChoice): what generate records for a layer that plans
 	 * only a slice, which chooses none of its own. */
 	readonly references: ReferenceChoice
+	/**
+	 * The relations whose writes the installation's rule judge captures (physical/ddl/rules.ts addRules, judgedTables),
+	 * in code point order: each a rule over a query reads (RuleTrigger `tables`) and each a stored derived relation's
+	 * upkeep reads (StoredUpkeep `reads`), of every level (`judgedOf`). A session stands up the judge's tables a write of
+	 * one needs before its first such write (physical/ddl/rules.ts addStandUps), which a served write does in its
+	 * session's stand-up (write/program/stand-up.ts writeStandUps): what generate records for a layer that plans only a
+	 * level or a slice (CycleSource), whose own rules are not the installation's, a rule of a level above its own over a
+	 * relation it writes among them.
+	 */
+	readonly judged: ReadonlyArray<string>
 	/** Each containment's existence evidence a query may rely on, its law and the context its discharge holds it in
 	 * (catalog.ts existenceConstraints): what every evidence catalog over the model reads. */
 	readonly existence: ReadonlyArray<ExistenceConstraint>
@@ -480,17 +491,17 @@ export interface LawModel {
 }
 
 /**
- * The relations whose writes the rule judge captures (physical/ddl/rules.ts addRules, judgedTables): each relation a
- * rule over a query reads (RuleTrigger `tables`) and each a stored derived relation's upkeep reads (StoredUpkeep
- * `reads`), in code point order. A session stands up the judge's tables a write of one needs before its first such
- * write (physical/ddl/rules.ts addStandUps), which a served write does in its session's stand-up (runtime/write/
- * flight.ts StandUp).
+ * The relations whose writes a judge of `rules` and `upkeeps` captures (LawModel `judged`): each relation a rule reads
+ * and each an upkeep reads, in code point order.
  */
-export const judgedRelations = (model: LawModel): ReadonlyArray<string> =>
+const judgedOf = (
+	rules: ReadonlyArray<RuleTrigger>,
+	upkeeps: ReadonlyArray<StoredUpkeep>
+): ReadonlyArray<string> =>
 	[
 		...new Set([
-			...model.rules.flatMap((r) => r.tables.map((t) => t.relation.name)),
-			...model.theory.upkeeps.flatMap((u) => u.reads.map((r) => r.relation))
+			...rules.flatMap((r) => r.tables.map((t) => t.relation.name)),
+			...upkeeps.flatMap((u) => u.reads.map((r) => r.relation))
 		])
 	].toSorted(compareStrings)
 
@@ -702,11 +713,13 @@ const onCycleOf = (cycles: FkCycles): ((from: string, to: string) => boolean) =>
 }
 
 /**
- * Where a law model's whole-schema facts come from, its foreign key cycles (FkCycles) and its reference choice
- * (plan.ts ReferenceChoice): planned from every law of the schema, which the model then plans whatever its slice names,
- * or recorded by generate in the snapshot (snapshot.json derived.fkCycles and derived.references), which a login's
- * compile reads so that its model plans only the laws a compile over its slice reads (`plannedLaws`) and chooses no
- * reference over a slice's laws, whose uses of a target are not the schema's.
+ * Where a law model's whole-schema facts come from, its foreign key cycles (FkCycles), its reference choice (plan.ts
+ * ReferenceChoice) and the relations its installation's judge captures (LawModel `judged`): planned from every law of
+ * the schema, which the model then plans whatever its slice names, or recorded by generate in the snapshot
+ * (snapshot.json derived.fkCycles, derived.references and derived.judged), which a login's compile reads so that its
+ * model plans only the laws a compile over its slice reads (`plannedLaws`), chooses no reference over a slice's laws,
+ * whose uses of a target are not the schema's, and stands up every table the installation's judge captures, though its
+ * level holds no rule of a level above it and its slice no rule its slice does not read.
  */
 export type CycleSource =
 	| { readonly kind: "planned" }
@@ -714,6 +727,7 @@ export type CycleSource =
 			readonly kind: "recorded"
 			readonly cycles: FkCycles
 			readonly references: ReferenceChoice
+			readonly judged: ReadonlyArray<string>
 	  }
 
 /**
@@ -1311,6 +1325,8 @@ class Specializer {
 			immediate,
 			fkCycles,
 			references: this.recognizer.references,
+			judged:
+				this.cycles.kind === "planned" ? judgedOf(rules, this.theory.upkeeps) : this.cycles.judged,
 			existence: existenceConstraints(evidence.containments),
 			migrationLaws: plans.flatMap((plan) => (plan.discharge === "migration" ? [plan.law.id] : [])),
 			rules,

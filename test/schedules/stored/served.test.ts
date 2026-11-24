@@ -3,7 +3,7 @@
  * relation at its COMMIT (D11 2b, after 8ab32a3bb's stand-ups): a session stands up the judge's tables a write of a
  * table needs before its first such write (physical/ddl/rules.ts addStandUps), a served write in its session's
  * stand-up (write/program/stand-up.ts writeStandUps), for each relation the judge captures (laws/model/model.ts
- * judgedRelations), each a rule over a query reads and each a stored relation's upkeep reads, Doc among them.
+ * LawModel `judged`), each a rule over a query reads and each a stored relation's upkeep reads, Doc among them.
  *
  * Over the box of borrows.fixtures.ts, Doc(doc, at) in the unit Document(doc) and Counted, each document's places, a
  * stored derived relation over it: each case's seed gives the documents 1 and 2 none, one or two places (schedules/
@@ -135,7 +135,7 @@ export const aServedWriteOfAStoredRelationsHolderStandsTheJudgeUpAndKeepsTheStor
 		kills: [
 			{
 				file: "packages/engine/src/laws/model/model.ts",
-				original: "\t\t\t...model.theory.upkeeps.flatMap((u) => u.reads.map((r) => r.relation))\n",
+				original: "\t\t\t...upkeeps.flatMap((u) => u.reads.map((r) => r.relation))\n",
 				replacement: "",
 				why: "A stored relation's holders left out of the relations the judge captures: a served write of Doc stands nothing up, and its capture refuses it (55Z03, a write of a table the rule judge holds in a session that has not stood up its tables)."
 			}

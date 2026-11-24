@@ -3,7 +3,7 @@
 import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -24,6 +24,7 @@ import { pgCluster } from "#test/support/env.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { standUpJudge } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
+import { refusedLaws } from "#test/support/refused.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import { openSession } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -36,19 +37,20 @@ import { fullWorld } from "#test/support/worlds.ts"
  */
 const Fixed = relation("Fixed", { id: pg.integer, w: pg.integer }, ["id"])
 
-/** The bound the rule over a query holds every w under: no case's write reaches it. */
+/** The bound the rule over a query holds every w under: no write of second-call.test.ts's first property reaches it. */
 const bound = 1_000_000
 
+/** The level Fixed stands in, mutable, which states no rule over a query. */
+const baseOf = (name: string) =>
+	schema(name, [Fixed], [key(on(Fixed, "w")), mutable(Fixed), unit("Row", { id: pg.integer })])
+
 /**
- * Fixed, mutable, and a rule over a query of its rows, Bounded, so a write of Fixed is captured into the judge's
- * session deltas and judged at its COMMIT (physical/ddl/rules.ts addRules).
+ * Fixed's level (`baseOf`) and a level over it stating a rule over a query of its rows, Bounded, so a write of Fixed is
+ * captured into the judge's session deltas and judged at its COMMIT (physical/ddl/rules.ts addRules), whatever level
+ * the write's login is over.
  */
 const build = (name: string) => {
-	const Base = schema(
-		name,
-		[Fixed],
-		[key(on(Fixed, "w")), mutable(Fixed), unit("Row", { id: pg.integer })]
-	)
+	const Base = baseOf(name)
 	const Seen = derived(
 		"Seen",
 		query(Base).rule((r) => {
@@ -255,6 +257,85 @@ export const runCalls = (calls: Calls, c: Case<SecondCallFeature>) =>
 						catalogBefore,
 						`call ${k} of ${where} changed a catalog row of the session's own relations or functions`
 					)
+				}
+			})
+		)
+	})
+
+/** What a call of a login below Bounded's level puts: a fact under the bound, or one past it, which Bounded refuses. */
+const belowCalls = ["lawful", "unlawful"] as const
+
+export type BelowFeature =
+	| "a lawful write accepted"
+	| "an unlawful write refused by the rule above"
+	| "a call after a refusal"
+
+/** A case: what each of the two calls on one brand-new backend puts (`belowCalls`). */
+export interface Below {
+	readonly calls: readonly [(typeof belowCalls)[number], (typeof belowCalls)[number]]
+}
+
+export const belowGen: Gen<Below> = (source) => ({
+	calls: [source.draw(element(belowCalls)), source.draw(element(belowCalls))]
+})
+
+/**
+ * One case on a fresh clone, metis's assign's shape (its assignment level's login writing BoundLineItem, which only a
+ * rule of the xp level above reads): Fixed's level and Bounded's above it installed through their first migration with a
+ * login over Fixed's level alone (`baseOf`), whose one role writes Fixed and holds no law of the level above, then one
+ * served Db of it, compiled under the installation's snapshot as generate compiles a login below the top
+ * (adapter/served/compile.ts snapshotCompiled), whose first session is a brand-new backend, and its insert of Fixed
+ * called twice on it. The session's stand-up makes the judge's tables of Fixed, which the installation's judge captures
+ * for Bounded (deploy/snapshot/types.ts CompileFacts `judged`), so each call is judged at its COMMIT: a lawful fact
+ * accepted, one past the bound refused by Bounded, named as the level above states it, and a call after a refusal judged
+ * alike, where a stand-up of the tables only its own level's rules read made none, and the capture refused every call
+ * (55Z03, a write of a table the rule judge holds in a session that has not stood up its tables).
+ */
+export const runBelow = (below: Below, c: Case<BelowFeature>) =>
+	Effect.gen(function* () {
+		const label = "below_rule"
+		const done = yield* installMigrated(build(label), {
+			ambient: ordinarySession,
+			extensions: [],
+			label,
+			logins: [fullWorld(baseOf(label), {}).server]
+		})
+		const base = baseOf(done.schema)
+		const above = `${done.schema}_1`
+		yield* withServedDb(done, fullWorld(base, {}).server.roles.app, {}, ({ serve }) =>
+			Effect.gen(function* () {
+				const served = yield* serve({ insert: ChangeSet.empty(base).insert(Fixed, []) })
+				const insert = writeOnce(member(served, "insert"))
+				for (const [at, call] of below.calls.entries()) {
+					const id = at + 1
+					const w = call === "lawful" ? id : bound + id
+					const where = `call ${id} of ${Arr.join(below.calls, ", ")} (w ${w})`
+					const outcome = yield* writeAnswerOf(
+						insert({ params: {}, facts: { insert: { Fixed: [{ id, w }] } } })
+					)
+					if (at > 0 && below.calls[at - 1] === "unlawful") {
+						c.note("a call after a refusal")
+					}
+					if (call === "lawful") {
+						assert.equal(
+							outcome.kind,
+							"accepted",
+							`${where} is accepted: ${Formatter.format(outcome)}`
+						)
+						c.note("a lawful write accepted")
+						continue
+					}
+					assert.ok("refused" in outcome, `${where} is refused: ${Formatter.format(outcome)}`)
+					assert.deepEqual(
+						Arr.map(refusedLaws(outcome.refused), (law) =>
+							law.kind === "above" && law.law.kind === "check"
+								? `${law.level} ${law.law.relation} ${law.law.name}`
+								: Formatter.format(law)
+						),
+						[`${above} Seen Bounded`],
+						`${where} is refused by Bounded, as the level above states it`
+					)
+					c.note("an unlawful write refused by the rule above")
 				}
 			})
 		)

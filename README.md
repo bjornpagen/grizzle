@@ -2581,7 +2581,8 @@ definition too.
   each write that can break it copies the statement's rows into a temporary table of the session, `ON COMMIT PRESERVE
   ROWS`, which the judge empties once it has read it, so no COMMIT truncates one. A session makes those tables once,
   before its first write of the table, by the table's stand-up, a SECURITY DEFINER function every role that writes the
-  table may run ([Writes](#writes): a served write's session calls it itself; a direct writer calls it, as in
+  table may run ([Writes](#writes): a served write's session calls it itself, for each table it writes that a rule of
+  any level of the installation reads, a level above its login's among them; a direct writer calls it, as in
   [Direct SQL access](#direct-sql-access)), so no write's transaction makes a relation, and the plans it makes outlive
   it (PostgreSQL truncates every `ON COMMIT
   DELETE ROWS` table of a session at each COMMIT that touched a temporary table, a lock and invalidations each): for a containment,
