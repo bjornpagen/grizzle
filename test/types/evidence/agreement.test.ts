@@ -299,13 +299,28 @@ export const reordered = property.explore(oneOf([agreementCases, faultCases]), {
 		kind: "specification",
 		name: "a rule's filters are a conjunction, whose order is no part of it"
 	},
-	kept: [],
+	kept: [
+		{
+			token: ReplayToken(
+				"test/types/evidence/agreement.test.ts#reordered:-:1.0.1.0.0.0.0.0.0.1.0.3.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.7.1"
+			),
+			reason:
+				"a count over two matches of OwnerCounts, Rollup's live derived relation keyed by its owner, each binding its owner to a parameter: each match binds a key of the relation, so the fold reads each fact once, where the engine read a live derived relation as an import of its definition, a set keyed by its whole heading, and refused the fold as binding none of its keys, (owner, items), naming no relation; the types, and a stored OwnerCounts, read its proven key (TEST_SEED=2219874524, trunk red since e1b52df00 made OwnerCounts live)",
+			since: "2026-11-24"
+		}
+	],
 	kills: [
 		{
 			file: "packages/engine/src/query/build/rule.ts",
 			original: "!isPlainRecord(head)",
 			replacement: "isPlainRecord(head)",
 			why: "Operator mutant deee5fdd24 at packages/engine/src/query/build/rule.ts:470 in ruleValue: `!isPlainRecord(head)` becomes `isPlainRecord(head)`; the property fails (the census, lane TESTPOLICY2)."
+		},
+		{
+			file: "packages/engine/src/query/build/state.ts",
+			original: '\t\t\tdesc: { kind: "relation", name: derived.name },',
+			replacement: '\t\t\tdesc: { kind: "query", query: derived.query, bind: {} },',
+			why: "A rule reads a derived relation as an import of its definition (query/build/state.ts sourceInfo), a set the checker keys by its whole heading, so the kept count over OwnerCounts, each match binding its owner, is refused as binding none of its keys; the property dies on the generator's defect."
 		}
 	]
 })

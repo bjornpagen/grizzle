@@ -54,6 +54,14 @@ export const attachments = agreement(attachAimed, {
 			reason:
 				"a self-join parent sharing id, its head both scopes' kind, and an arm child keyed by `task: p.id` stated with the other handle: the arm claim reads the discriminator of the key field's own scope, where an origin of p.id in both scopes found two discriminators and refused the field instead of the handle (a draft of the self-join's held scopes)",
 			since: "2026-11-19"
+		},
+		{
+			token: ReplayToken(
+				"test/types/evidence/attachments.test.ts#attachments:2000.d:7.1.0.1.0.1.0.0.1.0.1.1.1.1.1.2.1"
+			),
+			reason:
+				"a parent over AccountTally, Tallies' live derived relation of each account's task count, its child the Account its account keys, stated one: no law touches a derived relation, so Account's key proves at most one child per tally and the stated one is refused by the engine as by the types, where the engine read a live derived relation as an import of its definition and proved the child one from Task.account's containment into Account through it, a proof a stored AccountTally never gave (TEST_SEED=2219874524, trunk red since e1b52df00 made AccountTally live)",
+			since: "2026-11-24"
 		}
 	],
 	kills: [
@@ -75,6 +83,12 @@ export const attachments = agreement(attachAimed, {
 			original: '\treadonly one: ChildEv extends { readonly card: "one" }',
 			replacement: '\treadonly one: ChildEv extends { readonly card: "atMostOne" | "one" }',
 			why: "The one child is admitted where the evidence proves at most one per parent (types/evidence/evidence.ts Claims' one); the agreement's program fails."
+		},
+		{
+			file: "packages/engine/src/query/build/state.ts",
+			original: '\t\t\tdesc: { kind: "relation", name: derived.name },',
+			replacement: '\t\t\tdesc: { kind: "query", query: derived.query, bind: {} },',
+			why: "A rule reads a derived relation as an import of its definition (query/build/state.ts sourceInfo), so the engine proves the kept AccountTally parent's Account child one through Task.account's containment, where the types read AccountTally as a relation no law touches and refuse the stated one; the agreement's program fails."
 		}
 	]
 })
