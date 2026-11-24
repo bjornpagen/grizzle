@@ -14,10 +14,11 @@ import { quoteIdent } from "#compiler/core/text.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { admittedIdentifier, notificationText } from "#compiler/plan/runtime.ts"
 import { Fn, Logic } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { closedId, pg } from "#compiler/public/fields.ts"
 import { query, type SelfSource, v } from "#compiler/public/query.ts"
 import {
 	check,
+	closed,
 	contained,
 	derived,
 	fn,
@@ -65,8 +66,24 @@ const codes = fn("codes", {
 /** Whether Doc is closed or open. */
 export type Openness = "closed" | "open"
 
+/** A roster of shades and a closed relation weighing each, facts no write changes. */
+const Shade = closed.ordered("Shade", ["light", "dark"])
+const Weight = closed.relation(
+	"Weight",
+	{ shade: closedId(Shade), w: pg.integer },
+	["shade"],
+	[
+		{ shade: "light", w: 1 },
+		{ shade: "dark", w: 2 }
+	]
+)
+
 const baseOf = (openness: Openness, name: string) =>
-	schema(name, [Doc, Link, codes], openness === "open" ? [mutable(Doc), Document] : [Document])
+	schema(
+		name,
+		[Doc, Link, codes, Shade, Weight],
+		openness === "open" ? [mutable(Doc), Document] : [Document]
+	)
 
 /**
  * The stored relations, each over the document's unit: a projection, a count by document, a negation within it, and
@@ -77,7 +94,7 @@ const baseOf = (openness: Openness, name: string) =>
  * liveQuery, theory.ts `maintained`), so it never reads Placed's table as phase A leaves it: Hops sorts before Placed,
  * so its upkeep runs first.
  */
-const storedNames = ["Placed", "Counted", "Unlinked", "Coded", "Hops"] as const
+const storedNames = ["Placed", "Counted", "Unlinked", "Coded", "Hops", "Dense", "Weighted"] as const
 
 const topOf = (openness: Openness, name: string) => {
 	const base = baseOf(openness, name)
@@ -111,7 +128,15 @@ const topOf = (openness: Openness, name: string) => {
 			return r.match(Doc, { doc, at }).match(run, { code }).find({ doc, at, code })
 		})
 	)
-	const lower = schema.extend([base], `${name}_top`, [Placed, Counted, Unlinked, Coded], [])
+	/** The heavy weights, a live derived relation over the closed Weight, which a stored relation reads through it. */
+	const Heavy = derived(
+		"Heavy",
+		query(base).rule((r) => {
+			const { shade, w } = v(Weight, "weight")
+			return r.match(Weight, { shade, w }).where(r.ge(w, 2)).find({ w })
+		})
+	)
+	const lower = schema.extend([base], `${name}_top`, [Placed, Counted, Unlinked, Coded, Heavy], [])
 	const hop = { doc: pg.integer, at: pg.integer }
 	const Hops = derived.stored(
 		"Hops",
@@ -136,7 +161,24 @@ const topOf = (openness: Openness, name: string) => {
 			]
 		})
 	)
-	const top = schema.extend([lower], `${name}_reach`, [Hops], [])
+	/** The documents of two places or more, a stored relation over the stored Counted, kept in the same COMMIT. */
+	const Dense = derived.stored(
+		"Dense",
+		query(lower).rule((r) => {
+			const { doc, places } = v(Counted, "c")
+			return r.match(Counted, { doc, places }).where(r.ge(places, 2n)).find({ doc })
+		})
+	)
+	/** Each place with each heavy weight, a stored relation reading the closed Weight through the live Heavy. */
+	const Weighted = derived.stored(
+		"Weighted",
+		query(lower).rule((r) => {
+			const { doc, at } = v(Doc, "d")
+			const { w } = v(Heavy, "h")
+			return r.match(Doc, { doc, at }).match(Heavy, { w }).find({ doc, at, w })
+		})
+	)
+	const top = schema.extend([lower], `${name}_reach`, [Hops, Dense, Weighted], [])
 	/** Each stored relation read whole by a query over the top level, which reads its table. */
 	const reads: Readonly<Record<(typeof storedNames)[number], unknown>> = {
 		Placed: query(top).rule((r) => {
@@ -158,6 +200,14 @@ const topOf = (openness: Openness, name: string) => {
 		Hops: query(top).rule((r) => {
 			const s = v(Hops, "s")
 			return r.match(Hops, s).find(s)
+		}),
+		Dense: query(top).rule((r) => {
+			const s = v(Dense, "s")
+			return r.match(Dense, s).find(s)
+		}),
+		Weighted: query(top).rule((r) => {
+			const s = v(Weighted, "s")
+			return r.match(Weighted, s).find(s)
 		})
 	}
 	return { top, Placed, Counted, Unlinked, reads }

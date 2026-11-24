@@ -2067,6 +2067,9 @@ export interface StoredUpkeep {
 	readonly stored: StoredUnit
 	readonly region: InferredQuery
 	readonly judged: InferredQuery
+	/** Each read of a holder of its unit, a relation whose rows a write changes (`storedReads`), whose captures the
+	 * upkeep's block reads: never a closed relation's, whose rows no write changes, which its definition may match
+	 * itself or through a live derived relation it reads (a roster's constants, Declares-like facts). */
 	readonly reads: NonEmptyReadonlyArray<RelationRead>
 	readonly definitionOf: (query: InferredQuery) => InferredQuery
 	/** The stored relation's declaration, which a refusal of its upkeep names. */
@@ -2091,7 +2094,12 @@ export const storedUpkeep = (
 		throw defect("a stored relation's definition unit-local at its admitted unit")
 	}
 	const every = found.regions.map((r): RegionRead => ({ ...r, polarity: "both" }))
-	const reads = mapNonEmpty(found.reads, (r): RelationRead => ({ ...r, polarity: "both" }))
+	const holders = new Set([first, ...rest].map((h) => h.name))
+	const [held, ...more] = found.reads.filter((r) => holders.has(r.relation))
+	if (held === undefined) {
+		throw defect("a stored relation's definition, which reads a holder of its unit")
+	}
+	const reads = mapNonEmpty([held, ...more], (r): RelationRead => ({ ...r, polarity: "both" }))
 	const { judged, definitionOf, region } = restrictToUnits(
 		definition,
 		found.unit,

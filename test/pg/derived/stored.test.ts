@@ -8,7 +8,10 @@
  * relations over them, a projection, a count by document, a negation within the document, and the rows of an immutable
  * function each place's document and place are passed to, which the judge reads at each written unit's channels, and a
  * level above them Hops, the places a document reaches from its place 0 along links to placed places, a recursion over
- * the stored projection, which its upkeep reads through the projection's definition; and a drawn sequence of transactions of the owner's direct SQL, each putting and taking places and links at two
+ * the stored projection, which its upkeep reads through the projection's definition, Dense, the documents of two places
+ * or more, over the stored count, kept in the COMMIT that keeps the count, and Weighted, each place with each heavy
+ * weight, reading the closed Weight through a live derived relation, whose rows no write changes, so its upkeep holds
+ * Doc alone; and a drawn sequence of transactions of the owner's direct SQL, each putting and taking places and links at two
  * documents and three places, and changing a place's value where Doc is open, each committed before the next.
  *
  * The oracle is PostgreSQL's: after each COMMIT, in one read-only snapshot, each stored relation's rows and its
@@ -96,10 +99,17 @@ export const aStoredRelationEqualsItsDefinitionAfterEveryCommitOfEveryWriteOfIts
 				why: "The upkeep inserts and never deletes: a place taken, or a link put over a place, leaves stored rows its definition no longer delivers."
 			},
 			{
-				file: "packages/engine/src/analysis/theory/query.ts",
-				original: "\t\t\t\t\t\trec: mapNonEmpty(st.recursive.rec, rule)",
-				replacement: "\t\t\t\t\t\trec: st.recursive.rec",
-				why: "A stored relation's upkeep reads a recursion's steps as written, Hops's step reading the stored Placed by its name, where an upkeep reads every derived relation through its definition so phase A has one level: no installation of Hops compiles (grizzle internal invariant: Placed, a stored relation the upkeep of Hops reads)."
+				file: "packages/engine/src/analysis/theory/unit.ts",
+				original: "\tconst [held, ...more] = found.reads.filter((r) => holders.has(r.relation))",
+				replacement: "\tconst [held, ...more] = found.reads",
+				why: "An upkeep's reads take the closed Weight, which Weighted reads through the live Heavy, as a holder: no installation compiles (grizzle internal invariant: Weight, a stored relation the upkeep of Weighted reads), edullm's ItemRecordVariable over the closed Declares."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/theory.ts",
+				original:
+					"readonly #maintained = liveReading((relation) => this.definitions.get(relation))",
+				replacement: "readonly #maintained = liveReading((relation) => this.#readLive(relation))",
+				why: "An upkeep reads a stored relation it names as its table, not through its definition: Dense's upkeep reads Counted by name, a stored relation no upkeep reads, and no installation compiles."
 			},
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
