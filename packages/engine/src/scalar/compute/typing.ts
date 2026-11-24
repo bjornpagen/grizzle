@@ -256,7 +256,7 @@ export const translateMaxBytes = Math.floor(
  *
  * @formatConstant RFC 3986 §5.2.3 merge: one "/"
  */
-const mergedSlashBytes = utf8Length("/")
+export const mergedSlashBytes = utf8Length("/")
 
 /**
  * The fraction digits of every binary32 value: the least subnormal 2^-k = 5^k / 10^k has exactly k of them, and every

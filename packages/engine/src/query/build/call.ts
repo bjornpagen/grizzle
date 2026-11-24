@@ -13,6 +13,7 @@ import type { OpenCallArg, OpenExpr } from "#compiler/ir/open.ts"
 import {
 	decodedPathHeading,
 	piecesHeading,
+	resolvedWithinHeading,
 	restHeading,
 	separatorPoint,
 	seriesHeading,
@@ -438,6 +439,40 @@ export const decodedPathRows = (text: unknown): Built & Headed<typeof decodedPat
 		decodedPathCarriers,
 		[],
 		"the path a text spells"
+	)
+}
+
+/** A target within a base's heading's descriptors: the reference's target, any text (restField), typed by its bound. */
+const resolvedWithinCarriers = Object.freeze({ target: restField })
+
+/**
+ * r.resolvedWithin(base, reference): a reference's target within its base (RFC 3986 §5.2), a source a rule matches as
+ * it matches a call's rows, of `resolvedWithinHeading`: one fact, `target`, the reference resolved against the base
+ * (strict, §5.2.2), where no `..` segment of the path its resolution walks climbs past that path's root, and none where
+ * one does (ir/rel.ts TextSplit `resolvedWithin`). `base` and `reference` are each a term, a parameter or a JavaScript
+ * value, as a call's value argument is (`valueArgument`), which the checker holds to a text.
+ */
+export const resolvedWithinRows = (
+	base: unknown,
+	reference: unknown
+): Built & Headed<typeof resolvedWithinCarriers> => {
+	const label = "r.resolvedWithin"
+	return callSourceValue(
+		{
+			kind: "split",
+			split: { kind: "resolvedWithin" },
+			args: {
+				base: valueArgument(base, `${label} base`),
+				reference: valueArgument(reference, `${label} reference`)
+			}
+		},
+		heading(
+			[[resolvedWithinHeading.target, typed(describedField(restField, `${label} target`).scalar)]],
+			[]
+		),
+		resolvedWithinCarriers,
+		[],
+		"a reference's target within its base"
 	)
 }
 

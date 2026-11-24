@@ -27,6 +27,7 @@ import {
 import {
 	decodedPathRows,
 	piecesRows,
+	resolvedWithinRows,
 	restRows,
 	seriesRows,
 	tokensRows
@@ -130,6 +131,8 @@ export interface RuleRun<F> {
  * - `split(text, separator)` is a source: the pieces of a text between its separator's occurrences (piecesRows).
  * - `rest(text, prefix)` is a source: the text after a prefix, one fact or none (restRows).
  * - `decodedPath(text)` is a source: the path a percent-encoded path spells, one fact or none (decodedPathRows).
+ * - `resolvedWithin(base, reference)` is a source: a reference's target within its base, one fact or none
+ *   (resolvedWithinRows).
  * - `series(low, high)` is a source: each integer from low to high (query/build/call.ts seriesRows).
  * - The comparisons, in, and, or, not, allen, pointIn, the producers and the aggregates are terms.ts's.
  *
@@ -433,6 +436,7 @@ export interface RuleValue {
 	readonly split: (text: unknown, separator: unknown) => Built
 	readonly rest: (text: unknown, prefix: unknown) => Built
 	readonly decodedPath: (text: unknown) => Built
+	readonly resolvedWithin: (base: unknown, reference: unknown) => Built
 	readonly series: (low: unknown, high: unknown) => Built
 	readonly eq: (a: unknown, b: unknown) => PredicateValue
 	readonly ne: (a: unknown, b: unknown) => PredicateValue
@@ -585,6 +589,8 @@ const ruleValue = <S, Params, Sole, Facts, Cx>(
 			guarded("r.split", [text, separator], () => piecesRows(text, separator)),
 		rest: (text, prefix) => guarded("r.rest", [text, prefix], () => restRows(text, prefix)),
 		decodedPath: (text) => guarded("r.decodedPath", [text], () => decodedPathRows(text)),
+		resolvedWithin: (base, reference) =>
+			guarded("r.resolvedWithin", [base, reference], () => resolvedWithinRows(base, reference)),
 		series: (low, high) => guarded("r.series", [low, high], () => seriesRows(low, high)),
 		eq: (a, b) => guarded("r.eq", [a, b], () => T.compare("eq")(a, b)),
 		ne: (a, b) => guarded("r.ne", [a, b], () => T.compare("ne")(a, b)),

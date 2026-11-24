@@ -51,7 +51,8 @@ export interface SelectionKey {
  * first of a set of characters (scalar/compute/registry.ts textCut); decodedPath, the path a percent-encoded URI path
  * spells, as an array of it or of none, which a decoded path's split reads (splitLibrary); isXsdPattern, whether a
  * text is an XML Schema 1.0 pattern (textIsXsdPattern); resolveReference, RFC 3986's resolution of a reference
- * against a base (textResolveReference); textDigest, a text's SHA-256 (textSha256); and wall, a zone's wall clock at an
+ * against a base (textResolveReference); resolvedWithin, the same resolution as an array of its target where no `..`
+ * climbs past the root of the path it walks, or of none, which a target within a base's split reads; textDigest, a text's SHA-256 (textSha256); and wall, a zone's wall clock at an
  * instant by PostgreSQL's tzdata (zoneWall), which an installation installs where a program of its served workload
  * calls it.
  */
@@ -61,6 +62,7 @@ export const libraryFns = [
 	"decodedPath",
 	"isXsdPattern",
 	"resolveReference",
+	"resolvedWithin",
 	"textDigest",
 	"wall"
 ] as const
@@ -68,13 +70,16 @@ export type LibraryFn = (typeof libraryFns)[number]
 
 /**
  * The library function a split's lowering calls (ir/rel.ts TextSplit), which an installation installs where a DAG
- * holds a call of the split (physical/ddl/domains.ts dagObjects): a decoded path's, decodedPath; none for a split
+ * holds a call of the split (physical/ddl/domains.ts dagObjects): a decoded path's, decodedPath, and a target within
+ * a base's, resolvedWithin; none for a split
  * PostgreSQL's own functions compute.
  */
 export const splitLibrary = (split: TextSplit): LibraryFn | undefined => {
 	switch (split.kind) {
 		case "decodedPath":
 			return "decodedPath"
+		case "resolvedWithin":
+			return "resolvedWithin"
 		case "tokens":
 		case "pieces":
 		case "rest":

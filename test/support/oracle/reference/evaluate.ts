@@ -13,6 +13,7 @@ import {
 	type ScalarExpr,
 	type TypedLiteral
 } from "#compiler/ir/expr.ts"
+import { climbsOf, resolvedReference } from "#test/support/oracle/evaluate/uri.ts"
 import { ecmaMatches } from "#test/support/regex.ts"
 
 import { defined } from "@bjornpagen/testing/assert"
@@ -125,7 +126,8 @@ export const decodedPathOf = (text: string): Option.Option<string> => {
  * whiteSpace collapse, §3.3.10's lists), each maximal run of no XML whitespace (S: tab, LF, CR, space) a token, at its
  * place among them from 0, none of a text of whitespace alone; a separator split's by JavaScript's own split at its
  * separator, n occurrences n + 1 pieces, the empty text one empty piece; a rest's, the text's code points past the
- * prefix's where the text starts with it, none where it does not; and a decoded path's (decodedPathOf).
+ * prefix's where the text starts with it, none where it does not; a decoded path's (decodedPathOf); and a target
+ * within a base's, the oracle's own resolution where its walk climbs nowhere (oracle/evaluate/uri.ts).
  */
 const splitRows = (
 	split: TextSplit,
@@ -156,6 +158,13 @@ const splitRows = (
 				onNone: () => [],
 				onSome: (path) => [Arr.map(heading, (): Value => path)]
 			})
+		case "resolvedWithin": {
+			const base = args("base")
+			const reference = args("reference")
+			return climbsOf(base, reference) === 0
+				? [Arr.map(heading, (): Value => resolvedReference(base, reference))]
+				: []
+		}
 	}
 }
 

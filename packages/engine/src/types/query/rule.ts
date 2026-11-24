@@ -688,6 +688,28 @@ type RuleDecodedPath = <const X extends CallArgs<TokensArgs>["text"]>(
 	CallReads<{ readonly text: X }>
 >
 
+/**
+ * Rule.resolvedWithin: a reference's target within its base, each a term of any text, a parameter or a JavaScript
+ * string, as a call's value argument of a text field is: a source a rule matches as it matches a call's rows
+ * (CallSource), one fact, the target, where no `..` climbs past the root of the path its resolution walks and none where
+ * one does, needing what its base and reference need.
+ */
+type RuleResolvedWithin = <
+	const B extends CallArgs<WithinArgs>["base"],
+	const X extends CallArgs<WithinArgs>["reference"]
+>(
+	base: B,
+	reference: X
+) => CallSource<
+	FactOfFields<WithinFields>,
+	BindMapParams<{ readonly base: B; readonly reference: X }>,
+	WithinFields,
+	CallReads<{ readonly base: B; readonly reference: X }>
+>
+
+/** A target within a base's two arguments (RuleResolvedWithin): its base and its reference, each of any text. */
+type WithinArgs = { readonly base: TextField<string>; readonly reference: TextField<string> }
+
 /** A rest's two arguments (RuleRest): its text and its prefix, each of any text. */
 type RestArgs = { readonly text: TextField<string>; readonly prefix: TextField<string> }
 
@@ -730,6 +752,9 @@ type RestFields = { readonly rest: TextField<string> }
 
 /** A decoded path's heading (RuleDecodedPath): the path the text spells. */
 type DecodedPathFields = { readonly path: TextField<string> }
+
+/** A target within a base's heading (RuleResolvedWithin): the reference's target. */
+type WithinFields = { readonly target: TextField<string> }
 
 /** Rule.not: a relational negation over a source of the schema of the rule it is called on (Rule). */
 type RuleNot = <
@@ -835,6 +860,12 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 	 * UTF-8, an escape decodes to U+0000 or `/`, or a dot segment is written `%2E` (RuleDecodedPath).
 	 */
 	readonly decodedPath: RuleDecodedPath
+	/**
+	 * A reference's target within its base (RFC 3986 §5.2), a source the rule matches: one fact, `target`, the reference
+	 * resolved against the base, where no `..` segment of the path its resolution walks climbs past that path's root, and
+	 * none where one does (RuleResolvedWithin).
+	 */
+	readonly resolvedWithin: RuleResolvedWithin
 	/**
 	 * Each integer from `low` to `high`, both included, none where `low` lies above `high`, a source the rule matches:
 	 * `at`, each integer, of the ends' common type, every one between the least value `low` takes and the greatest

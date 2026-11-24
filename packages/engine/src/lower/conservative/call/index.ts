@@ -13,6 +13,7 @@ import {
 	type Heading,
 	type NodeOf,
 	piecesHeading,
+	resolvedWithinHeading,
 	restHeading,
 	seriesArguments,
 	seriesHeading,
@@ -766,6 +767,43 @@ const lowerDecodedPath = (node: NodeOf<"Call">, cx: LowerContext, env: Env): Ope
 	)
 }
 
+/**
+ * A target within a base's call (r.resolvedWithin): the reference's target resolved against its base, one row, or none
+ * where a `..` of the path its resolution walks climbs past that path's root.
+ *
+ *   SELECT r3.c3 FROM pg_catalog.unnest(<schema>.<resolvedWithin>(<the base>, <the reference>)) AS r3(c3)
+ *
+ * The installation's library function resolvedWithin (physical/ddl/library.ts) returns the target as an array of it, or
+ * of none where the walk climbs, so its elements are the split's rows, the one row its arguments determine.
+ */
+const lowerResolvedWithin = (node: NodeOf<"Call">, cx: LowerContext, env: Env): OperandSelect => {
+	const columns = splitColumns(node, 1, cx)
+	const { read } = columns
+	const library = cx.names.library("resolvedWithin")
+	const item = splitItem(
+		call("unnest", [
+			qualifiedCall(library.schema, library.name, [
+				splitArgument(node, "base", cx, env),
+				splitArgument(node, "reference", cx, env)
+			])
+		]),
+		columns,
+		false
+	)
+	return splitRows(
+		node,
+		item,
+		undefined,
+		(name) => {
+			if (name === resolvedWithinHeading.target) {
+				return read(0)
+			}
+			throw defect(`a target within a base's heading of its target, not ${name}`)
+		},
+		"a target within a base's rows"
+	)
+}
+
 /** A split's rows (ir/rel.ts TextSplit), by its kind. */
 const lowerSplit = (
 	node: NodeOf<"Call">,
@@ -782,6 +820,8 @@ const lowerSplit = (
 			return lowerRest(node, cx, env)
 		case "decodedPath":
 			return lowerDecodedPath(node, cx, env)
+		case "resolvedWithin":
+			return lowerResolvedWithin(node, cx, env)
 	}
 }
 

@@ -122,6 +122,7 @@ import {
 	seriesHeading,
 	decodedPathHeading,
 	piecesHeading,
+	resolvedWithinHeading,
 	restHeading,
 	separatorPoint,
 	splitArguments,
@@ -191,6 +192,7 @@ import {
 	type HeldLeaf,
 	type LeafDesc,
 	type LowerParams,
+	mergedSlashBytes,
 	noClosedRelations,
 	type ParamRef
 } from "#compiler/scalar/compute/typing.ts"
@@ -199,6 +201,7 @@ import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import { stretchSource } from "#compiler/scalar/regex/stretch.ts"
 import { tokenSource } from "#compiler/scalar/regex/whitespace.ts"
 import { hasCapability, spanType } from "#compiler/scalar/registry.ts"
+import { bytesMaxLength } from "#compiler/scalar/values/fault.ts"
 /**
  * How a query is read: as rows (execute, get, compile, attach, derived, a ChangeSet member), as a page, as a
  * ChangeSet's read-back, which may read delta.added and delta.removed sources, as a write filter's membership, which
@@ -700,7 +703,8 @@ const splitBuilders: { readonly [K in TextSplit["kind"]]: string } = {
 	tokens: "r.tokens",
 	pieces: "r.split",
 	rest: "r.rest",
-	decodedPath: "r.decodedPath"
+	decodedPath: "r.decodedPath",
+	resolvedWithin: "r.resolvedWithin"
 }
 
 /** Each split as a source of a rule, as a refusal of a match of it names it (sourceLabel). */
@@ -708,7 +712,8 @@ const splitSources: { readonly [K in TextSplit["kind"]]: string } = {
 	tokens: "the tokens of a text",
 	pieces: "the pieces of a text between its separators",
 	rest: "the rest of a text after a prefix",
-	decodedPath: "the path a percent-encoded path spells"
+	decodedPath: "the path a percent-encoded path spells",
+	resolvedWithin: "a reference's target within its base"
 }
 
 /** The lowering environment of a query expression, whose parameters are its rule's scope. */
@@ -2635,7 +2640,13 @@ export class Checker {
 				kind: "Call",
 				function: { kind: "split", split: src.split },
 				args: args.map((a) => a.arg),
-				heading: this.#splitHeading(src.split, args[0].text, loc)
+				heading: this.#splitHeading(
+					src.split,
+					(name) =>
+						args.find((a) => a.arg.name === name)?.text ??
+						fail("MalformedDescription", loc, `the argument ${name} of ${builder}`),
+					loc
+				)
 			},
 			loc
 		)
@@ -2651,14 +2662,15 @@ export class Checker {
 	 *   characters but its separator, one Unicode scalar value but U+0000 (separatorPoint), refused as any other;
 	 * - a rest's (`restHeading`): `rest`, a stretch of the text's characters (#stretchType);
 	 * - a decoded path's (`decodedPathHeading`): `path`, any text within the text's byte bound, since each escape, three
-	 *   bytes, decodes to one byte of its character, and an escape may spell any character.
+	 *   bytes, decodes to one byte of its character, and an escape may spell any character;
+	 * - a target within a base's (`resolvedWithinHeading`): `target` (#targetType).
 	 */
-	#splitHeading(split: TextSplit, text: TextInfo, loc: SourceLoc): Heading {
+	#splitHeading(split: TextSplit, texts: (name: string) => TextInfo, loc: SourceLoc): Heading {
 		switch (split.kind) {
 			case "tokens":
 				return [
 					{ name: tokensHeading.at, type: countOverload().result },
-					{ name: tokensHeading.token, type: this.#tokenType(text, loc) }
+					{ name: tokensHeading.token, type: this.#tokenType(texts("text"), loc) }
 				]
 			case "pieces": {
 				const point =
@@ -2670,16 +2682,50 @@ export class Checker {
 					)
 				return [
 					{ name: piecesHeading.at, type: countOverload().result },
-					{ name: piecesHeading.piece, type: this.#stretchType(text, single(point), loc) }
+					{ name: piecesHeading.piece, type: this.#stretchType(texts("text"), single(point), loc) }
 				]
 			}
 			case "rest":
-				return [{ name: restHeading.rest, type: this.#stretchType(text, [], loc) }]
+				return [{ name: restHeading.rest, type: this.#stretchType(texts("text"), [], loc) }]
 			case "decodedPath":
 				return [
-					{ name: decodedPathHeading.path, type: this.#stretchedType(wildcardPattern, text, loc) }
+					{
+						name: decodedPathHeading.path,
+						type: this.#stretchedType(wildcardPattern, texts("text"), loc)
+					}
 				]
+			case "resolvedWithin":
+				return [{ name: resolvedWithinHeading.target, type: this.#targetType(texts, loc) }]
 		}
+	}
+
+	/**
+	 * A target within a base's type over its base and reference (r.resolvedWithin): any text within the most bytes a
+	 * resolution builds of them, the base's and the reference's and a merge's `/` (scalar/compute/typing.ts
+	 * resolveReference), which a query holds only within the most bytes one varlena holds: the target is built by
+	 * concatenation, which PostgreSQL refuses past 1 GB, and a read never fails on a value.
+	 */
+	#targetType(texts: (name: string) => TextInfo, loc: SourceLoc): ScalarType {
+		const base = textInfoBounds(texts("base"))?.bytes
+		const reference = textInfoBounds(texts("reference"))?.bytes
+		const bytes =
+			base === undefined || reference === undefined
+				? undefined
+				: base + reference + mergedSlashBytes
+		if (bytes === undefined || bytes > bytesMaxLength) {
+			return fail(
+				"UnsupportedOperation",
+				loc,
+				`r.resolvedWithin over a base and a reference whose patterns bound the target within ${bytesMaxLength} bytes: its target is built by concatenation, which PostgreSQL refuses past 1 GB, and a read never fails on a value; ${bytes === undefined ? "an operand's pattern bounds no length" : `the operands' patterns bound it at ${bytes} bytes`}, so bound them`
+			)
+		}
+		const language = languageWithin(unwrap(this.patterns.language([wildcardPattern])), bytes)
+		return this.schema.queryFieldType(
+			{ kind: "text", patterns: [wildcardPattern], bytes: languageOctets(language), language },
+			loc,
+			this.#declarations,
+			this.patterns
+		)
 	}
 
 	/**

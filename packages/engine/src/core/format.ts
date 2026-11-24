@@ -472,6 +472,12 @@
  * that row, its rows carried on it as arrays a site reads in lockstep (sql/ast.ts ArraysSource `carried`, lower/shapes/
  * share/keyed.ts KeyedLowering carried), where format 8 read one evaluation at every site's keys, a CTE each site read at
  * its own row's values; so every judge with such a copy moves.
+ * grizzle's library holds two functions a split of a text into rows reads, decodedPath (r.decodedPath) and
+ * resolvedWithin (r.resolvedWithin), each an array of its one row or of none (ir/physical.ts libraryFns, splitLibrary),
+ * so the library roster a snapshot and a served file name their functions by widens, recordShapes with it; and
+ * resolveReference's walk of dot segments is one LATERAL row that also counts the `..` segments that climb past the
+ * root (physical/ddl/library.ts dotSegmentWalk), where format 8 removed them in a scalar subquery, so its definition's
+ * digest, the name it is installed under, moves.
  */
 export const artifactFormat = 8
 
@@ -499,8 +505,8 @@ export type FormattedFile = (typeof formattedFiles)[number]
  * @formatConstant each file's shape: the digest of its type, by test/support/record-shape.ts
  */
 export const recordShapes: { readonly [F in FormattedFile]: string } = {
-	snapshot: "df2bc59743ff0238a4ed3d0310d0d3aa5ab3b9cf131e9a13432153169d35856c",
-	served: "6122df297bc3ede42f8e3758c0d57588b8018770d458f693a6844d3bb0754ad5"
+	snapshot: "46b2458739d2323ae3bba6dd2941595bc932f92323ff3ec5b037202fe4c95619",
+	served: "c4812ab78abb8500f39c1a808d6c062a72e27cd7176a1114609871a72feaa2ef"
 }
 
 /**

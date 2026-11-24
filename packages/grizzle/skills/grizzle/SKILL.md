@@ -819,8 +819,9 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   text at a separator character in a rule with `r.split(path, "/")` (`{ at, piece }`, the empty text one empty piece)
   and take the text after a prefix with `r.rest(x, prefix)` (`{ rest }`, a row only where `x` starts with `prefix`;
   `r.not(r.rest(x, prefix), {})` for the others); percent-decode a URI path with `r.decodedPath(x)` (`{ path }`, a
-  row only where `x` is well-formed UTF-8 escapes with no escaped `/`, U+0000 or `%2E` dot segment), never a stored
-  copy of the pieces or a host decode. For XML Schema's whiteSpace facets use `Text.replaceWhitespace(x)` (tab, LF and CR to spaces)
+  row only where `x` is well-formed UTF-8 escapes with no escaped `/`, U+0000 or `%2E` dot segment), and resolve a
+  reference within a base with `r.resolvedWithin(base, reference)` (`{ target }`, none where a `..` climbs above the
+  base's root, an href outside a package), never a stored copy of the pieces or a host decode or resolution. For XML Schema's whiteSpace facets use `Text.replaceWhitespace(x)` (tab, LF and CR to spaces)
   and `Text.collapse(x)` (runs to one space, none at either end), never a regex of your own; cast a collapse into a
   refined text the same way, such as `str.regex("^(?:[^ \\t\\n\\r]+(?: [^ \\t\\n\\r]+)*)?$", "su")` for any
   text. A collapse, a translation and a concatenation keep their operands' byte bound, a translation to wider

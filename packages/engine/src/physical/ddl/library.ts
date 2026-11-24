@@ -237,23 +237,30 @@ const dotSegment = (segment: Expr): Expr => ({
 
 /**
  * remove_dot_segments (RFC 3986 §5.2.4) of the path `input`, over its segments, `string_to_table(input, '/') WITH
- * ORDINALITY`, each `t` numbered `k` from 1: the loop of rules A to E is a stack of the units it moves to its output
- * buffer, each segment pushing one, popping one, or neither, so the output is every unit no later pop removes, in
- * order.
+ * ORDINALITY`, each `t` numbered `k` from 1, as a LATERAL one-row table of `path`, the path without its dot segments,
+ * the units that survive in order, every other read as the empty text (NULL where `input` has no segment, the empty
+ * path's, which its reader reads as the empty text), and `climbs`, how
+ * many of its `..` segments climbed past its root, each one that found no segment before it to remove, which the RFC
+ * drops (@bjornpagen/grizzle-text uri.ts `walked`): the loop of rules A to E is a stack of the units it moves to its
+ * output buffer, each segment pushing one, popping one, or neither, so the output is every unit no later pop removes,
+ * in order.
  *
  * - While every segment before it is `.` or `..` (`lead`: rule A strips those a `/` follows, rule D the last), a
  *   segment pushes itself, slashless, unless it is one of them: rule E's first move of a path that does not begin
- *   with `/`, which an empty first segment, one that does, pushes harmlessly beneath every other.
+ *   with `/`, which an empty first segment, one that does, pushes harmlessly beneath every other. A leading `..`
+ *   climbs.
  * - After it, a `.` pushes `/` where it is the last segment and nothing otherwise (rule B), a `..` pops and pushes `/`
  *   where it is the last (rule C), and any other segment pushes `/` and itself (rule E).
  *
  * A push survives where no later run of segments pops more than it pushes: with `n` the running count of pushes less
  * pops, unclamped, the push of a segment survives where every later segment's count before its push (`n` less its
- * own push) is at least its own `n`, so the empty stack a pop leaves alone needs no case. The segments are read once,
- * by each window and by the aggregate, so the work is the path's length and the sort of its segments, and no regular
- * expression is read.
+ * own push) is at least its own `n`, so the empty stack a pop leaves alone needs no case. A pop climbs where it finds
+ * no unit but the empty one a leading empty segment pushes, the output then empty: with `m` the running count of the
+ * units that hold characters less pops, taken after the segment's pop and before its push, a pop climbs where `m` is
+ * below zero. The segments are read once, by each window and by the aggregate, so the work is the path's length and
+ * the sort of its segments, and no regular expression is read.
  */
-const removeDotSegments = (names: NameSupply, input: Expr): Expr => {
+const dotSegmentWalk = (names: NameSupply, input: Expr): Table => {
 	const split = relationOf(names, "path segments", ["t", "k"])
 	const segments: FromSource = {
 		kind: "function",
@@ -295,6 +302,16 @@ const removeDotSegments = (names: NameSupply, input: Expr): Expr => {
 		false
 	)
 	const l = led.read
+	const push: Expr = {
+		kind: "case",
+		operand: undefined,
+		whens: [
+			{ when: not(l("dot")), result: integer(1) },
+			{ when: l("lead"), result: integer(0) },
+			{ when: l("last"), result: integer(1) }
+		],
+		else: integer(0)
+	}
 	const moves = table(
 		names,
 		"segment moves",
@@ -312,20 +329,10 @@ const removeDotSegments = (names: NameSupply, input: Expr): Expr => {
 					else: concat(text("/"), l("t"))
 				}
 			],
-			[
-				"push",
-				{
-					kind: "case",
-					operand: undefined,
-					whens: [
-						{ when: not(l("dot")), result: integer(1) },
-						{ when: l("lead"), result: integer(0) },
-						{ when: l("last"), result: integer(1) }
-					],
-					else: integer(0)
-				}
-			],
-			["pop", when(and([not(l("lead")), eq(l("t"), text(".."))]), integer(1), integer(0))]
+			["push", push],
+			["held", when(and([l("lead"), eq(l("t"), text(""))]), integer(0), push)],
+			["pop", when(and([not(l("lead")), eq(l("t"), text(".."))]), integer(1), integer(0))],
+			["leading", and([l("lead"), eq(l("t"), text(".."))])]
 		],
 		[led.source],
 		false
@@ -338,7 +345,24 @@ const removeDotSegments = (names: NameSupply, input: Expr): Expr => {
 			["k", p("k")],
 			["unit", p("unit")],
 			["push", p("push")],
-			["n", windowed("sum", binary("-", p("push"), p("pop")), throughHere, p("k"))]
+			["n", windowed("sum", binary("-", p("push"), p("pop")), throughHere, p("k"))],
+			[
+				"climb",
+				or([
+					p("leading"),
+					and([
+						eq(p("pop"), integer(1)),
+						lt(
+							binary(
+								"-",
+								windowed("sum", binary("-", p("held"), p("pop")), throughHere, p("k")),
+								p("held")
+							),
+							integer(0)
+						)
+					])
+				])
+			]
 		],
 		[moves.source],
 		false
@@ -352,6 +376,7 @@ const removeDotSegments = (names: NameSupply, input: Expr): Expr => {
 			["unit", n("unit")],
 			["push", n("push")],
 			["n", n("n")],
+			["climb", n("climb")],
 			["later", windowed("min", binary("-", n("n"), n("push")), afterHere, n("k"))]
 		],
 		[running.source],
@@ -359,24 +384,22 @@ const removeDotSegments = (names: NameSupply, input: Expr): Expr => {
 	)
 	const a = later.read
 	const kept = and([eq(a("push"), integer(1)), ge(firstNonNull([a("later"), a("n")]), a("n"))])
-	const joined: Expr = {
-		...call("string_agg", [a("unit"), text("")]),
-		orderBy: [asc(a("k"))]
-	}
-	return firstNonNull([
-		{
-			kind: "subquery",
-			query: select(
-				provedCore(
-					"oneRow",
-					[targetAs(joined, names.column(internal("path without dot segments")))],
-					[later.source],
-					kept
-				)
-			)
-		},
-		text("")
-	])
+	return table(
+		names,
+		"walked path",
+		[
+			[
+				"path",
+				{
+					...call("string_agg", [when(kept, a("unit"), text("")), text("")]),
+					orderBy: [asc(a("k"))]
+				}
+			],
+			["climbs", { ...countStar(), filter: a("climb") }]
+		],
+		[later.source],
+		true
+	)
 }
 
 /** The two texts resolveReference splits, the base's parts named `b_…` in a step and the reference's `r_…`. */
@@ -390,8 +413,10 @@ const bothSides = (f: (side: Side) => Columns): Columns =>
 	)
 
 /**
- * resolveReference(base, reference): the target of `reference` resolved against `base` (RFC 3986 §5.2.2, strict, then
- * §5.3's recomposition), as @bjornpagen/grizzle-text's uri.ts resolveReference computes it on the host.
+ * The resolution of the reference `$2` against the base `$1` (RFC 3986 §5.2.2, strict, then §5.3's recomposition), as
+ * @bjornpagen/grizzle-text's uri.ts resolution computes it on the host: its steps, each a one-row FROM item, its
+ * `target`, and `climbed`, whether a `..` segment of the path it walks climbed past that path's root, none where it
+ * walks none.
  *
  * Each text is split as Appendix B splits a reference, each component with the delimiter that states it, `scheme:`,
  * `//authority`, the path, `?query` and `#fragment`, so a component the text does not state is the empty text, one it
@@ -399,12 +424,17 @@ const bothSides = (f: (side: Side) => Columns): Columns =>
  * the first `?` before it, the scheme before the first `:` where that is no empty text and holds no `/`, the authority
  * after `//` up to the next `/`, and the path the rest. Each step is one row that reads the steps before it, so no part
  * is computed twice. The target's path is the base's where the reference states no scheme, authority or path, and
- * otherwise its dot segments removed (removeDotSegments) from the reference's where it states a scheme or an authority
+ * otherwise its dot segments removed (dotSegmentWalk) from the reference's where it states a scheme or an authority
  * or begins with `/`, or from its merge with the base's (§5.2.3): `/` and it where the base states an authority and an
  * empty path, else the base's up to its last `/` and it.
  */
-const resolveReferenceDefinition = (): LibraryBody => {
-	const names = new NameSupply(freshNames)
+const resolution = (
+	names: NameSupply
+): {
+	readonly sources: ReadonlyArray<FromSource>
+	readonly target: Expr
+	readonly climbed: Expr
+} => {
 	const texts: { readonly [S in Side]: Expr } = {
 		b: param(1, types.text),
 		r: param(2, types.text)
@@ -530,27 +560,77 @@ const resolveReferenceDefinition = (): LibraryBody => {
 		part(queries, "b", "query"),
 		part(queries, "r", "query")
 	)
-	const target = concat(
-		targets.read("scheme"),
-		targets.read("authority"),
-		when(kept, basePath, removeDotSegments(names, targets.read("input"))),
-		query,
-		part(fragments, "r", "fragment")
-	)
+	const walk = dotSegmentWalk(names, targets.read("input"))
 	return {
-		params: [
-			{ name: "base", type: types.text },
-			{ name: "reference", type: types.text }
-		],
+		sources: [fragments, queries, heads, schemes, afters, authorities, paths, targets, walk].map(
+			(t) => t.source
+		),
+		target: concat(
+			targets.read("scheme"),
+			targets.read("authority"),
+			when(kept, basePath, firstNonNull([walk.read("path"), text("")])),
+			query,
+			part(fragments, "r", "fragment")
+		),
+		climbed: and([not(kept), gt(walk.read("climbs"), integer(0))])
+	}
+}
+
+/** The two texts a resolution reads (resolution): the base, then the reference. */
+const resolutionParams: ReadonlyArray<FunctionParam> = [
+	{ name: "base", type: types.text },
+	{ name: "reference", type: types.text }
+]
+
+/**
+ * resolveReference(base, reference): the target of `reference` resolved against `base` (resolution), every `..` that
+ * climbs past its path's root dropped, as the RFC states.
+ */
+const resolveReferenceDefinition = (): LibraryBody => {
+	const names = new NameSupply(freshNames)
+	const { sources, target } = resolution(names)
+	return {
+		params: resolutionParams,
 		returns: types.text,
 		body: {
 			kind: "subquery",
 			query: operandSelect(
+				core([targetAs(target, names.column(internal("resolved reference")))], sources, undefined)
+			)
+		}
+	}
+}
+
+/**
+ * resolvedWithin(base, reference): the target of `reference` resolved within `base` (resolution), as an array of it
+ * where no `..` segment of the path it walks climbs past that path's root, or of none where one does, so a hierarchy
+ * rooted at the base, a package's entries under its root, holds no target of it (@bjornpagen/grizzle-text uri.ts
+ * resolveWithin). The split of a reference into its target within its base (lower/conservative/call
+ * lowerResolvedWithin) reads its elements, one row or none.
+ */
+const resolvedWithinDefinition = (): LibraryBody => {
+	const names = new NameSupply(freshNames)
+	const { sources, target, climbed } = resolution(names)
+	const within: Expr = {
+		kind: "array",
+		query: select(
+			provedCore(
+				"oneRow",
+				[targetAs(target, names.column(internal("target within the base")))],
+				[],
+				not(climbed)
+			)
+		)
+	}
+	return {
+		params: resolutionParams,
+		returns: defined(arrayOf(types.text), "a text array type"),
+		body: {
+			kind: "subquery",
+			query: operandSelect(
 				core(
-					[targetAs(target, names.column(internal("resolved reference")))],
-					[fragments, queries, heads, schemes, afters, authorities, paths, targets].map(
-						(t) => t.source
-					),
+					[targetAs(within, names.column(internal("targets within the base")))],
+					sources,
 					undefined
 				)
 			)
@@ -1601,6 +1681,7 @@ const definitions: { readonly [F in LibraryFn]: LibraryDefinition } = {
 	decodedPath: definedAs("decodedPath", decodedPathDefinition()),
 	isXsdPattern: definedAs("isXsdPattern", xsdPatternDefinition()),
 	resolveReference: definedAs("resolveReference", resolveReferenceDefinition()),
+	resolvedWithin: definedAs("resolvedWithin", resolvedWithinDefinition()),
 	textDigest: definedAs("textDigest", textDigestDefinition()),
 	wall: definedAs("wall", wallDefinition())
 }
@@ -1626,6 +1707,10 @@ const identities: { readonly [F in LibraryFn]: Identity<"libraryFunction"> } = {
 	resolveReference: identity.libraryFunction(
 		"resolveReference",
 		constantDigest("library-function", definitions.resolveReference, everyProperty)
+	),
+	resolvedWithin: identity.libraryFunction(
+		"resolvedWithin",
+		constantDigest("library-function", definitions.resolvedWithin, everyProperty)
 	),
 	textDigest: identity.libraryFunction(
 		"textDigest",

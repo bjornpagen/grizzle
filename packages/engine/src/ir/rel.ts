@@ -916,6 +916,10 @@ export type CallArg<R extends RefKinds> =
  *   `%HH` its octet and every other character its own, the octets read as UTF-8, where the text spells one, and none
  *   where a `%` begins no `%HH`, the escaped octets are no UTF-8, an escape decodes to U+0000 or `/`, or a segment
  *   made of dots alone holds one written `%2E`, under `decodedPathHeading`.
+ * - `resolvedWithin`, a reference's target within its base (r.resolvedWithin, RFC 3986 §5.2): one row, the target of
+ *   `reference` resolved against `base` (strict, §5.2.2), where no `..` segment of the path its resolution walks climbs
+ *   past that path's root, and none where one does, so a hierarchy rooted at the base holds no target of it, under
+ *   `resolvedWithinHeading`.
  *
  * The separator is the split's own, a constant of its description, never an argument: a piece is typed as a text
  * that holds no separator, which only a constant states (check/checker.ts #pieceType).
@@ -925,6 +929,7 @@ export type TextSplit =
 	| { readonly kind: "pieces"; readonly separator: string }
 	| { readonly kind: "rest" }
 	| { readonly kind: "decodedPath" }
+	| { readonly kind: "resolvedWithin" }
 
 /**
  * The code point a separator split's separator is (TextSplit `pieces`): its text's one Unicode scalar value, which is
@@ -957,14 +962,16 @@ export type CallFunction =
 	| { readonly kind: "series" }
 
 /**
- * Each split's value arguments (CallFunction `split`), by name, in the order a call passes them: every split's text,
- * `text`, a text of the scope the match stands in, and a rest's prefix, `prefix`, another.
+ * Each split's value arguments (CallFunction `split`), by name, in the order a call passes them, each a text of the
+ * scope the match stands in: a split's text, `text`, and a rest's prefix, `prefix`; a target within a base's `base` and
+ * `reference`.
  */
 export const splitArguments = {
 	tokens: ["text"],
 	pieces: ["text"],
 	rest: ["text", "prefix"],
-	decodedPath: ["text"]
+	decodedPath: ["text"],
+	resolvedWithin: ["base", "reference"]
 } as const satisfies { readonly [K in TextSplit["kind"]]: NonEmptyReadonlyArray<string> }
 
 /**
@@ -991,6 +998,9 @@ export const restHeading = { rest: "rest" } as const
 /** A decoded path's heading (TextSplit `decodedPath`): the path the text spells. */
 export const decodedPathHeading = { path: "path" } as const
 
+/** A target within a base's heading (TextSplit `resolvedWithin`): the reference's target. */
+export const resolvedWithinHeading = { target: "target" } as const
+
 /**
  * How the rows of one evaluation of a call stand among themselves (CallFunction), which keys them at its arguments, the
  * rows of one evaluation, as a row number keys the rows of its partition (logical/props.ts, ir/keys.ts numberedRow):
@@ -998,8 +1008,8 @@ export const decodedPathHeading = { path: "path" } as const
  * - `numbered`: a column numbers them, no two alike: a token or separator split's place, the count of the pieces before
  *   it, and a series' element, each integer from its low end to its high end once; a split's rows are keyed by what
  *   keys its text and its ordinal.
- * - `one`: there is one row or none, a rest's and a decoded path's, so what keys its arguments keys its row (ir/keys.ts
- *   atMostOneRow).
+ * - `one`: there is one row or none, a rest's, a decoded path's and a target within a base's, so what keys its
+ *   arguments keys its row (ir/keys.ts atMostOneRow).
  * - `set`: nothing numbers them, a declared function's rows or a field's of its row, which PostgreSQL alone evaluates.
  */
 export type CallNumbering =
@@ -1012,7 +1022,8 @@ const splitRows: { readonly [K in TextSplit["kind"]]: CallNumbering } = {
 	tokens: { kind: "numbered", ordinal: tokensHeading.at },
 	pieces: { kind: "numbered", ordinal: piecesHeading.at },
 	rest: { kind: "one" },
-	decodedPath: { kind: "one" }
+	decodedPath: { kind: "one" },
+	resolvedWithin: { kind: "one" }
 }
 
 /** How the rows of one evaluation of `called` stand among themselves (CallNumbering). */
