@@ -126,13 +126,6 @@ export const aRuleOverARecursionCompilesExactlyWhereEveryStepCarriesItsUnitFromS
 				original: "\t\t\t\t\t\trec: mapNonEmpty(st.recursive.rec, rule)",
 				replacement: "\t\t\t\t\t\trec: st.recursive.rec",
 				why: "A recursion's steps read as written, a materialized derived relation in them by its name, which the walk reads as no relation of any unit; a step through the derived children no longer compiles as the whole rule it is."
-			},
-			{
-				file: "packages/engine/src/analysis/theory/navigate.ts",
-				original:
-					"\t\tconst navigable = (w: InferredExpr): w is Filtered => isFiltered(w) && this.#readable(w)",
-				replacement: "\t\tconst navigable = (w: InferredExpr): w is Filtered => isFiltered(w)",
-				why: "Every relational filter of a rule over steps is navigated, even one whose query navigation reads no further: the every-row check of the containment of claimed nodes' parents reads its side as a chain of steps and the walk as a filter after them, which inlined imports the recursion, refused as an imported query of one rule, so a local walk under it no longer compiles (the navigation fix's first draft refused metis's Delivery, Legacy and Auth levels so, at pantry's Branch target)."
 			}
 		]
 	})

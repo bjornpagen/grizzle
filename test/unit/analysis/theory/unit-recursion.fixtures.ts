@@ -66,9 +66,9 @@ export type Seed = "roots" | "a fixed document"
 
 /**
  * The rule over the walk: a claim of a reached node (a containment into it); the parent of each claimed node reached (a
- * containment into it of a join of Claim and Node, whose every-row check reads its side as a chain of steps navigation
- * reads no further and the walk as a filter after them, which imports the recursion: analysis/theory/navigate.ts
- * filteredOverSteps); a check over it; or a key over it.
+ * containment into it of a join of Claim and Node, whose every-row check reads its side as a chain and the walk, which
+ * imports the recursion, as the chain's condition as written: analysis/theory/navigate.ts Navigator #chain
+ * `asWritten`); a check over it; or a key over it.
  */
 export type Law = "contained" | "parent contained" | "check" | "key"
 

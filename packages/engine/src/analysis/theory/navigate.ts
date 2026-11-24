@@ -892,17 +892,19 @@ class Navigator {
 	 * target's join PostgreSQL planned by its estimates, and a negation whose binding computes over a variable of the
 	 * filtered query, a guarded cast an inlined definition's head left, reached the checker, which lowers no computed
 	 * binding of a negation (check/checker.ts #negatedTerm), where navigated it is a condition of the filter's own step.
+	 * Every such filter is one navigation reads (`#readable`): a probe's negates a stored relation or a definition, which
+	 * a probed rule's admission holds to rules navigation reads (analysis/theory/query.ts), and a whole rule's read of a
+	 * recursion per unit reads its walk inside a rule that joins, whose chain keeps it as written (`#chain`).
 	 */
 	filteredOverSteps(rule: InferredRule, depth: number): InferredRule {
-		const navigable = (w: InferredExpr): w is Filtered => isFiltered(w) && this.#readable(w)
-		const filters = rule.where.filter(navigable)
+		const filters = rule.where.filter(isFiltered)
 		return filters.length === 0
 			? rule
 			: this.#filteredAfter(
 					{
 						vars: rule.vars,
 						matches: rule.matches,
-						where: rule.where.filter((w) => !navigable(w)),
+						where: rule.where.filter((w) => !isFiltered(w)),
 						filters,
 						head: rule.head
 					},
@@ -914,9 +916,9 @@ class Navigator {
 
 	/**
 	 * Whether navigation reads a relational filter's source (`#filtered`): a stored or closed relation, or an imported
-	 * query of rules binding no parameter each of which navigation reads (`RuleReads`). Any other filter stays as written
-	 * where `filteredOverSteps` leaves it: a whole rule's read of a recursion per unit (analysis/theory/unit.ts
-	 * readPerUnit), whose filter imports the recursion whole, is a step navigation reads no further.
+	 * query of rules binding no parameter each of which navigation reads (`RuleReads`). Any other filter stays the
+	 * chain's condition as written (`#chain`): a whole rule's read of a recursion per unit (analysis/theory/unit.ts
+	 * readPerUnit), whose filter imports the recursion whole.
 	 */
 	#readable(a: Filtered): boolean {
 		const source = a.source
@@ -1601,7 +1603,7 @@ const navigate = (
 ): NonEmptyReadonlyArray<InferredRule> =>
 	new Navigator(loc, columns, sharing, interned).rule(rule, 0, imports)
 
-/** Whether a scalar condition holds a relational filter anywhere below its top, where navigation reads none (`navigable`). */
+/** Whether a scalar condition holds a relational filter anywhere below its top, where navigation reads none (`RuleReads`). */
 const filtersBelow = (e: InferredExpr): boolean =>
 	isFiltered(e) || exprChildren(e).some((c) => filtersBelow(c.term))
 
