@@ -1,5 +1,5 @@
 /**
- * A compile knows an imported query by its Description's identity (check/session.ts ResolvedImports, queryIdentity), so
+ * A compile knows an imported query by its Description's identity (check/session.ts ResolvedImports), so
  * the imports of Descriptions of one identity at one key are one node (check/checker.ts importedKey), however many
  * objects spell it: a factory that builds a query anew at every place it is read, as edullm's ledger reads
  * `gradableOf(gradedSitting).bind(bySession(r))` in each argument of its grade, builds the node one object would, where
@@ -16,13 +16,17 @@
  * identity, each a node of its own.
  *
  * Properties: the factory's program checks to the nodes one object's does and prints its statements byte for byte,
- * where two of its arguments bind their sittings alike the program built apart holds more; and over drawn facts and
+ * where two of its arguments bind their sittings alike the program built apart holds more; over drawn facts and
  * parameters the factory's program reads, by the reference evaluator over its checked DAG, the rows of the program
- * built apart, its imports of one identity at different bindings never merged. Oracles: the one-object program's nodes
- * and statements; the program built apart, by the reference. Kills: a Description object a query of its own, as it
- * was; an outer value keyed by its node without its column, which merges an argument's stages at a pair's `a` with
- * another's at its `b`; every value bound to a column, a channel among them, left out of the key; a parameter keyed
- * without its name, which merges the stages at `p` with those at `q`.
+ * built apart, its imports of one identity at different bindings never merged; and the identities a compile asks of
+ * its imports are its own, held past it by nothing: the next compile's check of the program digests every import again,
+ * as many calls as the first compile's check.
+ * Oracles: the one-object program's nodes and statements; the program built apart, by the reference; specification,
+ * for the digesting. Kills: a Description object a query of its own, as it was; an outer value keyed by its node
+ * without its column, which merges an argument's stages at a pair's `a` with another's at its `b`; every value bound to
+ * a column, a channel among them, left out of the key; a parameter keyed without its name, which merges the stages at
+ * `p` with those at `q`; one table of identities for the process, as the process's digests were, which metis's
+ * generate filled past V8's largest hash table.
  *
  * Features: one reader, several; the fold alone, a level above it; each binding.
  */
@@ -32,9 +36,13 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
+import { CheckSession } from "#compiler/check/session.ts"
 import {
 	type Binding,
+	checkedIn,
 	checkedOf,
+	descOf,
+	digestingOf,
 	type Facts,
 	factsGen,
 	nodesOf,
@@ -161,6 +169,46 @@ export const theInternedProgramReadsTheRowsOfItsImportsBuiltApart = property.exp
 			original: `\t\t\treturn { text: \`p:\${value.cell.name}\`, closed: true }\n`,
 			replacement: '\t\t\treturn { text: "p:", closed: true }\n',
 			why: "A parameter keyed without its name merges the imports of one identity bound to two parameters: an argument's stages at q read as another's at p."
+		}
+	]
+})
+
+/**
+ * A compile's identities of its imports are its own: the next compile's check of a program digests every import again,
+ * as many calls as the first compile's check. The program is the factory's, every import a Description object of its
+ * own; a check of another build of it first reads whatever the schema's reading reads once for the process, so the two
+ * compiles' checks begin alike.
+ */
+export const aCompileDigestsItsImportsForItselfAlone = property.exhaust(shapeGen, {
+	needs: {},
+	situations,
+	check: (_, c: Case<Situation>) => (shape) =>
+		Effect.gen(function* () {
+			noteShape(shape, c)
+			checkedOf(shape, "a factory per import")
+			const desc = descOf(shape, "a factory per import")
+			const compile = new CheckSession()
+			const nextCompile = new CheckSession()
+			const first = yield* digestingOf(() => checkedIn(desc, compile))
+			const next = yield* digestingOf(() => checkedIn(desc, nextCompile))
+			assert.equal(
+				next,
+				first,
+				"the next compile digests every import again: nothing held past a compile"
+			)
+		}),
+	oracle: {
+		kind: "specification",
+		name: "a compile's identities are its session's, held past it by nothing"
+	},
+	box: "every shape: a chain of one level or two, 1 to 3 arguments, each binding",
+	kept: [],
+	kills: [
+		{
+			file: "packages/engine/src/check/session.ts",
+			original: "\treadonly #digests = descIdentities.scoped()\n",
+			replacement: "\treadonly #digests = descIdentities\n",
+			why: "One table of identities for the process, as the process's digests were (ir/desc.ts descIdentities): every part of every import any compile asked is kept for as long as the part lives, so the next compile digests nothing, and metis's generate filled the table past V8's largest hash table."
 		}
 	]
 })

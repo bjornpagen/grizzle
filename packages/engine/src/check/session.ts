@@ -6,7 +6,7 @@ import type { IdentityDigest } from "#compiler/core/fingerprint.ts"
 import { makeIdSupply } from "#compiler/core/ids.ts"
 import { deepFreeze } from "#compiler/core/record.ts"
 import {
-	descIdentity,
+	descIdentities,
 	type ImportedWalks,
 	type InferredQuery,
 	type ParamTyping
@@ -29,33 +29,37 @@ const entries = (): Readonly<Record<QueryEntry, WeakSet<InferredQuery>>> => ({
 })
 
 /**
- * What a compile knows a query by: its Description's identity (ir/desc.ts descIdentity), its canonical text without
- * source locations, each variable spelled by its scope's name and field and each interior stage by its place in its
- * rule, so it names no label a build allocated, frozen before it is digested, as every Description is (core/record.ts
- * deepFreeze, which walks only what is not frozen yet), so each part is digested once for the process (ir/desc.ts
- * descIdentities). Two Descriptions of one identity are one query, one object or two: a
- * factory that builds a query anew at every place it is read (edullm's ledger reads `gradableOf(gradedSitting)
- * .bind(bySession(r))` in each argument of its grade, a Description of its own each time) builds one query. Two
- * consequences of reading one query for all of them, each the identity's own: a Logic.when branch's parameter is a
- * stand-in its subject's identity is (ir/desc.ts GuardedDesc), so a Description that reads the captured subject where
- * another reads the parameter is checked as whichever of them the compile met first, the rows they compute one, a
- * refusal of the subject's weaker type the one thing that can go unmet, as navigation, which keys its queries by the
- * same identity, reads them already; and a refusal or a node's location inside such a query names the first
- * Description of its identity the compile met, source locations being no part of it.
- */
-const queryIdentity = (q: InferredQuery): IdentityDigest => unwrap(descIdentity(deepFreeze(q)))
-
-/**
- * Each imported query resolved once for its identity (`queryIdentity`, check/params.ts resolveQuery): an imported query
- * is its own namespace, its resolution its Description's alone, so every import of one identity reads one resolved
- * query, one place among the objects an import's key names (CheckSession `place`), and so one key and one node
- * (check/checker.ts importedKey), where each Description object was a query of its own: the 162 imports of the graded
- * attempts' latest-attempt fold in edullm's decideStage read-back, one per argument of the grade, were 162 nodes.
+ * Each imported query resolved once for its identity (check/params.ts resolveQuery): an imported query is its own
+ * namespace, its resolution its Description's alone, so every import of one identity reads one resolved query, one
+ * place among the objects an import's key names (CheckSession `place`), and so one key and one node (check/checker.ts
+ * importedKey), where each Description object was a query of its own: the 162 imports of the graded attempts'
+ * latest-attempt fold in edullm's decideStage read-back, one per argument of the grade, were 162 nodes.
+ *
+ * A query's identity is its Description's (ir/desc.ts descIdentity), its canonical text without source locations, each
+ * variable spelled by its scope's name and field and each interior stage by its place in its rule, so it names no label
+ * a build allocated, frozen before it is digested, as every Description is (core/record.ts deepFreeze, which walks only
+ * what is not frozen yet). Two Descriptions of one identity are one query, one object or two: a factory that builds a
+ * query anew at every place it is read (edullm's ledger reads `gradableOf(gradedSitting).bind(bySession(r))` in each
+ * argument of its grade, a Description of its own each time) builds one query. Two consequences of reading one query for
+ * all of them, each the identity's own: a Logic.when branch's parameter is a stand-in its subject's identity is (ir/desc.ts
+ * GuardedDesc), so a Description that reads the captured subject where another reads the parameter is checked as
+ * whichever of them the compile met first, the rows they compute one, a refusal of the subject's weaker type the one
+ * thing that can go unmet, as navigation, which keys its queries by the same identity, reads them already; and a refusal
+ * or a node's location inside such a query names the first Description of its identity the compile met, source
+ * locations being no part of it.
+ *
+ * The compile's digests are scoped to it (`#digests`, core/fingerprint.ts IdentityDigests scoped): they read every
+ * identity the process's (ir/desc.ts descIdentities) keep, a ChangeSet's members' parts among them, and keep each part
+ * they digest past those for as long as the compile lives, adding none to the process's, which keep each frozen part's
+ * identity for as long as the part lives: an import is a Description its program holds for the whole run, so every
+ * part of every query any compile imported held an entry of one table for the process, which grows with every
+ * Description a program keeps and has a hard ceiling, V8's largest hash table, past which the process aborts (metis's
+ * generate reached it at 16.8 million parts, through ChangeSet renames, write/changeset/value.ts canonicalParts).
  */
 class ResolvedImports implements ImportedWalks<Resolved["param"], ParamTyping> {
 	readonly #resolved = new Map<IdentityDigest, ResolvedQuery>()
-	/** Each Description object's identity, asked of the digests once for the session, however often it is imported. */
-	readonly #identities = new WeakMap<InferredQuery, IdentityDigest>()
+	/** The identity digests of the compile's imported Descriptions: the process's read, the compile's own kept apart. */
+	readonly #digests = descIdentities.scoped()
 
 	get(q: InferredQuery): ResolvedQuery | undefined {
 		return this.#resolved.get(this.#identityOf(q))
@@ -66,7 +70,7 @@ class ResolvedImports implements ImportedWalks<Resolved["param"], ParamTyping> {
 	}
 
 	#identityOf(q: InferredQuery): IdentityDigest {
-		return this.#identities.getOrInsertComputed(q, queryIdentity)
+		return unwrap(this.#digests.of(deepFreeze(q)))
 	}
 }
 
@@ -75,7 +79,7 @@ class ResolvedImports implements ImportedWalks<Resolved["param"], ParamTyping> {
  * module: a ChangeSet's members, read-backs and fills (write/frontend/compile.ts), or the one query of a query's
  * compile.
  *
- * - Each imported query resolved once for its identity (`queryIdentity`, ResolvedImports): an imported query is its own
+ * - Each imported query resolved once for its identity (ResolvedImports): an imported query is its own
  *   namespace, so its resolution is its Description's alone, and one resolution of it serves every import of it in
  *   every query the compile checks, whose imports of one query, one Description object or several of one identity,
  *   then share one resolved query.

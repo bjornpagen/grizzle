@@ -1,11 +1,12 @@
 /**
  * What the properties of equal-imports.test.ts read: their schema, their box, a case's three programs, and each
- * program's checked nodes, statements and rows by the reference.
+ * program's checked nodes, statements, rows by the reference and digesting.
  */
 
 import { element, finite, type Gen, subarray } from "@bjornpagen/testing/gen"
-import { Array as Arr, Formatter, Order } from "effect"
+import { Array as Arr, Effect, Formatter, Order, String as Str } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
+import { CheckSession } from "#compiler/check/session.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { InferredQuery } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -17,6 +18,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
+import { everyCallCount } from "#test/support/kernel/calls.ts"
 import { canonicallySpelled } from "#test/support/oracle/gen/domain.ts"
 import type { GenFacts } from "#test/support/oracle/gen/facts.ts"
 import type { GenParam } from "#test/support/oracle/gen/query.ts"
@@ -225,13 +227,26 @@ const programOf = (shape: Shape, copies: Copies) => {
 	})
 }
 
-/** A program's Description, as a compile reads it. */
-const descOf = (shape: Shape, copies: Copies): InferredQuery =>
+/** A program's Description, as a compile reads it, built anew at each call. */
+export const descOf = (shape: Shape, copies: Copies): InferredQuery =>
 	succeeded(queryInput(programOf(shape, copies)), "a query value").desc
 
-/** A program checked as a query read checks it: its DAG and its parameters. */
+/** A program's Description checked by one of `session`'s checks, as a query read checks it: its DAG and parameters. */
+export const checkedIn = (desc: InferredQuery, session: CheckSession): LogicalQuery =>
+	succeeded(checkQuery(checking(Ledger), desc, { ...checkOptions("equal imports"), session }))
+
+/** A program checked as a query read checks it, by a compile of its own. */
 export const checkedOf = (shape: Shape, copies: Copies): LogicalQuery =>
-	succeeded(checkQuery(checking(Ledger), descOf(shape, copies), checkOptions("equal imports")))
+	checkedIn(descOf(shape, copies), new CheckSession())
+
+/** The identity digests' module (core/fingerprint.ts), whose calls are the work of digesting what a check reads. */
+const isDigesting = (file: string): boolean => Str.endsWith("core/fingerprint.ts")(file)
+
+/** The calls of the identity digests' functions while `check` runs: its digesting, counted, never timed. */
+export const digestingOf = (check: () => LogicalQuery): Effect.Effect<number> =>
+	Effect.map(everyCallCount(Effect.sync(check), isDigesting), ([, counts]) =>
+		Arr.reduce([...counts.values()], 0, (sum, n) => sum + n)
+	)
 
 /** The nodes of a checked program's DAG. */
 export const nodesOf = (checked: LogicalQuery): number => topoOrder(checked.dag).length

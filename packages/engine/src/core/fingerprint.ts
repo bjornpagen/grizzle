@@ -88,7 +88,7 @@ const mintIdentityDigest = nominal<string, IdentityDigest>()
 export const identityDigest = (
 	value: unknown,
 	options: EncodeOptions
-): Result.Result<IdentityDigest, CompileError> => new IdentityDigests(options).of(value)
+): Result.Result<IdentityDigest, CompileError> => new IdentityDigests(options, []).of(value)
 
 /**
  * Identity digests under one EncodeOptions (`identityDigest`), each frozen container's identity kept across every value
@@ -102,13 +102,44 @@ export const identityDigest = (
  */
 export class IdentityDigests {
 	readonly #options: EncodeOptions
+	/**
+	 * The digests whose kept identities these read before their own and never add to (`scoped`), each under these'
+	 * options: none for digests of their own.
+	 */
+	readonly #outer: ReadonlyArray<IdentityDigests>
 	/** Each frozen container's identity digest, its token's payload, by the container. */
 	readonly #digests = new WeakMap<object, IdentityDigest>()
 	readonly #messages = new Sha256Messages(messageChunk)
 	#digested = 0
 
-	constructor(options: EncodeOptions) {
+	constructor(options: EncodeOptions, outer: ReadonlyArray<IdentityDigests>) {
 		this.#options = options
+		this.#outer = outer
+	}
+
+	/**
+	 * Digests under these' options that read every identity these keep and keep their own apart, so what they digest
+	 * past these is held by them alone and goes with them: a compile's, over the process's (check/session.ts
+	 * ResolvedImports), whose parts the process's digests read before it, a ChangeSet's members among them, it reads
+	 * again for nothing, and whose own it adds to no table of the process's.
+	 */
+	scoped(): IdentityDigests {
+		return new IdentityDigests(this.#options, [this, ...this.#outer])
+	}
+
+	/** The identity a frozen container holds in these digests or in one they read (`#outer`), none where none keeps one. */
+	#kept(container: object): IdentityDigest | undefined {
+		const own = this.#digests.get(container)
+		if (own !== undefined) {
+			return own
+		}
+		for (const outer of this.#outer) {
+			const kept = outer.#digests.get(container)
+			if (kept !== undefined) {
+				return kept
+			}
+		}
+		return undefined
 	}
 
 	/**
@@ -182,7 +213,7 @@ export class IdentityDigests {
 		return {
 			known: (read) => {
 				const container = held(read)
-				return tableOf(container).get(container)
+				return Object.isFrozen(container) ? this.#kept(container) : open.get(container)
 			},
 			written: (read) => {
 				const container = held(read)

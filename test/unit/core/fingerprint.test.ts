@@ -85,7 +85,7 @@ export const fingerprintsCoverEveryPartTheContractNamesAndNothingElse = property
 						: p
 				const after = changed(before, change, there, entries)
 				const schema = (q: Parts) =>
-					succeeded(schemaFingerprint(new IdentityDigests(withoutSourceLocs), q.content))
+					succeeded(schemaFingerprint(new IdentityDigests(withoutSourceLocs, []), q.content))
 				const schemaParts: ReadonlySet<Change> = new Set(["content", "a non-SourceLoc loc"])
 				assert.equal(
 					schema(after) !== schema(before),
@@ -264,7 +264,7 @@ export const aSchemaLevelsFingerprintHashesBytesLinearInItsDistinctPartsAUnionCh
 				Effect.sync(() => {
 					/** The bytes the fingerprint of a chain `d` deep hashes. */
 					const hashed = (d: number): number => {
-						const identities = new IdentityDigests(withoutSourceLocs)
+						const identities = new IdentityDigests(withoutSourceLocs, [])
 						succeeded(schemaFingerprint(identities, chainLevel(d, reads)))
 						return identities.written
 					}
@@ -308,9 +308,9 @@ export const identityDigestsTakeEachFrozenContainersIdentityOnceHoweverOftenItIs
 			([depth, reads, again]) =>
 				Effect.sync(() => {
 					const level = chainLevel(depth, reads)
-					const once = new IdentityDigests(withoutSourceLocs)
+					const once = new IdentityDigests(withoutSourceLocs, [])
 					succeeded(once.of(level))
-					const asked = new IdentityDigests(withoutSourceLocs)
+					const asked = new IdentityDigests(withoutSourceLocs, [])
 					for (let ask = 0; ask <= again; ask++) {
 						assert.equal<string>(
 							succeeded(asked.of(level)),

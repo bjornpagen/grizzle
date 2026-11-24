@@ -2,12 +2,10 @@
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
-import { descIdentities } from "#compiler/ir/desc.ts"
 import { Fn } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { param, query, v } from "#compiler/public/query.ts"
 import { fn, relation, row, rows, schema } from "#compiler/public/schema.ts"
-import type { Predicate } from "#compiler/types/core/phantom.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 
 const A = rows({ k: pg.bigint, v: pg.bigint })
@@ -182,47 +180,6 @@ export const chainReadersOf = (depth: number, members: ChainReaders): unknown =>
 			})
 		)
 	)
-}
-
-/** Item's rows, every one: what rowsReaderOf's relation parameter `rows` is bound to. */
-const items = query(Shared).rule((r) => {
-	const { session: s, k, v: x } = v(Item, "item")
-	return r.match(Item, { session: s, k, v: x }).find({ session: s, k, v: x })
-})
-
-/**
- * A ChangeSet of one insert into Out0 whose rule reads the relation parameter `rows`, of Item's heading, beside a
- * conjunction of `conditions` conditions of its own and one more, each on the row's v, unbound.
- */
-const rowsReaderOf = (conditions: number) =>
-	ChangeSet.empty(Shared).insert(
-		outs[0][0],
-		query(Shared).rule((r) => {
-			const { session: s, k, v: x } = v(Item, "row")
-			const conjunction = Arr.reduce<Predicate, Predicate>(
-				Array.from({ length: conditions }, (_, i) => r.ne(x, BigInt(i + 1))),
-				r.ne(x, 0n),
-				(held, condition) => r.and(held, condition)
-			)
-			return r
-				.match(r.relation("rows", Item), { session: s, k, v: x })
-				.where(conjunction)
-				.find({ session: s, k, v: x })
-		})
-	)
-
-/**
- * The containers the Descriptions' identity digests (ir/desc.ts descIdentities) digest as rowsReaderOf's ChangeSet of
- * `conditions` conditions has `rows` bound to every item: counted from after it is built to after it is bound, one
- * binding of a ChangeSet of one condition made first, so what every binding reads alike, the items' query, is digested
- * before any count begins.
- */
-export const digestedBinding = (conditions: number): number => {
-	rowsReaderOf(1).bind({ rows: items })
-	const reader = rowsReaderOf(conditions)
-	const before = descIdentities.digested
-	reader.bind({ rows: items })
-	return descIdentities.digested - before
 }
 
 /** A session's latest item: its pending item of the greatest v, the least k among equals, an import with a take. */

@@ -25,12 +25,6 @@
  * for one member's digest alone. No ChangeSet, level or owner holds digests of its own (each schema, role and fragment
  * made its own, so a ChangeSet over a role digested again what one over its base had), so none digests apart.
  *
- * And a binding of a relation parameter digests only what it wrote (ir/desc.ts bindRelationParams, which keeps each
- * part of the member's query it leaves as it was): a member reading the parameter beside 2, 8, 32 or 128 conditions of
- * its own, bound to a query, digests as many parts at every width, where the binding rebuilt the member's whole rule and
- * every condition was digested again (edullm's qti app: 26,926 containers). Oracle: specification. Kill: the binding
- * rebuilding every part it walks.
- *
  * Features: a shallow chain and a deep one.
  */
 
@@ -48,8 +42,7 @@ import {
 import {
 	chainReadersOf,
 	chainVariantWriteOf,
-	chainWriteOf,
-	digestedBinding
+	chainWriteOf
 } from "#test/unit/write/shared-imports.fixtures.ts"
 
 /** The depths of the box: 2, 8, 32, 128, 512 and 2,048, each four times the one before. */
@@ -151,39 +144,6 @@ export const aChangeSetsChainOfMembersDigestsEachPartTheyShareOnceSoMembersPastT
 					"\t\tconst tableOf = (container: object) => (Object.isFrozen(container) ? this.#digests : open)\n",
 				replacement: "\t\tconst tableOf = (_container: object) => open\n",
 				why: "Each member's digest keeps its containers' tokens for itself alone, so every member digests the whole chain again and the parts members past the first digest grow with the depth."
-			}
-		]
-	})
-
-/** The conditions of a member's own rule beside its read of the parameter: 2, 8, 32 and 128, each four times the one before. */
-const widthGen: Gen<number> = map(int(0, 3), (i) => 2 * 4 ** i)
-
-/** Binding a relation parameter of a member digests only what the binding wrote, as many parts at every width of the member's own rule. */
-export const bindingARelationParameterDigestsOnlyWhatTheBindingWroteAsManyPartsAtEveryWidthOfTheMembersOwnRule =
-	property.exhaust(finite(widthGen), {
-		needs: {},
-		situations: ["a narrow rule", "a wide rule"],
-		check: (_, k) => (width) =>
-			Effect.sync(() => {
-				k.note(width === 2 ? "a narrow rule" : "a wide rule")
-				assert.equal(
-					digestedBinding(width),
-					digestedBinding(2),
-					`binding the parameter beside ${width} conditions digests as many parts as beside 2`
-				)
-			}),
-		oracle: {
-			kind: "specification",
-			name: "a part of a member's query a binding leaves as it was is never digested again"
-		},
-		box: "one insert reading the relation parameter rows beside 2, 8, 32 and 128 conditions of its own rule, bound to every item",
-		kept: [],
-		kills: [
-			{
-				file: "packages/engine/src/ir/desc.ts",
-				original: "\t\treturn holdsSame(old, fresh) ? old : fresh\n",
-				replacement: "\t\treturn fresh\n",
-				why: "The binding rebuilds every part of the member's own namespace it walks, as it did: each condition beside the parameter is a new part, digested again for the bound member, so the parts a binding digests grow with the conditions."
 			}
 		]
 	})

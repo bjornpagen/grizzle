@@ -2634,24 +2634,13 @@ export const queryParamNames = <T = FieldDesc>(
 }
 
 /**
- * The query with each of its own parameter uses whose name `rename` maps spelled by its image (mapQueryParams), frozen
- * throughout as a decoded Description is: the walk builds only containers around the query's decoded parts. An
- * imported query keeps its own parameters, and only the terms of its bind map are renamed. ChangeSet.bind uses it to
- * move a bound name out of the ChangeSet's namespace.
+ * The query with each of its own parameter uses whose name `rename` maps spelled by its image (ParamRenaming), frozen
+ * throughout as a decoded Description is: an imported query keeps its own parameters, and only the terms of its bind map
+ * are renamed. ChangeSet.bind uses it to move a bound name out of the ChangeSet's namespace, and a ChangeSet's
+ * combination to name its parts' private parameters (write/changeset/value.ts canonicalParts).
  */
 export const renameQueryParams = (q: QueryDesc, rename: ReadonlyMap<string, string>): QueryDesc =>
-	rename.size === 0
-		? q
-		: deepFreeze(
-				mapQueryParams(
-					q,
-					{
-						param: (name) => ({ name: rename.get(name) ?? name }),
-						imported: () => spelledAsIs
-					},
-					new Map()
-				)
-			)
+	rename.size === 0 ? q : deepFreeze(new ParamRenaming(rename).query(q))
 
 /**
  * The parameters the rows a relation parameter is bound to read in the namespace that binds them: its bind map's terms'
@@ -2667,14 +2656,7 @@ export const rowsParamNames = (rows: RowsDesc): ReadonlySet<string> => {
 /** The rows with each parameter of the binding namespace their bind map reads whose name `rename` maps spelled by its
  * image (renameQueryParams' reading of a bind map), frozen as a decoded Description is. */
 export const renameRowsParams = (rows: RowsDesc, rename: ReadonlyMap<string, string>): RowsDesc =>
-	rename.size === 0
-		? rows
-		: deepFreeze(
-				new ParamWalk<Spelled["param"], FieldDesc>(
-					{ param: (name) => ({ name: rename.get(name) ?? name }), imported: () => spelledAsIs },
-					new Map()
-				).rows(rows)
-			)
+	rename.size === 0 ? rows : deepFreeze(new ParamRenaming(rename).rows(rows))
 
 /** A relation parameter as a source a rule matches: over a declared heading, or over a relation's (Rule.relation). */
 export type RelationParamSourceDesc<L = Located, R extends Refs = Spelled> = Extract<
@@ -2775,12 +2757,56 @@ const unwalkedImports: ImportedWalks<Spelled["param"], FieldDesc> = {
 }
 
 /**
- * A walk over a query's own namespace that binds the relation parameters `rows` names (bindRelationParams): a bind
- * term of one is its rows, and a match of one is a match of an import of its identity query (`identity`), the
- * parameter bound to its rows. The rows are written in the namespace that binds them, so they are no use of the
- * parameter and are never bound again.
+ * A walk over a query's own namespace that rewrites some of its parts and shares the rest: an imported query is its own
+ * namespace, the query itself, never walked (unwalkedImports), and a part the walk leaves as it was is that part itself
+ * (holdsSame), so the walked query shares every part but the containers on the way to what it rewrote, and only those
+ * are digested again (core/fingerprint.ts IdentityDigests). Where every part was rebuilt and each import walked anew,
+ * a walk copied the query's whole graph, its imports' included: a binding digested again every condition beside the
+ * parameter it bound (write/changeset/value.ts bindRows), and the canonical naming of metis's composed programs copied
+ * their members' graphs at every union and sequence, millions of frozen parts digested as its modules loaded.
  */
-class RelationBinding extends ParamWalk<Spelled["param"], FieldDesc> {
+class SharingWalk extends ParamWalk<Spelled["param"], FieldDesc> {
+	constructor(spelling: ParamSpelling<Spelled["param"]>) {
+		super(spelling, unwalkedImports)
+	}
+
+	protected override kept<B extends object>(old: object, fresh: B): B {
+		return holdsSame(old, fresh) ? old : inKeyOrderOf(old, fresh)
+	}
+}
+
+/**
+ * `fresh`, a part a walk rebuilt, in the key order of the part `old` it rebuilt where it holds exactly `old`'s keys, as
+ * a decode of the Description holds it (ir/shape.ts, its key order included): a renamed parameter's use is written as
+ * its use was, its name in its place.
+ */
+const inKeyOrderOf = <B extends object>(old: object, fresh: B): B => {
+	if (!isPlainRecord(old) || !isPlainRecord(fresh)) {
+		return fresh
+	}
+	const keys = Object.keys(fresh)
+	return Object.keys(old).length === keys.length && keys.every((k) => Object.hasOwn(old, k))
+		? { ...old, ...fresh }
+		: fresh
+}
+
+/**
+ * A walk over a query's own namespace that spells each parameter `rename` maps by its image (renameQueryParams,
+ * renameRowsParams), sharing every part it leaves as it was (SharingWalk).
+ */
+class ParamRenaming extends SharingWalk {
+	constructor(rename: ReadonlyMap<string, string>) {
+		super({ param: (name) => ({ name: rename.get(name) ?? name }), imported: () => spelledAsIs })
+	}
+}
+
+/**
+ * A walk over a query's own namespace that binds the relation parameters `rows` names (bindRelationParams), sharing
+ * every part it leaves as it was (SharingWalk): a bind term of one is its rows, and a match of one is a match of an
+ * import of its identity query (`identity`), the parameter bound to its rows. The rows are written in the namespace
+ * that binds them, so they are no use of the parameter and are never bound again.
+ */
+class RelationBinding extends SharingWalk {
 	readonly #rows: ReadonlyMap<string, RowsDesc>
 	readonly #identity: (source: RelationParamSourceDesc) => QueryDesc
 
@@ -2788,19 +2814,9 @@ class RelationBinding extends ParamWalk<Spelled["param"], FieldDesc> {
 		rows: ReadonlyMap<string, RowsDesc>,
 		identity: (source: RelationParamSourceDesc) => QueryDesc
 	) {
-		super(spelledAsIs, unwalkedImports)
+		super(spelledAsIs)
 		this.#rows = rows
 		this.#identity = identity
-	}
-
-	/**
-	 * `old` itself where nothing in it changed (holdsSame), so the parts of a member's query the binding leaves as they
-	 * were keep their identity digests (core/fingerprint.ts IdentityDigests) and only what the binding wrote is
-	 * digested again for the bound member, where every part of the query's own namespace was rebuilt and digested
-	 * again (write/changeset/value.ts bindRows).
-	 */
-	protected override kept<B extends object>(old: object, fresh: B): B {
-		return holdsSame(old, fresh) ? old : fresh
 	}
 
 	override source(s: SourceDesc): SourceDesc {
@@ -4571,7 +4587,7 @@ export const descText = (desc: unknown): Result.Result<WellFormedText, CompileEr
  * level, was digested again in each: edullm's qti-database configuration, imported, digested 351,000 of its 1,312,678
  * containers a second time in another level's digests, for 27,016 distinct identities.
  */
-export const descIdentities: IdentityDigests = new IdentityDigests(withoutSourceLocs)
+export const descIdentities: IdentityDigests = new IdentityDigests(withoutSourceLocs, [])
 
 /**
  * The identity digest of `desc` (core/fingerprint.ts identityDigest): one exactly when descText is one, each frozen

@@ -710,10 +710,6 @@ const freshName = (origin: string, taken: ReadonlySet<string>): string => {
 	}
 }
 
-/** A query with the parameters `rename` maps renamed, decoded as a Description holds it. */
-const renamedQuery = (query: QueryDesc, rename: ReadonlyMap<string, string>): QueryDesc =>
-	orThrow(decodeDesc("query", renameQueryParams(query, rename)))
-
 /** A member a query describes, its query `query`: its identity, its parameters and its Description with it. */
 const withMemberQuery = (
 	m: Extract<MemberState, { readonly kind: "query" | "computed" }>,
@@ -745,11 +741,13 @@ const renameMember = (m: MemberState, rename: ReadonlyMap<string, string>): Memb
 	if (m.kind === "equal") {
 		return equalState(m.op, m.relation, renameEqualParams(m.fields, rename), m.desc.loc)
 	}
-	return withMemberQuery(m, renamedQuery(m.query, rename))
+	return withMemberQuery(m, renameQueryParams(m.query, rename))
 }
 
 const renameRead = (r: ReadBackState, rename: ReadonlyMap<string, string>): ReadBackState =>
-	[...r.params].some((p) => rename.has(p)) ? withReadQuery(r, renamedQuery(r.query, rename)) : r
+	[...r.params].some((p) => rename.has(p))
+		? withReadQuery(r, renameQueryParams(r.query, rename))
+		: r
 
 /** The scope with its uses of the names `rename` maps renamed, and its private parameters with them. The images are
  * distinct and none is a name of the scope `rename` leaves in place. */
@@ -791,16 +789,21 @@ const release = (scope: Scope, avoid: ReadonlySet<string>): Scope => {
 	return renameScope(scope, rename)
 }
 
-/** Two scopes combined: each one's private parameters renamed out of the other's names, then their bindings joined. The
- * free parameters of the two stay one namespace. */
+/**
+ * Two scopes combined: their private parameters named as one scope's (`canonicalParts`), each part renamed once to the
+ * names it ends with, and their bindings joined, those of one origin and one key one. The free parameters of the two
+ * stay one namespace.
+ */
 const combine = (
 	a: Scope,
 	b: Scope
-): { readonly a: Scope; readonly b: Scope; readonly bound: Map<string, BoundParam> } => {
-	const names = (x: Scope) => new Set([...usedParams(x), ...x.bound.keys()])
-	const left = release(a, names(b))
-	const right = release(b, names(left))
-	return { a: left, b: right, bound: new Map([...left.bound, ...right.bound]) }
+): { readonly a: Scope; readonly b: Scope; readonly bound: ReadonlyMap<string, BoundParam> } => {
+	const { parts, bound } = canonicalParts([a, b])
+	return {
+		a: defined(parts[0], "the first part, named"),
+		b: defined(parts[1], "the second part, named"),
+		bound
+	}
 }
 
 /**
@@ -844,26 +847,38 @@ const rowsKeys = (
 	return keyOf
 }
 
+/** A private parameter of one of the parts the canonical naming names together (`canonicalParts`): its part, and its name there. */
+interface PartPrivate {
+	readonly part: number
+	readonly name: string
+}
+
 /**
- * Private parameters of one kind merged and named (`canonicalBindings`): those of one origin and one key are one, the
+ * Private parameters of one kind merged and named (`canonicalParts`): those of one origin and one key are one, the
  * first kept; each kept one is named in turn in the order of their origins and keys (`boundOrder`), its origin when no
  * name `taken` holds has it, otherwise the origin, `#` and the least index that is free, which `taken` then holds. The
  * image of every one, a merged one's its kept one's.
  */
 const namedPrivates = (
 	privates: ReadonlyArray<{
-		readonly name: string
+		readonly id: PartPrivate
 		readonly origin: string
 		readonly key: PrivateKey
 	}>,
 	taken: Set<string>
-): { readonly kept: ReadonlySet<string>; readonly image: ReadonlyMap<string, string> } => {
-	const keptOf = new Map<string, string>()
-	const kept: Array<{ readonly name: string; readonly origin: string; readonly key: PrivateKey }> =
-		[]
-	/** The kept private parameter of each origin and key, by name. */
-	const values = new Map<string, TextsMap<string>>()
-	const rows = new Map<string, Map<IdentityDigest, string>>()
+): {
+	readonly kept: ReadonlySet<PartPrivate>
+	readonly image: ReadonlyMap<PartPrivate, string>
+} => {
+	const keptOf = new Map<PartPrivate, PartPrivate>()
+	const kept: Array<{
+		readonly id: PartPrivate
+		readonly origin: string
+		readonly key: PrivateKey
+	}> = []
+	/** The kept private parameter of each origin and key. */
+	const values = new Map<string, TextsMap<PartPrivate>>()
+	const rows = new Map<string, Map<IdentityDigest, PartPrivate>>()
 	for (const p of privates) {
 		const { key } = p
 		if (key.kind === "opaque") {
@@ -872,66 +887,116 @@ const namedPrivates = (
 		}
 		const same =
 			key.kind === "tokens"
-				? values.getOrInsertComputed(p.origin, () => new TextsMap<string>()).get(key.id)
-				: rows.getOrInsertComputed(p.origin, () => new Map<IdentityDigest, string>()).get(key.id)
+				? values.getOrInsertComputed(p.origin, () => new TextsMap<PartPrivate>()).get(key.id)
+				: rows
+						.getOrInsertComputed(p.origin, () => new Map<IdentityDigest, PartPrivate>())
+						.get(key.id)
 		if (same !== undefined) {
-			keptOf.set(p.name, same)
+			keptOf.set(p.id, same)
 			continue
 		}
 		kept.push(p)
 		if (key.kind === "tokens") {
-			values.getOrInsertComputed(p.origin, () => new TextsMap<string>()).set(key.id, p.name)
+			values.getOrInsertComputed(p.origin, () => new TextsMap<PartPrivate>()).set(key.id, p.id)
 		} else {
 			rows
-				.getOrInsertComputed(p.origin, () => new Map<IdentityDigest, string>())
-				.set(key.id, p.name)
+				.getOrInsertComputed(p.origin, () => new Map<IdentityDigest, PartPrivate>())
+				.set(key.id, p.id)
 		}
 	}
-	const image = new Map<string, string>()
+	const image = new Map<PartPrivate, string>()
 	for (const p of kept.toSorted(boundOrder)) {
 		const named = freshName(p.origin, taken)
 		taken.add(named)
-		image.set(p.name, named)
+		image.set(p.id, named)
 	}
-	for (const [name, same] of keptOf) {
-		image.set(name, defined(image.get(same), "a merged private parameter's kept one, named"))
+	for (const [id, same] of keptOf) {
+		image.set(id, defined(image.get(same), "a merged private parameter's kept one, named"))
 	}
-	return { kept: new Set(kept.map((p) => p.name)), image }
+	return { kept: new Set(kept.map((p) => p.id)), image }
 }
 
 /**
- * The canonical private names of a scope (see `ChangeSetValue`): its private parameters bound to values merged and
- * named first (`namedPrivates`), by their values' keys (`BoundKey`), then those bound to rows, by keys that read the
- * values' canonical names (`rowsKeys`), every name chosen past the free parameters' and the ones chosen before it, and
- * every rename made at once, so no chosen name meets a name it replaces. The names follow from the free parameters, the
- * bound values and the bound rows alone, never from the order the members were built or combined in; only private
- * parameters of one origin bound to opaque values keep the order the scope holds them in.
+ * The canonical private names of the parts of one scope (see `ChangeSetValue`), a scope alone or the two a union or a
+ * sequence combines: the parts' private parameters bound to values merged and named first (`namedPrivates`), by their
+ * values' keys (`BoundKey`), then those bound to rows, by keys that read the values' canonical names (`rowsKeys`, each
+ * part's over its own bindings), every name chosen past every part's free parameters, which are one namespace, and the
+ * ones chosen before it. Private parameters of one origin and one key are one, whichever parts bind them and under
+ * whatever names; each part is renamed once, to the names it ends with, and none of its members is rebuilt but where a
+ * name it reads changes (renameScope), so a union of parts binding one query under one name rebuilds none. The names
+ * follow from the free parameters, the bound values and the bound rows alone, never from the order the members were
+ * built or combined in; only private parameters of one origin bound to opaque values keep the order the parts hold them
+ * in. Where a combination renamed each part's clashing private parameters out of the other's way and then named the
+ * whole, every member of a part reading a clashing name was rebuilt and its identity digested twice for each union and
+ * sequence: metis's tower of programs, each a union or sequence of parts bound to their sittings, digested 16.8 million
+ * frozen parts as its modules loaded, each held by an exported ChangeSet, past V8's largest hash table.
  */
-const canonicalBindings = (scope: Scope): Scope => {
-	if (scope.bound.size === 0) {
-		return scope
-	}
-	const taken = new Set(freeParams(scope))
-	const entries = [...scope.bound]
+const canonicalParts = (
+	parts: ReadonlyArray<Scope>
+): { readonly parts: ReadonlyArray<Scope>; readonly bound: ReadonlyMap<string, BoundParam> } => {
+	const taken = new Set(parts.flatMap((part) => [...freeParams(part)]))
+	const ids = parts.map(
+		(part, at) => new Map([...part.bound.keys()].map((name) => [name, { part: at, name } as const]))
+	)
+	const idOf = (at: number, name: string): PartPrivate =>
+		defined(ids[at]?.get(name), "a part's private parameter")
 	const values = namedPrivates(
-		entries.flatMap(([name, param]) =>
-			param.kind === "value" ? [{ name, origin: param.origin, key: param.key }] : []
+		parts.flatMap((part, at) =>
+			[...part.bound].flatMap(([name, param]) =>
+				param.kind === "value" ? [{ id: idOf(at, name), origin: param.origin, key: param.key }] : []
+			)
 		),
 		taken
 	)
-	const rowsKey = rowsKeys(scope.bound, values.image)
 	const rows = namedPrivates(
-		entries.flatMap(([name, param]) =>
-			param.kind === "rows"
-				? [{ name, origin: param.origin, key: { kind: "rows", id: rowsKey(name) } as const }]
-				: []
-		),
+		parts.flatMap((part, at) => {
+			const valueImage = new Map(
+				[...part.bound].flatMap(([name, param]) =>
+					param.kind === "value"
+						? [[name, defined(values.image.get(idOf(at, name)), "a value's name")] as const]
+						: []
+				)
+			)
+			const rowsKey = rowsKeys(part.bound, valueImage)
+			return [...part.bound].flatMap(([name, param]) =>
+				param.kind === "rows"
+					? [
+							{
+								id: idOf(at, name),
+								origin: param.origin,
+								key: { kind: "rows", id: rowsKey(name) } as const
+							}
+						]
+					: []
+			)
+		}),
 		taken
 	)
-	const rename = new Map([...values.image, ...rows.image].filter(([name, image]) => name !== image))
-	const kept = new Map(entries.filter(([name]) => values.kept.has(name) || rows.kept.has(name)))
-	return renameScope({ strata: scope.strata, reads: scope.reads, bound: kept }, rename)
+	const named = parts.map((part, at) => {
+		const imageOf = (name: string): string =>
+			defined(
+				values.image.get(idOf(at, name)) ?? rows.image.get(idOf(at, name)),
+				"a private parameter's canonical name"
+			)
+		const rename = new Map(
+			[...part.bound.keys()].flatMap((name) => {
+				const image = imageOf(name)
+				return image === name ? [] : [[name, image] as const]
+			})
+		)
+		const kept = new Map(
+			[...part.bound].filter(
+				([name]) => values.kept.has(idOf(at, name)) || rows.kept.has(idOf(at, name))
+			)
+		)
+		return renameScope({ strata: part.strata, reads: part.reads, bound: kept }, rename)
+	})
+	return { parts: named, bound: new Map(named.flatMap((part) => [...part.bound])) }
 }
+
+/** The canonical private names of a scope (`canonicalParts`), the scope alone its one part. */
+const canonicalBindings = (scope: Scope): Scope =>
+	scope.bound.size === 0 ? scope : defined(canonicalParts([scope]).parts[0], "the one part, named")
 
 /** Read-backs by name. */
 const readNameOrder = Order.mapInput(Order.compareStrings, (r: ReadBackState) => r.name)
@@ -1705,7 +1770,7 @@ const combined = (
 	readonly top: BuiltOver
 	readonly x: Scope
 	readonly y: Scope
-	readonly bound: Map<string, BoundParam>
+	readonly bound: ReadonlyMap<string, BoundParam>
 } => {
 	if (extra.length > 0) {
 		throw malformed(label, `${label}(a, b): two arguments`)
