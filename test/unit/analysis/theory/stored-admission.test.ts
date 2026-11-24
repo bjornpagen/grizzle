@@ -95,9 +95,9 @@ export const aStoredRelationIsAdmittedAtTheUnitItsHeadDeliversOrRefusedByTheCond
 		kills: [
 			{
 				file: "packages/engine/src/analysis/theory/theory.ts",
-				original: "unfit, (relation) =>\n\t\t\t\tthis.owned.unitOf.get(relation)\n",
+				original: "(relation) => this.owned.unitOf.get(relation) ?? members.get(relation)\n",
 				replacement:
-					'unfit, (relation) =>\n\t\t\t\tthis.owned.unitOf.get(relation) ?? { unit: "Document", fields: ["doc"] }\n',
+					'(relation) => this.owned.unitOf.get(relation) ?? members.get(relation) ?? { unit: "Document", fields: ["doc"] }\n',
 				why: "A relation in no declared unit read as one, so a stored relation is admitted that no borrow covers a write of."
 			},
 			{
