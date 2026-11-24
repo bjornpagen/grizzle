@@ -4,7 +4,7 @@
  */
 
 import { defined } from "@bjornpagen/testing/assert"
-import { array, boolean, type Gen, int, subset, weighted } from "@bjornpagen/testing/gen"
+import { array, boolean, constant, type Gen, int, subset, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option } from "effect"
 import type { Bound, ExponentSystem } from "#compiler/physical/statistics/exponents.ts"
 
@@ -16,29 +16,40 @@ export type ExponentsFeature =
 	| "an anchor above 1"
 	| "a column above 1"
 	| "two anchors"
+	| "a key carried by its index"
+	| "a column at its cap"
 	| "edullm's Instance at a5f2531ed"
 	| "edullm's Instance at 71bd2dfc5"
 
+/** A column's cap (ExponentSystem `caps`): none three times in four, a column of many values; else a column of few
+ * values', 1 to 3, a boolean's or a roster's of up to 15 handles. */
+const capGen: Gen<number> = weighted([
+	[3, constant(Number.POSITIVE_INFINITY)],
+	[1, int(1, 3)]
+])
+
 /**
- * A small system drawn free: one or two anchors, one to four columns, one to six bounds over them, each bound of its
- * kind, its anchor and a subset of the columns; most cross.
+ * A small system drawn free: one or two anchors, one to four columns, each with a drawn cap, one to six bounds over
+ * them, each bound of its kind, its anchor and a subset of the columns; most cross.
  */
 const freeSystemGen: Gen<ExponentSystem> = (source) => {
 	const anchors = source.draw(int(1, 2))
 	const columns = source.draw(int(1, 4))
+	const caps = Array.from({ length: columns }, () => source.draw(capGen))
 	const indexes = Array.from({ length: columns }, (_, c) => c)
 	const bound: Gen<Bound> = (s) => ({
 		kind: s.draw(boolean) ? "key" : "apart",
 		anchor: s.draw(int(0, anchors - 1)),
 		columns: s.draw(subset(indexes, { min: 0, max: columns }))
 	})
-	return { anchors, columns, bounds: source.draw(array(bound, { min: 1, max: 6 })) }
+	return { anchors, columns, caps, bounds: source.draw(array(bound, { min: 1, max: 6 })) }
 }
 
 /**
  * A system of exponents drawn first and bounds drawn after, each kept where the exponents meet it: one to `anchors`
- * anchors of exponents 0 to 11, one to `columns` columns of exponents 1 to 5, up to `bounds` bounds, each a key or a set
- * apart over an anchor and a subset of at most `width` columns. Every such system holds a solution, the drawn one.
+ * anchors of exponents 0 to 11, one to `columns` columns, each with a drawn cap, of exponents 1 to the lesser of 5 and
+ * its cap, up to `bounds` bounds, each a key or a set apart over an anchor and a subset of at most `width` columns.
+ * Every such system holds a solution, the drawn one.
  */
 const plantedSystemGen =
 	(size: {
@@ -50,7 +61,10 @@ const plantedSystemGen =
 	(source) => {
 		const anchors = source.draw(int(1, size.anchors))
 		const columns = source.draw(int(1, size.columns))
-		const x = Array.from({ length: columns }, () => source.draw(int(1, 5)))
+		const caps = Array.from({ length: columns }, () => source.draw(capGen))
+		const x = Array.from({ length: columns }, (_, c) =>
+			source.draw(int(1, Math.min(5, defined(caps[c], "a cap"))))
+		)
 		const y = Array.from({ length: anchors }, () => source.draw(int(0, 11)))
 		const indexes = Array.from({ length: columns }, (_, c) => c)
 		const drawn = source.draw(
@@ -63,21 +77,50 @@ const plantedSystemGen =
 				{ min: 1, max: size.bounds }
 			)
 		)
-		const bounds = Arr.filter(drawn, (b) => meets({ anchors, columns, bounds: [b] }, y, x))
+		const bounds = Arr.filter(drawn, (b) => meets({ anchors, columns, caps, bounds: [b] }, y, x))
 		return {
 			anchors,
 			columns,
+			caps,
 			bounds: bounds.length > 0 ? bounds : [{ kind: "apart", anchor: 0, columns: [] }]
 		}
 	}
 
 /**
- * The comparison's space: a free system one time in four, most of them crossing; else a planted one of up to four
- * anchors, ten columns and eighteen bounds, which holds a solution.
+ * A planted system of up to four anchors, eight columns and twelve bounds with one key more over a boolean's column, its
+ * cap 1, and the columns of one of its sets apart but the first: a key such as Rel0x0's (Bool, field0) beside the set
+ * apart (field0, tick0), whose sum its boolean cannot lift above its set apart's, which its own index carries where no
+ * raise of its other columns meets it.
+ */
+const carriedSystemGen: Gen<ExponentSystem> = (source) => {
+	const planted = source.draw(plantedSystemGen({ anchors: 4, columns: 8, bounds: 12, width: 8 }))
+	const aparts = Arr.filter(planted.bounds, (b) => b.kind === "apart")
+	const apart = aparts[source.draw(int(0, aparts.length - 1))] ?? {
+		kind: "apart",
+		anchor: 0,
+		columns: []
+	}
+	const boolean = planted.columns
+	return {
+		anchors: planted.anchors,
+		columns: planted.columns + 1,
+		caps: [...planted.caps, 1],
+		bounds: [
+			...planted.bounds,
+			{ kind: "key", anchor: apart.anchor, columns: [...apart.columns.slice(1), boolean] }
+		]
+	}
+}
+
+/**
+ * The comparison's space: a free system one time in five, most of them crossing; a planted one of up to four anchors,
+ * ten columns and eighteen bounds, which holds a solution, three times in five; and one time in five a planted one with
+ * a key over a boolean beside a set apart (`carriedSystemGen`).
  */
 export const systemGen: Gen<ExponentSystem> = weighted([
 	[1, freeSystemGen],
-	[3, plantedSystemGen({ anchors: 4, columns: 10, bounds: 18, width: 10 })]
+	[3, plantedSystemGen({ anchors: 4, columns: 10, bounds: 18, width: 10 })],
+	[1, carriedSystemGen]
 ])
 
 /**
@@ -110,6 +153,7 @@ export const instanceSystems: Arr.NonEmptyReadonlyArray<{
 		system: {
 			anchors: 3,
 			columns: 28,
+			caps: Array.from({ length: 28 }, () => Number.POSITIVE_INFINITY),
 			bounds: [
 				{ kind: "apart", anchor: 0, columns: [] },
 				{ kind: "apart", anchor: 1, columns: [] },
@@ -161,6 +205,7 @@ export const instanceSystems: Arr.NonEmptyReadonlyArray<{
 		system: {
 			anchors: 3,
 			columns: 28,
+			caps: Array.from({ length: 28 }, () => Number.POSITIVE_INFINITY),
 			bounds: [
 				{ kind: "apart", anchor: 0, columns: [] },
 				{ kind: "apart", anchor: 1, columns: [] },
@@ -213,19 +258,59 @@ export const instanceSystems: Arr.NonEmptyReadonlyArray<{
 	}
 ]
 
-/** Whether exponents meet every bound of `system`. */
+/** Whether exponents meet every bound of `system`, each column within its cap. */
 export const meets = (
 	system: ExponentSystem,
 	anchors: ReadonlyArray<number>,
 	columns: ReadonlyArray<number>
 ): boolean =>
 	Arr.every(anchors, (y) => y >= 0) &&
-	Arr.every(columns, (x) => x >= 1) &&
+	Arr.every(columns, (x, c) => x >= 1 && x <= defined(system.caps[c], "a cap")) &&
 	Arr.every(system.bounds, (b) => {
 		const sum = Arr.reduce(b.columns, 0, (s, c) => s + (columns[c] ?? 0))
 		const y = anchors[b.anchor] ?? 0
 		return b.kind === "key" ? sum >= y : sum <= y - 1
 	})
+
+/**
+ * Whether exponents meet `system` but for the keys `carried`, each of which its own index carries (exponents.ts): it is
+ * a key whose sum falls short of its anchor's exponent, and each of its columns below its cap lies in a set apart over
+ * its anchor whose sum is the anchor's exponent less one, a largest, so no exponent its type allows lifts the key's sum
+ * above every largest set apart's; and every other key and every set apart is met, each column within its cap.
+ */
+export const admits = (
+	system: ExponentSystem,
+	anchors: ReadonlyArray<number>,
+	columns: ReadonlyArray<number>,
+	carried: ReadonlyArray<number>
+): boolean => {
+	const sum = (b: Bound): number => Arr.reduce(b.columns, 0, (s, c) => s + (columns[c] ?? 0))
+	const y = (b: Bound): number => anchors[b.anchor] ?? 0
+	return (
+		meets(
+			{ ...system, bounds: Arr.filter(system.bounds, (_, i) => !carried.includes(i)) },
+			anchors,
+			columns
+		) &&
+		Arr.every(carried, (i) => {
+			const k = defined(system.bounds[i], "a carried bound")
+			const tops = Arr.filter(
+				system.bounds,
+				(b) => b.kind === "apart" && b.anchor === k.anchor && sum(b) === y(k) - 1
+			)
+			return (
+				k.kind === "key" &&
+				sum(k) < y(k) &&
+				Arr.every(
+					k.columns,
+					(c) =>
+						(columns[c] ?? 0) >= defined(system.caps[c], "a cap") ||
+						Arr.some(tops, (t) => t.columns.includes(c))
+				)
+			)
+		})
+	)
+}
 
 /** An exact rational, its denominator positive and coprime to its numerator. */
 interface Fraction {
@@ -262,13 +347,21 @@ const less = (a: Fraction, b: Fraction): boolean => a.n * b.d < b.n * a.d
 /**
  * The bounds as rows over the rational unknowns z ≥ 0, each `Σ coefficients·z ≤ limit`: z holds each anchor's exponent
  * first, then each column's exponent less 1, so z ≥ 0 states x ≥ 1. A key's row is y_a − Σ (x_c − 1) ≤ |columns|, a set
- * apart's Σ (x_c − 1) − y_a ≤ −1 − |columns|.
+ * apart's Σ (x_c − 1) − y_a ≤ −1 − |columns|, and each column of a finite cap's x_c − 1 ≤ cap_c − 1.
  */
 const rowsOf = (
 	system: ExponentSystem,
 	bounds: ReadonlyArray<Bound>
-): ReadonlyArray<{ readonly coefficients: ReadonlyArray<bigint>; readonly limit: bigint }> =>
-	Arr.map(bounds, (b) => {
+): ReadonlyArray<{ readonly coefficients: ReadonlyArray<bigint>; readonly limit: bigint }> => [
+	...Arr.flatMap(system.caps, (cap, c) => {
+		if (!Number.isFinite(cap)) {
+			return []
+		}
+		const coefficients = Array.from({ length: system.anchors + system.columns }, () => 0n)
+		coefficients[system.anchors + c] = 1n
+		return [{ coefficients, limit: BigInt(cap - 1) }]
+	}),
+	...Arr.map(bounds, (b) => {
 		const coefficients = Array.from({ length: system.anchors + system.columns }, () => 0n)
 		const sense = b.kind === "key" ? -1n : 1n
 		coefficients[b.anchor] = -sense
@@ -279,6 +372,7 @@ const rowsOf = (
 		const width = BigInt(b.columns.length)
 		return { coefficients, limit: b.kind === "key" ? width : -1n - width }
 	})
+]
 
 /**
  * A rational point of the bounds, z ≥ 0 as `rowsOf` states them, or none: phase 1 of the simplex over exact fractions,
@@ -417,12 +511,13 @@ const anchorFloor = (ix: Indexed, anchor: number, low: (c: number) => number): n
 /**
  * Whether a partial assignment of the columns' exponents may complete under the largest anchor exponent `Y`: each
  * anchor's least exponent, every unassigned column at 1, at most the least of `Y` and each of its keys' sums, every
- * unassigned column at the most a set apart it is in leaves it (`Y` − 1 less the rest of the set at their least) or the
- * greater of `Y` and 1. At a full assignment it is exact.
+ * unassigned column at the most a set apart it is in leaves it (`Y` − 1 less the rest of the set at their least), or the
+ * lesser of its cap and the greater of `Y` and 1. At a full assignment it is exact.
  */
 const atMost = (
 	ix: Indexed,
 	anchors: number,
+	caps: ReadonlyArray<number>,
 	Y: number,
 	assigned: ReadonlyArray<number | undefined>
 ): boolean => {
@@ -432,7 +527,7 @@ const atMost = (
 		if (v !== undefined) {
 			return v
 		}
-		let most = Math.max(1, Y)
+		let most = Math.min(Math.max(1, Y), defined(caps[c], "a cap"))
 		for (const family of ix.apart) {
 			for (const b of family) {
 				if (b.columns.includes(c)) {
@@ -461,7 +556,8 @@ const atMost = (
 
 /**
  * The least columns' exponents under the largest anchor exponent `Y`, lexicographically, or none: a depth-first walk of
- * the box, each column from 1 up to the greater of `Y` and 1 in column order, the columns in no bound held at 1.
+ * the box, each column from 1 up to the lesser of its cap and the greater of `Y` and 1 in column order, the columns in no
+ * bound held at 1.
  */
 const leastAt = (
 	system: ExponentSystem,
@@ -475,11 +571,11 @@ const leastAt = (
 	const walk = (depth: number): boolean => {
 		const c = bounded[depth]
 		if (c === undefined) {
-			return atMost(ix, system.anchors, Y, assigned)
+			return atMost(ix, system.anchors, system.caps, Y, assigned)
 		}
-		for (let v = 1; v <= Math.max(1, Y); v++) {
+		for (let v = 1; v <= Math.min(Math.max(1, Y), defined(system.caps[c], "a cap")); v++) {
 			assigned[c] = v
-			if (atMost(ix, system.anchors, Y, assigned) && walk(depth + 1)) {
+			if (atMost(ix, system.anchors, system.caps, Y, assigned) && walk(depth + 1)) {
 				return true
 			}
 		}

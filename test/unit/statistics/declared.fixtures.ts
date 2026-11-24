@@ -17,7 +17,7 @@ export type DeclaredFeature =
 	| "a roster column"
 	| "a crossing"
 	| "an unsettled raise"
-	| "a column beyond its values"
+	| "a key carried by its index"
 	| "a pair a dependency ties"
 	| "an index led by a column of many values in no unit"
 	| "a member's index led by a column no fact binds to its unit"

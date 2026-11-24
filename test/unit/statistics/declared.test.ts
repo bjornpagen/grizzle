@@ -9,7 +9,10 @@
  * other column absolute; a column of few values is never relative and holds no more values than its roster's handles;
  * the unit's key's fields after its first of many values, and a roster of one handle, hold exactly one; a declared
  * dependency ties two anchors at 2^m rows, m at least 1 and at most its determinant's exponent; every key holding one
- * anchor, or one pair, binds at most one row; every set an index's equalities stop at short of a binding, holding no
+ * anchor, or one pair, binds at most one row, or is carried by its own unique index, which PostgreSQL prices at one
+ * tuple whatever the statistics: each column of it past its anchors that its type would let halve its rows again lies in
+ * a set apart over those anchors binding exactly two rows, a largest, so no number of values its columns' types hold
+ * brings it to one row (Rel0x0 keyed (Bool, field0), the kept case); every set an index's equalities stop at short of a binding, holding no
  * key, holds at most one anchor or one pair, and where it holds one binds two rows or more, as PostgreSQL prices a pair
  * under its dependency, beside whatever other columns it holds; every column the schema scopes rows by (the unit's
  * anchor, each key's first column of many values, and each column of many values a dependency proves determines one of
@@ -18,15 +21,15 @@
  * the table's size does not move (metis's hold gate, the first kept case, and the last); every other column of many
  * values leading a member's index is absolute, however many it leads, so an equality on it alone is priced at a share
  * of the table, which grows with the units (metis's submit and edullm's commit, the kept cases between); and a relation
- * refused is refused as a crossing of its own keys and sets, a raise grizzle did not settle over them, or for a column
- * asked beyond its values.
+ * refused is refused as a crossing of its own keys and sets, or a raise grizzle did not settle over them: never for a
+ * column asked beyond its values, which no declaration does.
  *
  * Oracle: specification, PostgreSQL's estimate over the declared values (declared.fixtures.ts estimate).
  */
 import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Option, Result } from "effect"
+import { Array as Arr, Effect, Option, Order, Result } from "effect"
 import { declarationOf } from "#compiler/physical/statistics/declared.ts"
 import {
 	boundPrefix,
@@ -49,7 +52,7 @@ export const declaredStatisticsBindOneRowAtAKeyAndTwoOrMoreAtEverySetApartAsPost
 			"a set apart bound",
 			"a roster column",
 			"a crossing",
-			"a column beyond its values",
+			"a key carried by its index",
 			"a pair a dependency ties",
 			"an index led by a column of many values in no unit",
 			"a member's index led by a column no fact binds to its unit",
@@ -85,17 +88,6 @@ export const declaredStatisticsBindOneRowAtAKeyAndTwoOrMoreAtEverySetApartAsPost
 							)
 						}
 						return
-					case "beyondValues": {
-						c.note("a column beyond its values")
-						const values = Option.getOrUndefined(
-							Arr.findFirst(shape.columns, (col) => col.column === d.column)
-						)?.values
-						assert.ok(
-							values?.kind === "few" && 2 ** d.exponent > values.handles,
-							"a column refused beyond its values is a roster's, asked more than its handles"
-						)
-						return
-					}
 					case "declared":
 						break
 				}
@@ -134,13 +126,6 @@ export const declaredStatisticsBindOneRowAtAKeyAndTwoOrMoreAtEverySetApartAsPost
 						assert.equal(distinct.exponent, 0, `the unit's later field ${tail} holds one value`)
 					}
 				}
-				for (const key of shape.keys) {
-					const e = estimate(declared, d.dependencies, key)
-					if (e.kind === "rows") {
-						c.note("a key bound")
-						assert.ok(e.log2 <= 0, `key (${Arr.join(key, ", ")}) binds at most one row`)
-					}
-				}
 				const unitAnchor = scopeOf(shape, shape.unit)
 				/** The columns the schema scopes rows by: the unit's anchor, each key's scope, and each column of many values
 				 * a dependency proves determines one of those. */
@@ -162,6 +147,45 @@ export const declaredStatisticsBindOneRowAtAKeyAndTwoOrMoreAtEverySetApartAsPost
 							: Result.succeed(prefix)
 					})
 				})
+				/** Whether a column, declared `distinct` and holding `values`, could halve a set's rows again within its type:
+				 * one of many values, or of few below the most values its handles hold. */
+				const belowCap = (col: string): boolean => {
+					const distinct = declared.get(col)
+					const values = Option.getOrUndefined(
+						Arr.findFirst(shape.columns, (x) => x.column === col)
+					)?.values
+					return (
+						distinct?.kind === "absolute" &&
+						distinct.exponent >= 1 &&
+						(values?.kind === "many" ||
+							(values?.kind === "few" && 2 ** (distinct.exponent + 1) <= values.handles))
+					)
+				}
+				const anchorsIn = (set: ReadonlyArray<string>): ReadonlyArray<string> =>
+					Arr.sort(
+						Arr.filter(set, (col) => declared.get(col)?.kind === "relative"),
+						Order.String
+					)
+				for (const key of shape.keys) {
+					const e = estimate(declared, d.dependencies, key)
+					if (e.kind !== "rows") {
+						continue
+					}
+					c.note("a key bound")
+					if (e.log2 <= 0) {
+						continue
+					}
+					c.note("a key carried by its index")
+					const over = Arr.join(anchorsIn(key), ",")
+					const tops = Arr.filter(aparts, (p) => {
+						const at = estimate(declared, d.dependencies, p)
+						return Arr.join(anchorsIn(p), ",") === over && at.kind === "rows" && at.log2 === 1
+					})
+					assert.ok(
+						Arr.every(key, (col) => !belowCap(col) || Arr.some(tops, (p) => p.includes(col))),
+						`key (${Arr.join(key, ", ")}), binding 2^${e.log2} rows, is carried by its own index: each column of it its type would let halve its rows again lies in a set apart over its anchors that binds two rows`
+					)
+				}
 				/** Whether `col` is an anchor, alone or in a pair, as every column the schema scopes rows by is, but where the
 				 * sets apart holding it hold two anchors besides, which no one dependency ties to it (anchorsOf). */
 				const anchoredOrCrowded = (col: string): boolean =>
@@ -305,6 +329,12 @@ export const declaredStatisticsBindOneRowAtAKeyAndTwoOrMoreAtEverySetApartAsPost
 				original: "\t\tif (admitted && sharers.size <= 1) {",
 				replacement: "\t\tif (admitted && sharers.size === 0) {",
 				why: "No two anchors paired, as e2abf18f2 declared: a column leading an index beside an anchor in a set apart is left absolute, and an equality on it alone is priced at a share of the table (the kept case, metis's hold gate)."
+			},
+			{
+				file: "packages/engine/src/physical/statistics/exponents.ts",
+				original: '\t\tdefined(caps[c], "a column\'s cap") - defined(x[c], "a column\'s exponent")',
+				replacement: '\t\tNumber.POSITIVE_INFINITY - defined(x[c], "a column\'s exponent")',
+				why: "Every column raised past its type's values, as e637d8a3d's raise asked: a boolean in a key beside a set apart is declared 4 values, which a refusal named, more than its type holds."
 			}
 		]
 	})

@@ -4,14 +4,16 @@
  *
  * Property: over small systems, a free one time in four (one or two anchors, one to four columns, one to six key and
  * apart bounds, each over an anchor, most of them crossing) and else one planted
- * under drawn exponents (up to four anchors, ten columns and eighteen bounds), the raise's exponents meet every bound,
- * at the exact least's largest anchor exponent, and the exact search finds exponents for that system; a crossing is a
- * system the exact search finds none for, its named bounds holding none together; an unsettled raise, grizzle's
- * limitation, is noted.
+ * under drawn exponents (up to four anchors, ten columns and eighteen bounds), each column capped one time in four (a
+ * column of few values, its cap 1 to 3), the raise's exponents keep every column within its cap and meet every bound
+ * but the keys their own indexes carry, each short of its anchor's exponent only where every column of it below its cap
+ * lies in a largest set apart over its anchor; where it carries none, they stand at the exact least's largest anchor
+ * exponent, and the exact search finds exponents for that system; a crossing is a system the exact search finds none
+ * for, its named bounds holding none together; an unsettled raise, grizzle's limitation, is noted.
  *
  * Property: over wide systems (planted, up to eight anchors, sixty-four columns and four hundred bounds of at most eight
- * columns each), the raise makes at most (keys + 1) · Σ over the keys of their anchors' sets apart raises, the work the
- * module's doc bounds, and its exponents meet every bound.
+ * columns each), the raise makes at most (keys + 1) · Σ over the keys of their anchors' sets apart and their columns
+ * raises, the work the module's doc bounds, and its exponents meet every bound but the keys their own indexes carry.
  *
  * Oracle: second implementation, e2abf18f2's exact search for the least exponents (exponents.fixtures.ts exactLeast);
  * specification, the module's bound on its raises.
@@ -23,6 +25,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { type ExponentSystem, exponentsOf } from "#compiler/physical/statistics/exponents.ts"
 import {
+	admits,
 	exactLeast,
 	type ExponentsFeature,
 	instanceSystems,
@@ -47,7 +50,9 @@ export const theRaiseMeetsEveryBoundAtTheExactLeastsLargestExponentAndCallsCross
 			"a crossing",
 			"an anchor above 1",
 			"a column above 1",
-			"two anchors"
+			"two anchors",
+			"a key carried by its index",
+			"a column at its cap"
 		] satisfies ReadonlyArray<Reached<ExponentsFeature>>,
 		check: (_, c: Case<ExponentsFeature>) => (system) =>
 			Effect.sync(() => {
@@ -83,10 +88,17 @@ export const theRaiseMeetsEveryBoundAtTheExactLeastsLargestExponentAndCallsCross
 				if (Arr.some(raised.columns, (x) => x > 1)) {
 					c.note("a column above 1")
 				}
+				if (Arr.some(raised.columns, (x, col) => x === system.caps[col])) {
+					c.note("a column at its cap")
+				}
 				assert.ok(
-					meets(system, raised.anchors, raised.columns),
-					"the raised exponents meet every bound"
+					admits(system, raised.anchors, raised.columns, raised.carried),
+					"the raised exponents keep every column within its cap and meet every bound but the keys their own indexes carry, each short only where no column its type allows lifts it"
 				)
+				if (Arr.isReadonlyArrayNonEmpty(raised.carried)) {
+					c.note("a key carried by its index")
+					return
+				}
 				assert.ok(exact.kind === "least", "the exact search finds exponents where the raise does")
 				assert.equal(
 					largest(raised.anchors),
@@ -105,18 +117,28 @@ export const theRaiseMeetsEveryBoundAtTheExactLeastsLargestExponentAndCallsCross
 				original: "\t\t\t\t[...k.columns].every((c) => s.columns.has(c))",
 				replacement: "\t\t\t\t[...k.columns].some((c) => s.columns.has(c))",
 				why: "A crossing claimed without its proof: a key a set apart over its anchor holds only in part is called crossed, where the exact search finds exponents for the system."
+			},
+			{
+				file: "packages/engine/src/physical/statistics/exponents.ts",
+				original: '\t\tdefined(caps[c], "a column\'s cap") - defined(x[c], "a column\'s exponent")',
+				replacement: '\t\tNumber.POSITIVE_INFINITY - defined(x[c], "a column\'s exponent")',
+				why: "Caps ignored: a short key raises a capped column past its cap, a boolean to 4 values, where its own index carries it."
 			}
 		]
 	})
 
-/** The raises of `system` the module's doc bounds: (keys + 1) times the sets apart over each key's anchor. */
+/** The raises of `system` the module's doc bounds: (keys + 1) times the sets apart over each key's anchor and its
+ * columns, each of which a raise fills to its cap at most once. */
 const boundedRaises = (system: ExponentSystem): number => {
 	const aparts = Array.from(
 		{ length: system.anchors },
 		(_, a) => Arr.filter(system.bounds, (b) => b.kind === "apart" && b.anchor === a).length
 	)
 	const keys = Arr.filter(system.bounds, (b) => b.kind === "key")
-	return (keys.length + 1) * Arr.reduce(keys, 0, (n, b) => n + (aparts[b.anchor] ?? 0))
+	return (
+		(keys.length + 1) *
+		Arr.reduce(keys, 0, (n, b) => n + (aparts[b.anchor] ?? 0) + new Set(b.columns).size)
+	)
 }
 
 /**
@@ -147,6 +169,7 @@ export const edullmsInstanceIsRaisedWithinItsBoundedRaisesToExponentsMeetingEver
 					meets(kept.system, raised.anchors, raised.columns),
 					"the raised exponents meet every bound"
 				)
+				assert.equal(raised.carried.length, 0, "no key of Instance is carried by its index alone")
 				assert.equal(
 					largest(raised.anchors),
 					kept.least,
@@ -181,7 +204,7 @@ export const onAWideSchemasSystemTheRaiseEndsWithinItsBoundedRaisesAndItsExponen
 				const raised = exponentsOf(system)
 				assert.ok(
 					raised.raises <= boundedRaises(system),
-					`the raise makes ${raised.raises} raises, within (keys + 1) · Σ sets apart = ${boundedRaises(system)}`
+					`the raise makes ${raised.raises} raises, within (keys + 1) · Σ (sets apart + columns) = ${boundedRaises(system)}`
 				)
 				if (raised.kind !== "exponents") {
 					return
@@ -191,8 +214,8 @@ export const onAWideSchemasSystemTheRaiseEndsWithinItsBoundedRaisesAndItsExponen
 					c.note("a column above 1")
 				}
 				assert.ok(
-					meets(system, raised.anchors, raised.columns),
-					"the raised exponents meet every bound"
+					admits(system, raised.anchors, raised.columns, raised.carried),
+					"the raised exponents keep every column within its cap and meet every bound but the keys their own indexes carry"
 				)
 			}),
 		oracle: {

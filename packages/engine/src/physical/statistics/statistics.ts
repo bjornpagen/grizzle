@@ -130,12 +130,6 @@ const declarationRefused = (
 				SourceLoc(label, []),
 				`declared statistics that rank every statement's access path of ${relation}; grizzle's raise of their exponents did not settle these together:\n${d.bounds.map((b) => `  = ${boundText(b)}`).join("\n")}\n  = help: this is a limitation of grizzle's declared statistics, not of the schema: report it with the schema, and change nothing to work around it`
 			)
-		case "beyondValues":
-			return refuse(
-				"UnsupportedOperation",
-				SourceLoc(label, []),
-				`declared statistics that rank every statement's access path of ${relation}; they ask ${d.column} for 2^${d.exponent} values, and its type holds ${d.handles}\n  = help: key the relation by a column of more values in ${d.column}'s place`
-			)
 	}
 }
 

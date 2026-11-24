@@ -13,8 +13,19 @@ import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonemp
  * - a key binds at most one row: Σ x_c ≥ y_a;
  * - a set apart, which holds no key, binds two rows or more: Σ x_c ≤ y_a − 1 (an anchor that is no key alone is a set
  *   apart with no other column, y_a ≥ 1; one that is a key alone a key with none, y_a = 0).
- * The unknowns are integers, y_a ≥ 0 and x_c ≥ 1: PostgreSQL rounds a declared absolute number of distinct values to an
- * integer (selfuncs.c get_variable_numdistinct, clamp_row_est), and every column at least halves the rows it binds.
+ * The unknowns are integers, y_a ≥ 0 and 1 ≤ x_c ≤ cap_c: PostgreSQL rounds a declared absolute number of distinct
+ * values to an integer (selfuncs.c get_variable_numdistinct, clamp_row_est), every column at least halves the rows it
+ * binds, and none is declared more values than its type holds, a column of few values' 2^cap_c at most its handles (a
+ * boolean's 2), any other's cap none.
+ *
+ * A key's bound is the one its columns may fall short of: where every column of the key its anchor's largest set apart
+ * lacks stands at its cap, no exponent its type allows lifts the key's sum, and the key is carried by its own index
+ * (Exponents `carried`): PostgreSQL prices a unique index all of whose columns an equality binds at one tuple whatever
+ * the statistics (selfuncs.c btcostestimate), below every index whose equalities stop at a set apart, which binds two
+ * rows or more, so the key's index still ranks first for every binding holding the key, and only the key's estimate of
+ * rows exceeds one. Rel0x0 keyed (Bool, field0), Bool a boolean, beside an equality lookup on (field0, field1, tick0)
+ * that stops at (field0, tick0) on a join key's index: the set apart asks field0 for 4 rows a value, and Bool, which
+ * holds 2, halves them once; e637d8a3d refused the relation, asking Bool for 4 values.
  *
  * The least such integers, the least largest anchor exponent first, are no search to make in polynomial work: the
  * system is an integer program over sums of columns, a threshold realization of bounded weights, and a search of its
@@ -22,10 +33,12 @@ import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonemp
  * are what a raise reaches, each step polynomial and the steps bounded:
  * - every column starts at 1, and each anchor's exponent is 1 more than its largest set apart's sum, or 0;
  * - a key whose sum falls short of its anchor's exponent, against its largest set apart `S`, raises one of its columns
- *   `S` does not hold by the shortfall (`raiser`): the last whose raise leaves every other key meeting its anchor's
- *   exponent and the largest exponent where it stands, else the last that leaves every other key meeting it, else the
- *   last. A raise of a key's column lowers no bound of that key, so each key meets all its anchor's sets apart after at
- *   most one raise for each;
+ *   `S` does not hold by the shortfall, of those whose caps leave room for it (`raiser`): the last whose raise leaves
+ *   every other key meeting its anchor's exponent and the largest exponent where it stands, else the last that leaves
+ *   every other key meeting it, else the last; where no cap leaves room for the whole shortfall, one with room is raised
+ *   to its cap the same way, and where none has room the key is carried by its index. A raise of a key's column lowers
+ *   no bound of that key, so each key meets all its anchor's sets apart after at most one raise for each, and one more
+ *   for each of its columns a raise fills to its cap;
  * - the keys are raised in order, round after round, until a round raises none: a raise is felt only by the sets apart
  *   that hold its column, so a chain of raises, each felt by the next key, ends within as many rounds as the system has
  *   keys where it holds no cycle; past that many rounds and one more the raise is ended.
@@ -35,8 +48,9 @@ import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonemp
  *   differences 1_K − 1_S sum to no positive column: then no x > 0 meets them all (Gordan's alternative);
  * - otherwise an unsettled raise: grizzle's raise found no exponents within its rounds, which the system may hold all the
  *   same, so it is a limitation of grizzle's, refused as one.
- * The work is at most keys + 1 rounds, each raising every key at most once for each set apart over its anchor, each
- * raise weighing each of the key's columns against every bound: polynomial in the system's bounds and columns. Over
+ * The work is at most keys + 1 rounds, each raising every key at most once for each set apart over its anchor and once
+ * for each of its columns, each raise weighing each of the key's columns against every bound: polynomial in the
+ * system's bounds and columns. Over
  * metis's, edullm's and den's 621 tables the raise declares what e2abf18f2's exact search did, table for table.
  */
 
@@ -47,24 +61,28 @@ export interface Bound {
 	readonly columns: ReadonlyArray<number>
 }
 
-/** A system of bounds over `anchors` anchors and `columns` other columns, each by its position. */
+/** A system of bounds over `anchors` anchors and `columns` other columns, each by its position, and each column's cap,
+ * the largest exponent its type holds (Infinity for a column of many values). */
 export interface ExponentSystem {
 	readonly anchors: number
 	readonly columns: number
+	readonly caps: ReadonlyArray<number>
 	readonly bounds: ReadonlyArray<Bound>
 }
 
 /**
- * The exponents the raise reaches, each anchor's and each column's by position; a crossing: the system holds none, and
- * `bounds`, by their positions in the system, hold none together; or an unsettled raise: `bounds`, the keys and sets
- * apart of the raise's last round, which grizzle's raise did not meet within its rounds (see the module's doc). Each
- * with the raises made, the work the module's doc bounds.
+ * The exponents the raise reaches, each anchor's and each column's by position, with the keys their own indexes carry
+ * (see the module's doc), by their positions; a crossing: the system holds none, and `bounds`, by their positions in the
+ * system, hold none together; or an unsettled raise: `bounds`, the keys and sets apart of the raise's last round, which
+ * grizzle's raise did not meet within its rounds (see the module's doc). Each with the raises made, the work the
+ * module's doc bounds.
  */
 export type Exponents =
 	| {
 			readonly kind: "exponents"
 			readonly anchors: ReadonlyArray<number>
 			readonly columns: ReadonlyArray<number>
+			readonly carried: ReadonlyArray<number>
 			readonly raises: number
 	  }
 	| {
@@ -132,23 +150,31 @@ const floors = (
 	})
 
 /**
- * The column a short key `k` raises by `shortfall` against its largest set apart `top`: of its columns `top` does not
- * hold, the last whose raise leaves every key meeting its anchor's exponent and the largest exponent where it stands;
- * else the last whose raise leaves every key meeting its anchor's exponent; else the last.
+ * The raise of a short key `k` against its largest set apart `top`, a column and by how much: of its columns `top` does
+ * not hold whose caps leave room for the whole `shortfall`, else of those with any room, raised to their caps, the last
+ * whose raise leaves every key meeting its anchor's exponent and the largest exponent where it stands; else the last
+ * whose raise leaves every key meeting its anchor's exponent; else the last. None where no such column has room: the
+ * key is carried by its index (see the module's doc).
  */
 const raiser = (
 	keys: ReadonlyArray<ReadonlyArray<Placed>>,
 	aparts: ReadonlyArray<ReadonlyArray<Placed>>,
 	x: ReadonlyArray<number>,
+	caps: ReadonlyArray<number>,
 	k: Placed,
 	top: Placed,
 	shortfall: number
-): number => {
+): { readonly column: number; readonly by: number } | undefined => {
+	const room = (c: number): number =>
+		defined(caps[c], "a column's cap") - defined(x[c], "a column's exponent")
 	const open = [...k.columns].filter((c) => !top.columns.has(c)).toSorted((p, q) => p - q)
+	const whole = open.filter((c) => room(c) >= shortfall)
+	const candidates = whole.length > 0 ? whole : open.filter((c) => room(c) > 0)
+	const by = (c: number): number => Math.min(shortfall, room(c))
 	const before = floors(aparts, x)
 	const most = before.reduce((m, y) => Math.max(m, y), 0)
 	const effect = (c: number) => {
-		const after = x.map((v, i) => (i === c ? v + shortfall : v))
+		const after = x.map((v, i) => (i === c ? v + by(c) : v))
 		const raised = floors(aparts, after)
 		const short = keys.some((overA, a) =>
 			overA.some(
@@ -160,13 +186,12 @@ const raiser = (
 		)
 		return { short, higher: raised.some((y) => y > most) }
 	}
-	const effects = open.map((c) => ({ c, ...effect(c) }))
-	return defined(
+	const effects = candidates.map((c) => ({ c, ...effect(c) }))
+	const column =
 		effects.findLast((e) => !e.short && !e.higher)?.c ??
-			effects.findLast((e) => !e.short)?.c ??
-			open.at(-1),
-		"a key no set apart over its anchor holds whole holds a column it does not"
-	)
+		effects.findLast((e) => !e.short)?.c ??
+		candidates.at(-1)
+	return column === undefined ? undefined : { column, by: by(column) }
 }
 
 /** The crossing a key and a set apart over its anchor holding it whole prove (see the module's doc), or none. */
@@ -241,15 +266,22 @@ export const exponentsOf = (system: ExponentSystem): Exponents => {
 					if (top === undefined || shortfall <= 0) {
 						break
 					}
-					const r = raiser(keys, aparts, x, k, top, shortfall)
-					x[r] = defined(x[r], "a column's exponent") + shortfall
+					const r = raiser(keys, aparts, x, system.caps, k, top, shortfall)
+					if (r === undefined) {
+						break
+					}
+					x[r.column] = defined(x[r.column], "a column's exponent") + r.by
 					raised.push([k, top])
 					raises++
 				}
 			}
 		}
 		if (raised.length === 0) {
-			return { kind: "exponents", anchors: floors(aparts, x), columns: x, raises }
+			const anchors = floors(aparts, x)
+			const carried = keys.flatMap((overA, a) =>
+				overA.flatMap((k) => (sumOf(k.columns, x) < defined(anchors[a], "a floor") ? [k.at] : []))
+			)
+			return { kind: "exponents", anchors, columns: x, carried, raises }
 		}
 	}
 	const named = positions(raised.flat())

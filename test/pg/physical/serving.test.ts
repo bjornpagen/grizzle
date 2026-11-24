@@ -37,7 +37,10 @@
  *   fix closed, killed by its fixed keys directed again: a take seek on Rel2x0 ordered by field0 then its key Bool the
  *   other way, beside a take seek that binds field0 and orders by Bool, which one index serves, field0 holding one value
  *   within the second, where directing it put the two apart on two indexes (physical/indexes/engine.ts
- *   orderedPlacements). The judge's own excuses are its own (serving.ts):
+ *   orderedPlacements). And one the declared statistics' fix closed, killed by the key refused again: Rel0x0 keyed
+ *   (Bool, field0), Bool a boolean, beside a lookup whose set apart (field0, tick0) asks field0 for 4 rows a value, which
+ *   Bool's 2 values cannot bring to one row: its own unique index carries the key (physical/statistics/exponents.ts),
+ *   where the workload was refused. The judge's own excuses are its own (serving.ts):
  *   a join key's GiST sweep no plan the engine makes avoids, a span predicate's GiST index needed beside a B-tree that
  *   finds its one row, btree_gist's pricing of multibyte text (README, PostgreSQL known issues), and a skip scan's
  *   descents over closed keys.
@@ -160,9 +163,24 @@ export const everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIs
 				reason:
 					"a take seek on Rel2x0 ordered by field0 descending, completed by its key Bool ascending, beside a take seek that binds field0 by equality and orders by Bool descending: one index on (field0, Bool) serves both, field0 holding one value within the second seek, so any direction serves it, where the engine directed the second seek's fixed key as its order and put the two seeks apart, creating a second index on (field0, Bool) whose keys run one way, which PostgreSQL did not need",
 				since: "2026-11-24"
+			},
+			{
+				token: ReplayToken(
+					"test/pg/physical/serving.test.ts#everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIsNeeded:-:0.4.1.0.1.0.1.0.1.0.0.1.0.1.0.1.2.0.0.1.0.1.0.1.0.0.0.1.2.0.0.1.0.1.0.1.0.0.1.0.1.0.1.0.1.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.2.0.guu.0.0.0.pa8.0.0.3.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.1.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.pa8.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.guu.pa8.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.pa8.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.1.1.3.3.0.3.0.0.0.0.0.0"
+				),
+				reason:
+					"Rel0x0 keyed (Bool, field0), Bool a boolean, beside an equality lookup on (field0, field1, tick0) that stops at (field0, tick0) on a join key's index: the set apart asks field0 for 4 rows a value, and Bool, which holds 2, halves them once, so no number of values Bool's type holds brings the key to one row; the declaration leaves the key at 2 rows, carried by its own unique index, which PostgreSQL prices at one tuple whatever the statistics, where e637d8a3d refused the workload, asking Bool for 2^2 values (physical/statistics/exponents.ts carried)",
+				since: "2026-11-24"
 			}
 		],
 		kills: [
+			{
+				file: "packages/engine/src/physical/statistics/exponents.ts",
+				original: '\t\t\treturn { kind: "exponents", anchors, columns: x, carried, raises }',
+				replacement:
+					'\t\t\treturn carried.length > 0 ? { kind: "crossing", bounds: [carried[0] ?? 0], raises } : { kind: "exponents", anchors, columns: x, carried, raises }',
+				why: "A key its columns' types cannot bring to one row refused, as e637d8a3d refused Rel0x0's workload asking Bool for 2^2 values: the kept case does not install."
+			},
 			{
 				file: "packages/engine/src/physical/indexes/engine.ts",
 				original: "\t\t\tdirected: isNonEmpty(order) ? order : undefined",

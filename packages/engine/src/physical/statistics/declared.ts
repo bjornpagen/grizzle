@@ -45,7 +45,10 @@ import type { CreateTable, DeclaredDistinct, DeclareStatistics } from "#compiler
  *   since PostgreSQL multiplies the fields as independent, and a roster's of one handle. A set holds a key where it
  *   holds every column of one but these;
  * - every other column: 2^x values, x ≥ 1, so each column a set binds at least halves its rows. A roster of k handles
- *   holds at most k values, so 2^x ≤ k; a boolean holds 2.
+ *   holds at most k values, so 2^x ≤ k; a boolean holds 2: no declaration asks a column for more values than its type
+ *   holds (exponents.ts caps). A key whose columns past its anchor's largest set apart are all columns of few values at
+ *   their caps binds more than one row by the declaration, and needs no more: PostgreSQL prices its own unique index at
+ *   one tuple whatever the statistics, below every index whose equalities stop at a set apart (exponents.ts `carried`).
  * Each bound is PostgreSQL's own independence product over the exact columns the set holds, a generated column and the
  * columns it is computed from together, so a set that binds both is priced as PostgreSQL prices it. The exponents are
  * the integers a raise from all ones reaches (physical/statistics/exponents.ts): a key holding two anchors binds at most one
@@ -110,9 +113,8 @@ export type CrossingBound =
 /**
  * A relation's declaration: each column's number of distinct values, in the shape's column order; or no number of
  * distinct values ranks its statements' access paths: `crossing`, bounds that no exponents meet together, by their proof
- * (a key whose columns a set apart covers, or keys crossed by sets whose differences sum to no column, exponents.ts);
- * `unsettled`, bounds grizzle's raise did not meet within its rounds, a limitation of grizzle's; or `beyondValues`, the
- * raised exponents asking a column for more values than its type holds.
+ * (a key whose columns a set apart covers, or keys crossed by sets whose differences sum to no column, exponents.ts); or
+ * `unsettled`, bounds grizzle's raise did not meet within its rounds, a limitation of grizzle's.
  */
 export type Declaration =
 	| {
@@ -125,12 +127,6 @@ export type Declaration =
 	  }
 	| { readonly kind: "crossing"; readonly bounds: NonEmptyReadonlyArray<CrossingBound> }
 	| { readonly kind: "unsettled"; readonly bounds: NonEmptyReadonlyArray<CrossingBound> }
-	| {
-			readonly kind: "beyondValues"
-			readonly column: string
-			readonly exponent: number
-			readonly handles: number
-	  }
 
 /**
  * A dependency declared between two anchors a set apart holds together (`anchorsOf`): the determinant `determinant`
@@ -259,6 +255,11 @@ const anchorsOf = (
 	return { anchors: taken, pairs }
 }
 
+/** The largest exponent a column's type holds (exponents.ts ExponentSystem `caps`): a column of few values' the most
+ * halvings its handles allow, ⌊log₂ handles⌋, so 2^x ≤ handles; any other's none. */
+const capOf = (values: ColumnValues): number =>
+	values.kind === "few" ? 31 - Math.clz32(values.handles) : Number.POSITIVE_INFINITY
+
 /** The declaration of a relation of `shape` (see the module's doc). */
 export const declarationOf = (shape: RelationShape): Declaration => {
 	const values = new Map(shape.columns.map((c) => [c.column, c.values]))
@@ -375,19 +376,12 @@ export const declarationOf = (shape: RelationShape): Declaration => {
 	const raised = exponentsOf({
 		anchors: anchors.length + pairs.length,
 		columns: free.length,
+		caps: free.map((c) => capOf(defined(values.get(c), "a column's values"))),
 		bounds
 	})
 	if (raised.kind !== "exponents") {
 		const [first, ...rest] = raised.bounds.map((i) => defined(meaning[i], "a bound's meaning"))
 		return { kind: raised.kind, bounds: [defined(first, "a refused bound"), ...rest] }
-	}
-	for (const [c, exponent] of free.map(
-		(col, i) => [col, defined(raised.columns[i], "an exponent")] as const
-	)) {
-		const v = values.get(c)
-		if (v?.kind === "few" && 2 ** exponent > v.handles) {
-			return { kind: "beyondValues", column: c, exponent, handles: v.handles }
-		}
 	}
 	return {
 		kind: "declared",

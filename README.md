@@ -6357,9 +6357,13 @@ statistics from the schema's facts, so the estimate is grizzle's proof order at 
   which every set holding the pair bounds as it bounds an anchor's, where PostgreSQL would multiply them below one; an
   anchor may be in several. So an equality on an anchor binds a number of rows the table's size does not move. A later
   field of the unit's key holds one value; every other column 2^x values, x ≥ 1, at most its roster's handles, a
-  boolean's 2. A column of few values is never priced by the table's size. The exponents are integers under which every
-  key binds one row and every set an index's equalities stop at short of a statement's binding binds two rows or more,
-  so the index a statement asks for is priced below every index binding less of it, and a key's index wins every tie.
+  boolean's 2: no column is declared more values than its type holds. A column of few values is never priced by the
+  table's size. The exponents are integers under which every set an index's equalities stop at short of a statement's
+  binding binds two rows or more, so the index a statement asks for is priced below every index binding less of it, and
+  every key binds one row, but a key whose columns past its anchor's largest such set are all columns of few values at
+  the most values their types hold, as a key (flag, account) beside a set (account, day) asks account for 4 rows a
+  value, which a boolean halves once: it binds more by the declaration, and its own unique index, which PostgreSQL
+  prices at one tuple whatever the statistics, still wins every statement binding it. A key's index wins every tie.
   They are found by a raise from all ones, in work polynomial in the table's keys, indexes and columns: each key short
   of its anchor's rows raises one of its columns, round after round, until none is short. A unit's key alone is no key:
   a unit holds more than one row.
