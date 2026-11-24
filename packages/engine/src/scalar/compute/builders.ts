@@ -587,6 +587,16 @@ const binary =
 		return call.finishPlain(real, ph)
 	}
 
+const ternary =
+	(fn: Exclude<ComputeFn & CatalogueName, ScaledComputeFn>, literals: "literal" | "term") =>
+	(a: unknown, b: unknown, c: unknown, ...extra: ReadonlyArray<unknown>): PlainChecked => {
+		if (extra.length > 0) {
+			return malformed(captureLoc(spelling[fn], []), `three operands for ${fn}`)
+		}
+		const { call, real, ph } = computeCall(fn, literals, [a, b, c])
+		return call.finishPlain(real, ph)
+	}
+
 /** round and trunc, with no scale (none given, or undefined) or an integer one. */
 const scaled =
 	(fn: ScaledComputeFn) =>
@@ -1306,6 +1316,7 @@ const checks = Object.freeze({
 	resolveReference: binary("resolveReference", "literal"),
 	cutBefore: binary("cutBefore", "literal"),
 	cutFrom: binary("cutFrom", "literal"),
+	replace: ternary("replace", "literal"),
 	isXsdPattern: unary("isXsdPattern"),
 	parseDouble: unary("parseDouble"),
 	parseDecimal: unary("parseDecimal"),
@@ -1474,6 +1485,7 @@ export const compute = Object.freeze({
 	resolveReference: (a: unknown, b: unknown) => plain(checks.resolveReference(a, b), "text"),
 	cutBefore: (a: unknown, b: unknown) => plain(checks.cutBefore(a, b), "text"),
 	cutFrom: (a: unknown, b: unknown) => plain(checks.cutFrom(a, b), "text"),
+	replace: (x: unknown, from: unknown, to: unknown) => plain(checks.replace(x, from, to), "text"),
 	isXsdPattern: (x: unknown) => plain(checks.isXsdPattern(x, []), "boolean"),
 	parseDouble: (x: unknown) => plain(checks.parseDouble(x, []), "double precision"),
 	parseDecimal: (x: unknown) => plain(checks.parseDecimal(x, []), "numeric"),
@@ -1634,6 +1646,7 @@ export const computeCore = Object.freeze({
 	resolveReference: (a: unknown, b: unknown) => plainBy(checks.resolveReference(a, b)),
 	cutBefore: (a: unknown, b: unknown) => plainBy(checks.cutBefore(a, b)),
 	cutFrom: (a: unknown, b: unknown) => plainBy(checks.cutFrom(a, b)),
+	replace: (x: unknown, from: unknown, to: unknown) => plainBy(checks.replace(x, from, to)),
 	isXsdPattern: (x: unknown, ...extra: ReadonlyArray<unknown>) =>
 		plainBy(checks.isXsdPattern(x, extra)),
 	parseDouble: (x: unknown, ...extra: ReadonlyArray<unknown>) =>

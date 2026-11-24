@@ -1351,6 +1351,30 @@ export interface TextApi {
 		Term<string, PA & P<B>, ComputedOrigin<OA | O<B>>, "text">
 	>
 	/**
+	 * `x` with every occurrence of `from` replaced by `to`, PostgreSQL's replace: x read left to right, each occurrence
+	 * not overlapping the one before it, x itself where from is empty, so `Text.replace(Text.replace(name, "%", "%25"),
+	 * "?", "%3F")` writes an entry's name as a URI path segment, one character by several. Characters are code points
+	 * and texts compare exactly, as pg_c_utf8 does. Text of no pattern, which compilation reads within x's bytes and
+	 * what each occurrence of from adds where x's and to's are bounded, a string by its own. It allocates its result,
+	 * which PostgreSQL refuses past 1 GB, so a query holds it only where that bound is within the most bytes one varlena
+	 * holds, and a check or generated field over longer texts fails its write. from and to are text terms x meets,
+	 * parameters among them, or strings.
+	 */
+	replace<A extends TermBase | FirstValue, X, PA, OA, const B, const C>(
+		x: A & First<A, [B, C]> & InputTerm<X, PA, OA, "text">,
+		from: Fit<B, NoInfer<Meets<X, "text"> | string>>,
+		to: Fit<C, NoInfer<Meets<X, "text"> | string>>
+	): Admitted<
+		Every<
+			[
+				TakesFirst<A, "text">,
+				Takes<B, Meets<X, "text"> | string>,
+				Takes<C, Meets<X, "text"> | string>
+			]
+		>,
+		Term<string, PA & P<B> & P<C>, ComputedOrigin<OA | O<B> | O<C>>, "text">
+	>
+	/**
 	 * The double a decimal text names, IEEE 754-2019's conversion from decimal character sequences: the text's exact
 	 * value rounded to the nearest double, ties to even, ±Infinity past the greatest finite double and a zero of the
 	 * mantissa's sign below half the least subnormal; `INF`, `-INF` and `NaN` name themselves. Its text is

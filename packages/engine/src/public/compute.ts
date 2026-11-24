@@ -118,6 +118,7 @@ export const Text: TextApi = Object.freeze<TextApi>({
 	resolveReference: (base, reference) => C.resolveReference(base, reference),
 	cutBefore: (x, chars) => C.cutBefore(x, chars),
 	cutFrom: (x, chars) => C.cutFrom(x, chars),
+	replace: (x, from, to) => C.replace(x, from, to),
 	parseDouble: (x) => C.parseDouble(x),
 	parseDecimal: (x) => C.parseDecimal(x)
 })

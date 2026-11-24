@@ -211,6 +211,7 @@ const signatures: { readonly [F in ComputeFn]: Signature } = {
 	resolveReference: { result: "text", args: ["text", "text"] },
 	cutBefore: { result: "text", args: ["text", "text"] },
 	cutFrom: { result: "text", args: ["text", "text"] },
+	replace: { result: "text", args: ["text", "text", "text"] },
 	isXsdPattern: { result: "bool", args: ["text"] },
 	collapse: { result: "text", args: ["text"] },
 	parseDouble: { result: "float", args: ["text"] },

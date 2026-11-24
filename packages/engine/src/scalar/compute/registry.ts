@@ -481,6 +481,7 @@ export const computeSpecs: { readonly [F in ComputeFn]: ComputeSpec } = deepFree
 	resolveReference: { arity: 2, check: true, nodes: ["resolveReference"] },
 	cutBefore: { arity: 2, check: true, nodes: ["cutBefore"] },
 	cutFrom: { arity: 2, check: true, nodes: ["cutFrom"] },
+	replace: { arity: 3, check: true, nodes: ["replace"] },
 	isXsdPattern: { arity: 1, check: true, nodes: ["isXsdPattern"] },
 	parseDouble: { arity: 1, check: true, nodes: ["parseDouble"] },
 	parseDecimal: { arity: 1, check: true, nodes: ["parseDecimal"] },

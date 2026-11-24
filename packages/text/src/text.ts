@@ -1,7 +1,7 @@
 /**
  * Text as PostgreSQL's C.UTF-8 contract and XML read it, one implementation of each rule for grizzle and every
- * program beside it: a text's code points and their order, PostgreSQL's translate and ASCII case fold, a text cut at
- * the first of a set of characters, and XML's whiteSpace replace and collapse and a list's tokens. Every function here reads strings alone, imports nothing and
+ * program beside it: a text's code points and their order, PostgreSQL's translate, replace and ASCII case fold, a text
+ * cut at the first of a set of characters, and XML's whiteSpace replace and collapse and a list's tokens. Every function here reads strings alone, imports nothing and
  * runs wherever JavaScript does, a browser included.
  *
  * Equality is exact Unicode scalar sequence equality and ordering is code point order, as pg_catalog.pg_c_utf8
@@ -289,3 +289,11 @@ export const cutBefore = (text: string, chars: string): string =>
  */
 export const cutFrom = (text: string, chars: string): string =>
 	text.slice(firstAmong(text, chars) ?? text.length)
+
+/**
+ * PostgreSQL's replace(text, from, to): every occurrence of `from` in `text`, read left to right and none overlapping
+ * the one before it, replaced by `to`, and `text` itself where `from` is empty. Texts compare exactly, as pg_c_utf8
+ * does, so a well-formed `from` is met only at a code point's start.
+ */
+export const replacedAll = (text: string, from: string, to: string): string =>
+	from === "" ? text : text.split(from).join(to)

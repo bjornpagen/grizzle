@@ -2659,6 +2659,52 @@ class Typing<R extends Refs> {
 	}
 
 	/**
+	 * Text.replace(x, from, to), PostgreSQL's replace (registry.ts "replace(text,text,text)"): the node computes text,
+	 * and the term is text of no pattern within the most bytes it can hold, where x's and to's are bounded: x's bytes,
+	 * and for each occurrence of from x can hold, what to adds past from's own bytes, from's a literal's own and a
+	 * term's at least one, since an empty from replaces nothing; any text where either is unbounded, or where the text
+	 * goes unanalyzed. replace allocates its result, which PostgreSQL refuses past 1 GB, so a query holds it only where
+	 * that bound is within the most bytes one varlena holds, as it holds a concatenation (concat).
+	 */
+	replace(
+		subjectDesc: ExprDesc<Located, R>,
+		fromDesc: ExprDesc<Located, R>,
+		toDesc: ExprDesc<Located, R>,
+		at: SourceLoc
+	): Typed {
+		const [x, from] = this.texts("replace", subjectDesc, fromDesc, at)
+		const to = this.textValue("replace", this.operand(toDesc, x, "operand", childLoc(at, 2)), at)
+		const op = this.overload("replace", [x.actual, from.actual, to.actual], at)
+		const node = this.native(op, [x, from, to], wildcardText, undefined, at, spelling.replace)
+		const xBytes = textBytes(x)
+		const toBytes = textBytes(to)
+		const literal = nodeLiteral(from.node)
+		const fromBytes = literal?.kind === "text" ? utf8Length(literal.value) : 1
+		const bytes =
+			xBytes === undefined || toBytes === undefined
+				? undefined
+				: fromBytes === 0
+					? xBytes
+					: xBytes + Math.floor(xBytes / fromBytes) * Math.max(0, toBytes - fromBytes)
+		if (bytes === undefined || bytes > bytesMaxLength) {
+			this.refusedAt(
+				"query",
+				at,
+				`replace in a query over texts whose patterns bound its result within ${bytesMaxLength} bytes: it allocates its result, which PostgreSQL refuses past 1 GB, and a read never fails on a value; ${bytes === undefined ? "the subject's or the replacement's pattern bounds no length" : `the operands' patterns bound it at ${bytes} bytes`}, so bound them, or replace in a contract predicate, row check or generated field`
+			)
+		}
+		const analysis = this.env.analysis
+		return analysis.kind === "unanalyzed" || bytes === undefined
+			? node
+			: this.restate(
+					node,
+					this.textWithin([wildcardPattern], bytes, analysis.patterns.language, at),
+					node.actual,
+					node.facts
+				)
+	}
+
+	/**
 	 * An equation of a text with a concatenation, `t = p1 || … || pn` or its negation, its parts read through every nested
 	 * concatenation (concatParts), so n is at least two: `octet_length(t) = Σ octet_length(pi) AND t = CASE WHEN
 	 * Σ octet_length(pi) > bytesMaxLength THEN '' ELSE p1 || … || pn END`, an equality of t with the parts built in order,
@@ -4551,6 +4597,8 @@ class Typing<R extends Refs> {
 			case "cutBefore":
 			case "cutFrom":
 				return this.cut(desc.fn, arg(0), arg(1), here)
+			case "replace":
+				return this.replace(arg(0), arg(1), arg(2), here)
 			case "isXsdPattern":
 				return this.isXsdPattern(arg(0), here)
 			case "collapse":

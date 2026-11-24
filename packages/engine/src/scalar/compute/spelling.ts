@@ -68,6 +68,7 @@ export const spelling = {
 	resolveReference: "Text.resolveReference",
 	cutBefore: "Text.cutBefore",
 	cutFrom: "Text.cutFrom",
+	replace: "Text.replace",
 	parseDouble: "Text.parseDouble",
 	parseDecimal: "Text.parseDecimal",
 	xsdPattern: "Xml.pattern",

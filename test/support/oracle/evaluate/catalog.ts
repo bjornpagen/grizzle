@@ -96,7 +96,6 @@ const evaluationOf = (op: NativeOp): Evaluation => {
 			return firstOperand(op.operands) === "numeric" ? "estimated" : "database"
 		case "cosineDistance":
 		case "complement":
-		case "replace":
 		case "btrim":
 		case "regexpCount":
 		case "strpos":
@@ -164,6 +163,7 @@ const evaluationOf = (op: NativeOp): Evaluation => {
 		case "resolveReference":
 		case "cutBefore":
 		case "cutFrom":
+		case "replace":
 		case "isXsdPattern":
 		case "parseDouble":
 		case "parseDecimal":
@@ -840,6 +840,21 @@ const catalogApply = (
 			return isString(a) ? Result.succeed(asciiLowered(a)) : mismatch(op)
 		case "resolveReference":
 			return isString(a) && isString(b) ? Result.succeed(resolvedReference(a, b)) : mismatch(op)
+		case "replace": {
+			const to = args[2]
+			if (!isString(a) || !isString(b) || !isString(to)) {
+				return mismatch(op)
+			}
+			const points = Array.from(a)
+			const from = Array.from(b)
+			const out: Array<string> = []
+			for (let i = 0; i < points.length;) {
+				const here = from.length > 0 && Arr.every(from, (p, j) => points[i + j] === p)
+				out.push(here ? to : (points[i] ?? ""))
+				i += here ? from.length : 1
+			}
+			return Result.succeed(Arr.join(out, ""))
+		}
 		case "cutBefore":
 		case "cutFrom": {
 			if (!isString(a) || !isString(b)) {
@@ -894,7 +909,6 @@ const catalogApply = (
 			return typeof a === "boolean" ? Result.succeed(!a) : mismatch(op)
 		case "cosineDistance":
 		case "complement":
-		case "replace":
 		case "btrim":
 		case "regexpCount":
 		case "strpos":

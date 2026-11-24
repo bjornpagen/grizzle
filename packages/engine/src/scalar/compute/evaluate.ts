@@ -6,6 +6,7 @@ import {
 	collapsed,
 	cutBefore,
 	cutFrom,
+	replacedAll,
 	translated
 } from "@bjornpagen/grizzle-text/text"
 import { resolveReference } from "@bjornpagen/grizzle-text/uri"
@@ -702,7 +703,13 @@ const applied = (op: NativeOp, argTypes: ReadonlyArray<ScalarType>, type: Scalar
 			const host = integerHost(type)
 			return (args) => Result.ok(host(floatBits(hostOf(carrier, a(args)))))
 		}
-		case "replace":
+		case "replace": {
+			const third = operandOf(fn, 2)
+			return (args) =>
+				Result.ok(
+					replacedAll(hostOf("text", a(args)), hostOf("text", b(args)), hostOf("text", third(args)))
+				)
+		}
 		case "btrim":
 			return refused(`${fn} alone, which only collapse's SQL reads`)
 		case "regexpCount":
