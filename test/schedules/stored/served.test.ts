@@ -5,11 +5,11 @@
  * stand-up (write/program/stand-up.ts writeStandUps), for each relation the judge captures (laws/model/model.ts
  * LawModel `judged`), each a rule over a query reads and each a stored relation's upkeep reads, Doc among them.
  *
- * Over the box of borrows.fixtures.ts, Doc(doc, at) in the unit Document(doc) and Counted, each document's places, a
- * stored derived relation over it: each case's seed gives the documents 1 and 2 none, one or two places (schedules/
- * rig.ts replace, which empties Counted's table with the rest), and two writers of the role `writer`, each a Db of its
- * own over a DbLayer of its own, put one place each in turn, A at 10 and B at 11 of a document of their own, B after
- * A's call has committed.
+ * Over the box of borrows.fixtures.ts, Doc(shelf, doc, at) in the unit Shelf(shelf) and Counted, each document's places,
+ * a stored derived relation over it kept at its document, narrower than the shelf: each case's seed gives the
+ * documents 1 and 2 of the shelf none, one or two places (schedules/rig.ts replace, which empties Counted's table with
+ * the rest), and two writers of the role `writer`, each a Db of its own over a DbLayer of its own, put one place each
+ * in turn, A at 10 and B at 11 of a document of their own, B after A's call has committed.
  *
  * Properties, per case: each call is accepted, and Counted holds each document's places after both, seeded and put
  * alike. Oracle: Counted's definition stated over the seed and the two calls (borrows.fixtures.ts countedAfter). Kill:
@@ -27,6 +27,7 @@ import {
 	countedAfter,
 	Doc,
 	seededTuples,
+	shelf,
 	stored,
 	storedCaseGen,
 	storedRig,
@@ -83,14 +84,14 @@ export const aServedWriteOfAStoredRelationsHolderStandsTheJudgeUpAndKeepsTheStor
 									seeded.length === 0
 										? []
 										: [
-												`INSERT INTO ${names.table(Doc)} (${names.column(Doc, "doc")}, ${names.column(Doc, "at")}) VALUES ${Arr.join(seeded, ", ")}`
+												`INSERT INTO ${names.table(Doc)} (${names.column(Doc, "shelf")}, ${names.column(Doc, "doc")}, ${names.column(Doc, "at")}) VALUES ${Arr.join(seeded, ", ")}`
 											]
 								)
 								const answeredA = yield* a.db.workload.put
-									.once({ params: {}, facts: { insert: { Doc: [{ doc: c.a, at: 10 }] } } })
+									.once({ params: {}, facts: { insert: { Doc: [{ shelf, doc: c.a, at: 10 }] } } })
 									.pipe(writeAnswerOf, untilAnswered)
 								const answeredB = yield* b.db.workload.put
-									.once({ params: {}, facts: { insert: { Doc: [{ doc: c.b, at: 11 }] } } })
+									.once({ params: {}, facts: { insert: { Doc: [{ shelf, doc: c.b, at: 11 }] } } })
 									.pipe(writeAnswerOf, untilAnswered)
 								const label = Formatter.format(c)
 								for (const [who, answered] of [

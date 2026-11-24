@@ -14,21 +14,30 @@ import { workload } from "#compiler/public/workload.ts"
 import type { WriteAnswer } from "#test/support/calls.ts"
 import { rigTemplate } from "#test/support/schedules/rig.ts"
 
-/** A document's places, in the unit of the document. */
-export const Doc = relation("Doc", { doc: pg.integer, at: pg.integer }, ["doc", "at"])
+/** A document's places, in the unit of the document's shelf. */
+export const Doc = relation("Doc", { shelf: pg.integer, doc: pg.integer, at: pg.integer }, [
+	"shelf",
+	"doc",
+	"at"
+])
+
+/** The shelf every document of a case stands on. */
+export const shelf = 1
 
 /**
- * The schema: Doc in the unit Document(doc), and a level above it holding Counted, each document's number of places, a
- * stored derived relation local to the document, its primary key its document; the role `writer`, which inserts Doc
- * and nothing else, its workload `put`, an insertion of Doc's rows the call states, and its two logins.
+ * The schema: Doc in the unit Shelf(shelf), and a level above it holding Counted, each document's number of places, a
+ * stored derived relation local to the document, its primary key its shelf and document: a unit narrower than the
+ * shelf, so a write's upkeep re-derives the documents it touched alone, never the rest of the shelf, and the
+ * installation stores it (analysis/derived/storage.ts deltaBounded); the role `writer`, which inserts Doc and nothing
+ * else, its workload `put`, an insertion of Doc's rows the call states, and its two logins.
  */
 export const stored = (name: string) => {
-	const base = schema(name, [Doc], [unit("Document", { doc: pg.integer })])
+	const base = schema(name, [Doc], [unit("Shelf", { shelf: pg.integer })])
 	const Counted = derived(
 		"Counted",
 		query(base).rule((r) => {
-			const { doc, at } = v(Doc, "d")
-			return r.match(Doc, { doc, at }).find({ doc, places: r.count() })
+			const { shelf, doc, at } = v(Doc, "d")
+			return r.match(Doc, { shelf, doc, at }).find({ shelf, doc, places: r.count() })
 		})
 	)
 	const top = schema.extend([base], `${name}_top`, [Counted], [])
@@ -71,10 +80,10 @@ export const storedCaseGen: Gen<StoredCase> = (source) => ({
 	b: source.draw(element([1, 2] as const))
 })
 
-/** The seeded rows as Doc's VALUES tuples, by its columns (doc, at). */
+/** The seeded rows as Doc's VALUES tuples, by its columns (shelf, doc, at). */
 export const seededTuples = (c: StoredCase): ReadonlyArray<string> =>
 	Arr.flatMap([1, 2] as const, (doc) =>
-		Array.from({ length: c.seeded[doc] }, (_, at) => `(${doc}, ${at})`)
+		Array.from({ length: c.seeded[doc] }, (_, at) => `(${shelf}, ${doc}, ${at})`)
 	)
 
 /**
