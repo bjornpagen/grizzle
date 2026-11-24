@@ -4,10 +4,11 @@
  * wrote at each unit, and makes the stored rows there its definition's by their set difference, under the borrow that
  * every write of the unit holds.
  *
- * The box: a document's places and its links, both in the unit of the document, Doc closed or open; four stored
- * relations over them, a projection, a count by document, a negation within the document, and the rows of an immutable
- * function each place's document and place are passed to, which the judge reads at each written unit's channels, and a
- * level above them Hops, the places a document reaches from its place 0 back along links from placed places, a recursion over
+ * The box: a document's places and its links, both in the unit of the document, Doc closed or open; five stored
+ * relations over them, a projection, a count by document, a negation within the document, the rows of an immutable
+ * function each place's document and place are passed to, which the judge reads at each written unit's channels, and
+ * Programmed, edullm's WalkPattern in the box's terms, each linked place joined back to its value's program, a rule
+ * compiling each of a document's distinct values once by an immutable function; and a level above them Hops, the places a document reaches from its place 0 back along links from placed places, a recursion over
  * the stored projection, which its upkeep reads through the projection's definition, Dense, the documents of two places
  * or more, over the stored count, kept in the COMMIT that keeps the count, and Weighted, each place with each heavy
  * weight, reading the closed Weight through a live derived relation, whose rows no write changes, so its upkeep holds
@@ -20,6 +21,11 @@
  * exactly its table's rows (a stored relation is a relation a query matches by its table, ir/desc.ts derivedHeld).
  *
  * Features: each kind of write, a transaction over two documents, and an open Doc.
+ *
+ * The call leg (stored.fixtures.ts callsRun): over the same box, before each COMMIT, Programmed's upkeep calls its
+ * function once for each distinct value of each document it keeps, however many places hold the value and links stand
+ * at them. The oracle is the host's model of the places, the function counting its own calls. Features: a value at two
+ * places of a written document, a value at no linked place of one, and an open Doc.
  *
  * The live leg (stored.fixtures.ts watchRun): a stored relation's table is a footprint table like an authored one's
  * (logical/routes.ts footprintOf, physical/ddl/live.ts), published with the replica identity its primary key gives, or
@@ -36,6 +42,8 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
+	type CallsFeature,
+	callsRun,
 	type LawfulFeature,
 	lawfulRun,
 	type UpkeepFeature,
@@ -122,6 +130,61 @@ export const aStoredRelationEqualsItsDefinitionAfterEveryCommitOfEveryWriteOfIts
 				original: "\tconst upkept = b.model.theory.upkeeps.map(upkeepBlock)\n",
 				replacement: "\tconst upkept: ReadonlyArray<Judged> = []\n",
 				why: "No upkeep runs at COMMIT: a stored relation keeps the rows its migration filled it with, empty, whatever is written after."
+			}
+		]
+	})
+
+/**
+ * A stored relation's upkeep calls a declared function once for each distinct tuple of arguments at the units a
+ * transaction wrote, however many of their rows hold the tuple (ir/expr.ts evaluatesCall): Programmed, edullm's
+ * WalkPattern in the box's terms, joins each linked place back to its value's compile, a rule over each document's
+ * distinct values, which navigation reads whole (analysis/theory/navigate.ts sharedImports), whose projection reads its
+ * input as a set (analysis/physical/consumers.ts) and which PostgreSQL never pulls up into the step that reads it, its
+ * call refusing a NULL through the volatile refusal function (write/refusal.ts), so `compile` runs once per value of a
+ * written document, never once per place or per linked place.
+ */
+export const aStoredRelationsUpkeepCallsAFunctionOncePerDistinctArgumentTupleOfTheUnitsAWriteWrote =
+	property.explore(upkeepCase, {
+		needs: { substrate: Substrate.fresh(baseSubstrate) },
+		situations: [
+			"a value at two places of a written document",
+			"a value at no linked place of a written document",
+			"Doc open"
+		] satisfies ReadonlyArray<Reached<CallsFeature>>,
+		check:
+			({ substrate }, c) =>
+			(value) =>
+				Effect.provideServiceEffect(
+					Effect.scoped(callsRun(value, c)),
+					Substrate,
+					Effect.map(substrate, (taken) => taken.substrate)
+				),
+		oracle: {
+			kind: "specification",
+			name: "the distinct values of each document a transaction wrote, counted on the host's model of the places, against the calls PostgreSQL counts of the upkeep's insert before COMMIT"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original:
+					'\t\t\t\tif (sharing.kind === "perStatement" && callsOf(stage.arms[0].head).size > 0) {\n\t\t\t\t\tshared.add(key)\n\t\t\t\t\tcontinue\n\t\t\t\t}\n',
+				replacement: "",
+				why: "Navigation inlines the compiles into the upkeep's chain, so its call stands in the chain's head and runs once for every linked place, joined to every place of its value: a document of two places of one value, both linked, is compiled four times, where it holds one value."
+			},
+			{
+				file: "packages/engine/src/analysis/physical/consumers.ts",
+				original:
+					'\t\t\t\tevaluatesCall(node.out.map((o) => o.expr))\n\t\t\t\t\t? observe(node.input, "input")\n',
+				replacement:
+					'\t\t\t\tevaluatesCall(node.out.map((o) => o.expr))\n\t\t\t\t\t? pass(node.input, "input")\n',
+				why: "A projection that calls a function passes its input's repeats on, so the compiles' DISTINCT stands above the call: `compile` runs once per place of a written document, twice for a value two places hold."
+			},
+			{
+				file: "packages/engine/src/write/refusal.ts",
+				original: '\t\t\tvolatility: "VOLATILE",\n',
+				replacement: '\t\t\tvolatility: "STABLE",\n',
+				why: "The refusal function a call's NULL value is refused by is STABLE, so the compiles are a simple subquery, which PostgreSQL pulls up into the step that joins them back to the linked places, evaluating the call where that step reads the program: once per linked place, and never for a value no linked place holds."
 			}
 		]
 	})

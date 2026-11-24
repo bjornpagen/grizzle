@@ -43,8 +43,10 @@ import type { NameSupply } from "#compiler/sql/naming.ts"
  * role executes (physical/ddl/roles.ts addWorlds), a write statement's refusals, a context source's (sql/print.ts
  * contextClaims) and a read-back's check of what it delivers (lower/conservative/deliver.ts checkedAttachment). It raises its arguments, the SQLSTATE, the constraint name and the DETAIL, and never returns; it
  * reads and writes nothing, so its header, the one every installed function has (`CreateFunction`), confers nothing,
- * and it is PARALLEL SAFE, so a statement that reads the claims still plans in parallel. It has one name and is
- * replaced in place when its body changes. */
+ * and it is PARALLEL SAFE, so a statement that reads the claims still plans in parallel. It is VOLATILE: PostgreSQL
+ * pulls up no subquery whose outputs call it, so a declared function's call, whose NULL value it refuses, is evaluated
+ * where the subquery that calls it reads its rows, once for each of them (ir/expr.ts evaluatesCall). It has one name
+ * and is replaced in place when its body changes. */
 export const refusalFunctionName: string = identifierOf(identity.refusal())
 const refusalParams: ReadonlyArray<FunctionParam> = [
 	{ name: "state", type: types.text },

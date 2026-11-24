@@ -26,6 +26,7 @@ import type { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { deepFreeze, mapRecord } from "#compiler/core/record.ts"
 import {
+	callsOf,
 	type Channel,
 	descIdentity,
 	exprChildren,
@@ -575,9 +576,13 @@ type KeptImports = ReadonlySet<string>
  * each read is read once in each of them. An import of one rule read once, or one that reads one relation alone, is
  * inlined, its reads keyed by the values the steps before them bound. The imports are counted in the unfolding as
  * inlining leaves it: a read inside an import navigation keeps whole is that import's own, so the shallowest imports
- * read more than once are kept first, and the rest counted again without the rows they hold. A write member's
- * navigation (`perRead`) keeps its unions alone and inlines every import of one rule at every read, its steps keyed by
- * the steps before them.
+ * read more than once are kept first, and the rest counted again without the rows they hold. An import of one rule
+ * whose head evaluates a declared function's call is one wherever it is read (ir/expr.ts evaluatesCall): read whole, its
+ * call is evaluated over its own rows, a set, once per row, where inlined it stood in the reader's head and ran again
+ * for every row the reader joins to one of the import's: edullm's stored walk of a package's patterns compiled each of
+ * a package's 63 pattern texts once for each of the 469,935 elements that write one. A write member's navigation
+ * (`perRead`) keeps its unions alone and inlines every import of one rule at every read, its steps keyed by the steps
+ * before them.
  */
 const sharedImports = (
 	rules: ReadonlyArray<InferredRule>,
@@ -608,6 +613,10 @@ const sharedImports = (
 				const key = interned.importKey(source.query, top)
 				if (stage.arms.length > 1) {
 					unions.add(key)
+					continue
+				}
+				if (sharing.kind === "perStatement" && callsOf(stage.arms[0].head).size > 0) {
+					shared.add(key)
 					continue
 				}
 				const seen = counts.get(key)

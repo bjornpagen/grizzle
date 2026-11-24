@@ -1169,6 +1169,20 @@ export const exprClosure = (roots: ReadonlyArray<ScalarExpr>): ReadonlyArray<Sca
 	return [...seen]
 }
 
+/**
+ * Whether the expression trees `roots` evaluate a declared function's call (`call`) anywhere: a node whose expressions
+ * do evaluates it once for each row of its input, so it is a boundary of that evaluation. A function is called once per
+ * distinct row it is evaluated over: the node observes its input's repeats (analysis/physical/consumers.ts), so its
+ * input is a set before it; navigation keeps a rule whose head calls one whole where it reads it, never inlined into the
+ * rule that matches it (analysis/theory/navigate.ts sharedImports), so its call is evaluated over its own rows; and
+ * PostgreSQL never pulls the call into the query that reads the node's rows, where it would run again for every row
+ * that query joins to one of the node's: the call's refusal of a NULL it returns calls the refusal function
+ * (lower/conservative/expr declaredCall), which is VOLATILE (write/refusal.ts), and PostgreSQL pulls up no subquery
+ * whose outputs call a volatile function (src/backend/optimizer/prep/prepjointree.c is_simple_subquery).
+ */
+export const evaluatesCall = (roots: ReadonlyArray<ScalarExpr>): boolean =>
+	exprClosure(roots).some((e) => e.kind === "call")
+
 /** The columns the expressions `exprs` read, each a column among them, in their order. */
 const columnsAmong = (exprs: ReadonlyArray<ScalarExpr | TableExpr>): ReadonlyArray<ColumnRef> =>
 	exprs.flatMap((e) => (e.kind === "column" ? [e.column] : []))

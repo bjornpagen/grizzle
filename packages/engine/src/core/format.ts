@@ -138,6 +138,13 @@
  * (TreeRefused `brokenParts`). snapshot.json, a served file and an OpenAPI document, which an application imports whole
  * by its path, are never laid out in parts: generate refuses one past the bound, before writing anything
  * (FileTooLarge, the shell's cli/files.ts unsplitWithin).
+ * A projection that calls a declared function reads its input as a set, so the function is called once per distinct
+ * row it is evaluated over (analysis/physical/consumers.ts, ir/expr.ts evaluatesCall), and navigation reads a rule whose
+ * head calls one whole, never inlined into the rule that matches it (analysis/theory/navigate.ts sharedImports), where
+ * format 7 called it once for each row of the projection's input and inlined the rule, its call standing in its
+ * reader's head over every row the reader joins to the rule's: a stored relation's fill and upkeep over such a rule,
+ * edullm's WalkPattern among them, and every served read and judged statement that calls a function over rows that may
+ * repeat move.
  * A relation a role holds whole has one view, its whole view, `__<level>.<relation>` in its level's schema of whole
  * views (core/identity.ts identity.wholeSchema, wholeView; physical/ddl/roles.ts addWholeViews), which every role
  * holding it whole is granted SELECT on, with USAGE on its schema, and which served statements name

@@ -1,5 +1,6 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import type { PhysicalProps, Realization } from "#compiler/analysis/physical/props.ts"
+import { evaluatesCall } from "#compiler/ir/expr.ts"
 import type { ConsumerSensitivity } from "#compiler/ir/multiplicity.ts"
 import type { KeySet, RelDag, RelNode } from "#compiler/ir/rel.ts"
 
@@ -48,6 +49,11 @@ export interface NodeConsumer {
  * before it are a set. A repeat changes no row of the region's result, but its work grows with the repeats, which a
  * rule's judge of a whole unit's write would square: the 37,578 rows a package writes of a node each deriving the
  * package's one fact, which the next step reads again for each.
+ *
+ * A projection that evaluates a declared function's call observes its input's repeats for the same reason (ir/expr.ts
+ * evaluatesCall): it calls the function once per row of its input, so a repeat calls it again, and only over a set is
+ * the function called once per distinct row: edullm compiles each pattern text of a package by xsd_compile, 63 texts
+ * that 469,935 of one package's elements write.
  *
  * EXISTS is bounded: the right side of a semi- or anti-join is an emptiness test, but every
  * consumer below it still classifies its own inputs, so a bound, a grouping or a set difference under EXISTS observes
@@ -153,8 +159,13 @@ const consumerEdges = (node: RelNode, env: ClassifyEnv): ReadonlyArray<ConsumerE
 					? observe(o.source, "occurrence")
 					: pass(o.source, "occurrence")
 			)
-		case "Filter":
 		case "ProjectSet":
+			return [
+				evaluatesCall(node.out.map((o) => o.expr))
+					? observe(node.input, "input")
+					: pass(node.input, "input")
+			]
+		case "Filter":
 		case "OrderedResult":
 		case "Produce":
 		case "Step":

@@ -12,6 +12,7 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
 import { admittedIdentifier, notificationText } from "#compiler/plan/runtime.ts"
 import { Fn, Logic } from "#compiler/public/compute.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
@@ -30,6 +31,8 @@ import {
 	schema,
 	unit
 } from "#compiler/public/schema.ts"
+import type { OperandSelect } from "#compiler/sql/ast.ts"
+import { printExpr } from "#compiler/sql/print.ts"
 import { installDerived, OracleFixtureFailed, snapshotOf } from "#test/pg/derived/oracle/harness.ts"
 import { bytesOfHex } from "#test/pg/live/source.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
@@ -63,6 +66,25 @@ const codes = fn("codes", {
 	body: fn.body`SELECT d * 10 + p UNION ALL SELECT d WHERE p = 0`
 })
 
+/** The setting `compile` counts its calls in, a placeholder any session may set, which its body names as written. */
+const callsSetting = "stored_test.compiled"
+
+/**
+ * A value's program, declared immutable, as its value is a function of its argument alone, which counts each call of
+ * it in the session's setting `callsSetting`: a body of PL/pgSQL, which PostgreSQL never inlines, so every evaluation
+ * runs it. The count is set as the session's own (set_config's `false`), which a transaction that rolls back undoes,
+ * and which no function's SET clause around the call restores.
+ */
+const compile = fn("compile", {
+	calls: [],
+	args: { x: pg.integer },
+	returns: pg.integer,
+	volatility: "immutable",
+	nullInput: "called",
+	language: "plpgsql",
+	body: fn.body`\nBEGIN\n  PERFORM pg_catalog.set_config('stored_test.compiled', (COALESCE(NULLIF(pg_catalog.current_setting('stored_test.compiled', true), ''), '0')::integer + 1)::text, false);\n  RETURN x * 7 + 1;\nEND\n`
+})
+
 /** Whether Doc is closed or open. */
 export type Openness = "closed" | "open"
 
@@ -81,20 +103,30 @@ const Weight = closed.relation(
 const baseOf = (openness: Openness, name: string) =>
 	schema(
 		name,
-		[Doc, Link, codes, Shade, Weight],
+		[Doc, Link, codes, compile, Shade, Weight],
 		openness === "open" ? [mutable(Doc), Document] : [Document]
 	)
 
 /**
- * The stored relations, each over the document's unit: a projection, a count by document, a negation within it, and
- * the rows of a function each place's document and place are passed to, which a restriction to the written units
- * reads at the unit's channels (analysis/theory/unit.ts channelled); and, a level above them, Hops, the places a
+ * The stored relations, each over the document's unit: a projection, a count by document, a negation within it, the
+ * rows of a function each place's document and place are passed to, which a restriction to the written units reads at
+ * the unit's channels (analysis/theory/unit.ts channelled), and Programmed, each linked place's value's program, a
+ * function called once per distinct value of a document (ir/expr.ts evaluatesCall); and, a level above them, Hops, the places a
  * document reaches from its place 0 back along links from placed places, a recursion whose base and step read the stored
  * Placed, which its upkeep reads through Placed's definition, the step's among them (analysis/theory/query.ts
  * liveQuery, theory.ts `maintained`), so it never reads Placed's table as phase A leaves it: Hops sorts before Placed,
  * so its upkeep runs first.
  */
-const storedNames = ["Placed", "Counted", "Unlinked", "Coded", "Hops", "Dense", "Weighted"] as const
+const storedNames = [
+	"Placed",
+	"Counted",
+	"Unlinked",
+	"Coded",
+	"Programmed",
+	"Hops",
+	"Dense",
+	"Weighted"
+] as const
 
 const topOf = (openness: Openness, name: string) => {
 	const base = baseOf(openness, name)
@@ -136,7 +168,44 @@ const topOf = (openness: Openness, name: string) => {
 			return r.match(Weight, { shade, w }).where(r.ge(w, 2)).find({ w })
 		})
 	)
-	const lower = schema.extend([base], `${name}_top`, [Placed, Counted, Unlinked, Coded, Heavy], [])
+	/** The places a link stands at, each with its value: edullm's written pattern matches, an element and its attribute. */
+	const linked = query(base).rule((r) => {
+		const { doc, at, v: value } = v(Doc, "d")
+		return r.match(Doc, { doc, at, v: value }).match(Link, { doc, at }).find({ doc, at, value })
+	})
+	/** Each document's distinct values: edullm's pattern texts, one row a text, however many elements write it. */
+	const values = query(base).rule((r) => {
+		const { doc, v: value } = v(Doc, "d")
+		return r.match(Doc, { doc, v: value }).find({ doc, value })
+	})
+	/** Each of a document's distinct values compiled (`compile`): edullm's compiled patterns, one compile a text. */
+	const compiled = query(base).rule((r) => {
+		const { doc, value } = v(values, "t")
+		return r
+			.match(values, { doc, value })
+			.find({ doc, value, program: Fn.call(compile, { x: value }) })
+	})
+	/**
+	 * Each linked place's program, its value's compile: edullm's WalkPattern, its pattern matches joined back to their
+	 * texts' compiles, whose upkeep calls `compile` once for each distinct value of a document it keeps.
+	 */
+	const Programmed = derived.stored(
+		"Programmed",
+		query(base).rule((r) => {
+			const { doc, at, value } = v(linked, "p")
+			const { program } = v(compiled, "c")
+			return r
+				.match(linked, { doc, at, value })
+				.match(compiled, { doc, value, program })
+				.find({ doc, at, program })
+		})
+	)
+	const lower = schema.extend(
+		[base],
+		`${name}_top`,
+		[Placed, Counted, Unlinked, Coded, Programmed, Heavy],
+		[]
+	)
 	const hop = { doc: pg.integer, at: pg.integer }
 	const Hops = derived.stored(
 		"Hops",
@@ -196,6 +265,10 @@ const topOf = (openness: Openness, name: string) => {
 		Coded: query(top).rule((r) => {
 			const s = v(Coded, "s")
 			return r.match(Coded, s).find(s)
+		}),
+		Programmed: query(top).rule((r) => {
+			const s = v(Programmed, "s")
+			return r.match(Programmed, s).find(s)
 		}),
 		Hops: query(top).rule((r) => {
 			const s = v(Hops, "s")
@@ -785,5 +858,130 @@ export const lawfulRun = (
 					message: `after transaction ${step}, Placed holds [${Arr.join(held, "; ")}] where the host's places are [${Arr.join(places, "; ")}]`
 				})
 			}
+		}
+	})
+
+/** What a case of the call count reached: a written document holding one value at two places, one holding a value no
+ * linked place holds, and an open Doc. */
+export type CallsFeature =
+	| "a value at two places of a written document"
+	| "a value at no linked place of a written document"
+	| "Doc open"
+
+/**
+ * The two queries of stored relation `relation`'s upkeep (physical/ddl/rules.ts upkeepBlock): the units the transaction
+ * wrote, its delete's region, each a row of the unit's key, and its insert's rows, its definition at those units that
+ * its table does not hold yet.
+ */
+const upkeepOf = (
+	installation: Installation,
+	relation: string
+): { readonly units: OperandSelect; readonly inserted: OperandSelect } => {
+	const name = identifierOf(identity.storedUpkeep(relation))
+	const body = Arr.flatMap(installation.statements, (statement) =>
+		statement.kind === "createFunction" &&
+		statement.language === "plpgsql" &&
+		statement.name.name === name
+			? statement.body.body
+			: []
+	)
+	const [region] = Arr.flatMap(body, (step) =>
+		step.kind === "modify" && step.statement.kind === "delete"
+			? Arr.flatMap(step.statement.using, (u) => (u.kind === "derived" ? [u.query] : []))
+			: []
+	)
+	const [inserted] = Arr.flatMap(body, (step) =>
+		step.kind === "modify" &&
+		step.statement.kind === "insert" &&
+		step.statement.source.kind === "query"
+			? [step.statement.source.query]
+			: []
+	)
+	if (region === undefined || inserted === undefined) {
+		throw new Error(`the upkeep of ${relation}: a delete at its region and an insert of its rows`)
+	}
+	return { units: region, inserted }
+}
+
+/**
+ * The call count's leg: each transaction of the case run by the owner's direct SQL and, before its COMMIT, over the
+ * deltas its captures wrote, Programmed's upkeep read as the judge reads it, its units first and then its insert's rows
+ * whole, `compile` counting its calls (`callsSetting`), the transaction then rolled back and run again to COMMIT: the
+ * insert calls `compile` exactly once for each distinct value each of its units, a document, holds as the transaction
+ * leaves it, counted on the host's model of the places (`applied`), however many of its places hold the value and
+ * links stand at them.
+ */
+export const callsRun = (
+	c: UpkeepCase,
+	reached: Case<CallsFeature>
+): Effect.Effect<
+	void,
+	OracleFixtureFailed | CompileError | SqlError | TransactionRolledBack,
+	Substrate | Scope.Scope
+> =>
+	Effect.gen(function* () {
+		const s = yield* Substrate
+		const opened = yield* installDerived(topOf(c.openness, "stored_calls").top, {}, "calls", [])
+		const installation = opened.installed.installation
+		yield* standUpJudge(s.admin, installation)
+		if (c.openness === "open") {
+			reached.note("Doc open")
+		}
+		const upkeep = upkeepOf(installation, "Programmed")
+		const units = `SELECT "u".c1::text FROM ${printExpr({ kind: "subquery", query: upkeep.units })} AS "u"(c1)`
+		const inserted = `SELECT ROW("q".*)::text FROM ${printExpr({ kind: "subquery", query: upkeep.inserted })} AS "q"`
+		const calls = `SELECT COALESCE(NULLIF(pg_catalog.current_setting('${callsSetting}', true), ''), '0')`
+		let model: Model = { places: new Map(), links: new Set() }
+		for (const [step, writes] of c.transactions.entries()) {
+			model = Arr.reduce(writes, model, applied)
+			const seen = yield* Effect.scoped(
+				Effect.gen(function* () {
+					const pinned = yield* s.admin.pin
+					yield* pinned.query("BEGIN", [])
+					return yield* Effect.ensuring(
+						Effect.gen(function* () {
+							for (const w of writes) {
+								yield* pinned.query(sqlOf(opened.installed.names, w), [])
+							}
+							const docs = yield* pinned.queryValues(units, [])
+							const before = yield* pinned.queryValues(calls, [])
+							yield* pinned.queryValues(inserted, [])
+							const after = yield* pinned.queryValues(calls, [])
+							return {
+								docs: Arr.map(docs, (row) => Number(String(row[0]))),
+								calls: Number(String(after[0]?.[0])) - Number(String(before[0]?.[0]))
+							}
+						}),
+						Effect.ignore(pinned.query("ROLLBACK", []))
+					)
+				})
+			)
+			let expected = 0
+			for (const doc of seen.docs) {
+				const placed = Arr.filter([...model.places], ([k]) => Str.startsWith(`${doc}:`)(k))
+				const distinct = new Set(Arr.map(placed, ([, value]) => value))
+				expected += distinct.size
+				if (distinct.size < placed.length) {
+					reached.note("a value at two places of a written document")
+				}
+				const linked = new Set(
+					Arr.flatMap(placed, ([k, value]) => (model.links.has(k) ? [value] : []))
+				)
+				if (Arr.some([...distinct], (value) => !linked.has(value))) {
+					reached.note("a value at no linked place of a written document")
+				}
+			}
+			if (seen.calls !== expected) {
+				return yield* new OracleFixtureFailed({
+					message: `in transaction ${step}, the upkeep of Programmed called compile ${seen.calls} times where its units, the documents ${Arr.join(
+						Arr.map(seen.docs, String),
+						", "
+					)}, hold ${expected} distinct values`
+				})
+			}
+			yield* transaction(
+				s.admin,
+				Arr.map(writes, (w) => sqlOf(opened.installed.names, w))
+			)
 		}
 	})
