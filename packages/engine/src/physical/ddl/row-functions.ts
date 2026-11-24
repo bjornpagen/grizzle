@@ -130,6 +130,20 @@ const matchedLanguage = (scope: Pick<RowScope, "languageOf">, e: Expr): string |
 		: undefined
 
 /**
+ * One node of an expression as an identity reads it: a match of a text by the ARE of an installed spelling
+ * (`languageOf`) matches its pattern's language instead, a key of 64 hex digits (ir/scalar.ts languageKey) in a call of
+ * no schema, which no call an installation makes is, and every other node as it is. So an object named by an
+ * expression's text, a row function (`identified`) or a session delta's reader (physical/ddl/deltas.ts DeltaReads), is
+ * named by the language a pattern spells, never by its spelling, as its law is (ir/pattern.ts PatternValue).
+ */
+export const byLanguage = (languageOf: RowScope["languageOf"], e: Expr): Expr => {
+	const language = matchedLanguage({ languageOf }, e)
+	return language === undefined || e.kind !== "binary"
+		? e
+		: { ...e, right: qualifiedCall("", language, []) }
+}
+
+/**
  * Whether an expression of a table's row is its row function's: it calls an installed constant, it matches a pattern,
  * or its literals hold more bytes together than inlineLiteralMaxBytes. A pattern is data of its language whatever its
  * spelling's length, so an expression matching one is a row function however the installation spells it, and two
@@ -182,12 +196,7 @@ const identified = (
 ): RowDefinition => {
 	const t = new Transform({
 		...digestedHooks(scope.installed),
-		expr: (e) => {
-			const language = matchedLanguage(scope, e)
-			return language === undefined || e.kind !== "binary"
-				? e
-				: { ...e, right: qualifiedCall("", language, []) }
-		}
+		expr: (e) => byLanguage(scope.languageOf, e)
 	})
 	return {
 		params: definition.params.map((p) => t.functionParam(p)),

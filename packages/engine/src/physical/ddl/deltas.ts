@@ -26,6 +26,7 @@ import { inlineColumn, type RowColumn, rowBytes } from "#compiler/laws/model/row
 import { withLeading } from "#compiler/lower/conservative/context.ts"
 import type { DeltaRelation } from "#compiler/lower/conservative/types.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
+import { byLanguage } from "#compiler/physical/ddl/row-functions.ts"
 import type { Node } from "#compiler/physical/obligations/graph.ts"
 import {
 	btreeEntryBytes,
@@ -414,11 +415,16 @@ export class DeltaReads {
 
 	/**
 	 * The read of `of`'s delta under `selection`, conjuncts over its table `r1`: each conjunct once, in the order of
-	 * their texts, so every statement that reads the delta under the same conditions reads one reader.
+	 * their texts as an identity reads them, each pattern by its language (row-functions.ts byLanguage), so every
+	 * statement that reads the delta under the same conditions reads one reader, and two spellings of one language one.
 	 */
 	read(of: ReadDelta, selection: ReadonlyArray<Expr>): DeltaRead {
+		const named = new Transform({
+			...identityHooks,
+			expr: (e) => byLanguage((are) => this.#b.languageOf(are), e)
+		})
 		const conjuncts = [
-			...new Map(selection.map((e) => [printExpr(e), e] as const)).entries()
+			...new Map(selection.map((e) => [printExpr(named.expr(e)), e] as const)).entries()
 		].toSorted(([x], [y]) => compareStrings(x, y))
 		const reader = identity.ruleDeltaReader(
 			of.relation.name,

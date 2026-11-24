@@ -487,6 +487,12 @@ export class InstallBuilder {
 	 * is added through here, whatever adds it. Each column the statement gives its table is kept, by the table's name,
 	 * for the types of the parameters a later row function of the table reads it by.
 	 */
+	/** The language of the pattern whose installed spelling's ARE is `are`, none for a text no installed spelling's ARE
+	 * is (row-functions.ts RowScope languageOf). */
+	languageOf(are: string): string | undefined {
+		return this.#languages.get(are)
+	}
+
 	#withRowFunctions(statement: SqlStatement, reasons: ReadonlyArray<PhysicalReason>): SqlStatement {
 		if (
 			(statement.kind !== "createTable" && statement.kind !== "alterTable") ||
@@ -502,7 +508,7 @@ export class InstallBuilder {
 			readsConstant: (fn) => fn.schema === this.schema && this.#readsData(fn.name),
 			columnType: (column) =>
 				columns.get(column) ?? missing(`physical: no column ${column} of ${table}`),
-			languageOf: (are) => this.#languages.get(are)
+			languageOf: (are) => this.languageOf(are)
 		}
 		const install = (fn: RowFunction): void => {
 			this.name(fn.named)

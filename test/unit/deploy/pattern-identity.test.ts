@@ -20,7 +20,7 @@
 
 import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order, Record as Rec } from "effect"
 import { compareStrings } from "#compiler/core/order.ts"
 import { installedSpellings } from "#compiler/ir/pattern.ts"
@@ -91,8 +91,25 @@ export const twoSpellingsOfAPatternInstallOneIdentityExactlyWhenTheySpellOneLang
 			kind: "specification",
 			name: "two installations one by identity exactly when their patterns' language keys are equal"
 		},
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/unit/deploy/pattern-identity.test.ts#twoSpellingsOfAPatternInstallOneIdentityExactlyWhenTheySpellOneLanguage:-:0.1.0.0.0.3"
+				),
+				reason:
+					"// and (?:)|\u{2603}, one language, whose session deltas' readers were named by their selections' SQL text, each spelling's ARE in it",
+				since: "2026-11-24"
+			}
+		],
 		kills: [
+			{
+				file: "packages/engine/src/physical/ddl/deltas.ts",
+				original:
+					"\t\t\t...new Map(selection.map((e) => [printExpr(named.expr(e)), e] as const)).entries()\n",
+				replacement:
+					"\t\t\t...new Map(selection.map((e) => [printExpr(e), e] as const)).entries()\n",
+				why: "A session delta's reader is named by its selection's SQL text, each pattern by its spelling's ARE: two spellings of one language name two readers, and the identities differ."
+			},
 			{
 				file: "packages/engine/src/core/canonical.ts",
 				original:
