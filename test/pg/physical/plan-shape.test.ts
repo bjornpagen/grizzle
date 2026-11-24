@@ -11,16 +11,24 @@
  *   engine's requests, each relation's statements are planned on a copy of its table (copies.ts: its columns,
  *   constraints and indexes, and its declaration as the migration declares it): each key's probe, each lookup, each
  *   foreign key's check from each side as PostgreSQL's own triggers run it (`SELECT 1 FROM ONLY ... FOR KEY SHARE`),
- *   and a member's read by its unit. In each state:
- *   - empty as installed, a table no VACUUM has seen, which PostgreSQL plans at ten pages: a statement binding a key
+ *   a member's read by its unit, and, where an index of a member is led by a field of its primary key after the unit's,
+ *   a coordinate, the key's probe joined from two sides as metis's submit probes processed_attempt's key: its unit's
+ *   fields from a carrier of parameters, its other fields from a row of the table read at that unit, in an anti join.
+ *   A member's binding that holds none of the columns that scope its rows, its unit's fields and its keys' first fields,
+ *   spans its units: its declaration prices it at a share of the table, which PostgreSQL may scan. In each state:
+ *   - empty as installed, a table no VACUUM has seen, which PostgreSQL plans at ten pages: a lookup binding a key
  *     reads through a key's index it binds whole; nothing else is judged empty (a read of several rows may scan it);
- *   - filled at 2^14 rows and vacuumed: a statement binding a key reads through a key's index it binds whole, any other
+ *   - filled at 2^14 rows and vacuumed: a lookup binding a key reads through a key's index it binds whole, any other
  *     through indexes whose equalities bind as long a run of its binding as any B-tree of the relation does, and never
- *     scans the table where one binds any;
+ *     scans the table where one binds any, but a binding that spans a member's units may; the joined probe binds by its index
+ *     condition a column that scopes the rows, so it reads within one scope, never by the coordinates alone (its paths
+ *     priced over loops as unlike as the carrier's ten rows and the table's, a prefix bounded within a scope may win
+ *     over the key's whole index, which no declaration ranks);
  *   - after ANALYZE, after VACUUM, and, a mutable relation, emptied, vacuumed, refilled and vacuumed (the recovery
- *     autovacuum's insert threshold runs): each statement reads as filled;
- *   - ANALYZEd at one row in a hundred of the filled state's, then loaded whole and vacuumed: each statement reads as
- *     filled, and as the law says.
+ *     autovacuum's insert threshold runs): each lookup that spans no scope reads as filled, and each statement as the
+ *     law says;
+ *   - ANALYZEd at one row in a hundred of the filled state's, then loaded whole and vacuumed: each lookup that spans no
+ *     scope reads as filled, and each statement as the law says.
  *   A relation whose keys and indexes cross is refused when it installs, as generate refuses it.
  *   A third of the shapes are two immutable members of the unit, the second's rows contained in fields of the first that
  *   hold none of its keys, a containment no foreign key states, which the rule judge reads: every statement of the judge
@@ -36,7 +44,9 @@
  *   samples the first units and a read by the unit scans the table once it is loaded; the judge's delta readers at
  *   PostgreSQL's estimate of a thousand rows, so it hashes a scan of the container; and every unit-local containment
  *   judged whole, so the judge reads the container's unit and matches the binding in a Join Filter (LC-WRITERS' judge,
- *   the kept case).
+ *   the first kept case); and every index's first column of many values declared an anchor, a member's too, as 042c0f107 declared, so
+ *   the joined probe of a key reads through an index led by its coordinate and filters the unit after (metis's
+ *   processed_attempt, the second kept case).
  */
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
@@ -60,7 +70,8 @@ export const everyStatementReadsThroughTheIndexItsBindingAsksForInEveryState = p
 			"an equality lookup on an index of its own",
 			"a mutable relation emptied, vacuumed and refilled",
 			"a relation in no unit",
-			"a containment the rule judge reads"
+			"a containment the rule judge reads",
+			"a key probed from two sides beside an index led by a coordinate"
 		] satisfies ReadonlyArray<Reached<PlanShapeFeature>>,
 		check:
 			({ substrate }, c: Case<PlanShapeFeature>) =>
@@ -86,6 +97,14 @@ export const everyStatementReadsThroughTheIndexItsBindingAsksForInEveryState = p
 				reason:
 					"LC-WRITERS' judge at small scale: R1(doc, q0) contained in R0(doc, f0) within the unit doc, R0 keyed (doc, f0, f1), both immutable; judged whole, the judge read R0's unit under a Materialize and matched f0 in its Join Filter, as LC's outline_start_in_standard_child judge read standard_child's 280,000-row unit for each outline row (23 minutes); judged key by key over its delta's rows, each read binds (doc, f0) by its index",
 				since: "2026-11-23"
+			},
+			{
+				token: ReplayToken(
+					"test/pg/physical/plan-shape.test.ts#everyStatementReadsThroughTheIndexItsBindingAsksForInEveryState:-:1.1.0.0.1.0.0.0.0.0.1.0.0.1.0.0.1.0.0"
+				),
+				reason:
+					"metis's processed_attempt at small scale: a member of the unit doc keyed (doc, f0, f1), a workload's lookup of (f0, f1) asking an index led by the coordinate f0, as processed_attempt (child, package, path, n, at) asks (package, path, n, child): declared an anchor for leading that index, f0 was priced at a fixed count of rows a value, and the key's probe joined from its unit's carrier and its own rows read through (f0, f1), filtering doc after, every unit's rows at the item, as metis's submit read 41,208 rows for each of 34 probes at 45785e7c9; declared a share of the table, the probe reads within its unit",
+				since: "2026-11-24"
 			}
 		],
 		kills: [
@@ -100,6 +119,12 @@ export const everyStatementReadsThroughTheIndexItsBindingAsksForInEveryState = p
 				original: "\t\tif (taken.includes(c)) {",
 				replacement: "\t\tif (taken.includes(c) || shape.unit.includes(c)) {",
 				why: "The unit's lead declared no anchor: its first field holds a few values at any size, so a member's read by its unit is priced at a share of the table and scans it."
+			},
+			{
+				file: "packages/engine/src/physical/statistics/declared.ts",
+				original: "\tif (shape.unit.length === 0) {",
+				replacement: "\tif (shape.unit.length >= 0) {",
+				why: "Every index's first column of many values an anchor, as 042c0f107 declared: a coordinate leading an index is priced at a fixed count of rows a value, and a probe of the whole key joined from two sides reads through that index's prefix, filtering the unit after (the second kept case, metis's processed_attempt)."
 			},
 			{
 				file: "packages/engine/src/sql/print.ts",

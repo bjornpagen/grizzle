@@ -22,12 +22,22 @@ import type { CreateTable, DeclaredDistinct, DeclareStatistics } from "#compiler
  *   index binding less of it.
  *
  * The columns are of three kinds:
- * - an anchor (`anchorsOf`), a column of many values: PostgreSQL is told a relative number of distinct values, -1/2^y,
- *   so each value holds 2^y rows at any size of the table. A unit's key leads every index of its members, and its first
- *   field of many values is the anchor of them all, the unit holding 2^y rows (a unit's key alone is no key: a unit
- *   holds more than one row); then the first column of many values of the primary key, of each other key and of each
- *   index, each where no set apart would hold two anchors, whose product PostgreSQL prices below one row at any size
- *   worth planning. A key of one column is an anchor of exponent 0, unique;
+ * - an anchor (`anchorsOf`), a column of many values the schema scopes rows by: PostgreSQL is told a relative number of
+ *   distinct values, -1/2^y, so each value holds 2^y rows at any size of the table. The first field of many values of a
+ *   unit's key is the anchor of the unit's every member, the unit holding 2^y rows (a unit's key alone is no key: a
+ *   unit holds more than one row); then the first column of many values of the primary key and of each other key, its
+ *   scope, which a key needs to bind one row at any size; then each column of many values the relation's containments
+ *   prove determines one of those (RelationShape `determined`), which binds no more rows than what it determines; and,
+ *   in a relation in no unit, which states no scope of its rows' growth, the first column of many values of each index.
+ *   Each is taken where no set apart would hold two anchors, whose product PostgreSQL prices below one row at any size
+ *   worth planning. A key of one column is an anchor of exponent 0, unique. In a unit's member no other column is one,
+ *   however many indexes it leads: a member's rows are its units', so many units over so many rows a unit, and a column
+ *   no fact binds to a unit recurs across the units, as metis's package, an item's content coordinate, recurs under
+ *   every child, so what an equality on it alone binds grows with the units, a share of the table. Where the first
+ *   column of a member's index was taken as an anchor, metis's processed_attempt, keyed (child, package, path, n, at),
+ *   declared package at 2 rows a value for its index (package, path, n, child), and PostgreSQL read a probe binding the
+ *   whole key through that index's prefix (package, path, n), priced at one row, and filtered child after: every
+ *   child's rows at the item, 41,208 for each of the 34 probes of metis's submit at 45785e7c9, where the key reads one;
  * - a pair of anchors one set apart holds together: a dependency of the later on the earlier is declared
  *   (DeclaredDependency), so PostgreSQL prices the pair at 2^m rows at any size of the table, m ≥ 1 its own exponent,
  *   which every set apart holding it bounds as an anchor's, where two independent anchors multiply below one row;
@@ -59,11 +69,22 @@ export interface Binding {
 }
 
 /**
+ * A functional dependency of one column of a relation on another, which a containment of the relation proves: where its
+ * columns are contained in another relation at fields holding a key of one field of that relation, the column paired
+ * with the key determines every column paired with the rest, as metis's assignment (user, child), contained in
+ * person_user (number, person) keyed by number, has user determine child.
+ */
+export interface Determined {
+	readonly determinant: string
+	readonly dependent: string
+}
+
+/**
  * A relation's shape as its declaration reads it: its columns, each by its text (physical/indexes/engine.ts
  * keyTermText) and what it holds; the fields holding its unit's key, none where it sits in no unit; its keys, each by
- * its columns; its indexes, each
- * by the columns its equalities may bind in key order, cut before a key no equality reads; and every binding a
- * statement of the installation makes of it.
+ * its columns; its indexes, each by the columns its equalities may bind in key order, cut before a key no equality
+ * reads; every binding a statement of the installation makes of it; and the dependencies of one column on another its
+ * containments prove.
  */
 export interface RelationShape {
 	readonly relation: string
@@ -72,6 +93,7 @@ export interface RelationShape {
 	readonly keys: ReadonlyArray<ReadonlyArray<string>>
 	readonly indexes: ReadonlyArray<ReadonlyArray<string>>
 	readonly bindings: ReadonlyArray<Binding>
+	readonly determined: ReadonlyArray<Determined>
 }
 
 /** One bound of a refusal as it reads: a key, a pair a dependency ties, which binds two rows or more, or a set an
@@ -155,22 +177,23 @@ const apartSets = (
 
 /**
  * The anchors of a relation, and the pairs of them a dependency ties: its unit's anchor, then the first column of many
- * values of its primary key, of each other key and of each index, in that order, each taken where every set apart
- * holding it holds no anchor taken before, or holds exactly one, `a`: then the two are a pair (DeclaredDependency),
- * which binds 2^m rows at any size, m its own exponent, as two independent anchors could not (PostgreSQL would multiply
- * them below one row). So every set apart holds one anchor or one pair, and its rows stand at any size of the table:
- * metis's assignment, whose `user` leads four indexes beside the anchor `child` of its key, is priced at two rows a
- * user where e2abf18f2, pairing none, priced it at half the table, and metis's test_presented, whose `stage` leads
- * index (stage, package, child) and stands beside the anchor `child` and two columns more in the set (child, package,
- * path, stage) its index stops at, short of a statement's (child, k, package, path, stage), pairs stage with child at m
- * = 3, where 56851404d, which paired an anchor only beside columns of one value, left stage at 2 values, so (package,
- * stage) was priced at a quarter of 1.43 million rows and metis's submit took 13.7 s. An anchor may be in several
- * pairs, and no set apart holds two of them: PostgreSQL applies a dependency only to a set holding all its columns
- * (dependencies.c dependency_is_compatible_clause), so one dependency at most applies to any set. A column of few
- * values is never one: it holds no more values than its handles at any size. A key holding none is priced at one row by
- * its own unique index alone; a set apart holding none binds the more rows the larger the table. PostgreSQL applies a
- * dependency to a set of one relation's columns alone (clausesel.c find_single_rel_for_clauses), so a join's probe of a
- * pair multiplies them.
+ * values of its primary key and of each other key, then each column of many values a containment proves determines one
+ * taken (RelationShape `determined`), and, in a relation in no unit, the first column of many values of each index, in
+ * that order, each taken where every set apart holding it holds no anchor taken before, or holds exactly one, `a`: then
+ * the two are a pair (DeclaredDependency), which binds 2^m rows at any size, m its own exponent, as two independent
+ * anchors could not (PostgreSQL would multiply them below one row). So every set apart holds one anchor or one pair,
+ * and its rows stand at any size of the table: metis's assignment, whose `user` leads four indexes beside the anchor
+ * `child` of its key (child, number) and determines child by its containment in person_user (number, person), is priced
+ * at two rows a user where e2abf18f2, pairing none, priced it at half the table. An index is no anchor's source (see
+ * the module's doc): metis's test_presented, keyed (child, stage, at), whose stage leads index (stage, package, child),
+ * declares stage a share of the table, as 56851404d did; the 13.7 s its submit took then (plan-08) was a read of
+ * test_presented binding package and stage with no child, priced at 357,994 rows and read 42,121 times over, which no
+ * declaration makes local, and its every probe since binds child. An anchor may be in several pairs, and no set apart
+ * holds two of them: PostgreSQL applies a dependency only to a set holding all its columns (dependencies.c
+ * dependency_is_compatible_clause), so one dependency at most applies to any set. A column of few values is never one:
+ * it holds no more values than its handles at any size. A key holding none is priced at one row by its own unique index
+ * alone; a set apart holding none binds the more rows the larger the table. PostgreSQL applies a dependency to a set of
+ * one relation's columns alone (clausesel.c find_single_rel_for_clauses), so a join's probe of a pair multiplies them.
  */
 const anchorsOf = (
 	shape: RelationShape,
@@ -181,19 +204,20 @@ const anchorsOf = (
 	readonly anchors: ReadonlyArray<string>
 	readonly pairs: ReadonlyArray<readonly [string, string]>
 } => {
-	const many = new Set(shape.columns.flatMap((c) => (c.values.kind === "many" ? [c.column] : [])))
+	const many = new Set(
+		shape.columns.flatMap((c) =>
+			c.values.kind === "many" && !single.has(c.column) ? [c.column] : []
+		)
+	)
+	const firstOf = (cols: ReadonlyArray<string>): ReadonlyArray<string> => {
+		const first = cols.find((c) => many.has(c))
+		return first === undefined ? [] : [first]
+	}
 	const taken: Array<string> = []
 	const pairs: Array<readonly [string, string]> = []
-	const candidates = [
-		...(unitAnchor === undefined ? [] : [unitAnchor]),
-		...[...shape.keys, ...shape.indexes].flatMap((cols) => {
-			const first = cols.find((c) => many.has(c) && !single.has(c))
-			return first === undefined ? [] : [first]
-		})
-	]
-	for (const c of candidates) {
+	const admit = (c: string): void => {
 		if (taken.includes(c)) {
-			continue
+			return
 		}
 		const sharers = new Set<string>()
 		const admitted =
@@ -214,6 +238,22 @@ const anchorsOf = (
 			for (const a of sharers) {
 				pairs.push([a, c])
 			}
+		}
+	}
+	for (const c of [
+		...(unitAnchor === undefined ? [] : [unitAnchor]),
+		...shape.keys.flatMap(firstOf)
+	]) {
+		admit(c)
+	}
+	for (const d of shape.determined) {
+		if (many.has(d.determinant) && taken.includes(d.dependent)) {
+			admit(d.determinant)
+		}
+	}
+	if (shape.unit.length === 0) {
+		for (const c of shape.indexes.flatMap(firstOf)) {
+			admit(c)
 		}
 	}
 	return { anchors: taken, pairs }
@@ -397,7 +437,8 @@ export const bookkeepingDeclaration = (create: CreateTable): DeclareStatistics =
 		unit: [],
 		keys: [key],
 		indexes: [key],
-		bindings: [{ columns: key, by: `the probe of key (${key.join(", ")})` }]
+		bindings: [{ columns: key, by: `the probe of key (${key.join(", ")})` }],
+		determined: []
 	})
 	if (declaration.kind !== "declared" || declaration.dependencies.length > 0) {
 		throw defect(

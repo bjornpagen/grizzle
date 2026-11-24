@@ -6334,19 +6334,26 @@ statistics from the schema's facts, so the estimate is grizzle's proof order at 
   which keeps its size current. grizzle's own tables, the migrations ledger and the drift check's proofs, are declared
   alike.
 - **What is declared.** PostgreSQL prices a set of equalities as independent: the table's rows times each column's
-  selectivity. So a unit's key's first field of many values, and the first column of many values of each other key and
-  index, is an anchor: it holds 2^y rows a value at any size (`-1/2^y`). Where two anchors stand in one set an index's
-  equalities stop at, a functional dependency of the one on the other (`CREATE STATISTICS ... (dependencies)`, its
-  degree restored by `pg_restore_extended_stats` and its statistics target 0) prices the two at 2^m rows, m ≥ 1 the
-  pair's own exponent, which every set holding the pair bounds as it bounds an anchor's, where PostgreSQL would
-  multiply them below one; an anchor may be in several. So an equality on a column of many values that
-  leads an index binds a number of rows the table's size does not move. A later field of the unit's key holds one value; every other column 2^x values, x ≥ 1, at most its roster's
-  handles, a boolean's 2. A column of few values is never priced by the table's size. The exponents are integers
-  under which every key binds one row and every set an index's equalities stop at short of a statement's binding binds
-  two rows or more, so the index a statement asks for is priced below every index binding less of it, and a key's index
-  wins every tie. They are found by a raise from all ones, in work polynomial in the table's keys, indexes and columns:
-  each key short of its anchor's rows raises one of its columns, round after round, until none is short. A unit's key
-  alone is no key: a unit holds more than one row.
+  selectivity. So a unit's key's first field of many values, the first column of many values of each key, its scope, and
+  each column of many values a containment proves determines one of those (a column contained with others in another
+  relation at fields holding a key of one field, as metis's assignment.user, contained with child in person_user keyed
+  by number, determines child) is an anchor: it holds 2^y rows a value at any size (`-1/2^y`); so is, in a relation in
+  no unit, which states no scope of its rows' growth, the first column of many values of each index. In a unit's member
+  no other column is, however many indexes it leads: a member's rows are its units', so a column no fact binds to a unit
+  recurs across the units, as a content coordinate recurs under every learner, and an equality on it alone binds a share
+  of the table that grows with the units, so PostgreSQL reads a probe of a member's whole key by the key, never by an
+  index led by such a column, filtering the unit after. Where two anchors stand in one set an index's equalities stop
+  at, a functional dependency of the one on the other (`CREATE STATISTICS ... (dependencies)`, its degree restored by
+  `pg_restore_extended_stats` and its statistics target 0) prices the two at 2^m rows, m ≥ 1 the pair's own exponent,
+  which every set holding the pair bounds as it bounds an anchor's, where PostgreSQL would multiply them below one; an
+  anchor may be in several. So an equality on an anchor binds a number of rows the table's size does not move. A later
+  field of the unit's key holds one value; every other column 2^x values, x ≥ 1, at most its roster's handles, a
+  boolean's 2. A column of few values is never priced by the table's size. The exponents are integers under which every
+  key binds one row and every set an index's equalities stop at short of a statement's binding binds two rows or more,
+  so the index a statement asks for is priced below every index binding less of it, and a key's index wins every tie.
+  They are found by a raise from all ones, in work polynomial in the table's keys, indexes and columns: each key short
+  of its anchor's rows raises one of its columns, round after round, until none is short. A unit's key alone is no key:
+  a unit holds more than one row.
 - **The declaration is the installation's.** `manifest.json` records each table's declaration, `grizzle drift` compares
   every column's statistics target and pg_stats, each dependency's degree, and the table's storage parameters, with it,
   so a column whose statistics an ANALYZE sampled after its target was raised is drift. A relation whose keys and indexes cross so that no

@@ -46,6 +46,7 @@ export type PlanShapeFeature =
 	| "a relation in no unit"
 	| "a relation refused for crossing keys"
 	| "a containment the rule judge reads"
+	| "a key probed from two sides beside an index led by a coordinate"
 
 /** What a field holds: any number of values, or a boolean's two. */
 type Holds = "many" | "few"
@@ -371,14 +372,28 @@ const describe = (
 }
 
 /**
- * A statement the law plans over a relation: what it is, the columns it binds by equality, and whether it locks the
- * rows it finds, as PostgreSQL's own foreign key checks do (ri_triggers.c, `SELECT 1 FROM ONLY ... FOR KEY SHARE`).
+ * A statement the law plans over a relation: what it is, the columns it binds by equality, and how it binds them:
+ * - `lookup`: one table's equalities to parameters, locking the rows it finds where it `locks`, as PostgreSQL's own
+ *   foreign key checks do (ri_triggers.c, `SELECT 1 FROM ONLY ... FOR KEY SHARE`);
+ * - `joined`: a member's key probed by an anti join from two sides, as metis's submit probes processed_attempt's key
+ *   (child, package, path, n, at): its unit's fields from a carrier of parameters (`unit`), a set-returning function of
+ *   PostgreSQL's ten rows, and its other fields from a row of the table read at that unit, a table of the copy's rows,
+ *   so the probe's paths each bind the fields of the side they are parameterized by, and a path parameterized by the
+ *   table's rows alone, binding the key's fields but its unit's, is priced over as many loops as the table has rows.
  */
-interface Probe {
-	readonly label: string
-	readonly binding: Arr.NonEmptyReadonlyArray<string>
-	readonly locks: boolean
-}
+type Probe =
+	| {
+			readonly kind: "lookup"
+			readonly label: string
+			readonly binding: Arr.NonEmptyReadonlyArray<string>
+			readonly locks: boolean
+	  }
+	| {
+			readonly kind: "joined"
+			readonly label: string
+			readonly binding: Arr.NonEmptyReadonlyArray<string>
+			readonly unit: Arr.NonEmptyReadonlyArray<string>
+	  }
 
 /** An index of a copy as the catalog holds it: its name, its access method, whether it is unique, and its key columns. */
 interface CopyIndex {
@@ -454,9 +469,48 @@ const verbosePlan = (
 		: plan.success
 }
 
+/** A probe's SQL over `copy`, its parameters each a `$n`, and the alias of the scan of the copy the law judges. */
+const probeSql = (copy: Copy, probe: Probe): { readonly sql: string; readonly alias: string } => {
+	switch (probe.kind) {
+		case "lookup":
+			return {
+				sql: `SELECT 1 FROM ONLY ${copy.quoted} AS x WHERE ${Arr.join(
+					Arr.map(probe.binding, (c, at) => `x.${quoteIdent(c)} = $${at + 1}`),
+					" AND "
+				)}${probe.locks ? " FOR KEY SHARE OF x" : ""}`,
+				alias: "x"
+			}
+		case "joined": {
+			const carried = Arr.map(probe.unit, (c) => quoteIdent(c))
+			return {
+				sql: `SELECT 1 FROM ROWS FROM (${Arr.join(
+					Arr.map(probe.unit, (_, at) => `pg_catalog.unnest($${at + 1}::pg_catalog.int8[])`),
+					", "
+				)}) AS c(${Arr.join(carried, ", ")}) JOIN ONLY ${copy.quoted} AS s ON ${Arr.join(
+					Arr.map(carried, (c) => `s.${c} = c.${c}`),
+					" AND "
+				)} WHERE NOT EXISTS (SELECT 1 FROM ONLY ${copy.quoted} AS x WHERE ${Arr.join(
+					Arr.map(probe.binding, (c) =>
+						probe.unit.includes(c)
+							? `x.${quoteIdent(c)} = c.${quoteIdent(c)}`
+							: `x.${quoteIdent(c)} = s.${quoteIdent(c)}`
+					),
+					" AND "
+				)})`,
+				alias: "x"
+			}
+		}
+	}
+}
+
+/** The parameters a probe takes: one for each column a lookup binds, one array for each unit field a joined probe's
+ * carrier holds. */
+const parameterCount = (probe: Probe): number =>
+	probe.kind === "lookup" ? probe.binding.length : probe.unit.length
+
 /**
  * A probe's generic plan over `copy` (PREPARE, then EXPLAIN EXECUTE under force_generic_plan with every parameter null,
- * as every login's role plans the statements it prepares): its one scan of the copy, or why it is none.
+ * as every login's role plans the statements it prepares): its one judged scan of the copy, or why it is none.
  */
 const planned = (
 	copy: Copy,
@@ -464,10 +518,7 @@ const planned = (
 ): Effect.Effect<Result.Result<ScanBinding, string>, SqlError, Substrate> =>
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
-		const sql = `SELECT 1 FROM ONLY ${copy.quoted} AS x WHERE ${Arr.join(
-			Arr.map(probe.binding, (c, at) => `x.${quoteIdent(c)} = $${at + 1}`),
-			" AND "
-		)}${probe.locks ? " FOR KEY SHARE OF x" : ""}`
+		const { sql, alias } = probeSql(copy, probe)
 		const answer = yield* Effect.acquireUseRelease(
 			admin.query(`PREPARE judged_law AS ${sql}`, []),
 			() =>
@@ -475,7 +526,7 @@ const planned = (
 					admin.query("SET plan_cache_mode = force_generic_plan", []),
 					admin.queryValues(
 						`EXPLAIN (VERBOSE, FORMAT JSON) EXECUTE judged_law(${Arr.join(
-							Arr.map(probe.binding, () => "NULL"),
+							Array.from({ length: parameterCount(probe) }, () => "NULL"),
 							", "
 						)})`,
 						[]
@@ -489,11 +540,11 @@ const planned = (
 		)
 		const scans = Arr.filter(
 			scanBindings(verbosePlan(answer, probe.label)),
-			(scan) => scan.relation === copy.name
+			(scan) => scan.relation === copy.name && scan.alias === alias
 		)
 		const [scan, ...more] = scans
 		return scan === undefined || more.length > 0
-			? Result.fail(`${scans.length} scans of the relation`)
+			? Result.fail(`${scans.length} scans of the relation as ${alias}`)
 			: Result.succeed(scan)
 	})
 
@@ -511,12 +562,15 @@ const keyIn = (index: CopyIndex, columns: ReadonlySet<string>): boolean =>
 /**
  * The law's judgment of one scan (see plan-shape.test.ts): a scan whose binding holds a key binds that key's index whole
  * by its index condition; any other binds by its index condition as long a run of its binding as any B-tree of the
- * relation does, none if none binds any, and never scans the table where one does.
+ * relation does, none if none binds any, and never scans the table where one does, but a binding that `spans` the
+ * units, a member's binding of no column the schema scopes its rows by, which a declaration prices at a share of the
+ * table, may scan it.
  */
 const judged = (
 	indexes: ReadonlyArray<CopyIndex>,
 	label: string,
-	scan: ScanBinding
+	scan: ScanBinding,
+	spans: boolean
 ): Option.Option<string> => {
 	const used = Arr.filter(indexes, (i) => scan.indexes.includes(i.name))
 	if (Arr.some(indexes, (i) => keyIn(i, scan.binding))) {
@@ -532,11 +586,36 @@ const judged = (
 		(most, i) => Math.max(most, covered(i, scan.binding))
 	)
 	const reached = Arr.reduce(used, 0, (most, i) => Math.max(most, covered(i, scan.bound)))
-	return best === 0 || reached >= best
+	return best === 0 || reached >= best || (spans && scan.nodeType === "Seq Scan")
 		? Option.none()
 		: Option.some(
 				`${label} reads ${readText(scan)}, binding ${reached} of its columns where an index of the relation binds ${best}`
 			)
+}
+
+/**
+ * The law's judgment of one probe's scan: a lookup's as `judged` says; a joined probe's (Probe `joined`), whose paths
+ * PostgreSQL prices over loops as unlike as its carrier's ten rows and the table's, binds by its index condition a set
+ * that holds a column scoping the member's rows, its unit's field or a key's scope, so it reads within one scope, never
+ * a set of the key's coordinates alone, which spans the units (metis's submit read processed_attempt's key through
+ * (package, path, n), every child's rows at the item, for each of its 34 probes).
+ */
+const judgedProbe = (
+	indexes: ReadonlyArray<CopyIndex>,
+	scopes: Scopes,
+	probe: Probe,
+	scan: ScanBinding
+): Option.Option<string> => {
+	switch (probe.kind) {
+		case "lookup":
+			return judged(indexes, probe.label, scan, spans(scopes, probe.binding))
+		case "joined":
+			return scan.nodeType === "Seq Scan" || spans(scopes, [...scan.bound])
+				? Option.some(
+						`${probe.label} reads ${readText(scan)}, binding (${Arr.join([...scan.bound], ", ")}), which spans the units`
+					)
+				: Option.none()
+	}
 }
 
 /** Appends each of `more` to `into`. */
@@ -553,8 +632,21 @@ const filledRows = 2 ** 14
 const sampledRows = filledRows / 100
 
 /**
+ * The columns that scope a relation's rows, as the law reads them off its shape: a member's unit's fields and each of
+ * its keys' first fields, a binding of none of which spans its units (`spans`); or a relation in no unit, which states
+ * no scope of its rows' growth, every binding of which the law judges alike.
+ */
+type Scopes =
+	| { readonly kind: "member"; readonly columns: ReadonlySet<string> }
+	| { readonly kind: "outside" }
+
+/** Whether `binding` spans a member's units: it holds none of the columns that scope the member's rows. */
+const spans = (scopes: Scopes, binding: ReadonlyArray<string>): boolean =>
+	scopes.kind === "member" && !Arr.some(binding, (c) => scopes.columns.has(c))
+
+/**
  * One relation of a case as the law plans it: its table, quoted and qualified; its load's columns, each by its SQL over
- * g; its probes; and whether it is mutable.
+ * g; its probes; whether it is mutable; and the columns that scope its rows (`Scopes`).
  */
 interface Judgeable {
 	readonly installation: Installation
@@ -562,10 +654,21 @@ interface Judgeable {
 	readonly columns: ReadonlyArray<readonly [column: string, sql: string]>
 	readonly probes: ReadonlyArray<Probe>
 	readonly mutable: boolean
+	readonly scopes: Scopes
 }
 
-/** Every probe's read in a state of `copy`, with the problems the law finds in them. */
-const statePlans = (copy: Copy, probes: ReadonlyArray<Probe>, label: string) =>
+/**
+ * Every probe's read in a state of `copy`, with the problems the law finds in them: each lookup's read by its probe, but
+ * a binding that spans its member's units (`spans`), which a declaration prices at a share of the table and PostgreSQL
+ * may read through its index or by a scan as the table's size stands, and a joined probe, whose read is judged within
+ * its scope (`judgedProbe`), so no state's read of either is held to another's.
+ */
+const statePlans = (
+	copy: Copy,
+	probes: ReadonlyArray<Probe>,
+	scopes: Scopes,
+	label: string
+) =>
 	Effect.gen(function* () {
 		const indexes = yield* indexesOf(copy.quoted)
 		const reads = new Map<string, string>()
@@ -576,8 +679,10 @@ const statePlans = (copy: Copy, probes: ReadonlyArray<Probe>, label: string) =>
 				problems.push(`${label}: ${p.label}: ${scan.failure}`)
 				continue
 			}
-			reads.set(p.label, readText(scan.success))
-			Option.match(judged(indexes, p.label, scan.success), {
+			if (p.kind === "lookup" && !spans(scopes, p.binding)) {
+				reads.set(p.label, readText(scan.success))
+			}
+			Option.match(judgedProbe(indexes, scopes, p, scan.success), {
 				onNone: () => undefined,
 				onSome: (why) => problems.push(`${label}: ${why}`)
 			})
@@ -608,24 +713,25 @@ const lawOver = (r: Judgeable, note: (feature: PlanShapeFeature) => void) =>
 		const { admin } = yield* Substrate
 		const problems: Array<string> = []
 		const keyed = yield* indexesOf(r.table.quoted)
-		const keyProbes = Arr.filter(r.probes, (p) =>
-			Arr.some(keyed, (i) => keyIn(i, new Set(p.binding)))
+		const keyProbes = Arr.filter(
+			r.probes,
+			(p) => p.kind === "lookup" && Arr.some(keyed, (i) => keyIn(i, new Set(p.binding)))
 		)
 		const filled = yield* Effect.acquireUseRelease(
 			standCopy(r.installation, r.table),
 			(copy) =>
 				Effect.gen(function* () {
-					const empty = yield* statePlans(copy, keyProbes, "empty as installed")
+					const empty = yield* statePlans(copy, keyProbes, r.scopes, "empty as installed")
 					record(problems, empty.problems)
 					yield* fillCopy(copy, r.columns, 0, filledRows - 1)
 					yield* admin.query(`VACUUM ${copy.quoted}`, [])
-					const at = yield* statePlans(copy, r.probes, "filled")
+					const at = yield* statePlans(copy, r.probes, r.scopes, "filled")
 					record(problems, at.problems)
 					yield* admin.query(`ANALYZE ${copy.quoted}`, [])
-					const analyzed = yield* statePlans(copy, r.probes, "after ANALYZE")
+					const analyzed = yield* statePlans(copy, r.probes, r.scopes, "after ANALYZE")
 					record(problems, unlike("after ANALYZE", at.reads, analyzed.reads))
 					yield* admin.query(`VACUUM ${copy.quoted}`, [])
-					const vacuumed = yield* statePlans(copy, r.probes, "after VACUUM")
+					const vacuumed = yield* statePlans(copy, r.probes, r.scopes, "after VACUUM")
 					record(problems, unlike("after VACUUM", at.reads, vacuumed.reads))
 					if (r.mutable) {
 						note("a mutable relation emptied, vacuumed and refilled")
@@ -633,7 +739,7 @@ const lawOver = (r: Judgeable, note: (feature: PlanShapeFeature) => void) =>
 						yield* admin.query(`VACUUM ${copy.quoted}`, [])
 						yield* fillCopy(copy, r.columns, 0, filledRows - 1)
 						yield* admin.query(`VACUUM ${copy.quoted}`, [])
-						const refilled = yield* statePlans(copy, r.probes, "refilled")
+						const refilled = yield* statePlans(copy, r.probes, r.scopes, "refilled")
 						record(
 							problems,
 							unlike("emptied, vacuumed, refilled and vacuumed", at.reads, refilled.reads)
@@ -651,7 +757,12 @@ const lawOver = (r: Judgeable, note: (feature: PlanShapeFeature) => void) =>
 					yield* admin.query(`ANALYZE ${copy.quoted}`, [])
 					yield* fillCopy(copy, r.columns, sampledRows, filledRows - 1)
 					yield* admin.query(`VACUUM ${copy.quoted}`, [])
-					const sampled = yield* statePlans(copy, r.probes, "analyzed at one row in a hundred")
+					const sampled = yield* statePlans(
+						copy,
+						r.probes,
+						r.scopes,
+						"analyzed at one row in a hundred"
+					)
 					record(problems, sampled.problems)
 					record(problems, unlike("analyzed at one row in a hundred", filled, sampled.reads))
 				}),
@@ -695,7 +806,7 @@ const judgeReads = (
 				}
 				const read = `${name}'s scan of ${scan.relation} as ${scan.alias}`
 				reads.set(read, readText(scan))
-				Option.match(judged(of, read, scan), {
+				Option.match(judged(of, read, scan, false), {
 					onNone: () => undefined,
 					onSome: (why) => problems.push(`${label}: ${why}`)
 				})
@@ -797,10 +908,12 @@ export const shapeCase = (sketch: ShapeSketch, note: (feature: PlanShapeFeature)
 			if (!r.member) {
 				note("a relation in no unit")
 			}
-			for (const i of yield* indexesOf(table.quoted)) {
+			const indexes = yield* indexesOf(table.quoted)
+			for (const i of indexes) {
 				const [head, ...rest] = i.columns
 				if (i.unique && head !== undefined && head !== "") {
 					add(table.quoted, {
+						kind: "lookup",
 						label: `${table.name}'s probe of key (${Arr.join(i.columns, ", ")})`,
 						binding: [head, ...rest],
 						locks: false
@@ -811,19 +924,34 @@ export const shapeCase = (sketch: ShapeSketch, note: (feature: PlanShapeFeature)
 			if (r.member && unitHead !== undefined) {
 				note("a unit's member read by its unit")
 				add(table.quoted, {
+					kind: "lookup",
 					label: `${table.name}'s read of its unit`,
 					binding: [unitHead, ...unitRest],
 					locks: false
 				})
+				const primary = Arr.map(r.primary, (k) => column(at, fieldName(k)))
+				if (
+					Arr.some(indexes, (i) => Arr.some(Arr.take(i.columns, 1), (c) => primary.includes(c)))
+				) {
+					note("a key probed from two sides beside an index led by a coordinate")
+					add(table.quoted, {
+						kind: "joined",
+						label: `${table.name}'s probe of its primary key joined from its unit's carrier and its own rows`,
+						binding: [unitHead, ...unitRest, ...primary],
+						unit: [unitHead, ...unitRest]
+					})
+				}
 			}
 			for (const reference of yield* referencesOf(table.quoted)) {
 				note("a foreign key checked from each side")
 				add(table.quoted, {
+					kind: "lookup",
 					label: `${table.name}'s check of its references (${Arr.join(reference.from, ", ")})`,
 					binding: reference.from,
 					locks: true
 				})
 				add(reference.target, {
+					kind: "lookup",
 					label: `${reference.name}'s check of a reference to (${Arr.join(reference.to, ", ")})`,
 					binding: reference.to,
 					locks: true
@@ -838,6 +966,7 @@ export const shapeCase = (sketch: ShapeSketch, note: (feature: PlanShapeFeature)
 			if (head !== undefined) {
 				note("an equality lookup on an index of its own")
 				add(table.quoted, {
+					kind: "lookup",
 					label: `${table.name}'s lookup of (${Arr.join(fields, ", ")})`,
 					binding: [head, ...rest],
 					locks: false
@@ -867,7 +996,18 @@ export const shapeCase = (sketch: ShapeSketch, note: (feature: PlanShapeFeature)
 					table,
 					columns,
 					probes: probesOf.get(table.quoted) ?? [],
-					mutable: r.mutable
+					mutable: r.mutable,
+					scopes: r.member
+						? {
+								kind: "member",
+								columns: new Set(
+									Arr.map(
+										[...units, ...Arr.flatMap(keysOf(sketch, at), (k) => Arr.take(k, 1))],
+										(field) => column(at, field)
+									)
+								)
+							}
+						: { kind: "outside" }
 				},
 				note
 			)

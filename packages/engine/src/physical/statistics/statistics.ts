@@ -1,6 +1,7 @@
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { isNonEmpty, mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { refuse } from "#compiler/analysis/theory/build.ts"
+import type { RegionFacts } from "#compiler/analysis/theory/unit.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
@@ -17,6 +18,7 @@ import {
 	type ColumnValues,
 	type CrossingBound,
 	type Declaration,
+	type Determined,
 	declarationOf,
 	type RelationShape
 } from "#compiler/physical/statistics/declared.ts"
@@ -76,6 +78,26 @@ const equalityKeys = (keys: ReadonlyArray<IndexKey>): ReadonlyArray<string> => {
 	return out
 }
 
+/**
+ * The dependencies of one field of `relation` on another its containments over every row prove (declared.ts
+ * Determined): where a containment pairs the relation's fields with fields of another relation holding one of its keys
+ * of one field, the field paired with that key determines each other field the containment pairs.
+ */
+const determinedOf = (facts: RegionFacts, relation: string): ReadonlyArray<Determined> =>
+	facts.containments.flatMap((c) => {
+		if (c.from !== relation || c.selection.length > 0) {
+			return []
+		}
+		return (facts.keys.get(c.to) ?? []).flatMap(([field, ...more]) => {
+			const determinant = more.length === 0 ? c.pairs.find((p) => p.to === field)?.from : undefined
+			return determinant === undefined
+				? []
+				: c.pairs.flatMap((p) =>
+						p.from === determinant ? [] : [{ determinant, dependent: p.from }]
+					)
+		})
+	})
+
 /** A crossing's bound as a refusal names it. */
 const boundText = (b: CrossingBound): string => {
 	switch (b.kind) {
@@ -119,9 +141,9 @@ const declarationRefused = (
 /**
  * Every table's declared statistics, a stored derived relation's registered table among them (declared.ts), each one
  * object of kind `statistics` built after its relation and every law column of it, which it names, in Indexes: its
- * shape read off the builder (the relation's columns, its unit's key, its keys, the planned indexes and the bindings of
- * every request each serves and of each key's probe), its declaration derived, and a relation no declaration ranks
- * refused (`declarationRefused`).
+ * shape read off the builder (the relation's columns, its unit's key, its keys, the planned indexes, the bindings of
+ * every request each serves and of each key's probe, and the dependencies its containments prove), its declaration
+ * derived, and a relation no declaration ranks refused (`declarationRefused`).
  */
 export const planDeclarations = (
 	b: InstallBuilder,
@@ -223,7 +245,8 @@ const shapeOf = (
 			bindings: [
 				...keys.map((k) => ({ columns: k, by: `the probe of key (${k.join(", ")})` })),
 				...planned.flatMap((i) => i.requests.flatMap(requestBindings))
-			]
+			],
+			determined: view === undefined ? determinedOf(b.model.theory.regionFacts, relation) : []
 		},
 		installed: new Map(fields.map(([c]) => [keyTermText(c), target.column(c)] as const))
 	}

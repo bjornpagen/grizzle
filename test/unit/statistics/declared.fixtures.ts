@@ -19,7 +19,9 @@ export type DeclaredFeature =
 	| "an unsettled raise"
 	| "a column beyond its values"
 	| "a pair a dependency ties"
-	| "an index led by a column of many values"
+	| "an index led by a column of many values in no unit"
+	| "a member's index led by a column no fact binds to its unit"
+	| "a column determining an anchor"
 
 /** A sequence of distinct columns of `columns`, `min` to `max` of them. */
 const sequenceGen =
@@ -73,8 +75,10 @@ const crossedGen =
 /**
  * A relation's shape: two to six columns, each of many values or a roster of one to eight handles; a unit of one or two
  * leading columns or none; a primary key leading with the unit, and up to two other keys; its keys' indexes and up to
- * three more; and the bindings of each key and each index's prefix, as the installation's statements make them. Half
- * the shapes hold a crossed pair besides (`crossedGen`), each of five columns or more and a unit of one.
+ * three more, each led by the unit or by a column of its own; the bindings of each key and each index's prefix, as the
+ * installation's statements make them; and up to one dependency of a column on another a containment proves, as
+ * metis's assignment.user determines child. Half the shapes hold a crossed pair besides (`crossedGen`), each of five
+ * columns or more and a unit of one.
  */
 export const shapeGen: Gen<RelationShape> = (source) => {
 	const crossing = source.draw(boolean)
@@ -103,7 +107,10 @@ export const shapeGen: Gen<RelationShape> = (source) => {
 	)
 	const keys = [primary, ...crossed.keys, ...others]
 	const more = source.draw(
-		array((s) => [...unit, ...s.draw(sequenceGen(rest, 1, 3))], { min: 0, max: 3 })
+		array((s) => [...(s.draw(boolean) ? unit : []), ...s.draw(sequenceGen(rest, 1, 3))], {
+			min: 0,
+			max: 3
+		})
 	)
 	const indexes = [...keys, ...crossed.indexes, ...more]
 	const bindings = [
@@ -123,7 +130,16 @@ export const shapeGen: Gen<RelationShape> = (source) => {
 			)
 		)
 	]
-	return { relation: "R", columns, unit, keys, indexes, bindings }
+	const determined = source.draw(
+		array(
+			(s) => {
+				const [determinant = "", dependent = ""] = s.draw(sequenceGen(names, 2, 2))
+				return { determinant, dependent }
+			},
+			{ min: 0, max: 1 }
+		)
+	)
+	return { relation: "R", columns, unit, keys, indexes, bindings, determined }
 }
 
 /** The leading run of an index's columns a binding holds. */
@@ -177,6 +193,18 @@ export const estimate = (
 		})
 	})
 }
+
+/** The first column of `columns` of many values that holds more than one, a unit's later field holding one. */
+export const scopeOf = (
+	shape: RelationShape,
+	columns: ReadonlyArray<string>
+): Option.Option<string> =>
+	Arr.findFirst(
+		columns,
+		(c) =>
+			!unitTail(shape).includes(c) &&
+			Arr.some(shape.columns, (x) => x.column === c && x.values.kind === "many")
+	)
 
 /** The fields of the unit's key after its first of many values, on which the unit's count of rows sits. */
 export const unitTail = (shape: RelationShape): ReadonlyArray<string> =>
