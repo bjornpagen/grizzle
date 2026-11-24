@@ -3,6 +3,7 @@ import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Option, Path, String as Str } from "effect"
 import { hostInputs, type InputFailure, valuesFailure } from "#adapter/apply/run.ts"
 import { fromEngine } from "#adapter/engine.ts"
+import type { CallInputRefused } from "#adapter/errors/failures.ts"
 import {
 	type LoadedChange,
 	type LoadedLogin,
@@ -452,7 +453,7 @@ const hostRefused = `SELECT 'host refused'::text AS refused`
 export const callStatements = (
 	s: InstalledShape,
 	call: ChangeCall
-): Effect.Effect<Arr.NonEmptyReadonlyArray<string>, InputFailure> =>
+): Effect.Effect<Arr.NonEmptyReadonlyArray<string>, InputFailure | CallInputRefused> =>
 	Effect.gen(function* () {
 		const change = defined(
 			s.changes.get(call.role)?.get(call.member),
@@ -460,7 +461,7 @@ export const callStatements = (
 		)
 		const host =
 			change.call.kind === "params" && call.input.kind === "params"
-				? change.call.call(call.input.params)
+				? yield* Effect.fromResult(change.call.call(call.input.params))
 				: change.call.kind === "facts" && call.input.kind === "facts"
 					? yield* Effect.fromResult(change.call.call(call.input.facts, call.input.params))
 					: yield* Effect.die(

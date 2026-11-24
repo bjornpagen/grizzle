@@ -2734,9 +2734,9 @@ const verdictOf = (spec: CaseSpec): Verdict => {
 		spec.apply !== undefined &&
 		Result.isFailure(
 			readParams(
+				"the case's ChangeSet",
 				Arr.map(program.value.params, (p) => p.name),
-				Rec.fromEntries(Arr.map(entries, ([n]) => [n, 0] as const)),
-				"refused"
+				Rec.fromEntries(Arr.map(entries, ([n]) => [n, 0] as const))
 			)
 		)
 	) {

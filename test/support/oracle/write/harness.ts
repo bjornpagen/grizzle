@@ -7,7 +7,7 @@ import { changeCall } from "#adapter/apply/collect.ts"
 import type { CompiledChange } from "#adapter/apply/compile.ts"
 import { type InputFailure, hostInputs } from "#adapter/apply/run.ts"
 import { ExecutionFailure } from "#adapter/errors/execution.ts"
-import { ParamRejected } from "#adapter/errors/failures.ts"
+import { type CallInputRefused, ParamRejected } from "#adapter/errors/failures.ts"
 import type { CompiledProgram } from "#adapter/served/forms.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
@@ -885,9 +885,11 @@ type TakeForm = "LATERAL" | "whole-relation"
 const takesOf = (
 	entry: CompiledChange,
 	params: ParamMap
-): Effect.Effect<ReadonlyArray<TakeForm>, InputFailure> =>
+): Effect.Effect<ReadonlyArray<TakeForm>, InputFailure | CallInputRefused> =>
 	Effect.map(
-		Effect.flatMap(changeCall(entry, params), (call) => hostInputs(entry, call)),
+		Effect.flatMap(changeCall("the oracle's ChangeSet", entry, params), (call) =>
+			hostInputs(entry, call)
+		),
 		(ready) => {
 			if (ready.kind !== "bound") {
 				return []

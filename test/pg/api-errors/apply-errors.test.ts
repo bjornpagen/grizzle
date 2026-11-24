@@ -16,6 +16,14 @@
  *   narrowing into a column without one is refused at compilation (PartialOperation, test/unit/compute/totality.test.ts),
  *   so a member's computed value is never an ExecutionFailure.
  *
+ * - A parameter refusal: a call whose params hold a key that names none of its member's parameters is the CallError
+ *   `input` before any SQL, its message naming the member and the key (adapter/errors/failures.ts CallInputRefused,
+ *   UndeclaredParameter; reader/params.ts readParams), where it was an EncodingFailure of a fact's shape at the facts,
+ *   `a value was refused: factShape`, which named neither, and metis read as its empty facts refused. The box: the
+ *   described member and the array member, each called with one key more than it declares, a parameter another member
+ *   takes, a parameter misspelt or the field the described member reads. The oracle is the specification: the member's
+ *   declared parameters, against which the key is undeclared.
+ *
  * Covered elsewhere through the public API: TransientFailure from an apply (test/schedules/write/races.test.ts).
  * Not provoked: TransportFailure and CommitUnknown arise only from a lost connection or an unacknowledged COMMIT, which
  * are infrastructure faults out of the suite's scope. A read-back's rows are converted, not validated (the public-boundary
@@ -27,14 +35,17 @@
 
 import { assert, assertVariant } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
-import { aimed } from "@bjornpagen/testing/gen"
+import { aimed, finite } from "@bjornpagen/testing/gen"
 import { passed } from "@bjornpagen/testing/lsw"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Result, String as Str } from "effect"
-import { memberCalls, variantOf } from "#adapter/db/handles.ts"
+import { Array as Arr, Effect, Formatter, Result, String as Str } from "effect"
+import { changeApplication, memberCalls, variantOf } from "#adapter/db/handles.ts"
 import {
 	callersParams,
 	classFault,
+	type UndeclaredFeature,
+	undeclaredCaseGen,
+	undeclaredParams,
 	encodingCaseGen,
 	type EncodingFeature,
 	applyInstall,
@@ -165,6 +176,92 @@ export const applyErrorThroughThePublicAPIAValueItsCodecRefusesIsRefusedAsInputN
 				replacement:
 					"\t\t\t\tconst given = members.get(member.name)\n\t\t\t\tfor (const fact of given ?? []) {\n\t\t\t\t\tvalueBytes(fact)\n\t\t\t\t}\n",
 				why: "The call's facts are measured off the caller's values before the write reads them, as shares measured them before the codec read them, so a refusing proxy's trap escapes as a defect where the codec refuses the value with its fault and slot."
+			}
+		]
+	})
+
+/**
+ * A call whose params hold a key its member declares no parameter of is refused as input naming the member and the key,
+ * before any SQL, and stores nothing.
+ */
+export const aCallWhoseParamsHoldAKeyItsMemberDeclaresNoParameterOfIsRefusedAsInputNamingTheMemberAndTheKey =
+	property.exhaust(finite(undeclaredCaseGen), {
+		needs: { fixture: Substrate.fresh(applyTemplate) },
+		situations: [
+			"the described member's params, one key more",
+			"an array member's params, which it declares none of"
+		] satisfies ReadonlyArray<Reached<UndeclaredFeature>>,
+		check:
+			({ fixture }, cx: Case<UndeclaredFeature>) =>
+			(c) =>
+				Effect.scoped(
+					Effect.gen(function* () {
+						const taken = yield* fixture
+						const o = yield* openedIn(Fixture, seedFacts, applyInstall, taken)
+						return yield* Effect.provideService(
+							Effect.gen(function* () {
+								const { ctx, load } = yield* openServedDb(o.installed, o.server.roles.app, {})
+								const members = yield* load(programs)
+								const { pool, tap } = yield* tappedPool(o.installed.as(o.server))
+								const mark = tap.mark()
+								const change = member(members, c.form)
+								assertVariant(change, "kind", "change", "a ChangeSet loads as a change member")
+								const tapped = { ...ctx, pool }
+								const input = {
+									params: undeclaredParams(c),
+									facts: c.form === "parameter" ? {} : { insert: { Typed: [live] } }
+								}
+								const answered = yield* Effect.result(
+									writeAnswerOf(writeOnce(memberCalls(tapped, change))(input))
+								)
+								assert.ok(Result.isFailure(answered), `${c.form} admits a params key ${c.key}`)
+								assert.equal(answered.failure.kind, "input", answered.failure.message)
+								const applied = yield* Effect.result(
+									changeApplication(tapped, variantOf(tapped, change.variants))(input)
+								)
+								assert.ok(
+									Result.isFailure(applied) && applied.failure._tag === "CallInputRefused",
+									`the refusal is the call's input's: ${Formatter.format(applied)}`
+								)
+								assert.deepEqual(
+									applied.failure.fault,
+									{ program: c.form, parameter: c.key },
+									"the refusal names the member and the key"
+								)
+								assert.equal(tap.since(mark).frontend.length, 0, "no statement before the refusal")
+								const state = yield* tableState(o.installed, Typed)
+								assert.deepEqual(state, [])
+								cx.note(
+									c.form === "parameter"
+										? "the described member's params, one key more"
+										: "an array member's params, which it declares none of"
+								)
+							}),
+							Substrate,
+							taken.substrate
+						)
+					})
+				),
+		oracle: {
+			kind: "specification",
+			name: "the member's declared parameters: a key of its params outside them is refused as itself, naming the member"
+		},
+		box: "the described member and the array member, each called with one key more than it declares: a parameter another member takes, a parameter misspelt, the field the described member reads",
+		kept: [],
+		kills: [
+			{
+				file: "packages/grizzle/src/adapter/reader/params.ts",
+				original:
+					"\t\t\t? Result.fail(new CallInputRefused({ fault: { program, parameter: undeclared.value } }))\n",
+				replacement: '\t\t\t? Result.fail(encodeFailure("factShape", factPlace))\n',
+				why: "The undeclared key is refused as a fact's shape at the facts, `a value was refused: factShape`, naming neither the member nor the key: metis's by-grade suite read its call's empty facts as refused."
+			},
+			{
+				file: "packages/grizzle/src/adapter/reader/params.ts",
+				original:
+					"\t\tconst undeclared = Arr.findFirst(Rec.keys(params), (key) => !names.includes(key))\n",
+				replacement: "\t\tconst undeclared = Arr.findFirst(Rec.keys(params), () => false)\n",
+				why: "A key of the params that names no parameter binds nothing: a parameter the caller meant and misspelled, or one another member takes, is dropped without a word, and the write runs."
 			}
 		]
 	})

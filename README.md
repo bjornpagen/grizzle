@@ -5604,8 +5604,11 @@ creates one, and `grizzle drift` reports a grant revoked since.
 `numericScale` for a `Decimal` past its field's scale and `realInexact` for a `number` no binary32 value is among them;
 its `place` is the `Slot` the value fills, by `name`, or a whole `Fact`. **`CallInputRefused`**'s `fault` names what
 of a call's input it refuses: `envelope`, no record of exactly `params` and `facts` (and a paged member's `window`);
-`facts`, facts given to a member that takes none; `window`, `size` or `anchor`, a paged member's window, a position
-that is no safe integer of at least 0 among its anchor's faults.
+`params`, params that are no record; `{ program, parameter }`, a key of the params that names none of the member's
+parameters, `assignByGradeBypassingGate declares no parameter titles`, so a parameter misspelled, or one another
+member takes, is refused as itself and never binds nothing; `facts`, facts given to a member that takes none;
+`window`, `size` or `anchor`, a paged member's window, a position that is no safe integer of at least 0 among its
+anchor's faults.
 
 </details>
 

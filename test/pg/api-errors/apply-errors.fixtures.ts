@@ -56,7 +56,8 @@ export const callersParams = (params: Readonly<Record<string, unknown>>): ParamM
 
 /**
  * The described member's parameters, every field but the key, which it reads from Seed, and a live value of each. A
- * parameters argument names exactly these: one with a key that names no parameter is refused whole, as a Fact.
+ * parameters argument names exactly these: one with a key that names no parameter is refused as that key, naming the
+ * member (undeclaredCaseGen).
  */
 export const liveParams = {
 	n: 1,
@@ -213,6 +214,43 @@ export const encodingCaseGen: Gen<EncodingCase> = weighted([
 	[7, pairCase(() => anyWild)],
 	[1, admittedCase]
 ])
+
+/**
+ * A key a call's params may hold that names none of its member's parameters, with a value a caller would pass under it:
+ * a parameter another member of the workload takes (metis's by-grade assign, whose params, built once for both its
+ * gates, held the held gate's `titles` when it called the bypassing one, which declares none); one of the described
+ * member's parameters misspelt; and the field the described member reads from Seed, a field of the written relation
+ * and no parameter of either member.
+ */
+const undeclaredKeys = {
+	titles: [],
+	lable: "ab",
+	id: fresh
+} as const satisfies Readonly<Record<string, unknown>>
+
+export type UndeclaredKey = keyof typeof undeclaredKeys
+
+/** A call of a member whose params hold one key more than the member declares, under a live value. */
+export interface UndeclaredCase {
+	readonly form: Form
+	readonly key: UndeclaredKey
+}
+
+export type UndeclaredFeature =
+	| "the described member's params, one key more"
+	| "an array member's params, which it declares none of"
+
+export const undeclaredCaseGen: Gen<UndeclaredCase> = (source) => ({
+	form: source.draw(element(forms)),
+	key: source.draw(element(["titles", "lable", "id"] as const))
+})
+
+/** The params a case's call passes: its member's own, the described member's live values, and the undeclared key. */
+export const undeclaredParams = (c: UndeclaredCase): ParamMap =>
+	callersParams({
+		...(c.form === "parameter" ? liveParams : {}),
+		[c.key]: undeclaredKeys[c.key]
+	})
 
 /** How the module's fixture is installed: its label and the programs its login's workload holds. */
 export const applyInstall = Object.freeze({ label: "real", programs })

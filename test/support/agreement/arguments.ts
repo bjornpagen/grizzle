@@ -172,10 +172,10 @@ const directiveOf = (shape: Shape, form: Form): string => {
  */
 const hostArguments: {
 	read(
+		program: string,
 		names: ReadonlyArray<string>,
-		params: unknown,
-		fault: "unreadable"
-	): ReturnType<typeof readParams<"unreadable">>
+		params: unknown
+	): ReturnType<typeof readParams>
 } = { read: readParams }
 
 /** Whether the runtime admits an argument for a query: its one reading of an argument, against the declared parameters. */
@@ -186,9 +186,9 @@ const admits = (query: () => unknown, argument: unknown): boolean => {
 	}
 	const declared = template.value.params
 	const given = hostArguments.read(
+		"the argument cell's query",
 		Arr.map(declared, (d) => d.name),
-		argument,
-		"unreadable"
+		argument
 	)
 	return (
 		Result.isSuccess(given) &&

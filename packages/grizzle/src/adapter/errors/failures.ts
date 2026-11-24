@@ -853,16 +853,29 @@ export const literalBound = (bound: LiteralBound): InputTooLarge =>
 
 /**
  * Why a call's input is refused at the boundary that reads it, before any SQL: `envelope`, no record of exactly
- * `params` and `facts` (and `window`, a paged member's), or one whose reading throws; `facts`, facts a member that
- * takes none is given, any but `{}`; `window`, a window that is no record of exactly an anchor and a size; `size`, a
- * size that is no safe integer of at least 1; `anchor`, an anchor that is no start, end, or after or before with a key
- * of one value per comparator of the page's completed order, each admitted by its comparator column's codec.
+ * `params` and `facts` (and `window`, a paged member's), or one whose reading throws; `params`, params that are no
+ * record, or whose reading throws; `facts`, facts a member that takes none is given, any but `{}`; `window`, a window
+ * that is no record of exactly an anchor and a size; `size`, a size that is no safe integer of at least 1; `anchor`, an
+ * anchor that is no start, end, or after or before with a key of one value per comparator of the page's completed
+ * order, each admitted by its comparator column's codec. A key of the params that names none of the program's
+ * parameters is refused as that key (UndeclaredParameter).
  */
-export type CallInputFault = "envelope" | "facts" | "window" | "size" | "anchor"
+export type CallInputFault = "envelope" | "params" | "facts" | "window" | "size" | "anchor"
+
+/**
+ * A key of a call's params that names none of its program's parameters (reader/params.ts readParams): the program, by
+ * the name its workload serves it under, and the key, so a parameter the caller meant and misspelled, or one another
+ * program takes, is refused as itself, never bound to nothing.
+ */
+export interface UndeclaredParameter {
+	readonly program: string
+	readonly parameter: string
+}
 
 /** What each input fault says. */
 const inputFaults: { readonly [F in CallInputFault]: string } = {
 	envelope: "the input is no record of exactly its params and facts, and a paged member's window",
+	params: "the input's params is no record of the program's parameters",
 	facts: "the member takes no facts: its input's facts are {}",
 	window: "the window is no record of exactly an anchor and a size",
 	size: "the window's size is no safe integer of at least 1",
@@ -870,12 +883,15 @@ const inputFaults: { readonly [F in CallInputFault]: string } = {
 		"the anchor is no start, end, or after or before with one key value per column of the page's order, each its column's"
 }
 
-/** A call's input refused for `fault`, before any SQL. */
+/** A call's input refused for `fault`, before any SQL: an input fault, or a key of its params no parameter of its program. */
 export class CallInputRefused extends Data.TaggedError("CallInputRefused")<{
-	readonly fault: CallInputFault
+	readonly fault: CallInputFault | UndeclaredParameter
 }> {
 	override get message(): string {
-		return inputFaults[this.fault]
+		const fault = this.fault
+		return typeof fault === "string"
+			? inputFaults[fault]
+			: `${fault.program} declares no parameter ${fault.parameter}`
 	}
 }
 

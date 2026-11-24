@@ -27,7 +27,7 @@ import { applyOutcome } from "#adapter/outcomes/index.ts"
 import { windowIntake, windowStatement } from "#adapter/page/execute.ts"
 import { windowCall } from "#adapter/page/window.ts"
 import type { ExecutionInputs } from "#adapter/reader/execution.ts"
-import { hostParams, readKeyValues, unreadableArguments } from "#adapter/reader/params.ts"
+import { hostParams, readKeyValues } from "#adapter/reader/params.ts"
 import { executionInputs } from "#adapter/reader/relations.ts"
 import { programStatement, readIntake } from "#adapter/reader/run.ts"
 import {
@@ -154,18 +154,32 @@ export interface ParsedRead {
 	readonly inputs: ExecutionInputs
 }
 
-/** A read's execution inputs from the caller's parameters (reader/params.ts hostParams, reader/relations.ts). */
-const readInputs = (read: LoadedRead, params: unknown): Effect.Effect<ExecutionInputs, ReadError> =>
-	Effect.flatMap(hostParams(read.params, params), (values) =>
+/**
+ * A read's execution inputs from the caller's parameters, read as the program `name` its workload serves it under
+ * (reader/params.ts hostParams, reader/relations.ts).
+ */
+const readInputs = (
+	name: string,
+	read: LoadedRead,
+	params: unknown
+): Effect.Effect<ExecutionInputs, ReadError> =>
+	Effect.flatMap(hostParams(name, read.params, params), (values) =>
 		Effect.mapError(
 			Effect.fromResult(executionInputs(read.codecs, values)),
 			(reason) => new ReadFailure({ reason })
 		)
 	)
 
-/** A read member's call over `params`, each call's rows read by its program's intake (reader/run.ts readIntake). */
-const programCall = (read: LoadedRead, params: unknown): Effect.Effect<ParsedRead, ReadError> =>
-	Effect.map(readInputs(read, params), (inputs) => ({
+/**
+ * The call of the read member `name` over `params`, each call's rows read by its program's intake (reader/run.ts
+ * readIntake).
+ */
+const programCall = (
+	name: string,
+	read: LoadedRead,
+	params: unknown
+): Effect.Effect<ParsedRead, ReadError> =>
+	Effect.map(readInputs(name, read, params), (inputs) => ({
 		inputs,
 		call: {
 			fields: read.key.fields,
@@ -192,30 +206,33 @@ const readInput = (input: unknown): Effect.Effect<CallInput, ReadError> =>
 		refusedRead
 	)
 
-/** A read member's call (programCall) from its input. */
+/** The read member `name`'s call (programCall) from its input. */
 const parseRead =
-	(read: LoadedRead) =>
+	(name: string, read: LoadedRead) =>
 	(input: unknown): Effect.Effect<ParsedRead, ReadError> =>
-		Effect.flatMap(readInput(input), (given) => programCall(read, given.params))
+		Effect.flatMap(readInput(input), (given) => programCall(name, read, given.params))
 
-/** A key member's call from its input: its parameters are its key's values, read off its params by the key's fields. */
+/**
+ * The key member `name`'s call from its input: its parameters are its key's values, read off its params by the key's
+ * fields.
+ */
 const parseKey =
-	(read: LoadedRead, fields: ReadonlyArray<string>) =>
+	(name: string, read: LoadedRead, fields: ReadonlyArray<string>) =>
 	(input: unknown): Effect.Effect<ParsedRead, ReadError> =>
 		Effect.flatMap(readInput(input), (given) =>
 			Effect.flatMap(
-				Effect.fromResult(readKeyValues(fields, given.params, unreadableArguments())),
-				(values) => programCall(read, values)
+				Effect.mapError(Effect.fromResult(readKeyValues(fields, given.params)), refusedRead),
+				(values) => programCall(name, read, values)
 			)
 		)
 
 /**
- * A paged member's call from its input: its window read against the page's comparators (page/window.ts), its template
+ * The paged member `name`'s call from its input: its window read against the page's comparators (page/window.ts), its template
  * the window's anchor selects, its rows read once its statement has answered (page/execute.ts windowIntake) and decoded
  * by the decoder bound to that template.
  */
 const parseWindow =
-	(read: LoadedRead, page: LoadedPage) =>
+	(name: string, read: LoadedRead, page: LoadedPage) =>
 	(input: unknown): Effect.Effect<ParsedRead, ReadError> =>
 		Effect.gen(function* () {
 			const given = yield* Effect.mapError(
@@ -231,7 +248,7 @@ const parseWindow =
 				),
 				refusedRead
 			)
-			const inputs = yield* readInputs(read, given.params)
+			const inputs = yield* readInputs(name, read, given.params)
 			const window = given.call
 			return {
 				inputs,
@@ -396,11 +413,11 @@ export const liveRead = (
 	}
 	switch (member.kind) {
 		case "read":
-			return live(member.read, parseRead(member.read))
+			return live(member.read, parseRead(member.name, member.read))
 		case "key":
-			return live(member.read, parseKey(member.read, member.fields))
+			return live(member.read, parseKey(member.name, member.read, member.fields))
 		case "paged":
-			return live(member.read, parseWindow(member.read, member.page))
+			return live(member.read, parseWindow(member.name, member.read, member.page))
 		case "change":
 			return Option.none()
 	}
@@ -576,7 +593,7 @@ const hostCallOf = (
 ): Result.Result<HostCall, CallInputRefused | EncodingFailure> => {
 	switch (call.kind) {
 		case "params":
-			return Result.map(noFacts(input.facts), () => call.call(input.params))
+			return Result.flatMap(noFacts(input.facts), () => call.call(input.params))
 		case "facts":
 			return call.call(input.facts, input.params)
 	}
@@ -714,11 +731,11 @@ export const readCallOf = (
 ): Option.Option<(input: unknown) => Effect.Effect<ParsedRead, ReadError>> => {
 	switch (member.kind) {
 		case "read":
-			return Option.some(parseRead(member.read))
+			return Option.some(parseRead(member.name, member.read))
 		case "key":
-			return Option.some(parseKey(member.read, member.fields))
+			return Option.some(parseKey(member.name, member.read, member.fields))
 		case "paged":
-			return Option.some(parseWindow(member.read, member.page))
+			return Option.some(parseWindow(member.name, member.read, member.page))
 		case "change":
 			return Option.none()
 	}
@@ -728,11 +745,11 @@ export const readCallOf = (
 export const memberCalls = (ctx: ServedDbContext, member: LoadedMember): ServedCalls => {
 	switch (member.kind) {
 		case "read":
-			return readMemberCalls(ctx, member.read, parseRead(member.read))
+			return readMemberCalls(ctx, member.read, parseRead(member.name, member.read))
 		case "key":
-			return readMemberCalls(ctx, member.read, parseKey(member.read, member.fields))
+			return readMemberCalls(ctx, member.read, parseKey(member.name, member.read, member.fields))
 		case "paged":
-			return readMemberCalls(ctx, member.read, parseWindow(member.read, member.page))
+			return readMemberCalls(ctx, member.read, parseWindow(member.name, member.read, member.page))
 		case "change":
 			return writeCalls(changeWrite(ctx, variantOf(ctx, member.variants)))
 	}
@@ -776,11 +793,11 @@ export const memberExplains = (
 ): MemberExplains => {
 	switch (member.kind) {
 		case "read":
-			return readExplains(ctx, installed, parseRead(member.read))
+			return readExplains(ctx, installed, parseRead(member.name, member.read))
 		case "key":
-			return readExplains(ctx, installed, parseKey(member.read, member.fields))
+			return readExplains(ctx, installed, parseKey(member.name, member.read, member.fields))
 		case "paged":
-			return readExplains(ctx, installed, parseWindow(member.read, member.page))
+			return readExplains(ctx, installed, parseWindow(member.name, member.read, member.page))
 		case "change": {
 			const change = variantOf(ctx, member.variants)
 			return {

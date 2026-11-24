@@ -40,7 +40,7 @@ import {
 	type FailureOrigin
 } from "#adapter/outcomes/index.ts"
 import type { ExecutionInputs, HostParams } from "#adapter/reader/execution.ts"
-import { readParams, relationStreams } from "#adapter/reader/params.ts"
+import { type ParamValues, relationStreams } from "#adapter/reader/params.ts"
 import { executionInputs } from "#adapter/reader/relations.ts"
 import type { ApplyOutcome } from "#adapter/types/db.ts"
 import {
@@ -89,7 +89,6 @@ import {
 	defect,
 	defined,
 	encodeFailure,
-	factPlace,
 	hostJudgement,
 	inForce,
 	interpretRows,
@@ -162,27 +161,17 @@ const collectParam = (
 ): Effect.Effect<ReadonlyArray<unknown>, EncodingFailure> =>
 	Stream.runCollect(Stream.mapError(stream, () => encodeFailure("factShape", slotPlace(decl.name))))
 
-/** The values of the declared parameters by name: a ChangeSet.bind value under its private name, else the caller's. */
+/**
+ * The values of the declared parameters by name: a ChangeSet.bind value under its private name, else the caller's,
+ * which the call's boundary read (HostCall `params`).
+ */
 const declaredParams = (
 	declared: ReadonlyArray<CallerParamDecl>,
-	params: unknown,
+	params: ParamValues,
 	bindings: ReadonlyMap<string, ParamValue>
 ): Effect.Effect<HostParams, EncodingFailure> =>
 	Effect.suspend(() => {
-		/**
-		 * The caller's map, read once at the boundary (../reader/params.ts readParams); a map or a value whose reading
-		 * throws encodes nothing.
-		 */
-		const unreadable = encodeFailure("factShape", factPlace)
-		const given = readParams(
-			Arr.map(declared, (decl) => decl.name),
-			params,
-			unreadable
-		)
-		if (Result.isFailure(given)) {
-			return Effect.fail(given.failure)
-		}
-		const out: Record<string, unknown> = { ...given.success }
+		const out: Record<string, unknown> = { ...params }
 		for (const [name, value] of bindings) {
 			out[name] = value
 		}
@@ -190,7 +179,7 @@ const declaredParams = (
 		 * A ChangeSet's parameters reach here from the typed Db boundary as a read's do, and its bound values from its
 		 * typed bind (../reader/params.ts): each is a ParamValue.
 		 */
-		const found = relationStreams(declared, out, unreadable)
+		const found = relationStreams(declared, out)
 		if (Result.isFailure(found)) {
 			return Effect.fail(found.failure)
 		}
@@ -207,11 +196,12 @@ const declaredParams = (
 	})
 
 /**
- * What one call of a write gives: the caller's parameters, the values ChangeSet.bind closed, under their private names,
- * and the facts of each member slot (write/normalize/normalize.ts MemberFacts).
+ * What one call of a write gives: the caller's parameters, read at the call's boundary by its program's declared names
+ * (../reader/params.ts readParams), the values ChangeSet.bind closed, under their private names, and the facts of each
+ * member slot (write/normalize/normalize.ts MemberFacts).
  */
 export interface HostCall {
-	readonly params: unknown
+	readonly params: ParamValues
 	readonly bound: ReadonlyMap<string, ParamValue>
 	readonly members: MemberFacts
 }

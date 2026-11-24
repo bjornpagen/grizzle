@@ -1,6 +1,8 @@
 import { Array as Arr, Effect, Stream } from "effect"
 import type { CompiledChange } from "#adapter/apply/compile.ts"
 import type { HostCall } from "#adapter/apply/run.ts"
+import type { CallInputRefused } from "#adapter/errors/failures.ts"
+import { readParams } from "#adapter/reader/params.ts"
 import {
 	type ChangeSetInput,
 	type GroupData,
@@ -42,10 +44,24 @@ export const collectInputs = (
 		(entries): MemberFacts => new Map<string, Iterable<unknown>>(entries)
 	)
 
-/** The call of a ChangeSet value compiled in process (run.ts HostCall): the caller's parameters, the value's bound
- * values, and its members' facts, a Stream member's collected whole (`collectInputs`). */
-export const changeCall = (compiled: CompiledChange, params: unknown): Effect.Effect<HostCall> =>
-	Effect.map(
+/**
+ * The call of a ChangeSet value compiled in process as the program `program` (run.ts HostCall): the caller's parameters,
+ * read by its declared names (reader/params.ts readParams), the value's bound values, and its members' facts, a Stream
+ * member's collected whole (`collectInputs`).
+ */
+export const changeCall = (
+	program: string,
+	compiled: CompiledChange,
+	params: unknown
+): Effect.Effect<HostCall, CallInputRefused> =>
+	Effect.zipWith(
+		Effect.fromResult(
+			readParams(
+				program,
+				Arr.map(compiled.program.params, (decl) => decl.name),
+				params
+			)
+		),
 		collectInputs(compiled.program.binding.groups, compiled.change.inputs),
-		(members): HostCall => ({ params, bound: compiled.change.values, members })
+		(read, members): HostCall => ({ params: read, bound: compiled.change.values, members })
 	)

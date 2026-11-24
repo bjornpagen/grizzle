@@ -178,7 +178,7 @@ export const aReadsRelationInputIsItsDistinctFactsInArraysOfEveryColumnOrderASlo
 				const slot = refusedSlot(c)
 				const host = yield* Effect.exit(
 					value.kind === "typed"
-						? hostParams(declared, { ids: value.value, account })
+						? hostParams("the case's read", declared, { ids: value.value, account })
 						: Effect.succeed({ ids: value.value, account })
 				)
 				const prepared = Exit.isSuccess(host)

@@ -6,8 +6,9 @@ import type { BoundReads, HostCall } from "#adapter/apply/run.ts"
 import { contextOver, type TypedContext } from "#adapter/db/claims.ts"
 import { rowOptions, toResult } from "#adapter/engine.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
-import { ServedLoginRefused } from "#adapter/errors/failures.ts"
+import { type CallInputRefused, ServedLoginRefused } from "#adapter/errors/failures.ts"
 import { type PageRuntime, pageRuntimeOf } from "#adapter/page/template.ts"
+import { readParams } from "#adapter/reader/params.ts"
 import { type ParamCodecs, paramCodecs } from "#adapter/reader/relations.ts"
 import { type ReadProgram, readProgram } from "#adapter/reader/run.ts"
 import type { DecodedRow } from "#adapter/reader/stream.ts"
@@ -91,10 +92,16 @@ export interface LoadedPage {
  * declaration bound.
  */
 export type ChangeCall =
-	| { readonly kind: "params"; readonly call: (params: unknown) => HostCall }
+	| {
+			readonly kind: "params"
+			readonly call: (params: unknown) => Result.Result<HostCall, CallInputRefused>
+	  }
 	| {
 			readonly kind: "facts"
-			readonly call: (facts: unknown, params: unknown) => Result.Result<HostCall, EncodingFailure>
+			readonly call: (
+				facts: unknown,
+				params: unknown
+			) => Result.Result<HostCall, CallInputRefused | EncodingFailure>
 	  }
 
 /**
@@ -110,22 +117,40 @@ export interface LoadedChange {
 /** The member facts of a call of a ChangeSet that holds no array member. */
 const noMemberFacts: ReadonlyMap<string, ReadonlyArray<unknown>> = new Map()
 
-/** How each call of a ChangeSet that binds `bound` and holds array members `members` reads its host inputs. */
+/**
+ * How each call of the ChangeSet `program`, as its workload serves it, which declares the parameters `declared`, binds
+ * `bound` and holds array members `members`, reads its host inputs: its parameters by their declared names
+ * (reader/params.ts readParams), then its facts where it holds array members.
+ */
 const changeCall = (
+	program: string,
+	declared: ReadonlyArray<CallerParamDecl>,
 	bound: ReadonlyMap<string, ParamValue>,
 	members: ReadonlyArray<ArrayMember>
-): ChangeCall =>
-	Arr.isReadonlyArrayNonEmpty(members)
+): ChangeCall => {
+	const names = Arr.map(declared, (decl) => decl.name)
+	return Arr.isReadonlyArrayNonEmpty(members)
 		? {
 				kind: "facts",
 				call: (facts, params) =>
-					Result.map(toResult(memberFactsOf(facts, members)), (read) => ({
-						params,
+					Result.flatMap(readParams(program, names, params), (read) =>
+						Result.map(toResult(memberFactsOf(facts, members)), (factsRead) => ({
+							params: read,
+							bound,
+							members: factsRead
+						}))
+					)
+			}
+		: {
+				kind: "params",
+				call: (params) =>
+					Result.map(readParams(program, names, params), (read) => ({
+						params: read,
 						bound,
-						members: read
+						members: noMemberFacts
 					}))
 			}
-		: { kind: "params", call: (params) => ({ params, bound, members: noMemberFacts }) }
+}
 
 /** A ChangeSet's variants by its fill contexts, each leaf loaded. */
 export type LoadedVariants =
@@ -258,8 +283,9 @@ export const loadedEntry = (parts: WriteEntryParts): WriteEntry =>
 	nominal<WriteEntryParts, WriteEntry>()(parts)
 
 /** A ChangeSet compiled for one set of its fill contexts, loaded: its entry, read by its role's `witness`, its write
- * prepared against the file's closed relations. */
+ * prepared against the file's closed relations, each call read as the program `name` its workload serves it under. */
 const loadChange = (
+	name: string,
 	change: ServedChange,
 	witness: WriteEntry["witness"],
 	closed: ClosedTable,
@@ -278,12 +304,13 @@ const loadChange = (
 	return Result.map(servedReads(entry, change.decoder), (reads) => ({
 		entry,
 		reads,
-		call: changeCall(change.bound, change.members)
+		call: changeCall(name, program.params, change.bound, change.members)
 	}))
 }
 
-/** A ChangeSet's variants, each leaf loaded. */
+/** The variants of the ChangeSet `name`, each leaf loaded. */
 const loadVariants = (
+	name: string,
 	variants: ServedVariants,
 	witness: WriteEntry["witness"],
 	closed: ClosedTable,
@@ -294,12 +321,13 @@ const loadVariants = (
 	switch (variants.kind) {
 		case "change":
 			return Result.map(
-				loadChange(variants.change, witness, closed, codes, bind, patterns),
+				loadChange(name, variants.change, witness, closed, codes, bind, patterns),
 				(change): LoadedVariants => ({ kind: "change", change })
 			)
 		case "split":
 			return Result.gen(function* () {
 				const holding = yield* loadVariants(
+					name,
 					variants.holding,
 					witness,
 					closed,
@@ -308,6 +336,7 @@ const loadVariants = (
 					patterns
 				)
 				const lacking = yield* loadVariants(
+					name,
 					variants.lacking,
 					witness,
 					closed,
@@ -353,7 +382,7 @@ const loadMember = (
 			})
 		case "change":
 			return Result.map(
-				loadVariants(member.variants, witness, closed, codes, bind, patterns),
+				loadVariants(member.name, member.variants, witness, closed, codes, bind, patterns),
 				(variants): LoadedMember => ({
 					name: member.name,
 					wire: member.wire,

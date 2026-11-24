@@ -93,10 +93,8 @@ export const runEntry = <R>(
 		if (Result.isFailure(reads)) {
 			return yield* new ExecutionFailure({ reason: reads.failure })
 		}
-		const inputs = yield* Effect.mapError(
-			Effect.flatMap(changeCall(entry, params), (call) => hostInputs(entry, call)),
-			inputApplyError
-		)
+		const call = yield* changeCall("the suite's ChangeSet", entry, params)
+		const inputs = yield* Effect.mapError(hostInputs(entry, call), inputApplyError)
 		if (inputs.kind === "rejected") {
 			return applyOutcome.invariantRejected(
 				{ kind: "every", laws: [inputs.refused] },

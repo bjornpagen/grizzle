@@ -910,12 +910,10 @@ const appliedChange = (
 ): Effect.Effect<ApplyOutcome<unknown>, ApplyError> =>
 	Effect.gen(function* () {
 		const call = change.call
-		const host =
-			call.kind === "facts" ? call.call(facts, params) : Result.succeed(call.call(params))
-		const inputs = yield* Effect.mapError(
-			Effect.flatMap(Effect.fromResult(host), (read) => hostInputs(change.entry, read)),
-			inputApplyError
+		const host = yield* Effect.fromResult(
+			call.kind === "facts" ? call.call(facts, params) : call.call(params)
 		)
+		const inputs = yield* Effect.mapError(hostInputs(change.entry, host), inputApplyError)
 		if (inputs.kind === "rejected") {
 			return applyOutcome.invariantRejected(
 				{ kind: "every", laws: [inputs.refused] },

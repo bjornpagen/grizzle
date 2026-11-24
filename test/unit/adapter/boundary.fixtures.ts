@@ -12,7 +12,7 @@ import {
 import { type Drawn, type DrawnFeature, lsw, passed, type WildKind } from "@bjornpagen/testing/lsw"
 import { Array as Arr, Option, Result } from "effect"
 import { windowedInput } from "#adapter/db/input.ts"
-import type { CallInputFault } from "#adapter/errors/failures.ts"
+import type { CallInputFault, CallInputRefused } from "#adapter/errors/failures.ts"
 import type { PageCall } from "#adapter/page/execute.ts"
 import { windowCall } from "#adapter/page/window.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
@@ -257,9 +257,7 @@ export const wildVerdict = (site: WildSite, value: unknown): WildVerdict => {
 }
 
 /** A paged member's input's window read as its call reads it: its envelope, then its window. */
-export const callOf = (
-	input: unknown
-): Result.Result<PageCall, { readonly fault: CallInputFault }> =>
+export const callOf = (input: unknown): Result.Result<PageCall, CallInputRefused> =>
 	Result.flatMap(windowedInput(input), (read) => windowCall(read.window, [textCodec]))
 
 export type WindowFeature =
