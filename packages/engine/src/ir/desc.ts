@@ -2128,12 +2128,25 @@ export interface ChangeSetDesc<L = Located> {
 	/** The parameters ChangeSet.bind closed with a value; their values travel with the ChangeSet value. */
 	readonly bindings: ReadonlyArray<string>
 	/**
-	 * The relation parameters ChangeSet.bind closed with a query or a bound query, each one's rows (RowsDesc), its bind
-	 * map read in the ChangeSet's namespace: an input of the call, one value for the whole call, evaluated once in the
-	 * state before its first stratum, which every member and read-back that reads the parameter reads. Its members and
-	 * read-backs read the parameter by its name, as they read one bound to a value, never a copy of its query.
+	 * The relation parameters ChangeSet.bind closed with a query or a bound query (BoundRowsDesc), each an input of the
+	 * call evaluated once, before the first stratum of the part it was bound on, which every member and read-back that
+	 * reads the parameter reads. Its members and read-backs read the parameter by its name, as they read one bound to a
+	 * value, never a copy of its query.
 	 */
-	readonly boundRows: Readonly<Record<string, RowsDesc<L>>>
+	readonly boundRows: Readonly<Record<string, BoundRowsDesc<L>>>
+}
+
+/**
+ * A relation parameter a ChangeSet binds to rows (ChangeSetDesc `boundRows`): `rows`, a query or a bound query
+ * (RowsDesc), its bind map read in the ChangeSet's namespace, and `stratum`, the first stratum of the part the bind was
+ * made on, a binding being scoped to that part as a let is to its body: the rows are evaluated once, in the state before
+ * that stratum, after every write of the strata before it. A bind on the whole ChangeSet is at its stratum 0;
+ * ChangeSet.sequence places each binding of its second part after the first part's strata, and union keeps each where
+ * it was, as both place the members.
+ */
+export interface BoundRowsDesc<L = Located> {
+	readonly stratum: number
+	readonly rows: RowsDesc<L>
 }
 
 /** A ChangeSet's Description as the planner reads it: every member a PlannedMemberDesc (write/frontend/compile.ts). */
@@ -2141,7 +2154,7 @@ export interface PlannedChangeSetDesc<L = Located> {
 	readonly strata: ReadonlyArray<{ readonly members: ReadonlyArray<PlannedMemberDesc<L>> }>
 	readonly reads: ReadonlyArray<ReadBackDesc<L>>
 	readonly bindings: ReadonlyArray<string>
-	readonly boundRows: Readonly<Record<string, RowsDesc<L>>>
+	readonly boundRows: Readonly<Record<string, BoundRowsDesc<L>>>
 }
 
 /**
@@ -2684,8 +2697,8 @@ export const boundRowsLoc = (name: string): SourceLoc => SourceLoc("ChangeSet", 
  * The query that delivers the rows a relation parameter `name` is bound to as they are (ChangeSetDesc `boundRows`): one
  * rule matching an import of the rows' query under their bind map, each field it delivers (definitionFields) bound to a
  * variable of its own scope, the parameter's name, and delivered under its own name, its parameters the bind map's, read
- * in the namespace that binds them. A write evaluates it once before its first stratum where a later stratum or a
- * read-back reads the parameter (write/frontend/compile.ts).
+ * in the namespace that binds them. A write evaluates it once, before the first stratum of the part it was bound on
+ * (BoundRowsDesc `stratum`), where a reader runs in another state (write/frontend/compile.ts).
  */
 export const boundRowsQuery = (name: string, rows: RowsDesc, loc: SourceLoc): QueryDesc => {
 	const fields = definitionFields(rows.query)
@@ -2815,8 +2828,8 @@ class RelationBinding extends ParamWalk<Spelled["param"], FieldDesc> {
 
 /**
  * The query with each of its own uses of the relation parameters `rows` names bound to their rows (a ChangeSet's bound
- * rows its first stratum's members alone read, write/frontend/compile.ts `inlined`), in the one binding form an
- * import's bind map writes (RelationTermDesc): a bind term of one is its rows, and a match of
+ * rows that only readers in the state they are evaluated in read, write/frontend/compile.ts `inlined`), in the one
+ * binding form an import's bind map writes (RelationTermDesc): a bind term of one is its rows, and a match of
  * one a match of an import of its identity query (identityQuery, built by `identity`), the parameter bound to its
  * rows. An imported query keeps its own parameters, and only the terms of its bind map are bound. Frozen throughout, as
  * renameQueryParams' query is.
@@ -4127,7 +4140,13 @@ const changeSetDescShape: S.Shape<ChangeSetDesc> = S.audited(
 			"read-back names"
 		),
 		bindings: S.uniqueStrings("bound parameters", S.nonEmptyString),
-		boundRows: S.recordShape(S.tagged("kind", { rows: importDescShape }), name)
+		boundRows: S.recordShape(
+			S.struct({
+				stratum: S.nonNegativeInteger,
+				rows: S.tagged("kind", { rows: importDescShape })
+			}),
+			name
+		)
 	}),
 	(changeSet, refuseAt) => {
 		const read = new Set([
@@ -4136,7 +4155,7 @@ const changeSetDescShape: S.Shape<ChangeSetDesc> = S.audited(
 		])
 		const used = new Set([
 			...read,
-			...Object.values(changeSet.boundRows).flatMap((rows) => [...rowsParamNames(rows)])
+			...Object.values(changeSet.boundRows).flatMap((bound) => [...rowsParamNames(bound.rows)])
 		])
 		for (const [at, bound] of changeSet.bindings.entries()) {
 			if (!used.has(bound)) {
@@ -4146,11 +4165,27 @@ const changeSetDescShape: S.Shape<ChangeSetDesc> = S.audited(
 				)
 			}
 		}
-		for (const bound of Object.keys(changeSet.boundRows)) {
+		for (const [bound, { stratum }] of Object.entries(changeSet.boundRows)) {
 			if (!read.has(bound) || changeSet.bindings.includes(bound)) {
 				refuseAt(
 					["boundRows", bound],
 					`a binding of a relation parameter its members or read-backs read, bound once; ${bound} is none, or is bound to a value too`
+				)
+			}
+			/** Each reader of a binding runs at or after the stratum it is evaluated before: a member of that stratum or a
+			 * later one, a binding evaluated there or later, or a read-back, read after the last stratum. */
+			const early = [
+				...changeSet.strata.flatMap((s, at) =>
+					s.members.some((m) => memberParamNames(m.member).has(bound)) ? [at] : []
+				),
+				...Object.values(changeSet.boundRows).flatMap((other) =>
+					rowsParamNames(other.rows).has(bound) ? [other.stratum] : []
+				)
+			].some((at) => at < stratum)
+			if (stratum >= changeSet.strata.length || early) {
+				refuseAt(
+					["boundRows", bound, "stratum"],
+					`a stratum of the ChangeSet at or before every stratum whose members or bindings read ${bound}`
 				)
 			}
 		}

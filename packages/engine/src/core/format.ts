@@ -360,14 +360,16 @@
  * deploy/diff/diff.ts remove), naming the role by psql's literal variable `:'<stem>'`, which migrate fills as a quoted
  * literal (deploy/render/variables.ts), where format 8 dropped the role alone, refused (2BP01) while any session that
  * had written under it held its carriers; so every publish file that drops a role moves.
- * A relation parameter a ChangeSet binds to a query is an input of the call, evaluated once before its first stratum:
- * a ChangeSet's Description holds each such binding once, its rows under the parameter's private name (ChangeSetDesc
- * `boundRows`, which every served file's ChangeSet now holds, empty where it binds none), its members and read-backs
- * reading the parameter by that name, where format 8 copied the bound query into each of them; where a later stratum
- * or a read-back reads it, its write program empties and fills a carrier of its rows before the first stratum (plan
- * step `bound`, a carrier step of no stratum), which each reader's InputSet reads (ir/rel.ts InputSetInput `bound`),
- * where format 8 evaluated the query again in each statement over the state that statement reads; a bound parameter
- * read only by the first stratum's members is a part of their queries as before.
+ * A relation parameter a ChangeSet binds to a query is an input of the call, evaluated once before the first stratum
+ * of the part it was bound on: a ChangeSet's Description holds each such binding once, its rows and that stratum under
+ * the parameter's private name (ChangeSetDesc `boundRows`, BoundRowsDesc {stratum, rows}, which every served file's
+ * ChangeSet now holds, empty where it binds none), its members and read-backs reading the parameter by that name,
+ * where format 8 copied the bound query into each of them; where a reader reads another state than the one it is
+ * evaluated in, a later stratum's member or a read-back, its write program empties and fills a carrier of its rows
+ * first among the statements of the first writing stratum at or after its own (plan step `bound`, a carrier step of that
+ * stratum), which each reader's InputSet reads (ir/rel.ts InputSetInput `bound`), where format 8 evaluated the query
+ * again in each statement over the state that statement reads; a bound parameter every reader of which reads the state
+ * it is evaluated in is a part of their queries as before.
  * A containment the law model discharges by the rule judge over immutable relations is judged by its probes
  * (laws/model/plan.ts containmentDischarge): each row a transaction gained of its source, and each source row at the
  * fields of a row it lost of its target, probes the target at those fields, where format 8 read every source row of

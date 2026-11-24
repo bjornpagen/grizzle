@@ -933,7 +933,8 @@ export class LowerContext {
 
 	/**
 	 * The carrier of the relation parameter `param` its ChangeSet binds to a query (InputSet `bound`), which its write
-	 * program fills once before its first stratum: a write statement's or a read-back's, whose subject names it. Outside
+	 * program fills once before the first stratum of the part that bound it: a write statement's or a read-back's, whose
+	 * subject names it. Outside
 	 * a write program, or for a parameter its program holds in no carrier, it is UnsupportedOperation, as a Delta outside
 	 * a write program is.
 	 */

@@ -1,5 +1,5 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
-import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	isNonEmpty,
 	mapNonEmpty,
@@ -12,7 +12,7 @@ import type { EntryName, ParamId, StoredRelationName } from "#compiler/core/ids.
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { headStamped, type Stamped } from "#compiler/ir/instant.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
-import { type DeltaSide, inputsOf, type RelNode } from "#compiler/ir/rel.ts"
+import { boundParamsRead, type DeltaSide, inputsOf, type RelNode } from "#compiler/ir/rel.ts"
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
 import type { BoundInput, ReadBack } from "#compiler/ir/write.ts"
 import type { CarriedShare } from "#compiler/lower/shapes/share/statements.ts"
@@ -120,9 +120,9 @@ export type PlannedWrite = {
 } & WriteOpStep
 
 /** One step of a write plan:
- * - `bound`, a relation parameter the ChangeSet binds to a query that a later stratum or a read-back reads (ir/write.ts
- *   BoundInput): its carrier, which the session's stand-up of the write made, emptied and filled from its query before
- *   the first stratum, every reader's InputSet of it reading that carrier;
+ * - `bound`, a relation parameter the ChangeSet binds to a query that a reader in another state reads (ir/write.ts
+ *   BoundInput): its carrier, which the session's stand-up of the write made, emptied and filled from its query first
+ *   among its stratum's steps, every reader's InputSet of it reading that carrier;
  * - `emptyCarrier`, a carrier emptied at the start of its stratum, a member's or a shared sub-query's, which the
  *   session's stand-up of the write made (runtime/write/flight.ts StandUp);
  * - `fillMember`, a member's carrier, filled from its node: the facts its action writes into `relation`, cast into its
@@ -897,6 +897,12 @@ const placeReadBacks = (
 ): ReadBackPlacement => {
 	const sides = strata.map(stepSides)
 	const writes = strata.map(stepWrites)
+	/** The position of each carried bound input's fill (step `bound`), by its parameter. */
+	const filled = new Map(
+		strata.flatMap((step, position) =>
+			step.kind === "bound" ? [[step.input.param, position] as const] : []
+		)
+	)
 	const targetOf = (relation: string): string => deltaTarget(frontend.deltaEntries, relation)
 	const made = new Map<string, Set<DeltaSide>>()
 	for (const write of sides.flat()) {
@@ -968,9 +974,17 @@ const placeReadBacks = (
 		const state = read.node.meta.reads.find((r) =>
 			storedReads(frontend.schema.world, r).some((s) => later.has(s))
 		)
-		return state === undefined
+		if (state !== undefined) {
+			return { kind: "crossing", crossing: { kind: "stateAfter", delta: first, state } }
+		}
+		/** A bound input the read-back reads is filled first among its stratum's steps, which may come after the
+		 * statement it would ride (ir/write.ts BoundInput). */
+		const unfilled = [...boundParamsRead([read.node])].find(
+			(param) => defined(filled.get(param), "a carried bound input's fill") > position
+		)
+		return unfilled === undefined
 			? { kind: "rides", step }
-			: { kind: "crossing", crossing: { kind: "stateAfter", delta: first, state } }
+			: { kind: "crossing", crossing: { kind: "boundAfter", delta: first, bound: unfilled } }
 	}
 	const riders = new Map<Rideable, [ReadBack, ...Array<ReadBack>]>()
 	const after: Array<ReadBack> = []
@@ -1050,10 +1064,11 @@ const placeReadBacks = (
  * source at the start of its stratum, before any of the stratum's writes, where its source reads the stratum's
  * starting state.
  *
- * A relation parameter the ChangeSet binds to a query that a later stratum or a read-back reads (ir/write.ts BoundInput)
- * is evaluated before the first stratum, into a carrier every statement after it reads (step `bound`), so no stratum's
- * statement and no read-back evaluates it over the state it reads; one only the first stratum's members read is a part
- * of their queries, which read the first stratum's starting state, the call's.
+ * A relation parameter the ChangeSet binds to a query that a reader in another state reads (ir/write.ts BoundInput) is
+ * evaluated first among its stratum's steps, before its outside checks and its statements, after every statement of
+ * the strata before it, into a carrier every statement after it reads (step `bound`), so no later stratum's statement
+ * and no read-back evaluates it over the state it reads; one whose every reader reads the state it is evaluated in is a
+ * part of their queries.
  *
  * Read-backs are placed by what they read (`placeReadBacks`): a read-back whose deltas one statement makes whole, and
  * whose state reads that statement and every later one leave alone, rides that statement, evaluated in it over its
@@ -1074,8 +1089,8 @@ export const planWrite = (
 	evidence: PlanEvidence
 ): WritePlan => {
 	const supply = new CarrierSupply(evidence.carrierTyping, evidence.carrierScope)
-	/** Each carried bound input's evaluation, before the first stratum, in the call's starting state (ir/write.ts
-	 * BoundInput): its carrier made and filled first, which every statement after it reads in its place. */
+	/** Each carried bound input's evaluation, in the state before its stratum (ir/write.ts BoundInput): its carrier made,
+	 * and filled first among its stratum's steps, which every statement after it reads in its place. */
 	const bound = frontend.ir.bound.map((input) => ({
 		input,
 		carrier: supply.next(
@@ -1084,11 +1099,7 @@ export const planWrite = (
 		)
 	}))
 	/** The strata's statements, the read-backs placed among them below. */
-	const strata: Array<PlanStep> = bound.map(({ input, carrier }) => ({
-		kind: "bound",
-		input,
-		carrier
-	}))
+	const strata: Array<PlanStep> = []
 	/** The nodes each stratum's members reach: a carrier holds its stratum's starting state, so a node another
 	 * stratum's member also reaches is never carried across statements; a single statement's parts are its own CTEs,
 	 * which no later statement reads (write/program/compile.ts uncarries them), so it holds such a node too. */
@@ -1108,6 +1119,9 @@ export const planWrite = (
 	})
 
 	for (const [s, { actions, outside, checks, family }] of strataAt(chosen.strata)) {
+		for (const { input, carrier } of bound.filter((b) => b.input.stratum === s)) {
+			strata.push({ kind: "bound", input, carrier })
+		}
 		for (const refused of outside) {
 			const reads = refused.reads
 			strata.push({

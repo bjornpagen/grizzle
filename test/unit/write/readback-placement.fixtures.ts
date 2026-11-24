@@ -350,6 +350,8 @@ export const holds = (crossings: ReadonlyArray<ReadBackCrossing>, got: ReadBackC
 				)
 			case "stateAfter":
 				return got.kind === "stateAfter" && got.state === c.state && sameSide(c.delta, got.delta)
+			case "boundAfter":
+				return got.kind === "boundAfter" && got.bound === c.bound && sameSide(c.delta, got.delta)
 		}
 	})
 
@@ -366,6 +368,7 @@ export type Feature =
 	| "refused: a side two statements make"
 	| "refused: two sides apart"
 	| "refused: state after"
+	| "refused: a bound parameter evaluated after"
 
 export const ridingNotes: { readonly [K in Maker]: Feature } = {
 	insert: "rides an insert",
@@ -377,5 +380,6 @@ export const ridingNotes: { readonly [K in Maker]: Feature } = {
 export const crossingNotes: { readonly [K in ReadBackCrossing["kind"]]: Feature } = {
 	sideWrittenTwice: "refused: a side two statements make",
 	sidesApart: "refused: two sides apart",
-	stateAfter: "refused: state after"
+	stateAfter: "refused: state after",
+	boundAfter: "refused: a bound parameter evaluated after"
 }

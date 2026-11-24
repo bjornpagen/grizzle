@@ -47,8 +47,8 @@ export type Deleted = "a stored fact" | "the inserted fact"
 
 /**
  * The read-back both members end in, `standing`, over one query: every fact of Item as the state after the change holds
- * it, or every fact of a relation parameter `rows` that each member binds to one query of Item's facts, as qti-pie's
- * standing reads the sittings metis binds.
+ * it, or every fact of a relation parameter `rows`, free in each member, that the combined ChangeSet binds once to a
+ * query of Item's facts, as qti-pie's standing reads the sittings metis binds on its whole call.
  */
 export type Standing = "the state" | "a bound relation parameter"
 
@@ -109,21 +109,16 @@ const rowsOf = (s: Schema): QueryValue =>
 		return r.match(rows, { id, n }).find({ id, n })
 	})
 
-/**
- * The case's ChangeSet, built by the builder's view for a caller whose ChangeSets are known only at run time (one
- * builder, write/changeset/value.ts changeSetOver): the insert's ChangeSet and the delete's, each ending in
- * `.read("standing", …)` over one query, a bound standing's relation parameter bound in each to one query of Item's
- * facts, combined as the case says.
- */
-export const changeOf = (s: Schema, c: MergedRead): ChangeSetValue => {
+/** The insert's ChangeSet and the delete's, each ending in `.read("standing", …)` over one query, combined as the case
+ * says. */
+const combinedOf = (s: Schema, c: MergedRead): ChangeSetValue => {
 	const standing = c.standing === "the state" ? itemsOf(s) : rowsOf(s)
-	const items = itemsOf(s)
-	const reading = (change: ChangeSetValue): ChangeSetValue => {
-		const read = change.read("standing", () => standing)
-		return c.standing === "the state" ? read : read.bind({ rows: items })
-	}
-	const insert = reading(ChangeSet.empty(s).insert(Item, [insertedOf(c)]))
-	const remove = reading(ChangeSet.empty(s).delete(Item, [deletedOf(c)]))
+	const insert = ChangeSet.empty(s)
+		.insert(Item, [insertedOf(c)])
+		.read("standing", () => standing)
+	const remove = ChangeSet.empty(s)
+		.delete(Item, [deletedOf(c)])
+		.read("standing", () => standing)
 	switch (c.composition) {
 		case "insert, then delete":
 			return ChangeSet.sequence(insert, remove)
@@ -137,6 +132,17 @@ export const changeOf = (s: Schema, c: MergedRead): ChangeSetValue => {
 				ChangeSet.empty(s).put(Item, [putFact])
 			)
 	}
+}
+
+/**
+ * The case's ChangeSet, built by the builder's view for a caller whose ChangeSets are known only at run time (one
+ * builder, write/changeset/value.ts changeSetOver): the members combined (`combinedOf`), a bound standing's relation
+ * parameter then bound once on the whole to a query of Item's facts, evaluated before its first stratum (README
+ * "Writes").
+ */
+export const changeOf = (s: Schema, c: MergedRead): ChangeSetValue => {
+	const combined = combinedOf(s, c)
+	return c.standing === "the state" ? combined : combined.bind({ rows: itemsOf(s) })
 }
 
 /** A fact as the property compares it: its fields as text, "id | n". */

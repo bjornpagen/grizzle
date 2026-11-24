@@ -27,6 +27,7 @@ import { type Built, builtMark, isBuilt } from "#compiler/core/phantom.ts"
 import { hasProperties, isPlainRecord } from "#compiler/core/record.ts"
 import { type TextsId, TextsMap, textsId } from "#compiler/core/text.ts"
 import {
+	type BoundRowsDesc,
 	type ChangeSetDesc,
 	decodeDesc,
 	descIdentity,
@@ -177,8 +178,9 @@ type BoundKey =
 /**
  * A parameter bind closed, by the name it had when bound (`origin`): to a value, with the value's key; or, a relation
  * parameter, to the rows of a query or a bound query (RowsDesc), its bind map read in the ChangeSet's namespace, an
- * input of the call evaluated once before its first stratum (ChangeSetDesc `boundRows`), whose key the canonical
- * naming reads from the scope (`rowsKeys`), since the parameters its bind map reads may be bound in turn.
+ * input of the call evaluated once before `stratum`, the first stratum of the part it was bound on (ChangeSetDesc
+ * `boundRows`, BoundRowsDesc), whose key the canonical naming reads from the scope (`rowsKeys`), since the parameters its
+ * bind map reads may be bound in turn.
  */
 type BoundParam =
 	| {
@@ -187,7 +189,12 @@ type BoundParam =
 			readonly value: ParamValue
 			readonly key: BoundKey
 	  }
-	| { readonly kind: "rows"; readonly origin: string; readonly rows: RowsDesc }
+	| {
+			readonly kind: "rows"
+			readonly origin: string
+			readonly stratum: number
+			readonly rows: RowsDesc
+	  }
 
 /** The key of a bound value (`BoundKey`). */
 const boundKey = (value: ParamValue): BoundKey => {
@@ -294,11 +301,14 @@ export type MemberInput = ReadonlyArray<unknown> | Stream.Stream<unknown> | Quer
  *   rest free: a bound parameter leaves the namespace, its uses keeping a name of their own, private to the ChangeSet.
  *   One bound to a value is listed under the Description's `bindings`, its value travelling beside the Description;
  *   a relation parameter bound to a query or a bound query is listed under its `boundRows` with those rows, an input of
- *   the call evaluated once before its first stratum, which every member and read-back that uses it reads by its name
- *   (ir/write.ts BoundInput), the query's own parameters joining the namespace. A member or read-back added later, or a ChangeSet combined with this one, whose parameter has the
+ *   the call evaluated once, before the first stratum of the ChangeSet bind was called on, which every member and
+ *   read-back that uses it reads by its name (ir/write.ts BoundInput), the query's own parameters joining the namespace:
+ *   a binding is scoped to the part it was made on, as a let is to its body, so sequence places a binding of its second
+ *   part after the first part's strata, as it places that part's members, and union keeps each where it was. A member or read-back added later, or a ChangeSet combined with this one, whose parameter has the
  *   bound name needs a separate, free parameter, so the private names are renamed out of its way first (release), and
  *   two ChangeSets that bind one name to different values or queries combine into two private parameters. Private
- *   parameters of one name bound to equal values, or to one query reading equal parameters, are one parameter, and a
+ *   parameters of one name bound to equal values, or to one query reading equal parameters evaluated before one
+ *   stratum, are one parameter, and a
  *   private name is canonical (canonicalBindings): those bound to values first, then those bound to rows, each named
  *   in the order of the names they were bound under and then of their values' canonical texts or their rows' identity,
  *   its own name when no free parameter and no private one named before it has it, otherwise that name, `#` and the
@@ -627,7 +637,7 @@ const describe = (
 			Object.fromEntries(
 				names.flatMap((name) => {
 					const param = bound.get(name)
-					return param?.kind === "rows" ? [[name, param.rows] as const] : []
+					return param?.kind === "rows" ? [[name, boundRowsOf(param)] as const] : []
 				})
 			)
 		)
@@ -637,6 +647,10 @@ const describe = (
 	}
 	return { desc, inputs }
 }
+
+/** A private parameter bound to rows as the Description holds it (BoundRowsDesc): its stratum and its rows. */
+const boundRowsOf = (param: Extract<BoundParam, { readonly kind: "rows" }>): BoundRowsDesc =>
+	Object.freeze({ stratum: param.stratum, rows: param.rows })
 
 /** The part of a state that holds parameters. */
 type Scope = Pick<ChangeSetState, "strata" | "reads" | "bound">
@@ -790,10 +804,11 @@ const combine = (
 }
 
 /**
- * The keys of a scope's private parameters bound to rows (`canonicalBindings`): the identity digest of the rows with each
- * private parameter bound to a value that their bind map reads spelled by its canonical name (`valueImage`), and each
- * one bound to rows spelled by that parameter's own key, so two bindings of one query read equal parameters exactly
- * when their keys are one, whatever names the rows-bound ones have before the canonical naming chooses theirs. A rows
+ * The keys of a scope's private parameters bound to rows (`canonicalBindings`): the identity digest of the binding as the
+ * Description holds it (BoundRowsDesc), its stratum and its rows, with each private parameter bound to a value that
+ * their bind map reads spelled by its canonical name (`valueImage`), and each one bound to rows spelled by that
+ * parameter's own key, so two bindings of one query are one input exactly when they are evaluated before one stratum and
+ * read equal parameters, whatever names the rows-bound ones have before the canonical naming chooses theirs. A rows
  * binding reads only parameters bound after it (release moves a private name out of the way of the parameters a later
  * binding's query brings), so the keys are well founded.
  */
@@ -820,7 +835,9 @@ const rowsKeys = (
 				return bound.get(p)?.kind === "rows" ? [[p, `\u0000${keyOf(p)}`]] : []
 			})
 		)
-		const key = orThrow(descIdentity(renameRowsParams(param.rows, spelled)))
+		const key = orThrow(
+			descIdentity(boundRowsOf({ ...param, rows: renameRowsParams(param.rows, spelled) }))
+		)
 		keys.set(name, key)
 		return key
 	}
@@ -1467,7 +1484,8 @@ type BindEntry =
  * private one, so a parameter bound to a value keeps its name until make() makes it canonical. A relation parameter
  * bound to a query or a bound query is closed the same way, a private parameter of the call bound to that query's rows
  * (BoundParam `rows`), every member and read-back that reads it reading it by name, so its rows are one input of the
- * call, evaluated once before its first stratum (ChangeSetDesc `boundRows`); the query's own parameters join the
+ * call, evaluated once before this ChangeSet's first stratum, wherever a sequence later places it (ChangeSetDesc
+ * `boundRows`, BoundRowsDesc `stratum`); the query's own parameters join the
  * namespace, each private name in their way moved out of it first (release). One the members or read-backs use as a
  * scalar is refused, as a scalar takes one value and rows are any number. */
 const bindParams = <S, P, W extends string, Rd, Done extends Strata, Last extends Stratum, A>(
@@ -1517,7 +1535,7 @@ const bindParams = <S, P, W extends string, Rd, Done extends Strata, Last extend
 				)
 			}
 			const query = boundRows(entry.value, `${label} ${name}`)
-			closed.set(name, { kind: "rows", origin: name, rows: query.rows })
+			closed.set(name, { kind: "rows", origin: name, stratum: 0, rows: query.rows })
 			levels.push(query.over)
 		} else if (absent(entry.value)) {
 			throw malformed(label, `a value for ${name}: grizzle has no NULL`)
@@ -1674,12 +1692,15 @@ const emptyOf = <S, Done extends Strata, Last extends Stratum>(
 }
 
 /** The states of two ChangeSets combined, each one's private parameters renamed out of the other's way (`combine`), a
- * refusal of more arguments, and the higher of their schemas. */
+ * refusal of more arguments, and the higher of their schemas. The second's strata start at the stratum `start` reads off
+ * the first, its bindings to rows with them (`placedAt`): union's at the first's first stratum, sequence's after its
+ * last. */
 const combined = (
 	label: string,
 	a: unknown,
 	b: unknown,
-	extra: ReadonlyArray<unknown>
+	extra: ReadonlyArray<unknown>,
+	start: (first: ChangeSetState) => number
 ): {
 	readonly top: BuiltOver
 	readonly x: Scope
@@ -1689,10 +1710,24 @@ const combined = (
 	if (extra.length > 0) {
 		throw malformed(label, `${label}(a, b): two arguments`)
 	}
-	const top = higher(label, stateOf(a, label).over, stateOf(b, label).over)
-	const { a: x, b: y, bound } = combine(scopeOf(stateOf(a, label)), scopeOf(stateOf(b, label)))
+	const first = stateOf(a, label)
+	const second = stateOf(b, label)
+	const top = higher(label, first.over, second.over)
+	const { a: x, b: y, bound } = combine(scopeOf(first), placedAt(scopeOf(second), start(first)))
 	return { top, x, y, bound }
 }
+
+/** A scope whose strata start at stratum `start` of a combination: each binding to rows evaluated before the stratum
+ * its part's first stratum becomes there, `start` strata later (BoundRowsDesc `stratum`). */
+const placedAt = (scope: Scope, start: number): Scope => ({
+	...scope,
+	bound: new Map(
+		[...scope.bound].map(([name, param]) => [
+			name,
+			param.kind === "rows" ? { ...param, stratum: param.stratum + start } : param
+		])
+	)
+})
 
 /** ChangeSet.union(a, b): the commutative combination, strata position by position, and one set of their read-backs. */
 const unionOf = <S, P, W extends string, Rd, Done extends Strata, Last extends Stratum, A>(
@@ -1701,7 +1736,7 @@ const unionOf = <S, P, W extends string, Rd, Done extends Strata, Last extends S
 	b: unknown,
 	extra: ReadonlyArray<unknown>
 ): ChangeSetOf<S, P, W, Rd, never, Done, Last, A> & SchemaMember => {
-	const { top, x, y, bound } = combined(label, a, b, extra)
+	const { top, x, y, bound } = combined(label, a, b, extra, () => 0)
 	const n = Math.max(x.strata.length, y.strata.length)
 	const strata = canonicalStrata(
 		indices(n).map((i) => [...(x.strata[i] ?? []), ...(y.strata[i] ?? [])])
@@ -1730,15 +1765,16 @@ const overOf = <S, P, W extends string, Rd, Done extends Strata, Last extends St
 	return unionOf(label, emptyOf(role, []), cs, extra)
 }
 
-/** ChangeSet.sequence(a, b): b evaluated against the state a produced, its strata after a's, and one set of their
- * read-backs, each read after the last stratum. */
+/** ChangeSet.sequence(a, b): b evaluated against the state a produced, its strata after a's, its bindings to rows with
+ * them, each evaluated before b's first stratum, after a's writes, and one set of their read-backs, each read after the
+ * last stratum. */
 const sequenceOf = <S, P, W extends string, Rd, Done extends Strata, Last extends Stratum, A>(
 	a: unknown,
 	b: unknown,
 	extra: ReadonlyArray<unknown>
 ): ChangeSetOf<S, P, W, Rd, never, Done, Last, A> & SchemaMember => {
 	const label = "ChangeSet.sequence"
-	const { top, x, y, bound } = combined(label, a, b, extra)
+	const { top, x, y, bound } = combined(label, a, b, extra, (first) => first.strata.length)
 	return make(
 		label,
 		top,

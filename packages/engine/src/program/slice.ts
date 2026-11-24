@@ -525,7 +525,7 @@ const changeSetQueries = (changeSet: ChangeSetDesc): ReadonlyArray<QueryDesc> =>
 		)
 	),
 	...changeSet.reads.map((r) => r.query),
-	...Object.entries(changeSet.boundRows).map(([name, rows]) =>
+	...Object.entries(changeSet.boundRows).map(([name, { rows }]) =>
 		boundRowsQuery(name, rows, boundRowsLoc(name))
 	)
 ]

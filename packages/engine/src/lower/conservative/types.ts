@@ -122,7 +122,8 @@ interface WriteLowering {
 
 /**
  * Where an InputSet of a relation parameter its ChangeSet binds to a query (ir/rel.ts InputSetInput `bound`) reads its
- * rows: the write program's carrier its call fills once before its first stratum, scanned under an alias by the
+ * rows: the write program's carrier its call fills once before the first stratum of the part that bound it, scanned
+ * under an alias by the
  * carrier's own reading (write/carriers carrierScan), and the carrier's column of each field of the parameter's heading.
  */
 export interface BoundCarrier {

@@ -145,10 +145,10 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 		Arr.some(frontend.laws.families, (f) => f.owner.name === relation)
 	/** The templates of the realization's keys and digests, its write's and its read-backs', as a compile's. */
 	const templates = new DagTemplates()
-	/** The carrier of each carried bound input, by its parameter, filled before the first stratum: step 0, each one's
-	 * one evaluation, in the call's starting state, before anything else, which every member and read-back that reads
-	 * the parameter reads (ir/write.ts BoundInput). The supply types carriers through this lowering, so they are held
-	 * here once made, before any statement reads one. */
+	/** The carrier of each carried bound input, by its parameter, filled first among its stratum's steps: each one's one
+	 * evaluation, in the state the strata before it left, which every member and read-back that reads the parameter
+	 * reads (ir/write.ts BoundInput). The supply types carriers through this lowering, so they are held here once made,
+	 * before any statement reads one. */
 	const bound = new Map<ParamId, BoundCarrier>()
 	const boundRows: BoundCarrierOf = (param) => bound.get(param)
 	const w: WriteContext = writeContext(ir.dag, {
@@ -189,15 +189,6 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 		)
 	}
 
-	for (const input of ir.bound) {
-		const carrier = supply.next(
-			Arr.map(input.node.heading, (c) => ({ name: c.name, type: c.type })),
-			undefined
-		)
-		carry(carrier, { kind: "member", node: input.node }, undefined, castsNothing)
-		bound.set(input.param, carrierRows(carrier))
-	}
-
 	/** 1. The state snapshots of the relations whose deltas a read-back names, each read as the role reads it: through
 	 * the role's view of a whole entry, or, for a relation it writes through a query entry, its table under the role's
 	 * row security, which shows exactly the entry's rows, so the comparison is the entry's own change. */
@@ -213,6 +204,14 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 	})
 
 	for (const [s, { actions, outside, family }] of strataAt(ir.strata)) {
+		for (const input of Arr.filter(ir.bound, (b) => b.stratum === s)) {
+			const carrier = supply.next(
+				Arr.map(input.node.heading, (c) => ({ name: c.name, type: c.type })),
+				undefined
+			)
+			carry(carrier, { kind: "member", node: input.node }, s, castsNothing)
+			bound.set(input.param, carrierRows(carrier))
+		}
 		const check = (input: WriteInput, entryCheck: EntryCheck) =>
 			steps.push(
 				Object.freeze({
@@ -438,12 +437,13 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
  * Every statement is sequential, one per physical step, so each sees the writes before it and nothing relies on
  * sibling CTEs sharing a snapshot:
  *
- * 0. Each relation parameter the ChangeSet binds to a query that a later stratum or a read-back reads, evaluated once
- *    into a carrier before anything else, in the call's starting state, which every reader of it reads (ir/write.ts
- *    BoundInput); one only the first stratum's members read is a part of their queries, as the optimized artifact's.
  * 1. A state snapshot of every relation a read-back's delta names, each copied into a carrier before the first
  *    stratum. A relation the ChangeSet does not write has an empty delta the same way.
- * 2. For each stratum in order, every described member is evaluated against the state before the stratum's writes and
+ * 2. For each stratum in order, each relation parameter the ChangeSet binds to a query that a reader in another state
+ *    reads, bound on a part whose first stratum it is, evaluated once into a carrier first, in the state the strata
+ *    before it left, which every reader of it reads (ir/write.ts BoundInput); one whose every reader reads the state
+ *    it is evaluated in is a part of their queries, as the optimized artifact's. Then every described member is
+ *    evaluated against the state before the stratum's writes and
  *    kept in a carrier filled by INSERT ... SELECT, because sequential statements consume it; an insert's or a put's
  *    carrier has the relation's column types, so it holds the member's facts as they are written, and a deletion's has
  *    each field's base type with its typmod, so it holds the member as the deletion compares it; an enumerated member

@@ -1105,27 +1105,54 @@ const compile = (
 	const navigation = new Navigation(laws.theory.regionFacts)
 	const merger = new QueryMerger(session)
 	const params = new Map<string, ParamDecl>()
-	/**
-	 * 0. The call's bound rows (ChangeSetDesc `boundRows`): each relation parameter ChangeSet.bind closed with a query is
-	 * one input of the call, its rows in the state before the first stratum (ir/write.ts BoundInput). One read only by
-	 * members of the first stratum that has any, each a query over that state, and by other inputs, is a part of their
-	 * queries, as any import of a query is (`inlined`). One read by a later stratum or a read-back is carried (`later`):
-	 * checked once, after the carried inputs its own rows read, its query a root of the write DAG evaluated before the
-	 * first stratum (write/schedule/plan.ts), every reader's use of it read as its InputSet (CheckSession `bound`). Its
-	 * query's own parameters join the ChangeSet's.
-	 */
-	const firstStratum = desc.strata.findIndex((stratum) => stratum.members.length > 0)
-	const later = new Set(
-		Object.keys(desc.boundRows).filter(
-			(name) =>
-				desc.reads.some((r) => queryParamNames(r.query).has(name)) ||
-				desc.strata.some(
-					(stratum, s) =>
-						s !== firstStratum && stratum.members.some((m) => memberParamNames(m.member).has(name))
-				)
+	/** Each stratum's write members of facts, its inserts' computed fields aside (`strataComputed`). */
+	const strataWrites = desc.strata.map((stratum) =>
+		stratum.members.flatMap((m): ReadonlyArray<FactsMemberDesc> =>
+			m.member.kind === "computed"
+				? []
+				: [{ op: m.op, relation: m.relation, member: m.member, loc: m.loc }]
 		)
 	)
-	const inlined = new Map(Object.entries(desc.boundRows).filter(([name]) => !later.has(name)))
+	/** The strata that write, each by its position among them, the stratum its statements run in, with its place among
+	 * the ChangeSet's strata: a stratum that writes nothing changes no state and runs no statement. */
+	const occupiedStrata = strataAt(
+		strataWrites.flatMap((members, s) => (members.length > 0 ? [s] : []))
+	)
+	/** The state before the ChangeSet's stratum `s`, by the writing strata before it: the state the stratum's members
+	 * read, the one before the occupied stratum at that position, or after the last where none is at or after `s`. */
+	const stateBefore = (s: number): number => occupiedStrata.filter(([, place]) => place < s).length
+	/**
+	 * 0. The call's bound rows (ChangeSetDesc `boundRows`): each relation parameter ChangeSet.bind closed with a query is
+	 * one input of the call, its rows in the state before the first stratum of the part it was bound on (BoundRowsDesc
+	 * `stratum`, ir/write.ts BoundInput). Its readers are the members that read it, each in the state before its own
+	 * stratum, the read-backs, in the state after the last, and the inputs whose rows read it, each in the state it is
+	 * evaluated in. One whose every reader reads the state it is evaluated in is a part of their queries, as any import of
+	 * a query is (`inlined`). Any other is carried (`later`): checked once, after the carried inputs its own rows read,
+	 * its query a root of the write DAG evaluated right before the statements of the first stratum at or after its own
+	 * that writes (write/schedule/plan.ts), every reader's use of it read as its InputSet (CheckSession `bound`). Its
+	 * query's own parameters join the ChangeSet's.
+	 */
+	const readerStates = (name: string): ReadonlyArray<number> => [
+		...desc.strata.flatMap((stratum, s) =>
+			stratum.members.some((m) => memberParamNames(m.member).has(name)) ? [stateBefore(s)] : []
+		),
+		...desc.reads.flatMap((r) =>
+			queryParamNames(r.query).has(name) ? [stateBefore(desc.strata.length)] : []
+		),
+		...Object.values(desc.boundRows).flatMap((other) =>
+			rowsParamNames(other.rows).has(name) ? [stateBefore(other.stratum)] : []
+		)
+	]
+	const later = new Set(
+		Object.entries(desc.boundRows).flatMap(([name, { stratum }]) =>
+			readerStates(name).every((state) => state === stateBefore(stratum)) ? [] : [name]
+		)
+	)
+	const inlined = new Map(
+		Object.entries(desc.boundRows).flatMap(([name, { rows }]) =>
+			later.has(name) ? [] : [[name, rows] as const]
+		)
+	)
 	/** The identity query of each relation parameter source an inlined binding reads (bindRelationParams), one for
 	 * every source of one identity, so the members that read one binding read one import of it, one node of the DAG. */
 	const identities = new Map<IdentityDigest, QueryDesc>()
@@ -1155,8 +1182,9 @@ const compile = (
 		return query
 	}
 	/**
-	 * A query evaluated in the call's starting state, a first stratum's member's or an input's, with each inlined binding
-	 * a part of it, and each inlined binding its rows read in turn: the rows a binding writes in are its own namespace's
+	 * A query evaluated in some state, a member's, a read-back's or an input's, with each inlined binding it reads a part
+	 * of it, every reader of an inlined binding reading the state it is evaluated in, and each inlined binding its rows
+	 * read in turn: the rows a binding writes in are its own namespace's
 	 * and are not bound again by the pass that writes them (ir/desc.ts RelationBinding), so each pass binds what the one
 	 * before it wrote, until none reads an inlined binding, a pass for each binding at most.
 	 */
@@ -1179,7 +1207,10 @@ const compile = (
 			return
 		}
 		carrying.add(name)
-		const rows = defined(desc.boundRows[name], "a binding of the ChangeSet's bound rows")
+		const { stratum, rows } = defined(
+			desc.boundRows[name],
+			"a binding of the ChangeSet's bound rows"
+		)
 		for (const read of rowsParamNames(rows)) {
 			if (later.has(read)) {
 				carry(read)
@@ -1204,7 +1235,13 @@ const compile = (
 		}
 		const node = merger.add(query)
 		session.bound.set(name, node.heading)
-		boundInputs.push(Object.freeze({ param: ParamId(name), node }))
+		/** Some reader reads another state than the one the input is evaluated in, so that state is before a stratum
+		 * that writes: a read-back's alone, after the last, has every reader in it. */
+		const [before] = defined(
+			occupiedStrata[stateBefore(stratum)],
+			"a writing stratum at or after a carried input's"
+		)
+		boundInputs.push(Object.freeze({ param: ParamId(name), stratum: before, node }))
 	}
 	for (const name of later) {
 		carry(name)
@@ -1574,14 +1611,6 @@ const compile = (
 			carried: carriedOf(member)
 		}
 	}
-	/** Each stratum's write members of facts, its inserts' computed fields aside (`strataComputed`). */
-	const strataWrites = desc.strata.map((stratum) =>
-		stratum.members.flatMap((m): ReadonlyArray<FactsMemberDesc> =>
-			m.member.kind === "computed"
-				? []
-				: [{ op: m.op, relation: m.relation, member: m.member, loc: m.loc }]
-		)
-	)
 	/**
 	 * Each stratum's computed records (ir/instant.ts Computed), by the relation whose host rows leave their fields out:
 	 * each record's query, one rule matching nothing, checked as an insert member of its relation whose head is the
@@ -1991,7 +2020,13 @@ const compile = (
 		}
 	}
 	const readBacks = desc.reads.map((r) => {
-		const query = unwrap(checkReadBack(checked, r, { label: `read ${r.name}`, clock, session }))
+		const query = unwrap(
+			checkReadBack(
+				checked,
+				{ name: r.name, query: inlinedIn(r.query) },
+				{ label: `read ${r.name}`, clock, session }
+			)
+		)
 		for (const p of query.params) {
 			merge(params, p, childLoc(at, "reads", r.name))
 		}
@@ -2020,8 +2055,9 @@ const compile = (
 
 	/** 2. Group each stratum's members into actions. */
 	const slots: Array<SlotGroup> = []
-	const occupied = strataAt(
-		strataMembers.flatMap((members, s) => (members.length > 0 ? [{ s, members }] : []))
+	const occupied = occupiedStrata.map(
+		([stratum, s]) =>
+			[stratum, { s, members: defined(strataMembers[s], "a writing stratum's members") }] as const
 	)
 	/** Each stratum's nested writes, by its position among the occupied strata, the stratum its statements run in. */
 	const nestedWrites: Array<NestedWrite> = []

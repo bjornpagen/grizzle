@@ -1,6 +1,7 @@
 import type { ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import type { DeltaSide, RelNode, ValidDag } from "#compiler/ir/rel.ts"
+import type { StratumAt } from "#compiler/ir/stratum.ts"
 
 export type ActionSource =
 	| { readonly kind: "enumerated"; readonly slot: ParamId }
@@ -80,16 +81,19 @@ export interface WriteIR<Info> {
 }
 
 /**
- * A relation parameter a ChangeSet binds to a query (ChangeSetDesc `boundRows`), an input of the call: one value for the
- * whole call, evaluated once in the state before its first stratum, which every member and read-back that reads it
- * reads. Where only members of its first stratum read it, each is a query over the state before that stratum, the
- * call's starting state, so the parameter's query is a part of theirs, as any import's is (write/frontend/compile.ts),
- * and no BoundInput names it. Where a later stratum or a read-back reads it, it is carried: `node`, its query, is
- * evaluated once before the first stratum into a carrier (write/schedule/plan.ts, step `bound`), and every reader's
+ * A relation parameter a ChangeSet binds to a query (ChangeSetDesc `boundRows`), an input of the call: one value,
+ * evaluated once in the state before the first stratum of the part it was bound on (BoundRowsDesc `stratum`), which
+ * every member and read-back that reads it reads. Where every reader reads that state, members of the first stratum at
+ * or after it that writes, or read-backs where none does, the parameter's query is a part of theirs, as any import's is
+ * (write/frontend/compile.ts), and no BoundInput names it. Where a reader reads another state, a later stratum's member
+ * or a read-back, it is carried: `node`, its query, is evaluated once, right before the statements of `stratum`, into a
+ * carrier (write/schedule/plan.ts, step `bound`), after every write of the strata before it, and every reader's
  * InputSet of it (ir/rel.ts InputSetInput `bound`) reads that carrier. The two realize one meaning, the parameter's rows
- * in the call's starting state, as a CTE inlined or held does one query.
+ * in the state before its part, as a CTE inlined or held does one query.
  */
 export interface BoundInput {
 	readonly param: ParamId
+	/** The stratum before whose statements it is evaluated: the first that writes at or after the part's first. */
+	readonly stratum: StratumAt
 	readonly node: RelNode
 }

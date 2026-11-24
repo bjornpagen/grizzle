@@ -1,41 +1,51 @@
 /**
- * A relation parameter a ChangeSet binds to a query is an input of the call, evaluated once in the state before its first
- * stratum, and every member and read-back that reads it reads that one evaluation (README "Writes", ChangeSetDesc
- * `boundRows`, ir/write.ts BoundInput), on PostgreSQL 19: a later stratum and a read-back read the rows the bound query
- * had before the change, never the query evaluated again over the state they run in.
+ * A relation parameter a ChangeSet binds to a query is an input of the call scoped to the ChangeSet it was bound on, as a
+ * let is to its body: evaluated once in the state before that ChangeSet's first stratum, and every member and read-back
+ * of it that reads it reads that one evaluation (README "Writes", ChangeSetDesc `boundRows`, ir/write.ts BoundInput),
+ * on PostgreSQL 19: bound on the whole call, a later stratum and a read-back read the rows the bound query had before
+ * the change, never the query evaluated again over the state they run in; bound on a part sequenced after another, its
+ * rows are the query's after the earlier part's writes.
  *
  * Schema: Item(id), Mark(id), Log(id), each keyed by its id. `target` is bound to the items no mark holds, so a mark the
  * call adds takes its item out of the target.
  *
  * The space, drawn: the stored items, a nonempty subset of 1..4, and marks, a subset; the first stratum marks the
- * target's items or every item; the target logged in the first stratum, in a second one sequenced after it, or nowhere;
- * a read-back `picked` of the target alone, of the target's items the change marked (delta.added(Mark) joined to
- * `target`, riding the statement that makes it), or none; and `target` bound once on the whole ChangeSet, or by each
- * sequenced part that reads it. Read only by the first stratum's members, the binding is a part of their queries; read
- * by a later stratum or a read-back, it is carried, filled once into a carrier before the first stratum: both arms are
- * drawn. Each case loads its state on a clone of the template and applies its ChangeSet once.
+ * target's items or drawn ids; the target logged in the first stratum, in a second one sequenced after it, or nowhere;
+ * a read-back `picked`, declared by the last part, of the target alone, of the target's items the change marked
+ * (delta.added(Mark) joined to `target`, riding the first stratum's statement that makes it), or none; and `target`
+ * bound once on the whole ChangeSet, or by each sequenced part that reads it. Read only by members of the stratum it is
+ * evaluated before, a binding is a part of their queries; read by a later stratum or a read-back, it is carried, filled
+ * once into a carrier first among that stratum's statements: both arms are drawn, at the first stratum and at the
+ * second. Each case loads its state on a clone of the template and applies its ChangeSet once.
  *
- * Property, per case: the Description holds `target` once among its bound rows, each part's binding of the one query
- * one input; the call commits; Mark, Log and `picked` are the model's (bound-once.fixtures.ts modelOf), `target` read as
- * the items no stored mark holds by every stratum and read-back. Oracle: specification, the model, the bound query
- * evaluated once over the stored state. Kills: every binding a part of its readers' queries however late they read it,
- * and each member reading its own copy of every binding, so a later stratum evaluates it again over the state after the
- * first stratum's marks, which hold every item of the target.
+ * Property, per case: the Description holds one binding of `target` on the whole, at stratum 0, and one for each part
+ * that reads it on each part, the second's at stratum 1; where the last part's read-back of the first stratum's delta
+ * reads the second part's binding, not yet evaluated where the delta is, the load is refused,
+ * ReadBackCrossesStatements, crossing boundAfter; otherwise the call commits and Mark, Log and `picked` are the
+ * model's (bound-once.fixtures.ts modelOf). Oracle: specification, the model, each binding evaluated once, before its
+ * part's first stratum. Kills: each sequenced part's binding evaluated before the call's first stratum, by the
+ * ChangeSet (sequence placing it at the combination's stratum 0) and by the plan (every fill before the first
+ * stratum), so the second part reads the target before the first stratum's marks; and each reader reading its own copy
+ * of every binding, so a later stratum and a read-back evaluate it again over the state they run in.
  *
- * Features: each way of marking, logging, reading and binding, and a carried binding whose re-evaluation reads another
- * target.
+ * Features: each way of marking, logging, reading and binding; a later part's binding that reads the earlier part's
+ * writes; a binding read after the first stratum whose re-evaluation reads another target; the refused read-back.
  */
 import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter, Order, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Order, Record as Rec, Result } from "effect"
 import { changeApplication, variantOf } from "#adapter/db/handles.ts"
+import { isCompileError } from "#compiler/core/errors.ts"
 import { hasProperties } from "#compiler/core/record.ts"
 import { changeSetDesc } from "#compiler/write/changeset/value.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
 import {
+	boundStrata,
+	callFactsOf,
 	changeOf,
 	Item,
+	laterPartSees,
 	Log,
 	Mark,
 	modelOf,
@@ -57,8 +67,8 @@ const pickedId = (row: unknown): number =>
 		? row["id"]
 		: assert.fail(`a row of picked, not ${Formatter.format(row)}`)
 
-/** A relation parameter bound to a query is read once, before the change, by every stratum and read-back that reads it. */
-export const aRelationParameterBoundToAQueryIsReadOnceBeforeTheChangeByEveryStratumAndReadBackThatReadsIt =
+/** A relation parameter bound to a query is read once, before the first stratum of the part it is bound on, by every stratum and read-back of that part that reads it. */
+export const aRelationParameterBoundToAQueryIsReadOnceBeforeThePartItIsBoundOnByEveryStratumAndReadBackThatReadsIt =
 	property.explore(onceGen, {
 		needs: { fixture: Substrate.fresh(onceTemplate) },
 		situations: situations satisfies ReadonlyArray<Reached<Situation>>,
@@ -71,8 +81,11 @@ export const aRelationParameterBoundToAQueryIsReadOnceBeforeTheChangeByEveryStra
 						k.note(c.logged)
 						k.note(c.read)
 						k.note(c.bound)
+						if (laterPartSees(c)) {
+							k.note("a later part's binding, after the earlier part's writes")
+						}
 						if (reevaluationDiffers(c)) {
-							k.note("carried, its re-evaluation another target")
+							k.note("a binding read after the first stratum, its re-evaluation another target")
 						}
 						const seat = yield* fixture
 						const opened = yield* openedIn(
@@ -89,12 +102,14 @@ export const aRelationParameterBoundToAQueryIsReadOnceBeforeTheChangeByEveryStra
 						const names = namesOf(opened.installed)
 						const change = changeOf(c)
 						const boundRows = defined(changeSetDesc(change), "a ChangeSet's Description").boundRows
-						assert.equal(
-							Rec.size(boundRows),
-							1,
-							"one input of the call, however many parts bound it"
+						assert.deepEqual<ReadonlyArray<number>>(
+							Arr.sort(
+								Arr.map(Rec.values(boundRows), (b) => b.stratum),
+								Order.Number
+							),
+							boundStrata(c),
+							"one input for each part that binds target, at its part's first stratum"
 						)
-						assert.ok(Rec.has(boundRows, "target"), "the input is target")
 						const model = modelOf(c)
 						const outcome = yield* withServedDb(
 							opened.installed,
@@ -102,21 +117,44 @@ export const aRelationParameterBoundToAQueryIsReadOnceBeforeTheChangeByEveryStra
 							{},
 							({ ctx, load }) =>
 								Effect.gen(function* () {
-									const served = yield* load({ bound: change })
-									const loaded = member(served, "bound")
+									const served = yield* Effect.result(load({ bound: change }))
+									if (Result.isFailure(served)) {
+										return { kind: "refused" as const, refusal: served.failure }
+									}
+									const loaded = member(served.success, "bound")
 									if (loaded.kind !== "change") {
 										return yield* Effect.die(new Error("the ChangeSet loads as a change"))
 									}
-									return yield* changeApplication(
+									const applied = yield* changeApplication(
 										ctx,
 										variantOf(ctx, loaded.variants)
-									)({ params: {}, facts: {} })
+									)({ params: {}, facts: callFactsOf(c) })
+									return { kind: "applied" as const, applied }
 								})
 						)
+						if (model.kind === "refused") {
+							const error =
+								outcome.kind === "refused" && "error" in outcome.refusal
+									? outcome.refusal.error
+									: undefined
+							assert.ok(
+								isCompileError(error) &&
+									error.reason._tag === "ReadBackCrossesStatements" &&
+									error.reason.read === "picked" &&
+									error.reason.crossing.kind === "boundAfter",
+								`picked is refused, crossing boundAfter, not ${Formatter.format(outcome)}`
+							)
+							k.note("refused: a read-back riding a statement before its part's binding")
+							return
+						}
+						const applied =
+							outcome.kind === "applied"
+								? outcome.applied
+								: assert.fail(`the ChangeSet loads, not ${Formatter.format(outcome.refusal)}`)
 						const reads =
-							outcome.kind === "accepted" || outcome.kind === "no-change"
-								? outcome.reads
-								: assert.fail(`the call commits, not ${outcome.kind}`)
+							applied.kind === "accepted" || applied.kind === "no-change"
+								? applied.reads
+								: assert.fail(`the call commits, not ${applied.kind}`)
 						/** The ids a table holds, in order. */
 						const ids = (table: string) =>
 							Effect.map(admin.query(`SELECT id FROM ${table} ORDER BY id`, []), (result) =>
@@ -129,13 +167,13 @@ export const aRelationParameterBoundToAQueryIsReadOnceBeforeTheChangeByEveryStra
 						assert.deepEqual<ReadonlyArray<number>>(
 							logs,
 							model.log,
-							"Log is the target before the change"
+							"Log is the target its part's binding read"
 						)
 						const picked = hasProperties(reads) ? reads["picked"] : undefined
 						assert.deepEqual<ReadonlyArray<number> | undefined>(
 							Arr.isArray(picked) ? Arr.sort(Arr.map(picked, pickedId), Order.Number) : undefined,
 							model.picked,
-							"picked reads the target before the change"
+							"picked reads the target its part's binding read"
 						)
 						assert.deepEqual<ReadonlyArray<number>>(
 							items,
@@ -146,23 +184,29 @@ export const aRelationParameterBoundToAQueryIsReadOnceBeforeTheChangeByEveryStra
 				),
 		oracle: {
 			kind: "specification",
-			name: "the bound query evaluated once over the stored state, the items no stored mark holds, read by every stratum and read-back (bound-once.fixtures.ts modelOf)"
+			name: "each binding evaluated once, before its part's first stratum: the first part's over the stored state, the second's after the first stratum's marks (bound-once.fixtures.ts modelOf)"
 		},
 		show: Formatter.format,
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/write/frontend/compile.ts",
-				original: "\t\tObject.keys(desc.boundRows).filter(",
-				replacement: "\t\t[].filter(",
-				why: "Every binding is a part of its readers' queries however late they read it: the second stratum's log and the read-back evaluate the target again after the first stratum's marks, which hold every item of it, and read none."
+				file: "packages/engine/src/write/changeset/value.ts",
+				original:
+					"\tconst { top, x, y, bound } = combined(label, a, b, extra, (first) => first.strata.length)",
+				replacement: "\tconst { top, x, y, bound } = combined(label, a, b, extra, () => 0)",
+				why: "A sequenced part's binding is evaluated before the call's first stratum: the second part's log and read-back read the target before the first stratum's marks, and the last part's read-back of the first stratum's delta rides it unrefused."
+			},
+			{
+				file: "packages/engine/src/write/schedule/plan.ts",
+				original: "bound.filter((b) => b.input.stratum === s)",
+				replacement: "bound.filter(() => s === 0)",
+				why: "Every carried binding is filled before the first stratum: the second part's binding its read-back carries holds the target before the first stratum's marks."
 			},
 			{
 				file: "packages/engine/src/write/frontend/compile.ts",
-				original:
-					"\tconst inlined = new Map(Object.entries(desc.boundRows).filter(([name]) => !later.has(name)))",
-				replacement: "\tconst inlined = new Map(Object.entries(desc.boundRows))",
-				why: "Each member reads its own copy of every binding: the second stratum's log evaluates the target again over the state after the first stratum's marks and logs none of it, while the carrier its read-back reads holds the target before the change."
+				original: "\t\t\tlater.has(name) ? [] : [[name, rows] as const]",
+				replacement: "\t\t\t[[name, rows] as const]",
+				why: "Each reader reads its own copy of every binding: the second stratum's log and the read-back evaluate the target again over the state they run in, after the first stratum's marks."
 			}
 		]
 	})

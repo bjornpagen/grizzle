@@ -119,7 +119,8 @@ export class CheckSession {
 	readonly ids = makeIdSupply()
 	/**
 	 * The relation parameters a write's ChangeSet binds to queries whose readers read one evaluation of each, carried
-	 * before its first stratum (write/frontend/compile.ts, ChangeSetDesc `boundRows`), by name, each with the heading
+	 * before the first stratum of the part that bound it (write/frontend/compile.ts, ChangeSetDesc `boundRows`), by
+	 * name, each with the heading
 	 * that evaluation delivers: a use of one, in any check of the compile, reads it as the InputSet of that evaluation
 	 * (Checker `#paramSource`, ir/rel.ts InputSetInput `bound`). Its compile records each before it checks a reader.
 	 */

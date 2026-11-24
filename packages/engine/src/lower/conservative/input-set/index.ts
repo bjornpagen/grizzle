@@ -95,7 +95,7 @@ export const inputSetSource = (node: NodeOf<"InputSet">, cx: LowerContext): Inpu
 
 /**
  * The carrier of a relation parameter its ChangeSet binds to a query, under a fresh alias (InputSet `bound`): the rows
- * its call evaluated once before its first stratum, a set of facts by their fill (write/carriers memberRows), each field
+ * its call evaluated once before the first stratum of the part that bound it, a set of facts by their fill (write/carriers memberRows), each field
  * in the column the write program's carrier holds it in (LowerContext.boundRows):
  *
  *   SELECT r2.c1 FROM "pg_temp"."__carrier_1_<digest>" AS r2

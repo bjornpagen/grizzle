@@ -13,10 +13,9 @@
  *   stratum alone reads the scorers, explains as its two strata's two statements, the guard a part of the first, and
  *   writes the child's awaiting items scored by the operator where Admin holds them, and grades them. The app's
  *   decision of a stage sequenced before the ledger's take bound to the guard (`decideTake`, `child` one parameter of
- *   the app's member and of the guard's) is three statements: the guard, an input of the call, read once before the
- *   decision, then the decision and the take, which reads that one evaluation: a visit of each of the child's sittings
- *   before the decision (README "Writes": a relation parameter bound to a query is evaluated once before the first
- *   stratum, whichever part of a sequence bound it).
+ *   the app's member and of the guard's) is two statements, the take reading the guard after the decision, a part of
+ *   its own statement: a visit of each of the child's sittings, the decided one among them (README "Writes": a
+ *   relation parameter bound to a query is evaluated once before the first stratum of the part it is bound on).
  * - **Oracle:** second implementation: today's form, the ledger's own programs fed the guard's rows, and its writes as
  *   their specification states them (`suspendedOf`, `evaluatedOf`).
  * - **Features:** a child with open visits, a child none of whose sittings is open, an admitted operator, an operator
@@ -87,15 +86,15 @@ const evaluatedOf = (c: BoundCase) => {
 }
 
 /** What the app's decision and the ledger's take leave: the decided stage the child's, and a visit of each of its
- * sittings before the decision, beside the visits the case held: the take's `taken` is an input of the call, the guard
- * read once before its first stratum, whichever part of the sequence bound it (README "Writes"). */
+ * sittings, the decided one among them, beside the visits the case held: the take's `taken` is bound on the take, the
+ * guard read once before the take's stratum, after the decision (README "Writes"). */
 const tookOf = (c: BoundCase) => {
 	const stages = Arr.dedupeWith(
 		[...c.stages, { child: c.child, key: c.decided }],
 		(a, b) => a.child === b.child && a.key === b.key
 	)
 	const taken = Arr.map(
-		Arr.filter(c.stages, (s) => s.child === c.child),
+		Arr.filter(stages, (s) => s.child === c.child),
 		(s) => ({ child: s.child, stage: s.key, k: 1 })
 	)
 	return {
@@ -204,8 +203,8 @@ export const aRelationParameterBoundToAHigherLevelsQueryReadsItsRowsInTheLowerLe
 										const took = yield* takes.explain(decision)
 										assert.equal(
 											took.length,
-											3,
-											"the guard's one evaluation before the decision, then the decision and the take that reads it"
+											2,
+											"the decision and the bound take are two statements, no read between"
 										)
 										const decided = yield* Effect.result(writeOnce(call("decideTake"))(decision))
 										if (Result.isFailure(decided)) {

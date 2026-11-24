@@ -10,16 +10,15 @@
  * The box, exhausted: an insert's ChangeSet and a delete's, each reading standing, sequenced either way, unioned in one
  * stratum, or sequenced with a third ChangeSet after them that puts Item 3 | 33 and reads nothing; the insert's fact a
  * fresh one, 3 | 30, or the stored 1 | 10 again; the delete's a stored fact, 2 | 20, or the insert's; standing every
- * fact of Item, or every fact of a relation parameter each ChangeSet binds to one query of Item's facts, as qti-pie's
- * standing reads the sittings metis binds. Each case installs the schema on a clone of its own, stores the state and
- * applies the ChangeSet once.
+ * fact of Item, or every fact of a relation parameter the combined ChangeSet binds once to a query of Item's facts, as
+ * qti-pie's standing reads the sittings metis binds on its whole call. Each case installs the schema on a clone of its
+ * own, stores the state and applies the ChangeSet once.
  *
  * Property, per case: the ChangeSet's Description holds the one read-back `standing`; the call is accepted; standing's
  * rows over Item are the model's state after the whole ChangeSet (merged-reads.fixtures.ts modelOf: each stratum's
  * meaning over the state before it, S' = (S \ D) ∪ A), each fact once, and over the bound relation parameter Item's
- * facts in the call's starting state, the stored ones: a relation parameter bound to a query is an input of the whole
- * call, evaluated once before its first stratum, whichever of the combined ChangeSets bound it (README "Writes");
- * the stored state after the call is the model's. Oracle: specification, the model. Kill: the read-backs' statements
+ * facts in the call's starting state, the stored ones: a relation parameter bound to a query on the whole call is
+ * evaluated once before its first stratum (README "Writes"); the stored state after the call is the model's. Oracle: specification, the model. Kill: the read-backs' statements
  * sent before the writes in the applying transaction (adapter/apply/run.ts), so standing reads the stored state.
  *
  * Features: each composition, each insert and delete, each standing.
@@ -149,7 +148,7 @@ export const twoReadBacksOfOneNameOverOneQueryAreOneReadAfterTheWholeChangeSetIt
 			kind: "specification",
 			name: "each stratum's meaning over the state before it, S' = (S \\ D) ∪ A (merged-reads.fixtures.ts modelOf)"
 		},
-		box: "an insert's ChangeSet and a delete's, each reading standing over one query, sequenced either way, unioned, or sequenced before a put that reads nothing; the insert fresh or a stored fact again; the delete stored or the insert's; standing Item's facts or a relation parameter bound to them",
+		box: "an insert's ChangeSet and a delete's, each reading standing over one query, sequenced either way, unioned, or sequenced before a put that reads nothing; the insert fresh or a stored fact again; the delete stored or the insert's; standing Item's facts or a relation parameter the whole binds to them",
 		show: Formatter.format,
 		kept: [],
 		kills: [

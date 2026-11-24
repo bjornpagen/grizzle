@@ -30,9 +30,9 @@ import {
 	type StatementSpec
 } from "#compiler/ir/products.ts"
 import {
+	boundParamsRead,
 	type DeltaSide,
 	edgesOf,
-	inputsOf,
 	type NodeOf,
 	type RelDag,
 	type RelNode
@@ -331,36 +331,19 @@ const inputReads = (inputs: ReadonlyArray<WriteInput>): ReadonlyArray<string> =>
 	)
 
 /**
- * The carriers of the bound relation parameters a statement rooted at `roots` reads (ir/rel.ts InputSetInput `bound`):
- * the carrier `bound` holds each in, filled before the first stratum (write/schedule/plan.ts step `bound`); none where
- * the write carries none, as almost every write does.
+ * The carriers of the bound relation parameters a statement rooted at `roots` reads (ir/rel.ts boundParamsRead): the
+ * carrier `bound` holds each in, filled first among its stratum's steps (write/schedule/plan.ts step `bound`); none
+ * where the write carries none, as almost every write does.
  */
 const boundReads = (
 	bound: ReadonlyMap<ParamId, WriteCarrier>,
 	roots: ReadonlyArray<RelNode>
-): ReadonlyArray<string> => {
-	if (bound.size === 0) {
-		return []
-	}
-	const out = new Set<string>()
-	const seen = new Set<RelNode>()
-	const queue = [...roots]
-	for (const node of queue) {
-		if (seen.has(node)) {
-			continue
-		}
-		seen.add(node)
-		if (node.kind === "InputSet" && node.input.kind === "bound") {
-			out.add(
-				`carrier:${defined(bound.get(node.input.param), "a carried bound input's carrier").name}`
+): ReadonlyArray<string> =>
+	bound.size === 0
+		? []
+		: [...boundParamsRead(roots)].map(
+				(param) => `carrier:${defined(bound.get(param), "a carried bound input's carrier").name}`
 			)
-		}
-		for (const input of inputsOf(node)) {
-			queue.push(input)
-		}
-	}
-	return [...out]
-}
 
 /** The nodes a planned write lowers: its described input, its exception's, and the region a deletion is anchored on. */
 const plannedNodes = (planned: PlannedWrite): ReadonlyArray<RelNode> => {
@@ -1269,9 +1252,9 @@ const optimizedPlacement = (
 	for (const step of plan.steps) {
 		switch (step.kind) {
 			case "bound": {
-				/** A carried bound input's one evaluation, before the first stratum: its carrier, which the session's
-				 * stand-up of the write made, emptied, then filled from its query in the call's starting state, which every
-				 * statement after it reads (ir/write.ts BoundInput). */
+				/** A carried bound input's one evaluation, first among its stratum's statements: its carrier, which the
+				 * session's stand-up of the write made, emptied, then filled from its query in the state the strata before
+				 * it left, which every statement after it reads (ir/write.ts BoundInput). */
 				const { input, carrier } = step
 				placed(
 					() => buildEmptyCarrier(w, carrier),
@@ -1280,7 +1263,7 @@ const optimizedPlacement = (
 						kind: "carrier",
 						carrier: carrier.name,
 						step: "empty",
-						stratum: undefined,
+						stratum: input.stratum,
 						casts: castsNothing
 					})
 				)
@@ -1297,7 +1280,7 @@ const optimizedPlacement = (
 						kind: "carrier",
 						carrier: carrier.name,
 						step: "fill",
-						stratum: undefined,
+						stratum: input.stratum,
 						casts: castsNothing
 					})
 				)

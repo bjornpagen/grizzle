@@ -375,8 +375,8 @@ export const headingOrder = (heading: Heading): CompletedOrder => ({
  * a write, filled from the normalized facts the write puts into `relation`, each a placeholder of the statement; the
  * row a write filter's membership is asked at, exactly one fact, whose values the membership's caller names
  * (ir/desc.ts RowSourceDesc), which no placeholder carries; or a relation parameter its ChangeSet binds to a query
- * (ChangeSetDesc `boundRows`), an input of the call evaluated once before its first stratum into the carrier every
- * statement that reads it reads (`bound`), which no placeholder carries either.
+ * (ChangeSetDesc `boundRows`), an input of the call evaluated once, before the first stratum of the part it was bound
+ * on, into the carrier every statement that reads it reads (`bound`), which no placeholder carries either.
  */
 export type InputSetInput =
 	| PlaceholderInput
@@ -1437,6 +1437,27 @@ export const edgesOf = <N>(n: NodeOver<EdgeRefs<N>>): ReadonlyArray<N> => {
 export const inputsOf = <N>(n: NodeOver<EdgeRefs<N>>): ReadonlyArray<N> => {
 	const edges = edgesOf(n)
 	return edges.length < 2 ? edges : [...new Set(edges)]
+}
+
+/** The bound relation parameters the queries rooted at `roots` read (InputSetInput `bound`), each by the carrier its
+ * one evaluation is held in. */
+export const boundParamsRead = (roots: ReadonlyArray<RelNode>): ReadonlySet<ParamId> => {
+	const out = new Set<ParamId>()
+	const seen = new Set<RelNode>()
+	const queue = [...roots]
+	for (const node of queue) {
+		if (seen.has(node)) {
+			continue
+		}
+		seen.add(node)
+		if (node.kind === "InputSet" && node.input.kind === "bound") {
+			out.add(node.input.param)
+		}
+		for (const input of inputsOf(node)) {
+			queue.push(input)
+		}
+	}
+	return out
 }
 
 const noScopeExprs: ReadonlyArray<never> = Object.freeze([])

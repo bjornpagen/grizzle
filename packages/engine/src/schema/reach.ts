@@ -147,7 +147,7 @@ export const sliceOf = (base: Owned, programs: ReadonlyArray<RoleProgram>): Slic
 				name(role, r)
 			}
 		}
-		for (const [bound, rows] of Object.entries(program.changeSet.boundRows)) {
+		for (const [bound, { rows }] of Object.entries(program.changeSet.boundRows)) {
 			for (const r of queryUses(boundRowsQuery(bound, rows, boundRowsLoc(bound))).relations) {
 				name(role, r)
 			}

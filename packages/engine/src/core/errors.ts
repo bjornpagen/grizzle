@@ -831,12 +831,16 @@ export interface NamedSide {
  *   the other side of, so no statement's rows are the whole delta: one relation written in two strata;
  * - `sidesApart`: `first` and `second` are made whole by two different statements;
  * - `stateAfter`: the read-back reads `state`, which a statement at or after the one making `delta` writes, so that
- *   statement still sees `state` as it was before the change.
+ *   statement still sees `state` as it was before the change;
+ * - `boundAfter`: the read-back reads the relation parameter `bound`, bound on a part of the ChangeSet whose first
+ *   stratum comes after the one whose statement makes `delta`, so its one evaluation, in the state before that part, is
+ *   not yet made where the delta is.
  */
 export type ReadBackCrossing =
 	| ({ readonly kind: "sideWrittenTwice" } & NamedSide)
 	| { readonly kind: "sidesApart"; readonly first: NamedSide; readonly second: NamedSide }
 	| { readonly kind: "stateAfter"; readonly delta: NamedSide; readonly state: string }
+	| { readonly kind: "boundAfter"; readonly delta: NamedSide; readonly bound: string }
 
 /** A side as a read-back names it: `delta.added(R)`. */
 const namedSideText = (named: NamedSide): string => `delta.${named.side}(${named.relation})`
@@ -854,6 +858,8 @@ const readBackCrossingText = (read: string, crossing: ReadBackCrossing): string 
 			return `${evaluated}, and ${namedSideText(crossing.first)} and ${namedSideText(crossing.second)} are made by two statements: read each in a read-back of its own`
 		case "stateAfter":
 			return `${evaluated}, and it reads ${crossing.state}, which the write changes at or after the statement making ${namedSideText(crossing.delta)}, so that statement sees ${crossing.state} as it was before: read delta.added(${crossing.state}) in its place, or write ${crossing.state} in an earlier stratum (ChangeSet.sequence)`
+		case "boundAfter":
+			return `${evaluated}, and it reads relation parameter ${crossing.bound}, bound on a part sequenced after the statement making ${namedSideText(crossing.delta)} and evaluated once before that part: bind ${crossing.bound} on a ChangeSet that holds that statement, or read ${crossing.bound} in a read-back of its own`
 	}
 }
 
