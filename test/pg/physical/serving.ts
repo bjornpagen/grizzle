@@ -1610,6 +1610,31 @@ const residueFeature = (residue: Residue): ServingFeature => {
 }
 
 /**
+ * Whether `index` serves `request` as the engine's contract holds every keyed read to (physical/indexes/engine.ts): a
+ * GiST request by any GiST index PostgreSQL reads it through, and any other by an index whose leading columns are
+ * exactly the columns it binds by equality, in any order, or a unique index all of whose keys it binds; a request that
+ * binds none by any.
+ */
+const leadsExactly = (request: IndexRequest, index: PlannedIndex): boolean => {
+	const bound =
+		request.role === "lawMaintenance"
+			? Arr.flatMap(request.blocks.flat(), (k) =>
+					k.column.kind === "suffix"
+						? []
+						: [k.column.kind === "field" ? k.column.field.name : k.column.column]
+				)
+			: Arr.map(Arr.take(request.keys, request.fixed), (k) => String(k.expr))
+	const keys = Arr.map(index.keys, keyText)
+	return (
+		request.method === "gist" ||
+		bound.length === 0 ||
+		(index.unique && Arr.every(keys, (k) => bound.includes(k))) ||
+		(keys.length >= bound.length &&
+			Arr.every(Arr.take(keys, bound.length), (k) => bound.includes(k)))
+	)
+}
+
+/**
  * PostgreSQL's judgment of the index engine (physical/indexes/engine.ts) over an installation at volume: whether each
  * index request the engine claims served is served, and whether each index it created is needed.
  *
@@ -1738,8 +1763,11 @@ const residueFeature = (residue: Residue): ServingFeature => {
  * read so in a run whose VACUUM left the load's pages unmarked). A load VACUUM does not settle fails closed.
  *
  * Each index the engine created must be needed: with it dropped, in a transaction rolled back, some request it serves
- * is no longer served. An index PostgreSQL can do without is one the engine built beside another that already serves
- * every request it holds.
+ * is no longer served, or is served only through an index whose leading columns are not exactly the columns it binds by
+ * equality and that is no unique index all of whose keys it binds, which the engine's contract never lets a read take
+ * however PostgreSQL prices it, a skip scan over a leading column it leaves unbound among them (`leadsExactly`). An
+ * index PostgreSQL can do without is one the engine built beside another that already serves every request it holds
+ * exactly.
  *
  * The populations load their relations at volume before judging (serving.test.ts), so a lookup and a sweep differ by
  * far more than the descent.
@@ -2270,7 +2298,7 @@ export const judgeServing = (
 			const without = new Map(
 				Arr.filter([...plannedOn(i.relation)], ([name]) => name !== i.index.name)
 			)
-			const verdicts: Array<readonly [Probe, Verdict]> = []
+			const verdicts: Array<readonly [Probe, Verdict, IndexRequest]> = []
 			for (const request of i.requests) {
 				const probe = probeFor(request)
 				const plan = yield* readThrough(
@@ -2282,10 +2310,16 @@ export const judgeServing = (
 					probe,
 					Result.isFailure(plan)
 						? { kind: "unserved", why: plan.failure }
-						: verdictOf(probe, plan.success, without, facts, () => true)
+						: verdictOf(probe, plan.success, without, facts, () => true),
+					request
 				])
 			}
-			if (Arr.some(verdicts, ([, v]) => v.kind !== "served")) {
+			if (
+				Arr.some(
+					verdicts,
+					([, v, request]) => v.kind !== "served" || !leadsExactly(request, v.through)
+				)
+			) {
 				note("a created index needed")
 				continue
 			}

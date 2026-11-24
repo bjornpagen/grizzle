@@ -349,6 +349,19 @@ export const sameColumns = (a: ReadonlyArray<string>, b: ReadonlyArray<string>):
 /** A planned index key's field, or its law column's identifier. */
 export const keyField = (k: PlannedIndex["keys"][number]): string => keyTermText(k.column)
 
+/**
+ * The columns a request binds by equality, by their key texts: a law's probe's every column but a suffix key, which its
+ * seek matches a prefix of, and a workload request's first `fixed`.
+ */
+export const boundColumns = (r: IndexRequest): ReadonlyArray<string> =>
+	r.role === "lawMaintenance"
+		? Arr.flatMap(r.blocks.flat(), (k) =>
+				k.column.kind === "suffix"
+					? []
+					: [k.column.kind === "field" ? k.column.field.name : k.column.column]
+			)
+		: Arr.map(Arr.take(r.keys, r.fixed), (k) => String(k.expr))
+
 export const install = (requests: ReadonlyArray<IndexRequest>) => {
 	const owned = owning(Indexed)
 	return compileInstallation(owned, {

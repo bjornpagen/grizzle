@@ -458,6 +458,12 @@
  * identity.ruleDeltaIndex, sql/ast.ts PlStatement createSessionIndex), where format 8 had one reader of every row of
  * each delta, read through a MATERIALIZED CTE of each statement that read it, and no index of a delta. So every judge
  * statement, every reader and every stand-up moves.
+ * Every read the index engine plans lands on an index whose leading columns are exactly the columns it binds by
+ * equality, or on a unique index all of whose keys it binds, and the B-trees created for the reads no installed key
+ * serves are the fewest that do, grouped so each group's sets are one chain (physical/indexes/engine.ts chainsOf,
+ * indexes/chains.ts fewestSharingGroups), where format 8 let a workload's lookup land on a B-tree led by one of its
+ * columns of many values that held the rest anywhere after it, or on a GiST index placed by one, and drafted each index
+ * from its first request: so indexes are created, dropped and renamed.
  */
 export const artifactFormat = 8
 

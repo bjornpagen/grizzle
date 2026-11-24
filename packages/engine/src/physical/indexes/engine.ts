@@ -1,4 +1,4 @@
-import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { defined, invariant } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	extendNonEmpty,
 	isNonEmpty,
@@ -35,6 +35,7 @@ import {
 import {
 	type AccessUse,
 	type IndexRequest,
+	indexOpclassText,
 	type PhysicalReason,
 	sameIndexOpclass,
 	vectorCosineOpclass
@@ -47,6 +48,7 @@ import type {
 	TargetField
 } from "#compiler/physical/ddl/context.ts"
 import type { KeyIndex, KeyRole } from "#compiler/physical/ddl/tables.ts"
+import { fewestSharingGroups } from "#compiler/physical/indexes/chains.ts"
 import type { Node } from "#compiler/physical/obligations/graph.ts"
 import {
 	type DatumBound,
@@ -293,24 +295,17 @@ const lawBlocks = (r: LawIndexRequest): NonEmptyReadonlyArray<Block> =>
 	)
 
 /**
- * Columns leading an index as blocks, an ordered request's in its directions or all opposite: a B-tree's, which narrows
- * its scan by its leading columns in order whatever values they hold, or the one column of a hash or an HNSW index. A
- * GiST index places an entry by its first column of many values, so no blocks of its columns place a request
- * (PlacedPlacement).
+ * Columns leading an index as blocks, each block's columns in any order among themselves, an ordered request's in its
+ * directions or all opposite: a B-tree's, which narrows its scan by its leading columns in order whatever values they
+ * hold; the one column of a hash or an HNSW index; or a GiST index's leading columns where its first block holds a column
+ * of many values, which places its entries (`gistLed`), so a scan binding that block descends once.
  */
 interface BlocksPlacement {
 	readonly kind: "blocks"
-	readonly method: Exclude<IndexMethod, "gist">
+	readonly method: IndexMethod
 	readonly blocks: NonEmptyReadonlyArray<Block>
 	/** The ordered request's keys, which fix each block's direction up to reversal, when the request is an order. */
 	readonly directed: Keys | undefined
-}
-
-/** A B-tree led by one of `lead`, columns of many values the request fixes, holding each of `held`. */
-interface LedPlacement {
-	readonly kind: "led"
-	readonly lead: Keys
-	readonly held: ReadonlyArray<IndexKey>
 }
 
 /**
@@ -334,9 +329,9 @@ interface KeyedPlacement {
 }
 
 /** Where a request's columns sit in a serving index (see `planIndexes`), each by the access method that holds them so:
- * blocks leading a B-tree, a hash or an HNSW index, a B-tree led by one of them and holding others, a GiST index placed by
- * one of them and holding the rest, or, for a unique index, its every key among some of them. */
-type Placement = BlocksPlacement | LedPlacement | PlacedPlacement | KeyedPlacement
+ * blocks leading an index, a GiST index placed by one of them and holding the rest, which serves a GiST request alone, or,
+ * for a unique index, its every key among some of them. */
+type Placement = BlocksPlacement | PlacedPlacement | KeyedPlacement
 
 /** The access method of the indexes that hold a placement. */
 const methodOf = (placement: Placement): IndexMethod => {
@@ -344,8 +339,6 @@ const methodOf = (placement: Placement): IndexMethod => {
 		case "blocks":
 		case "keyed":
 			return placement.method
-		case "led":
-			return "btree"
 		case "placed":
 			return "gist"
 	}
@@ -357,37 +350,32 @@ interface Placements {
 	readonly others: ReadonlyArray<Placement>
 }
 
-/** The columns of `fixed` that place an entry, of many values or a span: any may lead a B-tree that holds the rest, or be
- * a GiST index's first column of many values. */
+/** The columns of `fixed` that place an entry, of many values or a span: any may be a GiST index's first column of many
+ * values. */
 const placingOf = (fixed: ReadonlyArray<IndexKey>, columns: Columns): ReadonlyArray<IndexKey> =>
 	fixed.filter((k) => columns.holds(k.column) !== "few")
 
-/** A B-tree led by one of `lead` and holding every column of `held`, when the request fixes a column that places. */
-const ledBy = (
-	lead: ReadonlyArray<IndexKey>,
-	held: ReadonlyArray<IndexKey>
-): ReadonlyArray<Placement> => (isNonEmpty(lead) ? [{ kind: "led", lead, held }] : [])
-
-/** A GiST index placed by one of `lead` and holding every column of `bound`, a B-tree request's own columns, when the
- * request fixes a column that places and btree_gist searches each of `bound` by its equality and comparison operators,
- * a scalar under the default class. */
-const placedBy = (
-	lead: ReadonlyArray<IndexKey>,
-	bound: Keys,
+/**
+ * A GiST index leading with `blocks`, a B-tree request's own, as a B-tree would (`placementsOf`), where its first block
+ * holds a column of many values, which places the index's entries, so the request's scan descends once, and btree_gist
+ * searches each of its columns by its equality and comparison operators, a scalar under the default class.
+ */
+const gistLed = (
+	blocks: NonEmptyReadonlyArray<Block>,
 	columns: Columns
 ): ReadonlyArray<Placement> =>
-	isNonEmpty(lead) &&
-	bound.every((k) => columns.holds(k.column) !== "span" && k.opclass.kind === "default")
-		? [{ kind: "placed", lead, bound }]
+	isNonEmpty(placingOf(blocks[0], columns)) &&
+	blocks.every((block) =>
+		block.every((k) => columns.holds(k.column) !== "span" && k.opclass.kind === "default")
+	)
+		? [{ kind: "blocks", method: "gist", blocks, directed: undefined }]
 		: []
 
 /**
  * A law's lookup, an equality lookup on every column that PostgreSQL's RI trigger or the rule judge runs once per row a
- * write touches (ri_triggers.c, RI_FKey_noaction_del): a B-tree whose leading columns are exactly the requested set, its
- * blocks in order (ir/law.ts LawIndexRequest), a unique B-tree all of whose keys it binds, which finds at most one row,
- * or a GiST index it places (`placedBy`). Never a B-tree led by one requested column that holds the others further in
- * (`ledBy`), which a workload's lookup takes: each probe would read every row of that column's value, a whole document's
- * rows for a key led by (package, path), so deleting a document of n rows would read n² entries.
+ * write touches (ri_triggers.c, RI_FKey_noaction_del): an index whose leading columns are exactly the requested set, its
+ * blocks in order (ir/law.ts LawIndexRequest), a B-tree's or a GiST index's (`gistLed`), or a unique B-tree all of whose
+ * keys it binds, which finds at most one row.
  */
 const reversePlacements = (
 	blocks: NonEmptyReadonlyArray<Block>,
@@ -395,48 +383,34 @@ const reversePlacements = (
 	columns: Columns
 ): Placements => ({
 	own: { kind: "blocks", method: "btree", blocks, directed: undefined },
-	others: [
-		{ kind: "keyed", method: "btree", within: keys },
-		...placedBy(placingOf(keys, columns), keys, columns)
-	]
+	others: [{ kind: "keyed", method: "btree", within: keys }, ...gistLed(blocks, columns)]
 })
 
-/** An equality lookup on every column. */
-const equalityPlacements = (keys: Keys, columns: Columns): Placements => {
-	const lead = placingOf(keys, columns)
-	return {
-		own: { kind: "blocks", method: "btree", blocks: [keys], directed: undefined },
-		others: [
-			{ kind: "keyed", method: "btree", within: keys },
-			...ledBy(lead, keys),
-			...placedBy(lead, keys, columns)
-		]
-	}
-}
+/** An equality lookup on every column: an index whose leading columns are exactly its set, or a unique B-tree all of
+ * whose keys it binds. */
+const equalityPlacements = (keys: Keys, columns: Columns): Placements => ({
+	own: { kind: "blocks", method: "btree", blocks: [keys], directed: undefined },
+	others: [{ kind: "keyed", method: "btree", within: keys }, ...gistLed([keys], columns)]
+})
 
-/** An equality prefix and one range column, `keys` the prefix and then the range column, the prefix's columns placing a
- * GiST index's entries. */
+/** An equality prefix and one range column, `keys` the prefix and then the range column: an index whose leading columns
+ * are exactly the prefix's set and then the range column, or a unique B-tree all of whose keys the prefix binds. */
 const prefixedRangePlacements = (
-	keys: Keys,
 	prefix: Keys,
 	bounded: IndexKey,
 	columns: Columns
-): Placements => {
-	const lead = placingOf(prefix, columns)
-	return {
-		own: { kind: "blocks", method: "btree", blocks: [prefix, [bounded]], directed: undefined },
-		others: [
-			{ kind: "keyed", method: "btree", within: prefix },
-			...ledBy(lead, keys),
-			...placedBy(lead, keys, columns)
-		]
-	}
-}
+): Placements => ({
+	own: { kind: "blocks", method: "btree", blocks: [prefix, [bounded]], directed: undefined },
+	others: [
+		{ kind: "keyed", method: "btree", within: prefix },
+		...gistLed([prefix, [bounded]], columns)
+	]
+})
 
-/** One range column alone, which places a GiST index's entries itself. */
+/** One range column alone: an index led by it. */
 const bareRangePlacements = (bounded: IndexKey, columns: Columns): Placements => ({
 	own: { kind: "blocks", method: "btree", blocks: [[bounded]], directed: undefined },
-	others: placedBy(placingOf([bounded], columns), [bounded], columns)
+	others: gistLed([[bounded]], columns)
 })
 
 /** An equality prefix and one range column: the prefix places a GiST index's entries, or, empty, the range column. */
@@ -444,7 +418,7 @@ const rangePlacements = (keys: Keys, columns: Columns): Placements => {
 	const prefix = keys.slice(0, -1)
 	const bounded = lastNonEmpty(keys)
 	return isNonEmpty(prefix)
-		? prefixedRangePlacements(keys, prefix, bounded, columns)
+		? prefixedRangePlacements(prefix, bounded, columns)
 		: bareRangePlacements(bounded, columns)
 }
 
@@ -615,10 +589,7 @@ export const requestLeads = (
 		own.kind === "placed"
 			? own.lead
 			: (own.blocks.map((block) => placingOf(block, columns)).find(isNonEmpty) ?? [])
-	const leads = [
-		...ownLeads,
-		...others.flatMap((p) => (p.kind === "led" || p.kind === "placed" ? p.lead : []))
-	]
+	const leads = [...ownLeads, ...others.flatMap((p) => (p.kind === "placed" ? p.lead : []))]
 	return leads.filter((k, at) => leads.findIndex((l) => sameKey(k, l)) === at)
 }
 
@@ -646,14 +617,6 @@ const alongEither = (keys: ReadonlyArray<IndexKey>, directed: Keys): boolean => 
 const placed = (index: KeyedIndex, placement: Placement, columns: Columns): boolean => {
 	const keys = index.keys
 	switch (placement.kind) {
-		case "led": {
-			const first = keys[0]
-			return (
-				first !== undefined &&
-				placement.lead.some((c) => sameKey(first, c)) &&
-				placement.held.every((c) => keys.some((l) => sameKey(l, c)))
-			)
-		}
 		case "placed": {
 			const at = keys.findIndex((l) => columns.holds(l.column) !== "few")
 			const first = keys[at]
@@ -737,10 +700,6 @@ const leavingOut = (p: Placement, left: ReadonlyArray<IndexKey>): Placement | un
 				? { ...p, blocks, directed: isNonEmpty(directed) ? directed : undefined }
 				: undefined
 		}
-		case "led": {
-			const lead = without(p.lead, left)
-			return isNonEmpty(lead) ? { ...p, lead, held: without(p.held, left) } : undefined
-		}
 		case "placed":
 		case "keyed":
 			return p
@@ -803,9 +762,9 @@ const mergeBlocks = (
 /** Where each key's column stands in its relation's heading (BuiltTarget `place`), which orders a block's columns. */
 type Place = (k: IndexKey) => number
 
-/** A draft's leaders narrowed so that one of `lead` comes first, with each of `held` among its columns, which holds a led
- * placement, and a placed one, whose leads are of many values: its leaders among `lead`, every one of which leads every
- * placement before it still; none when no leader is one of `lead` or the draft misses one of `held`. */
+/** A draft's leaders narrowed so that one of `lead` comes first, with each of `held` among its columns, which holds a
+ * placed placement, whose leads are of many values: its leaders among `lead`, every one of which leads every placement
+ * before it still; none when no leader is one of `lead` or the draft misses one of `held`. */
 const leadDraft = (draft: Draft, lead: Keys, held: ReadonlyArray<IndexKey>): Draft | undefined => {
 	if (!held.every((c) => draft.blocks.some((block) => block.some((k) => sameKey(k, c))))) {
 		return undefined
@@ -855,8 +814,6 @@ const refinedBy = (draft: Draft, placement: Placement): Draft | undefined => {
 	switch (placement.kind) {
 		case "keyed":
 			return undefined
-		case "led":
-			return leadDraft(draft, placement.lead, placement.held)
 		case "placed":
 			return leadDraft(draft, placement.lead, placement.bound)
 		case "blocks": {
@@ -1015,29 +972,25 @@ const justificationOrder: Comparator<IndexRequest> = (a, b) => {
  *
  * - only an index of the same relation can serve a request;
  * - an equality lookup on every requested column (a law's B-tree probe, or a workload key lookup, equality lookup, join
- *   key or B-tree write target) is served by a B-tree whose leading columns are exactly the requested set, in any order
- *   and direction (`(tenant, account, created)` serves an equality lookup on `(account, tenant)`), or, for a workload's
- *   lookup alone, by one led by a requested column of many values that holds every requested column, which bounds the
- *   scan to that column's rows and checks the rest within the index (`(account, created, tenant)` serves it too; a
- *   closed handle or a boolean holds few values, so leading with one bounds no scan): a law's probe runs once per row
- *   its foreign key's target deletes, and reading a column's every row for each would make deleting them quadratic
- *   (`reversePlacements`); and by a GiST index whose first column of many values is a requested
- *   one, every column before it a requested one too, and that holds every requested column, each a scalar under the
- *   default class, which btree_gist searches by its
- *   equality and comparison operators, a range below likewise. So a constraint-created index can satisfy a request when
+ *   key or B-tree write target) is served by an index whose leading columns are exactly the requested set, in any order
+ *   and direction (`(tenant, account, created)` serves an equality lookup on `(account, tenant)`, and
+ *   `(account, created, tenant)` does not: it would read every row of the account and filter the tenant among them, as
+ *   a read that binds a column an index leaves unbound before it does), a B-tree's, or a GiST index's whose leading
+ *   columns hold one of many values, which places its entries, each a scalar under the default class, which btree_gist
+ *   searches by its equality and comparison operators (`gistLed`), a range below likewise. So a constraint-created
+ *   index can satisfy a request when
  *   its native behavior fits (the reverse probes on `employment` and `shift` are served by the GiST index of a span key,
  *   whose leading `employee` column btree_gist serves; a workload lookup of a key's usage by `key` is served by the GiST
  *   index the coverage law of its spans needs on `(key, during)`), and no GiST index serves a lookup on closed handles
  *   and booleans alone. A B-tree index of the same relation is preferred when one serves;
  * - a workload range or prefix-search request is an equality prefix followed by one range column: a B-tree whose leading
  *   columns before the last are exactly the prefix's set in any order, and the next the range column in either
- *   direction, because a B-tree scans an interval forward or backward, or one led by a prefix column of many values that
- *   holds every requested column, as for an equality lookup; or a GiST index, its requested columns scalars under the
- *   default class, that holds every requested column and whose first column of many values is a prefix column, or, when
- *   the prefix is empty, the range column, every column before it a requested one (the span key's GiST index on `(room, during)` serves a range on room). A
- *   prefix of closed handles and booleans alone leaves a GiST index's placement to the range column, so its scan reads
- *   the range across every value of the prefix: on PostgreSQL 19, over 20,000 rows, a range on the half of a numeric of
- *   141 values after a three-valued handle touches 92 buffers of a GiST index on `(handle, numeric, handle, span)` for its
+ *   direction, because a B-tree scans an interval forward or backward; or a GiST index that leads the same way, its
+ *   requested columns scalars under the default class and its leading prefix, or the range column where the prefix is
+ *   empty, holding one of many values (the span key's GiST index on `(room, during)` serves a range on room). A prefix
+ *   of closed handles and booleans alone leaves a GiST index's placement to the range column, so its scan reads the
+ *   range across every value of the prefix: on PostgreSQL 19, over 20,000 rows, a range on the half of a numeric of 141
+ *   values after a three-valued handle touches 92 buffers of a GiST index on `(handle, numeric, handle, span)` for its
  *   3,334 rows, three times their share;
  * - an ordered request, a take or page seek, is served only by a B-tree whose leading columns are the requested ones in
  *   order and either in direction or all in the opposite direction, since a B-tree scanned backward yields the exact
@@ -1065,12 +1018,12 @@ const justificationOrder: Comparator<IndexRequest> = (a, b) => {
  *
  * Each request's placements in a serving index (`placementsOf`) are the one statement of the rules on columns and methods:
  * its own, which an index created for it takes, and the others an index may hold instead, each owned by the access
- * method of the indexes that hold it (methodOf). A placement is blocks of columns leading a B-tree, a hash or an HNSW
- * index, each block's columns in any order among themselves (an ordered request's keys each a block of its own, in its
- * directions or all opposite); or a B-tree led by one of some columns and holding others (a workload's equality lookup's
- * or a range's led by a column of many values, never a law's probe's); or a GiST index whose first column of many values is one of some columns,
- * every column before it and every other held (a GiST request's own, and an equality lookup's or a range's whose prefix, or range column when it has
- * none, holds many values); or, for a unique index, every key among some of the columns the request fixes (a B-tree's for
+ * method of the indexes that hold it (methodOf). A placement is blocks of columns leading an index, each block's columns
+ * in any order among themselves (an ordered request's keys each a block of its own, in its directions or all opposite),
+ * a B-tree's, a hash or an HNSW index's, or a GiST index's whose first block holds a column of many values (an equality
+ * lookup's, a range's or a law's probe's, `gistLed`); or a GiST index whose first column of many values is one of some
+ * columns, every column before it and every other held, a GiST request's own; or, for a unique index, every key among
+ * some of the columns the request fixes (a B-tree's for
  * an equality lookup or a range; a GiST request's: a GiST index's among all of them, a B-tree's among its scalars). No
  * blocks place a GiST index's entries, so no placement of a GiST index is one by columns of few values alone. `serves`
  * reads them to judge an index, and the engine reads them to draft an index it creates.
@@ -1081,14 +1034,19 @@ const justificationOrder: Comparator<IndexRequest> = (a, b) => {
  * of its own access method before one standing in for it, then on its relation's primary key before another key, then
  * on the key of fewest keys, then by its keys and name, what it is and not where its statement stands, and of created
  * indexes on the first the plan created (`hostOrder`). An unserved request becomes a new index
- * `<table>__ix__<col>[__<col>...]`, wider requests first, so a narrower one lands on a wider index that serves it. The
- * index is drafted (`draftFor`): it starts as the request's own placement and its method, and is refined, in the plan's
+ * `<table>__ix__<col>[__<col>...]`. The B-tree requests whose own placement is blocks, an equality lookup's, a range's,
+ * a law's probe's, its suffix seek's or an order's, that no key serves once every other request of their relation has
+ * landed or created its index, are planned together (`chainsOf`): each needs a chain of sets its index must lead with,
+ * and they are grouped into the fewest indexes whose groups' sets are each one chain, two orders sharing one only in
+ * one direction (indexes/chains.ts fewestSharingGroups), each index ordering its columns along its chain. Every other unserved request, wider requests first, so a narrower one lands on a
+ * wider index that serves it, creates an index drafted for it (`draftFor`): it starts as the request's own placement and
+ * its method, and is refined, in the plan's
  * order, by the placements of each later request no planned index serves yet, as long as one index still holds them
  * all: placements of its method, in one order. So an equality lookup on `{account, created}` planned before a range on
  * `created` then `account` creates `(created, account)`, which serves both, a wider equality lookup takes the order a
  * narrower range or order over its columns fixes, and a GiST index leads with a column of many values a later request
- * fixes (a span predicate on `(fixed, span)` beside one on `(span)` creates `(span, fixed)`, which serves both). A led
- * or placed placement narrows the columns that may lead the draft to those among its leads, never to one of them (Draft
+ * fixes (a span predicate on `(fixed, span)` beside one on `(span)` creates `(span, fixed)`, which serves both). A
+ * placed placement narrows the columns that may lead the draft to those among its leads, never to one of them (Draft
  * `leaders`), so a column stays one a later request may lead with until a request refuses it, and the one the request
  * states first among those left leads: a span predicate on `(a, b, c, span)` beside one on `(b, c, span)` and an
  * equality lookup on `(c)` creates `(c, ...)`, which serves all three, where choosing `b` at the second would have
@@ -1255,28 +1213,57 @@ export const planIndexes = (
 			planOf.getOrInsertComputed(entry.request.relation, () => []).push(entry)
 		}
 		for (const relationPlan of planOf.values()) {
-			for (const entry of relationPlan) {
+			/** Lands `entry` on the first planned index that serves it (`hostOrder`): whether one does. */
+			const land = (entry: Planned): boolean => {
 				const own = candidatesOf.get(entry.request.relation) ?? []
 				const [host] = own.filter((c) => serves(c.index, entry)).toSorted(hostOrder(entry))
-				if (host !== undefined) {
-					host.requests.push(entry.request)
-					b.graph.addReasons(host.index.object, [reasonOf(entry.request)])
-					continue
+				if (host === undefined) {
+					return false
 				}
+				host.requests.push(entry.request)
+				b.graph.addReasons(host.index.object, [reasonOf(entry.request)])
+				return true
+			}
+			/** Creates the index `drafted` holds for `planned`, each key's role read by `roleOf`. */
+			const create = (planned: Planned, drafted: Drafted, roleOf: RoleOf): void => {
 				const index = createIndex(
 					b,
-					entry,
-					draftFor(entry, ahead(entry, relationPlan, own)),
+					planned,
+					drafted,
+					roleOf,
 					unitReads(relationPlan),
-					relationPlan
+					relationPlan,
+					candidatesOf.get(planned.request.relation) ?? []
 				)
+				if (index === undefined) {
+					return
+				}
 				const created: Candidate = {
 					standing: { kind: "created", at: candidates.length },
 					index,
-					requests: [entry.request]
+					requests: []
 				}
 				candidates.push(created)
 				hold(created)
+			}
+			const chained = relationPlan.flatMap((entry) => {
+				const c = chainedOf(entry)
+				return c === undefined ? [] : [c]
+			})
+			for (const entry of relationPlan) {
+				if (chainedOf(entry) !== undefined || land(entry)) {
+					continue
+				}
+				const own = candidatesOf.get(entry.request.relation) ?? []
+				create(entry, draftFor(entry, ahead(entry, relationPlan, own)), plannedRoles(entry))
+				invariant(land(entry), `the index created for the ${entry.label} serves it`)
+			}
+			const unserved = chained.filter(({ entry }) => !land(entry))
+			for (const chain of chainsOf(unserved)) {
+				create(chain.planned, chain.drafted, chain.roleOf)
+			}
+			for (const { entry } of unserved) {
+				invariant(land(entry), `the index of the chain of the ${entry.label} serves it`)
 			}
 		}
 		return candidates.map((c) => ({ ...c.index, requests: c.requests }))
@@ -1361,6 +1348,141 @@ const draftFor = (planned: Planned, reads: ReadonlyArray<Ahead>): Drafted =>
 		{ draft: draftOf(planned), answers: [planned.request] }
 	)
 
+/** What each key of an index under construction is to its entry (core/identity.ts EntryRole). */
+type RoleOf = (k: IndexKey) => EntryRole
+
+/** The roles of the keys of the index created for `planned`: each key's role in it (`keyRoles`), and a unit's field a
+ * unit read appended (`confined`) read in its order. */
+const plannedRoles =
+	(planned: Planned): RoleOf =>
+	(k) => {
+		const at = planned.keys.findIndex((p) => sameColumn(readColumn(p.column), readColumn(k.column)))
+		return at < 0 ? "order" : defined(planned.roles[at], "a role per key")
+	}
+
+/** A request the chain cover plans (`chainsOf`), with the blocks its own placement leads an index with. */
+interface Chained {
+	readonly entry: Planned
+	readonly blocks: NonEmptyReadonlyArray<Block>
+	/** An order's keys, whose directions its index takes up to reversal; none for any other request. */
+	readonly directed: Keys | undefined
+}
+
+/**
+ * A request as the chain cover plans it (`chainsOf`), where it is a B-tree request whose own placement is blocks, in no
+ * direction or an order's, an equality lookup's, a range's, a law's probe's, its suffix seek's or a take or page
+ * seek's, served by any index whose leading columns are its blocks' sets in order, whatever order within each, an
+ * order's in its directions or all opposite, each block without the columns its entry leaves out (Planned `filtered`),
+ * which no index holds; none for a GiST, hash, HNSW or GIN request, which fixes its own method, or one that states a
+ * column twice, whose sets would hide it, each drafted on its own (`draftFor`), which refuses what it cannot create.
+ */
+const chainedOf = (entry: Planned): Chained | undefined => {
+	const stated = entry.placements.own
+	const own = isNonEmpty(entry.filtered) ? leavingOut(stated, entry.filtered) : stated
+	return entry.request.method === "btree" &&
+		own?.kind === "blocks" &&
+		own.method === "btree" &&
+		new Set(entry.keys.map(keyIdentity)).size === entry.keys.length
+		? { entry, blocks: own.blocks, directed: own.directed }
+		: undefined
+}
+
+/** A key's identity in a chain's sets: its column's text and its class. */
+const keyIdentity = (k: IndexKey): string =>
+	`${keyTermText(k.column)}\u0000${indexOpclassText(k.opclass) ?? ""}`
+
+/** One set of keys a chain holds as the leading columns of its index: its identity, its members' and its keys. */
+interface ChainSet {
+	readonly id: string
+	readonly members: ReadonlySet<string>
+	readonly keys: Keys
+}
+
+/** The sets a chained request needs its index to lead with, in order: each of its blocks with every block before it. */
+const setsOf = ({ blocks }: Chained): NonEmptyReadonlyArray<ChainSet> =>
+	mapNonEmpty(blocks, (_, at): ChainSet => {
+		const keys = extendNonEmpty(blocks[0], blocks.slice(1, at + 1).flat())
+		const members = new Set(keys.map(keyIdentity))
+		return { id: [...members].toSorted(compareStrings).join("\u0001"), members, keys }
+	})
+
+/** An index a chain of sets plans (`chainsOf`): the request whose label and relation it bears, its draft, and its keys'
+ * roles. */
+interface Chain {
+	readonly planned: Planned
+	readonly drafted: Drafted
+	readonly roleOf: RoleOf
+}
+
+/**
+ * The fewest B-trees whose leading columns are exactly each set the chained requests no index serves need (`setsOf`):
+ * the requests are grouped so that every group's sets are one chain under inclusion, in the fewest groups
+ * (indexes/chains.ts fewestSharingGroups), and each group is one index that orders its columns along its chain, drafted
+ * as blocks of its chain's sets less the set before each, each block's columns in heading order (`keysOf`), every key an
+ * equality where any request it holds binds it so.
+ */
+const chainsOf = (entries: ReadonlyArray<Chained>): ReadonlyArray<Chain> => {
+	const needed = entries.map(setsOf)
+	const apart = (i: number, j: number): boolean => {
+		const a = entries[i]?.directed
+		const b = entries[j]?.directed
+		return a !== undefined && b !== undefined && oneDirection(a, b) === undefined
+	}
+	return fewestSharingGroups(
+		needed.map((sets) => mapNonEmpty(sets, (x) => x.members)),
+		apart
+	).map((group): Chain => {
+		const holds = mapNonEmpty(group, (at) => defined(entries[at], "a member of a group"))
+		const distinct = new Map<string, ChainSet>()
+		for (const at of group) {
+			for (const set of needed[at] ?? []) {
+				distinct.set(set.id, distinct.get(set.id) ?? set)
+			}
+		}
+		const [first, ...after] = sortNonEmpty(
+			extendNonEmpty(setsOf(holds[0]), [...distinct.values()]),
+			mapInput(compareNumbers, (x: ChainSet) => x.members.size)
+		).filter((x, at, all) => all.findIndex((y) => y.id === x.id) === at)
+		const lowest = defined(first, "a set per chain")
+		const following = after.flatMap((x, at): ReadonlyArray<Block> => {
+			const before = at === 0 ? lowest : after[at - 1]
+			const added = x.keys.filter(
+				(k) => before === undefined || !before.members.has(keyIdentity(k))
+			)
+			return isNonEmpty(added) ? [added] : []
+		})
+		const roleOf: RoleOf = (k) => {
+			const roles = holds.flatMap(({ entry }) =>
+				entry.keys.flatMap((p, at) =>
+					sameKey(p, k) ? [defined(entry.roles[at], "a role per key")] : []
+				)
+			)
+			return roles.includes("equality") ? "equality" : (roles[0] ?? "order")
+		}
+		return {
+			planned: holds[0].entry,
+			drafted: {
+				draft: {
+					method: "btree",
+					blocks: extendNonEmpty([lowest.keys], following),
+					leaders: lowest.keys,
+					directed: holds.reduce<Keys | undefined>(
+						(most, { directed }) =>
+							directed === undefined
+								? most
+								: most === undefined
+									? directed
+									: oneDirection(most, directed),
+						undefined
+					)
+				},
+				answers: mapNonEmpty(holds, ({ entry }) => entry.request)
+			},
+			roleOf
+		}
+	})
+}
+
 /** A request's keys canonical under reversal: reversed when the first descends, so the first ascends. */
 const canonicalKeys = (keys: NonEmptyReadonlyArray<IndexKey>): NonEmptyReadonlyArray<IndexKey> =>
 	keys[0].dir === "desc" ? mapNonEmpty(keys, (k) => ({ ...k, dir: opposite(k.dir) })) : keys
@@ -1411,15 +1533,19 @@ const confined = (keys: Keys, reads: ReadonlyArray<UnitRead>): Keys =>
  * draft fixes, a B-tree's confined to the units of the whole rules that read its relation (`confined`), its entry
  * judged against the access method's limit: one whose entry no index holds is refused in the installation's ledger (b
  * `keys`) as UnrepresentableKey and created over its proposed keys all the same, so the installation goes on to meet
- * every other such index.
+ * every other such index. None where one of `others`, its relation's planned indexes, has its method and its keys
+ * already, as two chains' indexes have once each entry leaves out the widest columns it cannot hold: that one serves
+ * every request this one would.
  */
 const createIndex = (
 	b: InstallBuilder,
 	planned: Planned,
 	drafted: Drafted,
+	roleOf: RoleOf,
 	reads: ReadonlyArray<UnitRead>,
-	relationPlan: ReadonlyArray<Planned>
-): PlannedIndex => {
+	relationPlan: ReadonlyArray<Planned>,
+	others: ReadonlyArray<Candidate>
+): PlannedIndex | undefined => {
 	const { request, label, target: o } = planned
 	const { draft, answers } = drafted
 	const method = draft.method
@@ -1446,16 +1572,6 @@ const createIndex = (
 		}
 		switch (method) {
 			case "btree": {
-				/**
-				 * What each key is to the entry: its role in the request it holds (`keyRoles`), and a unit's field a unit
-				 * read appended (`confined`) read in its order.
-				 */
-				const roleOf = (k: IndexKey): EntryRole => {
-					const at = planned.keys.findIndex((p) =>
-						sameColumn(readColumn(p.column), readColumn(k.column))
-					)
-					return at < 0 ? "order" : defined(planned.roles[at], "a role per key")
-				}
 				const entry = fittingKeys(o, proposed, roleOf)
 				return entry.ok
 					? mapNonEmpty(entry.value.held, (at) => defined(proposed[at], "a held key"))
@@ -1489,6 +1605,19 @@ const createIndex = (
 		}
 	}
 	const keys = heldKeys()
+	if (
+		others.some(
+			(c) =>
+				c.index.method === method &&
+				c.index.keys.length === keys.length &&
+				c.index.keys.every((k, at) => {
+					const held = keys[at]
+					return held !== undefined && sameKey(k, held) && k.dir === held.dir
+				})
+		)
+	) {
+		return undefined
+	}
 	/** Every key a request this index serves binds and it leaves out, a filter its reads apply beside it: its own
 	 * proposed keys' and each of its relation's requests' it serves by their fitting columns (`serves`), in text order. */
 	const index: KeyedIndex = { relation: request.relation, method, keys, unique: false }
@@ -1532,7 +1661,7 @@ const createIndex = (
 			kind: "index",
 			ident: b.qualifiedOf("index", request.relation, named),
 			ddl: [ddl],
-			reasons: [reasonOf(request)],
+			reasons: [],
 			phase: "indexes"
 		},
 		[

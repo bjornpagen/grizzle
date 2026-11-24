@@ -41,6 +41,7 @@ import {
 	type IndexFeature,
 	install,
 	installShelf,
+	boundColumns,
 	keyField,
 	plantedRequests,
 	requestOf,
@@ -165,6 +166,16 @@ export const theIndexRequestEngineLandsEveryRequestOnExactlyOneIndexPlansAlikeIn
 							r.relation,
 							`${index.index.name} is of the request's relation`
 						)
+						const bound = boundColumns(r)
+						const keys = Arr.map(index.keys, keyField)
+						assert.ok(
+							r.method === "gist" ||
+								bound.length === 0 ||
+								(index.unique && Arr.every(keys, (k) => bound.includes(k))) ||
+								(keys.length >= bound.length &&
+									Arr.every(Arr.take(keys, bound.length), (k) => bound.includes(k))),
+							`${index.index.name}(${Arr.join(keys, ", ")}) leads with exactly the columns ${r.relation}(${Arr.join(bound, ", ")}) binds by equality, or is a unique index all of whose keys it binds`
+						)
 						c.note(
 							index.index.kind === "created"
 								? "served by a created index"
@@ -234,6 +245,12 @@ export const theIndexRequestEngineLandsEveryRequestOnExactlyOneIndexPlansAlikeIn
 			}
 		],
 		kills: [
+			{
+				file: "packages/engine/src/physical/indexes/engine.ts",
+				original: "\t\t\t\tif (!sameSet(keys.slice(at, at + block.length), block)) {",
+				replacement: "\t\t\t\tif (!block.every((k) => keys.some((l) => sameKey(l, k)))) {",
+				why: "An index serves a block of a request's columns wherever it holds them, not only as its leading run: a lookup lands on an index that holds its columns after one it leaves unbound, which reads every row of that column's values and filters the rest."
+			},
 			{
 				file: "packages/engine/src/physical/indexes/engine.ts",
 				original: "\t\t})),\n\t\tunique: false,",
