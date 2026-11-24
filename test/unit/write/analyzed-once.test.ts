@@ -153,7 +153,7 @@ export const aWritesDagIsAnalyzedOnceWhereItsOptimizedFormRestatesNoTakeAndTwice
 				{
 					file: "packages/engine/src/write/frontend/compile.ts",
 					original:
-						"\t\tif (takes.query === input) {\n\t\t\treturn restatedIn(named, dag, (node) => node)\n\t\t}\n",
+						"\t\tif (takes.query === input) {\n\t\t\treturn propagated(dag, (node) => node)\n\t\t}\n",
 					replacement: "",
 					why: "The restatement analyzes the write's DAG again whether or not it restated a take, as it did, so a write with no take restated is analyzed twice and its optimized form is another DAG."
 				}
@@ -205,8 +205,8 @@ export const whereNoTakeIsRestatedTheOptimizedFormIsWhatTheRestatementsAnalysisM
 			kills: [
 				{
 					file: "packages/engine/src/write/frontend/compile.ts",
-					original: "\t\t\treturn restatedIn(named, dag, (node) => node)\n",
-					replacement: "\t\t\treturn restatedIn(named, structural, (node) => node)\n",
+					original: "\t\t\treturn propagated(dag, (node) => node)\n",
+					replacement: "\t\t\treturn propagated(structural, (node) => node)\n",
 					why: "The optimized form reads the write's DAG as it stood before its analysis, so its nodes claim nothing and its attachments are judged by no analysis: its table is not the restatement's."
 				}
 			]

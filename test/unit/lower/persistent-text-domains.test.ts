@@ -73,8 +73,9 @@ export const aComputedTextALawReadsOrAPersistentExpressionCastsInstallsWithItsDo
 			{
 				file: "packages/engine/src/physical/install/plan.ts",
 				original:
-					"\t\tlibrary: distinctLibrary([\n\t\t\t...libraryCalls(model),\n\t\t\t...held.flatMap((h) => h.library),\n\t\t\t...dagObjects(lawsLoc, [], violations.dag.roots).library\n\t\t])\n",
-				replacement: "\t\tlibrary: distinctLibrary(libraryCalls(model))\n",
+					"\t\tlibrary: distinctLibrary([\n\t\t\t...closedLibrary(owned),\n\t\t\t...libraryCalls(model),\n\t\t\t...held.flatMap((h) => h.library),\n\t\t\t...dagObjects(lawsLoc, [], violations.dag.roots).library\n\t\t])\n",
+				replacement:
+					"\t\tlibrary: distinctLibrary([...closedLibrary(owned), ...libraryCalls(model)])\n",
 				why: "The library functions a law's checked DAG calls are not installed, the old collector of persistent expressions alone: the pattern check's judge calls isXsdPattern, which the installation does not install, and the installation is refused as UninstalledFunction."
 			},
 			{

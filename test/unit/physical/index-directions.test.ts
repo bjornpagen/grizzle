@@ -147,9 +147,9 @@ export const accessIndexesOverOneColumnListInSeveralDirectionsInstallOneIndexPer
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/physical/indexes/engine.ts",
-				original: "\treturn along(false) || along(true)",
-				replacement: "\treturn along(false)",
+				file: "packages/engine/src/physical/indexes/chains.ts",
+				original: "\treturn along.every((same) => same) || along.every((same) => !same)",
+				replacement: "\treturn along.every((same) => same)",
 				why: "An index serves its order forward alone, so a vector and its exact reverse install two indexes."
 			}
 		]

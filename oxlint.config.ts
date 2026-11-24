@@ -409,6 +409,7 @@ export default defineConfig(
 			"packages/*/types/**",
 			"test/types/**/.*-??????/**",
 			"vendor/**",
+			"upstream/**",
 			"packages/cli-generator/test/fixtures/**"
 		],
 		restrictedImports: { paths: [], patterns: [] },

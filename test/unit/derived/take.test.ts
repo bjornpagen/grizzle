@@ -53,9 +53,9 @@ export const aDefinitionThatEndsInATakeInstallsItsTakesOrderAndNoOrderBesideIt =
 			{
 				file: "packages/engine/src/check/checker.ts",
 				original:
-					'\t\t\treturn order.kind === "none" ? undefined : order.stated\n\t\tcase "membership":\n\t\tcase "member":\n\t\tcase "definition":\n\t\t\treturn undefined',
+					'\t\t\treturn order.kind === "none" ? undefined : order.stated\n\t\tcase "membership":\n\t\tcase "member":\n\t\tcase "relation":\n\t\t\treturn undefined',
 				replacement:
-					'\t\tcase "definition":\n\t\t\treturn order.kind === "none" ? undefined : order.stated\n\t\tcase "membership":\n\t\tcase "member":\n\t\t\treturn undefined\n',
+					'\t\tcase "relation":\n\t\t\treturn order.kind === "none" ? undefined : order.stated\n\t\tcase "membership":\n\t\tcase "member":\n\t\t\treturn undefined',
 				why: "check/checker.ts rootOrder delivers a definition's rows in its take's order, as a root a caller reads."
 			}
 		]

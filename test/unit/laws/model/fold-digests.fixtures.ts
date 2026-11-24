@@ -69,11 +69,16 @@ const namedField = (v: string, n: Naming): string => {
 	}
 }
 
-/** A running text `v` of type `t`, accumulated from the empty text, with its digest and its lowering generated beside it. */
+/**
+ * A running text `v` of type `t`, accumulated from the empty text, with its lowering and its digest generated beside it,
+ * the lowering first: a relation's declared digests name one field per text, the first in declared order (ir/law.ts
+ * textDigestsOf), so a lowering declared after the digest would be no candidate, and one declared before it is the
+ * generation a recognizer that took any for a digest would take.
+ */
 const running = (v: string, t: FieldDesc) => ({
 	[v]: f.accumulated(t, ""),
-	[`${v}Digest`]: f.generated(digestType, { kind: "compute", fn: "sha256", args: [field(v)] }),
-	[`${v}Lowered`]: f.generated(t, { kind: "compute", fn: "lowerAscii", args: [field(v)] })
+	[`${v}Lowered`]: f.generated(t, { kind: "compute", fn: "lowerAscii", args: [field(v)] }),
+	[`${v}Digest`]: f.generated(digestType, { kind: "compute", fn: "sha256", args: [field(v)] })
 })
 
 /** The member relation of a shape, its key, its step side's group and its end side's key. */

@@ -277,8 +277,10 @@ export const exactScalarCodecsAgainstPostgreSQLWritesARoutableCarriersValueAsPos
 		kills: [
 			{
 				file: "packages/engine/src/ir/scalar.ts",
-				original: "\tint8: true,\n\tnumeric: false,\n\tfloat4: false,\n\tfloat8: false,",
-				replacement: "\tint8: true,\n\tnumeric: false,\n\tfloat4: false,\n\tfloat8: true,",
+				original:
+					"export const routable: Readonly<Record<Carrier, boolean>> = {\n\tint2: true,\n\tint4: true,\n\tint8: true,\n\tnumeric: false,\n\tfloat4: false,\n\tfloat8: false,",
+				replacement:
+					"export const routable: Readonly<Record<Carrier, boolean>> = {\n\tint2: true,\n\tint4: true,\n\tint8: true,\n\tnumeric: false,\n\tfloat4: false,\n\tfloat8: true,",
 				why: "A double precision routes, and extra_float_digits prints it otherwise; a float8's route fails."
 			}
 		]

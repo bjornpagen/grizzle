@@ -208,9 +208,10 @@ export const aDueAssignmentsStampReadsTheSameRowsOfEveryRelationHoweverManyOther
 				why: "A step read at the key its region's earlier read bound is no restriction of the region: the due assignments read through the open ones seed nothing, the union is read whole over every assignment, and the rows read grow with them."
 			},
 			{
-				file: "packages/engine/src/lower/shapes/share/keyed.ts",
-				original: "\t\t\t\t\tout.set(at.input, equalities)\n",
-				replacement: "\t\t\t\t\tvoid equalities\n",
+				file: "packages/engine/src/lower/shapes/share/keys.ts",
+				original:
+					'\t\t\tcase "Step":\n\t\t\t\tenter(at, at.input, equalities, true)\n\t\t\t\treturn\n',
+				replacement: '\t\t\tcase "Step":\n\t\t\t\treturn\n',
 				why: "A rule of the union read at a key is restricted over its first step, whose fence stops it: each key reads every assignment again, and the rows read grow with them."
 			}
 		]

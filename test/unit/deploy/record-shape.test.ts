@@ -41,11 +41,9 @@ export const theShapeEachFilesFormatStatesIsTheShapeOfTheTypeThisGrizzleWritesIt
 			kills: [
 				{
 					file: "packages/engine/src/core/format.ts",
-					original:
-						'\tsnapshot: "74fce2c900121e3fca91721977dbc7b33e932a6c4aeaf063c8d85208431e8b54",',
-					replacement:
-						'\tsnapshot: "74fce2c900121e3fca91721977dbc7b33e932a6c4aeaf063c8d85208431e8b55",',
-					why: "A record's shape changed without the constant stating it: the shape the format states is not the one the checker resolves. The kill states another shape, since the mutation runner rewrites a module as it loads and the checker reads the record's types from disk, where a mutated type never reaches it; a declared statistic's dependencies made optional on disk changes the resolved shape (f04542fc… to another), which this property then refuses."
+					original: '\tsnapshot: "',
+					replacement: '\tsnapshot: "0',
+					why: "A record's shape changed without the constant stating it: the shape the format states is not the one the checker resolves. The kill states another shape, since the mutation runner rewrites a module as it loads and the checker reads the record's types from disk, where a mutated type never reaches it. It prefixes the stated digest rather than quoting it, so it stands at the constant whatever shape the constant states, which every change of the record moves."
 				}
 			]
 		}

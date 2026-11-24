@@ -146,7 +146,7 @@ export const thePageCompilerAndThePageRuntimeTemplateCompileEveryGeneratedOrdere
 			{
 				file: "packages/engine/src/lower/shapes/page/compile.ts",
 				original:
-					'\t\t\t\tassertMergeOrder(plan.union, root.order)\n\t\t\t\treturn { kind: "groups", order: root.order, heading: plan.union.heading, plan }',
+					'\t\t\t\treturn {\n\t\t\t\t\tkind: "groups",\n\t\t\t\t\torder: pagedGroupsOrder(plan.union, root.orders),\n\t\t\t\t\theading: plan.union.heading,\n\t\t\t\t\tplan\n\t\t\t\t}',
 				replacement:
 					'\t\t\t\treturn refuse(\n\t\t\t\t\t"MalformedDescription",\n\t\t\t\t\tnodeLabel(plan.union),\n\t\t\t\t\t"a page over a heterogeneous union delivered per heading group"\n\t\t\t\t)',
 				why: "A page of heading groups is refused as MalformedDescription; the totality property fails."

@@ -224,10 +224,9 @@ export const aConcatFoldsAxesCarryItsTextsOrTheDigestsItsSidesNameInTheirPlacesA
 				why: "The base pin reads the column the axis carries: a digest, generated, has no start, so a fold carried by its digests states no first-slot pin and no empty end, and a first member's before that is not the empty text is accepted; the property fails."
 			},
 			{
-				file: "packages/engine/src/analysis/theory/families.ts",
-				original:
-					'\tif (w.kind !== "generated" || w.desc.kind !== "compute" || w.desc.fn !== "sha256") {',
-				replacement: '\tif (w.kind !== "generated" || w.desc.kind !== "compute") {',
+				file: "packages/engine/src/ir/law.ts",
+				original: '\t\t\tw.desc.fn !== "sha256" ||\n',
+				replacement: "",
 				why: "Any generation over a running text stands for it, a lowering among them, which is no digest: its equality proves no equality of the texts, and a fold naming lowerings is admitted; the property fails."
 			},
 			{
