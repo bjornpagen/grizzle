@@ -2094,7 +2094,7 @@ export const storedUpkeep = (
 		throw defect("a stored relation's definition unit-local at its admitted unit")
 	}
 	const every = found.regions.map((r): RegionRead => ({ ...r, polarity: "both" }))
-	const holders = new Set([first, ...rest].map((h) => h.name))
+	const holders = new Set<string>([first, ...rest].map((h) => h.name))
 	const [held, ...more] = found.reads.filter((r) => holders.has(r.relation))
 	if (held === undefined) {
 		throw defect("a stored relation's definition, which reads a holder of its unit")
