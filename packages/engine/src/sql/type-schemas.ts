@@ -6,6 +6,7 @@
 
 import { nominal } from "#compiler/core/brand.ts"
 import { type Identity, identifierOf } from "#compiler/core/identity.ts"
+import { temporarySchema } from "#compiler/core/temporary.ts"
 import type { TypeSchema } from "#compiler/sql/ast.ts"
 import { type AstHooks, identityHooks } from "#compiler/sql/transform.ts"
 
@@ -20,6 +21,12 @@ export const installedTypes = (schema: string): TypeSchema => typeSchema(schema)
 /** The schema of the types an installation holds, its domains: its own, by its identity. */
 export const installationTypes = (installation: Identity<"schema">): TypeSchema =>
 	installedTypes(identifierOf(installation))
+
+/**
+ * The session's own temporary schema, whose types are the row types of the session's temporary tables: a carrier's
+ * reader returns SETOF its carrier's (sql/print.ts carrierReader).
+ */
+export const sessionTypes: TypeSchema = typeSchema(temporarySchema)
 
 /** The schema of the vector extension's types, the one the installation was given for the extension. */
 export const vectorTypes = (schema: string): TypeSchema => typeSchema(schema)

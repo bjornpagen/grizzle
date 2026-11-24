@@ -20,7 +20,11 @@ export const Mark = relation("Mark", { k: pg.integer }, ["k"])
  * open, mutable inside the one unit their keys lead with, since `direct` writes them.
  */
 export const skew = (name: string) => {
-	const base = schema(name, [Held, Mark], [unit("K", { k: pg.integer }), mutable(Held), mutable(Mark)])
+	const base = schema(
+		name,
+		[Held, Mark],
+		[unit("K", { k: pg.integer }), mutable(Held), mutable(Mark)]
+	)
 	const writer = role(base, "writer", { Held, Mark }, { insert: ["Held", "Mark"] })
 	const direct = role(base, "direct", { Held, Mark }, { write: ["Held", "Mark"] })
 	const heldOf = (side: DeltaSource<typeof Held>) =>

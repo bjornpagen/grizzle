@@ -227,7 +227,8 @@ export const servableWrite = (compiled: CompiledWrite): ServableWrite => {
 				? Object.freeze({
 						kind: "carrier",
 						table: prepared(s.table),
-						emptying: prepared(s.emptying)
+						emptying: prepared(s.emptying),
+						reader: prepared(s.reader)
 					})
 				: Object.freeze({ kind: "judged", call: prepared(s.call) })
 		)

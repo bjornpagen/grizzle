@@ -79,6 +79,23 @@ declare const carrierNameBrand: unique symbol
 const CarrierName = nominal<string, CarrierName>()
 
 /**
+ * The name of `carrier`'s reader, the session function every statement reads the carrier through (sql/print.ts
+ * carrierReader): the carrier's own name and `_rows`, beside its emptying, which takes the carrier's name itself
+ * (sql/print.ts carrierEmptying), within PostgreSQL's identifier length since a carrier's name is a fixed-width digest's.
+ */
+export const carrierReaderName = (carrier: CarrierName): string => `${carrier}${carrierReaderTail}`
+
+/** What a carrier's reader's name adds to the carrier's (`carrierReaderName`). */
+const carrierReaderTail = "_rows"
+
+/**
+ * The carrier whose reader `fn` names (`carrierReaderName`), none where it names no reader: how a reading of a
+ * statement finds the carriers it reads through their readers (test/support/carrier-reads.ts).
+ */
+export const readerCarrier = (fn: string): CarrierName | undefined =>
+	fn.endsWith(carrierReaderTail) ? CarrierName(fn.slice(0, -carrierReaderTail.length)) : undefined
+
+/**
  * Whose session tables a program's carriers are: the role it runs as, or reality's. A login's pooled session runs every
  * role of the login, each transaction under one, and a carrier, a session table every COMMIT keeps (sql/ast.ts
  * CreateCarrier), is owned by the role whose stand-up made it, which alone may truncate it, as a use's emptying does

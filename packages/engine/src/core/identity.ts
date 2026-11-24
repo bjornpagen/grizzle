@@ -1295,7 +1295,7 @@ export const identity = Object.freeze({
 	/**
 	 * A table CHECK's or stored generation's expression over its row, installed as a function of the columns it reads
 	 * (physical/ddl/row-functions.ts), named by the digest of its definition alone, read in no schema
-	 * (physical/ddl/type-schemas.ts digestedHooks): an expression stated again, on any table of any installation, is the
+	 * (sql/type-schemas.ts digestedHooks): an expression stated again, on any table of any installation, is the
 	 * function already installed, and a changed one is a new function, which the CHECK or the column re-points at, as a
 	 * changed constant is a new constant.
 	 */
@@ -1366,7 +1366,7 @@ export const identity = Object.freeze({
 		}
 	},
 	/**
-	 * A contract's domain, by the digest of its physical definition alone, read in no schema (physical/ddl/type-schemas.ts
+	 * A contract's domain, by the digest of its physical definition alone, read in no schema (sql/type-schemas.ts
 	 * digestedHooks): two contracts of one definition are one domain in every installation, and the contract a column is
 	 * of stays its type's brand.
 	 */

@@ -555,7 +555,7 @@ export default defineConfig(
 					{ doors: ["packages/grizzle/src/adapter/wire/session.ts"], brands: ["OutputRows"] },
 					{
 						doors: [
-							"packages/engine/src/physical/ddl/type-schemas.ts",
+							"packages/engine/src/sql/type-schemas.ts",
 							"packages/grizzle/src/adapter/admission/drift.ts",
 							"test/support/sql.ts"
 						],

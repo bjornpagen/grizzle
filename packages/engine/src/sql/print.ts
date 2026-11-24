@@ -1797,48 +1797,62 @@ export const sessionTablesStanding = (
 export const stoodApart = "!"
 
 /**
- * The most bytes a session table's heap, and its TOAST table's heap, hold that its emptying keeps rather than gives back
- * (`sessionTableEmptied`): one page, the page every insert into it reuses. An insert goes to the relation's target page,
- * then to a page its free space map records, and otherwise extends it (REL_19_0 src/backend/access/heap/hio.c 577, 585,
- * 769). Nothing writes a session table's free space map: autovacuum never processes another backend's temporary table
- * (src/backend/postmaster/autovacuum.c 2078, 2175), and pruning on access records a page's free space only where it
- * makes the page all-visible (src/backend/access/heap/pruneheap.c 386-413), which a page whose deleted rows left their
- * line pointers dead never is. So the target page, the last, is the one page a later insert fills again: a table of one
- * page holds nothing a TRUNCATE would give back, and every page of a longer one before its last is space no insert
- * reaches again, which only a TRUNCATE gives back.
+ * The most pages a session table's heap, and its TOAST table's heap, hold that its emptying keeps rather than gives back
+ * by a TRUNCATE (`sessionTableEmptied`, sessionTableKeptBytes): the point past which the dead pages a statement reads
+ * cost more than the TRUNCATE that would give them back.
  *
- * When it is overgrown, from the leak: every row a use inserts takes a line pointer of its page, which the emptying's
- * DELETE leaves dead, and pruning on access marks it dead, never unused, whether or not the table has an index
- * (src/backend/access/heap/pruneheap.c 358-363, heap_page_prune_opt's options), so only a VACUUM, which no session
- * table meets, would free it for another row. A page holds MaxHeapTuplesPerPage line pointers, (BLCKSZ -
- * SizeOfPageHeaderData) / (MAXALIGN(SizeofHeapTupleHeader) + sizeof(ItemIdData)) = (8192 - 24) / (24 + 4) = 291
- * (src/include/access/htup_details.h 769-771). So a table its uses fill with n rows each outgrows its page within its
- * first 291 rows, after 291 / n uses at most, and its emptying truncates it once in each 291 rows its uses wrote: the
- * use after its 291st row truncates it, and the 291 after begin again on its new file. Measured with DELETE alone
- * (PROLOGUE, 2026-11-23, postgres-ram@seriesplan, PostgreSQL 19rc1): a keyed carrier of 5 rows a use, each use its own
- * transaction, held 16 KB of heap after 100 uses, 147 KB after 1,000 and 1.41 MB after 10,000 (172 pages, 291 rows a
- * page), its key's index flat at 16 KB, and a scan of it read its 172 pages in 0.09 ms against 0.015 ms fresh: the
- * leak grows without bound for the session's life, which the TRUNCATE stops at two pages.
+ * Why pages accumulate: every row a use inserts takes a line pointer of its page, which the emptying's DELETE leaves
+ * dead, and pruning on access marks it dead, never unused, whether or not the table has an index
+ * (src/backend/access/heap/pruneheap.c 358-363, heap_page_prune_opt's options), so only a VACUUM, which no session table
+ * meets, would free it. A page holds MaxHeapTuplesPerPage line pointers, (BLCKSZ - SizeOfPageHeaderData) /
+ * (MAXALIGN(SizeofHeapTupleHeader) + sizeof(ItemIdData)) = (8192 - 24) / (24 + 4) = 291 (src/include/access/htup_details.h
+ * 769-771), and nothing writes a session table's free space map (autovacuum never processes another backend's temporary
+ * table, src/backend/postmaster/autovacuum.c 2078, 2175), so an insert past the target page extends the table (hio.c
+ * 577, 585, 769): a table its uses fill with n rows each grows a page in each 291 / n uses, without bound. Every read of
+ * it walks those pages, a carrier's reader's (write/carriers/carriers.ts carrierReader) and a delta's reader's alike; a TRUNCATE gives them back
+ * but costs the session its own TRUNCATE and the replan of each reader's one SELECT, and costs every other backend of the
+ * database a walk of each plan it holds, at each of the three relcache invalidations (the table, its TOAST table and that
+ * table's index, plancache.c PlanCacheRelCallback). Waiting until the dead pages' cost since the last TRUNCATE equals one
+ * TRUNCATE's, as with any rent-or-buy choice, bounds the total at twice the best one could do knowing the future: a
+ * table growing a page a use and read once a use has paid c · P² / 2 for P pages, which equals T at P = √(2T / c).
  *
- * @limitKind derived
- * @owner PostgreSQL 19.0
- * @unit bytes
- * @scope the heap of one session table, a rule judge's delta or a write's carrier, and its TOAST table's heap, each as
- *   one of its uses ends
- * @derivation one page: the target page every insert reuses, past which no page is reused (hio.c's choice of a page);
- *   with 291 line pointers a page (htup_details.h MaxHeapTuplesPerPage at blockSize), the emptying truncates a table
- *   once in each 291 rows its uses wrote
- * @from {@link blockSize}
+ * @limitKind measured
+ * @owner grizzle's session tables (sql/print.ts sessionTableEmptied), under PostgreSQL 19's heap and plan cache
+ * @unit pages of a session table's heap, and of its TOAST table's heap
+ * @scope each session table, a write's carrier or a rule judge's delta, in one session, as a use's emptying finds it
+ * @evidence ~/.cache/grizzle/PROLOGUE-tools/trunc (scan.sql with run-scan.sh, own.sql, and the two-backend run that
+ *   times a 5,000-plan backend's next statement beside a truncating one), run by hand against postgres-ram@seriesplan
+ * @observed 2026-11-23, 18:40 to 19:10 America/Chicago
+ * @environment cassowary (64 cores, 247 GiB, shared by many lanes, load average 60 to 130), PostgreSQL 19.0 in a
+ *   tmpfs cluster, temp_buffers 8 MB, grizzle at 8ab32a3bb
+ * @workload a keyed carrier of an int8 key and a short text, filled 16 rows a use and emptied by DELETE until its heap
+ *   held 1, 8, 64, 256, 1,024 and 4,096 pages, then read 200 times through its reader (SETOF, ROWS 1); 600 rows a use
+ *   emptied by TRUNCATE against DELETE, 60 uses each, statement by statement; a second backend holding 5,000 prepared
+ *   statements timing a SELECT 1 every 250 ms, 40 times, beside a session truncating its carrier every 250 ms, and alone
+ * @result a read through the reader: 0.010 ms at 1 page, 0.026 at 8, 0.030 at 64, 0.099 at 256, 0.43 at 1,024
+ *   (0.42 µs a page) and 14.8 at 4,096, past temp_buffers' 1,024 pages, 3.6 µs a page. The emptying: TRUNCATE 0.76 ms
+ *   against DELETE 0.30, and the reader's first read after it 0.31 against 0.27. The 5,000-plan backend's next
+ *   statement: 1.71 ms beside the truncating session against 0.11 alone (1.6 ms a TRUNCATE, 0.32 µs a plan held). Not
+ *   measured: backends of more plans, which pay in proportion, and toasted rows' reads.
+ * @decision T, one TRUNCATE beside one other backend of 5,000 plans, is 0.46 + 1.6 ≈ 2.1 ms, and c is 0.42 µs a page,
+ *   so P = √(2 · 2.1 ms / 0.42 µs) = 100 pages: 800 KB a table, within temp_buffers for ten tables at once, where the
+ *   cost of a page rises ninefold. A deployment of more backends or more plans each makes T, and so P, larger (√ of it);
+ *   one page, the former point, truncated a table filled past it at every use and sent three invalidations a call.
+ * @revalidate a PostgreSQL upgrade; a temp_buffers other than 8 MB; sessions holding far more than 5,000 plans each
+ *   or far more backends, which raise T; a session table read other than whole or many times a use
  */
-const sessionTableKeptBytes = blockSize
+const sessionTableKeptPages = 100
+
+/** The bytes of sessionTableKeptPages, as pg_relation_size counts a table's file (`sessionTableOvergrown`). */
+export const sessionTableKeptBytes = sessionTableKeptPages * blockSize
 
 /**
- * That the session's table `name` holds more than its one reused page (sessionTableKeptBytes) in its heap or in its
- * TOAST table's heap, each as the size of its file, which pg_relation_size reads by a stat and no page: a table with no
+ * That the session's table `name` holds more than the pages its emptying keeps (sessionTableKeptBytes) in its heap or in
+ * its TOAST table's heap, each as the size of its file, which pg_relation_size reads by a stat and no page: a table with no
  * TOAST table has a reltoastrelid of 0, whose size it answers NULL, so its heap alone decides.
  *
  *   EXISTS (SELECT FROM pg_catalog.pg_class AS r1 WHERE r1.oid = pg_catalog.to_regclass('"pg_temp"."<name>"')
- *     AND (pg_catalog.pg_relation_size(r1.oid) > 8192 OR pg_catalog.pg_relation_size(r1.reltoastrelid) > 8192))
+ *     AND (pg_catalog.pg_relation_size(r1.oid) > 819200 OR pg_catalog.pg_relation_size(r1.reltoastrelid) > 819200))
  */
 const sessionTableOvergrown = (name: string): Expr => {
 	const kept = lit.int(sessionTableKeptBytes, types.bigint)
@@ -1860,9 +1874,9 @@ const sessionTableOvergrown = (name: string): Expr => {
 /**
  * The session's table `name` emptied of its rows, a rule judge's delta once its part has read them (physical/ddl/rules.ts
  * emptied) or a write's carrier before its use fills it (`carrierEmptying`): by DELETE while its heap and its TOAST
- * table's each hold one page at most (sessionTableKeptBytes), and by TRUNCATE once either holds more.
+ * table's each hold the pages it keeps at most (sessionTableKeptPages), and by TRUNCATE once either holds more.
  *
- *   IF <it holds more than its page (sessionTableOvergrown)> THEN TRUNCATE pg_temp.<name>;
+ *   IF <it holds more than it keeps (sessionTableOvergrown)> THEN TRUNCATE pg_temp.<name>;
  *   ELSE DELETE FROM pg_temp.<name> AS r1; END IF;
  *
  * A DELETE keeps the table's file, so it sends no invalidation: a TRUNCATE of a table made in an earlier transaction
@@ -1872,9 +1886,10 @@ const sessionTableOvergrown = (name: string): Expr => {
  * then walks every plan it holds (src/backend/utils/cache/plancache.c 2131 PlanCacheRelCallback). A session of 30,000
  * saved plans paid 86 ms of a commit that truncated five deltas, and an idle one beside it 44 ms more (SESSIONTEMP,
  * 2026-11-21), where a DELETE cost 1 ms and the other session nothing. The rows the DELETE leaves dead take their
- * page's space until a read prunes it, and their line pointers stay, so a table refilled use after use outgrows its one
- * reused page, and the use that finds it so truncates it: the TRUNCATE is paid once a page's worth of rows, never at
- * each use. Every row is gone either way: a later transaction sees none, and one that rolls back takes its rows and
+ * page's space until a read prunes it, and their line pointers stay, so a table refilled use after use outgrows the
+ * pages it keeps, and the use that finds it so truncates it: the TRUNCATE is paid once in each sessionTableKeptPages
+ * pages' worth of rows, never at each use, and the statements that read the table through its reader keep their plans
+ * across it (write/carriers/carriers.ts carrierReader; physical/ddl/deltas.ts addReaders). Every row is gone either way: a later transaction sees none, and one that rolls back takes its rows and
  * their emptying with it, so each use starts on an empty table.
  */
 export const sessionTableEmptied = (name: string): PlStatement => ({
@@ -2182,6 +2197,46 @@ const carrierTable = (carrier: CreateCarrier): string =>
 		primaryKey: carrier.primaryKey,
 		storage: "toasted"
 	})
+
+/**
+ * The rows a session table's reader declares it returns (ROWS on its CREATE FUNCTION), a rule judge's delta's
+ * (physical/ddl/deltas.ts addReaders) and a write's carrier's (write/carriers/carriers.ts carrierReader): the planner's estimate of the rows a
+ * statement reads first and probes each table's key from, one side of a transaction's delta or a call's carried rows,
+ * one source for both, as both are read row by row into the tables a statement probes.
+ *
+ * @limitKind measured
+ * @owner grizzle's judge emission (physical/ddl/deltas.ts addReaders), under PostgreSQL 19's planner
+ * @unit rows of one side's delta
+ * @scope each delta reader's estimate, in every generic plan of a judge statement that reads it
+ * @evidence ~/.cache/grizzle/DECLSTATS-work/unitscale/run3.sh over setup.sql, its output unitscale3.log beside it (and
+ *   run2.sh, unitscale2.log, for the per-unit form): two tables of one unit, keys holding the unit, statistics declared
+ *   as grizzle declares them (the unit's anchor relative, its tail single-valued, targets 0), generic plans
+ * @observed 2026-11-23, between 15:00 and 15:30 UTC
+ * @environment cassowary (AWS arm64, 64 CPUs, 247 GiB), shared and loaded; PostgreSQL 19.0 in memory
+ *   (postgres-ram@declstats) under default cost settings; grizzle at d76a6106
+ * @workload EXPLAIN of a PREPAREd key-per-row judge (the delta's rows, NOT EXISTS the other table's row by its whole
+ *   key) under force_generic_plan; the table filled with 0, 2^10, 2^14 and 2^20 rows and VACUUMed; the unit's anchor
+ *   declared at 2^2 and 2^8 rows; the reader declaring ROWS 1, 10, 100 and 1000
+ * @result 32 plans. ROWS 1 and ROWS 10: a Nested Loop Anti Join probing the key, an Index Cond on every key column, at
+ *   every fill from 2^10 to 2^20. ROWS 100: a Hash Anti Join over a Seq Scan of the table at 2^10, probes from 2^14 on.
+ *   ROWS 1000, PostgreSQL's default for a set-returning function: a Hash Anti Join over a Seq Scan at 2^10 and 2^14,
+ *   probes only at 2^20. The unit's declared size changed no plan. A VACUUMed empty table is read by a Seq Scan at every
+ *   ROWS. Not measured: run times, and estimates between 10 and 100. And a carrier read through its reader (lane
+ *   PROLOGUE, 2026-11-23, the same cluster, grizzle at 8ab32a3bb with readers): at ROWS 1, test/pg/write/replace-cost's
+ *   unit delete of a complete tree, which pairs the stored family's rows with the carrier's, planned the carrier as a
+ *   nested loop's inner side, rescanned for every stored row, and read 13,500, 33,800 and 104,400 rows at 100, 200
+ *   and 400 rows a family, more than doubling at each doubling; at ROWS 10 it hashed the carrier and read in proportion,
+ *   and test/pg/write/carrier-keys still read every stored relation by its key's index at 1 and 4,096 keys.
+ * @decision 1. A probe per delta row costs O(delta · log N) at any delta size, never worse than a hash of the table by
+ *   more than a log factor, while a hash over a scan costs O(N) whatever the delta. Any larger declared delta only moves
+ *   the crossover between the two to a table size the schema does not state (2^14 at 100, near 2^20 at 1000). 2. ROWS 1
+ *   and ROWS 10 chose the probe alike at every size measured, and only ROWS 10 hashes a session table where it is the
+ *   inner side of a join over many rows, rather than rescanning it for each, so 10 is the one estimate both take.
+ * @revalidate a PostgreSQL upgrade or changed cost settings (random_page_cost, cpu_operator_cost,
+ *   effective_cache_size); a judge statement that reads the delta other than key by key; a probe whose key the
+ *   declared statistics estimate above one row; a statement that joins a session table as an inner side otherwise
+ */
+export const sessionReaderRows = 10
 
 /**
  * A carrier's emptying (sql/ast.ts EmptyCarrier), the session function of the carrier's own name the session's stand-up

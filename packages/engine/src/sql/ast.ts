@@ -2256,9 +2256,9 @@ export type PlStatement =
 	  }
 	| {
 			/**
-			 * TRUNCATE pg_temp.<name>: a session table, a rule judge's delta or a write's carrier, that has outgrown its
-			 * one reused page given a new file, the old one given back (sql/print.ts sessionTableEmptied, which empties
-			 * one that has not by DELETE, keeping its file).
+			 * TRUNCATE pg_temp.<name>: a session table, a rule judge's delta or a write's carrier, that has outgrown the
+			 * pages its emptying keeps given a new file, the old one given back (sql/print.ts sessionTableEmptied, which
+			 * empties one that has not by DELETE, keeping its file).
 			 */
 			readonly kind: "truncateSessionTable"
 			readonly name: string

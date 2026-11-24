@@ -109,7 +109,7 @@ export const everyStatementReadsThroughTheIndexItsBindingAsksForInEveryState = p
 			},
 			{
 				file: "packages/engine/src/physical/ddl/deltas.ts",
-				original: 'rows: { kind: "declared", rows: deltaReaderRows }',
+				original: 'rows: { kind: "declared", rows: sessionReaderRows }',
 				replacement: 'rows: { kind: "planner" }',
 				why: "The judge's delta readers at PostgreSQL's own estimate of a set-returning function's rows, a thousand: a key-by-key probe of the container is priced over a thousand delta rows, and PostgreSQL hashes a sequential scan of the container instead (the kept case: R0 read by a Seq Scan, binding none of its columns)."
 			},

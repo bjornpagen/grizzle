@@ -7,6 +7,7 @@ import {
 import { Refusal } from "#compiler/core/canonical.ts"
 import { resourceBound } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { temporarySchema } from "#compiler/core/temporary.ts"
 import { type FactColumn, factOperand, factSet } from "#compiler/ir/compare.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
 import { always } from "#compiler/ir/needs.ts"
@@ -27,6 +28,7 @@ import {
 	type FromSource,
 	type Insert,
 	isSetQuery,
+	type PlFunction,
 	type Select,
 	type SetCore,
 	type TypeRef
@@ -37,8 +39,12 @@ import {
 	derived,
 	distinctCore,
 	keyedSet,
+	namedType,
+	objectName,
 	provedCore,
+	qualifiedCall,
 	select,
+	simpleSelect,
 	target,
 	unitTargets
 } from "#compiler/sql/build.ts"
@@ -47,9 +53,11 @@ import {
 	type CarrierDeclaration,
 	type CarrierScope,
 	carrierName,
+	carrierReaderName,
 	emptyNameMap
 } from "#compiler/sql/naming.ts"
-import { carrierEmptying, printTableName } from "#compiler/sql/print.ts"
+import { carrierEmptying, printTableName, sessionReaderRows } from "#compiler/sql/print.ts"
+import { sessionTypes } from "#compiler/sql/type-schemas.ts"
 import {
 	buildStatement,
 	type CarrierResult,
@@ -202,11 +210,23 @@ export const carrierField = (carrier: WriteCarrier, field: string): CarrierColum
 		`the field ${field} in carrier ${carrier.name}`
 	)
 
-export const carrierScan = (carrier: WriteCarrier, alias: string): FromSource => ({
-	kind: "table",
-	table: carrier.name,
-	alias
+/**
+ * The rows of the carrier `carrier` of the columns `columns` as a statement reads them: through its reader
+ * (`carrierReader`), so the statement's plan depends on the function, never on the table its emptying may truncate,
+ * each column named in the FROM item's alias list as the carrier's table names it. The one way a statement reads a
+ * carrier, a staged carrier's among them (write/program/staged.ts).
+ */
+export const carrierRead = (carrier: CreateCarrier, alias: string): FromSource => ({
+	kind: "function",
+	call: qualifiedCall(temporarySchema, carrierReaderName(carrier.name), []),
+	alias,
+	columns: carrier.columns.map((c) => c.name),
+	lateral: false,
+	ordinality: false
 })
+
+export const carrierScan = (carrier: WriteCarrier, alias: string): FromSource =>
+	carrierRead(carrierTable(carrier), alias)
 
 /**
  * A carrier as a lowering reads the rows of a relation parameter its ChangeSet binds to a query (lower/conservative
@@ -249,14 +269,57 @@ const columnDefOf = (column: string, type: TypeRef): ColumnDef =>
 		: { name: column, type, collation: undefined, generated: undefined }
 
 /**
- * A carrier's stand-up (runtime/write/flight.ts StandUp): its table, and its emptying, the session function of its own
- * name in pg_temp (sql/print.ts carrierEmptying), each made as the write's role by the session's stand-up of the write,
- * once, so each use empties it by a call PostgreSQL plans once in the session.
+ * A carrier's reader, the session function the session's stand-up makes beside the carrier, in pg_temp
+ * (sql/naming.ts carrierReaderName): its rows' one SELECT, every column of the carrier, as RETURNS SETOF the carrier's
+ * own row type, declaring the rows a call returns (sql/print.ts sessionReaderRows). Every statement reads the carrier through it
+ * (`carrierRead`), so a statement's plan depends on the function, never on the table: a
+ * TRUNCATE the emptying gives the carrier once it outgrows its page (sql/print.ts sessionTableEmptied), a new file of the table
+ * and an invalidation of every plan over it, leaves every statement's plan standing for the next call, and only the
+ * reader's own SELECT is planned again, as a judge's delta's reader does (physical/ddl/deltas.ts addReaders). Its owner
+ * is the role that made the carrier, as its emptying's is.
+ *
+ *   CREATE OR REPLACE FUNCTION "pg_temp"."<carrier>_rows"() RETURNS SETOF "pg_temp"."<carrier>" ROWS 10 ... AS $$BEGIN
+ *     RETURN QUERY SELECT r1.<column>, ... FROM pg_temp.<carrier> AS r1;
+ *   END$$
+ */
+export const carrierReader = (carrier: CreateCarrier): PlFunction => ({
+	kind: "createFunction",
+	language: "plpgsql",
+	name: objectName(temporarySchema, carrierReaderName(carrier.name)),
+	params: [],
+	returns: {
+		setOf: namedType(sessionTypes, carrier.name, []),
+		rows: { kind: "declared", rows: sessionReaderRows }
+	},
+	volatility: "VOLATILE",
+	parallel: "UNSAFE",
+	security: "DEFINER",
+	body: {
+		declare: [],
+		body: [
+			{
+				kind: "returnQuery",
+				query: simpleSelect(
+					carrier.columns.map((c) => ({ expr: col("r1", c.name), alias: undefined })),
+					[{ kind: "table", table: objectName(temporarySchema, carrier.name), alias: "r1" }],
+					undefined
+				)
+			}
+		]
+	}
+})
+
+/**
+ * A carrier's stand-up (runtime/write/flight.ts StandUp): its table; its emptying, the session function of its own
+ * name in pg_temp (sql/print.ts carrierEmptying); and its reader, the session function every statement reads it
+ * through (sql/print.ts carrierReader); each made as the write's role by the session's stand-up of the write, once, so
+ * each use empties it by a call PostgreSQL plans once in the session, and no statement's plan depends on the table.
  */
 export const carrierStandUp = (table: CreateCarrier): StandUp<EmittedText> => ({
 	kind: "carrier",
 	table: emitText(table, emptyNameMap).text,
-	emptying: emitText(carrierEmptying(table.name), emptyNameMap).text
+	emptying: emitText(carrierEmptying(table.name), emptyNameMap).text,
+	reader: emitText(carrierReader(table), emptyNameMap).text
 })
 
 /** A carrier's emptying before a use fills it (sql/ast.ts EmptyCarrier). */

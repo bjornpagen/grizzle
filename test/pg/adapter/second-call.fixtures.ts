@@ -64,10 +64,20 @@ const build = (name: string) => {
 	)
 }
 
-/** The keys each call puts: one, and sixteen, every carrier within its one page. */
-const sizes = [1, 16] as const
+/**
+ * The keys each call puts: one and sixteen, the carrier within a page; four hundred, more than a page's 291 rows, so
+ * every call fills the carrier and the deltas past a page, which a TRUNCATE at one page gave a new file at every call.
+ * Past the pages the emptying keeps (sql/print.ts sessionTableKeptPages), a call truncates its carrier and deltas, and
+ * the statements that write them, a fill's INSERT and a capture's, plan again over the new file: that every other
+ * statement reads a carrier only through its reader, which keeps its plan, is the written program audit's
+ * (test/unit/sql/audit.test.ts).
+ */
+const sizes = [1, 16, 400] as const
 
-export type SecondCallFeature = "one key" | "sixteen keys"
+/** The calls a case makes on its one backend: the first, which stands the write up, and three after it. */
+const callsMade = 4
+
+export type SecondCallFeature = "one key" | "sixteen keys" | "a carrier past a page at every call"
 
 /** A case: the keys each of the two calls puts. */
 export interface Calls {
@@ -76,13 +86,25 @@ export interface Calls {
 
 export const callsGen: Gen<Calls> = (source) => ({ keys: source.draw(element(sizes)) })
 
+/** What a case reaches, by its keys. */
+const featureOf = (calls: Calls): SecondCallFeature => {
+	switch (calls.keys) {
+		case 1:
+			return "one key"
+		case 16:
+			return "sixteen keys"
+		case 400:
+			return "a carrier past a page at every call"
+	}
+}
+
 /**
  * The facts the `k`-th call puts, from 1, each key's w moved past the one before, under the bound: the facts stored
  * before the first call are its 0th, so every call displaces a stored fact at each key and runs every statement of the
  * put, its capture's of the rows it deletes among them, as the one before did.
  */
 const factsOf = (calls: Calls, k: number) =>
-	Array.from({ length: calls.keys }, (_, i) => ({ id: i + 1, w: k * 100 + i + 1 }))
+	Array.from({ length: calls.keys }, (_, i) => ({ id: i + 1, w: k * 1000 + i + 1 }))
 
 /**
  * The settings that turn pg_stat_statements on in the case's database alone (@bjornpagen/testing/pg settings.ts
@@ -102,7 +124,10 @@ const tracked = [
 interface Counted {
 	readonly plans: number
 	readonly calls: number
-	readonly byStatement: ReadonlyMap<string, { readonly plans: number; readonly text: string }>
+	readonly byStatement: ReadonlyMap<
+		string,
+		{ readonly plans: number; readonly text: string; readonly client: boolean }
+	>
 }
 
 /** A cell's text: an aggregate over no row answers NULL, which reads as no text. */
@@ -113,14 +138,16 @@ const textOf = (cell: unknown): string => (typeof cell === "string" ? cell : "")
  * the clone's backends counting every
  * statement's plans (pg_stat_statements: compute_query_id on, track all, track_planning on, for the database alone,
  * as its template turns them on), then one served Db of the full world's login, opened on a pool whose first session is
- * a brand-new backend, and its put called twice. The first call stands the write up (adapter/apply/stand-up.ts) and
- * plans its statements; the second, on the same backend, plans none, in functions or out, and changes no catalog row of
- * the session's own relations: none made, no file given anew, no row of pg_class or pg_proc of its temporary schema
- * rewritten, so it sent no invalidation any backend of the database reads.
+ * a brand-new backend, and its put called four times (`callsMade`). The first call stands the write up
+ * (adapter/apply/stand-up.ts) and plans its statements; each call after it, on the same backend, plans none, in
+ * functions or out, and changes no catalog row of the session's own relations: none made, no file given anew, no row of
+ * pg_class or pg_proc of its temporary schema rewritten, so it sent no invalidation any backend of the database reads.
+ * Four hundred keys fill the carrier past a page at every call: its emptying keeps its file below the pages it keeps
+ * (sql/print.ts sessionTableKeptPages).
  */
 export const runCalls = (calls: Calls, c: Case<SecondCallFeature>) =>
 	Effect.gen(function* () {
-		c.note(calls.keys === 1 ? "one key" : "sixteen keys")
+		c.note(featureOf(calls))
 		const declared = build("second_call")
 		const done = yield* installMigrated(declared, {
 			ambient: ordinarySession,
@@ -152,7 +179,7 @@ export const runCalls = (calls: Calls, c: Case<SecondCallFeature>) =>
 		})
 		const counted = Effect.map(
 			statistics.values(
-				"SELECT s.queryid::text || ' ' || s.toplevel::text, s.plans::int8, s.calls::int8, pg_catalog.left(s.query, 200) FROM public.pg_stat_statements AS s JOIN pg_catalog.pg_database AS d ON d.oid = s.dbid WHERE d.datname = $1::text",
+				"SELECT s.queryid::text || ' ' || s.toplevel::text, s.plans::int8, s.calls::int8, pg_catalog.left(s.query, 200), s.toplevel FROM public.pg_stat_statements AS s JOIN pg_catalog.pg_database AS d ON d.oid = s.dbid WHERE d.datname = $1::text",
 				[substrate.database]
 			),
 			(rows): Counted => ({
@@ -161,7 +188,11 @@ export const runCalls = (calls: Calls, c: Case<SecondCallFeature>) =>
 				byStatement: new Map(
 					Arr.map(
 						rows,
-						(row) => [textOf(row[0]), { plans: Number(row[1]), text: textOf(row[3]) }] as const
+						(row) =>
+							[
+								textOf(row[0]),
+								{ plans: Number(row[1]), text: textOf(row[3]), client: row[4] === true }
+							] as const
 					)
 				)
 			})
@@ -196,31 +227,35 @@ export const runCalls = (calls: Calls, c: Case<SecondCallFeature>) =>
 					})
 				yield* call(1)
 				const first = yield* backends
-				const before = yield* counted
-				const catalogBefore = yield* catalog
-				yield* call(2)
-				const after = yield* counted
-				const catalogAfter = yield* catalog
-				const second = yield* backends
-				assert.equal(second, first, `the second call of ${where} ran on the first call's backend`)
-				assert.ok(
-					after.calls > before.calls,
-					`the second call of ${where} ran statements the statistics counted`
-				)
-				const planned = Arr.flatMap([...after.byStatement], ([id, now]) => {
-					const then = before.byStatement.get(id)?.plans ?? 0
-					return now.plans > then ? [`${now.plans - then}x ${now.text}`] : []
-				})
-				assert.equal(
-					after.plans - before.plans,
-					0,
-					`the second call of ${where} planned ${after.plans - before.plans} statements on a backend whose first call planned them: ${Arr.join(planned, "; ")}`
-				)
-				assert.equal(
-					catalogAfter,
-					catalogBefore,
-					`the second call of ${where} changed a catalog row of the session's own relations or functions`
-				)
+				for (let k = 2; k <= callsMade; k++) {
+					const before = yield* counted
+					const catalogBefore = yield* catalog
+					yield* call(k)
+					const after = yield* counted
+					const catalogAfter = yield* catalog
+					const now = yield* backends
+					assert.equal(now, first, `call ${k} of ${where} ran on the first call's backend`)
+					assert.ok(
+						after.calls > before.calls,
+						`call ${k} of ${where} ran statements the statistics counted`
+					)
+					const planned = Arr.flatMap([...after.byStatement], ([id, counts]) => {
+						const then = before.byStatement.get(id)?.plans ?? 0
+						return counts.plans > then
+							? [`${counts.plans - then}x ${counts.client ? "" : "(in a function) "}${counts.text}`]
+							: []
+					})
+					assert.equal(
+						after.plans - before.plans,
+						0,
+						`call ${k} of ${where} planned ${after.plans - before.plans} statements on a backend whose first call planned them: ${Arr.join(planned, "; ")}`
+					)
+					assert.equal(
+						catalogAfter,
+						catalogBefore,
+						`call ${k} of ${where} changed a catalog row of the session's own relations or functions`
+					)
+				}
 			})
 		)
 	})

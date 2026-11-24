@@ -120,7 +120,7 @@ export interface PhysicalNames {
 	/**
 	 * The installation's schemas, each level's: every schema of the objects these names name but the environment's,
 	 * pg_catalog and an extension's, which an object's identity reads its definition apart from
-	 * (physical/ddl/type-schemas.ts digestedHooks).
+	 * (sql/type-schemas.ts digestedHooks).
 	 */
 	readonly installed: ReadonlySet<string>
 	/**

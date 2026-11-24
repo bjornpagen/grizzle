@@ -30,7 +30,7 @@ import { ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import type { Expr, Select, SqlStatement } from "#compiler/sql/ast.ts"
 import { and, eq, lit, types } from "#compiler/sql/build.ts"
 import { carrierEmptying } from "#compiler/sql/print.ts"
-import { carrierTable } from "#compiler/write/carriers/carriers.ts"
+import { carrierReader, carrierTable } from "#compiler/write/carriers/carriers.ts"
 import { ledger } from "#test/pg/laws/alternatives/schemas.ts"
 import {
 	batches,
@@ -688,14 +688,14 @@ const writtenStatements = (w: WriteSketch) =>
 
 /**
  * What a session stands up before its first call of the write a sketch states, each beside its twin built apart: each
- * carrier of its artifacts, then its emptying (write/carriers/carriers.ts carrierStandUp).
+ * carrier of its artifacts, its emptying and its reader (write/carriers/carriers.ts carrierStandUp).
  */
 export const writtenStandUps = (w: WriteSketch): ReadonlyArray<Twinned> => {
 	const stoodUp = (): ReadonlyArray<SqlStatement> =>
 		Arr.flatMap(writtenArtifacts(w), (artifact) =>
 			Arr.flatMap(artifact.carriers, (carrier): ReadonlyArray<SqlStatement> => {
 				const table = carrierTable(carrier)
-				return [table, carrierEmptying(table.name)]
+				return [table, carrierEmptying(table.name), carrierReader(table)]
 			})
 		)
 	const [statements, twins] = [stoodUp(), stoodUp()]

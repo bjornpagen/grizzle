@@ -59,6 +59,7 @@ import {
 	emptyNameMap
 } from "#compiler/sql/naming.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
+import { carrierRead } from "#compiler/write/carriers/carriers.ts"
 
 /** A placeholder of a stratum's nested rows of `relation`: the column at `part` of their sent layout. */
 export interface NestedColumnSlot {
@@ -253,12 +254,12 @@ export const stagedOf = (
 	}
 	const moved = new Set(sources.flatMap((s) => s.columns.map((c) => c.array.number)))
 	const kept = nested.flatMap((_, i) => (moved.has(i + 1) ? [] : [i]))
-	const carriers = new Map<FromSource, CarrierName>(sources.map((s) => [s.item, s.carrier]))
+	const carriers = new Map<FromSource, CreateCarrier>(sources.map((s) => [s.item, createOf(s)]))
 	const staged = renumberedStatement(ast, renumbering(nested.length, moved), (source) => {
 		const carrier = carriers.get(source)
 		return carrier === undefined || source.kind !== "arrays"
 			? undefined
-			: { kind: "table", table: carrier, alias: source.alias }
+			: carrierRead(carrier, source.alias)
 	})
 	return Object.freeze({
 		kind: "carriers",

@@ -59,7 +59,7 @@ const handles = ["k0", "k1", "k2"] as const
  * the installation's library function; T's CHECK that its (k, n) is a row of the closed relation Pairs, a row function
  * of T's columns calling Pairs' constant; and T's generated set field g, the singleton of Picks' f at k2, a key Picks
  * holds no row of, so g reads no column and is a row function of no parameter, returning the roster's bits domain.
- * Each identity digests its definition read in no schema (physical/ddl/type-schemas.ts digestedHooks).
+ * Each identity digests its definition read in no schema (sql/type-schemas.ts digestedHooks).
  */
 const definitionsOf = (name: string) => {
 	const K = closed.ordered("K", handles)

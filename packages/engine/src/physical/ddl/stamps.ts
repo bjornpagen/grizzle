@@ -61,7 +61,6 @@ import type { LawField } from "#compiler/ir/law.ts"
 import { fieldColumnType } from "#compiler/ir/physical.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import type { InstallNames } from "#compiler/physical/ddl/names.ts"
-import { installationTypes } from "#compiler/physical/ddl/type-schemas.ts"
 import { enforcement, type Node } from "#compiler/physical/obligations/graph.ts"
 import type {
 	ColumnDef,
@@ -94,6 +93,7 @@ import {
 	types
 } from "#compiler/sql/build.ts"
 import { assignments, ungenerated } from "#compiler/sql/generation.ts"
+import { installationTypes } from "#compiler/sql/type-schemas.ts"
 import { stampClockParam, stampParams } from "#compiler/write/insert/stamp.ts"
 
 /** A head's stamp function as a grant names it and orders after it: its object, and its name with its parameters'

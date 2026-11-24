@@ -335,7 +335,7 @@
  * they bind of its columns, an equality of a variable it binds first with one a step bound the rule's own
  * (analysis/theory/navigate.ts Navigator #chain `matchWhole`), where format 8 placed it before every step, the steps
  * after it keyed by its variables, so every judge statement that reads one reads its steps in another order.
- * Each delta reader declares the rows a call returns, ROWS 1 (physical/ddl/deltas.ts deltaReaderRows), where format 8
+ * Each delta reader declares the rows a call returns, ROWS 10 (sql/print.ts sessionReaderRows), where format 8
  * declared none and PostgreSQL estimated a thousand.
  * A relation is closed or open: closed, the default, its facts inserted, never changed or deleted, so a role that writes
  * it holds SELECT and INSERT on its table and no UPDATE or DELETE (physical/ddl/roles.ts entryPrivileges), where format
@@ -383,6 +383,11 @@
  * relation up by the sitting. A write member's rule over a union keeps the union whole, one node, its rules navigated
  * inside it (analysis/theory/navigate.ts sharedImports), where format 8 distributed the rule into its conjunctions, one
  * for each choice of a rule at every union, each reading every other import again.
+ * Every statement reads a carrier through its reader, a session function the stand-up makes beside it,
+ * pg_temp."<carrier>_rows"() RETURNS SETOF the carrier's row type, ROWS 10 (write/carriers/carriers.ts carrierReader, carrierRead;
+ * runtime/write/flight.ts StandUp `reader`), where format 8 read the carrier's table, so every statement over a carrier
+ * prints anew and no plan of one depends on the table; and a session table, a carrier or a delta, is truncated only once
+ * it holds more than 100 pages (sql/print.ts sessionTableKeptPages), where format 8 truncated it past one page.
  */
 export const artifactFormat = 8
 

@@ -33,7 +33,6 @@ import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { everyProperty } from "#compiler/core/canonical.ts"
 import { constantDigest } from "#compiler/core/fingerprint.ts"
 import { type Identity, identity } from "#compiler/core/identity.ts"
-import { digestedHooks } from "#compiler/physical/ddl/type-schemas.ts"
 import type {
 	CreateConstant,
 	Expr,
@@ -45,6 +44,7 @@ import type {
 } from "#compiler/sql/ast.ts"
 import { and, or, param, qualifiedCall, types } from "#compiler/sql/build.ts"
 import { identityHooks, ownColumns, Transform, transformExpr } from "#compiler/sql/transform.ts"
+import { digestedHooks } from "#compiler/sql/type-schemas.ts"
 
 /**
  * The most bytes the literals of a table's CHECK or stored generation hold together and stay inline: one past it, the

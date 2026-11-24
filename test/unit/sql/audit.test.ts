@@ -35,6 +35,7 @@ import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { printStatement } from "#compiler/sql/print.ts"
+import { carrierTableReads } from "#test/support/carrier-reads.ts"
 import { shapeFeatures, shapeOf } from "#test/support/kernel/shape.ts"
 import { breaks, oneHole } from "#test/support/kernel/sqlgen.ts"
 import {
@@ -129,7 +130,9 @@ export const everyLiveStatementPassesBothAuditsPrintsAsItsTwinDoesSurvivesTheSna
 /**
  * Every statement a generated write program places passes both audits, prints as its twin does, survives the
  * snapshot's codec and emit, and compiles deterministically; and so does every statement its session stands up before
- * its first call, each carrier and its emptying, whose kinds and shapes the case does not note, so they steer nothing.
+ * its first call, each carrier, its emptying and its reader, whose kinds and shapes the case does not note, so they steer
+ * nothing; and no statement reads a carrier's table, each reads it through its reader, so no plan of one depends on the
+ * table's file, which the carrier's emptying gives anew past the pages it keeps (sql/print.ts sessionTableKeptPages).
  *
  * Budget: 60 runs and 60 steered cases, what its suite stated before it became a property
  * (test/unit/sql/audit.test.ts:486 at 8cad5bce, its runs and its coverage's cases).
@@ -153,6 +156,13 @@ export const everyStatementAGeneratedWriteProgramPlacesPassesBothAuditsPrintsAsI
 				}
 				for (const stood of writtenStandUps(sketch.sketch)) {
 					universal(stood)
+				}
+				for (const twinned of live.statements) {
+					assert.deepEqual(
+						[...carrierTableReads(twinned.statement)],
+						[],
+						"a statement reads a carrier only through its reader, its table only a fill's INSERT target"
+					)
 				}
 				for (const { ast, text } of live.emitted) {
 					assert.equal(text, printStatement(ast), "the placed text is its AST's print")
@@ -187,6 +197,14 @@ export const everyStatementAGeneratedWriteProgramPlacesPassesBothAuditsPrintsAsI
 				original: "\t\t\t\t\t\t...outFields.map((f) => targetAs(requested(f), retCol(f))),",
 				replacement: "\t\t\t\t\t\t...outFields.map((f) => target(requested(f))),",
 				why: "The same-key pair's arm of an insert's verdict UNION ALL leaves its fact columns unnamed (write/insert/protocol.ts paired); the written statements' search fails."
+			},
+			{
+				file: "packages/engine/src/write/carriers/carriers.ts",
+				original:
+					"export const carrierScan = (carrier: WriteCarrier, alias: string): FromSource =>\n\tcarrierRead(carrierTable(carrier), alias)\n",
+				replacement:
+					'export const carrierScan = (carrier: WriteCarrier, alias: string): FromSource => ({\n\tkind: "table",\n\ttable: carrier.name,\n\talias\n})\n',
+				why: "A statement reads its carrier's table, not its reader: its plan depends on the table's file, which the carrier's emptying gives anew past the pages it keeps, so the statement is planned again; the written statements' search fails."
 			}
 		]
 	})

@@ -18,7 +18,8 @@ import type { ServedTable, ServedTables } from "#compiler/plan/serve.ts"
  * What a node reads is named by the login's served file (served/forms.ts ServedFile tables), never parsed from
  * PostgreSQL's names: its table by schema and name, an index by name among its table's index names, a Bitmap Index
  * Scan's, which names no relation, among the table of its nearest ancestor that names one, its Bitmap Heap Scan. A table in the
- * session's temporary schema is the explained ChangeSet's own carrier, read whole: a carrier holds no index
+ * session's temporary schema, or a function there, the carrier's reader every statement reads it through (sql/print.ts
+ * carrierReader), "Function Name" under VERBOSE with its "Schema", is the explained ChangeSet's own carrier, read whole: a carrier holds no index
  * (write/carriers/carriers.ts WriteCarrier), so an index under one is refused. A table or index the file does not name
  * is a plan the explain cannot read, refused like an answer that is no plan.
  */
@@ -32,6 +33,7 @@ interface PrintedNode {
 	readonly "Plan Rows": number
 	readonly "Plan Width": number
 	readonly "Relation Name"?: string
+	readonly "Function Name"?: string
 	readonly Schema?: string
 	readonly "Index Name"?: string
 }
@@ -129,6 +131,13 @@ const readingOf = (
 ): Result.Result<Reading, string> => {
 	const relation = node["Relation Name"]
 	const index = node["Index Name"]
+	if (
+		relation === undefined &&
+		node["Function Name"] !== undefined &&
+		node.Schema === temporarySchema
+	) {
+		return Result.succeed({ on: carrier, heap })
+	}
 	if (relation === undefined) {
 		return Result.map(
 			index === undefined ? Result.succeed(nothing) : indexUnder(heap, index),

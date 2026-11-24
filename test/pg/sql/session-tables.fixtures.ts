@@ -13,7 +13,7 @@ import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import type { CreateCarrier } from "#compiler/sql/ast.ts"
 import { cUtf8Collation, types } from "#compiler/sql/build.ts"
 import { carrierName, carrierScope } from "#compiler/sql/naming.ts"
-import { carrierEmptying, printStatement } from "#compiler/sql/print.ts"
+import { carrierEmptying, printStatement, sessionTableKeptBytes } from "#compiler/sql/print.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 
 /**
@@ -23,8 +23,11 @@ import type { RawSession } from "#test/support/substrate/session.ts"
  */
 type Width = "narrow" | "wide"
 
-/** How many rows a use writes: none, one, or more than the carrier's one page holds, in its heap or its TOAST table. */
-type Fill = "none" | "one" | "past a page"
+/**
+ * How many rows a use writes: none, one, or more than the pages the carrier's emptying keeps hold (sql/print.ts
+ * sessionTableKeptBytes), in its heap or its TOAST table.
+ */
+type Fill = "none" | "one" | "past what it keeps"
 
 /** How a use's transaction ends. */
 type End = "commit" | "rollback"
@@ -47,7 +50,7 @@ export const usesGen: Gen<Uses> = (s) => ({
 		array<Use>(
 			(u) => ({
 				width: u.draw(element<Width>(["narrow", "wide"])),
-				fill: u.draw(element<Fill>(["none", "one", "past a page"])),
+				fill: u.draw(element<Fill>(["none", "one", "past what it keeps"])),
 				end: u.draw(element<End>(["commit", "rollback"]))
 			}),
 			{ min: 2, max: 6 }
@@ -69,9 +72,10 @@ const wideDigests = 63
 const wideValueBytes = wideDigests * 64
 
 /**
- * The rows a use of `width` writes to fill it as `fill` says. Past a page: of narrow rows, one more than a heap page
- * holds of the least tuple, its header and its line pointer (MaxHeapTuplesPerPage's bound, the header unaligned, so
- * at least the bound); of wide rows, one more than a page's bytes of their values, which its TOAST table holds.
+ * The rows a use of `width` writes to fill it as `fill` says. Past what it keeps: of narrow rows, one more than the kept
+ * pages hold of the least tuple, its header and its line pointer (MaxHeapTuplesPerPage's bound a page, the header
+ * unaligned, so at least the bound); of wide rows, one more than the kept pages' bytes of their values, which its TOAST
+ * table holds.
  */
 const rowsOf = (width: Width, fill: Fill): number => {
 	switch (fill) {
@@ -79,10 +83,12 @@ const rowsOf = (width: Width, fill: Fill): number => {
 			return 0
 		case "one":
 			return 1
-		case "past a page":
+		case "past what it keeps":
 			return width === "narrow"
-				? Math.floor((blockSize - pageHeaderBytes) / (heapTupleHeaderBytes + itemIdBytes)) + 1
-				: Math.floor(blockSize / wideValueBytes) + 1
+				? (sessionTableKeptBytes / blockSize) *
+						Math.floor((blockSize - pageHeaderBytes) / (heapTupleHeaderBytes + itemIdBytes)) +
+						1
+				: Math.floor(sessionTableKeptBytes / wideValueBytes) + 1
 	}
 }
 
@@ -136,8 +142,9 @@ class Emptied extends Data.TaggedError("Emptied")<{ readonly message: string }> 
  * and its emptying, the session function of its name, sql/print.ts carrierEmptying), each use in a transaction of its
  * own: its emptying (sql/ast.ts EmptyCarrier), then its rows, then its COMMIT or ROLLBACK. At every emptying: the
  * carrier holds no row, whatever the use before it wrote and however that use ended; where the use before left its heap
- * and its TOAST table's heap each within one page, it keeps its file, so it sent no invalidation; where either held
- * more, it has a new file, empty; and either way each holds one page at most.
+ * and its TOAST table's heap each within the pages its emptying keeps (sql/print.ts sessionTableKeptBytes), it keeps its
+ * file, so it sent no invalidation; where either held more, it has a new file, empty; and either way each holds what it
+ * keeps at most.
  */
 export const runUses = (session: RawSession, k: Uses, c: Case<SessionTableFeature>) =>
 	Effect.gen(function* () {
@@ -168,19 +175,19 @@ export const runUses = (session: RawSession, k: Uses, c: Case<SessionTableFeatur
 			}
 			if (Option.isSome(before)) {
 				const was = before.value
-				if (was.heap > blockSize || was.toast > blockSize) {
+				if (was.heap > sessionTableKeptBytes || was.toast > sessionTableKeptBytes) {
 					c.note("gave its file back")
-					c.note(was.heap > blockSize ? "outgrew its heap" : "outgrew its TOAST table")
+					c.note(was.heap > sessionTableKeptBytes ? "outgrew its heap" : "outgrew its TOAST table")
 					if (after.filenode === was.filenode || after.heap !== 0 || after.toast !== 0) {
 						return yield* new Emptied({
-							message: `a carrier past its page (${Formatter.format(was)}) kept its file or a page (${Formatter.format(after)}), ${where}`
+							message: `a carrier past what it keeps (${Formatter.format(was)}) kept its file or a page (${Formatter.format(after)}), ${where}`
 						})
 					}
 				} else {
 					c.note("kept its file")
 					if (after.filenode !== was.filenode) {
 						return yield* new Emptied({
-							message: `a carrier within its page (${Formatter.format(was)}) got a new file (${Formatter.format(after)}), ${where}`
+							message: `a carrier within what it keeps (${Formatter.format(was)}) got a new file (${Formatter.format(after)}), ${where}`
 						})
 					}
 				}
@@ -188,9 +195,9 @@ export const runUses = (session: RawSession, k: Uses, c: Case<SessionTableFeatur
 					c.note("after a rollback")
 				}
 			}
-			if (after.heap > blockSize || after.toast > blockSize) {
+			if (after.heap > sessionTableKeptBytes || after.toast > sessionTableKeptBytes) {
 				return yield* new Emptied({
-					message: `the emptying left the carrier past its page (${Formatter.format(after)}), ${where}`
+					message: `the emptying left the carrier past what it keeps (${Formatter.format(after)}), ${where}`
 				})
 			}
 			const rows = rowsOf(use.width, use.fill)

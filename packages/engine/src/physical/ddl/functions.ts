@@ -11,7 +11,6 @@ import {
 } from "#compiler/ir/desc.ts"
 import { baseTypeRef, type RowAttribute, type RowType, rowTypeOf } from "#compiler/ir/physical.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
-import { installationTypes } from "#compiler/physical/ddl/type-schemas.ts"
 import { enforcement, type Node } from "#compiler/physical/obligations/graph.ts"
 import type { OwnedFunction } from "#compiler/schema/function-own.ts"
 import {
@@ -25,6 +24,7 @@ import {
 } from "#compiler/sql/ast.ts"
 import { arrayOf, functionNameOf } from "#compiler/sql/build.ts"
 import { typeOnSearchPath } from "#compiler/sql/print.ts"
+import { installationTypes } from "#compiler/sql/type-schemas.ts"
 
 /**
  * The installation's declared functions (schema/function.ts fn): each a SECURITY DEFINER function of its level's

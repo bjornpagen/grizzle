@@ -5,7 +5,7 @@
  *   `<schema>__<name>` or hashed, so the two install scripts are one script once the installation is abstracted
  *   (test/pg/migrate/support.ts installationAbstraction), whatever the two names, one a prefix of the other included;
  *   and every object named by its definition's digest is named alike, its definition read in no schema
- *   (physical/ddl/type-schemas.ts digestedHooks), where the definitions fixture's contracts over a contract, over a closed id
+ *   (sql/type-schemas.ts digestedHooks), where the definitions fixture's contracts over a contract, over a closed id
  *   and calling Xml.isPattern, its CHECK's row function calling a closed relation's constant and its generated set
  *   field's row function of no parameter each read the installation's schema;
  * - a COMMENT names a hashed object only, and says what its identity is: a readable name spells its identity itself;
@@ -137,14 +137,14 @@ export const theNamingDoorInstallsOneSchemaUnderTwoSchemaNamesAlikeAndCommentsEx
 				why: "a hashed object's COMMENT holds its identity's canonical text, not its display; the comment property fails."
 			},
 			{
-				file: "packages/engine/src/physical/ddl/type-schemas.ts",
+				file: "packages/engine/src/sql/type-schemas.ts",
 				original:
 					"\tfunctionRef: (f) => (installed.has(f.schema) ? { ...f, schema: digestedTypes } : f),\n",
 				replacement: "\tfunctionRef: (f) => f,\n",
 				why: "An identity digests its definition's calls of the installation's functions by their schema, so a row function calling a closed relation's constant and a contract calling Xml.isPattern are named apart under two schema names: a fresh install of a migrated history names its row functions apart from the history's, as test/pg/migrate/fixtures met for Payroll's levy_line."
 			},
 			{
-				file: "packages/engine/src/physical/ddl/type-schemas.ts",
+				file: "packages/engine/src/sql/type-schemas.ts",
 				original:
 					'\t\tt.kind === "named" && installed.has(t.schema) ? { ...t, schema: digestedTypes } : t\n',
 				replacement: "\t\tt\n",

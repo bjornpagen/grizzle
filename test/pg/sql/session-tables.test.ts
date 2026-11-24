@@ -1,11 +1,11 @@
 /**
  * A session table's emptying on PostgreSQL 19 (sql/print.ts sessionTableEmptied), through a write's carrier, which the
  * session stands up once and every use empties by its session function (sql/print.ts carrierEmptying): over drawn
- * sequences of two to six uses on one session, each writing no row, one, or more than the carrier's one page holds,
- * narrow in its heap or wide in its TOAST table, and ending in COMMIT or ROLLBACK, a carrier keyed or not, every
- * emptying leaves the carrier with no row; keeps its file, so it sent no invalidation, where the use before left its
- * heap and its TOAST table's each within one page; gives it back where either held more; and leaves each within one
- * page.
+ * sequences of two to six uses on one session, each writing no row, one, or more than the pages the carrier's emptying
+ * keeps hold (sql/print.ts sessionTableKeptBytes), narrow in its heap or wide in its TOAST table, and ending in COMMIT
+ * or ROLLBACK, a carrier keyed or not, every emptying leaves the carrier with no row; keeps its file, so it sent no
+ * invalidation, where the use before left its heap and its TOAST table's each within what it keeps; gives it back
+ * where either held more; and leaves each within what it keeps.
  *
  * Features: a carrier that kept its file and one that gave it back, outgrown in its heap and in its TOAST table, and an
  * emptying after a rollback.
@@ -18,7 +18,8 @@ import { runUses, type SessionTableFeature, usesGen } from "#test/pg/sql/session
 import { ownerSession, Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * A session table's emptying keeps its file while it holds its one page and gives the file back once it holds more.
+ * A session table's emptying keeps its file while it holds the pages it keeps and gives the file back once it holds
+ * more.
  *
  * Its budget is the runner's: a new property, with no suite before it to carry a count from.
  *
@@ -45,7 +46,7 @@ import { ownerSession, Substrate, baseSubstrate } from "#test/support/substrate/
  * @revalidate a change of its space, situations, kept cases or kills, of its label (the floor stream's seed), or of the
  *   runner's floor rule
  */
-export const aSessionTablesEmptyingKeepsItsFileWhileItHoldsItsOnePageAndGivesTheFileBackOnceItHoldsMore =
+export const aSessionTablesEmptyingKeepsItsFileWhileItHoldsThePagesItKeepsAndGivesTheFileBackOnceItHoldsMore =
 	property.explore(usesGen, {
 		needs: { substrate: Substrate.fresh(baseSubstrate) },
 		situations: [

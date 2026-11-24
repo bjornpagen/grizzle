@@ -102,8 +102,9 @@ export const noExclusion: WriteExclusion = Object.freeze({ kind: "none" })
 
 /**
  * A session object a write's flight reads or writes, which the session's stand-up of the write makes, `T` each of its
- * texts: `carrier`, a carrier's table and its emptying, a session function of the carrier's own name
- * (write/carriers/carriers.ts carrierStandUp), each made as the write's role, which alone may empty it; or `judged`, the
+ * texts: `carrier`, a carrier's table, its emptying, a session function of the carrier's own name, and its reader, the
+ * session function every statement reads it through (write/carriers/carriers.ts carrierStandUp), each made as the
+ * write's role, which alone may empty it; or `judged`, the
  * call of the rule judge's stand-up of a table the write writes (physical/ddl/rules.ts addStandUps), which makes the
  * judge's session tables a write of the table needs, as the judge's definer.
  *
@@ -115,7 +116,7 @@ export const noExclusion: WriteExclusion = Object.freeze({ kind: "none" })
  * once a session.
  */
 export type StandUp<T> =
-	| { readonly kind: "carrier"; readonly table: T; readonly emptying: T }
+	| { readonly kind: "carrier"; readonly table: T; readonly emptying: T; readonly reader: T }
 	| { readonly kind: "judged"; readonly call: T }
 
 /** A stand-up as a served write holds it (StandUp), every text named (core/prepared.ts). */
@@ -123,7 +124,7 @@ export type ServedStandUp = StandUp<Prepared<EmittedText>>
 
 /** The texts a stand-up sends, in order: a carrier's table, then its emptying; a judged table's call. */
 export const standUpTexts = <T>(standUp: StandUp<T>): NonEmptyReadonlyArray<T> =>
-	standUp.kind === "carrier" ? [standUp.table, standUp.emptying] : [standUp.call]
+	standUp.kind === "carrier" ? [standUp.table, standUp.emptying, standUp.reader] : [standUp.call]
 
 /** The name a session keeps a stand-up it ran by: its first text's (`standUpTexts`). */
 export const standUpName = (standUp: ServedStandUp): StatementName => standUpTexts(standUp)[0].name

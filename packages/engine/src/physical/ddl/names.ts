@@ -30,7 +30,6 @@ import type { RegexRef, ScalarType } from "#compiler/ir/scalar.ts"
 import type { NamedNative } from "#compiler/laws/model/model.ts"
 import { rosterConstants } from "#compiler/physical/ddl/constants.ts"
 import { libraryRef } from "#compiler/physical/ddl/library.ts"
-import { installationTypes, vectorTypes } from "#compiler/physical/ddl/type-schemas.ts"
 import { closedIndexOf, type ClosedTable } from "#compiler/runtime/write/fill.ts"
 import {
 	type Owned,
@@ -42,6 +41,7 @@ import {
 import type { FunctionName, ObjectName, TypeRef, TypeSchema } from "#compiler/sql/ast.ts"
 import type { ClosedConstant } from "#compiler/sql/constants.ts"
 import { storedColumns } from "#compiler/sql/stored.ts"
+import { installationTypes, vectorTypes } from "#compiler/sql/type-schemas.ts"
 import { type OutsideProbe, probeIdentity } from "#compiler/write/insert/unique.ts"
 
 export interface InstallNames extends PhysicalNames {

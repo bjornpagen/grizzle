@@ -20,7 +20,6 @@ import {
 	proofsTableName,
 	snapshotGuardName
 } from "#compiler/physical/ddl/ledger.ts"
-import { installedTypes } from "#compiler/physical/ddl/type-schemas.ts"
 import { namedIdent, qualifiedIdent } from "#compiler/physical/obligations/graph.ts"
 import { bookkeepingDeclaration } from "#compiler/physical/statistics/declared.ts"
 import type {
@@ -38,6 +37,7 @@ import type {
 	SqlStatement,
 	Update
 } from "#compiler/sql/ast.ts"
+import { installedTypes } from "#compiler/sql/type-schemas.ts"
 
 import {
 	arrays,
