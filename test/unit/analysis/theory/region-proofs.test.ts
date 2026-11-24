@@ -259,8 +259,8 @@ export const aWholeRuleOverTwoNodesReadsEveryDocumentATransitionBreaksItInAndEve
 		[
 			{
 				file: "packages/engine/src/analysis/theory/unit.ts",
-				original: "[...facts.containments.filter((c) => c.to === n.name), identity]",
-				replacement: "facts.containments.filter((c) => c.to === n.name)",
+				original: "[...(facts.into.get(n.name) ?? []), identity]",
+				replacement: "(facts.into.get(n.name) ?? [])",
 				why: "Two occurrences of a relation at one key do not witness each other, so a plain node read again at its key is read whole twice."
 			},
 			{

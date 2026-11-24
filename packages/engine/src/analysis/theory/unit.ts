@@ -1072,6 +1072,13 @@ export interface FieldContainment {
 export interface RegionFacts {
 	readonly containments: ReadonlyArray<FieldContainment>
 	/**
+	 * The containments, by their target, each target's in their order among `containments`: what a region's proofs read
+	 * of the containments into an occurrence's relation (`witnessesOf`), once for each occurrence, where each occurrence
+	 * scanned every containment of the schema, O(occurrences × containments) over a theory: 5,171,760 tests over the
+	 * 2,612 occurrences of edullm's QTI schema's whole rules (qti-pie 1bf7dcc).
+	 */
+	readonly into: ReadonlyMap<string, ReadonlyArray<FieldContainment>>
+	/**
 	 * Each stored relation's keys over every row, by the relation: its primary key, then each candidate key a statement
 	 * of the schema states of it, each once. A lookup bound at every field of one reads one row at most.
 	 */
@@ -1319,7 +1326,7 @@ export const regionFactsOf = (
 			return [[r.name, held] as const]
 		})
 	)
-	return { containments, roots, keys, members }
+	return { containments, into: Map.groupBy(containments, (c) => c.to), roots, keys, members }
 }
 
 /** E ⊆ N from E ⊆ M (`first`) and M ⊆ N (`second`), a containment over every row of M (`regionFactsOf` reads each
@@ -1509,7 +1516,7 @@ const witnessesOf = (
 	}
 	/** Each containment into N of the relation of an occurrence beside `r`, by the occurrence's place, at the fields of N
 	 * it fixes N's rows at (`fixedAt`) among the pairs both bind alike, with the selection it holds over. */
-	const held = [...facts.containments.filter((c) => c.to === n.name), identity].flatMap((c) =>
+	const held = [...(facts.into.get(n.name) ?? []), identity].flatMap((c) =>
 		r.beside.flatMap((beside) => {
 			const e = defined(regions[beside], "an occurrence beside another")
 			if (e.relation !== c.from) {
@@ -1652,6 +1659,19 @@ const regionOf = (
 	const rules: Array<InferredRule> = []
 	const replaced: Array<ReplacedRead> = []
 	const proofs = proofsOf(regions, facts, relations)
+	/**
+	 * The conditions of each occurrence a rule was made of, by the rule's side, relation and the fields its occurrence's
+	 * proof names: all a rule is a function of beside the unit's key, so an occurrence whose conditions are canonically
+	 * those of one made before at its side, relation and proof makes that rule again, and is passed before its rule is
+	 * made and compared with every rule held. A walk reads an import once at each place it is read, so one occurrence
+	 * stands many times in a region: where every occurrence's rule was made and compared with every rule held, O(o · r)
+	 * canonical comparisons of whole rules for o occurrences and r rules, 116,435 over the 559 regions of edullm's QTI
+	 * schema (qti-pie 1bf7dcc; 4,957 occurrences, 1,935 rules, one region of 1,319 occurrences and one rule), its
+	 * occurrence's conditions are compared with those of the few made at its side, relation and proof alone. With the
+	 * containments read by their target (RegionFacts `into`), the regions of that schema's laws went from 459 ms to 191
+	 * ms under a 100 µs CPU profile, the rules' comparisons from 238 ms to 52 ms.
+	 */
+	const made = new Map<string, Array<ReadonlyArray<InferredExpr>>>()
 	for (const [place, r] of regions.entries()) {
 		const key = defined(holders.get(r.relation), "a region read's relation, a holder of its unit")
 		const read = new Set<string>()
@@ -1678,6 +1698,13 @@ const regionOf = (
 			replaced.push({ relation: r.relation, fields: at })
 		}
 		for (const side of sidesAt(r.polarity)) {
+			const input = [side, r.relation, ...(at ?? [])].join("\u0000")
+			const alike = made.get(input) ?? []
+			if (alike.some((conditions) => canonicalEquals(conditions, r.where))) {
+				continue
+			}
+			alike.push(r.where)
+			made.set(input, alike)
 			const rule = ruleDesc(
 				fields.map((field) => ({ id: varOf(field), origin: { relation: r.relation, field }, loc })),
 				[
