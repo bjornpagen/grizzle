@@ -1137,3 +1137,152 @@ export const judgedNested = (c: Nested, note: (r: NestedReached) => void): void 
 		)
 	}
 }
+
+/**
+ * One case of the fold box: a check of the last sign of each visit, the greatest `at` of the signs a union of `width`
+ * rules gives it, one over Visit and the rest over Mark at a mark number of their own, read by the check directly or
+ * through a derived relation beside Limit, which the visit's child holds apart. Mark is keyed by its number first, so
+ * the fold's body joins within no unit and its rule is probed (analysis/theory/query.ts probe), as metis's Suspended in
+ * time is over its last presences, a fold of a union of seven rules over TestVisit, Presence, TestSuspension and
+ * TestEnd.
+ */
+export interface Folded {
+	readonly width: 2 | 3
+	readonly reader: "a check of the fold" | "a check beside a relation keyed apart"
+}
+
+export const foldedGen: Gen<Folded> = (s) => ({
+	width: s.draw(element<Folded["width"]>([2, 3])),
+	reader: s.draw(
+		element<Folded["reader"]>(["a check of the fold", "a check beside a relation keyed apart"])
+	)
+})
+
+export type FoldedReached = Folded["reader"] | "a union of two rules" | "a union of three rules"
+
+const FoldVisit = relation("Visit", { child: pg.integer, k: pg.integer, at: pg.integer }, [
+	"child",
+	"k"
+])
+const Mark = relation("Mark", { n: pg.integer, child: pg.integer, k: pg.integer, at: pg.integer }, [
+	"n",
+	"child",
+	"k"
+])
+const Limit = relation("Limit", { id: pg.integer, child: pg.integer, cap: pg.integer }, ["id"])
+const FoldBase = schema("judge_fold", [FoldVisit, Mark, Limit], [])
+
+/** A visit's own sign: its `at`. */
+const visitSign = (r: Rule<typeof FoldBase>) => {
+	const { child, k, at } = v(FoldVisit, "visit")
+	return r.match(FoldVisit, { at, child, k }).find({ at, child, k })
+}
+
+/** A sign of the visit's marks of number `n`. */
+const markSign = (n: number) => (r: Rule<typeof FoldBase>) => {
+	const { child, k, at } = v(Mark, "mark")
+	return r.match(Mark, { at, child, k, n }).find({ at, child, k })
+}
+
+const signs2 = query(FoldBase).rule(visitSign).rule(markSign(1))
+const signs3 = query(FoldBase).rule(visitSign).rule(markSign(1)).rule(markSign(2))
+
+/** The last sign of each visit: the greatest `at` of its signs, the visit matched first. */
+const last2 = query(FoldBase).rule((r) => {
+	const { child, k } = v(FoldVisit, "signed")
+	const { at } = v(signs2, "sign")
+	return r
+		.match(FoldVisit, { child, k })
+		.match(signs2, { at, child, k })
+		.find({ at: r.max(at), child, k })
+})
+const last3 = query(FoldBase).rule((r) => {
+	const { child, k } = v(FoldVisit, "signed")
+	const { at } = v(signs3, "sign")
+	return r
+		.match(FoldVisit, { child, k })
+		.match(signs3, { at, child, k })
+		.find({ at: r.max(at), child, k })
+})
+
+/** Each visit's last sign beside the cap Limit holds for its child, Limit keyed apart by its id. */
+const over2 = query(FoldBase).rule((r) => {
+	const { child, k, at } = v(last2, "last")
+	const { cap } = v(Limit, "limit")
+	return r.match(last2, { at, child, k }).match(Limit, { cap, child }).find({ at, cap, child, k })
+})
+const over3 = query(FoldBase).rule((r) => {
+	const { child, k, at } = v(last3, "last")
+	const { cap } = v(Limit, "limit")
+	return r.match(last3, { at, child, k }).match(Limit, { cap, child }).find({ at, cap, child, k })
+})
+
+/** The fold box's schema (`Folded`): the last signs, or the signs beside Limit, and the case's check over them. */
+const foldedSchemaOf = (c: Folded): FixtureSchema => {
+	switch (c.reader) {
+		case "a check of the fold": {
+			const Last = derived("Last", c.width === 2 ? last2 : last3)
+			return schema.extend(
+				[FoldBase],
+				"judge_fold_top",
+				[Last],
+				[check("Bounded", Last, (l) => l.le(l.at, 1000))]
+			)
+		}
+		case "a check beside a relation keyed apart": {
+			const Over = derived("Over", c.width === 2 ? over2 : over3)
+			return schema.extend(
+				[FoldBase],
+				"judge_fold_top",
+				[Over],
+				[check("Capped", Over, (o) => o.le(o.at, o.cap))]
+			)
+		}
+	}
+}
+
+/** The reads of the table `table` in `statement`, at any depth: each FROM source that names it. */
+const tableReadsOf = (statement: OperandSelect, table: string): number => {
+	let reads = 0
+	const source = (s: FromSource): void => {
+		if (s.kind === "table" && typeof s.table !== "string" && s.table.name === table) {
+			reads += 1
+		}
+	}
+	const item = (i: FromItem): void => {
+		if (i.kind === "joins") {
+			source(i.first)
+			for (const step of i.steps) {
+				source(step.source)
+			}
+			return
+		}
+		source(i)
+	}
+	visitSelect(statement, { ...inertVisitor, fromItem: item })
+	return reads
+}
+
+/**
+ * Judges the fold box's judge: every statement over Mark's delta reads Mark's table once for each rule of the union
+ * over it, `width` less the visit's, the fold read again at the groups the write touched, which are the keys of the
+ * signs it moves (analysis/theory/query.ts movedOf over the fold's body), never the union read once more to confirm
+ * them: their reader folds each group at its keys as it stands, reading the same union there.
+ */
+export const judgedFolded = (c: Folded, note: (r: FoldedReached) => void): void => {
+	const owned = owning(foldedSchemaOf(c))
+	const installation = succeeded(compileInstallation(owned, installOptions(owned)))
+	note(c.reader)
+	note(c.width === 2 ? "a union of two rules" : "a union of three rules")
+	const overMark = Arr.filter(judgedDeltaReadsOf(installation), (r) =>
+		Arr.some([...r.deltas], Str.includes("_mark_"))
+	)
+	assert.ok(overMark.length > 0, `${Formatter.format(c)}: a statement over Mark's delta`)
+	for (const { statement } of overMark) {
+		assert.equal(
+			tableReadsOf(statement.query, "mark"),
+			c.width - 1,
+			`${Formatter.format(c)}: a statement over Mark's delta reads Mark once for each rule of the union over it`
+		)
+	}
+}

@@ -110,16 +110,16 @@ const equivalenceKills: { readonly [S in JudgedShape]: ReadonlyArray<Kill> } = {
 	lifted: [
 		{
 			file: "packages/engine/src/analysis/theory/query.ts",
-			original: "\t\t\t\tturned(direction),\n",
-			replacement: "\t\t\t\tdirection,\n",
+			original: "\t\t\t\t[turned(direction)],\n",
+			replacement: "\t\t\t\t[direction],\n",
 			why: "A target's relation under two negations probed by no deletion: a mark deleted, which lets a block stand again and withdraws the target facts it holds out, is judged by no probe, so the containment it breaks commits."
 		}
 	],
 	standing: [
 		{
 			file: "packages/engine/src/analysis/theory/query.ts",
-			original: "\t\t\t\tturned(direction),\n",
-			replacement: "\t\t\t\tdirection,\n",
+			original: "\t\t\t\t[turned(direction)],\n",
+			replacement: "\t\t\t\t[direction],\n",
 			why: "A relation read under two negations probed by no write: a mark inserted, which lifts a standing block and brings back the facts it held out, is judged by no probe, so the key it breaks commits."
 		},
 		{

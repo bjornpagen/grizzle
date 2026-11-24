@@ -1863,15 +1863,15 @@ const deliveredId = (field: string): string => `delivered.${field}`
  *
  * - `delta`: the rows of a stored relation a transaction wrote on one side, a match of that side's delta binding every
  *   field the occurrence binds;
- * - `groups`: a touched set of keys, the groups of an aggregating rule a write touched (`touchedGroups`) or the facts
- *   it moves of a definition (`movedOf`), a query over the write's own region delivering the fields `keys` it holds,
- *   read as a step, so its rows are a set of keys (analysis/physical/consumers.ts), and the probe after it a step of
- *   its own reading those keys through channels (`groupParam`), as a whole rule reads its units
- *   (analysis/theory/unit.ts readPerUnit): the probe runs once per touched key, never once per row its write wrote.
- *   On the side of the facts it gains (`gained`) the probe reads the groups or the definition (`query`) at their keys
- *   as they stand at COMMIT, every field of the occurrence held, a group recomputed from its rows; on the side of
- *   those it loses (`lost`), a fact held before the write, it holds the keys alone, each other field free, as a
- *   relaxed match's are (`held`), so every fact held at those keys at any value is a candidate.
+ * - `groups`: a touched set of keys, what a write moves of a definition or of an aggregating rule's body, the groups it
+ *   touched (`movedOf`), a query over the write's own region delivering the fields `keys` it holds, read as a step, so
+ *   its rows are a set of keys (analysis/physical/consumers.ts), and the probe after it a step of its own reading those
+ *   keys through channels (`groupParam`), as a whole rule reads its units (analysis/theory/unit.ts readPerUnit): the
+ *   probe runs once per touched key, never once per row its write wrote. On the side of the facts it gains (`gained`)
+ *   the probe reads the groups or the definition (`query`) at their keys as they stand at COMMIT, every field of the
+ *   occurrence held, a group recomputed from its rows; on the side of those it loses (`lost`), a fact held before the
+ *   write, it holds the keys alone, each other field free, as a relaxed match's are (`held`), so every fact held at
+ *   those keys at any value is a candidate.
  */
 type Region =
 	| {
@@ -2102,13 +2102,13 @@ const held = (
 
 /**
  * How a transaction's write of one relation on one side touches an occurrence of an arm: the way the occurrence's facts
- * move, `added` where it may gain facts and `removed` where it may lose some, and the region a probe reads them from.
- * A stored relation's occurrence moves the way its rows do, its region the rows written; an aggregating rule's groups
+ * move, `added` where it may gain facts and `removed` where it may lose some, and the region a probe reads them from. A
+ * stored relation's occurrence moves the way its rows do, its region the rows written; an aggregating rule's groups
  * move both ways at once for any write its body reads, whichever side it is on: a row its body gains or loses replaces
- * the fact of its group, so each group it touches (`touchedGroups`) is a region of either way (Region `groups`); a
- * definition's facts (DefinedMatch) move the ways what the write moves of the definition does (`movedOf`), the facts it
- * may gain read at the keys they bind as they stand at COMMIT, those it may lose at the fields they bind (Region
- * `groups`) (`matchTouches`).
+ * the fact of its group, so each group it touches (`movedOf` of its body, `bothWays`) is a region of either way (Region
+ * `groups`); a definition's facts (DefinedMatch) move the ways what the write moves of the definition does (`movedOf`),
+ * the facts it may gain read at the keys they bind as they stand at COMMIT, those it may lose at the fields they bind
+ * (Region `groups`) (`matchTouches`).
  */
 interface Touch {
 	readonly direction: ProbeSide
@@ -2140,7 +2140,7 @@ const matchTouches = (
 				.flatMap(([f, e]) => (isBare(e) ? [] : [f]))
 				.toSorted(compareStrings)
 			return (["added", "removed"] as const).flatMap((direction) =>
-				movedOf(m, keys, direction, relation, side, depth + 1, memo, loc).map((moved): Touch => ({
+				movedOf(m, keys, [direction], relation, side, depth + 1, memo, loc).map((moved): Touch => ({
 					direction,
 					region: {
 						kind: "groups",
@@ -2157,100 +2157,47 @@ const matchTouches = (
 		}
 		case "grouped": {
 			const fields = Object.keys(m.bindings)
-			return touchedGroups(m.groups, relation, side, depth + 1, memo, loc).flatMap(
-				(t): ReadonlyArray<Touch> => [
-					{
-						direction: "added",
-						region: {
-							kind: "groups",
-							depth,
-							touched: t.query,
-							keys: t.keys,
-							read: { kind: "gained", query: m.groups.query, fields }
-						}
-					},
-					{
-						direction: "removed",
-						region: {
-							kind: "groups",
-							depth,
-							touched: t.query,
-							keys: t.keys,
-							read: { kind: "lost" }
-						}
+			return movedOf(
+				{ source: { kind: "query", query: m.groups.query, bind: {} }, arms: m.groups.body },
+				m.groups.keys,
+				bothWays,
+				relation,
+				side,
+				depth + 1,
+				memo,
+				loc
+			).flatMap((t): ReadonlyArray<Touch> => [
+				{
+					direction: "added",
+					region: {
+						kind: "groups",
+						depth,
+						touched: t.query,
+						keys: t.fields,
+						read: { kind: "gained", query: m.groups.query, fields }
 					}
-				]
-			)
+				},
+				{
+					direction: "removed",
+					region: {
+						kind: "groups",
+						depth,
+						touched: t.query,
+						keys: t.fields,
+						read: { kind: "lost" }
+					}
+				}
+			])
 		}
 	}
 }
 
-/** The groups of an aggregating rule a write touches (`touchedGroups`): a query delivering the group fields `keys`. */
-interface TouchedGroups {
-	readonly query: InferredQuery
-	readonly keys: ReadonlyArray<string>
-}
-
 /**
- * The groups of `groups` a transaction's write of `relation` on `side` touches: the group keys of every fact of its
- * body the write may add or withdraw, read by the candidates of the body's arms that a probe of a containment's source
- * and of its target reads (`gainedOf`, `relaxedOf`), each a query of one rule over its region delivering
- * the group fields it binds. A group a write gives a fact and one it takes a fact from are both touched, its fold
- * changed either way, and a group no fact of which the write touches holds the fact it held. A lost candidate a
- * relaxed match leaves a group field unbound for delivers the fields it binds alone, every group agreeing with them
- * touched; one that binds no field touches every group, as a probe whose seeds nothing reaches reads the whole side.
+ * The ways a write touches an aggregating rule's groups (GroupedMatch): a row its body gains or loses replaces its
+ * group's fact either way, so the groups touched are the keys of every fact of its body the write moves, added or
+ * withdrawn (`movedOf`).
  */
-const touchedGroups = (
-	groups: Groups,
-	relation: string,
-	side: ProbeSide,
-	depth: number,
-	memo: MovedMemo,
-	loc: SourceLoc
-): ReadonlyArray<TouchedGroups> =>
-	groups.body.flatMap((arm) => {
-		const keys = groups.keys.map((k) => [k, headOf(arm, k, loc)] as const)
-		const deliver = (c: Candidate, conditions: ReadonlyArray<InferredExpr>): TouchedGroups => {
-			const bound = keys.flatMap(([k, term]) => {
-				const mapped = mapLeaves(term, c.leaves)
-				return c.unbound(mapped) ? [] : [[k, mapped] as const]
-			})
-			return {
-				query: queryOf(
-					[
-						overRegion(
-							c.region,
-							ruleDesc(
-								c.vars,
-								c.matches.map(matchDesc),
-								conditions,
-								Object.fromEntries(bound),
-								loc
-							),
-							loc
-						)
-					],
-					loc
-				),
-				keys: bound.map(([k]) => k)
-			}
-		}
-		return [
-			...gainedOf([arm], relation, side, depth, memo, everyMatch, loc).map(({ candidate: c }) =>
-				deliver(c, conditionsOf({ where: c.where, negated: c.negated }, loc))
-			),
-			...relaxedOf(
-				[arm],
-				"removed",
-				() => keys.map(([, term]) => term),
-				relation,
-				side,
-				depth,
-				memo,
-				loc
-			).map(({ candidate: c }) => deliver(c, c.where))
-		]
-	})
+const bothWays: NonEmptyReadonlyArray<ProbeSide> = ["added", "removed"]
 
 /** The matches a relaxed probe reads as they stand, and those it drops (`relaxedOf`). */
 interface Relaxed {
@@ -2327,7 +2274,7 @@ interface Moved {
 /** The direction a negation turns a move: a definition gaining facts withdraws those of the arm that negates it. */
 const turned = (direction: ProbeSide): ProbeSide => (direction === "added" ? "removed" : "added")
 
-/** What a probe's rows read of the definitions they meet, once a definition, fields, direction and depth (`movedOf`). */
+/** What a probe's rows read of the definitions they meet, once a definition, fields, directions and depth (`movedOf`). */
 type MovedMemo = Map<string | InferredQuery, Map<string, ReadonlyArray<Moved>>>
 
 /** The key a definition is read once by (MovedMemo): a stored or closed relation by its name, a query as the one object. */
@@ -2335,50 +2282,57 @@ const movedKey = (source: NegatedSource): string | InferredQuery =>
 	source.kind === "relation" ? source.name : source.query
 
 /**
- * The facts of a definition, the arms of what a negation negates or of a definition a match reads (DefinedMatch), that
- * a transaction's write of `relation` on `side` may move in `direction`, at the heading fields `fields` (Moved), as
- * queries of rules, one for each set of those fields its rules bind: the candidates of its arms' facts the write moves
- * that way, relaxed (`relaxedOf`, seeded at `fields`), each rule its candidate over its region, read nested
- * `depth` deep, delivering the fields it binds to a variable. A field its arm derives by a computed term, a
- * concatenation or a guarded cast an inlined definition's head left, is delivered by no rule: the query is keys a reader
- * holds, and a computed head beside a key's equations is a computation no query holds (check/checker.ts: a
- * concatenation stands in a query only where it is compared), where a reader held at fewer keys reads every fact at
- * those it holds. It is a superset of the facts that move: each candidate reads the matches on its path to `fields`
- * alone, the arm's others and its negations dropped, and every reader reads the facts it delivers again as they stand:
- * a negating arm by its negation at COMMIT (`movedBy`), a matched definition's gained facts by the definition at their
- * keys (`matchTouches`), and a lost fact by whatever its probe judges it against.
+ * The facts of a definition, the arms of what a negation negates, of a definition a match reads (DefinedMatch) or of an
+ * aggregating rule's body (GroupedMatch), that a transaction's write of `relation` on `side` may move in one of
+ * `directions`, at the heading fields `fields` (Moved), as queries of rules, one for each set of those fields its rules
+ * bind: the candidates of its arms' facts the write moves those ways, relaxed (`relaxedOf`, seeded at `fields`), each
+ * rule its candidate over its region, read nested `depth` deep, delivering the fields it binds to a variable. A field
+ * its arm derives by a computed term, a concatenation or a guarded cast an inlined definition's head left, is delivered
+ * by no rule: the query is keys a reader holds, and a computed head beside a key's equations is a computation no query
+ * holds (check/checker.ts: a concatenation stands in a query only where it is compared), where a reader held at fewer
+ * keys reads every fact at those it holds. It is a superset of the facts that move: each candidate reads the matches on
+ * its path to `fields` alone, the arm's others and its negations dropped, and every reader reads the facts it delivers
+ * again as they stand: a negating arm by its negation at COMMIT (`movedBy`), a matched definition's gained facts by the
+ * definition at their keys (`matchTouches`), a fold's touched groups by the fold at their keys, every group moved
+ * either way (`bothWays`), and a lost fact by whatever its probe judges it against. So no rule of it reads a
+ * definition's facts as they stand to confirm them: its reader reads them so at the keys it delivers, and a
+ * confirmation at those keys read the same definition there again (metis's beacon judged Suspended in time over its
+ * last presences, a fold of a union of seven rules, whose touched groups read that union again at the presences a
+ * beacon moved, 23 of its 71.8 KB).
  *
  * The query is the definition's own, read once whatever reads it: every negation and match of one source at one set of
- * fields in one direction and depth reads the one query (`memo`), which navigation navigates once and the checker
- * builds once, so a probe's rows read each definition the write moves once, where each was spelled again on every path
- * of arms down to the occurrence, the product of the arms of every definition along it.
+ * fields in one set of directions and depth reads the one query (`memo`), which navigation navigates once and the
+ * checker builds once, so a probe's rows read each definition the write moves once, where each was spelled again on
+ * every path of arms down to the occurrence, the product of the arms of every definition along it.
  */
 const movedOf = (
 	definition: Pick<Negation, "source" | "arms">,
 	fields: ReadonlyArray<string>,
-	direction: ProbeSide,
+	directions: NonEmptyReadonlyArray<ProbeSide>,
 	relation: string,
 	side: ProbeSide,
 	depth: number,
 	memo: MovedMemo,
 	loc: SourceLoc
 ): ReadonlyArray<Moved> => {
-	const key = `${fields.join(",")} ${direction} ${String(depth)}`
+	const key = `${fields.join(",")} ${directions.join("+")} ${String(depth)}`
 	const bySource = memo.get(movedKey(definition.source)) ?? new Map<string, ReadonlyArray<Moved>>()
 	memo.set(movedKey(definition.source), bySource)
 	const known = bySource.get(key)
 	if (known !== undefined) {
 		return known
 	}
-	const candidates = relaxedOf(
-		definition.arms,
-		direction,
-		(arm) => fields.map((f) => headOf(arm, f, loc)),
-		relation,
-		side,
-		depth,
-		memo,
-		loc
+	const candidates = directions.flatMap((direction) =>
+		relaxedOf(
+			definition.arms,
+			direction,
+			(arm) => fields.map((f) => headOf(arm, f, loc)),
+			relation,
+			side,
+			depth,
+			memo,
+			loc
+		)
 	)
 	const groups = new Map<string, { fields: ReadonlyArray<string>; rules: Array<InferredRule> }>()
 	for (const { arm, candidate: c } of candidates) {
@@ -2473,7 +2427,7 @@ const movedCandidates = <A extends LiveArm>(
 			movedOf(
 				n,
 				Object.keys(n.bindings).toSorted(compareStrings),
-				turned(direction),
+				[turned(direction)],
 				relation,
 				side,
 				depth + 1,
@@ -2509,9 +2463,6 @@ const gainedBy = (arm: LiveArm, touched: ArmMatch, at: number, touch: Touch): Ca
 		unbound: h.unbound
 	}
 }
-
-/** Every match of an arm: what a group's body reads its touches of (`gainedOf`). */
-const everyMatch = (): boolean => true
 
 /** The variable `e` is, if it is a bare one. */
 const varOf = (e: InferredExpr | undefined): string | undefined =>

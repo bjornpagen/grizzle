@@ -24,11 +24,14 @@ import {
 	type ContainmentReached,
 	containmentGen,
 	type EveryRowReached,
+	type FoldedReached,
+	foldedGen,
 	type NestedReached,
 	nestedGen,
 	everyRowGen,
 	judged,
 	judgedContainment,
+	judgedFolded,
 	judgedNested,
 	judgedUnions,
 	type Reached,
@@ -311,6 +314,41 @@ export const aProbedRuleOverNestedDefinitionsReadsEachDefinitionOnceInOneStateme
 				original: "\t\t\t\t\t: inlined.arms.length > 1\n",
 				replacement: "\t\t\t\t\t: inlined.arms.length > 1 && inlined.arms.length < 1\n",
 				why: "A definition of several rules a rule matches is distributed into its arms, as before, an arm for each choice of a rule at every union matched: a level whose rules each match the level below is the width to the depth arms, each a row of Node's blocks, past twice each rule of the description; the property fails."
+			}
+		]
+	})
+
+/**
+ * A probed rule over a fold of a union reads the union once in each statement over a delta it reads, the fold at the
+ * groups the write touched, which are the keys of the union's facts the write moves (analysis/theory/query.ts movedOf
+ * over the fold's body, `bothWays`), never the union read again to confirm those facts, which the fold reads at the
+ * same keys. metis's beacon judged Suspended in time, a check over its last presences, a fold of a union of seven
+ * rules over TestVisit, Presence, TestSuspension and TestEnd, by a statement over Presence's news of 71.8 KB, 31 MB of
+ * planner memory, 23 KB of it the union read again at the presences the beacon moved, before the fold read it there.
+ */
+export const aProbedRuleOverAFoldOfAUnionReadsTheUnionOnceForTheFoldAtTheGroupsAWriteTouched =
+	property.exhaust(finite(foldedGen), {
+		needs: {},
+		situations: [
+			"a check of the fold",
+			"a check beside a relation keyed apart",
+			"a union of two rules",
+			"a union of three rules"
+		] satisfies ReadonlyArray<ReachedOf<FoldedReached>>,
+		check: (_, c: Case<FoldedReached>) => (folded) =>
+			Effect.sync(() => judgedFolded(folded, c.note)),
+		oracle: {
+			kind: "specification",
+			name: "the description: each statement over Mark's delta reads Mark once for each rule of the union over it"
+		},
+		box: "a check of the last sign of each visit, the greatest of a union of a visit's own sign and one or two rules over Mark, read directly or through a derived relation beside a relation keyed apart",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/analysis/theory/query.ts",
+				original: "\t\t\t\t\tkeyed(definitionsKeyed(arm, t.region, depth, loc)),\n",
+				replacement: "\t\t\t\t\tdefinitionsKeyed(arm, t.region, depth, loc),\n",
+				why: "A relaxed candidate of a definition's facts reads the definition again as it stands at the keys it moved, so the fold's touched groups read the union over Mark once more before the fold reads it, twice each rule over Mark in the statement over Mark's news, as metis's beacon did; the property fails."
 			}
 		]
 	})
