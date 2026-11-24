@@ -26,6 +26,7 @@ import {
 	type UnwrittenRead
 } from "#compiler/check/generated.ts"
 import type { ClosedRelation, SchemaReading } from "#compiler/check/schema.ts"
+import { CheckSession } from "#compiler/check/session.ts"
 import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
 import type { GeneratedRule } from "#compiler/core/causes.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
@@ -559,13 +560,22 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		}
 		const derived: Array<DerivedRelationAnalysis> = []
 		this.derived = derived
+		/**
+		 * The one session of every live definition's check (check/session.ts CheckSession): a live definition is checked
+		 * for its refusals alone, nothing reading its checked query, and reads the definitions below it as imports, so an
+		 * import the definitions share is checked once for the schema, where a session of each definition's own checked
+		 * the whole chain of imports below it again: O(i) import checks for the i imports the definitions read, where it
+		 * was the sum over the definitions of each one's chain. Over edullm's QTI schema (qti-pie 1bf7dcc) its 228 live
+		 * definitions' checks took 2.2 s of a lawsOf's 10.3 s under a 100 µs CPU profile, 1.45 s of it checking imports.
+		 */
+		const live = new CheckSession(this.patterns)
 		for (const r of ownedRelations
 			.flatMap((o) => (o.kind === "derived" ? [o] : []))
 			.toSorted((a, b) =>
 				a.desc.level === b.desc.level ? compareStrings(a.name, b.name) : a.desc.level - b.desc.level
 			)) {
 			if (r.view.kind === "live") {
-				unwrap(shapedDefinition(this, `derived ${r.name}`, r.desc.query, r.name, r.loc))
+				unwrap(shapedDefinition(this, `derived ${r.name}`, r.desc.query, r.name, r.loc, live))
 				continue
 			}
 			const analysis = unwrap(analyzeDerivedRelation(this, r, r.view))

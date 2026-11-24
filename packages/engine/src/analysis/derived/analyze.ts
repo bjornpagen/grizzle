@@ -200,16 +200,17 @@ export interface AnalyzedDefinition {
 
 /**
  * The definition `query` of the relation `relation` (a derived relation's, live or stored, or a world entry's, `label`
- * naming it to the checker), checked, and refused at `at` where its delivered rows carry an attachment or several
- * heading groups (spineObstacle) or its heading is empty: the shape every derived definition has, as its type says
- * (types/derived/derived.ts DefinitionShape), whether or not anything stores its rows.
+ * naming it to the checker), checked in `session`, and refused at `at` where its delivered rows carry an attachment or
+ * several heading groups (spineObstacle) or its heading is empty: the shape every derived definition has, as its type
+ * says (types/derived/derived.ts DefinitionShape), whether or not anything stores its rows.
  */
 export const shapedDefinition = (
 	schema: SchemaReading,
 	label: string,
 	query: QueryDesc,
 	relation: string,
-	at: SourceLoc
+	at: SourceLoc,
+	session: CheckSession
 ): Result.Result<
 	{
 		readonly checked: AdmittedQuery
@@ -218,7 +219,7 @@ export const shapedDefinition = (
 	},
 	CompileError
 > => {
-	const checkedResult = checkDefinition(schema, label, query, new CheckSession(schema.patterns))
+	const checkedResult = checkDefinition(schema, label, query, session)
 	if (!checkedResult.ok) {
 		return checkedResult
 	}
@@ -236,8 +237,8 @@ export const shapedDefinition = (
 }
 
 /**
- * The definition `query` of the relation `relation` shaped (`shapedDefinition`), analyzed under the evidence a view's
- * keys give (queryEvidence), and its heading declared (declaredHeading).
+ * The definition `query` of the relation `relation` shaped (`shapedDefinition`) in a session of its own, analyzed under
+ * the evidence a view's keys give (queryEvidence), and its heading declared (declaredHeading).
  */
 export const analyzedDefinition = (
 	schema: SchemaReading,
@@ -246,7 +247,14 @@ export const analyzedDefinition = (
 	relation: string,
 	at: SourceLoc
 ): Result.Result<AnalyzedDefinition, CompileError> => {
-	const shaped = shapedDefinition(schema, label, query, relation, at)
+	const shaped = shapedDefinition(
+		schema,
+		label,
+		query,
+		relation,
+		at,
+		new CheckSession(schema.patterns)
+	)
 	if (!shaped.ok) {
 		return shaped
 	}
