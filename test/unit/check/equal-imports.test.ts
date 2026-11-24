@@ -39,7 +39,7 @@ import { Effect } from "effect"
 import { CheckSession } from "#compiler/check/session.ts"
 import {
 	type Binding,
-	checkedIn,
+	checkedBy,
 	checkedOf,
 	descOf,
 	digestingOf,
@@ -189,8 +189,8 @@ export const aCompileDigestsItsImportsForItselfAlone = property.exhaust(shapeGen
 			const desc = descOf(shape, "a factory per import")
 			const compile = new CheckSession()
 			const nextCompile = new CheckSession()
-			const first = yield* digestingOf(() => checkedIn(desc, compile))
-			const next = yield* digestingOf(() => checkedIn(desc, nextCompile))
+			const first = yield* digestingOf(() => checkedBy(desc, compile))
+			const next = yield* digestingOf(() => checkedBy(desc, nextCompile))
 			assert.equal(
 				next,
 				first,

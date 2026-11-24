@@ -232,12 +232,12 @@ export const descOf = (shape: Shape, copies: Copies): InferredQuery =>
 	succeeded(queryInput(programOf(shape, copies)), "a query value").desc
 
 /** A program's Description checked by one of `session`'s checks, as a query read checks it: its DAG and parameters. */
-export const checkedIn = (desc: InferredQuery, session: CheckSession): LogicalQuery =>
+export const checkedBy = (desc: InferredQuery, session: CheckSession): LogicalQuery =>
 	succeeded(checkQuery(checking(Ledger), desc, { ...checkOptions("equal imports"), session }))
 
 /** A program checked as a query read checks it, by a compile of its own. */
 export const checkedOf = (shape: Shape, copies: Copies): LogicalQuery =>
-	checkedIn(descOf(shape, copies), new CheckSession())
+	checkedBy(descOf(shape, copies), new CheckSession())
 
 /** The identity digests' module (core/fingerprint.ts), whose calls are the work of digesting what a check reads. */
 const isDigesting = (file: string): boolean => Str.endsWith("core/fingerprint.ts")(file)
