@@ -24,9 +24,11 @@ import {
 	negatedThroughSteps,
 	negationsOf,
 	oneColumnNegationSketchGen,
+	overStepsCaseGen,
 	overStepsOf,
 	situations,
 	type Slot,
+	type StepsFeature,
 	steppedRelations,
 	type UnreadCase,
 	unreadCaseGen,
@@ -181,20 +183,25 @@ export const navigationsGateJudgesAWriteMembersNegationThatReadsNoVariableAmongT
  * that reads a variable navigated after the chain in a rule statement's (analysis/theory/navigate.ts
  * filteredOverSteps): the judge's rows over a region of keys and their meeting part stand so, and a write member's
  * compile is never moved by it. Navigated in a write member, the ledger's recordEvaluations read a step's filter whose
- * import binds parameters partly, refused as a bind map that binds its parameter incompletely.
+ * import binds parameters partly, refused as a bind map that binds its parameter incompletely. A filter navigation
+ * reads no part of (`#readable`), a negation of an import whose rule reads a text's split, stays the rule's condition
+ * as written in a rule statement too, as after a chain (#chain `asWritten`): navigated, its split was refused as no
+ * navigation, and so was every stored relation whose upkeep negated a split's import over a chain, edullm's WalkFloat
+ * and WalkRef over their tolerance's tokens.
  *
  * Its budget is the runner's: a new property, with no suite before it to carry a count from.
  */
 export const aRuleOverStepsKeepsItsFiltersAsWrittenInAWriteMemberAndNavigatesThemInARuleStatement =
-	property.exhaust(finite(gateCaseGen), {
+	property.exhaust(finite(overStepsCaseGen), {
 		needs: {},
 		situations: [
 			"a gate by a parameter",
 			"a gate by a literal",
 			"a gate declared after a correlated negation",
-			"two gates"
-		] satisfies ReadonlyArray<Reached<GateFeature>>,
-		check: (_, k: Case<GateFeature>) => (c) =>
+			"two gates",
+			"a negation of a split's import"
+		] satisfies ReadonlyArray<Reached<StepsFeature>>,
+		check: (_, k: Case<StepsFeature>) => (c) =>
 			Effect.sync(() => {
 				const rule = overStepsOf(c)
 				const navigatedAs = (sharing: ImportSharing): InferredRule => {
@@ -217,14 +224,19 @@ export const aRuleOverStepsKeepsItsFiltersAsWrittenInAWriteMemberAndNavigatesThe
 				)
 				const statement = navigatedAs({ kind: "perStatement", extent: "units" })
 				const names = ["N0", "N1", "N2"] as const
+				const slotted = (keep: (slot: Slot) => boolean): ReadonlyArray<string> =>
+					Arr.flatMap(names, (name, i) => (keep(c[i] ?? "none") ? [name] : []))
 				assert.deepEqual(
 					negatedThroughSteps(statement),
 					{
-						navigated: Arr.flatMap(names, (name, i) => ((c[i] ?? "none") === "none" ? [] : [name])),
-						asWritten: []
+						navigated: slotted((slot) => slot !== "none" && slot !== "correlated over a split"),
+						asWritten: slotted((slot) => slot === "correlated over a split")
 					},
-					`${Formatter.format(c)}: a rule statement's rule over steps navigates each of its filters, none left as written`
+					`${Formatter.format(c)}: a rule statement's rule over steps navigates each filter navigation reads, a split's import's left as written`
 				)
+				if (Arr.contains(c, "correlated over a split")) {
+					k.note("a negation of a split's import")
+				}
 				if (Arr.contains(c, "gate by a parameter")) {
 					k.note("a gate by a parameter")
 				}
@@ -241,11 +253,18 @@ export const aRuleOverStepsKeepsItsFiltersAsWrittenInAWriteMemberAndNavigatesThe
 			}),
 		oracle: {
 			kind: "specification",
-			name: "navigation's rule over a chain of steps restated: a write member's filters as written, a rule statement's gates among the chain's own conditions and every other a wrapper, each in declared order"
+			name: "navigation's rule over a chain of steps restated: a write member's filters as written, a rule statement's gates among the chain's own conditions and every other a wrapper, each in declared order, but a negation of a split's import, as written"
 		},
-		box: "every assignment of three negations' slots, each none, a gate by the parameter, a gate by a literal or correlated, over one step of A at the parameter joined to B",
+		box: "every assignment of three negations' slots, each none, a gate by the parameter, a gate by a literal, correlated, or correlated over the tokens of the negated relation's lists, over one step of A at the parameter joined to B",
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original:
+					"\t\tconst filters = rule.where.filter(isFiltered).filter((a) => this.#readable(a))\n",
+				replacement: "\t\tconst filters = rule.where.filter(isFiltered)\n",
+				why: "A rule over steps has a filter navigation reads no part of navigated after it as a readable one: its import's split is refused as no navigation, as edullm's stored WalkFloat was at its upkeep."
+			},
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
 				original: '\t\tsharing.kind === "perStatement" && interned.overSteps(read)\n',

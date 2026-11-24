@@ -892,19 +892,20 @@ class Navigator {
 	 * target's join PostgreSQL planned by its estimates, and a negation whose binding computes over a variable of the
 	 * filtered query, a guarded cast an inlined definition's head left, reached the checker, which lowers no computed
 	 * binding of a negation (check/checker.ts #negatedTerm), where navigated it is a condition of the filter's own step.
-	 * Every such filter is one navigation reads (`#readable`): a probe's negates a stored relation or a definition, which
-	 * a probed rule's admission holds to rules navigation reads (analysis/theory/query.ts), and a whole rule's read of a
-	 * recursion per unit reads its walk inside a rule that joins, whose chain keeps it as written (`#chain`).
+	 * A filter navigation reads no part of (`#readable`) stays the rule's condition as written, as after a chain
+	 * (`#chain` `asWritten`): a negation of an import whose rule reads a call's rows or a text's split, which a stored
+	 * relation's upkeep and a whole rule read per unit over the steps their imports' joins navigate to, edullm's WalkFloat
+	 * negating its tolerance's third token, was refused as no navigation where navigated.
 	 */
 	filteredOverSteps(rule: InferredRule, depth: number): InferredRule {
-		const filters = rule.where.filter(isFiltered)
+		const filters = rule.where.filter(isFiltered).filter((a) => this.#readable(a))
 		return filters.length === 0
 			? rule
 			: this.#filteredAfter(
 					{
 						vars: rule.vars,
 						matches: rule.matches,
-						where: rule.where.filter((w) => !isFiltered(w)),
+						where: rule.where.filter((w) => !isFiltered(w) || !this.#readable(w)),
 						filters,
 						head: rule.head
 					},

@@ -1,5 +1,6 @@
 /** What the properties of navigation.test.ts read: its spaces, models and helpers. */
 
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec, Result, String as Str, Struct } from "effect"
@@ -17,6 +18,7 @@ import { queryInput } from "#compiler/program/input.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
+import { str } from "#compiler/public/text.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
@@ -151,8 +153,18 @@ export const judged = (c: ProgramCase, read: QueryRead, note: (f: Feature) => vo
 	}
 }
 
-/** One negation slot of a gate case: none, a gate by the parameter p, a gate by a literal, or correlated through k. */
-export type Slot = "none" | "gate by a parameter" | "gate by a literal" | "correlated"
+/**
+ * One negation slot of a gate case: none, a gate by the parameter p, a gate by a literal, or correlated through k; or,
+ * in a rule over steps, correlated through k with the tokens of N's lists, an import whose rule reads a split, which
+ * navigation reads no part of (analysis/theory/navigate.ts RuleReads), as edullm's WalkFloat negates its tolerance's
+ * third token.
+ */
+export type Slot =
+	| "none"
+	| "gate by a parameter"
+	| "gate by a literal"
+	| "correlated"
+	| "correlated over a split"
 
 /** A gate case: the slots of N0, N1 and N2, declared in that order. */
 type GateCase = readonly [Slot, Slot, Slot]
@@ -163,6 +175,9 @@ export type GateFeature =
 	| "a gate declared after a correlated negation"
 	| "two gates"
 
+/** A rule over steps' features: a gate case's, and a negation of a split's import, left as written. */
+export type StepsFeature = GateFeature | "a negation of a split's import"
+
 const slotGen: Gen<Slot> = element<Slot>([
 	"none",
 	"gate by a parameter",
@@ -172,6 +187,22 @@ const slotGen: Gen<Slot> = element<Slot>([
 
 export const gateCaseGen: Gen<GateCase> = (s) => [s.draw(slotGen), s.draw(slotGen), s.draw(slotGen)]
 
+/** A slot of a rule over steps: a gate case's, or a negation of the tokens of N's lists. */
+const stepSlotGen: Gen<Slot> = element<Slot>([
+	"none",
+	"gate by a parameter",
+	"gate by a literal",
+	"correlated",
+	"correlated over a split"
+])
+
+/** A rule over steps' case: the slots of N0, N1 and N2, a negation of a split's import among them. */
+export const overStepsCaseGen: Gen<GateCase> = (s) => [
+	s.draw(stepSlotGen),
+	s.draw(stepSlotGen),
+	s.draw(stepSlotGen)
+]
+
 export const isGate = (slot: Slot): boolean =>
 	slot === "gate by a parameter" || slot === "gate by a literal"
 
@@ -179,11 +210,23 @@ const A = relation("A", { id: pg.integer, k: pg.integer }, ["id"])
 
 const B = relation("B", { k: pg.integer, v: pg.integer }, ["k"])
 
-const N0 = relation("N0", { k: pg.integer }, ["k"])
+/** A list of any text, which a negation over a split reads the tokens of. */
+const List = str.regex("^.*$", "su")
 
-const N1 = relation("N1", { k: pg.integer }, ["k"])
+const N0 = relation("N0", { k: pg.integer, list: List }, ["k"])
 
-const N2 = relation("N2", { k: pg.integer }, ["k"])
+const N1 = relation("N1", { k: pg.integer, list: List }, ["k"])
+
+const N2 = relation("N2", { k: pg.integer, list: List }, ["k"])
+
+/** The keys of N whose list holds a token: an import whose rule reads a split (r.tokens), which navigation reads no part of. */
+const tokened = (N: typeof N0 | typeof N1 | typeof N2) =>
+	query(Gates).rule((r) => {
+		const { k, list } = v(N, "listed")
+		const split = r.tokens(list)
+		const { token } = v(split, "token")
+		return r.match(N, { k, list }).match(split, { token }).find({ k })
+	})
 
 const Gates = schema("Gates", [A, B, N0, N1, N2], [])
 
@@ -217,6 +260,8 @@ export const gateQueryOf = (c: GateCase): InferredQuery =>
 								return [r.not(N, { k: 1 })]
 							case "correlated":
 								return [r.not(N, { k })]
+							case "correlated over a split":
+								return [r.not(tokened(N), { k })]
 						}
 					}
 				)
@@ -377,9 +422,28 @@ export const overStepsOf = (c: GateCase): InferredRule => {
 }
 
 /**
+ * The relation a negation left as written reads: the negated relation itself, or each an import's rule matches; none
+ * for any other condition.
+ */
+const writtenRelation = (e: InferredExpr): ReadonlyArray<string> => {
+	if (e.kind !== "absent") {
+		return []
+	}
+	const source = e.source
+	if (source.kind === "relation") {
+		return [source.name]
+	}
+	return source.kind === "query" && source.query.stage.kind === "rules"
+		? Arr.flatMap(source.query.stage.arms[0].matches, (m) =>
+				m.source.kind === "relation" ? [m.source.name] : []
+			)
+		: []
+}
+
+/**
  * The negations a navigated rule over steps holds along its chain of steps, its own and each step's rule's, at any depth:
  * those navigated (a step reading the negated relation, `negatedRelation`) and those left as written (a negation of
- * the relation itself), each by its relation, sorted.
+ * the relation itself, or of an import, by the relation its rule matches), each by its relation, sorted.
  */
 export const negatedThroughSteps = (
 	rule: InferredRule
@@ -388,14 +452,8 @@ export const negatedThroughSteps = (
 	const asWritten: Array<string> = []
 	const visit = (r: InferredRule): void => {
 		for (const w of r.where) {
-			if (w.kind === "absent") {
-				if (w.source.kind === "relation") {
-					asWritten.push(w.source.name)
-				}
-				for (const name of negatedRelation(w)) {
-					navigated.push(name)
-				}
-			}
+			appendAll(asWritten, writtenRelation(w))
+			appendAll(navigated, negatedRelation(w))
 		}
 		for (const m of r.matches) {
 			if (m.source.kind === "step" && m.source.query.stage.kind === "rules") {
