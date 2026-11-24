@@ -355,6 +355,14 @@ export const aReadOfAParameterRelationDeliversEachOfItsFactsByBothLoweringsAndAP
 					'\t(props.distinct === "members" && props.columns.every((c) => columns.includes(c)))',
 				replacement: "\tfalse",
 				why: "Only a key tells a source's rows apart as facts (logical/props.ts identifiesFacts), so a rule's head reading a relation parameter whole, whose facts are a set's members with no key, merges its float through the canonical zero (check/merge.ts pickFree) and the optimized whole read delivers +0 for the fact -0."
+			},
+			{
+				file: "packages/engine/src/analysis/physical/rules.ts",
+				original:
+					"\t\t\treturn input.heading.every((c) => copied.has(c.name) || constant(c)) ? props.facts : undefined\n",
+				replacement:
+					"\t\t\treturn input.heading.every((c) => copied.has(c.name)) ? props.facts : undefined\n",
+				why: "A projection that reads the parameter in place of the column a filter fixes at it copies no longer every column (lower/optimize/propagate): its rows are no facts, placement puts a DISTINCT on the filtered read, and -0 and +0 at its variable are one row, as at 3afa2a647."
 			}
 		]
 	})

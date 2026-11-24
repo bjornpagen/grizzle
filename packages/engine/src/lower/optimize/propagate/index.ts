@@ -18,7 +18,7 @@ import {
 	type ValidDag,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
-import { baseOf, type Carrier, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
+import { baseOf, equalityIsIdentity, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import { conjuncts } from "#compiler/logical/props.ts"
 import { DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
 import { type RewriteCx, traversalPass } from "#compiler/lower/optimize/demand/frame.ts"
@@ -71,42 +71,6 @@ const sameValue = (a: ScalarExpr, b: ScalarExpr): boolean => {
 			return false
 	}
 }
-
-/**
- * Whether PostgreSQL's equality over a carrier holds equal only one value: two values it holds equal are one, so a column
- * an equality holds at a value holds that value, which a reference to it may read in its place. A numeric's display
- * scale (1.0 = 1.00), a float's zero's sign (-0 = 0) and a vector's components' are the values it holds equal and the
- * identity tells apart (ir/compare.ts factEq), and an exact arithmetic carrier is a numeric's; on those an equality
- * restricts a column and names none of its values.
- */
-const equalIsSame: { readonly [C in Carrier]: boolean } = {
-	int2: true,
-	int4: true,
-	int8: true,
-	numeric: false,
-	float4: false,
-	float8: false,
-	money: true,
-	bool: true,
-	uuid: true,
-	date: true,
-	inet: true,
-	cidr: true,
-	text: true,
-	bytes: true,
-	code: true,
-	bits: true,
-	range4: true,
-	range8: true,
-	rangeDate: true,
-	vector: false,
-	tsvector: true,
-	exactInteger: false,
-	exactMoney: false,
-	sha256: true
-}
-
-const named = (type: ScalarType): boolean => equalIsSame[baseOf(type).carrier]
 
 /** Whether a value of `value`'s type may stand as a constant of a source column of `column`'s type (its base, or the exact family it widens into), compared at the column's type. */
 const fits = (column: ScalarType, value: ScalarType): boolean =>
@@ -272,7 +236,7 @@ const leavesOf =
  * - A delta holds what its producers hold (Producers), where an equality names it: the write casts each value into
  *   its column, which on a numeric's scale or a float's zero may be another value.
  *
- * A column an equality holds at a value holds it only where the equality names one value (equalIsSame): a region's
+ * A column an equality holds at a value holds it only where the equality names one value (ir/scalar.ts equalityIsIdentity): a region's
  * variable, a filter's, a semi-join's or a take's column on a numeric, a float or a vector carrier holds none.
  */
 const valuesOf = (
@@ -289,7 +253,7 @@ const valuesOf = (
 		if (
 			h !== undefined &&
 			sameScalarType(h.type, value.type) &&
-			(!byEquality || named(h.type)) &&
+			(!byEquality || equalityIsIdentity(h.type)) &&
 			!out.has(column)
 		) {
 			out.set(column, value)

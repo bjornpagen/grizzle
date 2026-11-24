@@ -835,6 +835,44 @@ export const floatCarrierOf = (t: ScalarType): "float4" | "float8" | undefined =
 /** Whether a type is a float's, real or double precision (floatCarrierOf). */
 export const isFloat = (t: ScalarType): boolean => floatCarrierOf(t) !== undefined
 
+/**
+ * Whether PostgreSQL's equality over a carrier is identity: two values it holds equal are one value, written and
+ * delivered alike, so a column an equality holds at a value holds that very value. Its equality holds equal a float's
+ * two zeros (-0 = 0), which a fact's identity tells apart (ir/compare.ts factEq), and a numeric's display scales (1.0 =
+ * 1) and a vector's component spellings, which PostgreSQL writes and delivers apart; an exact arithmetic carrier is a
+ * numeric's. Every text is C-collated, so a text's equality is its bytes'.
+ */
+const equalityIsIdentityOf: { readonly [C in Carrier]: boolean } = {
+	int2: true,
+	int4: true,
+	int8: true,
+	numeric: false,
+	float4: false,
+	float8: false,
+	money: true,
+	bool: true,
+	uuid: true,
+	date: true,
+	inet: true,
+	cidr: true,
+	text: true,
+	bytes: true,
+	code: true,
+	bits: true,
+	range4: true,
+	range8: true,
+	rangeDate: true,
+	vector: false,
+	tsvector: true,
+	exactInteger: false,
+	exactMoney: false,
+	sha256: true
+}
+
+/** Whether a type's equality is identity (equalityIsIdentityOf), a contract's its base's. */
+export const equalityIsIdentity = (t: ScalarType): boolean =>
+	equalityIsIdentityOf[baseOf(t).carrier]
+
 /** The capabilities of a descriptor, a contract's its base's. */
 export const capsOf = (t: ScalarType): CapabilitySet => baseOf(t).caps
 

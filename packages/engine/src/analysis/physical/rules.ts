@@ -64,6 +64,7 @@ import {
 	closedColumn,
 	exprsOf,
 	type Heading,
+	type HeadingColumn,
 	inputSetPlaceholder,
 	inputsOf,
 	type NodeOf,
@@ -74,7 +75,13 @@ import {
 	unionArms,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
-import { baseOf, floatCarrierOf, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
+import {
+	baseOf,
+	equalityIsIdentity,
+	floatCarrierOf,
+	type ScalarType,
+	typeLabel
+} from "#compiler/ir/scalar.ts"
 import { chain } from "#compiler/logical/defined.ts"
 import { conjuncts, type Fixed, fixedEqual, readColumns } from "#compiler/logical/props.ts"
 import { carrierEquality, nativeOp } from "#compiler/scalar/compute/registry.ts"
@@ -556,7 +563,9 @@ const finish = (node: RelNode, cx: RuleContext, draft: Draft): PhysicalProps => 
  * Why a node's rows hold no two equal facts under identity equality where no native key of its whole heading says so
  * (PhysicalProps facts): a relation parameter's facts, a set by their identity under every realization (DraftDedup);
  * a filter, a semi- or anti-join, a bound, a step or an ordering of such rows, which keeps some of them as they are; a
- * projection copying every column of such rows; and a region whose every occurrence reads such rows and binds or
+ * projection copying every column of such rows but those the rows hold fixed at one value their equality names alone
+ * (ir/scalar.ts equalityIsIdentity), such as a column a filter fixes at a parameter whose value the projection reads in
+ * its place (lower/optimize/propagate); and a region whose every occurrence reads such rows and binds or
  * fixes each of their columns, every variable in its heading, no float variable bound twice, equated or correlated, so
  * two distinct tuples of its occurrences' rows are two distinct rows of it, a float's -0 and +0 apart. A region that
  * joins two occurrences at a float variable compares them under PostgreSQL's equality, which delivers one of its
@@ -576,12 +585,19 @@ const factsOf = (node: RelNode, cx: RuleContext): Justification | undefined => {
 			return cx.props(node.left).facts
 		case "ProjectSet": {
 			const input = node.input
+			const props = cx.props(input)
 			const copied = new Set(
 				node.out.flatMap((o) =>
 					o.expr.kind === "column" && o.expr.column.node === input.id ? [o.expr.column.name] : []
 				)
 			)
-			return input.heading.every((c) => copied.has(c.name)) ? cx.props(input).facts : undefined
+			/**
+			 * A column every row of the input holds one value of, which its equality holds as one: fixed, on a carrier whose
+			 * equality is identity, so two distinct facts of the input are distinct in its other columns.
+			 */
+			const constant = (c: HeadingColumn): boolean =>
+				props.fixed.has(c.name) && equalityIsIdentity(c.type)
+			return input.heading.every((c) => copied.has(c.name) || constant(c)) ? props.facts : undefined
 		}
 		case "MatchRegion":
 			return regionFacts(node, cx)
