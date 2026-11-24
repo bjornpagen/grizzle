@@ -321,6 +321,21 @@ interface GenerationRow {
 const byFieldName = mapInput(compareStrings, (f: LawField) => f.name)
 
 /**
+ * The relations some family that is no tree has as its member and a mutable relation as its owner, whose owner axis
+ * carries the owner's columns into the member's accumulated fields by ON UPDATE CASCADE (CheckedSchema #inPlace): read
+ * once a schema, so each relation's fields read it by name, where each relation scanned every statement of the schema,
+ * O(r · s) for r relations and s statements (the compile bench's 120 relations: 71,880 tests where 60 made 17,940).
+ */
+const cascadedMembers = (owned: Owned): ReadonlySet<string> =>
+	new Set(
+		owned.statements.flatMap((s) =>
+			s.kind === "family" && owned.relations[s.slots.owner]?.mutable === true
+				? [s.member.relation]
+				: []
+		)
+	)
+
+/**
  * The generated fields of `fields` each with the fields its generation reads, those that determine it (ir/keys.ts
  * GeneratedRead): every generated field but one whose generation reads a float, in field order.
  */
@@ -448,6 +463,8 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	 * is lowered where it is typed.
 	 */
 	readonly #predicates: ReadonlyMap<string, Result.Result<ExprTable, CompileError>>
+	/** The relations whose accumulated fields a mutable owner's update cascades into (cascadedMembers). */
+	readonly #cascaded: ReadonlySet<string>
 	/**
 	 * The admitted patterns the schema's compile meets, with the text analysis of each conjunction it types
 	 * (text/refinement.ts AnalyzedPatterns): its one table, which its fields' and closed rows' typing, its contracts'
@@ -467,6 +484,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	 */
 	constructor(owned: Owned, world: World) {
 		this.owned = owned
+		this.#cascaded = cascadedMembers(owned)
 		this.world = world
 		for (const r of Object.values(owned.relations)) {
 			if (r.kind === "closed") {
@@ -733,12 +751,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		if (r.mutable) {
 			return fields.flatMap((f) => (primary.includes(f) ? [] : [f.name]))
 		}
-		const cascaded = this.owned.statements.some(
-			(s) =>
-				s.kind === "family" &&
-				s.member.relation === r.name &&
-				this.owned.relations[s.slots.owner]?.mutable === true
-		)
+		const cascaded = this.#cascaded.has(r.name)
 		const rewritten = new Set(
 			fields.flatMap((f) => (cascaded && f.writing.kind === "accumulated" ? [f.name] : []))
 		)

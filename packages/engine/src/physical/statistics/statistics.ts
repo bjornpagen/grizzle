@@ -79,16 +79,17 @@ const equalityKeys = (keys: ReadonlyArray<IndexKey>): ReadonlyArray<string> => {
 }
 
 /**
- * The dependencies of one field of `relation` on another its containments over every row prove (declared.ts
- * Determined): where a containment pairs the relation's fields with fields of another relation holding one of its keys
- * of one field, the field paired with that key determines each other field the containment pairs.
+ * The dependencies of one field of a relation on another its containments over every row prove (declared.ts
+ * Determined), from `containments`, the containments over every row of the relation: where a containment pairs the
+ * relation's fields with fields of another relation holding one of its keys of one field, the field paired with that
+ * key determines each other field the containment pairs.
  */
-const determinedOf = (facts: RegionFacts, relation: string): ReadonlyArray<Determined> =>
-	facts.containments.flatMap((c) => {
-		if (c.from !== relation || c.selection.length > 0) {
-			return []
-		}
-		return (facts.keys.get(c.to) ?? []).flatMap(([field, ...more]) => {
+const determinedOf = (
+	facts: RegionFacts,
+	containments: ReadonlyArray<RegionFacts["containments"][number]>
+): ReadonlyArray<Determined> =>
+	containments.flatMap((c) =>
+		(facts.keys.get(c.to) ?? []).flatMap(([field, ...more]) => {
 			const determinant = more.length === 0 ? c.pairs.find((p) => p.to === field)?.from : undefined
 			return determinant === undefined
 				? []
@@ -96,7 +97,7 @@ const determinedOf = (facts: RegionFacts, relation: string): ReadonlyArray<Deter
 						p.from === determinant ? [] : [{ determinant, dependent: p.from }]
 					)
 		})
-	})
+	)
 
 /** A crossing's bound as a refusal names it. */
 const boundText = (b: CrossingBound): string => {
@@ -139,6 +140,52 @@ const declarationRefused = (
 }
 
 /**
+ * What a relation's shape reads of the installation, each by the relation it is of, grouped once for the installation
+ * (`grouped`): its indexed view, its law columns among the model's natives, its key indexes, its planned indexes and its
+ * containments over every row, each group in the order the installation holds them. A shape reads its relation's
+ * groups alone, so the shapes of r relations read O(r + n) for the n natives, keys, indexes and containments, where
+ * each scanned them all, O(r · n) (the compile bench's 120 relations: 201,360 tests of a native where 60 made 50,280).
+ */
+interface Grouped {
+	readonly views: ReadonlyMap<string, ReturnType<InstallBuilder["indexedViews"]>[number]>
+	readonly lawColumns: ReadonlyMap<string, ReadonlyArray<readonly [IndexColumn, ScalarType]>>
+	readonly keyIndexes: ReadonlyMap<string, ReadonlyArray<KeyIndex>>
+	readonly indexes: ReadonlyMap<string, ReadonlyArray<PlannedIndex>>
+	readonly containments: ReadonlyMap<string, ReadonlyArray<RegionFacts["containments"][number]>>
+}
+
+/** The installation's natives, keys, indexes, views and containments over every row, by relation (Grouped). */
+const grouped = (
+	b: InstallBuilder,
+	keyIndexes: ReadonlyArray<KeyIndex>,
+	indexes: ReadonlyArray<PlannedIndex>
+): Grouped => {
+	const lawColumns = new Map<string, Array<readonly [IndexColumn, ScalarType]>>()
+	for (const n of b.model.natives) {
+		if (n.namespace === "column") {
+			lawColumns
+				.getOrInsertComputed(n.object.relation.name, () => [])
+				.push([{ kind: "law", column: n.object.column }, n.object.field.type])
+		}
+	}
+	return {
+		views: new Map(
+			b
+				.indexedViews()
+				.map((v) => [v.relation, v] as const)
+				.toReversed()
+		),
+		lawColumns,
+		keyIndexes: Map.groupBy(keyIndexes, (k) => k.relation),
+		indexes: Map.groupBy(indexes, (i) => i.relation),
+		containments: Map.groupBy(
+			b.model.theory.regionFacts.containments.filter((c) => c.selection.length === 0),
+			(c) => c.from
+		)
+	}
+}
+
+/**
  * Every table's declared statistics, a stored derived relation's registered table among them (declared.ts), each one
  * object of kind `statistics` built after its relation and every law column of it, which it names, in Indexes: its
  * shape read off the builder (the relation's columns, its unit's key, its keys, the planned indexes, the bindings of
@@ -151,6 +198,7 @@ export const planDeclarations = (
 	lawColumns: ReadonlyMap<string, ReadonlyArray<Node<"structure">>>,
 	indexes: ReadonlyArray<PlannedIndex>
 ): void => {
+	const groups = grouped(b, keyIndexes, indexes)
 	const relations = [
 		...Object.values(b.model.theory.relations).flatMap((r) =>
 			r.kind === "relation" ? [r.name] : []
@@ -162,7 +210,7 @@ export const planDeclarations = (
 		if (target.kind !== "built") {
 			continue
 		}
-		const shape = shapeOf(b, relation, target, keyIndexes, indexes)
+		const shape = shapeOf(b, relation, target, groups)
 		const declaration = declarationOf(shape.shape)
 		if (declaration.kind !== "declared") {
 			declarationRefused(relation, declaration)
@@ -205,36 +253,34 @@ export const planDeclarations = (
 	}
 }
 
-/** A relation's shape (declared.ts RelationShape) and each of its columns' installed names by their texts. */
+/**
+ * A relation's shape (declared.ts RelationShape) and each of its columns' installed names by their texts, read from the
+ * installation's groups by relation (Grouped).
+ */
 const shapeOf = (
 	b: InstallBuilder,
 	relation: string,
 	target: BuiltTarget,
-	keyIndexes: ReadonlyArray<KeyIndex>,
-	indexes: ReadonlyArray<PlannedIndex>
+	groups: Grouped
 ): { readonly shape: RelationShape; readonly installed: ReadonlyMap<string, string> } => {
 	const stored = b.model.theory.relations[relation]
-	const view = b.indexedViews().find((v) => v.relation === relation)
+	const view = groups.views.get(relation)
 	const fields: ReadonlyArray<readonly [IndexColumn, ScalarType]> =
 		view === undefined
 			? [
 					...(stored?.kind === "relation" ? stored.fields : []).map(
 						(f) => [{ kind: "field", field: f.name }, f.type] as const
 					),
-					...b.model.natives.flatMap((n) =>
-						n.namespace === "column" && n.object.relation.name === relation
-							? [[{ kind: "law", column: n.object.column }, n.object.field.type] as const]
-							: []
-					)
+					...(groups.lawColumns.get(relation) ?? [])
 				]
 			: [...view.fields.entries()].map(([field, f]) => [{ kind: "field", field }, f.type] as const)
 	const unit = b.owned.unitOf.get(relation)
 	const keys = [
-		...keyIndexes.filter((k) => k.relation === relation).map((k) => k.columns.map(nativeText)),
+		...(groups.keyIndexes.get(relation) ?? []).map((k) => k.columns.map(nativeText)),
 		...(view === undefined ? [] : [[...view.primaryKey]]),
 		...(view?.uniqueIndexes ?? []).map((u) => [...u.columns])
 	]
-	const planned = indexes.filter((i) => i.relation === relation)
+	const planned = groups.indexes.get(relation) ?? []
 	return {
 		shape: {
 			relation,
@@ -246,7 +292,10 @@ const shapeOf = (
 				...keys.map((k) => ({ columns: k, by: `the probe of key (${k.join(", ")})` })),
 				...planned.flatMap((i) => i.requests.flatMap(requestBindings))
 			],
-			determined: view === undefined ? determinedOf(b.model.theory.regionFacts, relation) : []
+			determined:
+				view === undefined
+					? determinedOf(b.model.theory.regionFacts, groups.containments.get(relation) ?? [])
+					: []
 		},
 		installed: new Map(fields.map(([c]) => [keyTermText(c), target.column(c)] as const))
 	}

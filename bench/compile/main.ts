@@ -1,6 +1,5 @@
 #!/usr/bin/env -S node
 import net from "node:net"
-import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { timerMaxMs } from "@bjornpagen/grizzle/runtime"
 import { nonEmpty } from "@bjornpagen/testing/assert"
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
@@ -33,6 +32,16 @@ import {
 	writeRunRecord
 } from "#bench/cold/identity.ts"
 import { elapsed } from "#bench/cold/stats.ts"
+import {
+	assembledSchema,
+	domainOf,
+	type Generated,
+	ordinaryOf,
+	pairsAt,
+	rostersAt,
+	type Scale,
+	statementsOf
+} from "#bench/compile/schema.ts"
 import { checkFiles } from "#cli/check.ts"
 import { resolveConfig } from "#cli/config.ts"
 import { processMeter } from "#cli/main.ts"
@@ -41,22 +50,9 @@ import { type ConfigLoader, runCli } from "#cli/run.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { login } from "#compiler/program/workload/login.ts"
 import { workload } from "#compiler/program/workload/value.ts"
-import { closedId, pg } from "#compiler/public/fields.ts"
-import {
-	type AnySchema,
-	check,
-	contained,
-	key,
-	on,
-	schema,
-	select,
-	type Statement
-} from "#compiler/public/schema.ts"
-import { closedBuilder, closedRelation, relationBuilder } from "#compiler/schema/relation.ts"
+import type { AnySchema } from "#compiler/public/schema.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
 import { servedPath } from "#compiler/served/forms.ts"
-import { regexField } from "#compiler/text/field.ts"
-import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
 import { everyCallCount } from "#test/support/kernel/calls.ts"
 import { offlineDecoders, servedSourcedLayer } from "#test/support/live-layer.ts"
@@ -94,17 +90,6 @@ import { upTo } from "#test/support/up-to.ts"
  * its calls at the scale, the growth work redone per statement over a roster's handles shows.
  */
 
-/**
- * The size of a generated schema: the handles of each roster, the ordinary relations, the rows of each closed relation,
- * and the regex domains. The rosters and the closed relations over them are a fixed set, so their sizes are what grows.
- */
-interface Scale {
-	readonly handles: number
-	readonly relations: number
-	readonly rows: number
-	readonly patterns: number
-}
-
 /** The scale a full run measures, about half a downstream grammar's at twice it, and the quick one. */
 const fullScale: Scale = { handles: 80, relations: 60, rows: 3_000, patterns: 60 }
 const quickScale: Scale = { handles: 40, relations: 30, rows: 1_500, patterns: 30 }
@@ -115,9 +100,6 @@ const doubled = (scale: Scale): Scale => ({
 	rows: 2 * scale.rows,
 	patterns: 2 * scale.patterns
 })
-
-/** The rosters a generated schema holds; each closed relation is over two neighbouring ones. */
-const rosterCount = 8
 
 /**
  * A doubling's ratio of calls past which a function's work grows faster than linearly: a function called a linear
@@ -165,96 +147,6 @@ class SuperlinearGrowth extends Data.TaggedError("SuperlinearGrowth")<{
 
 /** A command line the benchmark cannot read. */
 class CompileUsage extends Data.TaggedError("CompileUsage")<{ readonly reason: string }> {}
-
-/** The handles of a roster of `count` handles, each `prefix` and its position. */
-const handles = (prefix: string, count: number): readonly [string, ...Array<string>] => [
-	`${prefix}0`,
-	...upTo(count - 1, (i) => `${prefix}${i + 1}`)
-]
-
-/** A roster of the generated schema: its handles, and the first, which the statements compare with. */
-const rosterOf = (k: number, scale: Scale) => {
-	const members = handles(`h${k}_`, scale.handles)
-	return { roster: closedBuilder(`Ros${k}`, members, "ordered", []), first: members[0] }
-}
-
-type GeneratedRoster = ReturnType<typeof rosterOf>
-
-/** The member of `items` at position `i`, counting around: how the generated schema assigns its parts. */
-const around = <A>(items: Arr.NonEmptyReadonlyArray<A>, i: number): A =>
-	defined(items[i % items.length], "a position counted around a nonempty list is in it")
-
-/**
- * The closed relation over the rosters at `k` and the next one: its first `rows` pairs of their handles, in row-major
- * order, each with a weight.
- */
-const closedOf = (rosters: Arr.NonEmptyReadonlyArray<GeneratedRoster>, k: number, scale: Scale) => {
-	const a = around(rosters, k).roster
-	const b = around(rosters, k + 1).roster
-	const facts = upTo(scale.rows, (i) => ({
-		a: `h${k % rosters.length}_${Math.floor(i / scale.handles)}`,
-		b: `h${(k + 1) % rosters.length}_${i % scale.handles}`,
-		w: i % 1_000
-	}))
-	return closedRelation(
-		`Pairs${k}`,
-		{ a: closedId(a), b: closedId(b), w: pg.integer },
-		["a", "b"],
-		facts,
-		[]
-	)
-}
-
-/** A regex domain of the generated schema: a pattern of its own, so each is a text analyzed once. */
-const domainOf = (i: number) => regexField<string>(`^d${i}_[a-z0-9_]{1,48}$`, ["u"])
-
-/** One ordinary relation of the generated schema: two texts of its domains, two closed ids and a weight. */
-const ordinaryOf = (
-	i: number,
-	domains: Arr.NonEmptyReadonlyArray<ReturnType<typeof domainOf>>,
-	rosters: Arr.NonEmptyReadonlyArray<GeneratedRoster>
-) =>
-	relationBuilder(
-		`R${i}`,
-		{
-			id: around(domains, i),
-			parent: around(domains, i + 1),
-			kind: closedId(around(rosters, i).roster),
-			mode: closedId(around(rosters, i + 1).roster),
-			weight: pg.integer
-		},
-		["id"],
-		[]
-	)
-
-/** One ordinary relation of the generated schema. */
-type Generated = ReturnType<typeof ordinaryOf>
-
-/**
- * The statements over the ordinary relation at `i`: a key, a row check over its weight and one over its kind, its
- * facts of one mode contained in the closed relation over its rosters, and, but for the first, its parents contained
- * in the ids of the one before it.
- */
-const statementsOf = (
-	r: Generated,
-	i: number,
-	below: Generated | undefined,
-	rosters: Arr.NonEmptyReadonlyArray<GeneratedRoster>,
-	pairs: Arr.NonEmptyReadonlyArray<ReturnType<typeof closedOf>>
-): ReadonlyArray<Statement> => [
-	key(on(r, "parent", "kind")),
-	check(`Weighed${i}`, r, (row) => row.ge(row.weight, 0)),
-	check(`Kinded${i}`, r, (row) => row.ne(row.kind, around(rosters, i).first)),
-	contained(
-		on(
-			select(r, (row) => row.eq(row.mode, around(rosters, i + 1).first)),
-			"kind",
-			"mode"
-		),
-		on(around(pairs, i), "a", "b")
-	),
-	...(below === undefined ? [] : [contained(on(r, "parent"), on(below, "id"))])
-]
 
 /** How many relations the workload looks up by key. */
 const lookedUp = 12
@@ -311,12 +203,8 @@ const timedEffect = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
 
 /** Every builder at `scale`, each timed. */
 const build = Effect.fn("build")(function* (scale: Scale) {
-	const [rosters, rostersSpent] = yield* timed("rosters", () =>
-		Arr.makeBy(rosterCount, (k) => rosterOf(k, scale))
-	)
-	const [pairs, closedSpent] = yield* timed("closed", () =>
-		Arr.makeBy(rosterCount, (k) => closedOf(rosters, k, scale))
-	)
+	const [rosters, rostersSpent] = yield* timed("rosters", () => rostersAt(scale))
+	const [pairs, closedSpent] = yield* timed("closed", () => pairsAt(rosters, scale))
 	const [domains, domainsSpent] = yield* timed("domains", () =>
 		nonEmpty(upTo(scale.patterns, domainOf), "a scale holds one pattern at least")
 	)
@@ -328,15 +216,8 @@ const build = Effect.fn("build")(function* (scale: Scale) {
 			statementsOf(r, i, i === 0 ? undefined : ordinary[i - 1], rosters, pairs)
 		)
 	)
-	const declared: Record<string, AnyRelation | AnyClosed> = {}
-	for (const { roster } of rosters) {
-		declared[roster.name] = roster
-	}
-	for (const r of [...pairs, ...ordinary]) {
-		declared[r.name] = r
-	}
 	const [base, schemaSpent] = yield* timed("schema", (): AnySchema =>
-		schema("Bench", Rec.values(declared), statements)
+		assembledSchema(rosters, pairs, ordinary, statements)
 	)
 	const [app, roleSpent] = yield* timed("role", () => {
 		const entries: Record<string, EntryValue> = {}
