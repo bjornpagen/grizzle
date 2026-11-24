@@ -737,7 +737,9 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 				case "stored":
 					derived.push(holding.analysis)
 					known.set(r.name, holding.relation)
-					members.set(r.name, holding.relation.unit.declared)
+					if (holding.relation.unit.kind === "unit") {
+						members.set(r.name, holding.relation.unit.declared)
+					}
 					break
 				case "live":
 					break

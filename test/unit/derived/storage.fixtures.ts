@@ -161,8 +161,9 @@ export const storageCase: Gen<StorageCase> = (s) => {
 
 /**
  * Where the installation keeps a derived relation's rows: `stored`, its table's unit fields and the declared unit it
- * sits in, with its fields carrying that unit's key; or `live`, by the condition of unit-locality its definition lacks,
- * or because its table could not hold its rows.
+ * sits in, with its fields carrying that unit's key; `frozen`, stored and frozen at the installation, its definition
+ * reading no relation a program writes; or `live`, by the condition of unit-locality its definition lacks, or because
+ * its table could not hold its rows.
  */
 export type Holding =
 	| {
@@ -170,6 +171,7 @@ export type Holding =
 			readonly fields: ReadonlyArray<string>
 			readonly declared: { readonly unit: string; readonly fields: ReadonlyArray<string> }
 	  }
+	| { readonly kind: "frozen" }
 	| { readonly kind: "live"; readonly lacks: UnitLocalityCondition | "representability" }
 
 /** Each shape's own verdict before its declared unit (`holdingOf`): the unit its definition delivers, whether its table
@@ -181,6 +183,7 @@ type Local =
 			readonly representable: boolean
 	  }
 	| { readonly kind: "lacks"; readonly lacks: UnitLocalityCondition }
+	| { readonly kind: "frozen" }
 
 const local = (fields: ReadonlyArray<string>): Local => ({
 	kind: "local",
@@ -203,7 +206,7 @@ const ownVerdict: { readonly [S in Shape]: Local } = {
 	"call of a stable call": { kind: "lacks", lacks: "call" },
 	"cast value": local(["doc", "at"]),
 	unrepresentable: { kind: "local", fields: ["doc"], representable: false },
-	"closed alone": { kind: "lacks", lacks: "noUnit" }
+	"closed alone": { kind: "frozen" }
 }
 
 /** Each declared unit's name and key, its fields. */
@@ -213,8 +216,8 @@ const declaredUnits = {
 } as const
 
 /**
- * The rule (analysis/derived/storage.ts), restated: a definition that reads no relation a write changes lacks a unit;
- * any other is unit-local at the widest unit its head delivers, every match binding the unit to the rule's variables,
+ * The rule (analysis/derived/storage.ts), restated: a definition that reads no relation a write changes, every function
+ * it calls immutable, is stored frozen at the installation, whatever unit is declared; any other is unit-local at the widest unit its head delivers, every match binding the unit to the rule's variables,
  * every negation correlated at them, every aggregate grouping by them and every function it calls immutable throughout,
  * or live by the first of these it lacks at the narrowest unit, the document; it sits in one declared unit whose key
  * leads its own, whether Doc is closed or open, its fields carrying that unit's key its first, or is live for its
@@ -224,6 +227,9 @@ export const holdingOf = (c: StorageCase): Holding => {
 	const own = ownVerdict[c.shape]
 	if (own.kind === "lacks") {
 		return { kind: "live", lacks: own.lacks }
+	}
+	if (own.kind === "frozen") {
+		return own
 	}
 	if (c.declared === "none") {
 		return { kind: "live", lacks: "borrow" }
@@ -442,15 +448,16 @@ export const holdingStated = (artifacts: SchemaArtifacts): Holding | `other ${st
 		return "other no holding"
 	}
 	switch (holding.kind) {
-		case "stored":
-			return {
-				kind: "stored",
-				fields: holding.relation.unit.fields,
-				declared: {
-					unit: holding.relation.unit.declared.unit,
-					fields: holding.relation.unit.declared.fields
-				}
-			}
+		case "stored": {
+			const unit = holding.relation.unit
+			return unit.kind === "installation"
+				? { kind: "frozen" }
+				: {
+						kind: "stored",
+						fields: unit.fields,
+						declared: { unit: unit.declared.unit, fields: unit.declared.fields }
+					}
+		}
 		case "live":
 			return {
 				kind: "live",

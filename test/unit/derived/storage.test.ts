@@ -13,7 +13,7 @@
  * under other names, one that drops the place, one that hides its unit, counts by document and across documents, a join
  * across documents, a negation within one and across, a call of an immutable function, of a stable one and of an
  * immutable one whose body calls a stable one, a cast value no table holds (edullm's NamedDeclaration), one whose one
- * key holds a text of no byte bound, and a closed relation alone; every relation closed under no unit declared, a unit
+ * key holds a text of no byte bound, and a closed relation alone, frozen at the installation (ir/unit.ts FrozenUnit); every relation closed under no unit declared, a unit
  * of the document, or one of the document and its place, which every relation sits in alike; or Doc open under either
  * unit.
  *
@@ -69,7 +69,7 @@ export const aDerivedRelationIsStoredExactlyWhereItsDefinitionIsUnitLocalWithinO
 			"live call of a stable call",
 			"stored cast value",
 			"live unrepresentable",
-			"live closed alone",
+			"stored closed alone",
 			"live for its borrow, no unit declared",
 			"live for its borrow, a unit wider than its own",
 			"stored over an open relation"
@@ -100,6 +100,15 @@ export const aDerivedRelationIsStoredExactlyWhereItsDefinitionIsUnitLocalWithinO
 							"a write of no relation its definition reads reads its table"
 						)
 						break
+					case "frozen":
+						for (const reads of [read_, written, elsewhere]) {
+							assert.deepEqual(
+								[...reads],
+								[derivedName],
+								"a read of a relation frozen at the installation reads its table alone, whatever a write writes"
+							)
+						}
+						break
 					case "live":
 						assert.ok(
 							!read_.has(derivedName),
@@ -118,7 +127,7 @@ export const aDerivedRelationIsStoredExactlyWhereItsDefinitionIsUnitLocalWithinO
 				if (expected.kind === "stored" && stored.mutability === "Doc open") {
 					c.note("stored over an open relation")
 				}
-				c.note(`${expected.kind} ${stored.shape}`)
+				c.note(`${expected.kind === "live" ? "live" : "stored"} ${stored.shape}`)
 			}),
 		oracle: {
 			kind: "specification",
@@ -180,6 +189,18 @@ export const aDerivedRelationIsStoredExactlyWhereItsDefinitionIsUnitLocalWithinO
 			},
 			{
 				file: "packages/engine/src/analysis/theory/unit.ts",
+				original: "\tif (frozen !== undefined) {\n\t\treturn frozen\n\t}\n",
+				replacement: "",
+				why: "A definition over constants alone kept live: every read evaluates it again, as ledger's TypoTarget, a nested loop of 999 by 645 rows, 297 ms in each grade."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/frozen.ts",
+				original: '\t\t\tcase "relation":\n\t\t\t\treturn false\n',
+				replacement: '\t\t\tcase "relation":\n\t\t\t\treturn true\n',
+				why: "A relation a program writes read as frozen, as a constant given a writer would be: a definition over Doc frozen at the installation, kept by no COMMIT, its rows stale after the first write of Doc."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/unit.ts",
 				original: "\tif (width > unit.key.length || f0 === undefined) {",
 				replacement: "\tif (f0 === undefined) {",
 				why: "A declared unit wider than the definition's admitted: a stored row at one document reads places each written under a borrow of its own."
@@ -193,9 +214,9 @@ export const aDerivedRelationIsStoredExactlyWhereItsDefinitionIsUnitLocalWithinO
 			{
 				file: "packages/engine/src/analysis/theory/unit.ts",
 				original:
-					"\t\t\t\t: Object.freeze({ unit: found.unit, fields: delivered.fields, declared })",
+					'\t\t\t\t: Object.freeze({ kind: "unit", unit: found.unit, fields: delivered.fields, declared })',
 				replacement:
-					"\t\t\t\t: Object.freeze({ unit: found.unit, fields: headNonEmpty(found.unit.holders).fields, declared })",
+					'\t\t\t\t: Object.freeze({ kind: "unit", unit: found.unit, fields: headNonEmpty(found.unit.holders).fields, declared })',
 				why: "The stored relation's unit fields read off its first holder's key, not its head: a definition that renames them names fields it does not have."
 			},
 			{

@@ -98,7 +98,7 @@ import {
 import type { RelationInfo, TheoryRelation } from "#compiler/ir/law.ts"
 import type { DeltaSide } from "#compiler/ir/rel.ts"
 import { rosterOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
-import type { StoredUnit, Unit } from "#compiler/ir/unit.ts"
+import type { FrozenUnit, StoredUnit, Unit } from "#compiler/ir/unit.ts"
 import type { OwnedStatement } from "#compiler/schema/own.ts"
 
 /** The name the region delivers position `j` of the unit key under. */
@@ -2074,21 +2074,22 @@ export const storedUnit = (
 	definition: InferredQuery,
 	relations: ReadonlyMap<string, TheoryRelation>,
 	unfit: (fn: string) => string | undefined,
-	memberOf: (relation: string) => DeclaredMember | undefined
-): StoredUnit | UnitLocality => {
-	const stored = storedReads(definition, relations)
-	const [first, ...rest] = stored
-	if (first === undefined) {
-		return {
-			condition: "noUnit",
-			detail: "it reads no stored relation: a plain derived relation serves it"
-		}
-	}
+	memberOf: (relation: string) => DeclaredMember | undefined,
+	frozen: FrozenUnit | undefined
+): StoredUnit | FrozenUnit | UnitLocality => {
 	for (const fn of [...callsOf(definition)].toSorted(compareStrings)) {
 		const why = unfit(fn)
 		if (why !== undefined) {
 			return { condition: "call", detail: `it calls ${fn}, ${why}` }
 		}
+	}
+	if (frozen !== undefined) {
+		return frozen
+	}
+	const stored = storedReads(definition, relations)
+	const [first, ...rest] = stored
+	if (first === undefined) {
+		return { condition: "noUnit", detail: "it reads no relation a write changes" }
 	}
 	const all: NonEmptyReadonlyArray<HolderRelation> = [first, ...rest]
 	for (let k = widestOf(all); k >= 1; k--) {
@@ -2111,7 +2112,7 @@ export const storedUnit = (
 			const declared = declaredOf(found.unit, delivered.fields, memberOf)
 			return "condition" in declared
 				? declared
-				: Object.freeze({ unit: found.unit, fields: delivered.fields, declared })
+				: Object.freeze({ kind: "unit", unit: found.unit, fields: delivered.fields, declared })
 		}
 		if (k === 1) {
 			return { condition: "hidden", detail: "its head delivers no field that holds its unit" }
@@ -2240,7 +2241,7 @@ const storedReads = (
 		if (r?.kind === "relation") {
 			return [r]
 		}
-		return r?.kind === "stored"
+		return r?.kind === "stored" && r.unit.kind === "unit"
 			? [
 					{
 						kind: "relation",

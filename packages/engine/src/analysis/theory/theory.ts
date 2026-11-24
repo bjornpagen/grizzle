@@ -52,6 +52,7 @@ import {
 	type Part
 } from "#compiler/core/identity.ts"
 
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
@@ -544,7 +545,12 @@ class Builder {
 		}
 		this.regionFacts = {
 			...facts,
-			members: new Map([...facts.members, ...stored.map((r) => [r.name, r.unit.declared] as const)])
+			members: new Map([
+				...facts.members,
+				...stored.flatMap((r) =>
+					r.unit.kind === "unit" ? [[r.name, r.unit.declared] as const] : []
+				)
+			])
 		}
 	}
 
@@ -669,16 +675,22 @@ class Builder {
 			}
 			const admitted = holding.relation
 			stored.push(admitted)
-			upkeeps.push(
-				storedUpkeep(
-					r.name,
-					this.#live.query(r.desc.query),
-					admitted.unit,
-					known,
-					facts,
-					r.desc.loc
-				)
-			)
+			/** Its upkeep at COMMIT, none for one frozen at the installation, whose rows no COMMIT changes (ir/unit.ts
+			 * FrozenUnit). */
+			const upkeep =
+				admitted.unit.kind === "unit"
+					? [
+							storedUpkeep(
+								r.name,
+								this.#live.query(r.desc.query),
+								admitted.unit,
+								known,
+								facts,
+								r.desc.loc
+							)
+						]
+					: []
+			appendAll(upkeeps, upkeep)
 			known.set(r.name, admitted)
 		}
 		return { stored: Object.freeze(stored), upkeeps: Object.freeze(upkeeps) }

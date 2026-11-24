@@ -145,7 +145,7 @@ const viewObjects = (
 	const stored = storedOf(b, name)
 	/** Its primary key, led by its unit, as its holding chose it (analysis/derived/storage.ts storedPrimaryKey), and every
 	 * other proven key, each a unique index of its own. */
-	const primary = storedPrimaryKey(a.keys, stored.unit.fields)
+	const primary = storedPrimaryKey(a.keys, stored.unit.kind === "unit" ? stored.unit.fields : [])
 	const secondary = storedSecondaryKeys(a.keys, primary)
 	const keyFields = stored.primaryKey
 	/** The name the primary key is minted by at the naming door, whose index PostgreSQL names after it: a proven key's,

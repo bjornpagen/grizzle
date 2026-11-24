@@ -26,6 +26,7 @@ import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { DerivedRelationAnalysis, OwnedDerived } from "#compiler/analysis/derived/analyze.ts"
+import { frozenAt } from "#compiler/analysis/theory/frozen.ts"
 import { type DeclaredMember, storedUnit } from "#compiler/analysis/theory/unit.ts"
 import type { CompileError, LiveReason } from "#compiler/core/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
@@ -33,7 +34,7 @@ import { type RelationIdent, StoredRelationName } from "#compiler/core/ids.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { InferredQuery } from "#compiler/ir/desc.ts"
 import type { LawField, StoredDerivedRelation, TheoryRelation } from "#compiler/ir/law.ts"
-import type { StoredUnit } from "#compiler/ir/unit.ts"
+import type { StoredHolding } from "#compiler/ir/unit.ts"
 import type { Owned } from "#compiler/schema/own.ts"
 
 /**
@@ -74,7 +75,13 @@ const live = (why: LiveReason): DerivedHolding => Object.freeze({ kind: "live", 
  */
 export const derivedHolding = (input: HoldingInput): DerivedHolding => {
 	const { owned, relation } = input
-	const unit = storedUnit(input.definition, input.known, unfitCall(owned), input.memberOf)
+	const unit = storedUnit(
+		input.definition,
+		input.known,
+		unfitCall(owned),
+		input.memberOf,
+		frozenAt(owned, relation.name)
+	)
 	if ("condition" in unit) {
 		return live({ kind: "notUnitLocal", lacks: unit })
 	}
@@ -171,19 +178,22 @@ export type StoredPrimaryKey =
 			readonly of: ProvenKey
 	  }
 
-/** The primary key of a stored relation of proven keys `keys`, narrowest first, at its unit's fields `unit`
- * (StoredPrimaryKey). */
+/** The primary key of a stored relation of proven keys `keys`, narrowest first, at its unit's fields `unit`, none for
+ * one frozen at the installation, whose primary key is its narrowest (StoredPrimaryKey). */
 export const storedPrimaryKey = (
 	keys: ReadonlyArray<ProvenKey>,
-	unit: NonEmptyReadonlyArray<string>
+	unit: ReadonlyArray<string>
 ): StoredPrimaryKey => {
 	const [narrowest] = keys
 	if (narrowest === undefined) {
 		throw defect("the proven keys of a derived relation, its heading's at least")
 	}
-	const led = (fields: ReadonlyArray<string>): NonEmptyReadonlyArray<string> => {
-		const [u0, ...us] = unit
-		return [u0, ...us, ...fields.filter((f) => !unit.includes(f))]
+	const led = (fields: NonEmptyReadonlyArray<string>): NonEmptyReadonlyArray<string> => {
+		const [first, ...rest] = [...unit, ...fields.filter((f) => !unit.includes(f))]
+		if (first === undefined) {
+			throw defect("a key of at least one field")
+		}
+		return [first, ...rest]
 	}
 	const holding = keys.find((k) => unit.every((f) => k.fields.includes(f)))
 	if (holding === undefined) {
@@ -213,7 +223,7 @@ const storedRelationOf = (
 	a: DerivedRelationAnalysis,
 	ident: RelationIdent,
 	level: number,
-	unit: StoredUnit
+	unit: StoredHolding
 ): StoredDerivedRelation => {
 	const fields = mapNonEmpty(a.heading, (c, position): LawField => ({
 		name: c.name,
@@ -228,7 +238,7 @@ const storedRelationOf = (
 			fields.find((f) => f.name === name),
 			`the field ${name} of stored relation ${a.name}`
 		)
-	const primary = storedPrimaryKey(a.keys, unit.fields)
+	const primary = storedPrimaryKey(a.keys, unit.kind === "unit" ? unit.fields : [])
 	const secondary = storedSecondaryKeys(a.keys, primary)
 	const primaryKey = primary.fields
 	const primaryFields = mapNonEmpty(primaryKey, field)

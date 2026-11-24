@@ -39,7 +39,7 @@ import {
 	type ScalarType,
 	type SpanCarrier
 } from "#compiler/ir/scalar.ts"
-import type { StoredUnit } from "#compiler/ir/unit.ts"
+import type { StoredHolding } from "#compiler/ir/unit.ts"
 
 /** The recognized shapes. */
 const lawShapes = [
@@ -375,7 +375,7 @@ export interface ClosedTheoryRelation extends StoredRelationOf<"closed"> {
 export interface StoredDerivedRelation
 	extends StoredRelationOf<"stored", "derivedKey">, TableRelation<"derivedKey"> {
 	readonly name: StoredRelationName
-	readonly unit: StoredUnit
+	readonly unit: StoredHolding
 	/** How a Base over its table reads it: its heading and its proven keys narrowest first, each resting on its index. */
 	readonly read: ViewRead
 }

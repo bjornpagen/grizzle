@@ -48,18 +48,23 @@ export const borrowInstallationOf = <S extends ParamSource>(
 	for (const [relation, member] of owned.unitOf) {
 		units.set(relation, placeIn(owned.units, member.unit, member.fields))
 	}
-	const stored = Object.values(artifacts.laws.theory.relations).flatMap((r) =>
-		r.kind === "stored" ? [r] : []
-	)
-	for (const r of stored) {
-		units.set(r.name, placeIn(owned.units, r.unit.declared.unit, r.unit.declared.fields))
+	/**
+	 * The stored relations the judge writes at COMMIT, each with the declared unit it sits in: exactly those its upkeep
+	 * statements write (analysis/theory/theory.ts upkeeps), each at its admitted unit.
+	 */
+	const kept = artifacts.laws.theory.upkeeps.map((u) => ({
+		name: u.relation,
+		declared: u.stored.declared
+	}))
+	for (const r of kept) {
+		units.set(r.name, placeIn(owned.units, r.declared.unit, r.declared.fields))
 	}
 	return Result.ok(
 		borrowInstallation(
 			relationFacts(artifacts.laws, triggerLawsOver),
 			privileges,
 			units,
-			new Set(stored.map((r) => r.name))
+			new Set(kept.map((r) => r.name))
 		)
 	)
 }

@@ -25,6 +25,7 @@ export interface Unit {
  * the isolation checker reads which unit a read or a write of it stands in from here, never deriving it again.
  */
 export interface StoredUnit {
+	readonly kind: "unit"
 	readonly unit: Unit
 	readonly fields: NonEmptyReadonlyArray<string>
 	/**
@@ -35,3 +36,16 @@ export interface StoredUnit {
 	 */
 	readonly declared: { readonly unit: string; readonly fields: NonEmptyReadonlyArray<string> }
 }
+
+/**
+ * A stored derived relation frozen at the installation (analysis/theory/frozen.ts): its definition reads no relation a
+ * program writes, only closed relations, which a migration alone writes, and stored relations frozen alike, every
+ * function it calls immutable, so its rows change only with a migration, which fills its table again
+ * (physical/derived/meaning.ts, its meaning reading the closed facts), and no COMMIT keeps it.
+ */
+export interface FrozenUnit {
+	readonly kind: "installation"
+}
+
+/** Where a stored derived relation's rows are kept: by the unit its admission decided, or frozen at the installation. */
+export type StoredHolding = StoredUnit | FrozenUnit
