@@ -101,9 +101,9 @@ export const noCertificates: ReadonlyArray<RoleIsolation> = []
 export const noCarriers: ReadonlyArray<RoleCarriers> = []
 
 /**
- * A role of a login whose served ChangeSets create a carrier, with the type of each column of every program carrier
- * they create (write/carriers/carriers.ts WriteCarrier), each a value's own (CarrierTyping): a domain one of them names,
- * a function result's or a token's refinement among them, is one PostgreSQL checks USAGE on as the carrier is created,
+ * A role of a login whose served ChangeSets create a carrier, with the field of each column of every program carrier
+ * they create (write/carriers/carriers.ts WriteCarrier): a carrier holds each by its session type, no domain, and the
+ * statements that fill it cast into the field's domains, a function result's or a token's refinement among them,
  * whatever the role reads or writes.
  */
 export interface RoleCarriers extends RoleOfLogin {

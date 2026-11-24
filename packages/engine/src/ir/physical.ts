@@ -13,7 +13,7 @@ import {
 import type { ColumnIdent, DomainName, RelationIdent } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { int8ExactDigits } from "#compiler/ir/carriers.ts"
-import type { Codebook } from "#compiler/ir/codes.ts"
+import { type Codebook, codecOf } from "#compiler/ir/codes.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { ClosedTheoryRelation } from "#compiler/ir/law.ts"
 import type { InstalledSpellings } from "#compiler/ir/pattern.ts"
@@ -311,6 +311,22 @@ export const baseTypeRef = (names: PhysicalNames, t: ScalarType): TypeRef => {
 		case "exactMoney":
 			return types.numeric
 	}
+}
+
+/**
+ * The type a session's own object holds a value of `t` by: a write's carrier, a staged one, a rule judge's delta. It is
+ * the value's base type (baseTypeRef), but a set's: baseTypeRef reads a set as its roster's bits domain, and a session's
+ * object holds it by the domain's own base, bit(n) of the roster's width, which a value of another length entering it
+ * refuses (22026). So no session object names an installation's domain: PostgreSQL refuses to drop a domain a column of
+ * another session's temporary table is typed by (2BP01) and to add a constraint to it ("cannot access temporary tables
+ * of other sessions"), and refuses the table to a role without USAGE on the domain (42501); a value reaches its stored
+ * column through the column's domain, which judges it there.
+ */
+export const sessionTypeRef = (names: PhysicalNames, t: ScalarType): TypeRef => {
+	const b = baseOf(t)
+	return b.carrier === "bits"
+		? types.bit(codecOf(names.codes, b.roster).width)
+		: baseTypeRef(names, t)
 }
 
 /** The column type of a scalar, with the fixed collation when the type is builtin text. */

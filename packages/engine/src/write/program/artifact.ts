@@ -33,8 +33,8 @@ import {
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import type { EmittedText, SqlStatement } from "#compiler/sql/ast.ts"
-import type { CarrierScope, NameMap } from "#compiler/sql/naming.ts"
-import type { WriteCarrier } from "#compiler/write/carriers/carriers.ts"
+import type { NameMap } from "#compiler/sql/naming.ts"
+import type { CarrierDeclaring, WriteCarrier } from "#compiler/write/carriers/carriers.ts"
 import type { WriteStatement } from "#compiler/write/insert/statement.ts"
 import type { SingleStatement, UnitShape } from "#compiler/write/program/single.ts"
 import { carriersOf, nestedColumnOf, stagedOf } from "#compiler/write/program/staged.ts"
@@ -281,14 +281,14 @@ const placedForms = (placed: PlacedStatement): ArtifactForms => {
 export const settledArtifact = (
 	placed: ReadonlyArray<PlacedStatement>,
 	carriers: ReadonlyArray<WriteCarrier>,
-	scope: CarrierScope
+	declaring: CarrierDeclaring
 ): WriteArtifact => {
 	/** The carrier the next staged form names first: after the program's own, and every earlier statement's. */
 	let carrier = carriers.length + 1
 	const settled = placed.map((p, index) => {
 		const forms = placedForms(p)
 		const text = p.kind === "own" ? p.text : wholeText
-		const staged = stagedOf(p.ast, p.spec.paramSlots.map(nestedColumnOf), carrier, scope)
+		const staged = stagedOf(p.ast, p.spec.paramSlots.map(nestedColumnOf), carrier, declaring)
 		if (staged.kind === "carriers" && (forms.kind === "chosen" || text.kind === "parted")) {
 			throw defect("a statement that reads nested rows has one form, sent whole")
 		}

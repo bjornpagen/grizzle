@@ -1,4 +1,5 @@
-import { Array as Arr, Data, Formatter } from "effect"
+import { isAsciiDigits } from "@bjornpagen/grizzle-text/text"
+import { Array as Arr, Data, Formatter, Option, String as Str } from "effect"
 import type { DriftMismatch } from "#adapter/admission/drift.ts"
 import type {
 	CatalogRowRefused,
@@ -696,15 +697,20 @@ export class StatementFailed extends Data.TaggedError("StatementFailed")<{
 }> {
 	/**
 	 * Whether the statement met an object it names missing from the catalog or already in it (core/sqlstate.ts
-	 * catalogDeparted): the installation may have drifted from its snapshot, an object dropped or created outside any
-	 * migration, which `grizzle drift` reports. The file's transaction rolled back, so nothing of it applied.
+	 * catalogDeparted), but another session's own (`sessionHeld`): the installation may have drifted from its snapshot,
+	 * an object dropped or created outside any migration, which `grizzle drift` reports. The file's transaction rolled
+	 * back, so nothing of it applied.
 	 */
 	get drifted(): boolean {
-		return this.failure._tag === "ServerError" && catalogDeparted.has(this.failure.sqlstate)
+		return (
+			this.failure._tag === "ServerError" &&
+			catalogDeparted.has(this.failure.sqlstate) &&
+			!sessionHeld(this.failure)
+		)
 	}
 
 	override get message(): string {
-		return `${this.folder}/${this.file} statement ${this.statement} failed${lawText(this.laws)}: ${failureText(this.failure)}${this.drifted ? driftedFix : ""}${rowsFix(this.failure)}${inUseFix(this.failure)}`
+		return `${this.folder}/${this.file} statement ${this.statement} failed${lawText(this.laws)}: ${failureText(this.failure)}${this.drifted ? driftedFix : ""}${sessionHeld(this.failure) ? sessionHeldFix : ""}${rowsFix(this.failure)}${inUseFix(this.failure)}`
 	}
 }
 
@@ -712,15 +718,48 @@ export class StatementFailed extends Data.TaggedError("StatementFailed")<{
 const driftedFix =
 	"; the installation may have drifted from its snapshot, an object this statement names dropped, created or depended on outside any migration: run grizzle drift to see what changed, undo it, then run grizzle migrate again"
 
+/** The schema a session's own temporary objects stand in, `pg_temp_<its proc number>`, as a DETAIL line names one. */
+const temporarySchemaLead = " pg_temp_"
+
+/** Whether a DETAIL line names an object in a session's temporary schema: its lead, then digits, then the dot. */
+const namesTemporary = (line: string): boolean =>
+	Option.match(Str.indexOf(temporarySchemaLead)(line), {
+		onNone: () => false,
+		onSome: (at) => {
+			const rest = Str.slice(at + temporarySchemaLead.length)(line)
+			return Option.match(Str.indexOf(".")(rest), {
+				onNone: () => false,
+				onSome: (dot) => dot > 0 && isAsciiDigits(rest, 0, dot)
+			})
+		}
+	})
+
+/**
+ * Whether the server refused a drop (2BP01) for an object of another session's own, which its DETAIL names in that
+ * session's temporary schema: a temporary table typed by what the statement drops, or a function of it, which no
+ * migration made and which stands until its session ends. It is no departure of the installation: grizzle's own
+ * sessions hold their values by session types (ir/physical.ts sessionTypeRef) and a role's drop ends the sessions
+ * holding its objects, so the session is another client's, such as a direct SQL session's.
+ */
+const sessionHeld = (failure: StatementFailure): boolean =>
+	failure._tag === "ServerError" &&
+	failure.sqlstate === sqlstates.dependentObjectsStillExist &&
+	failure.detail !== undefined &&
+	Arr.some(Str.split("\n")(failure.detail), namesTemporary)
+
+/** What a drop another session's temporary object refused tells the operator (`sessionHeld`). */
+const sessionHeldFix =
+	"; another session's temporary object, in the pg_temp schema the DETAIL names, depends on what this statement drops and stands until that session ends: end that session or let it end, then run grizzle migrate again"
+
 /**
  * The fix of a drop PostgreSQL refused because what it drops is in use (55006): a replication slot a leader still
  * streams from, a live source's (physical/ddl/live.ts dropLiveSlot) or one a leader of format 7 or before made, which
- * `grizzle upgrade` drafts the drop of (dropFormerLiveSlot). grizzle signals no other process's backend, so the
- * operator stops that leader, a one-time outage, and migrates again. Nothing for any other failure.
+ * `grizzle upgrade` drafts the drop of (dropFormerLiveSlot). grizzle ends no leader, so the operator stops it, a
+ * one-time outage, and migrates again. Nothing for any other failure.
  */
 const inUseFix = (failure: StatementFailure): string =>
 	failure._tag === "ServerError" && failure.sqlstate === sqlstates.objectInUse
-		? "; a leader still streams from a replication slot this statement drops, and grizzle signals no other process's backend: stop the leaders of the deployment before this one (a one-time outage), then run grizzle migrate again"
+		? "; a leader still streams from a replication slot this statement drops, and grizzle ends no leader: stop the leaders of the deployment before this one (a one-time outage), then run grizzle migrate again"
 		: ""
 
 /**

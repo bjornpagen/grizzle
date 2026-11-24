@@ -408,6 +408,12 @@
  * runtime/write/flight.ts StandUp `reader`), where format 8 read the carrier's table, so every statement over a carrier
  * prints anew and no plan of one depends on the table; and a session table, a carrier or a delta, is truncated only once
  * it holds more than 100 pages (sql/print.ts sessionTableKeptPages), where format 8 truncated it past one page.
+ * Every session object's column is its value's session type (ir/physical.ts sessionTypeRef), its base type and a set's
+ * bit(n) of its roster's width, never an installation's domain: a write's carriers, the staged and slot ones among them
+ * (write/carriers/carriers.ts CarrierDeclaring), and a rule judge's deltas with their readers' row types
+ * (physical/ddl/deltas.ts sessionDeltaOf), where format 8 typed a carrier's column by its field's domain and a delta's
+ * set by its roster's bits domain; so every carrier's name and stand-up moves, with every statement that names it, and
+ * every delta reader's row type.
  */
 export const artifactFormat = 8
 

@@ -293,8 +293,8 @@ const loginOf = (c: TextDomainCase) => {
  * UninstalledDomain refusal otherwise), so every domain the case's statements name is one the installation creates;
  * every row type a function's signature installs holds each value field at its base, no domain, `text` for a refined text
  * and the contract's base for a contract, its refinement checked where a read casts the call's value to its domain; and the
- * installation grants USAGE on every domain a carrier's column is typed by, which PostgreSQL checks as the role creates
- * the carrier. It answers whether the case's ChangeSet carries such a domain.
+ * installation grants USAGE on every domain a carrier's field is typed by, which the statements filling the carrier cast
+ * into. It answers whether the case's ChangeSet carries such a domain.
  */
 export const checkCase = (c: TextDomainCase) =>
 	Effect.gen(function* () {

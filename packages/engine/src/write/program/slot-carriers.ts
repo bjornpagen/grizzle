@@ -62,7 +62,6 @@ import {
 import { emitText } from "#compiler/sql/emit.ts"
 import {
 	type CarrierDeclaration,
-	type CarrierScope,
 	carrierName,
 	freshNames,
 	type NameMap,
@@ -71,6 +70,8 @@ import {
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import {
 	type CarrierColumn,
+	type CarrierDeclaring,
+	carrierColumnDef,
 	carrierEmptied,
 	carrierScan,
 	type WriteCarrier
@@ -175,7 +176,7 @@ const slotReaders = (
 const stagedSlots = (
 	placed: ReadonlyArray<PlacedStatement>,
 	known: number,
-	scope: CarrierScope
+	declaring: CarrierDeclaring
 ): ReadonlyArray<StagedSlot> => {
 	const staged: Array<StagedSlot> = []
 	for (const { first, readers } of slotReaders(placed)) {
@@ -186,12 +187,7 @@ const stagedSlots = (
 		const declaration: CarrierDeclaration = Object.freeze({
 			columns: Object.freeze(
 				columns.map((c, i) =>
-					Object.freeze({
-						name: `c${i + 1}`,
-						type: c.definition.type,
-						collation: c.definition.collation,
-						generated: undefined
-					})
+					Object.freeze(carrierColumnDef(`c${i + 1}`, declaring.typing(c.type)))
 				)
 			),
 			primaryKey: undefined
@@ -201,7 +197,7 @@ const stagedSlots = (
 				first,
 				columns,
 				carrier: Object.freeze({
-					name: carrierName(scope, known + staged.length + 1, declaration),
+					name: carrierName(declaring.scope, known + staged.length + 1, declaration),
 					heading: Object.freeze(
 						columns.map((c, i): CarrierColumn =>
 							Object.freeze({ name: c.name, type: c.type, column: `c${i + 1}` })
@@ -451,9 +447,9 @@ const restaged = (
 export const withStagedSlots = (
 	placed: ReadonlyArray<PlacedStatement>,
 	carriers: ReadonlyArray<WriteCarrier>,
-	scope: CarrierScope
+	declaring: CarrierDeclaring
 ): StagedSlots => {
-	const staged = stagedSlots(placed, carriers.length, scope)
+	const staged = stagedSlots(placed, carriers.length, declaring)
 	if (!isNonEmpty(staged)) {
 		return { statements: placed, carriers }
 	}

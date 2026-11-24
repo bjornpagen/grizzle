@@ -16,9 +16,8 @@ import { boundParamsRead, type DeltaSide, inputsOf, type RelNode } from "#compil
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
 import type { BoundInput, ReadBack } from "#compiler/ir/write.ts"
 import type { CarriedShare } from "#compiler/lower/shapes/share/statements.ts"
-import type { CarrierScope } from "#compiler/sql/naming.ts"
 import {
-	type CarrierTyping,
+	type CarrierDeclaring,
 	type WriteCarrier,
 	CarrierSupply
 } from "#compiler/write/carriers/carriers.ts"
@@ -187,8 +186,8 @@ export interface WritePlan {
 	/** The carrier of each carried bound input (step `bound`), by its parameter, which every reader of it reads. */
 	readonly bound: ReadonlyMap<ParamId, WriteCarrier>
 	readonly carriers: ReadonlyArray<WriteCarrier>
-	/** Whose session tables its carriers are (PlanEvidence `carrierScope`), every later carrier of its program's too. */
-	readonly carrierScope: CarrierScope
+	/** How its carriers are declared (PlanEvidence `carriers`), every later carrier of its program's too. */
+	readonly declaring: CarrierDeclaring
 	/** The sides of each relation's delta some statement makes, by the relation's name; every other side, a world
 	 * relation's whose definition reads nothing the ChangeSet writes included, is empty by construction. */
 	readonly made: ReadonlyMap<string, ReadonlySet<DeltaSide>>
@@ -483,10 +482,9 @@ interface PlanEvidence {
 	 * carried across them (`planStatementShares`); where one statement realizes the stratum (`single`), each evaluation
 	 * it holds as a part of its own is a statement of the planning, the only one that reads its call's arguments. */
 	readonly shares: (members: ReadonlyArray<RelNode>, single: boolean) => ReadonlyArray<CarriedShare>
-	/** The type each carrier column is declared with, which the carrier's name digests (write/carriers CarrierTyping). */
-	readonly carrierTyping: CarrierTyping
-	/** Whose session tables its carriers are, which their names digest (sql/naming.ts CarrierScope). */
-	readonly carrierScope: CarrierScope
+	/** How its carriers are declared, whose session tables they are and each column's type, which their names digest
+	 * (write/carriers CarrierDeclaring). */
+	readonly carriers: CarrierDeclaring
 }
 
 /** The stored relations a member reads itself, not through a carried sub-query, whose carrier holds the state before
@@ -1088,7 +1086,7 @@ export const planWrite = (
 	chosen: ChosenTargets,
 	evidence: PlanEvidence
 ): WritePlan => {
-	const supply = new CarrierSupply(evidence.carrierTyping, evidence.carrierScope)
+	const supply = new CarrierSupply(evidence.carriers)
 	/** Each carried bound input's evaluation, in the state before its stratum (ir/write.ts BoundInput): its carrier made,
 	 * and filled first among its stratum's steps, which every statement after it reads in its place. */
 	const bound = frontend.ir.bound.map((input) => ({
@@ -1208,7 +1206,7 @@ export const planWrite = (
 		steps: Object.freeze(steps),
 		bound: new Map(bound.map(({ input, carrier }) => [input.param, carrier] as const)),
 		carriers: Object.freeze(supply.all()),
-		carrierScope: evidence.carrierScope,
+		declaring: evidence.carriers,
 		made: placement.made
 	})
 }

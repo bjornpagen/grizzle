@@ -6202,7 +6202,10 @@ it is, read offline from the committed snapshot. PostgreSQL answers:
 
 - USAGE on the schema, the schema of whole views of each table it holds whole, its own schema where it holds a query
   entry, the vector extension's schema when a column it reads or writes is a vector, and exactly the domains its
-  columns use: its rosters' and sets', and its contracts' and patterns', down each contract's base.
+  columns use: its rosters' and sets', and its contracts' and patterns', down each contract's base. The one object a
+  role creates, a carrier of its session, names none of them: its every column is its value's base type, a set's
+  bit(n) of its roster's width, and a value reaches its table through the column's domain, which judges it there; so a
+  migration that drops, retypes or tightens a domain never meets a live session's carrier.
 - SELECT on the whole view of each table it holds whole and on each of its query entries' views, and on no other view
   and no stored derived table. USAGE on a schema only resolves its names: every view's own grants decide who reads it.
 - On a table it writes through a whole-table entry: SELECT, INSERT and DELETE, and UPDATE when the table is mutable.

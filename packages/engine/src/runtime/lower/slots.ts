@@ -38,7 +38,7 @@ const placeholderSpec = (
 })
 
 /** The position of a placeholder's array among its input's arrays: its column's, or the count's, the only one. */
-export const partIndex = (part: ArrayPart): number => (part.kind === "column" ? part.index : 0)
+const partIndex = (part: ArrayPart): number => (part.kind === "column" ? part.index : 0)
 
 /**
  * What fills a declared parameter's placeholder under the installation's codes, with its encoder: a scalar's text

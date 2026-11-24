@@ -25,10 +25,8 @@ export const privilegesTamperMigrated = programProperty({
 	kills: [
 		{
 			file: "packages/grizzle/src/adapter/migrate/errors.ts",
-			original:
-				'\t\treturn this.failure._tag === "ServerError" && catalogDeparted.has(this.failure.sqlstate)\n',
-			replacement:
-				'\t\treturn this.failure._tag === "ServerError" && catalogDeparted.has(sqlstates.internalError)\n',
+			original: "\t\t\tcatalogDeparted.has(this.failure.sqlstate) &&\n",
+			replacement: "\t\t\tcatalogDeparted.has(sqlstates.internalError) &&\n",
 			why: "A migration statement over an object the catalog lacks is reported as any failed statement, its fix to edit the file, never that the installation may have drifted, so the operator of a migrate whose folder drops a policy dropped by hand (42704) is never pointed at grizzle drift."
 		}
 	]

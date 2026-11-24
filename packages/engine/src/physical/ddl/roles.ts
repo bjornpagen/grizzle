@@ -1419,7 +1419,8 @@ const roleExecutes = (
  * schema. A roster whole entry has no view: its handles are read as codes, typed by its domain, which the role uses. The
  * filter function a policy calls, then the probes, each come after every relation, type and function their statements
  * read. TEMPORARY on the database is among its grants where its served workload creates a carrier (`carried`), with
- * USAGE on each domain a carrier's column is typed by, and EXECUTE on each function of `held`. */
+ * USAGE on each domain a carrier's field is typed by, which the statements filling the carrier cast into, and EXECUTE on
+ * each function of `held`. */
 const addRole = (
 	b: InstallBuilder,
 	cx: WorldsContext,
@@ -1938,8 +1939,8 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
  *   hidden fact under the object's law, in the same statement;
  * - its privileges: USAGE on its base's levels' schemas, on the schema of whole views of each relation it holds whole,
  *   on its own schema where it holds one, on the vector extension's schema when a relation it reads or writes holds a
- *   vector column, and on the domains its relations' columns are typed by, down a contract's base chain, roster, bits
- *   and structural text domains alike, which a write's carriers name; SELECT on the whole view of each relation it
+ *   vector column, and on the domains its relations' columns and its carriers' fields are typed by, down a contract's
+ *   base chain, roster, bits and structural text domains alike; SELECT on the whole view of each relation it
  *   holds whole and on each of its query entries' views, and on no other view: USAGE on a schema only resolves its
  *   names, and PostgreSQL checks SELECT on each view's own grants, so what a role reads is exactly what it holds. For
  *   each writable entry on T: a whole entry's table SELECT, INSERT and DELETE,
@@ -1959,9 +1960,10 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
  *   on; every statement on a table it writes or updates an owner's count in, its column types, defaults, CHECKs,
  *   generated columns and index expressions, each cast to a domain in them included; its policies' predicates; its
  *   views' decoded columns; and every closed relation's constants, which its queries' closed reads call, and no other
- *   constant. USAGE is checked only where a statement creates an object of the type, which a role does only for its
- *   carriers, typed as its written fields are, so a domain a CHECK or a generated column alone casts into needs EXECUTE
- *   on what its CHECKs call and no USAGE. TRUNCATE is granted to no one, and no role holds a privilege on a base table
+ *   constant. PostgreSQL checks a domain's USAGE only where a statement creates an object of it, which no role does: its
+ *   carriers hold their values' session types, never a domain (ir/physical.ts sessionTypeRef), so a domain a CHECK or a
+ *   generated column alone casts into needs EXECUTE on what its CHECKs call and no USAGE. TRUNCATE is granted to no
+ *   one, and no role holds a privilege on a base table
  *   it does not write or own a member of. TEMPORARY on the current database to a role whose served workload creates a
  *   carrier (`carriers`, stated by the served workload's extension): a ChangeSet's own carrier (write/carriers) or a
  *   staged statement's (write/program/staged.ts), each a CREATE TEMPORARY TABLE, which PostgreSQL judges against the

@@ -20,7 +20,7 @@ import type { ChangeSetDesc } from "#compiler/ir/desc.ts"
 import { isSequence, isTreeOf } from "#compiler/ir/family.ts"
 import { appendStartOf, familyDrawn } from "#compiler/ir/fill.ts"
 import { columnKeyOf, familyKey, type RelationInfo } from "#compiler/ir/law.ts"
-import type { PhysicalNames } from "#compiler/ir/physical.ts"
+import { type PhysicalNames, sessionTypeRef } from "#compiler/ir/physical.ts"
 import {
 	type CallerParamDecl,
 	type ClockParamDecl,
@@ -90,6 +90,8 @@ import {
 import {
 	buildEmptyCarrier,
 	buildFillCarrier,
+	type CarrierDeclaring,
+	type CarrierTyping,
 	type WriteCarrier,
 	carrierColumns,
 	carrierRows,
@@ -1074,12 +1076,22 @@ export const placeAdmission = (
 	}
 }
 
+/**
+ * The typing of a program's carriers (write/carriers/carriers.ts CarrierTyping): each column its value's session type
+ * under `names` (ir/physical.ts sessionTypeRef). It holds `names` alone, never the compile that made it, which the
+ * compiled write's plan, holding it, would keep alive.
+ */
+const sessionTyping =
+	(names: PhysicalNames): CarrierTyping =>
+	(t) =>
+		sessionTypeRef(names, t)
+
 /** The artifact of the statements built and their carriers. */
 export const finish = (
 	b: ArtifactBuilder,
 	carriers: ReadonlyArray<WriteCarrier>,
-	scope: CarrierScope
-): WriteArtifact => settledArtifact(b.statements, Object.freeze([...carriers]), scope)
+	declaring: CarrierDeclaring
+): WriteArtifact => settledArtifact(b.statements, Object.freeze([...carriers]), declaring)
 
 /** How the optimized artifact's described members lower: its shape state, whose log holds the choices the statement
  * being lowered made in the per-execution mode it is lowered in, the sharing of sub-queries across its statements, and
@@ -1107,9 +1119,9 @@ const optimizedArtifact = (
 	const staged = withStagedSlots(
 		optimizedPlacement(frontend, plan, lowering, admission, options).statements,
 		plan.carriers,
-		plan.carrierScope
+		plan.declaring
 	)
-	return settledArtifact(staged.statements, staged.carriers, plan.carrierScope)
+	return settledArtifact(staged.statements, staged.carriers, plan.declaring)
 }
 
 /** The optimized artifact's statements, each with its forms.
@@ -2058,8 +2070,10 @@ const compileAt = (
 			}
 			return shares
 		},
-		carrierTyping: (t) => lowering.w.cx.typeRef(t),
-		carrierScope: options.carrierScope
+		carriers: {
+			scope: options.carrierScope,
+			typing: sessionTyping(options.names)
+		}
 	})
 	for (const [param, carrier] of plan.bound) {
 		bound.set(param, carrierRows(carrier))

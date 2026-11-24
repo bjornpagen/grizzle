@@ -23,10 +23,11 @@ import type {
 import { roleUpdates } from "#compiler/physical/ddl/roles.ts"
 
 import type { CarrierCasts } from "#compiler/runtime/write/steps.ts"
-import { type CarrierScope, freshNames } from "#compiler/sql/naming.ts"
+import { freshNames } from "#compiler/sql/naming.ts"
 import {
 	buildEmptyCarrier,
 	buildFillCarrier,
+	type CarrierDeclaring,
 	carrierField,
 	carrierRows,
 	type WriteCarrier,
@@ -122,8 +123,8 @@ interface ConservativeWriteOptions {
 	readonly share: StatementShare
 	/** The level the write runs at, the compiled write's (write/program/compile.ts CompiledWrite `level`). */
 	readonly level: Isolation
-	/** Whose session tables its carriers are, the compiled write's (write/schedule/plan.ts WritePlan `carrierScope`). */
-	readonly carrierScope: CarrierScope
+	/** How its carriers are declared, the compiled write's (write/schedule/plan.ts WritePlan `declaring`). */
+	readonly carriers: CarrierDeclaring
 	/** What the write is compiled as, the compiled write's (write/program/compile.ts PrepareWriteOptions `world`): a
 	 * role's, whose names a query entry's check calls. */
 	readonly world: WriteWorld
@@ -163,7 +164,7 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 		generation: generations(frontend.laws, updaterOf(frontend)),
 		bound: boundRows
 	})
-	const supply = new CarrierSupply((t) => w.cx.typeRef(t), options.carrierScope)
+	const supply = new CarrierSupply(options.carriers)
 	const steps: Array<ConservativeStep> = []
 	const carry = (
 		carrier: WriteCarrier,

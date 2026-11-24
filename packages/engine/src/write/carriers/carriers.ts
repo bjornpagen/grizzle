@@ -143,22 +143,29 @@ export const carrierColumns = (carrier: WriteCarrier): ReadonlyArray<string> =>
 	carrier.heading.map((c) => c.column)
 
 /**
- * The PostgreSQL type a carrier column of a value of `t` is declared with, as a stored column of its type is: a
- * contract's domain, a refinement's structural text domain, a roster's domain, or the builtin with its typmod
- * (lower/conservative/context.ts typeRef).
+ * The PostgreSQL type a carrier column of a value of `t` is declared with: its session type (ir/physical.ts
+ * sessionTypeRef), the value's base type, never an installation's domain, so no migration that drops or changes a
+ * domain meets a live session's carrier, and no role needs USAGE on a domain to stand one up.
  */
 export type CarrierTyping = (t: ScalarType) => TypeRef
+
+/**
+ * How a program declares its carriers, each of which its name digests: whose session tables they are (sql/naming.ts
+ * CarrierScope) and the type of each column (CarrierTyping). Every carrier of a program, its own and every staged one
+ * (write/program/staged.ts, slot-carriers.ts), is declared by it.
+ */
+export interface CarrierDeclaring {
+	readonly scope: CarrierScope
+	readonly typing: CarrierTyping
+}
 
 /** The carriers of one program, each named by its ordinal among them and its declaration (see `WriteCarrier`). */
 export class CarrierSupply {
 	readonly #all: Array<WriteCarrier> = []
-	readonly #typing: CarrierTyping
+	readonly #declaring: CarrierDeclaring
 
-	readonly #scope: CarrierScope
-
-	constructor(typing: CarrierTyping, scope: CarrierScope) {
-		this.#typing = typing
-		this.#scope = scope
+	constructor(declaring: CarrierDeclaring) {
+		this.#declaring = declaring
 	}
 
 	/** A carrier of `heading`, of any width, keyed by the fields `key` names, or by none. */
@@ -171,7 +178,9 @@ export class CarrierSupply {
 			)
 		)
 		const declaration: CarrierDeclaration = Object.freeze({
-			columns: Object.freeze(columns.map((c) => columnDefOf(c.column, this.#typing(c.type)))),
+			columns: Object.freeze(
+				columns.map((c) => carrierColumnDef(c.column, this.#declaring.typing(c.type)))
+			),
 			primaryKey:
 				key === undefined
 					? undefined
@@ -187,7 +196,7 @@ export class CarrierSupply {
 						)
 		})
 		const carrier: WriteCarrier = Object.freeze({
-			name: carrierName(this.#scope, ordinal, declaration),
+			name: carrierName(this.#declaring.scope, ordinal, declaration),
 			heading: columns,
 			fill: "insertSelect" as const,
 			declaration
@@ -263,7 +272,7 @@ export const carrierTable = (carrier: WriteCarrier): CreateCarrier => {
 }
 
 /** A carrier column `column` of `type`: a builtin text one names pg_catalog.pg_c_utf8, like every stored column. */
-const columnDefOf = (column: string, type: TypeRef): ColumnDef =>
+export const carrierColumnDef = (column: string, type: TypeRef): ColumnDef =>
 	type.kind === "builtin" && type.name === "text"
 		? { name: column, type, collation: cUtf8Collation, generated: undefined }
 		: { name: column, type, collation: undefined, generated: undefined }

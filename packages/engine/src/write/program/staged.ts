@@ -38,9 +38,9 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
+import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
-import { partIndex } from "#compiler/runtime/lower/slots.ts"
 import type { Staged } from "#compiler/runtime/write/staged.ts"
 import type {
 	ArrayColumn,
@@ -54,24 +54,34 @@ import { emitText } from "#compiler/sql/emit.ts"
 import {
 	type CarrierDeclaration,
 	type CarrierName,
-	type CarrierScope,
 	carrierName,
 	emptyNameMap
 } from "#compiler/sql/naming.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
-import { carrierRead } from "#compiler/write/carriers/carriers.ts"
+import {
+	type CarrierDeclaring,
+	carrierColumnDef,
+	carrierRead
+} from "#compiler/write/carriers/carriers.ts"
 
-/** A placeholder of a stratum's nested rows of `relation`: the column at `part` of their sent layout. */
+/** A placeholder of a column of a stratum's nested rows of `relation`: the column's type, which its carrier holds it by. */
 export interface NestedColumnSlot {
 	readonly stratum: StratumAt
 	readonly relation: string
-	readonly part: number
+	readonly type: ScalarType
 }
 
-/** The column of nested rows a placeholder carries, none for any other. */
+/** The column of nested rows a placeholder carries, none for any other: a count of rows is no column. */
 export const nestedColumnOf = (slot: WriteParamSlot): NestedColumnSlot | undefined =>
-	slot.kind === "nestedRows"
-		? { stratum: slot.stratum, relation: slot.relation, part: partIndex(slot.part) }
+	slot.kind === "nestedRows" && slot.part.kind === "column"
+		? {
+				stratum: slot.stratum,
+				relation: slot.relation,
+				type: defined(
+					slot.columns[slot.part.index],
+					"the column of a nested rows placeholder's part"
+				).type
+			}
 		: undefined
 
 const noStaging: Staged = Object.freeze({ kind: "none" })
@@ -99,7 +109,7 @@ const nestedSources = (
 	ast: SqlStatement,
 	nested: ReadonlyArray<NestedColumnSlot | undefined>,
 	first: number,
-	scope: CarrierScope
+	declaring: CarrierDeclaring
 ): ReadonlyArray<StagedSource> => {
 	const found: Array<StagedSource> = []
 	transformStatement(ast, {
@@ -127,19 +137,19 @@ const nestedSources = (
 				)
 			}
 			const declaration: CarrierDeclaration = {
-				columns: columns.map((c) => ({
-					name: c.definition.name,
-					type: c.definition.type,
-					collation: c.definition.collation,
-					generated: undefined
-				})),
+				columns: columns.map((c, i) =>
+					carrierColumnDef(
+						c.definition.name,
+						declaring.typing(defined(of[i], "a nested rows column's placeholder").type)
+					)
+				),
 				primaryKey: undefined
 			}
 			found.push({
 				item: source,
 				columns,
 				declaration,
-				carrier: carrierName(scope, first + found.length, declaration)
+				carrier: carrierName(declaring.scope, first + found.length, declaration)
 			})
 			return undefined
 		}
@@ -243,12 +253,12 @@ export const stagedOf = (
 	ast: SqlStatement,
 	nested: ReadonlyArray<NestedColumnSlot | undefined>,
 	first: number,
-	scope: CarrierScope
+	declaring: CarrierDeclaring
 ): Staged => {
 	if (nested.every((slot) => slot === undefined)) {
 		return noStaging
 	}
-	const sources = nestedSources(ast, nested, first, scope)
+	const sources = nestedSources(ast, nested, first, declaring)
 	if (!isNonEmpty(sources)) {
 		throw defect("a statement's placeholders of nested rows read in a FROM item of their columns")
 	}

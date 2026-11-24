@@ -18,7 +18,7 @@ import { type Identity, identity } from "#compiler/core/identity.ts"
 import { temporarySchema } from "#compiler/core/temporary.ts"
 import { weightOf } from "#compiler/core/zset.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
-import { baseTypeRef } from "#compiler/ir/physical.ts"
+import { sessionTypeRef } from "#compiler/ir/physical.ts"
 import type { PhysicalReason } from "#compiler/ir/products.ts"
 import { heapTupleMaxBytes } from "#compiler/laws/model/model.ts"
 import { inlineColumn, type RowColumn, rowBytes } from "#compiler/laws/model/rows.ts"
@@ -178,7 +178,8 @@ export interface JudgedSide {
 
 /**
  * The delta of `relation`'s side `side` (`SessionDelta`): its columns, its relation's heading's, each of its field's
- * base type (a text column collated C.UTF-8 as every stored text column is), its table's, its storage, its name, the
+ * session type (ir/physical.ts sessionTypeRef: never an installation's domain, a set's bits too; a text column collated
+ * C.UTF-8 as every stored text column is), its table's, its storage, its name, the
  * reader the judge's statements read it through, and the head that reads it (`deltaHead`).
  */
 export const sessionDeltaOf = (
@@ -187,7 +188,7 @@ export const sessionDeltaOf = (
 	side: ProbeSide
 ): SessionDelta => {
 	const columns = mapNonEmpty(relation.heading, (f): ColumnDefinition => {
-		const type = baseTypeRef(b.names, f.type)
+		const type = sessionTypeRef(b.names, f.type)
 		return {
 			name: f.column,
 			type,
