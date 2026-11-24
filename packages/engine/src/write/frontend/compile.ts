@@ -92,6 +92,7 @@ import {
 	keptNodes,
 	type LogicalAnalysis
 } from "#compiler/logical/annotate.ts"
+import { type Producers, propagatedWrite } from "#compiler/lower/optimize/propagate/index.ts"
 import { sameExpr } from "#compiler/lower/shapes/catalog/exprs.ts"
 import { everyParentTakes } from "#compiler/lower/shapes/take/decorrelate.ts"
 import {
@@ -607,6 +608,31 @@ const restatedIn = (named: Drafted, dag: ValidDag, at: Counterpart): Restatement
 	return { restated, restate }
 }
 
+/**
+ * The producers of a write's opaque leaves (lower/optimize/propagate Producers), each node read through `at` in the DAG
+ * the write's optimized artifact lowers: the sources of each relation's delta.added, its insert and put actions'
+ * described sources, none for a relation one action fills from a slot. A relation a family's statements write has no
+ * delta a read-back names, but a stamped nesting's plain root, whose rows its insert's source holds, every field but the
+ * stamped ones, which no source holds.
+ */
+const writeProducers = (strata: ReadonlyArray<WriteStratum>, at: Counterpart): Producers => {
+	const sources = new Map<string, Array<RelNode>>()
+	const opaque = new Set<string>()
+	for (const stratum of strata) {
+		for (const action of stratum.actions) {
+			if (action.op === "delete") {
+				continue
+			}
+			if (action.source.kind === "described") {
+				sources.getOrInsertComputed(action.relation, () => []).push(at(action.source.node))
+			} else {
+				opaque.add(action.relation)
+			}
+		}
+	}
+	return { added: new Map([...sources].filter(([relation]) => !opaque.has(relation))) }
+}
+
 /** An addition into a query entry whose fixed fields read a context the Db holds no fact of: every fact its sources hold
  * is outside the world, so its refusal is raised when they hold any row, at the start of its stratum, where its
  * sources are evaluated. `entry` names the entry; `reads` is its enumerated slot, its described
@@ -666,7 +692,8 @@ export interface SlotAt {
 
 export interface WriteFrontend extends WriteQueries {
 	/** The same queries over the write DAG the optimized artifact lowers: ir.dag with every take correlated through bind
-	 * stated with its correlation explicit, analyzed in the same transaction context, every node under its own label. */
+	 * stated with its correlation explicit, analyzed in the same transaction context, then its constant columns read
+	 * through (lower/optimize/propagate), every node under its own label. */
 	readonly restated: WriteQueries
 	/**
 	 * The node of `restated.ir.dag` standing in the place of each node of `ir.dag` the write names, as data: the nodes
@@ -3599,8 +3626,10 @@ const compile = (
 	 * DAG is `dag` itself, analyzed already: the logical analysis is idempotent, so analyzing it again states what it
 	 * states (test/unit/analysis/logical/evidence.test.ts), and the optimized form is `dag`, each node its own, where
 	 * the restatement analyzed the whole write DAG a second time (edullm's ledger's `evaluate`, 20,550 nodes and no take
-	 * restated: 100 s for its analysis, then 181 s for the same claims again). The conservative realization lowers
-	 * `dag`, as checked. */
+	 * restated: 100 s for its analysis, then 181 s for the same claims again). Then its constant columns are read through
+	 * (lower/optimize/propagate propagatedWrite), its leaves through the write's producers (writeProducers), which leaves
+	 * a DAG it edits nothing of as it is. The conservative realization lowers `dag`, as checked, so the write oracle reads
+	 * the pass's restrictions and substitutions against the DAG without them. */
 	const roots = dag.roots
 	const restatement = ((): Restatement => {
 		if (!isNonEmpty(roots)) {
@@ -3614,14 +3643,21 @@ const compile = (
 			params: queries.ir.params,
 			bound: queries.ir.bound
 		}
+		/**
+		 * The restated DAG with every key the write's statements fix at a parameter bound where it is read, and every
+		 * reference to a column holding a parameter reading it (lower/optimize/propagate propagatedWrite), as a query's
+		 * optimized lowering binds them: each node the queries name read as the node standing in its place there.
+		 */
+		const propagated = (restated: ValidDag, counterpart: Counterpart): Restatement => {
+			const done = propagatedWrite(restated, writeProducers(named.strata, counterpart))
+			return restatedIn(named, done.dag, (node) => done.node(counterpart(node)))
+		}
 		if (takes.query === input) {
-			return restatedIn(named, dag, (node) => node)
+			return propagated(dag, (node) => node)
 		}
 		const again = analyzed(takes.query.dag)
 		const againJudged = judgedAsDelivered(again.dag)
-		return restatedIn(named, againJudged.dag, (node) =>
-			againJudged.of(again.of(takes.node(node)).node)
-		)
+		return propagated(againJudged.dag, (node) => againJudged.of(again.of(takes.node(node)).node))
 	})()
 
 	return Object.freeze({

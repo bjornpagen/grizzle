@@ -154,6 +154,18 @@ const besideAttempts = query(Written).rule((r) => {
 /** The session the call names: the write's `sittings`. */
 const named = query(Written).rule((r) => r.find({ session: r.param("session", pg.integer) }))
 
+/**
+ * The sessions of the attempts opened at the call's value: the write's `sittings`, sessions stored rows hold, so no value
+ * of the call is a session and the union is read at the key set they give it. A session the call names is a parameter
+ * the region holds its column at, which each arm reads at directly (lower/optimize/propagate), no key set.
+ */
+const openedAt = query(Written).rule((r) => {
+	const { session, attempt } = v(Attempt, "attempt")
+	return r
+		.match(Attempt, { session, attempt, opened: r.param("opened", pg.integer) })
+		.find({ session })
+})
+
 const reality = realityWrite(succeeded(testArtifacts(Written, testCompile)))
 
 /** The text of each statement `write` sends. */
@@ -169,7 +181,7 @@ export const statementsOf = (box: Box): ReadonlyArray<string> => {
 	switch (box.joined) {
 		case "written at the call's sessions":
 			return writeOf(
-				ChangeSet.empty(Written).insert(Recorded, atSessions).bind({ sittings: named })
+				ChangeSet.empty(Written).insert(Recorded, atSessions).bind({ sittings: openedAt })
 			)
 		case "written at the call's latest attempts":
 			return writeOf(ChangeSet.empty(Written).insert(Recorded, atLatest).bind({ sittings: named }))

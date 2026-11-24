@@ -12,9 +12,10 @@
  * the outcomes in force of the call's latest attempts, the union bound to their sessions beside a fold of them, each
  * restricted by the call's sessions (edullm's grade admission, C1, at 85910d893).
  *
- * The box, exhausted: the outcomes in force written at the call's sessions, a relation parameter, or at the call's
- * latest attempts, or beside every stored attempt, which no value of the call restricts, or read beside every stored
- * attempt by a workload's read.
+ * The box, exhausted: the outcomes in force written at the call's sessions, a relation parameter bound to the sessions of
+ * the attempts opened at the call's value, which stored rows hold (a session the call names is a parameter each arm reads
+ * at directly, lower/optimize/propagate, no key set), or at the call's latest attempts, or beside every stored attempt,
+ * which no value of the call restricts, or read beside every stored attempt by a workload's read.
  *
  * Oracle: specification, the union read LATERAL per key of its key set, each arm at the key, where the call's sessions
  * bind it, and read as it stands where the call's sessions restrict it already or beside every stored attempt.

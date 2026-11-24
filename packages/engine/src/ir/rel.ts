@@ -1125,7 +1125,9 @@ export type NodeOf<K extends RelKind> = Extract<RelNode, { readonly kind: K }>
  * The classes of a match region's variables under its equalities: each variable's class, named by the least variable id
  * in it, so two variables are of one class exactly when a chain of the region's equalities equates them.
  */
-export const regionVarClasses = (region: NodeOf<"MatchRegion">): ((v: VarDecl) => VarId) => {
+export const regionVarClasses = (region: {
+	readonly equalities: ReadonlyArray<{ readonly a: VarDecl; readonly b: VarDecl }>
+}): ((v: VarDecl) => VarId) => {
 	const parent = new Map<VarId, VarId>()
 	const find = (v: VarId): VarId => {
 		let at = v

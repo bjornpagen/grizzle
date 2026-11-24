@@ -23,6 +23,7 @@ import {
 	sequence
 } from "#compiler/lower/optimize/demand/phases.ts"
 import { graphPass } from "#compiler/lower/optimize/graph/index.ts"
+import { propagatePass } from "#compiler/lower/optimize/propagate/index.ts"
 import { sourcePrunePass } from "#compiler/lower/optimize/prune/index.ts"
 import { catalogPass } from "#compiler/lower/shapes/catalog/rewrite.ts"
 import {
@@ -88,7 +89,9 @@ export interface OptimizedProgram extends OptimizedDeliveryProgram<RelationChoic
  * 2. semantic simplification (demand/phases.ts): folding, equality propagation, branch removal, R01 fusion;
  * 3. relational rewrites: prune, R03, R07, R02, pushdown, semi-join movement, simplify, prune, R06;
  * 4. specialized lowering: the compile-target catalog (shapes/catalog) and bounded traversal specialization (graph/),
- *    then the last prune, which narrows the sources too (prune/ sourcePrunePass);
+ *    then the constant columns (propagate/), each key a parameter fixes bound where its stored relation is read and
+ *    each reference to a column held at a parameter reading it, then the last prune, which narrows the sources too
+ *    (prune/ sourcePrunePass);
  * 5. deduplication placement (dedup/): every node's realization and every fold's input, with certificates;
  * 6. program scheduling and SQL emission: the CTE policy (cte-policy/), the shape kind table and the optimized
  *    delivery (shapes/index.ts), each statement printed through sql/emit.
@@ -108,8 +111,9 @@ export const optimizedInput = (
 
 /**
  * The rewrite passes up to and including specialized lowering, in normative order, under the compilation's catalog
- * (PassContext), and last the prune that narrows the sources, once no rewrite reads two scans of one relation by their
- * whole headings. A derived-relation definition always wants every group, so its catalog pass takes the whole input.
+ * (PassContext), then the constant columns over the DAG they leave, and last the prune that narrows the sources, once no
+ * rewrite reads two scans of one relation by their whole headings, nor any reference a column the constant columns
+ * read as its value. A derived-relation definition always wants every group, so its catalog pass takes the whole input.
  */
 export const rewritePipeline = (
 	subject: OptimizedSubject["kind"]
@@ -119,6 +123,7 @@ export const rewritePipeline = (
 		relationalRewrites,
 		catalogPass(subject === "derivedDefinition" ? "whole" : "auto"),
 		graphPass,
+		propagatePass,
 		sourcePrunePass
 	])
 

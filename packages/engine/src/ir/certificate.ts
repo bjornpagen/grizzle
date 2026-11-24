@@ -64,6 +64,8 @@ type RewriteRule =
 	| "R06.lateFetch"
 	| "R07.closedMembership"
 	| "prune.heading"
+	| "propagate.restrict"
+	| "propagate.substitute"
 	| "pushdown.project"
 	| "pushdown.group"
 	| "pushdown.union"
