@@ -93,6 +93,7 @@ const sessionInserts = (body: ReadonlyArray<PlStatement>): ReadonlyArray<Capture
 			case "assign":
 			case "case":
 			case "createSessionTable":
+			case "createSessionIndex":
 			case "createSessionTrigger":
 			case "forQuery":
 			case "perform":

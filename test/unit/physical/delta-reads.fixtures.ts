@@ -2,6 +2,8 @@
 
 import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
+import { Array as Arr, Option, String as Str } from "effect"
+import type { Installation } from "#compiler/physical/install/compile.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, type Rule, v } from "#compiler/public/query.ts"
@@ -16,7 +18,8 @@ import {
 	schema,
 	unit
 } from "#compiler/public/schema.ts"
-import type { OperandSelect } from "#compiler/sql/ast.ts"
+import type { Expr, OperandSelect } from "#compiler/sql/ast.ts"
+import { printExpr } from "#compiler/sql/print.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { judgedStatementsOf } from "#test/support/judge.ts"
@@ -203,4 +206,93 @@ export const judged = (shape: Shape, note: (r: Reached) => void): void => {
 			)
 		}
 	}
+}
+
+/**
+ * The literal `where`, a reader's condition, fixes the delta's `a` to: where it is that equality or an AND one of whose
+ * arguments is, the rule's own conditions beside it; none otherwise.
+ */
+const fixedA = (where: Expr | undefined): number | undefined => {
+	if (where?.kind === "and") {
+		return Arr.findFirst(where.args, (e) => fixedA(e) !== undefined).pipe(
+			Option.flatMapNullishOr(fixedA),
+			Option.getOrUndefined
+		)
+	}
+	if (where?.kind !== "binary" || where.op !== "=") {
+		return undefined
+	}
+	const { left, right } = where
+	const value = right.kind === "cast" ? right.expr : right
+	return left.kind === "column" &&
+		left.table === "r1" &&
+		left.column === "a" &&
+		value.kind === "literal" &&
+		value.value.kind === "int"
+		? Number(value.value.value)
+		: undefined
+}
+
+/**
+ * Each reader of T's deltas in `installation`, by its function's name: the condition its one SELECT of the delta reads
+ * the rows it returns under, none for a reader of every row (physical/ddl/deltas.ts addReaders).
+ */
+const tReadersIn = (installation: Installation): ReadonlyMap<string, Expr | undefined> =>
+	new Map(
+		Arr.flatMap(
+			installation.statements,
+			(s): ReadonlyArray<readonly [string, Expr | undefined]> => {
+				if (s.kind !== "createFunction" || s.language !== "plpgsql") {
+					return []
+				}
+				const [only, ...rest] = s.body.body
+				if (only.kind !== "returnQuery" || rest.length > 0 || only.query.body.kind !== "core") {
+					return []
+				}
+				const [from] = only.query.body.from
+				return from?.kind === "table" &&
+					typeof from.table !== "string" &&
+					(Str.startsWith("__delta_news_t_")(from.table.name) ||
+						Str.startsWith("__delta_olds_t_")(from.table.name))
+					? [[s.name.name, only.query.body.where]]
+					: []
+			}
+		)
+	)
+
+/**
+ * Judges each statement's reads of T's deltas in `shape`'s installation (support/judge.ts judgedStatementsOf): each
+ * calls a reader whose one condition fixes T's `a` to the literal of one of the shape's arms, and the arms' literals
+ * are each read by some statement, so no statement reads T's delta whole and each arm reads its own rows.
+ */
+export const selected = (shape: Shape, note: (r: Reached) => void): void => {
+	const owned = owning(schemaOf(shape))
+	const installation = succeeded(compileInstallation(owned, installOptions(owned)))
+	const readers = tReadersIn(installation)
+	const literals = new Set<number>()
+	for (const { query: statement } of judgedStatementsOf(installation)) {
+		note(shape.judge === "whole" ? "a whole rule's statement" : "a probe's statement")
+		const called = calledIn(statement)
+		if (new Set(called).size >= 2) {
+			note("a statement reading two deltas")
+		}
+		for (const name of called) {
+			if (!readers.has(name)) {
+				continue
+			}
+			note("a delta read once")
+			const condition = readers.get(name)
+			const literal = fixedA(condition)
+			assert.ok(
+				literal !== undefined && literal >= 1 && literal <= shape.arms,
+				`a judged statement reads T's delta through ${name} under ${condition === undefined ? "no condition" : printExpr(condition)}, which fixes a to no arm's literal`
+			)
+			literals.add(literal)
+		}
+	}
+	const arms = Array.from({ length: shape.arms }, (_, i) => i + 1)
+	assert.ok(
+		Arr.every(arms, (k) => literals.has(k)),
+		`every arm's rows of T's delta are read, a fixed to each of ${Arr.join(Arr.map(arms, String), ", ")}, not only ${Arr.join(Arr.map([...literals], String), ", ")}`
+	)
 }

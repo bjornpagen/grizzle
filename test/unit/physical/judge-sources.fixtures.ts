@@ -187,11 +187,36 @@ const readersIn = (installation: Installation): ReadonlyMap<string, Reader> =>
 		})
 	)
 
-/** A CTE a judged statement reads a delta through (physical/ddl/rules.ts deltaHead): the delta's table, and each of
- * its columns' column of the delta. */
+/** A read of a delta's reader a judged statement holds (physical/ddl/deltas.ts headed): the call where the statement
+ * reads it once, or the CTE over the call it reads twice or more through; the delta's table, and each of the read's
+ * columns' column of the delta. */
 interface Head {
 	readonly table: Table
 	readonly columnOf: ReadonlyMap<string, string>
+}
+
+/** `source` as a call of a delta's reader (`Head`), none where it calls none. */
+const calledHead = (
+	source: FromSource | undefined,
+	columns: ReadonlyArray<string>,
+	readers: ReadonlyMap<string, Reader>
+): Head | undefined => {
+	const reader =
+		source?.kind === "function" && source.call.fn.kind === "qualified"
+			? readers.get(source.call.fn.name)
+			: undefined
+	const table = reader === undefined ? undefined : deltaOf(reader.delta)
+	return reader === undefined || table === undefined
+		? undefined
+		: {
+				table,
+				columnOf: new Map(
+					Arr.flatMap(columns, (c, at) => {
+						const column = reader.columns[at]
+						return column === undefined ? [] : [[c, column] as const]
+					})
+				)
+			}
 }
 
 /** Each CTE of `statement` that reads a delta's reader, by its name (`Head`). */
@@ -209,21 +234,9 @@ const headsOf = (
 					continue
 				}
 				const [from] = body.body.from
-				const reader =
-					from?.kind === "function" && from.call.fn.kind === "qualified"
-						? readers.get(from.call.fn.name)
-						: undefined
-				const table = reader === undefined ? undefined : deltaOf(reader.delta)
-				if (reader !== undefined && table !== undefined) {
-					heads.set(cte.name, {
-						table,
-						columnOf: new Map(
-							Arr.flatMap(cte.columns, (c, at) => {
-								const column = reader.columns[at]
-								return column === undefined ? [] : [[c, column] as const]
-							})
-						)
-					})
+				const head = from?.kind === "joins" ? undefined : calledHead(from, cte.columns, readers)
+				if (head !== undefined) {
+					heads.set(cte.name, head)
 				}
 			}
 		}
@@ -233,11 +246,19 @@ const headsOf = (
 
 /**
  * The table a FROM source reads, where it reads one of the installation's, or a session's delta of one, which a judged
- * statement reads through its delta's CTE (`heads`).
+ * statement reads through a call of its reader or a CTE over one (`heads`).
  */
-const scannedBy = (source: FromSource, heads: ReadonlyMap<string, Head>): Scanned | undefined => {
+const scannedBy = (
+	source: FromSource,
+	heads: ReadonlyMap<string, Head>,
+	readers: ReadonlyMap<string, Reader>
+): Scanned | undefined => {
 	if (source.kind === "cte") {
 		const head = heads.get(source.name)
+		return head === undefined ? undefined : { kind: "delta", table: head.table }
+	}
+	if (source.kind === "function") {
+		const head = calledHead(source, source.columns, readers)
 		return head === undefined ? undefined : { kind: "delta", table: head.table }
 	}
 	if (source.kind !== "table" || typeof source.table === "string") {
@@ -269,7 +290,8 @@ interface Scan {
 /** Each scan of a table in `statement`, at any depth, each column a delta's CTE delivers read as the delta's own. */
 const scansOf = (
 	statement: OperandSelect,
-	heads: ReadonlyMap<string, Head>
+	heads: ReadonlyMap<string, Head>,
+	readers: ReadonlyMap<string, Reader>
 ): ReadonlyArray<Scan> => {
 	const scans: Array<Scan> = []
 	const source = (item: FromSource): void => {
@@ -277,15 +299,24 @@ const scansOf = (
 			return
 		}
 		const [from, ...more] = item.query.body.from
-		if (from === undefined || more.length > 0 || (from.kind !== "table" && from.kind !== "cte")) {
+		if (
+			from === undefined ||
+			more.length > 0 ||
+			(from.kind !== "table" && from.kind !== "cte" && from.kind !== "function")
+		) {
 			return
 		}
-		const scanned = scannedBy(from, heads)
+		const scanned = scannedBy(from, heads, readers)
 		if (scanned === undefined) {
 			return
 		}
 		const alias = from.kind === "cte" ? (from.alias ?? from.name) : from.alias
-		const columnOf = from.kind === "cte" ? heads.get(from.name)?.columnOf : undefined
+		const columnOf =
+			from.kind === "cte"
+				? heads.get(from.name)?.columnOf
+				: from.kind === "function"
+					? calledHead(from, from.columns, readers)?.columnOf
+					: undefined
 		const columns = Arr.flatMap(item.query.body.targets, (t, i) => {
 			const output = item.columns[i]
 			const read =
@@ -349,7 +380,7 @@ export const judged = (shape: Shape, note: (r: Reached) => void): void => {
 	for (const { query: statement } of judgedStatementsOf(installation)) {
 		note(shape.judge === "whole" ? "a whole rule's statement" : "a probe's statement")
 		const references = referencesOf(statement)
-		for (const scan of scansOf(statement, headsOf(statement, readers))) {
+		for (const scan of scansOf(statement, headsOf(statement, readers), readers)) {
 			const { kind, table } = scan.scanned
 			for (const { read: column, output } of scan.columns) {
 				assert.ok(

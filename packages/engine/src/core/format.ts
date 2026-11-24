@@ -450,6 +450,14 @@
  * stand-up.ts writeStandUps), where format 8 stood up only the tables its own level's rules read, so a served write of
  * a table a rule of a level above reads met the capture's 55Z03; every such write's served file holds the stand-ups of
  * those tables.
+ * A rule judge's statement reads each delta through the reader of the selection it reads the delta under, its conjuncts
+ * over the read's columns and constants moved into the reader (physical/ddl/deltas.ts headed, DeltaReads), one reader
+ * for each delta and selection the statements read, named by both (identity.ruleDeltaReader), a reader read once
+ * called where its read stands and one read twice or more read through one MATERIALIZED CTE; and each delta's table is
+ * stood up with a B-tree of each column two or more of its selections fix to constants (deltaIndexes,
+ * identity.ruleDeltaIndex, sql/ast.ts PlStatement createSessionIndex), where format 8 had one reader of every row of
+ * each delta, read through a MATERIALIZED CTE of each statement that read it, and no index of a delta. So every judge
+ * statement, every reader and every stand-up moves.
  */
 export const artifactFormat = 8
 

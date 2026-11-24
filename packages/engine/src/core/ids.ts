@@ -106,6 +106,7 @@ export type IdentityKind =
 	| "ruleDelta"
 	| "ruleDeltaReader"
 	| "ruleDeltaRow"
+	| "ruleDeltaIndex"
 	| "ruleSentinel"
 	| "refusal"
 	| "borrow"

@@ -2526,6 +2526,10 @@ const plStatement = (out: Lines, statement: PlStatement): void => {
 			return out.line(";")
 		case "createSessionTable":
 			return out.line(`${sessionTableCreate(statement)};`)
+		case "createSessionIndex":
+			return out.line(
+				`CREATE INDEX ${quoteIdent(statement.name)} ON ${sessionTableName(statement.table)} (${quoteIdent(statement.column)});`
+			)
 		case "truncateSessionTable":
 			return out.line(`TRUNCATE ${sessionTableName(statement.name)};`)
 		case "createSessionTrigger":

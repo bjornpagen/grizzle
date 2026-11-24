@@ -2253,6 +2253,18 @@ export type PlStatement =
 	  }
 	| {
 			/**
+			 * CREATE INDEX <name> ON pg_temp.<table> (<column>): a B-tree of a rule judge's delta over one of its columns,
+			 * made in the table's own temporary schema by the branch of a stand-up that makes the table, or beside a table
+			 * that stands without it (physical/ddl/deltas.ts deltaIndexes), owned by the table's owner, the stand-up's
+			 * definer; a reader of a selection that fixes the column reads the rows it admits through it.
+			 */
+			readonly kind: "createSessionIndex"
+			readonly name: string
+			readonly table: string
+			readonly column: string
+	  }
+	| {
+			/**
 			 * TRUNCATE pg_temp.<name>: a session table, a rule judge's delta or a write's carrier, that has outgrown the
 			 * pages its emptying keeps given a new file, the old one given back (sql/print.ts sessionTableEmptied, which
 			 * empties one that has not by DELETE, keeping its file).

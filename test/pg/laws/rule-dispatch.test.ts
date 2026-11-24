@@ -92,9 +92,8 @@ export const theRuleJudgeRunsExactlyTheRulesOverTheRelationsATransactionWrote = 
 			},
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
-				original:
-					"\t\t\t\t\t\t\t\t...own.flatMap((d) => besides.get(d.name) ?? []).map(deltaStood)",
-				replacement: "",
+				original: "\t\t\tconst stood = [...own, ...own.flatMap((d) => besides.get(d.name) ?? [])]",
+				replacement: "\t\t\tconst stood = [...own]",
 				why: "A table's stand-up makes its own deltas and not the deltas the judge reads beside them, as the parts stood those up only where a block ran: a session that wrote a learner's answers never stood the visits' delta up, so the capture of its write, which requires every delta a block over its own may read, refuses it (55Z03)."
 			}
 		]

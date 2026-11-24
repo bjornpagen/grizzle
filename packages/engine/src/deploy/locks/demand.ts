@@ -337,6 +337,7 @@ const plWrites = (statements: ReadonlyArray<PlStatement>, into: Names): void => 
 			case "raise":
 			case "return":
 			case "returnQuery":
+			case "createSessionIndex":
 			case "truncateSessionTable":
 				break
 		}

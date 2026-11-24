@@ -57,6 +57,8 @@ import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import {
 	addReaders,
 	captured,
+	DeltaReads,
+	deltaIndex,
 	deltaRelation,
 	emptied,
 	deltaTable,
@@ -76,7 +78,6 @@ import { enforcement, type Node } from "#compiler/physical/obligations/graph.ts"
 import type {
 	ColumnDefinition,
 	CreateTransitionTrigger,
-	Cte,
 	Expr,
 	FromSource,
 	ObjectName,
@@ -270,7 +271,7 @@ const compileProbe = (
 	relation: TheoryTable,
 	query: InferredQuery,
 	deltas: (relation: string, side: DeltaSide) => DeltaRelation | undefined,
-	heads: ReadonlyMap<string, Cte>
+	reads: DeltaReads
 ): Compiled =>
 	judgedStatement(
 		b,
@@ -281,7 +282,7 @@ const compileProbe = (
 		`rule ${rule.law.named.display} on ${relation.name}`,
 		relation.loc,
 		deltas,
-		heads,
+		reads,
 		"units"
 	)
 
@@ -292,8 +293,9 @@ const compileProbe = (
  * it bound, never a join PostgreSQL may plan as a product it filters afterwards, each import its unfolding multiplies
  * read whole (`perStatement`); then checked as a region read (check/checker.ts QueryRead `region`) and lowered by the
  * optimized pipeline under the transaction's evidence, each Delta node read from the relation `deltas` names
- * (RegionLowering), to one main statement of no parameter, its outputs unaliased, the CTE `heads` holds of each
- * session's delta it reads leading its WITH (`headed`); with the index requests of `rule` its checked DAG's access
+ * (RegionLowering), to one main statement of no parameter, its outputs unaliased, each of its reads of a session's
+ * delta read through the reader of the selection it reads the delta under, which `reads` records (deltas.ts headed);
+ * with the index requests of `rule` its checked DAG's access
  * paths are (`requestsOf`). It reads each suffix test of a text its requests' indexes hold the suffix key of as the
  * key's range (sql/suffix.ts seekingSuffixes), and of no other. Navigation reads the
  * heading of each union it splits in `columns`: the installation's (InstallBuilder `columns`), at the definition a
@@ -309,7 +311,7 @@ const judgedStatement = (
 	label: string,
 	loc: SourceLoc,
 	deltas: (relation: string, side: DeltaSide) => DeltaRelation | undefined,
-	heads: ReadonlyMap<string, Cte>,
+	reads: DeltaReads,
 	extent: RegionExtent
 ): Compiled => {
 	const checked = unwrap(
@@ -353,7 +355,7 @@ const judgedStatement = (
 	}
 	const statement = main.ast
 	return {
-		statement: headed({ ...statement, body: unaliased(statement.body) }, heads),
+		statement: headed({ ...statement, body: unaliased(statement.body) }, reads),
 		heading: main.heading.map((c) => c.name),
 		requests
 	}
@@ -651,6 +653,19 @@ const deltaStood = (delta: SessionDelta): Stood => ({
 	name: delta.name,
 	create: [deltaTable(delta)]
 })
+
+/**
+ * Each B-tree of `delta` its readers seek through (deltas.ts DeltaReads indexesOf), as a stand-up stands it up after
+ * the delta (`standing`): made where the session holds none, beside the table the stand-up makes or one that stood
+ * without it, so a session that stood the delta up under an installation whose readers sought through no index reads
+ * through the new one from its next stand-up. A capture requires none: a reader that finds no index reads its rows
+ * all the same.
+ */
+const indexesStood = (delta: SessionDelta, reads: DeltaReads): ReadonlyArray<Stood> =>
+	reads.indexesOf(delta.name).map((index) => ({
+		name: index.name,
+		create: [deltaIndex(delta, index)]
+	}))
 
 /**
  * What a site does with a table of its `standing` the session holds none of: a table's stand-up makes it (`made`,
@@ -1312,8 +1327,8 @@ const emptiedWhereWritten = (delta: SessionDelta): PlStatement => ({
  *   23514 for a check, naming the rule's trigger name as its constraint and
  *   the rule's table, with no DETAIL, since the writer may not see the rows. Over deltas that hold no row a rule's region
  *   is empty, so a transaction runs exactly the rules over the relations it wrote. Each part empties each delta the
- *   written set names once its rules have read them (`emptied`), its statements reading every delta through its reader
- *   (`readers`), so their plans outlive a truncation, so a judge that runs again after SET
+ *   written set names once its rules have read them (`emptied`), its statements reading every delta through its
+ *   readers (deltas.ts headed), so their plans outlive a truncation, so a judge that runs again after SET
  *   CONSTRAINTS ALL IMMEDIATE reads the rows the statements since its last run wrote: each statement's rows are judged
  *   once, on the state as it stood when they were, and a later statement that breaks a rule through them writes rows of
  *   its own the rule's other side reads, which that run judges.
@@ -1368,9 +1383,12 @@ export const addRules = (
 	const requests: Array<IndexRequest> = []
 	const tableOf = (relation: string): JudgedTable | undefined =>
 		tables.find((t) => t.relation.name === relation)
-	/** The CTE of each session's delta, by its name, that a judged statement reading it holds (`headed`). */
-	const heads = new Map(
-		tables.flatMap((t) => t.sides.map((s) => [s.delta.name, s.delta.head] as const))
+	/** The reads of the session's deltas the judged statements make, each a reader of its selection (`headed`). */
+	const reads = new DeltaReads(
+		b,
+		tables.flatMap((t) =>
+			t.sides.map((s) => ({ relation: t.relation, side: s.side, delta: s.delta }))
+		)
 	)
 	/** The session's delta of `t`'s side `side` as a Delta node reads it (deltas.ts deltaRelation); none of the facts a
 	 * write met. */
@@ -1416,14 +1434,14 @@ export const addRules = (
 			if (query === undefined) {
 				return []
 			}
-			const compiled = compileProbe(b, catalog, rule, relation, query, deltas, heads)
+			const compiled = compileProbe(b, catalog, rule, relation, query, deltas, reads)
 			appendAll(requests, compiled.requests)
 			const judged = whenFound(compiled.statement, [raise])
 			const guard = probeGuard(probed, relation.name, side, keysOf, fieldsOf, rule.law.loc)
 			const guarded =
 				guard === undefined
 					? undefined
-					: compileProbe(b, catalog, rule, relation, guard, deltas, heads)
+					: compileProbe(b, catalog, rule, relation, guard, deltas, reads)
 			if (guarded !== undefined) {
 				appendAll(requests, guarded.requests)
 			}
@@ -1468,7 +1486,7 @@ export const addRules = (
 			label,
 			rule.law.loc,
 			deltas,
-			heads,
+			reads,
 			"units"
 		)
 		appendAll(requests, lowered.requests)
@@ -1534,7 +1552,7 @@ export const addRules = (
 			label,
 			u.loc,
 			deltas,
-			heads,
+			reads,
 			"units"
 		)
 		const rows = judgedStatement(
@@ -1546,7 +1564,7 @@ export const addRules = (
 			label,
 			u.loc,
 			deltas,
-			heads,
+			reads,
 			"units"
 		)
 		appendAll(requests, units.requests)
@@ -1684,7 +1702,7 @@ export const addRules = (
 				label,
 				rule.law.loc,
 				everyRow(rule),
-				new Map(),
+				new DeltaReads(b, []),
 				"every"
 			)
 		const compiled = lowered(
@@ -1750,11 +1768,7 @@ export const addRules = (
 		[...new Set(names)].flatMap((name) => (b.model.relations.has(name) ? [b.table(name)] : []))
 	const tablesOf = (rules: ReadonlyArray<RuleTrigger>) =>
 		tablesNamed(rules.flatMap((rule) => [...rule.law.reads]))
-	const readers = addReaders(
-		b,
-		tables.flatMap((t) => t.sides.map((s) => ({ relation: t.relation, delta: s.delta }))),
-		reasons
-	)
+	const readers = addReaders(b, reads, reasons)
 	/**
 	 * Each block's function (`partBody`, identity.ruleJudgeBlock): no argument, the block's statement its body, SECURITY
 	 * DEFINER under the closed search path as every function of the judge, its EXECUTE revoked from PUBLIC, so only the
@@ -1784,12 +1798,7 @@ export const addRules = (
 				reasons: j.reasons,
 				phase: "validate"
 			},
-			[
-				...tablesNamed(j.relations),
-				...j.reads.map((d) =>
-					defined(readers.get(d.name), "a block's delta, a delta of a judged table")
-				)
-			]
+			[...tablesNamed(j.relations), ...j.reads.flatMap((d) => readers.get(d.name) ?? [])]
 		)
 		return { fn, node }
 	}
@@ -1835,9 +1844,7 @@ export const addRules = (
 			},
 			[
 				...tablesNamed(part.blocks.flatMap((j) => j.relations)),
-				...part.deltas.map((d) =>
-					defined(readers.get(d.name), "a part's delta, a delta of a judged table")
-				),
+				...part.deltas.flatMap((d) => readers.get(d.name) ?? []),
 				...[...blocks.values()].map((block) => block.node)
 			]
 		)
@@ -1948,7 +1955,7 @@ export const addRules = (
 		[...tablesOf(b.model.rules), ...parts.map((p) => p.node)]
 	)
 	const besides = besidesOf([...upkept.map((x) => x.block), ...ruled])
-	const standUps = addStandUps(b, tables, besides, judge, sentinel, judgeNode)
+	const standUps = addStandUps(b, tables, besides, judge, sentinel, judgeNode, reads)
 	const events = new Set<TransitionEvent>()
 	for (const t of tables) {
 		addCapture(
@@ -1982,6 +1989,7 @@ export const addRules = (
  *   __stood := <which of the tables stand (sessionTablesStanding)>; <a foreign one refused>
  *   IF NOT __stood @> '{<sentinel>}' THEN CREATE TEMPORARY TABLE pg_temp.<sentinel> ...; CREATE CONSTRAINT TRIGGER ... END IF
  *   IF NOT __stood @> '{<delta>}' THEN CREATE TEMPORARY TABLE pg_temp.<delta> ... END IF ...
+ *   IF NOT __stood @> '{<index>}' THEN CREATE INDEX <index> ON pg_temp.<delta> (<column>) END IF ...
  */
 const addStandUps = (
 	b: InstallBuilder,
@@ -1989,13 +1997,15 @@ const addStandUps = (
 	besides: ReadonlyMap<string, ReadonlyArray<SessionDelta>>,
 	judge: ObjectName,
 	sentinel: string,
-	judgeNode: Node<"validate">
+	judgeNode: Node<"validate">,
+	reads: DeltaReads
 ): ReadonlyMap<string, JudgeStandUp> =>
 	new Map(
 		tables.map((t) => {
 			const named = identity.ruleStandUp(t.relation.name)
 			const fn = objectName(b.schema, b.name(named))
 			const own = mapNonEmpty(t.sides, (s) => s.delta)
+			const stood = [...own, ...own.flatMap((d) => besides.get(d.name) ?? [])]
 			const ddl: readonly [PlFunction, Revoke] = [
 				{
 					kind: "createFunction",
@@ -2011,8 +2021,8 @@ const addStandUps = (
 						body: standing(
 							[
 								sentinelStood(sentinel, judge),
-								...own.map(deltaStood),
-								...own.flatMap((d) => besides.get(d.name) ?? []).map(deltaStood)
+								...stood.map(deltaStood),
+								...stood.flatMap((d) => indexesStood(d, reads))
 							],
 							{ kind: "made" }
 						)

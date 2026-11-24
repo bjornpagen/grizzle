@@ -2301,6 +2301,11 @@ class StatementAuditor {
 					this.ident(column.name, "column", "columns", i, "name")
 				}
 				return
+			case "createSessionIndex":
+				this.ident(statement.name, "index", "name")
+				this.ident(statement.table, "table", "table")
+				this.ident(statement.column, "column", "column")
+				return
 			case "truncateSessionTable":
 				this.ident(statement.name, "table", "name")
 				return

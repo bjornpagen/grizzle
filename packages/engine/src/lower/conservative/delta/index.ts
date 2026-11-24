@@ -22,9 +22,9 @@ import { col, cteRefAs, target, unitTargets } from "#compiler/sql/build.ts"
  * over a delta a statement makes rides that statement, and the delta is a CTE of it over the rows its RETURNING
  * returns; the conservative realization's, computed by comparing the states before and after the change, is a
  * carrier. A side of a delta no statement makes is the empty relation, as an empty closed relation lowers. A rule
- * probe over its region reads its relation's side: the judged statement's CTE over the session's delta, which reads
- * it once for the statement (physical/ddl/rules.ts deltaHead), or the relation's own table in its check over every
- * row (physical/ddl/rules.ts everyRow).
+ * probe over its region reads its relation's side: a CTE named by the session's delta, each read of which the judge
+ * reads through the reader of its selection (physical/ddl/deltas.ts headed), or the relation's own table in its check
+ * over every row (physical/ddl/rules.ts everyRow).
  * Anywhere else there is no delta, and the node is UnsupportedOperation.
  */
 const lowerDelta: NodeLowerer<"Delta"> = (node, cx) => {

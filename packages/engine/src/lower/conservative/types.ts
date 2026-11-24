@@ -41,9 +41,9 @@ export interface DeltaColumn {
  * of the statement the read-back rides, over the rows that statement's RETURNING returns (write/readback/deltas.ts
  * deltaCte); a carrier, which only the write oracle's conservative realization fills, by comparing the states before
  * and after the change (test/support/oracle/write/realize.ts); or the empty relation, a side of a delta no statement
- * makes. In a rule probe over its region: a CTE of the judged statement over the session's delta of the relation's
- * side, a table of pg_temp that the relation's rule captures fill, read through its reader, the statement's one read of
- * it however many of its Delta nodes read it (physical/ddl/rules.ts deltaHead); or, in a rule's check over every row,
+ * makes. In a rule probe over its region: a CTE named by the session's delta of the relation's side, a table of
+ * pg_temp that the relation's rule captures fill, which the judge reads each read of through the reader of the
+ * selection the statement reads it under (physical/ddl/deltas.ts headed); or, in a rule's check over every row,
  * the relation's own table, every row of which the transaction that writes every row adds (physical/ddl/rules.ts
  * everyRow), beside the empty relation it removes.
  */
@@ -138,8 +138,9 @@ export type BoundCarrierOf = (param: ParamId) => BoundCarrier | undefined
 
 /**
  * What lowering a rule probe over its region adds to lowering a query (analysis/theory/query.ts regionProbe): the
- * relation each of its Delta nodes reads, the judged statement's CTE over the session's delta of that relation's side
- * (physical/ddl/rules.ts deltaHead), where the rows the transaction wrote of it stand as their images after each
+ * relation each of its Delta nodes reads, a CTE named by the session's delta of that relation's side, each read of which
+ * the judge reads through a reader of the delta (physical/ddl/deltas.ts headed), where the rows the transaction wrote
+ * of it stand as their images after each
  * statement (`added`) and before it (`removed`).
  */
 export interface RegionLowering {

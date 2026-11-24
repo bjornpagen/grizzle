@@ -1992,20 +1992,41 @@ export const identity = Object.freeze({
 			hashed
 		),
 	/**
-	 * The reader of a session's delta `delta` of `relation`'s writes on one side (physical/ddl/rules.ts addRules): the
-	 * set-returning function every statement of the judge reads the delta through, named by the delta's identity, so a
-	 * migration that changes the delta's declaration names another reader.
+	 * A reader of a session's delta `delta` of `relation`'s writes on one side (physical/ddl/deltas.ts DeltaReads): the
+	 * set-returning function a statement of the judge reads the rows of the delta a selection admits through, the
+	 * selection's conjuncts over the delta's table, each by its text in canonical order, none for every row; named by
+	 * the delta's identity and the selection, so a migration that changes the delta's declaration or a read's selection
+	 * names another reader.
 	 */
 	ruleDeltaReader: (
 		relation: string,
 		side: "news" | "olds",
-		delta: Identity<"ruleDelta">
+		delta: Identity<"ruleDelta">,
+		selection: ReadonlyArray<string>
 	): Identity<"ruleDeltaReader"> =>
 		mint(
 			"ruleDeltaReader",
-			[delta],
+			[delta, selection],
 			["reader", side, ...nameSegments(relation)],
 			`the reader of the delta of ${side} of ${relation}`,
+			hashed
+		),
+	/**
+	 * An index of a session's delta `delta` of `relation`'s writes on one side over its column `column`
+	 * (physical/ddl/deltas.ts deltaIndexes): the B-tree its readers of a selection that fixes the column read the rows it
+	 * admits through, made with the delta's table, named by the delta's identity and the column.
+	 */
+	ruleDeltaIndex: (
+		relation: string,
+		side: "news" | "olds",
+		delta: Identity<"ruleDelta">,
+		column: string
+	): Identity<"ruleDeltaIndex"> =>
+		mint(
+			"ruleDeltaIndex",
+			[delta, column],
+			["index", side, ...nameSegments(relation)],
+			`the index of the delta of ${side} of ${relation} over ${column}`,
 			hashed
 		),
 	/**

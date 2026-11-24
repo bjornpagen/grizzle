@@ -64,8 +64,8 @@ export const aJudgedCommitLeavesEverySessionTableItWroteEmptyEachDeltaOfThemWith
 			},
 			{
 				file: "packages/engine/src/physical/ddl/deltas.ts",
-				original: "\t\t\t\t},\n\t\t\t\trevokeOf(named, [])\n\t\t\t]",
-				replacement: "\t\t\t\t}\n\t\t\t]",
+				original: "\t\t\t\t\t},\n\t\t\t\t\trevokeOf(named, [])\n\t\t\t\t]",
+				replacement: "\t\t\t\t\t}\n\t\t\t\t]",
 				why: "A delta's reader keeps PUBLIC's EXECUTE, PostgreSQL's default for a new function, so any role of the session may run the judge's definer's reader over the run's rows."
 			},
 			{
