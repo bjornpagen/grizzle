@@ -105,14 +105,14 @@ export const aRuleOverARecursionCompilesExactlyWhereEveryStepCarriesItsUnitFromS
 			},
 			{
 				file: "packages/engine/src/analysis/theory/unit.ts",
-				original: "\t\t\t\t(all.some((r) => r.mutable) &&",
-				replacement: "\t\t\t\t(false &&",
+				original: "\t\t\t(all.some((r) => r.mutable) &&",
+				replacement: "\t\t\t(false &&",
 				why: "A rule over a mutable relation judged whole wherever it is unit-local, whatever unit its relations sit in: a walk over Node mutable in the unit of a node's place, which no borrow of one place covers, compiles."
 			},
 			{
 				file: "packages/engine/src/analysis/theory/unit.ts",
-				original: '\t\t\t\t\t"condition" in\n',
-				replacement: '\t\t\t\t\ttrue ||\n\t\t\t\t\t"condition" in\n',
+				original: '\t\t\t\t"condition" in\n',
+				replacement: '\t\t\t\ttrue ||\n\t\t\t\t"condition" in\n',
 				why: "Every rule over a mutable relation probed, as before, its declared unit unread: a walk over Node mutable in its document's unit, every write of whose rows borrows the document, is refused for the recursion no probe reads."
 			},
 			{

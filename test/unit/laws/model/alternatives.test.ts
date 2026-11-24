@@ -61,8 +61,8 @@ export const alternativesStatesItsContainmentsEachJudgedWholeEveryRosterOf1To3Ha
 		kills: [
 			{
 				file: "packages/engine/src/analysis/theory/unit.ts",
-				original: '\t\t\t\t\t"condition" in\n',
-				replacement: '\t\t\t\t\ttrue ||\n\t\t\t\t\t"condition" in\n',
+				original: '\t\t\t\t"condition" in\n',
+				replacement: '\t\t\t\ttrue ||\n\t\t\t\t"condition" in\n',
 				why: "A containment over a mutable relation is native, as before, its declared unit unread: every containment of the alternatives over open relations installs its foreign key and law column, and none is a whole rule."
 			},
 			{

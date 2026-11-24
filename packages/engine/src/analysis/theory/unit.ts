@@ -1890,37 +1890,38 @@ export const wholeRule = (
 	const all: NonEmptyReadonlyArray<RelationInfo> = [first, ...rest]
 	for (let k = widestOf(all); k >= 1; k--) {
 		const found = unitAt(violation, all, k, "rule")
-		if (!(found instanceof NotLocal)) {
-			if (
-				inPlaceRead(found, all) !== undefined ||
-				(all.some((r) => r.mutable) &&
-					"condition" in
-						declaredOf(found.unit, headNonEmpty(found.unit.holders).fields, (relation) =>
-							facts.members.get(relation)
-						))
-			) {
-				return undefined
-			}
-			const { judged, replaced, definitionOf } = restrictToUnits(
-				violation,
-				found.unit,
-				found.regions,
-				facts,
-				relations,
-				loc,
-				"rule"
-			)
-			return Object.freeze({
-				kind: "whole",
-				law,
-				reads: found.reads,
-				unit: found.unit,
-				judged,
-				replaced,
-				definitionOf,
-				everyRow: violation
-			})
+		if (found instanceof NotLocal) {
+			continue
 		}
+		if (
+			inPlaceRead(found, all) !== undefined ||
+			(all.some((r) => r.mutable) &&
+				"condition" in
+					declaredOf(found.unit, headNonEmpty(found.unit.holders).fields, (relation) =>
+						facts.members.get(relation)
+					))
+		) {
+			return undefined
+		}
+		const { judged, replaced, definitionOf } = restrictToUnits(
+			violation,
+			found.unit,
+			found.regions,
+			facts,
+			relations,
+			loc,
+			"rule"
+		)
+		return Object.freeze({
+			kind: "whole",
+			law,
+			reads: found.reads,
+			unit: found.unit,
+			judged,
+			replaced,
+			definitionOf,
+			everyRow: violation
+		})
 	}
 	return undefined
 }

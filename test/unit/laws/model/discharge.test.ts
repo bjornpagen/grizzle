@@ -214,8 +214,8 @@ export const aContainmentIsJudgedWhereItIsUnitLocalAndSelectedOrIntoATargetNoKey
 		kills: [
 			{
 				file: "packages/engine/src/analysis/theory/unit.ts",
-				original: '\t\t\t\t\t"condition" in\n',
-				replacement: '\t\t\t\t\ttrue ||\n\t\t\t\t\t"condition" in\n',
+				original: '\t\t\t\t"condition" in\n',
+				replacement: '\t\t\t\ttrue ||\n\t\t\t\t"condition" in\n',
 				why: "A containment over a mutable relation is native, as before, its declared unit unread: the selected containment with B mutable inside the group's unit is native, its law columns, UNIQUE and index restored; its discharge fails."
 			},
 			{
@@ -320,8 +320,8 @@ export const aMigrationChecksAContainmentsRowsOnlyWhereNoPreviousInstallationHel
 		kills: [
 			{
 				file: "packages/engine/src/analysis/theory/unit.ts",
-				original: "\t\t\t\t(all.some((r) => r.mutable) &&",
-				replacement: "\t\t\t\t(false &&",
+				original: "\t\t\t(all.some((r) => r.mutable) &&",
+				replacement: "\t\t\t(false &&",
 				why: "A containment over mutable relations of two units is judged, its borrows unread: the native version is judged, so a containment added native is checked over every row as one added judged is; absent then native fails."
 			},
 			{
