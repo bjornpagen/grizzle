@@ -663,12 +663,7 @@ interface Judgeable {
  * may read through its index or by a scan as the table's size stands, and a joined probe, whose read is judged within
  * its scope (`judgedProbe`), so no state's read of either is held to another's.
  */
-const statePlans = (
-	copy: Copy,
-	probes: ReadonlyArray<Probe>,
-	scopes: Scopes,
-	label: string
-) =>
+const statePlans = (copy: Copy, probes: ReadonlyArray<Probe>, scopes: Scopes, label: string) =>
 	Effect.gen(function* () {
 		const indexes = yield* indexesOf(copy.quoted)
 		const reads = new Map<string, string>()
