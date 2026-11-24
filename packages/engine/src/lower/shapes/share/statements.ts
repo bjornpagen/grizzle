@@ -41,7 +41,7 @@ import {
 	type FixedOf,
 	KeyAnalysis,
 	type Keys,
-	type KeySet,
+	type KeyRestriction,
 	type KeySource,
 	keySetReads,
 	whole as wholeKeys
@@ -259,7 +259,7 @@ export interface CarriedShare {
 }
 
 /**
- * The rows a carrier holds of its copy: every row the copy delivers, or those at its key set (keys.ts KeySet), the keys
+ * The rows a carrier holds of its copy: every row the copy delivers, or those at its key set (keys.ts KeyRestriction), the keys
  * every read of its copies reads them at (keyedShares).
  */
 export type ShareRestriction =
@@ -549,7 +549,7 @@ const keyedOrder = (
 	index: ShareIndex,
 	candidates: ReadonlyArray<{
 		readonly copies: ReadonlyArray<RelNode>
-		readonly keys: KeySet
+		readonly keys: KeyRestriction
 		readonly height: number
 	}>
 ): ReadonlyArray<{ readonly keys: Keys | undefined; readonly height: number }> => {
@@ -817,7 +817,7 @@ interface StatementScope extends CteTable<string> {
 const statementKeys = (
 	index: ShareIndex,
 	root: RelNode,
-	rootKeys: KeySet,
+	rootKeys: KeyRestriction,
 	nodes: ReadonlyArray<RelNode>,
 	materialize: ReadonlyMap<NodeId, string>,
 	fixed: FixedOf
@@ -1316,7 +1316,7 @@ export class StatementSharing {
 		node: RelNode,
 		cx: LowerContext,
 		filling: string | undefined,
-		rootKeys: KeySet,
+		rootKeys: KeyRestriction,
 		lower: (root: LowerContext, scope: StatementScope) => Q
 	): Q {
 		const carried = (n: RelNode): boolean => this.#carrierIn(n, filling) !== undefined

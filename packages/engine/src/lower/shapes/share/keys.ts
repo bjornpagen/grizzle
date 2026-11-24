@@ -19,7 +19,7 @@ import { restrictedByValues, valueFixings } from "#compiler/lower/optimize/cte-p
  * them, so the node computed at those keys alone delivers every row any read of it meets; or `whole`, where some read
  * binds none of its columns from what the statement fixes, and the node is computed whole.
  */
-export type KeySet =
+export type KeyRestriction =
 	| { readonly kind: "whole" }
 	| {
 			readonly kind: "keys"
@@ -60,7 +60,7 @@ export type KeyAtom =
 	  }
 
 /** A key set that restricts: the keys a node's reads read it at. */
-export type Keys = Extract<KeySet, { readonly kind: "keys" }>
+export type Keys = Extract<KeyRestriction, { readonly kind: "keys" }>
 
 /** What each column of a node is fixed to per evaluation (PhysicalProps fixed), which a correlated read's equalities are. */
 export type FixedOf = (node: RelNode) => ReadonlyMap<string, FixedFacts>
@@ -74,7 +74,7 @@ export const keySetReads = (keys: Keys): ReadonlyArray<RelNode> =>
 	)
 
 /** The key set of a node every row of which a statement reads. */
-export const whole: KeySet = { kind: "whole" }
+export const whole: KeyRestriction = { kind: "whole" }
 
 /** Whether an expression is a value of the statement's own: it reads a parameter and no relation. */
 const statementValue = (e: ScalarExpr): boolean =>
@@ -103,7 +103,7 @@ const statementValue = (e: ScalarExpr): boolean =>
  */
 export class KeyAnalysis {
 	readonly #readers = new Map<RelNode, Array<RelNode>>()
-	readonly #known = new Map<RelNode, KeySet>()
+	readonly #known = new Map<RelNode, KeyRestriction>()
 	readonly #fixed: FixedOf
 
 	/**
@@ -111,7 +111,11 @@ export class KeyAnalysis {
 	 * is given: whole for a statement's own, the keys every read of a share reads it at for the statement that fills it;
 	 * a correlated read's columns equal to the outer columns `fixed` fixes them to.
 	 */
-	constructor(nodes: Iterable<RelNode>, roots: ReadonlyMap<RelNode, KeySet>, fixed: FixedOf) {
+	constructor(
+		nodes: Iterable<RelNode>,
+		roots: ReadonlyMap<RelNode, KeyRestriction>,
+		fixed: FixedOf
+	) {
 		this.#fixed = fixed
 		for (const node of nodes) {
 			for (const input of inputsOf(node)) {
@@ -127,13 +131,13 @@ export class KeyAnalysis {
 	}
 
 	/** The key set of `node`: the union of every read's keys over the columns each restricts, whole where one is. */
-	keysOf(node: RelNode): KeySet {
+	keysOf(node: RelNode): KeyRestriction {
 		const known = this.#known.get(node)
 		if (known !== undefined) {
 			return known
 		}
 		const readers = this.#readers.get(node) ?? []
-		let found: KeySet = whole
+		let found: KeyRestriction = whole
 		if (isNonEmpty(readers)) {
 			const reached = unionOf(readers.map((reader) => this.#readAt(reader, node, undefined)))
 			found =
@@ -149,7 +153,7 @@ export class KeyAnalysis {
 	 * The key set of copies of one sub-query that one computation serves (a share's every copy): the union of each copy's,
 	 * whole where any is.
 	 */
-	keysOfAll(copies: ReadonlyArray<RelNode>): KeySet {
+	keysOfAll(copies: ReadonlyArray<RelNode>): KeyRestriction {
 		return unionOf(copies.map((c) => this.keysOf(c)))
 	}
 
@@ -157,7 +161,7 @@ export class KeyAnalysis {
 	 * The keys `reader` reads `node` at (KeyAnalysis), whole where it keeps none; a region's crossing to the `wanted`
 	 * columns alone where given, the columns every read restricts, so no occurrence joins in for a column the union drops.
 	 */
-	#readAt(reader: RelNode, node: RelNode, wanted: ReadonlySet<string> | undefined): KeySet {
+	#readAt(reader: RelNode, node: RelNode, wanted: ReadonlySet<string> | undefined): KeyRestriction {
 		switch (reader.kind) {
 			case "MatchRegion": {
 				const reads = reader.occurrences.flatMap((o) =>
@@ -228,7 +232,7 @@ export class KeyAnalysis {
 	#testRight(
 		test: NodeOf<"SemiJoin"> | NodeOf<"AntiJoin">,
 		wanted: ReadonlySet<string> | undefined
-	): KeySet {
+	): KeyRestriction {
 		const pairs = test.on.filter((p) => wanted === undefined || wanted.has(p.right))
 		if (outerOf(test.left).length > 0 || !isNonEmpty(pairs)) {
 			return whole
@@ -280,7 +284,7 @@ export class KeyAnalysis {
 		region: NodeOf<"MatchRegion">,
 		o: Occurrence,
 		wanted: ReadonlySet<string> | undefined
-	): KeySet {
+	): KeyRestriction {
 		const classOf = regionVarClasses(region)
 		/**
 		 * Each variable class merged into another: a correlated read's column the physical analysis fixes to a column of
@@ -488,7 +492,7 @@ const mapKeys = <T, U>(xs: NonEmptyReadonlyArray<T>, f: (x: T) => U): NonEmptyRe
  * A key set over the columns `rename` maps to, each kept column renamed: the columns a reader keeps of its input under
  * its own names; whole where it keeps none.
  */
-const renamed = (keys: Keys, rename: (column: string) => string | undefined): KeySet => {
+const renamed = (keys: Keys, rename: (column: string) => string | undefined): KeyRestriction => {
 	const columns = keys.columns.flatMap((c) => {
 		const to = rename(c)
 		return to === undefined ? [] : [{ from: c, to }]
@@ -520,7 +524,7 @@ const renamed = (keys: Keys, rename: (column: string) => string | undefined): Ke
  * The key set a node is computed at by itself: a fold's on its grouping columns alone, a group being its input's rows
  * at one key, its aggregate known only once the group is whole; any other node's whole key set.
  */
-export const computedAt = (node: RelNode, keys: KeySet): KeySet =>
+export const computedAt = (node: RelNode, keys: KeyRestriction): KeyRestriction =>
 	node.kind !== "Group" || keys.kind === "whole"
 		? keys
 		: renamed(keys, (column) => (node.keys.includes(column) ? column : undefined))
@@ -531,9 +535,9 @@ export const computedAt = (node: RelNode, keys: KeySet): KeySet =>
  * whole.
  */
 const fixedAt = (
-	above: KeySet,
+	above: KeyRestriction,
 	fixings: ReadonlyArray<{ readonly column: string; readonly expr: ScalarExpr }>
-): KeySet => {
+): KeyRestriction => {
 	const [first, ...rest] = fixings
 	if (first === undefined) {
 		return above
@@ -566,7 +570,7 @@ const fixedAt = (
  * The union of reads' key sets, over the columns every read restricts, each source's keys narrowed to them; whole where
  * any read is, or no column is common.
  */
-const unionOf = (reads: ReadonlyArray<KeySet>): KeySet => {
+const unionOf = (reads: ReadonlyArray<KeyRestriction>): KeyRestriction => {
 	const keyed = reads.flatMap((r) => (r.kind === "keys" ? [r] : []))
 	const [first, ...rest] = keyed
 	if (first === undefined || keyed.length !== reads.length) {
