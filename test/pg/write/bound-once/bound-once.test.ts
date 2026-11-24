@@ -55,7 +55,13 @@ import {
 	onceTemplate,
 	reevaluationDiffers,
 	type Situation,
-	situations
+	situations,
+	skipChangeOf,
+	skipGen,
+	skipModelOf,
+	type SkipSituation,
+	skipSituations,
+	unskippedTarget
 } from "#test/pg/write/bound-once/bound-once.fixtures.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
@@ -207,6 +213,95 @@ export const aRelationParameterBoundToAQueryIsReadOnceBeforeThePartItIsBoundOnBy
 				original: "\t\t\tlater.has(name) ? [] : [[name, rows] as const]",
 				replacement: "\t\t\t[[name, rows] as const]",
 				why: "Each reader reads its own copy of every binding: the second stratum's log and the read-back evaluate the target again over the state they run in, after the first stratum's marks."
+			}
+		]
+	})
+
+/**
+ * A binding's query reads the call's own relation parameter, which the caller's rows reach through every composite the
+ * binding is made on: `target` bound on a union, a sequence, or a sequence of a union (metis's assign: its pick read the
+ * call's `titles`) to the items no mark holds that the caller's `skip` names none of. A call's own parameter is never one
+ * of a part's private ones, whatever naming the composite's parts are given (write/changeset/value.ts canonicalParts),
+ * so the binding reads the rows the caller states.
+ */
+export const aBindingsQueryReadsTheCallsOwnRelationParameterThroughEveryCompositeItIsBoundOn =
+	property.explore(skipGen, {
+		needs: { fixture: Substrate.fresh(onceTemplate) },
+		situations: skipSituations satisfies ReadonlyArray<Reached<SkipSituation>>,
+		check:
+			({ fixture }, k: Case<SkipSituation>) =>
+			(c) =>
+				Effect.scoped(
+					Effect.gen(function* () {
+						k.note(c.composed)
+						k.note(
+							Arr.some(c.skip, (id) => c.items.includes(id) && !c.marks.includes(id))
+								? "a skipped item of the target"
+								: "no item skipped"
+						)
+						const seat = yield* fixture
+						const opened = yield* openedIn(
+							Once,
+							{
+								Item: Arr.map(c.items, (id) => ({ id })),
+								Mark: Arr.map(c.marks, (id) => ({ id })),
+								Log: []
+							},
+							onceInstall,
+							seat
+						)
+						const admin = seat.substrate.admin
+						const names = namesOf(opened.installed)
+						const applied = yield* withServedDb(
+							opened.installed,
+							opened.server.roles.app,
+							{},
+							({ ctx, load }) =>
+								Effect.gen(function* () {
+									const served = yield* load({ bound: skipChangeOf(c) })
+									const loaded = member(served, "bound")
+									if (loaded.kind !== "change") {
+										return yield* Effect.die(new Error("the ChangeSet loads as a change"))
+									}
+									return yield* changeApplication(
+										ctx,
+										variantOf(ctx, loaded.variants)
+									)({ params: { skip: Arr.map(c.skip, (id) => ({ id })) }, facts: {} })
+								})
+						)
+						assert.ok(
+							applied.kind === "accepted" || applied.kind === "no-change",
+							`the call commits, not ${applied.kind}`
+						)
+						const ids = (table: string) =>
+							Effect.map(admin.query(`SELECT id FROM ${table} ORDER BY id`, []), (result) =>
+								Arr.map(result.rows, (row) => Number(row["id"]))
+							)
+						const marks = yield* ids(names.table(Mark))
+						const logs = yield* ids(names.table(Log))
+						const model = skipModelOf(c)
+						assert.deepEqual<ReadonlyArray<number>>(
+							logs,
+							model.log,
+							`Log is the target the caller's skip of ${Formatter.format(c.skip)} leaves, ${Formatter.format(unskippedTarget(c))}`
+						)
+						assert.deepEqual<ReadonlyArray<number>>(marks, model.mark, "Mark is the model's")
+					})
+				),
+		oracle: {
+			kind: "specification",
+			name: "the binding evaluated once before the call's first stratum over the stored items and marks and the caller's skip: Mark the marks and that target, Log the target"
+		},
+		show: Formatter.format,
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/write/changeset/value.ts",
+				original:
+					'\t\t\tclosed.set(name, { kind: "rows", origin: name, stratum: 0, rows: query.rows })\n',
+				replacement:
+					'\t\t\tclosed.set(name, { kind: "rows", origin: name, stratum: 0, rows: renameRowsParams(query.rows, new Map([...rowsParamNames(query.rows)].map((p) => [p, p + "#1"]))) })\n',
+				why: "The binding's query reads the call's own parameters under private names, as a part's private ones are renamed: the call's `skip` reaches no use of it, its rows never read by the binding (metis's reading of its by-grade pick, refuted: a call's parameter is never a part's private one)."
 			}
 		]
 	})

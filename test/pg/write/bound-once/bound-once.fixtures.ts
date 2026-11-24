@@ -242,3 +242,76 @@ export const reevaluationDiffers = (c: OnceCase): boolean =>
 	(c.bound === "on the whole"
 		? twoParts(c) || c.read !== "no read-back"
 		: !twoParts(c) && c.read !== "no read-back")
+
+/**
+ * The composite a case binds `target` on: a union of the mark and the log of the target, a sequence of them, or a
+ * sequence of the mark and a union of the log and the mark again, metis's assign's shape (its due sittings held, then
+ * the union of the assignment it makes and what its caller states, `target` bound on the whole).
+ */
+export type Composed = "a union" | "a sequence" | "a sequence of a union"
+
+/** A case of the caller's own relation parameter read by the binding: the stored items and marks, the items the caller
+ * names in `skip`, and the composite. */
+export interface SkipCase {
+	readonly items: ReadonlyArray<number>
+	readonly marks: ReadonlyArray<number>
+	readonly skip: ReadonlyArray<number>
+	readonly composed: Composed
+}
+
+export const skipGen: Gen<SkipCase> = (source) => ({
+	items: source.draw(subset(ids, { min: 1, max: 4 })),
+	marks: source.draw(subset(ids, { min: 0, max: 2 })),
+	skip: source.draw(subset(ids, { min: 0, max: 3 })),
+	composed: source.draw(element(["a union", "a sequence", "a sequence of a union"] as const))
+})
+
+export const skipSituations = [
+	"a union",
+	"a sequence",
+	"a sequence of a union",
+	"a skipped item of the target",
+	"no item skipped"
+] as const
+
+export type SkipSituation = (typeof skipSituations)[number]
+
+/** The caller's relation parameter `skip`'s heading, Item's. */
+const skipped = { id: Item.fields.id } as const
+
+/** The query `target` is bound to here: the items no mark holds and the caller's `skip` names none of, so the call's
+ * own relation parameter is read by the binding, a parameter of the call, never one of a part's own. */
+const unskippedTargetOf = (): QueryValue =>
+	queryOver(Once).rule((r: RuleValue) => {
+		const { id } = varsOver(Item, "item")
+		return r
+			.match(Item, { id })
+			.where(r.not(Mark, { id }), r.not(r.relation("skip", skipped), { id }))
+			.find({ id })
+	})
+
+/** The case's ChangeSet: its composite of the mark and the log of `target`, `target` bound on the whole to the items no
+ * mark holds and the caller skips none of. */
+export const skipChangeOf = (c: SkipCase): ChangeSetValue => {
+	const mark = (): ChangeSetValue => ChangeSet.empty(Once).insert(Mark, fromTarget())
+	const log = ChangeSet.empty(Once).insert(Log, fromTarget())
+	const composite =
+		c.composed === "a union"
+			? ChangeSet.union(mark(), log)
+			: c.composed === "a sequence"
+				? ChangeSet.sequence(mark(), log)
+				: ChangeSet.sequence(mark(), ChangeSet.union(log, mark()))
+	return composite.bind({ target: unskippedTargetOf() })
+}
+
+/** The target the binding reads before the change: the items no stored mark holds and the caller skips none of. */
+export const unskippedTarget = (c: SkipCase): ReadonlyArray<number> =>
+	sorted(Arr.filter(c.items, (id) => !c.marks.includes(id) && !c.skip.includes(id)))
+
+/** The model: Mark the stored marks and the target, Log the target. */
+export const skipModelOf = (
+	c: SkipCase
+): { readonly mark: ReadonlyArray<number>; readonly log: ReadonlyArray<number> } => ({
+	mark: sorted([...c.marks, ...unskippedTarget(c)]),
+	log: unskippedTarget(c)
+})
