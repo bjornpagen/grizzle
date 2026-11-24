@@ -19,15 +19,14 @@ import {
 	select,
 	unit
 } from "#compiler/public/schema.ts"
-import type { OperandSelect } from "#compiler/sql/ast.ts"
 import { objectName } from "#compiler/sql/build.ts"
 import { printTableName } from "#compiler/sql/print.ts"
-import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import {
-	judgedStatementsOf,
-	readersOf,
+	capturedDeltasOf,
+	filledBy,
+	judgeStatementsOf,
 	standUpJudge,
 	standUpRelations
 } from "#test/support/judge.ts"
@@ -113,7 +112,17 @@ const Base = schema(
 	]
 )
 
-/** The documents that have a part. */
+/**
+ * The documents that have a part: stored (analysis/derived/storage.ts), its definition unit-local in a package's unit
+ * and its unit, (package, doc), wider than the package's, so its upkeep runs where a delta of Doc or Part holds a row,
+ * reading both sides of each and the two tables at the documents the transaction wrote (physical/ddl/rules.ts
+ * upkeepBlock), and writes its table, whose capture writes its side of olds, which the rule over Note reads.
+ *
+ * No write of the box changes it: every document a write inserts or deletes, 300 + t or 100 + t, has no part, and
+ * every part a write inserts or deletes lies under document 1, which keeps part 1, which no write removes (`seeded`,
+ * `statementOf`), so Documented holds document 1 alone throughout; its upkeep's DELETE and INSERT change no row, its
+ * capture writes no delta, and no statement over its deltas runs.
+ */
 const Documented = derived(
 	"Documented",
 	query(Base).rule((r) => {
@@ -126,8 +135,8 @@ const Documented = derived(
 )
 
 /**
- * A probed rule beside them: a learner notes only documented documents, reading Note's side of news, and Doc's and
- * Part's of olds, each probed over its delta alone.
+ * A probed rule beside them: a learner notes only documented documents, reading Note's side of news and Documented's
+ * of olds, each probed over its delta alone, Documented's table read where Note's side runs it.
  */
 const Dispatch = schema.extend(
 	[Base],
@@ -244,52 +253,6 @@ const statementOf = (installed: Installed, op: Op, t: number): string => {
 	}
 }
 
-/**
- * A statement of the judge that tests a rule: an IF's EXISTS whose THEN raises the rule, at any depth of its body, with
- * the tables it reads, each printed: its deltas, the session's tables of pg_temp, and its stored tables.
- */
-interface RuleStatement {
-	readonly deltas: ReadonlyArray<string>
-	readonly stored: ReadonlyArray<string>
-}
-
-/**
- * The tables `statement` reads, each once: its deltas by name, a delta read through its reader (`readers`, test/support/
- * judge.ts readersOf) among them, and its stored tables printed.
- */
-const tablesRead = (
-	statement: OperandSelect,
-	readers: ReadonlyMap<string, string>
-): RuleStatement => {
-	const deltas = new Set<string>()
-	const stored = new Set<string>()
-	visitSelect(statement, {
-		...inertVisitor,
-		fromItem: (item) => {
-			if (item.kind === "function" && item.call.fn.kind === "qualified") {
-				const delta = readers.get(item.call.fn.name)
-				if (delta !== undefined) {
-					deltas.add(delta)
-				}
-			}
-			if (item.kind === "table" && typeof item.table !== "string") {
-				if (item.table.schema === temporarySchema) {
-					deltas.add(item.table.name)
-				} else {
-					stored.add(printTableName(item.table))
-				}
-			}
-		}
-	})
-	return { deltas: [...deltas], stored: [...stored] }
-}
-
-/** The judge's rule statements of `installed`, in its parts (`RuleStatement`). */
-const ruleStatementsOf = (installed: Installed): ReadonlyArray<RuleStatement> =>
-	Arr.map(judgedStatementsOf(installed.installation), (s) =>
-		tablesRead(s.query, readersOf(installed.installation))
-	)
-
 /** The sorted text of a set of names, for a report. */
 const listed = (names: Iterable<string>): string =>
 	Formatter.format(Arr.sort([...names], Order.String))
@@ -362,14 +325,6 @@ const observed = (
 	})
 
 /**
- * One case on a fresh clone, in one session, each transaction in turn: its writes, its written set read, the judge run
- * by SET CONSTRAINTS ALL IMMEDIATE, then what the session holds read, and COMMIT. The judge runs a rule statement
- * exactly where a delta it reads holds a row, which the written set names (README, Rules over queries: a rule is judged over the rows a transaction wrote, and over deltas
- * that hold none its region is empty): the stored tables the transaction holds ACCESS SHARE on are exactly those the
- * statements over its written deltas read, since nothing else of the transaction reads a stored table; and the session
- * holds no delta its stand-up did not make (physical/ddl/rules.ts addStandUps), so no transaction makes a relation.
- */
-/**
  * The stand-ups a served write's session calls before the case's transactions, of the tables they write alone
  * (`standUpRelations`): the judge's tables a capture of each requires, its own deltas and those its parts read beside
  * them, and no other table's.
@@ -381,6 +336,23 @@ export const standUpWritten = (session: RawSession, installed: Installed, drawn:
 		Arr.dedupe(Arr.flatMap(drawn.transactions, (writes) => Arr.map(writes, relationOf)))
 	)
 
+/**
+ * One case on a fresh clone, in one session, each transaction in turn: its writes, its written set read, the judge run
+ * by SET CONSTRAINTS ALL IMMEDIATE, then what the session holds read, and COMMIT. The judge runs each of its statements
+ * (test/support/judge.ts judgeStatementsOf), a stored relation's upkeep's and a rule's alike, exactly where a delta it
+ * reads holds a row, which the written set names (README, Rules over queries: a rule is judged over the rows a
+ * transaction wrote, and over deltas that hold none its region is empty; physical/ddl/rules.ts addRules: an upkeep runs
+ * where a delta of a holder it reads holds one): the stored tables the transaction holds ACCESS SHARE on are exactly
+ * those the statements over its written deltas read, since nothing else of the transaction reads a stored table; the
+ * judge reads no delta but those the transaction wrote, those the statements that ran read, and those the captures of
+ * the tables written write, the tables of the transaction's statements and the stored table of each upkeep that ran;
+ * and the session holds no delta its stand-up did not make (physical/ddl/rules.ts addStandUps), so no transaction makes
+ * a relation.
+ *
+ * The written set is read before the judge runs, so it names no delta an upkeep's writes fill inside it, and a
+ * statement over such a delta runs beyond those the set names: none does here, since no write of the box changes
+ * Documented (`Dispatch`), and were one to, the ACCESS SHARE it takes on Note's table would refuse the case.
+ */
 export const runWrites = (
 	installed: Installed,
 	admin: PgConnection,
@@ -393,10 +365,15 @@ export const runWrites = (
 		for (const sql of seeded(installed)) {
 			yield* admin.query(sql, [])
 		}
-		const statements = ruleStatementsOf(installed)
+		const statements = judgeStatementsOf(installed.installation)
 		assert.ok(statements.length > 0, "the judge holds a statement of each rule")
-		const deltas = Arr.dedupe(Arr.flatMap(statements, (s) => s.deltas))
-		const stored = Arr.map(tables, (t) => namesOf(installed).table(t))
+		/** Every delta a statement of the judge reads or fills. */
+		const deltas = Arr.dedupe(Arr.flatMap(statements, (s) => [...s.deltas, ...filledBy(s)]))
+		/** Every stored table: each relation's, and each a statement of the judge reads, Documented's among them. */
+		const stored = Arr.dedupe([
+			...Arr.map(tables, (t) => namesOf(installed).table(t)),
+			...Arr.flatMap(statements, (s) => [...s.stored])
+		])
 		/** The deltas the session's stand-up made, before its first transaction. */
 		const stood = (yield* observed(session, deltas, stored)).standing
 		/** The deltas an earlier transaction of the session wrote a row into. */
@@ -410,24 +387,25 @@ export const runWrites = (
 			const written = yield* writtenSet(session)
 			yield* session.query("SET CONSTRAINTS ALL IMMEDIATE", [])
 			const { touched, standing, locked } = yield* observed(session, deltas, stored)
-			const ran = Arr.filter(statements, (s) => Arr.some(s.deltas, (d) => written.has(d)))
-			const expectedLocked = new Set(Arr.flatMap(ran, (s) => s.stored))
+			const ran = Arr.filter(statements, (s) => Arr.some([...s.deltas], (d) => written.has(d)))
+			const expectedLocked = new Set(Arr.flatMap(ran, (s) => [...s.stored]))
 			assert.ok(
 				sameSet(locked, expectedLocked),
 				`${where}: the transaction holds ACCESS SHARE on exactly the tables the statements over its written deltas ${listed(written)} read, ${listed(expectedLocked)}, not ${listed(locked)}`
 			)
-			const stoodUp = new Set(Arr.flatMap(ran, (s) => s.deltas))
-			/** The deltas of a relation the transaction's statements wrote, whose captures read or wrote them. */
-			const capturedBy = (d: string): boolean =>
-				Arr.some(writes, (op) =>
-					Arr.some(["news", "olds"], (side) =>
-						Str.startsWith(`__delta_${side}_${Str.toLowerCase(relationOf(op))}_`)(d)
-					)
-				)
+			const stoodUp = new Set(Arr.flatMap(ran, (s) => [...s.deltas]))
+			/** The deltas the captures of the tables the transaction wrote write: each relation's its statements wrote,
+			 * and each stored relation's an upkeep that ran wrote, inside the judge. */
+			const captured = new Set([
+				...Arr.flatMap(writes, (op) =>
+					Arr.map(capturedDeltasOf(installed.installation, relationOf(op)), (d) => d.name)
+				),
+				...Arr.flatMap(ran, (s) => [...filledBy(s)])
+			])
 			const read = Arr.filter([...touched], (d) => Arr.contains(deltas, d))
 			assert.ok(
-				Arr.every(read, (d) => written.has(d) || stoodUp.has(d) || capturedBy(d)),
-				`${where}: the judge reads no delta but those the transaction wrote, ${listed(written)}, and those the statements that ran read, ${listed(stoodUp)}, not ${listed(read)}`
+				Arr.every(read, (d) => written.has(d) || stoodUp.has(d) || captured.has(d)),
+				`${where}: the judge reads no delta but those the transaction wrote, ${listed(written)}, those the statements that ran read, ${listed(stoodUp)}, and those the captures of the tables written write, ${listed(captured)}, not ${listed(read)}`
 			)
 			const added = Arr.filter([...standing], (d) => !stood.has(d))
 			assert.ok(
@@ -435,8 +413,8 @@ export const runWrites = (
 				`${where}: the transaction made deltas, ${listed(added)}, beside those the session's stand-up made, ${listed(stood)}`
 			)
 			for (const s of ran) {
-				const by = Arr.filter(s.deltas, (d) => written.has(d))
-				if (s.deltas.length >= 2 && by.length === 1) {
+				const by = Arr.filter([...s.deltas], (d) => written.has(d))
+				if (s.deltas.size >= 2 && by.length === 1) {
 					c.note("a statement over two deltas run by a write of one of them alone")
 				}
 				if (by.length > 0 && Arr.every(by, Str.startsWith("__delta_olds_"))) {

@@ -29,6 +29,7 @@ import {
 	judgedDeltaReadsOf,
 	judgedPlans,
 	type JudgedStatement,
+	largeTables,
 	standUpJudge
 } from "#test/support/judge.ts"
 import { refusalOf } from "#test/support/substrate.ts"
@@ -1020,15 +1021,6 @@ const probesOn = (seat: Seat, table: Table): ReadonlyArray<JudgedStatement> => {
 		Arr.some(deltas, (d) => r.deltas.has(d.name)) ? [r.statement] : []
 	)
 }
-
-/** The planner settings of a table large beside one key's rows (the header). */
-const largeTables = [
-	"SET enable_seqscan = off",
-	"SET enable_bitmapscan = off",
-	"SET enable_hashjoin = off",
-	"SET enable_mergejoin = off",
-	"SET enable_indexonlyscan = off"
-] as const
 
 /** What one touch of a row costs: the rows each probe reads, and the SIRead locks its triggers take, by type and relation. */
 interface Footprint {

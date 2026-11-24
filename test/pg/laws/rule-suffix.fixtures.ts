@@ -17,7 +17,12 @@ import { printExpr } from "#compiler/sql/print.ts"
 import { suffixRange } from "#compiler/sql/suffix.ts"
 import { type Seat, type SeatTemplate, seatTemplate } from "#test/pg/fin/installed.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { judgedDeltaReadsOf, plannedQueryOf, standUpJudge } from "#test/support/judge.ts"
+import {
+	judgedDeltaReadsOf,
+	largeTables,
+	plannedQueryOf,
+	standUpJudge
+} from "#test/support/judge.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -65,15 +70,6 @@ export const suffixTemplate: SeatTemplate = seatTemplate(
 	schemaOf("Rule_suffix"),
 	"rule_suffix"
 )
-
-/** The planner settings of a table large beside one key's rows, as rule-seeding's locality footprints plan. */
-const largeTables = [
-	"SET enable_seqscan = off",
-	"SET enable_bitmapscan = off",
-	"SET enable_hashjoin = off",
-	"SET enable_mergejoin = off",
-	"SET enable_indexonlyscan = off"
-] as const
 
 /**
  * The references of keys `from` to `to`, by one statement: each key's reference of kind 1 at `f<k>.x<k>`, which no

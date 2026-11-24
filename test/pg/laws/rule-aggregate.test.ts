@@ -29,13 +29,20 @@
  *   and its cross-arm variant (ItemMode negated in Read's other rule alone), each with a history whose refusal comes
  *   through ItemMode alone.
  * - **Locality:** an invariance, never a time. A shape's touched group stored beside 200 to 400 untouched groups, each
- *   an attempt of its own that is a group of its own under any grouping, and then beside 600 to 900 more; each time a
- *   second attempt of the touched group written in a transaction rolled back, and every judged statement explained
- *   while the deltas hold it, under the planner settings of a table large beside one group's rows. Each statement's
- *   scans read the same rows both times: a probe of a touched group, or a unit-local shape's whole statement of its
- *   unit, reads that group alone, never the groups beside it. The settings are the test's, never grizzle's output,
- *   which carries none: what this proves is that a plan of every judged statement exists whose work is bounded by the
- *   touched group, the same at both counts of groups; not that PostgreSQL's planner, with no statistics, picks it.
+ *   an attempt of its own that is a group of its own under any grouping, in a learner's unit of its own, and then
+ *   beside 600 to 900 more; each time a second attempt of the touched group written in a transaction rolled back, and
+ *   every statement the judge runs over the touch explained while the deltas hold it (test/support/judge.ts judgeRun),
+ *   under the planner settings of a table large beside one group's rows: a stored aggregate's upkeep's DELETE and
+ *   INSERT, run as the judge's phase A runs them, and each rule's statement over a delta holding a row, Attempt's side
+ *   of news or one the upkeep's writes filled. Where Read's definition groups by the child and more, (child, item, n)
+ *   or the like, Read is stored (analysis/derived/storage.ts), its unit wider than the learner's, so a rule over it
+ *   reads its table and its deltas, and only its upkeep reads Attempt's: the upkeep's work is the touched group's, as
+ *   a probe's is where Read is live. Each
+ *   statement's scans read the same rows both times: a stored aggregate's upkeep, a probe of a touched group, or a
+ *   unit-local shape's whole statement of its unit, reads that group alone, never the groups beside it. The settings
+ *   are the test's, never grizzle's output, which carries none: what this proves is that a plan of every judged
+ *   statement exists whose work is bounded by the touched group, the same at both counts of groups; not that
+ *   PostgreSQL's planner, with no statistics, picks it.
  */
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed, recorded } from "@bjornpagen/testing/gen"
@@ -134,7 +141,7 @@ export const aRuleOverAnAggregatingDerivedRelationCommitsExactlyTheWritesWhoseSt
 
 /**
  * A probe of the groups a write touched reads those groups alone, however many groups stand beside them, as a
- * unit-local shape's whole statement reads its unit's.
+ * unit-local shape's whole statement reads its unit's and a stored aggregate's upkeep its touched group's.
  *
  * Its budget is the runner's: a new property, with no suite before it to carry a count from.
  */
@@ -152,7 +159,7 @@ export const aProbeOfTheGroupsAWriteTouchedReadsThoseGroupsAloneHoweverManyGroup
 				),
 		oracle: {
 			kind: "universal",
-			name: "invariance: each judged statement's scans read the same rows, of stored relations and of the deltas, for a write of one group beside a few hundred untouched groups and beside a thousand"
+			name: "invariance: each statement the judge runs over a write of one group, a stored aggregate's upkeep's and a rule's alike, reads the same rows, of stored relations and of the deltas, beside a few hundred untouched groups and beside a thousand"
 		},
 		show: Formatter.format,
 		kept: [
@@ -169,7 +176,7 @@ export const aProbeOfTheGroupsAWriteTouchedReadsThoseGroupsAloneHoweverManyGroup
 					"test/pg/laws/rule-aggregate.test.ts#aProbeOfTheGroupsAWriteTouchedReadsThoseGroupsAloneHoweverManyGroupsStandBesideThem:-:0.0.3.1.0.0.1.1.0.0.0.2.0.1.2j.0"
 				),
 				reason:
-					"a count grouped by child, item and n under a key of child and n beside 291 groups and then 891, whose touched group's two attempts PostgreSQL read by (child, n) and sorted, then read in order by the primary key: 12 rows handled, then 10, for the same two rows read (trunk's TEST_SEED=552969958 at f1bf91a2f), so the measure counts the rows scans read alone (rule-aggregate.fixtures.ts scannedWork)",
+					"a count grouped by child, item and n under a key of child and n beside 291 groups and then 891, whose touched group's two attempts PostgreSQL read by (child, n) and sorted, then read in order by the primary key: 12 rows handled, then 10, for the same two rows read (trunk's TEST_SEED=552969958 at f1bf91a2f), so the measure counts the rows scans read alone (test/support/judge.ts scannedWork); Read, over the aggregate, is stored, its unit (child, item, n) wider than the learner's, so the touched group is read by Read's upkeep",
 				since: "2026-11-22"
 			},
 			{

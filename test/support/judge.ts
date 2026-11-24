@@ -2,7 +2,13 @@
 
 import { assert } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
-import { type PlanNode, parsePlan, planNodes } from "#bench/harness/explain.ts"
+import {
+	type PlanNode,
+	parsePlan,
+	planNodes,
+	rowsGenerated,
+	rowsRead
+} from "#bench/harness/explain.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { temporarySchema } from "#compiler/core/temporary.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
@@ -11,11 +17,11 @@ import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { OperandSelect, PlStatement } from "#compiler/sql/ast.ts"
 import { simpleSelect } from "#compiler/sql/build.ts"
-import { printExpr, printStatement } from "#compiler/sql/print.ts"
+import { printExpr, printStatement, printTableName } from "#compiler/sql/print.ts"
 import { identityHooks, Transform } from "#compiler/sql/transform.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { standUpCallsOf } from "#test/support/kernel/naming.ts"
-import type { CaseSession } from "#test/support/substrate/session.ts"
+import type { CaseSession, RawSession } from "#test/support/substrate/session.ts"
 
 /**
  * The bodies of the judge and of each of its parts, each a function of its own: the judge runs a part where the session
@@ -273,33 +279,54 @@ export const raisedRule = (statement: JudgedStatement): Option.Option<string> =>
 		)
 	)
 
-/** The session's tables a query reads, its deltas: every table of pg_temp a FROM of it names. */
+/** The tables a statement reads: its deltas, by name, and its stored tables, printed (`tablesReadBy`). */
+interface TablesRead {
+	readonly deltas: ReadonlyArray<string>
+	readonly stored: ReadonlyArray<string>
+}
+
+/**
+ * The tables the statement `walk` visits reads, in the order its FROM items name them, at any depth, its subqueries'
+ * among them: its deltas, each a table of pg_temp a FROM names or a delta a FROM reads through its reader (`readers`,
+ * `readersOf`), and its stored tables, every other table a FROM names, printed as pg_locks' regclass reads them. A
+ * write's target is no FROM of it: an upkeep's DELETE or INSERT reads its stored relation's table only where a FROM of
+ * it names the table.
+ */
+const tablesReadBy = (
+	walk: (transform: Transform) => unknown,
+	readers: ReadonlyMap<string, string>
+): TablesRead => {
+	const deltas: Array<string> = []
+	const stored: Array<string> = []
+	walk(
+		new Transform({
+			...identityHooks,
+			fromSource: (source) => {
+				if (source.kind === "table" && typeof source.table !== "string") {
+					if (source.table.schema === temporarySchema) {
+						deltas.push(source.table.name)
+					} else {
+						stored.push(printTableName(source.table))
+					}
+				}
+				if (source.kind === "function" && source.call.fn.kind === "qualified") {
+					const delta = readers.get(source.call.fn.name)
+					if (delta !== undefined) {
+						deltas.push(delta)
+					}
+				}
+				return source
+			}
+		})
+	)
+	return { deltas, stored }
+}
+
+/** The deltas a query reads (`tablesReadBy`). */
 const sessionTablesOf = (
 	query: OperandSelect,
 	readers: ReadonlyMap<string, string>
-): ReadonlyArray<string> => {
-	const named: Array<string> = []
-	new Transform({
-		...identityHooks,
-		fromSource: (source) => {
-			if (
-				source.kind === "table" &&
-				typeof source.table !== "string" &&
-				source.table.schema === "pg_temp"
-			) {
-				named.push(source.table.name)
-			}
-			if (source.kind === "function" && source.call.fn.kind === "qualified") {
-				const delta = readers.get(source.call.fn.name)
-				if (delta !== undefined) {
-					named.push(delta)
-				}
-			}
-			return source
-		}
-	}).select(query)
-	return named
-}
+): ReadonlyArray<string> => tablesReadBy((t) => t.select(query), readers).deltas
 
 /**
  * Each delta's reader in `installation` by its function's name, the delta it reads (physical/ddl/rules.ts readers): a
@@ -321,28 +348,149 @@ export const readersOf = (installation: Installation): ReadonlyMap<string, strin
 		})
 	)
 
-/** A statement the judge tests a rule by, and the deltas it reads, by name (`sessionTablesOf`). */
-export interface DeltaReads {
+/** A statement of the judge that tests a rule (`JudgedStatement`), with the tables it reads. */
+export interface RuleStatement {
+	readonly kind: "rule"
 	readonly statement: JudgedStatement
 	readonly deltas: ReadonlySet<string>
+	readonly stored: ReadonlySet<string>
+}
+
+/** A data-modifying statement of PL/pgSQL's: an upkeep's DELETE or INSERT. */
+/**
+ * A statement of a stored relation's upkeep (physical/ddl/rules.ts upkeepBlock), `relation` the stored relation whose
+ * table it writes: its DELETE of the rows the relation's definition no longer derives at the units the transaction
+ * wrote, or its INSERT of those it newly derives there, with the tables it reads, and `writes`, the deltas its stored
+ * table's capture writes where a rule or an upkeep reads the relation (`capturedDeltasOf`), which the upkeep's writes
+ * fill inside the judge, before every statement over them runs.
+ */
+export interface UpkeepStatement {
+	readonly kind: "upkeep"
+	readonly relation: string
+	readonly statement: Modified
+	readonly deltas: ReadonlySet<string>
+	readonly stored: ReadonlySet<string>
+	readonly writes: ReadonlySet<string>
 }
 
 /**
- * Every statement the judge and its parts test a rule by (`judgedStatementsOf`), each beside the deltas it reads, by
- * name: the one way a property picks the statements over a delta, as a statement reads each delta through its reader
- * (`readersOf`) and its text names no delta.
+ * A statement the judge runs over the session's deltas, where a delta it reads holds a row: a rule's test
+ * (`RuleStatement`), or a stored relation's upkeep's write (`UpkeepStatement`), each beside the deltas it reads, by name,
+ * through their readers (`readersOf`), its text naming no delta, and the stored tables it reads, printed.
  */
-export const judgedDeltaReadsOf = (installation: Installation): ReadonlyArray<DeltaReads> => {
+export type JudgeStatement = RuleStatement | UpkeepStatement
+
+/** `statement` walked by `transform`, by its kind. */
+const modified = (transform: Transform, statement: Modified): Modified => {
+	switch (statement.kind) {
+		case "insert":
+			return transform.insert(statement)
+		case "update":
+			return transform.update(statement)
+		case "delete":
+			return transform.delete(statement)
+	}
+}
+
+/** A statement the judge tests a rule by, with the tables it reads (`RuleStatement`). */
+const ruleStatementOf = (
+	statement: JudgedStatement,
+	readers: ReadonlyMap<string, string>
+): RuleStatement => {
+	const read = tablesReadBy((t) => t.select(statement.query), readers)
+	return { kind: "rule", statement, deltas: new Set(read.deltas), stored: new Set(read.stored) }
+}
+
+/** Every statement the judge and its parts test a rule by (`judgedStatementsOf`), with the tables it reads. */
+const ruleStatementsOf = (
+	installation: Installation,
+	readers: ReadonlyMap<string, string>
+): ReadonlyArray<RuleStatement> =>
+	Arr.map(judgedStatementsOf(installation), (statement) => ruleStatementOf(statement, readers))
+
+/**
+ * Every statement of every stored relation's upkeep (analysis/theory/unit.ts StoredUpkeep), each relation's in its
+ * function's body's order (`upkeepStatementsOf`), its DELETE before its INSERT, the relations in the theory's order,
+ * each after every stored relation it reads, as phase A runs them stratum by stratum (physical/ddl/rules.ts addRules),
+ * each with the deltas and stored tables it reads and the deltas its stored table's capture writes.
+ */
+const upkeepJudgeStatementsOf = (
+	installation: Installation,
+	readers: ReadonlyMap<string, string>
+): ReadonlyArray<UpkeepStatement> =>
+	Arr.flatMap(installation.laws.theory.upkeeps, (upkeep) => {
+		const statements = upkeepStatementsOf(installation, upkeep.relation)
+		assert.ok(
+			Arr.isReadonlyArrayNonEmpty(statements),
+			`the upkeep of stored relation ${upkeep.relation}, its DELETE and its INSERT`
+		)
+		const writes = new Set(Arr.map(capturedDeltasOf(installation, upkeep.relation), (d) => d.name))
+		return Arr.map(statements, (statement): UpkeepStatement => {
+			const read = tablesReadBy((t) => modified(t, statement), readers)
+			return {
+				kind: "upkeep",
+				relation: upkeep.relation,
+				statement,
+				deltas: new Set(read.deltas),
+				stored: new Set(read.stored),
+				writes
+			}
+		})
+	})
+
+/**
+ * Every statement the judge runs over the session's deltas (`JudgeStatement`), in the order it runs them: phase A's,
+ * every stored relation's upkeep (`upkeepJudgeStatementsOf`), then phase B's, every rule's (`judgedStatementsOf`). The one
+ * way a property picks the statements over a delta, a rule's and an upkeep's alike, as every statement reads each delta
+ * through its reader (`readersOf`).
+ */
+export const judgeStatementsOf = (installation: Installation): ReadonlyArray<JudgeStatement> => {
 	const readers = readersOf(installation)
-	return Arr.map(judgedStatementsOf(installation), (statement) => ({
-		statement,
-		deltas: new Set(sessionTablesOf(statement.query, readers))
-	}))
+	return [
+		...upkeepJudgeStatementsOf(installation, readers),
+		...ruleStatementsOf(installation, readers)
+	]
+}
+
+/**
+ * The statements of `judgeStatementsOf` that test a rule, for a property of a rule's statements, its raise or its
+ * query: those of phase B alone.
+ */
+export const judgedDeltaReadsOf = (installation: Installation): ReadonlyArray<RuleStatement> =>
+	ruleStatementsOf(installation, readersOf(installation))
+
+/**
+ * A statement of the judge as the SQL PostgreSQL plans for it: a rule's test as its PERFORM's SELECT (`plannedQueryOf`),
+ * an upkeep's write as itself.
+ */
+const plannedOf = (statement: JudgeStatement): string => {
+	switch (statement.kind) {
+		case "rule":
+			return plannedQueryOf(statement.statement)
+		case "upkeep":
+			return printStatement(statement.statement)
+	}
+}
+
+/** The deltas a statement of the judge fills as it runs: an upkeep's `writes`; a rule's test writes nothing. */
+export const filledBy = (statement: JudgeStatement): ReadonlySet<string> => {
+	switch (statement.kind) {
+		case "rule":
+			return new Set()
+		case "upkeep":
+			return statement.writes
+	}
 }
 
 /** A judged statement explained over the deltas the transaction's captures filled: the statement and its plan. */
 export interface JudgedPlan {
 	readonly statement: JudgedStatement
+	readonly plan: PlanNode
+}
+
+/** A statement of the judge explained as the judge runs it (`judgeRun`): the statement and its plan. */
+export interface JudgePlan<S extends JudgeStatement> {
+	readonly statement: S
 	readonly plan: PlanNode
 }
 
@@ -366,66 +514,81 @@ const readsDeltaRow = (
 	)
 
 /**
- * Each of `statements` the judge runs over the transaction's deltas, explained (EXPLAIN ANALYZE) as it would run it:
- * each statement that reads a delta holding a row (`sessionTablesOf`), one a capture of the transaction wrote into
- * (physical/ddl/rules.ts addCapture), as the judge runs a probe of a side and a whole rule's violation only where a
- * delta it reads holds one (rules.ts partBody), every other delta it reads standing empty, as the session's stand-up
- * made it (`standUpJudge`, rules.ts addStandUps), explained before anything runs the judge, SET CONSTRAINTS ALL IMMEDIATE or COMMIT, which truncates each delta it reads
- * (rules.ts emptied), so a statement explained after it reads no row. A statement reads a delta through its reader
- * (`readersOf`), and so does each count of the rows it read. A case writes through the captures of
- * `installation`, explains, and only then runs the judge, or defers it to a COMMIT it never reaches. The one measurement
- * of the judge's statements every property makes: one where no statement reads a standing delta, or no explained
- * statement reads a row of one, is refused, so no bound over the judge's work holds over deltas the judge emptied.
+ * Each of `statements` the judge runs over the transaction's deltas, in their order, explained (EXPLAIN ANALYZE) as it
+ * runs it: each statement that reads a delta holding a row at its turn, one a capture of the transaction wrote into
+ * (physical/ddl/rules.ts addCapture), as the judge runs an upkeep, a probe of a side and a whole rule's violation only
+ * where a delta it reads holds one (rules.ts partBody), every other delta it reads standing empty, as the session's
+ * stand-up made it (`standUpJudge`, rules.ts addStandUps). An upkeep's write runs, as EXPLAIN ANALYZE runs a write, so
+ * its stored table's captures fill the deltas it `writes`, which the statements after it read, as phase A's writes fill
+ * them for phase B (rules.ts addRules); its writes stand after the measurement, as the judge's would, so a case that
+ * measures again first ends the transaction or runs the judge, and measures over a write of its own (no savepoint
+ * serves: a case's connection runs each statement under one it releases, which releases every savepoint the statement
+ * set, test/support/substrate/substrate.ts undoneAlone). Explained before anything
+ * runs the judge, SET CONSTRAINTS ALL IMMEDIATE or COMMIT, which truncates each delta it reads (rules.ts emptied), so a
+ * statement explained after it reads no row. A statement reads a delta through its reader (`readersOf`), and so does
+ * each count of the rows it read. A case writes through the captures of `installation`, explains, and only then runs the
+ * judge, or defers it to a COMMIT it never reaches. The one measurement of the judge's statements every property makes:
+ * one where no statement reads a standing delta, or no explained statement reads a row of one, is refused, so no bound
+ * over the judge's work holds over deltas the judge emptied.
  */
-export const judgedPlans = <E>(
+export const judgeRun = <S extends JudgeStatement, E>(
 	values: (sql: string) => Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, E>,
 	installation: Installation,
-	statements: ReadonlyArray<JudgedStatement>
-): Effect.Effect<ReadonlyArray<JudgedPlan>, E> =>
+	statements: ReadonlyArray<S>
+): Effect.Effect<ReadonlyArray<JudgePlan<S>>, E> =>
 	Effect.gen(function* () {
 		const temporary = yield* values(
 			"SELECT relname::text FROM pg_catalog.pg_class WHERE relnamespace = pg_catalog.pg_my_temp_schema()"
 		)
 		const standing = new Set(Arr.map(temporary, (row) => String(row[0])))
 		const readers = readersOf(installation)
-		/** The standing deltas that hold a row: those the transaction's captures wrote, which the judge reads. */
-		const candidates = Arr.filter(
-			Arr.dedupe(Arr.flatMap(statements, (s) => sessionTablesOf(s.query, readers))),
-			(d) => standing.has(d)
-		)
-		const held = Arr.isReadonlyArrayNonEmpty(candidates)
-			? yield* values(
-					Arr.join(
-						Arr.map(
-							candidates,
-							(d) => `SELECT ${quoteString(d)} WHERE EXISTS (SELECT FROM pg_temp.${quoteIdent(d)})`
+		/** Those of `deltas` that stand and hold a row. */
+		const holdingOf = (deltas: Iterable<string>) => {
+			const candidates = Arr.filter(Arr.dedupe([...deltas]), (d) => standing.has(d))
+			return Arr.isReadonlyArrayNonEmpty(candidates)
+				? Effect.map(
+						values(
+							Arr.join(
+								Arr.map(
+									candidates,
+									(d) =>
+										`SELECT ${quoteString(d)} WHERE EXISTS (SELECT FROM pg_temp.${quoteIdent(d)})`
+								),
+								" UNION ALL "
+							)
 						),
-						" UNION ALL "
+						(held) => Arr.map(held, (row) => String(row[0]))
 					)
-				)
-			: []
-		const holding = new Set(Arr.map(held, (row) => String(row[0])))
-		const judged = Arr.filter(statements, (s) =>
-			Arr.some(sessionTablesOf(s.query, readers), (t) => holding.has(t))
-		)
-		assert.ok(
-			Arr.isReadonlyArrayNonEmpty(judged),
-			"a judged statement reads a delta the transaction's captures wrote a row into"
-		)
-		const plans = yield* Effect.forEach(judged, (statement) =>
-			Effect.map(
-				values(
-					`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) ${plannedQueryOf(statement)}`
-				),
-				(explained): JudgedPlan => ({
-					statement,
-					plan: succeeded(parsePlan(explained[0]?.[0]), "one EXPLAIN plan").plan
-				})
+				: Effect.succeed([])
+		}
+		const written = yield* holdingOf(Arr.flatMap(statements, (s) => [...s.deltas]))
+		/** The standing deltas that hold a row: those the transaction's captures wrote, which the judge reads, and those
+		 * the upkeeps explained so far filled. */
+		const holding = new Set(written)
+		const plans: Array<JudgePlan<S>> = []
+		for (const statement of statements) {
+			if (!Arr.some([...statement.deltas], (d) => holding.has(d))) {
+				continue
+			}
+			const explained = yield* values(
+				`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) ${plannedOf(statement)}`
 			)
+			plans.push({
+				statement,
+				plan: succeeded(parsePlan(explained[0]?.[0]), "one EXPLAIN plan").plan
+			})
+			const filled = yield* holdingOf(filledBy(statement))
+			for (const d of filled) {
+				holding.add(d)
+			}
+		}
+		assert.ok(
+			Arr.isReadonlyArrayNonEmpty(plans),
+			"a judged statement reads a delta the transaction's captures wrote a row into"
 		)
 		const deltas = new Set(
 			Arr.filter(
-				Arr.flatMap(judged, (s) => sessionTablesOf(s.query, readers)),
+				Arr.flatMap(plans, (p) => [...p.statement.deltas]),
 				(d) => holding.has(d)
 			)
 		)
@@ -435,6 +598,27 @@ export const judgedPlans = <E>(
 		)
 		return plans
 	})
+
+/**
+ * Each of `statements`, rules' tests, the judge runs over the transaction's deltas, explained (`judgeRun`): the
+ * measurement of a property of a rule's statements, which reads each plan beside its raise or its query.
+ */
+export const judgedPlans = <E>(
+	values: (sql: string) => Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, E>,
+	installation: Installation,
+	statements: ReadonlyArray<JudgedStatement>
+): Effect.Effect<ReadonlyArray<JudgedPlan>, E> => {
+	const readers = readersOf(installation)
+	return Effect.map(
+		judgeRun(
+			values,
+			installation,
+			Arr.map(statements, (statement) => ruleStatementOf(statement, readers))
+		),
+		(plans) =>
+			Arr.map(plans, (p): JudgedPlan => ({ statement: p.statement.statement, plan: p.plan }))
+	)
+}
 
 /** The rows a scan reads a loop: its output and what its filters removed. */
 export const scannedRowsOf = (n: PlanNode): number =>
@@ -465,3 +649,40 @@ export const lookupSettings = [
 	"SET LOCAL enable_mergejoin = off",
 	"SET LOCAL enable_material = off"
 ] as const
+
+/**
+ * The planner settings a case explains the judge's statements under to measure their locality: PostgreSQL's plans once
+ * every table is large beside one key's rows, no sequential, bitmap or index-only scan and no hash or merge join, the
+ * plans a table of a few rows makes cheapest and an index-only scan's reads follow the visibility map, so a statement
+ * that can read a key's rows by index does, and one that cannot reads every row all the same. Each a plain SET, which
+ * the case's transaction rolls back. The settings are the test's, never grizzle's output, which carries none.
+ */
+export const largeTables = [
+	"SET enable_seqscan = off",
+	"SET enable_bitmapscan = off",
+	"SET enable_hashjoin = off",
+	"SET enable_mergejoin = off",
+	"SET enable_indexonlyscan = off"
+] as const
+
+/**
+ * A plan's work as its scans read it: every row each scan of a stored relation reads (rowsRead) and each read of a
+ * session's delta through its reader function yields (rowsGenerated), over all of their loops. A row is counted where a
+ * scan reads it, never again at a node it passes through: PostgreSQL sorted a touched group's two attempts read by
+ * (child, n) beside a few hundred groups, and read them in order by the primary key beside a thousand, the same two rows
+ * read either way (rule-aggregate.test.ts's locality).
+ */
+export const scannedWork = (plan: PlanNode): number => rowsRead(plan) + rowsGenerated(plan)
+
+/** Statements run as one transaction committed on `session`, the judge run at its COMMIT, rolled back where one fails. */
+export const committedJudged = (
+	session: Pick<RawSession, "begin" | "query" | "commit" | "rollback">,
+	statements: ReadonlyArray<string>
+) =>
+	Effect.gen(function* () {
+		yield* session.begin
+		for (const sql of statements) {
+			yield* Effect.onError(session.query(sql, []), () => Effect.ignore(session.rollback))
+		}
+		yield* session.commit
+	})

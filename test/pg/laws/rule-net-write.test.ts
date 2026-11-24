@@ -20,11 +20,13 @@
  *   judged again from its table, so the two judges agree wherever either agrees with the whole check. Each situation of
  *   the net write is required, a constructed case aiming at each.
  * - **indexTie**: a database with no statistics, or analyzed, holding thousands of attributes of one package, name and
- *   governor, beside one row a transaction puts there: every probe of the facts that row adds reads the same rows
- *   whether a few thousand or twice as many share its (governor, name, package). Read from its table at its key, the
- *   row is planned without statistics through the index of (governor, name, package), which PostgreSQL prices at one
- *   row as it does the key's (selfuncs.c btcostestimate), and the shorter tree wins: the read takes every row of the
- *   prefix. Both statistics are required situations.
+ *   governor, beside one row a transaction puts there: every statement the judge runs over that row reads the same
+ *   rows whether a few thousand or twice as many share its (governor, name, package) (test/support/judge.ts judgeRun):
+ *   each probe of the facts it adds, and Media's upkeep, which reads A at the row's key, Media stored at A's whole key,
+ *   wider than its package (analysis/derived/storage.ts), so a rule over Media reads its table and its deltas and only
+ *   its upkeep reads A's. Read from its table at its key, the row is planned without statistics through the index of
+ *   (governor, name, package), which PostgreSQL prices at one row as it does the key's (selfuncs.c btcostestimate), and
+ *   the shorter tree wins: the read takes every row of the prefix. Both statistics are required situations.
  */
 import { property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
@@ -91,8 +93,9 @@ export const aRuleOverAQueryJudgesTheTransactionsNetWriteAsTheRulesWholeCheckJud
 	})
 
 /**
- * A probe of the facts a row adds reads the same rows however many rows share a strict subset of its key's columns
- * under an index, with statistics or none.
+ * Every statement the judge runs over a row, a probe of the facts it adds and a stored relation's upkeep at its key,
+ * reads the same rows however many rows share a strict subset of its key's columns under an index, with statistics or
+ * none.
  *
  * Its budget is the runner's: a new property, with no suite before it to carry a count from.
  */
@@ -109,7 +112,7 @@ export const aProbeOfTheFactsARowAddsReadsTheSameRowsBesideAnIndexOfPartOfItsKey
 				}),
 		oracle: {
 			kind: "universal",
-			name: "invariance: a probe of the row a transaction put reads the same rows whatever other rows share its index's prefix"
+			name: "invariance: each statement the judge runs over the row a transaction put, a probe's or an upkeep's, reads the same rows whatever other rows share its index's prefix"
 		},
 		kept: [],
 		kills: [

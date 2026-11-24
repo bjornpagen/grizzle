@@ -8,18 +8,21 @@
  * deltas, each planned in the session and run, as edullm's qti.__judge did on every learner COMMIT, ~190 ms steady and
  * 2 to 2.9 s the first in a session (lanes ISOLATION and JUDGESIZE at 29e98c43d). On PostgreSQL 19, over Dispatch
  * (rule-dispatch.fixtures.ts): a package's documents and parts and a learner's visits and answers, each a unit under a
- * whole containment, and a learner's mutable notes under a probed containment into the documents that have a part.
+ * whole containment, and a learner's mutable notes under a probed containment into the documents that have a part,
+ * Documented, a stored relation whose upkeep, phase A of the judge, runs where a delta of Doc or Part holds a row.
  *
  * Each case runs one to three transactions in one fresh session, each of one to four writes of one row each, an insert
  * or a delete of a relation, then the judge, by SET CONSTRAINTS ALL IMMEDIATE; the session first calls the stand-ups
  * of the tables its transactions write and no other's, as a served write's session does, so a capture that requires a
  * table no stand-up of those made refuses the write.
  *
- * Oracle: specification: a statement of a rule runs exactly where a delta it reads holds a row, since over deltas that
- * hold none its region is empty (README, Rules over queries). A statement holds ACCESS SHARE on every stored table it
- * reads until its transaction ends, and nothing else of the transaction reads a stored table, so the tables the
- * transaction holds it on are exactly those of the statements over the deltas that hold a row; and the session holds
- * no delta its stand-up did not make.
+ * Oracle: specification: a statement of the judge, a rule's or a stored relation's upkeep's, runs exactly where a delta
+ * it reads holds a row, since over deltas that hold none a rule's region is empty and an upkeep's units are none
+ * (README, Rules over queries; physical/ddl/rules.ts upkeepBlock). A statement holds ACCESS SHARE on every stored table
+ * it reads until its transaction ends, and nothing else of the transaction reads a stored table, so the tables the
+ * transaction holds it on are exactly those of the statements over the deltas that hold a row, the rules' and the
+ * upkeeps' alike: an inserted document's upkeep reads Part, since whether the document has a part decides whether it
+ * is documented; and the session holds no delta its stand-up did not make.
  *
  * Features: a statement over two deltas run by one of them alone, a statement run by a side of olds alone, a delta a
  * statement that ran read whose transaction wrote no row of it, a delta an earlier transaction wrote that holds no row
@@ -37,8 +40,8 @@ import {
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * The judge runs exactly the statements of the rules over the deltas a transaction's writes hold rows of, and no
- * transaction makes a delta.
+ * The judge runs exactly the statements of the rules and the upkeeps over the deltas a transaction's writes hold rows
+ * of, and no transaction makes a delta.
  *
  * Its budget is the runner's: a new property, with no suite before it to carry a count from.
  */
@@ -64,7 +67,7 @@ export const theRuleJudgeRunsExactlyTheRulesOverTheRelationsATransactionWrote = 
 				}).pipe(Effect.scoped),
 		oracle: {
 			kind: "specification",
-			name: "a rule's statement runs exactly where a delta it reads holds a row: the stored tables the transaction holds ACCESS SHARE on are those of the statements over its written deltas, and the session holds no delta its stand-up did not make"
+			name: "a statement of the judge, a rule's or an upkeep's, runs exactly where a delta it reads holds a row: the stored tables the transaction holds ACCESS SHARE on are those of the statements over its written deltas, and the session holds no delta its stand-up did not make"
 		},
 		kept: [],
 		kills: [

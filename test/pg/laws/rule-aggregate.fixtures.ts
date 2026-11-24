@@ -4,8 +4,6 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen, int, subset } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Data, Effect, Formatter, Option, Order, Record as Rec } from "effect"
-import { parsePlan, type PlanNode, rowsGenerated, rowsRead } from "#bench/harness/explain.ts"
-import type { Installation } from "#compiler/physical/install/compile.ts"
 import { natural, pg } from "#compiler/public/fields.ts"
 import type { AnyDerived, AnySchema, Relation, Statement } from "#compiler/public/schema.ts"
 import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -20,19 +18,18 @@ import {
 	onBuilder
 } from "#compiler/schema/statements.ts"
 import { rowHelpers } from "#compiler/schema/terms.ts"
-import type { PlStatement } from "#compiler/sql/ast.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { succeeded } from "#test/support/assert.ts"
 import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import { installMigrated, type Installed } from "#test/support/install-migrate.ts"
 import {
-	capturedDeltasOf,
-	judgedDeltaReadsOf,
-	type JudgedStatement,
-	plannedQueryOf,
+	committedJudged,
+	judgeRun,
+	judgeStatementsOf,
+	largeTables,
+	scannedWork,
 	standUpJudge
 } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
@@ -1410,15 +1407,6 @@ export const keptLocality: Arr.NonEmptyReadonlyArray<LocalityCase> = [
 	}
 ]
 
-/** The planner settings of a table large beside one group's rows (rule-seeding.fixtures.ts largeTables). */
-const largeTables = [
-	"SET enable_seqscan = off",
-	"SET enable_bitmapscan = off",
-	"SET enable_hashjoin = off",
-	"SET enable_mergejoin = off",
-	"SET enable_indexonlyscan = off"
-] as const
-
 /** A cap no group reaches. */
 const unreached = 1000
 
@@ -1496,47 +1484,12 @@ const insertSql = (shape: Shape, installed: Installed, built: Built, op: Op): st
 /** The touch: a second attempt of the touched group, which changes its fold, the group's fact lost and another gained. */
 const touch: Op = { kind: "insert", relation: "Attempt", row: [1, 1, 1, 2, 0] }
 
-/** The session tables a function's body creates, at any depth, by name: a capture's deltas, never its sentinel (`__written`). */
-const deltasIn = (body: ReadonlyArray<PlStatement>): ReadonlyArray<string> =>
-	Arr.flatMap(body, (s): ReadonlyArray<string> =>
-		s.kind === "createSessionTable" && !Arr.some(s.columns, (c) => c.name === "__written")
-			? [s.name]
-			: s.kind === "if"
-				? [...Arr.flatMap(s.branches, (b) => deltasIn(b.body)), ...deltasIn(s.else)]
-				: []
-	)
-
 /**
- * The probes of the judge over Attempt's rows, as the installation creates them, that the session can read: each
- * statement the judge tests a rule by that reads a delta Attempt's capture writes (physical/ddl/rules.ts addRules) and
- * reads no delta of any capture but those `held` names, the ones a capture made on its first write (an insert's side
- * of news, never its side of olds).
- */
-const probesOfAttempt = (
-	installation: Installation,
-	held: ReadonlySet<string>
-): ReadonlyArray<JudgedStatement> => {
-	const createdBy = (named: (name: string) => boolean): ReadonlyArray<string> =>
-		Arr.dedupe(
-			Arr.flatMap(installation.statements, (s) =>
-				s.kind === "createFunction" && s.language === "plpgsql" && named(s.name.name)
-					? deltasIn(s.body.body)
-					: []
-			)
-		)
-	const ofAttempt = Arr.map(capturedDeltasOf(installation, "Attempt"), (d) => d.name)
-	const every = createdBy(() => true)
-	return Arr.flatMap(judgedDeltaReadsOf(installation), (r) => {
-		const reads = (d: string): boolean => r.deltas.has(d)
-		return Arr.some(ofAttempt, reads) && Arr.every(Arr.filter(every, reads), (d) => held.has(d))
-			? [r.statement]
-			: []
-	})
-}
-
-/**
- * Each probe of Attempt's rows' work (`scannedWork`), explained on `session` while the deltas hold the touch's rows,
- * before the judge reads them, in a transaction rolled back.
+ * The work of each statement the judge runs over the touch (`scannedWork`), explained on `session` while the deltas hold
+ * the touch's rows, before the judge reads them, in a transaction rolled back (test/support/judge.ts judgeRun): each
+ * statement of the judge, a stored relation's upkeep's or a rule's, over a delta holding a row, Attempt's side of news,
+ * which the touch writes, or one an upkeep's write filled, a stored aggregate's, in the judge's order, each upkeep's
+ * DELETE and INSERT run as phase A runs them, before the rules over what they wrote.
  */
 const touchedWork = (shape: Shape, installed: Installed, built: Built, session: RawSession) =>
 	Effect.gen(function* () {
@@ -1547,21 +1500,12 @@ const touchedWork = (shape: Shape, installed: Installed, built: Built, session: 
 					yield* session.query(setting, [])
 				}
 				yield* session.query(insertSql(shape, installed, built, touch), [])
-				const held = yield* session.values(
-					"SELECT c.relname FROM pg_catalog.pg_class AS c WHERE c.relnamespace = pg_catalog.pg_my_temp_schema()",
-					[]
+				const plans = yield* judgeRun(
+					(sql) => session.values(sql, []),
+					installed.installation,
+					judgeStatementsOf(installed.installation)
 				)
-				const tables = new Set(Arr.map(held, (row) => String(row[0])))
-				return yield* Effect.forEach(probesOfAttempt(installed.installation, tables), (statement) =>
-					Effect.map(
-						session.values(
-							`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) ${plannedQueryOf(statement)}`,
-							[]
-						),
-						(explained) =>
-							scannedWork(succeeded(parsePlan(explained[0]?.[0]), "one EXPLAIN plan").plan)
-					)
-				)
+				return Arr.map(plans, (p) => scannedWork(p.plan))
 			}),
 			() => Effect.ignore(session.rollback)
 		)
@@ -1570,29 +1514,11 @@ const touchedWork = (shape: Shape, installed: Installed, built: Built, session: 
 	})
 
 /**
- * A plan's work as its scans read it: every row each scan of a stored relation reads (rowsRead) and each read of a
- * session's delta through its reader function yields (rowsGenerated), over all of their loops. A row is counted where a
- * scan reads it, never again at a node it passes through: PostgreSQL sorted a touched group's two attempts read by
- * (child, n) beside a few hundred groups, and read them in order by the primary key beside a thousand, the same two rows
- * read either way.
- */
-const scannedWork = (plan: PlanNode): number => rowsRead(plan) + rowsGenerated(plan)
-
-/** Statements run as one transaction committed on `session`, the judge run at its COMMIT. */
-const committed = (session: RawSession, statements: ReadonlyArray<string>) =>
-	Effect.gen(function* () {
-		yield* session.begin
-		for (const sql of statements) {
-			yield* Effect.onError(session.query(sql, []), () => Effect.ignore(session.rollback))
-		}
-		yield* session.commit
-	})
-
-/**
  * One locality case: the shape installed, the touched group's first attempt stored beside `before` untouched groups,
  * and the touch's work measured; `more` untouched groups stored beside them, and the touch's work measured again. Every
- * judged statement's work is the same both times: a probe of the groups a write touched reads those groups alone,
- * however many groups stand beside them.
+ * judged statement's work is the same both times: a stored relation's upkeep at the touched group's unit, and a probe
+ * of the groups a write touched, read those groups alone, however many groups stand beside them, each in a learner's
+ * unit of its own.
  */
 export const runLocality = (d: LocalityCase, note: Case<"measured">["note"]) =>
 	Effect.gen(function* () {
@@ -1611,12 +1537,15 @@ export const runLocality = (d: LocalityCase, note: Case<"measured">["note"]) =>
 			label: "rule aggregate locality"
 		})
 		yield* standUpJudge(session, done.installation)
-		yield* committed(session, [
+		yield* committedJudged(session, [
 			...Arr.map(touchedBase(shape), (op) => insertSql(shape, done, built, op)),
 			...untouchedSql(shape, done, built, 0, d.before - 1)
 		])
 		const few = yield* touchedWork(shape, done, built, session)
-		yield* committed(session, untouchedSql(shape, done, built, d.before, d.before + d.more - 1))
+		yield* committedJudged(
+			session,
+			untouchedSql(shape, done, built, d.before, d.before + d.more - 1)
+		)
 		const many = yield* touchedWork(shape, done, built, session)
 		assert.ok(
 			Arr.some(few, (w) => w > 0),

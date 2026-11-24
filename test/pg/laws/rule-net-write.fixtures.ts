@@ -28,11 +28,8 @@ import {
 	capturedDeltasOf,
 	foundQueryOf,
 	judgeBodiesOf,
-	judgedPlans,
-	type JudgedStatement,
-	judgedStatementsOf,
-	plannedQueryOf,
-	readersOf,
+	judgeRun,
+	judgeStatementsOf,
 	standUpJudge
 } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
@@ -146,23 +143,6 @@ export const netWriteTemplate = migratedTemplate({
 })
 
 class Disagreed extends Data.TaggedError("Disagreed")<{ readonly message: string }> {}
-
-/**
- * The probes of the facts the rows written of A add: each statement the judge tests a rule by that reads A's side of
- * news, the delta A's capture creates with a count of each image (physical/ddl/rules.ts addRules).
- */
-const newsProbesOfA = (installation: Installation): ReadonlyArray<JudgedStatement> => {
-	const news = defined(
-		Arr.findFirst(capturedDeltasOf(installation, "A"), (d) =>
-			Arr.contains(d.columns, countColumn)
-		).pipe(Option.getOrUndefined),
-		"A's side of news"
-	)
-	const readers = Arr.filter([...readersOf(installation)], ([, delta]) => delta === news.name)
-	return Arr.filter(judgedStatementsOf(installation), (probe) =>
-		Arr.some(readers, ([reader]) => Str.includes(`.${quoteIdent(reader)}()`)(plannedQueryOf(probe)))
-	)
-}
 
 /**
  * A's side of news as the judge's statements read it: the delta A's capture creates with a count of each image, its
@@ -817,29 +797,57 @@ export const tieGen: Gen<Tie> = (s) => ({
 
 export type TieFeature = "measured with no statistics" | "measured analyzed"
 
-/** The statement loading attributes `from` to `to` of governor `governor`, all of one package and name, A's captures off. */
+/**
+ * The statements loading attributes `from` to `to` of governor `governor`, all of one package and name, A's captures
+ * off, and, of governor 1, their facts of Media, Media's captures off: Media is stored (`NetWrite`), and a load that
+ * left its table without them would leave it short of its definition, as no installation keeps it, its upkeep's reads
+ * of it measured over a table of none of the rows beside the touched one.
+ */
 const loaded = (
 	installed: Installed,
 	governor: number,
 	from: number,
 	to: number
 ): ReadonlyArray<string> => {
-	const a = namesOf(installed).table(A)
+	const names = namesOf(installed)
+	const path = "'doc/' || lpad(i::text, 8, '0') || '/' || repeat('x', 180)"
+	const series = `FROM generate_series(${from}, ${to}) AS g(i)`
+	const offWhile = (table: string, insert: string) => [
+		`ALTER TABLE ${table} DISABLE TRIGGER USER`,
+		insert,
+		`ALTER TABLE ${table} ENABLE TRIGGER USER`
+	]
+	const media = names.table(Media)
+	const fields = ["package", "path", "start", "name"] as const
 	return [
-		`ALTER TABLE ${a} DISABLE TRIGGER USER`,
-		`INSERT INTO ${a} (package, path, start, name, governor, note) SELECT 'pkg', 'doc/' || lpad(i::text, 8, '0') || '/' || repeat('x', 180), i, 7, ${governor}, 0 FROM generate_series(${from}, ${to}) AS g(i)`,
-		`ALTER TABLE ${a} ENABLE TRIGGER USER`
+		...offWhile(
+			names.table(A),
+			`INSERT INTO ${names.table(A)} (package, path, start, name, governor, note) SELECT 'pkg', ${path}, i, 7, ${governor}, 0 ${series}`
+		),
+		...(governor === 1
+			? offWhile(
+					media,
+					`INSERT INTO ${media} (${Arr.join(
+						Arr.map(fields, (f) => names.column(Media, f)),
+						", "
+					)}) SELECT 'pkg', ${path}, i, 7 ${series}`
+				)
+			: [])
 	]
 }
 
-/** The rows each probe of the rows written of A reads, as EXPLAIN ANALYZE counts them over the deltas that hold
- * them (test/support/judge.ts judgedPlans), on `connection`. */
+/**
+ * The rows each statement the judge runs over the rows written reads, as EXPLAIN ANALYZE counts them over the deltas
+ * that hold them, on `connection` (test/support/judge.ts judgeRun): Media's upkeep's DELETE and INSERT at the touched
+ * row's key, run as phase A runs them and rolled back, and each probe over A's side of news or Media's, which the
+ * upkeep's INSERT fills where the row is of governor 1.
+ */
 const readsOf = (installed: Installed, connection: PgConnection) =>
 	Effect.map(
-		judgedPlans(
+		judgeRun(
 			(sql) => connection.queryValues(sql, []),
 			installed.installation,
-			newsProbesOfA(installed.installation)
+			judgeStatementsOf(installed.installation)
 		),
 		Arr.map((judged) => rowsRead(judged.plan))
 	)
@@ -848,9 +856,14 @@ const readsOf = (installed: Installed, connection: PgConnection) =>
  * One indexTie case in its one transaction, which the case's end rolls back, so no statistics outlive it and
  * autovacuum sees no row of it: `few` attributes of the touched row's package, name and governor loaded with A's
  * captures off, ANALYZE where the case draws it, the touched row's reference or declaration, then the touched row,
- * which its capture counts on A's side of news. Every probe of A's side of news is explained over the deltas that hold
- * it, before the judge; then `more` such attributes are loaded and each probe explained again, and the judge runs.
- * Each must read the same rows.
+ * which its capture counts on A's side of news. Every statement the judge runs over it is explained over the deltas
+ * that hold it, before the judge (`readsOf`), and the judge runs, accepting it, and runs again over the row taken back,
+ * which empties the deltas; then `more` such attributes are loaded, the touched row put again, and each statement
+ * explained again over it, and the judge runs. Each must read the same rows: a probe of Named reads the touched row
+ * from A's side of news, never from A again, and Media's upkeep reads A at the touched row's whole key, never through
+ * the index of its prefix. The measurement runs the upkeep's writes (test/support/judge.ts judgeRun), which stand in
+ * the case's one transaction, so the row is judged and taken back before it is put and measured again, every table
+ * beside the loaded rows as the first measurement found it.
  */
 export const runTie = (
 	installed: Installed,
@@ -863,24 +876,28 @@ export const runTie = (
 		const names = namesOf(installed)
 		const a = names.table(A)
 		const statistics = tie.statistics === "analyzed" ? [`ANALYZE ${a}`] : []
-		for (const sql of [...loaded(installed, tie.governor, 1, tie.few), ...statistics]) {
-			yield* connection.query(sql, [])
-		}
-		const touched =
+		const kept =
 			tie.governor === 1
 				? `INSERT INTO ${names.table(R)} (pack, path, start, name) VALUES ('pkg', 'doc/touched', 0, 7)`
 				: `INSERT INTO ${names.table(Q)} (pack, name) VALUES ('pkg', 7)`
+		const touched = `INSERT INTO ${a} (package, path, start, name, governor, note) VALUES ('pkg', 'doc/touched', 0, 7, ${tie.governor}, 0)`
 		for (const sql of [
-			touched,
-			`INSERT INTO ${a} (package, path, start, name, governor, note) VALUES ('pkg', 'doc/touched', 0, 7, ${tie.governor}, 0)`
+			...loaded(installed, tie.governor, 1, tie.few),
+			...statistics,
+			kept,
+			touched
 		]) {
 			yield* connection.query(sql, [])
 		}
 		const first = yield* readsOf(installed, connection)
-		assert.ok(first.length > 0, "a probe reads A's side of news")
+		assert.ok(first.length > 0, "a statement of the judge reads the touched row")
 		for (const sql of [
+			"SET CONSTRAINTS ALL IMMEDIATE",
+			`DELETE FROM ${a} WHERE package = 'pkg' AND path = 'doc/touched' AND start = 0 AND name = 7`,
+			"SET CONSTRAINTS ALL DEFERRED",
 			...loaded(installed, tie.governor, tie.few + 1, tie.few + tie.more),
-			...statistics
+			...statistics,
+			touched
 		]) {
 			yield* connection.query(sql, [])
 		}
@@ -888,7 +905,7 @@ export const runTie = (
 		assert.deepEqual(
 			again,
 			first,
-			`${Formatter.format(tie)}: each probe of the touched row reads the same rows beside ${tie.more} more rows of its package, name and governor`
+			`${Formatter.format(tie)}: each statement the judge runs over the touched row reads the same rows beside ${tie.more} more rows of its package, name and governor`
 		)
 		yield* connection.query("SET CONSTRAINTS ALL IMMEDIATE", [])
 		c.note(tie.statistics === "none" ? "measured with no statistics" : "measured analyzed")
